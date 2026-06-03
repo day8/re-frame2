@@ -26,7 +26,9 @@
     4. nREPL `connect!` / `close!` clear the cache."
   (:require [cljs.test :refer-macros [deftest is async]]
             [re-frame2-pair-mcp.nrepl :as nrepl]
+            [re-frame2-pair-mcp.tools :as tools]
             [re-frame2-pair-mcp.tools.discover-app :as discover-app]
+            [re-frame2-pair-mcp.tools.get-path :as get-path]
             [re-frame2-pair-mcp.tools.probe :as probe]
             [re-frame2-pair-mcp.tools.wire :as wire]
             [re-frame2-pair-mcp.test-utils :as tu]))
@@ -514,4 +516,128 @@
                    (is (nil? b))
                    (is (false? auto?))))
           (.finally (fn [] (set! probe/running-builds orig)))
+          (.then (fn [_] (done)))))))
+
+;; ---------------------------------------------------------------------------
+;; :port-discover sticky path — faithful no-pre-probe end-to-end (rf2-hu6q0).
+;;
+;; The live repro (2026-06-03/04, multi-build):
+;;
+;;   discover-app {port 8033} -> OK, resolves :examples/machine-epochs
+;;   orient {}  (NO :build)   -> FAILED :build-not-running :app   (the bug)
+;;
+;; `sticky_build_invoke_test/port-discover-sticks-build-through-invoke`
+;; already drives discover-app{port} then a no-build call through
+;; `tools/invoke` — but it PRE-SEEDS `:probed-builds` with the resolved
+;; build, so `discover-app`'s own `ensure-runtime!` short-circuits without
+;; the real preload probe. In the LIVE flow the `:port`-resolved build is
+;; NOT pre-probed — discover-app must run the actual
+;; `runtime-preloaded?` round-trip (a DISTINCT eval form from the
+;; `(runtime/health)` read) and `mark-conn-probed!` itself before reaching
+;; the cache-writing branch.
+;;
+;; These tests close that gap: a form-DISCRIMINATING stub answers the
+;; preload-probe form with `true` and the health form with the health map
+;; — exactly what a live runtime returns — so the `:port` branch exercises
+;; the real probe-then-mark-then-cache sequence, then a no-build call
+;; THROUGH `tools/invoke` (incl. the `canonicalize-build-step` that reads
+;; the sticky default back) must land on the resolved build, NOT `:app`.
+;; ---------------------------------------------------------------------------
+
+(defn- preload-probe-form?
+  "True for the `runtime-preloaded?` sentinel-probe eval form (it tests
+  the `__re_frame2_pair_runtime` global), false for the
+  `(re-frame2-pair.runtime/health)` read. Lets a single stub mimic a live
+  runtime: `true` to the probe, the health map to the health read — so
+  `discover-app`'s `ensure-runtime!` does the REAL probe + `mark-conn-probed!`
+  instead of being short-circuited by a pre-seeded `:probed-builds`."
+  [form-str]
+  (and (string? form-str)
+       (re-find #"__re_frame2_pair_runtime" form-str)))
+
+(defn- live-like-eval-stub
+  "A `cljs-eval-value` stub that answers like a CONNECTED runtime on a
+  build that was never pre-probed: `true` for the preload-sentinel probe,
+  `health` for the `(runtime/health)` read. Both arities."
+  [health]
+  (fn
+    ([_c _b form] (js/Promise.resolve (if (preload-probe-form? form) true health)))
+    ([_c _b form _o] (js/Promise.resolve (if (preload-probe-form? form) true health)))))
+
+(deftest port-discover-without-pre-probe-still-caches
+  ;; discover-app{port} on a multi-build setup, with NO pre-seeded
+  ;; `:probed-builds` — discover-app must probe the resolved build live,
+  ;; mark it probed, AND write `:resolved-build-id`. The faithful repro of
+  ;; the live first-contact call.
+  (async done
+    (let [conn         (fresh-conn)
+          orig-running probe/running-builds
+          orig-port    probe/resolve-build-by-port
+          orig-eval    nrepl/cljs-eval-value
+          orig-jvm     nrepl/jvm-eval]
+      ;; multi-build workspace; the port resolves to machine-epochs.
+      (set! probe/running-builds
+            (fn [_] (js/Promise.resolve [:examples/machine-epochs :examples/standard-epochs])))
+      (set! probe/resolve-build-by-port (fn [_c _p] (js/Promise.resolve :examples/machine-epochs)))
+      (set! nrepl/cljs-eval-value (live-like-eval-stub healthy-health))
+      ;; freshness JVM-half degrades to :unknown (harmless): this suite's
+      ;; fresh-conn carries no :socket, so jvm-build-freshness short-circuits
+      ;; to nil without a round-trip. The jvm-eval stub is belt-and-braces.
+      (set! nrepl/jvm-eval (fn [& _] (js/Promise.resolve {:value ""})))
+      (-> (discover-app/discover-app conn (tu/args->js {:port 8033}))
+          (.then
+            (fn [result]
+              (let [edn (tu/extract-edn result)]
+                (is (true? (:ok? edn))
+                    "discover-app{port} succeeds against the live-like runtime")
+                (is (= :examples/machine-epochs (:build-id edn))
+                    "resolved the build serving the port")
+                (is (contains? (:probed-builds @conn) :examples/machine-epochs)
+                    "discover-app probed + marked the resolved build live (no pre-seed)")
+                (is (= :examples/machine-epochs (:resolved-build-id @conn))
+                    "the :port-resolved build is cached even without a pre-probe — the live gap"))))
+          (.finally (fn []
+                      (set! probe/running-builds orig-running)
+                      (set! probe/resolve-build-by-port orig-port)
+                      (set! nrepl/cljs-eval-value orig-eval)
+                      (set! nrepl/jvm-eval orig-jvm)))
+          (.then (fn [_] (done)))))))
+
+(deftest port-discover-no-pre-probe-sticks-through-invoke
+  ;; THE acceptance: discover-app{port} (no pre-probe) then a no-build
+  ;; `get-path` THROUGH `tools/invoke` (the single MCP egress, incl.
+  ;; `canonicalize-build-step`) lands on the resolved build, NOT `:app`.
+  (async done
+    (let [conn          (fresh-conn)
+          captured      (atom :NOT-CALLED)
+          orig-running  probe/running-builds
+          orig-port     probe/resolve-build-by-port
+          orig-eval     nrepl/cljs-eval-value
+          orig-jvm      nrepl/jvm-eval
+          orig-get-path get-path/get-path-tool]
+      (set! probe/running-builds
+            (fn [_] (js/Promise.resolve [:examples/machine-epochs :examples/standard-epochs])))
+      (set! probe/resolve-build-by-port (fn [_c _p] (js/Promise.resolve :examples/machine-epochs)))
+      (set! nrepl/cljs-eval-value (live-like-eval-stub healthy-health))
+      (set! nrepl/jvm-eval (fn [& _] (js/Promise.resolve {:value ""})))
+      (set! get-path/get-path-tool
+            (fn [c args]
+              (reset! captured (wire/arg-build c args))
+              (js/Promise.resolve
+                #js {:content #js [#js {:type "text" :text "{:ok? true}"}]})))
+      (-> (discover-app/discover-app conn (tu/args->js {:port 8033}))
+          (.then (fn [_]
+                   ;; second call: NO :build arg, through the invoke egress.
+                   (tools/invoke conn "get-path" (tu/args->js {:path "[:k]"}) nil)))
+          (.then (fn [_]
+                   (is (= :examples/machine-epochs @captured)
+                       "post-discover-app{port} (no pre-probe), a no-build call THROUGH invoke targets the resolved build")
+                   (is (not= :app @captured)
+                       "it must NOT fall back to the :app env default (the live-repro bug)")))
+          (.finally (fn []
+                      (set! probe/running-builds orig-running)
+                      (set! probe/resolve-build-by-port orig-port)
+                      (set! nrepl/cljs-eval-value orig-eval)
+                      (set! nrepl/jvm-eval orig-jvm)
+                      (set! get-path/get-path-tool orig-get-path)))
           (.then (fn [_] (done)))))))
