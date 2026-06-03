@@ -363,6 +363,14 @@
                               Canvas/List pill in the chart top-left.
     :show-controls?     — when true (default) render xyflow's built-in
                           zoom/pan/fit Controls inside the chart.
+    :theme              — rf2-az6e2. `:dark` (default) / `:light`.
+                          Forwarded to `mv-chart/MachineChart`'s `:theme`
+                          prop, which resolves the chart palette + reads
+                          the ACTIVE-theme tokens (the renderer no longer
+                          hardwires the dark alias). Xray's surface is
+                          dark, so callers leave this at `:dark`; the prop
+                          exists so a future host theme switch flips one
+                          value. No toggle UI is built in this bead.
     :testid             — wrapper testid override.
 
   Returns hiccup. xyflow owns zoom/pan/fit + keyboard shortcuts
@@ -372,10 +380,15 @@
            fired-edge-ids
            sim? on-state-click on-edge-click
            show-after-rings? show-view-mode-toggle?
-           show-controls? testid inner-testid]
+           show-controls? theme testid inner-testid]
     :or   {show-after-rings?       true
            show-view-mode-toggle?  true
            show-controls?          true
+           ;; rf2-az6e2 — Xray's surface is dark; pass `:theme :dark`
+           ;; through to the chart. No light/dark toggle UI in this bead
+           ;; (the chart reads the active-theme tokens for real now, so a
+           ;; future host toggle just flips this prop).
+           theme                   :dark
            testid                  "rf-xray-machine-canvas-host"
            inner-testid            "rf-mv-chart"}}]
   [:div
@@ -404,6 +417,7 @@
       :current-state   current-state
       :fired-edge-ids  fired-edge-ids
       :sim?            sim?
+      :theme           theme
       :on-state-click  on-state-click
       :on-edge-click   on-edge-click
       :show-minimap?   false
