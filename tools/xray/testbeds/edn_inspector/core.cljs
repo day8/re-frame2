@@ -5,7 +5,7 @@
 
   ## Shape (rf2-rrqku — adopt the shared queued-step RUNNER)
 
-  ONE button (`▶ Run series`) walks the diff-audit case matrix top to
+  ONE purple `Step` button walks the diff-audit case matrix top to
   bottom while the operator watches how the Xray panels render each
   step. The runner (`runner.core`, the rf2-8pbjr pilot) is the shared
   harness; this deck supplies a `steps` vector (CODE DATA) + a testid
@@ -438,12 +438,6 @@
                    (js/Date.)]))))
 
 ;; ============================================================================
-;; SUBSCRIPTIONS — the on-page mirror of the baseline counter
-;; ============================================================================
-
-(rf/reg-sub :edn-inspector/baseline (fn [db _] (:baseline db)))
-
-;; ============================================================================
 ;; THE STEP VECTOR — code data (rf2-8pbjr: the single source of truth)
 ;; ============================================================================
 ;;
@@ -582,21 +576,6 @@
 ;; VIEWS
 ;; ============================================================================
 
-(reg-view baseline-strip
-  "A tiny on-page mirror of the shared baseline counter — keeps the deck
-  legible standalone. The App-db / Epoch panels are the actual check."
-  []
-  (let [baseline @(subscribe [:edn-inspector/baseline])]
-    [:div {:data-testid "edn-inspector-baseline-strip"
-           :style {:border "1px solid #d8d2ff" :border-radius "6px"
-                   :padding "0.5em 0.75em" :margin "0.5em 0"
-                   :background "#fcfbff" :font-size "12px"}}
-     [:span {:style {:font-size "11px" :color "#7C5CFF" :font-weight "bold"
-                     :text-transform "uppercase" :letter-spacing "0.04em"
-                     :margin-right "0.5em"}}
-      "baseline"]
-     [:strong {:data-testid "edn-inspector-baseline"} baseline]]))
-
 (reg-view root []
   [:div {:data-testid "edn-inspector-root"
          :style {:font-family "system-ui, sans-serif" :padding "1em"
@@ -605,26 +584,10 @@
     [:h2 {:data-testid "edn-inspector-title" :style {:margin 0}}
      "Xray Testbed: edn-inspector"]
     [:p {:style {:color "#444" :margin "0.5em 0 0 0"}}
-     [:code "edn-inspector"] " is the value renderer used inside "
-     [:code "xray"] " panels like " [:code "Epoch"] " and " [:code "app-db"]
-     ". One button (" [:strong "▶ Run series"] ") walks its DIFF projection "
-     "across the full datatype matrix — maps · sequentials · empty-vs-removal · "
-     "scalars · multi-adjust · deep/mixed · sentinels · showcase."]
-    [:p {:style {:color "#444" :margin "0.5em 0 0 0"}}
-     "After each dispatch the runner pins Xray focus to the latest "
-     [:code ":rf/default"] " epoch; read each step's " [:strong "Watch"]
-     " note, then watch the Epoch + App-db panels render the before/after + "
-     "diff through the inspector. The runner cursor lives in a "
-     [:strong "local atom"] " — it never touches the inspected app-db."]]
-   [:button {:data-testid "edn-inspector-deck-reset"
-             :on-click (fn []
-                         (dispatch [:edn-inspector/reset])
-                         (runner/reset-runner! runner-state))
-             :style {:padding "0.4em 0.8em" :cursor "pointer"
-                     :border "1px solid #cfc8ff" :border-radius "6px"
-                     :background "#f4f1ff" :margin "0.25em 0"}}
-    "0. Reset — re-seed the matrix baseline + rewind runner"]
-   [baseline-strip]
+     "This is a test runner for the " [:code "edn-inspector"] " component "
+     "used by " [:code "xray"] " to show data diffs. Click " [:strong "Step"]
+     " below to move from one test case to another, observing the diffs "
+     "shown in xray on the right."]]
    [runner/runner "edn-inspector" runner-state steps host-frame]])
 
 ;; ============================================================================
