@@ -474,11 +474,33 @@
          :color  warning-colour
          :border (str "1px solid " warning-colour)))
 
+;; rf2-4b6im — the `[N]` ordinal chip's outer width + the header `:gap` are
+;; the two constituents of the badge-left content column (`cascade-info-indent`
+;; below). Hoisted as named px so the indent arithmetic stays in lockstep with
+;; the chip geometry rather than a hand-tuned magic number. The ordinal carries
+;; `box-sizing: border-box` so its RENDERED outer width is EXACTLY
+;; `cascade-ordinal-box-width` (21px) regardless of the `:padding` — under the
+;; default `content-box` the 8px horizontal padding pushed the real outer width
+;; to ~29px, so the prior 27px indent under-shot the badge left edge (the bug
+;; rf2-4b6im observed: sub-content hung at the ordinal RIGHT edge, not the badge
+;; left). `border-box` pins the box so 21px + 6px gap lands on the badge edge.
+(def ^:private cascade-ordinal-box-width
+  "Outer width of the `[N]` ordinal chip (`box-sizing: border-box`, so this
+  is the actual rendered width). The badge that follows sits one header `:gap`
+  to its right."
+  21)
+
+(def ^:private cascade-header-gap
+  "The `cascade-row-header-style` flex `:gap` between the ordinal chip and the
+  badge that follows it."
+  6)
+
 (def ^:private cascade-ordinal-style
   {:display         "inline-flex"
    :align-items     "center"
    :justify-content "center"
-   :min-width       "21px"
+   :box-sizing      "border-box"
+   :min-width       (str cascade-ordinal-box-width "px")
    :height          "16px"
    :padding         "0 4px"
    :background      bg-3-colour
@@ -514,19 +536,27 @@
    :font-weight 600
    :white-space "nowrap"})
 
-;; rf2-2hj0h item 2 + 3 — the per-step left connector (`:border-left`) is
-;; REMOVED (one of the two left vertical lines the bead retires; the
-;; full-height rail is the other). The source body now ALIGNS to the
-;; `[EXIT ACTION]` / `[TRANSITION]` badge's left edge (item 3) — past the
-;; `[N]` ordinal chip (min-width 21px) + the header gap (6px) — so the code
-;; sits under the badge rather than indented behind a connector line.
+;; rf2-2hj0h item 2 + 3 / rf2-4b6im — the per-step left connector
+;; (`:border-left`) is REMOVED (one of the two left vertical lines rf2-2hj0h
+;; retires; the full-height rail is the other). ALL of a step's subsequent
+;; content (source body, outcome, data-delta, sub-lines) ALIGNS to the
+;; `[EXIT ACTION]` / `[GUARD]` / `[TRANSITION]` badge's LEFT edge — the `[N]`
+;; ordinal chip sits outdented to its left.
+;;
+;; rf2-4b6im CORRECTS rf2-2hj0h item 3's as-rendered behaviour. item 3 intended
+;; the badge left edge but the ordinal chip rendered ~29px wide (default
+;; `content-box` + 8px padding), so the 27px constant under-shot — content hung
+;; at the ordinal RIGHT edge instead. The fix pins the ordinal box to
+;; `border-box` (outer width = exactly `cascade-ordinal-box-width`) and computes
+;; the indent from its constituents, so it tracks the chip geometry.
 (def ^:private cascade-info-indent
-  "Left-edge alignment for a cascade row's subsequent info lines (rf2-2hj0h
-  item 3) — the source body + the per-action outcome details. Equals the
-  `[N]` ordinal chip width (21px) + the header `:gap` (6px), so the info
-  lines start at the LEFT EDGE of the merged action / kind badge that
-  follows the ordinal."
-  "27px")
+  "Left-edge alignment for ALL of a cascade row's subsequent content
+  (rf2-2hj0h item 3, corrected by rf2-4b6im) — the source body, the per-action
+  outcome details, the data-delta, and any sub-lines. Equals the `[N]` ordinal
+  chip's outer width (`cascade-ordinal-box-width`) + the header `:gap`
+  (`cascade-header-gap`), so every line starts at the LEFT EDGE of the merged
+  action / kind badge that follows the ordinal."
+  (str (+ cascade-ordinal-box-width cascade-header-gap) "px"))
 
 (def ^:private cascade-row-source-style
   {:margin       "5px 0 3px 0"
@@ -703,9 +733,12 @@
    :padding        "5px 0 5px 0"})
 
 (def ^:private cascade-row-header-style
+  ;; `:gap` is `cascade-header-gap` (rf2-4b6im) — the same constant
+  ;; `cascade-info-indent` adds to the ordinal-box width so the sub-content
+  ;; column tracks the badge left edge exactly.
   {:display     "flex"
    :align-items "center"
-   :gap         "6px"
+   :gap         (str cascade-header-gap "px")
    :flex-wrap   "wrap"})
 
 (def ^:private cascade-row-right-style
@@ -2989,10 +3022,12 @@
   mounts in browse mode (no `:before`), still surfacing the written
   value."
   [{:keys [data-write data-before step] :as _row}]
+  ;; rf2-32kyr — the redundant "data Δ" CAPTION text is dropped; the row reads
+  ;; `<arrow> <edn-inspector value>` (just the light-grey arrow into the delta
+  ;; value, no label). The arrow + the inspector value are otherwise unchanged.
   [:div {:data-testid (str "rf-xray-epoch-machine-cascade-data-write-" step)
          :style cascade-detail-row-style}
    [:span {:style cascade-detail-data-arrow-style} "↳"]
-   [:span {:style cascade-detail-label-style} "data Δ"]
    [:span {:style cascade-detail-value-style}
     [ei/edn-inspector data-write
      (cond-> {:site-id                [:rf.xray.epoch/machine-cascade-data step]
@@ -3136,12 +3171,13 @@
 ;; convey. The box elides on a self/internal transition (no logical change).
 
 (defn- cascade-row-view
-  "Render one cascade row (rf2-u69j7). Layout:
+  "Render one cascade row (rf2-u69j7). Layout — all sub-content
+  left-aligns to the BADGE left edge (rf2-2hj0h item 3 / rf2-4b6im):
 
       [#step] [KIND] [phase?] verb (↗ source)    duration · outcome
-      ─┐ source code (always visible, monospace, syntax-highlighted)
-        ↳ data Δ  …
-        ↳ fx …
+              source code (always visible, monospace, syntax-highlighted)
+              ↳ <data-delta value>   (rf2-32kyr — no `data Δ` caption)
+              ↳ fx …
 
   The row's `:kind` keys all the chrome variants: `:action` rides the
   full layout (phase chip + source body + outcome details — incl. the

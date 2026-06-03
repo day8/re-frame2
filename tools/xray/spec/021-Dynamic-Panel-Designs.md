@@ -1719,13 +1719,18 @@ the defmachine DEFINITION:
 
 **Per-row outcome detail.** Action rows surface inline:
 
-- **`↳ data Δ`** — when the action returned a `:data` map, the delta
-  the action contributed rendered through the **edn-inspector in DIFF
-  mode** (rf2-5hjb5). The action's RETURNED `:data` (`:data-write`, the
-  AFTER) renders with inline diff annotations against the action's
-  INPUT `:data` (`:data-before`, lifted off the `:input {:data …}`
-  snapshot), reusing the same `{:before <prior>}` posture the App-db
-  panel ships (cf. `handler-db-diff-block`). A data-mutating action
+- **`↳ <edn-inspector value>`** — when the action returned a `:data`
+  map, the delta the action contributed rendered through the
+  **edn-inspector in DIFF mode** (rf2-5hjb5). The row reads
+  `<arrow> <edn-inspector value>`: a light-grey `↳` arrow (rf2-fg3c4)
+  into the inspector value, with **NO `data Δ` caption** (rf2-32kyr —
+  the literal "data Δ" label was redundant chrome; the arrow into the
+  inspector value carries the reading). The action's RETURNED `:data`
+  (`:data-write`, the AFTER) renders with inline diff annotations
+  against the action's INPUT `:data` (`:data-before`, lifted off the
+  `:input {:data …}` snapshot), reusing the same `{:before <prior>}`
+  posture the App-db panel ships (cf. `handler-db-diff-block`). A
+  data-mutating action
   shows its delta inline (entry `:count-open`: `{:opened-count 0}` →
   `{:opened-count 1}` paints the changed leaf with the `~ … ← was 0`
   gutter chrome); a no-op action whose `:data` is unchanged (exit
@@ -1777,6 +1782,27 @@ heading — `[TRIGGER] ‹vec› for [MACHINE] ‹id› in [STATE]
 >   The **thin HORIZONTAL inter-step lines** are removed too (item 1 — the
 >   cascade row's `border-bottom` + the rows-host `border-top`). The ordinal
 >   numbering is retained.
+
+> **Step content aligns to the BADGE left edge (rf2-2hj0h item 3, corrected
+> by rf2-4b6im).** ALL of a step's subsequent content — the source body, the
+> per-action outcome details (the `↳` data-delta + the `↳ fx` chips), any
+> exception box, and any sub-line — left-aligns to the **LEFT EDGE of the
+> badge** (e.g. the left of `[EXIT ACTION]` / `[GUARD]`), forming one
+> left-aligned column under the badge. The `[N]` ordinal chip sits outdented
+> to the badge's LEFT; the badge defines the content column for the whole
+> step. This holds for **every** mini-step kind (`[EXIT ACTION]` /
+> `[ENTRY ACTION]` / `[TRANSITION ACTION]` / `[TRANSITION]` / `[GUARD]` /
+> `[NO OP]` / …). The indent (`view/cascade-info-indent`) equals the ordinal
+> chip's outer width (`cascade-ordinal-box-width`, 21px — the chip carries
+> `box-sizing: border-box` so its rendered width is exactly its declared
+> width) **+** the header `:gap` (`cascade-header-gap`, 6px) = 27px.
+>
+> rf2-4b6im CORRECTS item 3's as-rendered behaviour: item 3 already specified
+> the badge left edge, but the ordinal chip rendered ~29px wide under the
+> default `content-box` (its 8px horizontal padding sat outside the 21px
+> `min-width`), so the prior 27px constant under-shot — content hung at the
+> ordinal RIGHT edge instead of the badge left. Pinning the chip to
+> `border-box` makes 21px + 6px gap land exactly on the badge left edge.
 
 A THREW action surfaces NO per-row threw chrome (rf2-4yrr6 retired the prior
 `✗ threw — <message>` outcome-detail line AND the duplicate `✗ threw`
