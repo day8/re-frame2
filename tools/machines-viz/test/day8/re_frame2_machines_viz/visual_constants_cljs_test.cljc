@@ -84,6 +84,38 @@
     :action-pill-radius
     :action-pill-gap
     :action-pill-row-gap
+    ;; structured topology grammar (rf2-az6e2) — state title/body box,
+    ;; compound container, parallel region, event route chip, pseudo-
+    ;; state markers, action-section caption, root chrome.
+    :state-title-height
+    :state-title-pad-x
+    :state-title-px
+    :state-body-pad-x
+    :state-body-pad-y
+    :state-body-gap
+    :state-divider-width
+    :state-shadow-blur
+    :container-title-height
+    :container-title-pad-x
+    :container-body-pad
+    :container-divider-width
+    :region-title-height
+    :region-title-pad-x
+    :action-caption-px
+    :action-caption-gap
+    :event-chip-min-w
+    :event-chip-min-h
+    :event-chip-pad-x
+    :event-chip-pad-y
+    :event-chip-radius
+    :event-chip-px
+    :event-chip-action-px
+    :pseudo-size
+    :pseudo-radius
+    :pseudo-px
+    :root-title-height
+    :root-title-px
+    :root-context-pad
     ;; dot-grid background (rf2-m4nj4)
     :dot-grid-spacing-px
     :dot-grid-radius-px
@@ -245,6 +277,41 @@
     (is (< (:compound-radius vc/chart-compact)
            (:compound-radius vc/chart-regular)
            (:compound-radius vc/chart-cosy)))))
+
+(deftest structured-grammar-geometry-monotonic
+  (testing "rf2-az6e2 — the structured-topology grammar geometry
+            (state title strip, container title, event chip, region
+            title, root title) is monotonic across the density axis:
+            compact < regular < cosy. Density scales QUANTITY; a key
+            that walked back or up unexpectedly would ship a mislabelled
+            density. The corner-radius lock (6) remains the only
+            non-scaling geometry."
+    (doseq [k [:state-title-height :state-title-px
+               :container-title-height :event-chip-min-w
+               :event-chip-min-h :event-chip-px
+               :region-title-height :pseudo-size :root-title-height
+               :root-title-px]]
+      (is (< (get vc/chart-compact k)
+             (get vc/chart-regular k)
+             (get vc/chart-cosy k))
+          (str "structured-grammar key " k
+               " is monotonic compact < regular < cosy")))))
+
+(deftest structured-grammar-regular-targets
+  (testing "rf2-az6e2 — pin the regular-density targets the bead's
+            §Visual constants names as approximate floors (state title
+            ~24px, container title ~26px, region title ~24px, event chip
+            ~92x32, event text ~11px, action text ~9px). Pinning so a
+            future tweak that drops below the bead's stated grammar
+            geometry fails CI rather than silently regressing the
+            structure-first read."
+    (is (= 24 (:state-title-height vc/chart-regular)))
+    (is (= 26 (:container-title-height vc/chart-regular)))
+    (is (= 24 (:region-title-height vc/chart-regular)))
+    (is (= 92 (:event-chip-min-w vc/chart-regular)))
+    (is (= 32 (:event-chip-min-h vc/chart-regular)))
+    (is (= 11 (:event-chip-px vc/chart-regular)))
+    (is (= 9  (:event-chip-action-px vc/chart-regular)))))
 
 (deftest densities-catalogue-is-closed
   (testing "rf2-32gw5 — the `densities` Var enumerates the closed

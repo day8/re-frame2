@@ -307,6 +307,16 @@
   compound-container title)."
   "Inter, system-ui, -apple-system, Segoe UI, sans-serif")
 
+(def chart-label-stack
+  "rf2-az6e2 — the chart-label font token. The structured topology
+  visual grammar uses SANS for state / event / tag / action labels
+  (structure-first reading; the prior mono lean was a category-error
+  carryover from data-grid surfaces). Aliases `sans-stack`; a host that
+  wants a different chart-label face overrides this Var. Mono survives
+  ONLY for the raw-EDN context-panel values, where it aids data
+  scanning."
+  sans-stack)
+
 ;; ---- tint helper (rf2-pyvmr) -------------------------------------------
 
 (defn- parse-hex-byte
@@ -352,6 +362,102 @@
        :else (if-let [[r g b] (hex->rgb hex)]
                (str "rgba(" r ", " g ", " b ", " alpha ")")
                hex)))))
+
+;; ---- chart semantic tokens (rf2-az6e2) ---------------------------------
+;;
+;; rf2-az6e2 — the structured topology grammar needs a small set of
+;; SEMANTIC chart roles (neutral container header/body, dividers,
+;; event-chip fill/border, pseudo-state marker, edge quiet/active). The
+;; Xray↔machines-viz dark-palette drift gate (rf2-z7ms8) asserts the two
+;; dark-palette KEY SETS are byte-identical, so we MUST NOT add new keys
+;; to `dark-palette` / `light-palette`. Instead `chart-tokens` DERIVES
+;; the semantic roles from the EXISTING palette entries, parameterised by
+;; the active palette — so theme support is real (a `:light` host resolves
+;; every chart role against `light-palette`) without growing the palette
+;; or breaking the mirror gate.
+
+(defn chart-tokens
+  "rf2-az6e2 — resolve the chart's SEMANTIC role tokens against a base
+  `palette` (`dark-palette` / `light-palette`, or any palette of the
+  same shape). Returns a flat map of hex / rgba strings the node + edge
+  renderers read for the structured visual grammar.
+
+  Roles (structure-first — neutral by default, accent reserved for
+  runtime state):
+
+    :state-header-bg / :state-body-bg / :state-border
+       — leaf-state title strip, body, and resting border.
+    :divider
+       — the hairline between a state's title strip and its body.
+    :container-header-bg / :container-body-bg / :container-border
+       — compound-container chrome (solid neutral, no accent wash).
+    :region-border / :region-header-bg
+       — parallel-region chrome (dashed neutral).
+    :event-chip-bg / :event-chip-border
+       — route-chip fill/border (subordinate to states).
+    :pseudo-marker
+       — initial / history pseudo-state glyph colour (neutral, NOT the
+         accent-blue runtime marker).
+    :edge-quiet / :edge-active / :edge-fired
+       — source→event quiet segment, event→target / active, fired-epoch.
+    :text-primary / :text-secondary / :text-tertiary
+       — re-exported off the palette so a renderer reads one map.
+    :active / :focus / :sim / :final
+       — runtime-state accents (active = :info, focus = :accent, etc.).
+
+  Pure data → map of strings; JVM-portable. Defaults to `dark-palette`
+  so a renderer that never threads a palette still resolves the dark
+  surface."
+  ([] (chart-tokens dark-palette))
+  ([palette]
+   (let [g #(get palette %)]
+     {;; leaf state
+      :state-header-bg (with-alpha :bg-3 0.55 palette)
+      :state-body-bg   (g :bg-2)
+      :state-border    (g :border-default)
+      :divider         (with-alpha :border-default 0.7 palette)
+      ;; compound container — solid neutral, no accent wash
+      :container-header-bg (with-alpha :bg-3 0.65 palette)
+      :container-body-bg   (with-alpha :bg-1 0.4 palette)
+      :container-border    (g :border-default)
+      ;; parallel region — dashed neutral
+      :region-border    (g :border-default)
+      :region-header-bg (with-alpha :bg-3 0.45 palette)
+      ;; event route chip — subordinate
+      :event-chip-bg     (with-alpha :bg-1 0.85 palette)
+      :event-chip-border (with-alpha :border-default 0.7 palette)
+      ;; pseudo-states — neutral, NOT accent
+      :pseudo-marker (g :text-tertiary)
+      ;; edges
+      :edge-quiet  (with-alpha :border-default 0.55 palette)
+      :edge-active (g :info)
+      :edge-fired  (g :accent)
+      ;; text
+      :text-primary   (g :text-primary)
+      :text-secondary (g :text-secondary)
+      :text-tertiary  (g :text-tertiary)
+      ;; runtime-state accents
+      :active (g :info)
+      :focus  (g :accent)
+      :sim    (g :yellow)
+      :final  (g :text-secondary)
+      ;; tints used for runtime washes (kept subtle — border/header/glow
+      ;; carry the runtime signal, not the whole fill, per the bead)
+      :active-wash (with-alpha :info   0.14 palette)
+      :focus-wash  (with-alpha :accent 0.12 palette)
+      :sim-wash    (with-alpha :yellow 0.14 palette)
+      :glow        (with-alpha :info   0.18 palette)
+      :glow-fired  (with-alpha :accent 0.18 palette)})))
+
+(defn theme-palette
+  "rf2-az6e2 — resolve a `:theme` keyword (`:dark` / `:light`) to its
+  base palette via `palettes`. nil / unknown → `dark-palette` (the Xray
+  default surface). The `MachineChart` `:theme` prop flows through here
+  ONCE per render; the resolved palette threads through the projector
+  onto every node/edge `:data` so the renderers paint the active theme
+  (theme support made real, rf2-az6e2). Independent of `:density`."
+  [theme]
+  (get palettes theme dark-palette))
 
 ;; ---- CSS-variable theming (rf2-uv1on) ----------------------------------
 
