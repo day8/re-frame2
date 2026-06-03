@@ -1506,3 +1506,16 @@ action-attribution half.
   `:rf.xray/*` registry ids for the Machines tab.
 - [`017-Test-Coverage-Matrix.md`](017-Test-Coverage-Matrix.md) — Sim
   mode + Mode A/B/C dynamic instance test rows.
+- **Render regression harness (rf2-g27vv).** The `machine_epochs` testbed
+  (:8033) is the assertion-backed harness that pins this spec's cascade-render
+  contract against reality — its numbered ladder drives the full feature ×
+  render-surface matrix (plain / entry-exit / guards / internal / fx /
+  unhandled-no-op / root-`:on` resolution; parallel regions + history +
+  member-level tag-set delta; `:always` microsteps; `:after` timer + cancel;
+  spawn / `:final?` / `:on-done` / destroy lifecycle; `:*` wildcard throw;
+  deep-compound LCA + self-transitions; `:history` reject-now). Each rung is
+  backed by a CLJS-unit assertion in
+  `day8.re-frame2-xray.panels.epoch.machine-epochs-harness-cljs-test` (BOTH
+  the machine outcome via the per-machine `:data :trail` order-oracle AND the
+  cascade-render projection it lights up), complemented by
+  `…hard-machine-fidelity-cljs-test` for the HVAC HARD machine.

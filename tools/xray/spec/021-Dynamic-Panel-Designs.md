@@ -1730,6 +1730,26 @@ by hand (rf2-52u5n live finding, machine-epochs :8033). It is the
 consumer of the rf2-n9f4z instrumentation contract per
 [003-Machine-Inspector §The EVENT HANDLER machine cascade](003-Machine-Inspector.md).
 
+The `machine_epochs` testbed (:8033) is now the **assertion-backed render
+regression harness** for this whole cascade-render contract (rf2-g27vv). Its
+numbered ladder drives the full FEATURE × RENDER-SURFACE matrix — plain /
+entry-exit / transition-action / guard pass+fail / internal / fx /
+unhandled-no-op / root-`:on` resolution (door); parallel regions + history +
+member-level tag-set delta (traffic); `:always` **microsteps** that settle
+over N>0 microsteps (quiz); `:after` **timer** auto-fire + cancellation
+(brew); **spawn → `:final?` → `:on-done` → auto-destroy** lifecycle
+(session); `:*` wildcard-action **throw** (fuse); deep-compound LCA + self-
+transitions (hvac); and a `:history` **reject-now** rung with ready
+placeholders for shallow/deep restore (deferred per Spec 005 §Substitutes).
+Each rung is backed by a CLJS-unit assertion in
+`day8.re-frame2-xray.panels.epoch.machine-epochs-harness-cljs-test` that
+drives the rung through the live substrate and pins BOTH the machine outcome
+(via the generalized per-machine `:data :trail` order-oracle) AND the Xray
+cascade-render projection it lights up — so re-driving the deck is a real
+regression test of this render contract. The `:data :trail` is no longer a
+workaround; every machine carries it as a legible cross-check the harness
+keys its order assertions off.
+
 Timer rows surface only the header + click-to-source chip (no inline
 body — cancellations are housekeeping; the chip routes to the
 `:after`-bearing state node).
