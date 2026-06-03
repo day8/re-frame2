@@ -103,6 +103,39 @@
     :on-frame-destroy "on-frame-destroy"
     (when (keyword? reason) (name reason))))
 
+(def ^:private start-cause->label
+  "Map a `:rf.machine/started` `:cause` enum → the short tag rendered on
+  the `[START]` badge (rf2-it4vt). The cause tells the operator HOW the
+  machine came to life:
+
+    :explicit — a deliberate eager `[:machine-id [:rf.machine/start]]` kick
+                (xstate's `createActor(m).start()`).
+    :lazy     — init folded into the first REAL event's epoch. Flags an
+                ORDERING SMELL: something dispatched to the machine before
+                it was explicitly started.
+    :spawned  — the spawn fx pre-seeded the snapshot; init ran on the
+                actor's first dispatch."
+  {:explicit "explicit"
+   :lazy     "lazy"
+   :spawned  "spawned"})
+
+(defn start-cause-label
+  "Render a `:rf.machine/started` `:cause` enum as the short tag string the
+  `[START]` badge carries (rf2-it4vt). Falls through `name` for an unknown
+  cause keyword so a future enum value still paints, nil for non-keywords."
+  [cause]
+  (or (get start-cause->label cause)
+      (when (keyword? cause) (name cause))))
+
+(defn start-cause-smell?
+  "True iff a `[START]` row's `:cause` is the ORDERING SMELL `:lazy`
+  (rf2-it4vt) — something dispatched to the machine before it was explicitly
+  started, so init folded into that event's epoch. The view paints the
+  `:lazy` cause tag with a warning tone to flag it; `:explicit` / `:spawned`
+  ride the muted/neutral tone (clean birth)."
+  [cause]
+  (= :lazy cause))
+
 (defn cascade-row-label
   "Render a cascade row's human-readable verb (rf2-u69j7). Used by the
   view's per-row header. Pure-data; the view never reaches into a
@@ -111,7 +144,7 @@
   ;; (the only case that read it) collapsed to "staying in {state}" and no
   ;; longer echoes the event (the focused-epoch Event header names it).
   [{:keys [kind action-id guard-id from-state to-state state reason
-           machine-id show-machine-name?]}]
+           machine-id show-machine-name? cause]}]
   (case kind
     :guard       (str "guard " (ns-keyword guard-id))
     ;; rf2-nhovk — the ACTION kind-pill + phase chip already convey kind +
@@ -147,6 +180,16 @@
     :no-op       (str (when (and show-machine-name? machine-id)
                         (str (ns-keyword machine-id) " "))
                       "staying in "
+                      (if state (pr-str state) "?"))
+    ;; rf2-it4vt — the machine's BIRTH verb: "<machine-id> started in
+    ;; {state}". The `[START]` kind-pill is the badge; the verb names WHICH
+    ;; machine was born and its INITIAL logical state (`:state` off the
+    ;; `:rf.machine/started` trace — a keyword / path-vector for flat /
+    ;; compound, a region→state map for parallel; rendered verbatim). The
+    ;; initial `:data` rides the body box (`cascade-row-source-body`); the
+    ;; `:cause` rides a tag chip (`start-cause-label`).
+    :start       (str (when machine-id (str (ns-keyword machine-id) " "))
+                      "started in "
                       (if state (pr-str state) "?"))
     (str (when kind (name kind)))))
 

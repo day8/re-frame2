@@ -1384,11 +1384,16 @@ never win for a macrostep):
 2. `:rf.machine/action-ran` present → `:reg-machine` (subsumed by (1) for any
    real macrostep; retained for fixtures / defence in depth).
 3. `:rf.machine.event/unhandled-no-op` present → `:reg-machine` (rf2-ugdas —
-   see below; once rf2-e6q97 suppresses the spurious `{X}→{X}` commit
-   transition, a no-op-only cascade carries neither a transition nor an
-   action, so it needs its own predicate).
-4. `:rf.fx/do-fx` present → `:reg-event-fx`.
-5. else → `:reg-event-db`.
+   see below; since rf2-coozg suppresses the no-change `{X}→{X}` commit
+   transition at the source, a no-op-only cascade carries neither a
+   transition nor an action, so it needs its own predicate).
+4. `:rf.machine/started` present → `:reg-machine` (rf2-it4vt — an EAGER pure
+   start emits the birth signal but NO transition / action / no-op rows;
+   without this predicate the standalone start would fall through to
+   `:reg-event-fx` (the machine handler always rides its snapshot-write
+   do-fx) and render a raw `:db` diff instead of the `[START]` row).
+5. `:rf.fx/do-fx` present → `:reg-event-fx`.
+6. else → `:reg-event-db`.
 
 #### Machine cascade (rf2-u69j7)
 
@@ -1410,14 +1415,15 @@ entry action, which mis-reads the statechart (the operator expects
 therefore RE-SORTS rows into the canonical `(kind, phase)` order:
 
 ```
-guard → exit → TRANSITION → entry → always → after-action → timer
+START → guard → exit → TRANSITION → entry → always → after-action → timer
 ```
 
 via a STABLE sort keyed by `[cascade-row-rank :trace-index]` — rows in
 the same rank keep their substrate emit order (multiple actions in one
-phase keep their run order). The `:transition` KIND sits between the
-exit-phase actions and the entry-phase actions; `:guard` leads (guards
-gate the transition); `:timer` trails (post-commit housekeeping).
+phase keep their run order). The `:start` KIND leads everything (rank -1 —
+the machine's birth — rf2-it4vt); the `:transition` KIND sits between the
+exit-phase actions and the entry-phase actions; `:guard` follows START
+(guards gate the transition); `:timer` trails (post-commit housekeeping).
 `:transition`-phase actions rank WITH the transition (they fire as part
 of the state change); `:initial-entry` ranks with `:entry`,
 `:destroy-exit` with `:exit`. The `:step` ordinal is assigned 1..N over
@@ -1438,11 +1444,65 @@ The projection walks `:trace-events` and surfaces every member of
 
   | Trace op                            | Row `:kind`     |
   |-------------------------------------|------------------|
+  | `:rf.machine/started`               | `:start`         |
   | `:rf.machine/guard-evaluated`       | `:guard`         |
   | `:rf.machine/action-ran`            | `:action`        |
   | `:rf.machine/transition`            | `:transition`    |
   | `:rf.machine.timer/cancelled`       | `:timer`         |
   | `:rf.machine.event/unhandled-no-op` | `:no-op`         |
+
+**The `[START]` row (rf2-it4vt).** The `:start` row surfaces the machine's
+BIRTH — the `:rf.machine/started` trace `maybe-boot` (machines · lifecycle_fx
+· registration.cljc) emits per rf2-gl588 / F‴ on every successful
+initial-entry cascade. It is the machine's single birth signal, in BOTH
+creation paths, and renders the `[START]` badge at the FRONT of the cascade
+(rank -1):
+
+- **EAGER** — an explicit `[:machine-id [:rf.machine/start]]` dispatch gets
+  its own epoch. The start is a PURE init-kick (rf2-gl588 — runs the
+  initial-entry cascade then STOPS, emitting NO transition / action rows),
+  so the `[START]` is the cascade's SOLE row (a standalone birth). The
+  cascade's handler-flavour is forced `:reg-machine` by the
+  `:rf.machine/started` presence even though no transition / action / no-op
+  fired — otherwise the standalone start (which always rides the machine
+  handler's snapshot-write do-fx) would mis-classify `:reg-event-fx` and
+  render a raw `:db` diff instead of the `[START]` row.
+- **LAZY** — when a machine is first reached by a REAL event, init folds
+  into THAT event's epoch (`maybe-boot` runs ahead of the user event in the
+  same handler call). So `[START]` renders at the FRONT of the cascade,
+  AHEAD of the real event's guard / transition / action rows — telling the
+  operator the machine was born THEN took its first step, in one epoch.
+
+The row carries the machine's INITIAL logical `:state` (off the started
+trace's `:state` tag — a keyword / path-vector for flat / compound, a
+region→state map for parallel; rendered verbatim, so the badge covers flat /
+compound / parallel machines uniformly) and INITIAL `:data` (the `:data`
+tag). The header verb reads `<machine-id> started in {state}`; the initial
+`:data` rides the body box (the same `edn-inspector` widget the transition
+delta uses, rendered PLAIN — a birth has no prior state to diff against).
+
+The row also carries a **CAUSE tag** (`format/start-cause-label`) off the
+started trace's `:cause` enum — `explicit` / `lazy` / `spawned` — that tells
+the operator HOW the machine came to life:
+
+- `explicit` — a deliberate eager kick (xstate's `createActor(m).start()`).
+- `lazy` — init folded into the first real event's epoch. This is an
+  **ORDERING SMELL**: something dispatched to the machine before it was
+  explicitly started. The view paints the `lazy` tag in the warning tone to
+  flag it (`format/start-cause-smell?`); `explicit` / `spawned` ride the
+  muted neutral tone (a clean, expected birth).
+- `spawned` — the spawn fx pre-seeded the snapshot; init ran on the actor's
+  first dispatch.
+
+Because its trace op-type is `:rf.machine` (benign birth, not a severity),
+the L2 pink-wash / issues-ribbon `issue-event?` predicate does not match it —
+the event row stays un-washed. The `:start` kind pill reads `START` in the
+`:success` (green) tone — a clean birth is a GOOD event, distinct from the
+muted no-op, the blue action, and the magenta transition. The row carries NO
+outcome chip and NO source-link spec-path key (a birth has no transition
+outcome / spec call-site). A failed initial-entry (a thrown `:entry` action)
+does NOT emit `:rf.machine/started` — `maybe-boot` short-circuits to the
+EXCEPTION card via `trace-action-failure!` instead.
 
 The `:no-op` row (rf2-ugdas) surfaces the benign unhandled-event no-op
 (xstate-v5 parity — an event that matched no transition is ignored, NOT an
@@ -1480,21 +1540,21 @@ un-washed and the ribbon stays empty — the contrast with a `:*`
 wildcard-action throw (`:rf.error/machine-action-exception`, which DOES go
 pink + renders the EXCEPTION card) validates that the predicate correctly
 distinguishes a benign no-op from a real error. A cascade renders either a
-`:transition` OR a `:no-op`, never both. This is ENFORCED at projection
-time (rf2-e6q97): on a no-op the machine substrate emits BOTH the
-`:rf.machine.event/unhandled-no-op` trace AND — from `commit-or-finalize`'s
-unconditional `:rf.machine/transition` emit — a contradictory `{X}→{X}`
-0-microstep transition trace (`:before` == `:after`). Rendered side-by-side
-those contradict: the no-op row says the machine is "staying in {state}"
-(no transition) while the
-transition row borrows external-self-transition vocabulary (`{X} → {X}`)
-implying the `:exit` / `:entry` firing that did NOT happen.
-`machine-cascade-rows` therefore drops every `:transition` row when the
-cascade also carries a `:no-op` row — the no-op row is the authoritative
-signal that no transition was selected. A genuine self-transition
-(`:target :same-state`, EXTERNAL — `:exit` + `:entry` fire; or INTERNAL —
-the action runs) has a real `match`, so the unhandled-no-op branch is never
-reached and NO `:no-op` row fires: its transition row is preserved. The
+`:transition` OR a `:no-op`, never both — and this is now ENFORCED AT THE
+SOURCE (rf2-coozg): on a no-op macrostep (`:before` == `:after`, empty
+cascade, zero microsteps) `commit-or-finalize` (machines · lifecycle_fx ·
+registration.cljc) suppresses the no-change `:rf.machine/transition` emit
+entirely, so the projection never sees a contradictory `{X}→{X}`
+0-microstep transition row beside the `:no-op`. The earlier tool-side
+band-aid `drop-spurious-no-op-transition` (rf2-e6q97 — which dropped that
+spurious row whenever a `:no-op` row was present) is therefore **RETIRED**
+(rf2-it4vt): there is nothing left to drop. With rf2-gl588 the eager start
+is a PURE init-kick that never feeds the marker into the transition step, so
+there is no `before == after` self-transition for creation either. A genuine
+self-transition (`:target :same-state`, EXTERNAL — `:exit` + `:entry` fire;
+or INTERNAL — the action runs) has a real `match`, so the unhandled-no-op
+branch is never reached and NO `:no-op` row fires: its transition row (with
+microsteps > 0 / an action cascade) is preserved untouched. The
 no-op row also makes the cascade's handler-flavour `:reg-machine` even when
 no action ran, so the EVENT HANDLER machine section renders the notice
 rather than collapsing to a plain `reg-event-db` handler.
@@ -1504,9 +1564,15 @@ rather than collapsing to a plain `reg-event-db` handler.
 - **Step ordinal** (1..N) — left-rail compact monospace chip.
   Suppressed for the single-row `:no-op` notice (rf2-iu3no — the lone
   "1" was unexplained noise).
-- **Kind pill** — colour-coded (`:guard / :action / :transition /
+- **Kind pill** — colour-coded (`:start / :guard / :action / :transition /
   :timer / :no-op`) — see `badge.cljc` for the hue assignments. The
-  `:no-op` pill reads `NO OP` (space, not hyphen — rf2-iu3no).
+  `:no-op` pill reads `NO OP` (space, not hyphen — rf2-iu3no); the `:start`
+  pill reads `START` in the `:success` (green) tone (rf2-it4vt — a clean
+  birth is a GOOD event).
+- **Cause tag** (`:start` rows only — rf2-it4vt) — `explicit` / `lazy` /
+  `spawned`, off the `:rf.machine/started` trace's `:cause`. The `lazy`
+  cause is the ordering-smell flag (warning tone); `explicit` / `spawned`
+  ride the muted neutral tone.
 - **Phase chip** (`:action` rows only) — one of the rf2-82a0u closed
   set `:exit / :transition / :entry / :always / :after-action /
   :initial-entry / :destroy-exit`.
@@ -1530,6 +1596,9 @@ rather than collapsing to a plain `reg-event-db` handler.
   - `:no-op` → NO outcome chip (rf2-iu3no — the `NO OP` pill + the
     `staying in {state}` verb carry the whole notice; the rf2-ugdas
     `ignored` chip was a third restatement of the same fact)
+  - `:start` → NO outcome chip (rf2-it4vt — the `START` pill + the
+    `started in {state}` verb + the cause tag carry the whole birth
+    notice; a birth has no transition outcome)
 
 **Per-row body — interleaved source code (always visible).** Every
 cascade row carries source visibility (rf2-wwc3j extends rf2-u69j7's

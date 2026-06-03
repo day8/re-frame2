@@ -371,12 +371,22 @@
     (some #(= :rf.machine/action-ran (op %)) events) :reg-machine
     ;; rf2-ugdas — a cascade whose ONLY machine activity is the benign
     ;; unhandled-event no-op (an event that matched no transition, so no
-    ;; action ran AND — once rf2-e6q97 suppresses the spurious {X}→{X}
-    ;; commit transition — no transition row either) is still a machine
-    ;; cascade: classify it :reg-machine so the EVENT HANDLER machine
-    ;; section renders the no-op notice rather than collapsing to a plain
-    ;; reg-event-db handler.
+    ;; action ran AND — since rf2-coozg suppresses the no-change {X}→{X}
+    ;; commit transition at the source — no transition row either) is still
+    ;; a machine cascade: classify it :reg-machine so the EVENT HANDLER
+    ;; machine section renders the no-op notice rather than collapsing to a
+    ;; plain reg-event-db handler.
     (some #(= :rf.machine.event/unhandled-no-op (op %)) events) :reg-machine
+    ;; rf2-it4vt — an EAGER `[:rf.machine/start]` kick is a PURE init
+    ;; (rf2-gl588 / F‴): it runs the initial-entry cascade then STOPS,
+    ;; emitting `:rf.machine/started` but NO `:rf.machine/transition` /
+    ;; `:rf.machine/action-ran` (the initial-entry actions are not traced as
+    ;; action-ran — rf2-n9f4z) / no-op. So a standalone start would fall
+    ;; through to `:reg-event-fx` (the machine handler always rides a
+    ;; do-fx — its snapshot write) and render the raw `:db` diff with NO
+    ;; machine section. Keying on the birth signal closes that gap: the
+    ;; cascade renders the `[START]` row instead.
+    (some #(= :rf.machine/started (op %)) events)    :reg-machine
     (some #(= :rf.fx/do-fx (op %)) events)           :reg-event-fx
     :else                                            :reg-event-db))
 
@@ -564,7 +574,14 @@
     ;; event with no matching transition; the snapshot is unchanged. Op-type
     ;; :rf.machine (NOT an error), so it surfaces in the EVENT HANDLER machine
     ;; cascade as a benign notice — not the red exception card, not pink.
-    :rf.machine.event/unhandled-no-op})
+    :rf.machine.event/unhandled-no-op
+    ;; rf2-it4vt — the machine's BIRTH. `maybe-boot` (machines · lifecycle_fx
+    ;; · registration.cljc) emits ONE `:rf.machine/started` per successful
+    ;; initial-entry cascade (rf2-gl588 / F‴), in BOTH creation paths — the
+    ;; EAGER `[:machine-id [:rf.machine/start]]` kick AND the LAZY
+    ;; first-real-event fold. Op-type :rf.machine (benign birth, not a
+    ;; severity). Renders the `[START]` badge row at the FRONT of the cascade.
+    :rf.machine/started})
 
 (def ^:private op->row-kind
   "Map a machine trace op → cascade-row `:kind` keyword (rf2-u69j7).
@@ -573,7 +590,8 @@
    :rf.machine/action-ran           :action
    :rf.machine/transition           :transition
    :rf.machine.timer/cancelled      :timer
-   :rf.machine.event/unhandled-no-op :no-op})
+   :rf.machine.event/unhandled-no-op :no-op
+   :rf.machine/started              :start})
 
 (def ^:private cascade-rank
   "Canonical (kind, phase) presentation rank for the machine cascade
@@ -589,8 +607,17 @@
   `:timer` trails (rank 6): timer-cancels are post-commit housekeeping.
 
   Bootstrap / lifecycle phases slot beside their nearest sibling:
-  `:initial-entry` ranks with `:entry`, `:destroy-exit` with `:exit`."
-  {;; guards — gate the transition; read first
+  `:initial-entry` ranks with `:entry`, `:destroy-exit` with `:exit`.
+
+  rf2-it4vt — the `:start` row (the machine's birth) ranks AHEAD of
+  everything (rank -1). In the EAGER path it is the cascade's sole row; in
+  the LAZY path the init folds into the SAME epoch as the first real event,
+  so `[START]` renders at the FRONT — ahead of that event's guards /
+  transition / actions — telling the operator the machine was born THEN
+  took its first step, in one epoch."
+  {;; the machine's birth — leads the cascade (rf2-it4vt)
+   [:start nil]              -1
+   ;; guards — gate the transition; read first
    [:guard nil]              0
    ;; exit-phase actions — leave the old state
    [:action :exit]           1
@@ -747,6 +774,37 @@
    :event      (common/tag-of ev :event)
    :state      (common/tag-of ev :state)})
 
+(defn- started-cascade-row
+  "Build a cascade row from a `:rf.machine/started` trace event (rf2-it4vt,
+  the machine BIRTH signal `maybe-boot` emits per rf2-gl588 / F‴). The row
+  is the `[START]` badge — it renders at the FRONT of the cascade (rank -1)
+  in BOTH creation paths:
+
+    - EAGER (`:cause :explicit`) — an explicit `[:machine-id
+      [:rf.machine/start]]` dispatch got its own epoch; the start is a PURE
+      init-kick (no transition / action rows ride alongside), so `[START]`
+      is the cascade's sole row.
+    - LAZY (`:cause :lazy`) — the machine was first reached by a REAL event;
+      init folded into THAT event's epoch, so `[START]` leads the real
+      event's guards / transition / action rows. The `:lazy` cause flags an
+      ordering smell (something dispatched to the machine before it was
+      explicitly started).
+    - SPAWNED (`:cause :spawned`) — the spawn fx pre-seeded the snapshot;
+      init ran on the actor's first dispatch.
+
+  Carries the machine's INITIAL logical `:state` and INITIAL `:data` (off
+  the started trace's `:state` / `:data` tags — the `(:state booted)` /
+  `(:data booted)` snapshot slots), and the `:cause` enum (rendered as a
+  tag on the badge). `:state` may be a keyword / path-vector (flat /
+  compound) OR a region→state map (parallel) — it renders verbatim, so the
+  badge covers flat / compound / parallel machines uniformly."
+  [ev]
+  {:kind       :start
+   :machine-id (common/tag-of ev :machine-id)
+   :state      (common/tag-of ev :state)
+   :data       (common/tag-of ev :data)
+   :cause      (common/tag-of ev :cause)})
+
 (defn- ev->cascade-row
   "Dispatch one trace event to its cascade-row builder. Returns nil for
   events whose op is not in `machine-cascade-trace-ops` (the caller
@@ -759,6 +817,7 @@
     :rf.machine/transition            (transition-cascade-row ev)
     :rf.machine.timer/cancelled       (timer-cascade-row ev)
     :rf.machine.event/unhandled-no-op (no-op-cascade-row ev)
+    :rf.machine/started               (started-cascade-row ev)
     nil))
 
 ;; ---- history restore / record (rf2-mle6e.5) -----------------------------
@@ -1035,47 +1094,20 @@
             (assoc :event-id (event-id-of (:event tx))))))
       rows next-tx)))
 
-(defn- drop-spurious-no-op-transition
-  "Suppress the spurious `{X}→{X}` 0-microstep `:transition` row that the
-  substrate emits beside a genuine no-op (rf2-e6q97).
-
-  WHY THE SUBSTRATE EMITS BOTH. When an event matches no transition at any
-  level, `machine-transition-single` (machines · `transition.cljc`) takes
-  its `:else` branch: it emits ONE benign `:rf.machine.event/unhandled-no-op`
-  trace (Spec 005 §Transition resolution, xstate-v5 parity — an unhandled
-  event is ignored, not an error) and returns the snapshot UNCHANGED. The
-  macrostep then runs `commit-or-finalize` (machines · lifecycle_fx ·
-  `registration.cljc`), which fires `:rf.machine/transition` UNCONDITIONALLY
-  — even when `:before` == `:after` and zero microsteps ran. So a no-op
-  cascade carries BOTH a `:no-op` row AND a `{X}→{X}` 0-microstep
-  `:transition` row. Rendered side-by-side these CONTRADICT: the no-op row
-  says 'no transition — ignored', while the transition row borrows
-  external-self-transition vocabulary (`{X} → {X}`) implying the `:exit` /
-  `:entry` firing that did NOT happen.
-
-  THE DISCRIMINATOR. The presence of a `:no-op` row is the AUTHORITATIVE
-  signal that no transition was selected — `unhandled-no-op` fires from
-  exactly the same `:else` branch (flat machines), and from the
-  every-region-declined aggregate (parallel machines · `parallel.cljc`).
-  A genuine self-transition (`:target :same-state`, EXTERNAL) has a real
-  `match`, so the no-op branch is NEVER reached → no `:no-op` row → its
-  `:transition` row survives untouched (Spec 005 L291-296, L916 — an
-  external self-transition fires `:exit` + `:entry` and IS a real
-  transition). An internal self-transition (omit `:target`) likewise has a
-  `match` and runs its action — also no `:no-op` row.
-
-  So: drop every `:transition` row IFF the cascade also carries a `:no-op`
-  row. We do NOT inspect `:microsteps` / `:from-state` == `:to-state` — the
-  no-op row IS the precise signal, and gating on state-equality would risk
-  suppressing a legitimate self-transition that happens to land on the same
-  state. The `:no-op` row alone remains to tell the story.
-
-  Pure-data; operates on the trace-ordered rows BEFORE the canonical sort
-  so the result is order-independent."
-  [rows]
-  (if (some #(= :no-op (:kind %)) rows)
-    (filterv #(not= :transition (:kind %)) rows)
-    rows))
+;; rf2-it4vt — the `drop-spurious-no-op-transition` band-aid (rf2-e6q97) is
+;; RETIRED. It dropped the spurious `{X}→{X}` 0-microstep `:transition` row
+;; the substrate USED to emit beside a genuine no-op (and beside a redundant
+;; `[:rf.machine/start]` on an already-booted machine). rf2-coozg fixed that
+;; at the SOURCE: `commit-or-finalize` (machines · lifecycle_fx ·
+;; registration.cljc) now suppresses the no-change transition emit for a
+;; no-op macrostep (`:before` == `:after`, empty cascade, zero microsteps) —
+;; so the projection never sees a `{X}→{X}` transition to drop. With rf2-gl588
+;; (F‴) the eager start is a PURE init-kick that never feeds the marker into
+;; the transition step, so there is no `before == after` self-transition for
+;; creation either. The band-aid is fully dead on the creation path; the
+;; no-op path's transition is gone at the source — nothing to suppress
+;; tool-side. (The LIVE no-op / spawn / redundant-bootstrap correctness now
+;; lives core-side in rf2-coozg / rf2-t4582 / rf2-n9f4z, untouched here.)
 
 (defn machine-cascade-rows
   "Project the focused epoch's machine-related trace events into a
@@ -1085,16 +1117,17 @@
   trace stream.
 
   CANONICAL PHASE ORDER (rf2-tjqd8) — the rows are RE-SORTED panel-side
-  into `guard → exit → TRANSITION → entry → always → after-action →
-  timer` rather than rendered in raw substrate emit order. The substrate
-  emits the `:rf.machine/transition` summary LAST (after exit + entry
-  actions accumulate the data), so the verbatim emit order is exit →
-  entry → transition; rendering it that way lands the TRANSITION after
-  the entry action, which mis-reads the statechart. The re-sort is a
+  into `START → guard → exit → TRANSITION → entry → always →
+  after-action → timer` rather than rendered in raw substrate emit order.
+  The substrate emits the `:rf.machine/transition` summary LAST (after
+  exit + entry actions accumulate the data), so the verbatim emit order is
+  exit → entry → transition; rendering it that way lands the TRANSITION
+  after the entry action, which mis-reads the statechart. The re-sort is a
   STABLE sort keyed by `[cascade-row-rank :trace-index]` — rows in the
   same rank keep their substrate emit order (multiple actions in one
   phase keep their run order). This is presentation-only; the substrate
-  trace order is untouched.
+  trace order is untouched. rf2-it4vt — the `:start` row ranks AHEAD of
+  everything (rank -1), so the machine's birth leads the cascade.
 
   Pipeline:
   1. Walk `:trace-events` in trace order; build one row per
@@ -1104,15 +1137,11 @@
      `:target-state` / `:event-id` from the surrounding `:transition`
      emit. This MUST run on the trace-ordered rows (the
      surrounding-transition resolution is emit-order-sensitive).
-  3. `drop-spurious-no-op-transition` (rf2-e6q97) — when the cascade
-     carries a `:no-op` row, the substrate's UNCONDITIONAL
-     `:rf.machine/transition` emit produced a contradictory `{X}→{X}`
-     0-microstep transition row beside it; drop it. Genuine self-
-     transitions never carry a `:no-op` row, so their transition row
-     survives (see that fn's docstring).
-  4. Stable-sort by canonical rank, then re-number `:step` 1..N over the
+  3. Stable-sort by canonical rank, then re-number `:step` 1..N over the
      sorted order so the view's left-rail ordinal reflects the rendered
-     order.
+     order. (The rf2-e6q97 `drop-spurious-no-op-transition` pass is
+     RETIRED — rf2-coozg suppresses the no-change transition at the
+     source, so there is no spurious `{X}→{X}` row to drop here.)
 
   The enrichment slots feed `cascade-row-source-key` so inline-fn
   `:entry` / `:exit` / `:guard` / transition / timer rows can resolve
@@ -1141,15 +1170,14 @@
                    enriched
                    (history-restored-rows events)
                    (history-recorded-rows events))
-        ;; rf2-e6q97 — a no-op cascade carries both the `:no-op` row AND the
-        ;; substrate's unconditional `{X}→{X}` 0-microstep `:transition` row;
-        ;; the two contradict. Drop the spurious transition row (the `:no-op`
-        ;; row is the authoritative signal that no transition was selected).
-        ;; Order-independent — runs on the trace-ordered rows before the sort.
-        deduped  (drop-spurious-no-op-transition enriched)
         ;; Stable canonical sort: rank first, emit-order (:trace-index)
-        ;; as tiebreaker so intra-phase run order is preserved.
-        sorted   (vec (sort-by (juxt cascade-row-rank :trace-index) deduped))
+        ;; as tiebreaker so intra-phase run order is preserved. rf2-it4vt —
+        ;; the `:start` row ranks -1 (ahead of guards), so it leads the
+        ;; cascade in both creation paths (eager standalone / lazy fold).
+        ;; The rf2-e6q97 `drop-spurious-no-op-transition` pass is RETIRED:
+        ;; rf2-coozg suppresses the no-change transition at the source, so
+        ;; there is no spurious `{X}→{X}` row to drop here.
+        sorted   (vec (sort-by (juxt cascade-row-rank :trace-index) enriched))
         ;; rf2-iu3no — the benign no-op row renders "[NO OP] staying in
         ;; {state}". The machine NAME is surfaced ONLY when the epoch has
         ;; >1 machine in play (a broadcast event hitting parallel regions /
