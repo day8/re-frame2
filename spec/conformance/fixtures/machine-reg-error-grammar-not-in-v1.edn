@@ -1,49 +1,51 @@
 ;; Conformance fixture: machine/reg-error-grammar-not-in-v1
 ;;
-;; Per [005 §Substitutes for skipped features](../../005-StateMachines.md#substitutes-for-skipped-features)
-;; (005:3141) and [005 §Error category for unclaimed grammar]
-;; (../../005-StateMachines.md): history states remain post-v1. The v1
-;; CLJS reference claims every OTHER capability, so the one grammar key it
-;; must reject is `:history` — a `:type :history` node (root, region, or
-;; nested state) or a `:history` state-node key. Per [009 §Error event
-;; catalogue](../../009-Instrumentation.md) the canonical recovery is
-;; `:no-recovery` — registration is REJECTED.
+;; History is now FIRST-CLASS grammar (rf2-mle6e — the post-v1 deferral is
+;; withdrawn; the engine implements record/restore per
+;; [005 §History states](../../005-StateMachines.md#history-states-type-history--shallow--deep--default-target)).
+;; This fixture is RETAINED under its historical id but re-pinned to the
+;; registration-error taxonomy the first-class grammar enforces: a
+;; `:type :history` pseudo-state MUST have an OWNING COMPOUND — a node at the
+;; machine root (or a flat top-level state) is `:rf.error/machine-history-misplaced`.
+;; The COMPREHENSIVE history record/restore conformance corpus (the
+;; W3C-adapted 387/388/579/580 behaviour) lands under rf2-mle6e.4; this
+;; fixture keeps only the placement-rejection taxonomy + a control that a
+;; WELL-PLACED history node (and a history-free machine) validate silently.
 ;;
 ;; Mode-B `:reg-machine` fixture pinning the registration-error taxonomy
-;; (Spec 009 §The thrown-error shape). The `:rf.error/id` discriminator is
-;; `:rf.error/machine-grammar-not-in-v1`.
+;; (Spec 009 §The thrown-error shape).
 
 {:fixture/id           :machine/reg-error-grammar-not-in-v1
  :fixture/spec-version "1.0"
- :fixture/capabilities #{:fsm/flat :fsm/registration-validation}
- :fixture/doc          "A machine using the post-v1 :history grammar (a :type :history node or a :history state-node key, at the root or inside a state / region) is rejected at registration with :rf.error/machine-grammar-not-in-v1. Well-formed flat / hierarchical machines validate silently."
+ :fixture/capabilities #{:fsm/flat :fsm/history :fsm/registration-validation}
+ :fixture/doc          "A :type :history pseudo-state with no owning compound (the machine root, or a flat top-level state) is rejected at registration with :rf.error/machine-history-misplaced. A well-placed history node (inside a compound's :states) and a history-free machine validate silently."
 
  :fixture/registry {}
  :fixture/handlers  {}
 
  :fixture/calls
- [;; (1) A `:type :history` state node — rejected.
-  {:call         :reg-machine
-   :definition   {:initial :compound
-                  :states  {:compound {:initial :a
-                                       :states  {:a {}
-                                                 :hist {:type :history}}}}}
-   :expect-error :rf.error/machine-grammar-not-in-v1}
-
-  ;; (2) A `:history` state-node key (the xstate-style shorthand) — rejected.
-  {:call         :reg-machine
-   :definition   {:initial :compound
-                  :states  {:compound {:initial :a
-                                       :history :shallow
-                                       :states  {:a {}}}}}
-   :expect-error :rf.error/machine-grammar-not-in-v1}
-
-  ;; (3) A `:type :history` machine root — rejected.
+ [;; (1) A `:type :history` machine ROOT — no owning compound — rejected.
   {:call         :reg-machine
    :definition   {:type :history :initial :a :states {:a {}}}
-   :expect-error :rf.error/machine-grammar-not-in-v1}
+   :expect-error :rf.error/machine-history-misplaced}
 
-  ;; (4) Control: a well-formed hierarchical machine validates silently.
+  ;; (2) A `:type :history` node at the FLAT top-level (sibling of ordinary
+  ;; states, no enclosing compound) — rejected.
+  {:call         :reg-machine
+   :definition   {:initial :a
+                  :states  {:a    {}
+                            :hist {:type :history}}}
+   :expect-error :rf.error/machine-history-misplaced}
+
+  ;; (3) Control: a WELL-PLACED `:type :history` node inside a compound's
+  ;; `:states` validates silently — history is a claimed capability.
+  {:call       :reg-machine
+   :definition {:initial :compound
+                :states  {:compound {:initial :a
+                                     :states  {:a    {}
+                                               :hist {:type :history :deep? true}}}}}}
+
+  ;; (4) Control: a well-formed history-free hierarchical machine validates silently.
   {:call       :reg-machine
    :definition {:initial :authenticated
                 :states  {:authenticated {:initial :dashboard

@@ -118,6 +118,12 @@
     :fsm/delayed-after
     :fsm/tags
     :fsm/final-states
+    ;; rf2-mle6e: first-class history pseudo-states (`:type :history` —
+    ;; shallow / deep / default-target). The pure `machine-transition`
+    ;; primitive records on exit + restores on re-entry against the
+    ;; in-snapshot `:rf/history` slot, so history fixtures run in this Mode B
+    ;; gate. The comprehensive record/restore corpus lands under mle6e.4.
+    :fsm/history
     ;; rf2-vf5cf: the registration-error taxonomy (Spec 009 thrown-error
     ;; shape) — pinned by the `:reg-machine` Mode-B op against the pure
     ;; `validate-machine!` validator.

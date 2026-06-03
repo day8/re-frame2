@@ -92,13 +92,16 @@
 
    3. **HISTORY pseudo-states** — SCXML `<history type=\"shallow|deep\">`
       (W3C SCXML §3.10, e.g. test 387, 388, 579, 580 history family).
-      re-frame2 DEFERS `:history` to post-v1 (Spec 005 §Substitutes for
-      skipped features). This is NOT a silent gap: the SCXML history tests
-      become EXPECTED-REJECTION assertions here (§History) — the runtime
-      MUST reject `:type :history` (and the `:history` state-node key) at
-      registration with `:rf.error/machine-grammar-not-in-v1`. Whether to
-      ever support history is a SEPARATE post-v1 decision, out of scope for
-      this corpus.
+      re-frame2 ships FIRST-CLASS history (rf2-mle6e — the post-v1 deferral
+      is withdrawn): `{:type :history :deep? <bool> :default-target <t>}` is
+      a targetable pseudo-state under a compound's `:states`. The §History
+      section below now carries only the registration-time GRAMMAR-CONSTRAINT
+      rejections the engine enforces (a `:type :history` node MUST have an
+      owning compound — `:rf.error/machine-history-misplaced`). The
+      COMPREHENSIVE record/restore conformance corpus (W3C 387/388/579/580
+      adapted) lands under rf2-mle6e.4; this file keeps only the minimal
+      placement-rejection assertions + a smoke that a well-placed history
+      node validates.
 
   ## Divergences found
 
@@ -777,16 +780,17 @@
           "the compound :wrapper ancestor is NOT itself final (leaf-only property)"))))
 
 ;; ===========================================================================
-;; §13. HISTORY — expected-rejection (SCXML §3.10, DEFERRED post-v1)
+;; §13. HISTORY — first-class grammar, placement rejections (SCXML §3.10)
 ;;
 ;; SCXML §3.10 `<history type="shallow|deep">` records and restores the
 ;; most recent active descendant of a compound/parallel state. re-frame2
-;; DEFERS history to post-v1 (Spec 005 §Substitutes for skipped features).
-;; The SCXML history tests (W3C test 387/388/579/580) therefore become
-;; EXPECTED-REJECTION assertions: the registration validator MUST reject
-;; any `:history` grammar with `:rf.error/machine-grammar-not-in-v1`. This
-;; is the auditable record that the omission is INTENTIONAL, not a silent
-;; gap. Whether to ever support history is a separate post-v1 decision.
+;; ships FIRST-CLASS history (rf2-mle6e — the post-v1 deferral is withdrawn):
+;; `{:type :history :deep? <bool> :default-target <t>}` under a compound's
+;; `:states`. The COMPREHENSIVE record/restore conformance corpus (the W3C
+;; 387/388/579/580 record-and-restore behaviour) lands under rf2-mle6e.4;
+;; this section keeps only the registration-time PLACEMENT-CONSTRAINT
+;; rejections the engine enforces (a `:type :history` node MUST have an
+;; owning compound) + a smoke that a well-placed history node validates.
 ;; ===========================================================================
 
 (defn- history-rejection-id
@@ -801,46 +805,66 @@
       (:rf.error/id (ex-data e)))))
 
 (deftest scxml-history-root-type-rejected
-  (testing "SCXML §3.10 history (W3C test 387 shallow / 388 deep): a
-            machine declaring `:type :history` at the root is REJECTED at
-            registration — history is deferred post-v1. Spec 005
-            §Substitutes for skipped features; error
-            `:rf.error/machine-grammar-not-in-v1`."
-    (is (= :rf.error/machine-grammar-not-in-v1
+  (testing "SCXML §3.10: a machine ROOT declaring `:type :history` is
+            rejected — a history pseudo-state must be a child node under a
+            compound's `:states`, never the machine root (no owning
+            compound). Spec 005 §History states §Pseudo-state constraints;
+            error `:rf.error/machine-history-misplaced`."
+    (is (= :rf.error/machine-history-misplaced
            (history-rejection-id {:type :history :states {:s {}}}))
-        "root `:type :history` is rejected with the deferred-grammar error")))
+        "root `:type :history` is rejected with the misplaced-history error")))
 
-(deftest scxml-history-state-node-key-rejected
-  (testing "SCXML §3.10: a `:history` state-node key (the per-state history
-            pseudo-state form) is REJECTED at registration. Spec 005
-            §Substitutes for skipped features."
-    (is (= :rf.error/machine-grammar-not-in-v1
+(deftest scxml-history-no-owning-compound-rejected
+  (testing "SCXML §3.10: a `:type :history` node declared at the FLAT
+            machine top-level (a sibling of ordinary states, with no owning
+            compound) is rejected — history records an enclosing compound's
+            last-active config, so it must live inside that compound's
+            `:states`. Spec 005 §History states §Pseudo-state constraints."
+    (is (= :rf.error/machine-history-misplaced
            (history-rejection-id
              {:initial :a
-              :states  {:a {:history {:type :deep}}}}))
-        "a `:history` state-node key is rejected with the deferred-grammar error")))
+              :states  {:a {}
+                        :h {:type :history}}}))
+        "a top-level `:type :history` with no owning compound is misplaced")))
 
-(deftest scxml-history-region-rejected
-  (testing "SCXML §3.10 + §3.4: a history pseudo-state inside a parallel
-            region (W3C test 579/580 history-in-parallel family) is
-            REJECTED at registration. Spec 005 §Substitutes for skipped
-            features (covers root, every state node, and every region body)."
-    (is (= :rf.error/machine-grammar-not-in-v1
+(deftest scxml-history-region-direct-rejected
+  (testing "SCXML §3.10 + §3.4: a `:type :history` declared DIRECTLY on a
+            parallel region body (no enclosing compound region) is rejected.
+            Per-region history must live inside a compound state within the
+            region (W3C test 579/580 history-in-parallel family). Spec 005
+            §Composition with parallel regions §Pseudo-state constraints."
+    (is (= :rf.error/machine-history-misplaced
            (history-rejection-id
              {:type    :parallel
-              :regions {:r {:initial :a
-                            :states  {:a {}}
-                            :history {:type :shallow}}}}))
-        "history grammar inside a parallel region is rejected")))
+              :regions {:r {:type :history :initial :a :states {:a {}}}}}))
+        "a region body declared `:type :history` is misplaced")))
 
-(deftest scxml-history-free-machine-validates
-  (testing "Control: a history-FREE machine using the supported grammar
-            validates cleanly — confirming the rejection is specific to the
-            `:history` grammar, not a blanket validator failure. Spec 005
-            §Capability matrix (every non-history capability is claimed)."
+(deftest scxml-history-extra-keys-rejected
+  (testing "SCXML §3.10: a `:type :history` pseudo-state declaring keys
+            outside the closed `:type` / `:deep?` / `:default-target` set
+            (it is never occupied — `:on` / `:entry` / `:states` are
+            meaningless) is rejected. Spec 005 §History states §Pseudo-state
+            constraints; error `:rf.error/machine-history-extra-keys`."
+    (is (= :rf.error/machine-history-extra-keys
+           (history-rejection-id
+             {:initial :c
+              :states  {:c {:initial :a
+                            :states  {:a {}
+                                      :h {:type :history :on {:go :a}}}}}}))
+        "a history node declaring `:on` is rejected for extra keys")))
+
+(deftest scxml-history-well-placed-validates
+  (testing "Control + first-class smoke: a `:type :history` node correctly
+            placed inside a compound's `:states` validates cleanly — history
+            is a claimed (`:fsm/history`) capability, not a deferred grammar
+            feature. Spec 005 §History states; W3C 387/388 shape."
     (is (= ::no-throw
            (history-rejection-id
-             {:initial :a
-              :states  {:a {:on {:go :b}}
-                        :b {:final? true}}}))
-        "a well-formed history-free machine validates without error")))
+             {:initial :player
+              :states  {:player {:initial :stopped
+                                 :states  {:stopped {:on {:play [:player :hist]}}
+                                           :hist    {:type :history :deep? true
+                                                     :default-target :playing}
+                                           :playing {:initial :at-start
+                                                     :states {:at-start {}}}}}}}))
+        "a well-placed first-class history pseudo-state validates without error")))

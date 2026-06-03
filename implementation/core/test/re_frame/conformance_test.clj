@@ -85,6 +85,7 @@
     :fsm/tags                                         ;; rf2-ee0d (Nine States Stage 1)
     :fsm/parallel-regions                             ;; rf2-l67o (Nine States Stage 2)
     :fsm/final-states                                 ;; rf2-gn80 — :final? + :on-done + :output-key
+    :fsm/history                                      ;; rf2-mle6e — first-class history pseudo-states (:type :history — shallow / deep / default-target)
     :fsm/registration-validation                      ;; rf2-vf5cf — registration-error taxonomy (Spec 009 thrown-error shape) via :reg-machine
     :routing/match-url
     :ssr/render-to-string

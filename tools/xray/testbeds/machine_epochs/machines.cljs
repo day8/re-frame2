@@ -412,24 +412,29 @@
 ;; and the placeholder rungs activate.
 
 (def history-machine-spec
-  "A `:type :history` machine — REJECTED under the v1 deferral. The rejection
-  probe registers it to confirm the deferred-grammar error fires."
+  "A ROOT `:type :history` machine — still rejected, now for PLACEMENT:
+  history is first-class (rf2-mle6e) but a `:type :history` pseudo-state MUST
+  have an owning compound, so a machine root cannot be one. The probe
+  registers it to confirm the misplaced-history error fires. (A WELL-PLACED
+  history machine registers cleanly — wiring the live history deck +
+  placeholder rungs is rf2-mle6e.5's job.)"
   {:type    :history
    :initial :a
    :states  {:a {}}})
 
 (defn history-rejected?
-  "Attempt to register `history-machine-spec` and return true iff it is
-  REJECTED with `:rf.error/machine-grammar-not-in-v1` (the current v1
-  deferral contract). Returns false if it unexpectedly registered (the
-  feature shipped — flip the placeholder rungs), or rethrows a non-history
-  error. The harness asserts this directly via `reg-machine` too."
+  "Attempt to register `history-machine-spec` (a ROOT `:type :history`) and
+  return true iff it is REJECTED with `:rf.error/machine-history-misplaced`
+  (the placement constraint — history is first-class per rf2-mle6e, but a
+  pseudo-state must have an owning compound). Returns false if it
+  unexpectedly registered, or rethrows a non-history error. The harness
+  asserts this directly via `reg-machine` too."
   []
   (try
     (rf/reg-machine :machine-epochs/history-probe history-machine-spec)
     false
     (catch :default e
-      (= :rf.error/machine-grammar-not-in-v1 (:rf.error/id (ex-data e))))))
+      (= :rf.error/machine-history-misplaced (:rf.error/id (ex-data e))))))
 
 ;; ============================================================================
 ;; REGISTRATION

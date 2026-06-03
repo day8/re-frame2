@@ -273,6 +273,15 @@
     (loop [pending      ordered
            cur-data     (:data snapshot)
            cur-counter  (:rf/spawn-counter snapshot)
+           ;; Per Spec 005 §Composition with parallel regions — per-region
+           ;; history (rf2-mle6e.3): thread the shared `:rf/history` map
+           ;; through regions like `:data`. The slot's keys are REGION-
+           ;; QUALIFIED (head = region name), so per-region recordings never
+           ;; collide — a later region only writes its own qualified keys
+           ;; and never overwrites a sibling's. Seeded from the outer
+           ;; snapshot (so a prior epoch's recordings survive) and merged
+           ;; back below.
+           cur-history  (:rf/history snapshot)
            new-states   state-map
            acc-fx       []
            any-handled? false
@@ -283,7 +292,9 @@
                                  (assoc :state new-states)
                                  (assoc :data  cur-data))
                        (some? cur-counter)
-                       (assoc :rf/spawn-counter cur-counter))]
+                       (assoc :rf/spawn-counter cur-counter)
+                       (some? cur-history)
+                       (assoc :rf/history cur-history))]
           ;; Per Spec 005 §Parallel regions (005:1168-1171): carry the
           ;; aggregate handled flag (true iff at least one region resolved
           ;; the event) so `parallel-machine-transition` warns exactly once
@@ -304,7 +315,13 @@
               region-snap (cond-> {:state (get state-map rn)
                                    :data  cur-data}
                             (some? cur-counter)
-                            (assoc :rf/spawn-counter cur-counter))
+                            (assoc :rf/spawn-counter cur-counter)
+                            ;; Seed the region snapshot with the shared
+                            ;; (region-qualified) `:rf/history` so a restore
+                            ;; reads the prior recording and a record writes
+                            ;; the region's own key (rf2-mle6e.3).
+                            (some? cur-history)
+                            (assoc :rf/history cur-history))
               step-result (step-fn region-spec region-snap)]
           (if (result/fail? step-result)
             step-result
@@ -323,6 +340,10 @@
                 (recur (rest pending)
                        (:data reg-snap)
                        (:rf/spawn-counter reg-snap)
+                       ;; Carry forward this region's `:rf/history` writes
+                       ;; (region-qualified keys) so later regions + the
+                       ;; merge see them (rf2-mle6e.3).
+                       (:rf/history reg-snap)
                        (assoc new-states rn (:state reg-snap))
                        (into acc-fx
                              (map (partial prefix-region-spawn-id rn))

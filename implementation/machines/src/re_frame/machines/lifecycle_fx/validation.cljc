@@ -8,6 +8,9 @@
   macro, the registrar, Xray) inspect the `ex-data`. The validators
   in this namespace are:
 
+    - `validate-history!` — `:type :history` pseudo-state shape
+      (rf2-mle6e.3): placement, closed key-set, one-per-compound,
+      `:default-target` resolution.
     - `validate-parallel!` — `:type :parallel` shape (rf2-l67o).
     - `validate-spawn-all!` — `:spawn-all` shape (rf2-6vmw).
     - `validate-no-spawn-timeout-ms!` — rejects the dropped
@@ -248,56 +251,219 @@
       :else
       (walk [] (:states machine)))))
 
-;; Per Spec 005 §Substitutes for skipped features (005:3141) and §Error
-;; category for unclaimed grammar (005:3119-3133): history states remain
-;; post-v1. The v1 CLJS reference claims every OTHER capability, so the
-;; one grammar key it must reject is `:history` — `(rf/reg-machine ...)`
-;; with a `:type :history` node (root or region) or a `:history`
-;; state-node key. Per Spec 009 §Error event catalogue (009:1347,
-;; Ownership.md:48) the canonical recovery is `:no-recovery` —
-;; **registration is rejected** (not the partial-port `:replaced-with-
-;; default` trace-and-ignore path, which only applies to ports that
-;; decline a capability the reference claims). Tags: `:feature`
-;; (the offending key) + `:substitute` (the documented forward pattern).
-(def ^:private history-substitute
-  "snapshot-as-value capture — see Spec 005 §History states → snapshot-as-value capture (CP-5-MachineGuide).")
+;; Per Spec 005 §History states (`:type :history` — shallow / deep /
+;; default-target) §Pseudo-state constraints (rf2-mle6e.1, PR #2863): the
+;; v1 CLJS reference claims `:fsm/history`, so a `:type :history` node is
+;; FIRST-CLASS grammar — no longer rejected. `make-machine-handler`
+;; validates the pseudo-state's shape at registration (the same layer that
+;; rejects malformed compound states):
+;;
+;;   - a `:type :history` node MUST be declared inside a compound state's
+;;     `:states` (it has an owning compound whose configuration it
+;;     records) — a history node at the machine root, or directly under a
+;;     `:type :parallel` root's `:regions` map (no enclosing compound
+;;     region), is a registration error;
+;;   - it declares ONLY `:type` / `:deep?` / `:default-target` — any other
+;;     key (`:states`, `:initial`, `:on`, `:always`, `:after`, `:spawn`,
+;;     `:spawn-all`, `:entry`, `:exit`, `:tags`, `:final?`, …) is a
+;;     registration error;
+;;   - a compound may declare AT MOST ONE history pseudo-state;
+;;   - `:default-target`, when present, MUST resolve to a real state — a
+;;     direct child of the owning compound (keyword form) or an absolute
+;;     path the definition declares (vector form).
+;;
+;; The legacy `:history` state-node KEY form (`{:a {:history {...}}}`) and
+;; a root / region `:type :history` are NOT part of the grammar — they are
+;; misplaced-history registration errors (`:rf.error/machine-history-
+;; misplaced`), the named error every other malformed-placement case uses.
+;; Per Spec 009 §Error contract the recovery is `:no-recovery` (registration
+;; is rejected). The precise error-id catalogue for history-grammar
+;; violations is owned by Spec 009 (mle6e.2); these ids conform to that
+;; family's `:rf.error/machine-history-*` naming.
 
-(defn- history-grammar-error
-  [extras]
-  (validation-error
-    :rf.error/machine-grammar-not-in-v1
-    (str "history states are post-v1 and not in this implementation's "
-         "claimed capability list — use the snapshot-as-value capture "
-         "substitute. See Spec 005 §Substitutes for skipped features.")
-    (merge {:feature :history :substitute history-substitute} extras)))
+(def ^:private history-pseudo-keys
+  "The closed key-set a `:type :history` pseudo-state may carry. Anything
+  else is `:rf.error/machine-history-extra-keys`."
+  #{:type :deep? :default-target})
 
-(defn- validate-no-history!
-  "Reject any `:history` grammar — a `:type :history` node or a `:history`
-  state-node key — at registration. Per Spec 005:3141 the runtime emits
-  `:rf.error/machine-grammar-not-in-v1` against `:history`; per Spec
-  009:1347 registration is rejected (`:no-recovery`). Covers the root,
-  every state node (flat / compound), and every region body of a
-  parallel-region machine."
+(defn- history-node?
+  "True iff `node` is a history pseudo-state (`:type :history`)."
+  [node]
+  (= :history (:type node)))
+
+(defn- node-at-states
+  "Walk a `:states` map down absolute `path`, returning the leaf
+  state-node (or nil if `path` doesn't resolve). Scope-local resolver —
+  `states` is the flat machine's `:states` or a single region body's
+  `:states`, so `path` is scope-relative (region names are never part of
+  a within-region path)."
+  [states path]
+  (loop [m states, p (vec path)]
+    (cond
+      (empty? p) nil
+      :else      (let [n (get m (first p))]
+                   (cond
+                     (nil? n)        nil
+                     (= 1 (count p)) n
+                     :else           (recur (:states n) (rest p)))))))
+
+(defn- resolves-to-state?
+  "True iff `target` resolves to a real state under `owning-path` within
+  `states`. A keyword names a DIRECT CHILD of the owning compound; a
+  vector is an absolute path from the (region) root."
+  [states owning-path target]
+  (cond
+    (keyword? target) (some? (node-at-states states (conj (vec owning-path) target)))
+    (vector? target)  (and (seq target)
+                           (some? (node-at-states states target)))
+    :else             false))
+
+(defn- history-nodes-with-path
+  "Yield `[absolute-path node]` pairs for every `:type :history`
+  pseudo-state inside `states`, recursing through `:states`. Paths are
+  scope-relative (region names excluded). Only HISTORY nodes are yielded
+  (ordinary states are walked through but not emitted). Used by the history
+  validator."
+  [states]
+  (letfn [(walk [path nodes]
+            (mapcat
+              (fn [[k n]]
+                (let [p (conj path k)]
+                  (concat (when (history-node? n) [[p n]])
+                          (when (:states n)
+                            (walk p (:states n))))))
+              nodes))]
+    (walk [] states)))
+
+(defn- compound-states-pairs
+  "Yield `[compound-key states-map]` for every compound inside `states`
+  (the scope root included as `root-key`). Used to enforce
+  at-most-one-history-per-compound."
+  [root-key states]
+  (letfn [(walk [pairs nodes]
+            (reduce (fn [acc [k n]]
+                      (cond-> acc
+                        (and (map? (:states n)) (seq (:states n)))
+                        (-> (conj [k (:states n)])
+                            (walk (:states n)))))
+                    pairs
+                    nodes))]
+    (walk [[root-key states]] states)))
+
+(defn- validate-history-pseudo-state!
+  "Validate one `:type :history` pseudo-state at `path` (its scope-relative
+  declaration path including its own key) within `states`. The owning
+  compound is at `owning-path` (= `path` minus the last segment). Per Spec
+  005 §History states §Pseudo-state constraints."
+  [states path node]
+  (let [hist-key    (peek path)
+        owning-path (vec (drop-last path))]
+    ;; A history node must have an OWNING COMPOUND — `owning-path` empty
+    ;; means it sits at the machine root (or directly on a region body's
+    ;; `:states` with no enclosing compound, which the path walker yields
+    ;; with a length-1 path).
+    (when (empty? owning-path)
+      (throw (validation-error
+               :rf.error/machine-history-misplaced
+               (str "history pseudo-state " hist-key
+                    " must be declared inside a compound state's :states — "
+                    "it records that compound's last-active configuration. "
+                    "A :type :history node at the machine root (or directly "
+                    "under a parallel :regions body) has no owning compound.")
+               {:state hist-key :feature :history})))
+    ;; It declares only :type / :deep? / :default-target.
+    (let [extra (remove history-pseudo-keys (keys node))]
+      (when (seq extra)
+        (throw (validation-error
+                 :rf.error/machine-history-extra-keys
+                 (str "history pseudo-state " hist-key
+                      " may declare only :type / :deep? / :default-target — "
+                      "it is never occupied, so transition / lifecycle / "
+                      "projection keys are meaningless on it. Offending: "
+                      (pr-str (vec extra)) ".")
+                 {:state hist-key :offending-keys (vec extra) :feature :history}))))
+    ;; :default-target, when present, must resolve to a real state.
+    (when (contains? node :default-target)
+      (let [dt (:default-target node)]
+        (when-not (resolves-to-state? states owning-path dt)
+          (throw (validation-error
+                   :rf.error/machine-history-bad-default-target
+                   (str "history pseudo-state " hist-key
+                        "'s :default-target " (pr-str dt)
+                        " does not resolve to a real state — it must be a "
+                        "direct child (keyword) of the owning compound or an "
+                        "absolute path (vector) the definition declares.")
+                   {:state hist-key :default-target dt :feature :history})))))))
+
+(defn- at-most-one-history-per-compound!
+  "Per Spec 005 §History states §Pseudo-state constraints: a compound may
+  declare AT MOST ONE history pseudo-state. Two `:type :history` children
+  under one compound is `:rf.error/machine-history-duplicate` (deep-vs-
+  shallow is a property of the single node's `:deep?`, not a reason for
+  two nodes). `compound-pairs` yields `[compound-key states-map]` for
+  every compound (scope root + nested)."
+  [compound-pairs]
+  (doseq [[ckey states] compound-pairs]
+    (let [hist-keys (->> states
+                         (keep (fn [[k n]] (when (history-node? n) k)))
+                         vec)]
+      (when (> (count hist-keys) 1)
+        (throw (validation-error
+                 :rf.error/machine-history-duplicate
+                 (str "compound state " ckey
+                      " declares more than one history pseudo-state ("
+                      (pr-str hist-keys) ") — at most one is permitted; "
+                      "deep-vs-shallow is the single node's :deep?.")
+                 {:state ckey :history-keys hist-keys :feature :history}))))))
+
+(defn- validate-history-scope!
+  "Validate every history pseudo-state within one scope — a flat / compound
+  machine's `:states` (root-key `:rf/root`) or a single parallel-region
+  body's `:states` (root-key the region name). Paths and `:default-target`
+  resolution are scope-relative, so region names never enter a within-region
+  path (matching how `:always` / `:spawn` scoping resolves per-region). A
+  history node DIRECTLY under the scope root (length-1 path → empty
+  owning-path) is misplaced — it has no owning compound."
+  [root-key states]
+  (doseq [[path node] (history-nodes-with-path states)]
+    (validate-history-pseudo-state! states path node))
+  (at-most-one-history-per-compound! (compound-states-pairs root-key states)))
+
+(defn- validate-history!
+  "Validate the first-class history grammar at registration. Per Spec 005
+  §History states §Pseudo-state constraints + Spec-Schemas
+  §`:rf/transition-table`. Validates every `:type :history` pseudo-state
+  (flat / compound / parallel-region) — placement (must have an owning
+  compound), the closed key-set, at-most-one-per-compound, and
+  `:default-target` resolution.
+
+  Replaces the withdrawn `:rf.error/machine-grammar-not-in-v1` deferral
+  (rf2-mle6e.1, PR #2863): history is now claimed (`:fsm/history`). A
+  `:type :history` node at the machine root, or directly on a region body
+  with no enclosing compound, is `:rf.error/machine-history-misplaced`."
   [machine]
-  ;; Root-level `:type :history` (a `:history` machine) or a `:history`
-  ;; key declared at the machine root (alongside `:states`).
-  (when (or (= :history (:type machine))
-            (contains? machine :history))
-    (throw (history-grammar-error {:where-key :root})))
-  ;; Region bodies of a parallel machine: a region declaring `:type
-  ;; :history` (distinct from the `:type :parallel` nested check, which
-  ;; only rejects nested parallel) or a `:history` key.
-  (when (parallel/parallel? machine)
+  ;; A root-level `:type :history` (a `:history` machine) has no `:states`
+  ;; to walk and no owning compound — flag it directly.
+  (when (history-node? machine)
+    (throw (validation-error
+             :rf.error/machine-history-misplaced
+             (str "a machine root cannot be a :type :history pseudo-state — "
+                  "history is a child node under a compound's :states.")
+             {:state :rf/root :feature :history})))
+  (if (parallel/parallel? machine)
+    ;; A region body declared as `:type :history`, or with history nodes
+    ;; under its `:states`, is validated per-region (region names are the
+    ;; scope root — a history node directly under the region's `:states`
+    ;; has owning-path empty → misplaced).
     (doseq [[region-name region-body] (:regions machine)]
-      (when (or (= :history (:type region-body))
-                (contains? region-body :history))
-        (throw (history-grammar-error {:region region-name})))))
-  ;; Every state node (flat / compound, including inside regions): a
-  ;; `:type :history` node or a `:history` state-node key.
-  (doseq [[s n] (walk-state-nodes machine)]
-    (when (or (= :history (:type n))
-              (contains? n :history))
-      (throw (history-grammar-error {:state s})))))
+      (when (history-node? region-body)
+        (throw (validation-error
+                 :rf.error/machine-history-misplaced
+                 (str "parallel region " region-name
+                      " cannot be a :type :history pseudo-state.")
+                 {:region region-name :feature :history})))
+      (validate-history-scope! region-name (:states region-body)))
+    (validate-history-scope! :rf/root (:states machine))))
 
 (defn- validate-final-state!
   "Per Spec 005 §Final states (rf2-gn80) §`:final?` constraints:
@@ -454,6 +620,13 @@
   Composed at the top of `make-machine-handler` so the registered handler
   fn's body is exclusively about request processing.
 
+  Per Spec 005 §History states §Pseudo-state constraints (rf2-mle6e.3):
+  every `:type :history` pseudo-state — placement (must have an owning
+  compound), the closed `:type` / `:deep?` / `:default-target` key-set,
+  at-most-one-per-compound, and `:default-target` resolution. Throws
+  `:rf.error/machine-history-misplaced` / `-extra-keys` / `-duplicate` /
+  `-bad-default-target`.
+
   Per Spec 005 §Parallel regions (rf2-l67o / Stage 2): `:type :parallel`
   shape — `:regions` non-empty, mutually exclusive with `:initial` /
   `:states`, no nested parallel.
@@ -478,7 +651,7 @@
   that targets its own declaring state is rejected. Throws
   `:rf.error/machine-always-self-loop`."
   [machine]
-  (validate-no-history! machine)
+  (validate-history! machine)
   (validate-parallel! machine)
   (doseq [[s n] (walk-state-nodes machine)]
     (validate-spawn-all! s n)
