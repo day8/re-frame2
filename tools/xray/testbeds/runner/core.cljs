@@ -1,103 +1,86 @@
 (ns runner.core
-  "SHARED queued-step RUNNER for Xray testbeds (rf2-8pbjr — the pilot
-  redesign). A reusable harness an Xray testbed mounts to drive a
-  series of INTERESTING events through ONE button while an operator
-  watches how the Xray panels (Epoch · Machine Inspector · edn-inspector
-  · Trace · …) render each step, with per-step commentary on WHAT TO
-  LOOK FOR.
+  "SHARED step-driver RUNNER for Xray testbeds (rf2-5sjbg — the app-db /
+  events / subs rewrite of the rf2-8pbjr pilot). A reusable harness an
+  Xray testbed mounts to drive a series of INTERESTING events through ONE
+  button while an operator watches how the Xray panels (Epoch · Machine
+  Inspector · edn-inspector · Trace · …) render each step, with per-step
+  commentary on WHAT TO LOOK FOR.
 
-  ## The shape (the settled contract — rf2-8pbjr DESCRIPTION is authoritative)
+  ## The shape — a proper re-frame2 step driver (rf2-5sjbg)
 
-  - **Step vector = CODE DATA.** A testbed `def`s a vector of step maps;
-    each step is
+  The runner is NOT a harness around a Reagent atom. It is an ordinary
+  re-frame2 app surface: the cursor lives in **app-db** (`:step`), it is
+  moved by an **event** (`[:run-step n]`), and the views render off a
+  **subscription** (`:rf.runner/step`). There is NO Reagent atom for step
+  state, no timer, no settle/auto-advance machinery.
 
-        {:event    [:some/event ...]   ; the event to dispatch
-         :watch     \"what to look for in Epoch / Inspector / …\"
-         :settle-ms 600                ; POST-dispatch pause (ms) so machine
-                                       ;   :after timers + cascades fire
-                                       ;   BEFORE advancing
-         :before-ms 0                  ; OPTIONAL pre-dispatch pause (ms);
-                                       ;   default 0 — only when a step
-                                       ;   explicitly needs to settle the
-                                       ;   PREVIOUS render first
-         :label     \"Fire request\"}  ; OPTIONAL short row label (defaults
-                                       ;   to the event-id)
+  - **`:step` lives in app-db.** A deck's app-db carries a top-level
+    `:step` slot — the index of the LAST-RUN step (or nil before the
+    first step). `:step` changing every step IS the per-step app-db delta
+    the panels show, so it doubles as the deck's per-step counter (it
+    REPLACES the old `:baseline` counter and the old runner-atom cursor —
+    they were the same thing, 'which step are we on'). The cursor in
+    app-db is legitimate deck state, observable in Xray's App-db panel,
+    not pollution.
 
-    `:watch` is PER-OCCURRENCE narration — it lives on the STEP, not on
-    any handler `:doc` (the same event type can appear several times
-    with different watch notes).
+  - **`[:run-step n]` is an event.** A deck registers its own run-step
+    event with `reg-runner!`; the handler `assoc`s `:step = n` into app-db
+    AND fans out the step's `:event`(s) as `:fx :dispatch`es into the
+    deck's host-frame. For a single-event step that is one child dispatch;
+    a deck whose step `:event` is itself a fan-out driver (e.g.
+    `:machine-epochs/send` dispatching several machine events) cascades
+    naturally. The same `assoc :step` delta + the dispatched event(s) are
+    one cascade under the run-step epoch.
 
-  - **Post-dispatch settle.** For each step the runner: renders `:watch`
-    → (optional `:before-ms` pause) → DISPATCHES `:event` → FOCUSES the
-    latest host-frame epoch → WAITS `:settle-ms` → advances. The wait is
-    AFTER the dispatch so a machine `:after` timer / a deferred HTTP
-    reply / a fan-out cascade has fired and rendered before the operator
-    is moved on.
+  - **`:rf.runner/step` is a subscription.** The shared `:rf.runner/step`
+    sub reads `:step` from the current frame's app-db. It drives the row
+    HIGHLIGHT + the 'step n / total' counter — so at rest the highlighted
+    row matches the focused epoch (the just-run step). Before the first
+    step `:step` is nil → no row highlighted, the counter reads 'step 0'.
 
-  - **Runner state = LOCAL ATOM ONLY.** The cursor / status / pace live
-    in a LOCAL Reagent atom OWNED by the testbed (passed in). It is NEVER
-    written to the inspected app-db (that would pollute the very panels
-    under inspection) and is NOT a Reagent atom that lives in a separate
-    re-frame FRAME — it is a plain component-local atom, invisible to
-    Xray's frame surfaces. A deck supplies ONE atom per runner mount; a
-    deck that mounts the runner more than once (the two-frame isolation
-    testbed mounts the standard-epochs deck once per `:above` / `:below`
-    frame) supplies a DISTINCT local atom per mount, so the two cursors
-    are genuinely independent.
+  - **Step button + per-step addressing.** The control bar is ONE purple
+    Step button (`<prefix>-step`) that dispatches `[:run-step (inc
+    current)]` — the NEXT step, wrapping to 0 once it runs off the end.
+    Every rendered step row carries a stable, unique `data-testid`
+    (`<prefix>-step-<n>`); each row's index is ALSO a clickable
+    RUN-THIS-STEP button (`<prefix>-step-<n>-run`) that dispatches
+    `[:run-step n]` directly — RANDOM-ACCESS addressing alongside the
+    sequential Step control. A deck whose feature-matrix assertions need
+    to re-drive a NAMED step out of cursor order names each step through
+    that button.
 
-  - **Dispatch is scoped to `host-frame`.** Each step dispatches with an
-    explicit `{:frame host-frame}` opt (see `dispatch+settle!`). A runner
-    control's `on-click` fires OUTSIDE the React frame-provider context,
-    so an un-targeted `(rf/dispatch event)` would land on the ambient
-    `(current-frame-id)` — fine for a single-frame deck (host-frame =
-    `:rf/default`), wrong for a multi-frame mount. Targeting `host-frame`
-    keeps each runner's events scoped to the frame it inspects — the
-    load-bearing rule that lets the two-frame deck stay isolated.
-
-  - **Xray focus (manual).** The Step / per-step-run controls dispatch
-    WITHOUT moving focus — the operator drives the spine themselves and
-    reads the panels at their own pace. (The dispatch engine still carries
-    an `:auto?` focus-pin opt via `day8.re-frame2-xray.focus/focus!` for a
-    future caller that wants it, but no control sets it today.)
-
-  - **One Step button + per-step addressing.** The control bar is ONE
-    purple Step button (`<prefix>-step`) that dispatches the next step at
-    the cursor and advances. Every rendered step row carries a stable,
-    unique `data-testid` (`<prefix>-step-<n>`); each row's index is ALSO a
-    clickable RUN-THIS-STEP button (`<prefix>-step-<n>-run`) that drives
-    that step directly via `run-step-at!` — RANDOM-ACCESS addressing
-    alongside the sequential Step control. The prefix is the testbed's,
-    passed via `opts`. A deck whose feature-matrix assertions need to
-    re-drive a NAMED step out of cursor order (a routing / machine ladder
-    asserting a panel render after a specific rung) names each step
-    through that button rather than keeping a parallel bespoke button
-    ladder. The HIGHLIGHT + status counter render off the LAST-DISPATCHED
-    step (`:active`), so at rest they match the focused epoch — the step
-    whose result is on screen — not the next-to-run cursor.
+  - **`host-frame` is a CONFIG input, never a view arg.** The runner must
+    know which frame it drives (single-frame `:rf/default` vs the
+    two-frame isolation deck's `:above` / `:below`) so `[:run-step]`'s
+    fan-out `:dispatch`es land in the right frame. With per-frame app-db
+    this is naturally isolated: the same deck mounted in two frames
+    evolves two independent `:step` slots. A runner control's `on-click`
+    fires OUTSIDE the React frame-provider context, so an un-targeted
+    `(rf/dispatch [:run-step n])` would land on the ambient
+    `(current-frame-id)` — fine for a single-frame deck, wrong for a
+    two-frame mount. The Step / per-row buttons therefore dispatch the
+    run-step event with an explicit `{:frame host-frame}` opt, and the
+    handler's child `:dispatch`es target `host-frame` too. host-frame is
+    passed to the runner VIEW only so its buttons can scope their
+    `dispatch`; it is NOT threaded down to any leaf row (the leaf gets a
+    bound 0-arg thunk).
 
   ## Why a shared ns (the rollout vehicle)
 
-  This namespace is the reference RUNNER the managed-http testbed
-  (rf2-6nolv) was the FIRST consumer of. It has since been rolled across
-  the numbered-button decks (machine_epochs, edn_inspector — rf2-rrqku;
-  routes_epochs, standard_epochs — rf2-3xakq); the standard-epochs deck
-  is mounted twice by the two_frame_isolation testbed with a distinct
-  per-frame atom + host-frame. Keeping the runner here, in a testbed-
-  shared location, makes each adoption a pure one — a deck supplies its
-  own step vector + prefix + host-frame and drops its bespoke ladder
-  driver.
+  This namespace is the reference RUNNER all six numbered-button decks
+  consume — standard_epochs, routes_epochs, machine_epochs, edn_inspector,
+  managed_http, and (via standard-epochs mounted twice) two_frame_isolation.
+  The shared dependency makes the app-db/events/subs API atomic by
+  construction: every deck adopts it together. A deck supplies its own
+  step vector + prefix + host-frame via `reg-runner!` and drops its bespoke
+  ladder driver.
 
   ## Boundaries (bundle isolation)
 
   Lives under `tools/xray/testbeds/`; `:require`s only `re-frame.core`
-  (the public API), Reagent, and `day8.re-frame2-xray.focus` (the host-
-  facing focus command — already the Story→Xray focus channel). Nothing
-  under `implementation/` requires this; it is a dev testbed surface."
-  (:require [reagent.core :as r]
-            [re-frame.core :as rf]
-            [re-frame.interop :as interop]
-            [day8.re-frame2-xray.focus :as xray-focus]
-            [day8.re-frame2-xray.defaults :as xray-defaults])
+  (the public API). Nothing under `implementation/` requires this; it is a
+  dev testbed surface."
+  (:require [re-frame.core :as rf])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; ============================================================================
@@ -110,237 +93,101 @@
   [{:keys [label event]}]
   (or label (pr-str (first event))))
 
-;; ============================================================================
-;; FOCUS — the pinned 'show the just-dispatched render' contract
-;; ============================================================================
-
-(defn focus-latest-host-epoch!
-  "Focus the LATEST epoch on `host-frame` in the embedded Xray surface,
-  so the operator sees the render the just-dispatched event produced.
-
-  Reads the frame's epoch ring via the public `re-frame.core/epoch-
-  history` (oldest-first; the HEAD is the most recent — `(peek …)`),
-  pulls its `:epoch-id`, and sends a `day8.re-frame2-xray.focus/focus!`
-  command `{:frame host-frame :epoch-id <latest>}`. Degrades to a no-op
-  when there is no recorded epoch yet (empty ring) or the epoch artefact
-  is absent (`epoch-history` returns an empty vector).
-
-  This is the ONE place the runner reaches into Xray — through the same
-  host-facing focus channel Story uses, not a bespoke spine poke."
-  [host-frame]
-  (let [history   (rf/epoch-history host-frame)
-        latest-id (:epoch-id (peek (vec history)))]
-    (when (some? latest-id)
-      (xray-focus/focus! host-frame {:frame    host-frame
-                                     :epoch-id latest-id
-                                     :panel    :epoch}))))
+(defn- step-events
+  "The machine/app event(s) a step dispatches. A step carries a single
+  `:event` (one event vector); the run-step handler fans it out as one
+  child `:dispatch`. Returns a one-element seq so the handler's fan-out is
+  uniform (a step that itself drives several machines does so via its OWN
+  event-fx, e.g. `:machine-epochs/send`)."
+  [{:keys [event]}]
+  (when event [event]))
 
 ;; ============================================================================
-;; THE SETTLE ENGINE — post-dispatch settle, local-atom cursor
+;; THE STEP DRIVER — app-db `:step`, a run-step event, a step sub
 ;; ============================================================================
 ;;
-;; `state` is the LOCAL runner atom (a Reagent atom owned by the testbed).
-;; Its shape:
-;;   {:cursor <int>        ; index of the NEXT step to run (0..count) — the
-;;                         ;   engine's write cursor
-;;    :active <int|nil>    ; index of the LAST-DISPATCHED step, or nil before
-;;                         ;   the first step. The ROW HIGHLIGHT + the status
-;;                         ;   counter render off THIS, so at rest the
-;;                         ;   highlighted row matches the focused epoch (the
-;;                         ;   just-run step), not the next-to-run cursor.
-;;    :phase  <kw>         ; :idle | :before | :dispatched | :settling | :done
-;;    :timer  <handle>}    ; the in-flight settle/before timer
-;;
-;; `:active` (not `:cursor`) drives the row highlight + counter; nothing here
-;; touches app-db.
+;; `:step` is a TOP-LEVEL app-db slot: the index of the last-run step (or
+;; nil before the first step). The run-step event `assoc`s it and fans out
+;; the step's event(s) into `host-frame`. The `:rf.runner/step` sub reads
+;; it back to drive the highlight + counter. Nothing here is a Reagent atom
+;; or a timer.
 
-(defn- clear-timer!
-  [state]
-  (when-let [t (:timer @state)]
-    (interop/clear-timeout! t))
-  (swap! state dissoc :timer))
+(rf/reg-sub :rf.runner/step
+  (fn [db _] (:step db)))
 
-(declare run-step!)
+(defn reg-runner!
+  "Register a deck's run-step event. `config` is
 
-(defn- advance!
-  "After a step settles: bump the cursor to the next-to-run, marking the
-  phase :done once the cursor runs off the end. `:active` (the last-
-  dispatched index, set in `dispatch+settle!`) is left untouched — it is
-  what the highlight + counter render off."
-  [state steps]
-  (let [next-cursor (inc (:cursor @state))
-        more?       (< next-cursor (count steps))]
-    (swap! state assoc :cursor next-cursor :phase (if more? :idle :done))))
+      {:id         :<deck>/run-step   ; the deck-scoped event id the views dispatch
+       :steps      <steps-vector>     ; the deck's CODE-DATA step vector
+       :host-frame <frame-id>}        ; the frame the step events dispatch into
 
-(defn- dispatch+settle!
-  "Dispatch the step's event TO `host-frame`, mark it the `:active` (last-
-  dispatched) step so the highlight + counter render off it, (optionally)
-  focus the latest host-frame epoch, then schedule the post-dispatch
-  `:settle-ms` wait before advancing. `auto?` controls focus: auto-advance
-  pins focus to latest; a manual single-step leaves focus to the operator.
+  The registered `event-fx` handler, on `[:run-step n]`:
+    - `assoc`s `:step = n` into the deck's app-db (the per-step delta the
+      panels show), and
+    - fans out step n's `:event`(s) as `:fx :dispatch`es targeting
+      `host-frame`, so each step's machine/app event lands on the inspected
+      frame in the same cascade as the `:step` write.
 
-  The dispatch carries an explicit `{:frame host-frame}` opt. A runner
-  control's `on-click` fires OUTSIDE the React render tree's frame-provider
-  context, so `(rf/dispatch event)` alone would resolve to the ambient
-  `(current-frame-id)` — `:rf/default` for a single-frame deck (correct
-  there, since the inspected frame IS `:rf/default`), but the WRONG frame
-  when a deck mounts the runner inside a second frame-provider (e.g. the
-  two-frame isolation testbed mounts the standard-epochs deck once per
-  `:above` / `:below` frame, each with its own runner atom + host-frame).
-  Targeting `host-frame` explicitly keeps each runner's dispatches scoped
-  to the frame it inspects — the load-bearing rule for the per-frame
-  isolation proof. For the single-frame decks this is a no-op (host-frame
-  is `:rf/default`, the same frame the out-of-tree click already targeted)."
-  [state steps host-frame {:keys [auto?]}]
-  (let [idx (:cursor @state)
-        {:keys [event settle-ms] :as step} (nth steps idx)]
-    ;; Mark the just-dispatched step active BEFORE the cursor advances, so
-    ;; at rest the highlighted row is the one whose epoch is focused.
-    (swap! state assoc :active idx :phase :dispatched)
-    (rf/dispatch event {:frame host-frame})
-    (when auto?
-      (focus-latest-host-epoch! host-frame))
-    (swap! state assoc :phase :settling)
-    ;; POST-dispatch settle. Framework-native `interop/set-timeout!` —
-    ;; the wait lets a machine :after timer / a deferred HTTP reply / a
-    ;; cascade fire + render before the operator advances. A manual step
-    ;; with settle-ms 0 advances on the next tick.
-    (let [ms (max 0 (or settle-ms 0))
-          t  (interop/set-timeout!
-               (fn []
-                 (swap! state dissoc :timer)
-                 (advance! state steps))
-               ms)]
-      (swap! state assoc :timer t))))
-
-(defn run-step!
-  "Run the step at the current cursor. Honours the OPTIONAL pre-dispatch
-  `:before-ms` pause (default 0 — most steps dispatch immediately), then
-  dispatches + settles. `opts` carries `:auto?` (auto-advance pins
-  focus). Idempotent against an out-of-range cursor (no-op)."
-  [state steps host-frame opts]
-  (let [cursor (:cursor @state)]
-    (when (< cursor (count steps))
-      (clear-timer! state)
-      (let [{:keys [before-ms]} (nth steps cursor)
-            ms                   (max 0 (or before-ms 0))]
-        (if (pos? ms)
-          (do (swap! state assoc :phase :before)
-              (let [t (interop/set-timeout!
-                        (fn []
-                          (swap! state dissoc :timer)
-                          (dispatch+settle! state steps host-frame opts))
-                        ms)]
-                (swap! state assoc :timer t)))
-          (dispatch+settle! state steps host-frame opts))))))
-
-;; ---- the public controls --------------------------------------------------
-;;
-;; The control bar is ONE Step button (`step-once!`); each step row's index is
-;; also a random-access RUN-THIS-STEP button (`run-step-at!`). A deck may also
-;; expose its own Reset (it calls `reset-runner!`).
-
-(defn step-once!
-  "STEP: dispatch the step at the current cursor WITHOUT pinning focus (the
-  operator drives the spine), marking it the `:active` step and advancing
-  the cursor. Wraps back to the top once the cursor has run off the end."
-  [state steps host-frame]
-  (when (>= (:cursor @state) (count steps))
-    (swap! state assoc :cursor 0))
-  (run-step! state steps host-frame {:auto? false}))
-
-(defn run-step-at!
-  "RANDOM-ACCESS step: move the cursor to step `n` and run THAT step
-  (dispatch + settle + advance, marking it `:active`), WITHOUT pinning
-  focus (manual mode — the operator drives the spine). No-op for an
-  out-of-range `n`.
-
-  This is the per-step affordance the runner exposes alongside the single
-  Step control: each rendered step row carries a clickable
-  `<prefix>-step-<n>-run` button so an operator (or a feature-matrix
-  scenario) can drive ANY step directly, not only the next one in the
-  cursor's path. A deck whose assertions need to re-drive a specific step
-  out of order (a routing / machine ladder that asserts a panel render
-  AFTER a NAMED rung) names each step here rather than keeping a parallel
-  bespoke button ladder."
-  [state steps host-frame n]
-  (when (and (integer? n) (<= 0 n) (< n (count steps)))
-    (swap! state assoc :cursor n)
-    (run-step! state steps host-frame {:auto? false})))
-
-(defn initial-state
-  "The runner's initial local-atom value. A testbed `(r/atom (initial-state))`.
-  `:active` is nil — nothing has run, so no row is highlighted yet."
-  []
-  {:cursor 0 :active nil :phase :idle})
-
-(defn reset-runner!
-  "Reset the runner to the top, idle, no pending timer, nothing active.
-  A deck's own Reset button calls this (the runner control bar no longer
-  carries a Reset)."
-  [state]
-  (clear-timer! state)
-  (reset! state (initial-state)))
+  An out-of-range `n` is a no-op (no `:step` write, no dispatch). A deck
+  calls this once at load (the same place it `def`s its steps), then mounts
+  `[runner/runner {:run-step-event :<deck>/run-step :steps steps :prefix
+  \"<deck>\" :host-frame <frame>}]`."
+  [{:keys [id steps host-frame]}]
+  (rf/reg-event-fx id
+    {:doc "Step driver (rf2-5sjbg): set app-db :step = n and fan out step
+           n's event(s) into the deck's host-frame. The runner's Step button
+           dispatches [<this> (inc current)]; each per-row RUN button
+           dispatches [<this> n]."}
+    (fn run-step-handler [{:keys [db]} [_ n]]
+      (if (and (integer? n) (<= 0 n) (< n (count steps)))
+        {:db (assoc db :step n)
+         :fx (mapv (fn [ev] [:dispatch ev {:frame host-frame}])
+                   (step-events (nth steps n)))}
+        {:db db}))))
 
 ;; ============================================================================
-;; VIEWS
+;; VIEWS — subscribe + dispatch only (no atom, no steps/host-frame leaf args)
 ;; ============================================================================
-
-(defn- phase-chip-text
-  "The status chip. `:active` is nil before the first step (ready) and the
-  index of the just-run step otherwise — the chip reads off the active
-  step, not the next-to-run cursor."
-  [{:keys [phase active]}]
-  (cond
-    (nil? active)         "ready"
-    (= phase :done)       "done"
-    (= phase :before)     "pausing (pre-dispatch)…"
-    (= phase :dispatched) "dispatched"
-    (= phase :settling)   "settling…"
-    :else                 "idle"))
 
 (reg-view runner-controls
   "The runner control bar: ONE purple Step button + a status chip reading
-  the LAST-RUN step's position (off `:active`, not the next-to-run cursor,
-  so it matches the focused epoch at rest). The Step button carries a
-  stable `data-testid` (`<prefix>-step`); a deck may render its own Reset
-  alongside (the bar no longer carries Run-series / Pause / Reset)."
-  [prefix state steps host-frame]
-  (let [snap   @state
-        total  (count steps)
-        active (:active snap)]
+  the LAST-RUN step's position (off the `:rf.runner/step` sub, so it
+  matches the focused epoch at rest). The Step button dispatches
+  `[run-step-event (inc current)]` (wrapping to 0 off the end) and carries
+  a stable `data-testid` (`<prefix>-step`); a deck may render its own Reset
+  alongside (the bar carries no Reset)."
+  [prefix run-step-event total host-frame]
+  (let [current @(subscribe [:rf.runner/step])
+        next-n  (if (or (nil? current) (>= (inc current) total)) 0 (inc current))]
     [:div {:data-testid (str prefix "-runner-controls")
            :style {:display "flex" :gap "0.5em" :align-items "center"
                    :flex-wrap "wrap" :padding "0.6em 0.75em" :margin "0.5em 0"
                    :border "1px solid #cfc8ff" :border-radius "8px"
                    :background "#faf8ff"}}
      [:button {:data-testid (str prefix "-step")
-               :on-click #(step-once! state steps host-frame)
+               :on-click #(rf/dispatch [run-step-event next-n] {:frame host-frame})
                :style {:padding "0.45em 0.9em" :cursor "pointer"
                        :border "1px solid #7C5CFF" :border-radius "6px"
                        :background "#7C5CFF" :color "#fff" :font-weight "bold"}}
       "⏭ Step"]
      [:span {:data-testid (str prefix "-status")
              :style {:color "#666" :font-size "12px" :margin-left "0.25em"}}
-      (str (if (nil? active) "step 0" (str "step " (inc active)))
-           " / " total " · " (phase-chip-text snap))]]))
+      (str (if (nil? current) "step 0" (str "step " (inc current)))
+           " / " total)]]))
 
 (reg-view step-row
-  "One step row: its index, label, and `:watch` commentary. The ACTIVE step
-  (the one whose epoch is focused — the last one dispatched) is highlighted;
+  "One step row: its index, label, and `:watch` commentary. The current
+  step (the one whose epoch is focused — the last one run) is highlighted;
   `current?` is true for exactly that row (none before the first step).
   Carries a stable per-step `data-testid` (`<prefix>-step-<n>`).
 
   The index is a clickable RUN-THIS-STEP button (`<prefix>-step-<n>-run`)
   that drives exactly this step by invoking the bound `on-run` thunk
-  (random-access, manual — no focus pinning). `on-run` is a 0-arg fn the
-  RUNNER builds (closing over `state` / `steps` / `host-frame` / `n`), so
-  the leaf row carries ONLY what it renders — its own `step` / `n` /
-  `current?` / `done?` plus that bound action — NOT the whole `steps`
-  vector, the runner `state` atom, or the `host-frame` id (none of which a
-  leaf view should know). The single Step control remains the primary
-  affordance; this lets an operator (or a scenario) drive any step
-  directly without a parallel bespoke button ladder."
+  (`#(dispatch [run-step-event n] {:frame host-frame})`, random-access). The
+  leaf carries ONLY what it renders — its own `step` / `n` / `current?` /
+  `done?` plus that bound action — NOT the steps vector, an atom, or the
+  host-frame id (none of which a leaf view should know)."
   [prefix n step current? done? on-run]
   [:div {:data-testid (str prefix "-step-" n)
          :style {:display "grid" :grid-template-columns "auto 1fr"
@@ -359,40 +206,35 @@
     (str (inc n) ".")]
    [:div
     [:div {:style {:font-weight "600" :color "#333"}}
-     (step-label step)
-     [:span {:style {:color "#999" :font-weight "normal" :margin-left "0.5em"
-                     :font-size "11px"}}
-      (str "settle " (or (:settle-ms step) 0) "ms"
-           (when (pos? (or (:before-ms step) 0))
-             (str " · before " (:before-ms step) "ms")))]]
+     (step-label step)]
     [:div {:data-testid (str prefix "-step-" n "-watch")
            :style {:color "#666" :font-size "12px" :margin-top "0.15em"}}
      "Watch: " (:watch step)]]])
 
 (reg-view runner
   "The full runner surface: the control bar + the step list. A testbed
-  mounts `[runner/runner prefix state steps host-frame]`. `state` is the
-  testbed's LOCAL Reagent atom (`(r/atom (runner/initial-state))`),
-  `steps` the step-vector `def`, `host-frame` the inspected app frame
-  (e.g. `:rf/default`), `prefix` the testid prefix."
-  [prefix state steps host-frame]
-  (let [snap   @state
-        active (:active snap)]
+  registers its run-step event with `reg-runner!`, then mounts
+
+      [runner/runner {:run-step-event :<deck>/run-step
+                      :steps          steps
+                      :prefix         \"<deck>\"
+                      :host-frame     <frame-id>}]
+
+  The HIGHLIGHT + status counter render off the `:rf.runner/step` sub (the
+  current frame's app-db `:step`). The per-row RUN buttons + the Step button
+  dispatch the deck's run-step event into `host-frame`. No atom, no steps /
+  host-frame threaded to any leaf — each row gets a bound 0-arg thunk."
+  [{:keys [run-step-event steps prefix host-frame]}]
+  (let [current @(subscribe [:rf.runner/step])
+        total   (count steps)]
     [:div {:data-testid (str prefix "-runner")}
-     [runner-controls prefix state steps host-frame]
+     [runner-controls prefix run-step-event total host-frame]
      [:div {:data-testid (str prefix "-steps")}
       (map-indexed
-        (fn [n step]
+        (fn [n s]
           ^{:key n}
-          ;; The runner has `state` / `steps` / `host-frame` in scope, so it
-          ;; binds each row a 0-arg `:on-run` thunk over `run-step-at!` and
-          ;; passes the leaf only what it renders — NOT the whole steps vector,
-          ;; the state atom, or the host-frame id. Highlight + 'done' shading
-          ;; render off `:active` (the just-run step), so at rest the
-          ;; highlighted row matches the focused epoch. Before the first step
-          ;; `:active` is nil → no row highlighted.
-          [step-row prefix n step
-           (= n active)
-           (and (some? active) (< n active))
-           #(run-step-at! state steps host-frame n)])
+          [step-row prefix n s
+           (= n current)
+           (and (some? current) (< n current))
+           #(rf/dispatch [run-step-event n] {:frame host-frame})])
         steps)]]))
