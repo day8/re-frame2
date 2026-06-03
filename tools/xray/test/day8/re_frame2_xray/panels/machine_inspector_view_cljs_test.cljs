@@ -823,6 +823,102 @@
         (is (= 1 (get-in xray-db [:focus :epoch-id]))
             "focus stays at epoch 1 — no prior match")))))
 
+(deftest machine-focus-prev-routes-through-spine-and-stamps-retro-rf2-nugvv
+  (testing "rf2-nugvv — the per-machine prev/next jump mutates focus
+            through the spine's `focus-cascade-reducer`, NOT a bare
+            `[:focus :epoch-id]` write. A bare epoch-id write is
+            silently overridden by `compose-focus`'s LIVE+unpaused
+            head-tracking (`eff-epoch-id` snaps back to head), which is
+            why the buttons were dead on the live panel. The fix stamps
+            `:mode :retro` + resolves the target epoch's settling
+            `:dispatch-id` so the navigation sticks — this test pins
+            both so the regression cannot recur silently."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (override-machines!    [:auth/login :checkout/flow])
+      (override-definitions! {:auth/login    fixture-definition
+                              :checkout/flow fixture-definition})
+      (override-epoch-history!
+        [{:epoch-id 1
+          :trace-events
+          [{:id 1 :time 10 :operation :rf.machine/transition
+            :tags {:machine-id :auth/login
+                   :before {:state :idle :data {}}
+                   :after  {:state :authing :data {}}
+                   :event [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}
+         {:epoch-id 2
+          :trace-events
+          [{:id 2 :time 20 :operation :rf.machine/transition
+            :tags {:machine-id :checkout/flow
+                   :before {:state :idle :data {}}
+                   :after  {:state :done :data {}}
+                   :event [:cart/sync] :rf.trace/dispatch-id "d-2"}}]}
+         {:epoch-id 3
+          :trace-events
+          [{:id 3 :time 30 :operation :rf.machine/transition
+            :tags {:machine-id :auth/login
+                   :before {:state :authing :data {}}
+                   :after  {:state :done :data {}}
+                   :event [:auth/done] :rf.trace/dispatch-id "d-3"}}]}])
+      (focus-epoch! 3)
+      (rf/dispatch-sync [:rf.xray/machine-focus-prev])
+      (let [xray-db (frame/frame-app-db-value :rf/xray)
+            focus   (:focus xray-db)]
+        (is (= 1 (:epoch-id focus))
+            "focus stepped to epoch 1 (the prior auth/login epoch)")
+        (is (= "d-1" (:dispatch-id focus))
+            "the target epoch's settling dispatch-id is resolved + pinned
+             (the spine-routed mutation, not a bare epoch-id write)")
+        (is (= :retro (:mode focus))
+            "the jump stamps :mode :retro so compose-focus stops head-
+             tracking and the navigation holds")))))
+
+;; ---- (5b) Share affordance removed (rf2-nugvv) -------------------------
+
+(deftest share-button-and-affordance-removed-rf2-nugvv
+  (testing "rf2-nugvv (Mike, 2026-06-04) — the Machine panel's Share
+            button is removed. Neither the header toolbar button nor the
+            share-modal-open wiring survives. The panel was the sole UI
+            entry point to the Xray share modal."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (override-machines!    [:auth/login])
+      (override-definitions! {:auth/login fixture-definition})
+      (override-epoch-history!
+        [{:epoch-id 1
+          :trace-events
+          [{:id 1 :time 10 :operation :rf.machine/transition
+            :tags {:machine-id :auth/login
+                   :before {:state :idle :data {}}
+                   :after  {:state :authing :data {}}
+                   :event [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}])
+      (focus-epoch! 1)
+      (let [tree (machine-inspector/Panel)]
+        ;; The header still mounts (prev/next nav is in scope).
+        (is (some? (find-by-testid tree "rf-xray-machine-inspector-header"))
+            "panel header still mounts")
+        (is (some? (find-by-testid
+                     tree "rf-xray-machine-inspector-prev-next-nav"))
+            "prev/next nav remains the header toolbar affordance")
+        ;; The Share button is gone.
+        (is (nil? (find-by-testid
+                    tree "rf-xray-machine-inspector-share-button"))
+            "the Share button no longer renders in the panel header"))))
+  (testing "the share-modal-open event + the share subs are no longer
+            registered — the whole share surface (share.cljs + the modal)
+            went with the button"
+    (setup-xray-frame!)
+    (is (nil? (registrar/handler :event :rf.xray/share-modal-open))
+        "share-modal-open event is unregistered")
+    (is (nil? (registrar/handler :event :rf.xray/share-modal-close))
+        "share-modal-close event is unregistered")
+    (is (nil? (registrar/handler :sub :rf.xray/share-modal-open?))
+        "share-modal-open? sub is unregistered")
+    (is (nil? (registrar/handler :sub :rf.xray/share-url))
+        "share-url sub is unregistered")
+    (is (nil? (registrar/handler :sub :rf.xray/cascade-export))
+        "cascade-export sub (rode the same modal) is unregistered")))
+
 ;; ---- (6) events ---------------------------------------------------------
 
 (deftest select-machine-id-event-writes-to-xray-frame

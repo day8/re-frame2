@@ -1,5 +1,5 @@
 (ns day8.re-frame2-xray.modals-aria-cljs-test
-  "WAI-ARIA dialog contract tests for the six Xray modal surfaces
+  "WAI-ARIA dialog contract tests for the Xray modal surfaces
   (rf2-7389r — audit finding #3).
 
   Each modal must carry:
@@ -8,19 +8,22 @@
     - an accessible name (either aria-label or aria-labelledby
       pointing at a heading id rendered inside the dialog)
 
-  The audit caught six modals shipping ZERO modal a11y between them.
+  The audit caught the modals shipping ZERO modal a11y between them.
   This file freezes the post-fix contract so the next renderer cannot
   silently regress.
+
+  rf2-nugvv (2026-06-04) — the Share modal surface is removed (its sole
+  UI entry point, the Machine panel's Share button, was retired), so it
+  drops out of this contract set.
 
   ## Surfaces under test
 
     1. Settings popup  (`settings/view/popup-view`)
-    2. Share modal     (`share-modal/share-dialog`)
-    3. Mute manager    (`spine-filters/dialog`)
-    4. Filter edit-popup (`filters/edit-popup/popup-view`)
-    5. Cancellation-cascade popover — exercised via the Popover
+    2. Mute manager    (`spine-filters/dialog`)
+    3. Filter edit-popup (`filters/edit-popup/popup-view`)
+    4. Cancellation-cascade popover — exercised via the Popover
        reg-view's body (it renders a [:div {:role \"dialog\" ...}])
-    6. App-DB segment-inspector popover — same shape as #5
+    5. App-DB segment-inspector popover — same shape as #4
 
   Tests render each view function directly (no shadow DOM, no Reagent
   mount) and walk the returned hiccup, asserting the ARIA attribute
@@ -38,7 +41,6 @@
              :as cancellation-cascade]
             [day8.re-frame2-xray.registry :as registry]
             [day8.re-frame2-xray.settings.view :as settings-view]
-            [day8.re-frame2-xray.share-modal :as share-modal]
             [day8.re-frame2-xray.spine-filters :as spine-filters]
             [day8.re-frame2-xray.test-support :as xray-test-support]))
 
@@ -166,17 +168,7 @@
           "Settings close ✕ carries an aria-label"))))
 
 ;; -------------------------------------------------------------------------
-;; (2) Share modal
-;; -------------------------------------------------------------------------
-
-(deftest share-modal-carries-dialog-contract
-  (xray-setup!)
-  (let [tree (rf/with-frame :rf/xray (share-modal/share-dialog rf/dispatch*))]
-    (assert-dialog-contract! tree "rf-xray-share-modal-dialog"
-                             "Share modal")))
-
-;; -------------------------------------------------------------------------
-;; (3) Mute manager
+;; (2) Mute manager
 ;; -------------------------------------------------------------------------
 
 (deftest mute-manager-carries-dialog-contract
@@ -186,7 +178,7 @@
                              "Mute manager")))
 
 ;; -------------------------------------------------------------------------
-;; (4) Filter edit-popup
+;; (3) Filter edit-popup
 ;; -------------------------------------------------------------------------
 
 (deftest filter-edit-popup-carries-dialog-contract
@@ -199,7 +191,7 @@
                              "Filter edit-popup")))
 
 ;; -------------------------------------------------------------------------
-;; (5) + (6) Popovers — cancellation-cascade + segment-inspector
+;; (4) + (5) Popovers — cancellation-cascade + segment-inspector
 ;; -------------------------------------------------------------------------
 ;;
 ;; These two use `reg-view` to gate on an `:open?` slot. The reg-view
@@ -241,12 +233,12 @@
 ;; Per-modal focus-ref wiring (rf2-dkmnm — audit finding #3 follow-on)
 ;; -------------------------------------------------------------------------
 ;;
-;; The contract tests above prove each of the six modals is LABELLED
+;; The contract tests above prove each modal is LABELLED
 ;; (role + aria-modal + accessible name). They do NOT prove the modal
 ;; actually attaches the focus-trap. A renderer could ship a perfectly
 ;; labelled dialog with no `a11y/dialog-ref` and every contract test
 ;; would stay green while keyboard users fell out of the trap. These
-;; six tests close that hole by asserting each dialog node carries a
+;; tests close that hole by asserting each dialog node carries a
 ;; function `:ref` (the dialog-ref closure) + the tab-index its
 ;; focus-on-open fallback needs — one assertion per surface so a
 ;; regression names the exact modal that lost its trap.
@@ -258,12 +250,6 @@
   (let [tree (rf/with-frame :rf/xray (settings-view/popup-view rf/dispatch*))]
     (assert-dialog-focus-ref! tree "rf-xray-settings-dialog"
                               "Settings popup")))
-
-(deftest share-modal-attaches-focus-ref
-  (xray-setup!)
-  (let [tree (rf/with-frame :rf/xray (share-modal/share-dialog rf/dispatch*))]
-    (assert-dialog-focus-ref! tree "rf-xray-share-modal-dialog"
-                              "Share modal")))
 
 (deftest mute-manager-attaches-focus-ref
   (xray-setup!)

@@ -142,7 +142,6 @@
             [day8.re-frame2-xray.palette :as palette]
             [day8.re-frame2-xray.resize-handle :as resize-handle]
             [day8.re-frame2-xray.settings.popup :as settings-popup]
-            [day8.re-frame2-xray.share-modal :as share-modal]
             [day8.re-frame2-xray.views.edn-inspector-popup
              :as edn-inspector-popup]
             [day8.re-frame2-xray.spine-filters :as spine-filters]
@@ -2674,13 +2673,10 @@
     ;; subscribes resolve through the `:rf/xray` frame-provider;
     ;; closed-state cost is one subscribe + a when-gate.
     [cancellation-cascade/Popover]
-    ;; Share modal (rf2-nqw0v Phase 5) — encodes the current Xray
-    ;; state (focused machine + mode + scrubber + tab) into a URL the
-    ;; user can paste anywhere. Same mount discipline as the other
-    ;; modals: shell-root mount so subscribes resolve through the
-    ;; `:rf/xray` frame-provider; closed-state cost is one subscribe
-    ;; + a when-gate.
-    [share-modal/Modal]
+    ;; rf2-nugvv (2026-06-04) — the Share modal (rf2-nqw0v Phase 5) is
+    ;; removed. The Machine panel's Share button was its sole UI entry
+    ;; point, so the modal, its shell mount, and the `share.cljs` infra
+    ;; all go with it.
     ;; Mute manager modal (rf2-ikuwt) — lists every muted event-id
     ;; with per-row unmute buttons + a 'Unmute all' affordance. Same
     ;; mount discipline as the other modals: shell-root mount so the

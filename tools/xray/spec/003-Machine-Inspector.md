@@ -118,13 +118,26 @@ below; the three render states are:
       cancellation lands in the trace window).
 
 The header carries:
-- A **Share button** (right-aligned).
 - A **prev/next nav** (`◀ Prev` / `Next ▶`) that walks the spine's
   epoch history to the prior/next epoch whose cascade ALSO touched
-  the focused machine instance. The "focused machine instance" is the
-  one selected per rf2-8og3k for the current event. Hidden in the
+  the focused machine instance — skipping epochs whose cascade touched
+  only other machines. The "focused machine instance" is the one
+  selected per rf2-8og3k for the current event. Hidden in the
   state-2 (no-machine-targeted) and state-1 (no-machines-registered)
   branches.
+
+  > **rf2-nugvv (2026-06-04)** — the nav mutates focus through the
+  > spine's `focus-cascade-reducer` (stamping `:mode :retro` + resolving
+  > the target epoch's settling `:dispatch-id`), starting from the
+  > COMPOSED focus rather than the raw `:focus` slot. A bare
+  > `[:focus :epoch-id]` write is silently overridden by
+  > `compose-focus`'s LIVE+unpaused head-tracking, which is why the
+  > buttons previously appeared dead on the live panel.
+
+The header previously also carried a right-aligned **Share button**;
+**rf2-nugvv (2026-06-04) removed it** along with the whole Xray share
+surface (see [§Share affordance](#share-affordance) below) — the Machine
+panel was its sole UI entry point.
 
 The above-the-chart framing region is described in
 [§Focused-transition lens — above the chart (rf2-99rhe)](#focused-transition-lens--above-the-chart-rf2-99rhe)
@@ -347,8 +360,10 @@ defmachine).
   registered against the `:rf/xray` frame from that ns.
 - No per-instance arc overlay; no mini-scrubber. The
   `:rf.xray/machine-scrubber-position` SLOT survives (read/write
-  events still registered) because the share-URL round-trips it; the
-  scrubber UI itself is gone.
+  events still registered) because the `:after`-rings overlay reads it
+  to gate ring rendering to the `:present` position; the scrubber UI
+  itself is gone. (rf2-nugvv removed the share-URL surface that
+  previously also round-tripped it.)
 - No Browse-all UI entry. The browse-all index algebra in the
   helpers ns remains for the Static re-host.
 
@@ -1112,48 +1127,26 @@ defaults).
 
 ## Share affordance
 
-### v1 ships — share-URL (rf2-nqw0v, Phase 5)
+### Removed — rf2-nugvv (2026-06-04)
 
-The v1 Share button is a `⤴ Share` chip in the panel header that
-opens a modal carrying a copyable URL encoding the current Machines-
-tab inspection posture. NOT the PNG / SVG / Mermaid copy-as
-sub-menu — that is the broader vision (preserved below as v1.1
-deferred work).
+The Machine panel's `⤴ Share` button and the entire Xray share-URL
+surface it fronted are **removed** (Mike, 2026-06-04). The Machine
+panel was the modal's sole UI entry point, so the button, the modal
+(`share_modal.cljs`), the share-URL + cascade-export infra
+(`share.cljs`), the structured-export projection
+(`export/cascade.cljc`), and the shell-root modal mount all went with
+it. The per-cascade structured export (rf2-0us27) rode the same modal
+and is removed as collateral — see the follow-up bead for re-homing it
+if a host-agnostic export entry point is wanted.
 
-Encoded slots, as a flat URL query-string:
+The historical share-URL design (rf2-nqw0v, Phase 5) encoded the
+visible inspection posture (`xray-share=1&machine=…&pos=…&tab=…`) into
+a flat, human-legible query-string and restored it on load via
+`maybe-restore-from-location!`. That restore hook was never wired into
+mount, so the round-trip's read half was already inert before this
+removal.
 
-| Param | Source slot | Meaning |
-|---|---|---|
-| `xray-share=1` | sentinel | "this URL carries a Xray share." Without it the loader skips share-restore on mount. |
-| `machine=<id>` | `:focused-machine-id` | The machine the inspector is bound to. |
-| `pos=<int>` | `:scrubber-position` | The mini-scrubber's `[0, max-idx]` position (omitted when `:present`). |
-| `mode=<mode-x>` | `:view-mode` | UC2 dynamic mode pin (`mode-a`/`mode-b`/`mode-c`). |
-| `tab=<id>` | active L3 tab id | The L3 tab the recipient lands on (defaults to `machines`). |
-
-Encoded form is human-legible and trivially diff-friendly — `?xray-
-share=1&machine=auth/login&pos=3&mode=mode-b&tab=machines` — so the
-URL can be pasted into a PR comment, a code-review note, or a chat
-without explanation overhead.
-
-On load, `maybe-restore-from-location!` parses the query-string and
-dispatches `:rf.xray/restore-from-share-url` into the per-slot
-reducers. The dispatch is one-shot per page-load: subsequent
-in-session navigation does not re-read the URL.
-
-Lock #4 (no session export) is preserved by scope: the URL encodes
-only the **visible inspection posture** (which machine, which
-scrubber index, which view mode, which tab). It does NOT serialise
-the trace stream, the epoch buffer, or the app-db — the recipient
-sees the same inspector view against THEIR runtime state, not the
-sender's.
-
-The share modal itself mounts at the shell-view root (parallel to the
-palette / settings popup pattern); `share.cljs` + `share_modal.cljs`
-hold the URL parsing + the modal renderer; both are
-production-elided per [`Principles.md`](Principles.md) §Production
-elision is non-negotiable.
-
-### v1.1 deferred — Copy machine as PNG / SVG / Mermaid
+### Not built — Copy machine as PNG / SVG / Mermaid
 
 Right-click on the machine chart (or use the panel header's `⋯`
 overflow menu) surfaces a **Copy machine as…** sub-menu:

@@ -179,9 +179,9 @@ shape:
 
 `focus!` fires into Xray's own `:rf/xray` shell frame (via
 `re-frame.core/with-frame defaults/default-frame-id` — the same
-no-surrounding-frame seam `runtime.cljs` mutations and `share.cljs`'s
-on-load restore use). The host never names Xray's internal frame; the
-channel is the command, not the frame split.
+no-surrounding-frame seam `runtime.cljs` mutations and
+`spine-filters/hydrate!` use). The host never names Xray's internal
+frame; the channel is the command, not the frame split.
 
 This is **separate from open-full-Xray.** Mounting / opening /
 popping-out the whole shell stays in `mount.cljs` (`open!` /

@@ -721,13 +721,19 @@
   [db]
   (get db :epoch-history []))
 
-(defn- db->show-ungrouped?
+(defn db->show-ungrouped?
   "Read the live `:show-ungrouped?` opt-in flag (rf2-r9lyy) off the
   Xray app-db's seeded settings slot, falling back to the config
   atom for callers that fire before the settings popup has been
   opened (the popup's `:settings-open` handler seeds the slot from
   the atom on first open). Mirrors the read shape used by the
-  `:rf.xray/show-ungrouped?` sub in `settings/subs.cljs`."
+  `:rf.xray/show-ungrouped?` sub in `settings/subs.cljs`.
+
+  Public (rf2-nugvv) so cross-panel spine-shim events that need to
+  resolve the composed focus inside a `reg-event-db` handler — e.g.
+  the Machine Inspector's per-machine prev/next nav — can pass the
+  same opt-in into `compose-focus` / `focus-cascade-reducer` rather
+  than re-deriving it."
   [db]
   (boolean
     (or (get-in db [:settings :general :show-ungrouped?])

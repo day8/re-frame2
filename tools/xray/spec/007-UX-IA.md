@@ -480,10 +480,10 @@ selector, no sub-strip, no arc / scrubber). It renders one of three
 shapes based on the focused event's machine activity:
 
 ```
-┌─ Machine inspector ──────────────────────────────  [Prev][Next] [⤴ Share] ─┐
+┌─ Machine inspector ───────────────────────────────────────  [Prev][Next] ─┐
 │                                                                            │
 │ — case A: no machines registered —                                         │
-│   "No machines registered." (Prev/Next + Share hidden)                     │
+│   "No machines registered." (Prev/Next hidden)                             │
 │                                                                            │
 │ — case B: machines registered, focused event has NO transitions —          │
 │   "No machine activity in the focused event."  (Prev/Next hidden)          │
@@ -506,11 +506,15 @@ shapes based on the focused event's machine activity:
 
 - **Prev / Next**: walk the spine's epoch history to the prior/next
   epoch whose cascade ALSO touched the **focused machine** (the head
-  section's `machine-id`).
-- **Share**: opens the share modal; encodes the focus + selected-tab +
-  scrubber-position into a URL. The legacy `:mode` slot (forced Mode
-  A/B/C) is no longer emitted; legacy URLs carrying it are silently
-  dropped on restore.
+  section's `machine-id`), skipping epochs that touched only other
+  machines. The jump mutates focus through the spine's
+  `focus-cascade-reducer` (stamping `:mode :retro`) so it sticks in
+  LIVE mode (rf2-nugvv).
+
+> **rf2-nugvv (2026-06-04)** — the **Share** button + the whole Xray
+> share-URL surface were removed; the Machine panel was the share
+> modal's sole UI entry point. Prev/Next is now the only header
+> affordance.
 
 **The Sim engine + browse-all index have no Dynamic UI.**
 Sibling bead rf2-r4nao landed the Sim toggle / side-rail + the
@@ -1488,8 +1492,8 @@ Three modal surfaces float over the chrome:
 
 ### Shared modal-chrome scaffold (rf2-7oxvd)
 
-**All eight** of Xray's modal/popover surfaces (Settings, Filter
-edit-popup, Share, Mute manager, App-DB segment-inspector, EDN-inspector
+**All** of Xray's modal/popover surfaces (Settings, Filter
+edit-popup, Mute manager, App-DB segment-inspector, EDN-inspector
 popup, Cancellation-cascade popover, **Command palette**) render the
 **same backdrop + dialog scaffold** — a full-inset click-to-dismiss
 overlay wrapping a WAI-ARIA dialog box that carries `role="dialog"` +
