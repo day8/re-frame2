@@ -2,21 +2,52 @@
   "Tool: read-ui — the typed `ui/read` (a.k.a. `view/rendered`) op
   (rf2-3bu3d.1).
 
+  ## The two DOM-read planes (read-ui vs read-dom)
+
+  re-frame2-pair carries TWO rendered-state reads, at different LAYERS —
+  they are NOT duplicates:
+
+  - `read-ui` (this op) = the **re-frame2 view plane**: rides the
+    `data-rf-view` map → content PLUS the producing ENTITY (view-id,
+    source-coord, subs-read, render-key). \"What is this view, and what
+    produced it?\"
+  - `read-dom` = the **raw DOM plane**: a CSS selector → matched nodes
+    `{:tag :text :attrs}`. Multi-node, exact, NO re-frame2 awareness.
+    \"What does this exact node SAY?\"
+
+  Pick `read-ui` when you want a view's content AND its re-frame2
+  provenance in one round-trip; pick `read-dom` when you have a selector
+  and want raw content across N matched nodes.
+
   ## Why a view→content+entity read primitive
 
   re-frame2-pair has a rich DOM-to-SOURCE bridge (`dom/source-at`,
   `dom/describe`, `dom/find-by-src`) that maps a gesture/selector →
   source-coord + registration meta — \"where in the code did this come
-  from?\". And `read-dom` returns rendered text/attrs by an explicit CSS
-  selector. What neither answers is the most common UI-pairing question:
-  \"what does the thing I'm looking at SHOW, and which re-frame2 ENTITY
-  produced it?\" — given a VIEW-ID (or a point / selector), in ONE
+  from?\". And `read-dom` returns raw rendered text/attrs by an explicit
+  CSS selector. What neither answers is the most common UI-pairing
+  question: \"what does the thing I'm looking at SHOW, and which re-frame2
+  ENTITY produced it?\" — given a VIEW-ID (or a point / selector), in ONE
   round-trip, return BOTH the rendered subtree AND the producing entity
   (view-id, source-coord, render-key, subs-read).
 
   Before this op, that meant hand-rolling an `eval-cljs` querySelectorAll +
   textContent slice with GUESSED selectors, then a SECOND round-trip to
   map the node back to a view. `read-ui` first-classes the whole gesture.
+
+  ## One shared DOM-read core with read-dom (rf2-q0r7e)
+
+  Both planes route through the SAME runtime ns
+  (`re-frame2-pair.runtime`): read-ui emits
+  `(re-frame2-pair.runtime/ui-read {...})` and read-dom emits
+  `(re-frame2-pair.runtime/dom-read {...})`, via the SAME `eval-form` DSL
+  (`tools.eval-form`) and the SAME single-eval prelude
+  (`probe/eval-after-runtime!`). The per-node projection (tag + capped
+  text + attribute map) lives ONCE, in the runtime's `node->content`; the
+  view plane layers entity-resolution + privacy elision ON TOP of it. A
+  fix or a regression-guard on the shared form covers BOTH ops, so neither
+  can silently break alone (the rf2-w2mjm failure mode, where read-dom's
+  separately-inlined eval form nilled out while read-ui stayed green).
 
   ## Naming — the `ui/read` op, the `read-` verb
 
@@ -105,6 +136,21 @@
   [frame]
   (some-> frame (str/replace #"^:" "") keyword))
 
+(defn- read-ui-form
+  "Compose the single `(re-frame2-pair.runtime/ui-read {...})` form via the
+  shared `eval-form` DSL (rf2-q0r7e) — the SAME plumbing read-dom uses.
+  Only present entry points / knobs ride (the runtime enforces the
+  precedence view-id > point > selector). Pure form-builder, no
+  connection: callable directly by the form-composition regression guard
+  so the alias-trap check covers BOTH ops, not just read-dom."
+  [vid pt selector max-text frame]
+  (let [opts (cond-> {:max-text max-text}
+               (some? vid)      (assoc :view-id vid)
+               (some? pt)       (assoc :point pt)
+               (some? selector) (assoc :selector selector)
+               (some? frame)    (assoc :frame (frame-edn frame)))]
+    (ef/emit (ef/rt-call 'ui-read opts))))
+
 (defn read-ui-tool
   "MCP `read-ui` handler — the typed `ui/read` op. Composes a single
   `(re-frame2-pair.runtime/ui-read {...})` form and forwards the
@@ -146,12 +192,7 @@
             pt    (when (some? point)
                     (let [m (js->clj point :keywordize-keys true)]
                       (when (map? m) (select-keys m [:x :y]))))
-            opts  (cond-> {:max-text max-text}
-                    (some? vid)      (assoc :view-id vid)
-                    (some? pt)       (assoc :point pt)
-                    (some? selector) (assoc :selector selector)
-                    (some? frame)    (assoc :frame (frame-edn frame)))
-            form  (ef/emit (ef/rt-call 'ui-read opts))]
+            form  (read-ui-form vid pt selector max-text frame)]
         (probe/eval-after-runtime!
           conn build-id form :rf.error/read-ui-failed
           (fn [envelope]

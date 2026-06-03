@@ -41,6 +41,13 @@
 ;;;;     | `list-subscriptions`    | `sub-cache-info`            |
 ;;;;     | `list-streams`          | `subscription-info`         |
 ;;;;     | `list-handlers`         | `rf/registrations`          |
+;;;;     | `read-dom`              | `dom-read`                  |
+;;;;     | `read-ui`               | `ui-read`                   |
+;;;;
+;;;;   (rf2-q0r7e: `read-dom` and `read-ui` share one DOM-read core —
+;;;;   `node->content` — and both ship a thin `(…/dom-read …)` /
+;;;;   `(…/ui-read …)` call via the same eval-form plumbing, so neither
+;;;;   op's eval form can rot independently.)
 ;;;;
 ;;;;   (rf2-qicji: `list-subscriptions` reads the live reactive
 ;;;;   sub-cache via `sub-cache-info`; the streaming-tap diagnostic it
@@ -2763,6 +2770,17 @@
 ;; ui-read — view-plane RENDERED-CONTENT read + producing ENTITY (rf2-3bu3d.1)
 ;; ---------------------------------------------------------------------------
 ;;
+;; The two DOM-read planes (rf2-q0r7e). `dom-read` (above) is the RAW DOM
+;; plane: a CSS selector → matched nodes, multi-node, NO re-frame2 awareness
+;; — "what does this exact node SAY?". `ui-read` (here) is the re-frame2 VIEW
+;; plane: it rides the `data-rf-view` map → content PLUS the producing ENTITY
+;; (view-id, source-coord, subs-read, render-key) — "what is this view, and
+;; what produced it?". They share the per-node projection core (`node->content`)
+;; so the projection cannot rot on one plane alone, but the planes stay
+;; semantically distinct. Pick `dom-read` when you have a selector and want
+;; raw content across N nodes; pick `ui-read` when you want a view's content
+;; AND its re-frame2 provenance in one round-trip.
+;;
 ;; The DOM-to-source bridge above (dom-source-at / dom-describe /
 ;; dom-find-by-src) answers "where in the SOURCE did this come from?" — a
 ;; gesture/selector → source-coord + registration meta. It does NOT answer
@@ -2841,31 +2859,183 @@
            (some? (.getAttribute n "data-rf-view"))) n
       :else (recur (.-parentNode n)))))
 
-(defn- node-attrs
-  "Collect a node's attributes as a `{name value}` map. Always includes
-   the structural identity attrs (id / class / role / type / name / value
-   / href / …) plus every `data-*` / `aria-*` attribute — the view-plane
-   idiom for surfacing rendered state. `data-rf-view` /
-   `data-rf2-source-coord` are dropped: they're framework-internal
-   annotations already surfaced structurally under `:entity`, so leaving
-   them in the raw attr map would be noise."
-  [el]
-  (let [structural #{"id" "class" "role" "type" "name" "value" "href"
-                     "title" "placeholder" "disabled" "checked" "selected"
-                     "hidden"}
-        internal   #{"data-rf-view" "data-rf2-source-coord"}]
+;; ---------------------------------------------------------------------------
+;; Shared DOM-read core — used by BOTH `dom-read` (raw DOM plane) and
+;; `ui-read` (re-frame2 view plane), so the per-node projection cannot rot
+;; on one op alone (rf2-q0r7e).
+;;
+;; Before this share, `dom-read` lived INLINED as a raw eval string in the
+;; MCP tool (`read_dom.cljs`) while `ui-read` called this runtime ns. The
+;; two carried INDEPENDENT copies of "querySelector → {:tag :text :attrs}",
+;; and they rotted apart: rf2-w2mjm — the inlined read-dom form lowered the
+;; tag with `(str/lower-case …)`, but the BARE browser cljs-eval context the
+;; inlined string ran in aliases NOTHING (no `:require`), so `str` was
+;; unresolved, the whole form nilled out, and EVERY read-dom call came back
+;; `:read-dom-blank-result` — while read-ui, calling THIS ns (which DOES
+;; `:require [clojure.string :as str]`), stayed green. Folding read-dom onto
+;; this runtime fn removes that alias trap entirely: both ops now run in a
+;; namespace with real requires, and the projection below is the single
+;; place a fix or a break lands.
+;;
+;; The SEMANTICS stay distinct — `dom-read` is the raw DOM plane (a CSS
+;; selector → matched nodes, multi-node, no re-frame2 awareness) and
+;; `ui-read` is the view plane (rides the `data-rf-view` map → content PLUS
+;; the producing entity). Only the per-node PROJECTION (tag + capped text +
+;; attribute map) is shared.
+
+(def ^:private structural-attrs
+  "The structural identity attributes both planes surface by name when no
+   explicit attr list is supplied. Carries rendered identity / state."
+  #{"id" "class" "role" "type" "name" "value" "href"
+    "title" "placeholder" "disabled" "checked" "selected" "hidden"})
+
+(def ^:private internal-attrs
+  "Framework-internal annotations dropped from the view-plane attr map —
+   they're already surfaced structurally under `:entity`, so leaving them
+   in the raw attr map would be noise."
+  #{"data-rf-view" "data-rf2-source-coord"})
+
+(defn- collect-attrs
+  "Collect a node's attributes as a `{name value}` map.
+
+   `opts`:
+     :names         when a non-nil vector of attribute-name strings, ONLY
+                    those names are read (the caller is in control — the
+                    raw-DOM-plane explicit-`:attrs` mode). When nil, the
+                    curated `structural-attrs` set rides.
+     :prefix-sweep? when true, ALSO sweep every `data-*` / `aria-*`
+                    attribute the node carries (the view-plane idiom for
+                    surfacing rendered state).
+     :drop-internal? when true, omit the framework-internal annotations
+                    (`internal-attrs`) — the view plane drops them; the
+                    raw DOM plane keeps whatever the caller named.
+
+   Implemented as a single attribute walk so both planes share the
+   selection rules."
+  [el {:keys [names prefix-sweep? drop-internal?]}]
+  (let [named (when names (set names))]
     (persistent!
       (reduce
         (fn [acc a]
           (let [nm (.-name a)]
-            (if (and (not (contains? internal nm))
-                     (or (contains? structural nm)
-                         (.startsWith nm "data-")
-                         (.startsWith nm "aria-")))
+            (if (and (or (nil? drop-internal?)
+                         (not (contains? internal-attrs nm)))
+                     (or (if named
+                           (contains? named nm)
+                           (contains? structural-attrs nm))
+                         (and prefix-sweep?
+                              (or (.startsWith nm "data-")
+                                  (.startsWith nm "aria-")))))
               (assoc! acc nm (.-value a))
               acc)))
         (transient {})
         (array-seq (.-attributes el))))))
+
+(defn- cap-text
+  "Read `el`'s `textContent`, capped at `max-text` characters. Over-cap
+   text collapses to the framework size-elision marker shape
+   `{:rf.size/large-elided {:type :dom-text :chars N :preview \"…\"}}` —
+   the SAME shape `get-path` / `snapshot` emit (rf2-urjnc), so an agent
+   recognises an elision uniformly. Under-cap text rides as the raw
+   string. Pure read."
+  [el max-text]
+  (let [t  (let [tc (.-textContent el)] (if (string? tc) tc ""))
+        tn (count t)]
+    (if (> tn max-text)
+      {:rf.size/large-elided
+       {:type :dom-text :chars tn :preview (subs t 0 (min tn 120))}}
+      t)))
+
+(defn- node->content
+  "Project ONE DOM element to the structured `{:tag :text :attrs}` shape
+   both DOM-read planes return. `max-text` caps the text (see `cap-text`);
+   `attr-opts` selects the attribute strategy (see `collect-attrs`). The
+   single place the per-node projection lives — a fix or a break here
+   lands on BOTH `dom-read` and `ui-read`, never one alone (rf2-q0r7e)."
+  [el max-text attr-opts]
+  {:tag   (str/lower-case (or (.-tagName el) ""))
+   :text  (cap-text el max-text)
+   :attrs (collect-attrs el attr-opts)})
+
+;; ---------------------------------------------------------------------------
+;; dom-read — raw DOM plane: CSS selector → matched nodes {:tag :text :attrs}
+;; (rf2-nfjil; folded onto this runtime ns by rf2-q0r7e).
+;;
+;; The complement to `ui-read`: NO re-frame2 awareness. A plain
+;; `querySelectorAll`, optional sub-selector run relative to each match, a
+;; matched-node `:limit`, and the shared per-node projection. Caps run
+;; HERE (browser-side) so only bounded EDN crosses the wire — a 5 MB <pre>
+;; never leaves the tab.
+
+(defn dom-read
+  "Read rendered DOM content by CSS selector — the RAW DOM plane
+   (rf2-nfjil). Returns the matched-node count + per-node
+   `{:tag :text :attrs}`, capped at the source. The view-plane
+   counterpart is `ui-read` (which rides the `data-rf-view` map and also
+   returns the producing re-frame2 entity).
+
+   `opts`:
+     :selector      CSS selector (required) — `querySelectorAll`.
+     :sub-selector  optional CSS selector run RELATIVE to each matched
+                    node (`node.querySelectorAll`) — narrows a coarse
+                    match to its inner parts. When supplied the result's
+                    `:nodes` are the sub-matches.
+     :limit         max matched nodes returned (default 50). Excess nodes
+                    drop and `:truncated?` flips true; `:count` still
+                    reports the full tally.
+     :max-text      per-node `textContent` char cap (default 2000).
+                    Over-cap text → `:rf.size/large-elided` marker.
+     :attrs         optional vector of attribute-name strings. When
+                    supplied ONLY those are read (the caller is in
+                    control). When omitted the curated structural set
+                    rides PLUS a `data-*` / `aria-*` prefix sweep.
+
+   Returns (success):
+     {:ok? true :selector <sel> [:sub-selector <sub>] :count <total>
+      :truncated? <bool> :nodes [{:tag :text :attrs} …]}
+
+   Failure (each :ok? false, never a silent empty):
+     :rf.error/read-dom-no-document   — no DOM (server-side / headless)
+     :rf.error/read-dom-bad-selector  — malformed CSS selector
+
+   Read-only by construction: only `querySelectorAll` / `textContent` /
+   attribute strings are read — never a write, a dispatch, or a node
+   mutation."
+  ([] (dom-read {}))
+  ([opts]
+   (let [{:keys [selector sub-selector limit max-text attrs]} opts
+         limit    (if (and (number? limit) (pos? limit)) (long limit) 50)
+         max-text (if (and (number? max-text) (pos? max-text)) (long max-text) 2000)
+         ;; nil attrs ⇒ curated structural set + data-*/aria- sweep; an
+         ;; explicit vector ⇒ exactly those names, no sweep (the caller is
+         ;; in control). The raw DOM plane keeps whatever the caller named
+         ;; (no internal-annotation drop — that's a view-plane concern).
+         attr-opts (if attrs
+                     {:names attrs :prefix-sweep? false}
+                     {:names nil   :prefix-sweep? true})]
+     (cond
+       (not (exists? js/document))
+       {:ok? false :reason :rf.error/read-dom-no-document}
+
+       :else
+       (try
+         (let [nodes  (array-seq (.querySelectorAll js/document selector))
+               scoped (if (some? sub-selector)
+                        (mapcat (fn [n] (array-seq (.querySelectorAll n sub-selector))) nodes)
+                        nodes)
+               total  (count scoped)
+               want   (take limit scoped)]
+           (cond-> {:ok?        true
+                    :selector   selector
+                    :count      total
+                    :truncated? (> total (count want))
+                    :nodes      (mapv #(node->content % max-text attr-opts) want)}
+             (some? sub-selector) (assoc :sub-selector sub-selector)))
+         (catch :default e
+           {:ok?      false
+            :reason   :rf.error/read-dom-bad-selector
+            :selector selector
+            :message  (.-message e)}))))))
 
 (defn- view-entity
   "Resolve the re-frame2 ENTITY that produced `view-root` — the headline
@@ -2929,10 +3099,17 @@
 (defn ui-read
   "Read the RENDERED content of a view (or the view at a point / selector)
    as structured, ELIDED data, PLUS the re-frame2 entity that produced it
-   (rf2-3bu3d.1). The view-plane counterpart to `snapshot` / `get-path`'s
-   data-plane reads — answers \"what does the thing I'm looking at SHOW,
-   and what produced it?\" in ONE round-trip, on ANY re-frame2 app with
-   zero testids.
+   (rf2-3bu3d.1). The re-frame2 VIEW plane — answers \"what does the thing
+   I'm looking at SHOW, and what produced it?\" in ONE round-trip, on ANY
+   re-frame2 app with zero testids.
+
+   Sibling op `dom-read` is the RAW DOM plane (a CSS selector → matched
+   nodes, multi-node, no re-frame2 awareness). `ui-read` is the VIEW plane:
+   it rides the `data-rf-view` map to return content PLUS provenance
+   (view-id / source-coord / subs-read / render-key). They share the
+   per-node projection core (`node->content`) but stay semantically
+   distinct — pick `dom-read` for raw content by selector, `ui-read` for a
+   view + its re-frame2 entity.
 
    `opts` selects exactly one entry point (`:view-id` wins, then `:point`,
    then `:selector`) and tunes the read:
@@ -2995,26 +3172,27 @@
                    view-root (if (= via :view-id)
                                hit-el
                                (nearest-view-root hit-el))
-                   raw-text  (let [t (.-textContent hit-el)] (if (string? t) t ""))
-                   tn        (count raw-text)
-                   ;; Hard cap BEFORE the elision walker — keeps a 5 MB
-                   ;; <pre> from ever reaching the wire; emits the same
-                   ;; marker shape get-path / snapshot use (rf2-urjnc).
-                   capped    (if (> tn max-text)
-                               {:rf.size/large-elided
-                                {:type :dom-text :chars tn
-                                 :preview (subs raw-text 0 (min tn 120))}}
-                               raw-text)
+                   ;; Shared per-node projection (rf2-q0r7e) — the SAME
+                   ;; tag + capped-text + attr core dom-read uses. The
+                   ;; view plane reads the curated structural set PLUS the
+                   ;; data-*/aria- sweep, and DROPS the framework-internal
+                   ;; annotations (already surfaced under :entity). The
+                   ;; hard text cap (`max-text`) runs HERE, inside the
+                   ;; shared `cap-text`, BEFORE the elision walker — keeps
+                   ;; a 5 MB <pre> from ever reaching the wire.
+                   base      (node->content hit-el max-text
+                                            {:names nil :prefix-sweep? true
+                                             :drop-internal? true})
                    ;; Elide like snapshot / get-path — declared-large /
                    ;; sensitive content collapses, never raw user DOM text
-                   ;; unconditionally (Tool-Pair §Direct-read privacy).
-                   text      (rf/elide-wire-value capped {:frame frame-id})]
+                   ;; unconditionally (Tool-Pair §Direct-read privacy). The
+                   ;; view plane layers this ON TOP of the shared core; the
+                   ;; raw DOM plane (`dom-read`) does not elide.
+                   text      (rf/elide-wire-value (:text base) {:frame frame-id})]
                {:ok?     true
                 :via     via
                 :entity  (view-entity view-root frame-id)
-                :content {:tag   (str/lower-case (or (.-tagName hit-el) ""))
-                          :text  text
-                          :attrs (node-attrs hit-el)}})))
+                :content (assoc base :text text)})))
          (catch :default e
            {:ok?     false
             :reason  :rf.error/ui-read-bad-selector

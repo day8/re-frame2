@@ -1730,15 +1730,29 @@ Success: `{:ok? true :query-v <v> :frame <id> :value <elided-value>
 
 ## read-dom
 
-View-plane READ (rf2-nfjil): query the **rendered DOM** by CSS selector
-and return matched count + per-node `{:tag :text :attrs}`. The
-data-plane reads (`snapshot` / `get-path` / `trace-window` /
-`list-subscriptions`) answer "what's in app-db and the trace?";
-`read-dom` answers "what did the app actually put on screen?" — the
-read needed for "did the UI update?" and "what does the rendered
+**Raw DOM plane** READ (rf2-nfjil): query the **rendered DOM** by CSS
+selector and return matched count + per-node `{:tag :text :attrs}`.
+Multi-node, exact, **no re-frame2 awareness** — "what does this exact
+node SAY?". The data-plane reads (`snapshot` / `get-path` /
+`trace-window` / `list-subscriptions`) answer "what's in app-db and the
+trace?"; `read-dom` answers "what did the app actually put on screen?" —
+the read needed for "did the UI update?" and "what does the rendered
 node / attribute say?". It generalises the source-coord reads
 (`handler-meta`'s `:rf.source/uri`, which return where a handler is
 *defined*) to rendered-*content* reads (what's on screen *now*).
+
+**The two DOM-read planes** (rf2-q0r7e). `read-dom` (this op) is the
+**raw DOM plane** above; `read-ui` (below) is the **re-frame2 view
+plane** — it rides the `data-rf-view` map to return content PLUS the
+producing entity (view-id / source-coord / subs-read / render-key). They
+are NOT duplicates: pick `read-dom` for raw content across N matched
+nodes by selector, `read-ui` for a view's content AND its re-frame2
+provenance in one round-trip. Both route through the SAME runtime ns
+(`re-frame2-pair.runtime/dom-read` and `…/ui-read`) via the SAME
+`eval-form` plumbing, sharing one per-node projection (`node->content`),
+so a fix or a regression-guard on the shared form covers both — neither
+can silently break alone (the rf2-w2mjm failure, where read-dom's
+separately-inlined eval form nilled out while read-ui stayed green).
 
 Named with the catalogued `read-<thing>` verb (NAMING.md §The verb
 table): a cheap reflection of already-rendered state — the render
@@ -1749,15 +1763,17 @@ resolves only after the substrate has flushed new state to the DOM, so
 `dispatch → settle → read-dom` is a deterministic three-step observe
 with no manual `requestAnimationFrame` dance.
 
-**Read-only by construction.** The browser-side eval form calls
-`querySelectorAll` and reads `textContent` / attribute strings only —
-it never assigns a property, dispatches an event, or mutates a node.
-The descriptor carries the read-only annotations so hosts auto-approve.
+**Read-only by construction.** The runtime fn
+(`re-frame2-pair.runtime/dom-read`) calls `querySelectorAll` and reads
+`textContent` / attribute strings only — it never assigns a property,
+dispatches an event, or mutates a node. The descriptor carries the
+read-only annotations so hosts auto-approve.
 
 **Capped at the source.** The per-node text cap (`max-text`) and the
-matched-node `limit` are applied **browser-side**, so only bounded EDN
-crosses the wire — a 5 MB `<pre>` blob never leaves the tab. Over-cap
-text is replaced with the framework's size-elision marker shape
+matched-node `limit` are applied **browser-side** (inside the runtime
+fn), so only bounded EDN crosses the wire — a 5 MB `<pre>` blob never
+leaves the tab. Over-cap text is replaced with the framework's
+size-elision marker shape
 `{:rf.size/large-elided {:type :dom-text :chars N :preview "..."}}` —
 the same convention `get-path` / `snapshot` emit for over-threshold
 app-db slots (see §Size-elision, rf2-urjnc). The wire-boundary token
@@ -1802,27 +1818,41 @@ nREPL round-trip);
 `js/document` (headless / server-side);
 `:reason :rf.error/read-dom-blank-result` (rf2-r5erl) when the browser
 eval came back **blank** (no map envelope — the runtime didn't answer,
-e.g. a dropped WebSocket). This is returned as a normal `{:ok? false}`
-tool result; it is NEVER a host-level transport failure. (Earlier a
-blank eval threaded `nil` into the result envelope, whose `null`
-`structuredContent` failed the SDK's `outputSchema` validation with
-`expected record at structuredContent, received null` — bypassing this
-error contract entirely. `wire/ok-text` / `err-text` now guarantee a
-non-null `structuredContent` record, and read-dom maps a blank result
-to this reason.);
+e.g. a dropped WebSocket or a preload wiped by a full page refresh).
+Since rf2-q0r7e read-dom calls the preloaded runtime fn (the same shared
+plumbing read-ui uses) rather than inlining an eval string, an
+unresolved-alias miss can no longer nil the form out — a blank result
+now means the runtime genuinely didn't answer, not a form bug. This is
+returned as a normal `{:ok? false}` tool result; it is NEVER a
+host-level transport failure. (Earlier a blank eval threaded `nil` into
+the result envelope, whose `null` `structuredContent` failed the SDK's
+`outputSchema` validation with `expected record at structuredContent,
+received null` — bypassing this error contract entirely. `wire/ok-text`
+/ `err-text` now guarantee a non-null `structuredContent` record, and
+read-dom maps a blank result to this reason.);
 `:reason :runtime-not-preloaded` if the preload hasn't run;
 `:reason :read-dom-failed` (with `:message`) on any other failure.
 
 ## read-ui
 
 The typed **`ui/read`** op (a.k.a. `view/rendered`, rf2-3bu3d.1) — the
-complement to `read-dom`. Where `read-dom` needs an explicit CSS
-selector and returns only content, `read-ui` rides the **view-id↔DOM
-map** and returns the rendered subtree **plus the re-frame2 entity that
-produced it**, in one round-trip: given a **view-id** (or a point / CSS
-selector), `{:via … :entity {…} :content {…}}`. It answers the most
-common UI-pairing question — "what does the thing I'm looking at SHOW,
-and what produced it?" — on **any** re-frame2 app with **zero testids**.
+**re-frame2 view plane**, the sibling of `read-dom`'s raw DOM plane (see
+§read-dom §The two DOM-read planes). Where `read-dom` needs an explicit
+CSS selector and returns only raw content with no re-frame2 awareness,
+`read-ui` rides the **view-id↔DOM map** and returns the rendered subtree
+**plus the re-frame2 entity that produced it**, in one round-trip: given
+a **view-id** (or a point / CSS selector), `{:via … :entity {…} :content
+{…}}`. It answers the most common UI-pairing question — "what does the
+thing I'm looking at SHOW, and what produced it?" — on **any** re-frame2
+app with **zero testids**.
+
+**Shared DOM-read core** (rf2-q0r7e). `read-ui` and `read-dom` route
+through the SAME runtime ns via the SAME `eval-form` plumbing
+(`re-frame2-pair.runtime/ui-read` and `…/dom-read`) and share one
+per-node projection (`node->content`: tag + capped text + attribute
+map). The view plane layers entity-resolution + privacy elision ON TOP
+of that shared core; the raw DOM plane returns the core directly. A fix
+or a regression-guard on the shared form covers both ops.
 
 **Riding the view↔DOM map.** The browser-side work
 (`re-frame2-pair.runtime/ui-read`) reuses the mapping the substrate
