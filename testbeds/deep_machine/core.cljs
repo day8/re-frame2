@@ -280,10 +280,12 @@
 
 (rf/reg-event-fx ::initialise
   (fn [_ _]
-    ;; Boot the parent machine to its initial state (idle + cold).
-    ;; The runtime stamps :rf/bootstrap-pending? on the snapshot;
-    ;; the first event clears it after the initial-entry cascade.
-    {:fx [[:dispatch [:deep/main [:rf.machine/bootstrap]]]]}))
+    ;; Start the parent machine to its initial state (idle + cold) — the
+    ;; eager kick (xstate `createActor(m).start()`). Per F‴ (rf2-gl588) it
+    ;; runs the initial-entry cascade then STOPS. The runtime stamps
+    ;; :rf/bootstrap-pending? on the synthesised snapshot and clears it
+    ;; after the cascade.
+    {:fx [[:dispatch [:deep/main [:rf.machine/start]]]]}))
 
 ;; ----------------------------------------------------------------------------
 ;; Subs + view

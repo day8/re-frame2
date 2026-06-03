@@ -504,7 +504,7 @@
           snap-after  {:state [:off]       :data {}}
           evs [(do-fx-ev {:db {:hvac/controller {:state {:climate [:off]}}}})
                (machine-transition-ev :hvac/controller snap-before snap-after
-                                       [:rf.machine/bootstrap] 1)]
+                                       [:rf.machine/start] 1)]
           r   (proj/handler-row evs :hvac/controller)]
       (is (= :reg-machine (:flavour r))
           "the bootstrap transition classifies :reg-machine, not :reg-event-fx")
@@ -789,9 +789,9 @@
             microsteps). Rendered side-by-side those CONTRADICT. The cascade
             must show the :no-op row ALONE — the spurious transition row is
             dropped."
-    ;; rf2-iu3no — the live repro fixture was a `[:rf.machine/bootstrap]`
-    ;; no-op, but rf2-t4582 (#2846) carved the bootstrap OUT of the no-op
-    ;; classification (bootstrap runs :initial-entry, never a no-op). The
+    ;; rf2-iu3no — the live repro fixture was a `[:rf.machine/start]`
+    ;; no-op, but rf2-t4582 (#2846) carved the start OUT of the no-op
+    ;; classification (start runs :initial-entry, never a no-op). The
     ;; dedup MECHANISM this asserts is independent of which event no-op'd, so
     ;; the fixture is rebased onto a genuine unknown USER event (the only
     ;; thing that still produces an unhandled-no-op post-t4582).
@@ -2494,13 +2494,13 @@
     (is (= "this means the machine :traffic/light received the trigger :tick"
            (fmt/machine-event-gloss [:traffic/light [:tick]]))
         "unqualified inner trigger keyword renders without a leading slash"))
-  (testing "rf2-18oe3 — the reserved bootstrap marker is creation, NOT 'received the trigger'"
+  (testing "rf2-18oe3 / rf2-gl588 — the reserved start marker is creation, NOT 'received the trigger'"
     (is (= "the machine :door/main was created / initialised"
-           (fmt/machine-event-gloss [:door/main [:rf.machine/bootstrap]])))
+           (fmt/machine-event-gloss [:door/main [:rf.machine/start]])))
     (is (= "the machine :traffic/light was created / initialised"
-           (fmt/machine-event-gloss [:traffic/light [:rf.machine/bootstrap]])))
-    (is (= :rf.machine/bootstrap fmt/machine-bootstrap-marker)
-        "the marker constant is the reserved :rf.machine/bootstrap keyword"))
+           (fmt/machine-event-gloss [:traffic/light [:rf.machine/start]])))
+    (is (= :rf.machine/start fmt/machine-start-marker)
+        "the marker constant is the reserved :rf.machine/start keyword"))
   (testing "rf2-18oe3 — nil for shapes that are not [<machine-id> [<inner-trigger> ...]]"
     (is (nil? (fmt/machine-event-gloss [:counter-inc]))
         "single-element event (no inner vector)")

@@ -249,7 +249,7 @@
   "rf2-18oe3 — the additive helper sub-line under a machine dispatch that
   decodes the `[<machine-id> [<inner-trigger>]]` shape into plain English
   ('this means the machine :door/main received the trigger
-  :door/insert-coin', or the bootstrap-creation phrasing). Muted italic
+  :door/insert-coin', or the start-creation phrasing). Muted italic
   sans, sitting just below the boxed event vector — a gloss, not a chip."
   {:margin-top  "4px"
    :font-family sans-stack
@@ -1864,10 +1864,10 @@
   or lookup throw (production builds, fixture shapes) — the gloss is
   additive, never a hard dependency.
 
-  NOTE the reserved `:rf.machine/bootstrap` marker is handled by the
-  caller WITHOUT this gate: it is unambiguous (a reserved `:rf.machine/*`
-  trigger only ever rides a machine dispatch), so the creation gloss
-  renders even when the runtime registration meta is unavailable."
+  NOTE the reserved `:rf.machine/start` marker is handled by the caller
+  WITHOUT this gate: it is unambiguous (a reserved `:rf.machine/*` trigger
+  only ever rides a machine dispatch), so the creation gloss renders even
+  when the runtime registration meta is unavailable."
   [event]
   (boolean
     (let [machine-id (first event)]
@@ -1883,20 +1883,20 @@
     [:door/main [:door/insert-coin]]
       → 'this means the machine :door/main received the trigger
          :door/insert-coin'
-    [:door/main [:rf.machine/bootstrap]]
+    [:door/main [:rf.machine/start]]
       → 'the machine :door/main was created / initialised'
 
   `fmt/machine-event-gloss` is the pure-data string builder; this fn is
   the VIEW gate — it renders the gloss ONLY when the dispatch actually
   targets a machine (runtime `handler-meta` lookup, `machine-dispatch?`)
-  OR the inner trigger is the reserved `:rf.machine/bootstrap` marker
+  OR the inner trigger is the reserved `:rf.machine/start` marker
   (self-identifying — see `machine-dispatch?` NOTE). Non-machine events
   (an ordinary `reg-event-fx` whose arg happens to be a vector) get no
   gloss. Returns nil to render nothing."
   [event]
   (when-let [gloss (fmt/machine-event-gloss event)]
-    (let [bootstrap? (= fmt/machine-bootstrap-marker (first (second event)))]
-      (when (or bootstrap? (machine-dispatch? event))
+    (let [start? (= fmt/machine-start-marker (first (second event)))]
+      (when (or start? (machine-dispatch? event))
         [:div {:data-testid "rf-xray-epoch-dispatch-machine-gloss"
                :style       dispatch-machine-gloss-style}
          gloss]))))

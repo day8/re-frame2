@@ -27,6 +27,26 @@
 
 #?(:clj (set! *warn-on-reflection* true))
 
+(def start-marker
+  "The reserved synthetic creation marker — the inner event vector
+  `[:rf.machine/start]`. xstate parity with `createActor(m).start()`.
+
+  Two roles, both `:entry`-only (it NEVER reaches an `:on` map):
+    1. As an EAGER kick (`[:machine-id [:rf.machine/start]]`) it brings a
+       machine to life now rather than on its first real event. Per F‴
+       (rf2-gl588) it is a PURE init-kick — the lifecycle handler runs the
+       initial-entry cascade then STOPS; the marker is never fed into the
+       transition step as a trigger.
+    2. As the placeholder `:event` value threaded through the initial-entry
+       cascade so `:entry` actions reading `(fn [{:keys [event]}] …)` see a
+       non-nil, reserved-namespace discriminator on the BIRTH call.
+
+  Renamed from `:rf.machine/bootstrap` (pre-alpha, no back-compat shim).
+  The canonical definition lives here in the leaf engine namespace so both
+  `parallel` (the cascade) and `lifecycle-fx.registration` (the handler)
+  reference one source of truth without a require cycle."
+  :rf.machine/start)
+
 (defn- chase-ref
   "Follow a keyword reference chain through the machine's named-bindings
   map until it hits a fn (or fails). Tolerates one level of indirection
@@ -640,10 +660,14 @@
   resolves to no transition is benign framework init, not an event the
   machine author forgot to handle:
 
-   - the synthetic bootstrap `[:rf.machine/bootstrap]` (Spec 005:1101) is
-     a placeholder threaded into the initial-entry actions so they carry
-     an `:event` key — the bootstrap RAN the entry cascade and INSTALLED
-     the state; it is the machine's BIRTH, not a no-op;
+   - the synthetic creation marker `[:rf.machine/start]` (per Spec 005
+     §Synthetic creation marker) is a placeholder threaded into the
+     initial-entry actions so they carry an `:event` key — the start RAN
+     the entry cascade and INSTALLED the state; it is the machine's BIRTH,
+     not a no-op. (Per F‴ / rf2-gl588 an eager `[:machine-id
+     [:rf.machine/start]]` kick is a PURE init that STOPS — it never
+     reaches this no-op site as a trigger; the rule subsumes the marker
+     only as the cascade-threaded `:event` placeholder.);
    - the spawn kick-off `[:rf.machine.spawn/spawned]` (Spec 005 §spawn
      kick-off) is dispatched into every spawned actor so generic children
      may declare a first transition — an actor that declines it simply
@@ -663,9 +687,10 @@
   `:rf/*` framework init does not read as an unknown-user-event no-op.
 
   (`:rf.machine.timer/after-elapsed` is special-cased in `pick-transition`
-  and `:rf.machine/bootstrap` is `:entry`-only, so neither typically
-  reaches the no-op site — but both are reserved-namespace, so the rule
-  subsumes them.)
+  and `:rf.machine/start` is `:entry`-only — and, per F‴ (rf2-gl588), the
+  eager start kick STOPS after initial-entry without ever running the
+  transition step — so neither reaches the no-op site as a trigger; both
+  are reserved-namespace, so the rule subsumes them regardless.)
 
   Public so the parallel-region aggregate path
   (`parallel/parallel-machine-transition`) shares the single source of
@@ -2222,7 +2247,8 @@
             ;; rf2-t4582 — reserved-`:rf/*` lifecycle carve-out (a conscious
             ;; refinement of rf2-ugdas). The no-op classifies an unknown
             ;; USER event; framework lifecycle traffic — the synthetic
-            ;; bootstrap `[:rf.machine/bootstrap]`, the spawn kick-off
+            ;; creation marker `[:rf.machine/start]` (cascade-threaded
+            ;; `:event` placeholder), the spawn kick-off
             ;; `[:rf.machine.spawn/spawned]`, the stories-runtime lifecycle
             ;; pings — is NOT an unknown user event, so `unhandled-event-
             ;; no-op?` gates the emit. Severity is unchanged (nothing

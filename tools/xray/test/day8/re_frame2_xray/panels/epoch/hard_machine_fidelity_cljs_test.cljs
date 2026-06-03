@@ -175,9 +175,9 @@
   ;; Xray's ring buffer (the same surface the Epoch panel reads).
   (preload/register-trace-collector!)
   (rf/reg-machine :hvac/controller hvac-controller-machine)
-  ;; Boot to the initial parallel configuration; clear any bootstrap trace so
+  ;; Start to the initial parallel configuration; clear any start trace so
   ;; the per-case capture below contains only that case's macrostep.
-  (rf/dispatch-sync [:hvac/controller [:rf.machine/bootstrap]]))
+  (rf/dispatch-sync [:hvac/controller [:rf.machine/start]]))
 
 (defn- snapshot
   "Read the live snapshot for `:hvac/controller` off the default frame."
@@ -586,28 +586,30 @@
    :actions {:on-boot (fn [{data :data}] {:data (assoc data :booted? true)})}})
 
 (deftest bootstrap-renders-initial-entry-not-no-op
-  (testing "rf2-iu3no / rf2-t4582 (#2846) regression guard — a machine's
-            BIRTH (`[:rf.machine/bootstrap]`) runs its `:initial-entry`
+  (testing "rf2-iu3no / rf2-t4582 (#2846) / rf2-gl588 regression guard — a
+            machine's BIRTH (`[:rf.machine/start]`) runs its `:initial-entry`
             cascade and is NOT classified as an unhandled-user-event no-op.
             The collapsed `[NO OP] staying in {state}` cell renders the
             CONSEQUENCE of NO state change — it would read FALSE for the
             machine's birth (which ENTERED its initial config, it did not
-            'stay'). So the no-op cell must NEVER be reached for the
-            bootstrap: the bootstrap macrostep carries the `:initial-entry`
-            phase and ZERO `:no-op` rows. A regression on t4582 (the
-            bootstrap re-mislabelled as a no-op) surfaces RED here."
+            'stay'). So the no-op cell must NEVER be reached for the start:
+            the boot cascade carries the `:initial-entry` phase and ZERO
+            `:no-op` rows. (Per F‴ the eager start is a PURE init-kick — it
+            runs the `:initial-entry` actions then STOPS, so there is no
+            `before == after` transition row at all; the `:initial-entry`
+            action rows still render.) A regression on t4582 surfaces RED."
     (registry/register-xray-handlers!)
     (preload/register-trace-collector!)
     (rf/reg-machine :iu3no/boot initial-entry-machine)
-    ;; The bootstrap macrostep is the machine's birth — capture exactly it.
-    (let [record  (drive-other! :iu3no/boot [:rf.machine/bootstrap])
+    ;; The start macrostep is the machine's birth — capture exactly it.
+    (let [record  (drive-other! :iu3no/boot [:rf.machine/start])
           rows    (cascade record)
           phases  (set (map :phase (rows-of-kind rows :action)))]
       (is (empty? (rows-of-kind rows :no-op))
-          "the bootstrap renders NO benign-no-op cell — it is the machine's
+          "the start renders NO benign-no-op cell — it is the machine's
            birth, not an ignored event (rf2-t4582)")
       (is (contains? phases :initial-entry)
-          "the bootstrap runs its :initial-entry cascade — the boot action
+          "the start runs its :initial-entry cascade — the boot action
            row carries the :initial-entry phase, NOT a 'staying in {state}'
            no-op notice")
       (is (= :booting (-> (rf/app-db-value :rf/default)

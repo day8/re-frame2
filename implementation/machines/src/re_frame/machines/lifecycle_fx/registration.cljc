@@ -34,6 +34,14 @@
 
 #?(:clj (set! *warn-on-reflection* true))
 
+;; The reserved creation marker `:rf.machine/start` (renamed from
+;; `:rf.machine/bootstrap` — rf2-gl588, pre-alpha no shim) is defined once in
+;; the leaf engine namespace as `transition/start-marker` so the handler here
+;; and the cascade in `parallel` share one source of truth without a require
+;; cycle. Per F‴ it is a PURE init-kick: `maybe-boot` runs the initial-entry
+;; cascade, then the handler STOPS — the marker is NEVER fed into `run-step`
+;; as a trigger (no `before == after` self-transition, no `:*`-wildcard throw).
+
 ;; Per rf2-fgqs4 the initial-snapshot builder lives in `parallel.cljc` as
 ;; `build-initial-snapshot` — single source of truth for both the
 ;; singleton-registration path (here) and the spawn path
@@ -279,9 +287,36 @@
      :machine          machine
      :path             path
      :snapshot         snapshot
+     ;; `:existing-snap?` records whether the handler found a snapshot
+     ;; ALREADY in app-db at entry. It distinguishes the two FRESH
+     ;; flavours for the `:rf.machine/started` `:cause` (rf2-gl588):
+     ;;   - nil snapshot  → singleton (`:explicit` / `:lazy`, by trigger);
+     ;;   - present + `:rf/bootstrap-pending?` → spawn-pre-seeded (`:spawned`).
+     :existing-snap?   (some? existing-snap)
      :needs-bootstrap? (or (nil? existing-snap)
                            (true? (:rf/bootstrap-pending? snapshot)))
      :inner-event      (route-inner-event event)}))
+
+(defn- start-cause
+  "Compute the `:rf.machine.start/cause` enum for a `maybe-boot` that ran
+  the initial-entry cascade (rf2-gl588). Three-way, per Mike 2026-06-03:
+
+    - `:spawned`  — the handler found a snapshot ALREADY in app-db (the
+                    spawn fx pre-seeded it + stamped `:rf/bootstrap-pending?`);
+                    init ran on the actor's first dispatch.
+    - `:explicit` — no pre-existing snapshot (singleton) AND the dispatched
+                    trigger WAS the reserved `:rf.machine/start` marker — a
+                    deliberate eager kick (`createActor(m).start()`).
+    - `:lazy`     — no pre-existing snapshot (singleton) AND the trigger was
+                    a REAL first event — init folded into that event's epoch.
+                    The `:lazy` cause flags that something dispatched to the
+                    machine before it was explicitly started (an ordering
+                    smell the Xray `[START]` badge surfaces — rf2-it4vt)."
+  [ctx]
+  (cond
+    (:existing-snap? ctx)                                  :spawned
+    (= transition/start-marker (first (:inner-event ctx))) :explicit
+    :else                                                  :lazy))
 
 (defn- maybe-boot
   "Step 2 of 4 (rf2-2zzyg). If `ctx` is bootstrap-pending, run
@@ -292,19 +327,37 @@
 
   Per rf2-0z73 the bootstrap cascade fires the initial state's `:entry`
   actions; per the Result ADT (rf2-aa2rw) a `:fail` short-circuits the
-  rest of the pipeline."
+  rest of the pipeline.
+
+  Per rf2-gl588 this is the machine's SINGLE birth site — it runs in both
+  axis-A paths (eager `:rf.machine/start` kick AND lazy first-real-event).
+  So whenever the cascade succeeds it emits ONE `:rf.machine/started`
+  trace carrying `{:machine-id :frame-id :state :data :cause}` — the
+  signal Xray renders as the `[START]` badge (rf2-it4vt) in BOTH paths
+  automatically. The trace is emitted only on success (a thrown `:entry`
+  action short-circuits to `:fail` → `trace-action-failure!` instead).
+  Restoration paths (SSR / `restore-epoch` / `reset-frame-db`) install a
+  present, non-pending snapshot, so `:needs-bootstrap?` is false and NO
+  `:rf.machine/started` fires — the snapshot IS the state."
   [ctx]
   (if (:needs-bootstrap? ctx)
     (let [r (parallel/apply-initial-entry-cascade (:machine ctx) (:snapshot ctx))]
       (if (result/fail? r)
         r
         (result/with-ok [snap fx] r
-          ;; Per rf2-n9f4z: preserve the bootstrap-entry `::cascade` so
-          ;; `commit-or-finalize` can prepend the initial-descent `:entry`
-          ;; steps when bootstrap and the user event land in the same call.
-          (result/with-cascade
-            (result/ok (dissoc snap :rf/bootstrap-pending?) fx)
-            (result/cascade r)))))
+          (let [booted (dissoc snap :rf/bootstrap-pending?)]
+            (trace/emit! :rf.machine :rf.machine/started
+                         {:machine-id (:machine-id ctx)
+                          :frame      (:frame-id ctx)
+                          :state      (:state booted)
+                          :data       (:data booted)
+                          :cause      (start-cause ctx)})
+            ;; Per rf2-n9f4z: preserve the bootstrap-entry `::cascade` so
+            ;; `commit-or-finalize` can prepend the initial-descent `:entry`
+            ;; steps when bootstrap and the user event land in the same call.
+            (result/with-cascade
+              (result/ok booted fx)
+              (result/cascade r))))))
     (result/ok (:snapshot ctx) [])))
 
 (defn- run-step
@@ -344,9 +397,9 @@
           ;; `:rf.machine/transition`. An unhandled / guard-blocked event
           ;; already signals the benign `:rf.machine.event/unhandled-no-op`
           ;; (the engine's `:else` branch + the parallel aggregate); a
-          ;; redundant `[:rf.machine/bootstrap]` on an already-booted
-          ;; machine is the reserved-`:rf/*` carve-out (rf2-t4582) that
-          ;; emits nothing at all. In BOTH cases the macrostep changed
+          ;; redundant `[:rf.machine/start]` on an already-booted machine
+          ;; is the reserved-`:rf/*` carve-out (rf2-t4582) that emits
+          ;; nothing at all. In BOTH cases the macrostep changed
           ;; nothing — `:before` == `:after`, the combined (boot + step)
           ;; cascade is empty, and zero `:always` microsteps ran — so a
           ;; no-change transition trace (before = after, `:microsteps 0`,
@@ -473,23 +526,41 @@
           intercepted
           (let [boot-result (maybe-boot ctx)]
             (if (result/fail? boot-result)
-              (trace-action-failure! (:machine-id ctx) [:rf.machine/bootstrap]
+              (trace-action-failure! (:machine-id ctx) [transition/start-marker]
                                      (:frame-id ctx)
                                      (result/info boot-result)
                                      "Machine initial-entry action threw.")
-              (result/with-ok [post-boot-snap _boot-fx] boot-result
-                (let [step-result (run-step ctx post-boot-snap)]
-                  (if (result/fail? step-result)
-                    (trace-action-failure! (:machine-id ctx) (:inner-event ctx)
-                                           (:frame-id ctx)
-                                           (result/info step-result)
-                                           "Machine action threw.")
-                    ;; Per rf2-n9f4z: pass the full `boot-result` (fx +
-                    ;; bootstrap-entry cascade), not just `boot-fx`, so a
-                    ;; same-call bootstrap's entry cascade prepends the
-                    ;; event-driven cascade on the `:rf.machine/transition`
-                    ;; trace.
-                    (commit-or-finalize ctx step-result boot-result)))))))))))
+              (result/with-ok [post-boot-snap boot-fx] boot-result
+                ;; Per rf2-gl588 — PURE init-kick (the Job-B cut-point,
+                ;; sub-decision (b)): when the routed inner event IS the
+                ;; reserved `:rf.machine/start` marker, `maybe-boot` has
+                ;; already run the initial-entry cascade (and emitted
+                ;; `:rf.machine/started`). STOP here — never feed the
+                ;; synthetic marker into `run-step` as a trigger. This
+                ;; removes the misleading `before == after` self-transition
+                ;; for quiet states and the `:*`-wildcard throw for
+                ;; `:fuse/box`-shaped initial states; the marker now means
+                ;; exactly "create + run initial-entry," like `xstate.init`.
+                ;; (`commit-or-finalize` is bypassed: a pure start emits no
+                ;; `:rf.machine/transition`; `:rf.machine/started` is the
+                ;; sole birth signal. No machine reaches a final leaf by
+                ;; running ONLY its initial-entry cascade, so finalize has
+                ;; nothing to do on this path.)
+                (if (= transition/start-marker (first (:inner-event ctx)))
+                  {:db (assoc-in db (:path ctx) post-boot-snap)
+                   :fx (vec boot-fx)}
+                  (let [step-result (run-step ctx post-boot-snap)]
+                    (if (result/fail? step-result)
+                      (trace-action-failure! (:machine-id ctx) (:inner-event ctx)
+                                             (:frame-id ctx)
+                                             (result/info step-result)
+                                             "Machine action threw.")
+                      ;; Per rf2-n9f4z: pass the full `boot-result` (fx +
+                      ;; bootstrap-entry cascade), not just `boot-fx`, so a
+                      ;; same-call bootstrap's entry cascade prepends the
+                      ;; event-driven cascade on the `:rf.machine/transition`
+                      ;; trace.
+                      (commit-or-finalize ctx step-result boot-result))))))))))))
 
 ;; ---- reg-machine* — plain-fn surface (rf2-8bp3) ---------------------------
 

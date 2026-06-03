@@ -123,7 +123,7 @@
       :tweak-fan           (trail-action :action:tweak)}}))
 
 (defn- boot-hvac! []
-  (rf/dispatch-sync [:hvac/controller [:rf.machine/bootstrap]]))
+  (rf/dispatch-sync [:hvac/controller [:rf.machine/start]]))
 
 (defn- trail-of []
   (get-in @(rf/subscribe [:rf/machine :hvac/controller]) [:data :trail]))
@@ -248,7 +248,7 @@
        :actions {:go-act (fn [{d :data}] {:data (assoc d :went true)})}
        :states  {:a {:on {:go {:target :b :action :go-act}}}
                  :b {}}})
-    (rf/dispatch-sync [:casc/flat [:rf.machine/bootstrap]])
+    (rf/dispatch-sync [:casc/flat [:rf.machine/start]])
     (let [evs     (record-traces!
                     (fn [] (rf/dispatch-sync [:casc/flat [:go]])))
           cascade (cascade-of evs)]
@@ -273,7 +273,7 @@
        :states  {:asking {:always [{:guard :enough? :target :winner :action :win}]
                           :on     {:answer {:action :count}}}
                  :winner {}}})
-    (rf/dispatch-sync [:casc/quiz [:rf.machine/bootstrap]])
+    (rf/dispatch-sync [:casc/quiz [:rf.machine/start]])
     (let [evs       (record-traces!
                       (fn [] (rf/dispatch-sync [:casc/quiz [:answer]])))
           cascade   (cascade-of evs)
@@ -302,7 +302,7 @@
        :actions {:bump (fn [{d :data}] {:data {:n (inc (:n d))}})}
        :states  {:a {:on {:go {:target :b :action :bump}}}
                  :b {}}})
-    (rf/dispatch-sync [:casc/delta [:rf.machine/bootstrap]])
+    (rf/dispatch-sync [:casc/delta [:rf.machine/start]])
     (let [evs     (record-traces!
                     (fn [] (rf/dispatch-sync [:casc/delta [:go]])))
           cascade (cascade-of evs)
