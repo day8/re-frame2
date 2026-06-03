@@ -560,8 +560,16 @@
    :align-items "flex-start"
    :flex-wrap   "wrap"})
 
-(def ^:private cascade-detail-success-arrow-style
-  {:color success-colour :font-weight 700})
+;; rf2-fg3c4 — the per-action `↳ data Δ` arrow on the machine EVENT HANDLER
+;; cascade reads LIGHT GREY, matching the NORMAL (non-machine) handler's
+;; `↳ :db diff` arrow (the `sub-header` glyph, `sub-header-glyph-style`).
+;; Both surface the resulting data-delta below a step's body, so both ride
+;; the same muted `text-tertiary` tone — the prior `:success` green made the
+;; machine arrow read as a status signal where the normal handler's is plain
+;; chrome. Reuses the SAME `text-tertiary-colour` token the normal-handler
+;; arrow uses (not a fresh hex) so the two stay in lockstep across themes.
+(def ^:private cascade-detail-data-arrow-style
+  {:color text-tertiary-colour :font-weight 700})
 
 (def ^:private cascade-detail-accent-arrow-style
   {:color accent-colour :font-weight 700})
@@ -2925,7 +2933,7 @@
   [{:keys [data-write data-before step] :as _row}]
   [:div {:data-testid (str "rf-xray-epoch-machine-cascade-data-write-" step)
          :style cascade-detail-row-style}
-   [:span {:style cascade-detail-success-arrow-style} "↳"]
+   [:span {:style cascade-detail-data-arrow-style} "↳"]
    [:span {:style cascade-detail-label-style} "data Δ"]
    [:span {:style cascade-detail-value-style}
     [ei/edn-inspector data-write
