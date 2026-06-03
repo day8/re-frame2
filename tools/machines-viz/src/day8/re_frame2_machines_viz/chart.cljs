@@ -842,6 +842,20 @@
                          the chart (Stately graph view convention). nil
                          → no panel. The panel is purely presentation —
                          the host owns the data projection.
+    :fit-signal        — rf2-6tw7t. Optional opaque value (a nonce — any
+                         `=`-comparable). When its value CHANGES between
+                         renders the chart re-fits the viewport to frame
+                         the whole topology, ORTHOGONAL to the layout-key
+                         auto-fit (rf2-set3x). Hosts bump it on panel-
+                         entry / tab-activation so re-entering a panel
+                         frames the graph rather than restoring a stale
+                         (possibly off-screen) zoom/pan. A STEADY signal
+                         across ordinary re-renders is a no-op, so the
+                         operator's manual zoom/pan still survives non-
+                         entry re-renders. nil (the default) with no host
+                         supplying it means the prop never changes, so the
+                         entry-fit is inert and only the layout-key auto-
+                         fit runs (the standalone viewer / Story path).
     :testid            — root wrapper `data-testid`; defaults to
                          `\"rf-mv-chart\"` so tests + hosts find it."
   [_initial-props]
@@ -876,7 +890,22 @@
         ;; change — the load-bearing tuple per API.md §Layout-
         ;; invalidation boundary, AND the manual `Fit` Controls
         ;; button) is the only thing that re-fits.
-        fit-state     (r/atom {:instance nil :fit-key nil})
+        ;;
+        ;; rf2-6tw7t — `:fit-sig` records the host-supplied `:fit-signal`
+        ;; value we last fit on. The layout-key gate above deliberately
+        ;; PRESERVES the operator's manual zoom/pan across non-layout
+        ;; re-renders (tab re-entry with the SAME machine doesn't change
+        ;; the layout-key). `:fit-signal` is the ORTHOGONAL escape hatch:
+        ;; a host bumps an opaque nonce on panel-entry / tab-activation
+        ;; and the chart re-fits the framed topology even though the
+        ;; layout shape is unchanged — so re-entering the Machine tab
+        ;; always frames the graph rather than restoring a stale (possibly
+        ;; off-screen) viewport. Starts `::unfit` (a sentinel distinct
+        ;; from any host value incl. nil) so the FIRST observed signal,
+        ;; even nil, is treated as "fit once"; thereafter only a CHANGE
+        ;; re-fits, so a steady signal across non-entry re-renders is a
+        ;; no-op (manual zoom/pan still survives those).
+        fit-state     (r/atom {:instance nil :fit-key nil :fit-sig ::unfit})
         ;; rf2-d9ro2 — measure-then-relayout lifecycle state.
         ;;
         ;; The bug: ELK was fed CONSTANT node dimensions (the
@@ -937,6 +966,7 @@
                  height show-minimap? show-controls? show-background?
                  overlays
                  machine-data
+                 fit-signal
                  testid]
           :or   {direction         :tb
                  theme             :dark
@@ -1030,7 +1060,32 @@
                       changed? (or fresh? (not= dims measured))]
                   (when (and ready? changed?)
                     (reset! relayout-state {:key this-key :measured dims})
-                    (run-layout! dims)))))]
+                    (run-layout! dims)))))
+            ;; rf2-6tw7t — fit-on-entry. Orthogonal to the layout-key
+            ;; auto-fit (rf2-set3x): that gate intentionally PRESERVES the
+            ;; operator's manual zoom/pan across non-layout re-renders, so
+            ;; re-entering the Machine tab with the SAME machine does NOT
+            ;; refit and the graph can sit off-screen / wrongly scaled. The
+            ;; host bumps `:fit-signal` (an opaque nonce) on panel-entry /
+            ;; tab-activation; when it differs from the value we last fit on
+            ;; we re-fit the framed topology through the same
+            ;; `schedule-fit!` (double-rAF) path the layout settle uses. The
+            ;; gate requires a captured instance + non-empty positions + no
+            ;; layout-error — the same preconditions the settle fit checks —
+            ;; so an entry that arrives before the first layout settles is
+            ;; deferred to the settle/onInit fit (which frames the same
+            ;; viewport). `::unfit` sentinel start means the first observed
+            ;; signal fits once; a steady signal across ordinary re-renders
+            ;; is a no-op.
+            maybe-fit-on-signal!
+            (fn []
+              (let [{:keys [instance fit-sig]} @fit-state]
+                (when (and instance
+                           (not= fit-signal fit-sig)
+                           (seq (:positions @layout-state))
+                           (nil? (:layout-error @layout-state)))
+                  (swap! fit-state assoc :fit-sig fit-signal)
+                  (schedule-fit! instance))))]
         (when (and (seq (:nodes parsed))
                    (not= this-key @layout-key))
           (reset! layout-key this-key)
@@ -1039,6 +1094,11 @@
           ;; first measurement of the new machine as a change.
           (reset! relayout-state {:key this-key :measured nil})
           (run-layout! nil))
+        ;; rf2-6tw7t — react to a host fit-signal bump every render. When
+        ;; the signal changed AND the instance + positions are ready this
+        ;; re-fits the framed topology (panel-entry / tab-activation). When
+        ;; positions aren't ready yet the settle/onInit fit covers it.
+        (maybe-fit-on-signal!)
         (cond
           (nil? definition)
           [:div {:data-testid (str testid "-no-definition")
@@ -1280,7 +1340,14 @@
                                         ;; Kick the measure-then-relayout
                                         ;; check too, in case no further
                                         ;; dimension change fires.
-                                        (maybe-relayout!)))
+                                        (maybe-relayout!)
+                                        ;; rf2-6tw7t — a host `:fit-signal`
+                                        ;; may have been pending BEFORE the
+                                        ;; instance was captured (entry that
+                                        ;; arrived ahead of onInit). Now that
+                                        ;; the instance exists, honour it if
+                                        ;; positions have already settled.
+                                        (maybe-fit-on-signal!)))
                ;; rf2-d9ro2 — measure-then-relayout signal. xyflow emits a
                ;; `dimensions` NodeChange once it measures the rendered
                ;; node DOM; that is our cue to read the real boxes back and

@@ -67,6 +67,7 @@ registry).
 | `:show-minimap?` | no | `false` | When `true`, render xyflow's built-in MiniMap. |
 | `:show-controls?` | no | `true` | When `true`, render xyflow's built-in zoom/pan/fit Controls. |
 | `:show-background?` | no | `true` | When `true`, render xyflow's dot-pattern Background. |
+| `:fit-signal` | no | `nil` | rf2-6tw7t. Opaque value (any `=`-comparable nonce). When its value **changes** between renders the chart re-fits the viewport to frame the whole topology — **orthogonal** to the layout-key auto-fit. Hosts bump it on **panel-entry / tab-activation** so re-entering a panel re-frames the graph rather than restoring a stale (possibly off-screen) zoom/pan. A **steady** signal across ordinary re-renders is a no-op, so the operator's manual zoom/pan still survives non-entry re-renders. See [§Fit-on-entry signal](#fit-on-entry-signal-rf2-6tw7t). |
 | `:overlays` | no | `nil` | rf2-7w4qr. A **vector of host-fed overlay descriptor maps**, each keyed on `:id`. The single slot through which hosts compose the host-fed, spec+tick+callbacks overlay family (after-rings / spawn-all-join / cancellation-cascade) — collapses the former flat per-overlay props so a new overlay adds **one descriptor variant**, not 3–5 trunk props. The chart dispatches each descriptor to its already-modular rendering namespace by `:id` (`chart.cljs/render-overlay`); the renderers are unchanged. A per-descriptor `:tick` unifies the former `:after-ring-tick` + `:overlay-tick` (one rAF clock per chart stays host-owned — Lock #8 — just delivered per-overlay). A descriptor whose `:id` is outside the recognised set is **ignored** (a host data error, not a runtime fallback; dev builds emit a `js/console.warn`). Non-map entries are skipped. `nil` / `[]` → no overlays. See [§`:overlays` slot descriptor schema](#overlays-slot-descriptor-schema-rf2-7w4qr) for the multispec. |
 | `:testid` | no | `"rf-mv-chart"` | Root wrapper `data-testid` so tests + hosts can find the chart. |
 
@@ -1196,6 +1197,41 @@ runs in the frame AFTER React's commit AND xyflow's measurement
 pass — the same trick xyflow's own examples use for post-load fit
 calls. Test runtimes without rAF (Node) MAY fire the fit
 immediately as a fallback.
+
+### Fit-on-entry signal (rf2-6tw7t)
+
+The layout-key auto-fit above deliberately **preserves** the operator's
+manual zoom/pan across non-layout re-renders. That is the right
+behaviour while the operator stays on the chart — but it leaves a chart
+**re-entered** from a panel/tab switch at its prior viewport even though
+the operator's intent on re-entry is "show me the whole graph again."
+xyflow's one-shot `:fitView` mount prop does not help (it fires only on
+the *initial* mount, and a reconciled-in-place chart never re-mounts).
+
+`MachineChart` therefore accepts an optional **`:fit-signal`** prop — an
+opaque, `=`-comparable nonce. When the prop's value **changes** between
+renders the chart MUST re-fit the viewport, **independent** of the
+layout-key gate. The re-fit reuses the same `schedule-fit!`
+(double-rAF) deferral and the same preconditions as the layout-settle
+fit:
+
+- A ReactFlowInstance MUST have been captured (`:onInit`); a signal that
+  arrives before the instance is deferred to `:onInit` (which re-checks
+  the signal once the instance + settled positions are both present).
+- Positions MUST be non-empty and there MUST be no `:layout-error` — a
+  fit on empty positions would frame the degenerate origin cluster.
+- The chart records the value it last fit on; a **steady** signal across
+  ordinary re-renders is a no-op, so manual zoom/pan still survives
+  non-entry re-renders. The recorded value starts at a sentinel distinct
+  from every host value (including `nil`) so the **first** observed
+  signal fits once.
+
+This is the **orthogonal escape hatch** to the layout-key gate: a host
+(e.g. the Xray Machine tab) bumps a monotonic counter on
+panel-entry / tab-activation and forwards it as `:fit-signal`. A host
+that never supplies the prop (the standalone viewer / Story path) leaves
+it at `nil`; the value never changes, so the entry-fit is inert and only
+the layout-key auto-fit runs.
 
 ### One chart-level, visibility-gated animation clock
 

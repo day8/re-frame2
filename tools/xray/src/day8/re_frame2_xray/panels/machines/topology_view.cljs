@@ -144,12 +144,17 @@
                            parent-height requirement satisfied when the
                            container itself is auto-height.
     :show-controls?      — pass-through to wrapper (default true).
+    :fit-signal          — rf2-6tw7t. Opaque fit-on-entry nonce forwarded
+                           to `machine-canvas/Chart`'s `:fit-signal`. A
+                           host bumps it on panel-entry / tab-activation
+                           so the topology re-frames to view. nil → inert.
     :testid              — pass-through wrapper testid (default
                            `'rf-xray-machines-topology'`).
 
   Returns hiccup."
   [{:keys [machine-id definition current-state-path trace-events
-           epoch-history snapshot-state height show-controls? testid]
+           epoch-history snapshot-state height show-controls? testid
+           fit-signal]
     :or   {height          "100%"
            show-controls?  true
            testid          "rf-xray-machines-topology"}}]
@@ -235,4 +240,8 @@
          :show-after-rings?      false
          :show-view-mode-toggle? false
          :show-controls?         show-controls?
+         ;; rf2-6tw7t — fit-on-entry nonce pass-through; hosts that mount
+         ;; this consumer surface inside a tab/panel bump it on entry so
+         ;; the topology re-frames. nil → inert.
+         :fit-signal             fit-signal
          :inner-testid           (str testid "-canvas")}]])))

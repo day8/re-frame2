@@ -173,6 +173,23 @@
       (fn [db _query]
         (get db :selected-tab :epoch)))
 
+    ;; ---- Machine tab fit-on-entry signal (rf2-6tw7t) ----
+    ;;
+    ;; A monotonic counter bumped by `:rf.xray/select-tab :machines` and
+    ;; `:rf.xray.static/select-tab :machines`. The Machine panel (Dynamic
+    ;; `machine_inspector` + Static `static.machines` topology) reads it
+    ;; and forwards the value as `MachineChart`'s `:fit-signal` so a
+    ;; CHANGE re-fits the topology to view on panel-entry / tab-
+    ;; activation. The layout-key auto-fit (rf2-set3x) deliberately
+    ;; preserves manual zoom/pan across non-layout re-renders, leaving a
+    ;; re-entered chart at its stale (possibly off-screen) viewport; this
+    ;; signal is the orthogonal entry-fit escape hatch. Defaults to 0 so
+    ;; the first activation (1) is a change from the chart's `::unfit`
+    ;; sentinel and frames the graph once.
+    (rf/reg-sub :rf.xray/machine-tab-fit-signal
+      (fn [db _query]
+        (get db :machine-tab-activations 0)))
+
     ;; ---- Modal positioning (rf2-om6fa) ----
     ;;
     ;; Every Xray modal (Settings popup, auto-filter edit popup,
@@ -532,7 +549,19 @@
     ;; (rf2-2moh1 registry-driven; new tab requires only a reg-l4-tab! call).
     (rf/reg-event-db :rf.xray/select-tab
       (fn [db [_ tab-id]]
-        (assoc db :selected-tab tab-id)))
+        ;; rf2-6tw7t — activating the Machine tab bumps a monotonic
+        ;; fit-signal counter so the Machine panel's topology re-fits to
+        ;; view on entry (xyflow's one-shot `:fitView` + the layout-key
+        ;; auto-fit both leave a re-entered chart at its stale pan/zoom).
+        ;; The counter lands in app-db so the panel can read it via one
+        ;; sub regardless of where the chart mounts; the Machine panel
+        ;; forwards it as `MachineChart`'s `:fit-signal`. Counting (not a
+        ;; boolean) guarantees a fresh value on every re-entry, including
+        ;; the case where the prior selection was already `:machines`
+        ;; (re-clicking the active tab still re-frames).
+        (cond-> (assoc db :selected-tab tab-id)
+          (= tab-id :machines)
+          (update :machine-tab-activations (fnil inc 0)))))
 
     ;; ---- Issues feed composite (rf2-gbz39) ------------------------
     ;;
@@ -620,7 +649,13 @@
     (rf/reg-event-db :rf.xray.static/select-tab
       (fn [db [_ tab-id]]
         (if (contains? (static-shell/tab-ids) tab-id)
-          (assoc db :rf.xray.static/selected-tab tab-id)
+          ;; rf2-6tw7t — Static shares the same `:machines` tab id +
+          ;; `machine-canvas/Chart`, so activating it bumps the same
+          ;; fit-signal counter the Dynamic select-tab does. The Static
+          ;; topology view forwards it as `:fit-signal` too.
+          (cond-> (assoc db :rf.xray.static/selected-tab tab-id)
+            (= tab-id :machines)
+            (update :machine-tab-activations (fnil inc 0)))
           db)))
 
     ;; The persistence fx installs idempotently — re-frame's registrar

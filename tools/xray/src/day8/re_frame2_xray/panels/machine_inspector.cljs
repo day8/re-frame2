@@ -691,7 +691,13 @@
         to-id      (when to-state   (chart-layout/highlight-id to-state))
         engine     "xyflow+elkjs"
         collapsed? @(rf/subscribe
-                      [:rf.xray.machine-canvas/chart-collapsed-for machine-id])]
+                      [:rf.xray.machine-canvas/chart-collapsed-for machine-id])
+        ;; rf2-6tw7t — fit-on-entry nonce. Bumped by `:rf.xray/select-tab
+        ;; :machines`; forwarded to the chart's `:fit-signal` so the
+        ;; topology re-frames whenever the operator (re-)enters the
+        ;; Machine tab, even when the focused machine (hence the chart's
+        ;; layout-key) is unchanged.
+        fit-signal @(rf/subscribe [:rf.xray/machine-tab-fit-signal])]
     [:section
      {:data-testid (str "rf-xray-machine-focused-event-section-"
                         (when machine-id
@@ -860,6 +866,11 @@
                  ;; the FIRED treatment on the live chart (canonical ids from
                  ;; `extract-fired-edge-ids`, attached to the section record).
                  :fired-edge-ids     fired-edge-ids
+                 ;; rf2-6tw7t — fit-on-entry nonce so re-entering the
+                 ;; Machine tab re-frames the topology (the layout-key
+                 ;; auto-fit alone leaves a re-entered chart at its
+                 ;; stale pan/zoom).
+                 :fit-signal         fit-signal
                  :on-state-click     (fn [path]
                                        (rf/dispatch
                                          [:rf.xray/machine-state-clicked
