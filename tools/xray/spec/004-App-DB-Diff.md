@@ -241,14 +241,22 @@ first — reporting one before-value repeatedly and dropping the rest.
 The replay recovers the true before-index + before-value for every
 removed element regardless of contiguity or multiplicity.
 
-> **Renderer note (rf2-vu42n, deferred).** The engine's
-> `:vector-removals` channel is now correct for scattered/mid-vector
-> removals, but the inline vector body renderer still index-aligns the
-> before/after vectors via `children-of-pair` rather than consuming
-> `:vector-removals` + `:same-shifted`. Contiguous *tail* removals
-> render correctly; mid/scattered removals mis-render which members are
-> struck. Tracked separately so the renderer rework does not balloon the
-> engine fix.
+> **Renderer note (rf2-vu42n, fixed).** The inline vector / list / seq
+> body renderer **consumes** this `:vector-removals` channel (plus the
+> `:same-shifted` shift projection) via `sequential-diff-children`,
+> rather than index-aligning the raw before/after vectors. The walk
+> reconstructs the body in before-order: each surviving element renders
+> at its *after* index (so the projection resolves its `:same` /
+> `:same-shifted` / `:modified` op) carrying its prior value on the
+> `before` slot; each genuinely-removed element is spliced back in at its
+> true before-index, struck-through, with an `::missing` after-value;
+> purely-added elements append after the before-ordered run. Maps / sets
+> / records keep the `children-of-pair` union walk — their slots are
+> key/member-addressed, so there is no positional shift to recover. The
+> pre-fix index-alignment struck a surviving-*shifted* element (the one
+> that slid up into a vacated slot) and dropped the actually-removed one
+> for scattered / mid-vector removals; contiguous *tail* removals lined
+> up under index alignment, so only mid / scattered removals mis-rendered.
 
 ### Removed slots render in place; the absence marker never escapes (rf2-8pfkk)
 

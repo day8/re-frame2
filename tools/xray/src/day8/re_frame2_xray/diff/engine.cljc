@@ -1109,3 +1109,21 @@
   the sentinel. Drives R8's curated suffix branch. Returns nil otherwise."
   [projection path]
   (:rf.xray.diff/redaction-side (get-in projection [:path-ops (vec path)])))
+
+(defn vector-removals-at
+  "Return the off-path `:-` removals recorded for the vector/list/seq at
+  `path` — a vector of `{:before-index :before-value}` maps in
+  ascending before-index order — or `nil` when no element was removed
+  there.
+
+  A vector/list removal has no stable AFTER-side path (the survivors
+  shift up to fill the gap), so the engine routes it into the off-path
+  `:vector-removals` channel keyed by the PARENT path instead of emitting
+  a `:path-ops` leaf op. The renderer's sequential body walk consumes
+  this channel to splice each genuinely-removed element back into the
+  rendered list at its true before-index, struck-through, rather than
+  index-aligning the raw before/after vectors (rf2-vu42n — index
+  alignment mis-attributes the strike to a surviving-shifted member and
+  drops the actually-removed one for scattered / mid-vector removals)."
+  [projection path]
+  (get-in projection [:vector-removals (vec path)]))

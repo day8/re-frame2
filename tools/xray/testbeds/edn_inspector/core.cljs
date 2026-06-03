@@ -118,6 +118,9 @@
    :queue      [:task-1 :task-2 :task-3]
    :history    '(:login :browse)
    :tags       #{:alpha :beta :gamma}
+   ;; SCATTERED removal repro (rf2-vu42n) — a four-element lane the
+   ;; scattered-removal button thins to [:a :c] (drops :b@1 + :d@3).
+   :lane       [:a :b :c :d]
    ;; EMPTY vs REMOVAL — a single-member of each kind to empty (key intact)
    ;; alongside a sibling key to remove wholesale.
    :one-vec    [:only]
@@ -200,6 +203,19 @@
       (if (> (count (:queue db)) 1)
         (update db :queue pop)
         (assoc db :queue [:task-1 :task-2 :task-3])))))
+
+(rf/reg-event-db :edn-inspector/seq-scattered-removed
+  {:doc "Sequential: SCATTERED / MID-VECTOR removal (rf2-vu42n). Thin :lane
+         `[:a :b :c :d]` → `[:a :c]` — drop :b@1 AND :d@3. The genuinely-
+         removed :b and :d render struck IN PLACE; the surviving-shifted :c
+         (was index 2 → now 1) must NOT be struck and carries a `(was N)`
+         suffix. Pre-fix the index-aligning renderer struck :c and dropped
+         :b. Toggles back to the full lane so the diff alternates."}
+  (fn [db _]
+    (let [db (bump db)]
+      (if (= (:lane db) [:a :b :c :d])
+        (assoc db :lane [:a :c])
+        (assoc db :lane [:a :b :c :d])))))
 
 (rf/reg-event-db :edn-inspector/set-member-changed
   {:doc "Set: a MEMBER CHANGED (swap). Replace one member of :tags — the
@@ -419,7 +435,9 @@
     [:edn-inspector/seq-entry-added]]
    ["2b" "Vector: entry REMOVED" "pop :queue tail — struck member, key intact"
     [:edn-inspector/seq-entry-removed]]
-   ["2c" "Set: member CHANGED"   "swap a :tags member — `−:alpha +:delta`, key intact"
+   ["2c" "Vector: SCATTERED removal" ":lane [:a :b :c :d]→[:a :c] — struck −:b −:d, :c survives (was N)"
+    [:edn-inspector/seq-scattered-removed]]
+   ["2d" "Set: member CHANGED"   "swap a :tags member — `−:alpha +:delta`, key intact"
     [:edn-inspector/set-member-changed]]
 
    [:section "Empty-result vs key-removal (must read DISTINCTLY)"]
