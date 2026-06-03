@@ -1966,6 +1966,148 @@
         "engine recovers :b (idx 1) + :d (idx 3) — not :b + :c (pre-fix bug)")))
 
 ;; =========================================================================
+;; rf2-0c6a3 — a collection value EMPTYING renders KEY-INTACT (member-level
+;; removal inside the now-empty container), DISTINCT from a `dissoc` of the
+;; key (a struck-through removed ghost)
+;; =========================================================================
+;;
+;; THE BUG: `#{:a}→#{}`, `{:k :v}→{}`, `[x]→[]`, `(x)→()` rendered the whole
+;; KEY as a struck-through removed ghost — indistinguishable from dissoc'ing
+;; the key. The engine's R5 `mark-wholly-changed` legitimately promotes the
+;; emptied set / map container path to `:removed` (the opposite side is
+;; empty — no surviving member anchors a member-level diff at the container
+;; path), and the renderer faithfully struck the KEY + painted the `−`
+;; glyph. The fix (`diff-emptied?`) keys the distinction off the SLOT shape:
+;; an emptied slot's AFTER value is a present empty collection (the key
+;; survives), whereas a dissoc'd slot's AFTER value is `missing-sentinel`.
+;;
+;; `find-key-cell` locates the `data-rf-cell "key"` cell carrying the named
+;; key so the assertions probe the OUTER key (not a struck INNER member key
+;; like a removed map entry, which SHOULD strike).
+
+(defn- find-key-cell
+  "Return the first `data-rf-cell \"key\"` hiccup node whose flattened text
+  matches `key-pat` (a regex). Lets a test assert on a SPECIFIC key row's
+  chrome (e.g. is the OUTER `:one-set` key struck) rather than the whole
+  tree."
+  [tree key-pat]
+  (->> (walk-hiccup tree)
+       (filter (fn [n]
+                 (and (vector? n) (map? (second n))
+                      (= "key" (get (second n) :data-rf-cell))
+                      (re-find key-pat (collect-text n)))))
+       first))
+
+(defn- key-intact?
+  "True when the OUTER key row matching `key-pat` is NOT struck-through and
+  carries NO `−` removal glyph — i.e. the key survives (it was not
+  removed). Renders `nil` (treated as not-intact) when no such key cell."
+  [tree key-pat]
+  (let [cell (find-key-cell tree key-pat)
+        s    (when cell (pr-str cell))]
+    (boolean
+      (and s
+           (not (re-find #"line-through" s))
+           (not (re-find #"\"−\"" s))))))
+
+(defn- emptied-render
+  "Render `{key populated}` → `{key empty}` at DEFAULT depth (testbed-
+  faithful — no forced expansion) and return the hiccup."
+  [k populated empty-coll]
+  (let [before {k populated}
+        after  {k empty-coll}
+        proj   (engine/project before after)]
+    (ei/render-node {:value after :before before :diff? true
+                     :projection proj :panel-id :p :mount-id "m"
+                     :path [] :depth 0 :expansion-map {} :opts {}})))
+
+(deftest c0c6a3-emptied-collection-renders-key-intact-not-removed-ghost
+  ;; rf2-0c6a3 — for EACH container family, emptying the collection (key
+  ;; intact) must render the KEY un-struck (NOT a removed ghost) with the
+  ;; dropped member struck-through INSIDE the now-empty container.
+  (doseq [[label k populated empty-coll member-pat]
+          [["set"    :one-set #{:only}  #{}  #":only"]
+           ["map"    :one-map {:k 1}    {}   #":k"]
+           ["vector" :one-vec [:only]   []   #":only"]
+           ["list"   :one-lst '(:only)  '()  #":only"]]]
+    (let [h   (emptied-render k populated empty-coll)
+          s   (try (pr-str h) (catch :default _ ""))
+          key-pat (re-pattern (str k))]
+      (testing (str label " — emptied collection, key intact")
+        ;; The OUTER key is NOT struck and carries no `−` glyph — it
+        ;; survived (the value just emptied).
+        (is (key-intact? h key-pat)
+            (str "the " label " key " k " must render INTACT (not struck, "
+                 "no `−` glyph) — emptying is not a key removal"))
+        ;; The node is NOT a removed-container ghost (that's the dissoc
+        ;; rendering — `data-rf-removed-ghost "1"`).
+        (is (not (re-find #":data-rf-removed-ghost \"1\"" s))
+            (str "the emptied " label " must NOT render as a removed ghost"))
+        ;; The dropped member is still visible + struck-through INSIDE the
+        ;; now-empty container (member-level removal).
+        (is (re-find #"data-rf-diff-op.*removed" s)
+            (str "the dropped " label " member carries the removed diff-op"))
+        (is (re-find #"line-through" s)
+            (str "the dropped " label " member is struck-through"))
+        (is (re-find member-pat (collect-text h))
+            (str "the dropped " label " member text still renders"))))))
+
+(deftest c0c6a3-emptied-reads-distinct-from-dissoc
+  ;; rf2-0c6a3 — the CONTRAST the testbed wires: an emptied collection
+  ;; (key intact) MUST read DISTINCT from a `dissoc` of a sibling key (the
+  ;; struck-through removed ghost). The discriminator: an emptied key's
+  ;; cell is intact; a dissoc'd key's cell is struck + `−` glyph + the node
+  ;; is a removed ghost.
+  (let [;; emptied: :one-set #{:only} → #{} (key intact)
+        h-empty (emptied-render :one-set #{:only} #{})
+        ;; dissoc: :doomed {:goodbye true} → (absent)
+        before  {:doomed {:goodbye true}}
+        after   {}
+        proj    (engine/project before after)
+        h-diss  (ei/render-node {:value after :before before :diff? true
+                                 :projection proj :panel-id :p :mount-id "m"
+                                 :path [] :depth 0 :expansion-map {} :opts {}})
+        s-diss  (try (pr-str h-diss) (catch :default _ ""))]
+    ;; Emptied: key intact, NOT a ghost.
+    (is (key-intact? h-empty #":one-set")
+        "emptied :one-set renders key-intact")
+    (is (not (re-find #":data-rf-removed-ghost \"1\"" (pr-str h-empty)))
+        "emptied :one-set is not a removed ghost")
+    ;; Dissoc: key STRUCK + removed ghost — the distinct rendering.
+    (is (not (key-intact? h-diss #":doomed"))
+        "dissoc'd :doomed renders the key struck-through (removed)")
+    (is (re-find #":data-rf-removed-ghost \"1\"" s-diss)
+        "dissoc'd :doomed renders as a removed ghost")
+    ;; The two renders are structurally distinct: only the dissoc is a ghost.
+    (is (not= (boolean (re-find #":data-rf-removed-ghost \"1\"" (pr-str h-empty)))
+              (boolean (re-find #":data-rf-removed-ghost \"1\"" s-diss)))
+        "emptied vs dissoc render DISTINCTLY (ghost present only for dissoc)")))
+
+(deftest c0c6a3-diff-emptied-predicate
+  ;; rf2-0c6a3 — the render-side discriminator. True for a populated→empty
+  ;; same-family collection (key intact); false for a real key removal
+  ;; (after missing), a populated→populated change, and a type flip.
+  (testing "emptied same-family collections — true"
+    (is (ei/diff-emptied? #{:a} #{}))
+    (is (ei/diff-emptied? {:k 1} {}))
+    (is (ei/diff-emptied? [:x] []))
+    (is (ei/diff-emptied? '(:x) '()))
+    (is (ei/diff-emptied? [1 2 3] '()) "vector→empty list (same seq family)"))
+  (testing "NOT emptied — false"
+    (is (not (ei/diff-emptied? #{:a} ei/missing-sentinel))
+        "after missing = real key removal (dissoc), not emptying")
+    (is (not (ei/diff-emptied? ei/missing-sentinel #{}))
+        "before missing = a new empty collection (added), not emptying")
+    (is (not (ei/diff-emptied? #{:a} #{:b}))
+        "populated→populated swap is not emptying")
+    (is (not (ei/diff-emptied? #{} #{}))
+        "already-empty before is not an emptying")
+    (is (not (ei/diff-emptied? {:k 1} #{}))
+        "map→set type flip is not a same-family emptying")
+    (is (not (ei/diff-emptied? :scalar #{}))
+        "scalar→empty-set is not a container emptying")))
+
+;; =========================================================================
 ;; rf2-e28r3 — single render path: value (always) + before (optional)
 ;; =========================================================================
 ;;

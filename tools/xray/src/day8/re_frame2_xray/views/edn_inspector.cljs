@@ -1067,6 +1067,55 @@
 (defn- container? [kind]
   (contains? #{:map :vector :list :set :seq :map-entry :record} kind))
 
+(defn- container-family
+  "Group `collection-kind` into the diff-equivalence family that the
+  engine's empty-edge expansion treats as same-kind: maps/records,
+  sets, and the sequential family (vector / list / seq) each form one
+  family. Non-containers return nil. Pure."
+  [kind]
+  (cond
+    (#{:map :record} kind)        :map
+    (= :set kind)                 :set
+    (#{:vector :list :seq} kind)  :seq
+    :else                         nil))
+
+(defn diff-emptied?
+  "True when a slot's value went from a populated collection to the EMPTY
+  collection of the SAME family — `#{:a}→#{}`, `{:k :v}→{}`, `[x]→[]`,
+  `(x)→()` — with the KEY INTACT (the slot still exists in AFTER).
+
+  This is the render-side discriminator for rf2-0c6a3. The engine's R5
+  `mark-wholly-changed` legitimately promotes such an emptied set / map
+  KEY to `:removed` (the opposite side is empty, so there is no surviving
+  member to anchor a member-level diff at the container path — see
+  `engine/mark-wholly-changed`). But an emptied collection is NOT a
+  `dissoc`: its KEY survives with the value now the empty collection and
+  the dropped member(s) struck-through INSIDE it. A `dissoc` removes the
+  slot entirely (AFTER is `missing-sentinel`).
+
+  So the renderer keys the distinction off the SLOT shape, not the
+  projection op: a present (non-`missing`) empty AFTER container whose
+  BEFORE was a non-empty container of the same family reads as
+  member-level emptying (key intact); a `missing` AFTER reads as a real
+  key removal (struck-through removed ghost). Type-agnostic across set /
+  map / vector / list.
+
+  Pure. `before` / `after` are the slot's pre-/post-images (either may be
+  `missing-sentinel`)."
+  [before after]
+  (let [a-kind (collection-kind after)
+        b-kind (collection-kind before)]
+    (boolean
+      (and (not= after missing-sentinel)
+           (not= before missing-sentinel)
+           (container? a-kind)
+           (container? b-kind)
+           (= (container-family a-kind) (container-family b-kind))
+           ;; AFTER empty, BEFORE populated. `empty?` / `seq` are lazy-
+           ;; seq safe (no full realisation of a list).
+           (empty? after)
+           (seq before)))))
+
 (defn children-of-pair
   "Diff-aware children walk — return a seq of `[child-key after-value
   before-value]` triples covering the UNION of `before` + `after` so
@@ -1850,6 +1899,30 @@
                         ;; descendant-change rail.
                         removed-ancestor? :removed
 
+                        ;; rf2-0c6a3 — a collection emptied by member
+                        ;; removal (`#{:a}→#{}`, `{:k :v}→{}`, `[x]→[]`,
+                        ;; `(x)→()`) keeps its KEY INTACT: the value is now
+                        ;; the empty collection with the dropped member(s)
+                        ;; struck INSIDE it. The engine's R5
+                        ;; `mark-wholly-changed` legitimately promotes the
+                        ;; emptied set / map container path to `:removed`
+                        ;; (the opposite side is empty — no surviving
+                        ;; member to anchor a member-level diff at the
+                        ;; container path). Trusting that `:removed` here
+                        ;; would render the node like a `dissoc`-removed
+                        ;; key (struck whole, `−` glyph). We classify it
+                        ;; `:children` instead so the node stays key-intact
+                        ;; + change-bearing (auto-expands, rail in the
+                        ;; modified hue) and the `children-of-pair` /
+                        ;; `sequential-diff-children` union walk surfaces
+                        ;; the struck-through removed member(s). Must
+                        ;; precede the projection lookup; a real ghost
+                        ;; (handled above by `removed-ancestor?`) is
+                        ;; unaffected because its AFTER value is
+                        ;; `missing-sentinel`, not an empty collection.
+                        (and diff? (diff-emptied? before value))
+                        :children
+
                         (and diff? projection)
                         (let [proj-op (engine/op-at projection path)]
                           ;; rf2-8pfkk — STRUCTURAL difference wins over a
@@ -2217,8 +2290,22 @@
                            ;; see the `op` override above). Force the
                            ;; removed key chrome + slot-anchored wash so
                            ;; the whole row strikes through.
+                           ;; rf2-0c6a3 — an emptied-collection slot
+                           ;; (`:k #{:a}` → `:k #{}`) keeps its KEY INTACT:
+                           ;; the engine's R5 promotion classifies the
+                           ;; emptied set / map child path `:removed`, but
+                           ;; the slot SURVIVES (the after value is a
+                           ;; present empty collection, not `missing`). A
+                           ;; real `dissoc` has `cv` = `missing-sentinel`.
+                           ;; So we read the SLOT shape: an emptied slot is
+                           ;; `:children` (key intact, value changed; no `−`
+                           ;; glyph, no key strike — the dropped member is
+                           ;; struck INSIDE the value cell), distinct from a
+                           ;; removed key. Type-agnostic across set / map /
+                           ;; vector / list.
                            child-op (cond
                                       removed-ancestor?         :removed
+                                      (diff-emptied? cb cv)     :children
                                       (and diff? projection)
                                       (engine/op-at projection child-path)
                                       :else                     nil)
