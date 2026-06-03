@@ -311,6 +311,43 @@
   [phase]
   (contains? cascade-phase-set phase))
 
+;; ---- merged ACTION badge (rf2-2hj0h) ------------------------------------
+;;
+;; rf2-2hj0h item 5 — the per-`:action` row formerly carried TWO chips: the
+;; `ACTION` kind pill + a separate phase pill (`exit` / `entry` / …). They
+;; MERGE into ONE descriptive badge that names the phase AND the kind in a
+;; single token:
+;;
+;;   ACTION + :exit          → `EXIT ACTION`
+;;   ACTION + :entry         → `ENTRY ACTION`
+;;   ACTION + :transition    → `TRANSITION ACTION`   (the LCA action — a REAL
+;;                             action that runs between exit + entry per
+;;                             Spec 005; resolved by Mike 2026-06-04)
+;;   ACTION + :always        → `ALWAYS ACTION`
+;;   ACTION + :after-action  → `AFTER-ACTION ACTION`
+;;   ACTION + :initial-entry → `INITIAL-ENTRY ACTION`
+;;   ACTION + :destroy-exit  → `DESTROY-EXIT ACTION`
+;;
+;; A state-change TRANSITION ROW (kind = `:transition`) is a DISTINCT thing
+;; (not an action) and keeps its own single `TRANSITION` pill — both can
+;; appear in one cascade (the LCA action AND the state change). See
+;; `cascade-kind-label`; this fn governs only the `:action` kind.
+
+(defn cascade-action-badge-label
+  "Merged ACTION-badge label for an `:action` cascade row (rf2-2hj0h item
+  5). Folds the action's `:phase` and the `ACTION` kind into ONE token —
+  `EXIT ACTION` / `ENTRY ACTION` / `TRANSITION ACTION` / `ALWAYS ACTION` /
+  `AFTER-ACTION ACTION` / `INITIAL-ENTRY ACTION` / `DESTROY-EXIT ACTION`.
+
+  Falls back to the bare `ACTION` label when no phase was stamped (an
+  anonymous / phase-less action — defensive; the substrate always stamps a
+  phase off the rf2-82a0u closed set). Pure-data; the view reads off this
+  for the merged kind pill."
+  [phase]
+  (if (cascade-phase? phase)
+    (str (str/upper-case (name phase)) " ACTION")
+    (cascade-kind-label :action)))
+
 ;; ---- Outcome chip resolver (rf2-u69j7) ----------------------------------
 ;;
 ;; Each cascade row carries a thin outcome chip — `pass | fail | threw`

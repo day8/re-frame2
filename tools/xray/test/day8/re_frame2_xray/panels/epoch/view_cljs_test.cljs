@@ -3326,14 +3326,20 @@
           "the data-delta {:opened-count 1} survives in the pipeline (no info lost)"))))
 
 (deftest event-handler-orientation-line-renders-test
-  (testing "rf2-akvfe item 2 — the structured orientation line renders under
-            EVENT HANDLER: `Processing [TRIGGER] <vec> for [MACHINE] <id> in
-            [STATE] <pre-transition-state>` — trigger vector, machine id, and
-            PRE-transition state, each code-formatted."
+  (testing "rf2-akvfe item 2 + rf2-2hj0h item 4 — the structured orientation
+            line renders under EVENT HANDLER: `[TRIGGER] <vec> for [MACHINE]
+            <id> in [STATE] <pre-transition-state>` — trigger vector, machine
+            id, and PRE-transition state, each code-formatted. The leading
+            'Processing' word is DROPPED (rf2-2hj0h item 4)."
     (let [tree (view/render-handler-step
                  (machine-step-with-rows :door/main door-push-cascade-rows))]
       (is (some? (th/find-by-testid tree "rf-xray-epoch-event-handler-orientation"))
           "the orientation line renders")
+      ;; rf2-2hj0h item 4 — no leading "Processing" word.
+      (is (not (string/includes?
+                 (or (text-of tree "rf-xray-epoch-event-handler-orientation") "")
+                 "Processing"))
+          "the orientation line drops the leading 'Processing' word")
       (is (= "[:door/push]"
              (text-of tree "rf-xray-epoch-event-handler-orientation-trigger"))
           "the TRIGGER value is the full inner trigger vector")
@@ -3352,14 +3358,30 @@
       (is (nil? (th/find-by-testid tree "rf-xray-epoch-event-handler-orientation"))
           "no orientation line for a pure creation kick"))))
 
-(deftest event-handler-nested-pipeline-rail-renders-test
-  (testing "rf2-akvfe item 3 — the EVENT HANDLER inner cascade rows render as a
-            nested pipeline: the numbered [1][2][3] ordinals are retained AND a
-            vertical rail runs behind them (mirroring the outer stage pipeline)."
+(deftest event-handler-flat-numbered-stack-no-rail-test
+  (testing "rf2-2hj0h item 1 + 2 — the EVENT HANDLER inner cascade rows render
+            as a FLAT numbered stack: the akvfe nested-pipeline RAIL is REMOVED
+            (one of the two left vertical lines), the per-step source-body
+            left-connector is REMOVED (the other), and NO `:border-bottom`
+            horizontal line sits between steps. The [1][2][3] ordinals are
+            retained (they carry the pipeline reading)."
     (let [tree (view/render-handler-step
                  (machine-step-with-rows :door/main door-push-cascade-rows))]
-      (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-machine-cascade-rail"))
-          "the nested-pipeline vertical rail renders")
+      ;; item 2 — the full-height rail is GONE.
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-handler-machine-cascade-rail"))
+          "the nested-pipeline vertical rail is removed")
+      ;; The flat rows host still renders.
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-handler-machine-cascade-rows"))
+          "the flat rows host renders")
+      ;; item 1 — NO `:border-bottom` horizontal line between rows.
+      (is (nil? (:border-bottom (style-of tree "rf-xray-epoch-machine-cascade-row-1")))
+          "no horizontal inter-step line (border-bottom) on a cascade row")
+      ;; item 1 — NO `:border-top` horizontal line atop the rows host.
+      (is (nil? (:border-top (style-of tree "rf-xray-epoch-handler-machine-cascade-rows")))
+          "no horizontal line atop the rows host")
+      ;; item 2 — the per-step source-body left CONNECTOR (border-left) is GONE.
+      (is (nil? (:border-left (style-of tree "rf-xray-epoch-machine-cascade-source-1")))
+          "no per-step left connector (source-body border-left)")
       ;; The [1][2][3] ordinals are retained on each row.
       (is (= "1" (text-of tree "rf-xray-epoch-machine-cascade-ordinal-1"))
           "ordinal [1] retained")
@@ -3367,6 +3389,145 @@
           "ordinal [2] retained")
       (is (= "3" (text-of tree "rf-xray-epoch-machine-cascade-ordinal-3"))
           "ordinal [3] retained"))))
+
+;; ---- rf2-2hj0h — merged action badge + for-state + no ok-tick -------------
+
+(deftest event-handler-merged-action-badge-test
+  (testing "rf2-2hj0h item 5 — an `:action` row renders ONE merged badge
+            ([EXIT ACTION] / [ENTRY ACTION]) folding the ACTION kind + the
+            phase, NOT a separate [ACTION] pill + [exit] phase chip."
+    (let [tree (view/render-handler-step
+                 (machine-step-with-rows :door/main door-push-cascade-rows))]
+      ;; The exit action (step 1) badge reads `EXIT ACTION`.
+      (is (= "EXIT ACTION"
+             (text-of tree "rf-xray-epoch-machine-cascade-kind-action"))
+          "the exit action's merged badge reads `EXIT ACTION`")
+      ;; The merged badge is the SOLE phase carrier (the `…-phase-<phase>`
+      ;; testid still resolves — it now rides the merged badge node).
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-phase-exit"))
+          "the exit phase testid still resolves (on the merged badge)")))
+  (testing "rf2-2hj0h item 5 — an ENTRY-phase action reads `ENTRY ACTION`."
+    (let [tree (view/render-handler-step
+                 (machine-step-with-rows :door/main
+                   [{:kind :action :step 1 :phase :entry :machine-id :door/main
+                     :action-id :count-open :outcome :ok
+                     :source-state :closed :target-state :open}]))]
+      (is (= "ENTRY ACTION"
+             (text-of tree "rf-xray-epoch-machine-cascade-kind-action"))
+          "the entry action's merged badge reads `ENTRY ACTION`")))
+  (testing "rf2-2hj0h item 5 (RESOLVED Mike 2026-06-04) — a TRANSITION-phase
+            action (the LCA action) reads `TRANSITION ACTION`; the state-change
+            TRANSITION ROW (kind = :transition) keeps its own `[TRANSITION]`
+            pill. Both are distinct and can co-occur."
+    (let [tree (view/render-handler-step
+                 (machine-step-with-rows :door/main
+                   [{:kind :action :step 1 :phase :transition :machine-id :hvac/c
+                     :action-id :swap-mode :outcome :ok
+                     :source-state :heating :target-state :cooling}
+                    {:kind :transition :step 2 :machine-id :hvac/c
+                     :event [:hvac/mode-toggle]
+                     :from-state :heating :to-state :cooling
+                     :before {:state :heating} :after {:state :cooling}}]))]
+      (is (= "TRANSITION ACTION"
+             (text-of tree "rf-xray-epoch-machine-cascade-kind-action"))
+          "the LCA (transition-phase) action's merged badge reads `TRANSITION ACTION`")
+      ;; The state-change transition ROW keeps the single `[TRANSITION]` pill.
+      (is (= "TRANSITION"
+             (text-of tree "rf-xray-epoch-machine-cascade-kind-transition"))
+          "the state-change transition row keeps its own `[TRANSITION]` pill"))))
+
+(deftest event-handler-action-for-state-test
+  (testing "rf2-2hj0h item 6 — after the merged badge the header reads
+            ` for <state> ` then the action name. The for-state value is the
+            EXITED (source) state for an exit action and the ENTERED (target)
+            state for an entry action (the `:source-state` / `:target-state`
+            slots `enrich-cascade-rows` stamps)."
+    (let [tree (view/render-handler-step
+                 (machine-step-with-rows :door/main
+                   [{:kind :action :step 1 :phase :exit :machine-id :door/main
+                     :action-id :clear-hold :outcome :ok
+                     :source-state :closed :target-state :open}
+                    {:kind :action :step 2 :phase :entry :machine-id :door/main
+                     :action-id :count-open :outcome :ok
+                     :source-state :closed :target-state :open}]))]
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-for-state-1"))
+          "the exit action renders a ` for <state> ` clause")
+      (is (string/includes? (text-of tree "rf-xray-epoch-machine-cascade-for-state-1")
+                            "for")
+          "the clause carries the `for` connective")
+      (is (string/includes? (text-of tree "rf-xray-epoch-machine-cascade-for-state-1")
+                            ":closed")
+          "the EXIT action reads `for :closed` (the exited / source state)")
+      (is (string/includes? (text-of tree "rf-xray-epoch-machine-cascade-for-state-2")
+                            ":open")
+          "the ENTRY action reads `for :open` (the entered / target state)")))
+  (testing "rf2-2hj0h item 6 — the ` for <state> ` clause is OMITTED (no
+            dangling `for`) when no state was stamped on the row."
+    (let [tree (view/render-handler-step
+                 (machine-step-with-rows :door/main
+                   [{:kind :action :step 1 :phase :entry :machine-id :door/main
+                     :action-id :count-open :outcome :ok}]))]
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-for-state-1"))
+          "no ` for <state> ` clause when neither source nor target state is stamped"))))
+
+(deftest event-handler-action-no-ok-tick-test
+  (testing "rf2-2hj0h item 7 — a SUCCESSFUL `:action` row carries NO green
+            ok-tick (the prior `✓ ok` outcome chip is REMOVED — success is
+            clean). The threw chip was already gone (rf2-4yrr6); item 7 drops
+            the success tick too."
+    (let [tree (view/render-handler-step
+                 (machine-step-with-rows :door/main door-push-cascade-rows))]
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-outcome-ok"))
+          "no `✓ ok` outcome chip on a successful action row")
+      ;; The action row + its merged badge still render (only the tick is gone).
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-row-1"))
+          "the action row still renders"))))
+
+(deftest event-handler-exception-box-test
+  (testing "rf2-2hj0h item 8 — a THROWING action renders the EXCEPTION BOX
+            below its code (message / ex-data via the collapsible), modeled on
+            the outer pipeline's `error-block` card. Together with item 7:
+            success = clean; failure = exception box."
+    (let [exc  (ex-info "action blew up"
+                        {:event [:fuse/short-circuit] :where :fuse-wildcard})
+          tree (view/render-handler-step
+                 (machine-step-with-rows :fuse/box
+                   [{:kind :action :step 1 :phase :transition :machine-id :fuse/box
+                     :action-id :blow-fuse
+                     :outcome :rf.error/action-threw :threw? true
+                     :exception exc
+                     :source-state :ok :target-state :blown}]))
+          base "rf-xray-epoch-machine-cascade-exception-1"]
+      (is (some? (th/find-by-testid tree base))
+          "the exception box renders below the throwing action's code")
+      (is (= "Exception Thrown" (text-of tree (str base "-title")))
+          "the box carries the 'Exception Thrown' title (outer-card anatomy)")
+      (is (= "action blew up" (text-of tree (str base "-message")))
+          "the box renders the verbatim ex-info message")
+      ;; The ex-data rides the collapsible details disclosure.
+      (is (some? (th/find-by-testid tree (str base "-details")))
+          "the collapsible stack / ex-data disclosure renders")
+      (is (some? (th/find-by-testid tree (str base "-ex-data")))
+          "the ex-data renders inside the disclosure")))
+  (testing "rf2-2hj0h item 8 — a THROWING guard renders the exception box too."
+    (let [exc  (ex-info "guard blew up" {:guard :is-ready?})
+          tree (view/render-handler-step
+                 (machine-step-with-rows :door/main
+                   [{:kind :guard :step 1 :machine-id :door/main
+                     :guard-id :is-ready? :outcome :threw
+                     :exception exc :source-state :closed}]))
+          base "rf-xray-epoch-machine-cascade-exception-1"]
+      (is (some? (th/find-by-testid tree base))
+          "the exception box renders below the throwing guard's code")
+      (is (= "guard blew up" (text-of tree (str base "-message")))
+          "the box renders the guard's verbatim message")))
+  (testing "rf2-2hj0h item 8 — a CLEAN action / guard renders NO exception box."
+    (let [tree (view/render-handler-step
+                 (machine-step-with-rows :door/main door-push-cascade-rows))]
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-exception-1"))
+          "no exception box on a clean (non-throwing) action row")
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-exception-3"))
+          "no exception box on a clean entry action row"))))
 
 ;; ---- Part 3 — a threw ACTION row shows exactly ONE threw signal -----------
 
@@ -3396,11 +3557,16 @@
       ;; (b) NO '✗ threw — <message>' outcome-detail line.
       (is (nil? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-threw-1"))
           "no duplicate '✗ threw — <message>' outcome-detail line")
+      ;; rf2-2hj0h item 8 — the threw signal is now the EXCEPTION BOX below
+      ;; the code (the single failure signal, paired with item 7's no-tick).
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-exception-1"))
+          "the throwing action's exception box renders (rf2-2hj0h item 8)")
       ;; The action row itself still renders (only the threw chrome is gone).
       (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-row-1"))
           "the action row still renders")))
-  (testing "rf2-4yrr6 — a SUCCESSFUL `:action` row keeps its `:ok` outcome
-            chip (only the threw chip was removed)"
+  (testing "rf2-2hj0h item 7 — a SUCCESSFUL `:action` row carries NO ok-tick
+            (success is clean — the prior `✓ ok` chip is removed; rf2-4yrr6
+            had already removed the threw chip)"
     (let [step {:step :handler :badge :HANDLER :step-number 3
                 :flavour :reg-machine :event-id :door/main
                 :fx []
@@ -3409,8 +3575,11 @@
                                      :outcome {:data {:opened-count 1}}}]
                           :transition nil :guards [] :lifecycle [] :timers []}}
           tree (view/render-handler-step step)]
-      (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-outcome-ok"))
-          "a successful action keeps its `:ok` outcome chip"))))
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-outcome-ok"))
+          "a successful action carries NO `✓ ok` tick (rf2-2hj0h item 7)")
+      ;; A clean action also renders NO exception box.
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-exception-1"))
+          "a clean action renders no exception box"))))
 
 ;; ---- Part 4 — collapsed exception-card machine attribution ----------------
 

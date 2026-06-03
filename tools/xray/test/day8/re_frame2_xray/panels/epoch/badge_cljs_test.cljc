@@ -169,6 +169,29 @@
         (is (string? l))
         (is (seq l))))))
 
+(deftest cascade-action-badge-label-test
+  (testing "rf2-2hj0h item 5 — the merged ACTION badge folds the phase + the
+            ACTION kind into one token"
+    (is (= "EXIT ACTION"          (badge/cascade-action-badge-label :exit)))
+    (is (= "ENTRY ACTION"         (badge/cascade-action-badge-label :entry)))
+    (is (= "TRANSITION ACTION"    (badge/cascade-action-badge-label :transition)))
+    (is (= "ALWAYS ACTION"        (badge/cascade-action-badge-label :always)))
+    (is (= "AFTER-ACTION ACTION"  (badge/cascade-action-badge-label :after-action)))
+    (is (= "INITIAL-ENTRY ACTION" (badge/cascade-action-badge-label :initial-entry)))
+    (is (= "DESTROY-EXIT ACTION"  (badge/cascade-action-badge-label :destroy-exit))))
+  (testing "rf2-2hj0h — every phase yields a `<PHASE> ACTION` token ending in
+            ` ACTION`; a phase-less action falls back to the bare ACTION label"
+    (doseq [p badge/cascade-phase-set]
+      (let [l (badge/cascade-action-badge-label p)]
+        (is (string? l))
+        (is (str/ends-with? l " ACTION"))))
+    (is (= (badge/cascade-kind-label :action)
+           (badge/cascade-action-badge-label nil))
+        "no phase → bare ACTION label (the kind label)"))
+  (testing "rf2-2hj0h — the state-change TRANSITION ROW keeps its own single
+            `TRANSITION` pill (distinct from a `TRANSITION ACTION`)"
+    (is (= "TRANSITION" (badge/cascade-kind-label :transition)))))
+
 (deftest cascade-outcome-resolver-test
   (testing "rf2-u69j7 — outcome → token-key + glyph mappings"
     (is (= :success       (badge/cascade-outcome-token-key :pass)))

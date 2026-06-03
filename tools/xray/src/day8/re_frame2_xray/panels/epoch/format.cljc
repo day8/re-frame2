@@ -407,6 +407,39 @@
     ;; the whole story; the rf2-ugdas "ignored" chip was a third restatement.
     nil))
 
+;; rf2-2hj0h item 6 — the merged ACTION badge is followed by ` for <state> `
+;; then the action name, so an action row's header reads
+;; `[EXIT ACTION] for :closed :clear-hold` / `[ENTRY ACTION] for :open
+;; :count-open`. `<state>` is the state the action BELONGS TO:
+;;
+;;   :exit / :destroy-exit                       → the EXITED state
+;;                                                 (`:source-state`)
+;;   :entry / :initial-entry / :always /
+;;   :after-action                               → the ENTERED state
+;;                                                 (`:target-state`)
+;;   :transition (the LCA action)                → the source state
+;;                                                 (the change anchors there)
+;;
+;; The state slots are stamped by `enrich-cascade-rows` (the same
+;; `:source-state` / `:target-state` slots `cascade-row-source-key` reads),
+;; so the view never re-walks the trace. The state renders via `pr-str` (it
+;; may be a keyword OR a path vector / region→state map for compound /
+;; parallel machines), matching the transition headline's state rendering.
+
+(defn cascade-action-for-state
+  "The state an `:action` cascade row belongs to (rf2-2hj0h item 6), for
+  the ` for <state> ` clause of the merged-action-badge header. Reads the
+  row's `:phase` to pick `:source-state` (exit phases) vs `:target-state`
+  (entry / post-entry phases); falls back across the two when the
+  phase-preferred slot is absent (best-effort enrichment). Returns nil when
+  neither state was stamped — the view then omits the ` for <state> `
+  clause and renders just the action name. Pure-data."
+  [{:keys [phase source-state target-state]}]
+  (let [exit-phase? (contains? #{:exit :destroy-exit :transition} phase)]
+    (if exit-phase?
+      (or source-state target-state)
+      (or target-state source-state))))
+
 (defn history-kind-label
   "Render a history `:kind` keyword (`:shallow` / `:deep`) as a UI label."
   [kind]

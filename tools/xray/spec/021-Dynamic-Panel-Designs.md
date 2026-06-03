@@ -1564,18 +1564,34 @@ rather than collapsing to a plain `reg-event-db` handler.
 - **Step ordinal** (1..N) — left-rail compact monospace chip.
   Suppressed for the single-row `:no-op` notice (rf2-iu3no — the lone
   "1" was unexplained noise).
-- **Kind pill** — colour-coded (`:start / :guard / :action / :transition /
-  :timer / :no-op`) — see `badge.cljc` for the hue assignments. The
-  `:no-op` pill reads `NO OP` (space, not hyphen — rf2-iu3no); the `:start`
-  pill reads `START` in the `:success` (green) tone (rf2-it4vt — a clean
-  birth is a GOOD event).
+- **Kind pill / merged action badge** — colour-coded. For `:guard` /
+  `:transition` / `:timer` / `:no-op` / `:start` it is a single KIND pill
+  (`badge/cascade-kind-label` — see `badge.cljc` for the hue assignments;
+  the `:no-op` pill reads `NO OP` (space, not hyphen — rf2-iu3no); the
+  `:start` pill reads `START` in the `:success` (green) tone, rf2-it4vt).
+  **For `:action` rows the KIND pill + the separate phase chip MERGE into
+  ONE descriptive badge** (rf2-2hj0h item 5 — `badge/cascade-action-badge-
+  label`): `[EXIT ACTION]` / `[ENTRY ACTION]` / `[TRANSITION ACTION]` /
+  `[ALWAYS ACTION]` / `[AFTER-ACTION ACTION]` / `[INITIAL-ENTRY ACTION]` /
+  `[DESTROY-EXIT ACTION]`, painted in the ACTION-kind hue. A
+  `TRANSITION ACTION` (the LCA action — a REAL action per Spec 005, running
+  between exit + entry; resolved by Mike 2026-06-04) is DISTINCT from the
+  state-change **TRANSITION ROW** (kind = `:transition`), which keeps its
+  own single `[TRANSITION]` pill — both can appear in one cascade.
 - **Cause tag** (`:start` rows only — rf2-it4vt) — `explicit` / `lazy` /
   `spawned`, off the `:rf.machine/started` trace's `:cause`. The `lazy`
   cause is the ordering-smell flag (warning tone); `explicit` / `spawned`
   ride the muted neutral tone.
-- **Phase chip** (`:action` rows only) — one of the rf2-82a0u closed
-  set `:exit / :transition / :entry / :always / :after-action /
-  :initial-entry / :destroy-exit`.
+- **`for <state>` clause** (`:action` rows only — rf2-2hj0h item 6) — after
+  the merged action badge the header reads ` for <state> ` then the action
+  name (the verb), e.g. `[EXIT ACTION] for :closed :clear-hold` /
+  `[ENTRY ACTION] for :open :count-open`. `<state>` is the state the action
+  BELONGS TO — the EXITED (`:source-state`) state for an exit-phase action,
+  the ENTERED (`:target-state`) state for an entry-phase action (the LCA
+  `:transition`-phase action anchors on the source state). It reads off the
+  `:source-state` / `:target-state` slots `enrich-cascade-rows` stamps
+  (`format/cascade-action-for-state`); the clause is OMITTED (no dangling
+  `for`) when no state was stamped.
 - **Verb** — the action-id / guard-id / transition headline / timer
   state, rendered as a click-to-source button when a `{:file :line}`
   coord resolves for the row (a named guard/action reads its co-located
@@ -1588,9 +1604,12 @@ rather than collapsing to a plain `reg-event-db` handler.
   `projection/long-step-threshold-ms` (16ms — one 60Hz frame).
 - **Outcome chip** — kind-specific:
   - `:guard` → `✓ pass / ▲ fail / ✗ threw`
-  - `:action` → `✓ ok` (a THREW action carries NO outcome chip — rf2-4yrr6;
-    the pink "Exception Thrown" card + the row pink-wash are the single
-    threw signal)
+  - `:action` → **NO outcome chip** (rf2-2hj0h item 7 — success is CLEAN, no
+    `✓ ok` tick; the prior tick was redundant chrome in the normal case).
+    Failure is the **EXCEPTION BOX** below the code (item 8 — see §Per-row
+    outcome detail), not a chip. (rf2-4yrr6 had already dropped the threw
+    chip; item 7 drops the success `:ok` chip too, so the action row's
+    outcome reads purely off presence/absence of the exception box.)
   - `:transition` → `N microstep(s)` (the headline)
   - `:timer` → `· cancelled (<reason>)`
   - `:no-op` → NO outcome chip (rf2-iu3no — the `NO OP` pill + the
@@ -1698,6 +1717,20 @@ the defmachine DEFINITION:
 - **`↳ fx`** — per-action fx-id chips for each effect the action
   emitted (same data the FX step's `:attributed-to` chip surfaces,
   now visible IN the action's row).
+- **EXCEPTION BOX** (`:action` / `:guard` rows that THREW — rf2-2hj0h
+  item 8) — when a guard or action body throws, an exception box renders
+  directly below that step's code, **modeled on the OUTER pipeline's inline
+  exception card** (`view/error-block` / `error-block-details`) and the way
+  the fuse `:*` throw surfaces on the HANDLER step: the same `error-block-*`
+  chrome — a `✗` glyph + the `Exception Thrown` title, the verbatim message
+  (`ex-message` on the row's raw `:exception`), and the collapsible stack /
+  ex-data disclosure (`<details>`). It lands IN the throwing cascade row so
+  the operator reads the code AND its exception at one vertical position.
+  The throwing step's verb-link already carries the click-to-source
+  `<file:line>` (so the box does not re-render a coord line — matching the
+  outer card, which dropped its redundant jump-to-source link in rf2-wnvid).
+  Together with item 7 this defines the action/guard outcome display:
+  **success = clean (no tick); failure = exception box.**
 
 > **No-info-loss anchor (rf2-akvfe).** The `↳ data Δ` on the entry-action
 > row (`:count-open` → `{:opened-count 1}`) is exactly the data-delta the
@@ -1707,23 +1740,30 @@ the defmachine DEFINITION:
 > no-info-loss guard (the exit action, the entry action, and the data-delta
 > all live on their own numbered pipeline rows).
 
-**EVENT HANDLER section layout (rf2-akvfe).** The machine EVENT HANDLER
-section renders as: (1) the structured **orientation line** under the
-heading — `Processing [TRIGGER] ‹vec› for [MACHINE] ‹id› in [STATE]
+**EVENT HANDLER section layout (rf2-akvfe · rf2-2hj0h).** The machine EVENT
+HANDLER section renders as: (1) the structured **orientation line** under the
+heading — `[TRIGGER] ‹vec› for [MACHINE] ‹id› in [STATE]
 ‹pre-transition-state›`, grey chip-labels + code-formatted values
-(§9.1.6.4) — over (2) the cascade rows laid out as a **nested
-pipeline-of-boxes** mirroring the OUTER stage pipeline (`[DISPATCH] →
-[EVENT HANDLER] → …`): a vertical rail (`machine-cascade-rail-style`) runs
-behind the numbered `[1][2][3]` ordinal chips so the inner steps read as
-one connected pipeline rather than a flat stack. The ordinal numbering is
-retained; the rail is the inner analogue of `pipeline-view`'s rail + step
-wrappers.
+(§9.1.6.4) — over (2) the cascade rows laid out as a **flat numbered stack**.
 
-A THREW action surfaces NO per-row threw chrome (rf2-4yrr6 retired the
-prior `✗ threw — <message>` outcome-detail line AND the duplicate `✗ threw`
-outcome chip above). The pink "Exception Thrown" card + the row pink-wash
-(the `issue-event?` predicate) already flag the throw; the verbatim message
-rides the card. One signal is enough.
+> **rf2-2hj0h (Mike door-deck review, 2026-06-04).** Two refinements over
+> the akvfe layout:
+> - The orientation line **DROPS the leading "Processing" word** (item 4) —
+>   the chips + values are self-orienting; the verb was filler.
+> - akvfe's nested-pipeline **vertical RAIL is REMOVED** (item 2) — the line
+>   that ran behind the `[1][2][3]` ordinals (`machine-cascade-rail-style`),
+>   together with the per-step source-body left **CONNECTOR** (the source
+>   body's `border-left`), were the **two left vertical lines** this bead
+>   retires. The numbered ordinal chips alone now carry the pipeline reading.
+>   The **thin HORIZONTAL inter-step lines** are removed too (item 1 — the
+>   cascade row's `border-bottom` + the rows-host `border-top`). The ordinal
+>   numbering is retained.
+
+A THREW action surfaces NO per-row threw chrome (rf2-4yrr6 retired the prior
+`✗ threw — <message>` outcome-detail line AND the duplicate `✗ threw`
+outcome chip). Its failure is rendered by the **per-row EXCEPTION BOX**
+(rf2-2hj0h item 8 — see §Per-row outcome detail below) directly under the
+throwing step's code. One signal: the box.
 
 **Transition row — prominent header verb + logical-state DELTA box
 (rf2-ge6uj header · rf2-iwy0c body).** The transition zone is a SINGLE
@@ -2448,9 +2488,10 @@ processes the trigger) and a more scannable shape that also carries the
 **starting STATE** the gloss never showed.
 
 **The orientation line.** Immediately under the EVENT HANDLER heading,
-ONE structured line:
+ONE structured line (rf2-2hj0h item 4 — the leading "Processing" word is
+DROPPED; the chips + values are self-orienting):
 
-> Processing `[TRIGGER]` *‹trigger-vector›* for `[MACHINE]` *‹machine-id›*
+> `[TRIGGER]` *‹trigger-vector›* for `[MACHINE]` *‹machine-id›*
 > in `[STATE]` *‹pre-transition-state›*
 
 where `[TRIGGER]` / `[MACHINE]` / `[STATE]` render as small **grey
@@ -2469,7 +2510,7 @@ real trigger (see
 `ai/findings/2026-06-03.machine-creation-bootstrap-review.md` §1) —
 produces a cascade with only a `[START]` row (no transition / no-op), so
 the orientation line is **suppressed**: the birth story rides the
-`[START]` cascade row, not a "Processing …" line.
+`[START]` cascade row, not an orientation line.
 
 **Projection.** `projection/machine-event-orientation` (pure-data,
 `panels/epoch/projection.cljc`) reads the orientation triple directly off
