@@ -60,19 +60,19 @@
 
    :guards
    {:may-close?
-    (fn guard-may-close? [{data :data}]
+    (fn may-close? [{data :data}]
       (not (:held-open? data)))}
 
    :actions
-   {:count-open  (fn action-count-open [{data :data}]
+   {:count-open  (fn count-open [{data :data}]
                    {:data (update data :opened-count (fnil inc 0))})
-    :clear-hold  (fn action-clear-hold [{data :data}]
+    :clear-hold  (fn clear-hold [{data :data}]
                    {:data (assoc data :held-open? false)})
-    :hold-open   (fn action-hold-open [{data :data}]
+    :hold-open   (fn hold-open [{data :data}]
                    ;; INTERNAL transition (no :target): writes :data only —
                    ;; it is not part of the entry/exit cascade.
                    {:data (assoc data :held-open? true)})
-    :enter-alarm (fn action-enter-alarm [{data :data}]
+    :enter-alarm (fn enter-alarm [{data :data}]
                    {:data (assoc data :alarm-fx? true)})}
 
    :states
@@ -159,12 +159,12 @@
    :data    {:score 0}
 
    :guards
-   {:enough? (fn guard-enough? [{data :data}] (>= (:score data) 3))}
+   {:enough? (fn enough? [{data :data}] (>= (:score data) 3))}
 
    :actions
-   {:count-answer (fn action-count-answer [{data :data}]
+   {:count-answer (fn count-answer [{data :data}]
                     {:data (update data :score (fnil inc 0))})
-    :award        (fn action-award [{data :data}]
+    :award        (fn award [{data :data}]
                     {:data (assoc data :passed? true)})}
 
    :states
@@ -215,7 +215,7 @@
 (defmachine session-login-machine
   {:initial :running
    :actions
-   {:capture (fn action-capture [{data :data event :event}]
+   {:capture (fn capture [{data :data event :event}]
                {:data (assoc data :token (second event))})}
    :states
    {:running {:tags #{:session/running}
@@ -275,7 +275,7 @@
 
    :actions
    {:blow-fuse
-    (fn action-blow-fuse [{:keys [event]}]
+    (fn blow-fuse [{:keys [event]}]
       (throw (ex-info "fuse blown on boot"
                       {:event event :where :fuse-entry})))}
 
@@ -342,7 +342,7 @@
                :hvac/tweak {:action :tweak-fan}}}}}}
 
    :actions
-   {:tweak-fan (fn action-tweak-fan [{data :data}]
+   {:tweak-fan (fn tweak-fan [{data :data}]
                  {:data (update data :tweaks (fnil inc 0))})}})
 
 ;; ============================================================================
