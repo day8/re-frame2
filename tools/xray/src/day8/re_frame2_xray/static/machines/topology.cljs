@@ -85,7 +85,7 @@
     :testid                        — overrides the inner SVG testid
                                      so the existing static-panel
                                      tests still match."
-  [dispatch {:keys [definition machine-id]}]
+  [dispatch {:keys [definition machine-id fit-signal]}]
   ;; rf2-gpzb4 (2026-05-21 xyflow migration) — ELK is now driven
   ;; internally by xyflow inside `mv-chart/MachineChart`; the
   ;; host-side layout-or-fallback dance is gone.
@@ -109,6 +109,10 @@
        :machine-id             machine-id
        :show-after-rings?      false
        :show-view-mode-toggle? false
+       ;; rf2-6tw7t — fit-on-entry nonce so entering the Static Machines
+       ;; tab re-frames the topology (xyflow's one-shot `:fitView` +
+       ;; the layout-key auto-fit both leave a re-entered chart stale).
+       :fit-signal             fit-signal
        :inner-testid           "rf-xray-static-machines-topology-svg"
        :on-state-click
        (fn [path]
@@ -179,7 +183,7 @@
   `dispatch` (rf2-nesy9) is threaded from `definition_detail/body` so
   the chart's state-click + the toolbar's pop-out land on the
   surrounding instance frame."
-  [dispatch {:keys [machine-id definition source-coord] :as args}]
+  [dispatch {:keys [machine-id definition source-coord fit-signal] :as args}]
   (cond
     (nil? definition)
     [:section {:data-testid     "rf-xray-static-machines-topology"
@@ -202,4 +206,5 @@
                        :color (:text-primary tokens)
                        :font-family sans-stack}}
      [chart-toolbar dispatch {:machine-id machine-id :source-coord source-coord}]
-     [chart dispatch {:definition definition :machine-id machine-id}]]))
+     [chart dispatch {:definition definition :machine-id machine-id
+                      :fit-signal fit-signal}]]))

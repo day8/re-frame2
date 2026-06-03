@@ -372,6 +372,13 @@
                               Canvas/List pill in the chart top-left.
     :show-controls?     — when true (default) render xyflow's built-in
                           zoom/pan/fit Controls inside the chart.
+    :fit-signal         — rf2-6tw7t. Opaque fit-on-entry nonce forwarded
+                          verbatim to `mv-chart/MachineChart`'s
+                          `:fit-signal`. Hosts bump it on panel-entry /
+                          tab-activation so the topology re-frames even
+                          when the layout-key is unchanged (re-entering
+                          the same machine). nil → inert (only the layout-
+                          key auto-fit runs).
     :theme              — rf2-az6e2. `:dark` (default) / `:light`.
                           Forwarded to `mv-chart/MachineChart`'s `:theme`
                           prop, which resolves the chart palette + reads
@@ -389,7 +396,8 @@
            fired-edge-ids machine-data
            sim? on-state-click on-edge-click
            show-after-rings? show-view-mode-toggle?
-           show-controls? theme testid inner-testid]
+           show-controls? theme testid inner-testid
+           fit-signal]
     :or   {show-after-rings?       true
            show-view-mode-toggle?  true
            show-controls?          true
@@ -430,6 +438,11 @@
       :theme           theme
       :on-state-click  on-state-click
       :on-edge-click   on-edge-click
+      ;; rf2-6tw7t — fit-on-entry nonce. The host (Machine panel /
+      ;; Static topology) bumps this on panel-entry / tab-activation so
+      ;; the chart re-fits the topology even when the layout-key is
+      ;; unchanged (re-entering the same machine). Forwarded verbatim.
+      :fit-signal      fit-signal
       :show-minimap?   false
       :show-controls?  show-controls?
       :show-background? true

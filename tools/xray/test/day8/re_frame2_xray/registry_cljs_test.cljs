@@ -332,6 +332,10 @@
    ;; recent cascade; flips on event arrival, not on a per-second tick).
    :rf.xray/relative-time-now-ms
    :rf.xray/selected-tab
+   ;; rf2-6tw7t — Machine tab fit-on-entry nonce (bumped by
+   ;; `:rf.xray/select-tab :machines` + `:rf.xray.static/select-tab
+   ;; :machines`; forwarded to MachineChart's `:fit-signal`).
+   :rf.xray/machine-tab-fit-signal
    ;; rf2-ttnst — Settings popup expansion convenience subs.
    :rf.xray/density
    :rf.xray/long-keyword-threshold
@@ -899,6 +903,80 @@
         (is (some? (rf/subscribe [q-v]))
             (str q-v " must resolve through rf/subscribe after
                  register-xray-handlers!"))))))
+
+;; ---- Machine tab fit-on-entry signal (rf2-6tw7t) ------------------------
+;;
+;; Entering / activating the Machine tab must auto fit-to-view the
+;; topology. The mechanism: `:rf.xray/select-tab :machines` (and the
+;; Static `:rf.xray.static/select-tab :machines`) bump a monotonic
+;; counter at `:machine-tab-activations`; the `:rf.xray/machine-tab-fit-
+;; signal` sub surfaces it; the Machine panel forwards the value as
+;; `MachineChart`'s `:fit-signal`, which re-fits the viewport on every
+;; CHANGE (the chart-side gate is pinned in machines-viz
+;; `auto-fit-view-cljs-test`). These pins guard the host-side wiring: the
+;; activation path bumps the signal, NON-machine activations don't, and
+;; the sub reads it back.
+
+(deftest machine-tab-fit-signal-default-zero
+  (testing "rf2-6tw7t — a fresh :rf/xray frame reports fit-signal 0 (no
+            activation yet). The chart's `::unfit` sentinel start means
+            the FIRST activation (→ 1) is still a change, so the initial
+            entry frames the graph."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (is (= 0 @(rf/subscribe [:rf.xray/machine-tab-fit-signal]))
+          "no Machine-tab activation yet → 0"))))
+
+(deftest machine-tab-fit-signal-bumps-on-dynamic-activation
+  (testing "rf2-6tw7t — `:rf.xray/select-tab :machines` bumps the fit-
+            signal so the Machine panel re-fits on entry; re-clicking the
+            already-active Machine tab still bumps it (re-entry re-frames
+            even without a tab change), and the counter increases
+            monotonically per activation."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/select-tab :machines])
+      (is (= 1 @(rf/subscribe [:rf.xray/machine-tab-fit-signal]))
+          "first Machine-tab activation → 1")
+      ;; Re-clicking the active Machine tab re-frames (fresh nonce).
+      (rf/dispatch-sync [:rf.xray/select-tab :machines])
+      (is (= 2 @(rf/subscribe [:rf.xray/machine-tab-fit-signal]))
+          "re-activating the same tab still bumps the signal")
+      (is (= :machines @(rf/subscribe [:rf.xray/selected-tab]))
+          "the tab selection itself is unchanged"))))
+
+(deftest machine-tab-fit-signal-steady-on-non-machine-tabs
+  (testing "rf2-6tw7t — activating a NON-Machine tab must NOT bump the
+            fit-signal (only Machine-tab entry re-frames the topology).
+            A round-trip away and back bumps exactly once on the return."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/select-tab :machines])
+      (is (= 1 @(rf/subscribe [:rf.xray/machine-tab-fit-signal])))
+      ;; Leave the Machine tab — no bump.
+      (rf/dispatch-sync [:rf.xray/select-tab :epoch])
+      (rf/dispatch-sync [:rf.xray/select-tab :app-db])
+      (is (= 1 @(rf/subscribe [:rf.xray/machine-tab-fit-signal]))
+          "non-Machine tabs leave the signal steady")
+      ;; Re-enter the Machine tab — exactly one bump.
+      (rf/dispatch-sync [:rf.xray/select-tab :machines])
+      (is (= 2 @(rf/subscribe [:rf.xray/machine-tab-fit-signal]))
+          "re-entering the Machine tab re-frames (one bump)"))))
+
+(deftest machine-tab-fit-signal-bumps-on-static-activation
+  (testing "rf2-6tw7t — Static shares the `:machines` tab id +
+            `machine-canvas/Chart`, so `:rf.xray.static/select-tab
+            :machines` bumps the SAME fit-signal counter the Dynamic
+            select-tab does. A non-machine Static tab activation does
+            not bump it."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray.static/select-tab :machines])
+      (is (= 1 @(rf/subscribe [:rf.xray/machine-tab-fit-signal]))
+          "Static Machine-tab activation bumps the shared counter")
+      (rf/dispatch-sync [:rf.xray.static/select-tab :routes])
+      (is (= 1 @(rf/subscribe [:rf.xray/machine-tab-fit-signal]))
+          "a non-machine Static tab does not bump the fit-signal"))))
 
 ;; ---- (2) high-value sub contracts: defaults on a fresh frame ------------
 

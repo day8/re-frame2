@@ -486,3 +486,127 @@
       (gate :K2 {"a" {:width 100 :height 40}})
       (is (= [:K1 :K2] @relayouts)
           "a new layout-key gets its own relayout despite identical boxes"))))
+
+;; ---- 8. fit-on-entry signal (rf2-6tw7t) -------------------------------
+;;
+;; The layout-key auto-fit (rf2-set3x, tests 1-6 above) deliberately
+;; PRESERVES the operator's manual zoom/pan across non-layout re-renders.
+;; That leaves a chart RE-ENTERED from a panel/tab switch at its prior
+;; viewport — the bug rf2-6tw7t fixes. The orthogonal `:fit-signal` prop
+;; (an opaque nonce the host bumps on panel-entry / tab-activation) forces
+;; a re-fit when its value CHANGES, independent of the layout-key gate.
+;;
+;; This pins the `maybe-fit-on-signal!` gate the chart wires onto every
+;; render verbatim (the live xyflow `.fitView` is browser-pinned /
+;; eval-cljs in the PR body — same reason tests 1-6 are Node-layer pins
+;; of the predicate, not DOM tests).
+
+(deftest fit-on-entry-fits-once-per-signal-change
+  (testing "rf2-6tw7t — the fit-on-entry gate fires exactly once each time
+            the host `:fit-signal` CHANGES (panel re-entry), and is a
+            no-op while the signal is steady (ordinary re-renders, so
+            manual zoom/pan survives). It requires a captured instance +
+            non-empty positions + no :layout-error — the same
+            preconditions the layout-settle fit checks. The `::unfit`
+            sentinel start means the FIRST observed signal (even nil)
+            fits once.
+
+            This mirrors `chart.cljs/maybe-fit-on-signal!` verbatim."
+    (let [;; The chart's `fit-state` shape (sentinel start per chart.cljs).
+          fit-state (atom {:instance fake-instance
+                           :fit-key  nil
+                           :fit-sig  ::chart-unfit})
+          spy       (atom [])
+          ;; Stand-ins for the chart's two render-derived inputs.
+          positions (atom {"idle" {:x 0 :y 0}})  ;; non-empty → ready
+          layout-error (atom nil)
+          ;; The gate, lifted verbatim from chart.cljs/maybe-fit-on-signal!.
+          maybe-fit-on-signal!
+          (fn [fit-signal]
+            (let [{:keys [instance fit-sig]} @fit-state]
+              (when (and instance
+                         (not= fit-signal fit-sig)
+                         (seq @positions)
+                         (nil? @layout-error))
+                (swap! fit-state assoc :fit-sig fit-signal)
+                (swap! spy conj fit-signal))))]
+      ;; First entry — signal 1 differs from the ::chart-unfit sentinel → fit.
+      (maybe-fit-on-signal! 1)
+      (is (= [1] @spy) "first activation fits once")
+      ;; Ordinary re-renders with the SAME signal — manual zoom/pan survives.
+      (maybe-fit-on-signal! 1)
+      (maybe-fit-on-signal! 1)
+      (is (= [1] @spy) "steady signal does NOT re-fit (manual viewport preserved)")
+      ;; Operator leaves + re-enters the tab → host bumps the counter to 2.
+      (maybe-fit-on-signal! 2)
+      (is (= [1 2] @spy) "a fresh activation signal re-fits on entry")
+      ;; And again — every distinct entry re-frames.
+      (maybe-fit-on-signal! 3)
+      (is (= [1 2 3] @spy) "each entry signal fits exactly once")
+      (is (= 3 (:fit-sig @fit-state)) "fit-state records the last signal fit"))))
+
+(deftest fit-on-entry-defers-until-instance-and-positions-ready
+  (testing "rf2-6tw7t — an entry signal that arrives BEFORE the instance
+            is captured (or before the first layout settles) must NOT
+            record the signal as fit — it stays pending so the onInit /
+            next-render re-check honours it once the preconditions hold.
+            Pins the deferral branch: no instance → no fit + signal stays
+            unrecorded; empty positions → no fit + signal stays
+            unrecorded; once both arrive → the SAME pending signal fits."
+    (let [fit-state (atom {:instance nil
+                           :fit-key  nil
+                           :fit-sig  ::chart-unfit})
+          spy       (atom [])
+          positions (atom {})         ;; empty → not ready
+          layout-error (atom nil)
+          maybe-fit-on-signal!
+          (fn [fit-signal]
+            (let [{:keys [instance fit-sig]} @fit-state]
+              (when (and instance
+                         (not= fit-signal fit-sig)
+                         (seq @positions)
+                         (nil? @layout-error))
+                (swap! fit-state assoc :fit-sig fit-signal)
+                (swap! spy conj fit-signal))))]
+      ;; Entry signal 1 arrives but no instance yet → no fit, not recorded.
+      (maybe-fit-on-signal! 1)
+      (is (zero? (count @spy)) "no fit while instance is nil")
+      (is (= ::chart-unfit (:fit-sig @fit-state))
+          "signal stays unrecorded so the next chance still honours it")
+      ;; Instance captured (onInit) but positions still empty → still no fit.
+      (swap! fit-state assoc :instance fake-instance)
+      (maybe-fit-on-signal! 1)
+      (is (zero? (count @spy)) "no fit while positions are empty")
+      (is (= ::chart-unfit (:fit-sig @fit-state))
+          "still unrecorded — degenerate origin cluster not framed")
+      ;; Layout settles (positions arrive) → the SAME pending signal fits.
+      (reset! positions {"idle" {:x 0 :y 0}})
+      (maybe-fit-on-signal! 1)
+      (is (= [1] @spy) "the pending entry signal fits once preconditions hold"))))
+
+(deftest fit-on-entry-skips-layout-error-settle
+  (testing "rf2-6tw7t — a fit-signal bump on a chart whose layout FAILED
+            (the rf2-4lyvh error path: empty positions + :layout-error)
+            must NOT fit — an auto-fit on empty positions re-triggers the
+            degenerate-cluster bug. The chart paints the error banner
+            instead. Pins the :layout-error guard on the entry path
+            (mirrors test 2's gate for the settle path)."
+    (let [fit-state (atom {:instance fake-instance
+                           :fit-key  nil
+                           :fit-sig  ::chart-unfit})
+          spy       (atom [])
+          positions (atom {})
+          layout-error (atom {:elk-error "boom"})  ;; error settle
+          maybe-fit-on-signal!
+          (fn [fit-signal]
+            (let [{:keys [instance fit-sig]} @fit-state]
+              (when (and instance
+                         (not= fit-signal fit-sig)
+                         (seq @positions)
+                         (nil? @layout-error))
+                (swap! fit-state assoc :fit-sig fit-signal)
+                (swap! spy conj fit-signal))))]
+      (maybe-fit-on-signal! 1)
+      (is (zero? (count @spy)) "no entry-fit on a layout-error settle")
+      (is (= ::chart-unfit (:fit-sig @fit-state))
+          "signal unrecorded — banner paints, not a degenerate fit"))))

@@ -162,12 +162,13 @@
   "Dispatch to the per-mode body renderer. Topology + Sim render a
   body; Instances + Cascade do not (Instances is a JUMP affordance,
   Cascade is dimmed). `dispatch` (rf2-nesy9) is threaded from `detail`."
-  [dispatch {:keys [sub-mode machine-id definition source-coord]}]
+  [dispatch {:keys [sub-mode machine-id definition source-coord fit-signal]}]
   (case sub-mode
     :topology
     [topology/body dispatch {:machine-id   machine-id
                              :definition   definition
-                             :source-coord source-coord}]
+                             :source-coord source-coord
+                             :fit-signal   fit-signal}]
 
     :sim
     [sim/body dispatch {:machine-id machine-id
@@ -221,7 +222,12 @@
         @(rf/subscribe [:rf.xray.static.machines/data])
         row (some #(when (= selected-id (:machine-id %)) %) rows)
         definitions @(rf/subscribe [:rf.xray/machine-definitions])
-        sub-mode @(rf/subscribe [:rf.xray.static.machines/sub-mode selected-id])]
+        sub-mode @(rf/subscribe [:rf.xray.static.machines/sub-mode selected-id])
+        ;; rf2-6tw7t — fit-on-entry nonce (bumped by `:rf.xray.static/
+        ;; select-tab :machines`). Threaded down to the Topology body's
+        ;; `machine-canvas/Chart` `:fit-signal` so entering the Static
+        ;; Machines tab re-frames the topology to view.
+        fit-signal @(rf/subscribe [:rf.xray/machine-tab-fit-signal])]
     (if (nil? row)
       (empty-detail)
       (let [{:keys [machine-id state-count live-count source-coord]} row
@@ -248,4 +254,5 @@
           [body dispatch {:sub-mode     sub-mode
                           :machine-id   machine-id
                           :definition   definition
-                          :source-coord source-coord}]]]))))
+                          :source-coord source-coord
+                          :fit-signal   fit-signal}]]]))))
