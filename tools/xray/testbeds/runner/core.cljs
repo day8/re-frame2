@@ -35,11 +35,24 @@
     is moved on.
 
   - **Runner state = LOCAL ATOM ONLY.** The cursor / status / pace live
-    in a LOCAL Reagent atom OWNED by the runner (the testbed passes it
-    in). It is NEVER written to the inspected app-db (that would pollute
-    the very panels under inspection) and NEVER lives in a second frame
-    (a 2nd frame would appear in Xray's frame surfaces + complicate the
-    observed-frame story). ONLY the inspected app frame is Xray-relevant.
+    in a LOCAL Reagent atom OWNED by the testbed (passed in). It is NEVER
+    written to the inspected app-db (that would pollute the very panels
+    under inspection) and is NOT a Reagent atom that lives in a separate
+    re-frame FRAME — it is a plain component-local atom, invisible to
+    Xray's frame surfaces. A deck supplies ONE atom per runner mount; a
+    deck that mounts the runner more than once (the two-frame isolation
+    testbed mounts the standard-epochs deck once per `:above` / `:below`
+    frame) supplies a DISTINCT local atom per mount, so the two cursors
+    are genuinely independent.
+
+  - **Dispatch is scoped to `host-frame`.** Each step dispatches with an
+    explicit `{:frame host-frame}` opt (see `dispatch+settle!`). A runner
+    control's `on-click` fires OUTSIDE the React frame-provider context,
+    so an un-targeted `(rf/dispatch event)` would land on the ambient
+    `(current-frame-id)` — fine for a single-frame deck (host-frame =
+    `:rf/default`), wrong for a multi-frame mount. Targeting `host-frame`
+    keeps each runner's events scoped to the frame it inspects — the
+    load-bearing rule that lets the two-frame deck stay isolated.
 
   - **Xray focus (manual).** The Step / per-step-run controls dispatch
     WITHOUT moving focus — the operator drives the spine themselves and
@@ -65,12 +78,14 @@
   ## Why a shared ns (the rollout vehicle)
 
   This namespace is the reference RUNNER the managed-http testbed
-  (rf2-6nolv) is the FIRST consumer of. Rolling it across the existing
-  numbered-button decks (machine_epochs, edn_inspector, …) is a
-  SEPARATE follow-up (out of pilot scope); keeping the runner here, in a
-  testbed-shared location, means that rollout is a pure adoption — each
-  deck supplies its own step vector + prefix and drops its bespoke
-  ladder driver.
+  (rf2-6nolv) was the FIRST consumer of. It has since been rolled across
+  the numbered-button decks (machine_epochs, edn_inspector — rf2-rrqku;
+  routes_epochs, standard_epochs — rf2-3xakq); the standard-epochs deck
+  is mounted twice by the two_frame_isolation testbed with a distinct
+  per-frame atom + host-frame. Keeping the runner here, in a testbed-
+  shared location, makes each adoption a pure one — a deck supplies its
+  own step vector + prefix + host-frame and drops its bespoke ladder
+  driver.
 
   ## Boundaries (bundle isolation)
 
@@ -158,18 +173,31 @@
     (swap! state assoc :cursor next-cursor :phase (if more? :idle :done))))
 
 (defn- dispatch+settle!
-  "Dispatch the step's event, mark it the `:active` (last-dispatched) step
-  so the highlight + counter render off it, (optionally) focus the latest
-  host-frame epoch, then schedule the post-dispatch `:settle-ms` wait
-  before advancing. `auto?` controls focus: auto-advance pins focus to
-  latest; a manual single-step leaves focus to the operator."
+  "Dispatch the step's event TO `host-frame`, mark it the `:active` (last-
+  dispatched) step so the highlight + counter render off it, (optionally)
+  focus the latest host-frame epoch, then schedule the post-dispatch
+  `:settle-ms` wait before advancing. `auto?` controls focus: auto-advance
+  pins focus to latest; a manual single-step leaves focus to the operator.
+
+  The dispatch carries an explicit `{:frame host-frame}` opt. A runner
+  control's `on-click` fires OUTSIDE the React render tree's frame-provider
+  context, so `(rf/dispatch event)` alone would resolve to the ambient
+  `(current-frame-id)` — `:rf/default` for a single-frame deck (correct
+  there, since the inspected frame IS `:rf/default`), but the WRONG frame
+  when a deck mounts the runner inside a second frame-provider (e.g. the
+  two-frame isolation testbed mounts the standard-epochs deck once per
+  `:above` / `:below` frame, each with its own runner atom + host-frame).
+  Targeting `host-frame` explicitly keeps each runner's dispatches scoped
+  to the frame it inspects — the load-bearing rule for the per-frame
+  isolation proof. For the single-frame decks this is a no-op (host-frame
+  is `:rf/default`, the same frame the out-of-tree click already targeted)."
   [state steps host-frame {:keys [auto?]}]
   (let [idx (:cursor @state)
         {:keys [event settle-ms] :as step} (nth steps idx)]
     ;; Mark the just-dispatched step active BEFORE the cursor advances, so
     ;; at rest the highlighted row is the one whose epoch is focused.
     (swap! state assoc :active idx :phase :dispatched)
-    (rf/dispatch event)
+    (rf/dispatch event {:frame host-frame})
     (when auto?
       (focus-latest-host-epoch! host-frame))
     (swap! state assoc :phase :settling)

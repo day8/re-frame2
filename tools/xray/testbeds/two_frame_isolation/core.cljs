@@ -39,11 +39,29 @@
 
   `standard-epochs.core` registers every event / sub / view / cofx / fx /
   flow / schema ONCE globally at namespace load (requiring it below is
-  what installs them); its `root` button-ladder view is the shared app
-  code path both frames render. We do NOT call `standard-epochs.core/run`
-  — that would mount the deck once into `#app` on the default frame. We
+  what installs them); its `root` step-ladder view is the shared app code
+  path both frames render. We do NOT call `standard-epochs.core/run` —
+  that would mount the deck once into `#app` on the default frame. We
   reuse only its registrations + its `root` Var, and supply our own
   two-frame harness + mount here.
+
+  ## Per-frame runner atoms (rf2-3xakq — the isolation-preserving mount)
+
+  `standard-epochs.core/root` was converted to the shared queued-step
+  runner (`runner.core`) and parameterised over `[runner-state host-frame
+  prefix]`. The runner's cursor lives in a LOCAL Reagent atom, and the
+  runner dispatches to its `host-frame` explicitly. So this testbed
+  supplies a DISTINCT runner atom + the frame's own id + a distinct testid
+  prefix per mount:
+
+    :above → (above-runner-state, :above, \"standard-epochs-above\")
+    :below → (below-runner-state, :below, \"standard-epochs-below\")
+
+  Two genuinely independent runner cursors, each driving events ONLY into
+  its own frame — no shared cursor, correct per-frame focus. This is the
+  load-bearing detail that keeps the isolation proof intact under the
+  runner conversion: pressing Step (or a RUN-THIS-STEP button) in `:above`
+  moves ONLY `:above`'s app-db / sub-cache / epoch history.
 
   ## What this proves — per-frame isolation
 
@@ -78,13 +96,15 @@
   (`npm run test:cljs`) + the Xray feature-matrix gate's `multi-frame
   isolation substrate` scenario (on the framework `testbeds/multi_frame`
   surface)."
-  (:require [reagent.dom.client :as rdc]
+  (:require [reagent.core :as r]
+            [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             ;; Requiring `standard-epochs.core` installs every handler /
             ;; sub / view / cofx / fx / flow / schema ONCE globally and
-            ;; gives us its `root` button-ladder view. We mount that view
-            ;; twice below; we do NOT call its `run` (which would mount it
-            ;; once into `#app` on the default frame).
+            ;; gives us its `root` step-ladder view. We mount that view
+            ;; twice below (with a distinct per-frame runner atom +
+            ;; host-frame + prefix); we do NOT call its `run` (which would
+            ;; mount it once into `#app` on the default frame).
             [standard-epochs.core :as se]
             [re-frame.adapter.reagent :as reagent-adapter]
             ;; rf2-6jyf6 — Xray's `configure!` to seed `:project-root`
@@ -93,7 +113,12 @@
             [day8.re-frame2-xray.config :as xray-config]
             ;; Shared testbed-config helper (rf2-5dphw): derives the
             ;; open-in-editor project-root from the build env.
-            [re-frame.testbed.config :as testbed-config])
+            [re-frame.testbed.config :as testbed-config]
+            ;; The shared queued-step runner (rf2-8pbjr pilot). We need its
+            ;; `initial-state` to seed a DISTINCT runner atom per frame —
+            ;; the standard-epochs `root` drives the runner, and each
+            ;; mount must own its own cursor for the isolation proof.
+            [runner.core :as runner])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; ============================================================================
@@ -104,10 +129,24 @@
 (def frame-below :below)
 
 ;; ============================================================================
+;; PER-FRAME RUNNER ATOMS (rf2-3xakq — distinct cursor per mount)
+;; ============================================================================
+;;
+;; The standard-epochs `root` is runner-driven; the runner's cursor lives
+;; in a LOCAL Reagent atom. Each frame mount gets its OWN atom so the two
+;; runner cursors are genuinely independent — pressing Step in `:above`
+;; advances ONLY `:above`'s cursor (and dispatches ONLY into `:above`).
+;; These are NOT app-db, NOT a re-frame frame — plain component-local
+;; atoms invisible to Xray's frame surfaces (the rf2-8pbjr contract).
+
+(defonce above-runner-state (r/atom (runner/initial-state)))
+(defonce below-runner-state (r/atom (runner/initial-state)))
+
+;; ============================================================================
 ;; ROOT VIEW — the standard-epochs ladder mounted twice, one per frame-provider
 ;; ============================================================================
 
-(reg-view frame-card [frame-label]
+(reg-view frame-card [frame-label runner-state host-frame prefix]
   (let [accent (case frame-label
                  "above" "#2b7"
                  "below" "#36c"
@@ -130,11 +169,12 @@
         "(" frame-label ")"]]
       [:span {:style {:font-size "11px" :color "#888"}}
        "isolated reactive context"]]
-     ;; The SHARED app code path: the standard-epochs button ladder. The
-     ;; reg-view-injected dispatch / subscribe close over THIS
+     ;; The SHARED app code path: the standard-epochs runner-driven deck.
+     ;; The reg-view-injected dispatch / subscribe close over THIS
      ;; frame-provider's frame id, so the same view source drives two
-     ;; independent reactive contexts.
-     [se/root]]))
+     ;; independent reactive contexts; the per-frame runner atom +
+     ;; host-frame keep this mount's cursor + dispatches isolated.
+     [se/root runner-state host-frame prefix]]))
 
 (reg-view root []
   [:div {:data-testid "two-frame-isolation-root"
@@ -146,17 +186,18 @@
     [:p {:style {:color "#444" :margin "0.5em 0 0 0"}}
      "Same app — the "
      [:code "standard-epochs"]
-     " button ladder — mounted in two isolated reactive contexts. Each "
+     " step ladder — mounted in two isolated reactive contexts. Each "
      [:code "frame-provider"]
      " below renders the same view source against a separate "
-     [:code "app-db"] " + sub-cache + epoch history. Drive one frame; the "
-     "other stays put. Switch frames in Xray (right) with the frame "
-     "picker to compare trace / events / epochs per frame."]]
+     [:code "app-db"] " + sub-cache + epoch history (and its OWN runner "
+     "cursor). Drive one frame; the other stays put. Switch frames in Xray "
+     "(right) with the frame picker to compare trace / events / epochs per "
+     "frame."]]
    [:div {:style {:display "flex" :flex-direction "column"}}
     [rf/frame-provider {:frame frame-above}
-     [frame-card "above"]]
+     [frame-card "above" above-runner-state frame-above "standard-epochs-above"]]
     [rf/frame-provider {:frame frame-below}
-     [frame-card "below"]]]])
+     [frame-card "below" below-runner-state frame-below "standard-epochs-below"]]]])
 
 ;; ============================================================================
 ;; MOUNT

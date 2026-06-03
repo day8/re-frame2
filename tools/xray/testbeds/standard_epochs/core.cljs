@@ -1,30 +1,43 @@
 (ns standard-epochs.core
-  "STANDARD-EPOCHS testbed (rf2-gsr6z) — a deliberately simple Xray driving
-  surface that supersedes the step-deck.
+  "STANDARD-EPOCHS testbed (rf2-gsr6z, runner-shaped rf2-3xakq) — a
+  deliberately simple Xray driving surface that supersedes the step-deck.
 
-  ## Shape
+  ## Shape (rf2-3xakq — adopt the shared queued-step RUNNER)
 
-  ONE tall column of NUMBERED buttons, top to bottom. Beside each button
-  a one-line caption says WHAT TO WATCH in Xray when you press it. Each
-  button is ONE test: it fires one event that
+  ONE purple Step button (`<prefix>-step`) walks a step ladder top to
+  bottom while the operator watches how Xray's panels render each step;
+  EVERY step row's index is ALSO a RANDOM-ACCESS RUN-THIS-STEP button
+  (`<prefix>-step-<n>-run`, n = 0-based step index) so any step can be
+  driven directly. The runner (`runner.core`, the rf2-8pbjr pilot) is the
+  shared harness; this deck supplies the `steps` vector (CODE DATA) and is
+  mounted with a runner atom + a host-frame + a testid prefix. Each step
+  DISPATCHES one event that
 
     (a) bumps a shared baseline counter (so App-db / Epoch always show a
-        delta on every press), and
+        delta on every step), and
     (b) exercises exactly ONE additional feature.
 
-  Progressive: button 1 is trivial; each later button layers one more
-  concept. There are NO tabs, NO routing/URL machinery, NO machines, NO
-  SSR — a single frame, plainly mounted, with Xray auto-mounting inline
-  on the right (`[data-rf-xray-host]` + the xray preload) reading that
-  one frame. No frame picker, no action→check meta-strip: the static
-  caption is the 'what to look for', and Xray itself is the check.
+  Progressive: step 1 is trivial; each later step layers one more concept.
+  There are NO tabs, NO routing/URL machinery, NO machines, NO SSR. Read
+  each step's `:watch` note; Xray itself is the check.
+
+  ## Parameterised root (rf2-3xakq — the two-frame mount)
+
+  `root` takes `[runner-state host-frame prefix]`. The single-frame deck
+  (`run`) mounts `[root runner-state :rf/default \"standard-epochs\"]` on
+  the plain default frame, Xray auto-mounting inline. The TWO-FRAME
+  isolation testbed (`two_frame_isolation`) mounts this SAME `root` once
+  per `:above` / `:below` frame-provider, each with its OWN runner atom +
+  host-frame + a DISTINCT prefix — so the two reactive contexts (and the
+  two runner cursors) stay genuinely independent. This is what makes the
+  deck reusable as the two-frame isolation PROOF without sharing a cursor
+  or focusing the wrong frame.
 
   ## North star (acceptance)
 
   Pick ANY ONE Xray panel — Epoch, App-db, Views, Trace, or Issues — and
-  click the buttons top to bottom: that panel is COMPLETELY exercised.
-  The button set is chosen for per-panel coverage completeness, not
-  one-lens-per-button.
+  step through top to bottom: that panel is COMPLETELY exercised. The step
+  set is chosen for per-panel coverage completeness, not one-lens-per-step.
 
   ## Per-panel coverage map
 
@@ -76,7 +89,8 @@
   The events / subs / views below are OWNED here — this deck does NOT
   reuse the shared `testdeck.*` modules (whose coupling to the two-frame
   + routing surfaces is what made the step-deck inflexible)."
-  (:require [reagent.dom.client :as rdc]
+  (:require [reagent.core :as r]
+            [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             ;; Flows artefact — load-time hook so `reg-flow` resolves
             ;; (button #5 writes a derived slot via a flow).
@@ -96,7 +110,12 @@
             [day8.re-frame2-xray.config :as xray-config]
             ;; Shared testbed-config helper (rf2-5dphw): derives the
             ;; open-in-editor project-root from the build env.
-            [re-frame.testbed.config :as testbed-config])
+            [re-frame.testbed.config :as testbed-config]
+            ;; The shared queued-step runner (rf2-8pbjr pilot). This deck
+            ;; supplies a `steps` vector; the runner drives the ONE-button
+            ;; series + the per-step RUN buttons. The two-frame testbed
+            ;; mounts `root` twice with a distinct runner atom + host-frame.
+            [runner.core :as runner])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; ============================================================================
@@ -603,87 +622,141 @@
        "(press #20 once → +1 clean, +2 double-compute)"]]]))
 
 ;; ============================================================================
-;; THE BUTTON LADDER
+;; THE STEP VECTOR — code data (rf2-8pbjr: the single source of truth)
 ;; ============================================================================
+;;
+;; Each step: {:event [...] :watch "<what to look for>" :settle-ms N
+;;             :label "<short row label>"}. The runner renders :watch per
+;; STEP, dispatches :event to the deck's host-frame, then waits :settle-ms
+;; before advancing. The ladder walks Events → Views/subscriptions →
+;; Errors/Issues → Reactive (the historical button order 1..20 preserved).
+;;
+;; Settle tuning (rf2-3xakq): most steps are synchronous db transitions —
+;; a short pause is enough for the eye + the panel render. The async steps
+;; get longer settles so the deferred work fires + renders before the
+;; cursor advances:
+;;   - #4 cascade — the follow-on :dispatch lands a second epoch.
+;;   - #6/#9/#10 mount/unmount — a React render tick for the child node
+;;     to appear / disappear + its subs to register / dispose.
+;;   - #17 slow fx (~600ms) — the deferred :standard-epochs/slow-done reply
+;;     must land (status :loading → :loaded) within the settle.
+;;   - #12/#16/#19 exception / rollback steps — a beat for the Issues lens
+;;     to surface the trace + the rolled-back / surviving db to settle.
 
-(def ^:private ladder
-  "The ordered button ladder. Each row: [n label caption event]. `event`
-  is the dispatch vector; nil rows are section separators (label only)."
-  [[:section "Events — Epoch / Trace / App-db scalar"]
-   [1  "Increment"             "App-db :baseline ++ · Epoch: the event, db-before/after"
-    [:standard-epochs/increment]]
-   [2  "Increment + coeffect"  "Epoch event-detail: a `now` coeffect feeds the handler"
-    [:standard-epochs/increment-cofx]]
-   [3  "Increment + effect"    "Effects / Trace: a one-shot fx fires this epoch"
-    [:standard-epochs/increment-fx]]
-   [4  "Increment + cascade"   "Epoch: the dispatch-id tree — a follow-on event"
-    [:standard-epochs/increment-cascade]]
-   [5  "Increment + flow"      "App-db: a reg-flow-derived slot recomputes; Trace shows it"
-    [:standard-epochs/increment-flow]]
-   [:section "Views / subscriptions — sub-driven A vs props-driven B"]
-   [6  "Mount Child A (sub-driven)"  "Views: node + A's sub-cache entries appear (chain L1/L2/L3 + [:gt? 5])"
-    [:standard-epochs/mount-a]]
-   [7  "Change the sub-arg N → 10"   "Views: a NEW cache entry [:gt? 10] (parameterized-sub cache keyed by arg)"
-    [:standard-epochs/set-threshold 10]]
-   [8  "Perturb A's chain input"     "Views: L1→L2→L3 invalidation recompute; A re-renders ← a SUB changed"
-    [:standard-epochs/perturb-chain]]
-   [9  "Unmount Child A"             "Views: node gone; ALL of A's subs disposed (last reader gone); unmount recorded"
-    [:standard-epochs/unmount-a]]
-   [10 "Mount Child B (props-driven)" "Views: node appears with NO subs created"
-    [:standard-epochs/mount-b]]
-   [11 "Change B's prop"             "Views: B re-renders ← PROPS changed (foil to #8's sub-driven re-render)"
-    [:standard-epochs/set-b-prop]]
-   [:section "Errors / Issues — each a real feature, not a buggy demo"]
-   [12 "Exception in the handler"     "Issues: handler-exception + source coord; db rolls back"
-    [:standard-epochs/throw-handler]]
-   [13 "Exception in an interceptor :before" "Issues: interceptor :before exception; handler skipped"
-    [:standard-epochs/throw-interceptor]]
-   [14 "Exception in an interceptor :after"  "Issues: interceptor :after exception; handler ran, threw on the way out (foil to #13)"
-    [:standard-epochs/throw-interceptor-after]]
-   [15 "Exception in a coeffect"      "Issues: cofx error; handler skipped"
-    [:standard-epochs/throw-cofx]]
-   [16 "Exception in an effect"       "Issues: fx error (post-commit, best-effort); db delta survives"
-    [:standard-epochs/throw-fx]]
-   [17 "Slow effect (~600ms)"         "Issues: slow-fx flagged; status loading → loaded"
-    [:standard-epochs/slow]]
-   [18 "Bad event args"               "Issues / Schema-timeline: event-args schema failure"
-    [:standard-epochs/bad-event-args "not-a-number"]]
-   [19 "Bad app-db write"             "Issues: app-db schema failure (survives rollback)"
-    [:standard-epochs/bad-app-db-write]]
-   [:section "Reactive substrate — diamond recompute probe"]
-   [20 "Bump diamond root"            "Diamond c ← a,b ← root: press once; c-recompute count should rise by 1 (clean), 2 = double-compute"
-    [:standard-epochs/bump-diamond]]])
+(def steps
+  [;; -- Events — Epoch / Trace / App-db scalar --
+   {:label     "Increment"
+    :event     [:standard-epochs/increment]
+    :watch     "App-db :baseline ++ · Epoch: the event, db-before/after."
+    :settle-ms 350}
+   {:label     "Increment + coeffect"
+    :event     [:standard-epochs/increment-cofx]
+    :watch     "Epoch event-detail: a `now` coeffect feeds the handler."
+    :settle-ms 350}
+   {:label     "Increment + effect"
+    :event     [:standard-epochs/increment-fx]
+    :watch     "Effects / Trace: a one-shot :standard-epochs/ping fx fires this epoch."
+    :settle-ms 350}
+   {:label     "Increment + cascade"
+    :event     [:standard-epochs/increment-cascade]
+    :watch     "Epoch: the dispatch-id tree — a follow-on :cascade-tail event under one root."
+    :settle-ms 450}
+   {:label     "Increment + flow"
+    :event     [:standard-epochs/increment-flow]
+    :watch     "App-db: the :standard-epochs/derived reg-flow slot recomputes; Trace shows the flow run."
+    :settle-ms 400}
 
-(defn- testid-for [event]
-  (-> (first event) name (str "-button")))
+   ;; -- Views / subscriptions — sub-driven A vs props-driven B --
+   {:label     "Mount Child A (sub-driven)"
+    :event     [:standard-epochs/mount-a]
+    :watch     "Views: the Child-A node + A's sub-cache entries appear (chain L1/L2/L3 + [:gt? 5])."
+    :settle-ms 450}
+   {:label     "Change the sub-arg N → 10"
+    :event     [:standard-epochs/set-threshold 10]
+    :watch     "Views: a NEW cache entry [:gt? 10] (parameterized-sub cache keyed by arg) alongside [:gt? 5]."
+    :settle-ms 400}
+   {:label     "Perturb A's chain input"
+    :event     [:standard-epochs/perturb-chain]
+    :watch     "Views: L1→L2→L3 invalidation recompute; A re-renders ← a SUB changed (not props)."
+    :settle-ms 400}
+   {:label     "Unmount Child A"
+    :event     [:standard-epochs/unmount-a]
+    :watch     "Views: the node is gone; ALL of A's subs are disposed (last reader gone); the unmount is recorded."
+    :settle-ms 450}
+   {:label     "Mount Child B (props-driven)"
+    :event     [:standard-epochs/mount-b]
+    :watch     "Views: the Child-B node appears with NO subs created."
+    :settle-ms 450}
+   {:label     "Change B's prop"
+    :event     [:standard-epochs/set-b-prop]
+    :watch     "Views: B re-renders ← PROPS changed (the foil to step 8's sub-driven re-render)."
+    :settle-ms 400}
 
-(reg-view ladder-button
-  "One numbered ladder row: a numbered button on the left, its caption on
-  the right. Pressing it dispatches the row's event."
-  [n label caption event]
-  [:div {:style {:display "grid" :grid-template-columns "auto 1fr"
-                 :gap "0.75em" :align-items "center" :margin "0.35em 0"}}
-   [:button {:data-testid (testid-for event)
-             :on-click    #(dispatch event)
-             :style {:min-width "16em" :text-align "left"
-                     :padding "0.4em 0.6em" :cursor "pointer"
-                     :border "1px solid #cfc8ff" :border-radius "6px"
-                     :background "#fff"}}
-    [:span {:style {:font-weight "bold" :color "#7C5CFF" :margin-right "0.5em"}}
-     (str n ".")]
-    label]
-   [:span {:style {:color "#666" :font-size "12px"}} caption]])
+   ;; -- Errors / Issues — each a real feature, not a buggy demo --
+   {:label     "Exception in the handler"
+    :event     [:standard-epochs/throw-handler]
+    :watch     "Issues: handler-exception + source coord; the :db (baseline bump) rolls back."
+    :settle-ms 450}
+   {:label     "Exception in an interceptor :before"
+    :event     [:standard-epochs/throw-interceptor]
+    :watch     "Issues: interceptor :before exception; the handler is skipped (chain aborts on the way in)."
+    :settle-ms 450}
+   {:label     "Exception in an interceptor :after"
+    :event     [:standard-epochs/throw-interceptor-after]
+    :watch     "Issues: interceptor :after exception; the handler ran, threw on the way out (foil to step 13)."
+    :settle-ms 450}
+   {:label     "Exception in a coeffect"
+    :event     [:standard-epochs/throw-cofx]
+    :watch     "Issues: cofx error; the handler is skipped (the throw fires during coeffect injection)."
+    :settle-ms 450}
+   {:label     "Exception in an effect"
+    :event     [:standard-epochs/throw-fx]
+    :watch     "Issues: fx error (post-commit, best-effort per the FX atomicity asymmetry); the db delta survives."
+    :settle-ms 450}
+   {:label     "Slow effect (~600ms)"
+    :event     [:standard-epochs/slow]
+    :watch     "Issues: the ~600ms managed fx is flagged slow; status :loading → :loaded once the deferred reply lands."
+    :settle-ms 800}
+   {:label     "Bad event args"
+    :event     [:standard-epochs/bad-event-args "not-a-number"]
+    :watch     "Issues / Schema-timeline: an event-args schema failure (a string where pos-int? is required); the handler is skipped."
+    :settle-ms 450}
+   {:label     "Bad app-db write"
+    :event     [:standard-epochs/bad-app-db-write]
+    :watch     "Issues: an app-db schema failure ([:auth :token] must be a string); the :db rolls back, the issue survives."
+    :settle-ms 450}
 
-(reg-view section-heading
-  "A section separator inside the ladder."
-  [label]
-  [:div {:style {:margin "1em 0 0.25em 0" :font-size "11px" :font-weight "bold"
-                 :color "#7C5CFF" :text-transform "uppercase"
-                 :letter-spacing "0.04em" :border-top "1px dashed #ddd"
-                 :padding-top "0.5em"}}
-   label])
+   ;; -- Reactive substrate — diamond recompute probe --
+   {:label     "Bump diamond root"
+    :event     [:standard-epochs/bump-diamond]
+    :watch     "Diamond c ← a,b ← root: bump the root once; c's recompute count should rise by 1 (clean), 2 = double-compute."
+    :settle-ms 400}])
 
-(reg-view root []
+;; ============================================================================
+;; RUNNER STATE — LOCAL ATOM (rf2-8pbjr: not app-db, not a 2nd frame)
+;; ============================================================================
+;;
+;; The single-frame deck's own runner atom (used by `run`). The two-frame
+;; isolation testbed does NOT use this — it supplies a DISTINCT atom per
+;; frame mount (so the two cursors stay independent), see that testbed's
+;; `core.cljs`.
+
+(defonce runner-state (r/atom (runner/initial-state)))
+
+;; ============================================================================
+;; ROOT — parameterised over (runner-state, host-frame, prefix)
+;; ============================================================================
+;;
+;; rf2-3xakq — `root` takes the runner atom + host-frame + testid prefix so
+;; the deck is mountable BOTH on its own single (`:rf/default`) frame AND
+;; twice (once per `:above` / `:below` frame) by the two-frame isolation
+;; testbed. The reg-view-injected `dispatch` / `subscribe` close over the
+;; surrounding frame-provider's frame id, so the same source drives an
+;; isolated reactive context per mount; the runner dispatches to
+;; `host-frame` explicitly (see runner.core/dispatch+settle!), keeping each
+;; runner's events scoped to the frame it inspects.
+
+(reg-view root [runner-state host-frame prefix]
   [:div {:data-testid "standard-epochs-root"
          :style {:font-family "system-ui, sans-serif" :padding "1em"
                  :max-width "720px"}}
@@ -693,21 +766,22 @@
      "Explore how the " [:code "Epoch"] " panel renders different scenarios. "
      "It is the centerpiece panel, after all."]
     [:p {:style {:color "#444" :margin "0.5em 0 0 0"}}
-     "Work your way down the buttons from top to bottom."]]
-   ;; Button 0 — Reset.
-   [:button {:data-testid "reset-button"
-             :on-click #(dispatch [:standard-epochs/reset])
+     "Press " [:strong "⏭ Step"] " to walk the ladder top to bottom (each "
+     "row's number is also a RUN-THIS-STEP button for random access)."]]
+   ;; Reset — re-seed THIS frame's app-db, unmount both child views, rewind
+   ;; this mount's runner. Reset dispatches via the reg-view-injected
+   ;; `dispatch`, so it targets the surrounding frame-provider's frame.
+   [:button {:data-testid (str prefix "-deck-reset")
+             :on-click (fn []
+                         (dispatch [:standard-epochs/reset])
+                         (runner/reset-runner! runner-state))
              :style {:padding "0.4em 0.8em" :cursor "pointer"
                      :border "1px solid #cfc8ff" :border-radius "6px"
                      :background "#f4f1ff" :margin "0.5em 0"}}
-    "0. Reset — re-seed app-db, unmount both child views"]
-   ;; The ladder.
-   (for [row ladder]
-     (if (= :section (first row))
-       ^{:key (second row)} [section-heading (second row)]
-       (let [[n label caption event] row]
-         ^{:key n} [ladder-button n label caption event])))
-   ;; The two children, mounted / unmounted by buttons 6..11. Child A
+    "0. Reset — re-seed app-db, unmount both child views, rewind runner"]
+   ;; The runner — drives the step ladder against this mount's host-frame.
+   [runner/runner prefix runner-state steps host-frame]
+   ;; The two children, mounted / unmounted by steps 6..11. Child A
    ;; (sub-driven) takes the threshold N as a prop — read from
    ;; :views/threshold here so the arg-key is driven by app-db state
    ;; while A owns the actual deref. Child B (props-driven) takes its
@@ -717,7 +791,7 @@
    (when @(subscribe [:standard-epochs/b-mounted?])
      [child-b @(subscribe [:standard-epochs/b-prop])])
    ;; Diamond probe — always mounted so the c ← a,b ← root reaction is live;
-   ;; button #20 bumps the root and the display shows c's recompute count.
+   ;; step #20 bumps the root and the display shows c's recompute count.
    [diamond-display]])
 
 ;; ============================================================================
@@ -735,12 +809,16 @@
 (defn- resolve-project-root []
   (testbed-config/resolve-project-root "tools/xray/testbeds"))
 
+(def host-frame :rf/default)
+
 (defn ^:export run []
   ;; Configure Xray BEFORE `rf/init!` so the preload's auto-open reads the
   ;; right project-root on its first paint of any chip.
   (xray-config/configure! {:rf.xray/project-root (resolve-project-root)})
   (rf/init! reagent-adapter/adapter)
   ;; Single, plain frame — no URL machinery, no history listener (there is
-  ;; no routing here). The default frame is the one Xray reads.
+  ;; no routing here). The default frame is the one Xray reads. Mount the
+  ;; parameterised `root` with this deck's own runner atom, the
+  ;; `:rf/default` host-frame, and the `standard-epochs` testid prefix.
   (rf/dispatch-sync [:standard-epochs/reset])
-  (rdc/render react-root [root]))
+  (rdc/render react-root [root runner-state host-frame "standard-epochs"]))
