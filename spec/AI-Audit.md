@@ -227,9 +227,9 @@ Worked-example check: `examples/reagent/realworld/auth.cljs` (test fixture frame
 | Spec | Score | Notes |
 |---|---|---|
 | 000-Vision | ✓ | Goal text + the FSM-richness / actor-model breakdown name each capability and its v1-claim status. Host-profile matrix has capability-list rows. |
-| 005-StateMachines | ✓ | §Capability matrix is the canonical list; v1 grammar subset table aligned with the matrix; parallel regions and tags are now first-class capabilities; substitute for history specced. |
+| 005-StateMachines | ✓ | §Capability matrix is the canonical list; v1 grammar subset table aligned with the matrix; parallel regions, tags, and history states are now first-class capabilities (the earlier snapshot-as-value history substitute is withdrawn). |
 | Spec-Schemas | ✓ | `:rf/transition-table` schema covers flat / hierarchical / eventless / delayed / declarative-`:spawn` / `:tags` / `:type :parallel` + `:regions`; `:rf/machine-snapshot` widened to the third `:state` arm for parallel regions. |
-| Construction-Prompts | ✓ | CP-5 forward-points at the parallel-regions first-class capability and the N-machines substitute for conceptually-independent features, plus the history-state snapshot-capture substitute. |
+| Construction-Prompts | ✓ | CP-5 forward-points at the parallel-regions first-class capability and the N-machines substitute for conceptually-independent features, plus the first-class history-states grammar (`:type :history`). |
 | conformance/README | ✓ | Capability-tagging convention specifies how fixtures self-declare; harness runs only the matching subset. |
 | Other Specs (002, 008, 009, 011, 012) | n/a | Capability-list scoping is FSM-and-actor-specific; other Specs aren't capability-graded in the same way (they are pattern-required as a whole). |
 

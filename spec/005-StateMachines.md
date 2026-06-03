@@ -451,9 +451,17 @@ The per-action `:rf.machine/action-ran` stream above lets a tool *reconstruct* w
                                                    ;;   (nil ⇒ this boundary declared no
                                                    ;;    :exit/:entry action — still recorded
                                                    ;;    so the configuration walk is complete)
- :data-delta {:trail [...]}}                       ;; the :data keys THIS step's action
+ :data-delta {:trail [...]}                        ;; the :data keys THIS step's action
                                                    ;;   added/changed (empty {} when no action,
                                                    ;;   or the action wrote no :data)
+ :source :recorded | :default}                     ;; ADDITIVE, history-only: present ONLY on
+                                                   ;;   an :entry step produced by a :type :history
+                                                   ;;   restore — :recorded (replayed the owning
+                                                   ;;   compound's last-active config) or :default
+                                                   ;;   (no recording yet; fell back to
+                                                   ;;   :default-target / :initial). Matches the
+                                                   ;;   :rf.machine.history/restored event's :source.
+                                                   ;;   ABSENT on every non-history step.
 
 ;; a :microstep step additionally carries the eventless step's own nested cascade
 {:kind            :microstep
@@ -469,6 +477,7 @@ Key properties:
 - **Complete configuration walk.** Every state exited and entered is recorded — *including* boundaries with no declared `:exit`/`:entry` action (`:action nil`, empty `:data-delta`) — so the geometry is explainable without the spec. (An app-level `:data :trail` only captured *action-bearing* boundaries; the cascade is a superset.)
 - **`:kind` is structural, not the action driver phase.** It is the closed set `:exit / :action / :entry / :microstep`. The orthogonal driver phase (`:transition` / `:always` / `:after-action` / `:initial-entry` / `:destroy-exit`) is what the per-action `:rf.machine/action-ran` emit stamps under `:phase`; the two dimensions never smear (see the `action-ran` `:phase` set above).
 - **`:data-delta` is the minimal per-step contribution** — only the `:data` keys that step's action *changed*, never the whole (possibly large) `:data` map. This keeps the cascade small and side-steps a large-payload leak.
+- **`:source` is an additive, history-only field.** An `:entry` step produced by a `:type :history` restore carries `:source :recorded` (the owning compound's last-active configuration was replayed) or `:source :default` (no recording existed yet, so the leaf came from the history node's `:default-target` / the compound's `:initial`), matching the `:rf.machine.history/restored` event's `:source` (see [§History states](#history-states-type-history--shallow--deep--default-target)). The key is **absent on every non-history step** — a consumer treats its absence as "ordinary cascade entry".
 - **Per-region structure for parallel machines.** Each step carries its `:region`; the cascade is the per-region step sequences concatenated in region declaration order, so a consumer can group by `:region` (rf2-52u5n wants per-region detail). Flat / compound machines carry `:region nil`.
 - **`:always` microsteps are explainable.** Each eventless macrostep iteration appends a `:microstep` step carrying its own nested `:steps` — so "all the steps" = the entry/exit cascade **plus** the microstep stream, rather than a bare count. This composes with the per-microstep `:rf.machine.microstep/transition` stream (the latter stays the per-microstep marker; `:cascade` is the macrostep-level structured rollup).
 - **Bootstrap composition.** When one handler call both bootstraps the machine *and* processes a user event (the same call the `:before`/`:after` slots span), the initial-entry cascade's `:entry` steps prepend the event-driven steps, matching the macrostep the trace reports.
@@ -2634,6 +2643,8 @@ Because `:rf/history` lives **inside the snapshot** — and the snapshot is a re
 - **Tool-Pair epoch replay** ([Tool-Pair.md §Time-travel](Tool-Pair.md#time-travel)) — restoring an earlier epoch restores the `:rf/history` of that epoch along with the rest of the snapshot, so "rewind, then re-enter the compound" replays deterministically. The epoch-restore precondition keys off `:rf/machine-type` (per [§Liveness is derived from app-db](#liveness-is-derived-from-app-db)), which `:rf/history` does not affect — a history-bearing snapshot is admitted as a valid restore target exactly like any other.
 
 This is the property the withdrawn substitute was hand-rolling; first-class history gets it **for free** because the recording is part of the snapshot value rather than a side-table.
+
+**Coverage boundary.** The three round-trips above are all properties of the snapshot **value** — `pr-str` / `read-string` symmetry, and that re-running the engine from an *earlier* captured snapshot value resolves against THAT value's `:rf/history` (which is exactly what `restore-epoch` and SSR hydration each do — rewind / transport the value, then re-enter). The machines reference therefore proves them at the value level (unit tests `history-slot-is-part-of-the-revertible-snapshot-value` and `history-slot-edn-round-trips`), not by driving a live `restore-epoch` or `render-to-string` round-trip: those surfaces live in the separate `re-frame2-epoch` / `re-frame2-ssr` artefacts, and depending on them from the machines test layer would introduce a cross-artefact (cyclic) test dependency for no additional signal — the value-level proof is the load-bearing one, because `:rf/history` is opaque to both the epoch-restore precondition (which keys off `:rf/machine-type`) and the SSR serialiser (which round-trips the snapshot as data).
 
 ### Dangling recorded paths after hot reload
 
