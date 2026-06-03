@@ -2941,6 +2941,9 @@ async function readMachineStrip(page) {
       stripText: (strip.textContent || '').replace(/\s+/g, ' ').trim(),
       doorState: text('machine-epochs-door-state'),
       trafficState: text('machine-epochs-traffic-state'),
+      quizState: text('machine-epochs-quiz-state'),
+      brewState: text('machine-epochs-brew-state'),
+      sessionState: text('machine-epochs-session-state'),
       hvacState: text('machine-epochs-hvac-state'),
       hvacTrail: text('machine-epochs-hvac-trail'),
     };
@@ -2948,129 +2951,202 @@ async function readMachineStrip(page) {
 }
 
 async function runMachineEpochs(page, state) {
-  // The deck's `run` bootstraps both machines, so the status strip is
-  // populated immediately. Assert the door booted to :locked before
-  // driving the ladder.
+  // The deck's `run` bootstraps every machine, so the status strip is
+  // populated immediately. Assert the door booted to :locked before driving
+  // the ladder. Each rung's machine FEATURE is asserted off the deck's own
+  // snapshot mirror (the status strip reads `[:rf/machine <id>]` after each
+  // cascade); the deep RENDER-FIDELITY assertions (cascade kinds/order,
+  // microsteps, timer-cancel, spawn/destroy, set-diff, throw-as-error) live
+  // in the CLJS unit test
+  // `panels.epoch.machine-epochs-harness-cljs-test` per the Causa/Story-as-
+  // CLJS rule. Here we confirm each rung lands the expected configuration
+  // WITHOUT contradiction (the browser-side legibility sanity check) and the
+  // Machine Inspector mounts on a focused machine event.
   await waitForValue(
     () => readMachineStrip(page),
     (snap) => snap.mounted && /:door\/main state: :locked/.test(snap.stripText || ''),
     { timeoutMs: 10000, description: 'machine-epochs door machine boots to :locked' },
   );
 
-  // ---- #1 start machine — bootstrap re-fires; door stays :locked.
+  // ===== Door (FLAT) =====================================================
+  // #1 start machine — bootstrap re-fires; door stays :locked.
   await clickMachineRung(page, 1);
 
-  // ---- #2 plain transition — :locked ──► :closed (insert-coin).
+  // #2 plain transition — :locked -> :closed.
   await clickMachineRung(page, 2);
   await waitForValue(
     () => readMachineStrip(page),
     (snap) => /:door\/main state: :closed/.test(snap.stripText || ''),
-    { timeoutMs: 10000, description: '#2 insert-coin → door :closed' },
+    { timeoutMs: 10000, description: '#2 insert-coin -> door :closed' },
   );
 
-  // ---- #3 entry + exit actions — :closed ──► :open; :open's :entry
-  //      (:count-open) bumps :opened-count to 1.
+  // #3 entry + exit actions — :closed -> :open; :open's :entry bumps
+  //    :opened-count to 1.
   await clickMachineRung(page, 3);
   await waitForValue(
     () => readMachineStrip(page),
     (snap) =>
       /:door\/main state: :open/.test(snap.stripText || '') &&
       /:opened-count 1/.test(snap.stripText || ''),
-    { timeoutMs: 10000, description: '#3 push → door :open + :opened-count 1 (entry action ran)' },
+    { timeoutMs: 10000, description: '#3 push -> door :open + :opened-count 1' },
   );
 
-  // ---- #4 guard ALLOWED — :open ──► :closed (:may-close? passes; not held).
+  // #4 guard ALLOWED — :open -> :closed.
   await clickMachineRung(page, 4);
   await waitForValue(
     () => readMachineStrip(page),
     (snap) => /:door\/main state: :closed/.test(snap.stripText || ''),
-    { timeoutMs: 10000, description: '#4 close → guard allowed, door :closed' },
+    { timeoutMs: 10000, description: '#4 close -> guard allowed, door :closed' },
   );
 
-  // ---- #5 guard BLOCKED — re-open, arm :held-open?, attempt close. The
-  //      :may-close? guard FAILS, so the door STAYS :open and the hold
-  //      flag remains set (no :on branch matched, nothing advanced).
+  // #5 guard BLOCKED — re-open, arm :held-open?, attempt close. Guard FAILS,
+  //    door STAYS :open + the hold flag remains set.
   await clickMachineRung(page, 5);
   const afterBlocked = await waitForValue(
     () => readMachineStrip(page),
     (snap) =>
       /:door\/main state: :open/.test(snap.stripText || '') &&
       /:held-open\? true/.test(snap.stripText || ''),
-    { timeoutMs: 10000, description: '#5 reopen-hold-close → guard blocked, door STAYS :open + :held-open? true' },
+    { timeoutMs: 10000, description: '#5 reopen-hold-close -> guard blocked, door STAYS :open' },
   );
 
-  // ---- #6 transition-with-effect — :open ──► :alarming; :enter-alarm's
-  //      :fx dispatches :alarm-acknowledged (downstream cascade child).
+  // #6 transition-with-effect — :open -> :alarming; :enter-alarm's :fx
+  //    dispatches :alarm-acknowledged.
   await clickMachineRung(page, 6);
   await waitForValue(
     () => readMachineStrip(page),
     (snap) => /:door\/main state: :alarming/.test(snap.stripText || ''),
-    { timeoutMs: 10000, description: '#6 trip → door :alarming (transition-with-effect)' },
+    { timeoutMs: 10000, description: '#6 trip -> door :alarming' },
   );
 
-  // ---- #7 unhandled → benign no-op (rf2-ugdas) — insert-coin into
-  //      :alarming has no :on entry, so the event resolves to a BENIGN
-  //      no-op (xstate-v5 parity) and the door STAYS :alarming.
+  // #7 unhandled -> benign no-op — insert-coin into :alarming has no :on
+  //    entry; the door STAYS :alarming.
   await clickMachineRung(page, 7);
   await waitForValue(
     () => readMachineStrip(page),
     (snap) => /:door\/main state: :alarming/.test(snap.stripText || ''),
-    { timeoutMs: 10000, description: '#7 insert-coin into :alarming → benign no-op, door STAYS :alarming' },
+    { timeoutMs: 10000, description: '#7 insert-coin into :alarming -> benign no-op' },
   );
 
-  // ---- #8 parallel regions — one :traffic/tick broadcasts to BOTH the
-  //      :vehicle (red ──► green) and :pedestrian (walk ──► dont-walk)
-  //      regions; the snapshot's :state is a region-map carrying both.
+  // #8 ROOT :on fallthrough (gap 6) — :alarming has no :door/audit; the
+  //    machine ROOT :on handles it -> :alarming -> :locked.
   await clickMachineRung(page, 8);
+  await waitForValue(
+    () => readMachineStrip(page),
+    (snap) => /:door\/main state: :locked/.test(snap.stripText || ''),
+    { timeoutMs: 10000, description: '#8 audit -> root :on fallthrough -> door :locked' },
+  );
+
+  // ===== Traffic (PARALLEL) =============================================
+  // #9 parallel regions — one tick broadcasts to BOTH regions.
+  await clickMachineRung(page, 9);
   const afterParallel = await waitForValue(
     () => readMachineStrip(page),
     (snap) => {
       const t = snap.stripText || '';
       return /:vehicle :green/.test(t) && /:pedestrian :dont-walk/.test(t);
     },
-    { timeoutMs: 10000, description: '#8 tick → BOTH regions advanced (vehicle :green + pedestrian :dont-walk)' },
+    { timeoutMs: 10000, description: '#9 tick -> BOTH regions advanced (vehicle :green + pedestrian :dont-walk)' },
   );
 
-  // ---- #9 transition history — a second tick advances both regions again
-  //      (vehicle :green ──► :amber, pedestrian :dont-walk ──► :walk).
-  await clickMachineRung(page, 9);
+  // #10 history ribbon — a second tick advances both regions again; the
+  //     :tags member swap (gap 7) is asserted in the CLJS harness.
+  await clickMachineRung(page, 10);
   await waitForValue(
     () => readMachineStrip(page),
     (snap) => {
       const t = snap.stripText || '';
       return /:vehicle :amber/.test(t) && /:pedestrian :walk/.test(t);
     },
-    { timeoutMs: 10000, description: '#9 second tick → vehicle :amber + pedestrian :walk' },
+    { timeoutMs: 10000, description: '#10 second tick -> vehicle :amber + pedestrian :walk' },
   );
 
-  // ---- #10 multiple machines — one cascade sends to BOTH machines: the
-  //      door resets to :locked AND the traffic vehicle region advances
-  //      (:amber ──► :red).
-  await clickMachineRung(page, 10);
+  // #11 multiple machines — one cascade resets the door AND ticks traffic.
+  await clickMachineRung(page, 11);
   const afterMulti = await waitForValue(
     () => readMachineStrip(page),
     (snap) => {
       const t = snap.stripText || '';
       return /:door\/main state: :locked/.test(t) && /:vehicle :red/.test(t);
     },
-    { timeoutMs: 10000, description: '#10 reset door + tick traffic → door :locked + vehicle :red (two machines, one cascade)' },
+    { timeoutMs: 10000, description: '#11 reset door + tick traffic -> door :locked + vehicle :red' },
   );
 
-  // ---- rf2-k08ay — the HARD machine (:hvac/controller) rungs #12–#15.
-  //      Each rung's render fact is asserted off the deck's own snapshot
-  //      mirror (the status strip reads `[:rf/machine :hvac/controller]`).
-  //      The deep RENDERING-FIDELITY assertions (cascade order, exit/entry
-  //      vs action-only, no spurious no-op row, member-level set diff) live
-  //      in the CLJS unit test `panels.epoch.hard-machine-fidelity-cljs-test`
-  //      per the Causa/Story-as-CLJS rule; here we confirm the hard
-  //      machine's key rungs land the expected configuration WITHOUT
-  //      contradiction (the browser-side legibility sanity check).
-
-  // ---- #12 parallel broadcast — ONE :hvac/power-cycle moves BOTH regions:
-  //      :climate :idle ──► [:running :conditioning :heating] (deep initial
-  //      cascade) AND :fan :off ──► :on. The snapshot's :state is a region
-  //      map carrying both.
+  // ===== Quiz (MICROSTEP — :always eventless settle, gap 1) =============
+  // #12 answer below the mark — score climbs, quiz STAYS :asking (0
+  //     microsteps).
   await clickMachineRung(page, 12);
+  await waitForValue(
+    () => readMachineStrip(page),
+    (snap) => /:quiz\/scorer state: :asking/.test(snap.stripText || '') &&
+              /:score 1/.test(snap.stripText || ''),
+    { timeoutMs: 10000, description: '#12 answer -> :score 1, quiz STAYS :asking (0 microsteps)' },
+  );
+
+  // #13 answer to the pass mark — the guarded :always chain SETTLES the
+  //     quiz :asking -> :passed over N>0 microsteps (THE biggest gap).
+  await clickMachineRung(page, 13);
+  await waitForValue(
+    () => readMachineStrip(page),
+    (snap) => /:quiz\/scorer state: :passed/.test(snap.stripText || ''),
+    { timeoutMs: 10000, description: '#13 answer to mark -> :always settles quiz :asking -> :passed (microsteps > 0)' },
+  );
+
+  // ===== Brew (TIMER — :after + cancel, gap 2) ==========================
+  // #14 start brew — schedules the :after timer; brew enters :brewing.
+  await clickMachineRung(page, 14);
+  await waitForValue(
+    () => readMachineStrip(page),
+    (snap) => /:brew\/machine state: :brewing/.test(snap.stripText || ''),
+    { timeoutMs: 10000, description: '#14 start -> :brewing (:after timer scheduled)' },
+  );
+
+  // #15 let the :after timer elapse — auto-fires :brewing -> :ready.
+  await clickMachineRung(page, 15);
+  await waitForValue(
+    () => readMachineStrip(page),
+    (snap) => /:brew\/machine state: :ready/.test(snap.stripText || ''),
+    { timeoutMs: 10000, description: '#15 :after-elapsed -> :brewing -> :ready (auto-fire)' },
+  );
+
+  // #16 re-start then CANCEL — exit beats the timer -> :rf.machine.timer/
+  //     cancelled (:on-exit); brew returns to :idle.
+  await clickMachineRung(page, 16);
+  await waitForValue(
+    () => readMachineStrip(page),
+    (snap) => /:brew\/machine state: :idle/.test(snap.stripText || ''),
+    { timeoutMs: 10000, description: '#16 start+abort -> :after timer cancelled (:on-exit), brew :idle' },
+  );
+
+  // ===== Session (LIFECYCLE — spawn/final/on-done/destroy, gaps 3,4,5) ==
+  // #17 open session — :idle -> :authenticating SPAWNS the child actor.
+  await clickMachineRung(page, 17);
+  await waitForValue(
+    () => readMachineStrip(page),
+    (snap) => /:session\/flow state: :authenticating/.test(snap.stripText || ''),
+    { timeoutMs: 10000, description: '#17 open -> :authenticating (child :session/login spawned)' },
+  );
+
+  // #18 child succeeds — :final + :on-done reports the token to the parent +
+  //     the child auto-destroys. The strip surfaces the parent's :on-done via
+  //     its trail (:action:on-done appended) — the observable proof the
+  //     callback ran; the reported :session-token (in the parent's :data) +
+  //     the auto-destroy / :rf.machine/finished trace are asserted in the
+  //     CLJS harness.
+  await clickMachineRung(page, 18);
+  await waitForValue(
+    () => readMachineStrip(page),
+    (snap) => /:session\/flow state: :authenticating/.test(snap.stripText || '') &&
+              /:action:on-done/.test(snap.stripText || ''),
+    { timeoutMs: 10000, description: '#18 child :final -> :on-done ran on the parent (trail shows :action:on-done) + child auto-destroyed' },
+  );
+
+  // ===== Fuse (WILDCARD-THROW) — asserted as the throw contrast below ====
+
+  // ===== Hvac (DEEP-COMPOUND) ===========================================
+  // #20 parallel broadcast — ONE :hvac/power-cycle moves BOTH regions;
+  //     :climate descends its deep initial cascade.
+  await clickMachineRung(page, 20);
   const afterHvacPower = await waitForValue(
     () => readMachineStrip(page),
     (snap) => {
@@ -3078,13 +3154,12 @@ async function runMachineEpochs(page, state) {
       return /:climate \[:running :conditioning :heating\]/.test(t) &&
              /:fan :on/.test(t);
     },
-    { timeoutMs: 10000, description: '#12 power-cycle → BOTH regions moved (climate deep leaf + fan :on)' },
+    { timeoutMs: 10000, description: '#20 power-cycle -> BOTH regions moved (climate deep leaf + fan :on)' },
   );
 
-  // ---- #13 multi-level LCA cascade — :heating ──► :cooling crossing the
-  //      LCA :conditioning. The trail records the cascade ORDER:
-  //      exit :heating → :swap-mode @ LCA → entry :cooling.
-  await clickMachineRung(page, 13);
+  // #21 multi-level LCA cascade — :heating -> :cooling crossing the LCA
+  //     :conditioning; the trail records the cascade ORDER.
+  await clickMachineRung(page, 21);
   await waitForValue(
     () => readMachineStrip(page),
     (snap) => {
@@ -3092,13 +3167,12 @@ async function runMachineEpochs(page, state) {
       return /:climate \[:running :conditioning :cooling\]/.test(t) &&
              /:exit:heating :action:swap-mode :entry:cooling/.test(t);
     },
-    { timeoutMs: 10000, description: '#13 mode-toggle → :cooling + trail shows LCA cascade order (exit→action→entry)' },
+    { timeoutMs: 10000, description: '#21 mode-toggle -> :cooling + trail shows LCA cascade order' },
   );
 
-  // ---- #14 EXTERNAL self-transition (:hvac/nudge, :target :same-state):
-  //      :fan :on re-enters itself — exit → action → entry all fire; the
-  //      configuration stays :on (rf2-46ban / #2843).
-  await clickMachineRung(page, 14);
+  // #22 EXTERNAL self-transition (:hvac/nudge) — exit -> action -> entry; fan
+  //     STAYS :on.
+  await clickMachineRung(page, 22);
   await waitForValue(
     () => readMachineStrip(page),
     (snap) => {
@@ -3106,13 +3180,11 @@ async function runMachineEpochs(page, state) {
       return /:fan :on/.test(t) &&
              /:exit:fan-on :action:nudge :entry:fan-on/.test(t);
     },
-    { timeoutMs: 10000, description: '#14 nudge → external self-transition: trail shows exit→action→entry, fan STAYS :on' },
+    { timeoutMs: 10000, description: '#22 nudge -> external self-transition: trail exit->action->entry, fan STAYS :on' },
   );
 
-  // ---- #15 INTERNAL self-transition (:hvac/tweak, omit :target): action
-  //      ONLY — no exit/entry; the foil to #14. The trail gains exactly
-  //      :action:tweak and nothing else; the configuration stays :on.
-  await clickMachineRung(page, 15);
+  // #23 INTERNAL self-transition (:hvac/tweak) — action ONLY; fan STAYS :on.
+  await clickMachineRung(page, 23);
   const afterHvacTweak = await waitForValue(
     () => readMachineStrip(page),
     (snap) => {
@@ -3120,38 +3192,36 @@ async function runMachineEpochs(page, state) {
       return /:fan :on/.test(t) &&
              /:action:nudge :entry:fan-on :action:tweak/.test(t);
     },
-    { timeoutMs: 10000, description: '#15 tweak → internal self-transition: trail gains :action:tweak ONLY (no exit/entry), fan STAYS :on' },
+    { timeoutMs: 10000, description: '#23 tweak -> internal self-transition: trail gains :action:tweak ONLY, fan STAYS :on' },
   );
 
-  // ---- Xray Machine Inspector handoff. Open Xray, fire one more machine
-  //      transition so the spine has a focused machine event, switch to
-  //      the Machines tab, and confirm the inspector mounts + machine
-  //      activity reached the trace bus. (Per the chart-render gap noted
-  //      above, we assert the panel handoff + trace activity, not the
-  //      synthetic-injection chart-render that deep_machine owns.)
+  // ===== History (gap 8 — reject-now) ===================================
+  // #24 register a :history machine — REJECTED today; the deck swallows the
+  //     throw and the door stays put. The rejection shape is asserted in the
+  //     CLJS harness; here we confirm the rung does not crash the deck.
+  await clickMachineRung(page, 24);
+  // #25 / #26 are DISABLED placeholders (history deferred) — not clickable.
+
+  // ===== Xray Machine Inspector handoff + the throw/no-op contrast ======
   await openXray(page);
 
-  // ---- rf2-4yrr6 — :fuse/box must NOT throw on boot. The reset handler
-  //      DELIBERATELY does not dispatch `[:fuse/box [:rf.machine/bootstrap]]`
-  //      (that inner event would hit the throwing `:*` wildcard ON BOOT). The
-  //      full trace buffer at this point holds the boot cascade + rungs 1-10
-  //      (none of which should throw) — assert no `:rf.error/machine-action-
-  //      exception` is present yet. Button 11 (clicked below) is the SOLE
-  //      trigger; that throw is asserted as the contrast at the end.
+  // rf2-4yrr6 — :fuse/box must NOT throw on boot / rungs 1-24. The reset
+  // handler DELIBERATELY does not bootstrap :fuse/box; rung 19 (clicked
+  // below) is the SOLE machine-action-exception trigger.
   {
     const bootTrace = await readTrace(page);
     const bootThrow = bootTrace.filter((e) =>
       /:rf\.error\/machine-action-exception/.test(e));
     if (bootThrow.length > 0) {
       failWithDetails(
-        'rf2-4yrr6 — :fuse/box (or another machine) threw on boot / rungs 1-10; '
-        + 'Button 11 must be the sole machine-action-exception trigger',
+        'rf2-4yrr6 — a machine threw on boot / rungs 1-24; rung 19 must be the '
+        + 'sole machine-action-exception trigger',
         { machineActionExceptions: bootThrow });
     }
   }
 
   await clearTrace(page);
-  await clickMachineRung(page, 2); // :locked ──► :closed — a fresh transition
+  await clickMachineRung(page, 2); // :locked -> :closed — a fresh transition
   await waitForTraceMatch(
     page,
     /:rf\.machine\/transition|:rf\.machine\/guard-evaluated|:door\/main/,
@@ -3161,36 +3231,36 @@ async function runMachineEpochs(page, state) {
   await expectVisible(
     page.locator('[data-testid="rf-xray-machine-inspector"]'), 5000);
 
-  // ---- rf2-ugdas / rf2-e7yhv — the xstate-v5 unhandled-event CONTRAST.
-  //      #7 (unhandled event → benign no-op) emits the benign
-  //      :rf.machine.event/unhandled-no-op trace; #11 (a :* wildcard whose
-  //      action throws) emits the REAL :rf.error/machine-action-exception.
-  //      The Trace panel shows both; the trace stream is the robust,
-  //      non-flaky proof (the inverse pink-wash / epoch-render assertions
-  //      live in the CLJS unit tests, per the Causa/Story-as-CLJS rule).
+  // rf2-ugdas / rf2-e7yhv — the xstate-v5 unhandled-event CONTRAST.
+  // #7 (unhandled event -> benign no-op) emits the benign
+  // :rf.machine.event/unhandled-no-op trace; #19 (a :* wildcard whose action
+  // throws) emits the REAL :rf.error/machine-action-exception. The Trace
+  // panel shows both; the inverse pink-wash / epoch-render assertions live in
+  // the CLJS harness.
   await clickTab(page, 'trace', 'rf-xray-trace');
   await clearTrace(page);
-  await clickMachineRung(page, 7); // unhandled → benign no-op
+  await clickMachineRung(page, 7); // unhandled -> benign no-op
   await waitForTraceMatch(
     page,
     /:rf\.machine\.event\/unhandled-no-op/,
     '#7 unhandled event emits the benign :rf.machine.event/unhandled-no-op trace',
   );
   await clearTrace(page);
-  await clickMachineRung(page, 11); // :* wildcard action THROWS
+  await clickMachineRung(page, 19); // :* wildcard action THROWS
   await waitForTraceMatch(
     page,
     /:rf\.error\/machine-action-exception|unhandled machine event/,
-    '#11 :* wildcard-action throw emits :rf.error/machine-action-exception',
+    '#19 :* wildcard-action throw emits :rf.error/machine-action-exception',
   );
 
   state.machineEpochs = {
     blocked: { doorState: afterBlocked.doorState },
     parallel: { trafficState: afterParallel.trafficState },
     multi: { doorState: afterMulti.doorState, trafficState: afterMulti.trafficState },
-    // rf2-k08ay — the hard machine's landed configuration after the
-    // power-cycle (#12) and the internal self-transition (#15).
-    hard: { powerState: afterHvacPower.hvacState, tweakTrail: afterHvacTweak.hvacTrail },
+    // rf2-g27vv — the redesigned matrix: the microstep / timer / lifecycle
+    // rungs' landed configuration plus the hard machine's.
+    quiz:    { quizState: (await readMachineStrip(page)).quizState },
+    hard:    { powerState: afterHvacPower.hvacState, tweakState: afterHvacTweak.hvacState },
     inspectorMounted: true,
   };
 }
@@ -3370,18 +3440,24 @@ const SCENARIOS = [
     run: runRoutesEpochs,
   },
   {
-    // rf2-w06op — machine-epochs state-machine step-up deck. Drives the
-    // real `reg-machine` + machine-event-routing surface and asserts each
-    // rung's machine FEATURE landed via the host's snapshot mirror: plain
-    // transition · entry/exit data delta · guard ALLOWED vs BLOCKED ·
-    // transition-with-effect · IGNORED event · parallel-region broadcast ·
-    // transition history · multiple machines in one cascade. Then opens
-    // the Xray Machine Inspector (`rf-xray-machine-inspector`) and confirms
-    // the panel mounts on a focused machine event + machine activity
-    // reaches the trace bus. Real Machine-Inspector coverage for the deck
-    // the `Machines` matrix row names (the chart-render shim-survival probe
-    // stays owned by the `deep machine inspector substrate` scenario).
-    name: 'machine-epochs machine ladder (start, transitions, guards allowed/blocked, entry/exit, effect, ignored, parallel, multiple machines, + the HARD machine: deep compound, LCA cascade, internal/external self-transitions)',
+    // rf2-w06op + rf2-g27vv — machine-epochs assertion-backed render harness.
+    // Drives the real `reg-machine` + machine-event-routing surface for the
+    // FULL feature x Xray-cascade-render matrix and asserts each rung's
+    // machine FEATURE landed via the host's snapshot mirror: door (plain ·
+    // entry/exit · guards allowed/blocked · internal · effect · unhandled
+    // no-op · root-:on RESOLUTION), traffic (parallel regions · history ·
+    // tag-set member swap), quiz (:always MICROSTEPS), brew (:after TIMER +
+    // cancel), session (SPAWN · child :final · :on-done · DESTROY), fuse (:*
+    // wildcard THROW), hvac (deep compound · LCA cascade · self-transitions),
+    // history (reject-now). Then opens the Xray Machine Inspector
+    // (`rf-xray-machine-inspector`) and confirms the panel mounts on a
+    // focused machine event + the no-op/throw trace contrast. The deep
+    // RENDER-FIDELITY assertions (cascade kinds/order, microsteps, timer-
+    // cancel, spawn/destroy, set-diff, throw-as-error) live in the CLJS unit
+    // test `panels.epoch.machine-epochs-harness-cljs-test` per the Causa/
+    // Story-as-CLJS rule (the chart-render shim-survival probe stays owned by
+    // the `deep machine inspector substrate` scenario).
+    name: 'machine-epochs machine ladder (rf2-g27vv full feature x render matrix: start/transition/entry-exit/guards/internal/effect/unhandled-no-op/root-:on RESOLUTION; parallel regions + history + TAG-SET delta; :always MICROSTEPS; :after TIMER + cancel; SPAWN/:final/:on-done/DESTROY lifecycle; :* wildcard THROW; deep-compound LCA + self-transitions; :history reject-now)',
     url: '/testbeds/machine-epochs/',
     panels: ['machines'],
     coveredRows: ['Machines'],
