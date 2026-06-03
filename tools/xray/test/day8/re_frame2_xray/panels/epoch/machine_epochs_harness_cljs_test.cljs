@@ -27,8 +27,9 @@
 
   Per rf2-k08ay + the rf2-hhkbb drive-through finding, EACH rung asserts THREE
   layers:
-    (a) TRACE shape — the machine cascade kinds + order (the generalized
-        `:trail` is the order-oracle; also the `:cascade` kinds + `:microsteps`).
+    (a) TRACE shape — the machine cascade kinds + order, read off the
+        structured `:cascade` (its `:kind` / `:state` / `:action` steps in
+        execution order + the `:microsteps`).
     (b) STRUCTURED outcome — the Xray-surface analogue of the rf2-hhkbb
         cascade-summary `:outcome` / `:no-op?`: a thrown `:*` action shows
         `:threw? true` on its cascade row (catching hhkbb); the unhandled rung
@@ -86,8 +87,6 @@
   (get-in (rf/app-db-value :rf/default)
           [:rf/runtime :machines :snapshots machine-id]))
 
-(defn- trail [machine-id] (get-in (snapshot machine-id) [:data :trail]))
-
 (defn- drive!
   "Dispatch one event into `machine-id` and return the trace stream it
   produced as an epoch-record-shaped map. Resets the trace buffer first so
@@ -103,6 +102,17 @@
 (defn- rows-of-kind [rows kind] (filterv #(= kind (:kind %)) rows))
 (defn- structured-of [record]
   (-> (cascade record) (rows-of-kind :transition) first :cascade))
+
+;; The structured `:cascade` is the order-oracle: each step carries
+;; `:kind` (`:exit` / `:action` / `:entry`), `:state`, `:region`, `:action`
+;; (nil for an action-free boundary) in EXECUTION order (exit-deepest-first →
+;; action @ LCA → entry-shallowest-first). `region-steps` returns the
+;; structural steps of one `:region` (nil for flat/compound) so a test can
+;; assert the cascade ORDER directly off the Xray-surface projection.
+(defn- region-steps [record region]
+  (->> (proj/cascade-regions (structured-of record))
+       (some #(when (= region (:region %)) (:steps %)))
+       vec))
 
 ;; ============================================================================
 ;; DOOR (FLAT) — plain · entry/exit · transition-action · guards · internal ·
@@ -127,19 +137,24 @@
 
 (deftest door-entry-exit-actions-render-with-data-delta
   (testing "rung #3 — :closed ──► :open runs :closed's :exit (:clear-hold) +
-            :open's :entry (:count-open). (a) the trail records exit→entry
-            order; (c) the cascade carries an :exit + an :entry action row;
-            the entry action's :data-delta bumps :opened-count."
+            :open's :entry (:count-open). (a) the structured cascade records
+            the exit→action→entry order; (c) the cascade carries an :exit + an
+            :entry action row; the entry action's :data-delta bumps
+            :opened-count."
     (setup!)
     (drive! :door/main [:door/insert-coin])            ; :locked → :closed
     (let [record (drive! :door/main [:door/push])       ; :closed → :open
           rows   (cascade record)
-          phases (mapv :phase (rows-of-kind rows :action))]
+          phases (mapv :phase (rows-of-kind rows :action))
+          steps  (region-steps record nil)]
       (is (some #{:exit} phases)  "(c) an exit action row renders")
       (is (some #{:entry} phases) "(c) an entry action row renders")
-      ;; (a) the trail oracle: exit:closed then entry:open, in that order.
-      (is (= [:exit:closed :entry:open] (trail :door/main))
-          "(a) trail records the exit→entry cascade order")
+      ;; (a) the structured cascade order-oracle: the :closed exit (:clear-hold)
+      ;; fires before the :open entry (:count-open).
+      (is (= [:exit :entry] (mapv :kind steps))
+          "(a) the structured cascade records the exit→entry order")
+      (is (= [:clear-hold :count-open] (mapv :action steps))
+          "(a) the exit action runs before the entry action")
       (is (= 1 (get-in (snapshot :door/main) [:data :opened-count]))
           "(c) the :entry action bumped :opened-count"))))
 
@@ -191,16 +206,18 @@
   (testing "rung #6 — :open ──► :alarming runs :enter-alarm whose action
             writes :data (the deck dispatches the downstream child via the
             deck event-fx). (c) the cascade carries the transition + the
-            :enter-alarm action; the trail records :action:trip."
+            :enter-alarm action whose :data-write sets :alarm-fx?."
     (setup!)
     (drive! :door/main [:door/insert-coin])
     (drive! :door/main [:door/push])
     (let [rows (cascade (drive! :door/main [:door/trip]))]
       (is (= 1 (count (rows-of-kind rows :transition))))
-      (is (some #(= :action:trip (last (get-in % [:data-write :trail] [])))
+      (is (some #(true? (get-in % [:data-write :alarm-fx?]))
                 (rows-of-kind rows :action))
-          "(a)(c) the :enter-alarm action ran (trail appended :action:trip)"))
-    (is (= :alarming (:state (snapshot :door/main))))))
+          "(a)(c) the :enter-alarm action ran (its :data-write set :alarm-fx?)"))
+    (is (= :alarming (:state (snapshot :door/main))))
+    (is (true? (get-in (snapshot :door/main) [:data :alarm-fx?]))
+        "(c) the :enter-alarm action wrote :alarm-fx? into the snapshot")))
 
 (deftest door-unhandled-event-renders-single-no-op-staying-in-state
   (testing "rung #7 — :door/insert-coin into :alarming matches no transition →
@@ -230,9 +247,8 @@
 (deftest door-audit-resolves-via-root-on-fallthrough
   (testing "rung #8 (gap 6, RESOLUTION) — :alarming declares no :door/audit;
             the event falls through to the machine ROOT :on, which targets
-            :locked. (a) the trail records :action:audit (the root clause's
-            action ran); (c) a real transition row attributes :alarming ──►
-            :locked — NOT a no-op."
+            :locked. (a)(c) a real transition row attributes :alarming ──►
+            :locked — the root-resolved transition, NOT a no-op."
     (setup!)
     (drive! :door/main [:door/insert-coin])
     (drive! :door/main [:door/push])
@@ -245,9 +261,7 @@
       (is (some? tx) "(c) a real transition row renders")
       (is (= :alarming (:from-state tx)))
       (is (= :locked (:to-state tx))
-          "(c) the cascade attributes the root-resolved transition to :locked")
-      (is (= :action:audit (last (trail :door/main)))
-          "(a) the root clause's :record-audit action ran"))
+          "(a)(c) the cascade attributes the root-resolved transition to :locked"))
     (is (= :locked (:state (snapshot :door/main))))))
 
 ;; ============================================================================
@@ -347,7 +361,7 @@
             (a) the transition row's :microsteps > 0 AND the structured
             :cascade carries a :microstep step whose nested :steps explain the
             eventless transition (the :award action → :passed); (c) the quiz
-            lands in :passed; the trail records the :always action."
+            lands in :passed."
     (setup!)
     (drive! :quiz/scorer [:quiz/answer])                ; score → 1
     (drive! :quiz/scorer [:quiz/answer])                ; score → 2
@@ -373,9 +387,7 @@
       ;; (c) the live machine settled.
       (is (= :passed (:state (snapshot :quiz/scorer))))
       (is (true? (get-in (snapshot :quiz/scorer) [:data :passed?]))
-          "(c) the :always :award action ran")
-      (is (= :always:passed (last (trail :quiz/scorer)))
-          "(a) the trail oracle records the :always action LAST"))))
+          "(c) the :always :award action ran"))))
 
 ;; ============================================================================
 ;; BREW (TIMER) — :after delayed transition + cancellation (gap 2)
@@ -452,9 +464,8 @@
           "(a) the child auto-destroyed with :reason :rf.machine/finished")
       (is (= :session/token-abc
              (get-in (snapshot :session/flow) [:data :session-token]))
-          "(c) the parent's :on-done reported the child's :output-key token")
-      (is (= :action:on-done (last (trail :session/flow)))
-          "(a) the :on-done callback ran on the parent (trail records it)")
+          "(a)(c) the parent's :on-done callback ran, reporting the child's
+                  :output-key token into the parent's :data")
       (is (nil? (snapshot child-id))
           "(c) the child's snapshot was synchronously dissoc'd (auto-destroy)"))))
 
@@ -510,46 +521,60 @@
           "(c) both regions moved in one macrostep (deep initial cascade)"))))
 
 (deftest hvac-mode-toggle-renders-lca-cascade-order
-  (testing "rung #21 — :hvac/mode-toggle crosses the :conditioning LCA. (a)
-            the trail delta is exactly exit:heating → action:swap-mode →
-            entry:cooling (the LCA cascade order, the LCA itself stays
-            active); (c) the deep compound leaf moved heating → cooling."
+  (testing "rung #21 — :hvac/mode-toggle crosses the :conditioning LCA. (a) the
+            structured cascade is exactly exit [:running :conditioning :heating]
+            → entry [:running :conditioning :cooling] (deepest-exit-first →
+            shallowest-entry-first; the LCA :conditioning stays active, so it is
+            neither exited nor entered); (c) the deep compound leaf moved
+            heating → cooling."
     (setup!)
     (drive! :hvac/controller [:hvac/power-cycle])       ; → :heating
-    (let [before (count (trail :hvac/controller))
-          _      (drive! :hvac/controller [:hvac/mode-toggle])
-          delta  (vec (drop before (trail :hvac/controller)))]
-      (is (= [:exit:heating :action:swap-mode :entry:cooling] delta)
-          "(a) the LCA cascade order: deepest-exit → action @ LCA → new-leaf-entry"))
+    (let [record (drive! :hvac/controller [:hvac/mode-toggle])
+          steps  (region-steps record :climate)]
+      (is (= [:exit :entry] (mapv :kind steps))
+          "(a) the LCA cascade order: deepest leaf exit → new-leaf entry")
+      (is (= [[:running :conditioning :heating]
+              [:running :conditioning :cooling]]
+             (mapv :state steps))
+          "(a) the deepest :heating leaf exits, the :cooling leaf enters; the
+               LCA :conditioning stays active (neither exited nor entered)"))
     (is (= [:running :conditioning :cooling] (:climate (:state (snapshot :hvac/controller)))))))
 
 (deftest hvac-self-transitions-external-vs-internal
-  (testing "rungs #22/#23 — EXTERNAL self-transition (:hvac/nudge) fires
-            exit+action+entry; INTERNAL (:hvac/tweak) fires action-only.
-            (a) the trail deltas distinguish them; (c) neither emits a
-            spurious no-op transition row; both stay :fan :on."
+  (testing "rungs #22/#23 — EXTERNAL self-transition (:hvac/nudge,
+            :target :same-state) fires exit+entry of :fan :on; INTERNAL
+            (:hvac/tweak) fires its :tweak-fan action ONLY. (a) the structured
+            cascade region steps distinguish them; (c) neither emits a spurious
+            no-op transition row; both stay :fan :on."
     (setup!)
     (drive! :hvac/controller [:hvac/power-cycle])       ; fan → :on
-    ;; #22 — external self-transition.
-    (let [before (count (trail :hvac/controller))
-          rows   (cascade (drive! :hvac/controller [:hvac/nudge]))
-          delta  (vec (drop before (trail :hvac/controller)))]
-      (is (= [:exit:fan-on :action:nudge :entry:fan-on] delta)
-          "(a) external self-transition: exit → action → entry")
+    ;; #22 — external self-transition: :target :same-state re-enters :on.
+    (let [record (drive! :hvac/controller [:hvac/nudge])
+          rows   (cascade record)
+          steps  (region-steps record :fan)]
+      (is (= [:exit :entry] (mapv :kind steps))
+          "(a) external self-transition re-enters :on: exit → entry boundary")
+      (is (= [[:on] [:on]] (mapv :state steps))
+          "(a) the exit and entry both land on :on (a genuine self re-entry)")
       (is (empty? (rows-of-kind rows :no-op))
           "(c) a genuine self-transition is NOT a no-op")
       (is (= 1 (count (rows-of-kind rows :transition)))
           "(c) one real transition row (e6q97: not suppressed)"))
-    ;; #23 — internal self-transition (the foil).
-    (let [before (count (trail :hvac/controller))
-          rows   (cascade (drive! :hvac/controller [:hvac/tweak]))
-          delta  (vec (drop before (trail :hvac/controller)))]
-      (is (= [:action:tweak] delta) "(a) internal self-transition: action ONLY")
+    ;; #23 — internal self-transition (the foil): action ONLY, no boundary.
+    (let [record (drive! :hvac/controller [:hvac/tweak])
+          rows   (cascade record)
+          steps  (region-steps record :fan)]
+      (is (= [:action] (mapv :kind steps))
+          "(a) internal self-transition: action ONLY — no exit/entry boundary")
+      (is (= [:tweak-fan] (mapv :action steps))
+          "(a) the internal action that ran is :tweak-fan")
       (is (empty? (filterv #(and (= :action (:kind %)) (= :exit (:phase %))) rows))
           "(c) internal self-transition fires NO exit row")
       (is (empty? (rows-of-kind rows :no-op))
           "(c) internal self-transition is a REAL transition, not a no-op"))
-    (is (= :on (:fan (:state (snapshot :hvac/controller)))))))
+    (is (= :on (:fan (:state (snapshot :hvac/controller)))))
+    (is (= 1 (get-in (snapshot :hvac/controller) [:data :tweaks]))
+        "(c) the internal :tweak-fan action bumped :tweaks once")))
 
 ;; ============================================================================
 ;; HISTORY (gap 8, LIVE) — placement rejection + shallow + deep RESTORE render

@@ -1544,6 +1544,6 @@ action-attribution half.
   shallow/deep restore). Each step is
   backed by a CLJS-unit assertion in
   `day8.re-frame2-xray.panels.epoch.machine-epochs-harness-cljs-test` (BOTH
-  the machine outcome via the per-machine `:data :trail` order-oracle AND the
-  cascade-render projection it lights up), complemented by
-  `…hard-machine-fidelity-cljs-test` for the HVAC HARD machine.
+  the machine outcome AND the cascade-render projection it lights up — cascade
+  ORDER is read off the structured `:cascade` steps, not an app-level oracle),
+  complemented by `…hard-machine-fidelity-cljs-test` for the HVAC HARD machine.
