@@ -140,6 +140,8 @@ discover-app
 
 This locates the shadow-cljs nREPL port, connects, switches the session to `:cljs` mode for the running build, verifies re-frame2 is loaded with `interop/debug-enabled?` true, and confirms the `re-frame2-pair.runtime` namespace was loaded by the consumer's `:devtools :preloads` (see §Setup above).
 
+**Connect once — the resolved build sticks (rf2-jkwu4).** A successful `discover-app` records the build it resolved as the **session-sticky default** on the connection, for *every* resolution path — auto-selected single build, explicit `:build`, *and* `:port`. So after one `discover-app` you call every other tool (`orient`, `read-dom`, `read-ui`, `snapshot`, `get-path`, …) with **no `build` arg** and it targets the resolved build — even with several builds running. You only pass `build` again to *switch* builds (an explicit `:build` on any later call wins and re-sticks as the new default). The sticky default resets on an nREPL reconnect (a shadow restart), where the next `discover-app` re-establishes it.
+
 **Arg forms (don't guess; rf2-cg37y).** Each arg has one expected shape:
 
 | Arg | Form | Examples |
@@ -150,9 +152,18 @@ This locates the shadow-cljs nREPL port, connects, switches the session to `:clj
 
 **Single-build auto-selection (rf2-v70kv).** You usually don't need to pass `build` at all. When exactly one shadow-cljs build is running, a no-arg `discover-app` selects it and reports `:auto-selected-build` plus an explanatory `:note`. When several run, it errors with the running-builds list so you can pick — it never silently guesses.
 
-**Connecting from a URL (rf2-fyf0h).** When you only know the browser URL of the open tab (e.g. `http://localhost:8031/counter`) and several builds are running, pass the port instead of hunting for the build id: `discover-app {port: 8031}`. discover-app reads the shadow-cljs `:dev-http` map and resolves the build whose `:output-dir` is served on that port (8031 → `:examples/step-deck` in this repo) — no manual grep of `shadow-cljs.edn`. A `:port` that matches no build returns `{:ok? false :reason :port-unresolved}` rather than silently falling back. An explicit `:build` arg wins over `:port` if you pass both.
+**Connecting from a URL (rf2-fyf0h).** When you only know the browser URL of the open tab (e.g. `http://localhost:8031/counter`) and several builds are running, pass the port instead of hunting for the build id: `discover-app {port: 8031}`. discover-app reads the shadow-cljs `:dev-http` map and resolves the build whose `:output-dir` is served on that port (8031 → `:examples/step-deck` in this repo) — no manual grep of `shadow-cljs.edn`. A `:port` that matches no build returns `{:ok? false :reason :port-unresolved}` rather than silently falling back. An explicit `:build` arg wins over `:port` if you pass both. The port-resolved build **sticks** as the session default just like the other paths — every following no-`build` tool call lands on it (rf2-jkwu4).
 
 **Output representation.** discover-app reports every build/frame id (`:build-id`, `:frames`, `:running-builds`) as a **full keyword** (`:rf/default`, `:examples/step-deck`) in the canonical EDN result, and its `:note` / `:hint` prose uses the same colon form — one representation throughout. (Hosts that surface the `:structuredContent` JSON view will show the colon stripped — `"rf/default"` — that's the documented lossy JSON projection; read the EDN text for the id exactly as you'd type it back into a `:frame` arg.)
+
+**Read the `:freshness` token before you trust a read (rf2-ertqw, rf2-jkwu4).** Every `:ok? true` discover-app payload carries `:freshness {:liveness <verdict> :hint <str> ...}`. Pattern-match `:liveness` first:
+
+- `:fresh` — runtime connected, heartbeat recent, build not recompiled since load. Read away.
+- `:stale-build` — the tab is serving OLD code (a recompile landed the runtime never picked up). The `:hint` tells the user the exact URL to reload.
+- `:no-runtime` — no live CLJS runtime is connected (WS dropped, no tab open) — reads will come back blank. The `:hint` names the exact `http://localhost:<port>` to reload, then "re-run discover-app".
+- `:unknown` — the JVM-side build-worker state couldn't be read even after a retry. **This is not a green light.** The `:hint` is actionable: reload the named URL if reads come back blank, and if it stays `:unknown`, restart `shadow-cljs watch <build>` — the build worker isn't answering.
+
+You **cannot reload a browser yourself** — so when the verdict is non-`:fresh`, relay the `:freshness :hint` to the user as the single next step rather than firing reads that will return blank.
 
 If any precondition fails, the script returns a structured edn error like `{:ok? false :reason :runtime-not-preloaded}`. Report the failing check to the user verbatim; do *not* guess at workarounds. See [references/errors.md](references/errors.md) for the common error reasons and the recovery each one calls for.
 

@@ -137,6 +137,34 @@
        (let [{:keys [socket closed?]} @conn]
          (and (some? socket) (not closed?)))))
 
+(defn- jvm-build-freshness-once
+  "One JVM round-trip reading the build-worker freshness half for
+  `build-id`. Resolves to the parsed map or nil (unreadable / blank /
+  non-map / socket hiccup). The single-attempt primitive
+  `jvm-build-freshness` retries over (rf2-jkwu4)."
+  [conn build-id]
+  (-> (try
+        (nrepl/jvm-eval conn (build-state-jvm-form build-id))
+        (catch :default _ (js/Promise.resolve nil)))
+      (.then (fn [resp]
+               (let [v (some-> (:value resp) cljs.reader/read-string)]
+                 (when (map? v) v))))
+      (.catch (fn [_] nil))))
+
+(defn retry-once-on-nil
+  "Run the Promise-returning thunk `read!`; if it resolves to a non-map
+  (nil / blank), run it ONCE more and return that (rf2-jkwu4). A nil read
+  of the build-worker state is most often a TRANSIENT socket hiccup, so
+  one retry recovers the common case before the caller degrades to the
+  non-actionable `:liveness :unknown`. The retry round-trip is paid only
+  on the cold/degraded path — a map-valued first read returns straight
+  away with no second call. Pure combinator (no nREPL coupling) so it's
+  unit-testable without a global var stub."
+  [read!]
+  (-> (read!)
+      (.then (fn [v] (if (map? v) v (read!))))
+      (.catch (fn [_] nil))))
+
 (defn jvm-build-freshness
   "Read the JVM-side freshness half for `build-id`. Returns a Promise
   resolving to the parsed map (see `build-state-jvm-form`) or nil on any
@@ -145,17 +173,25 @@
 
   Short-circuits to nil when the conn has no live socket (no JVM to
   read), so a never-connected / stub conn never triggers a real TCP
-  connect."
+  connect.
+
+  ## One retry before degrading (rf2-jkwu4)
+
+  A `:liveness :unknown` verdict is degraded and non-actionable — the
+  agent can't tell the runtime is live and only finds out when a later
+  read returns blank. A nil first read is most often a TRANSIENT socket
+  hiccup (the bencode round-trip raced a `data` chunk, the worker was
+  mid-flush), not a genuinely-unreadable old shadow. So when the first
+  read comes back nil we retry ONCE before degrading — a single extra
+  ~5-50ms round-trip on the cold/degraded path only, never on the
+  healthy path (the first read already succeeds there). A persistent nil
+  after the retry IS the real `:unknown` (old shadow with no
+  `get-worker`, or a dead worker), and now the caller's hint can name the
+  concrete next step honestly."
   [conn build-id]
   (if-not (conn-has-socket? conn)
     (js/Promise.resolve nil)
-    (-> (try
-          (nrepl/jvm-eval conn (build-state-jvm-form build-id))
-          (catch :default _ (js/Promise.resolve nil)))
-        (.then (fn [resp]
-                 (let [v (some-> (:value resp) cljs.reader/read-string)]
-                   (when (map? v) v))))
-        (.catch (fn [_] nil)))))
+    (retry-once-on-nil #(jvm-build-freshness-once conn build-id))))
 
 ;; ---------------------------------------------------------------------------
 ;; Cross-check verdict.
@@ -204,31 +240,56 @@
     :else
     :fresh))
 
+(defn- reload-target
+  "The concrete thing the human reloads to wake/refresh the runtime
+  (rf2-jkwu4). Prefer the app URL when the port is known (the agent then
+  relays ONE crisp instruction — `reload http://localhost:<port>`);
+  otherwise name the build so `shadow-cljs watch <build>` is unambiguous."
+  [{:keys [port build-id]}]
+  (cond
+    (number? port) (str "http://localhost:" port)
+    (some? port)   (str "http://localhost:" port)
+    (some? build-id) (str "the app served by build " (pr-str build-id))
+    :else          "the app tab"))
+
 (defn- verdict-hint
-  "Operator-facing one-liner for a non-fresh verdict. nil for `:fresh`."
-  [liveness {:keys [build-flushed-at runtime-loaded-at]}]
-  (case liveness
-    :stale-build
-    (str "STALE BUILD: this build recompiled "
-         (when (and (number? build-flushed-at) (number? runtime-loaded-at))
-           (str (- build-flushed-at runtime-loaded-at) "ms "))
-         "AFTER the running browser code loaded — the tab is serving OLD "
-         "code. Reload the page so the runtime picks up the latest build "
-         "before trusting any read or hot-swap.")
+  "Operator-facing one-liner for a non-fresh verdict. nil for `:fresh`.
 
-    :no-runtime
-    (str "NO RUNTIME: no live CLJS runtime is connected to this build "
-         "(the WebSocket dropped, or no browser tab is open). Open / "
-         "reload the app so the runtime reconnects; reads will return "
-         "blank until it does.")
+  `ctx` carries the optional `:port` (the browser URL port discover-app
+  resolved the build from) + `:build-id` so the `:no-runtime` / `:unknown`
+  hints can name the EXACT thing the human reloads — the agent cannot
+  reload a browser itself, so a non-fresh verdict is an early, crisp
+  human-in-the-loop instruction, not a self-heal (rf2-jkwu4)."
+  [liveness {:keys [build-flushed-at runtime-loaded-at build-id] :as ctx}]
+  (let [target (reload-target ctx)]
+    (case liveness
+      :stale-build
+      (str "STALE BUILD: this build recompiled "
+           (when (and (number? build-flushed-at) (number? runtime-loaded-at))
+             (str (- build-flushed-at runtime-loaded-at) "ms "))
+           "AFTER the running browser code loaded — the tab is serving OLD "
+           "code. ACTION: reload " target " so the runtime picks up the "
+           "latest build before trusting any read or hot-swap.")
 
-    :unknown
-    (str "LIVENESS UNKNOWN: could not read the shadow-cljs build worker "
-         "state (old shadow, or a transient socket hiccup). The browser-"
-         "side instance id + load time are still reported; stale-build "
-         "detection is unavailable this call.")
+      :no-runtime
+      (str "NO RUNTIME: no live CLJS runtime is connected to this build "
+           "(the WebSocket dropped, or no browser tab is open) — reads "
+           "will return blank until one reconnects. ACTION (the agent "
+           "cannot do this): open or reload " target ", then re-run "
+           "discover-app to confirm :liveness :fresh.")
 
-    nil))
+      :unknown
+      (str "LIVENESS UNKNOWN: could not read the shadow-cljs build worker "
+           "state after a retry (old shadow without get-worker, or the "
+           "watch worker is down). The browser-side instance id + load "
+           "time are still reported, but stale-build detection is "
+           "unavailable this call. ACTION (the agent cannot do this): if "
+           "reads come back blank, reload " target " then re-run "
+           "discover-app; if it stays unknown, restart `shadow-cljs watch "
+           (if (some? build-id) (pr-str build-id) "<build>") "` — the "
+           "JVM-side build worker is not answering.")
+
+      nil)))
 
 (defn assemble
   "Merge the browser half (`browser`, the `(re-frame2-pair.runtime/
@@ -246,18 +307,26 @@
      :liveness            <:fresh|:stale-build|:no-runtime|:unknown>
      :hint                <str>}      ; only when non-fresh
 
+  The optional 4-arity `opts` carries `:port` (the browser URL port the
+  caller knows — discover-app's `:port` arg) so a non-fresh hint names
+  the EXACT `http://localhost:<port>` the human reloads (rf2-jkwu4).
+  `:port` rides on the token too, so the agent can relay it.
+
   Best-effort: a nil JVM half degrades to `:liveness :unknown` with the
   browser half intact. Never rejects."
-  [conn build-id browser]
+  ([conn build-id browser] (assemble conn build-id browser nil))
+  ([conn build-id browser opts]
   (-> (jvm-build-freshness conn build-id)
       (.then
         (fn [jvm]
           (let [browser (or browser {})
+                port    (:port opts)
                 jvm?    (map? jvm)
                 merged  (merge {:runtime-instance-id (:runtime-instance-id browser)
                                 :runtime-loaded-at   (:runtime-loaded-at browser)
                                 :read-at             (:read-at browser)
                                 :build-id            build-id}
+                               (when (some? port) {:port port})
                                (when jvm?
                                  (select-keys jvm [:compile-cycle :build-flushed-at
                                                    :runtime-count :heartbeat-age-ms])))
@@ -268,24 +337,35 @@
       (.catch (fn [_]
                 ;; Defensive: even an unexpected throw degrades to the
                 ;; browser half + :unknown rather than failing the tool.
-                (let [browser (or browser {})]
-                  {:runtime-instance-id (:runtime-instance-id browser)
-                   :runtime-loaded-at   (:runtime-loaded-at browser)
-                   :read-at             (:read-at browser)
-                   :build-id            build-id
-                   :liveness            :unknown
-                   :hint                (verdict-hint :unknown browser)})))))
+                (let [browser (or browser {})
+                      port    (:port opts)]
+                  (cond-> {:runtime-instance-id (:runtime-instance-id browser)
+                           :runtime-loaded-at   (:runtime-loaded-at browser)
+                           :read-at             (:read-at browser)
+                           :build-id            build-id
+                           :liveness            :unknown
+                           :hint                (verdict-hint
+                                                  :unknown
+                                                  (assoc browser :build-id build-id
+                                                                 :port port))}
+                    (some? port) (assoc :port port))))))))
 
 (defn token-from-health
   "Convenience: extract the browser half from a `health` map and
   assemble the full token. `health` carries `:runtime-instance-id`,
   `:runtime-loaded-at`, and `:read-at` (rf2-ertqw added them). Returns a
-  Promise of the token map."
-  [conn build-id health]
-  (assemble conn build-id
-            {:runtime-instance-id (:runtime-instance-id health)
-             :runtime-loaded-at   (:runtime-loaded-at health)
-             :read-at             (:read-at health)}))
+  Promise of the token map.
+
+  The optional 4-arity `opts` carries `:port` (rf2-jkwu4) so a non-fresh
+  hint can name `http://localhost:<port>` — the EXACT URL the human
+  reloads to wake / refresh a quiet runtime."
+  ([conn build-id health] (token-from-health conn build-id health nil))
+  ([conn build-id health opts]
+   (assemble conn build-id
+             {:runtime-instance-id (:runtime-instance-id health)
+              :runtime-loaded-at   (:runtime-loaded-at health)
+              :read-at             (:read-at health)}
+             opts)))
 
 (defn stale-build?
   "True when the token's verdict is `:stale-build`. Sugar for callers
