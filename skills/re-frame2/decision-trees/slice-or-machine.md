@@ -128,6 +128,7 @@ If the example contradicts the leaf you'd pick from this tree, **the example win
 - [`../references/state-machines/regions.md`](../references/state-machines/regions.md) — single-region and `:type :parallel` regions.
 - [`../references/state-machines/tags.md`](../references/state-machines/tags.md) — `:tags` on states + `machine-has-tag?` query.
 - [`../references/state-machines/spawn.md`](../references/state-machines/spawn.md) — `:spawn` and `:spawn-all` for child machines.
+- [`../references/state-machines/history.md`](../references/state-machines/history.md) — `:type :history` re-entry (shallow / deep / default).
 - [`../references/state-machines/cancellation.md`](../references/state-machines/cancellation.md) — the actor-destroy cascade.
 - [`../references/fundamentals/events.md`](../references/fundamentals/events.md) — `reg-event-db` / `reg-event-fx` for slice-shaped state.
 - [`../references/fundamentals/schemas.md`](../references/fundamentals/schemas.md) — `reg-app-schema` at boundaries.

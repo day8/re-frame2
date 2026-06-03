@@ -2,7 +2,7 @@
 
 ## When to load
 
-Reach for this leaf when authoring a `rf/reg-machine` call: the declaration map's keys, the `:guards` / `:actions` lookup tables, how a machine is dispatched into. For parallel regions, tags, `:spawn`, or cancellation, see the sibling leaves.
+Reach for this leaf when authoring a `rf/reg-machine` call: the declaration map's keys, the `:guards` / `:actions` lookup tables, how a machine is dispatched into. For parallel regions, tags, `:spawn`, history states, or cancellation, see the sibling leaves (`regions.md`, `tags.md`, `spawn.md`, `history.md`, `cancellation.md`).
 
 ## Mental model — think in xstate, then map onto re-frame2
 
@@ -21,6 +21,7 @@ Most concepts map cleanly. A handful of slots re-frame2 **deliberately renames o
 | **`invoke`** (state-bound child actor) | `:spawn` (and `:spawn-all` for fan-out-and-join) | **Divergence (name):** the most semantically-loaded slot is renamed on purpose, to break the "almost-correct xstate code" trap and align with the imperative `:rf.machine/spawn` fx. No `:onError`/`:onSnapshot`/`autoForward`/multiple-`:invoke`-per-state. See `spawn.md`. |
 | **`onDone`** (child→parent completion) | `:final?` leaf + parent `:spawn`'s `:on-done` + `:output-key` | Convergence — re-frame2 ships first-class final-state-with-parent-notification. See `spawn.md`. |
 | **parallel states** (`type: 'parallel'`) | `:type :parallel` + `:regions {...}` | Convergence (name + concept). `:data` shared; `:tags` is the union across active regions. See `regions.md`. |
+| **history states** (`type: 'history'`, `history: 'deep'`) | `:type :history` pseudo-state under a compound's `:states` (`:deep?` / `:default-target`) | Convergence (name + concept). Shallow by default; `:deep? true` for deep. Recording rides the snapshot's `:rf/history` slot — so undo / time-travel / SSR get it free. See `history.md`. |
 | **final states** (`type: 'final'`) | `:final? true` on a leaf state | Convergence on the concept. **Note the divergence:** a `:final?` singleton (or every-region-final parallel machine) **auto-destroys** — "final means final." Omit `:final?` for a persistent terminal state. See `spawn.md`. |
 | **tags** (`tags: [...]`) | `:tags #{...}` on a state node + `machine-has-tag?` | Convergence. See `tags.md`. |
 | **eventless / always transitions** | `:always [{:guard ... :target ...} ...]` | Convergence (re-frame2's term for xstate/SCXML transient transitions). |
@@ -101,6 +102,7 @@ Every state node is a map. Recognised slots (see `implementation/machines/src/re
 - `:spawn-all` — spawn-and-join sugar (see `spawn.md`).
 - `:tags` — a set of keywords describing this state's per-axis intent (see `tags.md`).
 - `:states` + `:initial` — nested compound state (deepest-wins resolution).
+- `:type :history` — a **pseudo-state** sibling under a compound's `:states` (carries `:deep?` / `:default-target`, nothing else); a transition target that restores the compound's last-active configuration. Not an occupiable state. See `history.md`.
 
 ## Transition shape
 

@@ -42,6 +42,7 @@ A self-contained prompt that re-authors the `re-frame2` skill from this `spec/` 
 > │   │   ├── regions.md           (single-region + :type :parallel)
 > │   │   ├── tags.md              (state tags, machine-has-tag?)
 > │   │   ├── spawn.md             (:spawn, :spawn-all, child-machine result)
+> │   │   ├── history.md           (:type :history — shallow/deep/default re-entry)
 > │   │   └── cancellation.md      (destroy cascade, cleanup contract)
 > │   ├── tooling/
 > │   │   ├── stories.md           (reg-story, story frames)

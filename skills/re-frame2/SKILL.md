@@ -110,7 +110,7 @@ Load at most two leaves per task. If a task seems to need three, it likely spans
 
 **Fundamentals — `references/fundamentals/`**: `events.md`, `fx.md`, `cofx.md`, `subs.md`, `flows.md` (`reg-flow` — materialised computed state; the flow-vs-sub decision), `schemas.md`, `frames.md`, `event-state-cycle.md`, `project-structure.md`.
 
-**State machines — `references/state-machines/`**: `reg-machine.md` (declaration + the xstate→re-frame2 translation key), `regions.md` (parallel), `tags.md`, `spawn.md` (child machines), `cancellation.md`. Standing mental model across all of these: think in xstate, then map onto re-frame2 — see `reg-machine.md` for the full mapping table and deliberate-divergence flags.
+**State machines — `references/state-machines/`**: `reg-machine.md` (declaration + the xstate→re-frame2 translation key), `regions.md` (parallel), `tags.md`, `spawn.md` (child machines), `history.md` (`:type :history` re-entry), `cancellation.md`. Standing mental model across all of these: think in xstate, then map onto re-frame2 — see `reg-machine.md` for the full mapping table and deliberate-divergence flags.
 
 **Tooling — `references/tooling/`**: `stories.md`, `routing.md`, `story-recorder.md` (record canvas interactions as `:play-script`), `story-mcp-loop.md` (agent self-healing loop over MCP), `xray.md` (the devtools panel — mount strategy, launch modes, host-CSS-variable resize contract, popout, suppress-auto-open). For anything Story, the standing bridge is **think in Storybook JS, then map onto Story** — `stories.md` carries the verified concept map.
 

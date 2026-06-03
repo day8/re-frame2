@@ -331,8 +331,9 @@ The flat shape above — plain `:on` transitions, `:entry` / `:exit`, machine-lo
 - **Eventless `:always` transitions** — fire on entry (or after any event) when a guard becomes true, no event needed. (Drain-a-queue-then-advance; classifying a derived state.) Bounded-depth microstep loop.
 - **Delayed `:after` transitions** — "if no event arrives within N ms, transition." (Retry-after-backoff, idle timeouts, debounce.) Carries an epoch so cancelled timers don't fire late.
 - **Declarative `:spawn`** — a state spawns a child machine on entry, destroys it on exit, declared as data; the child's lifetime is bound to the parent state.
+- **History states** — a compound can re-enter at *the substate it was in when control last left it*, instead of restarting from `:initial`. Declared as a `:type :history` pseudo-state under the compound; the runtime records and restores the last-active configuration. (Media player that resumes mid-track; a wizard step you return to; tabs that remember their inner position.)
 
-Each is opt-in per the capability matrix. Port authors: each feature has a capability-flag (`:fsm/hierarchy`, `:fsm/always`, `:fsm/after`, `:fsm/invoke`, `:fsm/parallel-regions`, `:fsm/tags`, `:fsm/final-states`, `:actor/spawn-and-join`); a port declares its claimed set, and using a key the port doesn't claim raises `:rf.error/machine-grammar-not-in-v1` at registration rather than being silently ignored. The v1 CLJS reference claims all of them.
+Each is opt-in per the capability matrix. Port authors: each feature has a capability-flag (`:fsm/hierarchy`, `:fsm/always`, `:fsm/after`, `:fsm/invoke`, `:fsm/parallel-regions`, `:fsm/tags`, `:fsm/final-states`, `:fsm/history`, `:actor/spawn-and-join`); a port declares its claimed set, and using a key the port doesn't claim raises `:rf.error/machine-grammar-not-in-v1` at registration rather than being silently ignored. The v1 CLJS reference claims all of them.
 
 ### Parallel regions: when one screen has several axes of state at once
 
@@ -359,6 +360,35 @@ Some pages don't have one axis of state — they have several, running simultane
 ```
 
 The snapshot's `:state` becomes a *map* of region → current state, the `:tags` is the union across every active region, and a dispatch *broadcasts* to all regions (each region's active state checks its own `:on`; matching states transition, the rest stay put). Three regions, three active states, one tag union — not twenty-seven cross-product states. The pattern that makes this sing is a single render-priority table consulted by one `case` in the root view; if no region handles an event a `:rf.warning/machine-unhandled-event` fires, and if any region does, it's suppressed. Reach for parallel regions when the axes are orthogonal, share one `:data` domain, and the flat cross-product would top ~6-8 states. *Don't* when one axis depends on another (that's a hierarchical machine) or when regions don't share data (that's N separate machines). The fully-worked depth example — all nine canonical UI states modelled as one three-region machine — lives at `examples/reagent/nine_states/`.
+
+### History: re-entering a compound where you left it
+
+Some compound states shouldn't restart when you return to them. A media player paused mid-track should *resume* mid-track, not jump back to the start. A wizard you stepped out of should reopen on the step you were on. A tabbed panel should remember each tab's inner position. The shape is always the same: a compound that, on re-entry, should land on *the substate it was in when control last left it* — not its `:initial`. xstate calls this a history state, and re-frame2 ships it directly.
+
+You declare a **history pseudo-state** under the compound's `:states`, alongside its real substates, and transition *to* it to restore:
+
+```clojure
+{:player
+ {:initial :stopped
+  :states {:stopped {:on {:play [:player :hist]}}        ;; :play targets the pseudo-state → restore
+           :hist    {:type :history
+                     :deep? true                          ;; omit ⇒ shallow
+                     :default-target :playing}            ;; omit ⇒ falls back to :player's :initial
+           :playing {:initial :at-start
+                     :states {:at-start  {:on {:seek :mid-track}}
+                              :mid-track {}}}
+           :paused  {:on {:resume [:player :playing]}}}}}
+```
+
+The pseudo-state is never a state the machine *occupies* — a transition to `:hist` resolves to a real leaf, and that leaf is what the snapshot records. It carries exactly three slots:
+
+- **`:type :history`** — marks the node as a history pseudo-state (the discriminator from a real substate).
+- **`:deep?`** — `true` restores the *full* recorded leaf path beneath the compound (`[:playing :mid-track]`); `false` or **absent** is **shallow** — restore the recorded *direct child* (`:playing`), then cascade through its own `:initial` chain. Default is shallow.
+- **`:default-target`** — where to land the *first* time the compound is entered, before anything's recorded. A direct-child keyword or an absolute path. **Absent** falls back to the compound's `:initial`.
+
+The runtime records the compound's last-active configuration on the way out (as part of the ordinary exit cascade) into a reserved `:rf/history` slot *inside the snapshot*. Because it lives in the snapshot — the same revertible value as everything else — recorded history rides undo, time-travel, persistence, and SSR hydration for free; there's no side-table to keep in sync. Under `:type :parallel` each region keeps its own history independently. And if a hot reload removes the substate a recording points at, the runtime quietly falls back to `:default-target` (or `:initial`) rather than entering a dead path.
+
+Reach for history when "resume where you were" is the actual requirement — a non-trivial compound whose substate is worth remembering across a leave/return. *Don't* reach for it when a single flat value (which tab, which step) in `:data` says it just as clearly; that's ordinary modelling, not a named feature. (The full recording/restoring semantics, deep nesting, and per-region keys are in [Spec 005 §History states](https://github.com/day8/re-frame2/blob/main/spec/005-StateMachines.md).)
 
 ## Composing machines, and dynamic actors
 
