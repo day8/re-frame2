@@ -88,18 +88,18 @@
   The `:rf/history` snapshot slot is inspectable in the App-db panel (inside
   `[:rf/runtime :machines :snapshots <id> :rf/history]`). rf2-mle6e.5.
 
-  ## Per-step delta (standard_epochs pattern)
+  ## Per-step delta (rf2-5sjbg — app-db `:step`)
 
-  Every action event bumps a shared `:baseline` counter (`bump`), so the
-  App-db / Epoch panels always show a delta on every step; the per-step
-  machine feature is the ADDITIONAL change layered on top.
+  The runner sets app-db `:step = n` on the run-step epoch; that churn is
+  the per-step App-db / Epoch delta the panels show (it REPLACES the old
+  `:baseline` counter). The per-step machine feature is the child event the
+  run-step epoch dispatches into the host-frame.
 
-  ## Runner state = LOCAL ATOM (rf2-8pbjr contract)
+  ## Runner cursor = app-db `:step` (rf2-5sjbg)
 
-  The runner cursor / status / pace live in `runner-state` — a LOCAL Reagent
-  atom in THIS ns. It is NEVER written to the inspected app-db (that would
-  pollute the panels under inspection) and is NOT a second frame (only the
-  inspected app frame, `:rf/default`, is Xray-relevant).
+  The runner cursor lives in app-db's `:step` slot, written by
+  `runner.core`'s run-step event — NOT a Reagent atom. The deck reads as an
+  ordinary re-frame2 app: app-db + events + subs.
 
   ## Inline Xray sidecar (preload)
 
@@ -124,8 +124,7 @@
   the `machine-epochs machine ladder` scenario, which drives the runner's
   per-step RUN-THIS-STEP buttons). The machine specs live in the sibling ns
   `machine-epochs.machines`, shared with the harness."
-  (:require [reagent.core :as r]
-            [reagent.dom.client :as rdc]
+  (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             ;; State-machines artefact — load-time hook so `reg-machine`,
             ;; the `:rf/machine` framework subs, and machine-event routing
@@ -135,9 +134,10 @@
             [re-frame.adapter.reagent :as reagent-adapter]
             [day8.re-frame2-xray.config :as xray-config]
             [re-frame.testbed.config :as testbed-config]
-            ;; The shared queued-step runner (rf2-8pbjr pilot). This deck
-            ;; supplies a `steps` vector + the testid prefix; the runner
-            ;; drives the ONE-button series + the per-step run affordance.
+            ;; The shared step-driver runner (rf2-5sjbg). This deck supplies
+            ;; a `steps` vector + registers `:machine-epochs/run-step` via
+            ;; `runner/reg-runner!`; the runner drives the ONE-button series
+            ;; + the per-step run affordance off app-db `:step`.
             [runner.core :as runner]
             [machine-epochs.machines :as machines])
   (:require-macros [re-frame.core :refer [reg-view]]))
@@ -161,26 +161,26 @@
 (machines/register-all!)
 
 ;; ============================================================================
-;; APP-DB SEED + the shared bump/send driver
+;; APP-DB SEED + the shared send driver
 ;; ============================================================================
 ;;
-;; `:baseline` is the shared counter every step bumps (so App-db / Epoch
-;; always show a delta). The machines own their own runtime state under
+;; `:step` is the runner cursor (rf2-5sjbg) — the index of the last-run
+;; step, written by `runner.core`'s run-step event; its churn every step IS
+;; the per-step App-db / Epoch delta (it REPLACES the old `:baseline`
+;; counter). The machines own their own runtime state under
 ;; `[:rf/runtime :machines :snapshots …]`.
 
-(def initial-db {:baseline 0})
+(def initial-db {:step nil})
 
-(defn- bump [db] (update db :baseline inc))
-
-;; A reusable "bump + send" event-fx: every machine step routes through here
-;; so the baseline delta and the machine send are one cascade. `sends` is a
-;; vector of fully-formed machine-event vectors — pass several to fan out to
-;; multiple machines in one press.
+;; A reusable "send" event-fx: every machine step routes through here so a
+;; step can fan out to one OR several machines in one cascade. `sends` is a
+;; vector of fully-formed machine-event vectors. The per-step App-db delta is
+;; the runner's `:step` write on the parent run-step epoch.
 (rf/reg-event-fx :machine-epochs/send
-  {:doc "Bump the baseline and dispatch the supplied machine event(s). The
-         shared driver behind every machine step."}
+  {:doc "Dispatch the supplied machine event(s). The shared driver behind
+         every machine step (a step may fan out to several machines)."}
   (fn handler-send [{:keys [db]} [_ sends]]
-    {:db (bump db)
+    {:db db
      :fx (mapv (fn [send] [:dispatch send]) sends)}))
 
 ;; re-open the door (after a close left it :closed), arm the `:held-open?` flag
@@ -192,7 +192,7 @@
          The :may-close? guard FAILS, so the close is blocked and the machine
          stays in :open."}
   (fn handler-reopen-then-block [{:keys [db]} _ev]
-    {:db (bump db)
+    {:db db
      :fx [[:dispatch [:door/main [:door/push]]]
           [:dispatch [:door/main [:door/hold]]]
           [:dispatch [:door/main [:door/close]]]]}))
@@ -200,10 +200,9 @@
 ;; The acknowledgement event dispatched by :enter-alarm's :fx. A plain deck
 ;; event so the cascade has a downstream child epoch the lens links to.
 (rf/reg-event-db :machine-epochs/alarm-acknowledged
-  {:doc "The downstream event fired by the door's :enter-alarm action :fx.
-         Bumps baseline again so the alarm cascade has a child epoch under
-         the originating dispatch-id."}
-  (fn handler-alarm-acknowledged [db _ev] (bump db)))
+  {:doc "The downstream event fired by the door's :enter-alarm action :fx —
+         the child epoch under the originating dispatch-id."}
+  (fn handler-alarm-acknowledged [db _ev] db))
 
 ;; re-start the brew (schedules a fresh :after timer) then immediately
 ;; :brew/abort, which exits :brewing BEFORE the timer fires. Exiting the
@@ -213,7 +212,7 @@
          :brew/abort (exit :brewing before the timer fires). The exit cancels
          the pending timer with :reason :on-exit."}
   (fn handler-cancel-brew [{:keys [db]} _ev]
-    {:db (bump db)
+    {:db db
      :fx [[:dispatch [:brew/machine [:brew/start]]]
           [:dispatch [:brew/machine [:brew/abort]]]]}))
 
@@ -228,7 +227,7 @@
   (fn handler-finish-login [{:keys [db]} _ev]
     (let [child-id (get-in db [:rf/runtime :machines :spawned
                                :session/flow [:authenticating]])]
-      (cond-> {:db (bump db)}
+      (cond-> {:db db}
         child-id
         (assoc :fx [[:dispatch [child-id [:succeed :session/token-abc]]]])))))
 
@@ -241,7 +240,7 @@
   {:doc ":quiz/answer ×2 so the score reaches the pass mark and the guarded
          :always chain fires (microsteps > 0)."}
   (fn handler-answer-to-pass [{:keys [db]} _ev]
-    {:db (bump db)
+    {:db db
      :fx [[:dispatch [:quiz/scorer [:quiz/answer]]]
           [:dispatch [:quiz/scorer [:quiz/answer]]]]}))
 
@@ -250,14 +249,14 @@
 ;; :type :history machine throws synchronously at reg-machine time
 ;; (:rf.error/machine-history-misplaced). The deck event swallows the throw
 ;; (the step's job is to DRIVE the rejection; the harness asserts the throw
-;; shape directly). It bumps baseline so the epoch still shows a delta.
+;; shape directly). The per-step delta is the runner's `:step` write.
 (rf/reg-event-db :machine-epochs/probe-history-rejection
   {:doc "Attempt to register a ROOT :type :history machine and confirm the
          PLACEMENT constraint rejects it (a pseudo-state needs an owning
          compound). The throw is swallowed here so the deck does not crash;
          the harness asserts the misplaced-history rejection shape."}
   (fn handler-probe-history [db _ev]
-    (-> db bump (assoc :machine-epochs/history-rejected? (machines/history-rejected?)))))
+    (assoc db :machine-epochs/history-rejected? (machines/history-rejected?))))
 
 ;; the HISTORY restore dance (rf2-mle6e.5). To make the RESTORE the focal
 ;; cascade the operator inspects, the step first POSITIONS the player deep
@@ -286,7 +285,7 @@
          The restore cascade carries the history banner + :source :recorded
          entry-step chips (SHALLOW)."}
   (fn handler-history-shallow [{:keys [db]} _ev]
-    {:db (bump db)
+    {:db db
      :fx (history-restore-fx :media/shallow)}))
 
 (rf/reg-event-fx :machine-epochs/history-deep-restore
@@ -295,7 +294,7 @@
          restore cascade carries the history banner (DEEP) + :source :recorded
          entry-step chips down to the exact leaf."}
   (fn handler-history-deep [{:keys [db]} _ev]
-    {:db (bump db)
+    {:db db
      :fx (history-restore-fx :media/deep)}))
 
 ;; ============================================================================
@@ -324,28 +323,24 @@
                 :session/flow :hvac/controller :media/deep :media/shallow])}))
 
 ;; ============================================================================
-;; SUBSCRIPTIONS
+;; THE STEP VECTOR — code data (the single source of truth)
 ;; ============================================================================
 ;;
 ;; The deck reads NO machine snapshots on-page — the Xray Epoch panel +
 ;; Machine Inspector are the read-out, and the harness drives the substrate
-;; directly. Only the shared baseline counter has a deck sub (the per-step
-;; App-db / Epoch delta). The machines' `:trail` order-oracle is untouched: it
-;; lives in `machine-epochs.machines` and is read by the harness, not the deck.
-
-(rf/reg-sub :machine-epochs/baseline (fn [db _] (:baseline db)))
-
-;; ============================================================================
-;; THE STEP VECTOR — code data (rf2-8pbjr: the single source of truth)
-;; ============================================================================
+;; directly. The machines' `:trail` order-oracle lives in
+;; `machine-epochs.machines` and is read by the harness, not the deck. So
+;; this deck registers no on-page subs; the runner reads the shared
+;; `:rf.runner/step` sub for its highlight + counter.
 ;;
-;; Each step: {:event [...] :watch "<what to look for>" :settle-ms N
-;;             :label "<short row label>"}. The runner renders :watch per STEP
-;; (per-occurrence narration), dispatches :event on a Step / per-step click
-;; (manual — focus is the operator's), then waits :settle-ms before advancing.
-;; The matrix walks the machine set domain-by-domain; the events are the SAME
-;; ones the bespoke ladder drove (the machine FEATURES are unchanged — only the
-;; driving affordance moved to the runner).
+;; Each step: {:event [...] :watch "<what to look for>" :label "<short row
+;; label>"}. The runner renders :watch per STEP; pressing Step (or a per-row
+;; RUN button) dispatches `[:machine-epochs/run-step n]`, which sets app-db
+;; `:step = n` (the per-step delta) and dispatches the step's `:event` into
+;; the host-frame. Manual stepping needs no pacing — each machine fires its
+;; own `:after` timers / cascades on its own schedule while the operator
+;; watches (rf2-5sjbg dropped the settle machinery). The events are the SAME
+;; ones the bespoke ladder drove (the machine FEATURES are unchanged).
 ;;
 ;; The `:label` carries the section/domain prefix (Door · Traffic · …) so the
 ;; flat runner list stays legible without a section-separator concept.
@@ -357,130 +352,106 @@
 
 (def steps
   [;; -- DOOR (FLAT) — start · transition · entry/exit · effect --
-   {:label     "Door: start machine (:rf.machine/start)"
-    :event     [:door/main [:rf.machine/start]]
-    :watch     "Inspector: the door chart renders; live-highlight lands on :locked. Epoch: a [START] badge (initial state + data) — a pure init-kick, NOT a transition / no-op."
-    :settle-ms 350}
-   {:label     "Door: insert coin (:locked ──► :closed)"
-    :event     [:machine-epochs/send [[:door/main [:door/insert-coin]]]]
-    :watch     "Focused-transition lens: plain FROM → TO, no guard / no action; cascade = exit→TRANSITION→entry rows."
-    :settle-ms 350}
-   {:label     "Door: push (:closed ──► :open) — entry + exit"
-    :event     [:machine-epochs/send [[:door/main [:door/push]]]]
-    :watch     "ACTIONS RUN: :closed's :exit (:clear-hold) + :open's :entry (:count-open); snapshot :opened-count++."
-    :settle-ms 350}
-   {:label     "Door: close (:open ──► :closed) — guard ALLOWED"
-    :event     [:machine-epochs/send [[:door/main [:door/close]]]]
-    :watch     "GUARDS RUN: :may-close? → pass; transition completes to :closed."
-    :settle-ms 350}
-   {:label     "Door: re-open, hold, then close — guard BLOCKED"
-    :event     [:machine-epochs/reopen-then-block]
-    :watch     "GUARDS RUN: :may-close? → fail (held-open?); state STAYS :open (no branch matches)."
-    :settle-ms 400}
-   {:label     "Door: trip (:open ──► :alarming) — with effect"
-    :event     [:machine-epochs/send [[:door/main [:door/trip]]]]
-    :watch     "ACTIONS RUN: :enter-alarm → :fx :dispatch → [:alarm-acknowledged] (downstream cascade child)."
-    :settle-ms 400}
-   {:label     "Door: insert coin into :alarming — UNHANDLED no-op"
-    :event     [:machine-epochs/send [[:door/main [:door/insert-coin]]]]
-    :watch     "Epoch: ONE [NO OP] staying in :alarming row; NO transition row; event row NOT pink — the foil to the throw."
-    :settle-ms 350}
-   {:label     "Door: audit from :alarming — ROOT :on fallthrough"
-    :event     [:machine-epochs/send [[:door/main [:door/audit]]]]
-    :watch     "Resolution: :alarming has no :door/audit; the ROOT :on handles it → :alarming ──► :locked (deepest-wins fallthrough)."
-    :settle-ms 350}
+   {:label "Door: start machine (:rf.machine/start)"
+    :event [:door/main [:rf.machine/start]]
+    :watch "Inspector: the door chart renders; live-highlight lands on :locked. Epoch: a [START] badge (initial state + data) — a pure init-kick, NOT a transition / no-op."}
+   {:label "Door: insert coin (:locked ──► :closed)"
+    :event [:machine-epochs/send [[:door/main [:door/insert-coin]]]]
+    :watch "Focused-transition lens: plain FROM → TO, no guard / no action; cascade = exit→TRANSITION→entry rows."}
+   {:label "Door: push (:closed ──► :open) — entry + exit"
+    :event [:machine-epochs/send [[:door/main [:door/push]]]]
+    :watch "ACTIONS RUN: :closed's :exit (:clear-hold) + :open's :entry (:count-open); snapshot :opened-count++."}
+   {:label "Door: close (:open ──► :closed) — guard ALLOWED"
+    :event [:machine-epochs/send [[:door/main [:door/close]]]]
+    :watch "GUARDS RUN: :may-close? → pass; transition completes to :closed."}
+   {:label "Door: re-open, hold, then close — guard BLOCKED"
+    :event [:machine-epochs/reopen-then-block]
+    :watch "GUARDS RUN: :may-close? → fail (held-open?); state STAYS :open (no branch matches)."}
+   {:label "Door: trip (:open ──► :alarming) — with effect"
+    :event [:machine-epochs/send [[:door/main [:door/trip]]]]
+    :watch "ACTIONS RUN: :enter-alarm → :fx :dispatch → [:alarm-acknowledged] (downstream cascade child)."}
+   {:label "Door: insert coin into :alarming — UNHANDLED no-op"
+    :event [:machine-epochs/send [[:door/main [:door/insert-coin]]]]
+    :watch "Epoch: ONE [NO OP] staying in :alarming row; NO transition row; event row NOT pink — the foil to the throw."}
+   {:label "Door: audit from :alarming — ROOT :on fallthrough"
+    :event [:machine-epochs/send [[:door/main [:door/audit]]]]
+    :watch "Resolution: :alarming has no :door/audit; the ROOT :on handles it → :alarming ──► :locked (deepest-wins fallthrough)."}
 
    ;; -- TRAFFIC (PARALLEL) — regions · history · TAG-SET delta (gap 7) --
-   {:label     "Traffic: tick (parallel regions)"
-    :event     [:machine-epochs/send [[:traffic/light [:traffic/tick]]]]
-    :watch     "Inspector: ONE event broadcasts to :vehicle + :pedestrian; chart highlights BOTH active leaves; tags swap members."
-    :settle-ms 350}
-   {:label     "Traffic: tick ×1 more (history ribbon)"
-    :event     [:machine-epochs/send [[:traffic/light [:traffic/tick]]]]
-    :watch     "Transition-history ribbon accumulates state → state entries; logical-state DELTA box shows :tags member swap (rf2-l0us2)."
-    :settle-ms 350}
-   {:label     "Reset door + tick traffic (two machines, one cascade)"
-    :event     [:machine-epochs/send [[:door/main [:door/reset]] [:traffic/light [:traffic/tick]]]]
-    :watch     "Inspector: one event transitions BOTH machines; instance selection picks the first in trace order; multi-machine no-op names its machine."
-    :settle-ms 400}
+   {:label "Traffic: tick (parallel regions)"
+    :event [:machine-epochs/send [[:traffic/light [:traffic/tick]]]]
+    :watch "Inspector: ONE event broadcasts to :vehicle + :pedestrian; chart highlights BOTH active leaves; tags swap members."}
+   {:label "Traffic: tick ×1 more (history ribbon)"
+    :event [:machine-epochs/send [[:traffic/light [:traffic/tick]]]]
+    :watch "Transition-history ribbon accumulates state → state entries; logical-state DELTA box shows :tags member swap (rf2-l0us2)."}
+   {:label "Reset door + tick traffic (two machines, one cascade)"
+    :event [:machine-epochs/send [[:door/main [:door/reset]] [:traffic/light [:traffic/tick]]]]
+    :watch "Inspector: one event transitions BOTH machines; instance selection picks the first in trace order; multi-machine no-op names its machine."}
 
    ;; -- QUIZ (MICROSTEP) — :always EVENTLESS microsteps (gap 1) --
-   {:label     "Quiz: answer — score climbs (microsteps 0)"
-    :event     [:machine-epochs/send [[:quiz/scorer [:quiz/answer]]]]
-    :watch     "Cascade: the :answer action bumps :score; the :always guard is NOT yet met → 0 microsteps; quiz stays :asking."
-    :settle-ms 350}
-   {:label     "Quiz: answer ×2 more — :always SETTLES (microsteps > 0)"
-    :event     [:machine-epochs/answer-to-pass]
-    :watch     "Cascade: :answer reaches the pass mark; the guarded :always chain fires → N microstep(s) + the microstep cascade to :passed."
-    :settle-ms 450}
+   {:label "Quiz: answer — score climbs (microsteps 0)"
+    :event [:machine-epochs/send [[:quiz/scorer [:quiz/answer]]]]
+    :watch "Cascade: the :answer action bumps :score; the :always guard is NOT yet met → 0 microsteps; quiz stays :asking."}
+   {:label "Quiz: answer ×2 more — :always SETTLES (microsteps > 0)"
+    :event [:machine-epochs/answer-to-pass]
+    :watch "Cascade: :answer reaches the pass mark; the guarded :always chain fires → N microstep(s) + the microstep cascade to :passed."}
 
    ;; -- BREW (TIMER) — :after delayed transition + cancel (gap 2) --
-   {:label     "Brew: start — schedules an :after timer"
-    :event     [:machine-epochs/send [[:brew/machine [:brew/start]]]]
-    :watch     "Cascade: :idle ──► :brewing; the :after timer is SCHEDULED (no fire yet). Watch the AFTER TIMERS sub-section."
-    :settle-ms 400}
-   {:label     "Brew: let the :after timer ELAPSE (auto-fire)"
-    :event     [:machine-epochs/send [[:brew/machine [:rf.machine.timer/after-elapsed 5000 1 [:brewing]]]]]
-    :watch     "Cascade: the synthetic :after-elapsed fires → :brewing ──► :ready; DISPATCH row labels 'from :after timer'."
-    :settle-ms 400}
-   {:label     "Brew: re-start then CANCEL — exit beats the timer"
-    :event     [:machine-epochs/cancel-brew]
-    :watch     "Cascade: re-enter :brewing (schedule) then :brew/abort exits before fire → :rf.machine.timer/cancelled (:on-exit) — the :cancelled chip."
-    :settle-ms 450}
+   {:label "Brew: start — schedules an :after timer"
+    :event [:machine-epochs/send [[:brew/machine [:brew/start]]]]
+    :watch "Cascade: :idle ──► :brewing; the :after timer is SCHEDULED (no fire yet). Watch the AFTER TIMERS sub-section."}
+   {:label "Brew: let the :after timer ELAPSE (auto-fire)"
+    :event [:machine-epochs/send [[:brew/machine [:rf.machine.timer/after-elapsed 5000 1 [:brewing]]]]]
+    :watch "Cascade: the synthetic :after-elapsed fires → :brewing ──► :ready; DISPATCH row labels 'from :after timer'."}
+   {:label "Brew: re-start then CANCEL — exit beats the timer"
+    :event [:machine-epochs/cancel-brew]
+    :watch "Cascade: re-enter :brewing (schedule) then :brew/abort exits before fire → :rf.machine.timer/cancelled (:on-exit) — the :cancelled chip."}
 
    ;; -- SESSION (LIFECYCLE) — spawn · child :final · :on-done · destroy --
-   {:label     "Session: open — SPAWN child actor"
-    :event     [:machine-epochs/send [[:session/flow [:session/open]]]]
-    :watch     "Cascade: :idle ──► :authenticating spawns :session/login child; spawn fx renders; the instance spine spans parent + child."
-    :settle-ms 400}
-   {:label     "Session: child succeeds — :final + :on-done + auto-DESTROY"
-    :event     [:machine-epochs/finish-login]
-    :watch     "Cascade: drive the child to :final? → :on-done reports the token to the parent → child auto-destroys (exit-cascade-on-destroy + destroyed trace)."
-    :settle-ms 450}
+   {:label "Session: open — SPAWN child actor"
+    :event [:machine-epochs/send [[:session/flow [:session/open]]]]
+    :watch "Cascade: :idle ──► :authenticating spawns :session/login child; spawn fx renders; the instance spine spans parent + child."}
+   {:label "Session: child succeeds — :final + :on-done + auto-DESTROY"
+    :event [:machine-epochs/finish-login]
+    :watch "Cascade: drive the child to :final? → :on-done reports the token to the parent → child auto-destroys (exit-cascade-on-destroy + destroyed trace)."}
 
    ;; -- FUSE (THROW-ON-BOOT) — initial `:entry` action THROWS on lazy boot --
-   {:label     "Fuse: first event to :fuse/box — initial :entry THROWS on boot"
-    :event     [:machine-epochs/send [[:fuse/box [:fuse/short-circuit]]]]
-    :watch     "Epoch: the first event lazily boots :armed, whose :entry action :blow-fuse THROWS. EXCEPTION card (message + ex-data + coord) attributing the initial :entry action; event row IS pink; cascade-summary :outcome :error."
-    :settle-ms 400}
+   {:label "Fuse: first event to :fuse/box — initial :entry THROWS on boot"
+    :event [:machine-epochs/send [[:fuse/box [:fuse/short-circuit]]]]
+    :watch "Epoch: the first event lazily boots :armed, whose :entry action :blow-fuse THROWS. EXCEPTION card (message + ex-data + coord) attributing the initial :entry action; event row IS pink; cascade-summary :outcome :error."}
 
    ;; -- HVAC (DEEP-COMPOUND) — compound · LCA cascade · self-transitions --
-   {:label     "Hvac: power-cycle (parallel — BOTH regions, deep initial cascade)"
-    :event     [:machine-epochs/send [[:hvac/controller [:hvac/power-cycle]]]]
-    :watch     "Cascade: ONE event → :climate :idle──►:running (entry+initial cascade to [:running :conditioning :heating]) AND :fan :off──►:on."
-    :settle-ms 400}
-   {:label     "Hvac: mode-toggle (:heating ⇄ :cooling — multi-level LCA cascade)"
-    :event     [:machine-epochs/send [[:hvac/controller [:hvac/mode-toggle]]]]
-    :watch     "Cascade ORDER: exit :heating (deepest-first) → :swap-mode @ LCA :conditioning → entry :cooling (shallowest-first)."
-    :settle-ms 400}
-   {:label     "Hvac: nudge fan — EXTERNAL self-transition (:target :same-state)"
-    :event     [:machine-epochs/send [[:hvac/controller [:hvac/nudge]]]]
-    :watch     "Cascade: :fan :on re-enters itself — exit :fan-on → :nudge-fan → entry :fan-on; NO spurious {:on}→{:on} no-op row."
-    :settle-ms 400}
-   {:label     "Hvac: tweak fan — INTERNAL self-transition (omit :target)"
-    :event     [:machine-epochs/send [[:hvac/controller [:hvac/tweak]]]]
-    :watch     "Cascade: ACTION ONLY (:tweak-fan) — no exit, no entry; the foil to the nudge; NO spurious no-op row."
-    :settle-ms 400}
+   {:label "Hvac: power-cycle (parallel — BOTH regions, deep initial cascade)"
+    :event [:machine-epochs/send [[:hvac/controller [:hvac/power-cycle]]]]
+    :watch "Cascade: ONE event → :climate :idle──►:running (entry+initial cascade to [:running :conditioning :heating]) AND :fan :off──►:on."}
+   {:label "Hvac: mode-toggle (:heating ⇄ :cooling — multi-level LCA cascade)"
+    :event [:machine-epochs/send [[:hvac/controller [:hvac/mode-toggle]]]]
+    :watch "Cascade ORDER: exit :heating (deepest-first) → :swap-mode @ LCA :conditioning → entry :cooling (shallowest-first)."}
+   {:label "Hvac: nudge fan — EXTERNAL self-transition (:target :same-state)"
+    :event [:machine-epochs/send [[:hvac/controller [:hvac/nudge]]]]
+    :watch "Cascade: :fan :on re-enters itself — exit :fan-on → :nudge-fan → entry :fan-on; NO spurious {:on}→{:on} no-op row."}
+   {:label "Hvac: tweak fan — INTERNAL self-transition (omit :target)"
+    :event [:machine-epochs/send [[:hvac/controller [:hvac/tweak]]]]
+    :watch "Cascade: ACTION ONLY (:tweak-fan) — no exit, no entry; the foil to the nudge; NO spurious no-op row."}
 
    ;; -- HISTORY (LIVE, gap 8) — first-class shallow + deep restore (rf2-mle6e) --
-   {:label     "History: register a ROOT :history machine — REJECTED (placement)"
-    :event     [:machine-epochs/probe-history-rejection]
-    :watch     "History is FIRST-CLASS; a ROOT :type :history is still rejected :rf.error/machine-history-misplaced (a pseudo-state needs an owning compound)."
-    :settle-ms 350}
-   {:label     "History: SHALLOW restore (:media/shallow eject → re-insert)"
-    :event     [:machine-epochs/history-shallow-restore]
-    :watch     "Epoch: the :rf.machine.history/restored banner (source :recorded, SHALLOW); restored :entry steps chip 'from history'; restores the CHILD then its :initial."
-    :settle-ms 500}
-   {:label     "History: DEEP restore (:media/deep eject → re-insert)"
-    :event     [:machine-epochs/history-deep-restore]
-    :watch     "Epoch: the banner reads DEEP; the :entry steps descend to the EXACT recorded leaf [:player :playing :mid-track], each chipped 'from history'."
-    :settle-ms 500}])
+   {:label "History: register a ROOT :history machine — REJECTED (placement)"
+    :event [:machine-epochs/probe-history-rejection]
+    :watch "History is FIRST-CLASS; a ROOT :type :history is still rejected :rf.error/machine-history-misplaced (a pseudo-state needs an owning compound)."}
+   {:label "History: SHALLOW restore (:media/shallow eject → re-insert)"
+    :event [:machine-epochs/history-shallow-restore]
+    :watch "Epoch: the :rf.machine.history/restored banner (source :recorded, SHALLOW); restored :entry steps chip 'from history'; restores the CHILD then its :initial."}
+   {:label "History: DEEP restore (:media/deep eject → re-insert)"
+    :event [:machine-epochs/history-deep-restore]
+    :watch "Epoch: the banner reads DEEP; the :entry steps descend to the EXACT recorded leaf [:player :playing :mid-track], each chipped 'from history'."}])
 
 ;; ============================================================================
-;; RUNNER STATE — LOCAL ATOM (rf2-8pbjr: not app-db, not a 2nd frame)
+;; RUNNER WIRING (rf2-5sjbg) — register the deck's run-step event
 ;; ============================================================================
 
-(defonce runner-state (r/atom (runner/initial-state)))
+(runner/reg-runner! {:id         :machine-epochs/run-step
+                     :steps      steps
+                     :host-frame host-frame})
 
 ;; ============================================================================
 ;; VIEWS
@@ -497,7 +468,10 @@
      "Shows how xray displays state machine activity - particularly the Epoch panel."]
     [:p {:style {:color "#444" :margin "0.5em 0 0 0"}}
      "Takes Four different state machines through various transitions"]]
-   [runner/runner "machine-epochs" runner-state steps host-frame]])
+   [runner/runner {:run-step-event :machine-epochs/run-step
+                   :steps          steps
+                   :prefix         "machine-epochs"
+                   :host-frame     host-frame}]])
 
 ;; ============================================================================
 ;; MOUNT

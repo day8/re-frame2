@@ -4,14 +4,14 @@
 
   An operator visually inspects how the Xray panels (Epoch · Trace ·
   App-db · Machine Inspector) render the managed-HTTP lifecycle by
-  pressing ONE button (`▶ Run series`) and watching each interesting
-  step play out, with per-step commentary on what to look for. Title:
+  pressing ONE button (`⏭ Step`) and watching each interesting step play
+  out, with per-step commentary on what to look for. Title:
   `Xray Testbed: Managed HTTP`.
 
   ## What it exercises (Spec 014 — `:rf.http/managed` and family)
 
   The step vector (`steps`, below) is CODE DATA — a `def`ed vector of
-  step maps, each `{:event … :watch … :settle-ms …}`. It walks the
+  step maps, each `{:event … :watch … :label …}`. It walks the
   managed-HTTP lifecycle:
 
     1. Fire a request           — in-flight render (`:status :loading`,
@@ -33,14 +33,13 @@
                                   `abort-on-actor-destroy`
                                   (`:rf.http/aborted-on-actor-destroy`).
 
-  ## Runner state = LOCAL ATOM (rf2-8pbjr contract)
+  ## Runner cursor = app-db `:step` (rf2-5sjbg)
 
-  The runner cursor/phase lives in `runner-state` — a LOCAL Reagent atom
-  in THIS ns. It is NEVER written to the inspected app-db (that would
-  pollute the App-db panel under inspection) and is NOT a second frame
-  (only the inspected app frame, `:rf/default`, is Xray-relevant). After
-  each auto-advance dispatch the runner focuses the latest `:rf/default`
-  epoch so the operator sees the just-dispatched render.
+  The runner cursor lives in app-db's `:step` slot, written by
+  `runner.core`'s run-step event — NOT a Reagent atom. `:step` churning
+  every step IS the per-step App-db / Epoch delta the panels show. Each
+  step dispatches its lifecycle `:event` into `:rf/default`. The deck reads
+  as an ordinary re-frame2 app: app-db + events + subs.
 
   ## Real registry vs canned replies (deterministic, clean)
 
@@ -65,8 +64,7 @@
   (`re-frame.http-managed`) + its test-support (`re-frame.http-test-
   support` — a testbed IS a test affordance) + the shared `runner.core`.
   Nothing under `implementation/` requires this."
-  (:require [reagent.core :as r]
-            [reagent.dom.client :as rdc]
+  (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.registrar :as registrar]
             [re-frame.trace :as trace]
@@ -88,7 +86,6 @@
             [re-frame.http :as rf.http]
             [re-frame.views]
             [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.interop :as interop]
             [day8.re-frame2-xray.config :as xray-config]
             [re-frame.testbed.config :as testbed-config]
             [runner.core :as runner])
@@ -104,15 +101,17 @@
 ;; APP-DB
 ;; ============================================================================
 ;;
-;; Minimal — :status is :idle | :loading | :done | :error; :reply carries
-;; the last reply for the operator to read in the DOM mirror; :log is a
-;; short narrative of the last lifecycle events. The Xray Epoch / Trace
-;; panels are the primary surface; the DOM strip is a standalone fall-back.
+;; Minimal — :step is the runner cursor (rf2-5sjbg, written by
+;; runner.core's run-step event; its churn IS the per-step delta); :status
+;; is :idle | :loading | :done | :error; :reply carries the last reply for
+;; the operator to read in the DOM mirror; :log is a short narrative of the
+;; last lifecycle events. The Xray Epoch / Trace panels are the primary
+;; surface; the DOM strip is a standalone fall-back.
 
 (rf/reg-event-db ::initialise
-  {:doc "Seed app-db: idle, no reply, empty log."}
+  {:doc "Seed app-db: no step yet, idle, no reply, empty log."}
   (fn [_db _ev]
-    {:status :idle :reply nil :log []}))
+    {:step nil :status :idle :reply nil :log []}))
 
 (defn- log-line [db line]
   (update db :log (fn [xs] (vec (take-last 8 (conj (or xs []) line))))))
@@ -346,10 +345,10 @@
     nil))
 
 (rf/reg-event-fx ::reset
-  {:doc "Re-seed app-db (idle, no reply, empty log) and clear the in-flight
-         registries. Start clean."}
+  {:doc "Re-seed app-db (no step, idle, no reply, empty log) and clear the
+         in-flight registries. Start clean."}
   (fn [_ctx _ev]
-    {:db {:status :idle :reply nil :log []}
+    {:db {:step nil :status :idle :reply nil :log []}
      :fx [[:managed-http/clear-registry]]}))
 
 ;; ============================================================================
@@ -361,55 +360,52 @@
 (rf/reg-sub ::log    (fn [db _] (:log db)))
 
 ;; ============================================================================
-;; THE STEP VECTOR — code data (rf2-8pbjr: the single source of truth)
+;; THE STEP VECTOR — code data (the single source of truth)
 ;; ============================================================================
 ;;
-;; Each step: {:event [...] :watch "<what to look for>" :settle-ms N
-;;             :label "<short row label>"}. The runner renders :watch per
-;; STEP (per-occurrence narration, NOT a handler :doc), dispatches :event,
-;; focuses the latest :rf/default epoch, then waits :settle-ms before
-;; advancing. The fire-abortable step (5) seeds a pending request; the
-;; abort step (6) resolves it through the live :rf.http/managed-abort fx.
+;; Each step: {:event [...] :watch "<what to look for>" :label "<short row
+;; label>"}. The runner renders :watch per STEP; pressing Step (or a per-row
+;; RUN button) dispatches `[:managed-http/run-step n]`, which sets app-db
+;; `:step = n` (the per-step delta the panels show) and dispatches the
+;; step's lifecycle `:event` into `:rf/default`. The fire-abortable step (5)
+;; seeds a pending request; the abort step (6) resolves it through the live
+;; :rf.http/managed-abort fx. Manual stepping needs no pacing — the deferred
+;; replies land + render on their own schedule while the operator watches
+;; (rf2-5sjbg dropped the settle machinery).
 
 (def steps
-  [{:label     "Fire request (in-flight)"
-    :event     [::fire-in-flight]
-    :watch     "App-db diff: :status flips to :loading. In-flight registry strip: a pending request-id slot appears (the request is still in flight). Epoch: the fire cascade with NO reply child yet."
-    :settle-ms 700}
-   {:label     "Success response"
-    :event     [::success]
-    :watch     "Epoch: a two-event cascade — :rf.http/managed dispatch → reply lands at ::reply. App-db diff: :status :done, :reply :kind :success, :value decoded from api/ok.json."
-    :settle-ms 700}
-   {:label     "Error response (4xx)"
-    :event     [::error-4xx]
-    :watch     "Trace: an :operation :rf.http/http-4xx error row (:op-type :error, pink-wash on the event row). App-db: :status :error, reply :failure :kind :rf.http/http-4xx, :status 404."
-    :settle-ms 600}
-   {:label     "Error response (5xx)"
-    :event     [::error-5xx]
-    :watch     "Trace: an :operation :rf.http/http-5xx error row. App-db diff: reply :failure :kind :rf.http/http-5xx, :status 500. The Epoch shows the failure cascade attribution."
-    :settle-ms 600}
-   {:label     "Abort: fire an abortable request"
-    :event     [::fire-abortable]
-    :watch     ":status :loading; the in-flight registry strip gains another pending slot. The request stays in flight — the NEXT step aborts it before any reply lands."
-    :settle-ms 500}
-   {:label     "Abort the in-flight request"
-    :event     [::abort]
-    :watch     "Trace/Epoch: the live :rf.http/managed-abort fx resolves the handle → its abort-fn dispatches the :rf.http/aborted reply + clears the slot. App-db: :status :error, reply :kind :failure (:rf.http/aborted). In-flight strip: the abortable slot is gone."
-    :settle-ms 700}
-   {:label     "Concurrent requests by same actor"
-    :event     [::concurrent-by-actor]
-    :watch     "Actor-in-flight strip: actor-a now carries TWO pending entries, actor-b ONE (Spec 014 §Abort on actor destroy). Epoch: the fan-out cascade of three issue fxs."
-    :settle-ms 700}
-   {:label     "Request outlives a frame teardown"
-    :event     [::actor-teardown]
-    :watch     "Trace: two :rf.http/aborted-on-actor-destroy rows for actor-a's outliving requests. Actor-in-flight strip: actor-a's slot is GONE; actor-b's pending entry remains."
-    :settle-ms 700}])
+  [{:label "Fire request (in-flight)"
+    :event [::fire-in-flight]
+    :watch "App-db diff: :status flips to :loading. In-flight registry strip: a pending request-id slot appears (the request is still in flight). Epoch: the fire cascade with NO reply child yet."}
+   {:label "Success response"
+    :event [::success]
+    :watch "Epoch: a two-event cascade — :rf.http/managed dispatch → reply lands at ::reply. App-db diff: :status :done, :reply :kind :success, :value decoded from api/ok.json."}
+   {:label "Error response (4xx)"
+    :event [::error-4xx]
+    :watch "Trace: an :operation :rf.http/http-4xx error row (:op-type :error, pink-wash on the event row). App-db: :status :error, reply :failure :kind :rf.http/http-4xx, :status 404."}
+   {:label "Error response (5xx)"
+    :event [::error-5xx]
+    :watch "Trace: an :operation :rf.http/http-5xx error row. App-db diff: reply :failure :kind :rf.http/http-5xx, :status 500. The Epoch shows the failure cascade attribution."}
+   {:label "Abort: fire an abortable request"
+    :event [::fire-abortable]
+    :watch ":status :loading; the in-flight registry strip gains another pending slot. The request stays in flight — the NEXT step aborts it before any reply lands."}
+   {:label "Abort the in-flight request"
+    :event [::abort]
+    :watch "Trace/Epoch: the live :rf.http/managed-abort fx resolves the handle → its abort-fn dispatches the :rf.http/aborted reply + clears the slot. App-db: :status :error, reply :kind :failure (:rf.http/aborted). In-flight strip: the abortable slot is gone."}
+   {:label "Concurrent requests by same actor"
+    :event [::concurrent-by-actor]
+    :watch "Actor-in-flight strip: actor-a now carries TWO pending entries, actor-b ONE (Spec 014 §Abort on actor destroy). Epoch: the fan-out cascade of three issue fxs."}
+   {:label "Request outlives a frame teardown"
+    :event [::actor-teardown]
+    :watch "Trace: two :rf.http/aborted-on-actor-destroy rows for actor-a's outliving requests. Actor-in-flight strip: actor-a's slot is GONE; actor-b's pending entry remains."}])
 
 ;; ============================================================================
-;; RUNNER STATE — LOCAL ATOM (rf2-8pbjr: not app-db, not a 2nd frame)
+;; RUNNER WIRING (rf2-5sjbg) — register the deck's run-step event
 ;; ============================================================================
 
-(defonce runner-state (r/atom (runner/initial-state)))
+(runner/reg-runner! {:id         :managed-http/run-step
+                     :steps      steps
+                     :host-frame host-frame})
 
 ;; ============================================================================
 ;; VIEWS
@@ -475,16 +471,19 @@
     [:h2 {:data-testid "managed-http-title" :style {:margin 0}}
      "Xray Testbed: Managed HTTP"]
     [:p {:style {:color "#444" :margin "0.5em 0 0 0"}}
-     "One button (" [:strong "▶ Run series"] ") walks the managed-HTTP "
+     "One button (" [:strong "⏭ Step"] ") walks the managed-HTTP "
      "lifecycle — fire · success · 4xx · 5xx · abort · concurrent-by-actor · "
-     "request-outlives-teardown. After each dispatch the runner pins Xray "
-     "focus to the latest " [:code ":rf/default"] " epoch; read each step's "
+     "request-outlives-teardown (each row's number is also a "
+     [:strong "RUN-THIS-STEP"] " button for random access). Read each step's "
      [:strong "Watch"] " note, then watch the Epoch / Trace / App-db / "
-     "Machine panels render it. The runner cursor lives in a "
-     [:strong "local atom"] " — it never touches the inspected app-db."]]
+     "Machine panels render it. The runner cursor is "
+     [:strong ":step"] " in app-db — driven by events + subs, no harness atom."]]
    [status-strip]
    [in-flight-strip]
-   [runner/runner "managed-http" runner-state steps host-frame]])
+   [runner/runner {:run-step-event :managed-http/run-step
+                   :steps          steps
+                   :prefix         "managed-http"
+                   :host-frame     host-frame}]])
 
 ;; ============================================================================
 ;; MOUNT
