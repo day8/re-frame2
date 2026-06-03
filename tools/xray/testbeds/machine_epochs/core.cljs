@@ -8,23 +8,21 @@
 
   ## Shape (rf2-kipb5 — adopt the shared queued-step RUNNER)
 
-  ONE button (`▶ Run series`) walks the full machine × render-surface
-  matrix top to bottom while the operator watches how the Xray panels
-  render each step; a STEP button advances one step at a time; and EVERY
-  step row's index is a RANDOM-ACCESS RUN-THIS-STEP button
-  (`machine-epochs-step-<n>-run`) so any step can be driven directly. The
-  runner (`runner.core`) is the shared harness; this deck supplies a
-  `steps` vector (CODE DATA) + the testid prefix `machine-epochs`. Each
-  step DISPATCHES one event that exercises exactly ONE machine FEATURE ×
-  the Xray cascade-render SURFACE it lights up. Title: `Xray Testbed:
-  Machine Epochs`.
+  ONE purple Step button (`machine-epochs-step`) advances the machine ×
+  render-surface matrix one step at a time while the operator watches how
+  the Xray panels render each step; EVERY step row's index is ALSO a
+  RANDOM-ACCESS RUN-THIS-STEP button (`machine-epochs-step-<n>-run`) so any
+  step can be driven directly. The runner (`runner.core`) is the shared
+  harness; this deck supplies a `steps` vector (CODE DATA) + the testid
+  prefix `machine-epochs`. Each step DISPATCHES one event that exercises
+  exactly ONE machine FEATURE × the Xray cascade-render SURFACE it lights
+  up. Title: `Xray Testbed: Machine Epochs`.
 
   Replaces the bespoke numbered-button ladder: same events, same machine
-  features, same coverage — but driven by the shared runner so the
-  operator presses ONE button and reads each step's per-occurrence
-  `:watch` note while the panels render. After each AUTO-advance dispatch
-  the runner pins Xray focus to the latest `:rf/default` epoch; a
-  per-step RUN-THIS-STEP click is manual (operator-driven focus).
+  features, same coverage — but driven by the shared runner so the operator
+  presses Step (or a numbered RUN-THIS-STEP button) and reads each step's
+  per-occurrence `:watch` note while the panels render. A Step / per-step
+  click is manual (operator-driven focus — the runner does not pin focus).
 
   ## The FEATURE × RENDER-SURFACE matrix (rf2-g27vv)
 
@@ -45,9 +43,9 @@
   `:exit` / transition `:action` / `:always` action APPENDS one
   `<phase>:<state>` label (built by `machines/trail-action`). So the
   post-macrostep `:trail` is the cascade ORDER made visible — the order-
-  oracle the harness keys its assertions off. The on-page status strip
-  mirrors each machine's state + tags + trail so the deck is legible
-  standalone; the Inspector / Epoch panel is the actual check.
+  oracle the harness keys its assertions off. The deck has no on-page
+  snapshot read-out; the Xray Inspector / Epoch panel is the read-out
+  (and the actual check), and the harness drives the substrate directly.
 
   ## The machine set (each a coherent clean domain; collectively the matrix)
 
@@ -321,51 +319,16 @@
                 :session/flow :hvac/controller :media/deep :media/shallow])}))
 
 ;; ============================================================================
-;; SUBSCRIPTIONS — machine snapshot reads for the live status strip
+;; SUBSCRIPTIONS
 ;; ============================================================================
+;;
+;; The deck reads NO machine snapshots on-page — the Xray Epoch panel +
+;; Machine Inspector are the read-out, and the harness drives the substrate
+;; directly. Only the shared baseline counter has a deck sub (the per-step
+;; App-db / Epoch delta). The machines' `:trail` order-oracle is untouched: it
+;; lives in `machine-epochs.machines` and is read by the harness, not the deck.
 
 (rf/reg-sub :machine-epochs/baseline (fn [db _] (:baseline db)))
-
-(defn- reg-machine-subs!
-  "Register <prefix>-state / -tags / -trail snapshot subs for `machine-id` so
-  the status strip can read them. The trail sub is the order-oracle read-out."
-  [prefix machine-id]
-  (rf/reg-sub (keyword "machine-epochs" (str prefix "-state"))
-    :<- [:rf/machine machine-id]
-    (fn [snap _] (:state snap)))
-  (rf/reg-sub (keyword "machine-epochs" (str prefix "-tags"))
-    :<- [:rf/machine machine-id]
-    (fn [snap _] (:tags snap)))
-  (rf/reg-sub (keyword "machine-epochs" (str prefix "-trail"))
-    :<- [:rf/machine machine-id]
-    (fn [snap _] (get-in snap [:data :trail]))))
-
-(reg-machine-subs! "door"    :door/main)
-(reg-machine-subs! "traffic" :traffic/light)
-(reg-machine-subs! "quiz"    :quiz/scorer)
-(reg-machine-subs! "brew"    :brew/machine)
-(reg-machine-subs! "session" :session/flow)
-(reg-machine-subs! "hvac"    :hvac/controller)
-(reg-machine-subs! "media-deep"    :media/deep)
-(reg-machine-subs! "media-shallow" :media/shallow)
-
-;; The :rf/history snapshot slot — surfaced in the status strip so the deck is
-;; legible standalone; the App-db panel renders it inside the snapshot too.
-(rf/reg-sub :machine-epochs/media-deep-history
-  :<- [:rf/machine :media/deep]
-  (fn [snap _] (:rf/history snap)))
-
-(rf/reg-sub :machine-epochs/media-shallow-history
-  :<- [:rf/machine :media/shallow]
-  (fn [snap _] (:rf/history snap)))
-
-(rf/reg-sub :machine-epochs/door-data
-  :<- [:rf/machine :door/main]
-  (fn [snap _] (:data snap)))
-
-(rf/reg-sub :machine-epochs/quiz-data
-  :<- [:rf/machine :quiz/scorer]
-  (fn [snap _] (:data snap)))
 
 ;; ============================================================================
 ;; THE STEP VECTOR — code data (rf2-8pbjr: the single source of truth)
@@ -373,8 +336,8 @@
 ;;
 ;; Each step: {:event [...] :watch "<what to look for>" :settle-ms N
 ;;             :label "<short row label>"}. The runner renders :watch per STEP
-;; (per-occurrence narration), dispatches :event, focuses the latest
-;; :rf/default epoch (auto-advance), then waits :settle-ms before advancing.
+;; (per-occurrence narration), dispatches :event on a Step / per-step click
+;; (manual — focus is the operator's), then waits :settle-ms before advancing.
 ;; The matrix walks the machine set domain-by-domain; the events are the SAME
 ;; ones the bespoke ladder drove (the machine FEATURES are unchanged — only the
 ;; driving affordance moved to the runner).
@@ -518,47 +481,6 @@
 ;; VIEWS
 ;; ============================================================================
 
-(reg-view machine-row
-  "One line of the status strip: a machine's active state + tags + trail."
-  [machine-label prefix]
-  (let [state @(subscribe [(keyword "machine-epochs" (str prefix "-state"))])
-        tags  @(subscribe [(keyword "machine-epochs" (str prefix "-tags"))])
-        trail @(subscribe [(keyword "machine-epochs" (str prefix "-trail"))])]
-    [:div {:data-testid (str "machine-epochs-" prefix "-state")
-           :style {:margin "0.15em 0"}}
-     [:strong machine-label] " state: " [:strong (pr-str state)]
-     " · tags: " (pr-str tags)
-     (when (seq trail)
-       [:span {:data-testid (str "machine-epochs-" prefix "-trail")}
-        " · trail: " [:strong (pr-str trail)]])]))
-
-(reg-view machine-status-strip
-  "A small live read-out of every machine's active state + tags + trail —
-  mirrors what the Xray cascade projects, so the deck stays legible
-  standalone. Pure snapshot reads; the Inspector / Epoch panel is the check."
-  []
-  [:div {:data-testid "machine-epochs-status-strip"
-         :style {:border "1px solid #d8d2ff" :border-radius "6px"
-                 :padding "0.5em 0.75em" :margin "0.75em 0"
-                 :background "#fcfbff" :font-size "12px"}}
-   [:div {:style {:font-size "11px" :color "#7C5CFF" :font-weight "bold"
-                  :text-transform "uppercase" :letter-spacing "0.04em"}}
-    "Machine snapshots (trail = cascade order made visible)"]
-   [machine-row ":door/main"       "door"]
-   [:div ":door/main data: " [:strong (pr-str @(subscribe [:machine-epochs/door-data]))]]
-   [machine-row ":traffic/light"   "traffic"]
-   [machine-row ":quiz/scorer"     "quiz"]
-   [:div ":quiz/scorer data: " [:strong (pr-str @(subscribe [:machine-epochs/quiz-data]))]]
-   [machine-row ":brew/machine"    "brew"]
-   [machine-row ":session/flow"    "session"]
-   [machine-row ":hvac/controller" "hvac"]
-   [machine-row ":media/deep"      "media-deep"]
-   [:div {:data-testid "machine-epochs-media-deep-history"}
-    ":media/deep :rf/history: " [:strong (pr-str @(subscribe [:machine-epochs/media-deep-history]))]]
-   [machine-row ":media/shallow"   "media-shallow"]
-   [:div {:data-testid "machine-epochs-media-shallow-history"}
-    ":media/shallow :rf/history: " [:strong (pr-str @(subscribe [:machine-epochs/media-shallow-history]))]]])
-
 (reg-view root []
   [:div {:data-testid "machine-epochs-root"
          :style {:font-family "system-ui, sans-serif" :padding "1em"
@@ -567,29 +489,9 @@
     [:h2 {:data-testid "machine-epochs-title" :style {:margin 0}}
      "Xray Testbed: Machine Epochs"]
     [:p {:style {:color "#444" :margin "0.5em 0 0 0"}}
-     "One frame, one state-machine matrix. One button (" [:strong "▶ Run series"]
-     ") walks every machine FEATURE × the Xray cascade-render SURFACE it lights "
-     "up — Door (FLAT) · Traffic (PARALLEL) · Quiz (MICROSTEP) · Brew (TIMER) · "
-     "Session (LIFECYCLE) · Hvac (DEEP-COMPOUND) · Fuse (WILDCARD-THROW) · "
-     "Media (HISTORY). Each step bumps a shared " [:strong "baseline"]
-     " counter and sends one machine event; the " [:strong "trail"]
-     " in each snapshot is the cascade ORDER made visible."]
+     "Shows how xray displays state machine activity - particularly the Epoch panel."]
     [:p {:style {:color "#444" :margin "0.5em 0 0 0"}}
-     "After each auto-advance the runner pins Xray focus to the latest "
-     [:code ":rf/default"] " epoch; read each step's " [:strong "Watch"]
-     " note, then watch the Epoch panel + Machine Inspector render the cascade. "
-     "Each step's number is a " [:strong "RUN-THIS-STEP"]
-     " button (drive any step directly). The runner cursor lives in a "
-     [:strong "local atom"] " — it never touches the inspected app-db."]]
-   [:button {:data-testid "reset-button"
-             :on-click (fn []
-                         (dispatch [:machine-epochs/reset])
-                         (runner/reset-runner! runner-state))
-             :style {:padding "0.4em 0.8em" :cursor "pointer"
-                     :border "1px solid #cfc8ff" :border-radius "6px"
-                     :background "#f4f1ff" :margin "0.5em 0"}}
-    "0. Reset — re-seed app-db, bootstrap every machine + rewind runner"]
-   [machine-status-strip]
+     "Takes Four different state machines through various transitions"]]
    [runner/runner "machine-epochs" runner-state steps host-frame]])
 
 ;; ============================================================================
