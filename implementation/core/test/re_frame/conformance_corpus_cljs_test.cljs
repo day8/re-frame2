@@ -103,6 +103,7 @@
     :fsm/tags
     :fsm/parallel-regions
     :fsm/final-states
+    :fsm/history                                      ;; rf2-mle6e — first-class history pseudo-states (:type :history)
     :fsm/registration-validation                      ;; rf2-vf5cf — registration-error taxonomy via :reg-machine
     :routing/match-url
     :ssr/render-to-string

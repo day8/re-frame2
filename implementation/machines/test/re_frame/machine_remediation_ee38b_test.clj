@@ -22,8 +22,10 @@
       (Spec 005 §Trace events).
     - P2 `:rf.error/machine-action-wrote-db` hard-disallow (Spec 005:463).
     - P2 `:rf.machine/update-snapshot` reserved fx (Spec 005:489).
-    - P3 `:history` grammar rejected at registration
-      (`:rf.error/machine-grammar-not-in-v1`, Spec 005:3141).
+    - P3 history grammar placement validated at registration — a
+      `:type :history` node MUST have an owning compound
+      (`:rf.error/machine-history-misplaced`); a well-placed node validates
+      (history is first-class per rf2-mle6e, Spec 005 §History states).
     - P3 `:after` + root-`:on` guard/action ref validation at
       registration (Spec 005:1334)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -223,26 +225,35 @@
       (is (= 1 (count (ops evs :rf.error/machine-action-wrote-db)))
           ":db in the patch surfaces the hard-disallow error"))))
 
-;; ---- P3: :history grammar rejected at registration -------------------------
+;; ---- P3: history grammar placement validated at registration ----------------
+;; History is first-class (rf2-mle6e); the registration validator now enforces
+;; the PLACEMENT constraint — a `:type :history` node MUST have an owning
+;; compound — rather than rejecting history wholesale.
 
-(deftest history-grammar-rejected-at-registration
-  (testing ":type :history and a :history state-node key are rejected with
-   :rf.error/machine-grammar-not-in-v1"
-    (doseq [bad [{:initial :c
-                  :states  {:c {:initial :a :states {:a {} :h {:type :history}}}}}
-                 {:initial :c
-                  :states  {:c {:initial :a :history :shallow :states {:a {}}}}}
-                 {:type :history :initial :a :states {:a {}}}]]
+(deftest history-misplaced-rejected-at-registration
+  (testing "a `:type :history` node with NO owning compound (machine root,
+   or a flat top-level state) is rejected with
+   :rf.error/machine-history-misplaced"
+    (doseq [bad [;; root `:type :history`
+                 {:type :history :initial :a :states {:a {}}}
+                 ;; flat top-level `:type :history` (no enclosing compound)
+                 {:initial :a :states {:a {} :h {:type :history}}}]]
       (let [e (try (machines/validate-machine! bad) nil
                    (catch clojure.lang.ExceptionInfo ex ex))]
-        (is (= :rf.error/machine-grammar-not-in-v1
+        (is (= :rf.error/machine-history-misplaced
                (:rf.error/id (ex-data e)))
             (str "rejected: " (pr-str bad)))
-        (is (= :history (:feature (ex-data e))) ":feature names the offending key")))
-    (testing "a well-formed hierarchical machine validates silently"
-      (is (nil? (machines/validate-machine!
-                  {:initial :p
-                   :states  {:p {:initial :a :states {:a {} :b {}}}}}))))))
+        (is (= :history (:feature (ex-data e))) ":feature names the history grammar"))))
+  (testing "a WELL-PLACED `:type :history` node (inside a compound's :states)
+   validates silently"
+    (is (nil? (machines/validate-machine!
+                {:initial :c
+                 :states  {:c {:initial :a
+                               :states  {:a {} :h {:type :history :deep? true}}}}}))))
+  (testing "a well-formed history-free hierarchical machine validates silently"
+    (is (nil? (machines/validate-machine!
+                {:initial :p
+                 :states  {:p {:initial :a :states {:a {} :b {}}}}})))))
 
 ;; ---- P3: :after + root-`:on` ref validation at registration ----------------
 

@@ -550,23 +550,25 @@
 ;; HISTORY (gap 8, SOON) — the rejection probe + the ready placeholders
 ;; ============================================================================
 
-(deftest history-machine-registration-is-rejected-now
-  (testing "rung #24 (gap 8) — re-frame2 currently REJECTS :history at
-            registration. reg-machine of a :type :history machine THROWS
-            :rf.error/machine-grammar-not-in-v1 (Spec 005 §Substitutes;
-            rf2-rkkag). The deck's history-rejected? helper confirms it. When
-            the feature ships this flips RED and the placeholder rungs (#25/
-            #26) activate."
+(deftest history-machine-misplaced-is-rejected
+  (testing "rung #24 (gap 8) — history is now FIRST-CLASS (rf2-mle6e); the
+            engine implements record/restore. A :type :history pseudo-state
+            still has a PLACEMENT constraint: it MUST have an owning compound.
+            A `:type :history` MACHINE ROOT (the probe spec) is rejected with
+            :rf.error/machine-history-misplaced. NOTE: full live-history-deck
+            rendering + the placeholder rungs (#25/#26) activation are
+            rf2-mle6e.5's job; this harness only confirms the placement
+            rejection still holds for the root probe."
     (let [thrown (try
                    (rf/reg-machine :machine-epochs/history-probe
                                    machines/history-machine-spec)
                    nil
                    (catch :default e e))]
-      (is (some? thrown) "registering a :history machine THROWS today")
-      (is (= :rf.error/machine-grammar-not-in-v1
+      (is (some? thrown) "registering a root :type :history machine THROWS (misplaced)")
+      (is (= :rf.error/machine-history-misplaced
              (:rf.error/id (ex-data thrown)))
-          "the throw is the deferred-grammar error (not a generic validator fail)")
+          "the throw is the misplaced-history placement error (not a generic validator fail)")
       (is (= :history (:feature (ex-data thrown)))
-          ":feature names the offending key"))
+          ":feature names the history grammar"))
     (is (true? (machines/history-rejected?))
-        "the deck's history-rejected? helper agrees the contract still rejects")))
+        "the deck's history-rejected? helper agrees the root probe is still rejected")))
