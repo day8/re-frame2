@@ -290,6 +290,71 @@
         (is (nil? (find-by-testid tree "rf-xray-machine-inspector-blank"))
             "the blank-state is suppressed — the bug was an empty tab here")))))
 
+(deftest focused-event-guard-blocked-no-op-renders-topology-not-blank-rf2-skmc7
+  (testing "a focused guard-blocked / NO-OP machine event (a
+            `:rf.machine.event/unhandled-no-op` trace, NO
+            `:rf.machine/transition`) renders the topology with the CURRENT
+            state highlighted — NOT the 'does not target a state machine'
+            empty state (rf2-skmc7). This is the SAME gap rf2-eldze fixed for
+            the START case, for a different no-transition cause: the door
+            `:may-close?`-fail close stays in :open as a no-op."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (override-machines!    [:door/main])
+      (override-definitions! {:door/main {:initial :closed
+                                          :states  {:closed {:on {:push :open}}
+                                                    :open   {:on {:close :closed}}}}})
+      (override-epoch-history!
+        [{:epoch-id 1
+          :trace-events
+          [{:id 1 :time 10 :operation :rf.machine.event/unhandled-no-op
+            :tags {:machine-id :door/main
+                   :state      :open
+                   :event      [:door/close]
+                   :rf.trace/dispatch-id "n-1"}}]}])
+      (focus-epoch! 1)
+      (let [tree    (machine-inspector/Panel)
+            section (find-by-testid
+                      tree "rf-xray-machine-focused-event-section-door/main")
+            chart   (find-by-testid
+                      tree "rf-xray-machine-focused-event-chart")]
+        (is (some? (find-by-testid tree "rf-xray-machine-focused-event"))
+            "the focused-event surface mounts for a guard-blocked no-op")
+        (is (some? section)
+            "the per-machine section renders for the no-op'd machine")
+        (is (= "true" (:data-no-op (second section)))
+            "the section is flagged as a no-op record")
+        (is (= ":open" (:data-to-state (second section)))
+            "to-state is the unchanged CURRENT state")
+        (is (= ":open" (:data-from-state (second section)))
+            "from-state == to-state — the machine stayed put")
+        (is (some? chart)
+            "the topology chart renders for the no-op (not the empty state)")
+        ;; The current state is the active state — surfaced via :current-state
+        ;; (NOT a from/to highlight, which would paint a misleading
+        ;; state→state self-transition). The wrapper's highlight-id attrs are
+        ;; suppressed so the chart paints a single active-state highlight.
+        (is (= "" (:data-to-highlight-id (second chart)))
+            "no to-highlight — a no-op is not a from→to landing")
+        (is (= "" (:data-from-highlight-id (second chart)))
+            "no from-highlight — a no-op is not a from→to origin")
+        (is (some? (find-by-testid
+                     tree "rf-xray-machine-focused-event-no-op-badge"))
+            "the header renders a [NO-OP] badge rather than a state→state path")
+        (is (nil? (find-by-testid
+                    tree "rf-xray-machine-focused-event-start-badge"))
+            "a no-op is NOT a birth — no [START] badge")
+        (is (nil? (find-by-testid tree "rf-xray-machine-inspector-blank"))
+            "the blank-state is suppressed — the bug was an empty tab here")
+        ;; The lens reads NO TRANSITION (not a misleading self-transition).
+        (let [lens (find-by-testid
+                     tree "rf-xray-machine-focused-transition-lens")]
+          (is (= "true" (:data-no-op (second lens)))
+              "the forensic lens is flagged no-op")
+          (is (some? (find-by-testid
+                       tree "rf-xray-machine-lens-no-op-state"))
+              "the lens renders the unchanged current state, no → edge"))))))
+
 (deftest gate-reads-the-migrated-rf-machine-transition-op-only
   (testing "the machine-relatedness gate keys on the `:rf.*` migrated op
             `:rf.machine/transition` (post-#1973). A focused epoch whose

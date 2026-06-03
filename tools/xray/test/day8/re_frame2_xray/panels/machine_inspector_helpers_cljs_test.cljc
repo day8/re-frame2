@@ -647,6 +647,138 @@
       (is (= :idle (:from-state rec)))
       (is (= :authing (:to-state rec))))))
 
+;; ---- (10c) guard-blocked / NO-OP (`:rf.machine.event/unhandled-no-op`) — rf2-skmc7 ----
+;;
+;; A machine event that matched no transition — an UNHANDLED user event OR a
+;; transition whose GUARD failed — emits `:rf.machine.event/unhandled-no-op`
+;; (the SOLE signal; no `:rf.machine/transition`) and leaves the machine in
+;; its current state. The event DID target a registered machine, so the
+;; Machine tab MUST render the topology with the CURRENT state highlighted —
+;; NOT the 'does not target a state machine' empty state (spec/003 §Empty
+;; state: "Unhandled-event no-op is NOT this empty state"). This is the SAME
+;; gap rf2-eldze fixed for the START case, for a different no-transition cause.
+;; These tests pin that a no-op IS surfaced as a first-class record and that
+;; transitions / starts / genuinely-non-machine events are unaffected.
+
+(defn- no-op-event
+  "Build a `:rf.machine.event/unhandled-no-op` (guard-blocked / unhandled)
+  trace event with the substrate shape — `{:machine-id :event :state}` in
+  `:tags`, `:state` being the machine's CURRENT (unchanged) state."
+  ([id mid state event] (no-op-event id mid state event :rf.machine.event/unhandled-no-op))
+  ([id mid state event op]
+   {:id        id
+    :time      (* id 10)
+    :operation op
+    :tags      {:machine-id mid
+                :state      state
+                :event      event
+                :rf.trace/dispatch-id (str "n-" id)}}))
+
+(deftest no-op-event-predicate
+  (is (true?  (h/no-op-event? {:operation :rf.machine.event/unhandled-no-op})))
+  (is (false? (h/no-op-event? {:operation :rf.machine/transition})))
+  (is (false? (h/no-op-event? {:operation :rf.machine/started})))
+  (is (false? (h/no-op-event? nil)))
+  (is (false? (h/no-op-event? {}))))
+
+(deftest project-focused-event-surfaces-guard-blocked-no-op
+  (testing "a focused guard-blocked / no-op machine event (the door
+            `:may-close?`-fail close) yields ONE record with from-state ==
+            to-state == the CURRENT state and `:no-op? true` — so the
+            Machine tab renders the topology (current state highlighted)
+            rather than the 'does not target a state machine' empty state
+            (rf2-skmc7)"
+    (let [events  [(no-op-event 1 :door/main :open [:door/close])]
+          records (h/project-focused-event-transitions events)
+          rec     (first records)]
+      (is (= 1 (count records))
+          "the no-op is a first-class focused-event record — NOT dropped")
+      (is (= :door/main (:machine-id rec)))
+      (is (true? (:no-op? rec))
+          ":no-op? flags the guard-blocked / unhandled case for the view")
+      (is (= :open (:from-state rec))
+          "from-state is the current state — the machine stayed put")
+      (is (= :open (:to-state rec))
+          "to-state == from-state (a stationary self-loop; the chart
+           highlights the one current state)")
+      (is (= [:door/close] (:event rec))
+          "the inbound user event that produced the no-op rides the record")
+      (is (= :door/close (:on-event rec)))
+      (is (nil? (:start? rec))
+          "a no-op is NOT a birth")
+      (is (nil? (:before rec))
+          "the no-op trace carries no snapshot pair — drill-in suppresses")
+      (is (nil? (:after rec))))))
+
+(deftest project-focused-event-no-op-carries-definition
+  (testing "a no-op record gets the registered definition attached so the
+            chart can render the topology"
+    (let [definitions {:door/main {:initial :closed
+                                    :states  {:closed {:on {:push :open}}
+                                              :open   {:on {:close :closed}}}}}
+          events  [(no-op-event 1 :door/main :open [:door/close])]
+          records (h/project-focused-event-transitions events definitions)]
+      (is (= (get definitions :door/main)
+             (-> records first :definition))))))
+
+(deftest project-focused-event-no-op-deduped-against-transition
+  (testing "a machine that BOTH transitioned and later no-op'd in one cascade
+            surfaces ONLY its transition record — a no-op is single-signalled
+            (Spec 005); no redundant ghost no-op section"
+    (let [events  [(t-event 1 :door/main :closed :open [:door/push])
+                   (no-op-event 2 :door/main :open [:door/close])]
+          records (h/project-focused-event-transitions events)]
+      (is (= 1 (count records))
+          "only the transition record survives — the no-op for the same
+           machine is dropped")
+      (is (= [:open] (mapv :to-state records)))
+      (is (nil? (-> records first :no-op?))
+          "the surviving record is the transition, not the no-op"))))
+
+(deftest project-focused-event-no-op-interleaves-with-other-machines
+  (testing "a cascade where machine A transitions and machine B no-ops yields
+            one record per machine in trace order — B's no-op is first-class"
+    (let [events  [(no-op-event 1 :door/main :open [:door/close])
+                   (t-event 2 :auth/login :idle :authing [:auth/submit])]
+          records (h/project-focused-event-transitions events)]
+      (is (= 2 (count records)))
+      (is (= [:door/main :auth/login] (mapv :machine-id records))
+          "records are oldest-first by trace order; the no-op leads")
+      (is (= [true false] (mapv (comp boolean :no-op?) records))
+          "the first is the no-op, the second an ordinary transition"))))
+
+(deftest project-focused-event-no-op-dedup-multiple-for-same-machine
+  (testing "multiple no-op traces for the SAME machine in one cascade collapse
+            to a single record (keep the first in trace order)"
+    (let [events  [(no-op-event 1 :door/main :open [:door/close])
+                   (no-op-event 2 :door/main :open [:door/lock])]
+          records (h/project-focused-event-transitions events)]
+      (is (= 1 (count records)))
+      (is (= [:door/close] (-> records first :event))
+          "the first no-op in trace order wins"))))
+
+(deftest project-focused-event-genuinely-non-machine-still-empty
+  (testing "an event that targets NO machine at all (no transition / start /
+            no-op trace) STILL yields the empty vector — the 'does not target
+            a state machine' placeholder is reserved for that case (rf2-skmc7
+            does NOT widen the gate to non-machine events)"
+    (let [events [{:id 1 :operation :rf.event/dispatched
+                   :tags {:rf.event/v [:foo]}}
+                  {:id 2 :operation :rf.sub/run
+                   :tags {:rf.sub/id ::bar}}]]
+      (is (= [] (h/project-focused-event-transitions events))
+          "no machine trace of any kind → still empty (still 'does not
+           target a state machine')"))))
+
+(deftest project-focused-event-transition-still-not-flagged-no-op
+  (testing "an ordinary transition record carries no :no-op? flag — the
+            no-op fold does not contaminate the transition projector"
+    (let [events  [(t-event 1 :auth/login :idle :authing [:auth/submit])]
+          rec     (-> (h/project-focused-event-transitions events) first)]
+      (is (nil? (:no-op? rec)))
+      (is (= :idle (:from-state rec)))
+      (is (= :authing (:to-state rec))))))
+
 ;; ---- (11) focused-epoch-record (rf2-a9cke) ------------------------------
 
 (deftest focused-epoch-record-empty-history

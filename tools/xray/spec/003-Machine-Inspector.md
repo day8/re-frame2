@@ -403,22 +403,34 @@ one subject, sourced implicitly from event focus.
 
 For the currently-focused event in the L2 event list:
 
-1. **Enumerate the event's `:rf.machine/transition` traces _and its
-   machine-birth `:rf.machine/started` traces_.** The transitions are
-   the from→to moves the event caused (Spec 005 trace contract; one per
-   outer transition, plus `:rf.machine.microstep/transition` for
-   `:always`-driven microsteps). The `:rf.machine/started` traces are
-   machine **births** (rf2-eldze) — a pure start emits no
-   `:rf.machine/transition` (it is an entry into the initial state, not
-   a from→to), so a birth would otherwise be invisible to this lens.
-   Each trace (transition or birth) carries `:tags {:machine-id …}`
-   naming the instance.
+1. **Enumerate the event's `:rf.machine/transition` traces, its
+   machine-birth `:rf.machine/started` traces, _and its guard-blocked /
+   unhandled `:rf.machine.event/unhandled-no-op` traces_.** The
+   transitions are the from→to moves the event caused (Spec 005 trace
+   contract; one per outer transition, plus
+   `:rf.machine.microstep/transition` for `:always`-driven microsteps).
+   The `:rf.machine/started` traces are machine **births** (rf2-eldze) — a
+   pure start emits no `:rf.machine/transition` (it is an entry into the
+   initial state, not a from→to), so a birth would otherwise be invisible
+   to this lens. The `:rf.machine.event/unhandled-no-op` traces are
+   guard-blocked / unhandled **NO-OPs** (rf2-skmc7) — an event that DID
+   target a registered machine but matched no transition (xstate-v5 parity)
+   so the machine stayed in its current state; a no-op emits no
+   `:rf.machine/transition`, so it too would otherwise be invisible. Each
+   trace (transition, birth, or no-op) carries `:tags {:machine-id …}`
+   naming the instance. **Per-machine de-dup (Spec 005 — "a no-op is
+   single-signalled"):** a machine that BOTH transitioned (or was born) AND
+   no-op'd in the same cascade surfaces its transition / birth record only;
+   the redundant no-op for that machine is dropped, so no ghost section.
 2. **If the set is empty** → the panel renders only the verbatim
    placeholder (see [§Empty state — focused event does not target
    a state machine](#empty-state--focused-event-does-not-target-a-state-machine)
-   below). No chart, no lens, no history ribbon, nothing else. (A birth
-   makes the set non-empty — a focused start epoch is NOT this empty
-   state; see [§Machine birth (rf2-eldze)](#machine-birth--the-start--initial-entry-case-rf2-eldze).)
+   below). No chart, no lens, no history ribbon, nothing else. (A birth OR a
+   guard-blocked / unhandled no-op makes the set non-empty — a focused start
+   epoch is NOT this empty state, see [§Machine birth
+   (rf2-eldze)](#machine-birth--the-start--initial-entry-case-rf2-eldze); a
+   focused guard-blocked / no-op epoch is NOT this empty state either, see
+   [§Guard-blocked / no-op (rf2-skmc7)](#guard-blocked--unhandled-no-op--the-no-transition-case-rf2-skmc7).)
 3. **If the set is non-empty** → select **one** instance per the
    tiebreaker below; render the focused-transition lens above the
    chart with that instance as `Target Machine Instance:`, the
@@ -466,15 +478,20 @@ empty-state pattern used by other Xray panels). Worker proposes
 this treatment from the Figma authority; if Figma has no settled
 empty-state pattern yet, this section is the normative reference.
 
-**Unhandled-event no-op is NOT this empty state (rf2-ugdas).** An event
-that DOES target a machine but matches no transition (xstate-v5 parity — a
-benign no-op, op-type `:rf.machine`, emitting `:rf.machine.event/unhandled-no-op`)
-still targets a machine, so the Machines tab renders the machine's topology
-(the "no activity this epoch" Case B shape, [§021 Dynamic-Panel-Designs](021-Dynamic-Panel-Designs.md)),
-not this "does not target a state machine" placeholder. The benign no-op is
-surfaced in the **Epoch panel's** EVENT HANDLER machine cascade as a muted
-`NO OP` row (`[NO OP] staying in {state}`, rf2-iu3no) — see
-[021 §machine-cascade-rows](021-Dynamic-Panel-Designs.md).
+**Unhandled-event no-op is NOT this empty state (rf2-ugdas, impl rf2-skmc7).**
+An event that DOES target a machine but matches no transition (xstate-v5
+parity — a benign no-op, op-type `:rf.machine`, emitting
+`:rf.machine.event/unhandled-no-op`) still targets a machine, so the Machines
+tab renders the machine's topology with the CURRENT state highlighted (the "no
+activity this epoch" Case B shape, [§021
+Dynamic-Panel-Designs](021-Dynamic-Panel-Designs.md)), not this "does not
+target a state machine" placeholder — see [§Guard-blocked / no-op
+(rf2-skmc7)](#guard-blocked--unhandled-no-op--the-no-transition-case-rf2-skmc7)
+for the full render shape. The same no-op is ALSO surfaced in the **Epoch
+panel's** EVENT HANDLER machine cascade as a muted `NO OP` row (`[NO OP]
+staying in {state}`, rf2-iu3no) — see [021
+§machine-cascade-rows](021-Dynamic-Panel-Designs.md); that surface is the
+per-event cascade narration, this section is the Machines TAB's topology read.
 This placeholder is reserved for events that target NO machine at all.
 
 This is the **state 2** branch in
@@ -535,6 +552,72 @@ The Epoch panel's EVENT HANDLER section renders the SAME birth signal as
 a `[START]` cascade-row (rf2-it4vt) — that surface is the per-event
 cascade narration; this section is the Machines TAB's topology read.
 Both key off the one `:rf.machine/started` trace.
+
+### Guard-blocked / unhandled no-op — the no-transition case (rf2-skmc7)
+
+A **no-op** is a machine event that matched no transition and so left the
+machine in its current state. Two causes produce it, indistinguishably at the
+resolution layer:
+
+- an **unhandled** user event — the machine declares no `:on` clause for the
+  event-id at any active state-node (nor at the root `:on`); and
+- a **guard-blocked** transition — a clause for the event-id DOES exist, but
+  its `:guard` returned false. The substrate's `match-on-clause` returns the
+  first candidate _whose guard passes_, so a guard-blocked clause is treated
+  exactly like no clause: resolution yields nil.
+
+In both cases the runtime emits exactly one `:rf.machine.event/unhandled-no-op`
+trace (Spec 009 §`:op-type` vocabulary; the SOLE signal — a no-op macrostep
+emits NO `:rf.machine/transition`), op-type `:rf.machine` (machine-activity
+family, NOT an error / warning — xstate-v5 parity). The trace carries `:tags
+{:machine-id :event :state}` where `:state` is the machine's **current**
+(unchanged) state.
+
+The motivating case (Mike, live machine-epochs, 2026-06-04): the door
+guard-blocked close — `[:door/main [:door/close]]` where the `:may-close?`
+guard FAILS, so the machine stays in `:open` as a no-op. Before rf2-skmc7 the
+focused-event lens filtered to `:rf.machine/transition` / `:rf.machine/started`
+alone, so a focused guard-blocked-close epoch produced zero records and the
+Machine tab rendered the "does not target a state machine" empty state — even
+though the event DID dispatch to `:door/main` and run its guard. This is the
+SAME underlying gap rf2-eldze fixed for the START case, for a different
+no-transition cause; the Machine tab MUST treat
+`:rf.machine.event/unhandled-no-op` as a render-worthy focused-event member.
+
+**Render shape for a no-op.** The no-op renders the SAME per-machine section a
+transition does, with these differences:
+
+- **No from→to edge.** The machine stayed put, so the header renders a
+  `[NO-OP]` marker followed by the unchanged current state (`[NO-OP]
+  <current-state>`) instead of a `<from> → <to>` path. The
+  focused-transition lens renders **NO TRANSITION** (not TRANSITION) with the
+  unchanged current state and a muted `(stayed — no transition matched)`
+  annotation instead of `<from> → <to>`.
+- **Topology highlights the current state.** The chart is fed the current
+  state via `:current-state` (the active-state highlight) with NO
+  from-highlight / to-highlight — so the chart paints a single active-state
+  highlight on the current node rather than a misleading `state → state`
+  self-transition edge.
+- **No snapshot drill-in.** The no-op trace carries no `:before` / `:after`
+  snapshot pair (`:data` did not change), so the drill-in suppresses cleanly.
+- **No guards / actions list.** Today's substrate does not emit
+  `:rf.machine/guard-evaluated` for the declining (guard-blocked) candidate —
+  the no-op trace is the sole signal — so there are no guard / action rows to
+  attach. (A follow-on bead may surface the failing guard in the lens once the
+  substrate emits a guard trace on the no-op path; the record shape stays
+  stable.)
+
+A machine that BOTH transitioned (or was born) AND no-op'd in the same cascade
+surfaces only its transition / birth record — a no-op is single-signalled
+(Spec 005), so no redundant ghost no-op section renders for that machine.
+
+Normal transitions and machine births are unaffected — they continue to render
+exactly as their respective sections specify.
+
+The Epoch panel's EVENT HANDLER section renders the SAME no-op signal as a
+muted `[NO OP] staying in {state}` cascade-row (rf2-iu3no) — that surface is
+the per-event cascade narration; this section is the Machines TAB's topology
+read. Both key off the one `:rf.machine.event/unhandled-no-op` trace.
 
 ### Relationship to the focused-transition lens (rf2-99rhe)
 
