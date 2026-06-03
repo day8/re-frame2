@@ -2599,6 +2599,55 @@
     (is (= "abc"  (fmt/truncate "abc" 5)))
     (is (= "abcd…" (fmt/truncate "abcdefg" 4)))))
 
+(deftest elide-large-render-args-test
+  (testing "rf2-yi0nr — a SMALL render arg passes through inline, a LARGE
+            one collapses to the framework's `:rf.size/large-elided`
+            size-marker (the SAME sentinel + chip the App-db panel surfaces
+            for large state); per-element so a small arg beside a fat one
+            stays inline."
+    (let [small-arg {:label "a" :n 1}
+          ;; a fat props map well over the 512-byte budget — what ANY real
+          ;; app passes (the machine-epochs runner's 26-map steps vector is
+          ;; the vivid case).
+          big-arg   (into {} (map (fn [i] [(keyword (str "k" i))
+                                           {:idx i :label (str "step-" i)
+                                            :note "padding to clear the byte budget"}])
+                                  (range 40)))]
+      (testing "small args render unchanged (no-op path returns the input)"
+        (is (<= (count (pr-str [small-arg])) fmt/render-args-byte-budget)
+            "the fixture small arg is genuinely under budget")
+        (is (= [small-arg] (fmt/elide-large-render-args [small-arg]))
+            "an under-budget arg vector is returned untouched"))
+      (testing "a large arg collapses to the `:rf.size/large-elided` marker"
+        (is (> (count (pr-str big-arg)) fmt/render-args-byte-budget)
+            "the fixture big arg is genuinely over budget")
+        (let [out    (fmt/elide-large-render-args [big-arg])
+              marker (first out)
+              body   (:rf.size/large-elided marker)]
+          (is (vector? out) "elision preserves the args-vector shape")
+          (is (= 1 (count out)) "one positional arg in, one out")
+          (is (contains? marker :rf.size/large-elided)
+              "the oversized element is wrapped in the shared size sentinel")
+          (is (= 1 (count marker))
+              "single-key map — the edn-inspector's `large-sentinel?` shape")
+          (is (= :map (:type body)) "the marker carries the value's type tag")
+          (is (= :size (:reason body))
+              "tool-side, threshold-driven origin (vs schema `:reason :schema`)")
+          (is (number? (:bytes body)) "the marker reports a byte count")
+          (is (= [0] (:path body)) "the marker's path is the positional index")
+          (is (= [:rf.elision/at [0]] (:handle body))
+              "the marker carries the canonical `:rf.elision/at` drill handle")))
+      (testing "PER-ELEMENT — a small arg beside a fat one elides only the fat one"
+        (let [out (fmt/elide-large-render-args [small-arg big-arg])]
+          (is (= small-arg (first out)) "the small arg stays inline")
+          (is (contains? (second out) :rf.size/large-elided)
+              "the fat arg collapses to the size marker")
+          (is (= [1] (:path (:rf.size/large-elided (second out))))
+              "the elided element's path is its OWN positional index")))
+      (testing "non-vector input is returned unchanged (defensive no-op)"
+        (is (nil? (fmt/elide-large-render-args nil)))
+        (is (= :not-a-vec (fmt/elide-large-render-args :not-a-vec)))))))
+
 (deftest phase-label-test
   (testing "phase labels render every closed-set member"
     (is (= "exit"            (fmt/phase-label :exit)))

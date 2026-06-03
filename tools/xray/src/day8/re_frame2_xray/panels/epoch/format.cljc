@@ -71,6 +71,103 @@
        s
        (str (subs s 0 n) "…")))))
 
+;; -- render-args size elision (rf2-yi0nr) --------------------------------
+;;
+;; The VIEWS step's col-2 render-args cell mounts the args VECTOR through
+;; the shared `ei/edn-inspector`. The framework's wire-elision walker
+;; (`re-frame.elision/elide-wire-value`) is SCHEMA-DRIVEN — it only
+;; substitutes the `:rf.size/large-elided` marker on slots a schema marks
+;; `{:large? true}`. View props are arbitrary positional render args, not
+;; a schema-addressed db path, so they ride through un-elided AND Xray
+;; reads RAW epoch records in-process (the egress walk never touches what
+;; Xray sees — see `panels.app-db-diff-helpers` head comment). Net: a view
+;; that takes a substantial map/collection prop — which ANY real app does —
+;; dumped its FULL value into the cell.
+;;
+;; The fix mirrors the App-db panel's large-state treatment: oversized
+;; values render as the framework's canonical `{:rf.size/large-elided …}`
+;; sentinel, which the edn-inspector already paints as a yellow `● large ·
+;; N bytes` chip (drill-in deferred per rf2-ndb13 — same affordance App-db
+;; gets). The cap is purely a DISPLAY guard (Xray is read-only, in-process);
+;; we reuse the framework's WIRE VOCABULARY (`:rf.size/large-elided` + the
+;; `:bytes :type :reason :hint :path :handle` body keys per spec/015) so the
+;; chip reads identically — `:reason :size` marks the tool-side, threshold-
+;; driven origin (vs the framework's schema-declared `:reason :schema`).
+
+(def render-args-byte-budget
+  "Byte budget (UTF-8 `pr-str` length) above which a single render-arg
+  ELEMENT is elided to the `:rf.size/large-elided` chip in the VIEWS
+  col-2 cell (rf2-yi0nr). 512 bytes ≈ a small-to-mid prop map renders
+  inline / browsable; a fat props payload (the machine-epochs runner's
+  26-map steps vector is ~thousands of bytes) collapses to the size chip.
+  Public so the unit test pins the threshold without re-deriving it."
+  512)
+
+(defn- pr-str-bytes
+  "UTF-8 byte count of `v`'s `pr-str` form — the same size metric the
+  framework's `re-frame.elision` walker uses for its `:bytes` slot, so a
+  tool-side chip reports the same figure a schema-driven one would. Cheap
+  estimate (`count` of the string) on CLJS where byte-exactness isn't
+  available; exact on the JVM test path."
+  [v]
+  (let [s (pr-str v)]
+    #?(:clj  (count (.getBytes ^String s "UTF-8"))
+       :cljs (count s))))
+
+(defn- render-arg-value-type
+  "Coarse value-type tag for the size-marker body — mirrors the
+  framework's `re-frame.elision/value-type` closed set so the chip's
+  `· <type>` suffix reads identically."
+  [v]
+  (cond
+    (map? v)    :map
+    (vector? v) :vector
+    (set? v)    :set
+    (string? v) :string
+    :else       :scalar))
+
+(defn- ->size-marker
+  "Wrap `v` in the framework's canonical `{:rf.size/large-elided <body>}`
+  sentinel (spec/015 wire vocabulary) so the edn-inspector renders the
+  shared yellow size chip. `:reason :size` distinguishes this tool-side,
+  threshold-driven elision from the framework's schema-declared
+  `:reason :schema`. `:path` is the positional arg index vector."
+  [v idx]
+  {:rf.size/large-elided
+   {:path   [idx]
+    :bytes  (pr-str-bytes v)
+    :type   (render-arg-value-type v)
+    :reason :size
+    :hint   "Large render arg elided by Xray (display-only size cap); inspect via the live runtime."
+    :handle [:rf.elision/at [idx]]}})
+
+(defn elide-large-render-args
+  "Size-guard a VIEWS-row render-args VECTOR before it mounts in the
+  shared edn-inspector (rf2-yi0nr). Walks the TOP-LEVEL positional args:
+  any element whose `pr-str` exceeds `render-args-byte-budget` is replaced
+  by the `:rf.size/large-elided` size-marker (the SAME sentinel + chip the
+  App-db panel surfaces for large state); small elements pass through
+  untouched so a modest prop renders inline / browsable.
+
+  Per-element (not whole-vector) so a render that mixes a small id arg
+  with a fat props map elides ONLY the fat element — the operator still
+  reads the cheap args inline. Returns the input unchanged when it is not
+  a vector (defensive — the projection always stamps a vector) or carries
+  no oversized element, so the no-op path allocates nothing new.
+
+  Pure / JVM-portable — no DOM, no rf reads."
+  [render-args]
+  (if (vector? render-args)
+    (reduce-kv
+      (fn [acc idx v]
+        (assoc acc idx
+               (if (> (pr-str-bytes v) render-args-byte-budget)
+                 (->size-marker v idx)
+                 v)))
+      render-args
+      render-args)
+    render-args))
+
 (defn coeffect-row-display
   "Render a coeffect row's id → value pair as a one-liner for the
   view's diff-style add row (`+ [:session] {:user-id 42 …}`)."

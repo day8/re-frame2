@@ -905,6 +905,46 @@
                             "(no args)")
           "the no-args placeholder text renders"))))
 
+(deftest views-row-render-args-large-arg-elided-test
+  (testing "rf2-yi0nr — a VIEWS row whose render-arg is a FAT prop (what
+            ANY real app passes) collapses to the shared edn-inspector
+            `:rf.size/large-elided` chip (testid
+            `rf-xray-edn-inspector-large`) — the SAME affordance the App-db
+            panel surfaces for large state — rather than dumping the whole
+            value inline; a SMALL arg in the same table renders inline with
+            NO size chip."
+    (let [small-arg {:label "a" :n 1}
+          big-arg   (into {} (map (fn [i] [(keyword (str "k" i))
+                                           {:idx i :label (str "step-" i)
+                                            :note "padding to clear the byte budget"}])
+                                  (range 40)))
+          step {:step :views :badge :VIEWS :step-number 6
+                :rows [;; row 0 — SMALL arg → inline, no chip
+                       {:view-id :app/Small :subs-read [] :sub-status {}
+                        :status :rendered :cause :mount
+                        :render-args [small-arg]}
+                       ;; row 1 — FAT arg → elided size chip
+                       {:view-id :app/Fat :subs-read [] :sub-status {}
+                        :status :rendered :cause :mount
+                        :render-args [big-arg]}]}
+          tree (view/render-views-step step)
+          large-chips (fn [cell]
+                        (->> (tree-seq vector? seq cell)
+                             (filter vector?)
+                             (keep #(:data-testid (second %)))
+                             (filter #(= "rf-xray-edn-inspector-large" %))))
+          c0 (th/find-by-testid tree "rf-xray-epoch-view-row-render-args-0")
+          c1 (th/find-by-testid tree "rf-xray-epoch-view-row-render-args-1")]
+      (is (some? c0) "small-arg cell renders")
+      (is (some? c1) "fat-arg cell renders")
+      (is (empty? (large-chips c0))
+          "a small render arg renders inline — NO size chip")
+      (is (seq (large-chips c1))
+          "a fat render arg collapses to the shared `large` size chip")
+      (is (string/includes? (text-of tree "rf-xray-epoch-view-row-render-args-1")
+                            "large")
+          "the elided cell reads the `large` chip label, not the raw value"))))
+
 (deftest views-row-graceful-degrades-when-id-absent-test
   (testing "rf2-6djth — a row whose view-id is nil renders an
             anonymous-view placeholder rather than the bare keyword
