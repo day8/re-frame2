@@ -48,20 +48,33 @@
 (def state-node-min-width
   "Minimum width in px for a state node body. xyflow lays out nodes
   based on their measured size; this floor gives every node a
-  consistent rhythm without overflowing labels."
-  140)
+  consistent rhythm without overflowing labels.
+
+  rf2-az6e2 — lifted 140 → 152 to match the title/body box grammar (the
+  full-width title strip wants a touch more horizontal rhythm than the
+  prior centred-pill body)."
+  152)
 
 (def state-node-min-height
-  "Minimum height in px for a state node body."
-  44)
+  "Minimum height in px for a state node body.
+
+  rf2-az6e2 — lifted 44 → 58 to match the title-strip + body geometry
+  (title strip ~24px + a body band for tags / action rows)."
+  58)
 
 (def compound-node-min-width
-  "Minimum width for a compound container."
-  220)
+  "Minimum width for a compound container.
+
+  rf2-az6e2 — lifted 220 → 260 so the solid title-strip container has
+  room for the strip label + the body band above its children."
+  260)
 
 (def compound-node-min-height
-  "Minimum height for a compound container."
-  120)
+  "Minimum height for a compound container.
+
+  rf2-az6e2 — lifted 120 → 150 so the title strip + optional metadata
+  band do not crowd the nested children."
+  150)
 
 ;; ---- synthetic event-node helpers --------------------------------------
 ;;
@@ -98,14 +111,26 @@
   "elk.js layout width for an event-node — narrower than a state node
   so two adjacent events do not crowd the state row, but wide enough
   for the `event-segment` text + optional `[guard]` chip + `+ action`
-  pill (rf2-qo5xy)."
-  120)
+  pill (rf2-qo5xy).
+
+  rf2-az6e2 — pulled 120 → 96 so the route chip lays out as a
+  SUBORDINATE node, not a peer state box. The event chip's CSS min-width
+  (`:event-chip-min-w` 92 regular) sits just under this floor; the
+  measure-then-relayout pass still sizes the chip to its real content
+  via `(max measured floor)`, but the LAYOUT WEIGHT (the seed ELK uses
+  before measurement, and the floor a content-light chip lands on) is
+  lower so event chips don't push state rows apart like peers."
+  96)
 
 (def event-node-elk-height
   "elk.js layout height for an event-node — taller than a single text
   line so the action-pill row has space underneath the header
-  (rf2-qo5xy)."
-  46)
+  (rf2-qo5xy).
+
+  rf2-az6e2 — pulled 46 → 34 (the route chip is a compact card, not a
+  title/body box). Subordinate layout weight relative to a state node's
+  58px floor."
+  34)
 
 (defn leaf-elk-size
   "rf2-d9ro2 — the elk.js layout size for a LEAF state node, given the
@@ -230,8 +255,14 @@
                                                     ;; before handing to elk.
                                                     (dissoc k ::event-parent)
                                                     (build k)))))
+                           ;; rf2-az6e2 — the container top padding clears
+                           ;; the solid title strip (26px regular) PLUS a
+                           ;; metadata band for compound tags / entry-exit
+                           ;; rows, so children never collide with the
+                           ;; header. Side/bottom padding tracks the
+                           ;; `:container-body-pad` inset.
                            :layoutOptions {"elk.algorithm" "layered"
-                                           "elk.padding"   "[top=34,left=14,bottom=14,right=14]"}))))
+                                           "elk.padding"   "[top=44,left=16,bottom=16,right=16]"}))))
         top-state-children (mapv build (get by-parent nil))
         top-event-children (->> (get events-by-parent nil [])
                                 (mapv #(dissoc % ::event-parent)))]
@@ -475,15 +506,31 @@
                            `visual-constants/chart-regular` so callers
                            that omit it (the JVM projection tests, a
                            density-less host) get the regular density
-                           pixel-identical to pre-rf2-k647w."
+                           pixel-identical to pre-rf2-k647w.
+    :palette             — rf2-az6e2. The resolved chart-semantic token
+                           map for the active `:theme`
+                           (`theme/tokens/chart-tokens` of the
+                           theme-palette). Threaded into every node/edge
+                           `:data` as `:palette` so the xyflow node/edge
+                           components — invoked OUTSIDE the render's
+                           dynamic scope — read their structured-grammar
+                           colours off the payload, painting the ACTIVE
+                           theme (not the hardwired dark alias). Defaults
+                           to `(chart-tokens)` (dark) so a theme-less
+                           caller still resolves the dark surface."
   [{:keys [nodes edges]}
    positions
    {:keys [highlight-id highlight-ids from-highlight-id to-highlight-id sim?
            on-state-click on-edge-click edge-points edge-labels
-           fired-edge-ids chart]
+           fired-edge-ids chart palette]
     :or   {chart vc/chart-regular edge-points {} edge-labels {}
            fired-edge-ids #{}}}]
-  (let [;; rf2-g2svr (G1) — the active set unifies the single-active
+  (let [;; rf2-az6e2 — resolve the chart-semantic token map for the
+        ;; active theme ONCE. nil → dark chart-tokens (a theme-less
+        ;; caller keeps the dark surface). Threaded onto every node/edge
+        ;; `:data {:palette}` so the renderers paint the active theme.
+        ct (or palette (tokens/chart-tokens))
+        ;; rf2-g2svr (G1) — the active set unifies the single-active
         ;; (`:highlight-id`) and multi-active (`:highlight-ids`) cases.
         ;; A PARALLEL machine's snapshot has N simultaneously-active
         ;; leaves; `:highlight-ids` carries them all so EVERY active
@@ -569,6 +616,7 @@
                                           :entry          (:entry n)
                                           :exit           (:exit n)
                                           :chart          chart
+                                          :palette        ct
                                           :onClick        on-state-click}
                                    region? (assoc :regionId    (:region n)
                                                   :regionIndex (:region-index n)))
@@ -738,7 +786,8 @@
                                        :fromPath    (:from-path edge)
                                        :toPath      (:to-path edge)
                                        :onClick     on-edge-click
-                                       :chart       chart}
+                                       :chart       chart
+                                       :palette     ct}
                            :draggable false
                            :selectable false}
                     ;; rf2-xh1lm — the event-node nests inside the same
@@ -761,14 +810,19 @@
                  :source    (:source edge)
                  :target    ev-node-id
                  :type      "transition"
+                 ;; rf2-az6e2 — the source→event (`__in`) segment is the
+                 ;; QUIET half of the two-edge route: a SMALL arrowhead
+                 ;; (10px, down from 14) in the quiet edge colour, so the
+                 ;; primary arrowhead reads on the event→target (`__out`)
+                 ;; segment and the pair reads as ONE transition route.
                  :markerEnd {:type "arrowclosed"
                              :color (cond
-                                      fired?    (:accent tokens/tokens)
-                                      focused?  (:info tokens/tokens)
-                                      from-active? (:info tokens/tokens)
-                                      :else     (:border-default tokens/tokens))
-                             :width 14
-                             :height 14}
+                                      fired?    (:edge-fired ct)
+                                      focused?  (:edge-active ct)
+                                      from-active? (:edge-active ct)
+                                      :else     (:edge-quiet ct))
+                             :width 10
+                             :height 10}
                  :data      {:eventLabel ""
                              :eventLineLabel ""
                              :active     from-active?
@@ -801,7 +855,14 @@
                              :toPath     (:to-path edge)
                              :onClick    nil
                              :chart      chart
+                             :palette    ct
                              :inbound    true
+                             ;; rf2-az6e2 — the quiet source→event half of
+                             ;; the route. The renderer paints it thinner +
+                             ;; in the quiet colour so the pair reads as one
+                             ;; transition with the primary arrowhead on the
+                             ;; event→target segment.
+                             :quietSegment true
                              :eventNodeId ev-node-id
                              :spec-edge-id (:id edge)}})
               edge-descriptors)
@@ -819,12 +880,17 @@
                       :source    ev-node-id
                       :target    (:target edge)
                       :type      "transition"
+                      ;; rf2-az6e2 — the event→target (`__out`) segment is
+                      ;; the PRIMARY half of the route: it carries the full-
+                      ;; size arrowhead (18px) so the eye reads the
+                      ;; transition's landing. Colour resolves through the
+                      ;; active-theme chart-tokens.
                       :markerEnd {:type "arrowclosed"
                                   :color (cond
-                                           fired?    (:accent tokens/tokens)
-                                           focused?  (:info tokens/tokens)
-                                           from-active? (:info tokens/tokens)
-                                           :else     (:border-default tokens/tokens))
+                                           fired?    (:edge-fired ct)
+                                           focused?  (:edge-active ct)
+                                           from-active? (:edge-active ct)
+                                           :else     (:edge-quiet ct))
                                   :width 18
                                   :height 18}
                       :data      {:eventLabel ""
@@ -857,7 +923,12 @@
                                   :toPath     (:to-path edge)
                                   :onClick    nil
                                   :chart      chart
+                                  :palette    ct
                                   :outbound   true
+                                  ;; rf2-az6e2 — the primary event→target
+                                  ;; half (not quiet); carries the full
+                                  ;; arrowhead + the standard stroke.
+                                  :quietSegment false
                                   :eventNodeId ev-node-id
                                   :spec-edge-id (:id edge)}})))
         proj-edges (vec (concat inbound-edges outbound-edges))
@@ -877,7 +948,8 @@
                            :type      "initial-marker"
                            :position  {:x (- (:x pos) 48)
                                        :y (+ (:y pos) 14)}
-                           :data      {:targetPath (:path n) :chart chart}
+                           :data      {:targetPath (:path n) :chart chart
+                                       :palette ct}
                            :draggable false
                            :selectable false}
                     ;; rf2-xh1lm — see compound substate :parentId
@@ -894,9 +966,9 @@
                  :targetHandle "left"
                  :type        "transition"
                  :markerEnd   {:type "arrowclosed"
-                               :color (:border-default tokens/tokens)
-                               :width 14
-                               :height 14}
+                               :color (:edge-quiet ct)
+                               :width 12
+                               :height 12}
                  ;; Entry edges are non-interactive, but carry the full
                  ;; edge `:data` shape (flags + threaded callback/chart)
                  ;; so the "every edge has X" projection invariants hold.
@@ -927,7 +999,8 @@
                                :labelPos nil
                                :internal false :machineLevel false
                                :eventId nil :fromPath nil :toPath nil
-                               :onClick on-edge-click :chart chart}})
+                               :quietSegment false
+                               :onClick on-edge-click :chart chart :palette ct}})
               initial-nodes)]
     ;; rf2-qo5xy — order matters for xyflow: parent containers must
     ;; precede any node that references them via `:parentId`. State /
