@@ -171,12 +171,19 @@
   the source state's siblings (per `projection/->elk-children`); the
   resulting positions land in `:positions` keyed by the event-node id
   (`projection/event-node-id`) and the chart's xyflow projection picks
-  them up."
-  [{:keys [edges] :as parsed} direction layout-options]
+  them up.
+
+  rf2-d9ro2 — the optional `measured-dims` `{node-id {:width :height}}`
+  map (xyflow's reported `node.measured` rendered boxes from a prior
+  render) is threaded into `projection/->elk-children` so leaf states +
+  event-nodes lay out at their REAL size, floored by the min constants.
+  nil on the first pass; the measure-then-relayout lifecycle in
+  `MachineChart` supplies it on the second pass."
+  [{:keys [edges] :as parsed} direction layout-options measured-dims]
   #js {:id "root"
        :layoutOptions (clj->js (elk-layout-options parsed layout-options
                                                    direction))
-       :children (clj->js (projection/->elk-children parsed))
+       :children (clj->js (projection/->elk-children parsed measured-dims))
        :edges (clj->js
                 (vec
                   (mapcat
@@ -364,6 +371,36 @@
   [^js instance ^js opts]
   (.fitView instance opts))
 
+(defn read-measured-dims
+  "rf2-d9ro2 — read xyflow's measured node boxes off a captured
+  ReactFlowInstance as a pure CLJS `{node-id {:width :height}}` map.
+
+  xyflow v12 populates `node.measured {width height}` once it has
+  measured each rendered node's DOM box (after React commits + the
+  ResizeObserver fires). `instance.getNodes()` returns the current node
+  array; we keep only nodes that carry a positive measured width AND
+  height — a node still awaiting measurement (measured nil / 0) is
+  omitted, so the `measured-then-relayout` caller can tell whether the
+  WHOLE topology has been measured yet (`= (count dims) (count nodes)`).
+
+  Public-by-convention as a test seam (mirrors `invoke-fit-view!` /
+  `invoke-elk-layout!`): the relayout-lifecycle regression rebinds this
+  via `set!` to feed a stubbed measured map without a real xyflow
+  instance. No production code outside `MachineChart` calls it."
+  [^js instance]
+  (let [nodes (.getNodes instance)]
+    (persistent!
+      (reduce
+        (fn [acc ^js n]
+          (let [m (.-measured n)
+                w (and m (.-width m))
+                h (and m (.-height m))]
+            (if (and (number? w) (number? h) (pos? w) (pos? h))
+              (assoc! acc (.-id n) {:width w :height h})
+              acc)))
+        (transient {})
+        nodes))))
+
 (defn compute-layout!
   "Run elk.js layout on `parsed` (the output of
   `chart.layout/parse-definition`); call `done-fn` with a map
@@ -391,13 +428,21 @@
 
   Optional `:machine-id` is threaded onto the error trace's `:tags` so
   consumers (Xray Issues panel) can attribute the failure to a specific
-  machine; nil when called without a machine id (e.g. unit tests)."
+  machine; nil when called without a machine id (e.g. unit tests).
+
+  rf2-d9ro2 — the longest arity takes `measured-dims` (an optional
+  `{node-id {:width :height}}` map of xyflow's reported rendered boxes),
+  fed into `->elk-input` so the second (relayout) pass sizes each node
+  to its real box. The shorter arities pass nil (first pass / unit
+  tests) — identical to the pre-rf2-d9ro2 single-pass."
   ([parsed done-fn]
-   (compute-layout! parsed :tb nil nil done-fn))
+   (compute-layout! parsed :tb nil nil nil done-fn))
   ([parsed direction layout-options done-fn]
-   (compute-layout! parsed direction layout-options nil done-fn))
+   (compute-layout! parsed direction layout-options nil nil done-fn))
   ([parsed direction layout-options machine-id done-fn]
-   (let [input  (->elk-input parsed direction layout-options)
+   (compute-layout! parsed direction layout-options machine-id nil done-fn))
+  ([parsed direction layout-options machine-id measured-dims done-fn]
+   (let [input  (->elk-input parsed direction layout-options measured-dims)
          handle (fn handle-error [e]
                   (report-layout-error! e parsed direction layout-options
                                         machine-id)
@@ -696,6 +741,34 @@
         ;; invalidation boundary, AND the manual `Fit` Controls
         ;; button) is the only thing that re-fits.
         fit-state     (r/atom {:instance nil :fit-key nil})
+        ;; rf2-d9ro2 — measure-then-relayout lifecycle state.
+        ;;
+        ;; The bug: ELK was fed CONSTANT node dimensions (the
+        ;; `state-node-min-{width,height}` floors), not the real rendered
+        ;; box. `chart.nodes/state-node` renders at CONTENT size (label +
+        ;; tag pills + entry/exit action pills, rf2-a2b55), so any node
+        ;; wider/taller than the floor overlapped its neighbours and the
+        ;; topology looked missized. The fix is the canonical React Flow +
+        ;; ELK two-pass: mount nodes at content size, let xyflow measure
+        ;; them (`node.measured`), then re-run ELK with the measured box.
+        ;;
+        ;; `relayout-state` gates the second pass so it runs at most ONCE
+        ;; per layout-key and never loops:
+        ;;
+        ;;   :key      — the layout-key the stored measured signature
+        ;;               belongs to (a new topology resets the signature).
+        ;;   :measured — the `{node-id {:width :height}}` map ELK was last
+        ;;               FED (nil before any relayout). The relayout fires
+        ;;               only when xyflow's freshly-measured map differs
+        ;;               from this AND every node has been measured.
+        ;;
+        ;; Loop-freedom: a relayout only moves node POSITIONS — it does
+        ;; not change node CONTENT, so the next measurement reports the
+        ;; SAME boxes, the signature matches, and no further relayout
+        ;; fires. Position-only `onNodesChange` events never reach the
+        ;; signature comparison (it keys on measured dims, not position),
+        ;; so xyflow applying the new ELK positions cannot re-trigger.
+        relayout-state (r/atom {:key nil :measured nil})
         ;; rf2-s5kyp — double-rAF deferral. A SINGLE rAF races
         ;; xyflow's internal node measurement on the focused-machine-
         ;; change path: by the time the chart re-renders with the new
@@ -746,30 +819,89 @@
             ;; direction, layout-options) tuple changes. Keep the
             ;; previous positions during in-flight layout to avoid an
             ;; empty-chart flash.
-            this-key   [definition direction layout-options]]
+            this-key   [definition direction layout-options]
+            ;; rf2-d9ro2 — one ELK pass. `measured-dims` is nil on the
+            ;; FIRST pass (nodes not yet rendered/measured) and the
+            ;; xyflow-measured `{node-id {:width :height}}` map on the
+            ;; measure-then-relayout SECOND pass. The settle reuses the
+            ;; rf2-set3x auto-fit logic so BOTH passes frame the topology.
+            run-layout!
+            (fn [measured-dims]
+              (compute-layout!
+                parsed direction layout-options machine-id measured-dims
+                (fn [result]
+                  (when result
+                    (reset! layout-state result)
+                    ;; rf2-set3x — after a successful layout settle
+                    ;; (positions present, no error), auto-fit the
+                    ;; viewport ONCE per layout-key change so the operator
+                    ;; sees the real topology framed. Gating on `:fit-key`
+                    ;; differs from `this-key` preserves a manual zoom/pan
+                    ;; across non-layout re-renders, and re-fits on every
+                    ;; layout invalidation (definition / direction /
+                    ;; layout-options change). The relayout pass shares
+                    ;; the same gate — it re-fits the corrected topology
+                    ;; (the measured box, not the floor-sized first pass).
+                    (when-let [^js inst (and (seq (:positions result))
+                                             (nil? (:layout-error result))
+                                             (:instance @fit-state))]
+                      (when (not= this-key (:fit-key @fit-state))
+                        (swap! fit-state assoc :fit-key this-key)
+                        (schedule-fit! inst)))))))
+            ;; rf2-d9ro2 — the ELK-measurable node-id set: leaf states +
+            ;; synthetic event-nodes. ELK sizes these from the rendered
+            ;; box (`->elk-children` consults `measured-dims` for them).
+            ;; CONTAINERS (region / compound) keep the floor seed — their
+            ;; true extent comes from ELK laying out their measured
+            ;; children, so a self-measurement would be circular — and
+            ;; initial-marker glyphs are not ELK children. The relayout
+            ;; signature is `read-measured-dims` RESTRICTED to this set, so
+            ;; container/marker measurement noise never gates or re-fires
+            ;; the relayout.
+            measurable-ids
+            (into (->> (:nodes parsed)
+                       (remove #(or (:region? %) (:compound? %)))
+                       (map :id)
+                       set)
+                  (map projection/event-node-id)
+                  (:edges parsed))
+            ;; rf2-d9ro2 — the measure-then-relayout trigger. xyflow calls
+            ;; this (via `:onNodesChange`) after it measures the rendered
+            ;; node DOM. We read the measured boxes off the captured
+            ;; instance and, when the WHOLE topology has been measured AND
+            ;; the measured map differs from what ELK was last fed for the
+            ;; current layout-key, re-run ELK with the real boxes. The
+            ;; `relayout-state` gate makes this fire at most once per
+            ;; layout-key and never loop (a relayout moves positions, not
+            ;; content → the next measurement matches the stored
+            ;; signature). A new topology (`:key` mismatch) clears the
+            ;; signature so the new machine gets its own single relayout.
+            maybe-relayout!
+            (fn []
+              (when-let [^js inst (:instance @fit-state)]
+                (let [dims    (select-keys (read-measured-dims inst)
+                                           measurable-ids)
+                      {:keys [key measured]} @relayout-state
+                      fresh?  (not= key this-key)
+                      ;; Only relayout once EVERY measurable node has a box
+                      ;; (a partial map would lay out part of the graph at
+                      ;; the floor and re-fire on the next measurement).
+                      ready?  (and (seq measurable-ids)
+                                   (= (count dims) (count measurable-ids)))
+                      ;; On a fresh topology the prior signature belongs to
+                      ;; the OLD key, so any measured map is a change.
+                      changed? (or fresh? (not= dims measured))]
+                  (when (and ready? changed?)
+                    (reset! relayout-state {:key this-key :measured dims})
+                    (run-layout! dims)))))]
         (when (and (seq (:nodes parsed))
                    (not= this-key @layout-key))
           (reset! layout-key this-key)
-          (compute-layout! parsed direction layout-options machine-id
-                           (fn [result]
-                             (when result
-                               (reset! layout-state result)
-                               ;; rf2-set3x — after a successful layout
-                               ;; settle (positions present, no error),
-                               ;; auto-fit the viewport ONCE per layout-
-                               ;; key change so the operator sees the
-                               ;; real topology framed. Gating on
-                               ;; `:fit-key` differs from `this-key`
-                               ;; preserves a manual zoom/pan across
-                               ;; non-layout re-renders, and re-fits on
-                               ;; every layout invalidation (definition
-                               ;; / direction / layout-options change).
-                               (when-let [^js inst (and (seq (:positions result))
-                                                        (nil? (:layout-error result))
-                                                        (:instance @fit-state))]
-                                 (when (not= this-key (:fit-key @fit-state))
-                                   (swap! fit-state assoc :fit-key this-key)
-                                   (schedule-fit! inst)))))))
+          ;; rf2-d9ro2 — a new topology starts a fresh measure cycle: drop
+          ;; the prior measured signature so `maybe-relayout!` treats the
+          ;; first measurement of the new machine as a change.
+          (reset! relayout-state {:key this-key :measured nil})
+          (run-layout! nil))
         (cond
           (nil? definition)
           [:div {:data-testid (str testid "-no-definition")
@@ -974,7 +1106,23 @@
                                         (swap! fit-state assoc :instance instance)
                                         (when should-fit-now?
                                           (swap! fit-state assoc :fit-key key-now)
-                                          (schedule-fit! instance))))}
+                                          (schedule-fit! instance))
+                                        ;; rf2-d9ro2 — xyflow may have
+                                        ;; already measured the nodes by the
+                                        ;; time onInit fires (fast commit).
+                                        ;; Kick the measure-then-relayout
+                                        ;; check too, in case no further
+                                        ;; dimension change fires.
+                                        (maybe-relayout!)))
+               ;; rf2-d9ro2 — measure-then-relayout signal. xyflow emits a
+               ;; `dimensions` NodeChange once it measures the rendered
+               ;; node DOM; that is our cue to read the real boxes back and
+               ;; re-run ELK with them (`maybe-relayout!` gates it to once
+               ;; per layout-key, no loop). We do NOT feed the changes back
+               ;; into `:nodes` (positions are ELK-owned, the chart is
+               ;; non-interactive) — the handler is purely a measurement
+               ;; trigger.
+               :onNodesChange       (fn [^js _changes] (maybe-relayout!))}
               (when show-background?
                 ;; rf2-k647w — dot-grid spacing + radius track the
                 ;; resolved density (`:dot-grid-spacing-px` /

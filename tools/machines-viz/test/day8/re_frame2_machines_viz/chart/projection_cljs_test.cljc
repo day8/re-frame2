@@ -951,6 +951,127 @@
       (is (every? #(re-find #"top=" (get-in % [:layoutOptions "elk.padding"]))
                   children)))))
 
+;; ---- measure-then-relayout: ELK sizes to the real box (rf2-d9ro2) -------
+;;
+;; The bug: ELK was fed CONSTANT floor dimensions, never the real
+;; rendered box, so any node whose content (long label + tag/action
+;; pills) exceeded the floor overlapped its neighbours. The fix threads
+;; xyflow's measured `{node-id {:width :height}}` into the projection;
+;; a leaf / event-node lays out at `(max measured floor)`. These pins
+;; live at the cheap JVM layer (the live re-layout lifecycle is wired in
+;; chart.cljs + browser-pinned); they fix the producer side of the bug.
+
+(deftest leaf-elk-size-floors-to-min-when-unmeasured
+  (testing "rf2-d9ro2 — with no measurement (first pass) a leaf falls
+            back to the `state-node-min-{width,height}` floor — the
+            pre-fix single-pass behaviour"
+    (is (= {:width  projection/state-node-min-width
+            :height projection/state-node-min-height}
+           (projection/leaf-elk-size nil)))
+    (is (= {:width  projection/state-node-min-width
+            :height projection/state-node-min-height}
+           (projection/leaf-elk-size {})))))
+
+(deftest leaf-elk-size-uses-measured-when-larger
+  (testing "rf2-d9ro2 — a measured box LARGER than the floor wins per
+            dimension (ELK must budget the real rendered size)"
+    (let [big (projection/leaf-elk-size {:width 300 :height 90})]
+      (is (= 300 (:width big)))
+      (is (= 90  (:height big))))))
+
+(deftest leaf-elk-size-floors-each-dimension-independently
+  (testing "rf2-d9ro2 — the floor applies PER dimension: a node wider
+            than the floor but shorter than it keeps the wide measured
+            width AND the floor height"
+    (let [m (projection/leaf-elk-size {:width 320 :height 10})]
+      (is (= 320 (:width m)) "wide measured width wins")
+      (is (= projection/state-node-min-height (:height m))
+          "sub-floor measured height clamps up to the floor"))))
+
+(deftest elk-child-leaf-uses-measured-dims
+  (testing "rf2-d9ro2 — `elk-child` sizes a LEAF to its measured box
+            (floored), looked up by node-id from the measured-dims map"
+    (let [parsed   (layout/parse-definition idle-loading)
+          idle-id  (layout/node-id [:idle])
+          measured {idle-id {:width 260 :height 72}}
+          idle     (first (filter #(= idle-id (:id %)) (:nodes parsed)))
+          child    (projection/elk-child idle measured)]
+      (is (= 260 (:width child)))
+      (is (= 72  (:height child)))))
+  (testing "rf2-d9ro2 — an unmeasured leaf (absent from the map) keeps
+            the floor"
+    (let [parsed   (layout/parse-definition idle-loading)
+          idle     (first (filter #(= (layout/node-id [:idle]) (:id %))
+                                  (:nodes parsed)))
+          child    (projection/elk-child idle {})]
+      (is (= projection/state-node-min-width  (:width child)))
+      (is (= projection/state-node-min-height (:height child))))))
+
+(deftest elk-child-compound-ignores-measured-dims
+  (testing "rf2-d9ro2 — a COMPOUND keeps its floor seed even with a
+            measured entry: its true extent comes from ELK laying out its
+            measured children, so feeding back its `100%`-of-the-box
+            self-measurement would be circular"
+    (let [parsed    (layout/parse-definition compound-machine)
+          cid       (layout/node-id [:authenticated])
+          measured  {cid {:width 999 :height 999}}
+          compound  (first (filter #(= cid (:id %)) (:nodes parsed)))
+          child     (projection/elk-child compound measured)]
+      (is (= projection/compound-node-min-width  (:width child)))
+      (is (= projection/compound-node-min-height (:height child))))))
+
+(deftest elk-event-child-uses-measured-dims
+  (testing "rf2-d9ro2 — an event-node also renders at content size
+            (event header + guard chip + action pill), so it takes
+            `(max measured floor)` like a leaf"
+    (let [edge     {:id "e1" :event :start}
+          ev-id    (projection/event-node-id edge)
+          measured {ev-id {:width 200 :height 80}}
+          child    (projection/elk-event-child edge measured)]
+      (is (= 200 (:width child)))
+      (is (= 80  (:height child))))
+    (testing "unmeasured event-node keeps the event-node floor"
+      (let [child (projection/elk-event-child {:id "e1" :event :start} nil)]
+        (is (= projection/event-node-elk-width  (:width child)))
+        (is (= projection/event-node-elk-height (:height child)))))))
+
+(deftest elk-children-threads-measured-dims-to-leaves-and-events
+  (testing "rf2-d9ro2 — `->elk-children` forwards the measured-dims map
+            so every leaf + event-node in the projected tree lays out at
+            its real box; an unmeasured node falls back to the floor"
+    (let [parsed     (layout/parse-definition idle-loading)
+          idle-id    (layout/node-id [:idle])
+          start-edge (->> (:edges parsed)
+                          (filter #(= idle-id (:source %)))
+                          first)
+          ev-id      (projection/event-node-id start-edge)
+          measured   {idle-id {:width 260 :height 72}
+                      ev-id   {:width 180 :height 60}}
+          children   (projection/->elk-children parsed measured)
+          by-id      (into {} (map (juxt :id identity)) children)]
+      (is (= 260 (:width (get by-id idle-id))) "measured leaf width threaded")
+      (is (= 72  (:height (get by-id idle-id))))
+      (is (= 180 (:width (get by-id ev-id))) "measured event width threaded")
+      (is (= 60  (:height (get by-id ev-id))))
+      ;; A sibling NOT in the measured map stays at the floor.
+      (let [ready-id (layout/node-id [:ready])]
+        (is (= projection/state-node-min-width
+               (:width (get by-id ready-id)))
+            "unmeasured sibling keeps the floor")))))
+
+(deftest elk-children-no-measured-dims-equals-floor-single-pass
+  (testing "rf2-d9ro2 — with no measured-dims (the first pass / nil) the
+            output is identical to the historical single-pass: every leaf
+            at the floor. Guards that the two-pass is purely additive."
+    (let [parsed (layout/parse-definition idle-loading)]
+      (is (= (projection/->elk-children parsed)
+             (projection/->elk-children parsed nil))
+          "the 1-arity and nil-2-arity are identical")
+      (let [children (projection/->elk-children parsed nil)
+            leaves   (remove #(re-find #"^event__" (:id %)) children)]
+        (is (every? #(= projection/state-node-min-width (:width %)) leaves)
+            "every leaf at the width floor when unmeasured")))))
+
 ;; ---- initial-state markers + self-loops (rf2-54s5a) --------------------
 
 (deftest xyflow-graph-emits-initial-marker-node-and-entry-edge

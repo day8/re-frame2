@@ -165,6 +165,64 @@ visually escape the container. Leaf (non-container) state nodes carry
 NO `:style`; xyflow sizes them from the rendered DOM
 (`state-node-min-{width,height}`).
 
+### Measure-then-relayout — ELK sizes nodes to the rendered box (rf2-d9ro2)
+
+ELK lays the graph out assuming each node is exactly the size its input
+descriptor declares (`projection/elk-child` / `elk-event-child`). A
+state-node, however, renders at CONTENT size — the state label (variable
+length) plus the tag-pill row plus the entry / exit action-pill rows
+(rf2-a2b55) — floored only by CSS `min-{width,height}`. Feeding ELK the
+fixed `state-node-min-{width,height}` floor for EVERY node (the original
+single-pass) understates every node wider/taller than the floor, so ELK
+budgets slots too small and neighbours OVERLAP — the missized/cluttered
+topology rf2-d9ro2 fixes.
+
+The chart therefore runs the canonical React Flow + ELK **two-pass**
+(the same shape the official React Flow ELK example and xstate-viz /
+Stately use):
+
+1. **First pass.** `MachineChart` runs ELK with NO measured dims; every
+   leaf + event-node seeds at its floor. Nodes mount at content size.
+2. **Measure.** xyflow measures each rendered node and populates
+   `node.measured {width height}`. The chart reads them back off the
+   captured ReactFlowInstance (`fit-state :instance`, via `getNodes`)
+   through the `read-measured-dims` seam, driven by xyflow's
+   `:onNodesChange` (a `dimensions` `NodeChange`) and the `:onInit`
+   fast-commit branch.
+3. **Relayout.** The measured `{node-id {:width :height}}` map threads
+   through `compute-layout!` → `->elk-input` → `projection/->elk-children`;
+   each LEAF + event-node lays out at `(max measured floor)` per
+   dimension (`projection/leaf-elk-size`). COMPOUND / region CONTAINERS
+   keep the floor seed — their true extent comes from ELK laying out
+   their measured children (`elk.hierarchyHandling INCLUDE_CHILDREN`), so
+   self-measuring their `100%`-of-the-box DOM would be circular.
+4. **Fit.** The relayout settle re-fits the viewport via the rf2-set3x
+   auto-fit (it shares the `fit-key` gate), framing the corrected
+   topology.
+
+The relayout MUST fire **at most once per layout-key** and MUST NOT
+loop. The `relayout-state` gate stores the measured-dims map ELK was
+last fed for the current layout-key and re-runs ELK only when (a) every
+ELK-measurable node (leaf states + event-nodes — not containers, not
+initial-marker glyphs) has a positive measured box, AND (b) the freshly
+measured map differs from the stored signature. Loop-freedom is
+structural: a relayout moves node POSITIONS only — it does not change
+node CONTENT — so the next measurement reports the SAME boxes, the
+signature matches, and no further pass fires. Position-only
+`onNodesChange` events never reach the comparison (the signature keys on
+measured dimensions, not position), so xyflow applying the new ELK
+positions cannot re-trigger. A new layout-key (new `:definition` /
+`:direction` / `:layout-options`) clears the signature so the new
+topology gets its own single relayout.
+
+This second pass is keyed on the SAME `[:definition :direction
+:layout-options]` layout-key as the first — it does not introduce a new
+layout-invalidation trigger (it is the completion of the existing pass
+once real sizes are known), so the load-bearing
+[layout-invalidation boundary](#layout-invalidation-boundary-is-load-bearing)
+below is unchanged: a decoration-prop change still never reaches the
+relayout path.
+
 ### Sub-flow nesting — `:parentId` (NOT `:parentNode`) (rf2-xh1lm)
 
 Every nested xyflow node (region substate, compound substate, the

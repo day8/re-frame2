@@ -107,26 +107,74 @@
   (rf2-qo5xy)."
   46)
 
+(defn leaf-elk-size
+  "rf2-d9ro2 — the elk.js layout size for a LEAF state node, given the
+  optional `measured` `{:width :height}` map xyflow reported for that
+  node on a prior render (`node.measured`).
+
+  The first ELK pass has no measurement yet (`measured` is nil), so the
+  node falls back to the `state-node-min-{width,height}` FLOOR — the same
+  constant the old single-pass used. On the measure-then-relayout second
+  pass (`chart.cljs`) the host hands back the rendered box; we take the
+  MAX of the measured dimension and the floor so a node never lays out
+  SMALLER than its CSS `min-{width,height}`, but a node whose CONTENT
+  (long label + tag pills + entry/exit action pills, rf2-a2b55) exceeds
+  the floor gets the real box ELK must budget for — closing the
+  missized/overlapping-topology bug where ELK assumed every node was
+  exactly the floor.
+
+  Returns a `{:width :height}` map (both positive)."
+  [measured]
+  {:width  (max state-node-min-width  (or (:width  measured) 0))
+   :height (max state-node-min-height (or (:height measured) 0))})
+
 (defn elk-child
   "Build a single elk.js child descriptor for a parsed node (a plain
-  CLJS map; `chart`'s `->elk-input` `clj->js`-es the whole tree)."
-  [n]
-  {:id     (:id n)
-   :width  (if (:compound? n) compound-node-min-width state-node-min-width)
-   :height (if (:compound? n) compound-node-min-height state-node-min-height)
-   :labels [{:text (:label n)}]})
+  CLJS map; `chart`'s `->elk-input` `clj->js`-es the whole tree).
+
+  rf2-d9ro2 — `measured-dims` is the optional `{node-id {:width :height}}`
+  map of xyflow-reported rendered boxes (`node.measured`) from a prior
+  render, threaded through `->elk-children`. A LEAF state takes
+  `(max measured floor)` per dimension (`leaf-elk-size`) so ELK sizes
+  each slot to the node's REAL rendered box rather than the fixed floor.
+  COMPOUND containers keep the compound floor as their SEED size — their
+  true extent comes from ELK laying out their measured children inside
+  (`elk.hierarchyHandling INCLUDE_CHILDREN`), not from a self-measurement
+  (the rendered compound box is `width:100% height:100%` of whatever ELK
+  allocates, so feeding its measured DOM size back would be circular).
+  When `measured-dims` is nil / empty (the first pass) every leaf falls
+  back to the floor — identical to the pre-rf2-d9ro2 single-pass."
+  ([n] (elk-child n nil))
+  ([n measured-dims]
+   (merge
+     {:id     (:id n)
+      :labels [{:text (:label n)}]}
+     (if (:compound? n)
+       {:width  compound-node-min-width
+        :height compound-node-min-height}
+       (leaf-elk-size (get measured-dims (:id n)))))))
 
 (defn elk-event-child
   "rf2-qo5xy — build an elk.js child descriptor for a SYNTHETIC
   event-node. The events-as-nodes paradigm inserts one of these per
   spec transition (between source state and target state); elkjs lays
   it out alongside the source state's siblings inside the source's
-  parent container."
-  [parsed-edge]
-  {:id     (event-node-id parsed-edge)
-   :width  event-node-elk-width
-   :height event-node-elk-height
-   :labels [{:text (or (:event-label parsed-edge) "")}]})
+  parent container.
+
+  rf2-d9ro2 — like a leaf state, an event-node renders at CONTENT size
+  (event header + optional `[guard]` chip + `+ action` pill row), so on
+  the measure-then-relayout second pass we take `(max measured floor)`
+  per dimension against the `event-node-elk-{width,height}` floor.
+  `measured-dims` is the optional `{node-id {:width :height}}` map; nil
+  on the first pass falls back to the floor (pre-rf2-d9ro2 behaviour)."
+  ([parsed-edge] (elk-event-child parsed-edge nil))
+  ([parsed-edge measured-dims]
+   (let [id (event-node-id parsed-edge)
+         m  (get measured-dims id)]
+     {:id     id
+      :width  (max event-node-elk-width  (or (:width  m) 0))
+      :height (max event-node-elk-height (or (:height m) 0))
+      :labels [{:text (or (:event-label parsed-edge) "")}]})))
 
 (defn ->elk-children
   "Project parsed nodes + parsed edges into elk.js's `children` shape.
@@ -147,8 +195,16 @@
   (top-level when the source has no parent). elk then lays them out
   with the layered algorithm — events flow naturally between states
   per the events-as-nodes paradigm. They carry no children of their
-  own."
-  [{:keys [nodes edges]}]
+  own.
+
+  rf2-d9ro2 — the optional `measured-dims` `{node-id {:width :height}}`
+  map (xyflow's `node.measured` from a prior render, threaded by
+  `chart.cljs`'s measure-then-relayout pass) is forwarded to every
+  `elk-child` / `elk-event-child` so leaf states + event-nodes lay out
+  at their REAL rendered box rather than the fixed floor. nil / empty on
+  the first pass — identical to the pre-rf2-d9ro2 single-pass."
+  ([parsed] (->elk-children parsed nil))
+  ([{:keys [nodes edges]} measured-dims]
   (let [node-by-id (into {} (map (juxt :id identity)) nodes)
         ;; The event-node's parent container == the source state's
         ;; parent. Top-level when the source has no `:parent-id`.
@@ -156,7 +212,7 @@
         (mapv (fn [e]
                 (let [src (get node-by-id (:source e))
                       pid (:parent-id src)]
-                  (cond-> (elk-event-child e)
+                  (cond-> (elk-event-child e measured-dims)
                     pid (assoc ::event-parent pid))))
               edges)
         by-parent (group-by :parent-id nodes)
@@ -165,7 +221,7 @@
                 (let [state-kids (get by-parent (:id n) [])
                       event-kids (get events-by-parent (:id n) [])
                       kids       (concat state-kids event-kids)]
-                  (cond-> (elk-child n)
+                  (cond-> (elk-child n measured-dims)
                     (seq kids)
                     (assoc :children (->> kids
                                           (mapv (fn [k]
@@ -179,7 +235,7 @@
         top-state-children (mapv build (get by-parent nil))
         top-event-children (->> (get events-by-parent nil [])
                                 (mapv #(dissoc % ::event-parent)))]
-    (vec (concat top-state-children top-event-children))))
+    (vec (concat top-state-children top-event-children)))))
 
 ;; ---- graph projection (parsed + positions → xyflow nodes/edges) ---------
 

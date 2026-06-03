@@ -364,3 +364,125 @@
               (set! chart/invoke-fit-view! orig-fit))))
         (finally
           (set! (.-requestAnimationFrame js/globalThis) orig-raf))))))
+
+;; ---- 7. measure-then-relayout (rf2-d9ro2) -----------------------------
+;;
+;; The bug: ELK was fed CONSTANT floor dims, so a node whose content
+;; exceeded the floor overlapped its neighbours. The fix is the canonical
+;; React Flow + ELK two-pass: mount at content size → xyflow measures
+;; (`node.measured`) → re-run ELK with the measured box. These pins guard
+;; the read seam + the loop-free gate at the Node layer (the live xyflow
+;; render is browser-pinned / eval-cljs in the PR body), mirroring why the
+;; auto-fit lifecycle above is a -cljs-test and not a DOM test.
+
+(defn- fake-instance-with-measured
+  "A stand-in ReactFlowInstance whose `.getNodes()` returns nodes
+  carrying `.measured {width height}` — the shape `read-measured-dims`
+  reads. `node-specs` is a vector of `[id width height]` (width/height
+  nil → that node is still awaiting measurement)."
+  [node-specs]
+  #js {:getNodes
+       (fn []
+         (clj->js
+           (mapv (fn [[id w h]]
+                   (cond-> {:id id}
+                     (and w h) (assoc :measured {:width w :height h})))
+                 node-specs)))})
+
+(deftest read-measured-dims-keeps-only-fully-measured-nodes
+  (testing "rf2-d9ro2 — `read-measured-dims` lifts xyflow's `node.measured`
+            into `{id {:width :height}}`, KEEPING only nodes with a
+            positive measured w AND h. A node still awaiting measurement
+            (measured nil / 0) is omitted so the caller can tell when the
+            whole topology has been measured."
+    (let [inst (fake-instance-with-measured
+                 [["idle" 200 60]
+                  ["loading" 260 72]
+                  ["pending" nil nil]      ;; not yet measured
+                  ["zero" 0 0]])           ;; degenerate — omitted
+          dims (chart/read-measured-dims inst)]
+      (is (= {"idle"    {:width 200 :height 60}
+              "loading" {:width 260 :height 72}}
+             dims)
+          "only fully + positively measured nodes survive"))))
+
+(deftest measure-then-relayout-fires-once-and-does-not-loop
+  (testing "rf2-d9ro2 — the relayout gate fires the second ELK pass once
+            (when the whole topology is measured + the boxes differ from
+            what ELK was last fed) and NEVER loops: a relayout moves
+            positions only, so the next measurement reports the SAME
+            boxes, the signature matches, and no further pass fires.
+
+            This mirrors the `maybe-relayout!` gate verbatim (the chart
+            wires the real one onto xyflow's `:onNodesChange` / `:onInit`)
+            so the loop-freedom contract is pinned in isolation from the
+            xyflow render."
+    (let [;; Two measurable leaf nodes; both exceed the floor.
+          measurable-ids #{"idle" "loading"}
+          this-key       :K1
+          relayout-state (atom {:key nil :measured nil})
+          relayouts      (atom [])
+          run-layout!    (fn [dims] (swap! relayouts conj dims))
+          ;; The gate, lifted verbatim from chart.cljs/maybe-relayout!.
+          maybe-relayout!
+          (fn [measured-map]
+            (let [dims (select-keys measured-map measurable-ids)
+                  {:keys [key measured]} @relayout-state
+                  fresh?   (not= key this-key)
+                  ready?   (and (seq measurable-ids)
+                                (= (count dims) (count measurable-ids)))
+                  changed? (or fresh? (not= dims measured))]
+              (when (and ready? changed?)
+                (reset! relayout-state {:key this-key :measured dims})
+                (run-layout! dims))))]
+      ;; New topology → seed the gate (as the layout-key trigger does).
+      (reset! relayout-state {:key this-key :measured nil})
+      ;; First measurement arrives PARTIAL — only one node measured. The
+      ;; gate must NOT fire (a partial relayout would lay the rest at the
+      ;; floor and re-fire endlessly).
+      (maybe-relayout! {"idle" {:width 200 :height 60}})
+      (is (zero? (count @relayouts)) "partial measurement does NOT relayout")
+      ;; Full measurement arrives → exactly one relayout with the real box.
+      (maybe-relayout! {"idle"    {:width 200 :height 60}
+                        "loading" {:width 260 :height 72}})
+      (is (= 1 (count @relayouts)) "full measurement triggers one relayout")
+      (is (= {"idle"    {:width 200 :height 60}
+              "loading" {:width 260 :height 72}}
+             (first @relayouts))
+          "ELK is re-fed the real measured boxes")
+      ;; The relayout moved POSITIONS only — content (hence measured box)
+      ;; is unchanged → the SAME measurement re-arrives. No second pass.
+      (maybe-relayout! {"idle"    {:width 200 :height 60}
+                        "loading" {:width 260 :height 72}})
+      (maybe-relayout! {"idle"    {:width 200 :height 60}
+                        "loading" {:width 260 :height 72}})
+      (is (= 1 (count @relayouts))
+          "stable measurement does NOT re-fire — the loop is closed"))))
+
+(deftest measure-then-relayout-new-topology-resets-signature
+  (testing "rf2-d9ro2 — a NEW layout-key (focused-machine swap / new
+            definition) clears the stored measured signature so the new
+            machine gets its own single relayout, even if its measured
+            boxes coincidentally equal the prior machine's."
+    (let [measurable-ids #{"a"}
+          relayout-state (atom {:key nil :measured nil})
+          relayouts      (atom [])
+          gate (fn [this-key measured-map]
+                 (let [dims (select-keys measured-map measurable-ids)
+                       {:keys [key measured]} @relayout-state
+                       fresh?   (not= key this-key)
+                       ready?   (= (count dims) (count measurable-ids))
+                       changed? (or fresh? (not= dims measured))]
+                   (when (and ready? changed?)
+                     (reset! relayout-state {:key this-key :measured dims})
+                     (swap! relayouts conj this-key))))]
+      ;; Machine K1 measured + relaid out once.
+      (reset! relayout-state {:key :K1 :measured nil})
+      (gate :K1 {"a" {:width 100 :height 40}})
+      (is (= [:K1] @relayouts))
+      ;; Swap to K2 — same measured box, but a fresh key resets the
+      ;; signature so K2 still gets its single relayout.
+      (reset! relayout-state {:key :K2 :measured nil})
+      (gate :K2 {"a" {:width 100 :height 40}})
+      (is (= [:K1 :K2] @relayouts)
+          "a new layout-key gets its own relayout despite identical boxes"))))
