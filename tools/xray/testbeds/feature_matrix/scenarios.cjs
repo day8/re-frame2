@@ -2905,10 +2905,12 @@ async function runRoutesEpochs(page, state) {
 // them through the REAL `reg-machine` + machine-event-routing surface, so
 // every rung's machine FEATURE (plain transition · entry/exit data delta ·
 // guard pass vs fail · parallel-region broadcast · ignored event) is
-// genuinely exercised and is observable in the host app's own machine
-// snapshot mirror (the status strip reads `[:rf/machine <id>]` directly).
-// We assert those snapshot facts — they are the robust, non-flaky proof
-// each machine feature fired.
+// genuinely exercised and is observable in the host's `:rf/default`
+// app-db machine snapshots, read directly via the public
+// `re-frame.core/app-db-value` accessor (rf2-5sgwn — the deck's on-page
+// status strip was removed; `readMachineStrip` now reads the substrate
+// snapshot and reconstructs the same text). We assert those snapshot
+// facts — they are the robust, non-flaky proof each machine feature fired.
 //
 // We additionally open the Machines tab and confirm `rf-xray-machine-
 // inspector` mounts on a focused machine event, plus that machine activity
@@ -2921,7 +2923,7 @@ async function runRoutesEpochs(page, state) {
 // event transitions sub empty in production today. `deep_machine` owns the
 // chart-render shim-survival probe via test-only injection events; this
 // deck's job is the real-machine-feature step-up surface, asserted through
-// the snapshot mirror + the panel handoff.
+// the substrate snapshot + the panel handoff.
 
 // Drive a deck step by its (1-based) ladder rung number.
 //
@@ -2945,38 +2947,119 @@ async function clickMachineRung(page, n) {
   await clickTestId(page, `machine-epochs-step-${n - 1}-run`);
 }
 
-// Read both machines' state + the door's :data off the deck's status
-// strip (`machine-epochs-status-strip`). The strip renders pure snapshot
-// reads, so the text reflects `[:rf/machine <id>]` after each cascade.
+// Read every machine's snapshot directly from the host's `:rf/default`
+// app-db and reconstruct the same `state … · tags … · trail …` text the
+// deck used to render in its on-page status strip.
+//
+// rf2-5sgwn — the deck's `machine-epochs-status-strip` (and the deck subs
+// it consumed) were removed: the Xray Epoch panel + Machine Inspector are
+// the on-screen read-out, not a host strip. The snapshot is the canonical
+// machine state — `[:rf/machine <id>]` is just `(get-in db [:rf/runtime
+// :machines :snapshots <id>])` — so this helper reads it through the
+// PUBLIC `re-frame.core/app-db-value` accessor and `pr-str`s the same
+// fields the strip rendered. The reconstructed `stripText` keeps every
+// existing rung-assertion regex working unchanged; the per-machine
+// `*State` fields feed the `state.machineEpochs` record. This is the
+// robust, non-flaky proof each machine feature fired, decoupled from any
+// deck view.
 async function readMachineStrip(page) {
   return page.evaluate(() => {
-    const strip = document.querySelector(
-      '[data-testid="machine-epochs-status-strip"]');
-    if (!strip) return { mounted: false };
-    function text(id) {
-      const el = strip.querySelector(`[data-testid="${id}"]`);
-      return el ? (el.textContent || '').trim() : null;
+    const cljs = window.cljs && window.cljs.core;
+    const rf = window.re_frame && window.re_frame.core;
+    if (!cljs || !rf || typeof rf.app_db_value !== 'function') {
+      return { mounted: false, reason: 'cljs.core / re_frame.core.app_db_value unavailable' };
+    }
+    function keyword(s) {
+      const trimmed = String(s).replace(/^:/, '');
+      const parts = trimmed.split('/');
+      if (parts.length === 2) {
+        return cljs.keyword.call
+          ? cljs.keyword.call(null, parts[0], parts[1])
+          : cljs.keyword(parts[0], parts[1]);
+      }
+      return cljs.keyword.call
+        ? cljs.keyword.call(null, trimmed)
+        : cljs.keyword(trimmed);
+    }
+    const db = rf.app_db_value(keyword(':rf/default'));
+    if (db == null) return { mounted: false, reason: 'no :rf/default app-db' };
+    // Snapshot path: [:rf/runtime :machines :snapshots <machine-id>].
+    function snapshot(machineId) {
+      const path = cljs.PersistentVector.fromArray([
+        keyword(':rf/runtime'), keyword(':machines'),
+        keyword(':snapshots'), keyword(machineId),
+      ], true);
+      return cljs.get_in ? cljs.get_in(db, path) : null;
+    }
+    function field(snap, ...ks) {
+      let v = snap;
+      for (const k of ks) {
+        if (v == null) return null;
+        v = cljs.get(v, keyword(k));
+      }
+      return v;
+    }
+    function pr(v) {
+      return v == null ? 'nil' : cljs.pr_str(v);
+    }
+    // Reconstruct one strip row: "<label> state: <state> · tags: <tags>
+    // [· trail: <trail>]" (trail clause only when non-empty), matching
+    // the deck's removed `machine-row` view.
+    function row(label, machineId) {
+      const snap = snapshot(machineId);
+      const state = field(snap, ':state');
+      const tags = field(snap, ':tags');
+      const trail = field(snap, ':data', ':trail');
+      let line = `${label} state: ${pr(state)} · tags: ${pr(tags)}`;
+      if (trail != null && cljs.seq(trail)) {
+        line += ` · trail: ${pr(trail)}`;
+      }
+      return line;
+    }
+    const doorData = field(snapshot(':door/main'), ':data');
+    const quizData = field(snapshot(':quiz/scorer'), ':data');
+    const mediaDeepHistory = field(snapshot(':media/deep'), ':rf/history');
+    const mediaShallowHistory = field(snapshot(':media/shallow'), ':rf/history');
+    const lines = [
+      row(':door/main', ':door/main'),
+      `:door/main data: ${pr(doorData)}`,
+      row(':traffic/light', ':traffic/light'),
+      row(':quiz/scorer', ':quiz/scorer'),
+      `:quiz/scorer data: ${pr(quizData)}`,
+      row(':brew/machine', ':brew/machine'),
+      row(':session/flow', ':session/flow'),
+      row(':hvac/controller', ':hvac/controller'),
+      row(':media/deep', ':media/deep'),
+      `:media/deep :rf/history: ${pr(mediaDeepHistory)}`,
+      row(':media/shallow', ':media/shallow'),
+      `:media/shallow :rf/history: ${pr(mediaShallowHistory)}`,
+    ];
+    const stripText = lines.join(' ').replace(/\s+/g, ' ').trim();
+    function stateText(label, machineId) {
+      const state = field(snapshot(machineId), ':state');
+      return `${label} state: ${pr(state)}`;
     }
     return {
       mounted: true,
-      stripText: (strip.textContent || '').replace(/\s+/g, ' ').trim(),
-      doorState: text('machine-epochs-door-state'),
-      trafficState: text('machine-epochs-traffic-state'),
-      quizState: text('machine-epochs-quiz-state'),
-      brewState: text('machine-epochs-brew-state'),
-      sessionState: text('machine-epochs-session-state'),
-      hvacState: text('machine-epochs-hvac-state'),
-      hvacTrail: text('machine-epochs-hvac-trail'),
+      stripText,
+      doorState: stateText(':door/main', ':door/main'),
+      trafficState: stateText(':traffic/light', ':traffic/light'),
+      quizState: stateText(':quiz/scorer', ':quiz/scorer'),
+      brewState: stateText(':brew/machine', ':brew/machine'),
+      sessionState: stateText(':session/flow', ':session/flow'),
+      hvacState: stateText(':hvac/controller', ':hvac/controller'),
+      hvacTrail: pr(field(snapshot(':hvac/controller'), ':data', ':trail')),
     };
   });
 }
 
 async function runMachineEpochs(page, state) {
-  // The deck's `run` bootstraps every machine, so the status strip is
+  // The deck's `run` bootstraps every machine, so the snapshots are
   // populated immediately. Assert the door booted to :locked before driving
-  // the ladder. Each rung's machine FEATURE is asserted off the deck's own
-  // snapshot mirror (the status strip reads `[:rf/machine <id>]` after each
-  // cascade); the deep RENDER-FIDELITY assertions (cascade kinds/order,
+  // the ladder. Each rung's machine FEATURE is asserted off the host's
+  // `:rf/default` app-db machine snapshot (read directly via
+  // `re-frame.core/app-db-value` in `readMachineStrip`) after each
+  // cascade; the deep RENDER-FIDELITY assertions (cascade kinds/order,
   // microsteps, timer-cancel, spawn/destroy, set-diff, throw-as-error) live
   // in the CLJS unit test
   // `panels.epoch.machine-epochs-harness-cljs-test` per the Causa/Story-as-

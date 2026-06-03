@@ -41,26 +41,26 @@
     (a 2nd frame would appear in Xray's frame surfaces + complicate the
     observed-frame story). ONLY the inspected app frame is Xray-relevant.
 
-  - **Xray focus (pinned).** After EACH auto-advance dispatch the runner
-    focuses the LATEST host-frame epoch via
-    `day8.re-frame2-xray.focus/focus!`, so the operator always sees the
-    just-dispatched render rather than a stale selection. Manual single-
-    step mode dispatches WITHOUT moving focus — the operator drives the
-    spine themselves.
+  - **Xray focus (manual).** The Step / per-step-run controls dispatch
+    WITHOUT moving focus — the operator drives the spine themselves and
+    reads the panels at their own pace. (The dispatch engine still carries
+    an `:auto?` focus-pin opt via `day8.re-frame2-xray.focus/focus!` for a
+    future caller that wants it, but no control sets it today.)
 
-  - **Per-step addressing.** Every rendered step row carries a stable,
-    unique `data-testid` (`<prefix>-step-<n>`, plus the run / pause /
-    reset / step controls) so a feature-matrix scenario can name each
-    rung. The prefix is the testbed's, passed via `opts`. Each row's
-    index is ALSO a clickable RUN-THIS-STEP button
-    (`<prefix>-step-<n>-run`) that drives that step directly via
-    `run-step-at!` — RANDOM-ACCESS addressing alongside the sequential
-    run / step controls. A deck whose feature-matrix assertions need to
-    re-drive a NAMED step out of cursor order (a routing / machine
-    ladder asserting a panel render after a specific rung) names each
-    step through that button rather than keeping a parallel bespoke
-    button ladder. The sequential one-button contract is unchanged; the
-    per-step run is purely additive.
+  - **One Step button + per-step addressing.** The control bar is ONE
+    purple Step button (`<prefix>-step`) that dispatches the next step at
+    the cursor and advances. Every rendered step row carries a stable,
+    unique `data-testid` (`<prefix>-step-<n>`); each row's index is ALSO a
+    clickable RUN-THIS-STEP button (`<prefix>-step-<n>-run`) that drives
+    that step directly via `run-step-at!` — RANDOM-ACCESS addressing
+    alongside the sequential Step control. The prefix is the testbed's,
+    passed via `opts`. A deck whose feature-matrix assertions need to
+    re-drive a NAMED step out of cursor order (a routing / machine ladder
+    asserting a panel render after a specific rung) names each step
+    through that button rather than keeping a parallel bespoke button
+    ladder. The HIGHLIGHT + status counter render off the LAST-DISPATCHED
+    step (`:active`), so at rest they match the focused epoch — the step
+    whose result is on screen — not the next-to-run cursor.
 
   ## Why a shared ns (the rollout vehicle)
 
@@ -126,12 +126,18 @@
 ;;
 ;; `state` is the LOCAL runner atom (a Reagent atom owned by the testbed).
 ;; Its shape:
-;;   {:cursor   <int>      ; index of the NEXT step to run (0..count)
-;;    :running? <bool>     ; an auto-advance series is in flight
-;;    :phase    <kw>       ; :idle | :before | :dispatched | :settling | :done
-;;    :timer    <handle>}  ; the in-flight settle/before timer (for pause)
+;;   {:cursor <int>        ; index of the NEXT step to run (0..count) — the
+;;                         ;   engine's write cursor
+;;    :active <int|nil>    ; index of the LAST-DISPATCHED step, or nil before
+;;                         ;   the first step. The ROW HIGHLIGHT + the status
+;;                         ;   counter render off THIS, so at rest the
+;;                         ;   highlighted row matches the focused epoch (the
+;;                         ;   just-run step), not the next-to-run cursor.
+;;    :phase  <kw>         ; :idle | :before | :dispatched | :settling | :done
+;;    :timer  <handle>}    ; the in-flight settle/before timer
 ;;
-;; The cursor/phase drive the row highlight; nothing here touches app-db.
+;; `:active` (not `:cursor`) drives the row highlight + counter; nothing here
+;; touches app-db.
 
 (defn- clear-timer!
   [state]
@@ -142,25 +148,27 @@
 (declare run-step!)
 
 (defn- advance!
-  "After a step settles: bump the cursor, and continue the series if
-  still running and steps remain."
-  [state steps host-frame]
+  "After a step settles: bump the cursor to the next-to-run, marking the
+  phase :done once the cursor runs off the end. `:active` (the last-
+  dispatched index, set in `dispatch+settle!`) is left untouched — it is
+  what the highlight + counter render off."
+  [state steps]
   (let [next-cursor (inc (:cursor @state))
         more?       (< next-cursor (count steps))]
-    (swap! state assoc :cursor next-cursor :phase (if more? :idle :done))
-    (when (and (:running? @state) more?)
-      (run-step! state steps host-frame {:auto? true}))
-    (when-not more?
-      (swap! state assoc :running? false))))
+    (swap! state assoc :cursor next-cursor :phase (if more? :idle :done))))
 
 (defn- dispatch+settle!
-  "Dispatch the step's event, (optionally) focus the latest host-frame
-  epoch, then schedule the post-dispatch `:settle-ms` wait before
-  advancing. `auto?` controls focus: auto-advance pins focus to latest;
-  a manual single-step leaves focus to the operator."
+  "Dispatch the step's event, mark it the `:active` (last-dispatched) step
+  so the highlight + counter render off it, (optionally) focus the latest
+  host-frame epoch, then schedule the post-dispatch `:settle-ms` wait
+  before advancing. `auto?` controls focus: auto-advance pins focus to
+  latest; a manual single-step leaves focus to the operator."
   [state steps host-frame {:keys [auto?]}]
-  (let [{:keys [event settle-ms] :as step} (nth steps (:cursor @state))]
-    (swap! state assoc :phase :dispatched)
+  (let [idx (:cursor @state)
+        {:keys [event settle-ms] :as step} (nth steps idx)]
+    ;; Mark the just-dispatched step active BEFORE the cursor advances, so
+    ;; at rest the highlighted row is the one whose epoch is focused.
+    (swap! state assoc :active idx :phase :dispatched)
     (rf/dispatch event)
     (when auto?
       (focus-latest-host-epoch! host-frame))
@@ -173,7 +181,7 @@
           t  (interop/set-timeout!
                (fn []
                  (swap! state dissoc :timer)
-                 (advance! state steps host-frame))
+                 (advance! state steps))
                ms)]
       (swap! state assoc :timer t))))
 
@@ -198,135 +206,108 @@
                 (swap! state assoc :timer t)))
           (dispatch+settle! state steps host-frame opts))))))
 
-;; ---- the three public controls -------------------------------------------
-
-(defn run-series!
-  "Start (or resume) the auto-advancing series from the current cursor.
-  If the cursor is at the end, restart from the top. Auto-advance pins
-  Xray focus to the latest host-frame epoch after each dispatch."
-  [state steps host-frame]
-  (when (>= (:cursor @state) (count steps))
-    (swap! state assoc :cursor 0))
-  (swap! state assoc :running? true :phase :idle)
-  (run-step! state steps host-frame {:auto? true}))
-
-(defn pause!
-  "Pause an in-flight series: stop auto-advancing and cancel the pending
-  settle/before timer. The cursor stays put so `run-series!` resumes."
-  [state]
-  (clear-timer! state)
-  (swap! state assoc :running? false :phase :idle))
+;; ---- the public controls --------------------------------------------------
+;;
+;; The control bar is ONE Step button (`step-once!`); each step row's index is
+;; also a random-access RUN-THIS-STEP button (`run-step-at!`). A deck may also
+;; expose its own Reset (it calls `reset-runner!`).
 
 (defn step-once!
-  "Manual single step: dispatch the current step WITHOUT pinning focus
-  (the operator drives the spine), then advance the cursor. Does not
-  start the auto series."
+  "STEP: dispatch the step at the current cursor WITHOUT pinning focus (the
+  operator drives the spine), marking it the `:active` step and advancing
+  the cursor. Wraps back to the top once the cursor has run off the end."
   [state steps host-frame]
   (when (>= (:cursor @state) (count steps))
     (swap! state assoc :cursor 0))
-  (swap! state assoc :running? false)
   (run-step! state steps host-frame {:auto? false}))
 
 (defn run-step-at!
-  "RANDOM-ACCESS manual step: move the cursor to step `n` and run THAT
-  step (dispatch + settle + advance), WITHOUT pinning focus (manual mode
-  — the operator drives the spine). Stops any in-flight auto series first.
-  No-op for an out-of-range `n`.
+  "RANDOM-ACCESS step: move the cursor to step `n` and run THAT step
+  (dispatch + settle + advance, marking it `:active`), WITHOUT pinning
+  focus (manual mode — the operator drives the spine). No-op for an
+  out-of-range `n`.
 
-  This is the per-step affordance the runner exposes alongside the
-  sequential run / step controls: each rendered step row carries a
-  clickable `<prefix>-step-<n>-run` button so an operator (or a feature-
-  matrix scenario) can drive ANY step directly, not only the next one in
-  the cursor's path. The sequential run-series + step-once contract is
-  unchanged; this is purely additive — a deck whose assertions need to
-  re-drive a specific step out of order (a routing / machine ladder that
-  asserts a panel render AFTER a NAMED rung) can name each step here
-  rather than keeping a parallel bespoke button ladder."
+  This is the per-step affordance the runner exposes alongside the single
+  Step control: each rendered step row carries a clickable
+  `<prefix>-step-<n>-run` button so an operator (or a feature-matrix
+  scenario) can drive ANY step directly, not only the next one in the
+  cursor's path. A deck whose assertions need to re-drive a specific step
+  out of order (a routing / machine ladder that asserts a panel render
+  AFTER a NAMED rung) names each step here rather than keeping a parallel
+  bespoke button ladder."
   [state steps host-frame n]
   (when (and (integer? n) (<= 0 n) (< n (count steps)))
-    (swap! state assoc :running? false :cursor n)
+    (swap! state assoc :cursor n)
     (run-step! state steps host-frame {:auto? false})))
 
+(defn initial-state
+  "The runner's initial local-atom value. A testbed `(r/atom (initial-state))`.
+  `:active` is nil — nothing has run, so no row is highlighted yet."
+  []
+  {:cursor 0 :active nil :phase :idle})
+
 (defn reset-runner!
-  "Reset the runner to the top, idle, no pending timer."
+  "Reset the runner to the top, idle, no pending timer, nothing active.
+  A deck's own Reset button calls this (the runner control bar no longer
+  carries a Reset)."
   [state]
   (clear-timer! state)
-  (reset! state {:cursor 0 :running? false :phase :idle}))
-
-(defn initial-state
-  "The runner's initial local-atom value. A testbed `(r/atom (initial-state))`."
-  []
-  {:cursor 0 :running? false :phase :idle})
+  (reset! state (initial-state)))
 
 ;; ============================================================================
 ;; VIEWS
 ;; ============================================================================
 
 (defn- phase-chip-text
-  [{:keys [phase running?]}]
+  "The status chip. `:active` is nil before the first step (ready) and the
+  index of the just-run step otherwise — the chip reads off the active
+  step, not the next-to-run cursor."
+  [{:keys [phase active]}]
   (cond
+    (nil? active)         "ready"
     (= phase :done)       "done"
     (= phase :before)     "pausing (pre-dispatch)…"
     (= phase :dispatched) "dispatched"
     (= phase :settling)   "settling…"
-    running?              "running…"
     :else                 "idle"))
 
 (reg-view runner-controls
-  "The ONE-button runner control bar: Run series · Pause · Step · Reset,
-  plus a live phase chip + cursor position. Every control carries a
-  stable `data-testid` (`<prefix>-run` / `-pause` / `-step` / `-reset`)
-  so a feature-matrix scenario can drive the series."
+  "The runner control bar: ONE purple Step button + a status chip reading
+  the LAST-RUN step's position (off `:active`, not the next-to-run cursor,
+  so it matches the focused epoch at rest). The Step button carries a
+  stable `data-testid` (`<prefix>-step`); a deck may render its own Reset
+  alongside (the bar no longer carries Run-series / Pause / Reset)."
   [prefix state steps host-frame]
-  (let [snap    @state
-        total   (count steps)
-        cursor  (:cursor snap)]
+  (let [snap   @state
+        total  (count steps)
+        active (:active snap)]
     [:div {:data-testid (str prefix "-runner-controls")
            :style {:display "flex" :gap "0.5em" :align-items "center"
                    :flex-wrap "wrap" :padding "0.6em 0.75em" :margin "0.5em 0"
                    :border "1px solid #cfc8ff" :border-radius "8px"
                    :background "#faf8ff"}}
-     [:button {:data-testid (str prefix "-run")
-               :on-click #(run-series! state steps host-frame)
-               :disabled (:running? snap)
+     [:button {:data-testid (str prefix "-step")
+               :on-click #(step-once! state steps host-frame)
                :style {:padding "0.45em 0.9em" :cursor "pointer"
                        :border "1px solid #7C5CFF" :border-radius "6px"
                        :background "#7C5CFF" :color "#fff" :font-weight "bold"}}
-      "▶ Run series"]
-     [:button {:data-testid (str prefix "-pause")
-               :on-click #(pause! state)
-               :disabled (not (:running? snap))
-               :style {:padding "0.45em 0.8em" :cursor "pointer"
-                       :border "1px solid #cfc8ff" :border-radius "6px"
-                       :background "#fff"}}
-      "⏸ Pause"]
-     [:button {:data-testid (str prefix "-step")
-               :on-click #(step-once! state steps host-frame)
-               :disabled (:running? snap)
-               :style {:padding "0.45em 0.8em" :cursor "pointer"
-                       :border "1px solid #cfc8ff" :border-radius "6px"
-                       :background "#fff"}}
-      "⏭ Step once"]
-     [:button {:data-testid (str prefix "-reset")
-               :on-click #(reset-runner! state)
-               :style {:padding "0.45em 0.8em" :cursor "pointer"
-                       :border "1px solid #cfc8ff" :border-radius "6px"
-                       :background "#fff"}}
-      "↺ Reset"]
+      "⏭ Step"]
      [:span {:data-testid (str prefix "-status")
              :style {:color "#666" :font-size "12px" :margin-left "0.25em"}}
-      (str "step " (min (inc cursor) total) " / " total " · " (phase-chip-text snap))]]))
+      (str (if (nil? active) "step 0" (str "step " (inc active)))
+           " / " total " · " (phase-chip-text snap))]]))
 
 (reg-view step-row
-  "One step row: its index, label, and `:watch` commentary. The CURRENT
-  step (the one just-run or about-to-run) is highlighted. Carries a
-  stable per-step `data-testid` (`<prefix>-step-<n>`).
+  "One step row: its index, label, and `:watch` commentary. The ACTIVE step
+  (the one whose epoch is focused — the last one dispatched) is highlighted;
+  `current?` is true for exactly that row (none before the first step).
+  Carries a stable per-step `data-testid` (`<prefix>-step-<n>`).
 
   The index is a clickable RUN-THIS-STEP button (`<prefix>-step-<n>-run`)
   that drives exactly this step via `run-step-at!` (random-access, manual
-  — no focus pinning). The sequential run / step / reset controls remain
-  the primary affordances; this lets an operator (or a scenario) drive any
-  step directly without a parallel bespoke button ladder."
+  — no focus pinning). The single Step control remains the primary
+  affordance; this lets an operator (or a scenario) drive any step
+  directly without a parallel bespoke button ladder."
   [prefix state steps host-frame n step current? done?]
   [:div {:data-testid (str prefix "-step-" n)
          :style {:display "grid" :grid-template-columns "auto 1fr"
@@ -363,12 +344,17 @@
   (e.g. `:rf/default`), `prefix` the testid prefix."
   [prefix state steps host-frame]
   (let [snap   @state
-        cursor (:cursor snap)]
+        active (:active snap)]
     [:div {:data-testid (str prefix "-runner")}
      [runner-controls prefix state steps host-frame]
      [:div {:data-testid (str prefix "-steps")}
       (map-indexed
         (fn [n step]
           ^{:key n}
-          [step-row prefix state steps host-frame n step (= n cursor) (< n cursor)])
+          ;; Highlight + 'done' shading render off `:active` (the just-run
+          ;; step), so at rest the highlighted row matches the focused epoch.
+          ;; Before the first step `:active` is nil → no row highlighted.
+          [step-row prefix state steps host-frame n step
+           (= n active)
+           (and (some? active) (< n active))])
         steps)]]))
