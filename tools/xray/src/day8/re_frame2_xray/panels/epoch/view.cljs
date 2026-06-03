@@ -4511,9 +4511,17 @@
   retention by `:rf.view/render-key` — see `proj/view-rows`), so a
   prop change is visible inline.
 
-  The args value (`render-args`) is ALREADY ELIDED at the substrate
-  emit chokepoint (rf2-rpgq8 PRIVACY treatment); we mount the elided
-  value directly — no re-elision (rf2-u3lii).
+  The args value (`render-args`) is PRIVACY-elided at the substrate emit
+  chokepoint (rf2-rpgq8) — sensitive / schema-`:large?` slots land as
+  `:rf/redacted` / `:rf.size/large-elided` before delivery. That walk is
+  SCHEMA-DRIVEN, so arbitrary fat props (which ANY real app passes — a big
+  map / collection that no schema marks `:large?`) ride through un-elided
+  AND Xray reads RAW records in-process. We therefore size-guard the args
+  HERE through `fmt/elide-large-render-args` (rf2-yi0nr): an oversized
+  element collapses to the SAME `:rf.size/large-elided` chip the App-db
+  panel surfaces for large state; small args render inline unchanged. Both
+  the current AND the `:before` (prev) args are size-guarded so the DIFF
+  doesn't dump a fat prior value.
 
   Three render states — the SAME `:before` diff-mode the App-db / subs
   value cells ship (rf2-vv3m6 FULL+DIFF; reused, not reinvented):
@@ -4535,24 +4543,30 @@
   muted, parity with the col-3 `(none)` subs placeholder. Unmounted
   rows carry no `:render-args` so they read `(no args)` too."
   [{:keys [view-id render-args prev-render-args]} idx]
-  [:div {:data-rf-xray-resizable-col "render-args"
-         :data-testid (str "rf-xray-epoch-view-row-render-args-" idx)
-         :style views-cell-render-args-style}
-   (if (some? render-args)
-     [:div {:style                  views-render-args-fill-style
-            :data-rf-render-args-diff (if (some? prev-render-args) "diff" "plain")}
-      [ei/edn-inspector render-args
-       (cond-> {:panel-id :rf.xray.epoch/view-render-args
-                :site-id  [:rf.xray.epoch/view-render-args view-id idx]
-                :default-expanded-depth 2}
-         ;; same `:before` diff-mode the App-db / subs value cells use —
-         ;; reused, not reinvented (rf2-u3lii). Threaded ONLY when the
-         ;; instance had a previous render this cascade; first render =>
-         ;; plain mount (no `:before`), args shown without a delta.
-         (some? prev-render-args) (assoc :before prev-render-args))]]
-     [:span {:data-rf-render-args-diff "none"
-             :style views-render-args-none-style}
-      "(no args)"])])
+  ;; rf2-yi0nr — size-guard the args (and the prev-args the diff annotates
+  ;; against) so a fat prop collapses to the shared `:rf.size/large-elided`
+  ;; chip rather than dumping the whole value inline.
+  (let [render-args (fmt/elide-large-render-args render-args)]
+   [:div {:data-rf-xray-resizable-col "render-args"
+          :data-testid (str "rf-xray-epoch-view-row-render-args-" idx)
+          :style views-cell-render-args-style}
+    (if (some? render-args)
+      [:div {:style                  views-render-args-fill-style
+             :data-rf-render-args-diff (if (some? prev-render-args) "diff" "plain")}
+       [ei/edn-inspector render-args
+        (cond-> {:panel-id :rf.xray.epoch/view-render-args
+                 :site-id  [:rf.xray.epoch/view-render-args view-id idx]
+                 :default-expanded-depth 2}
+          ;; same `:before` diff-mode the App-db / subs value cells use —
+          ;; reused, not reinvented (rf2-u3lii). Threaded ONLY when the
+          ;; instance had a previous render this cascade; first render =>
+          ;; plain mount (no `:before`), args shown without a delta. The
+          ;; prev value is size-guarded too (rf2-yi0nr).
+          (some? prev-render-args)
+          (assoc :before (fmt/elide-large-render-args prev-render-args)))]]
+      [:span {:data-rf-render-args-diff "none"
+              :style views-render-args-none-style}
+       "(no args)"])]))
 
 (defn- views-subs-cell
   "rf2-3b9w4 — the col-3 subs cell. Each dereffed sub renders through
