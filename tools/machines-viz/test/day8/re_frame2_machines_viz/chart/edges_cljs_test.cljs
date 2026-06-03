@@ -179,6 +179,21 @@
         (is (= "ORTHOGONAL" (get opts "elk.edgeRouting")))
         (is (= "ROOT" (get opts "elk.json.edgeCoords")))))))
 
+(deftest elk-layout-options-pins-depth-first-cycle-breaking
+  (testing "rf2-ly51l — the initial-state placement soft preference: every
+            graph carries elk.layered.cycleBreaking.strategy DEPTH_FIRST
+            so a CYCLIC statechart breaks cycles by a depth-first walk
+            from the sources (the initial state) rather than GREEDY
+            min-reversed-count, ranking the forward spine from the initial
+            state near the top/left. Soft (still pairs with full layer-
+            sweep + node-placement); identical to GREEDY for acyclic
+            graphs. Present on flat, nested, and parallel graphs alike."
+    (doseq [parsed [(flat-parsed) (nested-parsed) (parallel-parsed)]]
+      (is (= "DEPTH_FIRST"
+             (get (chart/elk-layout-options parsed nil :tb)
+                  "elk.layered.cycleBreaking.strategy"))
+          "DEPTH_FIRST cycle-breaking is set"))))
+
 (deftest elk-layout-options-direction-from-arg
   (testing "rf2-gpa9k — elk.direction is forced from the direction arg
             (:lr → RIGHT, :tb → DOWN), independent of the switch"

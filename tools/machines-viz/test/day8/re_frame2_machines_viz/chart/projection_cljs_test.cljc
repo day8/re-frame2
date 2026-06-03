@@ -95,6 +95,22 @@
   "rf2-ee38b.21 — a machine-level (top-level) :on fallback."
   {:initial :a :on {:logout :a} :states {:a {} :b {}}})
 
+(def door-cyclic-machine
+  "rf2-ly51l — the door machine's topology shape (cyclic + a root-level
+  :on fallback). The forward spine `locked → closed → open → alarming`
+  loops back via `alarming → locked` (reset) AND a root `:door/audit →
+  locked` fallback. Drives the initial-state model-order preference
+  (`order-state-children`): `locked` (initial) must lead the children,
+  the synthetic machine-root annotation sinks last."
+  {:initial :locked
+   :on      {:door/audit {:target :locked :action :record-audit}}
+   :states  {:locked   {:on {:door/insert-coin :closed}}
+             :closed   {:on {:door/push :open}}
+             :open     {:on {:door/close   {:target :closed :guard :may-close?}
+                             :door/hold    {:action :hold-open}
+                             :door/trip    {:target :alarming :action :enter-alarm}}}
+             :alarming {:on {:door/reset :locked}}}})
+
 (def entry-exit-machine
   "rf2-ee38b.21 — :entry / :exit state actions."
   {:initial :a
@@ -1134,6 +1150,87 @@
             leaves   (remove #(re-find #"^event__" (:id %)) children)]
         (is (every? #(= projection/state-node-min-width (:width %)) leaves)
             "every leaf at the width floor when unmeasured")))))
+
+;; ---- order-state-children (rf2-ly51l — initial-state model order) ------
+
+(deftest order-state-children-leads-with-initial
+  (testing "rf2-ly51l — the initial state leads the ordered children;
+            the machine-root annotation sinks LAST; ordinary states keep
+            parse order. This is the model-order half of the initial-
+            state placement soft preference."
+    (let [parsed  (layout/parse-definition door-cyclic-machine)
+          top     (get (group-by :parent-id (:nodes parsed)) nil)
+          ordered (projection/order-state-children top)
+          ids     (mapv :id ordered)]
+      (is (= (layout/node-id [:locked]) (first ids))
+          "the initial state (:locked) leads the model order")
+      (is (= layout/machine-root-id (last ids))
+          "the synthetic machine-root annotation sinks to the END")
+      ;; ordinary states keep their relative parse order between the two.
+      (let [mids (->> ids
+                      (remove #{(layout/node-id [:locked]) layout/machine-root-id})
+                      vec)]
+        (is (= [(layout/node-id [:closed])
+                (layout/node-id [:open])
+                (layout/node-id [:alarming])]
+               mids)
+            "ordinary states keep parse order (stable sort)")))))
+
+(deftest order-state-children-is-stable-against-shuffle
+  (testing "rf2-ly51l — the sort is STABLE: shuffling the non-initial /
+            non-root states does not reorder them relative to each other
+            (only the initial floats up + the root sinks down)."
+    (let [parsed  (layout/parse-definition door-cyclic-machine)
+          top     (get (group-by :parent-id (:nodes parsed)) nil)
+          init    (filter :initial? top)
+          root    (filter :machine-root? top)
+          plain   (remove #(or (:initial? %) (:machine-root? %)) top)
+          ;; move the initial + root into the MIDDLE of the input so the
+          ;; sort has to actively float/sink them, not just preserve.
+          shuffled (concat (take 1 plain) init root (drop 1 plain))
+          ordered (projection/order-state-children shuffled)]
+      (is (true? (:initial? (first ordered))))
+      (is (true? (:machine-root? (last ordered))))
+      ;; the two plain states keep their input relative order.
+      (let [plain-ids (->> ordered
+                           (remove #(or (:initial? %) (:machine-root? %)))
+                           (mapv :id))]
+        (is (= (->> shuffled
+                    (remove #(or (:initial? %) (:machine-root? %)))
+                    (mapv :id))
+               plain-ids)
+            "plain states keep relative input order under the stable sort")))))
+
+(deftest elk-children-leads-with-initial-state
+  (testing "rf2-ly51l — `->elk-children` emits the initial state FIRST
+            among the top-level state children (before any event-node)
+            and the machine-root annotation LAST among states, so ELK's
+            DEPTH_FIRST source selection + within-layer tiebreak prefer
+            the initial state. End-to-end through the production path."
+    (let [parsed   (layout/parse-definition door-cyclic-machine)
+          children (projection/->elk-children parsed)
+          state-children (remove #(re-find #"^event__" (:id %)) children)
+          ids      (mapv :id state-children)]
+      (is (= (layout/node-id [:locked]) (first ids))
+          "the initial state leads the elk state children")
+      (is (= layout/machine-root-id (last ids))
+          "the machine-root annotation is the last state child"))))
+
+(deftest elk-children-nested-initial-leads-its-container
+  (testing "rf2-ly51l — a compound's OWN initial substate leads ITS local
+            children (the preference applies per container, not just at
+            the top level). `compound-machine`'s `:authenticated` is
+            initial :browsing."
+    (let [parsed   (layout/parse-definition compound-machine)
+          children (projection/->elk-children parsed)
+          by-id    (into {} (map (juxt :id identity)) children)
+          compound (get by-id (layout/node-id [:authenticated]))
+          ;; the compound's STATE children (skip its nested event-nodes).
+          sub-states (->> (:children compound)
+                          (remove #(re-find #"^event__" (:id %)))
+                          (mapv :id))]
+      (is (= (layout/node-id [:authenticated :browsing]) (first sub-states))
+          "the compound's initial substate leads its local model order"))))
 
 ;; ---- ->elk-edge / ->elk-edges (rf2-rlq97) ------------------------------
 ;;
