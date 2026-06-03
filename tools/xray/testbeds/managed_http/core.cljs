@@ -482,14 +482,6 @@
      [:strong "Watch"] " note, then watch the Epoch / Trace / App-db / "
      "Machine panels render it. The runner cursor lives in a "
      [:strong "local atom"] " — it never touches the inspected app-db."]]
-   [:button {:data-testid "managed-http-deck-reset"
-             :on-click (fn []
-                         (dispatch [::reset])
-                         (runner/reset-runner! runner-state))
-             :style {:padding "0.4em 0.8em" :cursor "pointer"
-                     :border "1px solid #cfc8ff" :border-radius "6px"
-                     :background "#f4f1ff" :margin "0.25em 0"}}
-    "0. Reset — clear registry + re-seed app-db + rewind runner"]
    [status-strip]
    [in-flight-strip]
    [runner/runner "managed-http" runner-state steps host-frame]])
