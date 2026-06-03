@@ -84,7 +84,8 @@
   budget (millisecond range for typical app-dbs). For pathologically
   large structures the calling code can short-circuit via
   `identical?` BEFORE invoking this engine."
-  (:require [editscript.core :as es]
+  (:require [clojure.set :as set]
+            [editscript.core :as es]
             [editscript.edit :as ee]))
 
 ;; =========================================================================
@@ -164,41 +165,78 @@
 ;; raw Editscript edit-script walker
 ;; =========================================================================
 
-(defn- expand-empty-collection-replacement
-  "Expand a single Editscript edit that replaces an EMPTY MAP / SET with
-  a populated one (or vice versa) into per-member `:+` / `:-` edits.
+(defn- expand-set-replacement
+  "Expand an Editscript whole-set `:r` (replace) at a SET-valued path into
+  the per-member membership delta: members only-in-before ⇒ `:-`, members
+  only-in-after ⇒ `:+`, members in BOTH ⇒ no edit (unchanged). Members
+  match BY VALUE (sets are unordered), mirroring Editscript's own set-edit
+  path scheme (the member itself is the trailing path segment).
+
+  Editscript's A* emits per-member `:+` / `:-` edits for a SINGLE-member
+  swap (`#{:a} → #{:b}` ⇒ `[[:a] :-] [[:b] :+]`, fixed member-level by
+  rf2-l0us2) but crosses its cost threshold and falls back to a WHOLE-SET
+  `:r` once MULTIPLE members change simultaneously
+  (`#{:a :b :c} → #{:a :d :e}` ⇒ `[[] :r #{:a :d :e}]`) — the empty↔populated
+  edge (`#{} → #{:a}`) hits the same `:r`. Left alone the `:r` classifies as
+  a single `:modified` at the set's path and every per-member path returns
+  `:same` from `op-at`, which the renderer paints as a whole-set
+  removal/add ('sea of red') instead of member-level `-removed +added`
+  (rf2-4vp8c, residual of rf2-l0us2 which fixed only the single-member
+  case). Synthesizing the membership delta restores member-level chrome
+  REGARDLESS of how many members changed; this subsumes the empty↔populated
+  set expansion (the in-both set is empty there, so it degenerates to
+  all-`:+` or all-`:-`).
+
+  Pure."
+  [path before-set after-set]
+  (into (mapv (fn [el] [(conj (vec path) el) :-])
+              (set/difference before-set after-set))
+        (mapv (fn [el] [(conj (vec path) el) :+ el])
+              (set/difference after-set before-set))))
+
+(defn- expand-collection-replacement
+  "Expand a single Editscript edit that replaces a collection wholesale
+  (whole-value `:r`) into per-member `:+` / `:-` edits, so downstream
+  classification sees member-level granularity instead of one whole-value
+  `:modified`.
+
+  ## Empty↔populated maps (rf2-9d4j8 / rf2-5j7ch)
 
   Editscript's A* emits a single `[[path] :r new-value]` edit for the
-  pathological `{} → {populated}` (and `{populated} → {}`) cases — the
-  whole collection replacement is one step in the edit script. Downstream
-  classification then tags `path` as `:modified` and leaves every
-  PER-MEMBER path returning `:same` from `op-at`, which the renderer reads
-  as 'no per-member change' — wrong for an absent→present transition
-  (rf2-9d4j8; related precedent rf2-5j7ch which patched only the
-  `:flat-rows` lens).
+  `{} → {populated}` (and `{populated} → {}`) cases — the whole collection
+  replacement is one step in the edit script. Downstream classification
+  then tags `path` as `:modified` and leaves every PER-KEY path returning
+  `:same` from `op-at`, which the renderer reads as 'no per-key change' —
+  wrong for an absent→present transition (rf2-9d4j8; related precedent
+  rf2-5j7ch which patched only the `:flat-rows` lens).
 
-  ## Sets share the empty-replace pathology (rf2-l0us2)
+  ## Sets — empty↔populated AND multi-member swaps (rf2-l0us2 / rf2-4vp8c)
 
-  For NON-empty sets Editscript already emits member-level `:+` / `:-`
-  edits (members are value-keyed: `#{:a} → #{:b}` ⇒ `[[:a] :-] [[:b] :+]`),
-  so they need no expansion. But when ONE side is the EMPTY set Editscript
-  falls back to the same whole-value `:r` it uses for empty maps
-  (`#{} → #{:a}` ⇒ `[[] :r #{:a}]`). Left alone that classifies as a single
-  `:modified` op at the set's path and the renderer's per-member walk sees
-  every member as `:same`. The set members are keyed by VALUE, mirroring
-  Editscript's own set-edit path scheme, so the per-member expansion uses
-  the member itself as the trailing path segment.
+  For a SINGLE-member set swap Editscript already emits member-level
+  `:+` / `:-` edits (`#{:a} → #{:b}` ⇒ `[[:a] :-] [[:b] :+]`), so it needs
+  no expansion. But Editscript falls back to a whole-value `:r` for sets in
+  two cases: when ONE side is EMPTY (`#{} → #{:a}` ⇒ `[[] :r #{:a}]`,
+  rf2-l0us2) AND when MULTIPLE members change simultaneously
+  (`#{:a :b :c} → #{:a :d :e}` ⇒ `[[] :r #{:a :d :e}]`, rf2-4vp8c — its
+  A* cost threshold). Both classify as a single `:modified` at the set's
+  path with every per-member path `:same` ('sea of red'). We catch ALL
+  set `:r` here and delegate to `expand-set-replacement`, which synthesizes
+  the membership delta regardless of member count — the empty↔populated
+  edge is just the degenerate case where the in-both intersection is empty.
 
   This expansion runs over the raw edit script BEFORE classification so
   every downstream artefact (`:path-ops`, `:container-ops`,
   `:flat-rows`, `:wholly-changed-roots`) sees per-member granularity.
 
-  Rule: a `:r` edit at `path` substitutes into per-member edits ONLY when
-  one side at `path` is an EMPTY collection and the other is a NON-EMPTY
-  collection of the SAME KIND (empty-map↔populated-map or
-  empty-set↔populated-set). Type changes (nil↔map, scalar↔map,
-  map↔vector, set↔map) are LEFT ALONE so R7's `:rf.xray.diff/type-change?`
-  branch still fires on them.
+  Rule:
+    - SET↔SET `:r` (both sides sets) → membership-delta expansion, any
+      member count (`expand-set-replacement`).
+    - MAP `:r` where ONE side is the EMPTY map → per-key `:+` / `:-`.
+      (Multi-key populated↔populated MAP swaps are NOT a known Editscript
+      `:r` pathology — A* emits per-key edits for maps — so this branch
+      stays scoped to the empty edge.)
+    - Type changes (nil↔map, scalar↔set, map↔vector, set↔map) are LEFT
+      ALONE so R7's `:rf.xray.diff/type-change?` branch still fires.
 
   Pure; non-matching edits pass through unchanged."
   [edit before after]
@@ -208,6 +246,12 @@
       (let [before-at (value-at before path)
             after-at  (value-at after path)]
         (cond
+          ;; SET↔SET replace — synthesize the membership delta for ANY
+          ;; member count (single swap, multi-member swap, full no-overlap
+          ;; replacement, or the empty↔populated edge). rf2-4vp8c.
+          (and (set? before-at) (set? after-at))
+          (expand-set-replacement path before-at after-at)
+
           ;; {} → populated map: per-key :+
           (and (map? before-at) (empty? before-at)
                (map? after-at)  (seq after-at))
@@ -218,24 +262,15 @@
                (map? after-at)  (empty? after-at))
           (mapv (fn [[k _v]] [(conj (vec path) k) :-]) before-at)
 
-          ;; #{} → populated set: per-member :+ (member is the path seg)
-          (and (set? before-at) (empty? before-at)
-               (set? after-at)  (seq after-at))
-          (mapv (fn [el] [(conj (vec path) el) :+ el]) after-at)
-
-          ;; populated set → #{}: per-member :-
-          (and (set? before-at) (seq before-at)
-               (set? after-at)  (empty? after-at))
-          (mapv (fn [el] [(conj (vec path) el) :-]) before-at)
-
           :else
           [edit])))))
 
 (defn- raw-edits
   "Return Editscript A* edits for `(before, after)` as a vector of
-  3-tuples `[path op value?]`, with empty↔populated map/set replacements
-  pre-expanded into per-member `:+` / `:-` edits (rf2-9d4j8, rf2-l0us2).
-  Pure."
+  3-tuples `[path op value?]`, with whole-value collection replacements
+  pre-expanded into per-member `:+` / `:-` edits: empty↔populated maps
+  (rf2-9d4j8), empty↔populated sets (rf2-l0us2), and multi-member set
+  swaps (rf2-4vp8c). Pure."
   [before after]
   (let [raw (try
               (ee/get-edits (es/diff before after {:algo :a-star}))
@@ -247,7 +282,7 @@
                 ;; reproduces the operator-visible signal ("everything
                 ;; changed") without false sub-tree precision.
                 [[[] :r after]]))]
-    (into [] (mapcat (fn [edit] (expand-empty-collection-replacement edit before after))) raw)))
+    (into [] (mapcat (fn [edit] (expand-collection-replacement edit before after))) raw)))
 
 ;; =========================================================================
 ;; per-path op classification (leaves)

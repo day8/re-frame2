@@ -464,7 +464,8 @@
 ;; the uniformity walk (`mark-wholly-changed` now collects the UNION of
 ;; both sides' set members so a swap fails uniformity at the set AND every
 ;; ancestor) plus per-member expansion of the empty↔populated `:r` set
-;; replace (`expand-empty-collection-replacement`).
+;; replace (`expand-collection-replacement` / `expand-set-replacement`;
+;; rf2-4vp8c later generalised the set branch to multi-member swaps too).
 
 (deftest l0us2-set-member-swap-is-member-level-not-whole-key
   (testing "rf2-l0us2 — RED repro: `#{:a} → #{:b}` member swap projects
@@ -652,4 +653,154 @@
     (let [p (engine/project [:a :b :c :d] [:a :NEW :b :c :d])]
       (is (= :added (engine/op-at p [1])))
       (is (= :same-shifted (engine/op-at p [2]))))))
+
+;; ---- rf2-4vp8c — MULTI-MEMBER simultaneous set swaps -------------------
+;;
+;; Residual of rf2-l0us2. l0us2 made SINGLE-member swaps member-level: for
+;; `#{:a} → #{:b}` (and the 1-in/1-out partial swap `#{:a :b} → #{:a :c}`)
+;; Editscript's A* emits per-member `:-` / `:+` edits, so the engine's
+;; member-keyed path-ops + the union-walk in `mark-wholly-changed` already
+;; render `-:a +:b` with the key intact.
+;;
+;; But when MULTIPLE members change at once (e.g. a machine `:tags` set
+;; dropping two tags + adding two on a state transition) Editscript's A*
+;; crosses its cost threshold and emits a WHOLE-SET `:r` (replace) at the
+;; set's path instead of per-member edits:
+;;
+;;   `#{:a :b :c} → #{:a :d :e}` ⇒ `[[[] :r #{:a :d :e}]]`
+;;
+;; Left alone `project`'s `:r` branch classifies that as a single
+;; `:modified` at the set's path and every per-member path returns `:same`
+;; — the renderer paints a whole-set removal/add ('sea of red'), exactly
+;; the regression l0us2 fixed for the single-member case.
+;;
+;; The fix extends `expand-collection-replacement` (via
+;; `expand-set-replacement`) to the populated↔populated set case: a `:r`
+;; at a SET-valued path where BOTH
+;; sides are sets synthesizes the membership delta (members only-in-before
+;; ⇒ `:-`, only-in-after ⇒ `:+`, in-both ⇒ no edit) regardless of how many
+;; members changed. Members match BY VALUE (sets unordered). The engine's
+;; output shape is unchanged — the renderer needs no edit.
+
+(deftest multimember-set-swap-is-member-level-not-whole-key
+  (testing "rf2-4vp8c — RED repro: `#{:a :b :c} → #{:a :d :e}` (drop :b,:c
+            add :d,:e, keep :a) projects KEY-INTACT member-level
+            `-:b -:c +:d +:e` with `:a` unchanged — NOT a whole-set
+            replace. (Before the fix Editscript's whole-set `:r` made the
+            set read as a single `:modified` with every member `:same`.)"
+    (let [p (engine/project {:tags #{:a :b :c}} {:tags #{:a :d :e}})]
+      ;; The :tags KEY is intact — :children, never :modified/:removed.
+      (is (= :children (engine/op-at p [:tags])))
+      (is (not (contains? (:wholly-changed-roots p) [:tags])))
+      ;; Dropped members are :removed.
+      (is (= :removed (engine/op-at p [:tags :b])))
+      (is (= :removed (engine/op-at p [:tags :c])))
+      ;; Added members are :added.
+      (is (= :added (engine/op-at p [:tags :d])))
+      (is (= :added (engine/op-at p [:tags :e])))
+      ;; The surviving member carries no op (returns :same).
+      (is (= :same (engine/op-at p [:tags :a])))
+      ;; The dropped/added members carry their values for the renderer's
+      ;; per-member suffix.
+      (is (= :b (:before (engine/entry-at p [:tags :b]))))
+      (is (= :d (:after (engine/entry-at p [:tags :d])))))))
+
+(deftest multimember-set-swap-no-overlap
+  (testing "rf2-4vp8c — a set whose members are ALL replaced (no overlap):
+            `#{:a :b :c} → #{:d :e :f}` projects every before-member
+            :removed + every after-member :added, key intact. (Distinct
+            from the empty↔populated path — both sides are populated.)"
+    (let [p (engine/project {:tags #{:a :b :c}} {:tags #{:d :e :f}})]
+      (is (= :children (engine/op-at p [:tags])))
+      (is (not (contains? (:wholly-changed-roots p) [:tags])))
+      (is (= :removed (engine/op-at p [:tags :a])))
+      (is (= :removed (engine/op-at p [:tags :b])))
+      (is (= :removed (engine/op-at p [:tags :c])))
+      (is (= :added (engine/op-at p [:tags :d])))
+      (is (= :added (engine/op-at p [:tags :e])))
+      (is (= :added (engine/op-at p [:tags :f]))))))
+
+(deftest multimember-set-swap-at-root
+  (testing "rf2-4vp8c — the same delta at the ROOT (a bare set, not nested):
+            `#{:a :b :c} → #{:a :d :e}` projects member-level at the root.
+            The set root `[]` is excluded from wholly-changed promotion
+            regardless; the invariant is no whole-set replace."
+    (let [p (engine/project #{:a :b :c} #{:a :d :e})]
+      (is (= :removed (engine/op-at p [:b])))
+      (is (= :removed (engine/op-at p [:c])))
+      (is (= :added (engine/op-at p [:d])))
+      (is (= :added (engine/op-at p [:e])))
+      (is (= :same (engine/op-at p [:a])))
+      (is (= #{} (:wholly-changed-roots p)))
+      ;; The root set is NOT a single :modified.
+      (is (not= :modified (engine/op-at p []))))))
+
+(deftest multimember-machine-tags-transition-repro
+  (testing "rf2-4vp8c — the live repro path: a machine `:tags` set on a
+            state transition drops two tags + adds one
+            (`#{:door/locked :door/secure} → #{:door/open}`). The :tags key
+            stays intact and reads `-:door/locked -:door/secure +:door/open`."
+    (let [p (engine/project {:tags #{:door/locked :door/secure}}
+                            {:tags #{:door/open}})]
+      (is (= :children (engine/op-at p [:tags])))
+      (is (= :removed (engine/op-at p [:tags :door/locked])))
+      (is (= :removed (engine/op-at p [:tags :door/secure])))
+      (is (= :added (engine/op-at p [:tags :door/open])))
+      (is (not (contains? (:wholly-changed-roots p) [:tags]))))))
+
+(deftest multimember-set-swap-feeds-flat-rows
+  (testing "rf2-4vp8c — the multi-member member-level delta also surfaces on
+            the `:diff` (pure-list) flat-rows lens, with the key intact."
+    (let [p (engine/project {:tags #{:a :b :c}} {:tags #{:a :d :e}})
+          rows (:flat-rows p)
+          paths (set (map :path rows))
+          op-at-path (fn [path]
+                       (some (fn [r] (when (= path (:path r)) (:op r))) rows))]
+      (is (contains? paths [:tags :b]))
+      (is (contains? paths [:tags :c]))
+      (is (contains? paths [:tags :d]))
+      (is (contains? paths [:tags :e]))
+      (is (= :removed (op-at-path [:tags :b])))
+      (is (= :added (op-at-path [:tags :d])))
+      ;; The surviving member + the intact key are NOT flat-rows.
+      (is (not (contains? paths [:tags :a])))
+      (is (not (contains? paths [:tags]))))))
+
+(deftest multimember-set-swap-does-not-promote-ancestor-map
+  (testing "rf2-4vp8c — a multi-member-swapped set must not falsely promote
+            an ANCESTOR map (the deeper trap). `{:m {:tags #{:a :b :c}}} →
+            {:m {:tags #{:a :d :e}}}` keeps both `:m` and `:m :tags` intact."
+    (let [p (engine/project {:m {:tags #{:a :b :c}}}
+                            {:m {:tags #{:a :d :e}}})]
+      (is (= :children (engine/op-at p [:m])))
+      (is (= :children (engine/op-at p [:m :tags])))
+      (is (= #{} (:wholly-changed-roots p)))
+      (is (= :removed (engine/op-at p [:m :tags :b])))
+      (is (= :added (engine/op-at p [:m :tags :d])))
+      (is (= :same (engine/op-at p [:m :tags :a]))))))
+
+(deftest multimember-set-of-non-keyword-members
+  (testing "rf2-4vp8c — multi-member match BY VALUE regardless of type. A
+            set of numbers swapping multiple members diffs member-level."
+    (let [p (engine/project {:t #{1 2 3}} {:t #{1 4 5}})]
+      (is (= :children (engine/op-at p [:t])))
+      (is (= :removed (engine/op-at p [:t 2])))
+      (is (= :removed (engine/op-at p [:t 3])))
+      (is (= :added (engine/op-at p [:t 4])))
+      (is (= :added (engine/op-at p [:t 5])))
+      (is (= :same (engine/op-at p [:t 1]))))))
+
+(deftest multimember-set-branch-leaves-type-changes-alone
+  (testing "rf2-4vp8c — regression guard: the broadened SET↔SET `:r`
+            branch must only fire when BOTH sides are sets. A set↔non-set
+            flip (set→vector, scalar→set) stays an R7 `:modified`
+            type-change at the container path, NOT a member-delta."
+    ;; set → vector — R7 type change, key reads :modified, type-change? set.
+    (let [p (engine/project {:t #{:a :b}} {:t [:a :b]})]
+      (is (= :modified (engine/op-at p [:t])))
+      (is (engine/type-change? p [:t])))
+    ;; scalar → set — R7 type change.
+    (let [p (engine/project {:t 5} {:t #{:a}})]
+      (is (= :modified (engine/op-at p [:t])))
+      (is (engine/type-change? p [:t])))))
 
