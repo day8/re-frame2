@@ -1499,9 +1499,9 @@ State-machine transition-table guards and actions are referenced by **inline fn 
 > **Owner:** [005-StateMachines §Transition tables](005-StateMachines.md)
 > **Status:** v1-required
 
-Grammar for state-machine transition tables (per [005](005-StateMachines.md)). Public because the user supplies the transition table to `make-machine-handler` as registration data; tools introspect it via `(machine-meta id)`. The v1 foundation (`machine-transition` / `make-machine-handler` and the rest of the machine-as-event-handler surface — see [005 §Disposition](005-StateMachines.md#disposition)) interprets the grammar that maps to the v1 reference's claimed [capability list](005-StateMachines.md#capability-matrix). The CLJS reference claims flat FSM, hierarchical compound states, eventless `:always`, delayed `:after`, and declarative `:spawn`; it does **not** claim parallel regions or history states (substitutes per [005 §Substitutes for skipped features](005-StateMachines.md#substitutes-for-skipped-features)).
+Grammar for state-machine transition tables (per [005](005-StateMachines.md)). Public because the user supplies the transition table to `make-machine-handler` as registration data; tools introspect it via `(machine-meta id)`. The v1 foundation (`machine-transition` / `make-machine-handler` and the rest of the machine-as-event-handler surface — see [005 §Disposition](005-StateMachines.md#disposition)) interprets the grammar that maps to the v1 reference's claimed [capability list](005-StateMachines.md#capability-matrix). The CLJS reference claims flat FSM, hierarchical compound states, eventless `:always`, delayed `:after`, declarative `:spawn`, parallel regions, final states, and **history states**.
 
-The schema below covers the flat FSM grammar, the **hierarchical compound** extension (per [005 §Hierarchical compound states](005-StateMachines.md#hierarchical-compound-states)), the eventless **`:always`** extension (per [005 §Eventless `:always` transitions](005-StateMachines.md#eventless-always-transitions)), the delayed **`:after`** extension (per [005 §Delayed `:after` transitions](005-StateMachines.md#delayed-after-transitions)), and the declarative **`:spawn`** extension (per [005 §Declarative `:spawn`](005-StateMachines.md#declarative-spawn)). All extensions are additive (open-map invariant) without breaking the `Transition` schema.
+The schema below covers the flat FSM grammar, the **hierarchical compound** extension (per [005 §Hierarchical compound states](005-StateMachines.md#hierarchical-compound-states)), the eventless **`:always`** extension (per [005 §Eventless `:always` transitions](005-StateMachines.md#eventless-always-transitions)), the delayed **`:after`** extension (per [005 §Delayed `:after` transitions](005-StateMachines.md#delayed-after-transitions)), the declarative **`:spawn`** extension (per [005 §Declarative `:spawn`](005-StateMachines.md#declarative-spawn)), and the **history pseudo-state** arm (per [005 §History states](005-StateMachines.md#history-states-type-history--shallow--deep--default-target)). All extensions are additive (open-map invariant) without breaking the `Transition` schema.
 
 ```clojure
 (def TransitionTable
@@ -1548,7 +1548,9 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
   [:schema {:registry {::state-node
                        [:map
                         [:type    {:optional true}
-                         [:enum :single :parallel]]                         ;; root-only — controls how the runtime interprets the spec; absent / :single is the default (flat-or-compound shape disambiguated by whether `:states` declares nested `:states`). `:parallel` switches the spec to parallel-region mode — `:regions` (below) is required and `:states` / `:initial` MUST be absent. (Nine States Stage 2) and [005 §Parallel regions](005-StateMachines.md#parallel-regions).
+                         [:enum :single :parallel :history]]                ;; controls how the runtime interprets the node. ROOT-ONLY values: absent / :single (the default — flat-or-compound shape disambiguated by whether `:states` declares nested `:states`); `:parallel` switches the spec to parallel-region mode — `:regions` (below) is required and `:states` / `:initial` MUST be absent (Nine States Stage 2, [005 §Parallel regions](005-StateMachines.md#parallel-regions)). CHILD-ONLY value: `:history` marks a HISTORY PSEUDO-STATE — declared under a compound's `:states`, never occupied, a transition target that resolves to the compound's recorded (or default) configuration. A `:type :history` node declares ONLY `:deep?` / `:default-target` (below) and none of the ordinary state-node keys; `make-machine-handler` rejects any other key, and a `:history` node at the machine root, on the parallel `:regions` map, with two-per-compound, or with an unresolvable `:default-target` at registration. Per [005 §History states](005-StateMachines.md#history-states-type-history--shallow--deep--default-target).
+                        [:deep?   {:optional true} :boolean]                ;; history-pseudo-state-only (`:type :history`). `true` => DEEP history (restore the full recorded leaf path beneath the compound); absent / `false` => SHALLOW history (restore the recorded direct child, then cascade its `:initial` chain). Default shallow. Per [005 §History states](005-StateMachines.md#history-states-type-history--shallow--deep--default-target).
+                        [:default-target {:optional true} TransitionTarget] ;; history-pseudo-state-only (`:type :history`). Target used when the owning compound has never been entered (nothing recorded yet) — a keyword (direct child of the compound) or vector (absolute path); MUST resolve to a real state. Absent => falls back to the owning compound's `:initial`. Per [005 §History states](005-StateMachines.md#history-states-type-history--shallow--deep--default-target).
                         [:regions {:optional true}
                          [:map-of :keyword [:ref ::state-node]]]            ;; root-only — required iff `:type :parallel`. Each entry's value is a full state-node body (its own `:initial` + `:states`, optionally `:tags`, `:on`, etc.). Region names are keywords; region-name → state-tree. All regions are active simultaneously; the snapshot's `:state` is a map of region-name → keyword-or-vector-path.                         [:initial {:optional true} :keyword]                ;; required iff :states is present (compound state); points to the cascade entry-point
                         [:states  {:optional true} [:map-of :keyword [:ref ::state-node]]]
@@ -1753,6 +1755,31 @@ The runtime snapshot of a machine instance. Per [005 §Snapshot shape](005-State
    ;; (`synthesise-initial-snapshot`); pure-call snapshots (the conformance
    ;; harness's hand-built input snapshots) may omit it — the reducer
    ;; defaults absent slots to 0 via `fnil`.    [:rf/spawn-counter {:optional true} [:map-of :keyword :int]]
+   ;; :rf/history is the recorded-history map for machines declaring a
+   ;; `:type :history` pseudo-state (per [005 §History states]
+   ;; (005-StateMachines.md#history-states-type-history--shallow--deep--default-target)).
+   ;; Keyed by the COMPOUND DECLARATION PATH (the absolute prefix-path of the
+   ;; history-bearing compound state-node) → that compound's recorded
+   ;; configuration. NOT a single config: a machine may own several
+   ;; history-bearing compounds, each recorded independently. Under
+   ;; `:type :parallel` the keys are REGION-QUALIFIED — the head segment of
+   ;; the path is the region name — so two regions with structurally-identical
+   ;; compound paths never collide. The recorded value is:
+   ;;   - a [:vector :keyword] absolute LEAF PATH for a DEEP-history compound
+   ;;     (`:deep? true`), or
+   ;;   - a single :keyword DIRECT CHILD for a SHALLOW-history compound
+   ;;     (`:deep?` absent / false; the runtime cascades the child's :initial
+   ;;     chain on restore).
+   ;; Written by the runtime during the compound's exit cascade; READ-ONLY for
+   ;; users (invariant 7 below). Allocated lazily — absent until a
+   ;; history-bearing compound is first exited; a machine with no history
+   ;; pseudo-states never carries the slot. Vectors-and-keywords only — EDN-clean,
+   ;; round-trips through pr-str / read-string and rides SSR hydration + Tool-Pair
+   ;; epoch replay with the rest of the snapshot.
+   [:rf/history {:optional true}
+    [:map-of [:vector :keyword]                                           ;; compound declaration path (region-qualified head under :type :parallel)
+             [:or [:vector :keyword]                                      ;; DEEP — recorded absolute leaf path
+                  :keyword]]]                                             ;; SHALLOW — recorded direct child
    [:meta     {:optional true}
     [:map
      [:rf/snapshot-version {:optional true} :int]                          ;; bumped when definition shape changes incompatibly
@@ -1761,12 +1788,13 @@ The runtime snapshot of a machine instance. Per [005 §Snapshot shape](005-State
 
 Stability invariants the implementation upholds (see [005 §Snapshot shape](005-StateMachines.md#snapshot-shape)):
 
-1. `(read-string (pr-str snapshot))` returns an `=`-equal value — no functions, atoms, JS objects in `:data` (or `:tags` — but `:tags` is a set of keywords, both of which are EDN-clean). `:rf/spawn-counter` is a map of keyword→int and round-trips cleanly.
+1. `(read-string (pr-str snapshot))` returns an `=`-equal value — no functions, atoms, JS objects in `:data` (or `:tags` — but `:tags` is a set of keywords, both of which are EDN-clean). `:rf/spawn-counter` is a map of keyword→int and round-trips cleanly; `:rf/history` is a map of keyword-vectors to keyword-vectors-or-keywords and round-trips cleanly.
 2. Snapshots represent committed state only; no in-flight microstate is captured.
-3. Hot-reloading a definition does not invalidate snapshots whose `:state` is still a member.
+3. Hot-reloading a definition does not invalidate snapshots whose `:state` is still a member. The history analogue: a **recorded** configuration in `:rf/history` that references a substate the reloaded definition removed is a *dangling recorded path* — on a restore-to-history transition the runtime discards it and falls back to the pseudo-state's `:default-target` (or the compound's `:initial`), never entering the dead path. Per [005 §Dangling recorded paths after hot reload](005-StateMachines.md#dangling-recorded-paths-after-hot-reload) and [rf2-wgfv0].
 4. `:rf/snapshot-version` mismatch between snapshot and definition emits `:rf.error/machine-snapshot-version-mismatch` (per [Spec 009 §Trace events](009-Instrumentation.md); older drafts spelled this `:rf.warning/machine-snapshot-version-mismatch`, the `:rf.error/` form is canonical).
 5. `:tags` is **read-only** for users — actions cannot return `:tags` in their `{:data :fx}` effect map; the runtime owns the slot and recomputes it from `:state` at every commit.
 6. `:rf/spawn-counter` is **read-only** for users — the runtime owns the slot and bumps it on every declarative-`:spawn` spawn. Apps that need to address a spawned actor by id read it from `[:rf/runtime :machines :spawned <parent-id> <invoke-id>]` (the runtime-owned registry) or via `:on-spawn` advisory bookkeeping — never from the counter directly.
+7. `:rf/history` is **read-only** for users — the runtime owns the slot and writes it during the history-bearing compound's exit cascade. Actions cannot return `:rf/history` in their `{:data :fx}` effect map; the recorded configuration is derived from the active path at exit, not authored. Per [005 §The `:rf/history` snapshot slot](005-StateMachines.md#the-rfhistory-snapshot-slot).
 
 **Effect-map note.** A machine handler returns a standard `:rf/effect-map` (`:db` + `:fx`). The action-internal `{:data :fx}` shape is *internal* to the machine handler; the handler lowers `:data` to a single `:db` write at `[:rf/runtime :machines :snapshots <id> :data]` before returning. The closed `:rf/effect-map` contract (`:db` + `:fx` only) is preserved at the handler boundary.
 

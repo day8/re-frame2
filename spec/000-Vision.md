@@ -137,10 +137,10 @@ The capabilities below are partitioned by what every conformant implementation m
 | Multi-frame ergonomics in views via implicit context | — | yes | yes — explicit `:frame` arg is the portable form | the *implicit* form |
 | `re-frame-pair` runtime AI companion (Layer 2 of the AI surface) | encouraged | v1 deliverable | yes — host's REPL/inspector + protocol mapping | yes |
 | `re-frame-pair-improver` Claude skill (Layer 3 of the AI surface) | — | v1 deliverable | not host-specific | — |
-| **FSM-richness capability list** (per [§Hierarchical FSM substrate](#hierarchical-fsm-substrate-with-implementor-chosen-capabilities)) — implementor declares; conformance is graded against the claimed list | yes (declare a list) | flat-FSM + hierarchical compound + `:always` + `:after` + `:fsm/tags` + `:fsm/parallel-regions` | yes — host picks its claimed list from the matrix in [005 §Capability matrix](005-StateMachines.md#capability-matrix) | — |
+| **FSM-richness capability list** (per [§Hierarchical FSM substrate](#hierarchical-fsm-substrate-with-implementor-chosen-capabilities)) — implementor declares; conformance is graded against the claimed list | yes (declare a list) | flat-FSM + hierarchical compound + `:always` + `:after` + `:fsm/tags` + `:fsm/parallel-regions` + `:fsm/final-states` + `:fsm/history` | yes — host picks its claimed list from the matrix in [005 §Capability matrix](005-StateMachines.md#capability-matrix) | — |
 | **Actor-model capability list** (per [§Hierarchical FSM substrate](#hierarchical-fsm-substrate-with-implementor-chosen-capabilities)) — implementor declares; conformance is graded against the claimed list | yes (declare a list) | own-state + spawn/destroy + cross-actor `:fx` + declarative `:spawn` + spawn-and-join (`:spawn-all`) + `:system-id` | yes — host picks its claimed list | — |
 | **Parallel regions** (FSM-richness) — `:type :parallel` with a `:regions` map; orthogonal axes of one feature sharing one `:data` blob; per | yes | yes (claimed as `:fsm/parallel-regions` per [005 §Capability matrix](005-StateMachines.md#capability-matrix)) | yes — host can claim or skip | — |
-| **History states** (FSM-richness) — out of v1 scope; substitute is snapshot-as-value capture | post-v1 | not claimed | not claimed | — |
+| **History states** (FSM-richness) — `:type :history` pseudo-state under a compound's `:states`; shallow / deep / default-target; recorded in the revertible `:rf/history` snapshot slot | yes | yes (claimed as `:fsm/history` per [005 §Capability matrix](005-StateMachines.md#capability-matrix)) | yes — host can claim or skip | — |
 
 Reading the matrix:
 
@@ -343,10 +343,7 @@ The capability matrix and per-capability prose / schema / fixture coverage live 
 - **Delayed `:after`** — transitions that fire after a time delay (timing semantics need care for SSR/testing).
 - **State tags** (`:fsm/tags`) — `:tags <set-of-keywords>` on a state node; snapshot carries the active-configuration tag union; `:rf/machine-has-tag?` framework sub. Per (Nine States Stage 1).
 - **Parallel regions** (`:fsm/parallel-regions`) — `:type :parallel` machines with multiple concurrent regions sharing one `:data` blob; per-region scoping for `:spawn` / `:after` / `:always`; transitions broadcast across regions; tags union across regions. Per (Nine States Stage 2). The N-machines-per-region substitute remains valid when regions are conceptually independent features — see [005 §Substitutes for skipped features](005-StateMachines.md#substitutes-for-skipped-features).
-
-**FSM-richness — v1 SKIPS, with documented substitutes:**
-
-- **History states** — substitute: *snapshot-as-value capture*. Snapshots at `[:rf/runtime :machines :snapshots <id>]` are already values; user copies on leave, restores on re-enter. xstate needs history states because its runtime lacks first-class snapshot-as-value semantics; re-frame2's [Goal 3 — Frame state revertibility](#frame-state-revertibility) gives this for free.
+- **History states** (`:fsm/history`) — a `:type :history` pseudo-state under a compound's `:states` re-enters the compound's last-active configuration; `:deep?` selects shallow (recorded direct child, then `:initial` descent) vs deep (full recorded leaf path); optional `:default-target` (else the compound's `:initial`) covers the never-entered case. The recording rides the revertible `:rf/history` snapshot slot — so it survives SSR hydration and Tool-Pair epoch replay for free, on the [Goal 3 — Frame state revertibility](#frame-state-revertibility) substrate. Per-region under `:type :parallel`. See [005 §History states](005-StateMachines.md#history-states-type-history--shallow--deep--default-target).
 
 **Actor-model — v1 includes:**
 
@@ -365,7 +362,7 @@ The capability matrix and per-capability prose / schema / fixture coverage live 
 
 - **Ports differ in ambition.** A small TS port may ship flat FSMs only; a Kotlin port may match the CLJS reference's full capability set. Both can be conformant *for their claimed set*.
 - **Conformance is graded, not binary.** "Passes 47/47 of the flat-FSM fixtures and 0/12 of the hierarchical-states fixtures" is more honest than "fails the conformance corpus." Implementors and users see exactly what works and what doesn't.
-- **Substitutes are first-class.** History remains an explicit "out of pattern scope; here's the documented substitute" case — the snapshot-as-value foundation makes history-state machinery unnecessary. Parallel regions were on the substitute list pre ; per Nine States Stage 2 they are now a first-class capability claimed by the v1 reference, with the N-machines-per-region substitute retained for the conceptually-independent-features case.
+- **Capabilities graduate; documented substitutes cover the gaps.** Both history states and parallel regions were once on the v1 substitute list; both are now first-class capabilities claimed by the v1 reference (history per [005 §History states](005-StateMachines.md#history-states-type-history--shallow--deep--default-target), parallel per Nine States Stage 2). The N-machines-per-region substitute is retained for the conceptually-independent-features case; there is no remaining history substitute. A port that does not claim a capability is still conformant for its claimed subset — the capability list, not a substitute catalogue, is the honest accounting of what works.
 
 #### Failure mode
 
