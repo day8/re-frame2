@@ -58,6 +58,35 @@
   [frame-id]
   (= (or frame-id :rf/default) (url-owner-frame-id)))
 
+;; `:rf.nav/push-url` and `:rf.nav/replace-url` share one body: gate on
+;; the calling frame's URL ownership, then either drive the browser
+;; history (CLJS) or emit the standard `:rf.fx/skipped-on-platform`
+;; trace (JVM / non-owner). The ONLY per-fx variation is the history
+;; method (`history.pushState` vs `history.replaceState`) and the
+;; `:fx-id` tag, so the body lives once in `history-mutation-handler`
+;; and each handler closes over its method + fx-id.
+
+(defn- history-mutation-handler
+  "Shared body for the `:rf.nav/push-url` / `:rf.nav/replace-url` fx
+  handlers. `fx-id` tags the platform-skip / non-owner traces;
+  `mutate!` is the 0-arg thunk that drives `window.history` on CLJS (a
+  no-op on JVM — the caller passes a CLJS-only thunk under a reader
+  conditional). Non-URL-bound frames skip the history mutation: the
+  frame's route slice at `[:rf/runtime :routing :current]` still
+  updates — only the browser-URL sync is suppressed. Per Spec 012
+  §Multi-frame routing this is the right default for story-variant /
+  devcard / per-test fixtures."
+  [fx-id frame url mutate!]
+  (if (url-bound-frame? frame)
+    #?(:cljs (mutate!)
+       :clj  (trace/emit! :rf.fx :rf.fx/skipped-on-platform
+                          {:fx-id fx-id :url url}))
+    (trace/emit! :rf.fx :rf.fx/skipped-on-platform
+                 {:fx-id  fx-id
+                  :url    url
+                  :frame  frame
+                  :reason :frame-not-url-bound})))
+
 (def push-url-meta
   "Metadata for the `:rf.nav/push-url` fx registration. Spec 012
   §Multi-frame routing (rf2-w50qm)."
@@ -71,19 +100,9 @@ no-op the fx so they don't race with the URL-owning frame (per Spec 012
   "`:rf.nav/push-url` fx handler. Registered by the façade so a `:reload`
   re-wires it on a fresh registrar."
   [{:keys [frame]} url]
-  (if (url-bound-frame? frame)
-    #?(:cljs (.pushState js/window.history nil "" url)
-       :clj  (trace/emit! :rf.fx :rf.fx/skipped-on-platform
-                          {:fx-id :rf.nav/push-url :url url}))
-    ;; Non-URL-bound frame: skip the history mutation. Frame's
-    ;; route slice at [:rf/runtime :routing :current] still updates — only the browser-URL sync is
-    ;; suppressed. Per Spec 012 §Multi-frame routing this is the right
-    ;; default for story-variant / devcard / per-test fixtures.
-    (trace/emit! :rf.fx :rf.fx/skipped-on-platform
-                 {:fx-id :rf.nav/push-url
-                  :url   url
-                  :frame frame
-                  :reason :frame-not-url-bound})))
+  (history-mutation-handler
+    :rf.nav/push-url frame url
+    #?(:cljs #(.pushState js/window.history nil "" url) :clj nil)))
 
 (def replace-url-meta
   "Metadata for the `:rf.nav/replace-url` fx registration. Spec 012
@@ -98,12 +117,6 @@ no-op the fx so they don't race with the URL-owning frame (per Spec 012
   "`:rf.nav/replace-url` fx handler. Registered by the façade so a
   `:reload` re-wires it on a fresh registrar."
   [{:keys [frame]} url]
-  (if (url-bound-frame? frame)
-    #?(:cljs (.replaceState js/window.history nil "" url)
-       :clj  (trace/emit! :rf.fx :rf.fx/skipped-on-platform
-                          {:fx-id :rf.nav/replace-url :url url}))
-    (trace/emit! :rf.fx :rf.fx/skipped-on-platform
-                 {:fx-id :rf.nav/replace-url
-                  :url   url
-                  :frame frame
-                  :reason :frame-not-url-bound})))
+  (history-mutation-handler
+    :rf.nav/replace-url frame url
+    #?(:cljs #(.replaceState js/window.history nil "" url) :clj nil)))

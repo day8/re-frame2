@@ -14,6 +14,9 @@
       `[:rf/runtime :routing :current]` (encodes the slice-shape
       contract once for both the programmatic-nav and URL-driven paths,
       rf2-g8tzb);
+    - `commit-navigation` — the shared successful-commit assembler
+      (nav-token alloc + allocated/activation traces + slice publish +
+      fx vector) used by both nav entry points;
     - `:rf.route.internal/settle-transition` — the FIFO-drain
       `:loading → :idle` settle (nav-token-aware so a newer navigation
       mid-drain bumps `:nav-token` and the stale settle becomes a no-op).
@@ -130,6 +133,58 @@
               :transition transition
               :error      nil
               :nav-token  nav-token}))
+
+;; Per Spec 012 §Navigation is an event / §URL changes are events: a
+;; successful navigation commit is identical across the two entry points
+;; (programmatic `:rf.route/navigate` and URL-driven `:rf.route/
+;; transitioned` / `:rf.route/handle-url-change`) once the target slice
+;; fields have been resolved. Both:
+;;   1. allocate a fresh per-frame nav-token (the cascade-begin marker);
+;;   2. emit `:rf.route.nav-token/allocated`, then `emit-activation-
+;;      traces!` — IN THAT ORDER so trace consumers see
+;;      {allocated → deactivated? → activated?} (rf2-dn26r);
+;;   3. publish the seven-key slice via `merge-route-slice`;
+;;   4. assemble the fx vector: capture-scroll (the leaving route's
+;;      position) → [push-fx, when the programmatic path must drive the
+;;      browser URL] → the `:on-match` dispatches → the FIFO
+;;      `settle-transition` (only when an `:on-match` drain exists,
+;;      Spec 012 §Per-route data loading §2) → the scroll fx.
+;; The URL-driven path passes no `push-fx` (the browser URL already
+;; changed); the programmatic path passes `[:rf.nav/push-url ...]` /
+;; `[:rf.nav/replace-url ...]`. Holding the commit shape in ONE place
+;; keeps the trace ordering, the slice contract, and the fx assembly
+;; from drifting between the two callers.
+(defn commit-navigation
+  "Pure navigation-commit assembler shared by the programmatic-nav and
+  URL-driven paths. `db` is the pre-token-allocation db. `slice` carries
+  `{:id :params :query :fragment :transition}` (the published fields
+  minus `:nav-token`, which this fn allocates). `on-match-vec` is the
+  resolved `:on-match` event vector (possibly empty). `capture-fx` /
+  `scroll-fx` are the pre-built fx entries (or nil) and `push-fx` is the
+  optional history-mutation fx entry (nil on the URL-driven path).
+  Returns the event-fx cofx map `{:db :fx}`."
+  [db {:keys [id params query fragment transition]} on-match-vec
+   {:keys [prev-id capture-fx scroll-fx push-fx]}]
+  (let [[db' token] (alloc-nav-token db)]
+    (trace/emit! :rf.event :rf.route.nav-token/allocated
+                 {:route-id id :nav-token token})
+    (emit-activation-traces! prev-id id)
+    {:db (merge-route-slice db' {:id         id
+                                 :params     params
+                                 :query      query
+                                 :fragment   fragment
+                                 :transition transition
+                                 :nav-token  token})
+     :fx (vec (concat (when capture-fx [capture-fx])
+                      (when push-fx    [push-fx])
+                      (mapv (fn [ev] [:dispatch ev]) on-match-vec)
+                      ;; Per Spec 012 §Per-route data loading §2: settle
+                      ;; :loading → :idle after the on-match drain. FIFO
+                      ;; order means the settle runs after every on-match
+                      ;; event already queued above.
+                      (when (seq on-match-vec)
+                        [[:dispatch [:rf.route.internal/settle-transition token]]])
+                      (when scroll-fx [scroll-fx])))}))
 
 ;; Per Spec 012 §Per-route data loading §2. FIFO drain queues
 ;; :rf.route.internal/settle-transition after the :on-match events so

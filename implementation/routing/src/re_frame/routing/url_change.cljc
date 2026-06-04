@@ -116,7 +116,11 @@
         route-meta        (registrar/lookup :route route-id)
         on-match-vec      (vec (or (:on-match route-meta) []))
         transition        (if (seq on-match-vec) :loading :idle)
-        [db' token]       (routing-events/alloc-nav-token db)
+        ;; nav-token allocation moved into `commit-navigation` (reached
+        ;; only in the `:else` commit branch); the `identical-nav?` /
+        ;; `fragment-only?` short-circuits never allocated a usable token
+        ;; (the prior eager alloc was discarded on both), so the
+        ;; observable counter behaviour is unchanged.
         to-route          (cond-> {:id route-id}
                             (seq params) (assoc :params params)
                             (seq query)  (assoc :query  query))
@@ -178,35 +182,23 @@
                                       :recovery :replaced-with-default}
                                frame      (assoc :frame frame)
                                malformed? (assoc :reason :malformed-url))))
-        (trace/emit! :rf.event :rf.route.nav-token/allocated
-                     {:route-id  route-id
-                      :nav-token token})
-        ;; Per rf2-dn26r: route lifecycle pair. Fires after the nav-token
-        ;; allocation so trace consumers see {allocated → deactivated? →
-        ;; activated?} in that order for any cross-route transition.
-        (routing-events/emit-activation-traces!
-          (get-in db [:rf/runtime :routing :current :id]) route-id)
-        ;; rf2-g8tzb: shared slice-publish helper — encodes the
-        ;; slice-shape contract once for both nav entry points.
-        ;; Targets `:current`, so sibling routing-runtime keys
-        ;; (`:scroll-positions` / `:scroll-positions-order` /
-        ;; `:nav-token-counter` / `:pending-nav-counter`) are untouched.
-        {:db (routing-events/merge-route-slice
-               db' {:id         route-id
-                    :params     params
-                    :query      query
-                    :fragment   fragment
-                    :transition transition
-                    :nav-token  token})
-         :fx (vec (concat (when capture-fx [capture-fx])
-                          (mapv (fn [ev] [:dispatch ev]) on-match-vec)
-                          ;; Per Spec 012 §Per-route data loading §2:
-                          ;; settle :loading → :idle after the on-match
-                          ;; drain. FIFO order: settle runs after every
-                          ;; on-match event already queued above.
-                          (when (seq on-match-vec)
-                            [[:dispatch [:rf.route.internal/settle-transition token]]])
-                          (when scroll-fx [scroll-fx])))}))))
+        ;; rf2-g8tzb / commit-navigation: nav-token alloc, the
+        ;; allocated/activation traces, the slice publish (targeting
+        ;; `:current`, so sibling routing-runtime keys are untouched),
+        ;; and the fx assembly are the shared commit shape. The
+        ;; URL-driven path passes NO `push-fx` — the browser URL already
+        ;; changed (popstate / initial / link-click pushState).
+        (routing-events/commit-navigation
+          db
+          {:id         route-id
+           :params     params
+           :query      query
+           :fragment   fragment
+           :transition transition}
+          on-match-vec
+          {:prev-id    (get-in db [:rf/runtime :routing :current :id])
+           :capture-fx capture-fx
+           :scroll-fx  scroll-fx})))))
 
 (defn transitioned-handler
   "`:rf.route/transitioned` event-fx handler. Registered by the façade

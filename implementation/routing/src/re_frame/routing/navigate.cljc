@@ -208,60 +208,40 @@
             ;; changed — leave the slice and the standing nav-token as-is;
             ;; emit no allocation, fire no loaders, push no URL.
             {}
-          (let [push-fx    (if (:replace? opts)
-                             [:rf.nav/replace-url url]
-                             [:rf.nav/push-url    url])
-                ;; Per Spec 012 §Multi-frame routing nav-token allocation
-                ;; bumps the per-frame counter; thread the new db through
-                ;; the slice write below.
-                [db' token] (routing-events/alloc-nav-token db)
-                ;; Per Spec 012 §Scroll restoration: forward navigation
-                ;; defaults to :top. Resolve from opts → route-meta →
-                ;; default.
-                to-route   (scroll/route-descriptor* route-id path-params query-params)
-                strategy   (scroll/resolve-scroll-strategy route-meta opts :top)
-                ;; Per Spec 012 §Multi-frame routing: scroll-position
-                ;; lookup reads the per-frame map under
-                ;; [:rf/runtime :routing :scroll-positions].
-                scroll-fx  (scroll/scroll-fx-entry
-                             {:strategy  strategy
-                              :from      (scroll/route-descriptor
-                                           (get-in db [:rf/runtime :routing :current]))
-                              :to        to-route
-                              :saved-pos (when (= :restore strategy)
-                                           (scroll/lookup-scroll-position db url))
-                              :fragment  fragment})
-                capture-fx (scroll/capture-scroll-fx-entry db)]
-            (trace/emit! :rf.event :rf.route.nav-token/allocated
-                         {:route-id  route-id
-                          :nav-token token})
-            ;; Per rf2-dn26r: route lifecycle pair. Fires after the
-            ;; nav-token allocation (the cascade-begin marker) so trace
-            ;; consumers see {allocated → deactivated? → activated?} in
-            ;; that order for any cross-route transition.
-            (routing-events/emit-activation-traces!
-              (get-in db [:rf/runtime :routing :current :id]) route-id)
-            ;; rf2-g8tzb: shared slice-publish helper — encodes the
-            ;; slice-shape contract once for both nav entry points.
-            ;; Targets `:current`, so sibling routing-runtime keys
-            ;; (`:scroll-positions` / `:scroll-positions-order` /
-            ;; `:nav-token-counter` / `:pending-nav-counter`) are
-            ;; untouched.
-            {:db (routing-events/merge-route-slice
-                   db' {:id         route-id
-                        :params     path-params
-                        :query      query-params
-                        :fragment   fragment
-                        :transition (if (seq on-match-vec) :loading :idle)
-                        :nav-token  token})
-             :fx (vec (concat (when capture-fx [capture-fx])
-                              [push-fx]
-                              (mapv (fn [ev] [:dispatch ev]) on-match-vec)
-                              ;; Per Spec 012 §Per-route data loading §2:
-                              ;; transition :loading → :idle when the
-                              ;; on-match drain completes. FIFO order means
-                              ;; the settle dispatch runs after every
-                              ;; on-match event already queued above.
-                              (when (seq on-match-vec)
-                                [[:dispatch [:rf.route.internal/settle-transition token]]])
-                              (when scroll-fx [scroll-fx])))}))))))
+            (let [push-fx    (if (:replace? opts)
+                               [:rf.nav/replace-url url]
+                               [:rf.nav/push-url    url])
+                  ;; Per Spec 012 §Scroll restoration: forward navigation
+                  ;; defaults to :top. Resolve from opts → route-meta →
+                  ;; default.
+                  to-route   (scroll/route-descriptor* route-id path-params query-params)
+                  strategy   (scroll/resolve-scroll-strategy route-meta opts :top)
+                  ;; Per Spec 012 §Multi-frame routing: scroll-position
+                  ;; lookup reads the per-frame map under
+                  ;; [:rf/runtime :routing :scroll-positions].
+                  scroll-fx  (scroll/scroll-fx-entry
+                               {:strategy  strategy
+                                :from      (scroll/route-descriptor
+                                             (get-in db [:rf/runtime :routing :current]))
+                                :to        to-route
+                                :saved-pos (when (= :restore strategy)
+                                             (scroll/lookup-scroll-position db url))
+                                :fragment  fragment})
+                  capture-fx (scroll/capture-scroll-fx-entry db)]
+              ;; rf2-g8tzb / commit-navigation: nav-token alloc, the
+              ;; allocated/activation traces, the slice publish, and the
+              ;; fx assembly are the shared commit shape. The programmatic
+              ;; path is the only one that drives the browser URL, so it
+              ;; passes `push-fx`.
+              (routing-events/commit-navigation
+                db
+                {:id         route-id
+                 :params     path-params
+                 :query      query-params
+                 :fragment   fragment
+                 :transition (if (seq on-match-vec) :loading :idle)}
+                on-match-vec
+                {:prev-id    (get-in db [:rf/runtime :routing :current :id])
+                 :capture-fx capture-fx
+                 :scroll-fx  scroll-fx
+                 :push-fx    push-fx})))))))
