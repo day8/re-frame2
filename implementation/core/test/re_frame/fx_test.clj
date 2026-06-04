@@ -15,6 +15,8 @@
     6. Effect-map shape (M-8): legacy v1 top-level keys are policed.
     6b. :fx VALUE shape (rf2-24zly): a non-sequential :fx value is policed
         (dropped + traced), not thrown — symmetric with M-8.
+    6c. :fx per-ENTRY shape (rf2-n6d3m): a non-nil/non-empty NON-vector entry
+        is policed (dropped + traced); nil/empty stays a silent no-op.
 
   Per Spec 002 §`:fx` ordering and atomicity guarantees and Spec 009
   §Error contract."
@@ -587,6 +589,140 @@
           ":db committed; nil :fx is a no-op")
       (is (empty? (filter #(= :rf.error/effect-map-shape (:operation %)) @traces))
           "nil :fx emits NO :rf.error/effect-map-shape trace — it is the legal no-op"))))
+
+;; ---- 6c. per-ENTRY :fx-shape policing (rf2-n6d3m) -------------------------
+;;
+;; 6b (rf2-24zly) polices the whole :fx VALUE before it reaches the walk. This
+;; is the level DOWN: an individual ENTRY inside an otherwise-well-shaped :fx
+;; vector. Per `:rf/effect-map` each entry is a `[fx-id args]` vector. The do-fx
+;; walk used to guard with `(when (and (vector? pair) (seq pair)) …)`, which
+;; silently dropped every non-vector entry with NO diagnostic — including the
+;; clear typo `{:fx [[:good a] :oops]}` (a bare keyword where a `[fx-id args]`
+;; pair was meant). The handler appears to fire its effects but the typo'd
+;; entry vanishes without trace.
+;;
+;; The fix (fx.cljc `fx-entry-ok?`) tolerates the legal no-op and polices the
+;; clear typo, symmetric with rf2-24zly:
+;;   nil / [] (empty)             → silent no-op (conditional-fx idiom). NO trace.
+;;   non-empty vector             → walked normally.
+;;   non-nil, non-empty NON-vector → :rf.error/effect-map-shape (:offending-key
+;;                                   :fx, recovery :logged-and-skipped); that
+;;                                   entry dropped, siblings still run.
+
+(deftest malformed-non-vector-fx-entry-is-policed-and-skipped
+  (testing "a bare-keyword :fx entry (the forgot-the-inner-vector typo) is
+            policed — structured :rf.error/effect-map-shape, that entry skipped,
+            sibling entries still run"
+    (let [traces (collect-traces! ::fx-entry-kw)
+          fired  (atom [])]
+      (rf/reg-fx :fx-test/entry-sibling
+        (fn [_ args] (swap! fired conj args)))
+      (rf/reg-event-fx :fx-test/entry-is-keyword
+        (fn [{:keys [db]} _]
+          ;; :good fires; :oops is a bare keyword (forgot the inner vector)
+          ;; — it must be policed + skipped, NOT silently dropped.
+          {:db (assoc db :seeded? true)
+           :fx [[:fx-test/entry-sibling {:k 1}]
+                :oops
+                [:fx-test/entry-sibling {:k 2}]]}))
+      ;; The walk must NOT throw — the malformed entry never reaches
+      ;; handle-one-fx's destructuring.
+      (is (nil? (rf/dispatch-sync [:fx-test/entry-is-keyword]))
+          "dispatch returns normally — no uncaught host exception")
+      (rf/unregister-listener! ::fx-entry-kw)
+      ;; Both well-shaped siblings fired in order; the typo'd middle entry
+      ;; was skipped — the walk continued past it.
+      (is (= [{:k 1} {:k 2}] @fired)
+          "the sibling entries on both sides of the typo still fired in order")
+      (is (= true (:seeded? (rf/app-db-value :rf/default)))
+          ":db committed; only the malformed entry was dropped")
+      ;; Exactly one structured trace, flagging the offending entry.
+      (let [shape-traces (filter #(= :rf.error/effect-map-shape (:operation %))
+                                 @traces)]
+        (is (= 1 (count shape-traces))
+            "exactly one :rf.error/effect-map-shape trace for the bad entry")
+        (let [t (first shape-traces)]
+          (is (= :error (:op-type t)))
+          (is (= :logged-and-skipped (:recovery t)))
+          (is (= :fx (get-in t [:tags :offending-key]))
+              ":offending-key is :fx (a per-entry shape gap)")
+          (is (= :fx-test/entry-is-keyword (get-in t [:tags :rf.trace/event-id]))
+              ":event-id names the offending handler")
+          (is (= :rf/default (get-in t [:tags :frame]))
+              ":frame is stamped (lands in the per-frame epoch trace buffer)")
+          (is (= :oops (get-in t [:tags :value]))
+              ":value carries the offending non-vector entry")
+          (is (string? (get-in t [:tags :reason]))
+              ":reason is a human-facing description")
+          (is (re-find #"inner vector" (get-in t [:tags :reason]))
+              ":reason hints at the forgot-the-inner-vector typo"))))))
+
+(deftest malformed-map-fx-entry-is-policed
+  (testing "a map :fx entry (another non-vector shape) is policed + skipped"
+    (let [traces (collect-traces! ::fx-entry-map)
+          fired  (atom [])]
+      (rf/reg-fx :fx-test/entry-ok
+        (fn [_ args] (swap! fired conj args)))
+      (rf/reg-event-fx :fx-test/entry-is-map
+        (fn [_ _]
+          {:fx [{:dispatch [:whatever]}      ;; a map where a [fx-id args] pair belongs
+                [:fx-test/entry-ok {:k :v}]]}))
+      (is (nil? (rf/dispatch-sync [:fx-test/entry-is-map]))
+          "dispatch returns normally — no uncaught host exception")
+      (rf/unregister-listener! ::fx-entry-map)
+      (is (= [{:k :v}] @fired)
+          "the well-shaped sibling still fired; the map entry was dropped")
+      (let [shape-traces (filter #(= :rf.error/effect-map-shape (:operation %))
+                                 @traces)]
+        (is (= 1 (count shape-traces))
+            "exactly one :rf.error/effect-map-shape trace for the map entry")
+        (let [t (first shape-traces)]
+          (is (= :logged-and-skipped (:recovery t)))
+          (is (= :fx (get-in t [:tags :offending-key])))
+          (is (= :fx-test/entry-is-map (get-in t [:tags :rf.trace/event-id])))
+          (is (= {:dispatch [:whatever]} (get-in t [:tags :value]))
+              ":value carries the offending map entry"))))))
+
+(deftest nil-and-empty-fx-entries-are-silent-no-ops
+  (testing "nil and [] :fx entries are the legal conditional-fx no-op — the
+            well-shaped siblings still fire and NO shape trace is emitted"
+    ;; This is the contract the lenient `(when (and (vector? pair) (seq pair)))`
+    ;; guard preserved: the `(into [] (when cond? [[:fx ...]]))` idiom nil-pads
+    ;; (or empties) entries on purpose. Policing them would punish that idiom.
+    (let [traces (collect-traces! ::fx-entry-nil)
+          fired  (atom [])]
+      (rf/reg-fx :fx-test/entry-noop-ok
+        (fn [_ args] (swap! fired conj args)))
+      (rf/reg-event-fx :fx-test/entry-nil-empty
+        (fn [_ _]
+          {:fx [[:fx-test/entry-noop-ok {:k 1}]
+                nil                                 ;; conditional no-op
+                []                                  ;; conditional no-op
+                [:fx-test/entry-noop-ok {:k 2}]]}))
+      (is (nil? (rf/dispatch-sync [:fx-test/entry-nil-empty])))
+      (rf/unregister-listener! ::fx-entry-nil)
+      (is (= [{:k 1} {:k 2}] @fired)
+          "both well-shaped entries fired; nil + [] were silent no-ops")
+      (is (empty? (filter #(= :rf.error/effect-map-shape (:operation %)) @traces))
+          "nil + [] entries emit NO :rf.error/effect-map-shape trace — the legal idiom"))))
+
+(deftest well-formed-multi-entry-fx-emits-no-shape-trace
+  (testing "a well-formed multi-entry :fx vector runs all entries and emits NO
+            per-entry shape trace"
+    (let [traces (collect-traces! ::fx-entry-all-ok)
+          fired  (atom [])]
+      (rf/reg-fx :fx-test/multi-a (fn [_ _] (swap! fired conj :a)))
+      (rf/reg-fx :fx-test/multi-b (fn [_ _] (swap! fired conj :b)))
+      (rf/reg-event-fx :fx-test/multi-ok
+        (fn [_ _]
+          {:fx [[:fx-test/multi-a]
+                [:fx-test/multi-b]]}))
+      (rf/dispatch-sync [:fx-test/multi-ok])
+      (rf/unregister-listener! ::fx-entry-all-ok)
+      (is (= [:a :b] @fired)
+          "all well-formed entries ran in source order")
+      (is (empty? (filter #(= :rf.error/effect-map-shape (:operation %)) @traces))
+          "no :rf.error/effect-map-shape trace for a clean multi-entry :fx"))))
 
 ;; ---- 7. :fx-overrides function-value branch -------------------------------
 ;;
