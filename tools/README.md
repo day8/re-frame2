@@ -119,15 +119,20 @@ wired into the build, and consumers can use it today.
   [`tools/testbed-support/README.md`](./testbed-support/README.md).
 
 - **`tools/mcp-base/`** — `day8/re-frame2-mcp-base`. Shared primitives
-  for the MCP servers (`re-frame2-pair-mcp`, `story-mcp`): seven
+  for the MCP servers (`re-frame2-pair-mcp`, `story-mcp`): eleven
   namespaces — `vocab` (wire-vocabulary constants `:rf.mcp/*`,
   `:rf.size/*`, JSON-RPC error codes), `sensitive` (spec/009 §Privacy
   default-suppress filter), `elision` (`:rf.size/large-elided`
   wire-boundary walker), `args` (MCP argument coercion helpers),
-  `diff-encode` (path-keyed structural diff, rf2-1wdzp), `overflow`
-  (overflow-marker payload shape, rf2-rvyzy), and `cap` (wire-boundary
-  token-budget cap pipeline, rf2-eyelu). Pure `.cljc` with zero
-  runtime deps beyond `org.clojure/clojure`. Per rf2-vw4sq. See
+  `diff-encode` (path-keyed structural diff, rf2-1wdzp),
+  `section-grouping` (patch-list → path-headed cluster sections,
+  rf2-qeous), `overflow` (overflow-marker payload shape, rf2-rvyzy),
+  `cap` (wire-boundary token-budget cap pipeline, rf2-eyelu), `cursor`
+  (shared cursor-pagination machinery, rf2-ee38b.19), `envelope`
+  (indicator-field `with-indicators` splice, rf2-ee38b.19), and
+  `descriptor-manifest` (tool-descriptor manifest generator +
+  drift-check, rf2-sofwv). Pure `.cljc` with zero runtime deps beyond
+  `org.clojure/clojure`. Per rf2-vw4sq. See
   [`tools/mcp-base/spec/README.md`](./mcp-base/spec/README.md).
 
 - **`tools/mcp-conformance/`** — End-to-end MCP-client conformance

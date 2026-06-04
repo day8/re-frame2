@@ -22,6 +22,9 @@ testbeds/
   drain_depth_trigger/     <-- handler that recursively dispatches itself; configurable depth ceiling
   non_trivial_app_db/      <-- 55-leaf app-db nested 5 deep; six diff shapes one per button
   large_dispatcher/        <-- four nomination paths for :rf.size/large-elided (auto / declared / fx / schema)
+  ssr_basic/               <-- SSR hydration baseline: payload → :rf/hydrate → render → verify-hydration!
+  ssr_hydration_mismatch/  <-- deliberate-mismatch: known-wrong :rf/render-hash emits :rf.ssr/hydration-mismatch
+  ssr_multi_frame/         <-- three frames, each hydrated from its own slice of the baked payload
 ```
 
 Per-surface conventions (every testbed in this directory follows them):
@@ -46,6 +49,9 @@ shadow-cljs watch testbeds/long-flow-w-failure
 shadow-cljs watch testbeds/drain-depth-trigger
 shadow-cljs watch testbeds/non-trivial-app-db
 shadow-cljs watch testbeds/large-dispatcher
+shadow-cljs watch testbeds/ssr-basic
+shadow-cljs watch testbeds/ssr-hydration-mismatch
+shadow-cljs watch testbeds/ssr-multi-frame
 ```
 
 Then open `http://localhost:9630/build/<build-id>/dashboard` (or the per-testbed index.html served from `implementation/out/testbeds/<name>/`). The Xray preload is wired on every testbed build (mirroring the examples convention) so the trace panel and dev-tools are live on each surface.
@@ -63,6 +69,9 @@ Then open `http://localhost:9630/build/<build-id>/dashboard` (or the per-testbed
 | `drain_depth_trigger/` | Partial epoch record (drain-halt) shows up with non-`:ok` outcome (`:halted-depth`, rf2-v0jwt); the failed cascade's N `:event/dispatched` traces leading up to the halt are visible; the post-halt second drain (the in-app listener's flip) reads cleanly on the next epoch | Recorder captures the Start click + halt deterministically; replay reproduces the same N-deep cascade + rollback shape | `:rf.error/drain-depth-exceeded` event arrives over the wire with `:depth`, `:queue-size`, `:last-event` carried verbatim; the post-rollback `app-db` snapshot reads back to the pre-drain shape via `get-path` |
 | `non_trivial_app_db/` | Six distinct `:event/db-changed` shapes per click against a 55-leaf app-db nested 5 deep; diff renderer drills into vector indices and 5-level subtrees; time-travel scrubs preserve every depth | Snapshot identity reproducible across runs — the deterministic 6-click sequence produces a bit-identical snapshot on replay; variants mounting this surface verify the chrome doesn't choke on realistic app-db | Snapshot-restore round-trip preserves all 55 leaves; `get-path` resolves at every depth without elision (no slot is `:large?`) |
 | `large_dispatcher/` | `:large?` value arrives as `:rf.size/large-elided` marker — schemas are the only nomination path so all three declared buttons (B / C / D) emit `:source :schema`; Button A (un-schema'd large value) does NOT emit a marker but fires the `:rf.warning/large-value-unschema'd` advisory once on first emit | Recorder captures the click deterministically; replay reproduces the same elision marker on each emit | The marker's `:handle` shape is `get-path`-callable; the wire-cap budget stays under 5K-token cap regardless of payload size |
+| `ssr_basic/` | `:rf.ssr/*` + `:rf/hydrate` handshake visible in the trace stream; the payload-seeded `app-db` (`:count`, `:title`, `:rf/response`) reads correctly post-hydrate; no mismatch when the server-hash is `nil` (baseline) | Recorder captures the post-hydrate click sequence deterministically; replay reproduces the seeded-then-mutated `app-db` shape | The hydrated `app-db` slice reads back via `get-path`; the `:rf/hydrate` cascade's epoch record carries the payload's `:rf/frame-id` verbatim |
+| `ssr_hydration_mismatch/` | `:rf.ssr/hydration-mismatch` event highlighted in the trace stream with server-hash / client-hash / failing-id / recovery (`:warned-and-replaced`); the page stays interactive after the warn-and-replace recovery | Recorder captures the deliberate-mismatch boot deterministically; replay reproduces the same `:rf.ssr/hydration-mismatch` payload | The mismatch trace arrives over the wire with `:rf/render-hash`, the computed client hash, and `:recovery` carried verbatim |
+| `ssr_multi_frame/` | Per-frame `:rf/hydrate` dispatch produces one epoch record per frame (`:counter/a` / `:counter/b` / `:log`) with `:frame` tag intact; each frame's seeded `app-db` stays isolated | Time-travel scrub within a variant mounting this surface preserves per-frame hydration isolation | A `{:frame ...}`-addressed `get-path` resolves each frame's hydrated slice independently; the per-frame fan-out is visible across three epoch records |
 
 ## Tier roadmap (rf2-kzcim)
 
@@ -83,6 +92,12 @@ Tier 3 — devtools edge cases:
 - ✅ `drain_depth_trigger/`
 - ✅ `non_trivial_app_db/`
 - ✅ `large_dispatcher/`
+
+SSR — hydration handshake surfaces:
+
+- ✅ `ssr_basic/`
+- ✅ `ssr_hydration_mismatch/`
+- ✅ `ssr_multi_frame/`
 
 Tier 4 — a11y (retired rf2-9jfo1.1):
 

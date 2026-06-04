@@ -140,6 +140,21 @@ implementation/
     src/re_frame/epoch.cljc        Per-frame :rf/epoch-record ring buffer + projection
                                    walker for sub-runs / renders / effects.
     test/re_frame/                 JVM epoch tests.
+
+  ssr-ring/                  day8/re-frame2-ssr-ring — Ring host adapter for the SSR pipeline
+                             (rf2-ny6v7).
+    deps.edn                 :local/root deps on ../core and ../ssr (Ring is test-only).
+    src/re_frame/ssr/ring.clj      Ring handler wrapper + :rf.server/* cookie/header glue.
+    test/re_frame/                 JVM Ring-adapter tests.
+
+  test-quiet/                day8/re-frame2-test-quiet — quiet-on-success cljs.test /
+                             clojure.test reporter shared across the test runners (rf2-try1x).
+    deps.edn                 No runtime deps; a test-tooling library.
+    src/re_frame/test_quiet*       Silent-on-success reporter + runner entry points.
+
+  security/                  Cross-cutting security regression tests (MCP egress, schema
+                             redaction, SSR escaping) — test-only, no shipped namespace.
+    test/re_frame/security/        JVM + CLJS security regression suites.
 ```
 
 ## Status by spec area
