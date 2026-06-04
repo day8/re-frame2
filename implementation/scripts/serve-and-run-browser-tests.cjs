@@ -56,6 +56,30 @@ const ROOT = enforcePolicy(
 );
 const INDEX = path.join(ROOT, 'index.html');
 const RUNNER = path.resolve(__dirname, 'run-browser-tests.cjs');
+// Resolve http-server's own JS entry-point so we can spawn it under THIS
+// `node` binary (`process.execPath`) with `shell:false` — never `npx`/
+// `npx.cmd` under a shell (rf2-wn4o1). Spawning the resolved `.js` under
+// `process.execPath` sidesteps both the Windows command-hijack accident
+// class (a workspace-local `npx.cmd` resolving ahead of PATH when
+// `shell:true` + a repo-controlled `cwd` are combined — rf2-33vvc) and
+// the `.cmd`-under-no-shell `EINVAL` that the CVE-2024-27980 mitigation
+// introduced. Same shell-free posture dev-testbed.cjs uses for
+// shadow-cljs and serve-and-run-xray-feature-gate.cjs uses for
+// http-server. Resolution is rooted at IMPL_ROOT (the implementation's
+// local install) regardless of this script's own cwd.
+const IMPL_ROOT = path.resolve(__dirname, '..');
+let HTTP_SERVER_BIN;
+try {
+  HTTP_SERVER_BIN = require.resolve('http-server/bin/http-server', {
+    paths: [IMPL_ROOT],
+  });
+} catch {
+  console.error(
+    'serve-and-run-browser-tests: could not resolve http-server. Run ' +
+      `\`npm install\` in ${IMPL_ROOT} first.`,
+  );
+  process.exit(1);
+}
 const READY_TIMEOUT_MS = 30000;
 const POLL_MS = 200;
 const cleanup = createHarnessCleanup();
@@ -270,13 +294,14 @@ async function waitForReady(port, expectedToken, deadline, state) {
   const port = await resolvePort();
   console.log(`Serving ${ROOT} on http://127.0.0.1:${port}`);
 
-  const isWin = process.platform === 'win32';
-  // On Windows, npx is a .cmd shim — must go through the shell.
-  const httpServerCmd = isWin ? 'npx.cmd' : 'npx';
-  const args = ['http-server', ROOT, '-p', String(port), '-s', '-c-1'];
-  const server = cleanup.trackProcess(spawnHarnessProcess(httpServerCmd, args, {
+  // Spawn http-server shell-free under this node binary (rf2-wn4o1): the
+  // resolved absolute `.js` entry-point is the only thing the OS
+  // interprets, so a workspace-local `npx.cmd` can no longer hijack the
+  // launch, and there is no `shell:true` warning/quoting class.
+  const args = [HTTP_SERVER_BIN, ROOT, '-p', String(port), '-s', '-c-1'];
+  const server = cleanup.trackProcess(spawnHarnessProcess(process.execPath, args, {
+    cwd: IMPL_ROOT,
     stdio: ['ignore', 'inherit', 'inherit'],
-    shell: isWin,
   }));
 
   // Track the server's lifecycle so the readiness loop can fail fast
