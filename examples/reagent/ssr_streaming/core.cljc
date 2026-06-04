@@ -25,7 +25,6 @@
   (:require [re-frame.core :as rf]
             [re-frame.schemas]
             [re-frame.ssr :as ssr]
-            #?(:cljs [cljs.reader])
             #?(:cljs [reagent2.dom.client :as rdc])
             #?(:cljs [re-frame.adapter.reagent-slim :as reagent-slim-adapter])))
 
@@ -175,21 +174,32 @@
 ;;     `<body>` begins downloading.
 ;;  2. Resolved-card chunks stream in via Transfer-Encoding: chunked.
 ;;     Each one is `<template data-rf2-suspense-resolved=…>…</template>`
-;;     plus `<script data-rf2-suspense-hydrate=…>…</script>`. In a real
-;;     deployment, a thin client shim would swap the fallback for the
-;;     resolved content and merge the per-subtree delta into the client
-;;     app-db; this canned demo skips that step — the index.html host
-;;     shell already contains the pre-baked resolved chunks, so the DOM
-;;     is in its final shape by the time `run` executes.
+;;     plus `<script data-rf2-suspense-hydrate=…>…</script>`. The
+;;     client-side streaming runtime (`ssr/streaming-install!`, per
+;;     Spec 011 §Streaming SSR — client-side hydration semantics) swaps
+;;     each fallback `<template>` for the resolved content in-place and
+;;     merges the per-subtree delta into the client app-db AS each chunk
+;;     arrives — progressive hydration, before the final payload. `run`
+;;     installs it below before the first render so it catches both
+;;     chunks that already streamed in and any still arriving.
 ;;  3. The final `<script id="__rf_payload">` is the canonical full
-;;     payload; `run` dispatches `:rf/hydrate` against it, which runs
-;;     :replace-app-db semantics — the per-card deltas were progressive-
-;;     render speed props; the final payload is the correctness lock.
-
-#?(:cljs
-   (defn read-server-payload []
-     (when-let [el (.getElementById js/document "__rf_payload")]
-       (cljs.reader/read-string (.-textContent el)))))
+;;     payload; `run` dispatches `:rf/hydrate` against it (via
+;;     `ssr/hydrate!`), which runs :replace-app-db semantics — the
+;;     per-card deltas were progressive-render speed props; the final
+;;     payload is the correctness lock. The streaming runtime
+;;     auto-disconnects once it sees `__rf_payload`, so no late delta can
+;;     race the canonical replace.
+;;
+;; This worked example boots from a static `index.html` that stands in
+;; for the streaming server (it ships the final resolved state + the
+;; final payload pre-baked, so the browser runs without a Clojure server
+;; in the loop). Because the streaming runtime is additive, a page whose
+;; chunks already resolved hydrates exactly the same: the install sweep
+;; finds no un-swapped fallback, sees `__rf_payload` already present, and
+;; goes straight to the `ssr/hydrate!` reconciliation. The runtime's
+;; progressive path (chunk-arrival swap + delta merge before the final
+;; payload) is exercised end-to-end by the browser acceptance test
+;; `re-frame.ssr.streaming-client-dom-cljs-test`.
 
 #?(:cljs
    (defonce react-root
@@ -198,8 +208,19 @@
 #?(:cljs
    (defn run []
      (rf/init! reagent-slim-adapter/adapter)
-     (when-let [payload (read-server-payload)]
-       (rf/dispatch-sync [:rf/hydrate payload]))
+     ;; Install the client-side streaming runtime BEFORE the first render
+     ;; so it catches resolved-subtree chunks as they arrive (and sweeps
+     ;; any already present). It swaps fallbacks + merges per-subtree
+     ;; deltas progressively, then disconnects on `__rf_payload`.
+     (ssr/streaming-install! {:frame :rf/default})
+     ;; Reconcile against the canonical payload: read `__rf_payload` +
+     ;; dispatch `:rf/hydrate` (:replace-app-db). The deltas were
+     ;; speculative; this is the correctness lock. (`:render-tree-fn` is
+     ;; omitted — the static demo shell carries a placeholder render-hash,
+     ;; so hash-mismatch verification would always warn here; a real
+     ;; streaming server stamps the genuine hash and a host then passes
+     ;; `:render-tree-fn` to enable mismatch detection.)
+     (ssr/hydrate! {:frame :rf/default})
      (rdc/render react-root [(rf/view :dashboard/root)])))
 
 ;; The JVM-runnable headless test that exercises the server stream
