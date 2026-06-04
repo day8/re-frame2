@@ -72,7 +72,8 @@
     ;; the programmatic path matches the URL-driven path so async loaders
     ;; have a token to thread through stale-suppression.
     (let [opts (or opts {})
-          {:keys [route-id path-params query-params matched-fragment unmatched-url]}
+          {:keys [route-id path-params query-params matched-fragment unmatched-url
+                  throw-reason requested-url]}
           (cond
             (keyword? target)
             {:route-id     target
@@ -111,7 +112,16 @@
                                    (:params match {:url (:url target)}))
                :query-params     (:query match {})
                :matched-fragment (:fragment match)
-               :unmatched-url    (when-not (:route-id match) (:url target))}))
+               :unmatched-url    (when-not (:route-id match) (:url target))
+               ;; rf2-2zyvj: thread the match-url throw cause + the
+               ;; requested URL out of this `{:url ...}` branch so the
+               ;; commit body below can emit `:rf.warning/malformed-url`,
+               ;; symmetric with the URL-driven path (url_change.cljc:190).
+               ;; Without this the over-cap / match-error navigate target
+               ;; fails closed SILENTLY — invisible to the security
+               ;; dashboards / SSR projections the DoS cap feeds.
+               :throw-reason     throw-reason
+               :requested-url    (:url target)}))
           fragment    (or (:fragment opts)
                           (and (map? target) (:fragment target))
                           matched-fragment)
@@ -282,6 +292,22 @@
                                              (scroll/lookup-scroll-position db url))
                                 :fragment  fragment})
                   capture-fx (scroll/capture-scroll-fx-entry db)]
+              ;; rf2-2zyvj: structured telemetry for a `match-url` THROW
+              ;; that failed closed on the `{:url ...}` target form (the
+              ;; DoS-cap `:too-many-keys`, rf2-3k3o7, or an unexpected
+              ;; `:match-error`). Symmetric with the URL-driven entry point
+              ;; (url_change.cljc:190-193): the SAME hostile-URL stream must
+              ;; surface a `:rf.warning/malformed-url` carrying the `:reason`
+              ;; so security dashboards / SSR error-projections see it
+              ;; regardless of WHICH of the three nav events the over-cap
+              ;; URL arrived on (spec/012-Routing.md §Keyword-interning cap).
+              ;; Before this fix the programmatic navigate fail-closed path
+              ;; failed closed SILENTLY — the over-cap attack was visible via
+              ;; popstate/link but invisible via `[:rf.route/navigate {:url}]`.
+              (when throw-reason
+                (trace/emit! :warning :rf.warning/malformed-url
+                             (cond-> {:url requested-url :reason throw-reason}
+                               frame (assoc :frame frame))))
               ;; Spec 012 §Route-not-found rule 3 (rf2-0zr2o): when an
               ;; unmatched URL-string target resolved to
               ;; `:rf.route/not-found` and no such route is registered,
