@@ -18,7 +18,10 @@
       (fn [snapshot] ms) computed once at state entry.
     - Declarative :spawn that desugars into [:rf.machine/spawn args]
       on entry and [:rf.machine/destroy actor-id] on exit; deterministic
-      actor ids via a per-process counter.
+      actor ids via the in-snapshot :rf/spawn-counter (declarative) / the
+      frame's app-db [:rf/runtime :machines :spawn-counter <machine-id>]
+      slot (hand-emitted) — no process-global state (rf2-gr8q / rf2-owvvr;
+      the body comment below + spawn.cljc both note the global atom is gone).
     - Declarative :spawn-all — spawn-and-join sugar over N parallel
       :spawn's plus a join condition (:all / :any / {:n N} / {:fn pred}).
     - The :raise reserved fx-id (machine-internal pre-commit dispatch).

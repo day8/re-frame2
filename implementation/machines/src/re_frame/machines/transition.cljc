@@ -823,6 +823,30 @@
       `:event` (`(= <path> (second event))`) to disambiguate which node is
       done when several could raise it.
 
+  **Parallel-region scoping of arm 2 (rf2-m3arq).** A region-local compound's
+  done signal is re-broadcast across EVERY sibling region by the parent
+  internal-event queue (`parallel/drain-parent-queue` — the correct XState v5 /
+  SCXML `:raise` rule). The raised `[:rf.machine/done <region-relative-path>]`
+  therefore reaches every region's resolver. XState v5 / SCXML scope the
+  `done.state.<id>` event to the region that raised it — a SIBLING region must
+  NOT catch another region's done. Arm 1 (`:on-done` on the done node) is
+  naturally region-scoped (it resolves the done node by `done-path` relative to
+  the region body and only the originating region carries that node on its
+  active path), but the lower-level arm 2 escape hatch matches on the bare
+  reserved event-id and does NOT itself read the path — so an UNGUARDED
+  `:on {:rf.machine/done …}` in a sibling region would otherwise catch a
+  foreign region's done (a silent cross-region leak). To close it by
+  construction: when `machine` is a region (`:rf/region` present), arm 2 only
+  fires when the raised `done-path` is on THIS region's active `path` (the done
+  compound is a prefix of / equal to the active path — the same `prefix-of?`
+  staleness check `pick-after-transition` / `pick-spawn-error-transition` use).
+  A sibling's done-path is not a prefix of this region's active path, so the
+  sibling declines and the broadcast routes the done to its OWN region only.
+  Flat / compound machines carry no `:rf/region`, so the gate is a no-op there:
+  an unguarded `:on {:rf.machine/done …}` stays unambiguous (only the one
+  machine raises into itself). Arm 1 is left exactly as-is — the conformance-
+  verified leak-free common `:on-done` placement.
+
   `done-path` is the node's declaration path (the event's second element).
   Returns `{:transition t :decl-path p}` or nil (no `:on-done` and no
   enclosing handler — the done signal is then a benign no-op, exactly as an
@@ -839,19 +863,29 @@
                         (normalise-candidates (:on-done done-node)
                                               :rf.error/machine-bad-on-done-clause))
         on-done-hit   (when (seq on-done-cands)
-                        (select-passing-candidate machine on-done-cands snapshot event))]
+                        (select-passing-candidate machine on-done-cands snapshot event))
+        ;; rf2-m3arq — arm-2 region scoping. In a parallel region the done
+        ;; signal is broadcast to every sibling; the explicit-`:on` escape
+        ;; hatch must only catch THIS region's own done. A flat / compound
+        ;; machine (no `:rf/region`) is always own-region — the gate is inert.
+        own-region?   (or (not (:rf/region machine))
+                          (and (vector? done-path)
+                               (prefix-of? done-path path)))]
     (if on-done-hit
       {:transition on-done-hit :decl-path (vec done-path)}
       ;; Fall through to the standard leaf→root `:on` walk (an ancestor's
-      ;; explicit `:on {:rf.machine/done …}`), then the root `:on`.
-      (or
-        (path-walk/walk-path-leaf-to-root
-          machine path
-          (fn [prefix n]
-            (when-let [hit (match-on-clause machine n done-event-id event snapshot)]
-              {:transition hit :decl-path prefix})))
-        (when-let [hit (match-on-clause machine machine done-event-id event snapshot)]
-          {:transition hit :decl-path []})))))
+      ;; explicit `:on {:rf.machine/done …}`), then the root `:on` — but only
+      ;; for THIS region's own done (rf2-m3arq), so a sibling region's
+      ;; broadcast done cannot be caught by an unguarded escape hatch here.
+      (when own-region?
+        (or
+          (path-walk/walk-path-leaf-to-root
+            machine path
+            (fn [prefix n]
+              (when-let [hit (match-on-clause machine n done-event-id event snapshot)]
+                {:transition hit :decl-path prefix})))
+          (when-let [hit (match-on-clause machine machine done-event-id event snapshot)]
+            {:transition hit :decl-path []}))))))
 
 (defn- pick-spawn-error-transition
   "Per Spec 005 §Final states §`:on-error` — child-failure control flow
