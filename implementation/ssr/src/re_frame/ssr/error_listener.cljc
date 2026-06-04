@@ -41,6 +41,44 @@
     (when (and tag-frame (error-projector/server-frame? tag-frame))
       tag-frame)))
 
+;; Categories that are RECOVERABLE DEGRADATIONS, not request failures.
+;; They fire `:op-type :error` for observability (per Spec 011 §1070 the
+;; spec is the artefact: the always-on error-emit substrate carries the
+;; trace to user observability stacks) yet MUST NOT project a non-200
+;; status — the request continues with a degraded fragment.
+;;
+;; `:rf.error/ssr-head-resolution-failed` (rf2-bof8i Option B) is the
+;; canonical member: `resolve-head` degrades a throwing `:head` fn to an
+;; empty fragment so a buggy head fn "can't take down the request"
+;; (Spec 011 §1070 + lifecycle/resolve-head docstring). This is the
+;; deliberate, spec-pinned counterpoint to the view/sub fail-closed
+;; posture (rf2-vvwmi / rf2-7d30s, Spec 011 §744/§748-751): a view or
+;; reactive sub that throws mid-render projects a 5xx because the page is
+;; unusable; a head fn that throws degrades to a 200 because only the
+;; `<head>` metadata is missing — the body still renders and hydrates.
+;;
+;; rf2-lia3i — ENFORCING the contract at the buffering chokepoint (both
+;; the dev-only `error-projection-listener` and the always-on
+;; `error-emit-projection-listener` route through here) makes the
+;; degraded-200 outcome a PROPERTY OF THE PROJECTOR, not an incidental
+;; consequence of `ssr-handler` reading `get-response` (ring.clj:343)
+;; BEFORE `build-full-response` fires the head trace (pipeline.clj:286).
+;; Without this skip the immunity was timing-only: a future reorder (head
+;; resolution before `get-response`, a second flush after the render, a
+;; re-read of `get-response` on the same frame) would let a buffered head
+;; trace project the default `:rf.error/*` → status and silently flip a
+;; degraded 200 to a 4xx/5xx. The skip closes that hole by construction.
+(def ^:private non-projection-eligible-errors
+  #{:rf.error/ssr-head-resolution-failed})
+
+(defn- non-projection-eligible-error?
+  "True when `operation` names a recoverable-degradation error category
+  that must NOT be buffered for status projection (it ships its trace for
+  observability but the request continues with a degraded fragment).
+  Currently `:rf.error/ssr-head-resolution-failed` (rf2-lia3i)."
+  [operation]
+  (contains? non-projection-eligible-errors operation))
+
 ;; Per-frame buffer of captured error trace events. The trace listener
 ;; appends here synchronously when the error fires; apply-pending-
 ;; error-projection! drains the buffer and stamps the projected status
@@ -201,8 +239,12 @@
   [event]
   (when (= :error (:op-type event))
     (let [op (:operation event)]
-      ;; Skip our own sanitisation traces to avoid recursion.
-      (when-not (= :rf.error/sanitised-on-projection op)
+      ;; Skip our own sanitisation traces to avoid recursion, and skip
+      ;; recoverable-degradation categories (rf2-lia3i — e.g.
+      ;; `:rf.error/ssr-head-resolution-failed`) that must ship their
+      ;; trace for observability without projecting a non-200 status.
+      (when-not (or (= :rf.error/sanitised-on-projection op)
+                    (non-projection-eligible-error? op))
         (when-let [frame-id (candidate-frame-for-error event)]
           (buffer-error-trace! frame-id event))))))
 
@@ -229,8 +271,17 @@
     ;; sanitisation records to avoid recursion. (As of rf2-fb598
     ;; `:rf.error/sanitised-on-projection` is not delivered through the
     ;; error-emit substrate, but keep the guard so a future routing
-    ;; change can't reintroduce a re-entrant projection.)
-    (when-not (= :rf.error/sanitised-on-projection op)
+    ;; change can't reintroduce a re-entrant projection.) Also refuse
+    ;; recoverable-degradation categories (rf2-lia3i —
+    ;; `:rf.error/ssr-head-resolution-failed`): if a future host-adapter
+    ;; change routes the head-failure trace through the always-on
+    ;; substrate (it rides only the dev trace bus today, but non-Ring
+    ;; adapters MUST emit the same category per Spec 011 §1070), it must
+    ;; STILL not project a non-200 — the skip is symmetric across both
+    ;; buffering paths so the degraded-200 contract holds regardless of
+    ;; which substrate carries the trace.
+    (when-not (or (= :rf.error/sanitised-on-projection op)
+                  (non-projection-eligible-error? op))
       (let [;; The error-emit record carries the frame on its flat `:frame`
             ;; slot directly. Per rf2-7d30s every error-emit site reachable
             ;; inside a server-frame drain stamps that slot from the
