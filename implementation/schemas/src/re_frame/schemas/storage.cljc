@@ -396,9 +396,15 @@
          ;; hot-reload `:rf.schema/violation` check (rf2-ee38b.6) can
          ;; compare pre- vs post-reload shapes. nil on first registration.
          prior-schema (get-in @schemas-by-frame [frame-id path :schema])
-         meta         (source-coords/merge-coords
+         ;; The per-frame schema-metadata map (the {path → schema-meta}
+         ;; entry value) — `:schema` + `:path` + `:frame` + source-coords.
+         ;; Named `schema-meta` to match the slice vocabulary
+         ;; (`frame-schema-entries`, `app-schema-meta-at`, the
+         ;; `validate-app-schema!` destructure) and to avoid shadowing
+         ;; `clojure.core/meta`.
+         schema-meta  (source-coords/merge-coords
                         {:schema schema :path path :frame frame-id})]
-     (swap! schemas-by-frame assoc-in [frame-id path] meta)
+     (swap! schemas-by-frame assoc-in [frame-id path] schema-meta)
      ;; Per rf2-fq7d2: dev-time nudge when `:schemas/malli-validate` is
      ;; unbound AND the framework-default validator is still installed —
      ;; the default soft-passes per Spec 010 §Recommended soft-pass, so a
