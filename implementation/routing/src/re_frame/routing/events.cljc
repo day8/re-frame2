@@ -34,6 +34,19 @@
 ;; Both share one increment-and-stringify shape over a per-frame counter
 ;; key under `[:rf/runtime :routing ...]`; the only per-allocator
 ;; variation is the counter key and the id prefix.
+;;
+;; The counters are INTENTIONALLY monotone and unbounded — see Spec 012
+;; §Navigation tokens, step 1. A token need only be unique within the
+;; lifetime of any in-flight async continuation (equality against the
+;; current slice token is the only operation on it), which a monotone
+;; counter satisfies without ever wrapping. Unlike the bounded siblings
+;; under `[:rf/runtime :routing …]` (the scroll-position LRU cap, the
+;; decoded-key cap, which bound RETAINED collections), each counter is a
+;; single scalar that retains nothing and is GC'd whole on frame-destroy.
+;; Overflow is a non-concern: CLJS f64 (exact to 2^53), JVM `long`
+;; (2^63). DO NOT wrap/recycle — a recycled value could collide with a
+;; token still carried by a slow in-flight continuation, silently
+;; re-validating a stale result.
 
 (defn- alloc-counter
   "Pure per-frame counter allocator. Increments the counter at

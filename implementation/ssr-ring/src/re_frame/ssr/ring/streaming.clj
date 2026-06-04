@@ -225,6 +225,20 @@
   pump chunks. The pipe's sink-side close (in the writer's `finally`)
   signals EOF to the server.
 
+  Concurrency model (Spec 011 §Streaming SSR — Writer concurrency model;
+  rf2-fzew1): ONE raw daemon `java.lang.Thread` per in-flight streamed
+  request — no framework pool, no framework in-flight cap, by design.
+  The model is no-LEAK (every writer's `catch Throwable`/`finally` closes
+  the pipe and tears the frame down on every exit path; the live count
+  decays to zero — `concurrency_stress_test` proves it). The in-flight
+  CEILING is the HOST server's accept-queue / worker-thread limit
+  (Jetty/http-kit/Aleph), NOT a framework cap: operators size that one
+  authoritative knob for high streaming concurrency or slow-client
+  hardening. A framework pool is deliberately avoided — it would either
+  duplicate the host's limit or break the proven no-leak teardown by
+  decoupling thread lifetime from request lifetime. (JDK 21+ virtual
+  threads / an opt-in `:writer-thread-factory` are additive future work.)
+
   Returns:
 
     (fn handler [ring-request] ring-response)"
