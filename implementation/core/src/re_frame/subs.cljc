@@ -558,6 +558,99 @@
      (unsubscribe frame-id query-v)
      v)))
 
+(defn- compute-sub*
+  "Recursive worker for `compute-sub`. Threads a per-call `memo` atom
+  (`{query-v -> value}`) through the `:<-` recursion so each DISTINCT
+  sub in the dependency graph computes — and emits its `:rf.sub/run`
+  trace — at most once per top-level `compute-sub` call (rf2-gyxm3).
+
+  A memo HIT short-circuits to the pinned value: no body re-run, no
+  duplicate `:rf.sub/run` emission. Memoising by the full `query-v`
+  (id + args) is value-identical to re-computing because, for a fixed
+  `db`, a sub's value is a pure function of `db` + its inputs."
+  [query-v db memo]
+  ;; `contains?` (not a sentinel + `identical?`) so a memoised nil value
+  ;; is honoured as a HIT — unregistered subs and recovery-to-nil both
+  ;; memoise nil, and a keyword sentinel is not reliably reference-equal
+  ;; under `identical?` on CLJS.
+  (if (contains? @memo query-v)
+    (get @memo query-v)
+    (let [query-id (first query-v)
+          meta     (registrar/lookup :sub query-id)]
+      (if-not meta
+        ;; Unregistered sub computes to nil; memoise so a repeated
+        ;; reference within the same call is also a single resolution.
+        (do (swap! memo assoc query-v nil) nil)
+        (do
+          ;; Per Spec 009 §:op-type vocabulary: :sub/run marks a sub recompute.
+          ;; The pure compute-sub form fires the same op-type as the reactive
+          ;; recompute path so tools can observe both call sites uniformly.
+          ;;
+          ;; Per rf2-l1jz8 — the reactive recompute path (subs.memo/validate-
+          ;; and-trace) enriches its `:sub/run` tag with value-change +
+          ;; cascade attribution (`:value-changed?` / `:prev-value` /
+          ;; `:value` / `:cascade?` / `:cause-sub`). `compute-sub` deliberately
+          ;; bypasses the per-frame reactive cache (it's the pure-snapshot
+          ;; form per Spec 008 §Testing), so it has NO prior cached value to
+          ;; diff for `:value-changed?` and NO reactive context to attribute a
+          ;; cascade against — each DISTINCT `:<-` input is re-resolved fresh
+          ;; against the supplied `db`, not observed as a changed upstream
+          ;; signal. It therefore emits the BASE `:sub/run` shape only;
+          ;; attribution is a reactive-path concern. Consumers (Xray) read
+          ;; attribution off the reactive epoch records, never off
+          ;; compute-sub emissions.
+          (trace/emit! :rf.sub :rf.sub/run
+                       {:rf.sub/id      query-id
+                        :rf.sub/query-v query-v})
+          (let [body-fn (:handler-fn meta)
+                inputs  (:input-signals meta)
+                ;; Bind n once — `(empty? inputs)` then `(= 1 (count inputs))`
+                ;; counted twice on the multi-input path (rf2-r1rma).
+                n       (count inputs)
+                ;; Per Spec 009 §Error contract — body throws emit
+                ;; :rf.error/sub-exception and recover to nil. Mirrors
+                ;; `subs.memo/validate-and-trace` (the reactive sibling), so
+                ;; SSR + JVM-runnable consumers driving subs through
+                ;; `compute-sub` get the same debuggable signal the reactive
+                ;; path produces. The `:where :compute-sub` tag distinguishes
+                ;; this emission site from the reactive memo path; the rest of
+                ;; the envelope mirrors the sibling exactly (rf2-cos61).
+                v       (try
+                          (let [raw (cond
+                                      (zero? n)
+                                      (body-fn db query-v)
+
+                                      (= 1 n)
+                                      (body-fn (compute-sub* (first inputs) db memo) query-v)
+
+                                      :else
+                                      (body-fn (mapv #(compute-sub* % db memo) inputs) query-v))]
+                            ;; rf2-9cm27 — `compute-sub` is the pure testing form
+                            ;; (Spec 008 §Testing): a compute against a SUPPLIED db,
+                            ;; outside any reactive cascade. No in-flight reaction
+                            ;; frame to attribute to, so `frame-id` is nil — the
+                            ;; `:where :sub-return` trace from this path is not tied
+                            ;; to a per-frame epoch (mirrors the direct-caller
+                            ;; 4-arity contract).
+                            (subs-memo/maybe-validate-sub! raw query-v query-id meta nil))
+                          (catch #?(:clj Throwable :cljs :default) e
+                            (let [msg #?(:clj (.getMessage ^Throwable e) :cljs (.-message e))]
+                              (trace/emit-error!
+                                :rf.error/sub-exception
+                                {:failing-id        query-id
+                                 :rf.sub/id         query-id
+                                 :sub-query         query-v
+                                 :where             :compute-sub
+                                 :exception         e
+                                 :exception-message msg
+                                 :reason            (str "Subscription `" query-id
+                                                         "` threw while computing: "
+                                                         msg ". Returning nil.")
+                                 :recovery          :replaced-with-default}))
+                            nil))]
+            (swap! memo assoc query-v v)
+            v))))))
+
 (defn compute-sub
   "Compute a subscription's value against a supplied db, bypassing the
   reactive cache. Useful in tests that want to inspect what a sub
@@ -569,89 +662,32 @@
   sub's meta — failures emit :rf.error/schema-validation-failure and
   yield nil (default :replaced-with-default recovery).
 
-  ## Cost — N^2 on deep `:<-` chains (rf2-r0zf2)
+  ## Cost — linear in distinct subs per call (rf2-gyxm3 / rf2-r0zf2)
 
-  Each `:<-` input is resolved by RE-CALLING `compute-sub` against the
-  shared `db` — there is no memoisation across the recurse. A diamond
-  dependency (`:c` depends on `:a` and `:b`; both depend on `:root`)
-  computes `:root` twice; a longer reused-leaf chain compounds the
-  cost. The reactive `subscribe` path is immune (the per-frame
-  sub-cache deduplicates layer-2+ inputs across the dependency graph),
-  but `compute-sub` consciously bypasses that cache to stay pure.
+  A per-call memo `{query-v -> value}` is threaded through the `:<-`
+  recursion (see `compute-sub*`) so each DISTINCT sub in the dependency
+  graph computes at most ONCE per top-level `compute-sub` call. A
+  diamond dependency (`:c` depends on `:a` and `:b`; both depend on
+  `:root`) computes `:root` exactly once; a reused-leaf chain no longer
+  compounds multiplicatively. The memo is sound because for a fixed
+  `db` a sub's value is a pure function of `db` + its inputs, so
+  memoising by the full `query-v` (id + args) is value-identical to
+  re-computing.
 
-  Consumers that walk deep chains in tests / SSR / Story expecting
-  'fast pure compute' should pin the sub-result by hand and pass it
-  in instead of re-resolving the same input multiple times. The
-  shallow case (a sub with no `:<-` inputs, or a chain of distinct
-  intermediates) carries no quadratic risk."
+  This stays cache-free at the frame level — the memo is a per-call
+  internal accumulator scoped to one top-level `compute-sub`, NOT the
+  reactive per-frame sub-cache `subscribe` uses. The pure-snapshot
+  contract is unchanged: still purely a function of the supplied `db`,
+  no cross-call state, no reactive context.
+
+  Trace note: the memo elides duplicate `:rf.sub/run` emissions for a
+  shared input within one call — the sub runs (and emits) once; a
+  second reference is a memo hit. This matches the reactive path, where
+  the per-frame cache likewise computes a shared layer-2 input once."
   [query-v db]
-  (let [query-id (first query-v)
-        meta     (registrar/lookup :sub query-id)]
-    (when meta
-      ;; Per Spec 009 §:op-type vocabulary: :sub/run marks a sub recompute.
-      ;; The pure compute-sub form fires the same op-type as the reactive
-      ;; recompute path so tools can observe both call sites uniformly.
-      ;;
-      ;; Per rf2-l1jz8 — the reactive recompute path (subs.memo/validate-
-      ;; and-trace) enriches its `:sub/run` tag with value-change +
-      ;; cascade attribution (`:value-changed?` / `:prev-value` /
-      ;; `:value` / `:cascade?` / `:cause-sub`). `compute-sub` deliberately
-      ;; bypasses the per-frame reactive cache (it's the pure-snapshot
-      ;; form per Spec 008 §Testing), so it has NO prior cached value to
-      ;; diff for `:value-changed?` and NO reactive context to attribute a
-      ;; cascade against — each `:<-` input is re-resolved fresh against
-      ;; the supplied `db`, not observed as a changed upstream signal.
-      ;; It therefore emits the BASE `:sub/run` shape only; attribution is
-      ;; a reactive-path concern. Consumers (Xray) read attribution off
-      ;; the reactive epoch records, never off compute-sub emissions.
-      (trace/emit! :rf.sub :rf.sub/run
-                   {:rf.sub/id      query-id
-                    :rf.sub/query-v query-v})
-      (let [body-fn (:handler-fn meta)
-            inputs  (:input-signals meta)
-            ;; Bind n once — `(empty? inputs)` then `(= 1 (count inputs))`
-            ;; counted twice on the multi-input path (rf2-r1rma).
-            n       (count inputs)]
-        ;; Per Spec 009 §Error contract — body throws emit
-        ;; :rf.error/sub-exception and recover to nil. Mirrors
-        ;; `subs.memo/validate-and-trace` (the reactive sibling), so
-        ;; SSR + JVM-runnable consumers driving subs through
-        ;; `compute-sub` get the same debuggable signal the reactive
-        ;; path produces. The `:where :compute-sub` tag distinguishes
-        ;; this emission site from the reactive memo path; the rest of
-        ;; the envelope mirrors the sibling exactly (rf2-cos61).
-        (try
-          (let [v (cond
-                    (zero? n)
-                    (body-fn db query-v)
-
-                    (= 1 n)
-                    (body-fn (compute-sub (first inputs) db) query-v)
-
-                    :else
-                    (body-fn (mapv #(compute-sub % db) inputs) query-v))]
-            ;; rf2-9cm27 — `compute-sub` is the pure testing form (Spec 008
-            ;; §Testing): a compute against a SUPPLIED db, outside any
-            ;; reactive cascade. No in-flight reaction frame to attribute to,
-            ;; so `frame-id` is nil — the `:where :sub-return` trace from
-            ;; this path is not tied to a per-frame epoch (mirrors the
-            ;; direct-caller 4-arity contract).
-            (subs-memo/maybe-validate-sub! v query-v query-id meta nil))
-          (catch #?(:clj Throwable :cljs :default) e
-            (let [msg #?(:clj (.getMessage ^Throwable e) :cljs (.-message e))]
-              (trace/emit-error!
-                :rf.error/sub-exception
-                {:failing-id        query-id
-                 :rf.sub/id         query-id
-                 :sub-query         query-v
-                 :where             :compute-sub
-                 :exception         e
-                 :exception-message msg
-                 :reason            (str "Subscription `" query-id
-                                         "` threw while computing: "
-                                         msg ". Returning nil.")
-                 :recovery          :replaced-with-default}))
-            nil))))))
+  ;; Seed a fresh per-call memo for the recursion. The public arity is
+  ;; unchanged; the memo is purely an internal accumulator.
+  (compute-sub* query-v db (atom {})))
 
 (defn unsubscribe
   "Decrement the ref-count on the cached subscription for query-v.

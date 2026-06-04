@@ -15,9 +15,16 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as interop]
+            [re-frame.router :as router]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
             [re-frame.trace :as trace]))
+
+(def ^:private build-envelope
+  "Pull the private envelope builder — the dispatch envelope is not
+  exposed to user handlers, so the `:dispatched-at` gating (rf2-vkey0)
+  is asserted directly against `build-envelope`'s output."
+  #'router/build-envelope)
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
@@ -71,6 +78,27 @@
         (is (= 1 (count @seen))
             "event-emit substrate fired under disabled debug gate
              — always-on means always-on")))))
+
+(deftest dispatched-at-stamped-only-when-debug-enabled
+  (testing "Per rf2-vkey0: `:dispatched-at` is dev-only envelope
+            metadata gated on `interop/debug-enabled?` — exactly like
+            `:dispatch-id`. When the gate is ON, every envelope carries
+            a fresh `:dispatched-at` timestamp; when OFF (the SSR
+            production posture), the `now-ms` call and the assoc both
+            elide so production envelopes carry no `:dispatched-at`."
+    (rf/reg-frame :rf/default {})
+    (testing "debug ON -> :dispatched-at present"
+      (with-redefs [interop/debug-enabled? true]
+        (let [env (build-envelope [:noop] {})]
+          (is (contains? env :dispatched-at)
+              "envelope carries :dispatched-at under enabled gate")
+          (is (number? (:dispatched-at env))
+              ":dispatched-at is a timestamp"))))
+    (testing "debug OFF -> :dispatched-at elided (key absent, no now-ms call)"
+      (with-redefs [interop/debug-enabled? false]
+        (let [env (build-envelope [:noop] {})]
+          (is (not (contains? env :dispatched-at))
+              "envelope carries NO :dispatched-at under disabled gate"))))))
 
 (deftest always-on-error-emit-still-fires-when-debug-disabled
   (testing "Per Spec 009 §Error-emit + rf2-bacs4 / rf2-hqbeh: the

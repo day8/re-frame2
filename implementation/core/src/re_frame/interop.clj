@@ -39,23 +39,93 @@
 ;; a tracking graph the way Reagent does. make-reaction returns a thunk that
 ;; recomputes f on every deref. For the headless / SSR use cases this is fine
 ;; — they read once or twice per request, not in a hot reactive loop.
+;;
+;; Per rf2-tnnln: on-dispose callbacks live ON the reaction object (a mutable
+;; field on the `Reaction` deftype), NOT in a process-wide identity-keyed
+;; registry. This mirrors the CLJS plain-atom adapter, whose derived-value
+;; reify closes over an `(atom [])` of callbacks (see
+;; `re-frame.substrate.plain-atom/make-derived-value`): the callbacks' lifetime
+;; is tied to the reaction's lifetime, so an orphaned reaction (one that is
+;; dropped WITHOUT an explicit `dispose!` — a partial-teardown bug, an
+;; exception between `add-on-dispose!` and `dispose!`) is reclaimed by GC along
+;; with its callbacks rather than pinned forever. This is the correct
+;; resource-lifecycle posture for the long-lived JVM SSR profile (Spec 011's
+;; frame-per-request), where the prior global strong-ref `atom`-of-map was a
+;; leak surface: it held strong references to every reaction (and its whole
+;; layer-2+ input chain + compute-fn) until `dispose!` was called with that
+;; exact object, defeating GC for any reaction that escaped its dispose path.
+;;
+;; `dispose!` semantics are unchanged: callbacks are cleared from the reaction
+;; first (re-entrancy / idempotency — a second `dispose!` is a no-op) then
+;; fired in registration order.
+;;
+;; A weak-keyed fallback registry handles objects that are NOT `Reaction`s
+;; (bare `reify clojure.lang.IDeref` test doubles, plain atoms) so the
+;; `add-on-dispose!` / `dispose!` surface still works uniformly for any
+;; deref-able. The fallback is weak-KEYED (a `WeakHashMap`) so even a
+;; non-`Reaction` orphan is reclaimable: the only path on which a fallback
+;; value could strong-ref its key is when a registered callback closes over
+;; the keyed object, and the production sub-cache disposal closure
+;; (`re-frame.subs`) closes over the reaction — which on the JVM is a
+;; `Reaction`, so it takes the on-object storage path, not the fallback.
 
-(defonce ^:private on-dispose-callbacks (atom {}))
+(defprotocol IDisposeRegistry
+  "JVM on-dispose callback storage carried ON the reaction object. The
+  CLJS counterpart is `re-frame.disposable/IDisposable`; this is the
+  JVM-local equivalent for the plain-atom / SSR / headless host. Per
+  rf2-tnnln — keeping callbacks on the object (not a global registry)
+  is what makes an un-disposed reaction GC-reclaimable."
+  (-add-on-dispose [this f]
+    "Append a 0-arg on-dispose callback. Registration order is preserved.")
+  (-dispose [this]
+    "Clear the callbacks (idempotent — a second call finds none) then
+     fire them in registration order. Throwing callbacks are NOT
+     swallowed here; the caller owns per-reaction throw containment."))
+
+(deftype Reaction [f ^:unsynchronized-mutable callbacks]
+  clojure.lang.IDeref
+  (deref [_] (f))
+  IDisposeRegistry
+  (-add-on-dispose [_ cb]
+    (set! callbacks (conj callbacks cb))
+    nil)
+  (-dispose [_]
+    (let [cbs callbacks]
+      ;; Clear FIRST so a re-entrant dispose (or a callback that triggers
+      ;; another dispose of this same reaction) is a no-op, matching the
+      ;; prior dissoc-before-fire discipline.
+      (set! callbacks [])
+      (doseq [cb cbs] (cb)))))
+
+;; Weak-keyed fallback for deref-ables that are not `Reaction`s (bare
+;; reify test doubles, plain atoms). Identity is the natural key; a
+;; `WeakHashMap` keys by `.equals`/`.hashCode`, which for these objects
+;; is identity. Synchronized for the concurrent SSR / hot-reload paths.
+(defonce ^:private ^java.util.Map fallback-on-dispose-callbacks
+  (java.util.Collections/synchronizedMap (java.util.WeakHashMap.)))
 
 (defn make-reaction
-  "On the JVM, return a deref-able that recomputes f on every deref."
+  "On the JVM, return a deref-able that recomputes f on every deref and
+  carries its own on-dispose callback storage (per rf2-tnnln)."
   [f]
-  (reify clojure.lang.IDeref
-    (deref [_] (f))))
+  (->Reaction f []))
 
 (defn add-on-dispose! [a-ratom f]
-  (swap! on-dispose-callbacks update a-ratom (fnil conj []) f)
+  (if (instance? Reaction a-ratom)
+    (-add-on-dispose a-ratom f)
+    (locking fallback-on-dispose-callbacks
+      (let [cbs (.get fallback-on-dispose-callbacks a-ratom)]
+        (.put fallback-on-dispose-callbacks a-ratom (conj (or cbs []) f)))))
   nil)
 
 (defn dispose! [a-ratom]
-  (let [callbacks (get @on-dispose-callbacks a-ratom)]
-    (swap! on-dispose-callbacks dissoc a-ratom)
-    (doseq [f callbacks] (f))))
+  (if (instance? Reaction a-ratom)
+    (-dispose a-ratom)
+    (let [callbacks (locking fallback-on-dispose-callbacks
+                      (let [cbs (.get fallback-on-dispose-callbacks a-ratom)]
+                        (.remove fallback-on-dispose-callbacks a-ratom)
+                        cbs))]
+      (doseq [f callbacks] (f)))))
 
 (defn reactive?
   "Always true on the JVM (no reagent reactive context to detect)."
