@@ -42,7 +42,7 @@ code migration is not confused with greenfield design.
 | Surface | Status | Note |
 |---|---|---|
 | `reg-story` / `reg-variant`, data-shaped bodies | SHIPS | `tools/story/src/re_frame/story.cljc`, `schemas.cljc` (functions only behind ids). |
-| `:rf.assert/*` family (7 ids) | SHIPS | The canonical seven per [`004-Assertions.md`](004-Assertions.md). |
+| `:rf.assert/*` family (7 dispatched ids) | SHIPS | The seven **dispatched** `reg-event-fx` ids per [`004-Assertions.md`](004-Assertions.md); the canonical set is **eight** once the tape-evaluated `:rf.assert/schema-error` (next row, §Schema rule) is counted. |
 | `:assert-db` / `:assert-dom` script steps | SHIPS | Folded into the one assertion atom (§Assertions — one atom, two positions); do not drop them. |
 | bare event-vector script/setup shorthand | SHIPS (`play/runner.cljc` `coerce-script`) | P1 removes this authoring ambiguity; every setup/script step normalizes to a tagged step (§Script step grammar). |
 | `:events` / `:play-script` / `:plays` | SHIPS | Renamed to `:setup` / `:script` / named-scripts (§Public vocabulary). |

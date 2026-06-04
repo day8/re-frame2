@@ -1,7 +1,9 @@
 (ns counter-with-stories.stories
-  "Stories for the counter app. Demonstrates the seven `reg-*` macros
-  end-to-end on a deliberately small domain so the patterns are
-  visible rather than buried in business logic.
+  "Stories for the counter app. Demonstrates seven of the nine `reg-*`
+  macros end-to-end on a deliberately small domain so the patterns are
+  visible rather than buried in business logic. (The `reg-fragment` /
+  `reg-check` composition cohort — spec/017 §Strict composition — is
+  not exercised here.)
 
   Per spec/007 §Variants the body of every variant is plain data —
   no fn-slots. The view at the centre of each variant is referenced
@@ -11,7 +13,7 @@
   *registration site* (see `:counter-with-stories/log-decorator`
   below).
 
-  The seven `reg-*` macros each appear at least once:
+  Seven of the nine `reg-*` macros each appear at least once:
 
   - `reg-tag`         — `:counter-with-stories/canonical` (project tag).
   - `reg-mode`        — `:Mode.app/dark` + `:Mode.app/light` (theme tuples).

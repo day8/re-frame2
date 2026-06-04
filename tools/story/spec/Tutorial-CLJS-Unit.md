@@ -365,8 +365,9 @@ browser teardown.
   shape lines up against.
 - [`002-Runtime.md`](002-Runtime.md) §Programmatic API — the
   `run-variant` / `reset-variant` / `snapshot-identity` reference.
-- [`004-Assertions.md`](004-Assertions.md) — the seven canonical
-  `:rf.assert/*` events and record-don't-throw semantics.
+- [`004-Assertions.md`](004-Assertions.md) — the canonical `:rf.assert/*`
+  events (seven dispatched + the tape-evaluated `:rf.assert/schema-error`)
+  and record-don't-throw semantics.
 - [`Tutorial-Playwright.md`](Tutorial-Playwright.md) — the
   browser-required alternative; secondary path for the surfaces
   named above.

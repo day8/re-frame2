@@ -99,10 +99,10 @@ The substantive implementation contract is decomposed into
 | File | Covers |
 |---|---|
 | [`spec/000-Vision.md`](./spec/000-Vision.md) | What Story is, what it isn't, how it relates to `spec/007-Stories.md`. |
-| [`spec/001-Authoring.md`](./spec/001-Authoring.md) | The seven `reg-*` macros; EDN-first variant contract; inclusion tags; source-coord stamping. |
+| [`spec/001-Authoring.md`](./spec/001-Authoring.md) | The nine `reg-*` macros (incl. the `reg-fragment` / `reg-check` composition cohort specced in [`spec/017-Testing-Story.md`](./spec/017-Testing-Story.md)); EDN-first variant contract; inclusion tags; source-coord stamping. |
 | [`spec/002-Runtime.md`](./spec/002-Runtime.md) | Per-variant frame allocation; args precedence; decorator composition; the four-phase loader lifecycle; `run-variant` and friends. |
 | [`spec/003-Render-Shell.md`](./spec/003-Render-Shell.md) | The UI shell (sidebar / canvas / controls / workspace / embedded Xray inspector); the five workspace layouts; multi-substrate side-by-side. |
-| [`spec/004-Assertions.md`](./spec/004-Assertions.md) | The seven canonical `:rf.assert/*` events; record-don't-throw semantics; play-sequence execution; the assertion-side `force-fx-stub` interaction. |
+| [`spec/004-Assertions.md`](./spec/004-Assertions.md) | The eight canonical `:rf.assert/*` ids (seven dispatched + the tape-evaluated `:rf.assert/schema-error`); record-don't-throw semantics; play-sequence execution; the assertion-side `force-fx-stub` interaction. |
 | [`spec/005-SOTA-Features.md`](./spec/005-SOTA-Features.md) | `force-fx-stub` (mock anything, not just the network); layout-debug trio; a11y; share URL (live address-bar surface; QR popover retired in rf2-ymnfx Issue B); multi-substrate; Xray embed; v1.1 deferrals; production elision. |
 | [`spec/006-MCP-Surface.md`](./spec/006-MCP-Surface.md) | The boundary between Story and `tools/story-mcp/`. |
 | [`spec/Principles.md`](./spec/Principles.md) | Design principles (EDN-first, no fn-slots, production-elision strict, etc.). |
@@ -187,5 +187,6 @@ The browser testbeds also depend on a few non-obvious invariants:
 - [Story tutorial](../../docs/story/index.md) — the narrative walkthrough;
   the friendly entry-point for human readers.
 - [`tools/story/testbeds/counter_with_stories/`](testbeds/counter_with_stories/) —
-  the tool-owned testbed wiring the seven `reg-*` macros against the canonical
-  counter app (rf2-p8f2s — relocated from `examples/reagent/`).
+  the tool-owned testbed wiring seven of the nine `reg-*` macros (it does not
+  exercise the `reg-fragment` / `reg-check` composition cohort) against the
+  canonical counter app (rf2-p8f2s — relocated from `examples/reagent/`).

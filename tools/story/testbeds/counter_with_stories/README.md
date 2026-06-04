@@ -2,7 +2,9 @@
 
 The canonical worked example for [`tools/story/`](../../../../tools/story/)
 (`day8/re-frame2-story`). The counter the rest of the guide pivots
-around, with the seven Story authoring macros wired up end-to-end:
+around, with seven of the nine Story authoring macros wired up
+end-to-end (the `reg-fragment` / `reg-check` composition cohort is not
+exercised here):
 
 - `reg-tag`         — `:counter-with-stories/canonical`
 - `reg-mode`        — `:Mode.app/dark` + `:Mode.app/light`
@@ -12,7 +14,7 @@ around, with the seven Story authoring macros wired up end-to-end:
 - `reg-variant`     — five variants (empty / loaded / clicked-three-times / save-stubbed / events-only-loaded)
 - `reg-workspace`   — `:Workspace.counter/all-states` (`:grid`) + `:Workspace.counter/auto-grid` (`:variants-grid`)
 
-The four canonical variants exercise three of the seven canonical
+The four canonical variants exercise four of the seven dispatched
 `:rf.assert/*` events (`path-equals`, `sub-equals`, `dispatched?`,
 `effect-emitted`) plus the built-in `force-fx-stub` decorator for
 the save-flow variant. The fifth variant, `events-only-loaded`, was
@@ -30,7 +32,7 @@ counter_with_stories/
 ├── events.cljs                              ; :counter/initialise, /inc, /dec, /save
 ├── subs.cljs                                ; :count, :count-doubled, :count-parity
 ├── views.cljs                               ; counter-card, counter-buttons, parity-badge
-├── stories.cljs                             ; the seven reg-* calls
+├── stories.cljs                             ; seven of the nine reg-* macros (no fragment/check)
 ├── elision_demo.cljs                        ; :sensitive? + :large? + event-emit (rf2-vw0to)
 ├── stories_cljs_test.cljs                   ; integration tests (npm run test:cljs)
 ├── elision_demo_cljs_test.cljs              ; elision-pipeline tests (npm run test:cljs)

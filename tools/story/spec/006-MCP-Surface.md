@@ -99,6 +99,7 @@ Vision-level statement.
 ;; Public write primitives — used by MCP's gated write surface
 ;; AND by hot-reload tooling / fixture loaders that synthesise registrations.
 (reg-story*       id body)   (reg-variant*     id body)
+(reg-fragment*    id body)   (reg-check*       id body)
 (reg-workspace*   id body)   (reg-mode*        id body)
 (reg-story-panel* id body)   (reg-decorator*   id body)
 (reg-tag*         id body)
@@ -180,12 +181,12 @@ The MCP jar:
 
 Story core owns:
 
-- The seven `reg-*` macros (and their `*`-suffix runtime helpers).
+- The nine `reg-*` macros (and their nine `*`-suffix runtime helpers).
 - The four-phase runtime.
 - The render shell (when CLJS is the runtime).
 - The trace bus and panel registrations.
 - The snapshot-identity computation.
-- The canonical seven `:rf.assert/*` events.
+- The eight canonical `:rf.assert/*` ids — seven dispatched as `reg-event-fx` plus the tape-evaluated `:rf.assert/schema-error`.
 
 Stage 7's `tools/story-mcp/` is a thin adapter: takes JSON-RPC
 requests, calls Story's public CLJS / CLJC functions, serialises
