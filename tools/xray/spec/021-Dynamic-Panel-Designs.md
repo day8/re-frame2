@@ -3531,7 +3531,7 @@ spec/015 sentinels, and renders inline diff annotations when a
 `:before` opt is supplied. The cljs-devtools dep is dropped
 (rf2-oqa60); the legacy `edn-inspector.render` engine +
 `theme.data-inspector` chrome ns are deleted in phase 5 (rf2-q3dzw).
-The EDN-widget facade at `views.edn-widget.widget` is retained as a
+The EDN-widget facade at `views.edn-widget` is retained as a
 thin delegate so existing call sites compile; new call sites should
 reach for `[edn-inspector value opts]` directly.
 
@@ -3739,7 +3739,7 @@ Phases 2-5 file as separate beads chained off rf2-oqa60:
 
 #### §10.0.5 Code-block (separate surface)
 
-`views.edn-widget.widget/code-block {:source src :lang :clojure}`
+`views.edn-widget/code-block {:source src :lang :clojure}`
 is the in-bundle Clojure source-text highlighter for the Event
 panel's HANDLER slot — distinct from the value renderer (cljs-
 devtools never owned this, and the in-bundle tokenizer + zprint
@@ -4658,7 +4658,7 @@ component instance so two mounts in the same panel are isolated.
 
 Phase 1 wires the App-DB panel through the new widget directly; the
 remaining surfaces (Trace, Sub, Machine, Issues) reach through the
-legacy `views.edn-widget.widget` facade for now, which delegates to
+legacy `views.edn-widget` facade for now, which delegates to
 the new widget. Phases 2-4 migrate each surface to call
 `[edn-inspector …]` directly. Phase 5 (rf2-q3dzw) **completes** the
 subsumption: diff is now an opt-in mode on the same widget

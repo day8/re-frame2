@@ -27,7 +27,7 @@
       Absent / empty areas still render, as an empty-state placeholder.
 
   Values render through the canonical EDN widget's cljs-devtools
-  current-state path (`views.edn-widget.widget/inspect`), the same
+  current-state path (`views.edn-widget/inspect`), the same
   engine re-frame-10x adopted.
 
   Canonical exemplar of the panel facade pattern documented in

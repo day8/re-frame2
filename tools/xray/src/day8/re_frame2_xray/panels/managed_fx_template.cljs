@@ -47,7 +47,7 @@
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack sans-stack with-alpha]]
             [day8.re-frame2-xray.theme.section :as section]
-            [day8.re-frame2-xray.views.edn-widget.widget :as edn]))
+            [day8.re-frame2-xray.views.edn-widget :as edn]))
 
 ;; Section rhythm hoisted to `theme/section.cljc` per rf2-pie8q —
 ;; identical visual contract is shared with `panels/event_detail`.

@@ -23,7 +23,7 @@
   §5 — short labels stay one-line `pr-str` for scan-ability.
 
   L4 detail-tab VALUE displays go through
-  `day8.re-frame2-xray.views.edn-widget.widget/inspect` (rf2-8q4f4 —
+  `day8.re-frame2-xray.views.edn-widget/inspect` (rf2-8q4f4 —
   one widget, many call sites) for the cljs-devtools-shaped renderer;
   only short labels / paths come through here."
   [v]

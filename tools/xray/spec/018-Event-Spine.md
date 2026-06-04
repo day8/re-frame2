@@ -595,9 +595,10 @@ chrome affordances besides the tabs:
   change).
   - **No dialog, no confirmation** — the button just does it (programmers
     are power users). This is a deliberate departure from the deleted Time
-    Travel panel's modal-confirmation flow ([`002-Time-Travel.md`](002-Time-Travel.md)
-    §Restore failure modes / §Failure surfacing described the now-removed
-    panel's modal).
+    Travel panel's modal-confirmation flow (see the
+    [`002-Time-Travel.md`](002-Time-Travel.md) tombstone); the surviving
+    `restore-epoch` failure-mode contract now lives in
+    [Tool-Pair §Time-travel: epoch snapshots and undo](../../../spec/Tool-Pair.md#time-travel-epoch-snapshots-and-undo).
   - **Disabled** (dimmed, `not-allowed` cursor) when no epoch is focused.
   - **Failure** (the rare framework cases — epoch aged out of the buffer,
     or a restore-during-drain rejection → `rf/restore-epoch` returns

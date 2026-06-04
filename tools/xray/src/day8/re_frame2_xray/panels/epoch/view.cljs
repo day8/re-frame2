@@ -61,7 +61,7 @@
             [day8.re-frame2-xray.panels.shared.coord-chip :as coord-chip]
             [day8.re-frame2-xray.panels.shared.coord-link :as coord-link]
             [day8.re-frame2-xray.views.edn-inspector :as ei]
-            [day8.re-frame2-xray.views.edn-widget.widget :as edn]
+            [day8.re-frame2-xray.views.edn-widget :as edn]
             [day8.re-frame2-xray.views.resizable-table :as rt]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack sans-stack spacing type-scale with-alpha]]))

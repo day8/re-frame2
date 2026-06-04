@@ -33,7 +33,7 @@
             [day8.re-frame2-xray.static.routes.simulate-nav :as sim-nav]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack sans-stack]]
-            [day8.re-frame2-xray.views.edn-widget.widget :as edn]))
+            [day8.re-frame2-xray.views.edn-widget :as edn]))
 
 (defn- section-label
   [label]
