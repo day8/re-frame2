@@ -44,8 +44,8 @@
   | `:after {ms :target}`                 | `<transition event=\"after.ms\" target=\"target\"/>` |
   | `:always [...]`                       | `<transition target=\"...\"/>` (eventless) |
   | `{:type :parallel :regions ...}`      | `<parallel>` containing region `<state>`s |
-  | Namespaced ids (`:auth/login`)        | `auth.login` (dot-separated; SCXML id allows `.`) |
-  | Vector-path targets                   | dot-joined `parent.child.grandchild` |
+  | Namespaced ids (`:auth/login`)        | `auth.login` (`.` separates ns/name; SCXML id allows `.`) |
+  | Vector-path targets (`[:parent :child]`) | `parent:child` (`:` joins path segments — rf2-csq75) |
 
   ## Not supported (lossy or omitted)
 
@@ -79,9 +79,33 @@
 ;;
 ;; Re-frame2 ids are typically keywords (`:idle`, `:auth/login-flow`)
 ;; or vector paths (`[:authenticated :browsing]`). SCXML state ids
-;; are strings; the W3C grammar (XML Name) accepts `.` `_` `-` and
-;; alphanumerics. We map: `:auth/login` → `"auth.login"`, hyphens
-;; preserved, vector paths dot-joined.
+;; are strings; the W3C grammar (XML xsd:ID) accepts `.` `_` `-` `:`
+;; and alphanumerics. Two SEPARATE separators keep the codec injective:
+;;
+;; - `.` (DOT) joins a namespaced keyword's namespace and name:
+;;   `:auth/login` → `"auth.login"`. A single keyword emits AT MOST one
+;;   logical separation (ns vs name).
+;; - `:` (COLON) joins the segments of a VECTOR PATH:
+;;   `[:authenticated :browsing]` → `"authenticated:browsing"`,
+;;   `[:auth/login :browsing]` → `"auth.login:browsing"`.
+;;
+;; Because `keyword->id-string` never emits a `:` (it only emits the
+;; keyword's own chars plus a `.` between ns and name), the presence of
+;; a `:` in an id string is an UNAMBIGUOUS marker that the id is a
+;; vector path. This is what makes the round-trip topology-aware rather
+;; than dot-count-aware: a single namespaced keyword (`"auth.login"`,
+;; one dot, no colon) can never collide with a two-segment vector path
+;; (`"auth:login"`, one colon). rf2-csq75 — pre-fix the encoder
+;; dot-joined vector paths, so `[:authenticated :browsing]` and
+;; `:authenticated/browsing` both produced `"authenticated.browsing"`
+;; and the decoder (dot-count) collapsed the vector into a namespaced
+;; keyword, silently changing machine semantics.
+
+(def ^:private path-segment-sep
+  "rf2-csq75 — the vector-PATH segment separator. `:` is a valid XML
+  xsd:ID char that `keyword->id-string` never emits, so its presence in
+  an id string is the injective marker of a vector path."
+  ":")
 
 (defn- keyword->id-string
   "Map a single keyword to its SCXML id string."
@@ -92,20 +116,23 @@
 
 (defn- path->id-string
   "Map a re-frame2 id (keyword or vector path) to a single SCXML id
-  string. Path separator is `.` — distinct from the `.` used inside a
-  namespaced keyword because path components are full-segment-joined.
-  Decoders disambiguate by walking the registered state hierarchy
-  from the root, not by counting dots."
+  string. A namespaced keyword uses `.` between ns and name; a vector
+  path joins its per-segment id strings with `:` (`path-segment-sep`).
+  The two separators never collide, so decoders disambiguate a vector
+  path from a namespaced keyword by the PRESENCE of `:`, not by counting
+  dots (rf2-csq75)."
   [id]
   (cond
     (keyword? id) (keyword->id-string id)
-    (vector? id)  (str/join "." (map keyword->id-string id))
+    (vector? id)  (str/join path-segment-sep (map keyword->id-string id))
     (string? id)  id
     :else         (str id)))
 
 (defn- id-string->keyword
-  "Inverse of `keyword->id-string`. Recovers `:ns/name` from
-  `\"ns.name\"`; bare `\"name\"` round-trips to `:name`."
+  "Inverse of `keyword->id-string` for a SINGLE keyword segment.
+  Recovers `:ns/name` from `\"ns.name\"`; bare `\"name\"` round-trips to
+  `:name`. The input is assumed to be a single keyword segment (no `:`
+  path separator) — `unescape-id-string` handles vector-path splitting."
   [s]
   (when s
     (let [parts (str/split s #"\.")]
@@ -408,23 +435,29 @@
 
 (defn- unescape-id-string
   "Convert a SCXML id string back to a re-frame2 keyword (or vector
-  path when the id has more than one logical segment).
+  path). Inverse of `path->id-string` (rf2-csq75).
 
-  We can't distinguish `\"auth.login\"` (one namespaced keyword) from
-  `\"auth.login\"` (a two-segment compound path) at the string level.
-  The convention is: ids the encoder produces from compound paths use
-  dot-joined segments where each segment is either bare (`name`) or
-  namespaced (`ns.name`). Since the encoder only round-trips its own
-  output structurally, we map back via the simplest unambiguous rule:
-  a single dot = namespaced keyword; multi-dot = vector path."
+  The encoder uses TWO separators so the decoding is topology-aware,
+  not dot-count-aware:
+
+  - `:` (`path-segment-sep`) joins VECTOR-PATH segments. Its presence
+    is the injective marker of a vector path — `keyword->id-string`
+    never emits `:`, so it cannot arise from a single keyword.
+  - `.` joins a namespaced keyword's namespace and name WITHIN a
+    segment.
+
+  So: an id containing `:` decodes to a vector of per-segment keywords
+  (each segment via `id-string->keyword`, recovering `:ns/name` from a
+  segment's own dot); an id with NO `:` decodes to a single keyword —
+  one dot ⇒ namespaced (`\"auth.login\"` → `:auth/login`), no dot ⇒
+  bare (`\"idle\"` → `:idle`). A two-segment vector path
+  (`\"authenticated:browsing\"`) no longer collides with a namespaced
+  keyword (`\"authenticated.browsing\"`)."
   [s]
-  (let [dot-count (count (filter #(= % \.) s))]
-    (cond
-      (= 0 dot-count) (keyword s)
-      (= 1 dot-count) (id-string->keyword s)
-      :else
-      (let [parts (str/split s #"\.")]
-        (mapv keyword parts)))))
+  (when s
+    (if (str/includes? s path-segment-sep)
+      (mapv id-string->keyword (str/split s (re-pattern path-segment-sep)))
+      (id-string->keyword s))))
 
 (defn- tokenize
   "Walk an XML string and return a flat seq of token maps:
