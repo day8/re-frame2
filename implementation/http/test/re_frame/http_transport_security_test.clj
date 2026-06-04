@@ -9,7 +9,9 @@
                  HttpClient applies a wall-clock read timeout."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.http-handlers]
+            [re-frame.http-privacy :as privacy]
             [re-frame.http-transport]
+            [re-frame.late-bind :as late-bind]
             [re-frame.trace :as trace])
   (:import [java.net.http HttpClient HttpClient$Redirect HttpRequest]
            [java.time Duration]
@@ -374,3 +376,81 @@
           out (classify-jvm-error outer)]
       (is (= :rf.http/timeout (:kind out))
           "the JDK HttpClient wraps in CompletionException; classify- still resolves the underlying HttpTimeoutException via (.getCause t)"))))
+
+;; ---- rf2-sixs3 — shared emit-and-dispatch-failure! tail -------------------
+;;
+;; The abort-precedence machinery previously duplicated the rf2-bma05
+;; redact → trace/emit-error! → supersede-suppressed dispatch block across
+;; BOTH finalise-failure! and finalise-success!'s sample-(2) abort path.
+;; rf2-sixs3 extracts that tail into the private `emit-and-dispatch-failure!`
+;; so the redaction shape + supersede-suppression guard live in ONE place.
+;; These unit tests pin the helper's two-fold contract directly so a future
+;; drift (a privacy slot added to one site but not the other can no longer
+;; happen — there is only one site) is caught.
+
+(def ^:private emit-and-dispatch-failure!
+  @#'re-frame.http-transport/emit-and-dispatch-failure!)
+
+(defn- with-router-capture
+  "Stub the late-bind `:router/dispatch!` hook to capture dispatched
+  events, restoring the original in finally. Returns the body-fn's value."
+  [body-fn]
+  (let [dispatched (atom [])
+        original   (late-bind/get-fn :router/dispatch!)]
+    (late-bind/set-fn! :router/dispatch! (fn [ev opts] (swap! dispatched conj [ev opts])))
+    (try (body-fn dispatched)
+         (finally (late-bind/set-fn! :router/dispatch! original)))))
+
+(deftest emit-and-dispatch-failure-emits-and-dispatches-non-supersede
+  (testing "rf2-sixs3 — for a NON-supersede failure the helper both emits
+            the redacted :rf.http/* trace AND dispatches the reply (the
+            shared tail finalise-failure! and finalise-success! sample-(2)
+            both route through)"
+    (with-router-capture
+      (fn [dispatched]
+        (with-trace-capture
+          (fn [captured]
+            (let [ctx     {:request-id :rid
+                           :url        "https://api.example.invalid/v1?api_key=SECRET&page=2"
+                           :origin-event [:some/event]
+                           :explicit-on-failure {:supplied? false :value nil}}
+                  failure {:kind :rf.http/aborted :request-id :rid :reason :user}]
+              (emit-and-dispatch-failure! ctx failure)
+              ;; (a) emit fired with the failure kind, URL redacted.
+              (let [ev (first (filter #(= :rf.http/aborted (:operation %)) @captured))]
+                (is (some? ev) "the helper emitted a :rf.http/aborted trace")
+                (is (= "https://api.example.invalid/v1?api_key=:rf/redacted&page=2"
+                       (:url (:tags ev)))
+                    "the rf2-bma05 redaction shape ran — denylisted query param scrubbed")
+                (is (= :rid (:request-id (:tags ev)))
+                    ":request-id stamped on the emitted trace"))
+              ;; (b) the reply dispatched (non-supersede → not suppressed).
+              (is (= 1 (count @dispatched))
+                  "a non-supersede failure dispatches exactly one reply")
+              (is (= :failure (-> @dispatched first first (nth 1) :rf/reply :kind))
+                  "the dispatched reply is a :failure envelope"))))))))
+
+(deftest emit-and-dispatch-failure-suppresses-supersede-dispatch
+  (testing "rf2-sixs3 — for a supersede (:rf.http/aborted with
+            :reason :request-id-superseded) the helper STILL emits the
+            trace but SUPPRESSES the reply dispatch (rf2-lxd3 — the new
+            request replaces the old; the prior :on-failure must not fire)"
+    (with-router-capture
+      (fn [dispatched]
+        (with-trace-capture
+          (fn [captured]
+            (let [ctx     {:request-id :rid
+                           :url        "https://api.example.invalid/q"
+                           :origin-event [:some/event]
+                           :explicit-on-failure {:supplied? false :value nil}}
+                  failure {:kind :rf.http/aborted :request-id :rid
+                           :reason :request-id-superseded}]
+              (emit-and-dispatch-failure! ctx failure)
+              ;; emit STILL fires (consumers keep visibility via the trace bus).
+              (is (some (fn [ev] (and (= :rf.http/aborted (:operation ev))
+                                      (= :request-id-superseded (:reason (:tags ev)))))
+                        @captured)
+                  "supersede still emits :rf.http/aborted :reason :request-id-superseded")
+              ;; dispatch SUPPRESSED.
+              (is (empty? @dispatched)
+                  "supersede suppresses the reply dispatch (no :on-failure fires)"))))))))

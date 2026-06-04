@@ -21,7 +21,8 @@
                               registry and fires it; cleanup belongs
                               to the abort-fn → `finalise-failure!`
                               cascade per rf2-plngk."
-  (:require [re-frame.http-encoding  :as encoding]
+  (:require [clojure.string]
+            [re-frame.http-encoding  :as encoding]
             [re-frame.http-middleware :as middleware]
             [re-frame.http-privacy   :as privacy]
             [re-frame.http-registry  :as registry]
@@ -73,6 +74,35 @@
                            :bad-members   bad-members
                            :retryable-set retryable-categories
                            :reason        "`:retry :on` must be drawn exclusively from the closed retryable set #{:rf.http/transport :rf.http/cors :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}; `:rf.http/aborted`, `:rf.http/decode-failure`, and `:rf.http/accept-failure` are non-retryable by construction"})))))))
+
+(defn- validate-url!
+  "Per Spec 014 §Request envelope `:url` is the only REQUIRED key in the
+  request envelope; per Spec 009 §Error catalogue a missing/blank `:url`
+  surfaces as `:rf.error/http-bad-request` (rf2-93bck).
+
+  Validated AFTER `run-interceptor-chain!` produces the final `:request`,
+  because a `:before` interceptor may legitimately SET the url (e.g. a
+  base-URL-prefix interceptor). Throwing here — at the dispatch site —
+  rather than letting a nil url fall through to the transport gives a
+  clear at-source error: without this guard a nil url surfaces as an
+  opaque `:rf.http/transport` failure (JVM `(URI/create nil)` NPE / CLJS
+  `(js/fetch nil)` vendor error), inconsistent with the rest of the
+  surface, which DOES validate shape at dispatch (`validate-retry!` →
+  `:rf.error/http-bad-retry-on`; `build-reply-event` →
+  `:rf.error/http-bad-reply-target`). The required field had weaker
+  guarding than the optional ones.
+
+  A non-blank string passes; anything else (nil, non-string, or a
+  blank/whitespace-only string) throws."
+  [request]
+  (let [url (:url request)]
+    (when-not (and (string? url) (not (clojure.string/blank? url)))
+      (throw (ex-info ":rf.error/http-bad-request"
+                      {:rf.error/id :rf.error/http-bad-request
+                       :where       :rf.http/managed
+                       :recovery    :no-recovery
+                       :url         url
+                       :reason      "`:request :url` is required and must be a non-blank string per Spec 014 §Request envelope; a missing / nil / blank url cannot be dispatched"})))))
 
 (defn- normalise-args
   "Validate + normalise the args map. Returns a context ready for the
@@ -193,6 +223,13 @@
                       :event      origin-event
                       :sensitive? sensitive?}
         ctx          (middleware/run-interceptor-chain! frame-id ctx0)
+        ;; rf2-93bck — validate the required `:url` AFTER the `:before`
+        ;; chain produces the final `:request` (a `:before` may legitimately
+        ;; SET the url). Throws `:rf.error/http-bad-request` on a missing /
+        ;; nil / blank url so the misuse surfaces here, at the dispatch
+        ;; site, rather than as an opaque `:rf.http/transport` failure
+        ;; downstream. Mirrors `validate-retry!`'s dispatch-time guard.
+        _            (validate-url! (:request ctx))
         args-map'    (assoc args-map :request (:request ctx))
         ;; rf2-uheqq — carry the post-:before middleware-ctx forward so
         ;; the response-side `:after` chain sees the EXACT same ctx its

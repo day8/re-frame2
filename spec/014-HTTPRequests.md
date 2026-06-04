@@ -165,6 +165,8 @@ The `:request` map carries the wire shape. Keys are minimal and chosen to be hos
 | `:referrer` | no | string | CLJS-only passthrough. |
 | `:integrity` | no | string (subresource-integrity hash) | CLJS-only passthrough. |
 
+`:url` is the only **required** key. It is validated at dispatch time — **after** the `:before` interceptor chain runs, so a `:before` that sets the url (e.g. a base-URL-prefix interceptor) is honoured. A request whose final `:url` is missing / nil / a non-string / a blank string is rejected at the dispatch site with a thrown `:rf.error/http-bad-request` ([Spec 009 §Error catalogue](009-Instrumentation.md#error-event-catalogue)) rather than being allowed to fall through to the transport (where a nil url surfaces as an opaque `:rf.http/transport` failure). This matches the dispatch-time guarding the optional keys already carry (`:retry :on` → `:rf.error/http-bad-retry-on`; `:on-success` / `:on-failure` → `:rf.error/http-bad-reply-target`).
+
 #### JVM transport — degraded behaviour for CLJS-only options
 
 Six keys on the args map / request envelope are **CLJS-only** — semantically meaningful against the browser Fetch API and ignored by the JVM's `java.net.http.HttpClient`-backed transport. A request that carries any of them on the JVM proceeds normally; the option is **silently no-op** and the runtime emits one `:rf.http/cljs-only-key-ignored-on-jvm` warning trace per occurrence so consumers (Xray, Story, off-box monitors) can spot the degraded code path:

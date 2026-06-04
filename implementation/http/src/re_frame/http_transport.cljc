@@ -733,6 +733,48 @@
    :reason     (:reason abort-state)
    :actor-id   (or (:actor-id abort-state) (:actor-id ctx))})
 
+(defn- emit-and-dispatch-failure!
+  "rf2-sixs3 — the failure-finalise TAIL: rf2-bma05 redaction →
+  `trace/emit-error!` → supersede-suppressed `dispatch-failure!`.
+
+  PRECONDITION: the caller already holds the once-only `:finalised?`
+  token (won the CAS / no handle) AND has already cleared the in-flight
+  registry. This helper deliberately does NEITHER — it is the shared
+  source of truth for the rf2-bma05 redaction shape + the supersede-
+  suppression guard, called from BOTH:
+    - `finalise-failure!` (the canonical site), and
+    - `finalise-success!`'s sample-(2) abort path (which has already won
+      the CAS and cleared the registry, so it must NOT re-enter
+      `finalise-failure!` — that would double-clear + re-check
+      `already-replied?`).
+
+  Before this extraction the prepare-emit-failure / emit-error! /
+  suppress sequence was duplicated inline at both sites and could drift
+  (e.g. a future privacy slot added to one but not the other). Now the
+  redaction contract exists once.
+
+  Per rf2-lxd3: a supersede (`:rf.http/aborted` with
+  `:reason :request-id-superseded`) emits to the trace bus but does NOT
+  dispatch the `:on-failure` reply — the new request replaces the old."
+  [ctx failure]
+  (when interop/debug-enabled?
+    ;; rf2-bma05 — redact response-side payload slots (body, body-text,
+    ;; decoded, detail) and the headers denylist before the trace surface
+    ;; sees them; stamp :sensitive? when applicable. The CLJS and JVM
+    ;; transports share the same contract.
+    (let [sensitive? (true? (:sensitive? ctx))
+          redacted   (privacy/prepare-emit-failure
+                       (assoc failure
+                              :request-id (:request-id ctx)
+                              :url        (:url ctx)
+                              :recovery   :no-recovery)
+                       sensitive?)]
+      (trace/emit-error! (:kind failure) redacted)))
+  (let [superseded? (and (= :rf.http/aborted (:kind failure))
+                         (= :request-id-superseded (:reason failure)))]
+    (when-not superseded?
+      (dispatch-failure! ctx failure))))
+
 (defn- finalise-success! [ctx accepted]
   ;; rf2-wez75 — abort-precedence check. Two sampling points:
   ;;   (1) BEFORE the once-only CAS — covers the case where abort-fn
@@ -753,21 +795,14 @@
       (registry/clear-in-flight! (:request-id ctx) (:handle ctx))
       (if-let [post-cas-abort (aborted-snapshot ctx)]
         ;; Sample (2): abort flipped between our pre-CAS sample and
-        ;; our CAS-win. We hold the once-only token; dispatch the
-        ;; aborted reply directly rather than re-entering
-        ;; finalise-failure! (which would double-clear the registry
-        ;; and re-check `already-replied?`).
-        (let [failure (aborted-failure ctx post-cas-abort)]
-          (when interop/debug-enabled?
-            (let [sensitive? (true? (:sensitive? ctx))
-                  redacted   (privacy/prepare-emit-failure
-                               (assoc failure
-                                      :url      (:url ctx)
-                                      :recovery :no-recovery)
-                               sensitive?)]
-              (trace/emit-error! :rf.http/aborted redacted)))
-          (when-not (= :request-id-superseded (:reason failure))
-            (dispatch-failure! ctx failure)))
+        ;; our CAS-win. We hold the once-only token AND have cleared the
+        ;; registry above; dispatch the aborted reply directly rather
+        ;; than re-entering finalise-failure! (which would double-clear
+        ;; the registry and re-check `already-replied?`). The redact +
+        ;; emit + supersede-suppress tail is shared with finalise-failure!
+        ;; via `emit-and-dispatch-failure!` (rf2-sixs3) — single source of
+        ;; truth for the rf2-bma05 redaction shape.
+        (emit-and-dispatch-failure! ctx (aborted-failure ctx post-cas-abort))
         (cond
           (contains? accepted :ok)
           (dispatch-success! ctx (:ok accepted))
@@ -822,23 +857,12 @@
                         (aborted-failure ctx abort-state)
                         failure)]
       (registry/clear-in-flight! (:request-id ctx) (:handle ctx))
-      (when interop/debug-enabled?
-        ;; rf2-bma05 — redact response-side payload slots (body, body-text,
-        ;; decoded, detail) and the headers denylist before the trace
-        ;; surface sees them; stamp :sensitive? when applicable. The CLJS
-        ;; and JVM transports share the same contract.
-        (let [sensitive? (true? (:sensitive? ctx))
-              redacted   (privacy/prepare-emit-failure
-                           (assoc effective
-                                  :request-id (:request-id ctx)
-                                  :url        (:url ctx)
-                                  :recovery   :no-recovery)
-                           sensitive?)]
-          (trace/emit-error! (:kind effective) redacted)))
-      (let [superseded? (and (= :rf.http/aborted (:kind effective))
-                             (= :request-id-superseded (:reason effective)))]
-        (when-not superseded?
-          (dispatch-failure! ctx effective))))))
+      ;; rf2-sixs3 — the redact + emit-error! + supersede-suppressed
+      ;; dispatch tail is shared with finalise-success!'s sample-(2) abort
+      ;; path via `emit-and-dispatch-failure!`. We have already won the
+      ;; once-only CAS (the `already-replied?` guard above) and cleared
+      ;; the registry, satisfying the helper's precondition.
+      (emit-and-dispatch-failure! ctx effective))))
 
 (defn- schedule-backoff-handle!
   "rf2-wj8vv — arm the retry backoff timer AND keep the request
@@ -1041,15 +1065,37 @@
               accepted (encoding/run-accept accept decoded)]
           (finalise-success! (assoc ctx :decoded decoded) accepted))
         (catch #?(:clj Throwable :cljs :default) e
-          (let [d (ex-data e)]
+          (let [d (ex-data e)
+                ;; rf2-mdxd7 — the keyword-interning DoS cap (Spec 014
+                ;; §Keyword-interning cap) throws a structured
+                ;; `:rf.error/malformed-json` ex-info carrying `:cause`
+                ;; (`:too-many-keys`) and `:limit` (the configured cap).
+                ;; The spec (lines 145, 285, 289) mandates the overflow
+                ;; surface as `:rf.http/decode-failure` with
+                ;; `:reason :too-many-keys` and that `:limit`. Propagate
+                ;; both onto the failure map so a caller branching on
+                ;; `:reason` sees the documented shape (and a DoS-cap
+                ;; overflow is programmatically distinguishable from an
+                ;; ordinary JSON syntax error — `:schema-validation-failure?`
+                ;; is false for both). `:reason` carries the ex-data's
+                ;; `:cause` keyword; the human-readable string `:cause`
+                ;; slot below is the ex-message, unchanged.
+                malformed? (= :rf.error/malformed-json (:rf.error/id d))
+                reason     (when malformed? (:cause d))
+                limit      (when malformed? (:limit d))]
             (maybe-retry!
               ctx
-              {:kind                       :rf.http/decode-failure
-               :body-text                  body-text
-               :cause                      #?(:clj (.getMessage ^Throwable e)
-                                              :cljs (.-message e))
-               :schema-validation-failure? (= :rf.error/http-schema-validation-failed
-                                              (:rf.error/id d))}))))
+              (cond-> {:kind                       :rf.http/decode-failure
+                       :body-text                  body-text
+                       :cause                      #?(:clj (.getMessage ^Throwable e)
+                                                      :cljs (.-message e))
+                       :schema-validation-failure? (= :rf.error/http-schema-validation-failed
+                                                      (:rf.error/id d))}
+                ;; A bare JSON syntax error (`:rf.error/malformed-json`
+                ;; with no `:cause`/`:limit`) carries no `:reason`/`:limit`
+                ;; slots — only the cap-overflow shape does.
+                (some? reason) (assoc :reason reason)
+                (some? limit)  (assoc :limit limit))))))
 
       :else
       ;; Non-2xx that didn't fall in 4xx/5xx (e.g., 1xx/3xx that the
