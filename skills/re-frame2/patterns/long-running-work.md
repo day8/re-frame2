@@ -77,6 +77,8 @@ One parent coordinator spawns N children declaratively via `:spawn-all`. Each ch
                           {:id :s2 :machine-id :work/processor :data {:shard :s2 :total 100 :processed 0 :tick-ms 50}}
                           {:id :s3 :machine-id :work/processor :data {:shard :s3 :total 100 :processed 0 :tick-ms 50}}]
                :join :all
+               :on-child-done   :work/child-done   ;; child-keyword children dispatch on success (REQUIRED)
+               :on-child-error  :work/child-error   ;; child-keyword children dispatch on failure (REQUIRED)
                :on-all-complete [:work/all-done]
                :on-any-failed   [:work/any-failed]}
               :on {:progress        {:action :record-progress}      ;; internal self-transition
@@ -143,7 +145,7 @@ Exiting `:working` fires one `:rf.machine/destroy` fx carrying `:rf/spawn-all tr
 
 ## Pointer to the spec
 
-Full rationale — `:spawn-all` runtime, join-state layout, `:join` modes (`:any`, `:n-of`), v1 migration — lives in *Pattern — Long-running work* and Spec 005. `:final?` surface: `../references/state-machines/spawn.md` §Final states.
+Full rationale — `:spawn-all` runtime, join-state layout, `:join` modes (`:all` / `:any` / `{:n N}` / `{:fn pred}`), v1 migration — lives in *Pattern — Long-running work* and Spec 005. `:final?` surface: `../references/state-machines/spawn.md` §Final states. (Partial joins use `{:n N}`, NOT `:n-of` — and require `:on-some-complete`; `:all` requires `:on-all-complete`, per `re-frame.machines.lifecycle-fx.validation`.)
 
 ---
 

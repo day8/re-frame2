@@ -26,38 +26,75 @@ The loader machine fans out three fetches, joins, writes on `:ready`, and stamps
 (rf/reg-machine :pdp/load
   {:doc     "Parallel loader for /products/:id. Fans out 3 fetches; joins on all-complete."
    :initial :loading
-   :data    (fn [_ [_ {:keys [product-id]}]] {:product-id product-id})
+   ;; Top-level :data is a literal map (Spec 005 §build-initial-snapshot
+   ;; seeds it verbatim — NO fn-form here; the fn-form lives only on a
+   ;; spawn-spec :data). :product-id arrives as the spawned actor's
+   ;; initial data — the :rf/server-init wiring below spawns with
+   ;; :data {:product-id …}.
+   :data    {:product-id nil :results {}}
+   :actions
+   {;; The child dispatches [:pdp/child-loaded :slot {...}]; this runs as
+    ;; an INTERNAL self-transition (no :target) and stages each child's
+    ;; result under :data. The :on-child-done keyword (:pdp/child-done) is
+    ;; intercepted by the join machinery for the join-count; this SEPARATE
+    ;; non-intercepted keyword (:pdp/child-loaded) carries the payload.
+    :stage-result
+    (fn [{data :data [_ slot payload] :event}]
+      {:data (assoc-in data [:results slot] payload)})
+    ;; On :ready, hand the staged results to a real reg-event-fx that does
+    ;; the app-db write — a machine :action cannot write :db itself.
+    :apply-results
+    (fn [{data :data}]
+      {:fx [[:dispatch [:pdp/apply-results (:results data)]]]})}
    :states
    {:loading
     {:spawn-all
      {:children
       [{:id :product :machine-id :http/get-one
-        :data (fn [snap _] {:url (str "/api/products/" (-> snap :data :product-id))
-                            :decode ProductSchema})}
+        :data (fn [{:keys [snapshot]}] {:url (str "/api/products/" (-> snapshot :data :product-id))
+                                        :decode ProductSchema})}
        {:id :related :machine-id :http/get-one
-        :data (fn [snap _] {:url (str "/api/products/" (-> snap :data :product-id) "/related")
-                            :decode RelatedListSchema})}
+        :data (fn [{:keys [snapshot]}] {:url (str "/api/products/" (-> snapshot :data :product-id) "/related")
+                                        :decode RelatedListSchema})}
        {:id :reviews :machine-id :http/get-one
-        :data (fn [snap _] {:url (str "/api/products/" (-> snap :data :product-id) "/reviews")
-                            :decode ReviewListSchema})}]
+        :data (fn [{:keys [snapshot]}] {:url (str "/api/products/" (-> snapshot :data :product-id) "/reviews")
+                                        :decode ReviewListSchema})}]
       :join            :all
+      :on-child-done   :pdp/child-done    ;; child-keyword children dispatch on success (REQUIRED)
+      :on-child-error  :pdp/child-error    ;; child-keyword children dispatch on failure (REQUIRED)
       :on-all-complete [:pdp/joined]
       :on-any-failed   [:pdp/load-failed]}
      :after {30000 :pdp/timed-out}        ;; phase-level wall-clock guard — mandatory under SSR
-     :on    {:pdp/joined :ready :pdp/load-failed :error :pdp/timed-out :error}}
+     :on    {:pdp/child-loaded {:action :stage-result}   ;; internal: stage each payload under :data
+             :pdp/joined  {:target :ready :action :apply-results}
+             :pdp/load-failed :error
+             :pdp/timed-out   :error}}
 
-    :ready {:final? true
-            :entry (fn [{:keys [event]}]
-                     (let [[_ _ {:keys [product related reviews]}] event]
-                       {:db-fx [[:assoc-in [:pdp :product] product]
-                                [:assoc-in [:pdp :related] related]
-                                [:assoc-in [:pdp :reviews] reviews]]}))}
+    :ready {:final? true}
     :error {:final? true
-            :entry (fn [_ [_ _ reason]]
-                     {:fx [[:rf.server/set-status 502] [:assoc-in [:pdp :error] reason]]})}}})
+            :entry (fn [{:keys [event]}]
+                     (let [[_ _ reason] event]
+                       {:fx [[:rf.server/set-status 502]
+                             [:dispatch [:pdp/stamp-error reason]]]}))}}})
+
+;; The real app-db writes happen in ordinary reg-event-fx handlers — a
+;; machine :action / :entry returns only :data + :fx, never :db (Spec 005
+;; hard-disallows :db; there is no :db-fx key and no :assoc-in fx).
+(rf/reg-event-fx :pdp/apply-results
+  (fn [{:keys [db]} [_ {:keys [product related reviews]}]]
+    {:db (-> db
+             (assoc-in [:pdp :product] product)
+             (assoc-in [:pdp :related] related)
+             (assoc-in [:pdp :reviews] reviews))}))
+
+(rf/reg-event-fx :pdp/stamp-error
+  (fn [{:keys [db]} [_ reason]]
+    {:db (assoc-in db [:pdp :error] reason)}))
 ```
 
-The per-fetch child is a thin shared machine — one state spawns `:rf.http/managed`; terminal states dispatch `:loaded` / `:failed` back to the parent (the parent-id is stamped at spawn time and read from the child's `:data :env`). Only the spawn-spec `:data` fn differs per sibling.
+The per-fetch child is a thin shared machine — one state spawns `:rf.http/managed`; terminal states dispatch the success keyword (`[:pdp/load [:pdp/child-loaded :product {…}]]` carrying the payload, plus the join keyword `[:pdp/load [:pdp/child-done :product]]`) or `:pdp/child-error` back to the parent (the parent-id is stamped at spawn time and read from the child's `:data :env`). Only the spawn-spec `:data` fn differs per sibling.
+
+> **Why two keywords per child.** `:on-child-done` / `:on-child-error` are REQUIRED keyword slots on `:spawn-all` (validated at registration in `re-frame.machines.lifecycle-fx.validation` — omitting either throws `:rf.error/machine-spawn-all-bad-shape`). The runtime *intercepts* events whose inner-event-id matches those keywords to drive the join count — so the join keyword carries no usable payload to the parent's `:on` table. To thread each child's result into the parent, the child dispatches a SECOND, non-intercepted keyword (`:pdp/child-loaded`) the parent stages via an internal self-transition, exactly as the boot example (`examples/reagent/boot/boot.cljs`) does.
 
 The SSR request wires it from `:rf/server-init`, reading request-derived values from the `:rf.server/request` cofx **once**, at the spawn site:
 

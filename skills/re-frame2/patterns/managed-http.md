@@ -93,6 +93,8 @@ The wrapper handles its own internal events and dispatches `[parent-id [:succeed
   {:children [{:id :user  :machine-id :rf.http/managed :data {:request {:url "/api/me"}}}
               {:id :prefs :machine-id :rf.http/managed :data {:request {:url "/api/prefs"}}}]
    :join :all
+   :on-child-done   :hydrate/child-done    ;; child-keyword children dispatch on success (REQUIRED)
+   :on-child-error  :hydrate/child-error    ;; child-keyword children dispatch on failure (REQUIRED)
    :on-all-complete [:hydrate/done]
    :on-any-failed   [:hydrate/aborted]}}}
 ```
