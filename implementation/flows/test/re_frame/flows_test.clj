@@ -89,6 +89,24 @@
   (testing "calling clear-flow on an unknown id is a no-op (does not throw)"
     (rf/clear-flow :no-such-flow)))
 
+(deftest clear-flow-prunes-empty-frame-slot-from-registry
+  ;; rf2-4bbaw: clearing the LAST flow on a frame must dissoc the frame-id
+  ;; key from the per-frame `@flows` registry entirely, not leave a
+  ;; `{frame-id {}}` husk. (Distinct from the leaf-only app-db vacation
+  ;; husk covered by the next deftest — this is about the registry map,
+  ;; not app-db.) Symmetric with `teardown-on-frame-destroy!`'s
+  ;; `(swap! flows dissoc frame-id)`.
+  (testing "clearing the sole flow on a frame removes the frame-id key from flows-snapshot"
+    (rf/reg-flow {:id     :area
+                  :inputs [[:w] [:h]]
+                  :output (fn [w h] (* (or w 0) (or h 0)))
+                  :path   [:rect :area]})
+    (is (contains? (flows/flows-snapshot) :rf/default)
+        "precondition: the frame slot exists while a flow is registered")
+    (rf/clear-flow :area)
+    (is (not (contains? (flows/flows-snapshot) :rf/default))
+        "the frame-id key is GONE from @flows — no {frame-id {}} husk remains")))
+
 (deftest clear-flow-vacates-leaf-only-leaving-empty-parent-husk
   ;; rf2-ee38b.9: clear-flow's vacation contract is LEAF-ONLY. When the
   ;; cleared flow's leaf was the sole key under its parent, an empty

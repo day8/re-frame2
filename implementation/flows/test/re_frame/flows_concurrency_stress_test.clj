@@ -326,18 +326,23 @@
 
         ;; --- Invariant 4: clean registry — no leak. After every
         ;;     thread cleared its flow, the per-frame registry must
-        ;;     be empty for every test frame, the `last-inputs` map
-        ;;     must hold no entries for any per-thread flow id, and
-        ;;     the global `:flow` registrar slot must be gone for
-        ;;     every per-thread flow id (the LAST frame holding it
-        ;;     released the id per Spec 013 §Frame-scoping).
+        ;;     have the frame-id key fully PRUNED for every test frame,
+        ;;     the `last-inputs` map must hold no entries for any
+        ;;     per-thread flow id, and the global `:flow` registrar slot
+        ;;     must be gone for every per-thread flow id (the LAST frame
+        ;;     holding it released the id per Spec 013 §Frame-scoping).
+        ;;
+        ;; rf2-4bbaw: each per-thread frame had ALL its flows cleared, so
+        ;; clearing the last one prunes the frame-id key entirely — the
+        ;; slot is strictly `nil`, never a `{frame-id {}}` empty husk.
         (let [flows-snapshot       (flows/flows-snapshot)
               last-inputs-snapshot (flows/last-inputs-snapshot)]
           (doseq [{:keys [frame-id flow-id cyc-a cyc-b]} per-thread]
             (let [per-frame-slot (get flows-snapshot frame-id)]
-              (is (or (nil? per-frame-slot) (empty? per-frame-slot))
-                  (str "Frame " frame-id ": expected empty per-frame "
-                       "flow registry after teardown; got "
+              (is (nil? per-frame-slot)
+                  (str "Frame " frame-id ": expected the per-frame flow "
+                       "registry key to be PRUNED after teardown "
+                       "(no {frame-id {}} husk, rf2-4bbaw); got "
                        (pr-str per-frame-slot))))
             (is (not (contains? last-inputs-snapshot flow-id))
                 (str "Flow id " flow-id " must not retain a "

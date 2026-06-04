@@ -523,7 +523,18 @@
              ;; absent slot, common during teardown).
              (when-not (identical? new-db db)
                (adapter/replace-container! container new-db))))
-         (swap! flows update frame-id dissoc id)
+         ;; Drop the flow from `frame-id`'s per-frame slot; when that was
+         ;; the LAST flow on the frame, prune the now-empty `frame-id` key
+         ;; entirely rather than leave a `{frame-id {}}` husk (rf2-4bbaw).
+         ;; The husk was harmless (bounded by frame count, tolerated by the
+         ;; concurrency-stress invariant) but a naive `flows-snapshot`
+         ;; consumer would iterate the empty entry; pruning keeps the
+         ;; registry exactly symmetric with `teardown-on-frame-destroy!`'s
+         ;; `(swap! flows dissoc frame-id)`.
+         (swap! flows (fn [m]
+                        (let [m' (update m frame-id dissoc id)]
+                          (cond-> m'
+                            (empty? (get m' frame-id)) (dissoc frame-id)))))
          ;; Drop the cleared flow's dirty-check row from THIS frame's own
          ;; `last-inputs` container (rf2-94ol5). Frame-local — a sibling
          ;; frame registering the same id keeps its own row untouched.
