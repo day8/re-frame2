@@ -375,6 +375,14 @@
   :<- [:ws/snapshot]
   (fn [snap _] (:state snap)))
 
+(rf/reg-sub :ws/connecting?
+  :<- [:ws/snapshot]
+  (fn [snap _] (contains? (:tags snap) :websocket/connecting)))
+
+(rf/reg-sub :ws/authenticating?
+  :<- [:ws/snapshot]
+  (fn [snap _] (contains? (:tags snap) :websocket/authenticating)))
+
 (rf/reg-sub :ws/connected?
   :<- [:ws/snapshot]
   (fn [snap _] (contains? (:tags snap) :websocket/connected)))
