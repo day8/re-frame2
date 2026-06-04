@@ -212,35 +212,26 @@
 
       :else
       (let [form (read-dom-form selector sub-selector limit max-text attrs)]
+        ;; The runtime's `dom-read` ALWAYS returns a map, so a non-map at
+        ;; `on-value` means a BLANK eval (rf2-r5erl). The shared
+        ;; `probe/map-result-or-blank` projects a map → `ok-text` with the
+        ;; `:build` echo, or a blank → a structured `:ok? false` error (so
+        ;; `ok-text` never sees `nil` and emits the `null` structuredContent
+        ;; the SDK rejects). read-ui carries the identical projection. The
+        ;; per-tool blank `:reason` / `:hint` / `:selector` echo ride in here.
         (probe/eval-after-runtime!
           conn build-id form :read-dom-failed
-          (fn [envelope]
-            ;; The runtime's `dom-read` ALWAYS returns a map (a `{:ok? ...}`
-            ;; envelope or the no-document / bad-selector error). A nil /
-            ;; non-map here means the eval came back BLANK —
-            ;; `cljs-eval-value` reads a blank shadow result as `nil`
-            ;; (no runtime answered, or the result slot was empty). Left
-            ;; unguarded, `(wire/ok-text nil)` projected to a `null`
-            ;; structuredContent that the SDK's outputSchema validation
-            ;; rejected at the transport layer with
-            ;; `expected record at structuredContent, received null`
-            ;; (rf2-r5erl) — bypassing the normal error contract. Surface
-            ;; it as a structured `{:ok? false ...}` like `orient` does.
-            (if (map? envelope)
-              (wire/ok-text (assoc envelope :build build-id))
-              (wire/err-text
-                {:ok?      false
-                 :reason   :rf.error/read-dom-blank-result
-                 :build    build-id
-                 :selector selector
-                 :hint     (str "read-dom's browser eval returned a blank / "
-                                "non-map value. This is almost always the "
-                                "connection, not the form: read-dom calls the "
-                                "preloaded runtime fn (re-frame2-pair.runtime/"
-                                "dom-read) — the same shared plumbing read-ui "
-                                "uses — so an unresolved-alias miss can no "
-                                "longer nil it out. A blank result means the "
-                                "runtime did not answer the eval (a dropped "
-                                "WebSocket, or the preload was wiped by a full "
-                                "page refresh). Run discover-app to confirm "
-                                ":liveness :fresh, then retry.")}))))))))
+          (probe/map-result-or-blank
+            build-id :rf.error/read-dom-blank-result
+            (str "read-dom's browser eval returned a blank / "
+                 "non-map value. This is almost always the "
+                 "connection, not the form: read-dom calls the "
+                 "preloaded runtime fn (re-frame2-pair.runtime/"
+                 "dom-read) — the same shared plumbing read-ui "
+                 "uses — so an unresolved-alias miss can no "
+                 "longer nil it out. A blank result means the "
+                 "runtime did not answer the eval (a dropped "
+                 "WebSocket, or the preload was wiped by a full "
+                 "page refresh). Run discover-app to confirm "
+                 ":liveness :fresh, then retry.")
+            {:selector selector}))))))
