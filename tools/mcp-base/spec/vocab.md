@@ -3,7 +3,7 @@
 > **Type:** Reference (`tools/mcp-base/spec/`)
 > The single source of truth for the marker keys an agent learns once and recognises across every MCP server in the re-frame2 pair — `re-frame2-pair-mcp` and `story-mcp`. A rename here is a wire-protocol break; the cross-MCP conformance gate under `tools/mcp-conformance/wire-vocab/` fails loud when that happens.
 
-This doc is one of eight per-namespace contracts indexed from [`README.md`](README.md). See also: [`sensitive.md`](sensitive.md), [`elision.md`](elision.md), [`args.md`](args.md), [`diff-encode.md`](diff-encode.md), [`section-grouping.md`](section-grouping.md), [`overflow.md`](overflow.md), [`cap.md`](cap.md).
+This doc is one of eleven per-namespace contracts indexed from [`README.md`](README.md). See also: [`sensitive.md`](sensitive.md), [`elision.md`](elision.md), [`args.md`](args.md), [`diff-encode.md`](diff-encode.md), [`section-grouping.md`](section-grouping.md), [`overflow.md`](overflow.md), [`cap.md`](cap.md), [`cursor.md`](cursor.md), [`envelope.md`](envelope.md), [`descriptor-manifest.md`](descriptor-manifest.md).
 
 ## Scope
 
@@ -39,6 +39,7 @@ Unqualified envelope slots — `:dropped-sensitive`, `:elided-large` — are per
 | `cache-hit-key` | `:rf.mcp/cache-hit` | `{:tool … :digest … :hint …}` (content-free; agent host correlates by cache key) | rf2-3rt1f / rf2-36xod |
 | `summary-key` | `:rf.mcp/summary` | `{<tree-summary>}` (lazy-summary projection) | rf2-tygdv / rf2-u2029 |
 | `invalid-arg-key` | `:rf.mcp/invalid-arg` | `{:arg <kw> :value <supplied> :hint <str>}` — top-level wrapper carried as the payload of an `isError: true` result rejecting a malformed per-call arg. First emitter: `cap/max-tokens` on a negative `:max-tokens` (see [`cap.md` §Negative `:max-tokens` is rejected](cap.md#negative-max-tokens-is-rejected-rf2-5rdit)). | rf2-5rdit |
+| `result-key` | `:rf.mcp/result` | `{:rf.mcp/result <tag> …}` — top-level discriminator for a wire-**fidelity** typed result envelope. `<tag>` ∈ `:value` (`:value <v>`), `:nil` (no extra slots), `:eval-error` (`:reason :ex :message :ex-data`), `:unserializable` (`:type :preview`). TYPES an evaluation's outcome so a genuine `nil`, a thrown eval-error, and an unserializable value (`#object`/`#js`/Function) stop collapsing to a bare `null`. Emitted by re-frame2-pair-mcp's `tools/result_envelope.cljs` for `eval-cljs` / `handler-meta`; the server projects each tag onto the tool's `:ok?` vocabulary. Composes with — never bypasses — the size machinery: the codec tags the outcome; the elision walker still runs over the `:value` payload. Per [Tool-Pair §Wire fidelity](../../../spec/Tool-Pair.md). (Defined-but-not-yet-cross-gated: the `wire-vocab` conformance corpus does not yet pin this marker.) | rf2-qobqy |
 
 ## Marker catalogue (`:rf.size/*`)
 
