@@ -182,14 +182,14 @@
 
   (with-new-frame [f (rf/make-frame {:on-create [:app/initialise]
                                  :fx-overrides {:rf.http/managed :realworld.test/canned-articles}})]
-    (is (= :idle (:status (rf/compute-sub [:articles] (rf/app-db-value f)))))
+    (is (= :idle (:status (rf/compute-sub [:articles/slice] (rf/app-db-value f)))))
     (rf/dispatch-sync [:articles/load] {:frame f})
-    (let [slice (rf/compute-sub [:articles] (rf/app-db-value f))]
+    (let [slice (rf/compute-sub [:articles/slice] (rf/app-db-value f))]
       (is (= :loaded (:status slice)))
       (is (= 1 (count (:data slice))))
       (is (= "hello-world" (-> slice :data first :slug))))
     (rf/dispatch-sync [:articles/load] {:frame f})
-    (let [slice (rf/compute-sub [:articles] (rf/app-db-value f))]
+    (let [slice (rf/compute-sub [:articles/slice] (rf/app-db-value f))]
       (is (= :loaded (:status slice)))
       (is (= 2 (:attempt slice))))))
 
@@ -202,7 +202,7 @@
   (with-new-frame [f (rf/make-frame {:on-create [:app/initialise]
                                  :fx-overrides {:rf.http/managed :realworld.test/canned-articles-failure}})]
     (rf/dispatch-sync [:articles/load] {:frame f})
-    (is (= :error (:status (rf/compute-sub [:articles] (rf/app-db-value f)))))
+    (is (= :error (:status (rf/compute-sub [:articles/slice] (rf/app-db-value f)))))
     (is (some? (rf/compute-sub [:articles/error] (rf/app-db-value f))))))
 
 ;; ============================================================================
