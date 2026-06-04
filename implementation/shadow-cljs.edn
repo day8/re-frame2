@@ -191,25 +191,15 @@
                 ;; `:examples/counter-slim-and-fast` build below) resolves
                 ;; from here.
                 "../examples/reagent-slim"
-                "../examples/reagent/nine_states/test"
-                "../examples/reagent/realworld/test"
-                ;; rf2-ee38b.25 — sibling test trees for the ssr /
-                ;; ssr_streaming / state_machine_walkthrough examples,
-                ;; whose headless test fns moved out of the example source
-                ;; (the example source stays test-free, matching
-                ;; realworld/nine_states). JVM-driven by
-                ;; re-frame.examples-test; listing them here only widens
-                ;; the classpath (the .cljc/.clj test fns are not picked up
-                ;; by the `cljs-test$` node-test regexp).
-                "../examples/reagent/ssr/test"
-                "../examples/reagent/ssr_streaming/test"
-                "../examples/reagent/state_machine_walkthrough/test"
-                ;; rf2-o9fg — long-running-work example's fixtures live
-                ;; under examples/reagent/long_running_work/test/ to
-                ;; keep the production source test-free (same layout
-                ;; convention as realworld/ and nine_states/).
-                "../examples/reagent/long_running_work/test"
-                "../examples/reagent/websocket/test"
+                ;; rf2-cd2zo — the example test/ source dirs are gone.
+                ;; Each example's headless test fixtures were folded into
+                ;; the framework test tree: the reagent adapter-test
+                ;; bridges (re-frame.{realworld,nine-states,long-running-
+                ;; work,websocket}-cljs-test) for the CLJS examples, and
+                ;; re-frame.examples-test for the JVM-driven ssr /
+                ;; ssr_streaming / state_machine_walkthrough examples. No
+                ;; examples/.../test source path remains — the example
+                ;; tree is test-free (rf2-8cevm).
                 "../examples/uix"
                 "../examples/helix"
                 ;; rf2-kzcim Tier 1 — shared framework-behavior

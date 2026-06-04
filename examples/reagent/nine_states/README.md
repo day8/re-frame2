@@ -66,10 +66,12 @@ that keyword is the only branch site.
 - **Inspectability bias** — non-trivial guards / actions are named
   entries in the machine's machine-scoped `:guards` / `:actions`
   maps; only trivial transitions use inline fns.
-- **Headless tests** — every state has a fixture at the bottom of
-  `core.cljs` that drives `app-db` into that state and asserts against
-  the machine's tag union and the resolved `:ui/render` keyword. Tests
-  run via `compute-sub` / `dispatch-sync` / `with-frame`.
+- **Headless tests** — every state has a fixture that drives `app-db`
+  into that state and asserts against the machine's tag union and the
+  resolved `:ui/render` keyword. They run via `compute-sub` /
+  `dispatch-sync` / `with-frame`. The example tree is test-free
+  (rf2-8cevm); the fixtures live in the framework test tree (see
+  [How to run](#how-to-run)).
 
 ## Legacy variant
 
@@ -83,14 +85,14 @@ The pre-parallel-regions variant — nine boolean discriminator subs
 examples/reagent/nine_states/
   core.cljs   single-file example: schemas, the :ui/nine-states
               parallel machine, demo events, the render-priority
-              table + :ui/render sub, per-state views, headless tests,
-              mount.
+              table + :ui/render sub, per-state views, mount.
   README.md   this file.
 ```
 
 For brevity the example is one file; in a real codebase it would
 split per CP-6 conventions (`schema.cljc / machine.cljc / events.cljs
-/ subs.cljs / views.cljs / events_test.cljs`).
+/ subs.cljs / views.cljs`). The example tree is test-free (rf2-8cevm)
+— the per-state headless fixtures live in the framework test tree.
 
 ## How to run
 
@@ -110,15 +112,12 @@ shadow-cljs watch examples/nine-states
 
 (Run `npm run test:examples` at least once first so `out/examples/nine-states/index.html` is staged; subsequent watch builds reuse it.)
 
-The headless tests live in [`test/nine_states/core_test.cljs`](test/nine_states/core_test.cljs) and run as part of the framework's CLJS test suite. To run them ad-hoc from a CLJS REPL:
-
-```clojure
-(require '[nine-states.core])          ;; loads the example registrations
-(require '[nine-states.core-test :as t])
-(t/test-state-1-nothing)
-(t/test-state-2-loading)
-;; ...one per state.
-```
+The per-state headless fixtures live in the integration test at
+[`implementation/adapters/reagent/test/re_frame/nine_states_cljs_test.cljs`](../../../implementation/adapters/reagent/test/re_frame/nine_states_cljs_test.cljs)
+(folded inline by rf2-cd2zo so the example source stays test-free) and
+run as part of the framework's CLJS test suite (`npm run test:cljs`).
+Each of the nine states is one `testing` block under the
+`nine-states-runs-end-to-end` deftest.
 
 ## Cross-references
 

@@ -25,9 +25,10 @@
 | `views.cljs` | UI — status pill driven by tags, lifecycle buttons, send form, request/subscribe/server-push demo trio, inbox. |
 | `schema.cljs` | Malli schemas for the connection-machine snapshot, the `:data` slice, and the `[:messages]` slice. |
 | `index.html` | Minimal harness. |
-| `test/websocket/test_helpers.cljs` | Test-only re-registration scaffolding (recovers from upstream `clear-all!` callers). Not loaded by the production bundle; the wrapper test ns's `:each` fixture calls it. |
-| `test/websocket/connection_test.cljs` | Headless tests: initial state, happy-path lifecycle, offline-queue + drain, reconnect cascade, max-retries → `:failed`, connection-epoch staleness, `:ws/refresh-token`, clean `:ws/disconnect`. |
-| `test/websocket/messages_test.cljs` | Headless tests: request-reply correlation, server-push routing, subscription tracking, `[:messages :received]` newest-first invariant. |
+
+The example tree is test-free (rf2-8cevm). The headless fixtures + the
+test-only re-registration scaffolding were folded into the integration
+test (see [Headless tests](#headless-tests)).
 
 ## Mock WebSocket server
 
@@ -69,14 +70,20 @@ shadow-cljs watch examples/websocket
 
 ## Headless tests
 
-The headless tests are pure-CLJS browserless fixtures. They live alongside the sources at `test/websocket/<feature>_test.cljs`, mirroring the realworld layout.
+The headless tests are pure-CLJS browserless fixtures. The example tree
+is test-free (rf2-8cevm), so the connection + message fixtures and the
+test-only re-registration scaffolding (which recovers from upstream
+`clear-all!` callers) were folded into the integration test at
+[`implementation/adapters/reagent/test/re_frame/websocket_cljs_test.cljs`](../../../implementation/adapters/reagent/test/re_frame/websocket_cljs_test.cljs)
+(rf2-cd2zo). Each fixture is one `deftest` there, so the `:each` fixture
+(which resets the mock server + re-registers everything) runs around
+each individually:
 
-| Source ns | Test ns |
-|---|---|
-| `websocket.connection` | `websocket.connection-test` |
-| `websocket.messages`   | `websocket.messages-test`   |
-
-The tests are wired into the framework's CLJS test run via `re-frame.websocket-cljs-test` under `implementation/adapters/reagent/test/re_frame/`, which wraps each fixture in a `testing` block under a single `deftest`.
+- connection lifecycle — initial state, happy-path lifecycle,
+  offline-queue + drain, reconnect cascade, max-retries → `:failed`,
+  connection-epoch staleness, `:ws/refresh-token`, clean `:ws/disconnect`.
+- messages — request-reply correlation, server-push routing,
+  subscription tracking, `[:messages :received]` newest-first invariant.
 
 ```bash
 cd implementation

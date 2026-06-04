@@ -219,8 +219,7 @@
   (fn [machine _] (get-in machine [:data :error])))
 
 ;; The chapter's headless tests (pure machine-transition + full-drain
-;; scenarios) live in the sibling test ns
-;; `state-machine-walkthrough.core-test` under test/, keeping this example
-;; source pure demonstrative code. They run on the JVM via
-;; re-frame.examples-test and under CLJS node-test via
-;; re-frame.state-machine-walkthrough-cljs-test.
+;; scenarios) live in re-frame.examples-test (implementation/core/test/),
+;; folded inline as the `state-machine-walkthrough-runs-headless` deftest
+;; (rf2-cd2zo), keeping this example source pure demonstrative code (the
+;; example tree is test-free, rf2-8cevm). They run on the JVM.

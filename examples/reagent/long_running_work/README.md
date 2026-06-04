@@ -98,19 +98,24 @@ examples/reagent/long_running_work/
                   fires the unmount cascade)
   schema.cljs     malli schemas for the parent + child snapshots
   index.html      static host page (mounted by core/run)
-  test/long_running_work/
-    worker_test.cljs           headless fixtures
   README.md       this file
 ```
+
+The example tree is test-free (rf2-8cevm). The headless fixtures that
+exercise the parent + child flows were folded into the integration test
+in the framework test tree (see below).
 
 Per the test-free examples policy there is no per-example
 Playwright spec; real-regression coverage lives in the substrate
 contract tests (`npm run test:cljs`) and the framework gates (see
 [`examples/README.md`](../../README.md)).
 
-The integration test that wraps the headless fixtures lives at
-[`implementation/adapters/reagent/test/re_frame/long_running_work_cljs_test.cljs`](../../../implementation/adapters/reagent/test/re_frame/long_running_work_cljs_test.cljs).
-Same wrapping pattern as `nine-states-cljs-test` and `realworld-cljs-test`.
+The headless fixtures that exercise the parent + child flows live in the
+integration test at
+[`implementation/adapters/reagent/test/re_frame/long_running_work_cljs_test.cljs`](../../../implementation/adapters/reagent/test/re_frame/long_running_work_cljs_test.cljs)
+— the helper fns and their `deftest` bodies are folded into that one ns
+(rf2-cd2zo), so the example source stays test-free. Same pattern as
+`nine-states-cljs-test` and `realworld-cljs-test`.
 
 ## How to run
 
@@ -130,17 +135,10 @@ npx shadow-cljs watch examples/long-running-work
 # Then open the URL the watch command prints.
 ```
 
-Direct fixture invocation from a CLJS REPL:
-
-```clojure
-(require '[long-running-work.core])             ;; loads the example
-(require '[long-running-work.worker-test :as t])
-(t/test-spawn-cascade)
-(t/test-happy-path-join)
-(t/test-cancel-cascade)
-(t/test-parent-unmount-cascade)
-(t/test-reset-after-cancel)
-```
+The headless coverage runs from the integration test
+(`re-frame.long-running-work-cljs-test`) under `npm run test:cljs`. The
+spawn-cascade / happy-path-join / cancel-cascade / parent-unmount /
+reset-round-trip scenarios each have a `deftest` there.
 
 ## Cross-references
 

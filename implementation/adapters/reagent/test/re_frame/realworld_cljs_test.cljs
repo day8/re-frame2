@@ -1,102 +1,805 @@
 (ns re-frame.realworld-cljs-test
-  "Integration test: drives the realworld (Conduit) example's headless
-   test fixtures (rf2-4v73). Each fixture spins a fresh frame via
-   `make-frame`, drives a feature flow with a canned :http stub, and
-   asserts the resulting app-db / sub state.
+  "Integration test: drives the realworld (Conduit) example (rf2-4v73)
+   feature by feature. Each helper spins a fresh frame via `make-frame`,
+   drives a feature flow with a canned :rf.http/managed stub, and asserts
+   the resulting app-db / sub state.
 
-   The fixtures live under examples/reagent/realworld/test/realworld/ — extracted
-   from the production realworld source under rf2-4v73 so the example's
-   .cljs files are now test-free.
+   The fixture fns + the canned-stub helpers live HERE (the adapter test
+   tree), not under examples/reagent/realworld/ — the example source stays
+   test-free per the locked test-free-examples policy (rf2-8cevm). The ns
+   requires the example's production source (`realworld.core`, which
+   chains in every feature ns — auth / articles / article-editor /
+   comments / favorites / profile / settings / tags / routing — plus
+   `realworld.ssr`), so their handlers / subs / views / machines register
+   at ns-load, then exercises them directly. (rf2-cd2zo folded the former
+   `realworld.test-helpers` + the nine `realworld.*-test` fixture nses in
+   here and retired the example test/ dir.)
 
    Per rf2-am9d this ns uses snapshot/restore via re-frame.test-support
    so the contract is uniform across CLJS fixtures: the snapshot captures
-   the realworld example's ns-load registrations, and the restore on the
-   way out leaves them intact for any subsequent test ns."
-  (:require [cljs.test :refer-macros [deftest testing use-fixtures]]
+   the realworld example's ns-load registrations (and the
+   `:realworld.test/canned-success-empty` stub registered at this ns's
+   load), and the restore on the way out leaves them intact for any
+   subsequent test ns."
+  (:require [clojure.string :as str]
+            [cljs.test :refer-macros [deftest testing use-fixtures is]]
+            [re-frame.core :as rf]
+            [re-frame.registrar :as registrar]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]
             [re-frame.views]
+            [re-frame.http-test-support]
             [realworld.core]
-            [realworld.auth-test :as auth-t]
-            [realworld.articles-test :as articles-t]
-            [realworld.article-editor-test :as editor-t]
-            [realworld.comments-test :as comments-t]
-            [realworld.favorites-test :as favorites-t]
-            [realworld.profile-test :as profile-t]
-            [realworld.settings-test :as settings-t]
-            [realworld.tags-test :as tags-t]
-            [realworld.routing-test :as routing-t]
-            [realworld.ssr-test :as ssr-t]
-            [realworld.core-test :as core-t]))
+            [realworld.routing :as routing]
+            [realworld.ssr :as ssr])
+  (:require-macros [re-frame.core :refer [with-new-frame]]))
+
+;; ============================================================================
+;; CANNED-STUB HELPERS
+;; ============================================================================
+;;
+;; Per Spec 014 §Testing, the framework ships canned-stub fxs
+;; (`:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure`)
+;; that synthesise the canonical reply shape. The realworld fixtures use
+;; per-test wrappers that delegate to these stubs while supplying the
+;; test-specific `:value` (success) or `:kind` + `:tags` (failure). The
+;; `:rf.http/managed-canned-*` fx ids register from
+;; re-frame.http-test-support (required above), NOT re-frame.http-managed.
+
+(defn- reg-canned-success!
+  "Register an fx-id that delegates to :rf.http/managed-canned-success
+   with a fixed `:value`. Use as a per-test stub via :fx-overrides."
+  [fx-id value]
+  (rf/reg-fx fx-id
+    {:platforms #{:client :server}}
+    (fn [frame-ctx args]
+      (let [stub (registrar/handler :fx :rf.http/managed-canned-success)]
+        (stub frame-ctx (assoc args :value value))))))
+
+(defn- reg-canned-success-by-url!
+  "Register an fx-id that delegates to :rf.http/managed-canned-success,
+   choosing `:value` per the request URL (and optionally method). `f`
+   receives the URL string (1-arity) or [method url] (2-arity from a
+   3-arity f); always returns the synthesised `:value` payload."
+  [fx-id f]
+  (rf/reg-fx fx-id
+    {:platforms #{:client :server}}
+    (fn [frame-ctx args]
+      (let [stub   (registrar/handler :fx :rf.http/managed-canned-success)
+            req    (:request args)
+            method (or (:method req) :get)
+            url    (:url req)
+            arity  (try
+                     (.-length f)
+                     (catch :default _ 1))
+            value  (if (>= arity 2)
+                     (f method url)
+                     (f url))]
+        (stub frame-ctx (assoc args :value value))))))
+
+(defn- reg-canned-failure!
+  "Register an fx-id that delegates to :rf.http/managed-canned-failure
+   with a fixed `:kind` and `:tags` failure category per Spec 014."
+  [fx-id kind tags]
+  (rf/reg-fx fx-id
+    {:platforms #{:client :server}}
+    (fn [frame-ctx args]
+      (let [stub (registrar/handler :fx :rf.http/managed-canned-failure)]
+        (stub frame-ctx (assoc args :kind kind :tags tags))))))
+
+;; A generic success stub: every :rf.http/managed call resolves :success
+;; with an empty map. Used by the core smoke test; richer per-test stubs
+;; are registered inside the helpers that need specific payloads. This
+;; top-level registration is captured by the :each fixture's snapshot
+;; (the fixture snapshots the registrar AFTER this ns loads), so it
+;; survives the per-test reset.
+(reg-canned-success! :realworld.test/canned-success-empty {})
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
     {:adapter reagent-adapter/adapter}))
 
-;; Each fixture is a plain `defn` (preserves original signature; the
-;; example used to call them directly from the REPL). Failures throw via
-;; `assert`, which surfaces as a test failure under cljs.test.
+;; ============================================================================
+;; auth — the auth state machine
+;; ============================================================================
+
+(defn- login-happy-path-test []
+  (reg-canned-success! :realworld.test/login-success
+                       {:user {:email    "alice@example.com"
+                               :username "alice"
+                               :token    "jwt-abc"
+                               :bio      nil
+                               :image    nil}})
+
+  (with-new-frame [f (rf/make-frame {:on-create    [:auth/initialise]
+                                 :fx-overrides {:rf.http/managed      :realworld.test/login-success
+                                                :auth.session/persist :rf/no-op}})]
+    (is (= :idle (rf/compute-sub [:auth/state] (rf/app-db-value f))))
+
+    (rf/dispatch-sync [:auth/flow [:auth/login {:email "alice@example.com"
+                                                :password "correct-horse"}]]
+                      {:frame f})
+    (is (= :authed (rf/compute-sub [:auth/state] (rf/app-db-value f))))
+    (is (= "alice" (:username (rf/compute-sub [:auth/user] (rf/app-db-value f)))))
+
+    (rf/dispatch-sync [:auth/flow [:auth/logout]] {:frame f})
+    (is (= :idle (rf/compute-sub [:auth/state] (rf/app-db-value f))))
+    (is (nil? (rf/compute-sub [:auth/user] (rf/app-db-value f))))))
+
+(defn- session-token-cofx-shape-test []
+  ;; Cofx-shape contract — the :auth.session/token cofx must assoc its
+  ;; injected value into `(:coeffects ctx)` (not the top of ctx). If
+  ;; the shape regresses, the value lands at ctx[<cofx-id>] and the
+  ;; handler's destructure binds nil — silently.
+  ;;
+  ;; Call the registered cofx handler directly with a known empty input
+  ;; ctx and assert the value lands at the conventional path. The cofx
+  ;; reads from `js/globalThis.localStorage`; node-side that is absent
+  ;; so the value is nil — but the SHAPE is what matters here:
+  ;; `:coeffects` must be present and contain the key.
+  (let [cofx-meta (registrar/handler-meta :cofx :auth.session/token)
+        handler   (:handler-fn cofx-meta)
+        result    (handler {:coeffects {}} nil)]
+    (is (contains? (:coeffects result) :auth.session/token)
+        "cofx body must assoc its injected value under [:coeffects :auth.session/token]")
+    (is (nil? (get result :auth.session/token))
+        "the misshapen-cofx witness — the value must NOT land at top of ctx")))
+
+(defn- login-failure-test []
+  (reg-canned-failure! :realworld.test/login-failure
+                       :rf.http/http-4xx
+                       {:status 422
+                        :body   {:errors {:body ["email or password is invalid"]}}})
+
+  (with-new-frame [f (rf/make-frame {:on-create    [:auth/initialise]
+                                 :fx-overrides {:rf.http/managed :realworld.test/login-failure}})]
+    (rf/dispatch-sync [:auth/flow [:auth/login {:email "x@y.z" :password "wrong"}]]
+                      {:frame f})
+    (is (= :error (rf/compute-sub [:auth/state] (rf/app-db-value f))))
+    (is (some? (rf/compute-sub [:auth/error] (rf/app-db-value f))))
+
+    (rf/dispatch-sync [:auth/flow [:auth/dismiss]] {:frame f})
+    (is (= :idle (rf/compute-sub [:auth/state] (rf/app-db-value f))))))
+
+;; ============================================================================
+;; articles — global feed loading + failure paths
+;; ============================================================================
+
+(defn- articles-load-test []
+  (reg-canned-success! :realworld.test/canned-articles
+                       {:articles [{:slug "hello-world"
+                                    :title "Hello, world"
+                                    :description "An intro"
+                                    :body "..."
+                                    :tagList ["intro"]
+                                    :createdAt "2026-05-01T00:00:00Z"
+                                    :updatedAt "2026-05-01T00:00:00Z"
+                                    :favorited false
+                                    :favoritesCount 0
+                                    :author {:username "alice" :bio nil :image nil
+                                             :following false}}]
+                        :articlesCount 1})
+
+  (with-new-frame [f (rf/make-frame {:on-create [:app/initialise]
+                                 :fx-overrides {:rf.http/managed :realworld.test/canned-articles}})]
+    (is (= :idle (:status (rf/compute-sub [:articles] (rf/app-db-value f)))))
+    (rf/dispatch-sync [:articles/load] {:frame f})
+    (let [slice (rf/compute-sub [:articles] (rf/app-db-value f))]
+      (is (= :loaded (:status slice)))
+      (is (= 1 (count (:data slice))))
+      (is (= "hello-world" (-> slice :data first :slug))))
+    (rf/dispatch-sync [:articles/load] {:frame f})
+    (let [slice (rf/compute-sub [:articles] (rf/app-db-value f))]
+      (is (= :loaded (:status slice)))
+      (is (= 2 (:attempt slice))))))
+
+(defn- articles-load-failure-test []
+  (reg-canned-failure! :realworld.test/canned-articles-failure
+                       :rf.http/http-5xx
+                       {:status 500
+                        :body   "server error"})
+
+  (with-new-frame [f (rf/make-frame {:on-create [:app/initialise]
+                                 :fx-overrides {:rf.http/managed :realworld.test/canned-articles-failure}})]
+    (rf/dispatch-sync [:articles/load] {:frame f})
+    (is (= :error (:status (rf/compute-sub [:articles] (rf/app-db-value f)))))
+    (is (some? (rf/compute-sub [:articles/error] (rf/app-db-value f))))))
+
+;; ============================================================================
+;; article-editor — create flow and navigation guard
+;; ============================================================================
+
+(defn- editor-create-test []
+  (reg-canned-success! :realworld.test/canned-editor-save
+                       {:article {:slug "hello-world"
+                                  :title "Hello"
+                                  :description "Short"
+                                  :body "Body"
+                                  :tagList ["demo"]
+                                  :createdAt "2026-05-01"
+                                  :updatedAt "2026-05-01"
+                                  :favorited false
+                                  :favoritesCount 0
+                                  :author {:username "alice" :bio nil :image nil :following false}}})
+
+  (with-new-frame [f (rf/make-frame {:on-create [:app/initialise]
+                                 :fx-overrides {:rf.http/managed :realworld.test/canned-editor-save}})]
+    (rf/dispatch-sync [:editor/initialise] {:frame f})
+    ;; The :mode region starts at :create; the :lifecycle region starts
+    ;; at :idle.
+    (is (true? (rf/compute-sub [:rf/machine-has-tag? :ui/article-editor :mode/create] (rf/app-db-value f))))
+    (is (true? (rf/compute-sub [:rf/machine-has-tag? :ui/article-editor :lifecycle/idle] (rf/app-db-value f))))
+    ;; The :editor/can-submit? FLOW (Spec 013) starts false — the draft is
+    ;; blank (invalid) and unchanged.
+    (is (false? (rf/compute-sub [:editor/can-submit?] (rf/app-db-value f))))
+    (rf/dispatch-sync [:editor/edit-field :title "Hello"] {:frame f})
+    (rf/dispatch-sync [:editor/edit-field :description "Short"] {:frame f})
+    (rf/dispatch-sync [:editor/edit-field :body "Body"] {:frame f})
+    ;; Now valid AND dirty → the flow materialised true into app-db at
+    ;; [:editor :can-submit?] on the edit drains' post-walk.
+    (is (true? (rf/compute-sub [:editor/can-submit?] (rf/app-db-value f))))
+    (rf/dispatch-sync [:editor/submit] {:frame f})
+    ;; A successful submit advances :mode → :edit and :lifecycle → :saved.
+    (is (true? (rf/compute-sub [:rf/machine-has-tag? :ui/article-editor :lifecycle/saved] (rf/app-db-value f))))
+    (is (true? (rf/compute-sub [:rf/machine-has-tag? :ui/article-editor :mode/edit] (rf/app-db-value f))))
+    (is (false? (rf/compute-sub [:editor/dirty?] (rf/app-db-value f))))))
+
+(defn- editor-can-leave-test []
+  (with-new-frame [f (rf/make-frame {:on-create [:app/initialise]})]
+    (rf/dispatch-sync [:editor/initialise] {:frame f})
+    (is (true? (rf/compute-sub [:editor/can-leave?] (rf/app-db-value f))))
+    (rf/dispatch-sync [:editor/edit-field :title "Changed"] {:frame f})
+    (is (false? (rf/compute-sub [:editor/can-leave?] (rf/app-db-value f))))))
+
+;; ============================================================================
+;; comments — article-detail load and comment-post happy path
+;; ============================================================================
+
+(defn- comments-load-test []
+  ;; URL-routed stub: the article-detail page issues two requests
+  ;; (`/articles/:slug` and `/articles/:slug/comments`); pick the canned
+  ;; payload from the URL.
+  (reg-canned-success-by-url! :realworld.test/canned-article-and-comments
+                              (fn [url]
+                                (cond
+                                  (str/ends-with? url "/comments")
+                                  {:comments [{:id 1
+                                               :createdAt "2026-05-01"
+                                               :updatedAt "2026-05-01"
+                                               :body "First!"
+                                               :author {:username "eve" :bio nil :image nil :following false}}]}
+
+                                  :else
+                                  {:article {:slug "hello"
+                                             :title "Hello"
+                                             :description "Short"
+                                             :body "Body"
+                                             :tagList ["demo"]
+                                             :createdAt "2026-05-01"
+                                             :updatedAt "2026-05-01"
+                                             :favorited false
+                                             :favoritesCount 0
+                                             :author {:username "alice" :bio nil :image nil :following false}}})))
+
+  (with-new-frame [f (rf/make-frame {:on-create [:app/initialise]
+                                 :fx-overrides {:rf.http/managed :realworld.test/canned-article-and-comments}})]
+    (rf/dispatch-sync [:article/initialise] {:frame f})
+    (rf/dispatch-sync [:comments/initialise] {:frame f})
+    (rf/dispatch-sync [:comment-form/initialise] {:frame f})
+    (rf/dispatch-sync [:rf.route/handle-url-change "/article/hello"] {:frame f})
+    (is (= "hello" (:slug (rf/compute-sub [:article/data] (rf/app-db-value f)))))
+    (is (= 1 (count (rf/compute-sub [:comments/data] (rf/app-db-value f)))))))
+
+(defn- comment-submit-test []
+  (reg-canned-success-by-url! :realworld.test/canned-comment-post
+                              (fn [method url]
+                                (cond
+                                  ;; POST /articles/:slug/comments → returns the saved comment.
+                                  (and (= :post method) (str/ends-with? url "/comments"))
+                                  {:comment {:id 2
+                                             :createdAt "2026-05-02"
+                                             :updatedAt "2026-05-02"
+                                             :body "Nice article."
+                                             :author {:username "alice" :bio nil :image nil :following false}}}
+
+                                  ;; GET /articles/:slug/comments → empty initial list.
+                                  (and (= :get method) (str/ends-with? url "/comments"))
+                                  {:comments []}
+
+                                  :else
+                                  ;; The route-driven :article/load also fires; return
+                                  ;; an article so the page renders.
+                                  {:article {:slug "hello"
+                                             :title "Hello"
+                                             :description "Short"
+                                             :body "Body"
+                                             :tagList []
+                                             :createdAt "2026-05-01"
+                                             :updatedAt "2026-05-01"
+                                             :favorited false
+                                             :favoritesCount 0
+                                             :author {:username "alice" :bio nil :image nil :following false}}})))
+
+  (with-new-frame [f (rf/make-frame {:on-create [:app/initialise]
+                                 :fx-overrides {:rf.http/managed :realworld.test/canned-comment-post}})]
+    (rf/dispatch-sync [:article/initialise] {:frame f})
+    (rf/dispatch-sync [:comments/initialise] {:frame f})
+    (rf/dispatch-sync [:comment-form/initialise] {:frame f})
+    (rf/dispatch-sync [:auth/store-session {:username "alice" :email "a@b.c" :token "jwt" :bio nil :image nil}] {:frame f})
+    (rf/dispatch-sync [:rf.route/handle-url-change "/article/hello"] {:frame f})
+    (rf/dispatch-sync [:comment-form/edit-field :body "Nice article."] {:frame f})
+    (rf/dispatch-sync [:comment-form/submit] {:frame f})
+    (is (= "" (:body (rf/compute-sub [:comment-form/draft] (rf/app-db-value f)))))
+    ;; Initial GET returned [] (no existing comments); POST returned 1
+    ;; saved comment → exactly 1 comment in the slice after submit.
+    (is (= 1 (count (rf/compute-sub [:comments/data] (rf/app-db-value f)))))))
+
+;; ============================================================================
+;; favorites — optimistic-update rollback
+;; ============================================================================
+
+(defn- favorite-toggle-test []
+  (reg-canned-failure! :realworld.test/favorite-rollback
+                       :rf.http/http-4xx
+                       {:status 400
+                        :body   {:errors {:body ["rollback"]}}})
+
+  (with-new-frame [f (rf/make-frame {:on-create [:app/initialise]
+                                 :fx-overrides {:rf.http/managed :realworld.test/favorite-rollback}})]
+    (rf/dispatch-sync [:articles/initialise] {:frame f})
+    ;; :article/toggle-favorite is auth-gated (rf2-ygh4m): a logged-out
+    ;; click navigates to login instead of issuing a tokenless request.
+    ;; Authenticate first so this test exercises the optimistic-rollback
+    ;; path it is here to cover.
+    (rf/dispatch-sync [:auth/store-session {:username "alice" :email "a@b.c" :token "jwt" :bio nil :image nil}] {:frame f})
+    (rf/dispatch-sync [:articles/loaded
+                       {:kind :success
+                        :value {:articles [{:slug "hello"
+                                            :title "Hello"
+                                            :description "Short"
+                                            :body "Body"
+                                            :tagList []
+                                            :createdAt "2026-05-01"
+                                            :updatedAt "2026-05-01"
+                                            :favorited false
+                                            :favoritesCount 0
+                                            :author {:username "alice" :bio nil :image nil :following false}}]}}]
+                      {:frame f})
+    (rf/dispatch-sync [:article/toggle-favorite "hello"] {:frame f})
+    ;; Optimistic flip + canned 4xx → rollback to original state.
+    (is (false? (-> (rf/compute-sub [:articles/data] (rf/app-db-value f))
+                    first
+                    :favorited)))
+    (is (= 0 (-> (rf/compute-sub [:articles/data] (rf/app-db-value f))
+                 first
+                 :favoritesCount)))))
+
+;; ============================================================================
+;; profile — profile + authored-articles load
+;; ============================================================================
+
+(defn- profile-load-test []
+  (reg-canned-success-by-url! :realworld.test/canned-profile
+                              (fn [url]
+                                (if (str/includes? url "/profiles/")
+                                  {:profile {:username "eve" :bio "Writes things" :image nil :following false}}
+                                  {:articles [{:slug "one"
+                                               :title "One"
+                                               :description "Short"
+                                               :body "Body"
+                                               :tagList []
+                                               :createdAt "2026-05-01"
+                                               :updatedAt "2026-05-01"
+                                               :favorited false
+                                               :favoritesCount 0
+                                               :author {:username "eve" :bio nil :image nil :following false}}]})))
+
+  (with-new-frame [f (rf/make-frame {:on-create [:app/initialise]
+                                 :fx-overrides {:rf.http/managed :realworld.test/canned-profile}})]
+    (rf/dispatch-sync [:profile/initialise] {:frame f})
+    (rf/dispatch-sync [:rf.route/handle-url-change "/profile/eve"] {:frame f})
+    (is (= "eve" (:username (rf/compute-sub [:profile/data] (rf/app-db-value f)))))
+    (is (= 1 (count (rf/compute-sub [:profile.articles/data] (rf/app-db-value f)))))))
+
+;; ============================================================================
+;; settings — the :settings/form machine (form-region variant of Pattern-Forms)
+;; ============================================================================
+
+(defn- settings-snapshot [db]
+  (get-in db [:rf/runtime :machines :snapshots :settings/form]))
+
+(defn- settings-machine-has-tag?
+  "Read the :settings/form machine's :tags union against a frame's app-db
+   (browserless form of `rf/machine-has-tag?`)."
+  [frame tag]
+  (rf/compute-sub [:rf/machine-has-tag? :settings/form tag]
+                  (rf/app-db-value frame)))
+
+(defn- settings-test []
+  ;; Happy-path lifecycle. The assertions below are the SAME questions
+  ;; a slice-form reader would ask, but each answer comes from a
+  ;; different surface:
+  ;;
+  ;;     SLICE FORM                              MACHINE FORM
+  ;;     ----------                              ------------
+  ;;     (:status slice) = :submitted            (:state snap)  = :correct
+  ;;     (:draft slice)                          (-> snap :data :draft)
+  ;;     :submitting? (a derived boolean sub)    (machine-has-tag? :settings/in-flight)
+  (reg-canned-success! :realworld.test/canned-settings-save
+                       {:user {:email "alice@example.com"
+                               :token "jwt-2"
+                               :username "alice"
+                               :bio "New bio"
+                               :image nil}})
+
+  (with-new-frame [f (rf/make-frame {:on-create    [:app/initialise]
+                                 :fx-overrides {:rf.http/managed    :realworld.test/canned-settings-save
+                                                :auth.session/persist :rf/no-op}})]
+    ;; After :app/initialise → :settings/initialise → [:reset], the
+    ;; machine sits at :neutral with empty :data.
+    (let [snap (settings-snapshot (rf/app-db-value f))]
+      (is (= :neutral (:state snap)))
+      (is (= ""       (get-in snap [:data :draft :bio])))
+      (is (false?     (settings-machine-has-tag? f :settings/in-flight))))
+
+    ;; Seed the auth slice + load the settings draft from the user.
+    (rf/dispatch-sync [:auth/store-session {:email "alice@example.com"
+                                            :token "jwt-1"
+                                            :username "alice"
+                                            :bio nil
+                                            :image nil}]
+                      {:frame f})
+    (rf/dispatch-sync [:settings/load] {:frame f})
+    (let [snap (settings-snapshot (rf/app-db-value f))]
+      (is (= :neutral (:state snap)))
+      (is (= "alice"  (get-in snap [:data :draft :username]))))
+
+    ;; Edit a field. The :touched set tracks user interaction; the
+    ;; region stays at :neutral (a fresh edit doesn't trigger a
+    ;; transition out of :correct / :incorrect unless we were there).
+    (rf/dispatch-sync [:settings/edit-field :bio "New bio"] {:frame f})
+    (let [snap (settings-snapshot (rf/app-db-value f))]
+      (is (= :neutral  (:state snap)))
+      (is (= "New bio" (get-in snap [:data :draft :bio])))
+      (is (contains?   (get-in snap [:data :touched]) :bio)))
+
+    ;; Submit. The canned-success stub resolves synchronously, so we
+    ;; observe the machine in :correct (not :submitting) after the
+    ;; dispatch returns. The slice's `:status :submitted` and
+    ;; `:submitted draft` are now the machine's `:state :correct` +
+    ;; `:data :draft` (re-seeded from the server-returned user).
+    (rf/dispatch-sync [:settings/submit] {:frame f})
+    (let [db   (rf/app-db-value f)
+          snap (settings-snapshot db)]
+      (is (= :correct (:state snap)))
+      (is (= "New bio" (get-in snap [:data :draft :bio])))
+      (is (nil?        (get-in snap [:data :submit-error])))
+      ;; tag-shaped query — this replaces the slice's `:settings/submitting?`
+      ;; derived boolean sub. After the synchronous reply, the region
+      ;; is in :correct and the in-flight tag has dropped.
+      (is (false? (settings-machine-has-tag? f :settings/in-flight)))
+      (is (true?  (settings-machine-has-tag? f :form/success)))
+      ;; the :auth slice has the new user data (the side-effect the
+      ;; original test asserted).
+      (is (= "New bio" (get-in db [:auth :user :bio])))
+      ;; the `:settings/submitting?` sub returns false (same name a
+      ;; slice-form reader would use; only the source changed).
+      (is (false? (rf/compute-sub [:settings/submitting?] db))))))
+
+(defn- settings-failure-test []
+  ;; Failure path — the machine lands in :incorrect with the projected
+  ;; failure message in :data :submit-error, the in-flight tag drops,
+  ;; and the form-level error surface is the same one validation
+  ;; would use (per Pattern-Forms — both paths render via :errors /
+  ;; :submit-error).
+  (reg-canned-failure! :realworld.test/canned-settings-failure
+                       :rf.http/http-5xx
+                       {:status 500 :body "server error"})
+  (with-new-frame [f (rf/make-frame {:on-create    [:app/initialise]
+                                 :fx-overrides {:rf.http/managed    :realworld.test/canned-settings-failure
+                                                :auth.session/persist :rf/no-op}})]
+    (rf/dispatch-sync [:auth/store-session {:email "alice@example.com"
+                                            :token "jwt-1"
+                                            :username "alice"
+                                            :bio nil
+                                            :image nil}]
+                      {:frame f})
+    (rf/dispatch-sync [:settings/load] {:frame f})
+    (rf/dispatch-sync [:settings/edit-field :bio "Doomed bio"] {:frame f})
+    (rf/dispatch-sync [:settings/submit] {:frame f})
+    (let [db   (rf/app-db-value f)
+          snap (settings-snapshot db)]
+      (is (= :incorrect (:state snap)))
+      (is (some? (get-in snap [:data :submit-error])))
+      (is (some? (rf/compute-sub [:settings/submit-error] db)))
+      (is (true?  (settings-machine-has-tag? f :form/invalid)))
+      (is (false? (settings-machine-has-tag? f :settings/in-flight)))
+      ;; the auth slice was NOT updated; the user's :bio is still nil.
+      (is (nil? (get-in db [:auth :user :bio]))))))
+
+(defn- settings-validation-test []
+  ;; Validation path — direct broadcasts exercise the
+  ;; :submit-invalid / :edit transitions. The bead's machine spec
+  ;; includes a :neutral → :incorrect transition (on :submit-invalid)
+  ;; and an :incorrect → :neutral transition (on :edit) so the
+  ;; lifecycle is complete; in a production app a client-side Malli
+  ;; validate inside :settings/submit would dispatch :submit-invalid
+  ;; when the draft failed validation, matching Pattern-Forms'
+  ;; §Standard events table.
+  (with-new-frame [f (rf/make-frame {:on-create [:app/initialise]
+                                 :fx-overrides {:auth.session/persist :rf/no-op}})]
+    (rf/dispatch-sync [:auth/store-session {:email "alice@example.com"
+                                            :token "jwt-1"
+                                            :username "alice"
+                                            :bio nil
+                                            :image nil}]
+                      {:frame f})
+    (rf/dispatch-sync [:settings/load] {:frame f})
+
+    ;; Broadcast :submit-invalid with a per-field error map. The
+    ;; region lands in :incorrect and the error fields are auto-added
+    ;; to :touched (per Pattern-Forms §Error visibility — once submit
+    ;; has been attempted, every error is shown regardless of
+    ;; per-field touched state).
+    (rf/dispatch-sync [:settings/form
+                       [:submit-invalid {:errors {:email ["Email must contain @."]}}]]
+                      {:frame f})
+    (let [snap (settings-snapshot (rf/app-db-value f))]
+      (is (= :incorrect (:state snap)))
+      (is (= {:email ["Email must contain @."]} (get-in snap [:data :errors])))
+      (is (contains? (get-in snap [:data :touched]) :email))
+      (is (true? (settings-machine-has-tag? f :form/invalid))))
+
+    ;; The first :edit on the offending field clears that field's
+    ;; error entry and returns the region to :neutral.
+    (rf/dispatch-sync [:settings/edit-field :email "alice@example.com"] {:frame f})
+    (let [snap (settings-snapshot (rf/app-db-value f))]
+      (is (= :neutral (:state snap)))
+      (is (false? (settings-machine-has-tag? f :form/invalid)))
+      (is (not (contains? (get-in snap [:data :errors]) :email))))))
+
+;; ============================================================================
+;; tags — route query helpers + the :realworld/tags machine
+;; ============================================================================
+
+(defn- tags-snapshot [db]
+  (get-in db [:rf/runtime :machines :snapshots :realworld/tags]))
+
+(defn- tags-machine-has-tag?
+  "Read the :realworld/tags machine's :tags union against a frame's app-db
+   (browserless form of `rf/machine-has-tag?`)."
+  [frame tag]
+  (rf/compute-sub [:rf/machine-has-tag? :realworld/tags tag]
+                  (rf/app-db-value frame)))
+
+(defn- tag-query-test []
+  (with-new-frame [f (rf/make-frame {:on-create [:app/initialise]})]
+    (rf/dispatch-sync [:tags/apply-filter "clojure"] {:frame f})
+    (is (= "clojure" (:tag (rf/compute-sub [:rf.route/query] (rf/app-db-value f)))))
+    (rf/dispatch-sync [:home/show-your-feed] {:frame f})
+    (is (= "your" (:feed (rf/compute-sub [:rf.route/query] (rf/app-db-value f)))))))
+
+(defn- tags-machine-load-test []
+  ;; The :tags lifecycle — load happy path through the machine.
+  (reg-canned-success! :realworld.test/canned-tags
+                       {:tags ["intro" "demo" "clojure"]})
+  (with-new-frame [f (rf/make-frame {:on-create    [:app/initialise]
+                                 :fx-overrides {:rf.http/managed :realworld.test/canned-tags}})]
+    ;; After :app/initialise → :tags/initialise → [:reset], the machine
+    ;; sits at :idle with empty :data.
+    (let [snap (tags-snapshot (rf/app-db-value f))]
+      (is (= :idle (:state snap)))
+      (is (= []    (get-in snap [:data :tags])))
+      (is (= 0     (get-in snap [:data :attempt]))))
+
+    ;; First fetch: the canned-success stub resolves synchronously, so
+    ;; we observe the machine in :loaded (not :loading) after the
+    ;; dispatch returns.
+    (rf/dispatch-sync [:tags/load] {:frame f})
+    (let [db   (rf/app-db-value f)
+          snap (tags-snapshot db)]
+      (is (= :loaded (:state snap)))
+      (is (= ["intro" "demo" "clojure"]
+             (get-in snap [:data :tags])))
+      (is (= 1 (get-in snap [:data :attempt])))
+      ;; Cofx-shape contract — `:loaded-at` carries the
+      ;; `:realworld/now` cofx value into `:set-tags`.
+      (is (number? (get-in snap [:data :loaded-at])))
+      ;; tag-shaped queries — these replace the slice's `:tags/loading?`
+      ;; / `:tags/fetching?` derived boolean subs.
+      (is (true?  (tags-machine-has-tag? f :tags/loaded)))
+      (is (false? (tags-machine-has-tag? f :tags/loading)))
+      (is (false? (tags-machine-has-tag? f :tags/in-flight)))
+      (is (= ["intro" "demo" "clojure"]
+             (rf/compute-sub [:tags/data] db))))
+
+    ;; Second fetch with prior data present: the region picks :fetching
+    ;; (not :loading) so the sidebar doesn't blank out.
+    (rf/dispatch-sync [:tags/load] {:frame f})
+    (let [snap (tags-snapshot (rf/app-db-value f))]
+      (is (= :loaded (:state snap)))
+      (is (= 2 (get-in snap [:data :attempt]))))))
+
+(defn- tags-machine-failure-test []
+  ;; Failure path — the :tags region lands in :error with the projected
+  ;; failure message in :data, and the `:tags/error` derived sub picks
+  ;; it up. Prior :data (if any) is preserved across the transition.
+  (reg-canned-failure! :realworld.test/canned-tags-failure
+                       :rf.http/http-5xx
+                       {:status 500 :body "server error"})
+  (with-new-frame [f (rf/make-frame {:on-create    [:app/initialise]
+                                 :fx-overrides {:rf.http/managed :realworld.test/canned-tags-failure}})]
+    (rf/dispatch-sync [:tags/load] {:frame f})
+    (let [db   (rf/app-db-value f)
+          snap (tags-snapshot db)]
+      (is (= :error (:state snap)))
+      (is (some? (get-in snap [:data :error])))
+      (is (some? (rf/compute-sub [:tags/error] db)))
+      (is (true?  (tags-machine-has-tag? f :tags/error)))
+      (is (false? (tags-machine-has-tag? f :tags/in-flight))))))
+
+;; ============================================================================
+;; routing — route table coverage + the auth-guard interceptor
+;; ============================================================================
+
+(defn- routing-tests []
+  (with-new-frame [f (rf/make-frame {:on-create [:app/initialise]})]
+    (rf/dispatch-sync [:rf.route/navigate :realworld.article/show {:slug "hello"}] {:frame f})
+    (is (= :realworld.article/show (rf/compute-sub [:rf.route/id] (rf/app-db-value f))))
+    (is (= "hello" (:slug (rf/compute-sub [:rf.route/params] (rf/app-db-value f)))))
+
+    (rf/dispatch-sync [:rf.route/handle-url-change "/profile/eve"] {:frame f})
+    (is (= :realworld.profile/show (rf/compute-sub [:rf.route/id] (rf/app-db-value f))))
+
+    (rf/dispatch-sync [:rf.route/handle-url-change "/settings"] {:frame f})
+    (is (= :realworld.user/settings (rf/compute-sub [:rf.route/id] (rf/app-db-value f))))
+
+    (rf/dispatch-sync [:rf.route/handle-url-change "/?tag=clojure"] {:frame f})
+    (is (= "clojure" (:tag (rf/compute-sub [:rf.route/query] (rf/app-db-value f)))))
+
+    (rf/dispatch-sync [:rf.route/handle-url-change "/garbage/path"] {:frame f})
+    (is (= :rf.route/not-found (rf/compute-sub [:rf.route/id] (rf/app-db-value f))))))
+
+(defn- auth-guard-test []
+  ;; The auth-guard is a plain interceptor (Spec 012 §Redirects and
+  ;; guards) wired into the demo frame via `reg-frame :interceptors`
+  ;; (core.cljs). Configure the test frame with the same interceptor so
+  ;; the guard is exercised end-to-end.
+  (with-new-frame [f (rf/make-frame {:on-create    [:app/initialise]
+                                 :interceptors [routing/auth-guard]})]
+    ;; Unauthenticated: navigating to a :requires-auth route
+    ;; (:realworld.user/settings) is redirected to :realworld.auth/login.
+    (rf/dispatch-sync [:rf.route/navigate :realworld.user/settings {}] {:frame f})
+    (is (= :realworld.auth/login (rf/compute-sub [:rf.route/id] (rf/app-db-value f)))
+        "unauthenticated nav to a :requires-auth route redirects to login")
+
+    ;; A non-guarded route is unaffected by the guard.
+    (rf/dispatch-sync [:rf.route/navigate :realworld/home {}] {:frame f})
+    (is (= :realworld/home (rf/compute-sub [:rf.route/id] (rf/app-db-value f)))
+        "unguarded route navigates normally with the guard installed")
+
+    ;; Bounce-back stash (rf2-ygh4m ITEM 1): the redirect to login also
+    ;; records the original target at [:auth :return-to].
+    (rf/dispatch-sync [:rf.route/navigate :realworld.user/settings {}] {:frame f})
+    (is (= {:id :realworld.user/settings :params {}}
+           (get-in (rf/app-db-value f) [:auth :return-to]))
+        "the redirect stashes the original target for post-login bounce-back")
+
+    ;; Authenticated: the same guarded nav now proceeds.
+    (rf/dispatch-sync [:auth/store-session {:username "eve" :token "t"}] {:frame f})
+    (rf/dispatch-sync [:rf.route/navigate :realworld.user/settings {}] {:frame f})
+    (is (= :realworld.user/settings (rf/compute-sub [:rf.route/id] (rf/app-db-value f)))
+        "authenticated nav to a :requires-auth route proceeds")
+
+    ;; The post-login bounce-back event consumes the stashed target and
+    ;; clears the slot.
+    (rf/dispatch-sync [:auth/post-login-redirect] {:frame f})
+    (is (nil? (get-in (rf/app-db-value f) [:auth :return-to]))
+        ":auth/post-login-redirect clears the :return-to slot")))
+
+;; ============================================================================
+;; ssr — `hydration-payload` selects the SSR-safe slice keys
+;; ============================================================================
+
+(defn- hydration-payload-test []
+  (let [db {:rf/runtime {:routing {:current {:id :realworld/home}}}
+            :auth {:user {:username "alice"} :token "jwt"}
+            :articles {:status :loaded :data [] :error nil :loaded-at 1 :attempt 1}
+            :transient {:popup true}}
+        payload (ssr/hydration-payload db [:div "hello"])
+        exported-auth (get-in payload [:rf/app-db :auth])]
+    (is (= #{:rf/runtime :auth :articles}
+           (set (keys (:rf/app-db payload)))))
+    ;; rf2-ygh4m ITEM 7 — the bearer JWT must NOT cross the SSR seam.
+    ;; The :auth slice still rides along (the client needs :user), but
+    ;; :token is redacted at the payload boundary (ssr/exportable-db);
+    ;; the client re-derives it from localStorage on hydrate.
+    (is (= {:username "alice"} (:user exported-auth))
+        "the :auth :user payload survives hydration")
+    (is (not (contains? exported-auth :token))
+        "the JWT must be redacted from the SSR hydration payload")))
+
+;; ============================================================================
+;; core — top-level smoke: boots the app, checks per-feature initialisers
+;; populate the expected slices.
+;; ============================================================================
+
+(defn- app-smoke-test []
+  (with-new-frame [f (rf/make-frame {:on-create    [:app/initialise]
+                                 :fx-overrides {:rf.http/managed      :realworld.test/canned-success-empty
+                                                :auth.session/persist :rf/no-op}})]
+    ;; After init: the :auth + :articles slices and the
+    ;; :realworld/tags + :settings/form machine snapshots are present.
+    (let [db (rf/app-db-value f)]
+      (is (contains? db :auth))
+      (is (contains? db :articles))
+      (is (contains? (get-in db [:rf/runtime :machines :snapshots]) :realworld/tags))
+      (is (contains? (get-in db [:rf/runtime :machines :snapshots]) :settings/form)))))
+
+;; ============================================================================
+;; DEFTESTS
+;; ============================================================================
 
 (deftest realworld-auth-flow
   (testing "login happy path drives the auth machine to :authed and back"
-    (auth-t/login-happy-path-test))
+    (login-happy-path-test))
   (testing "login failure surfaces error and dismiss returns to :idle"
-    (auth-t/login-failure-test))
+    (login-failure-test))
   (testing ":auth.session/token cofx assoc-shape regression guard (rf2-gg4dz)"
-    (auth-t/session-token-cofx-shape-test)))
+    (session-token-cofx-shape-test)))
 
 (deftest realworld-articles-feed
   (testing "global feed loads and re-loads bumping :attempt"
-    (articles-t/articles-load-test))
+    (articles-load-test))
   (testing "global feed surfaces :error on http failure"
-    (articles-t/articles-load-failure-test)))
+    (articles-load-failure-test)))
 
 (deftest realworld-article-editor
   (testing "editor create flow saves and clears :dirty?"
-    (editor-t/editor-create-test))
+    (editor-create-test))
   (testing "editor :can-leave? blocks once the draft diverges"
-    (editor-t/editor-can-leave-test)))
+    (editor-can-leave-test)))
 
 (deftest realworld-comments
   (testing "article + comments load on route change"
-    (comments-t/comments-load-test))
+    (comments-load-test))
   (testing "comment submit clears the form and appends to the list"
-    (comments-t/comment-submit-test)))
+    (comment-submit-test)))
 
 (deftest realworld-favorites
   (testing "favorite toggle rolls back on :http failure"
-    (favorites-t/favorite-toggle-test)))
+    (favorite-toggle-test)))
 
 (deftest realworld-profile
   (testing "profile + authored-articles populate from canned stub"
-    (profile-t/profile-load-test)))
+    (profile-load-test)))
 
 (deftest realworld-settings
   (testing ":settings/form machine — happy path lands in :correct (rf2-6d3x)"
-    (settings-t/settings-test))
+    (settings-test))
   (testing ":settings/form machine — failure path lands in :incorrect (rf2-6d3x)"
-    (settings-t/settings-failure-test))
+    (settings-failure-test))
   (testing ":settings/form machine — :submit-invalid / :edit cycle (rf2-6d3x)"
-    (settings-t/settings-validation-test)))
+    (settings-validation-test)))
 
 (deftest realworld-tags
   (testing "tag filter and feed-kind round-trip via :rf.route/query"
-    (tags-t/tag-query-test))
+    (tag-query-test))
   (testing ":realworld/tags machine — load happy path (rf2-0i4y)"
-    (tags-t/tags-machine-load-test))
+    (tags-machine-load-test))
   (testing ":realworld/tags machine — failure path lands in :error (rf2-0i4y)"
-    (tags-t/tags-machine-failure-test)))
+    (tags-machine-failure-test)))
 
 (deftest realworld-routing
   (testing "navigate, handle-url-change, query, and not-found all resolve"
-    (routing-t/routing-tests))
+    (routing-tests))
   (testing "auth-guard redirects unauthenticated nav to :requires-auth routes (Spec 012)"
-    (routing-t/auth-guard-test)))
+    (auth-guard-test)))
 
 (deftest realworld-ssr
   (testing "hydration-payload selects the SSR-safe slice keys"
-    (ssr-t/hydration-payload-test)))
+    (hydration-payload-test)))
 
 (deftest realworld-core-smoke
   (testing "app boot populates :auth, :articles, and :tags slices"
-    (core-t/app-smoke-test)))
+    (app-smoke-test)))

@@ -52,7 +52,6 @@ bootstraps after the chunks arrive.
 ssr_streaming/
   core.cljc                              — server + client, one artefact.
   index.html                             — host page.
-  test/ssr_streaming/core_test.clj       — JVM smoke (streaming emission shape).
 ```
 
 ## How to run
@@ -64,8 +63,11 @@ shadow-cljs watch examples/ssr-streaming
 
 Run `npm run test:examples` once first so the example's `index.html`
 is staged. Examples are test-free per
-[`examples/README.md`](../../README.md); streaming-SSR contract
-testing lives in [`test/ssr_streaming/`](test/) and the
+[`examples/README.md`](../../README.md); this example's JVM smoke
+(shell render → per-card resolved chunks → final payload) was folded
+into [`implementation/core/test/re_frame/examples_test.clj`](../../../implementation/core/test/re_frame/examples_test.clj)
+(the `ssr-streaming-example-runs-end-to-end` deftest, rf2-cd2zo).
+Broader streaming-SSR contract testing lives in the
 `implementation/ssr/test/` suite.
 
 ## Cross-references

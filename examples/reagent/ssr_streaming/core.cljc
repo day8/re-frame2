@@ -230,7 +230,8 @@
        (rdc/render @react-root [(rf/view :dashboard/root)]))))
 
 ;; The JVM-runnable headless test that exercises the server stream
-;; (shell → per-card resolved chunks → final payload) lives in the sibling
-;; test ns `ssr-streaming.core-test` under test/, keeping this example
-;; source pure demonstrative code. It runs on the JVM via
-;; re-frame.examples-test.
+;; (shell → per-card resolved chunks → final payload) lives in
+;; re-frame.examples-test (implementation/core/test/), folded inline as
+;; the `ssr-streaming-example-runs-end-to-end` deftest (rf2-cd2zo),
+;; keeping this example source pure demonstrative code (the example tree
+;; is test-free, rf2-8cevm). It runs on the JVM.

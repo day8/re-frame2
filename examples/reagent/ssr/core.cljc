@@ -304,6 +304,8 @@
 
 ;; The JVM-runnable headless test that exercises the full server flow
 ;; (per-request frame → :rf/server-init → managed-HTTP via a canned stub →
-;; render-to-string → render-hash) lives in the sibling test ns
-;; `ssr.core-test` under test/, keeping this example source pure
-;; demonstrative code. It runs on the JVM via re-frame.examples-test.
+;; render-to-string → render-hash) lives in re-frame.examples-test
+;; (implementation/core/test/), folded inline as the
+;; `ssr-example-runs-end-to-end` deftest (rf2-cd2zo), keeping this example
+;; source pure demonstrative code (the example tree is test-free,
+;; rf2-8cevm). It runs on the JVM.
