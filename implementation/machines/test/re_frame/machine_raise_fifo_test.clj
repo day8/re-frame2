@@ -158,3 +158,44 @@
               "macrostep rolled back atomically — snapshot uncommitted")
           (is (= [] (result/fx r))
               "no fx survive the depth-bound rollback"))))))
+
+;; ---- 6. depth-bound rollback is TRULY atomic (x4s9t.1) --------------------
+;;
+;; The earlier rollback test fans out identical `[:noop]` self-loops that
+;; neither mutate :data nor emit non-raise fx, so the partially-advanced
+;; snapshot HAPPENS to equal the original even without a real rollback — it
+;; cannot distinguish the buggy `(result/ok snap accum)` from the correct
+;; `(result/ok rollback-snapshot [])`. These fixtures make every intermediate
+;; raise MUTATE state + :data AND emit a non-raise side-effect fx BEFORE the
+;; limit trips, so a non-atomic abort would commit a drifted snapshot and leak
+;; the accumulated effects. The contract: the WHOLE macrostep is discarded —
+;; original snapshot, empty fx.
+
+(deftest depth-bound-rollback-discards-intermediate-mutations-and-fx
+  (testing "(x4s9t.1) a :raise depth-limit abort rolls back the ENTIRE
+            macrostep — intermediate state/data writes AND accumulated
+            non-raise fx are discarded; the result is the ORIGINAL snapshot
+            and an EMPTY fx vector"
+    (let [;; Ping-pong: :a's entry bumps :n + emits a side-effect + raises
+          ;; [:to-b]; :b's entry bumps :n + emits a side-effect + raises
+          ;; [:to-a]. The cycle never terminates → trips the limit, having
+          ;; mutated :data and accumulated side-effect fx along the way.
+          spec {:initial :idle
+                :raise-depth-limit 3
+                :states {:idle {:on {:start :a}}
+                         :a {:entry (fn [{d :data}]
+                                      {:data (update d :n inc)
+                                       :fx   [[:raise [:to-b]] [:side-effect-a 1]]})
+                             :on {:to-b :b}}
+                         :b {:entry (fn [{d :data}]
+                                      {:data (update d :n inc)
+                                       :fx   [[:raise [:to-a]] [:side-effect-b 1]]})
+                             :on {:to-a :a}}}}
+          original {:state :idle :data {:n 0}}
+          r        (machines/machine-transition spec original [:start])]
+      (is (result/ok? r) "depth-exceeded returns an :ok rollback, not a :fail")
+      (is (= original (result/snap r))
+          "snapshot rolled all the way back to the ORIGINAL — no intermediate
+           :a/:b state or bumped :n survived")
+      (is (= [] (result/fx r))
+          "EVERY accumulated :side-effect fx was discarded with the macrostep"))))

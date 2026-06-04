@@ -51,12 +51,51 @@
   [machine]
   (= :parallel (:type machine)))
 
+(defn parallel-state-valid?
+  "The ONE parallel-region snapshot-shape predicate (bz0ox.2 / x4s9t.2 —
+  XState v5 / SCXML parity: a parallel state's configuration is EVERY region
+  active simultaneously, never a subset). True iff `state` is:
+
+   1. a map, AND
+   2. carries EXACTLY the machine's declared region key set — no missing
+      region (a partial snapshot like `{:left :done}` for a 2-region machine
+      is malformed), and no extra/stale region (a hot-reload that dropped a
+      region, or a corrupted restore), AND
+   3. every region's active path resolves to a REAL, OCCUPIABLE leaf under
+      that region's body — i.e. `transition/state-occupiable?` (non-nil node,
+      not a `:type :history` pseudo-state).
+
+  Reused by `all-regions-final?`, the snapshot-compatibility reconcile
+  (`registration/state-resolves?`), and the defensive broadcast traversal
+  (`reduce-regions`) so all three agree on what a live parallel configuration
+  is. A snapshot that fails this resets through
+  `:rf.error/machine-state-not-in-definition` rather than being driven —
+  partially — through the engine."
+  [machine state]
+  (and (parallel? machine)
+       (map? state)
+       (let [declared (set (keys (:regions machine)))
+             present  (set (keys state))]
+         (and (= declared present)
+              (every?
+                (fn [[region-name region-state]]
+                  (transition/state-occupiable?
+                    (get-in machine [:regions region-name])
+                    region-state))
+                state)))))
+
 (defn all-regions-final?
   "Per Spec 005 §Parallel regions + §Final states §The done-state signal
   (rf2-bnjb3): a parallel-region machine has reached its done configuration
-  only when EVERY region's active leaf is `:final?`. Walk each region's body
-  + active path and check the leaf node's `:final?` flag. Returns false when
-  ANY region's leaf isn't final, or when `state` is not a parallel state-map.
+  only when the snapshot is a VALID parallel configuration (every declared
+  region present + occupiable — `parallel-state-valid?`) AND EVERY region's
+  active leaf is `:final?`. Walk each region's body + active path and check
+  the leaf node's `:final?` flag. Returns false when the snapshot is not a
+  valid parallel configuration (missing/extra region, occupied-history leaf
+  — bz0ox.2 / x4s9t.2), or when ANY present region's leaf isn't final. The
+  validity gate means a partial map like `{:left :done}` for a 2-region
+  machine can NEVER vacuously read as all-final and fire root `:on-done` /
+  auto-destroy.
 
   Lives here (not in `lifecycle-fx.finalize`) so BOTH the parallel macrostep
   (`parallel-machine-transition`, which raises the parallel done-signal /
@@ -66,8 +105,7 @@
   require cycle. XState v5 / SCXML §3.4: `done.state.<parallelId>` is raised
   only when all child regions are final."
   [machine state]
-  (and (parallel? machine)
-       (map? state)
+  (and (parallel-state-valid? machine state)
        (every?
          (fn [[region-name region-state]]
            (let [region-body (get-in machine [:regions region-name])
@@ -300,6 +338,16 @@
   doesn't apply."
   [parent-machine snapshot step-fn]
   (let [state-map   (:state snapshot)
+        ;; Declaration-order iteration. Snapshot-shape validity (exactly the
+        ;; declared region key set — `parallel-state-valid?`) is enforced
+        ;; UPSTREAM at handler entry (`registration/state-resolves?` ->
+        ;; `reconcile-snapshot`), so a live snapshot reaching here always
+        ;; carries every declared region; the `contains?` filter is then a
+        ;; no-op. It is retained as a defensive guard against a pure-fn caller
+        ;; that synthesises a partial map directly — skipping an absent region
+        ;; is safer than a `state-path nil` throw, and `all-regions-final?` now
+        ;; independently rejects a partial map so a skipped region can never
+        ;; vacuously read as done (bz0ox.2 / x4s9t.2).
         ordered     (filterv #(contains? state-map %)
                              (or (vec (keys (:regions parent-machine)))
                                  (vec (keys state-map))))]
@@ -654,20 +702,35 @@
 
 (defn fire-parallel-on-done
   "Per Spec 005 §Final states §The done-state signal (rf2-bnjb3): if the
-  parallel `machine`'s settled `result` snapshot has all regions final AND the
-  parallel root declares `:on-done`, run that `:on-done` transition's
-  `:action` against `:data` and append its `:fx`, marking the Result so the
-  lifecycle boundary does NOT auto-destroy. Returns the (possibly enriched)
-  Result; a `result/fail` (the `:on-done` action threw) short-circuits. A
-  `result/fail` input passes through. When the machine is not parallel, not
-  all-final, or declares no `:on-done`, returns `result` unchanged (the
-  whole-machine finalize path then runs at the lifecycle boundary)."
-  [machine result]
+  parallel `machine`'s settled `result` snapshot has NEWLY reached its
+  all-regions-final done configuration this macrostep AND the parallel root
+  declares `:on-done`, run that `:on-done` transition's `:action` against
+  `:data` and append its `:fx`, marking the Result so the lifecycle boundary
+  does NOT auto-destroy. Returns the (possibly enriched) Result; a
+  `result/fail` (the `:on-done` action threw) short-circuits. A `result/fail`
+  input passes through. When the machine is not parallel, was NOT newly made
+  all-final this macrostep, or declares no `:on-done`, returns `result`
+  unchanged (the whole-machine finalize path then runs at the lifecycle
+  boundary).
+
+  `newly-reached?` is the false→true EDGE guard (h3wca.1 — XState v5 `onDone`
+  / SCXML `done.state.<parallelId>` fire EXACTLY ONCE, on ENTERING the done
+  configuration, never re-firing on a later event delivered while resting
+  there). The caller passes `true` only when this macrostep CROSSED into the
+  all-final config — i.e. the after-snapshot is all-final AND the
+  before-snapshot was NOT. On the BIRTH path it is always `true` (birth is the
+  single macrostep that enters the initial configuration; a machine born
+  all-final crosses the edge at birth). Without this guard the `:on-done`
+  `:action` + `:fx` re-fired on every no-op event the regions decline while
+  resting all-final — a coordinator's continuation re-dispatched repeatedly,
+  any `:data` accumulation drifting upward."
+  [machine result newly-reached?]
   (if (result/fail? result)
     result
     (let [on-done (:on-done machine)]
       (if (or (not (parallel? machine))
               (nil? on-done)
+              (not newly-reached?)
               (not (all-regions-final? machine (:state (result/snap result)))))
         result
         (result/with-ok [snap fx] result
@@ -723,15 +786,25 @@
   only, identified by the region-name prefix on the in-flight timer's
   `:rf/spawn-id`."
   [machine snapshot event]
-  (let [first-r (broadcast-once machine snapshot event)]
-    ;; Per Spec 005 §Final states §The done-state signal (rf2-bnjb3): after the
-    ;; macrostep settles, if every region is now final and the parallel root
-    ;; declares `:on-done`, fire it (run its action + emit its fx) WITHOUT
-    ;; auto-destroying — the transitionable parallel completion signal. No
+  (let [first-r       (broadcast-once machine snapshot event)
+        settled       (drain-parent-queue machine snapshot event first-r)
+        ;; h3wca.1 — false→true EDGE guard. `:on-done` fires ONCE, on the
+        ;; macrostep that CROSSES into the all-regions-final done config
+        ;; (XState v5 `onDone` / SCXML `done.state.<id>`), NOT on every later
+        ;; event delivered while resting there. A no-op event to an already-
+        ;; all-final machine has before == all-final, so the edge is false and
+        ;; `:on-done` does not re-fire.
+        was-final?    (all-regions-final? machine (:state snapshot))
+        newly-final?  (and (not was-final?)
+                           (not (result/fail? settled))
+                           (all-regions-final? machine (:state (result/snap settled))))]
+    ;; Per Spec 005 §Final states §The done-state signal (rf2-bnjb3): when this
+    ;; macrostep NEWLY makes every region final and the parallel root declares
+    ;; `:on-done`, fire it (run its action + emit its fx) WITHOUT auto-
+    ;; destroying — the transitionable parallel completion signal. No
     ;; `:on-done` ⇒ the Result passes through and the lifecycle boundary's
     ;; whole-machine finalize runs (D7).
-    (fire-parallel-on-done machine
-                           (drain-parent-queue machine snapshot event first-r))))
+    (fire-parallel-on-done machine settled newly-final?)))
 
 (defn machine-transition
   "Pure function. Given a machine definition, current snapshot, and event,
@@ -796,44 +869,85 @@
 
 (defn- settle-birth
   "Run the birth-time settle — raise drain + `:always` fixed-point loop —
-  against the POST-initial-cascade `boot-snapshot`, BEFORE the machine is
-  committed (rf2-505ic). The shared settling tail of the macrostep, reused
-  so a transient initial leaf whose `:always` guard already holds is
-  settled past — unobserved — on start, exactly as XState v5 / SCXML do.
+  against the POST-initial-cascade Result, BEFORE the machine is committed
+  (rf2-505ic). The shared settling tail of the macrostep, reused so a
+  transient initial leaf whose `:always` guard already holds is settled
+  past — unobserved — on start, exactly as XState v5 / SCXML do.
+
+  `entry-r` is the WHOLE `run-initial-cascade` Result — its snapshot AND its
+  fx. The entry fx is the drain SEED so a `[:raise ...]` emitted by an
+  initial `:entry` action drains to a fixed point INSIDE the birth macrostep
+  (bz0ox.1 / x4s9t — XState v5 / SCXML internal-event-queue parity; Spec 005
+  §birth includes region-emitted raises). The settle therefore returns the
+  entry's NON-raise fx (preserved in order) ++ any settle/raise-target fx;
+  the caller (`apply-initial-entry-cascade`) does NOT re-prepend the entry fx.
 
   For flat / compound machines, seeds the single-machine
-  `transition/drain-to-fixed-point` with `(ok boot-snapshot [])`.
+  `transition/drain-to-fixed-point` directly with `entry-r` (its boot
+  snapshot + entry fx).
 
-  For parallel-region machines, each region settles its OWN `:always`
-  (deferring raises) via `settle-region-birth`, then the parent's single
-  internal-event queue re-broadcasts every region-surfaced raise FIFO
-  across all regions to a fixed point — the same `drain-parent-queue` the
-  event macrostep uses, seeded with `event nil` so the all-regions-declined
-  no-op never fires on birth.
+  For parallel-region machines, each region first settles its OWN `:always`
+  (deferring raises) via `settle-region-birth` against the post-cascade
+  snapshot, then `drain-parent-queue` re-broadcasts every region-surfaced
+  raise — INCLUDING the initial-`:entry` raises harvested off the merged
+  entry fx — FIFO across all regions to a fixed point (the same parent queue
+  the event macrostep uses), seeded with `event nil` so the all-regions-
+  declined no-op never fires on birth. The entry fx is folded into the seed
+  Result so its raises enter the parent queue alongside the per-region
+  `:always` raises (preserving entry-fx order ahead of settle fx).
 
   Returns a `result/ok` carrying the settled snapshot + fx (with
   `::microsteps` = the count of `:always` iterations and `::cascade` = the
   `:always`-microstep steps; the caller prepends the entry cascade), or a
   `result/fail` if an `:always` action or a drained raise threw. The
-  atomic-rollback target on `:always`/`:raise`-depth abort is
-  `boot-snapshot` (the initial configuration is the committed state — only
-  a runaway settle is abandoned)."
-  [machine boot-snapshot]
-  (if (parallel? machine)
-    (let [first-r (reduce-regions machine boot-snapshot settle-region-birth)]
-      ;; Per rf2-bnjb3: a parallel machine BORN all-regions-final (each region's
-      ;; initial+`:always` settles onto a `:final?` leaf) fires the parallel
-      ;; root's `:on-done` on birth too — same transitionable signal as the
-      ;; event-driven macrostep (XState v5 treats such an actor as done at
-      ;; start). No `:on-done` ⇒ the lifecycle boundary's birth finalize runs.
-      (fire-parallel-on-done machine
-                             (drain-parent-queue machine boot-snapshot nil first-r)))
-    (transition/drain-to-fixed-point
-      machine
-      (result/ok boot-snapshot [])
-      boot-snapshot
-      0
-      false)))
+  atomic-rollback target on `:always`/`:raise`-depth abort is the
+  post-cascade `boot-snapshot` (the initial configuration is the committed
+  state — only a runaway settle is abandoned)."
+  [machine entry-r]
+  (result/with-ok [boot-snapshot entry-fx] entry-r
+    (if (parallel? machine)
+      (let [;; Per-region `:always` settle (deferring raises) against the
+            ;; post-cascade snapshot. Its `acc-fx` is empty (regions seed with
+            ;; `[]`); the entry-fx is folded into the seed BELOW so the
+            ;; entry-`:entry` raises + per-region `:always` raises share the
+            ;; one parent queue, with entry fx ordered ahead of settle fx.
+            always-r (reduce-regions machine boot-snapshot settle-region-birth)
+            ;; Fold the merged entry fx in FRONT of the per-region settle fx so
+            ;; `drain-parent-queue`'s `split-raises` harvests every initial-
+            ;; `:entry` `[:raise ...]` (bz0ox.1) — the non-raise entry fx keep
+            ;; their position ahead of the `:always` fx.
+            first-r  (if (result/fail? always-r)
+                       always-r
+                       (result/with-ok [snap0 settle-fx0] always-r
+                         (result/with-handled
+                           (result/with-microsteps
+                             (result/with-cascade
+                               (result/ok snap0 (into (vec entry-fx) settle-fx0))
+                               (result/cascade always-r))
+                             (result/microsteps always-r))
+                           (result/handled? always-r))))]
+        ;; Per rf2-bnjb3: a parallel machine BORN all-regions-final (each
+        ;; region's initial+`:always` settles onto a `:final?` leaf) fires the
+        ;; parallel root's `:on-done` on birth too — same transitionable signal
+        ;; as the event-driven macrostep (XState v5 treats such an actor as done
+        ;; at start). No `:on-done` ⇒ the lifecycle boundary's birth finalize
+        ;; runs. `newly-reached? true`: birth is the single macrostep that
+        ;; ENTERS the initial configuration, so a born-all-final machine crosses
+        ;; the done edge here (h3wca.1) — fired once, never re-fired (a born
+        ;; machine settles in one macrostep; subsequent events route through
+        ;; `parallel-machine-transition`'s edge guard).
+        (fire-parallel-on-done machine
+                               (drain-parent-queue machine boot-snapshot nil first-r)
+                               true))
+      (transition/drain-to-fixed-point
+        machine
+        ;; Seed with the entry Result's fx so an initial-`:entry` `[:raise ...]`
+        ;; drains FIFO inside the birth macrostep instead of escaping to the
+        ;; outbound fx layer (bz0ox.1).
+        (result/ok boot-snapshot (vec entry-fx))
+        boot-snapshot
+        0
+        false))))
 
 (defn apply-initial-entry-cascade
   "The machine's INITIAL MACROSTEP (rf2-505ic — XState v5 / SCXML parity):
@@ -848,35 +962,44 @@
       post-cascade snapshot, BEFORE commit, so a transient initial leaf
       whose `:always` guard already holds settles past, unobserved.
 
-  Returns a `result/ok` carrying the settled snapshot + the entry fx ++
-  any settle fx, with `::cascade` = the entry cascade ++ the `:always`
+  Returns a `result/ok` carrying the settled snapshot + the (drained) entry
+  fx ++ any settle fx, with `::cascade` = the entry cascade ++ the `:always`
   microsteps (so the `:rf.machine/transition` / `:rf.machine/started`
   trace surfaces both). A `result/fail` from either phase short-circuits.
 
-  A no-`:always` machine settles in zero microsteps — `settle-birth`
-  finds no matching `:always` and returns the post-cascade snapshot
-  with the tag union re-stamped (identical to the pre-rf2-505ic birth)."
+  `settle-birth` is seeded with the WHOLE `run-initial-cascade` Result so any
+  `[:raise ...]` emitted by an initial `:entry` action drains FIFO inside this
+  birth macrostep rather than escaping to the outbound fx layer as a reserved
+  `:raise` fx (bz0ox.1 — would otherwise trip `:rf.error/no-such-fx`). The
+  returned `settle-fx` therefore ALREADY carries the entry's non-raise fx (in
+  order) ++ the settle/raise-target fx — so this fn does NOT re-prepend
+  `entry-fx`.
+
+  A no-`:always`, no-`:raise` machine settles in zero microsteps —
+  `settle-birth` finds no matching `:always`, drains no raises, and returns
+  the post-cascade snapshot + the entry fx verbatim with the tag union
+  re-stamped (identical to the pre-rf2-505ic birth)."
   [machine initial-snapshot]
   (let [entry-r (run-initial-cascade machine initial-snapshot)]
     (if (result/fail? entry-r)
       entry-r
-      (result/with-ok [boot-snap entry-fx] entry-r
-        (let [settle-r (settle-birth machine boot-snap)]
-          (if (result/fail? settle-r)
-            settle-r
-            (result/with-ok [settled-snap settle-fx] settle-r
-              ;; Compose: entry fx then settle fx; entry cascade then the
-              ;; `:always` microstep cascade. `::microsteps` rides from the
-              ;; settle (the entry cascade ran no `:always`). Per rf2-bnjb3 the
-              ;; settle's `parallel-done-handled?` flag (set when a parallel
-              ;; machine born all-final fired its root `:on-done`) rides through
-              ;; so the birth finalize gate sees it.
-              (cond-> (-> (result/ok settled-snap (vec (concat entry-fx settle-fx)))
-                          (result/with-cascade
-                            (into (vec (result/cascade entry-r))
-                                  (result/cascade settle-r)))
-                          (result/with-microsteps (result/microsteps settle-r)))
-                (result/parallel-done-handled? settle-r) (result/with-parallel-done)))))))))
+      (let [settle-r (settle-birth machine entry-r)]
+        (if (result/fail? settle-r)
+          settle-r
+          (result/with-ok [settled-snap settle-fx] settle-r
+            ;; `settle-fx` already = entry (non-raise) fx ++ settle fx, with
+            ;; the initial-`:entry` raises drained internally (bz0ox.1).
+            ;; Cascade: entry cascade ++ the `:always` microstep cascade.
+            ;; `::microsteps` rides from the settle (the entry cascade ran no
+            ;; `:always`). Per rf2-bnjb3 the settle's `parallel-done-handled?`
+            ;; flag (set when a parallel machine born all-final fired its root
+            ;; `:on-done`) rides through so the birth finalize gate sees it.
+            (cond-> (-> (result/ok settled-snap (vec settle-fx))
+                        (result/with-cascade
+                          (into (vec (result/cascade entry-r))
+                                (result/cascade settle-r)))
+                        (result/with-microsteps (result/microsteps settle-r)))
+              (result/parallel-done-handled? settle-r) (result/with-parallel-done))))))))
 
 ;; ---- destroy-time exit cascade (rf2-nahfm) --------------------------------
 ;;

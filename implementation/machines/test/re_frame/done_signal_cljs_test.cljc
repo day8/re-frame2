@@ -176,6 +176,47 @@
       (is (true? @continued)
           "the parallel :on-done action's :fx dispatched the coordinator event"))))
 
+(deftest parallel-on-done-fires-once-not-on-every-resting-macrostep
+  (testing "(h3wca.1) the parallel root :on-done fires EXACTLY ONCE — on
+            ENTERING the all-regions-final config — and does NOT re-fire on a
+            later event delivered while the machine rests all-final (XState v5
+            `onDone` / SCXML `done.state.<id>` fire once on entry; re-frame2
+            must not re-run the :action / re-emit the :fx every macrostep)"
+    (let [continued (atom 0)]
+      (rf/reg-event-db :rf2-h3wca/coordinator
+        (fn [db _] (swap! continued inc) db))
+      (rf/reg-machine :rf2-h3wca/once
+        {:type    :parallel
+         :data    {:completions 0}
+         :actions {:complete (fn [{d :data}]
+                               {:data (update d :completions inc)
+                                :fx   [[:dispatch [:rf2-h3wca/coordinator]]]})}
+         :on-done {:action :complete}
+         ;; Both regions reach :final? on a single :fin. :done is a final
+         ;; LEAF with no `:on`, so any later event the regions all decline
+         ;; leaves the machine resting all-final.
+         :regions {:left  {:initial :run :states {:run {:on {:fin :done}} :done {:final? true}}}
+                   :right {:initial :run :states {:run {:on {:fin :done}} :done {:final? true}}}}})
+      ;; Macrostep 1: ENTER the done config — :on-done fires once.
+      (rf/dispatch-sync [:rf2-h3wca/once [:fin]])
+      (is (= {:left :done :right :done} (:state (snapshot :rf2-h3wca/once)))
+          "both regions final after :fin")
+      (is (= 1 (get-in (snapshot :rf2-h3wca/once) [:data :completions]))
+          ":on-done action ran once on entering the done config")
+      (is (= 1 @continued) ":on-done :fx dispatched the coordinator once")
+      ;; Macrosteps 2-4: deliver events the regions DECLINE while resting
+      ;; all-final. The done config is NOT newly reached → :on-done must NOT
+      ;; re-fire (no :data drift, no re-dispatch).
+      (rf/dispatch-sync [:rf2-h3wca/once [:noop]])
+      (rf/dispatch-sync [:rf2-h3wca/once [:fin]])   ; declined (already :done)
+      (rf/dispatch-sync [:rf2-h3wca/once [:another-noop]])
+      (is (= 1 (get-in (snapshot :rf2-h3wca/once) [:data :completions]))
+          ":completions did NOT drift — :on-done did not re-fire on resting macrosteps")
+      (is (= 1 @continued)
+          "the coordinator was NOT re-dispatched on later resting events")
+      (is (some? (registrar/lookup :event :rf2-h3wca/once))
+          "machine still alive (no-op events don't tear it down)"))))
+
 (deftest parallel-no-on-done-still-auto-destroys
   (testing "D7 regression: a parallel machine with NO root :on-done reaching
             all-regions-final STILL auto-destroys (the actor-done default)"

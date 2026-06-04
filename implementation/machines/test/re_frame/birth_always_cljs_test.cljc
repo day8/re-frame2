@@ -68,6 +68,106 @@
     (let [snap (result/snap r)]
       {:state (:state snap) :data (:data snap)})))
 
+(defn- boot-result
+  "Like `boot` but returns `{:state :data :fx}` so a caller can assert on
+  the OUTBOUND effect vector (e.g. that an initial-`:entry` `:raise` drained
+  internally and left no reserved `:raise` fx)."
+  [machine]
+  (let [initial (parallel/build-initial-snapshot machine {:bootstrap-pending? false})
+        r       (parallel/apply-initial-entry-cascade machine initial)]
+    (is (result/ok? r) "birth macrostep succeeds")
+    (let [snap (result/snap r)]
+      {:state (:state snap) :data (:data snap) :fx (result/fx r)})))
+
+(defn- raise-fx?
+  "True iff `fx` carries any reserved `[:raise ...]` entry (which would have
+  escaped the machine-local internal-event queue to the global fx layer)."
+  [fx]
+  (boolean (some (fn [[fx-id]] (= :raise fx-id)) fx)))
+
+;; ---- bz0ox.1 — birth-time `:entry` `:raise` drains INSIDE the macrostep ----
+;;
+;; XState v5 / SCXML §3.13: the initial macrostep runs initial-entry THEN
+;; the internal-event-queue drain. A `raise` emitted by an initial `:entry`
+;; enters the machine's ONE internal queue and is consumed before quiescence
+;; — it never surfaces as an outbound (reserved) effect. Before the fix
+;; `settle-birth` seeded the drain with an EMPTY fx vector, so an initial
+;; `:entry`'s `[:raise ...]` was concatenated onto the OUTBOUND fx instead of
+;; draining: the birth snapshot stuck at the pre-raise leaf and a reserved
+;; `:raise` fx escaped to the global layer (→ `:rf.error/no-such-fx`).
+
+(deftest pure-birth-entry-raise-drains-flat
+  (testing "(bz0ox.1) a flat machine whose initial `:entry` raises `[:go]`
+            settles to the raised-event target in ONE birth macrostep, and
+            the outbound fx carries NO reserved `:raise`"
+    (let [m {:initial :a
+             :data    {}
+             :states  {:a {:entry (fn [_] {:fx [[:raise [:go]]]})
+                           :on    {:go :b}}
+                       :b {}}}
+          {:keys [state fx]} (boot-result m)]
+      (is (= :b state)
+          "birth drained the initial-`:entry` `:raise` and settled to :b")
+      (is (not (raise-fx? fx))
+          "no reserved `:raise` escaped to the outbound fx layer"))))
+
+(deftest pure-birth-entry-raise-drains-compound
+  (testing "(bz0ox.1) a COMPOUND machine whose deep initial leaf's `:entry`
+            raises settles past it on birth — the raise re-enters the
+            macrostep queue, the enclosing `:on` takes the transition"
+    (let [m {:initial :outer
+             :data    {}
+             :states  {:outer {:initial :inner
+                               :states  {:inner {:entry (fn [_] {:fx [[:raise [:advance]]]})
+                                                 :on    {:advance :landed}}
+                                         :landed {}}}}}
+          {:keys [state fx]} (boot-result m)]
+      (is (= [:outer :landed] state)
+          "birth drained :inner's `:entry` `:raise` and settled to [:outer :landed]")
+      (is (not (raise-fx? fx))
+          "no reserved `:raise` escaped to the outbound fx layer"))))
+
+(deftest pure-birth-entry-raise-preserves-nonraise-fx-ordering
+  (testing "(bz0ox.1) the initial-`:entry`'s NON-raise fx survive the drain in
+            order — only the `:raise` is consumed; real effects flow out"
+    (let [m {:initial :a
+             :data    {}
+             :states  {:a {:entry (fn [_] {:fx [[:log :before] [:raise [:go]] [:log :after]]})
+                           :on    {:go :b}}
+                       :b {:entry (fn [_] {:fx [[:log :in-b]]})}}}
+          {:keys [state fx]} (boot-result m)]
+      (is (= :b state) "settled to the raised target :b")
+      (is (not (raise-fx? fx)) "the `:raise` drained — no reserved fx escaped")
+      (is (= #{[:log :before] [:log :after] [:log :in-b]} (set fx))
+          "every non-raise effect (entry's :before/:after + :b's entry :in-b) flows out")
+      (is (= [:log :before] (first fx))
+          "the entry fx emitted before the `:raise` keep their leading position"))))
+
+(deftest pure-birth-entry-raise-drains-parallel-region
+  (testing "(bz0ox.1) a PARALLEL machine: a region's initial `:entry` `:raise`
+            is NOT region-local — it re-enters the parent macrostep queue and
+            re-broadcasts across EVERY region before birth commit (so a sibling
+            region observes it too), with no outbound `:raise`"
+    (let [m {:type    :parallel
+             :data    {}
+             :regions {:left  {:initial :a
+                               :states  {:a {:entry (fn [_] {:fx [[:raise [:go]]]})
+                                            :on    {:go :b}}
+                                         :b {}}}
+                       ;; :right declares the SAME `:go` event but does NOT
+                       ;; emit it — it can only fire if the region-:left raise
+                       ;; was re-broadcast through the parent queue.
+                       :right {:initial :r
+                               :states  {:r {:on {:go :s}}
+                                         :s {}}}}}
+          {:keys [state fx]} (boot-result m)]
+      (is (= :b (:left state))
+          "region :left drained its own initial-`:entry` `:raise` → :b")
+      (is (= :s (:right state))
+          "region :right saw the re-broadcast `:go` (parent internal queue, not region-local) → :s")
+      (is (not (raise-fx? fx))
+          "no reserved `:raise` escaped to the outbound fx layer"))))
+
 (deftest pure-birth-always-settles-past-transient-initial-leaf
   (testing "SCXML §3.13 initial macrostep: an initial leaf whose `:always`
             guard already holds is settled PAST on birth — the transient

@@ -1150,6 +1150,24 @@
   [node]
   (= :history (:type node)))
 
+(defn state-occupiable?
+  "True iff `state` (a flat keyword or compound vector path) resolves
+  through `machine`'s `:states` to a REAL, OCCUPIABLE leaf node — i.e. the
+  path resolves (`node-at` is non-nil) AND the resolved node is NOT a
+  `:type :history` pseudo-state. Per Spec-Schemas §`:type :history`: a
+  history node is TARGETABLE (a transition may aim at it) but is NEVER an
+  occupied active state — a snapshot whose active leaf IS a history node is
+  malformed and must reset, not be driven through the engine (bz0ox.2 /
+  x4s9t.2). A malformed `:state` shape (`state-path` throws) is treated as
+  not-occupiable so the caller's reset path covers shape-error AND
+  missing-state AND occupied-history alike."
+  [machine state]
+  (try
+    (let [node (node-at machine (state-path state))]
+      (and (some? node)
+           (not (history-node? node))))
+    (catch #?(:clj Throwable :cljs :default) _ false)))
+
 (defn- history-child
   "Return `[hist-key hist-node]` for the (single) history pseudo-state
   declared directly under compound at `compound-path`, or nil if the
@@ -2782,8 +2800,17 @@
   NOT reach here: `parallel-machine-transition` owns the macrostep's
   internal-event queue and re-broadcasts each region-emitted raise across
   every region (rf2-yi7ts). A region therefore DEFERS its raises — see
-  `drain-or-defer-raises` and `machine-transition-single`'s `defer?`."
-  [machine snapshot fx-vec depth-limit start-depth]
+  `drain-or-defer-raises` and `machine-transition-single`'s `defer?`.
+
+  `rollback-snapshot` is the macrostep's atomic-rollback target (the
+  pre-event snapshot, threaded down from `drain-to-fixed-point`). On a
+  `:raise-depth-limit` abort the WHOLE macrostep is discarded — the partial
+  snapshot AND all accumulated effects are thrown away and `(result/ok
+  rollback-snapshot [])` is returned, identical to the `:always` fixed-point
+  guard's atomic rollback and to the parallel parent-queue drain (x4s9t.1).
+  Bounded depth halts with the macrostep uncommitted per Spec 005 §Drain
+  semantics §Bounded depth — `:no-recovery`."
+  [machine snapshot fx-vec depth-limit start-depth rollback-snapshot]
   (loop [pending fx-vec
          accum   []
          snap    snapshot
@@ -2805,7 +2832,11 @@
                               ;; requires `:frame`.
                               :frame      (:rf/frame machine)
                               :recovery   :no-recovery})
-          (result/ok snap accum))
+          ;; Macrostep rolls back atomically — neither the partially-advanced
+          ;; `snap` nor the `accum`ulated effects survive the abort. Matches
+          ;; the `:always` guard's `(result/ok rollback-snapshot [])` and the
+          ;; parallel parent-queue drain (x4s9t.1).
+          (result/ok rollback-snapshot []))
 
       (empty? pending)
       (result/ok snap accum)
@@ -2869,11 +2900,15 @@
   When NOT deferring (the queue-owning top-level flat / compound drain), this
   delegates to the local FIFO `drain-raises`. `:always` is unaffected either
   way — it stays region-local and settles within whichever microstep owns it.
-  Returns a `result/ok` (or a `result/fail` if a local drain step threw)."
-  [machine snapshot fx-vec depth-limit start-depth defer-raises?]
+  Returns a `result/ok` (or a `result/fail` if a local drain step threw).
+
+  `rollback-snapshot` is the macrostep's atomic-rollback target, threaded
+  straight through to `drain-raises` so a `:raise-depth-limit` abort discards
+  the whole macrostep (x4s9t.1)."
+  [machine snapshot fx-vec depth-limit start-depth defer-raises? rollback-snapshot]
   (if defer-raises?
     (result/ok snapshot fx-vec)
-    (drain-raises machine snapshot fx-vec depth-limit start-depth)))
+    (drain-raises machine snapshot fx-vec depth-limit start-depth rollback-snapshot)))
 
 (defn- emit-pick-traces!
   "Fire the three pre-transition timer traces for a `pick-transition`
@@ -2962,7 +2997,7 @@
     (if (result/fail? start-result)
       start-result
       (result/with-ok [snap-after-event fx-after-event] start-result
-        (let [raised (drain-or-defer-raises machine snap-after-event fx-after-event raise-limit raise-depth defer?)
+        (let [raised (drain-or-defer-raises machine snap-after-event fx-after-event raise-limit raise-depth defer? rollback-snapshot)
               ;; Per rf2-n9f4z: seed the macrostep cascade with the seeding
               ;; transition's (event-driven exit/action/entry, OR birth
               ;; initial-entry) steps; the `:always` loop appends one
@@ -3069,7 +3104,7 @@
                               ;; (rf2-b88nm) so raises emitted by an `:always`
                               ;; cascade reached via a raise chain keep counting
                               ;; against the same `:raise-depth-limit`.
-                              (let [raised2 (drain-or-defer-raises machine snap2 fx2 raise-limit raise-depth defer?)]
+                              (let [raised2 (drain-or-defer-raises machine snap2 fx2 raise-limit raise-depth defer? rollback-snapshot)]
                                 (if (result/fail? raised2)
                                   raised2
                                   (result/with-ok [snap3 fx3] raised2

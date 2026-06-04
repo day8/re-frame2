@@ -25,6 +25,7 @@
       active leaf is `:final?` (§Parallel regions and `:final?`)."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.machines.lifecycle-fx.finalize :as finalize]
+            [re-frame.machines.parallel :as parallel]
             [re-frame.machines.transition :as transition]))
 
 ;; ---------------------------------------------------------------------------
@@ -180,3 +181,92 @@
       (is (false? (finalize/all-regions-final?
                     m {:left [:wrap :running] :right :done}))
           "a nested NON-final region leaf prevents finalisation"))))
+
+;; ---------------------------------------------------------------------------
+;; all-regions-final? — declared-region KEY PARITY (bz0ox.2 / x4s9t.2)
+;;
+;; A partial parallel snapshot must NEVER vacuously read as all-final. Before
+;; the fix, `all-regions-final?` iterated only the regions PRESENT in the
+;; state-map, so a map missing a declared region (e.g. `{:left :done}` for a
+;; 2-region machine) passed `every?` over the one present-and-final region —
+;; reading true and (downstream) firing root :on-done / auto-destroy with a
+;; whole region absent.
+;; ---------------------------------------------------------------------------
+
+(deftest all-regions-final?-missing-region-is-not-final
+  (testing "a snapshot MISSING a declared region is NOT all-final (no vacuous done)"
+    (is (false? (finalize/all-regions-final?
+                  parallel-machine {:left :done}))
+        "{:left :done} for a 2-region machine must NOT read all-final — :right is absent")
+    (is (false? (finalize/all-regions-final?
+                  parallel-machine {:right :done}))
+        "symmetric — :left absent")
+    (is (false? (finalize/all-regions-final?
+                  parallel-machine {}))
+        "an empty region map is not all-final (every declared region absent)")))
+
+(deftest all-regions-final?-extra-region-is-not-final
+  (testing "a snapshot carrying an EXTRA/stale region is NOT all-final (key parity)"
+    (is (false? (finalize/all-regions-final?
+                  parallel-machine {:left :done :right :done :middle :done}))
+        "a stale :middle region (not declared) breaks exact key parity ⇒ not final")))
+
+(deftest all-regions-final?-occupied-history-region-is-not-final
+  (testing "a region whose active leaf is a :type :history pseudo-state is NOT occupiable ⇒ not all-final"
+    (let [m {:type    :parallel
+             :data    {}
+             :regions {:left  {:initial :a
+                               :states  {:a    {:on {:go :b}}
+                                         :b    {:final? true}
+                                         :hist {:type :history}}}
+                       :right {:initial :running
+                               :states  {:running {:on {:finish :done}}
+                                         :done    {:final? true}}}}}]
+      (is (false? (finalize/all-regions-final?
+                    m {:left :hist :right :done}))
+          "a region occupying a history pseudo-state is malformed ⇒ not all-final"))))
+
+;; ---------------------------------------------------------------------------
+;; parallel-state-valid? — the ONE shared snapshot-shape predicate
+;; ---------------------------------------------------------------------------
+
+(deftest parallel-state-valid?-requires-exact-key-parity-and-occupiable-leaves
+  (testing "valid iff map? + EXACT declared region keys + every region occupiable"
+    (is (true? (parallel/parallel-state-valid?
+                 parallel-machine {:left :running :right :done}))
+        "exactly the declared regions, each resolving to a real leaf ⇒ valid")
+    (is (false? (parallel/parallel-state-valid?
+                  parallel-machine {:left :running}))
+        "missing a declared region ⇒ invalid")
+    (is (false? (parallel/parallel-state-valid?
+                  parallel-machine {:left :running :right :done :extra :running}))
+        "an extra/stale region ⇒ invalid")
+    (is (false? (parallel/parallel-state-valid?
+                  parallel-machine {:left :nope :right :done}))
+        "a region path that does not resolve ⇒ invalid")
+    (is (false? (parallel/parallel-state-valid? parallel-machine :running))
+        "a non-map :state ⇒ invalid")
+    (is (false? (parallel/parallel-state-valid? flat-final-machine {:left :running :right :done}))
+        "a non-parallel machine ⇒ invalid (the predicate is parallel-only)")))
+
+;; ---------------------------------------------------------------------------
+;; state-occupiable? — rejects missing states AND history pseudo-states
+;; ---------------------------------------------------------------------------
+
+(deftest state-occupiable?-rejects-history-and-missing
+  (let [m {:initial :playing
+           :states  {:playing {:type    :compound
+                               :initial :a
+                               :states  {:a    {:on {:go :b}}
+                                         :b    {}
+                                         :hist {:type :history}}}}}]
+    (testing "a real occupiable leaf ⇒ true"
+      (is (true? (transition/state-occupiable? m [:playing :a]))
+          "[:playing :a] resolves to a real leaf")
+      (is (true? (transition/state-occupiable? m [:playing :b]))))
+    (testing "a :type :history pseudo-state is targetable but NEVER occupied ⇒ false"
+      (is (false? (transition/state-occupiable? m [:playing :hist]))
+          "an occupied history pseudo-state is malformed"))
+    (testing "a path that does not resolve ⇒ false"
+      (is (false? (transition/state-occupiable? m [:playing :gone])))
+      (is (false? (transition/state-occupiable? m :no-such-state))))))

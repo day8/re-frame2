@@ -84,6 +84,113 @@
           (is (= :next (:state snap))))
         (finally (stop!))))))
 
+;; ---- (3b) parallel region-key parity (bz0ox.2 / x4s9t.2) -----------------
+;;
+;; A parallel configuration is EVERY declared region active simultaneously.
+;; A snapshot MISSING a declared region (corrupted/old restore, or a hot
+;; reload that ADDED a region) or carrying an EXTRA/stale region (a hot
+;; reload that DROPPED a region) is malformed: validating only the regions
+;; PRESENT let a partial map like `{:left :done}` for a 2-region machine
+;; pass, then silently run a partial configuration that could vacuously fire
+;; root :on-done / auto-destroy. The reconciler must require EXACT declared-
+;; region key parity and reset through :rf.error/machine-state-not-in-definition.
+
+(deftest parallel-missing-region-resets-to-initial
+  (testing "a parallel snapshot MISSING a declared region resets to :initial and emits :rf.error/machine-state-not-in-definition (bz0ox.2 / x4s9t.2)"
+    (let [{:keys [captured stop!]} (capture-error-traces)
+          spec {:type    :parallel
+                :data    {}
+                ;; No root :on-done — but the reset rebuilds to the
+                ;; NON-final initial config, and we deliver a DECLINED event
+                ;; (`:noop`) so the snapshot survives for inspection (it does
+                ;; not advance to the auto-destroying all-final config).
+                :regions {:left  {:initial :run :states {:run {:on {:fin :done}} :done {:final? true}}}
+                          :right {:initial :run :states {:run {:on {:fin :done}} :done {:final? true}}}}}]
+      (try
+        (rf/reg-machine :compat/par-missing spec)
+        ;; Seed a partial snapshot missing :right — :left already final.
+        ;; Pre-fix this validated and (with :right absent) could vacuously
+        ;; read all-final and auto-destroy the machine with a region missing.
+        (frame/swap-frame-db! :rf/default
+                              assoc-in
+                              [:rf/runtime :machines :snapshots :compat/par-missing]
+                              {:state {:left :done} :data {:corrupt true}})
+        (rf/dispatch-sync [:compat/par-missing [:noop]])
+        (let [snap (snapshot :compat/par-missing)
+              ev   (some #(when (= :rf.error/machine-state-not-in-definition (:operation %)) %)
+                         @captured)]
+          (is (some? ev) ":rf.error/machine-state-not-in-definition fired for the missing region")
+          (is (= :reset-to-initial (:recovery ev)))
+          ;; Reset rebuilt the FULL 2-region initial config; :noop declined.
+          (is (= {:left :run :right :run} (:state snap))
+              "reset rebuilt the FULL 2-region initial config (both regions present)")
+          (is (nil? (get-in snap [:data :corrupt]))
+              "corrupt :data discarded by the reset"))
+        (finally (stop!))))))
+
+(deftest parallel-extra-region-resets-to-initial
+  (testing "a parallel snapshot carrying an EXTRA/stale region resets to :initial and emits :rf.error/machine-state-not-in-definition (bz0ox.2 / x4s9t.2)"
+    (let [{:keys [captured stop!]} (capture-error-traces)
+          spec {:type    :parallel
+                :data    {}
+                :regions {:left  {:initial :run :states {:run {:on {:fin :done}} :done {:final? true}}}
+                          :right {:initial :run :states {:run {:on {:fin :done}} :done {:final? true}}}}}]
+      (try
+        (rf/reg-machine :compat/par-extra spec)
+        ;; Seed a snapshot with a stale :middle region a hot reload removed.
+        (frame/swap-frame-db! :rf/default
+                              assoc-in
+                              [:rf/runtime :machines :snapshots :compat/par-extra]
+                              {:state {:left :run :right :run :middle :run} :data {}})
+        (rf/dispatch-sync [:compat/par-extra [:noop]])
+        (let [snap (snapshot :compat/par-extra)
+              ev   (some #(when (= :rf.error/machine-state-not-in-definition (:operation %)) %)
+                         @captured)]
+          (is (some? ev) ":rf.error/machine-state-not-in-definition fired for the extra region")
+          (is (= :reset-to-initial (:recovery ev)))
+          (is (= #{:left :right} (set (keys (:state snap))))
+              "reset dropped the stale :middle region — exactly the declared keys")
+          (is (= {:left :run :right :run} (:state snap))
+              "reset rebuilt exactly the declared regions at their initial leaves"))
+        (finally (stop!))))))
+
+;; ---- (3c) occupied :history pseudo-state (bz0ox.2) -----------------------
+;;
+;; A :type :history node is TARGETABLE but NEVER an occupied active state. A
+;; snapshot whose active leaf IS a history node is malformed — node existence
+;; alone is not occupiability. The reconciler must reject it and reset.
+
+(deftest occupied-history-pseudo-state-resets-to-initial
+  (testing "a flat/compound snapshot whose active leaf is a :type :history pseudo-state resets to :initial and emits :rf.error/machine-state-not-in-definition (bz0ox.2)"
+    (let [{:keys [captured stop!]} (capture-error-traces)
+          spec {:initial :playing
+                :data    {}
+                :states  {:playing {:type    :compound
+                                    :initial :a
+                                    :states  {:a    {:on {:go :b}}
+                                              :b    {}
+                                              :hist {:type :history}}}}}]
+      (try
+        (rf/reg-machine :compat/hist spec)
+        ;; Seed a snapshot occupying the history pseudo-state — node-at
+        ;; resolves it (pre-fix => validated), but it is never occupiable.
+        (frame/swap-frame-db! :rf/default
+                              assoc-in
+                              [:rf/runtime :machines :snapshots :compat/hist]
+                              {:state [:playing :hist] :data {:stale true}})
+        (rf/dispatch-sync [:compat/hist [:go]])
+        (let [snap (snapshot :compat/hist)
+              ev   (some #(when (= :rf.error/machine-state-not-in-definition (:operation %)) %)
+                         @captured)]
+          (is (some? ev) ":rf.error/machine-state-not-in-definition fired for the occupied history leaf")
+          (is (= [:playing :hist] (get-in ev [:tags :state])))
+          (is (= :reset-to-initial (:recovery ev)))
+          (is (nil? (get-in snap [:data :stale])) "stale :data discarded by the reset")
+          ;; Reset rebuilt the initial config [:playing :a], then :go ran.
+          (is (= [:playing :b] (:state snap))
+              "reset to the real initial leaf [:playing :a] then :go advanced to [:playing :b]"))
+        (finally (stop!))))))
+
 ;; ---- (4) snapshot-version mismatch ---------------------------------------
 
 (deftest snapshot-version-mismatch-resets-and-emits
