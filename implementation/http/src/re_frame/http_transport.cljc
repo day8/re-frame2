@@ -34,6 +34,7 @@
                                   HttpRequest
                                   HttpRequest$BodyPublishers
                                   HttpResponse HttpResponse$BodyHandlers]
+                   [java.nio.charset Charset StandardCharsets]
                    [java.time Duration]
                    [java.util.concurrent CompletableFuture])))
 
@@ -434,31 +435,79 @@
                 (vec vs))]))))
 
 #?(:clj
+   (defn- charset-of
+     "rf2-a3wxe — resolve the response `Content-Type`'s `charset=` parameter
+     to a `java.nio.charset.Charset`, defaulting to UTF-8. Mirrors the
+     no-arg `HttpResponse.BodyHandlers/ofString` semantics (which honour
+     the response charset, defaulting to UTF-8): now that `jvm-fetch` reads
+     `ofByteArray` unconditionally so the binary-decode path can ride raw
+     bytes, the text path must reproduce that charset handling rather than
+     hard-coding UTF-8, so a `text/html; charset=ISO-8859-1` response
+     decodes identically to the prior `ofString` behaviour. An unknown /
+     unparseable charset falls back to UTF-8."
+     ^Charset [headers]
+     (or (when-let [ct (decode/content-type-of headers)]
+           (let [m (re-find #"(?i)charset=\s*\"?([^\";\s]+)" (str ct))]
+             (when-let [cs (second m)]
+               (try (Charset/forName cs)
+                    (catch Exception _ nil)))))
+         StandardCharsets/UTF_8)))
+
+#?(:clj
    (defn- jvm-fetch
      "Issue a single HTTP attempt via java.net.http.HttpClient. Returns a
      CompletableFuture that completes with `{:ok? :status :status-text
-     :headers :body-text}` or completes-exceptionally with an ex-info.
+     :headers :body-text}` (text path) or `{… :body-binary <bytes>}`
+     (binary path), or completes-exceptionally with an ex-info.
 
      `opts` carries `:sensitive?` so `jvm-build-request` can route any
      header-validation warning through the privacy composer (rf2-1jcpm).
      `opts` carries `:redirect` (Spec 014 §Request envelope, default
      `:follow`) so the client honouring the right redirect policy is
-     selected per rf2-ee38b.7."
+     selected per rf2-ee38b.7.
+
+     rf2-a3wxe — binary decode on the JVM. `opts` carries `:decode`; when
+     it resolves to a binary mode (`:blob` / `:array-buffer` / `:form-data`,
+     per `decode/binary-read-kind`, mirroring the CLJS transport's
+     up-front body-reader selection) we read the response body with
+     `BodyHandlers/ofByteArray` and ride the raw bytes under `:body-binary`
+     so `decode-response-body` returns them verbatim. Previously every JVM
+     response read `ofString`, so a `:blob`/`:array-buffer`/`:form-data`
+     decode fell through to the lossy `body-text` fallback in
+     `decode-response-body` — a UTF-8 decode of raw bytes that corrupts
+     binary payloads (worse than a clean no-op). `binary-read-kind`
+     consults the response headers for the `:auto` sniff, so we resolve it
+     AFTER the response is in hand (status known); we only read bytes on a
+     2xx (a non-2xx body is the raw error text the 4xx/5xx paths carry,
+     same as CLJS — see `cljs-fetch`)."
      [opts]
      (let [client ^HttpClient (jvm-http-client-for (:redirect opts))
            req    (jvm-build-request opts)
+           decode (:decode opts)
            future-resp (.sendAsync client req
-                                   (HttpResponse$BodyHandlers/ofString))]
+                                   (HttpResponse$BodyHandlers/ofByteArray))]
        (.thenApply future-resp
                    (reify java.util.function.Function
                      (apply [_ resp]
                        (let [^HttpResponse r resp
-                             status (.statusCode r)]
-                         {:ok? (and (>= status 200) (< status 300))
-                          :status status
-                          :status-text ""
-                          :headers (jvm-headers->map (.headers r))
-                          :body-text (.body r)})))))))
+                             status   (.statusCode r)
+                             ok?      (and (>= status 200) (< status 300))
+                             headers  (jvm-headers->map (.headers r))
+                             ^bytes raw (.body r)
+                             binary?  (and ok?
+                                           (some? (decode/binary-read-kind decode headers)))
+                             base     {:ok?         ok?
+                                       :status      status
+                                       :status-text ""
+                                       :headers     headers}]
+                         (if binary?
+                           (assoc base :body-binary raw)
+                           ;; Text path (and every non-2xx): decode the
+                           ;; bytes as a String using the response charset
+                           ;; (defaulting to UTF-8 via `charset-of`), faithfully
+                           ;; reproducing the prior no-arg `ofString` semantics
+                           ;; for the text/error path.
+                           (assoc base :body-text (String. raw ^Charset (charset-of headers)))))))))))
 
 #?(:clj
    (defn- classify-jvm-error
@@ -478,17 +527,27 @@
      limit, in scope at the `run-attempt!` call sites) fills the
      `:limit-ms` tag on a timeout failure so the JVM shape matches the
      CLJS path (Spec 014 §Failure categories types `:rf.http/timeout` as
-     `:elapsed-ms` / `:limit-ms`). `:elapsed-ms` stays nil on the JVM —
-     the JDK's `HttpTimeoutException` does not surface the elapsed wall
-     clock, and there is no faithful value to synthesise."
-     ([^Throwable t] (classify-jvm-error t nil))
-     ([^Throwable t timeout-ms]
+     `:elapsed-ms` / `:limit-ms`).
+
+     rf2-a3wxe — `:elapsed-ms` is now populated on the JVM. The JDK's
+     `HttpTimeoutException` does not itself surface the elapsed wall
+     clock, so `run-attempt!` captures a monotonic start mark
+     (`System/nanoTime`) before issuing the request and passes the
+     measured wall-clock delta here. This matches the CLJS path's
+     intent — `cljs-fetch` stamps `:elapsed-ms` on its synthetic timeout
+     rejection (Spec 014 §Failure categories) so a consumer branching on
+     `:elapsed-ms` sees a value on BOTH hosts rather than nil-on-JVM.
+     `elapsed-ms` is nil only when no start mark was threaded (the legacy
+     2-arity test/synthetic callers), preserving back-compat."
+     ([^Throwable t] (classify-jvm-error t nil nil))
+     ([^Throwable t timeout-ms] (classify-jvm-error t timeout-ms nil))
+     ([^Throwable t timeout-ms elapsed-ms]
       (let [cause (or (.getCause t) t)
             msg   (.getMessage cause)
             cls   (.getName (class cause))]
         (cond
           (instance? java.net.http.HttpTimeoutException cause)
-          {:kind :rf.http/timeout :elapsed-ms nil :limit-ms timeout-ms :message msg}
+          {:kind :rf.http/timeout :elapsed-ms elapsed-ms :limit-ms timeout-ms :message msg}
 
           (instance? java.util.concurrent.CancellationException cause)
           {:kind :rf.http/aborted :reason :user :message msg}
@@ -511,7 +570,7 @@
                       (true? sensitive?))))))
 
 #?(:clj
-   (defn check-cljs-only-keys! [{:keys [request abort-signal]} sensitive?]
+   (defn check-cljs-only-keys! [{:keys [request abort-signal decode]} sensitive?]
      (let [url (:url request)]
        ;; rf2-ee38b.7 — `:credentials` joins the JVM-degraded set. Unlike
        ;; `:redirect` (now honoured on JVM via the redirect-policy client),
@@ -527,7 +586,26 @@
          (when (contains? request k)
            (emit-cljs-only-skipped! k url sensitive?)))
        (when abort-signal
-         (emit-cljs-only-skipped! :abort-signal url sensitive?)))))
+         (emit-cljs-only-skipped! :abort-signal url sensitive?))
+       ;; rf2-a3wxe — binary decode SHAPE-degradation notice on JVM.
+       ;; A `:blob` / `:array-buffer` / `:form-data` decode is now HONOURED
+       ;; on the JVM (jvm-fetch reads `ofByteArray` and rides the raw bytes
+       ;; — no more lossy String fallback), but the returned value is a
+       ;; `byte[]`, NOT the native browser `Blob` / `ArrayBuffer` /
+       ;; `FormData` object the CLJS Fetch path yields. That host-shape
+       ;; difference is a degradation worth surfacing — a caller asking
+       ;; for a `Blob` gets bytes and would otherwise never learn. Emit a
+       ;; dedicated one-line trace (NOT `:rf.http/cljs-only-key-ignored-
+       ;; on-jvm`, since the decode is honoured rather than ignored). We
+       ;; only flag an EXPLICIT binary `:decode` here: `:auto` resolves to
+       ;; `:blob` from the response Content-Type, which isn't known at
+       ;; dispatch time. Per Spec 014 §JVM degradation table.
+       (when (and interop/debug-enabled?
+                  (contains? #{:blob :array-buffer :form-data} decode))
+         (trace/emit! :warning :rf.http/binary-decode-degraded-on-jvm
+                      (privacy/prepare-emit-tags
+                        {:decode decode :url url}
+                        (true? sensitive?)))))))
 
 ;; A no-op JVM-only no-op stub on CLJS so callers can reach
 ;; `http-transport/check-cljs-only-keys!` unconditionally without
@@ -1334,37 +1412,51 @@
            (.catch (fn [err]
                      (maybe-retry! ctx' (classify-cljs-error err url)))))
        :clj
-       (try
-         (let [^CompletableFuture cf
-               (jvm-fetch {:method     method
-                           :url        url
-                           :headers    headers
-                           :body       enc-body
-                           :timeout-ms timeout-ms
-                           ;; rf2-ee38b.7 — honour the spec's `:redirect`
-                           ;; envelope key on the JVM (default `:follow`).
-                           ;; Selects the redirect-policy-specific client.
-                           :redirect   (:redirect request)
-                           :sensitive? (true? (:sensitive? ctx))})]
-           ;; rf2-on7sj — publish cf to the abort-fn closure's holder
-           ;; BEFORE wiring whenComplete. A racing abort that arrives
-           ;; between `jvm-fetch` returning and `.whenComplete`
-           ;; registering still finds cf in the holder and can cancel
-           ;; it.
-           (reset! cf-holder cf)
-           ;; rf2-on7sj — the whenComplete callback fires even after
-           ;; `.cancel cf true`: the cancel completes-exceptionally
-           ;; with a CancellationException, which routes through this
-           ;; BiConsumer as `throwable`. `maybe-retry!` →
-           ;; `finalise-failure!` is then guarded by the once-only
-           ;; `:finalised?` CAS (the abort-fn already finalised), so
-           ;; the abort's reply is the only one that ever reaches the
-           ;; user.
-           (.whenComplete cf
-                          (reify java.util.function.BiConsumer
-                            (accept [_ result throwable]
-                              (if throwable
-                                (maybe-retry! ctx' (classify-jvm-error throwable timeout-ms))
-                                (handle-response! ctx' result))))))
-         (catch Throwable t
-           (maybe-retry! ctx' (classify-jvm-error t timeout-ms)))))))
+       ;; rf2-a3wxe — monotonic start mark for the per-host timeout
+       ;; `:elapsed-ms`. `System/nanoTime` is the JDK's monotonic clock
+       ;; (immune to wall-clock adjustments); the delta is converted to
+       ;; whole milliseconds at the failure site. Captured BEFORE the
+       ;; request is issued so the measured elapsed spans the whole attempt.
+       (let [started-ns (System/nanoTime)
+             elapsed-ms #(quot (- (System/nanoTime) started-ns) 1000000)]
+         (try
+           (let [^CompletableFuture cf
+                 (jvm-fetch {:method     method
+                             :url        url
+                             :headers    headers
+                             :body       enc-body
+                             :timeout-ms timeout-ms
+                             ;; rf2-a3wxe — thread the resolved `:decode`
+                             ;; so `jvm-fetch` can read the response body
+                             ;; with `ofByteArray` for binary decode modes
+                             ;; (`:blob` / `:array-buffer` / `:form-data`)
+                             ;; and ride the raw bytes under `:body-binary`
+                             ;; instead of the lossy String fallback.
+                             :decode     (:decode ctx)
+                             ;; rf2-ee38b.7 — honour the spec's `:redirect`
+                             ;; envelope key on the JVM (default `:follow`).
+                             ;; Selects the redirect-policy-specific client.
+                             :redirect   (:redirect request)
+                             :sensitive? (true? (:sensitive? ctx))})]
+             ;; rf2-on7sj — publish cf to the abort-fn closure's holder
+             ;; BEFORE wiring whenComplete. A racing abort that arrives
+             ;; between `jvm-fetch` returning and `.whenComplete`
+             ;; registering still finds cf in the holder and can cancel
+             ;; it.
+             (reset! cf-holder cf)
+             ;; rf2-on7sj — the whenComplete callback fires even after
+             ;; `.cancel cf true`: the cancel completes-exceptionally
+             ;; with a CancellationException, which routes through this
+             ;; BiConsumer as `throwable`. `maybe-retry!` →
+             ;; `finalise-failure!` is then guarded by the once-only
+             ;; `:finalised?` CAS (the abort-fn already finalised), so
+             ;; the abort's reply is the only one that ever reaches the
+             ;; user.
+             (.whenComplete cf
+                            (reify java.util.function.BiConsumer
+                              (accept [_ result throwable]
+                                (if throwable
+                                  (maybe-retry! ctx' (classify-jvm-error throwable timeout-ms (elapsed-ms)))
+                                  (handle-response! ctx' result))))))
+           (catch Throwable t
+             (maybe-retry! ctx' (classify-jvm-error t timeout-ms (elapsed-ms)))))))))
