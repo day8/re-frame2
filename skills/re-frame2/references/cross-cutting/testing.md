@@ -92,7 +92,7 @@ Two fns — one per shape — sharing a name root with the `:rf.assert/*` Story 
 (ts/assert-db-equals   {:n 0} {:frame :stories})        ;; same for the full-db form
 ```
 
-`assert-path-equals` mirrors the `:rf.assert/path-equals` event used inside Story `:play-script` blocks; the shared name root is deliberate so a reader navigating between the two surfaces does not need a translation table. `assert-db-equals` is the companion full-db form (no `:rf.assert/*` event analog — the event-family is path-keyed).
+`assert-path-equals` mirrors the `:rf.assert/path-equals` event used inside Story `:script` blocks; the shared name root is deliberate so a reader navigating between the two surfaces does not need a translation table. `assert-db-equals` is the companion full-db form (no `:rf.assert/*` event analog — the event-family is path-keyed).
 
 Failure reports through `clojure.test/is` with both expected and actual, so the diagnostic is one line. For ad-hoc reads outside an assertion:
 

@@ -16,7 +16,7 @@
 | **decorators** (project / component / story) | `reg-decorator` + `:decorators` | Three kinds — `:hiccup` (wrapper), `:frame-setup` (seed app-db / fire init events), `:fx-override` (stub an fx). Project-wide decorators go in `configure! :rf.story/global-decorators` — the `preview.ts` `decorators: […]` parity. Compose order is global → story → variant, same as Storybook. |
 | **globals / globalTypes toolbar** (theme · viewport · locale · backgrounds) **+ Chromatic Modes** | `reg-mode` (saved arg tuples) | One primitive collapses all four Storybook toolbar addons. `(reg-mode :Mode.theme/dark {:axis :theme :args {:theme :dark}})` is the theme switcher; `:viewport` / `:locale` / `:background` axes cover the rest. Each `(variant × mode)` cell is independently snapshot-able — that's the Chromatic-Modes combinatorial-matrix idea, native. |
 | **tags** (`autodocs` / `test` / `dev`, `!`-removal) | `:tags` + `reg-tag` | Same inclusion-and-filter role; same `!`-prefix removal (`:!dev` drops an inherited tag). The seven canonical tags auto-register. |
-| **record-canvas-as-CSF** recorder | `start-recording!` → `gen-play-snippet` → `:script` | EDN out, not Testing-Library code — no DOM-event translation layer. (The recorder still EMITS the transitional `:play-script` spelling, which the registrar lowers; the authored target is `:script`.) See `story-recorder.md`. |
+| **record-canvas-as-CSF** recorder | `start-recording!` → `gen-play-snippet` → `:script` | EDN out, not Testing-Library code — no DOM-event translation layer. (The codegen emits the PUBLIC `:script` slot directly; the registrar still lowers `:play-script` if hand-written, but the recorder no longer emits it.) See `story-recorder.md`. |
 
 **Where Story deliberately has NO Storybook equivalent (read these as the payoff, not a gap):**
 
@@ -185,7 +185,7 @@ The dev shell's Test pane and recorder ship ergonomic affordances that consume w
 - Worked example, every macro at least once → `tools/story/testbeds/counter_with_stories/`.
 - The seven `:rf.assert/*` events, semantics + source-stamping → `SKILL-REDIRECT.md` → *EP — Stories (007)* §Assertions.
 - Render shell, panel placement, multi-substrate pane → `tools/story/spec/003-Render-Shell.md` §UI shell substrate, §Workspace layouts, §Multi-substrate side-by-side rendering.
-- Test Codegen (record canvas interactions into a `:script` body; the recorder emits the transitional `:play-script` spelling the registrar lowers) → `story-recorder.md` (sibling leaf).
+- Test Codegen (record canvas interactions into a `:script` body; the codegen emits the PUBLIC `:script` slot — the recorder no longer emits the transitional `:play-script` spelling) → `story-recorder.md` (sibling leaf).
 - Agent self-healing loop over MCP (variant authoring → run → assert → refine) → `story-mcp-loop.md` (sibling leaf).
 - MCP write surface (programmatic registration via `reg-*` helpers) → `SKILL-REDIRECT.md` → *EP — Stories (007)* §MCP Surface.
 
