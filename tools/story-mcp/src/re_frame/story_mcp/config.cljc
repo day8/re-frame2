@@ -189,14 +189,14 @@
   The caller (`-main`) merges in CLI overrides before calling
   `apply-config!`."
   []
-  (let [wsysprop (System/getProperty "rf.story-mcp.allow-writes")
-        wenv     (System/getenv "RF_STORY_MCP_ALLOW_WRITES")
-        ssysprop (System/getProperty "rf.story-mcp.allow-sensitive-reads")
-        senv     (System/getenv "RF_STORY_MCP_ALLOW_SENSITIVE_READS")]
-    {:allow-writes?          (or (args/parse-boolean wsysprop false)
-                                 (args/parse-boolean wenv false))
-     :allow-sensitive-reads? (or (args/parse-boolean ssysprop false)
-                                 (args/parse-boolean senv false))}))
+  (let [writes-sysprop    (System/getProperty "rf.story-mcp.allow-writes")
+        writes-env        (System/getenv "RF_STORY_MCP_ALLOW_WRITES")
+        sensitive-sysprop (System/getProperty "rf.story-mcp.allow-sensitive-reads")
+        sensitive-env     (System/getenv "RF_STORY_MCP_ALLOW_SENSITIVE_READS")]
+    {:allow-writes?          (or (args/parse-boolean writes-sysprop false)
+                                 (args/parse-boolean writes-env false))
+     :allow-sensitive-reads? (or (args/parse-boolean sensitive-sysprop false)
+                                 (args/parse-boolean sensitive-env false))}))
 
 (defn apply-config!
   "Apply a boot-config map to the runtime atoms. Returns the applied map."

@@ -152,10 +152,10 @@
   [result enabled?]
   (if (or (not enabled?) (nil? result))
     result
-    (let [sc (:structuredContent result)]
-      (if (dedup/empty-payload? sc)
+    (let [structured (:structuredContent result)]
+      (if (dedup/empty-payload? structured)
         result
-        (let [deduped (dedup/dedup-value sc true)
+        (let [deduped (dedup/dedup-value structured true)
               text    (result/pr-edn deduped)]
           (-> result
               (assoc :structuredContent deduped)
