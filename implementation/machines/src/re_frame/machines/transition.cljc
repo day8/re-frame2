@@ -250,6 +250,28 @@
 ;; [:authenticated :cart :paying]). Flat machines used :state :foo for
 ;; compactness; we accept both and normalise internally.
 
+(defn classify-delay-source
+  "Classify an `:after` delay-key into its source form — the closed set
+  `{:literal :sub :fn}` owned by the `:after` grammar (Spec 005 §Delayed
+  `:after` transitions). A `number?` key is the literal-ms form; a
+  `vector?` key is a subscription-vector (`[:sub-id & args]`); a `fn?`
+  key is the computed-once-at-entry form. Any other shape falls back to
+  `:literal` (the schema constrains the canonical forms; this is
+  defensive).
+
+  The single home for the classification, shared by the pure side
+  (`build-after-fx`, which tags the `:rf.machine.timer/scheduled` /
+  `/skipped-on-server` trace) and the fx side
+  (`re-frame.machines.timer/schedule-after-timer!`, which routes the
+  delay resolution + watcher install) so the two can never disagree on
+  what a given delay-key's source is."
+  [delay-key]
+  (cond
+    (number? delay-key) :literal
+    (vector? delay-key) :sub
+    (fn? delay-key)     :fn
+    :else               :literal))
+
 (defn state-path
   "Coerce a snapshot's :state — either a keyword or a vector path — into
   a normalised vector path."
@@ -1233,11 +1255,7 @@
                     epoch      (node-epoch machine snap-final prefix)]
                 (mapv
                   (fn [[delay-key _target]]
-                    (let [delay-source (cond
-                                         (number? delay-key) :literal
-                                         (vector? delay-key) :sub
-                                         (fn? delay-key)     :fn
-                                         :else               :literal)
+                    (let [delay-source (classify-delay-source delay-key)
                           ;; Pure-context delay value: literal keys ARE the
                           ;; resolved ms; sub-vec / fn are resolved at the fx
                           ;; layer (which emits a fresh /scheduled with the
