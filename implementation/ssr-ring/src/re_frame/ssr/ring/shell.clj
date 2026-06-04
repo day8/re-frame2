@@ -12,13 +12,15 @@
   `<script id=\"__rf_payload\" type=\"application/edn\">…</script>`. A
   payload that contains `</script>` (from any user-controlled string
   that round-tripped through app-db) would close the envelope and
-  expose an XSS vector. The shell pre-escapes the EDN through
-  `html-helpers/escape-script-body-string` — every `<` becomes the
-  Clojure / EDN `\\u003c` Unicode escape — before injection. The EDN
-  reader on the client accepts `\\u003c` as the six-character escape
-  for `<`, so the payload round-trips through `clojure.edn/read-string`
-  unchanged. Same fix pattern as JSON-LD (rf2-m5u23) — single helper,
-  two call sites.
+  expose an XSS vector. The shell pre-escapes the EDN through the
+  EDN-aware `html-helpers/escape-edn-script-body` — `<` inside EDN
+  string literals becomes the `\\u003c` Unicode escape, while `<` inside
+  keyword/symbol tokens (`:<`, `:a<b`) is left intact so the document
+  round-trips through `clojure.edn/read-string` unchanged; a `</` / `<!`
+  breakout precursor in a token position fails loud (rf2-rdxxa). Earlier
+  drafts ran the whole-EDN `escape-script-body-string`, which corrupted
+  such tokens into unreadable `\\u003c…` sequences. The streaming
+  delta path applies the same encoder.
 
   Dev-mode CSP-host warning for `:body-end` (rf2-2n5gg, security audit
   2026-05-14 §P3.4) — `:body-end` is the escape hatch for analytics /
@@ -117,12 +119,16 @@
 (defn payload-script-tag
   "Build the id-pinned `<script type=\"application/edn\">` carrying the
   already-`pr-str`'d hydration payload EDN. `payload-edn` is escaped
-  through `html/escape-script-body-string` so a payload containing
+  through `html/escape-edn-script-body` so a payload containing
   `</script>` (sourced from any user-controlled string round-tripped
   through app-db) can't close the envelope — the XSS gate from
-  security audit 2026-05-14 §P1 (rf2-7ksyr). The EDN reader accepts the
-  `\\u003c` escape for `<`, so the payload round-trips through
-  `clojure.edn/read-string` on the client unchanged.
+  security audit 2026-05-14 §P1 (rf2-7ksyr / rf2-rdxxa). The EDN-aware
+  encoder escapes `<` to the `\\u003c` reader escape only inside EDN
+  string literals (where the reader decodes it back), so the payload
+  round-trips through `clojure.edn/read-string` on the client unchanged
+  even when it carries keyword/symbol tokens containing `<` (`:<`,
+  `:a<b`); a `</` / `<!` breakout in a token position fails loud rather
+  than corrupting the document.
 
   The id is pinned in `re-frame.ssr.constants/payload-script-id`
   (`\"__rf_payload\"`) — the contract between this server-side emit and
@@ -130,7 +136,7 @@
   §Hydration payload script id, rf2-cegm7 CQ-3 / rf2-j54ee)."
   [payload-edn]
   (str "<script id=\"" constants/payload-script-id "\" type=\"application/edn\">"
-       (html/escape-script-body-string payload-edn)
+       (html/escape-edn-script-body payload-edn)
        "</script>"))
 
 (defn default-html-shell

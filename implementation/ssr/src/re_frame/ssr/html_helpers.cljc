@@ -13,7 +13,14 @@
     - `escape-script-body-string`— escape `<` as `\\u003c` for strings
                                     dropped inside `<script>` bodies
                                     (security audit 2026-05-14 §P1.1,
-                                    rf2-7ksyr + rf2-m5u23).
+                                    rf2-7ksyr + rf2-m5u23). JSON bodies
+                                    only — every `<` is in a string.
+    - `escape-edn-script-body`   — EDN-aware `<script>`-body escape for
+                                    the hydration payload / streaming
+                                    delta: `<` escaped only inside string
+                                    literals (tokens with `<` round-trip;
+                                    `</`/`<!` token breakouts fail loud)
+                                    (rf2-rdxxa).
     - `validate-attr-name!`      — HTML5-grammar gate on attribute keys
                                     (security audit §P2.5, rf2-vl8ir).
     - `attr-string`              — render an attribute map as
@@ -59,9 +66,122 @@
   `<![CDATA[`, …) the HTML parser also treats as state switches.
 
   Security audit 2026-05-14 §P1.1 / §P1 (rf2-7ksyr, rf2-m5u23) — single
-  helper, two call sites, no copy-paste drift."
+  helper, two call sites, no copy-paste drift.
+
+  NOTE — this whole-string replacement is correct ONLY for JSON bodies
+  (JSON-LD), where every `<` is necessarily inside a string literal and
+  `\\u003c` is a valid JSON string escape. EDN bodies (the hydration
+  payload / streaming delta) carry bare keyword/symbol TOKENS in which
+  `<` is legal yet `\\u003c` is NOT a valid in-token escape — use
+  `escape-edn-script-body` for those (rf2-rdxxa)."
   [s]
   (str/replace (str s) "<" "\\u003c"))
+
+(defn escape-edn-script-body
+  "EDN-aware variant of `escape-script-body-string` for an
+  already-`pr-str`'d EDN document dropped inside a `<script
+  type=\"application/edn\">` body — the hydration payload (`__rf_payload`)
+  and the per-subtree streaming delta (rf2-7ksyr / rf2-rdxxa).
+
+  Why the whole-string `<`→`\\u003c` replacement is WRONG for EDN: the
+  six-character escape `\\u003c` is only meaningful to the EDN reader
+  INSIDE a string literal. EDN also has bare keyword/symbol tokens whose
+  grammar legally admits `<` (`:<`, `:a<b`, the symbol `a<b`). Rewriting
+  every `<` in the serialized document corrupts those tokens —
+  `clojure.edn/read-string` / `cljs.reader/read-string` then reject
+  `:a\\u003cb` (`Invalid unicode character`) and `:\\u003c`
+  (`Invalid token`), breaking hydration or silently skipping a streaming
+  delta. The spec's contract (011 §Streaming SSR, §Hydration payload) is
+  that the script body MUST round-trip through the EDN reader unchanged
+  AND MUST NOT carry a literal `</script` (or `<!`) breakout.
+
+  This encoder scans the document tracking string-literal context (an EDN
+  string literal opens/closes on an unescaped `\"`; `\\` escapes the next
+  char inside a string):
+
+    - INSIDE a string literal — every `<` becomes `\\u003c`. The reader
+      decodes the escape back to `<` inside the string, so the value
+      round-trips exactly while no literal `<` survives to start an HTML
+      `</script` / `<!--` / `<![CDATA[` state switch.
+    - OUTSIDE a string literal (token / structural position) — a lone `<`
+      is harmless in the HTML script-data state and is left untouched so
+      tokens like `:<` / `:a<b` round-trip readably. A `<` that begins a
+      genuine breakout precursor — `</` (script-end) or `<!`
+      (comment / CDATA opener) — has no readable in-token EDN escape, so
+      it is rejected fail-loud with `:rf.error/ssr-edn-script-breakout`.
+      Such a token (e.g. the symbol `a</script>b`) is an exotic,
+      effectively hostile app-db value; failing closed is correct per the
+      CORRECTNESS + SECURITY posture (no silent corruption, no breakout).
+      (A keyword cannot carry `</` in its NAME — the first `/` is the
+      namespace separator — so the realistic token-position breakout
+      carrier is a symbol value or a keyword whose namespace ends in `<`
+      directly abutting a `/`; both are caught here.)
+
+  Result: the emitted `<script>` body cannot contain a literal `</script`
+  / `<!` breakout, and every valid EDN payload round-trips through the
+  reader — `<` in string literals, and `<` in keyword/symbol tokens that
+  do not form a breakout precursor.
+
+  Portable across CLJ/CLJS — uses only `str`/`subs`/`count`/`nth` so the
+  single `.cljc` definition serves the JVM payload emitter and the shared
+  streaming-delta emitter alike."
+  [s]
+  (let [s (str s)
+        n (count s)]
+    (loop [i         0
+           in-string? false
+           escaped?  false
+           acc       (transient [])]
+      (if (>= i n)
+        (apply str (persistent! acc))
+        (let [c (nth s i)]
+          (cond
+            ;; Inside a string literal.
+            in-string?
+            (cond
+              escaped?
+              (recur (inc i) true false (conj! acc c))
+
+              (= c \\)
+              (recur (inc i) true true (conj! acc c))
+
+              (= c \")
+              (recur (inc i) false false (conj! acc c))
+
+              (= c \<)
+              (recur (inc i) true false (conj! acc "\\u003c"))
+
+              :else
+              (recur (inc i) true false (conj! acc c)))
+
+            ;; Outside any string literal — token / structural position.
+            (= c \")
+            (recur (inc i) true false (conj! acc c))
+
+            (= c \<)
+            (let [nxt (when (< (inc i) n) (nth s (inc i)))]
+              (if (or (= nxt \/) (= nxt \!))
+                ;; `</` or `<!` in token position is a real HTML breakout
+                ;; precursor with no readable in-token EDN escape.
+                (throw (ex-info ":rf.error/ssr-edn-script-breakout"
+                                {:rf.error/id :rf.error/ssr-edn-script-breakout
+                                 :where    'rf.ssr/html-helpers
+                                 :reason   (str "EDN script body carries a `<"
+                                                nxt "` HTML breakout precursor "
+                                                "in a non-string (keyword/symbol) "
+                                                "token, which has no readable EDN "
+                                                "escape; the offending token cannot "
+                                                "be safely emitted inside a "
+                                                "<script type=\"application/edn\"> "
+                                                "body. Restructure the offending "
+                                                "app-db key/value.")
+                                 :recovery :no-recovery}))
+                ;; Lone `<` in a token (`:<`, `:a<b`) — harmless in HTML
+                ;; script-data state; leave it so the token round-trips.
+                (recur (inc i) false false (conj! acc c))))
+
+            :else
+            (recur (inc i) false false (conj! acc c))))))))
 
 ;; HTML5 attribute-name grammar (rf2-vl8ir / security audit §P2.5).
 ;; The spec's full production permits almost anything except whitespace,

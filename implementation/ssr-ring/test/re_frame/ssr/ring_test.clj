@@ -1653,6 +1653,50 @@
       ;; is still present (it's the genuine terminator).
       (is (str/includes? html "</script>")))))
 
+(deftest hydration-payload-edn-token-with-angle-round-trips
+  (testing "rf2-rdxxa: the final hydration payload round-trips a keyword KEY
+            and value carrying a non-breakout `<` (`:a<b`, `:<`) AND a string
+            value carrying `</script>` — the EDN-aware escape neutralises the
+            string-literal breakout WITHOUT corrupting the keyword tokens
+            (the regression the whole-string escape broke)."
+    ;; A payload mixing the dangerous-string case and the token-with-< case.
+    (let [payload-edn (pr-str {:a<b 1
+                               :tag :<
+                               :public/title "</script><script>alert(1)</script>"})
+          html        (ssr-ring/default-html-shell "body" payload-edn {})
+          body-edn    (second
+                        (re-find
+                          #"<script id=\"__rf_payload\"[^>]*>(.*?)</script>"
+                          html))]
+      ;; No breakout: the string-literal </script> cannot close the envelope.
+      (is (not (str/includes? (str/lower-case body-edn) "</script"))
+          "no literal </script breakout survives in the payload body")
+      ;; The keyword-token `<` is preserved verbatim (not corrupted to \\u003c).
+      (is (str/includes? body-edn ":a<b")
+          "keyword-token `<` left intact — no \\u003c corruption of tokens")
+      ;; The whole payload round-trips through the EDN reader.
+      (is (= {:a<b 1
+              :tag :<
+              :public/title "</script><script>alert(1)</script>"}
+             (clojure.edn/read-string body-edn))
+          "rf2-rdxxa: the EDN reader recovers the full payload verbatim — the
+           old whole-string `<`→`\\u003c` escape threw on `:a<b`"))))
+
+(deftest hydration-payload-edn-token-breakout-fails-loud
+  (testing "rf2-rdxxa: a `</` breakout precursor in a non-string TOKEN (a
+            symbol value `a</script>b` — valid, readable EDN printing a
+            literal `</`) has no readable in-token EDN escape, so the shell
+            fails loud rather than emitting a corrupted / breakout-bearing
+            body."
+    ;; A symbol value prints the bare token `a</script>b` carrying a literal
+    ;; `</` outside any string literal. (A keyword can't carry `</` in its
+    ;; NAME — the first `/` is the namespace separator — so the realistic
+    ;; token-position breakout carrier is a symbol value.)
+    (let [payload-edn (pr-str {:k (symbol "a</script>b")})]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                            #":rf.error/ssr-edn-script-breakout"
+                            (ssr-ring/default-html-shell "body" payload-edn {}))))))
+
 (deftest shell-with-default-head-emits-exactly-one-charset-meta
   (testing "rf2-q78s1: the default shell owns the baseline <meta charset>;
             default-head no longer carries one, so a full document built

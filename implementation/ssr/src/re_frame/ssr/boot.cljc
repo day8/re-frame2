@@ -67,9 +67,11 @@
      Returns the parsed payload map, or `nil` when the page was not
      server-rendered (no payload script present) — the \"client-only
      first load\" shape. The server escapes `<` to the EDN `\\u003c`
-     unicode escape before injection (the rf2-7ksyr `</script>` XSS gate);
+     unicode escape inside string literals before injection (the
+     rf2-7ksyr `</script>` XSS gate, EDN-aware per rf2-rdxxa);
      `cljs.reader/read-string` accepts that escape so the payload
-     round-trips unchanged.
+     round-trips unchanged — including payloads carrying keyword/symbol
+     tokens with `<`.
 
      A host that overrode `:html-shell` with a custom payload id must
      read that id itself rather than calling this fn (the framework's
