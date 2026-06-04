@@ -801,17 +801,57 @@ downstream of that path:
 Popover is a Xray-owned component (not a browser title), keyboard-
 dismissable, click-through to Reactive panel via the `⤴` footer link.
 
-### §4.5 No epoch focused (LIVE mode at head)
+### §4.5 Per-epoch delta, not cumulative (rf2-02j4r)
 
-When the L2 spine is at head (no historical epoch focused), the sections
-show the most-recent epoch's state with its diff annotations (head-cascade)
-— current db, sectioned. Same render shape — no second mode.
+The panel shows the **selected epoch's OWN delta** — what THIS event
+changed, compared to the immediately previous event, and nothing later.
+The section model's two slots both come from the **focused epoch's
+record**:
+
+| Slot | Source | Meaning |
+|---|---|---|
+| `:value` | the focused epoch's **`:db-after`** | the post-state OF that event (its own result) |
+| `:before` | the focused epoch's **`:db-before`** | the pre-state OF that event |
+
+The inline diff is therefore exactly `db-before(N) → db-after(N)` —
+epoch N's per-epoch delta, **independent of any later event**. Scrubbing
+back to an earlier epoch N after later events occurred highlights ONLY
+what N changed; a key added by a LATER event is absent from `db-after(N)`
+and does not appear at N's selection.
+
+> **rf2-02j4r reversal (2026-06-04).** This REVERSES the earlier rf2-yng0y
+> design, which set `:value` = the observed frame's **LIVE app-db**
+> ("constant as you scrub", a re-frame-10x current-state-inspector
+> framing). Diffing the live db vs the focused `:db-before` equals the
+> per-epoch delta ONLY when the focused epoch is HEAD (live == that
+> epoch's `:db-after`); at any non-head epoch it became a CUMULATIVE
+> diff — everything changed from the focused epoch forward to NOW — so
+> later events' changes bled onto earlier selections (Mike, reproduced
+> live on machine-epochs: focusing the `:media/deep` epoch wrongly lit
+> `:media/shallow`, which a later event added). Pulling `:value` from the
+> focused record's `:db-after` makes the diff the epoch's own delta at
+> every scrub position, and STRENGTHENS the rf2-yng0y atomicity invariant
+> (every slot from ONE record, never live-db + record-`:before`).
+>
+> The rf2-227cz `added`-sentinel behaviour (§4.3) is correct under the
+> new baseline: a wholly-new instance at epoch N is absent in
+> `db-before(N)` and present in `db-after(N)`, so it lights `:added`.
+
+**At head (LIVE mode, no historical epoch focused)** the focused epoch
+IS the head, so `:value` = head's `:db-after` = the current db. The
+operator sees the most-recent epoch's state with its diff annotations —
+same render shape, no second mode.
+
+**Cold boot (no epoch focused at all)** — no cascade has settled, so
+there is no focused record; `:value` falls back to the LIVE db and
+`:before` is nil. The panel renders plain current-state with no diff
+overlay.
 
 ### §4.6 Queries
 
 | From | Reads |
 |---|---|
-| Trace bus | `:rf/epoch-record` `:db-before` + `:db-after` (existing) for diff; structural-sharing diff per §004 |
+| Trace bus | `:rf/epoch-record` `:db-before` + `:db-after` (existing); the focused epoch's `:db-after` is the panel's `:value` and `:db-before` is the diff pre-image (per-epoch delta · rf2-02j4r). Structural-sharing diff per §004 |
 | Registries | Sub `:input-paths` for the "downstream subs" overlay |
 | Reactive panel state | Re-rendered views set for the overlay popover |
 

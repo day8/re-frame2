@@ -365,10 +365,17 @@
   ;; tab registry. Contiguous order: machines 0 · routes 1 · schemas 2
   ;; · flows 3 · interceptors 4 (the standalone :views / :events tabs
   ;; rf2-b2fif removed previously left orders 3 + 5 as gaps).
+  ;; rf2-l1ru8 — mnemonic is "f" (first-letter-of-label, the Static-mode
+  ;; convention: Machines→m, Routes→r, Interceptors→i). "f" is free in the
+  ;; Static mnemonic set (Schemas uses "c" because "s" is the Settings
+  ;; key; Flows has no such collision), and the Static shell's own
+  ;; canonical IA listing (`static/shell.cljs` "Flows (f)") documents "f"
+  ;; as the intended binding. The prior "l" was an off-convention impl
+  ;; value that disagreed with both the shell docstring and the skill.
   (panel-registry/reg-l4-tab!
     {:id    :flows
      :label "Flows"
-     :mnem  "l"
+     :mnem  "f"
      :modes #{:static}
      :order 3
      :panel Panel
