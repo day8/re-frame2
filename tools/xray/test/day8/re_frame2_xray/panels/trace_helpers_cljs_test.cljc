@@ -102,6 +102,27 @@
     (is (= [1 2 3] (mapv :id rows))
         "project-rows keeps the events' oldest-first order")))
 
+(deftest project-rows-drops-nil-id-events
+  (testing "rf2-wh33n — a nil-:id event is a pathological, malformed
+            envelope with no stable identity; project-rows filters it
+            out so it never reaches `row-key` (where two such rows would
+            both key `t:nil`, a React-key collision) nor selection /
+            expansion (both match on :id)"
+    (let [evs  [(ev {:id 1   :op-type :rf.event :operation :rf.event/dispatched :time 100})
+                (ev {:id nil :op-type :rf.event :operation :rf.event/dispatched :time 200})
+                (ev {:id 2   :op-type :rf.fx    :operation :rf.fx/handled       :time 300})
+                (ev {:id nil :op-type :rf.fx    :operation :rf.fx/handled       :time 400})]
+          rows (h/project-rows evs)]
+      (is (= [1 2] (mapv :id rows))
+          "both nil-:id rows are dropped; the well-formed rows survive in order")
+      (is (every? (comp some? :id) rows)
+          "no projected row carries a nil :id")
+      (let [keys (mapv h/row-key rows)]
+        (is (= ["t:1" "t:2"] keys)
+            "surviving rows key on their stable :id")
+        (is (= (count rows) (count (distinct keys)))
+            "no React-key collision among the projected rows")))))
+
 ;; ---- (2) area-badge classification — spec/023 §3 / §5 ------------------
 
 (deftest area-classifies-the-full-vocabulary
