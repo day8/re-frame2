@@ -176,6 +176,20 @@
 ;; sum-text-tokens — cumulative token count across the result's :text slots.
 ;; ---------------------------------------------------------------------------
 
+(defn- sum-text-by
+  "Sum `(f s)` across every string `:text` slot in `result`'s content
+  vector, accessed via `io`. The shared fold body under
+  `sum-text-tokens` / `sum-text-chars` — the only thing that differs
+  between them is the per-string measure `f` (`token-estimate` vs
+  `count`). Non-string slots are skipped; a nil / empty content vector
+  folds to zero."
+  [io result f]
+  (transduce (comp (filter string?)
+                   (map f))
+             +
+             0
+             (content-texts io result)))
+
 (defn sum-text-tokens
   "Sum `overflow/token-estimate` across every `:text` slot in `result`'s
   content vector, accessed via `io`. The serialised response's wire size
@@ -185,11 +199,7 @@
   — a single oversize slot or an aggregate of many small slots both
   trip the cap."
   [io result]
-  (transduce (comp (filter string?)
-                   (map overflow/token-estimate))
-             +
-             0
-             (content-texts io result)))
+  (sum-text-by io result overflow/token-estimate))
 
 (defn sum-text-chars
   "Sum the character count across every `:text` slot in `result`'s
@@ -204,11 +214,7 @@
   enough for English / EDN to pass through unchanged, tight enough
   that a payload doubled by undercount still trips the cap)."
   [io result]
-  (transduce (comp (filter string?)
-                   (map count))
-             +
-             0
-             (content-texts io result)))
+  (sum-text-by io result count))
 
 (def ^:const byte-cap-multiplier
   "Secondary byte-cap multiplier (rf2-ih7g4). `cap * multiplier` is the

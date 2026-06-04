@@ -114,6 +114,14 @@
   [v]
   (pr-str v))
 
+(defn- normalise-lf
+  "Normalise CRLF line endings to bare LF so manifest text is
+  byte-identical on Windows and Linux. Used both at emission
+  (`render-edn`) and at comparison (`check`) so a CRLF working-tree
+  checkout never trips a spurious drift."
+  [s]
+  (str/replace s "\r\n" "\n"))
+
 (defn- render-row
   "Render one manifest row as a single-line EDN map with the canonical
   key order. One row per line keeps git diffs surgical — adding a tool
@@ -153,7 +161,7 @@
                  "\n :tools\n ["
                  (str/join "\n  " (map render-row tools))
                  "]}\n")]
-    (str/replace raw "\r\n" "\n")))
+    (normalise-lf raw)))
 
 (defn build-manifest
   "Build the full manifest data structure from a seq of registry
@@ -167,9 +175,6 @@
 ;; ---------------------------------------------------------------------------
 ;; Drift-check — regenerate-in-memory vs committed.
 ;; ---------------------------------------------------------------------------
-
-(defn- normalise-lf [s]
-  (str/replace s "\r\n" "\n"))
 
 (defn check
   "Compare a freshly-generated manifest string against the committed
