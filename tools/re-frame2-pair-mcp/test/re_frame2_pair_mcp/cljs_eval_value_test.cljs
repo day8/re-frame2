@@ -163,8 +163,10 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Inner :err map → reject. When the OUTER EDN parses to a map carrying
-;; an :err key (a shadow-side cljs-eval error, distinct from an nREPL :ex),
-;; the unwrap rejects rather than returning the error map as a "value".
+;; a non-blank :err (a shadow-side cljs-eval compile warning/error,
+;; distinct from an nREPL :ex), the unwrap rejects rather than returning
+;; the error map as a "value". rf2-mvdwv promotes this to a structured
+;; ex-info carrying `:reason :rf.error/eval-cljs-compile-error`.
 ;; ---------------------------------------------------------------------------
 
 (deftest inner-err-map-rejects
@@ -176,10 +178,62 @@
                  (is false "an outer map with :err MUST reject")
                  (done)))
         (.catch (fn [err]
-                  (is (re-find #"cljs eval error: Cannot infer target type"
+                  (is (re-find #"cljs eval compile error/warning: Cannot infer target type"
                                (.-message err))
-                      "inner :err surfaced as a distinct cljs-eval-error message")
+                      "inner :err surfaced as a distinct cljs-eval compile-error message")
+                  (is (= :rf.error/eval-cljs-compile-error (:reason (ex-data err)))
+                      "rejection carries the structured compile-error reason")
+                  (is (= "Cannot infer target type" (:err (ex-data err)))
+                      ":err text rides on the ex-data verbatim")
                   (done))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-mvdwv — an UNRESOLVED SYMBOL is the headline regression. shadow
+;; emits an `:eval-compile-warnings` REPL message: the analyzer warning
+;; text lands in the response `:err`, yet shadow STILL pushes a "nil" into
+;; `:results`. The pre-fix branch order peeked `:results` first, so the
+;; "nil" won and the compile warning was swallowed as a silent
+;; `{:ok? true :value nil}`. The :err branch now takes precedence so the
+;; failure surfaces instead of nil'ing out.
+;; ---------------------------------------------------------------------------
+
+(deftest unresolved-symbol-warning-rejects-not-silent-nil
+  (async done
+    (-> (with-stubbed-cljs-eval!
+          ;; The exact shadow shape for an undeclared var: a "nil" result
+          ;; sitting alongside the analyzer warning in :err.
+          {:value (str "{:results [\"nil\"] "
+                       ":err \"WARNING: Use of undeclared Var re-frame.core/frame-db at line 1 <eval>\" "
+                       ":ns cljs.user}")}
+          (fn [] (nrepl/cljs-eval-value (fresh-conn) :app "re-frame.core/frame-db")))
+        (.then (fn [v]
+                 (is false (str "an unresolved symbol MUST reject, never resolve "
+                                "(got " (pr-str v) ", the silent-nil bug)"))
+                 (done)))
+        (.catch (fn [err]
+                  (is (instance? js/Error err))
+                  (is (re-find #"Use of undeclared Var re-frame.core/frame-db"
+                               (.-message err))
+                      "the analyzer warning text is carried into the rejection")
+                  (let [data (ex-data err)]
+                    (is (= :rf.error/eval-cljs-compile-error (:reason data))
+                        "structured compile-error reason")
+                    (is (re-find #"undeclared Var" (:err data))
+                        ":err text rides on the ex-data")
+                    (is (string? (:hint data)) "a corrective hint is offered"))
+                  (done))))))
+
+(deftest clean-results-with-blank-err-still-resolves-value
+  ;; A clean eval leaves :err blank ("") — the :err branch must NOT fire
+  ;; on a blank :err, so the value still unwraps normally. Pins that the
+  ;; rf2-mvdwv precedence flip doesn't hijack the happy path.
+  (async done
+    (-> (with-stubbed-cljs-eval!
+          {:value "{:results [\"42\"] :err \"\" :ns cljs.user}"}
+          (fn [] (nrepl/cljs-eval-value (fresh-conn) :app "(+ 40 2)")))
+        (.then (fn [v]
+                 (is (= 42 v) "a blank :err does not block the value unwrap")
+                 (done))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Non-:results map → returned as-is. A :value that parses to a map

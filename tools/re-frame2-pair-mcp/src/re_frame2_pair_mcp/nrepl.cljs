@@ -596,7 +596,29 @@
   with an Error if the eval threw or returned an error map). Optional
   `opts` (e.g. `{:timeout-ms 60000}`) tunes the per-op deadline —
   heavy forms (full-epoch-ring walks) can raise it past the 30s
-  default."
+  default.
+
+  ## Compile warnings/errors surface — never swallowed as nil (rf2-mvdwv)
+
+  shadow's `cljs-eval` returns its `{:results :err :out :ns}` map as the
+  JVM eval value (the `outer` map below). A form with an UNRESOLVED
+  symbol (`re-frame.core/frame-db` — a fn that doesn't exist) compiles
+  to JS that references an undefined var, so it does NOT throw at
+  runtime: shadow emits an `:eval-compile-warnings` REPL message, routes
+  the analyzer warning text into the response `:err` field, and STILL
+  pushes a `\"nil\"` into `:results` (see `repl_impl/do-repl` —
+  `(repl-result repl-state nil)` runs after the warning is logged). A
+  genuine compile error (`:eval-compile-error`) takes the same shape:
+  `:err` carries the report, `:results` carries `\"nil\"`.
+
+  The pre-rf2-mvdwv branch order peeked `:results` FIRST whenever it was
+  a vector, so the `\"nil\"` won and the populated `:err` was never read
+  — the form silently nil'd out as `{:ok? true :value nil}`, corrupting
+  debugging (the agent reads the nil as a real value). So a non-blank
+  `:err` on the shadow outer map now takes PRECEDENCE over the `:results`
+  peek: it rejects with a structured `:rf.error/eval-cljs-compile-error`
+  ex-info carrying the warning/error text, which `probe/err->result`
+  surfaces verbatim as `{:ok? false :reason ... :err ...}`."
   ([conn-atom build-id form-str] (cljs-eval-value conn-atom build-id form-str nil))
   ([conn-atom build-id form-str opts]
   (-> (cljs-eval conn-atom build-id form-str opts)
@@ -614,12 +636,26 @@
             :else
             (let [outer (read-edn-safe (str (:value resp)))]
               (cond
+                ;; rf2-mvdwv — a populated :err on shadow's outer response
+                ;; is an analyzer warning (unresolved symbol) or a compile
+                ;; error. It MUST surface, even though shadow also pushed a
+                ;; \"nil\" into :results: peeking :results first would swallow
+                ;; the compile failure as a silent nil. Reject with a
+                ;; structured reason so the caller's .catch projects a clear
+                ;; `:ok? false` envelope instead of `:ok? true :value nil`.
+                (and (map? outer) (not (str/blank? (str (:err outer)))))
+                (js/Promise.reject
+                  (ex-info (str "cljs eval compile error/warning: " (str/trim (str (:err outer))))
+                           {:reason :rf.error/eval-cljs-compile-error
+                            :err    (str/trim (str (:err outer)))
+                            :hint   (str "the eval'd form failed to compile cleanly — most "
+                                         "often an unresolved symbol (a misremembered fn / "
+                                         "namespace) or a syntax/arity error. shadow surfaced "
+                                         "the analyzer warning above; the form did NOT produce "
+                                         "a real value. Fix the symbol/syntax and retry.")}))
+
                 (and (map? outer) (vector? (:results outer)))
                 (when-let [last-result (peek (:results outer))]
                   (read-edn-safe last-result))
-
-                (and (map? outer) (:err outer))
-                (js/Promise.reject
-                  (js/Error. (str "cljs eval error: " (:err outer))))
 
                 :else outer))))))))
