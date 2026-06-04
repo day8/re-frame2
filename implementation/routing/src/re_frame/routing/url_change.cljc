@@ -68,13 +68,25 @@
      %-decode. The `:reason` discriminator lets per-route error UIs
      and SSR projections branch on the cause."
   [db url default-scroll frame]
-  (let [match             (registry/match-url url)
+  (let [;; rf2-6t1xb: `match-url` THROWS on the keyword-interning DoS
+        ;; guard (`:rf.error/route-too-many-keys`, rf2-3k3o7) — and the
+        ;; guard's documented intent is to treat such a URL as a
+        ;; route-miss, not to crash the event drain. `match-url-fail-closed`
+        ;; catches the throw and yields a NIL match plus a `:throw-reason`
+        ;; discriminator, so an over-capped (or otherwise throwing) URL
+        ;; arriving via `:rf.route/transitioned` /
+        ;; `:rf.route/handle-url-change` fails closed to
+        ;; `:rf.route/not-found` exactly like a bare miss — the
+        ;; fail-closed contract the docstring promises.
+        {:keys [match throw-reason]} (registry/match-url-fail-closed url)
         ;; rf2-4ic0f: when match-url returns nil, discriminate the
         ;; bare-miss case from the malformed-URL case via the public
         ;; `malformed-url?` predicate. The predicate scans the URL
         ;; once; we run it only when match-url already missed (the
-        ;; happy path pays nothing).
-        malformed?        (and (nil? match) (registry/malformed-url? url))
+        ;; happy path pays nothing). A throw already discriminated via
+        ;; `throw-reason` short-circuits the predicate (no double-scan).
+        malformed?        (and (nil? match) (nil? throw-reason)
+                               (registry/malformed-url? url))
         ;; Malformed URLs surface no fragment in the slice — the
         ;; fragment was the (or potentially the) decode-fail site.
         fragment          (when-not malformed? (:fragment match))
@@ -99,6 +111,11 @@
         fallback?         (or (not matched?) validation-fail?)
         route-id          (if fallback? :rf.route/not-found (:route-id match))
         params            (cond
+                            ;; rf2-6t1xb: a match-url THROW (DoS-cap or
+                            ;; other) fails closed with its cause as the
+                            ;; `:reason` discriminator — uniform with the
+                            ;; `:malformed-url` / `:validation` branches.
+                            throw-reason     {:url url :reason throw-reason}
                             malformed?       {:url url :reason :malformed-url}
                             validation-fail? {:url url :reason :validation}
                             (not matched?)   {:url url}
@@ -163,6 +180,17 @@
           (trace/emit! :warning :rf.warning/malformed-url
                        (cond-> {:url url}
                          frame (assoc :frame frame))))
+        ;; rf2-6t1xb: structured telemetry for a match-url THROW that
+        ;; failed closed (the DoS-cap `:too-many-keys`, or an unexpected
+        ;; `:match-error`). The throw IS the DoS guard firing; surfacing
+        ;; it as a warning lets security dashboards / SSR projections see
+        ;; the hostile-URL stream the cap was added for (rf2-3k3o7)
+        ;; WITHOUT the drain crashing. The `:reason` slot carries the
+        ;; discriminator, uniform with the `:malformed-url` sibling.
+        (when throw-reason
+          (trace/emit! :warning :rf.warning/malformed-url
+                       (cond-> {:url url :reason throw-reason}
+                         frame (assoc :frame frame))))
         ;; Spec 012 §Route-not-found §3: emit :rf.warning/no-not-found-route
         ;; when the unmatched-URL path resolves to :rf.route/not-found AND
         ;; no such route is registered. Tools / AI scaffolds key off this.
@@ -185,8 +213,13 @@
                              (cond-> {:url url
                                       :kind :route
                                       :recovery :replaced-with-default}
-                               frame      (assoc :frame frame)
-                               malformed? (assoc :reason :malformed-url))))
+                               frame        (assoc :frame frame)
+                               ;; rf2-6t1xb: a match-url throw fails closed
+                               ;; with its cause as the :reason (the throw
+                               ;; pre-empts the malformed scan, so the two
+                               ;; are mutually exclusive — throw-reason wins).
+                               throw-reason (assoc :reason throw-reason)
+                               malformed?   (assoc :reason :malformed-url))))
         ;; rf2-g8tzb / commit-navigation: nav-token alloc, the
         ;; allocated/activation traces, the slice publish (targeting
         ;; `:current`, so sibling routing-runtime keys are untouched),
