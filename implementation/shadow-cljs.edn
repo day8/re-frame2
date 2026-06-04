@@ -191,7 +191,6 @@
                 ;; `:examples/counter-slim-and-fast` build below) resolves
                 ;; from here.
                 "../examples/reagent-slim"
-                "../examples/reagent/boot/test"
                 "../examples/reagent/nine_states/test"
                 "../examples/reagent/realworld/test"
                 ;; rf2-ee38b.25 — sibling test trees for the ssr /

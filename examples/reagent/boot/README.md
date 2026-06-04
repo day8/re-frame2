@@ -91,8 +91,14 @@ npm run test:cljs           # Headless boot machine tests
 ```
 
 Per the test-free examples policy there is no per-example
-Playwright spec; real-regression coverage lives in `npm run test:cljs`
-and the framework gates (see [`examples/README.md`](../../README.md)).
+Playwright spec and no `test/` tree under this example. The headless
+regression coverage for the Pattern-Boot trajectory (machine
+progression, per-child dependency-resolution identity threading, and
+the failure path) lives in `re-frame.boot-cljs-test`
+(`implementation/adapters/reagent/test/re_frame/boot_cljs_test.cljs`),
+which drives this example's production source and runs under
+`npm run test:cljs` alongside the framework gates (see
+[`examples/README.md`](../../README.md)).
 
 ## Files
 
@@ -101,8 +107,6 @@ core.cljs               — mount + boot trigger + demo HTTP stubs
 boot.cljs               — :app/boot machine + :boot/loader child machine
 views.cljs              — boot-progress + main-app + failure views
 schema.cljs             — Malli schemas (BootSnapshot, Config, Flags, ...)
-test/boot/boot_test.cljs — headless tests (machine progression, deps
-                          resolution, failure path)
 index.html
 ```
 
