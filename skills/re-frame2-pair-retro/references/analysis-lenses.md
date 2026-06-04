@@ -105,11 +105,11 @@ Also consider higher-upside redesigns:
 
 ## Routing the fix
 
-Decide which target repo's GitHub issues the filing lives in before drafting:
+Decide which kind of friction it is before drafting. Both file against **`day8/re-frame2`** (the pair tool ships inside that monorepo), distinguished by label:
 
-- **`day8/re-frame2-pair`** — the friction is in the tool's SKILL.md, scripts, attach logic, recipe selection, structured-result shape, cross-platform handling, or any concern that is not part of the framework's commitment.
-- **`day8/re-frame2`** — the friction is caused by a gap or ambiguity in the Tool-Pair contract itself. Name the specific surface from [`../../shared/tool-pair-surfaces.md`](../../shared/tool-pair-surfaces.md) (e.g. a missing trace event category, an under-specified `:rf.epoch/*` failure mode, a missing registrar query, a `data-rf2-source-coord` shape question, a schema-reflection limitation) or a private-namespace reach-through that should be promoted to public.
-- **Both** — sometimes the fastest path is a tool-side workaround now plus an upstream issue for the long-term fix. File both, and reference one from the other.
+- **pair-tool friction** (`--label pair-mcp`) — the friction is in the tool's SKILL.md, scripts, attach logic, recipe selection, structured-result shape, cross-platform handling, or any concern that is not part of the framework's commitment.
+- **framework friction** (no `pair-mcp` label) — the friction is caused by a gap or ambiguity in the Tool-Pair contract itself. Name the specific surface from [`../../shared/tool-pair-surfaces.md`](../../shared/tool-pair-surfaces.md) (e.g. a missing trace event category, an under-specified `:rf.epoch/*` failure mode, a missing registrar query, a `data-rf2-source-coord` shape question, a schema-reflection limitation) or a private-namespace reach-through that should be promoted to public.
+- **Both** — sometimes the fastest path is a tool-side workaround now (labelled `pair-mcp`) plus an upstream issue for the long-term fix. File both, and reference one from the other.
 
 ## Prioritization
 

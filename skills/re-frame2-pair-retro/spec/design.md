@@ -29,14 +29,16 @@ Per the parent `re-frame2-pair` skill's L2: re-frame2's pair tooling does not de
 
 The skill drafts issue text on request; it does not file issues autonomously. After presenting the retrospective, the skill offers to file *only if asked*. Filing is opt-in, not opt-out. This is a cardinal guard-rail.
 
-**Tracker boundary.** Filings target the **target repo's GitHub issues** (`day8/re-frame2-pair` for tool-side friction; `day8/re-frame2` for upstream framework friction). `bd` (beads) is the re-frame2 monorepo's internal tracker and is never invoked from a published skill. The body is composed to a file with the `Write` tool and passed via `gh`'s native `--body-file` flag — `gh issue create --body-file /tmp/issue-body.md` — never inline interpolation of transcript-derived text. See `skills/README.md` §Published-skill `allowed-tools` baseline for the canonical shape.
+**Tracker boundary.** Filings target **`day8/re-frame2`'s GitHub issues** — the pair tool ships inside that monorepo (`skills/re-frame2-pair/` + `tools/re-frame2-pair-mcp/`), so both tool-side and framework friction file there, distinguished by the `pair-mcp` label (tool-side carries it; framework friction does not). `bd` (beads) is the re-frame2 monorepo's internal tracker and is never invoked from a published skill. The body is composed to a file with the `Write` tool and passed via `gh`'s native `--body-file` flag — `gh issue create --body-file /tmp/issue-body.md` — never inline interpolation of transcript-derived text. See `skills/README.md` §Published-skill `allowed-tools` baseline for the canonical shape.
 
-### L3 — Route the fix to the right repo
+### L3 — Route the fix to the right layer
 
-- **`re-frame2-pair`** — friction inside the pair tool: SKILL.md, scripts/MCP tools, recipes, structured results, attach/discovery brittleness, cross-platform handling.
-- **`re-frame2`** — friction caused by the framework's Tool-Pair contract: missing trace events, gaps in `epoch-history` / `restore-epoch` failure modes, missing registrar query surfaces, source-coordinate annotation gaps, schema-reflection shortcomings.
+Both kinds of friction file against `day8/re-frame2`, distinguished by label:
 
-The skill is explicit about which repo each draft issue targets. Mis-routing wastes the maintainer's time.
+- **pair-tool friction** (`--label pair-mcp`) — friction inside the pair tool: SKILL.md, scripts/MCP tools, recipes, structured results, attach/discovery brittleness, cross-platform handling.
+- **framework friction** (no `pair-mcp` label) — friction caused by the framework's Tool-Pair contract: missing trace events, gaps in `epoch-history` / `restore-epoch` failure modes, missing registrar query surfaces, source-coordinate annotation gaps, schema-reflection shortcomings.
+
+The skill is explicit about which label each draft issue carries (both target `day8/re-frame2`). Mis-labelling wastes the maintainer's time.
 
 ### L4 — Diagnosis-first workflow
 

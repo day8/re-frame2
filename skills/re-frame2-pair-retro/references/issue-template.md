@@ -2,14 +2,14 @@
 
 Use this structure when drafting or filing an improvement. Keep it evidence-based and concise.
 
-The default filing path is a **GitHub issue** against the target repo — `re-frame2-pair` for pair-tool friction, `re-frame2` for upstream / framework friction. (Tracker boundary: never `bd` — see Filing rules below.)
+The default filing path is a **GitHub issue** against `day8/re-frame2` — the pair tool ships inside that monorepo (`skills/re-frame2-pair/` + `tools/re-frame2-pair-mcp/`). Pair-tool friction and upstream / framework friction both file there; a **`pair-mcp` label** distinguishes pair-tool issues from framework issues. (Tracker boundary: never `bd` — see Filing rules below.)
 
 ## Routing first
 
-Before drafting, decide the target repo:
+Before drafting, decide which kind of friction it is — both target `day8/re-frame2`, distinguished by label:
 
-- **`re-frame2-pair`** — friction in the pair tool itself: SKILL.md, scripts, recipes, attach logic, structured results, cross-platform handling.
-- **`re-frame2`** — friction caused by a gap in the framework's Tool-Pair contract. Name the specific surface from [`../../shared/tool-pair-surfaces.md`](../../shared/tool-pair-surfaces.md) (e.g. missing trace event category, under-specified `:rf.epoch/*` failure mode, missing registrar query, source-coord shape question, schema-reflection limitation) or a private-namespace reach-through that should be promoted.
+- **pair-tool friction** (`--label pair-mcp`) — friction in the pair tool itself: SKILL.md, scripts, recipes, attach logic, structured results, cross-platform handling.
+- **framework friction** (no `pair-mcp` label) — friction caused by a gap in the framework's Tool-Pair contract. Name the specific surface from [`../../shared/tool-pair-surfaces.md`](../../shared/tool-pair-surfaces.md) (e.g. missing trace event category, under-specified `:rf.epoch/*` failure mode, missing registrar query, source-coord shape question, schema-reflection limitation) or a private-namespace reach-through that should be promoted.
 
 When unsure, ask the user. Sometimes both: a tool-side workaround now and an upstream GitHub issue for the long-term fix; cross-link them.
 
@@ -71,17 +71,17 @@ Once the body is drafted and the user has approved, file via the GitHub CLI. Nev
    …
    ```
 
-2. File it against the target repo's issues with one `gh issue create` command:
+2. File it against `day8/re-frame2` with one `gh issue create` command. For **pair-tool friction**, add the `pair-mcp` label so it is distinguishable from framework issues:
 
    ```bash
    gh issue create \
-     --repo day8/re-frame2-pair \
+     --repo day8/re-frame2 \
      --title "<short title>" \
      --body-file /tmp/issue-body.md \
-     --label retro
+     --label retro,pair-mcp
    ```
 
-For an upstream issue against re-frame2:
+For **framework friction** (a gap in the Tool-Pair contract), file against the same repo without the `pair-mcp` label:
 
 ```bash
 gh issue create \

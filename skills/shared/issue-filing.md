@@ -10,7 +10,7 @@ Drafting issue text is always fine; running `gh issue create` is gated on a fres
 
 ## Tracker boundary
 
-Skills file **GitHub issues** against the target repo via `gh issue create`. `bd` (beads) is the re-frame2 monorepo's internal tracker and is **never** invoked from these skills. Route the issue to the repo the layer rules pick (`re-frame2-pair` for pair-tool friction, `re-frame2` for upstream Tool-Pair friction).
+Skills file **GitHub issues** against the target repo via `gh issue create`. `bd` (beads) is the re-frame2 monorepo's internal tracker and is **never** invoked from these skills. For the re-frame2-pair tool both kinds of friction file against `day8/re-frame2` (the monorepo that ships the tool), distinguished by label: pair-tool friction carries the `pair-mcp` label, upstream Tool-Pair friction does not.
 
 ## Search before filing
 
