@@ -1,6 +1,6 @@
 # guided-handlers-state
 
-Type B walkthroughs covering event handlers, registration shape, view-under-frame routing, render-count test re-baselining, error handlers, routing fallbacks, and top-level db seeding. Each section gives the **identification** (how to find the call sites), the **risk explanation** (what to tell the author), and the **decision shape** (what the author must choose between). The agent identifies and explains; the author decides; the agent then applies.
+Type B walkthroughs covering event handlers, registration shape, view-under-frame routing, render-count test re-baselining, error handlers, routing fallbacks, top-level db seeding, machine spawn-id tracking, and the React-19-removed Reagent surfaces. Each section gives the **identification** (how to find the call sites), the **risk explanation** (what to tell the author), and the **decision shape** (what the author must choose between). The agent identifies and explains; the author decides; the agent then applies.
 
 For interceptor- / subscription- / payload- / observer-shaped Type B rewrites, see [`guided-interceptors-subs.md`](guided-interceptors-subs.md). For Type A patterns, see [`auto-call-site-rewrites.md`](auto-call-site-rewrites.md) and [`auto-cross-cutting.md`](auto-cross-cutting.md). For full rule rationale, see [`MIGRATION.md`](../../../migration/from-re-frame-v1/README.md).
 
@@ -14,6 +14,8 @@ For interceptor- / subscription- / payload- / observer-shaped Type B rewrites, s
 - M-13 — `reg-event-error-handler`
 - M-14 — `:rf.route/not-found` requirement (only if adopting Spec 012)
 - M-15 — top-level `app-db` seeding
+- M-34 — spawn-id tracking moved to runtime-owned slot
+- M-42 — React-19-removed Reagent surfaces (`dom-node` / `force-update-all` half)
 
 ---
 
@@ -152,6 +154,41 @@ If the author declines, document the warning in the report.
 2. **Move the seed to test fixtures only** if the seed is test-specific. Seed the test frame the same way — via `:on-create` — never a top-level `app-db` poke: `(rf/with-new-frame [f (rf/make-frame {:on-create [:test/seed initial]})] ...)`.
 
 Present the seed value and the proposed rewrite; confirm with the author; apply both the M-1 require-removal and the M-15 `:on-create` rewrite together.
+
+---
+
+## M-34 — Spawn-id tracking moved to runtime-owned slot
+
+**Identify**: machine specs (Spec 005) that declare a declarative `:spawn` (or hand-emit `[:rf.machine/destroy ...]` from a machine action). Two sub-shapes carry the risk:
+
+1. Specs that declared `:spawn` **without** an `:on-spawn` callback — pre-fix these silently leaked the spawned actor on state-exit (the runtime had no recorded id to destroy).
+2. Tests or `:exit` action bodies that **asserted on the old behaviour**: a stale `[:rf/runtime :machines :snapshots <id>]` entry surviving after exit, or that read the spawned id back out of the parent's `[:data :pending]` slot.
+
+**Risk**: the runtime now tracks each spawn-id at the reserved slot `[:rf/runtime :machines :spawned <parent-id> <invoke-id>]` instead of reading it from the parent's `:data`. `:on-spawn` becomes purely advisory — apps that omitted it now correctly destroy the child on exit. The **public API is unchanged** (`:on-spawn` signature `(fn [data spawned-id] new-data)` is identical), and the destroy fx's keyword form `[:rf.machine/destroy actor-id]` still works. The hazard is silent for code/tests that depended on the old leak or the old `:data`-slot read: those need triage, not a rewrite.
+
+**Decision shape** (per hit site):
+
+1. **`:spawn` without `:on-spawn`, no test dependency**: no rewrite — the spec is now correct-by-default under the runtime-owned registry. Note it in the report.
+2. **Test asserts a stale snapshot / leak after exit**: the assertion is now wrong (the actor is correctly destroyed). The author decides whether the test should assert the new correct teardown or whether the spec genuinely wanted the actor to survive (rare — usually means a `:system-id` named machine, not a transient spawn).
+3. **`:exit` body reads `(:pending data)` to address the child**: still works (user `:data` is user territory) — leave as-is, but confirm the author still wants the id recorded in `:data` for their own bookkeeping rather than relying on the runtime slot.
+
+Present the categorisation per site; confirm with the author; only then apply. Full rationale: [`MIGRATION.md` §M-34](../../../migration/from-re-frame-v1/README.md#m-34-spawn-id-tracking-moved-from-data-pending-to-runtime-owned-rfruntime-machines-spawned-).
+
+---
+
+## M-42 — React-19-removed Reagent surfaces (slim adapter)
+
+**Trigger**: only fires when migrating from the classic bridge (`day8/re-frame2-reagent`, stock Reagent) to the slim adapter (`day8/reagent-slim`). On the bridge, `reagent.dom/render`, `reagent.core/dom-node`, etc. stay unchanged — stock Reagent has not removed them. The slim rewrite ships them as throw-on-call shims.
+
+**Identify**: grep for call sites of the five removed symbols — `render`, `unmount-component-at-node`, `dom-node`, `force-update-all`, plus the `reagent.dom.server` surface per the MIGRATION.md list.
+
+**Risk + decision shape — split by symbol**:
+
+1. **`render` / `unmount-component-at-node` (Type A — mechanical)**: rewrite to a `create-root` + `render` / `unmount` pair around the same `container`. Apply once the caller's `container` reference is identified — this half rides the normal Type A sweep with the sweep-level announcement (Cardinal rule 9).
+2. **`dom-node` (Type B — ask first)**: `findDOMNode` returned the underlying DOM node for a mounted component; the canonical React-19 replacement captures the node via `:ref` at the call site **of the parent**, not at the consumer. There is **no static-analysable rewrite** — the agent flags every `dom-node` site and the author supplies the parent ref ownership.
+3. **`force-update-all` (Type B — ask first)**: had no documented use beyond global-rebuild scripts. Flag every site and ask the maintainer whether it can be removed entirely; if not, file a GitHub issue (per Cardinal rule 7) rather than inventing a replacement.
+
+Apply the mount-path half mechanically; flag the `dom-node` / `force-update-all` half and wait for the author. Full rationale + the throw-on-call shim list: [`MIGRATION.md` §M-42](../../../migration/from-re-frame-v1/README.md#m-42-react-19-removed-reagent-surfaces-ship-as-throw-on-call-shims-under-day8reagent-slim).
 
 ---
 

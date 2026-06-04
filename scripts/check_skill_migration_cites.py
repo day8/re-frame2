@@ -13,7 +13,7 @@ the skill cited M-66/M-67 for the listener-namespace + frame-affordance renames,
 but MIGRATION.md M-66/M-67 were assigned to History-states / Xray-static-mode,
 and the two renames lived under no id at all. The report became un-auditable.
 
-This guard makes that class of drift a build failure. Two checks:
+This guard makes that class of drift a build failure. Three checks:
 
   * PHANTOM-CITE — the skill cites an `M-NN` (or `M-NNa` sub-rule) that has no
     matching heading in MIGRATION.md. Always a failure: the cite points at
@@ -24,6 +24,19 @@ This guard makes that class of drift a build failure. Two checks:
     heading for the cited id must contain the expected keyword. This catches the
     *collision* half of the rf2-1nb8k class (skill cites M-66 = "listener", but
     MIGRATION.md M-66 = "History states") without trying to diff full prose.
+
+  * TYPE-DRIFT (rf2-640aq) — every rule MIGRATION.md classifies as **Type B** in
+    its canonical "## Type-tag summary" section MUST also appear in the skill's
+    "## Type A vs Type B — at a glance" **Type B** line in
+    `references/breaking-changes.md`. A Type-B rule silently dropping out of (or
+    never reaching) the skill's Type-B list is the rf2-640aq class: the skill
+    then presents a judgment-call migration (M-34 spawn-id tracking, M-42
+    `dom-node` / `force-update-all`, M-40 `init!` adapter) as automatic, and an
+    agent applies it without the required human review. We assert *containment*
+    (every MIGRATION.md Type-B id is in the skill's Type-B list) rather than set
+    equality, because the skill legitimately splits hybrid A/B rules across both
+    at-a-glance lines and MIGRATION.md's Type-B summary is the authority for what
+    MUST be flagged.
 
 MIGRATION.md "defines" an id when it carries an `### M-NN.` (H3, top-level rule)
 or `#### M-NNa.` (H4, sub-rule like M-31a/M-31b) heading. The skill "cites" an
@@ -70,6 +83,18 @@ for _stream in (sys.stdout, sys.stderr):
 
 MIGRATION_MD = REPO_ROOT / "migration" / "from-re-frame-v1" / "README.md"
 SKILL_REFERENCES_DIR = REPO_ROOT / "skills" / "re-frame-migration" / "references"
+SKILL_BREAKING_CHANGES = SKILL_REFERENCES_DIR / "breaking-changes.md"
+
+# TYPE-DRIFT (rf2-640aq) section anchors. MIGRATION.md's canonical Type-tag
+# summary lives under a `## Type-tag summary` H2; the Type-B membership line in
+# that section opens with `**Type B — flag for human review.**`. (The same
+# bold phrase also opens per-rule bodies, so we only scan inside the summary
+# section.) The skill's at-a-glance lives under `## Type A vs Type B` and its
+# Type-B membership line opens with `**Type B — ask before applying.**`.
+MIGRATION_TYPE_SUMMARY_HEADING = "## Type-tag summary"
+MIGRATION_TYPE_B_MARKER = "**Type B — flag for human review.**"
+SKILL_AT_A_GLANCE_HEADING = "## Type A vs Type B"
+SKILL_TYPE_B_MARKER = "**Type B — ask before applying.**"
 
 # Heading that DEFINES a rule id in MIGRATION.md. H3 for top-level rules
 # (### M-26.), H4 for sub-rules (#### M-31a.). The trailing `.` is required so
@@ -178,6 +203,72 @@ def find_drift(
     return problems
 
 
+def _ids_in_marked_line(text: str, *, section_heading: str, marker: str) -> set[str]:
+    """Collect M-ids from the single line that opens with `marker`, searched
+    only AFTER `section_heading` and before the next `## ` H2. Returns the empty
+    set if the section or marked line is absent (the caller turns that into a
+    SETUP-style drift message — the anchors must exist for the guard to work)."""
+    lines = text.splitlines()
+    in_section = False
+    for line in lines:
+        if line.startswith("## "):
+            in_section = line.strip().startswith(section_heading)
+            continue
+        # Tolerate an optional Markdown list bullet ('- ' or '* ') before the
+        # bold marker — MIGRATION.md renders the Type-tag summary as a
+        # `- **Type X ...` list, the skill's at-a-glance as a bare `**Type X ...`
+        # paragraph. Strip only a bullet+space, never the `**` of the bold run.
+        stripped = line.lstrip()
+        if stripped[:2] in ("- ", "* "):
+            stripped = stripped[2:]
+        if in_section and stripped.startswith(marker):
+            return set(CITE_RE.findall(line))
+    return set()
+
+
+def find_type_drift(migration_text: str, breaking_changes_text: str) -> list[str]:
+    """TYPE-DRIFT (rf2-640aq): every MIGRATION.md Type-tag-summary Type-B id must
+    appear in the skill's at-a-glance Type-B line. Returns drift messages."""
+    problems: list[str] = []
+    rel = SKILL_BREAKING_CHANGES.relative_to(REPO_ROOT)
+
+    migration_type_b = _ids_in_marked_line(
+        migration_text,
+        section_heading=MIGRATION_TYPE_SUMMARY_HEADING,
+        marker=MIGRATION_TYPE_B_MARKER,
+    )
+    skill_type_b = _ids_in_marked_line(
+        breaking_changes_text,
+        section_heading=SKILL_AT_A_GLANCE_HEADING,
+        marker=SKILL_TYPE_B_MARKER,
+    )
+
+    if not migration_type_b:
+        problems.append(
+            "TYPE-DRIFT setup: could not locate MIGRATION.md's "
+            f"'{MIGRATION_TYPE_B_MARKER}' line under '{MIGRATION_TYPE_SUMMARY_HEADING}'. "
+            "The Type-B classification authority anchor moved — update the guard."
+        )
+        return problems
+    if not skill_type_b:
+        problems.append(
+            f"TYPE-DRIFT setup: could not locate the skill's '{SKILL_TYPE_B_MARKER}' "
+            f"line under '{SKILL_AT_A_GLANCE_HEADING}' in {rel}. "
+            "The at-a-glance anchor moved — update the guard or the skill."
+        )
+        return problems
+
+    missing = sorted(migration_type_b - skill_type_b, key=_id_sort_key)
+    for mid in missing:
+        problems.append(
+            f"TYPE-DRIFT: MIGRATION.md classifies {mid} as Type B (must be "
+            f"flagged for human review), but {rel}'s at-a-glance Type-B line "
+            f"omits it — the skill would present {mid} as automatic. Add {mid} to "
+            "the Type-B at-a-glance line (and its table row / sequencing entry)."
+        )
+    return problems
+
+
 def run(*, verbose: bool, ci: bool) -> int:
     if not MIGRATION_MD.is_file():
         sys.stderr.write(f"error: MIGRATION.md not found at {MIGRATION_MD}\n")
@@ -187,11 +278,17 @@ def run(*, verbose: bool, ci: bool) -> int:
             f"error: skill references dir not found at {SKILL_REFERENCES_DIR}\n"
         )
         return 2
+    if not SKILL_BREAKING_CHANGES.is_file():
+        sys.stderr.write(
+            f"error: breaking-changes.md not found at {SKILL_BREAKING_CHANGES}\n"
+        )
+        return 2
 
     migration_text = _slurp(MIGRATION_MD)
     cites = skill_cites(SKILL_REFERENCES_DIR)
     defined = defined_ids(migration_text)
     problems = find_drift(migration_text, cites)
+    problems += find_type_drift(migration_text, _slurp(SKILL_BREAKING_CHANGES))
 
     if verbose:
         distinct = sorted({c[2] for c in cites}, key=_id_sort_key)
@@ -286,6 +383,43 @@ def _self_test() -> int:
     ids = [c[2] for c in cite("see M-68 here")]
     if ids != ["M-68"]:
         print(f"SELF-TEST FAIL (E boundary): expected ['M-68'], got {ids}")
+        failures += 1
+
+    # TYPE-DRIFT fixtures (rf2-640aq).
+    type_migration = (
+        "## Type-tag summary\n\n"
+        "- **Type A — fully mechanical.** Rules: M-1, M-35.\n"
+        "- **Type B — flag for human review.** Rules: M-34, M-40, M-42.\n\n"
+        "## Next section\n\n**Type B — flag for human review.** "
+        "(a per-rule body line that must NOT be scanned) M-99.\n"
+    )
+
+    # Case F — clean: skill Type-B list contains every MIGRATION.md Type-B id.
+    skill_clean = (
+        "## Type A vs Type B — at a glance\n\n"
+        "**Type A — apply automatically.** M-1, M-35.\n\n"
+        "**Type B — ask before applying.** M-34, M-40, M-42.\n"
+    )
+    probs = find_type_drift(type_migration, skill_clean)
+    if probs:
+        print(f"SELF-TEST FAIL (F type clean): unexpected {probs}")
+        failures += 1
+
+    # Case G — drift: skill Type-B list drops M-42 (the rf2-640aq class).
+    skill_drift = (
+        "## Type A vs Type B — at a glance\n\n"
+        "**Type A — apply automatically.** M-1, M-35, M-42.\n\n"
+        "**Type B — ask before applying.** M-34, M-40.\n"
+    )
+    probs = find_type_drift(type_migration, skill_drift)
+    if not any("TYPE-DRIFT" in p and "M-42" in p for p in probs):
+        print(f"SELF-TEST FAIL (G type drift): expected TYPE-DRIFT on M-42, got {probs}")
+        failures += 1
+
+    # Case H — the M-99 in the NEXT section's per-rule body line must not leak
+    # into the authoritative Type-B set (section scoping).
+    if any("M-99" in p for p in find_type_drift(type_migration, skill_clean)):
+        print("SELF-TEST FAIL (H type scope): M-99 leaked across the section boundary")
         failures += 1
 
     if failures:
