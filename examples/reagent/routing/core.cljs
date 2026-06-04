@@ -101,18 +101,17 @@
 (reg-view article-detail-page []
   (let [id      (:id @(subscribe [:rf.route/params]))
         article @(subscribe [:routing.app/article-by-id id])]
-    (if article
-      [:div
-       [:h1 (:title article)]
-       [:p (:body article)]
-       [:p [rf/route-link {:to :routing.app/articles
-                           :data-testid "route-link-back-to-articles"}
-            "← Back"]]]
-      [:div
-       [:p "Article not found."]
-       [:p [rf/route-link {:to :routing.app/articles
-                           :data-testid "route-link-back-to-articles"}
-            "← Back"]]])))
+    ;; The back-link is page-chrome shared by both the found and
+    ;; not-found states, so compute only the differing inner content
+    ;; per branch and render the link once.
+    [:div
+     (if article
+       [:<> [:h1 (:title article)]
+            [:p (:body article)]]
+       [:p "Article not found."])
+     [:p [rf/route-link {:to :routing.app/articles
+                         :data-testid "route-link-back-to-articles"}
+          "← Back"]]]))
 
 (reg-view not-found-page []
   (let [url (:url @(subscribe [:rf.route/params]))]
@@ -128,8 +127,7 @@
     :routing.app/home           [home-page]
     :routing.app/articles       [articles-page]
     :routing.app/article-detail [article-detail-page]
-    :rf.route/not-found   [not-found-page]
-    [not-found-page]))
+    :rf.route/not-found         [not-found-page]))
 
 ;; ============================================================================
 ;; ROUTER WIRING
