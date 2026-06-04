@@ -143,6 +143,47 @@
         (is (contains? vs vid) (str vid " registered")))
       (is (= 14 (count vs))))))
 
+;; ---- recorder-redaction variant is self-contained (rf2-k924v) -----------
+;;
+;; This test ns requires `counter-with-stories.events` + `.stories`
+;; (which itself requires events + views) — but NOT
+;; `counter-with-stories.elision-demo`. The recorder-redaction-card
+;; dispatches `:counter/sign-in`, a `:sensitive?` handler owned by the
+;; counter events slice. If the card still depended on elision-demo's
+;; `:auth/sign-in` (the pre-rf2-k924v coupling) this handler-meta probe
+;; would come back nil, because nothing here boots elision-demo.
+
+(deftest recorder-redaction-sensitive-handler-registered-self-contained
+  (testing "the `:counter/sign-in` handler the recorder-redaction-card
+            dispatches is registered by the counter events slice — the
+            same requires that bring in the variant — and carries
+            `:sensitive? true` in its registry meta, with NO reliance on
+            elision-demo being booted by core.cljs."
+    (let [m (rf/handler-meta :event :counter/sign-in)]
+      (is (some? m)
+          ":counter/sign-in registration meta is populated by
+           counter-with-stories.events (required here; elision-demo is not)")
+      (is (true? (:sensitive? m))
+          "the registrar copied :sensitive? true from the handler metadata"))))
+
+(deftest recorder-redaction-variant-runs-self-contained
+  (testing ":story.counter-matrix/recorder-redaction runs to :ready and its
+            play assertion passes WITHOUT elision-demo boot wiring. The
+            variant's card dispatches the counter-owned `:counter/sign-in`
+            handler, so the variant's own requires satisfy every event it
+            can dispatch."
+    (async done
+      (-> (story/run-variant :story.counter-matrix/recorder-redaction)
+          (async-lib/then
+            (fn [result]
+              (is (= :ready (:lifecycle result)) "lifecycle reached :ready")
+              (is (= 11 (-> result :app-db :count))
+                  "the :counter/initialise 11 seed applied")
+              (is (story/assertions-passing? result)
+                  (str "play assertions: " (pr-str (:assertions result))))
+              (story/destroy-variant! :story.counter-matrix/recorder-redaction)
+              (done)))))))
+
 (deftest failing-fx-stub-miss-variant-fails-with-canonical-reason
   (testing "rf2-0uo4e testbed — :story.counter-matrix/failing-fx-stub-miss runs
             and its :rf.assert/effect-emitted assertion FAILS with the

@@ -120,7 +120,13 @@
                  :flex-direction "column"
                  :gap "0.75em"}}
    [counter-card {:label label}]
-   [:button {:on-click   #(dispatch [:auth/sign-in
+   ;; `:counter/sign-in` is the counter slice's own `:sensitive?`
+   ;; handler (counter-with-stories.events) — so this card is
+   ;; self-contained: the same requires that bring in the variant
+   ;; (events + views) register the handler it dispatches. No reliance
+   ;; on core.cljs requiring the sibling elision-demo namespace at
+   ;; live-app boot.
+   [:button {:on-click   #(dispatch [:counter/sign-in
                                       {:email "redaction@example.com"
                                        :password "browser-secret"}])
              :aria-label "Dispatch sensitive sign-in event"
