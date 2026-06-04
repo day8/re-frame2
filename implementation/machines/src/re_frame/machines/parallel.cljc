@@ -344,7 +344,32 @@
               (result/with-microsteps micro-total)
               (result/with-cascade cascade)))
         (let [rn          (first pending)
-              region-spec (region-machine parent-machine rn)
+              ;; Per rf2-r09fc: stamp the REAL parent machine-id onto the
+              ;; synthetic region-spec so any declarative `:spawn` / `:after`
+              ;; the region fires keys its
+              ;; `[:rf/runtime :machines :spawned <parent> <invoke-id>]` slot
+              ;; (and the child's `:data :rf/parent-id`) under the actual
+              ;; spawning parent — NOT the `:rf/transition-pure` fallback
+              ;; `run-spawn-phase` / `build-after-fx` apply when
+              ;; `(:rf/parent-id machine)` is unset.
+              ;;
+              ;; `region-machine` memoises the region-spec at REGISTRATION
+              ;; time (via `build-initial-snapshot` forcing the lazy
+              ;; `base-initial`), BEFORE `prepare-machine-ctx` stamps
+              ;; `:rf/parent-id` onto the live machine — so the cached
+              ;; region-spec's `:rf/parent-id` is the registration-time nil.
+              ;; The live `parent-machine` threaded into this broadcast DOES
+              ;; carry the parent-id (`prepare-machine-ctx` stamps it = the
+              ;; parent's own registration / spawned id), so we re-stamp it
+              ;; here, at the single choke-point both transition callers
+              ;; (`broadcast-once`, `run-initial-cascade`'s `bootstrap-step`)
+              ;; funnel through. `(:id parent-machine)` is a defensive
+              ;; fallback for pure-fn callers that synthesise a parent spec
+              ;; with `:id` but no `:rf/parent-id`.
+              parent-id   (or (:rf/parent-id parent-machine)
+                              (:id parent-machine))
+              region-spec (cond-> (region-machine parent-machine rn)
+                            (some? parent-id) (assoc :rf/parent-id parent-id))
               region-snap (cond-> {:state (get state-map rn)
                                    :data  cur-data
                                    ;; Per rf2-46ly6 / rf2-69d1n: thread the
