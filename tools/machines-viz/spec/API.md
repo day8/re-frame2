@@ -946,11 +946,15 @@ constraining the other.
 
 ### Chart-semantic tokens
 
-Rather than grow the palette (the Xray↔machines-viz dark-palette
-**key-set drift gate** — rf2-z7ms8 — asserts the two dark palettes share
-an identical key set), the structured grammar's semantic roles are
-**derived** from the existing palette entries by
-`theme/tokens/chart-tokens`, parameterised by the active palette:
+Rather than add a bespoke role key per surface, the structured
+grammar's semantic roles are **derived** from the existing base-palette
+entries by `theme/tokens/chart-tokens`, parameterised by the active
+palette. The Xray↔machines-viz drift gate (rf2-593jn, was rf2-z7ms8)
+asserts machines-viz's dark-palette key set is a **subset** of Xray's
+and that the **shared** keys agree on value — machines-viz publishes
+only the tokens its chart consumes, so it never mirrors Xray's
+chrome-only tokens (`:chrome-ribbon-*`, `:diff-*`, `:syntax-*`,
+`:bg-issue-row`, `:selected-row-bg`) as no-ops:
 
 | Role | Resolves to |
 |------|-------------|
