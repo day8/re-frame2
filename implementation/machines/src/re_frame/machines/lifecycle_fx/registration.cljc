@@ -181,34 +181,30 @@
 
 (defn- state-resolves?
   "True iff the snapshot's `:state` (flat keyword / compound vector
-  path / parallel-region map) resolves through the machine's `:states`
-  / `:regions` definition. For parallel machines every region's path
-  must resolve; one region's failure invalidates the whole snapshot
-  (the runtime can't safely run a parallel transition with a mismatched
-  region — better to reset and re-enter)."
-  [machine state]
-  (cond
-    ;; Parallel-region machine: every region key must be a declared
-    ;; region AND every region's state-path must resolve through that
-    ;; region's body.
-    (parallel/parallel? machine)
-    (and (map? state)
-         (every? (fn [[region-name region-state]]
-                   (let [region-body (get-in machine [:regions region-name])]
-                     (and region-body
-                          (some? (transition/node-at
-                                   region-body
-                                   (transition/state-path region-state))))))
-                 state))
+  path / parallel-region map) is a VALID, OCCUPIABLE configuration of the
+  machine's `:states` / `:regions` definition. A false result routes
+  `reconcile-snapshot` through the `:rf.error/machine-state-not-in-definition`
+  reset (the runtime can't safely drive a mismatched snapshot — better to
+  reset and re-enter).
 
-    ;; Flat / compound machine: the state-path must resolve to a node
-    ;; in `:states`. `state-path` throws on a malformed shape; the
-    ;; try/catch surfaces that as "doesn't resolve" so the same reset
-    ;; path covers both shape-error AND missing-state cases.
-    :else
-    (try
-      (some? (transition/node-at machine (transition/state-path state)))
-      (catch #?(:clj Throwable :cljs :default) _ false))))
+  For PARALLEL machines this requires EXACTLY the declared region key set
+  (no missing region, no extra/stale region) AND every region's path to
+  resolve to a real non-history leaf — `parallel/parallel-state-valid?`
+  (bz0ox.2 / x4s9t.2). The prior check validated only the regions PRESENT in
+  the snapshot, so a partial map like `{:left :done}` for a 2-region machine
+  validated, then silently ran a partial configuration that could vacuously
+  fire root `:on-done` / auto-destroy.
+
+  For FLAT / COMPOUND machines the path must resolve to a real, OCCUPIABLE
+  leaf — `transition/state-occupiable?` rejects both a missing state AND a
+  `:type :history` pseudo-state, which is targetable but never occupied
+  (bz0ox.2). A malformed `:state` shape is caught inside `state-occupiable?`
+  and surfaces as not-resolving, so the same reset path covers shape-error,
+  missing-state, AND occupied-history alike."
+  [machine state]
+  (if (parallel/parallel? machine)
+    (parallel/parallel-state-valid? machine state)
+    (transition/state-occupiable? machine state)))
 
 (defn- snapshot-version
   "Read the `:rf/snapshot-version` int from `(get-in m [:meta :rf/snapshot-version])`.
@@ -465,13 +461,20 @@
           ;;     `:on-done` fired in the same macrostep, and the machine keeps
           ;;     running.
           ;;   - parallel: all regions final AND the parallel root declared no
-          ;;     `:on-done` (when it did, the parallel layer already fired it
-          ;;     and stamped `parallel-done-handled?` so the machine continues
-          ;;     rather than tearing down).
+          ;;     `:on-done`. When it DID declare `:on-done`, that is the
+          ;;     transitionable completion signal — the machine RESTS in the
+          ;;     all-final config (the natural stable "complete" state) and is
+          ;;     never auto-destroyed, regardless of whether THIS macrostep was
+          ;;     the one that fired it. Gating on `(nil? :on-done)` (not on the
+          ;;     per-macrostep `parallel-done-handled?` edge flag) keeps a
+          ;;     resting all-final machine alive on every subsequent no-op event
+          ;;     too — `:on-done` fires once on entry (h3wca.1 edge guard) yet
+          ;;     the machine must not tear down on the later resting macrosteps
+          ;;     where the flag is (correctly) absent.
           finished? (or (and (not (parallel/parallel? machine))
                              (transition/top-level-final? machine (:state next-snapshot)))
                         (and (finalize/all-regions-final? machine (:state next-snapshot))
-                             (not (result/parallel-done-handled? step-result))))
+                             (nil? (:on-done machine))))
           new-db    (assoc-in db path next-snapshot)]
       ;; Per rf2-hwuki: `:frame` tag is REQUIRED for epoch-capture
       ;; admission (`re-frame.epoch.capture/capture-event!` silently
@@ -604,16 +607,18 @@
                 ;; just as it would on the lazy path. Per rf2-bnjb3 / rf2-zlmz7
                 ;; the embedded-vs-top-level reconciliation applies here too:
                 ;; only a TOP-LEVEL final (flat/compound) or an all-regions-
-                ;; final parallel WITHOUT a fired `:on-done` (the
-                ;; `parallel-done-handled?` flag on `boot-result`) tears the
-                ;; actor down; an embedded compound born final already raised
+                ;; final parallel that declares NO root `:on-done` tears the
+                ;; actor down; a parallel root WITH `:on-done` rests in the
+                ;; all-final config (the `:on-done` fired once at birth — the
+                ;; birth macrostep is the entry edge — and keeps the machine
+                ;; alive), and an embedded compound born final already raised
                 ;; `[:rf.machine/done …]` through the birth settle's queue.
                 (if (= transition/start-marker (first (:inner-event ctx)))
                   (let [m (:machine ctx)]
                     (if (or (and (not (parallel/parallel? m))
                                  (transition/top-level-final? m (:state post-boot-snap)))
                             (and (finalize/all-regions-final? m (:state post-boot-snap))
-                                 (not (result/parallel-done-handled? boot-result))))
+                                 (nil? (:on-done m))))
                       (finalize/finalize-machine m (:machine-id ctx) (:frame-id ctx)
                                                  (assoc-in db (:path ctx) post-boot-snap)
                                                  post-boot-snap
