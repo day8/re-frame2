@@ -313,6 +313,73 @@
                  (done))))))
 
 ;; ---------------------------------------------------------------------------
+;; rf2-mvdwv — END-TO-END unresolved-symbol surfacing. The headline bug:
+;; eval'ing a form with an unresolved symbol (e.g. `re-frame.core/frame-db`,
+;; a fn that doesn't exist) returned `{:ok? true :value nil}` — the form
+;; silently nil'd out and the agent read the nil as a real value.
+;;
+;; Unlike the codec tests above (which stub `cljs-eval-value`, bypassing the
+;; unwrap), this stubs ONE LAYER LOWER — `nrepl/cljs-eval` — so the REAL
+;; `cljs-eval-value` unwrap runs end-to-end. We feed the exact shadow
+;; response shape for an undeclared var (`{:results ["nil"] :err "<warning>"
+;; ...}`) and assert the tool returns `:ok? false` carrying the compile
+;; error, NOT `{:ok? true :value nil}`.
+;; ---------------------------------------------------------------------------
+
+(deftest unresolved-symbol-end-to-end-fails-loud
+  (async done
+    (let [orig-jvm  nrepl/jvm-eval
+          orig-cljs nrepl/cljs-eval
+          ;; active-builds enumeration (JVM-side) — one running build.
+          jvm-stub  (fn
+                      ([_ _]   (js/Promise.resolve {:value "[:app]"}))
+                      ([_ _ _] (js/Promise.resolve {:value "[:app]"})))
+          ;; The lower-level cljs-eval. The sentinel probe must report a
+          ;; live runtime (so preflight passes); the wrapped user form
+          ;; resolves to shadow's compile-warning shape (a "nil" result
+          ;; sitting beside the undeclared-Var analyzer warning in :err).
+          ;; Both arities spelled out — CLJS direct-arity dispatch calls
+          ;; `...$arity$4`, which a rest-arg fn would not expose.
+          cljs-resp (fn [form-str]
+                      (if (sentinel-probe? form-str)
+                        ;; runtime-preloaded? probe → true
+                        {:value "{:results [\"true\"] :ns cljs.user}"}
+                        ;; the actual eval → shadow undeclared-var shape
+                        {:value (str "{:results [\"nil\"] "
+                                     ":err \"WARNING: Use of undeclared Var "
+                                     "re-frame.core/frame-db at line 1 <eval>\" "
+                                     ":ns cljs.user}")}))
+          cljs-stub (fn
+                      ([_conn _build form-str]
+                       (js/Promise.resolve (cljs-resp form-str)))
+                      ([_conn _build form-str _opts]
+                       (js/Promise.resolve (cljs-resp form-str))))]
+      (set! nrepl/jvm-eval jvm-stub)
+      (set! nrepl/cljs-eval cljs-stub)
+      (-> (eval-cljs/eval-cljs-tool (fresh-conn)
+                                    #js {:form "re-frame.core/frame-db" :build "app"})
+          (.then (fn [r]
+                   (is (err? r)
+                       "an unresolved symbol is an isError envelope, not a silent success")
+                   (let [edn (read-edn r)]
+                     (is (false? (:ok? edn))
+                         "MUST be :ok? false — never the silent {:ok? true :value nil}")
+                     (is (not (contains? edn :value))
+                         "no :value slot — the form did not produce a real value")
+                     (is (= :rf.error/eval-cljs-compile-error (:reason edn))
+                         "structured compile-error reason surfaces to the agent")
+                     (is (re-find #"undeclared Var re-frame.core/frame-db" (:err edn))
+                         "the analyzer warning text is carried through to the agent"))
+                   (set! nrepl/jvm-eval orig-jvm)
+                   (set! nrepl/cljs-eval orig-cljs)
+                   (done))
+                 (fn [e]
+                   (set! nrepl/jvm-eval orig-jvm)
+                   (set! nrepl/cljs-eval orig-cljs)
+                   (is false (str "tool promise rejected: " e))
+                   (done)))))))
+
+;; ---------------------------------------------------------------------------
 ;; Await mode (rf2-xn4f9) — the opt-in `:await true` arg awaits a
 ;; Promise-returning form's resolved value, surfaces rejections as
 ;; `:rf.error/eval-cljs-rejected`, surfaces unbounded waits as

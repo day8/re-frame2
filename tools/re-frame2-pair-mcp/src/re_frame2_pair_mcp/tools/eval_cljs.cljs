@@ -292,4 +292,20 @@
                                       (await-promise/handle-sentinel
                                         conn resolved-build timeout-ms sentinel
                                         (sentinel-callbacks resolved-build timeout-ms)))))))))
-            (.catch (fn [err] (probe/err->result :eval-error err))))))))
+            (.catch
+              (fn [err]
+                ;; rf2-mvdwv — a compile warning/error (unresolved symbol,
+                ;; syntax/arity error) rejects with a structured
+                ;; `:rf.error/eval-cljs-compile-error` ex-info from
+                ;; `cljs-eval-value`. Surface it as a proper `:isError`
+                ;; envelope (matching the typed eval-error path above), so
+                ;; the agent never reads it as a value — echoing the
+                ;; resolved build / frame for context. Every other
+                ;; rejection (transport, preflight) keeps the existing
+                ;; `err->result` projection.
+                (let [data (ex-data err)]
+                  (if (= :rf.error/eval-cljs-compile-error (:reason data))
+                    (wire/err-text
+                      (cond-> (merge {:ok? false} data {:build build-id})
+                        frame (assoc :frame frame)))
+                    (probe/err->result :eval-error err))))))))))
