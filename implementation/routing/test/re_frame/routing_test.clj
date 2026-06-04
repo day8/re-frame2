@@ -43,6 +43,7 @@
             ;; :rf.error/routing-artefact-missing.
             [re-frame.routing :as routing]
             [re-frame.routing.match :as routing.match]
+            [re-frame.routing.registry :as registry]
             [re-frame.schemas :as schemas]
             [re-frame.flows :as flows]
             [re-frame.substrate.plain-atom :as plain-atom]))
@@ -2314,6 +2315,118 @@
           "no `:unknown1` keyword in the result map")
       (is (not (contains? (:query m) :unknown2))
           "no `:unknown2` keyword in the result map"))))
+
+;; ---- rf2-6t1xb: match-url DoS-guard throw FAILS CLOSED at the nav --------
+;;     entry points (does NOT crash the event drain).
+;;
+;; rf2-3k3o7 added the keyword-interning cap: `match-url` THROWS
+;; `:rf.error/route-too-many-keys` when a URL's unique query-key count
+;; exceeds `default-max-decoded-keys`. The guard's documented intent
+;; (registry.cljc §default-max-decoded-keys: "the URL is treated as a
+;; route-miss") is a clean fail-closed to `:rf.route/not-found`. But the
+;; throw, unhandled at the nav entry points, escaped the event handler
+;; and CRASHED the drain — converting a memory-pressure DoS into a worse
+;; drain-crash DoS. The fix wraps `match-url` in `match-url-fail-closed`
+;; at BOTH nav entry points (url-change-fx + navigate `{:url ...}`), so a
+;; throwing URL routes to `:rf.route/not-found` with a `:reason`
+;; discriminator (`:too-many-keys`) instead of propagating.
+;;
+;; The pre-existing `rf2-3k3o7-cap-on-unique-query-keys` test asserts the
+;; throw at the `match-url` API level; these tests drive an over-cap URL
+;; through the actual nav EVENTS and assert the fail-closed routing the
+;; docstring promises — the gap rf2-6t1xb identified.
+
+(defn- over-cap-url
+  "Build a `/search?...` URL one unique query-key OVER
+  `default-max-decoded-keys` — the smallest URL that trips the
+  keyword-interning DoS guard's throw."
+  []
+  (let [n (inc routing/default-max-decoded-keys)
+        q (clojure.string/join "&" (map #(str "k" % "=v") (range n)))]
+    (str "/search?" q)))
+
+(deftest match-url-fail-closed-turns-cap-throw-into-nil-match
+  (testing "rf2-6t1xb: `match-url-fail-closed` catches the DoS-cap throw
+            and returns {:match nil :throw-reason :too-many-keys} rather
+            than propagating — the fail-closed primitive the nav entry
+            points build on"
+    (rf/reg-route :route/search {:path "/search"})
+    (let [{:keys [match throw-reason]}
+          (registry/match-url-fail-closed (over-cap-url))]
+      (is (nil? match) "an over-cap URL yields a NIL match (a route-miss)")
+      (is (= :too-many-keys throw-reason)
+          "the cap throw is discriminated as :too-many-keys"))
+    (testing "a clean match passes through with no throw-reason"
+      (let [{:keys [match throw-reason]}
+            (registry/match-url-fail-closed "/search?q=clojure")]
+        (is (= :route/search (:route-id match)))
+        (is (nil? throw-reason))))
+    (testing "a bare miss passes through as nil match, no throw-reason"
+      (let [{:keys [match throw-reason]}
+            (registry/match-url-fail-closed "/no/such/path")]
+        (is (nil? match))
+        (is (nil? throw-reason)
+            "a bare miss is NOT a throw — no discriminator")))))
+
+(deftest url-change-over-cap-url-fails-closed-not-found
+  (testing "rf2-6t1xb: an over-cap URL arriving via `:rf.route/transitioned`
+            routes to :rf.route/not-found with `:reason :too-many-keys`
+            and does NOT throw out of the event drain"
+    (rf/reg-route :route/search {:path "/search"})
+    (rf/reg-route :rf.route/not-found {:path "/404"})
+    (let [pushed (atom [])
+          url    (over-cap-url)]
+      (rf/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}}
+                 (fn [_ u] (swap! pushed conj u)))
+      ;; The whole point: this dispatch must NOT throw out of the drain.
+      (is (= ::ok
+             (try (rf/dispatch-sync [:rf.route/transitioned url]) ::ok
+                  (catch Throwable _ ::threw)))
+          "the over-cap URL drains cleanly — no throw escapes the handler
+           (pre-fix this propagated :rf.error/route-too-many-keys)")
+      (let [slice (get-in (rf/app-db-value :rf/default) [:rf/runtime :routing :current])]
+        (is (= :rf.route/not-found (:id slice))
+            "over-cap URL fails closed to :rf.route/not-found")
+        (is (= url (:url (:params slice)))
+            ":params carries the REQUESTED (over-cap) url — preserved per rf2-0zr2o")
+        (is (= :too-many-keys (:reason (:params slice)))
+            ":reason :too-many-keys discriminates the DoS-cap miss from a
+             bare miss / :malformed-url / :validation"))
+      ;; URL-driven path emits no push (URL already changed via popstate).
+      (is (empty? @pushed)
+          "URL-driven not-found emits no push — address bar already shows
+           the requested url (unchanged from the bare-miss path)"))))
+
+(deftest navigate-url-form-over-cap-url-fails-closed-not-found
+  (testing "rf2-6t1xb: an over-cap `{:url ...}` target via
+            `:rf.route/navigate` routes to :rf.route/not-found with
+            `:reason :too-many-keys`, pushes the REQUESTED url verbatim
+            (rf2-0zr2o parity), and does NOT throw out of the drain"
+    (rf/reg-route :route/search {:path "/search"})
+    (rf/reg-route :rf.route/not-found {:path "/404"})
+    (let [pushed (atom [])
+          url    (over-cap-url)]
+      (rf/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}}
+                 (fn [_ u] (swap! pushed conj u)))
+      (is (= ::ok
+             (try (rf/dispatch-sync [:rf.route/navigate {:url url}]) ::ok
+                  (catch Throwable _ ::threw)))
+          "the over-cap {:url ...} target drains cleanly — no throw escapes
+           (pre-fix this propagated :rf.error/route-too-many-keys)")
+      (let [slice (get-in (rf/app-db-value :rf/default) [:rf/runtime :routing :current])]
+        (is (= :rf.route/not-found (:id slice))
+            "over-cap URL-string target fails closed to :rf.route/not-found")
+        (is (= url (:url (:params slice)))
+            ":params carries the REQUESTED (over-cap) url — preserved per rf2-0zr2o")
+        (is (= :too-many-keys (:reason (:params slice)))
+            ":reason :too-many-keys discriminates the DoS-cap miss")
+        (is (some? (:nav-token slice))
+            "a fresh nav-token is allocated for the not-found navigation"))
+      (is (= [url] @pushed)
+          ":rf.nav/push-url pushed the REQUESTED (over-cap) url VERBATIM —
+           NOT the not-found route's /404 (rf2-0zr2o address-bar parity)"))))
 
 ;; ---- rf2-5ifai: no :query vocabulary -> all string keys ------------------
 ;;

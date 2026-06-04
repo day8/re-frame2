@@ -567,8 +567,12 @@
             ;; JVM keyword-table growth on long-running SSR processes
             ;; consuming attacker-influenced URL streams). Overflow throws
             ;; `:rf.error/route-too-many-keys` with `:limit` ex-data so the
-            ;; caller can route the failure (currently propagates through
-            ;; navigate / url-change-fx — error projection surfaces it).
+            ;; caller can route the failure. rf2-6t1xb: the nav entry points
+            ;; (`url-change-fx`, `navigate`) wrap match-url in
+            ;; `match-url-fail-closed`, which catches this throw and treats
+            ;; the URL as a route-miss → `:rf.route/not-found` with
+            ;; `:reason :too-many-keys` (the fail-closed contract). Direct
+            ;; `match-url` callers still see the throw.
             ;;
             ;; Note: the cap counts unique decoded query keys, not raw pair
             ;; count. Repeated keys keep last-wins semantics and do not trip
@@ -686,6 +690,46 @@
                       (reduced result)))))))
           nil
           (route-table))))))
+
+(defn match-url-fail-closed
+  "Fail-closed wrapper over `match-url` for the URL-driven and
+  programmatic nav entry points (`url-change-fx`, `navigate`). Returns
+  `{:match <match-or-nil> :throw-reason <keyword-or-nil>}`.
+
+  `match-url` itself THROWS on the `:rf.error/route-too-many-keys`
+  keyword-interning DoS guard (rf2-3k3o7): a URL whose unique decoded
+  query-key count exceeds `default-max-decoded-keys`. The guard's intent
+  (registry.cljc §default-max-decoded-keys, the inline comment at the
+  throw site) is that such a URL `is treated as a route-miss` — a clean
+  fail-closed to `:rf.route/not-found`, NOT a crash. But the throw, left
+  unhandled at the nav entry points, escapes the event handler and
+  CRASHES the event drain (rf2-6t1xb) — converting a memory-pressure DoS
+  into a worse drain-crash DoS.
+
+  This wrapper catches the throw (and, defensively, ANY throw out of
+  `match-url`) and turns it into a NIL match plus a `:throw-reason`
+  discriminator, so the caller routes to `:rf.route/not-found` exactly
+  as it does for a bare miss — the fail-closed path the guard promises.
+  `:throw-reason` becomes the `:reason` slot on the not-found slice's
+  `:params` (alongside the existing `:malformed-url` / `:validation`
+  discriminators), so per-route error UIs and SSR projections can branch
+  on the cause:
+
+   - `:too-many-keys`  — the `:rf.error/route-too-many-keys` cap throw;
+   - `:match-error`    — any other (unexpected) throw out of match-url.
+
+  Note: malformed %-encoding does NOT throw — `match-url` already fails
+  it closed to nil (`malformed-url?` then discriminates `:reason
+  :malformed-url`). This wrapper is strictly for the THROW path."
+  [url]
+  (try
+    {:match (match-url url) :throw-reason nil}
+    (catch #?(:clj Throwable :cljs :default) ex
+      {:match        nil
+       :throw-reason (if (= :rf.error/route-too-many-keys
+                            (:rf.error/id (ex-data ex)))
+                       :too-many-keys
+                       :match-error)})))
 
 ;; ---- route-url param-segment emission ------------------------------------
 ;; `route-url`'s pattern walk hits a `:name` / `*name` segment in two

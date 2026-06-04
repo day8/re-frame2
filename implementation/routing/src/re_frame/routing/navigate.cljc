@@ -80,7 +80,16 @@
              :query-params (:query opts {})}
 
             (and (map? target) (:url target))
-            (let [match (registry/match-url (:url target))]
+            ;; rf2-6t1xb: `match-url` THROWS on the keyword-interning DoS
+            ;; guard (`:rf.error/route-too-many-keys`, rf2-3k3o7). Left
+            ;; unhandled here the throw escapes the `:rf.route/navigate`
+            ;; handler and CRASHES the event drain. `match-url-fail-closed`
+            ;; catches it (and any other match-url throw) → NIL match +
+            ;; `:throw-reason`, so an over-capped `{:url ...}` target fails
+            ;; closed to `:rf.route/not-found` — the same fail-closed path
+            ;; as a bare miss, mirroring the URL-driven entry point.
+            (let [{:keys [match throw-reason]}
+                  (registry/match-url-fail-closed (:url target))]
               ;; Spec 012 §Target form — URL-string (escape hatch): an
               ;; unmatched URL-string resolves to `:rf.route/not-found`
               ;; with the URL in `:params`. `:unmatched-url` flags this
@@ -91,8 +100,15 @@
               ;; path (`url-change-fx`), which never pushes a fabricated
               ;; `/404` (rf2-0zr2o). nil ⇒ the URL matched a route and the
               ;; canonical `route-url` round-trip drives the push.
+              ;;
+              ;; rf2-6t1xb: on a throw (or any miss) `:params` carries the
+              ;; requested url; a throw also stamps the `:reason`
+              ;; discriminator (`:too-many-keys` / `:match-error`),
+              ;; uniform with the URL-driven not-found slice.
               {:route-id         (or (:route-id match) :rf.route/not-found)
-               :path-params      (:params match {:url (:url target)})
+               :path-params      (if throw-reason
+                                   {:url (:url target) :reason throw-reason}
+                                   (:params match {:url (:url target)}))
                :query-params     (:query match {})
                :matched-fragment (:fragment match)
                :unmatched-url    (when-not (:route-id match) (:url target))}))
