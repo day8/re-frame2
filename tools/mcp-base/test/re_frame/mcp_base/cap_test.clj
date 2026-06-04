@@ -241,23 +241,25 @@
     (is (= 25 (cap/sum-text-tokens map-io r)))))
 
 ;; ---------------------------------------------------------------------------
-;; Two-stage gate, unit-trippable in isolation (rf2-80y2h).
+;; Two-stage gate, unit-trippable in isolation (rf2-80y2h) + reachable
+;; through the live `apply-cap` path (rf2-of2cd).
 ;;
-;; The previous test set documented (in a docstring) that the secondary
-;; char gate was un-trippable under the live `(quot c 4)` token rule and
-;; then never executed it — the `(> chars byte-cap)` disjunct and the
-;; `reported = chars` selector inside `apply-cap` had ZERO executing
-;; coverage. A regression that inverted either comparison shipped
-;; unobserved.
+;; The `over-cap?` / `reported-count` predicates are extracted as pure fns
+;; over already-summed tokens/chars so the secondary char gate is
+;; trippable in ISOLATION (feed decoupled sums directly), independent of
+;; how `apply-cap` happens to derive the sums.
 ;;
-;; The decision was NOT genuinely reachable through `apply-cap` + a
-;; custom `ResultIO`: `apply-cap` derives BOTH sums from the same
-;; `content-texts` strings inline, so an IO cannot return chars
-;; without proportional tokens — the two are computed by `apply-cap`
-;; itself, not by the IO. The fix extracts the gate into the pure
-;; `over-cap?` / `reported-count` predicates over already-summed
-;; tokens/chars, which ARE trippable in isolation by feeding the
-;; decoupled sums a future `token-estimate` refinement could produce.
+;; rf2-of2cd CORRECTION: an earlier comment here claimed the char gate was
+;; NOT genuinely reachable through `apply-cap` because "an IO cannot
+;; return chars without proportional tokens". That is WRONG. `token-estimate`
+;; floors PER STRING, so `Σ (quot len_i 4)` collapses toward 0 for a
+;; content vector of many sub-4-char slots while the char sum stays large.
+;; `apply-cap-many-short-strings-trips-char-gate` below exercises the
+;; char-gated arm THROUGH the live `apply-cap` path — no custom-sum trick,
+;; just a realistic many-small-slots payload (the `watch-epochs` /
+;; `trace-window` slice shape). The isolation tests remain valuable (they
+;; pin both disjuncts crisply); the char gate is simply load-bearing now,
+;; not merely future defence-in-depth.
 ;; ---------------------------------------------------------------------------
 
 (deftest over-cap?-primary-token-gate-trips
@@ -297,9 +299,10 @@
   ;; Consistency pin: the extracted predicates are exactly what
   ;; `apply-cap` uses. A token-gated over-budget response reports the
   ;; token count via `reported-count`, and `apply-cap`'s marker carries
-  ;; the same number. (The char-gate arm has no live `apply-cap`
-  ;; counterpart by construction — that asymmetry is the documented
-  ;; structural domination, covered in isolation above.)
+  ;; the same number. (The char-gate arm IS reachable through the live
+  ;; `apply-cap` path too — see
+  ;; `apply-cap-many-short-strings-trips-char-gate` — but this case is a
+  ;; single big string, so the token gate is the one that trips.)
   (let [big (big-string 4000)        ;; 4000 chars ⇒ 1000 tokens
         r   (ok-text-result {:huge big})
         cap-tokens 500
@@ -310,6 +313,34 @@
     (is (true? (cap/over-cap? toks chrs cap-tokens)))
     (is (= (cap/reported-count toks chrs cap-tokens) (:token-count body))
         "apply-cap's reported :token-count matches reported-count over the same sums")))
+
+(deftest apply-cap-many-short-strings-trips-char-gate
+  ;; rf2-of2cd regression pin. The secondary char gate is reachable
+  ;; through the LIVE `apply-cap` path, contradicting the earlier
+  ;; "structurally dominated / not reachable by construction" claim.
+  ;;
+  ;; `token-estimate` floors PER STRING: 3000 slots of 3 chars each give
+  ;; `tokens = Σ (quot 3 4) = 0` while `chars = 9000`. With `cap = 1` the
+  ;; primary token gate is QUIET (`0 > 1` is false) — only the secondary
+  ;; char gate (`9000 > 1*8`) trips. This is the `watch-epochs` /
+  ;; `trace-window` slice shape: a long vector of small text slots.
+  (let [r        {:content (vec (repeat 3000 {:type "text" :text "xxx"}))}
+        cap-toks 1]
+    ;; Confirm the precondition that makes this the SOLE char-gate trip.
+    (is (zero? (cap/sum-text-tokens map-io r))
+        "many sub-4-char slots ⇒ token sum floors to 0 (token gate quiet)")
+    (is (= 9000 (cap/sum-text-chars map-io r))
+        "char sum is large — only the secondary gate can trip")
+    (is (false? (> (cap/sum-text-tokens map-io r) cap-toks))
+        "primary token gate does NOT trip on its own")
+    (let [out  (cap/apply-cap map-io r {:tool "trace-window" :cap cap-toks})
+          body (get-in out [:structuredContent vocab/overflow-key])]
+      (is (contains? (:structuredContent out) vocab/overflow-key)
+          "live apply-cap replaces the payload via the secondary char gate")
+      (is (= :reached (:limit body)))
+      (is (= 9000 (:token-count body))
+          "reported :token-count is the CHAR count — the char-gated arm of reported-count, reached live")
+      (is (= cap-toks (:cap-tokens body))))))
 
 ;; ---------------------------------------------------------------------------
 ;; structuredContent counted toward the budget (rf2-ih7g4) — story-mcp

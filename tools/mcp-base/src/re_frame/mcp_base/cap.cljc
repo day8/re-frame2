@@ -225,36 +225,51 @@
 ;; Over-budget decision — extracted from `apply-cap`'s inline `let` so the
 ;; two-stage gate is unit-trippable in isolation.
 ;;
-;; ## Why the secondary char gate is structurally dominated today
+;; ## Why the secondary char gate is load-bearing today (rf2-of2cd)
 ;;
 ;; `apply-cap` derives BOTH sums from the SAME `content-texts` seq:
-;; `tokens = Σ (token-estimate s)`, `chars = Σ (count s)`. With the live
-;; rule `token-estimate = (quot count 4)`, the two sums are not
-;; independent — for a single string of length L, `chars = L` and
-;; `tokens = (quot L 4)`. If `chars > cap*8` (i.e. L > 8·cap), then
-;; `tokens = (quot L 4) > (quot (8·cap) 4) = 2·cap > cap` for any cap ≥ 1.
-;; So whenever the char gate would trip, the primary token gate has
-;; ALREADY tripped — the `(> chars byte-cap)` disjunct can never be the
-;; SOLE reason `over?` is true while `tokens`/`chars` ride the same seq.
+;; `tokens = Σ (token-estimate s)`, `chars = Σ (count s)`. A NAIVE reading
+;; argues the char gate can never be the SOLE trip-reason: for a SINGLE
+;; string of length L, `chars = L` and `tokens = (quot L 4)`, so `chars >
+;; cap*8` ⇒ `tokens = (quot L 4) > 2·cap > cap` — the token gate would
+;; have already tripped. That single-string argument is REAL but does NOT
+;; generalise to the multi-slot sum the pipeline actually folds.
 ;;
-;; The gate is therefore NOT dead code by accident: it is intentional
-;; defence-in-depth against a FUTURE refinement of `token-estimate` (e.g.
-;; one that recognises base64 / CJK with a much lower per-char token
-;; cost). Under such a rule `chars` and `tokens` decouple and the char
-;; gate becomes load-bearing. To keep the branch from being a silently-
-;; dead inline arm, the decision is extracted here as a pure predicate
-;; over already-summed `tokens`/`chars` — so both disjuncts (and the
-;; `reported` selector) are directly exercised in `cap_test.clj` by
-;; feeding decoupled sums the live `apply-cap` path cannot itself
-;; produce. See `over-cap?` / `reported-count` tests.
+;; `token-estimate` floors PER STRING (`quot` truncates), so the sum of
+;; floors is NOT the floor of the sum:
+;;
+;;     Σ (quot len_i 4)  ≤  quot (Σ len_i) 4    — and strictly less when
+;;                                                 the lengths leave
+;;                                                 sub-4-char remainders.
+;;
+;; A content vector of MANY short strings drives this gap to its extreme:
+;; 3000 slots of 3 chars each give `tokens = Σ (quot 3 4) = 0` while
+;; `chars = 9000`. At `cap = 1` the token gate is QUIET (`0 > 1` is false)
+;; yet the char gate FIRES (`9000 > 8`) — `apply-cap` correctly replaces
+;; the over-budget payload with the overflow marker. The secondary char
+;; gate is therefore reachable through the LIVE `apply-cap` path today,
+;; not merely a future-proofing branch. (`watch-epochs` / `trace-window`
+;; slices are exactly this shape: a long vector of small per-record text
+;; slots, each well under 4 chars of net token contribution per fragment.)
+;;
+;; The branch is doubly justified: load-bearing now AND defence-in-depth
+;; against a FUTURE `token-estimate` refinement (one recognising base64 /
+;; CJK at a lower per-char cost) that would decouple the two sums further.
+;; The decision is extracted as a pure predicate over already-summed
+;; `tokens`/`chars` so BOTH disjuncts and the `reported` selector are
+;; exercised directly in `cap_test.clj` (decoupled sums, isolation) AND
+;; through the live `apply-cap` many-short-strings path. See `over-cap?`
+;; / `reported-count` tests + `apply-cap-many-short-strings-trips-char-gate`.
 ;; ---------------------------------------------------------------------------
 
 (defn over-cap?
   "Two-stage over-budget predicate (rf2-ih7g4). True when EITHER the
   token sum exceeds `cap` OR the char sum exceeds `cap *
   byte-cap-multiplier`. Pure over already-summed counts so the
-  dominated char gate is unit-trippable in isolation (see the comment
-  block above for the structural-domination argument)."
+  secondary char gate is unit-trippable in isolation (see the comment
+  block above for why the per-string floor in `token-estimate` makes
+  this gate load-bearing through the live `apply-cap` path today —
+  rf2-of2cd — not merely a future-proofing branch)."
   [tokens chars cap]
   (or (> tokens cap)
       (> chars (* cap byte-cap-multiplier))))
@@ -263,8 +278,9 @@
   "The `:token-count` reported in the overflow marker: the char count
   when the secondary char gate tripped (so the agent sees an actionable
   number for the payload that escaped the token heuristic), else the
-  token sum. Pure companion to `over-cap?` — unit-tested directly since
-  the live `apply-cap` path can't reach the char-gated arm."
+  token sum. Pure companion to `over-cap?` — unit-tested directly in
+  isolation AND reached through the live `apply-cap` path by a content
+  vector of many sub-4-char strings (rf2-of2cd)."
   [tokens chars cap]
   (if (> chars (* cap byte-cap-multiplier))
     chars
@@ -296,10 +312,12 @@
     (nil? result) result
     :else
     ;; Two-stage gate (`over-cap?`) + single-pass token/char sum — see
-    ;; the `over-cap?` comment block above (rf2-ih7g4) for why the char
-    ;; disjunct is structurally dominated today, and rf2-hyp0z for why
-    ;; both sums fold in ONE walk (avoids materialising story-mcp's
-    ;; `:structuredContent` twice).
+    ;; the `over-cap?` comment block above for why the char disjunct is
+    ;; load-bearing through this very path (the per-string `token-estimate`
+    ;; floor lets many sub-4-char slots trip the char gate while the token
+    ;; sum stays quiet — rf2-of2cd), and rf2-hyp0z for why both sums fold
+    ;; in ONE walk (avoids materialising story-mcp's `:structuredContent`
+    ;; twice).
     (let [{:keys [tokens chars]}
           (transduce (filter string?)
                      (completing
