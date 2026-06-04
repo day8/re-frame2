@@ -477,6 +477,90 @@
           "non-sensitive slots survive"))))
 
 ;; ---------------------------------------------------------------------------
+;; (11b) PATH-SCOPED get-app-db threads the absolute :path into the egress
+;;       walker so a scoped slice elides against schema-declared
+;;       sensitive / large paths (rf2-a96xq).
+;; ---------------------------------------------------------------------------
+;;
+;; Before the fix the scoped read called `egress-value` WITHOUT the
+;; absolute :path, so the walker started the sliced leaf at root [] and a
+;; declaration registered for [:auth :password] never matched a direct
+;; read of {:path [:auth :password]} — the raw value crossed the off-box
+;; boundary despite the safe-default contract. These tests pin the
+;; fail-closed default (redact / size-elide) AND the operator opt-in.
+
+(defn- seed-large-schema! []
+  ;; A `{:large? true}` schema slot hydrates the per-frame `:declarations`
+  ;; so the wire walker substitutes the `:rf.size/large-elided` marker for
+  ;; that path on off-box egress (the size sibling of
+  ;; `seed-sensitive-schema!`). Must run AFTER any whole-db reset so the
+  ;; declaration in `[:rf/runtime :elision :declarations]` survives.
+  (rf/reg-app-schema [:blob]
+                     [:map
+                      [:payload {:large? true} :any]])
+  (rf/populate-elision-from-schemas!))
+
+(deftest get-app-db-path-scoped-redacts-sensitive-leaf-by-default
+  (testing "a PATH-scoped get-app-db over a schema-declared sensitive
+            leaf redacts by default — the absolute :path is threaded into
+            the egress walker so the [:auth :password] declaration
+            matches the scoped slice (rf2-a96xq: fail-closed)"
+    (rf/reg-event-db :test/seed-auth
+      (fn [_ _] {:auth {:username "ada" :password "shh"}}))
+    (rf/dispatch-sync [:test/seed-auth])
+    (seed-sensitive-schema!)
+    ;; Scope the read down to the sensitive leaf itself.
+    (let [result (runtime/get-app-db {:path [:auth :password]})]
+      (is (true? (:ok? result)))
+      (is (= [:auth :password] (:path result)) "echoes the requested path")
+      (is (= :rf/redacted (:value result))
+          "the path-scoped sensitive leaf is redacted by default — NOT the raw value")
+      (is (not= "shh" (:value result))
+          "the raw secret never crosses the off-box boundary on the safe default path"))
+    ;; And a scope that STRADDLES the sensitive leaf (one level up) still
+    ;; redacts the nested slot — the threaded :path is the parent and the
+    ;; walker descends to the absolute leaf.
+    (let [result (runtime/get-app-db {:path [:auth]})]
+      (is (= :rf/redacted (get-in result [:value :password]))
+          "a parent-scoped slice still redacts the nested sensitive leaf")
+      (is (= "ada" (get-in result [:value :username]))
+          "non-sensitive sibling survives in the scoped slice"))))
+
+(deftest get-app-db-path-scoped-reveals-sensitive-on-opt-in
+  (testing "a PATH-scoped get-app-db with {:include-sensitive? true}
+            reveals the raw leaf — the operator opt-in still flows through
+            the threaded-path egress (rf2-a96xq: opt-in gate open)"
+    (rf/reg-event-db :test/seed-auth
+      (fn [_ _] {:auth {:username "ada" :password "shh"}}))
+    (rf/dispatch-sync [:test/seed-auth])
+    (seed-sensitive-schema!)
+    (let [result (runtime/get-app-db {:path [:auth :password]
+                                      :include-sensitive? true})]
+      (is (true? (:ok? result)))
+      (is (= "shh" (:value result))
+          ":include-sensitive? true ⇒ the raw leaf is revealed at the scoped path"))))
+
+(deftest get-app-db-path-scoped-elides-large-leaf-by-default
+  (testing "a PATH-scoped get-app-db over a schema-declared :large? leaf
+            emits the :rf.size/large-elided marker by default, and reveals
+            the raw value only on {:include-large? true} (rf2-a96xq:
+            symmetric size minimisation on the scoped path)"
+    (rf/reg-event-db :test/seed-blob
+      (fn [_ _] {:blob {:payload {:big "value"}}}))
+    (rf/dispatch-sync [:test/seed-blob])
+    (seed-large-schema!)
+    (let [result (runtime/get-app-db {:path [:blob :payload]})]
+      (is (true? (:ok? result)))
+      (is (contains? (:value result) :rf.size/large-elided)
+          "the path-scoped large leaf is size-elided by default")
+      (is (not= {:big "value"} (:value result))
+          "the raw large value does not cross the boundary on the safe default path"))
+    (let [result (runtime/get-app-db {:path [:blob :payload]
+                                      :include-large? true})]
+      (is (= {:big "value"} (:value result))
+          ":include-large? true ⇒ the raw large leaf is revealed at the scoped path"))))
+
+;; ---------------------------------------------------------------------------
 ;; (12) get-app-db-diff returns the changed-paths {:added :removed :changed}
 ;;      slice shape — NOT two whole app-db snapshots (rf2-uv2q2).
 ;; ---------------------------------------------------------------------------

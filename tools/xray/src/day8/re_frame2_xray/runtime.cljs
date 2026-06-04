@@ -357,7 +357,11 @@
 (defn get-app-db
   "Tool: `get-app-db`. Current `app-db` value at a frame, optionally
   scoped by `:path`. Routes through `elide-wire-value` (MUST-inventory
-  row #19 — direct-read privacy posture). Returns
+  row #19 — direct-read privacy posture). When `:path` is supplied the
+  absolute path is threaded into the egress walker so a scoped slice is
+  elided against schema-declared sensitive / large paths (keyed by
+  absolute path) — fail-closed, symmetric with the whole-db read and
+  the `get-app-db-diff` slices (rf2-a96xq). Returns
   `{:ok? true :frame <id> :path <vec> :value <edn>}` or
   `{:ok? false :reason :no-frame-resolved}`."
   ([] (get-app-db nil))
@@ -372,8 +376,20 @@
          {:ok?   true
           :frame fid
           :path  (vec path)
+          ;; Thread the ABSOLUTE app-db `:path` into the egress walker so
+          ;; a `:path`-scoped slice is elided against schema-declared
+          ;; sensitive / large paths (keyed by absolute path) — without
+          ;; it the walker starts the sliced value at root `[]` and a
+          ;; declaration registered for e.g. `[:auth :password]` never
+          ;; matches a direct read of `{:path [:auth :password]}`, leaking
+          ;; the raw leaf off-box (rf2-a96xq). Symmetric with the sibling
+          ;; `get-app-db-diff` slices, which egress each leaf at its
+          ;; absolute path. An unscoped read passes `path` = `nil`, and
+          ;; `egress-value` only assoc's `:path` when `(seq path)`, so the
+          ;; whole-db case is unchanged (value IS the walked root).
           :value (egress-value value {:include-sensitive? include-sensitive?
-                                      :include-large?     include-large?})})))))
+                                      :include-large?     include-large?
+                                      :path               path})})))))
 
 (defn- project-changed-paths
   "Project the `(before, after)` pair into the changed-paths slice diff
