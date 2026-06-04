@@ -54,6 +54,12 @@
   (require 're-frame.http-test-support :reload)
   ((requiring-resolve 're-frame.machines/reset-timers!))
   (http-managed/clear-all-in-flight!)
+  ;; rf2-r5m22 — the per-frame HTTP interceptor chain lives in a separate
+  ;; atom (`@http-managed/interceptors`), NOT the registrar `clear-all!`
+  ;; wipes above. Tests that register `:before` / `:after` interceptors
+  ;; (the canned-path `:after` coverage) must clear it between tests, or
+  ;; a leaked `:after` mutates every subsequent test's reply payload.
+  (http-managed/clear-all-http-interceptors!)
   (t))
 
 (use-fixtures :each reset-runtime)
@@ -256,6 +262,99 @@
     (let [db (await-reply! #(some? (:j1mo4-error %)))]
       (is (= :rf.http/transport (get-in db [:j1mo4-error :failure :kind]))
           "deferred failure reply landed after the :dispatch-later tick"))))
+
+;; ---- 3c. canned-stub path runs the :after interceptor chain (rf2-r5m22) ----
+;;
+;; The per-frame HTTP interceptor chain has two halves: :before (request-
+;; side) and :after (response-side, Spec 014 §Middleware). The real
+;; transport path fires both (managed-handler runs :before;
+;; http_transport/dispatch-reply! runs :after). Before rf2-r5m22 the
+;; canned-stub path ran ONLY :before, so a test using the
+;; :rf.http/managed-canned-* fxs with an :after interceptor (response-time
+;; telemetry, header-driven auth refresh — the exact use-cases the
+;; middleware contract sells) silently skipped that :after, diverging the
+;; stub path from production. These tests pin that the canned path now
+;; threads run-after-chain! before dispatching, mirroring the real path.
+
+(deftest canned-success-runs-after-interceptor-chain
+  (testing "rf2-r5m22 — the canned-success stub path fires a registered
+            :after interceptor (was previously skipped — only :before ran
+            on the canned path) and its response transform reaches the
+            :on-success reply, mirroring the real-transport path"
+    (let [order (atom [])]
+      (rf/reg-http-interceptor :r5m22/touch
+        {:before (fn [ctx] (swap! order conj :before) ctx)
+         :after  (fn [_ctx resp]
+                   (swap! order conj :after)
+                   (update resp :value assoc :touched-by :after))})
+      (rf/reg-event-fx :r5m22/load
+        (fn [{:keys [db]} [_ msg]]
+          (if-let [reply (:rf/reply msg)]
+            {:db (assoc db :reply reply)}
+            {:fx [[:rf.http/managed
+                   {:request {:method :get :url "/r5m22"}
+                    :value   {:ok true}}]]})))
+      (rf/dispatch-sync [:r5m22/load {}]
+                        {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
+      (let [db (await-reply! #(some? (:reply %)))]
+        (is (= [:before :after] @order)
+            "BOTH halves of the chain fired on the canned path (was [:before] only)")
+        (is (= :success (get-in db [:reply :kind])))
+        (is (= :after (get-in db [:reply :value :touched-by]))
+            ":after's transform of the reply-payload reached the :on-success target")
+        (is (true? (get-in db [:reply :value :ok]))
+            "the canned :value rode through the :after transform unscathed")))))
+
+(deftest canned-success-after-sees-the-before-ctx
+  (testing "rf2-r5m22 — the canned path's :after receives the SAME
+            middleware-ctx the :before produced (request-correlation), just
+            like the real-transport path. A :before that stashes a ctx key
+            and an :after that reads it back proves the ctx threads through."
+    (let [observed (atom nil)]
+      (rf/reg-http-interceptor :r5m22/correlate
+        {:before (fn [ctx] (assoc ctx ::marker :stashed-by-before))
+         :after  (fn [ctx resp]
+                   (reset! observed (::marker ctx))
+                   resp)})
+      (rf/reg-event-fx :r5m22/load-corr
+        (fn [{:keys [db]} [_ msg]]
+          (if-let [reply (:rf/reply msg)]
+            {:db (assoc db :reply reply)}
+            {:fx [[:rf.http/managed
+                   {:request {:method :get :url "/r5m22/corr"}
+                    :value   {:ok true}}]]})))
+      (rf/dispatch-sync [:r5m22/load-corr {}]
+                        {:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
+      (await-reply! #(some? (:reply %)))
+      (is (= :stashed-by-before @observed)
+          ":after read the :before's stashed ctx key — same ctx threads through the canned path"))))
+
+(deftest canned-failure-runs-after-interceptor-chain
+  (testing "rf2-r5m22 — the canned-FAILURE stub path also fires the :after
+            chain (symmetric with the success path); an :after can inspect
+            the failure shape and tag the reply, mirroring the real-path
+            401-auth-refresh use-case."
+    (let [fired (atom false)]
+      (rf/reg-http-interceptor :r5m22/fail-after
+        {:after (fn [_ctx resp]
+                  (reset! fired true)
+                  (if (= :failure (:kind resp))
+                    (assoc resp :tagged-by-after true)
+                    resp))})
+      (rf/reg-event-fx :r5m22/fail
+        (fn [{:keys [db]} [_ msg]]
+          (if-let [reply (:rf/reply msg)]
+            {:db (assoc db :reply reply)}
+            {:fx [[:rf.http/managed
+                   {:request {:method :get :url "/r5m22/fail"}}]]})))
+      (rf/dispatch-sync [:r5m22/fail {}]
+                        {:fx-overrides {:rf.http/managed :rf.http/managed-canned-failure}})
+      (let [db (await-reply! #(some? (:reply %)))]
+        (is (true? @fired)
+            ":after fired on the canned-failure path")
+        (is (= :failure (get-in db [:reply :kind])))
+        (is (true? (get-in db [:reply :tagged-by-after]))
+            ":after's failure-shape transform reached the :on-failure reply")))))
 
 ;; ---- 4. real JVM transport: GET success -----------------------------------
 
@@ -1294,7 +1393,50 @@
           ;; The cap-throw is :rf.error/malformed-json, NOT a schema
           ;; validation, so :schema-validation-failure? must be falsey.
           (is (not (true? (:schema-validation-failure? failure)))
-              "too-many-keys is a malformed-json cap-throw, not a schema rejection"))
+              "too-many-keys is a malformed-json cap-throw, not a schema rejection")
+          ;; rf2-mdxd7 — Spec 014 §Keyword-interning cap (lines 145, 285,
+          ;; 289) mandates the overflow surface as :rf.http/decode-failure
+          ;; with :reason :too-many-keys and the configured :limit. Both
+          ;; must reach the dispatched failure map so a caller branching
+          ;; on :reason sees the spec-documented shape (and a DoS-cap
+          ;; overflow is programmatically distinguishable from an ordinary
+          ;; JSON syntax error, since :schema-validation-failure? is false
+          ;; for both).
+          (is (= :too-many-keys (:reason failure))
+              "the cap-overflow surfaces :reason :too-many-keys per Spec 014 §Keyword-interning cap")
+          (is (= 2 (:limit failure))
+              "the configured :rf.http/max-decoded-keys cap rides at :limit per Spec 014"))
+        (finally (stop-server! srv))))))
+
+(deftest jvm-bare-json-syntax-error-carries-no-too-many-keys-reason
+  (testing "rf2-mdxd7 — a 200 response whose body is malformed JSON (a
+            plain syntax error, NOT a cap overflow) still classifies as
+            :rf.http/decode-failure but carries NEITHER :reason :too-many-keys
+            NOR :limit — those slots are reserved for the DoS-cap shape, so
+            a caller can use :reason as a discriminator"
+    (let [{:keys [port] :as srv}
+          (start-server!
+            (fn [^HttpExchange ex]
+              ;; Truncated JSON — Cheshire throws a parse error that is
+              ;; NOT the structured :rf.error/malformed-json cap ex-info.
+              (write-response! ex 200 "application/json" "{\"a\": ")))]
+      (try
+        (rf/reg-event-fx :thing/load
+          (fn [{:keys [db]} [_ msg]]
+            (if-let [reply (:rf/reply msg)]
+              {:db (assoc db :reply reply)}
+              {:fx [[:rf.http/managed
+                     {:request {:url (str "http://127.0.0.1:" port "/thing")}
+                      :decode  :json}]]})))
+        (rf/dispatch-sync [:thing/load])
+        (let [db      (await-reply! #(some? (:reply %)) 5000)
+              failure (get-in db [:reply :failure])]
+          (is (= :rf.http/decode-failure (:kind failure))
+              "a JSON syntax error is still a decode failure")
+          (is (nil? (:reason failure))
+              "a bare syntax error carries no :reason — only the cap-overflow shape does")
+          (is (nil? (:limit failure))
+              "a bare syntax error carries no :limit — only the cap-overflow shape does"))
         (finally (stop-server! srv))))))
 
 ;; ---- G2: :accept returning {:failure ..} → :rf.http/accept-failure --------
