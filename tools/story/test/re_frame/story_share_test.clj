@@ -99,6 +99,70 @@
     (is (= {:label "Shared Label" :count 9}
            (share/parse-overrides-param "label:\"Shared Label\",count:9")))))
 
+;; ---- rf2-j0hwf: overrides codec round-trip -------------------------------
+;;
+;; The earlier comma-joined `k:v` wire form could not round-trip an EDN
+;; value containing the list separator — the decoder split the whole
+;; payload on every comma before reading each value. The codec now prints
+;; one EDN map (delimiter-safe) and reads it back as one map.
+
+(defn- url-decode [t] (java.net.URLDecoder/decode (str t) "UTF-8"))
+
+(defn- overrides-round-trip
+  "Encode `ov` to the wire token, URL-decode it (as URLSearchParams.get
+  would), and parse it back. Returns the reconstructed overrides map."
+  [ov]
+  (share/parse-overrides-param (url-decode (share/build-overrides-token ov))))
+
+(deftest overrides-codec-round-trips-simple
+  (testing "rf2-j0hwf — simple overrides round-trip through build/parse"
+    (let [ov {:label "Click me" :count 5}]
+      (is (= ov (overrides-round-trip ov))))))
+
+(deftest overrides-codec-round-trips-comma-value
+  (testing "rf2-j0hwf — a string override value containing the list
+            separator (comma) round-trips faithfully instead of being
+            shredded into malformed entries and dropped"
+    (let [ov {:label "Save, continue"}]
+      (is (= ov (overrides-round-trip ov))
+          "comma-containing string value survives the round-trip"))
+    (testing "comma value alongside other entries"
+      (let [ov {:label "Save, continue" :count 3 :title "A, B, C"}]
+        (is (= ov (overrides-round-trip ov)))))))
+
+(deftest overrides-codec-round-trips-collection-values
+  (testing "rf2-j0hwf — vector / map / set / nested EDN values (which all
+            carry internal separators) round-trip"
+    (let [ov {:items [1 2 3]
+              :opts  {:a 1 :b 2}
+              :tags  #{:x :y}
+              :pair  [:k "v, with comma"]}]
+      (is (= ov (overrides-round-trip ov))))))
+
+(deftest overrides-codec-deterministic-order
+  (testing "rf2-j0hwf — the encoded token is stable across calls (keys
+            sorted) so the URL is canonical and idempotent pushes no-op"
+    (let [ov {:zed 1 :alpha 2 :mid 3}]
+      (is (= (share/build-overrides-token ov)
+             (share/build-overrides-token ov))))))
+
+(deftest overrides-codec-legacy-comma-pair-still-decodes
+  (testing "rf2-j0hwf — already-shared / bookmarked URLs carrying the
+            legacy comma-pair wire form still decode (back-compat)"
+    (is (= {:label "Shared Label" :count 9}
+           (share/parse-overrides-param "label:\"Shared Label\",count:9")))
+    (is (= {:label "OK"}
+           (share/parse-overrides-param "label:\"OK\",bogus"))
+        "legacy malformed-entry drop preserved")))
+
+(deftest overrides-codec-empty-and-nil
+  (testing "rf2-j0hwf — empty/nil overrides produce no token, and blank
+            input parses to nil"
+    (is (nil? (share/build-overrides-token {})))
+    (is (nil? (share/build-overrides-token nil)))
+    (is (nil? (share/parse-overrides-param nil)))
+    (is (nil? (share/parse-overrides-param "")))))
+
 ;; ---- rf2-9jthx: parse-overrides-param* surfaces dropped entries ----------
 
 (deftest parse-overrides-param*-clean-input
@@ -155,6 +219,24 @@
     (is (= {:label "OK"}
            (share/parse-overrides-param "label:\"OK\",bogus")))))
 
+(deftest parse-overrides-param*-edn-map-form
+  (testing "rf2-j0hwf — parse-overrides-param* reads the EDN-map wire form
+            (one printed map) and reports keys it cannot coerce to a
+            keyword as :dropped, so the share-import hint still surfaces
+            on the new delimiter-safe encoding"
+    (let [{:keys [overrides dropped]}
+          (share/parse-overrides-param* "{:label \"OK\", :size 7}")]
+      (is (= {:label "OK" :size 7} overrides))
+      (is (= [] dropped) "clean EDN map drops nothing"))
+    (let [{:keys [overrides dropped]}
+          (share/parse-overrides-param* "{:label \"OK\", 5 :bad-key}")]
+      (is (= {:label "OK"} overrides) "non-keyword key dropped, rest kept")
+      (is (= 1 (count dropped))))
+    (let [{:keys [overrides dropped]}
+          (share/parse-overrides-param* "{:label \"unterminated")]
+      (is (nil? overrides) "unreadable EDN payload yields no overrides")
+      (is (= 1 (count dropped)) "whole token reported dropped"))))
+
 (deftest variant-share-url-preserves-hash-route
   (testing "variant-share-url inserts params before # so the Story route survives"
     (let [url (share/variant-share-url
@@ -167,7 +249,9 @@
             url
             "https://example.test/counter-with-stories/?variant=story.counter%2Floaded"))
       (is (str/includes? url "&modes=Mode.app%2Fdark"))
-      (is (str/includes? url "overrides=label%3A%22Share+Slice%22"))
+      ;; rf2-j0hwf: overrides encode as one pr-str EDN map (delimiter-safe),
+      ;; URL-encoded: {:label "Share Slice"} → %7B%3Alabel+%22Share+Slice%22%7D.
+      (is (str/includes? url "overrides=%7B%3Alabel+%22Share+Slice%22%7D"))
       (is (str/ends-with? url "#/stories")))))
 
 (deftest variant-share-url-public-export

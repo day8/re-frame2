@@ -28,7 +28,11 @@
   - `<id>` for variant / workspace — the id as `:story.foo/bar`
   - `<id>` for mode-tab — one of `dev` / `docs` / `test`
   - `<list>` for modes / tag-filter — comma-separated keyword ids
-  - `<list>` for overrides — comma-separated `arg-key:EDN-value` pairs
+  - `<map>` for overrides — one `pr-str`-printed EDN map of
+                            `{arg-key value}` (rf2-j0hwf — delimiter-safe;
+                            a string value may contain commas). The legacy
+                            comma-separated `arg-key:EDN-value` form is
+                            still decoded for already-shared URLs.
   - `<id-or-WxH>` for viewport — preset keyword (`tablet`) or
                                   `WxH` custom (e.g. `800x600`)
   - `<id-or-#rrggbb>` for background — preset keyword (`dark`) or a
@@ -203,7 +207,63 @@
     (catch #?(:clj Exception :cljs :default) _
       [false nil])))
 
+;; ---- overrides codec (rf2-j0hwf) ----------------------------------------
+;;
+;; The overrides payload is a single EDN map, `pr-str`-printed then
+;; percent-encoded as one token (`build-overrides-token`). Decoding
+;; reads the whole token back as one EDN map (`parse-overrides-param`).
+;;
+;; The earlier wire shape — a comma-joined list of `<arg-token>:<edn>`
+;; pairs — could not round-trip an EDN value containing a comma (e.g.
+;; the string "Save, continue"): the decoder split the whole payload on
+;; every comma before reading each value, shredding any value carrying
+;; the list separator. Printing one EDN map sidesteps delimiter
+;; collisions entirely — the reader balances strings / collections —
+;; so any EDN-valued override round-trips faithfully.
+;;
+;; A `:` immediately after the leading `{` (i.e. NOT inside the EDN map)
+;; would never appear in a printed map, so the legacy comma-pair form is
+;; recognised by the ABSENCE of a leading `{` and parsed best-effort for
+;; backward compatibility with already-shared / bookmarked URLs.
+
+(defn- ^:no-doc edn-map-payload?
+  "True when `s` looks like the EDN-map wire form (a printed map) rather
+  than the legacy `k:v,k:v` comma-pair form."
+  [s]
+  (str/starts-with? (str/triml s) "{"))
+
+(defn- ^:no-doc keywordish-key
+  "Coerce a parsed override key to a keyword. Override arg-keys are
+  keywords; a value read as a symbol (e.g. an unquoted token) coerces
+  to the same keyword so author-typed maps stay forgiving. Returns nil
+  for anything that can't be a keyword."
+  [k]
+  (cond
+    (keyword? k) k
+    (symbol? k)  (keyword (namespace k) (name k))
+    (string? k)  (parse-keyword-token k)
+    :else        nil))
+
+(defn- ^:no-doc parse-overrides-edn-map
+  "Read the EDN-map wire form. Returns `{:overrides <map-or-nil>
+  :dropped [<token> ...]}`. A non-map / unreadable payload reports the
+  whole token as dropped; per-entry keys that can't coerce to a keyword
+  are dropped individually (their `pr-str` entry naming the drop)."
+  [s]
+  (let [[ok? data] (read-edn s)]
+    (if (and ok? (map? data))
+      (let [parsed  (mapv (fn [[k v]] [(keywordish-key k) k v]) data)
+            kept    (into {} (keep (fn [[kk _ v]] (when kk [kk v])) parsed))
+            dropped (->> parsed
+                         (remove (fn [[kk _ _]] kk))
+                         (mapv (fn [[_ k v]] (str (pr-str k) " " (pr-str v)))))]
+        {:overrides (not-empty kept) :dropped dropped})
+      {:overrides nil :dropped [s]})))
+
 (defn- ^:no-doc parse-override-entry
+  "Parse one legacy `<arg-token>:<edn-value>` pair into `[k v]`, or nil
+  when malformed. Splits on the FIRST `:` so EDN keyword values keep
+  their colon."
   [entry]
   (when-let [idx (and (string? entry) (str/index-of entry ":"))]
     (let [k-token (subs entry 0 idx)
@@ -213,42 +273,66 @@
       (when (and k ok?)
         [k v]))))
 
-(defn parse-overrides-param
-  "Parse an `overrides=` URLSearchParams value into a cell-overrides
-  map. The v1 wire shape is a comma-separated list of
-  `<arg-token>:<edn-value>` pairs; malformed entries are ignored so a
-  stale share URL degrades to the valid subset instead of poisoning the
-  shell state."
+(defn- ^:no-doc parse-overrides-legacy
+  "Parse the legacy comma-pair wire form. Returns `{:overrides ...
+  :dropped [<entry-string> ...]}`. Malformed entries (no separator,
+  unparseable EDN) are reported individually."
   [s]
-  (when (and (string? s) (seq (str/trim s)))
-    (not-empty
-      (into {}
-            (keep parse-override-entry)
-            (str/split s #",")))))
+  (let [entries  (str/split s #",")
+        parsed   (mapv (fn [e] [e (parse-override-entry e)]) entries)
+        kept     (into {} (keep (fn [[_ kv]] kv) parsed))
+        dropped  (->> parsed
+                      (remove (fn [[_ kv]] kv))
+                      (mapv first))]
+    {:overrides (not-empty kept) :dropped dropped}))
+
+(defn build-overrides-token
+  "Encode a `{arg-key → value}` cell-overrides map into the single
+  percent-encoded `overrides=` wire token (rf2-j0hwf). The map is
+  printed via `pr-str` (keys sorted for deterministic output) so any
+  EDN value round-trips faithfully — including string values that
+  carry the list separator. Returns nil for an empty/nil map."
+  [cell-overrides]
+  (when (seq cell-overrides)
+    (url-encode
+      (pr-str (into (sorted-map-by (fn [a b] (compare (kw->str a) (kw->str b))))
+                    cell-overrides)))))
 
 (defn parse-overrides-param*
-  "Like `parse-overrides-param` but also reports any entries that were
-  dropped (malformed token, unparseable EDN, etc.). Returns a map
-  `{:overrides ... :dropped [<entry-string> ...]}` — both keys always
-  present so callers can pattern-match without an else-branch.
+  "Parse an `overrides=` URLSearchParams value into a cell-overrides
+  map AND report any entries that were dropped (unparseable / invalid
+  key). Returns a map `{:overrides ... :dropped [<token> ...]}` — both
+  keys always present so callers can pattern-match without an
+  else-branch.
+
+  Two wire forms are accepted (rf2-j0hwf):
+
+  - the current EDN-map form: the whole payload is one `pr-str`-printed
+    map, read back as one EDN map (delimiter-safe — string values may
+    contain commas);
+  - the legacy `<arg-token>:<edn-value>` comma-pair form, kept for
+    already-shared / bookmarked URLs; entries are split on commas and
+    parsed best-effort.
 
   Powers the share-import hint (rf2-9jthx): the share UI surfaces a
   non-blocking note when N>0 overrides from a stale share URL no
   longer apply (variant args refactored, renamed, removed). Pure;
-  JVM-testable. The legacy `parse-overrides-param` keeps its silent-
-  drop signature for the param-parsing call sites that don't care
-  about the dropped set."
+  JVM-testable."
   [s]
   (if (and (string? s) (seq (str/trim s)))
-    (let [entries  (str/split s #",")
-          parsed   (mapv (fn [e] [e (parse-override-entry e)]) entries)
-          kept     (into {} (keep (fn [[_ kv]] kv) parsed))
-          dropped  (->> parsed
-                        (remove (fn [[_ kv]] kv))
-                        (mapv first))]
-      {:overrides (not-empty kept)
-       :dropped   dropped})
+    (if (edn-map-payload? s)
+      (parse-overrides-edn-map s)
+      (parse-overrides-legacy s))
     {:overrides nil :dropped []}))
+
+(defn parse-overrides-param
+  "Parse an `overrides=` URLSearchParams value into a cell-overrides
+  map (silent-drop). Accepts both the current EDN-map wire form and the
+  legacy comma-pair form (see `parse-overrides-param*`). Malformed
+  entries are ignored so a stale share URL degrades to the valid subset
+  instead of poisoning the shell state."
+  [s]
+  (:overrides (parse-overrides-param* s)))
 
 (defn- ^:no-doc kv-pair
   "Build a `k=v` URL parameter fragment. `k` is a keyword;
@@ -322,7 +406,7 @@
   - `:viewport`   — chrome-wide viewport selection (preset kw or `WxH`)
   - `:background` — chrome-wide background selection (preset kw or hex)
   - `:tag-filter` — comma-separated stable list of active tag-filter keys
-  - `:overrides`  — comma-separated `arg-key:EDN-value` pairs
+  - `:overrides`  — one `pr-str`-printed EDN map (delimiter-safe; rf2-j0hwf)
   - `:substrate`  — substrate id (omitted when `:reagent` default)
 
   Returns a vector of `k=v` URL fragments. Pure data → data;
@@ -360,11 +444,7 @@
                        (map kw->str (sort-by kw->str tag-filter))))))
 
     (seq cell-overrides)
-    (conj (kv-pair :overrides
-                   (url-encode
-                     (str/join ","
-                       (for [[k v] (sort-by (comp kw->str key) cell-overrides)]
-                         (str (kw->str k) ":" (pr-str v)))))))
+    (conj (kv-pair :overrides (build-overrides-token cell-overrides)))
 
     (and substrate (not= substrate :reagent))
     (conj (kv-pair :substrate (url-encode (name substrate))))))
