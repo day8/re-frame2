@@ -308,17 +308,11 @@ run the emitted tests via shadow-cljs.
   prints the right message, and the emitted tree matches the
   expected shape.
 
-The `clojure -P` deps-parse smoke is a "best-effort" check — it
-confirms the generated `deps.edn` is well-formed and that
-re-frame2 coords resolve. It is gated behind
-`RF2_TEMPLATE_DEPS_RESOLVE=1` (CI sets this; local fast-loop
-default-off so a missing alpha publish on Clojars doesn't fail
-every run). The behavioural compile+run slice
-(`emitted_test_run_test.clj`) is similarly opt-in via
-`RF2_TEMPLATE_RUN_EMITTED_TESTS=1`. Deps-parse and behavioural-run
-are nice-to-have signals; the harder contract is the file-tree
-shape + the static-parse framework-surface audit + the
-version-lockstep guards.
+The behavioural compile+run slice (`emitted_test_run_test.clj`) is
+opt-in via `RF2_TEMPLATE_RUN_EMITTED_TESTS=1` (CI sets this; local
+fast-loop default-off). It is a nice-to-have signal; the harder
+contract is the file-tree shape + the static-parse
+framework-surface audit + the version-lockstep guards.
 
 ## §8 — Strict substrate coercion (keyword-only)
 
