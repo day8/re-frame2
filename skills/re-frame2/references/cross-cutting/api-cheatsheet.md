@@ -6,9 +6,9 @@ One-line signatures for the public `re-frame.core` surface. **For full docstring
 
 | Surface | Shape |
 |---|---|
-| `rf/reg-event-db` | `(id [meta?\|intercept?] (fn [db ev] new-db))` |
-| `rf/reg-event-fx` | `(id [meta?\|intercept?] (fn [cofx ev] fx-map))` |
-| `rf/reg-event-ctx` | `(id [meta?\|intercept?] (fn [ctx] ctx'))` |
+| `rf/reg-event-db` | `(id meta? intercept? (fn [db ev] new-db))` |
+| `rf/reg-event-fx` | `(id meta? intercept? (fn [cofx ev] fx-map))` |
+| `rf/reg-event-ctx` | `(id meta? intercept? (fn [ctx] ctx'))` |
 | `rf/reg-fx` | `(id [metadata?] (fn [ctx args] ...))` — `ctx` is `{:frame :event}`; `args` is the `:fx` entry's 2nd slot |
 | `rf/reg-cofx` | `(id [metadata?] (fn [ctx] ctx') \| (fn [ctx value] ctx'))` — `ctx` is the interceptor ctx; assoc into `(:coeffects ctx)`. `value` is the `inject-cofx` per-call arg |
 | `rf/reg-sub` | `(id [signals?] (fn [db\|inputs query-v] value))` |
@@ -22,7 +22,7 @@ One-line signatures for the public `re-frame.core` surface. **For full docstring
 | `rf/reg-error-projector` | `(id metadata? (fn [trace-event] public-error))` — needs `day8/re-frame2-ssr` |
 | `rf/reg-http-interceptor` | `(id interceptor-map)` — `interceptor-map` carries `:before` / `:after` / `:frame` / metadata; needs `day8/re-frame2-http` |
 
-The `reg-event-*` `[meta?|intercept?]` slot is positional: a metadata-map (`{:doc ... :schema ...}`) **or** an interceptor-vector, not both (Conventions §`:interceptors` is positional). `reg-fx`/`reg-cofx`/`reg-error-projector` take a metadata-map only in that slot.
+The `reg-event-*` middle slots are positional and **both optional, independently**: `(id metadata? interceptors? handler)`. You may pass the metadata-map alone, the interceptor-vector alone, **or both together** — `(reg-event-fx :id {:doc ... :schema ...} [some-interceptor] handler)` is the canonical form when an event needs both reflection metadata and an interceptor chain (e.g. `:schema` metadata + `rf/validate-at-boundary-interceptor`). The fn discriminates by type: a map is metadata, a vector is interceptors. Putting `:interceptors` *inside* the metadata-map silently drops the chain — the runtime emits `:rf.warning/interceptors-in-metadata-map`. Verified against `implementation/core/src/re_frame/events.cljc` `normalise-args` (the 3-arg `(metadata interceptors handler)` form) and Spec 001 §Allowed forms of the middle slot (form 3: "Both — metadata map AND a positional interceptors vector"). `reg-fx`/`reg-cofx`/`reg-error-projector` take a metadata-map only in that slot.
 
 ## Dispatch, subscribe, frames
 
@@ -106,6 +106,11 @@ The view-tree assertion axis (commonly aliased `:as h`). Walk hiccup by `:data-t
 | `rf/render-to-string` | `(tree)` / `(tree opts)` — opts: `:doctype?` `:emit-hash?` |
 | `rf/render-tree-hash` | `(tree)` → `"fnv1a-32bit-hex"` |
 | `rf/project-error` | `(frame-id trace-event)` → public-error-map |
+| `rf/reg-head` | `(id metadata? (fn [db route] head-model))` — register a head-fragment producer; routes name a head via `:head` route metadata |
+| `rf/render-head` | `(head-id frame-id)` / `(head-id {:frame :route})` → produced `:rf/head-model` for a frame's app-db + active route |
+| `rf/active-head` | `()` / `(frame-id)` → the active route's `:head` model (or the default head when none configured) |
+| `rf/head-model->html` | `(head-model)` → inner-head HTML fragment in canonical order |
+| `rf/head-snapshot` | `(frame-id)` → `{head-id → last-produced head-model}` (`{}` if none); tests / tools |
 
 ## Schemas — `day8/re-frame2-schemas`
 
@@ -139,6 +144,9 @@ The view-tree assertion axis (commonly aliased `:as h`). Walk hiccup by `:data-t
 | `rf/clear-event` / `rf/clear-sub` / `rf/clear-fx` / `rf/clear-flow` / `rf/clear-sub-cache!` | targeted deregistration |
 | `rf/configure!` | `(:epoch-history\|:trace-buffer\|:sub-cache opts)` — runtime knobs |
 | `rf/registrations` / `rf/handler-meta` / `rf/handler-ids` | registrar reads |
+| `rf/features` | `()` → map of every optional-feature keyword → `{:maven :require :spec :loaded?}`. Ships to production (not elided) |
+| `rf/feature-loaded?` | `(feature)` → bool — is the optional feature's impl artefact on the classpath. Known: `:schemas` `:machines` `:routing` `:flows` `:http` `:ssr` `:epoch` |
+| `rf/require-feature!` | `(feature)` → `true`, or throws `:rf.error/feature-not-loaded` carrying the exact Maven coord + require form. Self-explaining early guard before a feature-dependent path |
 | `rf/frame-ids` / `rf/view` | registry reads |
 | `rf/frame-meta` | `(frame-id)` → flat map: `:id` + preset-expansion (`:preset` `:fx-overrides` `:drain-depth` `:doc` `:tags` `:url-bound?` `:platform` `:on-error` …) + lifecycle (`:created-at` `:destroyed?` `:listeners`) — all top-level per Spec-Schemas `:rf/frame-meta` |
 | `rf/sub-cache` (CLJS) / `rf/sub-topology` | dynamic / static sub graph reads |
@@ -147,4 +155,4 @@ Optional-artefact surfaces raise `:rf.error/<artefact>-artefact-missing` (regist
 
 ---
 
-*Derived from `implementation/core/src/re_frame/core.cljc` (the public surface) and the per-artefact source trees under `implementation/{machines,schemas,routing,http,ssr,epoch,flows}/` @ main `89bd9c3`. Re-verify when new public surface lands.*
+*Derived from `implementation/core/src/re_frame/core.cljc` (the public surface) and the per-artefact source trees under `implementation/{machines,schemas,routing,http,ssr,epoch,flows}/` @ main `1ed174f`. Re-verify when new public surface lands. This is the public-surface glance, not an exhaustive export inventory — for the complete facade see `SKILL-REDIRECT.md` → Definitive API reference.*

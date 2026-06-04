@@ -13,7 +13,7 @@ For the *why* of each rule, see [`MIGRATION.md`](../../../migration/from-re-fram
 - Interceptor list cleanup (M-21 mechanical half)
 - View / hiccup rewrites (M-22, M-24)
 - `reg-event-fx` shape (M-26 mechanical half)
-- Init / adapter (M-40)
+- Init / adapter (M-40 — **Type B**; shape is here, the decision is asked-first)
 - Per-feature artefact adds (M-27 through M-33)
 
 ---
@@ -253,15 +253,17 @@ rf/trace-api-version → drop (no replacement)
 
 ## Init / adapter (M-40)
 
+> **M-40 is Type B — ask first.** MIGRATION.md classifies M-40 as a judgment call: the rewrite shape below is mechanical *given* a chosen adapter, but the agent must surface every `(rf/init!)` call site and let the author confirm which adapter the app boots against (the codebase may run more than one substrate, or boot SSR-side against a different adapter). Do not apply it silently as part of the Type A sweep — present the call sites and the proposed adapter, then apply on confirmation. The shape lives in this leaf only because it pairs with M-38's mechanical ns rename.
+
 ```clojure
 ;; SEARCH
 (rf/init!)
 
-;; REWRITE
-(rf/init! reagent-adapter/adapter) ; or uix-adapter/adapter, helix-adapter/adapter
+;; REWRITE — after the author confirms the adapter
+(rf/init! reagent/adapter) ; or uix/adapter, helix/adapter, per the confirmed substrate
 ```
 
-Pair with M-38's substrate-ns rename so the symbol resolves.
+The adapter value is the `adapter` Var from the substrate adapter ns (e.g. `(:require [re-frame.adapter.reagent :as reagent])` → `reagent/adapter`), verified against `re-frame.core/init!`'s docstring (`implementation/core/src/re_frame/core.cljc` — "Pass the adapter spec map directly"). Pair with M-38's substrate-ns rename so the symbol resolves; non-map / nil args raise `:rf.error/no-adapter-specified`.
 
 ---
 
