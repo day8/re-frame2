@@ -62,7 +62,7 @@ To target one op at a non-operating frame without pinning the session, pass the 
 | `dispatch --frame` | `mcp__re-frame2-pair__dispatch {event: "[:foo]", frame: ":stories"}` | Targets a specific frame via the `:frame` opt on `rf/dispatch`. |
 | `dispatch-dry-run` | `mcp__re-frame2-pair__dispatch-dry-run {event: "[:cart/checkout]"}` | **Simulate a cascade WITHOUT committing** (rf2-17hvp) — "experiment without consequences". Full reducer + interceptor + schema validation + machine transitions + sub-runs + renders all run; **NO fx execute** (each registered fx is redirected to a recording stub) and the framework rolls back the app-db via `restore-epoch`. Returns the same `:cascade-summary` shape as `dispatch` plus `:rolled-back? true` and `:would-fire-effects [{:fx-id :args}...]` enumerating every fx that WOULD have fired (with args) so you reason about real-world impact without paying it. Composes with `:fx-overrides` (user overrides win, e.g. a canned http stub) without losing the rollback guarantee. **NOT** `--allow-writes`-gated — its contract IS "no observable effect". |
 | `reg-event` / `reg-sub` / `reg-fx` | `mcp__re-frame2-pair__eval-cljs {form: "<full reg-* form>"}` | Re-registration replaces; emits `:rf.registry/handler-replaced` trace (Spec 001 §Hot-reload semantics). Ephemeral. |
-| `app-db/reset` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/app-db-reset! ...)"}` | Delegates to `rf/reset-frame-db!` (Tool-Pair §Pair-tool writes) — replaces app-db, records a synthetic `:rf.epoch/db-replaced` epoch, validates against schema, refuses during a drain. Logged explicitly via `tap>` so the user sees what the agent changed. Use sparingly. |
+| `app-db/reset` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/app-db-reset! ...)"}` | Delegates to `rf/reset-frame-db!` (Tool-Pair §Pair-tool writes) — replaces app-db, records a synthetic `:rf.epoch/db-replaced` epoch, validates against schema, refuses during a drain. Logged explicitly via `tap>` so the user sees what the agent changed. Use sparingly. **Also exists as a dedicated MCP tool** `reset-frame-db` gated behind `--allow-writes` (default OFF; without it returns `{:ok? false :reason :rf.error/writes-disabled}`). The eval form shown is the default-reachable path because `eval-cljs` is default-ON — see [`mcp-transport.md`](mcp-transport.md#mcp-tool-reference-args) §MCP tool reference. |
 | `repl/eval` | `mcp__re-frame2-pair__eval-cljs {form: "<arbitrary form>"}` | The exploratory **workhorse**, not merely an escape hatch — prefer a structured op when one fits the gesture, but reach for `eval-cljs` first-class for the long tail (epoch forensics, arbitrary-selector DOM reads, cross-referencing reads) and for recovery (re-run a blank/errored structured read here to confirm the runtime answers). Takes the same `frame: ":foo"` arg as every other op (rf2-ntuzf — see *Frame-scoping an eval form* below): the server wraps the form in `(re-frame.core/with-frame :foo <form>)` so `(rf/subscribe ...)` / `(rf/dispatch ...)` inside it resolve against `:foo` rather than the ambient `:rf/default`. |
 | `repl/eval-await` | `mcp__re-frame2-pair__eval-cljs {form: "(-> (.layout instance input) (.then transform))", await: true, timeout-ms: 5000}` | Like `repl/eval` but the form may return a Promise — the server awaits it and returns the resolved value as `:value`. Use for `.layout()`, `fetch`, async fns, anything thenable. Rejections surface as `{:ok? false :reason :rf.error/eval-cljs-rejected :rejection "..."}`; timeouts as `{:ok? false :reason :rf.error/eval-cljs-timeout :timeout-ms n}`. Default `:timeout-ms` 5000. Replaces the `js/window.__probe__` mailbox dance (rf2-xn4f9). Composes with `frame:` — but see the async caveat below. |
 | `fx-overrides/with` | `mcp__re-frame2-pair__dispatch {event: "[:cart/checkout]", fx-overrides: {":http": ":stub-http"}}` | Per-call `:fx-overrides` (Spec 002 §Per-frame and per-call overrides) — redirect a registered fx to a stub for one experiment, restore on completion. |
@@ -224,6 +224,8 @@ A successful probe-flip also coincides with a `:rf.registry/handler-replaced` tr
 
 re-frame2 ships first-class time-travel as part of the Tool-Pair contract — no adapter, no internal poking. These ops are **fully implemented** and use only public surfaces.
 
+> **Dedicated tools vs eval forms.** `restore-epoch` and `reset-frame-db` ALSO exist as dedicated MCP tools — but both are gated behind the server's `--allow-writes` launch flag (default **OFF**), so without that flag they return `{:ok? false :reason :rf.error/writes-disabled}` without touching the runtime. The eval forms below are the **default-reachable** write path because `eval-cljs` ships default-ON. If you (or a recipe — see [`recipes.md`](recipes.md)) reach for the dedicated tool against a server launched without `--allow-writes`, expect the `:rf.error/writes-disabled` envelope. See [`mcp-transport.md`](mcp-transport.md#mcp-tool-reference-args) §MCP tool reference for the 26-of-28 / `--allow-writes` split.
+
 | Op | Invocation | Purpose |
 |---|---|---|
 | `epoch/history` | `mcp__re-frame2-pair__eval-cljs {form: "(rf/epoch-history :rf/default)"}` | The full ring of `:rf/epoch-record` values for the frame, oldest-first |
@@ -232,7 +234,7 @@ re-frame2 ships first-class time-travel as part of the Tool-Pair contract — no
 | `undo/step-back` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/undo-step-back)"}` | Sugar: restore the previous epoch in the operating frame |
 | `undo/to-epoch` | `mcp__re-frame2-pair__eval-cljs {form: "(re-frame2-pair.runtime/undo-to-epoch <id>)"}` | Sugar over `restore-epoch` for the operating frame |
 
-**Documented failure modes** (Tool-Pair §Time-travel — restore is a no-op on failure):
+**Documented failure modes** (Tool-Pair §Time-travel — restore is a no-op on failure). Seven in total: six fire under the reserved `:rf.epoch/*` namespace, plus **Unknown frame** which rides the framework-wide `:rf.error/no-such-handler` op-type:
 
 | Failure | Trace operation | When |
 |---|---|---|
@@ -242,6 +244,7 @@ re-frame2 ships first-class time-travel as part of the Tool-Pair contract — no
 | Missing handler | `:rf.epoch/restore-missing-handler` | DB references a registration id no longer in the registrar (e.g. a machine snapshot whose machine was unregistered) |
 | Version mismatch | `:rf.epoch/restore-version-mismatch` | Recorded `:meta :rf/snapshot-version` of an active machine is incompatible with the currently-loaded definition (hot-reload bumped it) |
 | Concurrent drain | `:rf.epoch/restore-during-drain` | Called while the frame's run-to-completion drain is in flight |
+| Halted-cascade target | `:rf.epoch/restore-non-ok-record` | The named epoch's `:outcome` is not `:ok` — the record was committed for a halted cascade (`:halted-depth`, `:halted-destroy`, …); halted records carry partial state for devtools introspection and are not valid restore targets. Tags `:rf.epoch/outcome` + `:halt-reason`. |
 
 When `restore-epoch` returns `false`, read the matching trace event from `(re-frame.trace.tooling/trace-buffer {:op-type :error})` to get the structured `:tags`, then report to the user.
 
@@ -277,7 +280,7 @@ The v1 `re-frame-pair` skill carried a few surfaces that have no direct re-frame
 
 - **`subs/live` (10x's "currently subscribed query vectors" view)** — replaced by `subs/cache` (`rf/sub-cache`), which is the public Tool-Pair-pinned shape `{query-v {:value v :ref-count n}}`. Same need, different surface.
 - **10x's internal epoch-buffer accessor + ring-rollover detection** — gone; replaced by `(rf/epoch-history frame-id)` which is bounded and self-describing (size = `(count history)`, depth = `(:depth (epoch/current-config))`).
-- **10x's internal undo / step-back navigation** — gone; replaced by first-class `(rf/restore-epoch frame-id epoch-id)` with six documented failure modes (see [Time-travel](#time-travel-epoch-restore)).
+- **10x's internal undo / step-back navigation** — gone; replaced by first-class `(rf/restore-epoch frame-id epoch-id)` with seven documented failure modes (see [Time-travel](#time-travel-epoch-restore)).
 - **`re-com-debug-disabled` heuristic** — kept (re-com is still a valid source-coord source), but the source-coord story now leads with re-frame2's own `:annotate-dom?` annotation; re-com's `data-rc-src` is a fallback rather than the only path.
 - **`trace-enabled?` discovery check** — replaced by `interop/debug-enabled?` (the `goog.DEBUG` mirror per Spec 009 §Production builds). Same gate, framework-canonical name.
 - **Version-floor enforcement against re-frame-10x / re-com / re-frame** — gone (no re-frame-10x dependency; re-com is optional; re-frame2's version is implicit in the loaded ns).

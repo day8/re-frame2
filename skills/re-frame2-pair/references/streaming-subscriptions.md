@@ -44,7 +44,7 @@ Five topics, two underlying buses.
 
 The `:fx` and `:error` topics are convenience sugar — they pre-pin the `:op-type` filter so you can layer additional trace-vocab keys on top.
 
-**Cascade-bundle vs flat delivery (rf2-mscih).** On `:trace` / `:fx` / `:error` each tick's matched events ship **grouped by `:rf.trace/dispatch-id` into cascade bundles** (matching `(rf/trace-buffer frame-id)` shape — `:dispatch-id :frame :event :dispatched :handler :fx :effects :subs :renders :other :trace-events :parent-dispatch-id`); the progress payload's load slot is `:cascades`. `:epoch` and `:frameless` ship flat as `:events`. **Frameless events NEVER ride the cascade-bundle topics** — opt into the `:frameless` topic explicitly to see registration / REPL / lifecycle events that belong to no cascade.
+**Cascade-bundle vs flat delivery (rf2-mscih).** On `:trace` / `:fx` / `:error` each tick's matched events ship **grouped by `:rf.trace/dispatch-id` into cascade bundles** (matching the `(re-frame.trace.tooling/trace-buffer frame-id)` shape — `:dispatch-id :frame :event :dispatched :handler :fx :effects :subs :renders :other :trace-events :parent-dispatch-id`); the progress payload's load slot is `:cascades`. `:epoch` and `:frameless` ship flat as `:events`. **Frameless events NEVER ride the cascade-bundle topics** — opt into the `:frameless` topic explicitly to see registration / REPL / lifecycle events that belong to no cascade.
 
 Use `:epoch` whenever you want assembled cascades (with their `:sub-runs` / `:renders` / `:effects` projections); use `:trace` (or its sugar) when you need raw trace-event detail (handler timings, registry traces, sub-cache events, the things the projection drops).
 

@@ -141,5 +141,13 @@ opt-in under the same flag name.
   (rf2-a0z0h; inverts the prior rf2-cxx5s default-OFF posture — eval
   is the REPL primitive of a pair-debug session and ships ENABLED).
 - re-frame2-pair-mcp `--allow-sensitive-reads` — this gate.
+- re-frame2-pair-mcp `--allow-writes` — opt-in for the two
+  state-mutating tools `restore-epoch` (time-travel undo) and
+  `reset-frame-db` (state injection). Default **OFF**; without it both
+  return `{:ok? false :reason :rf.error/writes-disabled}` without
+  touching the runtime. This is why the dedicated write tools sit
+  outside the skill's 26-of-28 `allowed-tools:` set and the eval forms
+  are the default-reachable write path (eval-cljs is default-ON). See
+  [mcp-transport.md](mcp-transport.md) §MCP tool reference.
 - story-mcp `--allow-sensitive-reads` — the parallel story-side gate
   under the same CLI flag name.
