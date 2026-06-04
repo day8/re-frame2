@@ -36,54 +36,94 @@ wired against the alpha-channel `day8/re-frame2-*` coords, ready to
 
 ## Quick start
 
-The canonical invocation:
+> **Pre-split status (current):** the dedicated
+> `github.com/day8/re-frame2-template` repo does not exist yet — the
+> template still lives in-tree under `tools/template/` in the
+> re-frame2 monorepo (rf2-dolpf §4 / rf2-7jgkv). Until the split
+> lands, the only working invocation is the `:local/root` route
+> against a checkout of this repo. The published
+> `io.github.day8/re-frame2-template` git-coord form is **not yet a
+> viable path** — deps-new would clone the (nonexistent) external
+> repo and fail to find the template body (see
+> [`spec/005-Repo-Split.md` §4](./spec/005-Repo-Split.md)). It is
+> documented below under [Post-split (future)](#post-split-future)
+> only.
+
+The working invocation, against a checkout of this repo (run from the
+repo root):
 
 ```bash
 # Reagent — the canonical substrate (default)
-clojure -Tnew create :template io.github.day8/re-frame2-template :name acme/my-app
+clojure -Sdeps '{:deps {day8/re-frame2-template
+                        {:local/root "tools/template"}}}' \
+        -Tnew create :template day8/re-frame2-template :name acme/my-app
 
-# UIx, with all v1 flags
-clojure -Tnew create \
-        :template io.github.day8/re-frame2-template \
+# UIx
+clojure -Sdeps '{:deps {day8/re-frame2-template
+                        {:local/root "tools/template"}}}' \
+        -Tnew create :template day8/re-frame2-template \
         :name acme/my-app \
-        :substrate :uix \
-        :include-story? true \
-        :css :tailwind \
-        :include-ssr? true
+        :substrate :uix
+
+# Helix
+clojure -Sdeps '{:deps {day8/re-frame2-template
+                        {:local/root "tools/template"}}}' \
+        -Tnew create :template day8/re-frame2-template \
+        :name acme/my-app \
+        :substrate :helix
+
+# Reagent, with the Story playground scaffold
+clojure -Sdeps '{:deps {day8/re-frame2-template
+                        {:local/root "tools/template"}}}' \
+        -Tnew create :template day8/re-frame2-template \
+        :name acme/my-app \
+        :include-story? true
+```
+
+That assumes the standard `-Tnew` tool is installed per
+[deps-new's README](https://github.com/seancorfield/deps-new#installation).
+
+`:local/root "tools/template"` puts the template's `src/` and
+`resources/` on the classpath, so deps-new resolves the hooks ns and
+the template body via the classpath. The name is
+`day8/re-frame2-template` (not `io.github.day8/re-frame2-template`)
+because the `io.github.*` prefix would trigger deps-new's
+auto-git-clone before classpath lookup — bypassing the local-root
+checkout (and, pre-split, cloning a repo that doesn't exist yet).
+
+`:include-story? true` is **Reagent-only in v1** — combining it with
+`:substrate :uix` or `:substrate :helix` throws
+`:rf.error/template-include-story-reagent-only`. UIx + Helix Story
+variants follow once those adapters' Story coverage matches Reagent's.
+
+### Deferred flags
+
+`:css` (e.g. `:tailwind`) and `:include-ssr?` are reserved in the v1
+flag set but **not yet implemented** — they are gated on rf2-gthro
+(Tailwind v4 verification) and rf2-0m5ea (SSR validation)
+respectively. They are not accepted as live command flags today;
+passing them has no effect. See [`spec/API.md`](./spec/API.md#args-reference)
+for the flag-set status.
+
+### Post-split (future)
+
+Once the template is split out to its dedicated
+`github.com/day8/re-frame2-template` repo (rf2-dolpf §4 / rf2-7jgkv),
+the steady-state invocation becomes the published git-coord form —
+deps-new's `auto-git-url` mechanism clones the external repo at the
+requested tag and runs the template hooks (the tagged commit IS the
+artefact; no Maven / Clojars resolution):
+
+```bash
+# Post-split steady state (does NOT work pre-split)
+clojure -Tnew create :template io.github.day8/re-frame2-template \
+        :name acme/my-app
 
 # Pinned to a specific release tag
 clojure -Tnew create \
         :template io.github.day8/re-frame2-template#template-v0.0.1.alpha \
         :name acme/my-app
 ```
-
-That assumes the standard `-Tnew` tool is installed per
-[deps-new's README](https://github.com/seancorfield/deps-new#installation).
-
-`io.github.day8/re-frame2-template` triggers deps-new's
-`auto-git-url` mechanism — deps-new clones the
-`github.com/day8/re-frame2-template` repo (or HEAD-of-`day8/re-frame2`
-during the transition period, before the rf2-7jgkv repo split lands)
-at the requested tag and runs the template hooks. The tagged commit
-IS the artefact; no Maven / Clojars resolution.
-
-Until the `day8/re-frame2-template` repo is split out (rf2-dolpf §4 /
-rf2-7jgkv), `io.github.day8/re-frame2-template` will resolve against
-this monorepo path — pinning via `#template-v…` still works for
-reproducible scaffolding.
-
-For local development against a checkout of this repo, use the
-`:local/root` route instead:
-
-```bash
-clojure -Sdeps '{:deps {day8/re-frame2-template
-                        {:local/root "tools/template"}}}' \
-        -Tnew create :template day8/re-frame2-template :name acme/my-app
-```
-
-(`day8/re-frame2-template`, not `io.github.day8/re-frame2-template`,
-because the `io.github.*` prefix would trigger deps-new's auto-git-clone
-before classpath lookup — bypassing the local-root checkout.)
 
 Then:
 

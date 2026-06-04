@@ -5,7 +5,23 @@
 
 ## Invocation
 
-The template is invoked via deps-new's `-Tnew create`:
+The template is invoked via deps-new's `-Tnew create`. The template
+arguments (`:name`, `:substrate`, `:include-story?`) are identical
+across the pre-split and post-split paths; only the `:template` coord
++ the surrounding resolution differ.
+
+> **Pre-split status (current):** the dedicated
+> `github.com/day8/re-frame2-template` repo does not exist yet, so the
+> published `io.github.day8/re-frame2-template` git-coord form is **not
+> a viable path** (deps-new would clone the nonexistent external repo
+> and fail to find the template body — see
+> [005-Repo-Split.md §4](005-Repo-Split.md)). The working invocation
+> today is the `:local/root` route — see
+> [Local-development invocation](#local-development-invocation) below.
+> The `io.github.*` shape documented here is the **post-split steady
+> state**.
+
+Post-split steady-state form:
 
 ```bash
 clojure -Tnew create :template io.github.day8/re-frame2-template \
@@ -26,6 +42,13 @@ The `-Tnew` tool is the standard deps-new tool. See
 for one-time install.
 
 ## Examples
+
+The examples below use the post-split `io.github.day8/re-frame2-template`
+coord. To run them against the **current** tree (pre-split), substitute
+the `:local/root` invocation from
+[Local-development invocation](#local-development-invocation) — the
+template arguments (`:name`, `:substrate`, `:include-story?`) are the
+same in both.
 
 ```bash
 # Reagent — canonical substrate (default)
