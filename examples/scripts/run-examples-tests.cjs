@@ -5,10 +5,15 @@
  * Each surface is built by shadow-cljs into out/examples/<name>/main.js
  * and is paired with a hand-written index.html (staged into the same
  * directory by the orchestrator). This runner spins up a Chromium
- * browser and executes the spec.cjs files that sit alongside each
- * adapter testbed under the SPEC_ROOTS below. Each spec navigates to
- * the surface's URL and asserts a user-visible behaviour (initial
- * render + an interaction + post-interaction state).
+ * browser and executes the spec.cjs files declared in the shared
+ * EXAMPLES manifest (examples-filter.cjs) — the same manifest + the same
+ * `selectEntries` the orchestrator used to compile/stage, so the selected
+ * set is identical across both phases for any EXAMPLES_FILTER shape
+ * (rf2-l72e2). Before running, the runner reconciles that manifest
+ * against the spec.cjs files actually on disk under SPEC_ROOTS, failing
+ * loudly on drift in either direction. Each spec navigates to the
+ * surface's URL and asserts a user-visible behaviour (initial render +
+ * an interaction + post-interaction state).
  *
  * Test surface inventory (the `examples/` tree is TEST-FREE; framework-
  * testbed assertions live as CLJS/JVM unit tests):
@@ -50,6 +55,12 @@
 
 const path = require('path');
 const fs = require('fs');
+const {
+  EXAMPLES,
+  SPEC_ROOTS,
+  parseFilterPatterns,
+  selectEntries,
+} = require('./examples-filter.cjs');
 
 // playwright is a devDependency of implementation/package.json — there
 // is no examples/package.json by design. Resolve playwright
@@ -66,62 +77,30 @@ const { chromium } = require(require.resolve('playwright', { paths: [IMPL_ROOT] 
 // :dev-http set; see examples-port.cjs and the OWNED-RANGE PORT MAP in
 // implementation/scripts/dev-testbed.cjs).
 const BASE_URL = process.env.EXAMPLES_BASE_URL || 'http://127.0.0.1:8050';
-// `EXAMPLES_FILTER` narrows the spec set. When set, only spec files whose
-// path includes the substring are loaded. Composes with the
-// orchestrator's compile/stage filter so a narrow run only exercises
-// the matched surface end-to-end. The substring is matched against
-// the spec file's absolute path. Unset (or empty) = the full sweep.
+// `EXAMPLES_FILTER` narrows the spec set. When set, the runner executes
+// exactly the specs of the EXAMPLES entries the shared `selectEntries`
+// picks. Composes with the orchestrator's compile/stage filter — both
+// phases call the SAME `selectEntries` over the SAME EXAMPLES manifest,
+// so a narrow run exercises identical surfaces end-to-end regardless of
+// whether the filter is build-id-shaped (`adapters/reagent-testbed`,
+// `reagent-testbed`) or path-shaped (`adapters/reagent/testbed`,
+// `reagent/testbed`). Unset (or empty) = the full sweep.
 //
-// Comma-separated alternatives are OR-matched. Mirrors the
-// orchestrator's multi-pattern filter so a single EXAMPLES_FILTER
-// shape gates compile/stage/spec selection identically.
+// Comma-separated alternatives are OR-matched. The previous design
+// substring-matched the filter against re-discovered absolute spec paths
+// in a string space that didn't bridge the build-id `<name>-testbed`
+// segment to the path `<name>/testbed` segments, so a build-id-shaped
+// filter matched zero specs after the orchestrator had already staged
+// the surface (rf2-l72e2). Selecting from the shared manifest removes
+// that asymmetry.
+//
+// The substring-trap protection (a bare `shop` must not be shadowed by a
+// worktree-name substring — see the saved-memory note) is preserved:
+// `selectEntries` still substring-matches, and patterns are matched only
+// against an entry's build id and its repo-relative / absolute spec path,
+// never an unrelated filesystem prefix.
 const FILTER = (process.env.EXAMPLES_FILTER || '').trim();
-function parseFilterPatterns(raw) {
-  if (!raw) return [];
-  return raw.split(',').map((s) => s.trim()).filter((s) => s.length > 0);
-}
 const FILTER_PATTERNS = parseFilterPatterns(FILTER);
-// Normalize before substring-matching. Two cosmetic
-// conventions diverge between build ids and spec paths:
-//
-//   1. Build ids use kebab-case (`examples/counter-with-stories`);
-//      on-disk dirs use snake_case (`tools/story/testbeds/
-//      counter_with_stories/`). A user naturally supplies the
-//      build-id form to EXAMPLES_FILTER, so the literal substring
-//      `counter-with-stories` would fail to match the underscore-
-//      bearing spec path. Map `_` → `-` on both sides.
-//   2. Path separators differ across platforms (`\` on Windows, `/`
-//      elsewhere). The saved-memory substring trap recommends the
-//      path-separator-aware form (`testbeds/shop` or `testbeds\shop`)
-//      so a bare `shop` isn't shadowed by a worktree-name substring.
-//      Normalize `\` → `/` on both sides so `testbeds/shop` works on
-//      every platform (Git Bash on Windows, Linux, macOS) without the
-//      user remembering which slash to type.
-//
-// The substring-trap protection is preserved verbatim — the only
-// change is collapsing two cosmetic variants before `.includes()`.
-function normalizeForFilter(s) {
-  return s.replace(/_/g, '-').replace(/\\/g, '/');
-}
-function matchesFilter(filePath) {
-  if (FILTER_PATTERNS.length === 0) return true;
-  const normalized = normalizeForFilter(filePath);
-  return FILTER_PATTERNS.some((p) => normalized.includes(normalizeForFilter(p)));
-}
-// __dirname is <repo>/examples/scripts; the example tree sits at
-// <repo>/examples (one level up).
-//
-// Spec discovery: the `examples/` tree is TEST-FREE — no `*.spec.cjs`
-// is permitted under it. Framework + top-level testbed assertions
-// live as CLJS/JVM unit tests. Discovery scans only the per-adapter
-// smoke root:
-//
-//   - implementation/adapters/      — per-adapter end-to-end smokes
-//                                     (Reagent/UIx/Helix)
-const REPO_ROOT = path.resolve(__dirname, '..', '..');
-const SPEC_ROOTS = [
-  path.join(REPO_ROOT, 'implementation', 'adapters'),
-];
 const TIMEOUT_MS = parseInt(process.env.EXAMPLE_SPEC_TIMEOUT_MS || '30000', 10);
 const { isVerboseTests } = require(path.join(
   IMPL_ROOT,
@@ -174,23 +153,46 @@ function withTimeout(promise, ms, label) {
 }
 
 (async () => {
-  const allSpecFiles = listSpecFiles(SPEC_ROOTS);
-  // Apply EXAMPLES_FILTER substring match against the absolute spec
-  // path so narrow runs only execute matching specs. The normalisation
-  // in `matchesFilter` bridges the kebab/snake and `\`/`/` cosmetic
-  // gaps without weakening the substring trap.
-  const specFiles = allSpecFiles.filter(matchesFilter);
-  if (specFiles.length === 0) {
+  // Reconcile the EXAMPLES manifest against the spec.cjs files actually
+  // on disk under SPEC_ROOTS. This catches drift in either direction —
+  // a renamed/removed example still listed in the manifest, or a new
+  // spec.cjs added under implementation/adapters/ without a matching
+  // manifest entry — instead of silently exercising the wrong set.
+  const discovered = listSpecFiles(SPEC_ROOTS).map((p) => path.resolve(p));
+  const declared = EXAMPLES.map((e) => path.resolve(e.specPath));
+  const missing = declared.filter((p) => !discovered.includes(p));
+  const undeclared = discovered.filter((p) => !declared.includes(p));
+  if (missing.length > 0) {
+    console.error(
+      `EXAMPLES manifest references spec(s) not on disk:\n  ${missing.join('\n  ')}\n` +
+        `Fix examples/scripts/examples-filter.cjs (a renamed/removed example?).`,
+    );
+    process.exit(1);
+  }
+  if (undeclared.length > 0) {
+    console.error(
+      `Found spec(s) under ${SPEC_ROOTS.join(', ')} not declared in the EXAMPLES manifest:\n  ${undeclared.join('\n  ')}\n` +
+        `Add an entry to examples/scripts/examples-filter.cjs (or remove the stray spec).`,
+    );
+    process.exit(1);
+  }
+
+  // Select the spec set from the SAME manifest + SAME `selectEntries`
+  // the orchestrator used to compile/stage, so the selected set is
+  // identical in both phases for every filter shape (rf2-l72e2).
+  const selected = selectEntries(FILTER_PATTERNS);
+  if (selected.length === 0) {
     if (FILTER) {
       console.error(
-        `EXAMPLES_FILTER='${FILTER}' matched zero specs (scanned ${allSpecFiles.length} candidates under ${SPEC_ROOTS.join(', ')}).`,
+        `EXAMPLES_FILTER='${FILTER}' matched zero examples (of ${EXAMPLES.length} declared).`,
       );
     } else {
-      console.error(`No specs found under ${SPEC_ROOTS.join(', ')}`);
+      console.error(`No examples declared in the EXAMPLES manifest.`);
     }
     process.exit(1);
   }
 
+  const specFiles = selected.map((e) => e.specPath);
   const specs = specFiles.map((file) => {
     const mod = require(file);
     if (!mod || typeof mod.run !== 'function' || typeof mod.url !== 'string') {

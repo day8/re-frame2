@@ -188,6 +188,20 @@ three adapter testbeds at
 `implementation/adapters/{reagent,uix,helix}/testbed/`. **Do NOT add
 a `*.spec.cjs` under `examples/`.**
 
+The example set is declared **once** in
+[`scripts/examples-filter.cjs`](scripts/examples-filter.cjs) — each entry
+pairs a shadow-cljs build id with its `index.html` source, its
+`out/examples/` staging dir, and the `spec.cjs` it runs. Both the
+orchestrator (compile + stage) and the Playwright runner (spec
+selection) import that manifest and call its shared `selectEntries`, so a
+narrow `--filter`/`EXAMPLES_FILTER` value selects the *identical* set in
+both phases regardless of whether it is build-id-shaped
+(`adapters/reagent-testbed`, `reagent-testbed`) or path-shaped
+(`adapters/reagent/testbed`, `reagent/testbed`). The runner also
+reconciles the manifest against the `spec.cjs` files on disk and fails
+loudly on drift. To add a smoke, append an entry there (build + htmlSrc +
+outDir + specPath) and add the build to `implementation/shadow-cljs.edn`.
+
 If a new framework contract needs end-to-end browser coverage that
 the existing gates (`test:cljs`, `test:xray-feature-gate`,
 `test:bundle-isolation`, `test:perf-bundle`, mcp-conformance) don't

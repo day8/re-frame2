@@ -328,6 +328,11 @@ test('Adapter source change fires adapter_testbed_smokes (rf2-t5slp regression g
   assert.equal(result.adapter_testbed_smokes, 'true');
 });
 
+test('examples/scripts/examples-filter.cjs (shared manifest) fires adapter_testbed_smokes (rf2-l72e2)', () => {
+  const result = classify('examples/scripts/examples-filter.cjs');
+  assert.equal(result.adapter_testbed_smokes, 'true');
+});
+
 test('framework-testbeds workflow job is removed (rf2-t5slp)', () => {
   const workflow = fs.readFileSync(WORKFLOW, 'utf8');
   assert.doesNotMatch(workflow, /^\s*framework-testbeds:/m);
