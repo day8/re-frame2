@@ -59,7 +59,7 @@ Sanity-checking a mental model: tracing what happens between `(rf/dispatch ...)`
 | Effect-map policing | `events.cljc` (`police-effect-map-shape!`) | `:rf.error/effect-map-shape` trace |
 | `:db` commit | `subs.cljc` + substrate adapter | atomic via `replace-container!` |
 | `:fx` walk | `fx.cljc` (`do-fx` / `handle-one-fx`) | `reg-fx`, `:fx-overrides` |
-| Sub recompute | `subs.cljc` | reaction graph + deferred ref-count cache |
+| Sub recompute | `subs.cljc` | reaction graph + synchronous ref-count cache |
 | Render | adapter (`reagent.cljs`, ...) | `reg-view` |
 
 ## Canonical mini-example

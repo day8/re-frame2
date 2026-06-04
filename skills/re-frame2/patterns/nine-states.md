@@ -30,12 +30,12 @@ Lifted from `examples/reagent/nine_states/core.cljs`. Three regions; tags on eve
   {:type :parallel
    :data {:items [] :error nil}
    :guards
-   {:empty?    (fn [d _] (zero?  (count (:items d))))
-    :one?      (fn [d _] (= 1    (count (:items d))))
-    :too-many? (fn [d _] (> (count (:items d)) too-many-threshold))}
+   {:empty?    (fn [{d :data}] (zero?  (count (:items d))))
+    :one?      (fn [{d :data}] (= 1    (count (:items d))))
+    :too-many? (fn [{d :data}] (> (count (:items d)) too-many-threshold))}
    :actions
-   {:set-items (fn [d [_ {:keys [items]}]] {:data (assoc d :items (vec items) :error nil)})
-    :set-error (fn [d [_ {:keys [failure]}]] {:data (assoc d :error failure)})}
+   {:set-items (fn [{d :data [_ {:keys [items]}] :event}] {:data (assoc d :items (vec items) :error nil)})
+    :set-error (fn [{d :data [_ {:keys [failure]}] :event}] {:data (assoc d :error failure)})}
    :regions
    {:data
     {:initial :nothing

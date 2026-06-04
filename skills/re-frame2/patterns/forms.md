@@ -135,23 +135,23 @@ Used when the form's lifecycle is *part of* a larger page's machine (composes wi
              :submitted nil :loaded-at nil}
    :actions
    {:edit-field
-    (fn [d [_ {:keys [field value]}]]
+    (fn [{d :data [_ {:keys [field value]}] :event}]
       {:data (-> d (assoc-in [:draft field] value)
                    (update :touched (fnil conj #{}) field)
                    (update :errors  dissoc field)
                    (assoc  :submit-error nil))})
     :set-errors
-    (fn [d [_ {:keys [errors]}]]
+    (fn [{d :data [_ {:keys [errors]}] :event}]
       {:data (-> d (assoc :errors errors)
                    (update :touched (fnil into #{}) (keys errors)))})
     :begin-submit
-    (fn [d [_ {:keys [submitted]}]]
+    (fn [{d :data [_ {:keys [submitted]}] :event}]
       {:data (-> d (assoc :submitted submitted :errors {} :submit-error nil))})
     :store-user
-    (fn [d [_ {:keys [user]}]]
+    (fn [{d :data [_ {:keys [user]}] :event}]
       {:data (-> d (assoc :draft (draft-from-user user) :errors {} :submit-error nil))})
     :set-submit-error
-    (fn [d [_ {:keys [submit-error]}]] {:data (assoc d :submit-error submit-error)})}
+    (fn [{d :data [_ {:keys [submit-error]}] :event}] {:data (assoc d :submit-error submit-error)})}
    :states
    {:neutral    {:tags #{:settings/neutral}
                  :on {:edit           {:target :neutral    :action :edit-field}

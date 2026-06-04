@@ -40,16 +40,16 @@ One parent coordinator spawns N children declaratively via `:spawn-all`. Each ch
 (rf/reg-machine :work/processor
   {:initial :idle
    :data    {:shard nil :total 0 :processed 0 :tick-ms 50}
-   :guards  {:done?      (fn [data _] (>= (:processed data) (:total data)))
-             :more-work? (fn [data _] (<  (:processed data) (:total data)))}
+   :guards  {:done?      (fn [{:keys [data]}] (>= (:processed data) (:total data)))
+             :more-work? (fn [{:keys [data]}] (<  (:processed data) (:total data)))}
    :actions
    {:process-one
-    (fn [data _]
+    (fn [{:keys [data]}]
       (let [new-processed (inc (:processed data))]
         {:data (assoc data :processed new-processed)
          :fx   [[:dispatch [:work/flow [:progress (:shard data) new-processed (:total data)]]]]}))
     :dispatch-done
-    (fn [data _] {:fx [[:dispatch [:work/flow [:work/child-done (:shard data)]]]]})}
+    (fn [{:keys [data]}] {:fx [[:dispatch [:work/flow [:work/child-done (:shard data)]]]]})}
    :states
    {:idle           {:on    {:rf.machine.spawn/spawned :processing}}
     :processing     {:entry :process-one :always [{:target :checking-done}]}
@@ -63,9 +63,9 @@ One parent coordinator spawns N children declaratively via `:spawn-all`. Each ch
   {:initial :idle
    :data    {:shards [:s1 :s2 :s3] :progress {} :outcome nil}
    :actions
-   {:reset-progress  (fn [data _] {:data (assoc data :progress (zipmap (:shards data) (repeat 0)))})
-    :record-progress (fn [data [_ shard processed _]] {:data (assoc-in data [:progress shard] processed)})
-    :stamp-outcome   (fn [data [ev]] {:data (assoc data :outcome
+   {:reset-progress  (fn [{:keys [data]}] {:data (assoc data :progress (zipmap (:shards data) (repeat 0)))})
+    :record-progress (fn [{data :data [_ shard processed _] :event}] {:data (assoc-in data [:progress shard] processed)})
+    :stamp-outcome   (fn [{data :data [ev] :event}] {:data (assoc data :outcome
                                                   (case ev :work/all-done :complete
                                                            :cancel        :cancelled
                                                            :work/any-failed :error

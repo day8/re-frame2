@@ -14,7 +14,7 @@ Most concepts map cleanly. A handful of slots re-frame2 **deliberately renames o
 |---|---|---|
 | **states** (`state.value`) | `:states` map + the snapshot's `:state` slot | Flat → single keyword; compound → vector path; parallel → region-name→keyword map. Convergence. |
 | **transitions** (`on: { EVENT: ... }`) | `:on {event-keyword transition-spec}` on a state node | Convergence. Bare-target / explicit-map / guarded-vector forms. |
-| **guards** (`guard` / named guards) | `:guard` on a transition + the top-level `:guards` map | Convergence on the *name*. **Divergence:** no `{and: [...]}` compound-guard data form — compose with one fn or one named registered compound. Guards see `:data`, not the whole snapshot. |
+| **guards** (`guard` / named guards) | `:guard` on a transition + the top-level `:guards` map | Convergence on the *name*. **Divergence:** no `{and: [...]}` compound-guard data form — compose with one fn or one named registered compound. Guards receive one context map `{:keys [data event state meta]}` and destructure what they need. |
 | **actions** (`actions` / named actions) | `:action` / `:entry` / `:exit` + the top-level `:actions` map | Convergence on the *name*. **Divergence:** no action-vector `[a1 a2 a3]` per slot — one fn or one named registered compound. `:entry`/`:exit` are a single fn or single keyword, never vectors. |
 | **`assign({...})`** | action returns `{:data new-data}` (and/or `{:fx [...]}`) | **Divergence (name/shape):** no `[:assign {...}]` form. Symmetric with `reg-event-fx`'s `{:db :fx}`. The invariant matches xstate's `assign` though: callbacks may only update `:data` — they cannot nudge the machine into an undeclared state. |
 | **`context`** (extended state) | `:data` (the machine's private map, distinct from `app-db`) | **Divergence (name):** re-frame2 calls the slot `:data`, tracking FSM / `gen_statem` "state data" vocabulary and avoiding re-frame's already-overloaded "context" (interceptor pipeline + React context). |
@@ -58,16 +58,16 @@ The basic (non-parallel, non-hierarchical) form:
 
    :guards
    {:has-input?
-    (fn guard-has-input? [data _event]
+    (fn guard-has-input? [{:keys [data]}]
       (some? (:input data)))}
 
    :actions
    {:bump-attempt
-    (fn action-bump [data _event]
+    (fn action-bump [{:keys [data]}]
       {:data (update data :attempt (fnil inc 0))})
 
     :store-result
-    (fn action-store [data [_ {:keys [value]}]]
+    (fn action-store [{data :data [_ {:keys [value]}] :event}]
       {:data (assoc data :result value :error nil)})}
 
    :states
@@ -92,7 +92,7 @@ The machine map's top-level keys are documented in Spec 005 §Transition table t
 
 ## State-node shape
 
-Every state node is a map. Recognised slots (see `implementation/machines/src/re_frame/machines.cljc` and Spec 005 §State nodes):
+Every state node is a map. Recognised slots (see the `re-frame.machines` façade docstring + `re-frame.machines.transition`, and Spec 005 §State nodes):
 
 - `:on` — a map of `event-keyword → transition-spec` (see Transitions below).
 - `:entry` / `:exit` — singular action references or fns, fired on entering / leaving the node.
@@ -126,7 +126,7 @@ The transition's `:target` may be a single keyword (sibling-level) or a vector p
 
 ```clojure
 ;; Inline — preferred only for one-line trivialities.
-{:on {:start {:guard  (fn [{data :data}] (some? (:input data)))
+{:on {:start {:guard  (fn [{:keys [data]}] (some? (:input data)))
               :target :working}}}
 
 ;; Keyword reference — preferred for anything non-trivial, because the
@@ -138,9 +138,9 @@ Per the inspectability bias (Spec 005 §Inspectability bias): named entries surf
 
 ### Guard / action contract
 
-Both fns receive `(data event)` — `:data` directly, not the snapshot wrapper. Actions return `{:data new-data :fx [...]}` (either key optional); guards return truthy/falsey. See `call-guard` and `call-action` in `re-frame.machines.transition`.
+Every callback receives **one context map** — `(fn [{:keys [data event state meta]}] ...)` — and destructures the keys it needs. `data` is the snapshot's `:data` slot (a plain map); `event` is the inbound event vector; `state` is the discrete FSM keyword; `meta` is any user `:meta` on the snapshot. Actions return `{:data new-data :fx [...]}` (either key optional); guards return truthy/falsey. See `call-guard` and `call-action` in `re-frame.machines.transition`.
 
-A 3-arity escape hatch `^:rf.machine/wants-ctx (fn [data event {:state ... :meta ...}] ...)` exists for introspecting the snapshot's discrete state, but reach for it only when 2-arity cannot express what you need (Spec 005 §3-arity escape hatch). The metadata flag is the explicit opt-in; without it the runtime calls the fn as 2-arity.
+There is **no positional `(data event)` arity and no opt-in 3-arity escape hatch** — the runtime always delivers the full context map and the destructure pattern decides what's bound. `:state` and `:meta` are available for introspection with no flag (Spec 005 §Snapshot introspection — `:state` / `:meta`). The uniform single-map shape is deliberate: it eliminates the paste-from-`:guard`-into-`:on-spawn` trap (an `id` silently bound to the event vector, or vice-versa) that slot-specific positional signatures would create.
 
 ## Subscribing to a machine
 
@@ -187,7 +187,7 @@ When a machine drives a discrete event-fx flow (boot, websocket-connection lifec
 
 - **The artefact must be loaded.** `(:require [re-frame.machines])` at the namespace declaring `rf/reg-machine` (or at app boot before any machine call). Forgetting it throws `:rf.error/machines-artefact-missing` with `:recovery :no-recovery`.
 - **`:rf.machine/*` and `:rf/*` are reserved.** Names like `:rf.machine/spawn` and the reserved app-db root `:rf/runtime` (with the framework parking `:machines`, `:routing`, `:elision`, … under it) belong to the runtime. Pick your own feature prefix for event keywords.
-- **Guards see `:data`, not the snapshot.** `(fn [data event] ...)` — the body inspects `(:input data)`, not `(get-in snap [:data :input])`. Same for actions.
+- **Callbacks receive one context map, not the raw snapshot.** `(fn [{:keys [data event]}] ...)` — the body inspects `(:input data)`, not `(get-in snap [:data :input])`. `data` is already the snapshot's `:data` slot. Same shape for guards, actions, `:entry`, `:exit`.
 - **Actions return an effect map.** `{:data new-data}` (or `{:fx [...]}` or both). Returning a bare data map silently does nothing; `nil` is a no-op.
 - **Use `reg-machine` (macro), not `reg-machine*` (fn).** The macro stamps per-element source coords that tools rely on (`re-frame.core` macro layer, Spec 005 §Source-coord stamping). Reach for `reg-machine*` only for programmatic registration with computed ids.
 - **Re-registration replaces.** Last-write-wins, per the standard registrar semantics; the prior snapshot at `[:rf/runtime :machines :snapshots <id>]` survives (the snapshot is in `app-db`, the spec is in the registrar). Hot-reload survives a machine re-declaration.

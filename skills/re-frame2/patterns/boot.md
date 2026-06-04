@@ -32,26 +32,26 @@ For trivial boots (≤3 steps, no error states, no progress UI), use the chained
      :data    {:phase :configuring :config nil :user nil :error nil :phase-attempt 0}
 
      :guards
-     {:under-retry-limit? (fn [data _] (< (:phase-attempt data) 3))}
+     {:under-retry-limit? (fn [{:keys [data]}] (< (:phase-attempt data) 3))}
 
      :actions
-     {:record-config (fn [data [_ c]] {:data (assoc data :config c)})
-      :record-user   (fn [data [_ u]] {:data (assoc data :user u)})
-      :record-error  (fn [data [_ e]] {:data (assoc data :error e)})
-      :bump-attempt  (fn [data _]     {:data (update data :phase-attempt inc)})
+     {:record-config (fn [{data :data [_ c] :event}] {:data (assoc data :config c)})
+      :record-user   (fn [{data :data [_ u] :event}] {:data (assoc data :user u)})
+      :record-error  (fn [{data :data [_ e] :event}] {:data (assoc data :error e)})
+      :bump-attempt  (fn [{:keys [data]}]            {:data (update data :phase-attempt inc)})
 
       ;; CONSOLIDATED :entry — :set-phase + :resolve-initial-route in one fn.
       ;; :entry slots accept one fn / id, never a vector; compose by returning
       ;; both :data and :fx from one action.
       :enter-routing
-      (fn [data _]
+      (fn [{:keys [data]}]
         {:data (assoc data :phase :routing :phase-attempt 0)
          :fx   [[:dispatch [:rf.route/handle-url-change (.. js/window -location -href)]]]})
 
-      :phase-configuring (fn [d _] {:data (assoc d :phase :configuring :phase-attempt 0)})
-      :phase-auth        (fn [d _] {:data (assoc d :phase :authenticating)})
-      :phase-profile     (fn [d _] {:data (assoc d :phase :loading-profile)})
-      :phase-hydrate     (fn [d _] {:data (assoc d :phase :hydrating)})}
+      :phase-configuring (fn [{d :data}] {:data (assoc d :phase :configuring :phase-attempt 0)})
+      :phase-auth        (fn [{d :data}] {:data (assoc d :phase :authenticating)})
+      :phase-profile     (fn [{d :data}] {:data (assoc d :phase :loading-profile)})
+      :phase-hydrate     (fn [{d :data}] {:data (assoc d :phase :hydrating)})}
 
      :states
      {:configuring
