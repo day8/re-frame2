@@ -69,6 +69,14 @@
   is the operator-surface observability hook. Public so operator
   dashboards and tests can read the gate's activity.
 
+  This is a faithful PER-EVENT metric (rf2-el9sw): the egress walkers
+  (`strip-sensitive` / `scrub-snapshot`) classify each event exactly
+  once, so a single dropped malformed event bumps the counter exactly
+  once. (Pre-rf2-el9sw `strip-sensitive` ran the predicate twice per
+  event — `some` pre-scan + `filterv` drop-scan — so one malformed
+  event over-counted ~2×.) Direct `sensitive-event?` / `sensitive-stamp?`
+  calls still bump once per call, as before.
+
   Returns a non-negative integer."
   []
   #?(:clj  (.get ^java.util.concurrent.atomic.AtomicLong malformed-counter)
@@ -91,22 +99,55 @@
   #?(:clj  (.incrementAndGet ^java.util.concurrent.atomic.AtomicLong malformed-counter)
      :cljs (swap! malformed-counter inc)))
 
+(defn- stamp-type-tag
+  "A NON-sensitive, value-free class/type tag for a malformed stamp.
+  Logged in place of the raw stamp so the contract-drift warning stays
+  fail-CLOSED at the log boundary (rf2-el9sw): an operator sees the
+  shape of the drift (`String`, `Keyword`, …) and a fixed reason, but
+  never the payload, which on a serialisation bug could carry a secret.
+  Returns a short type-name string — never any of the stamp's data."
+  [stamp]
+  #?(:clj  (or (some-> stamp class .getSimpleName) "nil")
+     :cljs (cond
+             (string? stamp)  "string"
+             (keyword? stamp) "keyword"
+             (symbol? stamp)  "symbol"
+             (number? stamp)  "number"
+             (map? stamp)     "map"
+             (vector? stamp)  "vector"
+             (seq? stamp)     "seq"
+             (set? stamp)     "set"
+             (coll? stamp)    "coll"
+             (nil? stamp)     "nil"
+             :else            "value")))
+
 (defn- log-malformed!
   "Surface a contract-drift warning when a non-boolean truthy
   `:sensitive?` stamp arrives. The runtime contract types this slot
   as a boolean; anything else is a serialisation bug worth fixing at
-  the source. Stderr keeps the warning out of the MCP wire response."
+  the source. Stderr / `console.warn` keep the warning out of the MCP
+  wire response.
+
+  FAIL-CLOSED AT THE LOG BOUNDARY (rf2-el9sw): logs are an egress
+  boundary on this privacy surface. A malformed stamp is wire-adjacent,
+  untrusted data; if a serialisation bug puts a secret-bearing
+  string/map/vector in `:sensitive?`, echoing it with `pr-str` would
+  leak the value to stderr / the JS console even though the event was
+  dropped from MCP output. So we log ONLY a value-free type tag and a
+  fixed reason — never the raw stamp (matching `:rf/redacted` posture).
+  The `malformed-count` counter is the quantitative observability hook;
+  the type tag is the qualitative one. Neither carries the payload."
   [stamp]
-  #?(:clj  (binding [*out* *err*]
-             (println (str "[re-frame.mcp-base.sensitive] WARN: non-boolean truthy "
-                           ":sensitive? stamp dropped (fail-closed) — "
-                           "type=" (some-> stamp class .getName)
-                           " value=" (pr-str stamp))))
-     :cljs (when (and (exists? js/console) js/console.warn)
-             (js/console.warn
-               (str "[re-frame.mcp-base.sensitive] non-boolean truthy "
-                    ":sensitive? stamp dropped (fail-closed) — "
-                    "value=" (pr-str stamp))))))
+  (let [tag (stamp-type-tag stamp)]
+    #?(:clj  (binding [*out* *err*]
+               (println (str "[re-frame.mcp-base.sensitive] WARN: non-boolean truthy "
+                             ":sensitive? stamp dropped (fail-closed) — "
+                             "type=" tag " value=:rf/redacted")))
+       :cljs (when (and (exists? js/console) js/console.warn)
+               (js/console.warn
+                 (str "[re-frame.mcp-base.sensitive] non-boolean truthy "
+                      ":sensitive? stamp dropped (fail-closed) — "
+                      "type=" tag " value=:rf/redacted"))))))
 
 (defn sensitive-stamp?
   "Classify a sensitive-rollup slot value. Fail-closed posture (rf2-ih7g4):
@@ -162,25 +203,48 @@
   §Privacy. Apply it to any vector of trace-event-shaped maps before
   the result crosses the MCP boundary into the agent surface.
 
-  ## Fast-path (rf2-0q30r)
+  ## Fast-path + single-classification (rf2-0q30r, rf2-el9sw)
 
-  The docstring promises identical-vector return when no events drop;
-  the implementation honours that by scanning first with `some` and
-  only allocating a `filterv` vector when at least one match exists.
-  Common-path cost: one linear `some` scan, zero allocation, identity
-  preserved on `events`. Drop-path cost: the same linear scan plus
-  the historical `filterv`/`count`/`count` pass — one extra walk on
-  the rare branch in exchange for zero extra cost on every common
-  call."
+  The docstring promises identical-vector return when no events drop.
+  The implementation honours that with a SINGLE linear pass that
+  classifies each event exactly once: it builds the kept vector while
+  tracking whether anything dropped, and returns the original `events`
+  (identity preserved, no `filterv` allocation) when nothing dropped.
+
+  Why exactly once matters (rf2-el9sw): `sensitive-event?` is
+  SIDE-EFFECTING on the malformed-truthy path — it bumps
+  `malformed-count` and logs a contract-drift warning. The previous
+  two-pass shape (`some` pre-scan THEN `filterv` drop-scan) ran the
+  predicate over each event up to twice, so a single malformed event
+  bumped the counter ~2× and emitted the warning twice. One pass ⇒ one
+  classification ⇒ one bump + one warning per malformed event, so
+  `malformed-count` is a faithful per-event metric for operator
+  dashboards.
+
+  Common-path cost: one linear pass, zero retained allocation, identity
+  preserved on `events`. Drop-path cost: the same single pass plus the
+  kept-vector it was already building."
   [events include?]
   (cond
-    include?                       [events 0]
-    (empty? events)                [events 0]
-    (not (some sensitive-event? events)) [events 0]
+    include?        [events 0]
+    (empty? events) [events 0]
     :else
-    (let [kept (filterv (complement sensitive-event?) events)
-          n    (- (count events) (count kept))]
-      [kept n])))
+    ;; Single classifying pass: `sensitive-event?` runs exactly once per
+    ;; event (so its malformed-path side effects fire exactly once),
+    ;; while `dropped?` tracks whether to allocate. Identity-preserving
+    ;; fast path: if nothing dropped, return the original `events`.
+    (let [n-events (count events)
+          kept     (reduce (fn [acc ev]
+                             (if (sensitive-event? ev)
+                               acc
+                               (conj! acc ev)))
+                           (transient [])
+                           events)
+          kept     (persistent! kept)
+          n        (- n-events (count kept))]
+      (if (zero? n)
+        [events 0]
+        [kept n]))))
 
 (defn scrub-snapshot
   "Walk a per-frame snapshot map and apply a strip-fn to every
