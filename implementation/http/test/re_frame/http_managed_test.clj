@@ -902,7 +902,11 @@
 ;; ---- 11. with-managed-request-stubs helper --------------------------------
 
 (deftest with-managed-request-stubs-helper
-  (testing "with-managed-request-stubs routes :method+:url to the configured reply"
+  (testing "rf2-rzqan — with-managed-request-stubs routes :method+:url to the
+            configured reply with NO per-call :fx-overrides (the documented
+            wrapper contract: the helper installs the
+            :rf.http/managed → :rf.http/managed-test-stub override for the
+            body's dynamic extent, so plain dispatch-sync auto-routes)"
     (rf/reg-event-fx :articles/list
       (fn [{:keys [db]} [_ msg]]
         (if-let [reply (:rf/reply msg)]
@@ -912,11 +916,81 @@
                   :decode  :json}]]})))
     (rf/with-managed-request-stubs
       {[:get "/articles"] {:reply {:ok [:hello :world]}}}
-      (rf/dispatch-sync [:articles/list]
-                        {:fx-overrides {:rf.http/managed :rf.http/managed-test-stub}})
+      ;; NO manual :fx-overrides — this is the documented form. Pre-fix this
+      ;; dispatch ran the real :rf.http/managed transport.
+      (rf/dispatch-sync [:articles/list])
       (let [db (await-reply! #(some? (:result %)) 2000)]
         (is (= :success (get-in db [:result :kind])))
         (is (= [:hello :world] (get-in db [:result :value])))))))
+
+;; ---- 11a. rf2-rzqan — bare wrapper INTERCEPTS, never reaching the real fx ---
+;;
+;; The load-bearing regression for rf2-rzqan: the documented
+;; `with-managed-request-stubs` wrapper must route `:rf.http/managed`
+;; through the route-map stub by ITSELF — the body must NOT need a manual
+;; `:fx-overrides {:rf.http/managed :rf.http/managed-test-stub}`. Pre-fix
+;; the helper only registered the stub fx but did NOT install the override,
+;; so a plain `dispatch-sync` inside the body ran the REAL production
+;; transport (network IO / hang / nondeterminism / false-green).
+;;
+;; To prove the REAL fx is never reached we shadow `:rf.http/managed` with
+;; a sentinel that flips an atom. If the override were absent the bare
+;; dispatch would land on this sentinel (the real fx slot) and the atom
+;; would flip; with the helper-installed override the dispatch routes to
+;; the stub instead and the sentinel stays untouched while the stubbed
+;; reply lands.
+
+(deftest with-managed-request-stubs-intercepts-without-manual-override-rf2-rzqan
+  (testing "rf2-rzqan — inside with-managed-request-stubs, a plain dispatch-sync
+            (NO per-call :fx-overrides) is intercepted by the stub and the real
+            :rf.http/managed fx slot is NEVER invoked"
+    (let [real-fx-invoked? (atom false)]
+      ;; Shadow the production fx slot with a sentinel. Reaching THIS proves
+      ;; the override was absent (the pre-fix bug). The stub path bypasses it.
+      (rf/reg-fx :rf.http/managed
+                 (fn [_frame-ctx _args] (reset! real-fx-invoked? true) nil))
+      (rf/reg-event-fx :rzqan/load
+        (fn [{:keys [db]} [_ msg]]
+          (if-let [reply (:rf/reply msg)]
+            {:db (assoc db :result reply)}
+            {:fx [[:rf.http/managed
+                   {:request {:method :get :url "/rzqan"}
+                    :decode  :json}]]})))
+      (rf/with-managed-request-stubs
+        {[:get "/rzqan"] {:reply {:ok {:stubbed true}}}}
+        ;; Bare wrapper form — the helper alone must route to the stub.
+        (rf/dispatch-sync [:rzqan/load])
+        (let [db (await-reply! #(some? (:result %)) 2000)]
+          (is (= :success (get-in db [:result :kind]))
+              "the stubbed reply landed via the route-map stub")
+          (is (= {:stubbed true} (get-in db [:result :value]))
+              "the configured :ok value rode through the synthesised success reply")
+          (is (false? @real-fx-invoked?)
+              "the real :rf.http/managed fx was NEVER invoked — the helper's
+               installed override intercepted the dispatch (pre-fix: this fired
+               the real transport)"))))))
+
+(deftest with-managed-request-stubs-per-call-override-still-wins-rf2-rzqan
+  (testing "rf2-rzqan — a per-call :fx-overrides inside the wrapper still wins
+            over the helper-installed lexical default (precedence preserved:
+            per-call > lexical > per-frame)"
+    (let [chosen (atom nil)]
+      ;; A deliberately-supplied per-call override target.
+      (rf/reg-fx :rzqan/explicit-override
+                 (fn [_frame-ctx _args] (reset! chosen :explicit) nil))
+      (rf/reg-event-fx :rzqan/load-explicit
+        (fn [_ _]
+          {:fx [[:rf.http/managed
+                 {:request {:method :get :url "/rzqan-explicit"}
+                  :decode  :json}]]}))
+      (rf/with-managed-request-stubs
+        {[:get "/rzqan-explicit"] {:reply {:ok {:via :stub}}}}
+        ;; The body deliberately overrides :rf.http/managed itself; this must
+        ;; beat the helper's lexical default and land on the explicit target.
+        (rf/dispatch-sync [:rzqan/load-explicit]
+                          {:fx-overrides {:rf.http/managed :rzqan/explicit-override}})
+        (is (= :explicit @chosen)
+            "the per-call :fx-overrides won over the helper's lexical default")))))
 
 ;; ---- 11b. canned-stub fxs gated on explicit test-support require (rf2-cdmle)
 ;;

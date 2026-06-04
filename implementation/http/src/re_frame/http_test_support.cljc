@@ -82,7 +82,8 @@
             [re-frame.http-encoding        :as encoding]
             [re-frame.http-machine-wrapper :as machine-wrapper]
             [re-frame.http-middleware      :as middleware]
-            [re-frame.late-bind            :as late-bind]))
+            [re-frame.late-bind            :as late-bind]
+            [re-frame.router               :as router]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -235,11 +236,17 @@
 
 (defn install-managed-request-stubs!
   "Test-time helper. `stubs` is `{[method url] {:reply <:ok|:failure>}}`.
-  Registers a per-call fx-override target that consults `stubs` and
-  synthesises the configured reply.
+  Registers the `:rf.http/managed-test-stub` fx — a route-map-consulting
+  override target that synthesises the configured reply.
 
-  Use with `:fx-overrides {:rf.http/managed :rf.http/managed-test-stub}`
-  on `dispatch-sync`, or wrap the test body via `with-managed-request-stubs`.
+  NOTE: this lower-level fn only REGISTERS the stub fx; it does not route
+  `:rf.http/managed` through it. To route, either dispatch with
+  `:fx-overrides {:rf.http/managed :rf.http/managed-test-stub}`, or — far
+  more usually — wrap the test body via `with-managed-request-stubs` /
+  `with-managed-request-stubs*`, which install BOTH the stub fx AND the
+  `:rf.http/managed → :rf.http/managed-test-stub` override for the body's
+  dynamic extent, so plain `dispatch-sync` calls auto-route with no manual
+  `:fx-overrides`.
 
   Per Spec 014 §Testing — the framework ships canonical stub fxs."
   [stubs]
@@ -259,11 +266,30 @@
   nil)
 
 (defn with-managed-request-stubs*
-  "Function form: install stubs, run thunk, uninstall. Test-time helper."
+  "Function form: install stubs, route `:rf.http/managed` through them for
+  the dynamic extent of `thunk`, run `thunk`, then uninstall. Test-time
+  helper.
+
+  `stubs` is `{[method url] {:reply <:ok|:failure>}}`. Beyond registering
+  the `:rf.http/managed-test-stub` fx, this also binds the lexical-scope
+  fx-override `{:rf.http/managed :rf.http/managed-test-stub}`
+  (`re-frame.router/*fx-overrides*`, the public `rf/with-fx-overrides`
+  seam) for the thunk's dynamic extent. So every `dispatch-sync` inside
+  the body auto-routes by `:request :method` + `:request :url` with NO
+  per-call `:fx-overrides` — matching the documented contract (Spec 014
+  §Testing). A dispatch that deliberately supplies its OWN `:fx-overrides`
+  still wins: the router merges the lexical default UNDER the per-call opt
+  (per-call > lexical > per-frame)."
   [stubs thunk]
   (try
     (install-managed-request-stubs! stubs)
-    (thunk)
+    ;; Bind the lexical-scope override so plain dispatches in the body
+    ;; route `:rf.http/managed` → the route-map stub automatically. The
+    ;; thunk's dispatches run synchronously within this dynamic extent;
+    ;; per-call `:fx-overrides` still take precedence (router merge).
+    (binding [router/*fx-overrides* (merge router/*fx-overrides*
+                                           {:rf.http/managed stub-fx-id})]
+      (thunk))
     (finally
       (uninstall-managed-request-stubs!))))
 
@@ -272,6 +298,9 @@
      "Test-time helper. `stubs` is `{[method url] {:reply <:ok|:failure>}}`.
      Installs a per-call fx-override on `:rf.http/managed` that consults
      the stub map, synthesises the configured reply, and runs `body`.
+     Every `dispatch-sync` in the body auto-routes by method + URL — no
+     manual `:fx-overrides` needed (the helper installs the override for
+     the body's dynamic extent).
 
      Per Spec 014 §Testing."
      [stubs & body]
