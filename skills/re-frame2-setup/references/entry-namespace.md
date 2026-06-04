@@ -107,7 +107,20 @@ When you split this way, the `[re-frame.views]` require **and** the `(:require-m
 
 This skill scaffolds against **Reagent** (the default reference substrate). For a UIx or Helix greenfield app the wiring is the same shape with two substitutions (plus a third "everything else stays identical" claim):
 
-- **deps.edn** — swap `day8/re-frame2-reagent` for `day8/re-frame2-uix` (or `-helix`), and swap the substrate npm/Maven deps: UIx uses `com.pitch/uix.core` + `com.pitch/uix.dom`; Helix uses `lilactown/helix`. (Drop the `reagent/reagent` pin.)
+- **deps.edn** — swap `day8/re-frame2-reagent` for `day8/re-frame2-uix` (or `-helix`), drop the `reagent/reagent` pin, and add the substrate's Maven deps **at the exact versions the generator template pins** (the template is the source of truth — do not chase latest or invent a version, same discipline as the Reagent/React/shadow pins in [`deps-versions.md`](deps-versions.md)). Verified against the template's `_uix/deps.edn` / `_helix/deps.edn`:
+
+  ```clojure
+  ;; UIx — replace the reagent line with:
+  day8/re-frame2-uix {:mvn/version "<VERSION>"}
+  com.pitch/uix.core {:mvn/version "1.4.4"}
+  com.pitch/uix.dom  {:mvn/version "1.4.4"}
+
+  ;; Helix — replace the reagent line with:
+  day8/re-frame2-helix {:mvn/version "<VERSION>"}
+  lilactown/helix      {:mvn/version "0.2.2"}
+  ```
+
+  > **Heads-up on the UIx version target.** `spec/006-ReactiveSubstrate.md` §UIx version target names **UIx 2.x** (hooks-based) as the design target, but the shipped generator template pins **`com.pitch/uix.core` / `com.pitch/uix.dom` `1.4.4`** today. The template pin is the **known-good, tested** set — use it. If you have a reason to track UIx 2.x, treat it as an unverified manual override and test the adapter against it before relying on it. (Both pins read off `tools/template/resources/day8/re_frame2_template/_uix/deps.edn` and `spec/006-ReactiveSubstrate.md`; re-check both if either bumps.)
 - **entry ns** — require `[re-frame.adapter.uix :as uix-adapter]` (or `re-frame.adapter.helix`), pass `uix-adapter/adapter` to `rf/init!`, and mount with the substrate's own root API instead of `reagent.dom.client`. For UIx that's `uix.dom/create-root` + `uix.dom/render-root`, and the view must be wrapped in the `$` element macro from `uix.core`:
   ```clojure
   (ns your-app.core

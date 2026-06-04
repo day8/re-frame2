@@ -15,7 +15,16 @@ How to choose **which** re-frame2 artefacts to depend on, and **what version** t
 
 ## The lockstep contract
 
-re-frame2 ships **eleven Maven artefacts in lockstep** (core + 7 per-feature + 3 per-adapter; see [`spec/Conventions.md` §Packaging conventions](../../../spec/Conventions.md)): every artefact at the same VERSION, every release. The `day8/re-frame2-xray` devtools panel publishes on the same version line too. Mixing versions across artefacts is unsupported — the runtime contract between core, adapters, and the per-feature surfaces is checked at boot time and bound to a single coordinated VERSION.
+re-frame2 ships **eleven Maven artefacts in lockstep** (core + 7 per-feature + 3 per-adapter; see [`spec/Conventions.md` §Packaging conventions](../../../spec/Conventions.md)): every artefact at the same VERSION, every release. The `day8/re-frame2-xray` devtools panel publishes on the same version line too. Mixing versions across artefacts is unsupported — the runtime contract between core, adapters, and the per-feature surfaces is bound to a single coordinated VERSION.
+
+**Lockstep is a build/dependency discipline, not a boot-time runtime check.** `rf/init!` validates only that you handed it an adapter spec map (it rejects nil / non-map) and installs it; the adapter spec carries a `:kind` discriminator, **not** a VERSION field, so the runtime does not compare per-artefact versions at boot. (Verified: `implementation/core/src/re_frame/core.cljc` `init!` and `implementation/core/src/re_frame/substrate/adapter.cljc` `install-adapter!` carry no version metadata.) The enforcement that *does* exist is **build-time**: the generator template pins `:rf2-version` / `:shadow-version` / `:react-version` and a test (`tools/template/test/day8/re_frame2_template/version_lockstep_test.clj`) fails if the template's literals drift from their sources of truth. So keep every `day8/re-frame2-*` coordinate at one VERSION because a mixed set is **unsupported and undefined**, not because a guard will catch it for you.
+
+**Validate lockstep yourself.** The cheap check: grep your `deps.edn` for `day8/re-frame2-` coordinates and confirm every `:mvn/version` is identical.
+
+```bash
+grep -oE 'day8/re-frame2[a-z-]* *\{:mvn/version "[^"]+"' deps.edn
+# every printed version must be the same string
+```
 
 Picking a re-frame2 VERSION for your project means picking it once and using it everywhere a `day8/re-frame2-*` coordinate appears.
 
