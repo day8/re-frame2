@@ -58,39 +58,61 @@
 ;; ============================================================================
 ;; EVENTS
 ;; ============================================================================
+;;
+;; The tick chain is driven by `:dispatch-later`, which has no cancel API.
+;; If `run` / `:monitor/initialise` is invoked more than once in the same JS
+;; runtime (a shadow watch reload, a manual re-init, a future browser wrapper,
+;; or any harness that calls the entrypoint repeatedly), a naive chain would
+;; leave the prior chain's ticks still firing — every stale cascade would keep
+;; appending log entries and incrementing `:monitor/clock`, corrupting the
+;; visible cadence and clock. To stay idempotent — exactly one live tick per
+;; interval regardless of re-init churn — each scheduled tick carries the
+;; `:monitor/tick-gen` it was armed under. `:monitor/initialise` bumps the
+;; generation, so any in-flight tick from a retired chain no-ops when it
+;; eventually fires. This mirrors the 7GUIs timer's `:tick-gen` guard
+;; (examples/reagent/seven_guis/timer), the local precedent for the same
+;; cancel-less `:dispatch-later` constraint.
 
 (rf/reg-event-fx :monitor/initialise
-  (fn [_ctx _event]
-    {:db {:monitor/processes initial-processes
-          :monitor/logs      initial-logs
-          :monitor/clock     11
-          :monitor/level-filter #{:info :warn :error}
-          :monitor/selected   nil}
-     :fx [[:dispatch-later {:ms 1800 :event [:monitor/tick]}]]}))
+  (fn [{:keys [db]} _event]
+    (let [next-gen (inc (:monitor/tick-gen db 0))]
+      {:db {:monitor/processes initial-processes
+            :monitor/logs      initial-logs
+            :monitor/clock     11
+            :monitor/level-filter #{:info :warn :error}
+            :monitor/selected   nil
+            :monitor/tick-gen   next-gen}
+       :fx [[:dispatch-later {:ms 1800 :event [:monitor/tick next-gen]}]]})))
 
 (rf/reg-event-fx :monitor/tick
-  (fn [{:keys [db]} _event]
-    (let [tick      (:monitor/clock db)
-          processes (:monitor/processes db)
-          ;; Pick a process round-robin for the synthetic log line.
-          process   (nth processes (mod tick (count processes)))
-          level     (cond
-                      (= :down (:status process))     :error
-                      (and (= :warn (:status process))
-                           (zero? (mod tick 3)))      :warn
-                      (zero? (mod tick 7))            :warn
-                      :else                           :info)
-          phrases [(str "GET /v1/" (name (:id process)) " 200 " (+ 8 (mod tick 40)) "ms")
-                   (str "POST /v1/" (name (:id process)) "/event 202 " (+ 12 (mod tick 30)) "ms")
-                   (str "queue " (:name process) " depth=" (mod tick 50))
-                   (str "checkpoint " (:name process) " " (+ 100 (mod tick 200)) "ms")]
-          msg       (nth phrases (mod tick (count phrases)))
-          new-entry {:tick tick :pid (:pid process) :level level :msg msg}]
-      {:db (-> db
-               (update :monitor/logs (fn [logs]
-                                       (vec (take-last 60 (conj logs new-entry)))))
-               (update :monitor/clock inc))
-       :fx [[:dispatch-later {:ms 1800 :event [:monitor/tick]}]]})))
+  (fn [{:keys [db]} [_ gen]]
+    (if (not= gen (:monitor/tick-gen db))
+      ;; Stale tick from a retired generation (a later initialise bumped
+      ;; :monitor/tick-gen). Drop it: no log append, no clock bump, no reschedule.
+      {}
+      (let [tick      (:monitor/clock db)
+            processes (:monitor/processes db)
+            ;; Pick a process round-robin for the synthetic log line.
+            process   (nth processes (mod tick (count processes)))
+            level     (cond
+                        (= :down (:status process))     :error
+                        (and (= :warn (:status process))
+                             (zero? (mod tick 3)))      :warn
+                        (zero? (mod tick 7))            :warn
+                        :else                           :info)
+            phrases [(str "GET /v1/" (name (:id process)) " 200 " (+ 8 (mod tick 40)) "ms")
+                     (str "POST /v1/" (name (:id process)) "/event 202 " (+ 12 (mod tick 30)) "ms")
+                     (str "queue " (:name process) " depth=" (mod tick 50))
+                     (str "checkpoint " (:name process) " " (+ 100 (mod tick 200)) "ms")]
+            msg       (nth phrases (mod tick (count phrases)))
+            new-entry {:tick tick :pid (:pid process) :level level :msg msg}]
+        {:db (-> db
+                 (update :monitor/logs (fn [logs]
+                                         (vec (take-last 60 (conj logs new-entry)))))
+                 (update :monitor/clock inc))
+         ;; Reschedule under the same generation, so the chain continues
+         ;; while a fresher initialise can still retire it.
+         :fx [[:dispatch-later {:ms 1800 :event [:monitor/tick gen]}]]}))))
 
 (rf/reg-event-db :monitor/toggle-level
   (fn [db [_ level]]
