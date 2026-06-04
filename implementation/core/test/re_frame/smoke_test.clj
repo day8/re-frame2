@@ -378,6 +378,65 @@
       (is (= 25 (rf/compute-sub [:stable/squared] (rf/app-db-value f)))
           "value still correct after a value-equal app-db replacement"))))
 
+;; ---- compute-sub per-call memoisation (rf2-gyxm3) -------------------------
+;;
+;; `compute-sub` threads a per-call `{query-v -> value}` memo through its
+;; `:<-` recursion so each DISTINCT sub in the dependency graph computes
+;; at most once per top-level call. These tests pin that contract by
+;; counting body invocations against a known graph shape, AND confirm the
+;; memo does not change computed values (it is a pure dedup).
+
+(deftest compute-sub-memoises-shared-input-in-a-diamond-jvm
+  (testing "a diamond (:c <- :a,:b ; :a <- :root ; :b <- :root) resolves
+            :root exactly ONCE per top-level compute-sub call"
+    (let [root-calls (atom 0)]
+      (rf/reg-sub :memo/root (fn [db _] (swap! root-calls inc) (:n db)))
+      (rf/reg-sub :memo/a :<- [:memo/root] (fn [r _] (inc r)))
+      (rf/reg-sub :memo/b :<- [:memo/root] (fn [r _] (dec r)))
+      (rf/reg-sub :memo/c
+        :<- [:memo/a]
+        :<- [:memo/b]
+        (fn [[a b] _] {:a a :b b}))
+      (reset! root-calls 0)
+      (let [v (rf/compute-sub [:memo/c] {:n 10})]
+        (is (= {:a 11 :b 9} v)
+            "value is correct — memo is a pure dedup, never changes the result")
+        (is (= 1 @root-calls)
+            ":root computed exactly once despite two diamond paths reaching it")))))
+
+(deftest compute-sub-memoises-reused-leaf-in-a-deep-graph-jvm
+  (testing "a deeper reused-leaf graph computes the shared leaf once, not
+            multiplicatively"
+    (let [leaf-calls (atom 0)]
+      ;; Graph: top <- {l1,l2} ; l1 <- leaf ; l2 <- leaf ; leaf <- (db).
+      ;; Pre-fix, `leaf` resolves twice (once per l1/l2 path); the memo
+      ;; collapses it to one.
+      (rf/reg-sub :memo/leaf (fn [db _] (swap! leaf-calls inc) (:base db)))
+      (rf/reg-sub :memo/l1 :<- [:memo/leaf] (fn [x _] (* x 2)))
+      (rf/reg-sub :memo/l2 :<- [:memo/leaf] (fn [x _] (* x 3)))
+      (rf/reg-sub :memo/top
+        :<- [:memo/l1]
+        :<- [:memo/l2]
+        (fn [[a b] _] (+ a b)))
+      (reset! leaf-calls 0)
+      (let [v (rf/compute-sub [:memo/top] {:base 5})]
+        (is (= 25 v) "5*2 + 5*3 = 25 — value unaffected by memoisation")
+        (is (= 1 @leaf-calls)
+            "the shared leaf computed exactly once across both intermediate paths")))))
+
+(deftest compute-sub-memo-is-per-call-not-cross-call-jvm
+  (testing "the memo is scoped to ONE top-level compute-sub call — a second
+            call against a different db recomputes (no stale cross-call cache)"
+    (let [calls (atom 0)]
+      (rf/reg-sub :memo/leaf2 (fn [db _] (swap! calls inc) (:v db)))
+      (rf/reg-sub :memo/up :<- [:memo/leaf2] (fn [x _] (inc x)))
+      (reset! calls 0)
+      (is (= 2 (rf/compute-sub [:memo/up] {:v 1})))
+      (is (= 11 (rf/compute-sub [:memo/up] {:v 10}))
+          "second call sees the new db value — memo did not persist across calls")
+      (is (= 2 @calls)
+          "leaf computed once per top-level call (twice total), not memoised across calls"))))
+
 ;; ---- subscription chain ---------------------------------------------------
 
 (deftest layer-1-and-layer-2-subs

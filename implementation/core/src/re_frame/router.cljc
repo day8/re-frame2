@@ -143,6 +143,18 @@
         ;; referenced syntactically.
         call-site          (when interop/debug-enabled?
                              (:rf.trace/call-site opts))
+        ;; Per rf2-vkey0: `:dispatched-at` is dev-only envelope metadata —
+        ;; the schema (`:rf/dispatch-envelope` in Spec-Schemas) marks it
+        ;; `{:optional true}` ("CLJS reference may add an impl-specific
+        ;; timestamp; tools tolerate"), so its production absence is spec-
+        ;; valid. A corpus grep finds ZERO consumers; carrying it
+        ;; unconditionally cost one `now-ms` call (`js/performance.now` /
+        ;; `System.currentTimeMillis`) + a map assoc on the hot dispatch
+        ;; allocation path of every production dispatch. Gate it exactly
+        ;; like the adjacent `:dispatch-id` slot so both the `now-ms` call
+        ;; and the assoc DCE under `:advanced` + `goog.DEBUG=false` (and
+        ;; the JVM `-Dre-frame.debug=false` SSR-prod gate).
+        dispatched-at      (when interop/debug-enabled? (interop/now-ms))
         ;; Per rf2-d4sf the 3-tier resolution chain (dynamic var →
         ;; React context → `:rf/default`) is single-sourced through
         ;; `frame/resolve-current-frame` (rf2-jj8xf) — the React-context
@@ -219,8 +231,7 @@
              ;; on `:rf.event/dispatched` (stamped in
              ;; `emit-dispatched-trace`).
              :source-detail          (:source-detail opts)
-             :origin                 (:origin opts :app)
-             :dispatched-at          (interop/now-ms)}
+             :origin                 (:origin opts :app)}
       ;; Per rf2-ts1a: the macro form of `dispatch` / `dispatch-sync`
       ;; stamps an `:rf.trace/call-site` on the opts map. The read in
       ;; `call-site` above is gated on interop/debug-enabled? so this
@@ -228,6 +239,7 @@
       ;; goog.DEBUG=false. fn-form callers (`dispatch*`) supply nil
       ;; and the key is omitted.
       call-site          (assoc :call-site         call-site)
+      dispatched-at      (assoc :dispatched-at      dispatched-at)
       dispatch-id        (assoc :dispatch-id        dispatch-id)
       parent-dispatch-id (assoc :parent-dispatch-id parent-dispatch-id)
       fallthrough?       (assoc :fell-through-to-default? true)

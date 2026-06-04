@@ -20,11 +20,13 @@
   the parent reaction disposes. Both runtimes must honour that contract
   or input ref-counts leak monotonically until `clear-sub-cache!`.
 
-    - **JVM.** `re-frame.interop` (the `.clj`) implements
-      `add-on-dispose!` / `dispose!` directly, keyed by the reaction
-      object in a process-wide callback registry — so the plain-atom
-      JVM derived value (a bare `IDeref` reify) participates without
-      reifying any disposal protocol.
+    - **JVM.** The plain-atom JVM derived value IS an
+      `re-frame.interop/make-reaction` `Reaction` (per rf2-tnnln), which
+      carries its own on-dispose callback storage on the object. So
+      `re-frame.interop/add-on-dispose!` / `dispose!` store/fire
+      callbacks directly on the reaction — no process-wide registry, and
+      an orphaned reaction is GC-reclaimable along with its callbacks
+      rather than pinned in a global strong-ref map.
 
     - **CLJS.** `re-frame.interop` (the `.cljs`) routes those calls
       through the `:adapter/add-on-dispose!` / `:adapter/dispose!`
@@ -41,7 +43,8 @@
   — see that ns for the rationale on why only the container quartet (not
   `make-derived-value`) is shared."
   (:require [re-frame.substrate.atom-container :as atom-container]
-            #?@(:cljs [[re-frame.disposable :as rf-disposable]
+            #?@(:clj  [[re-frame.interop :as interop]]
+                :cljs [[re-frame.disposable :as rf-disposable]
                        [re-frame.substrate.adapter :as substrate-adapter]])))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -51,10 +54,12 @@
   ;; sub at most a handful of times per request; caching would add
   ;; complexity for negligible gain.
   ;;
-  ;; JVM: a bare `IDeref` reify suffices — `re-frame.interop` (the .clj)
-  ;; keys its `add-on-dispose!` / `dispose!` callback registry by this
-  ;; object's identity, so disposal participation needs no protocol on
-  ;; the value itself.
+  ;; JVM (rf2-tnnln): the derived value IS an `interop/make-reaction`
+  ;; `Reaction`, which carries its own on-dispose callback storage on the
+  ;; object. `re-frame.interop`'s `add-on-dispose!` / `dispose!` store and
+  ;; fire callbacks directly on it — no process-wide registry — so an
+  ;; un-disposed reaction is GC-reclaimable along with its callbacks
+  ;; rather than pinned in a global strong-ref map.
   ;;
   ;; CLJS (rf2-uatcy): `re-frame.interop` (the .cljs) routes
   ;; `add-on-dispose!` / `dispose!` through the `:adapter/*` hooks, which
@@ -66,9 +71,8 @@
   ;; source watches (it recomputes on deref), so `-dispose` only fires
   ;; the registered on-dispose callbacks.
   #?(:clj
-     (reify
-       clojure.lang.IDeref
-       (deref [_] (apply compute-fn (map deref source-containers))))
+     (interop/make-reaction
+       (fn [] (apply compute-fn (map deref source-containers))))
      :cljs
      (let [on-dispose-fns (atom [])]
        (reify
