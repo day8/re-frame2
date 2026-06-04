@@ -48,8 +48,8 @@ Spec source: [`spec/Pattern-NineStates.md`](../../../spec/Pattern-NineStates.md)
 (rf/reg-machine :items
   {:initial :nothing
    :data    {:items [] :error nil}
-   :actions {:set-items (fn [d [_ items]] {:data (assoc d :items items :error nil)})
-             :set-error (fn [d [_ err]]   {:data (assoc d :error err)})}
+   :actions {:set-items (fn [{d :data [_ items] :event}] {:data (assoc d :items items :error nil)})
+             :set-error (fn [{d :data [_ err]   :event}] {:data (assoc d :error err)})}
    :states
    {:nothing {:tags #{:items/nothing} :on {:load :loading}}
     :loading {:tags #{:items/loading :items/transient}
