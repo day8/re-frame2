@@ -713,8 +713,7 @@
                  {:step :handler :badge :HANDLER :step-number 3
                   :flavour :reg-machine :event-id :ws/start
                   :fx []
-                  :machine {:transition nil :guards []
-                            :lifecycle [] :timers []}})]
+                  :machine {:cascade []}})]
       (is (nil? (th/find-by-testid tree "rf-xray-epoch-handler-db-diff"))
           "no standalone :db diff under machine handlers — folded into
            SNAPSHOT DIFF per design"))))

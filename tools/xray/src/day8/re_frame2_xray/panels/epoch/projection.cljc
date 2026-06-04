@@ -434,91 +434,15 @@
         {:fx-vec        (:fx fx)
          :other-effects (not-empty (dissoc fx :db :fx))}))))
 
-(defn- machine-lifecycle-rows
-  "Project the `:rf.machine/action-ran` stream into per-phase rows
-  (rf2-82a0u — every action-ran emit carries `:phase` from the closed
-  set `:exit / :transition / :entry / :always / :after-action /
-  :initial-entry / :destroy-exit`).
-
-  Each row carries `:action-id`, `:phase`, `:outcome`, optional
-  `:threw?` + `:exception` (action-throw path emits
-  `:outcome :rf.error/action-threw` + an `:exception` slot), and
-  optional `:fx` (per-action fx attribution per rf2-9c27r — the
-  vector of `[fx-id args]` the action returned in its outcome map's
-  `:fx` slot). Rendered in trace order — the substrate emits in
-  execution order (exit → transition → entry → always …)."
-  [events]
-  (vec
-    (for [ev (filter-op events :rf.machine/action-ran)]
-      (let [outcome (common/tag-of ev :outcome)
-            ;; Per-action fx attribution (rf2-9c27r) — when the
-            ;; action returned a map carrying `:fx`, surface the
-            ;; tuple list so the LIFECYCLE row can show which fx
-            ;; the operator should attribute to this action.
-            action-fx (when (map? outcome) (:fx outcome))
-            action-data (when (map? outcome) (:data outcome))]
-        (cond-> {:action-id (common/tag-of ev :action-id)
-                 :phase     (common/tag-of ev :phase)
-                 :outcome   outcome
-                 :threw?    (= :rf.error/action-threw outcome)
-                 :exception (common/tag-of ev :exception)
-                 :input     (common/tag-of ev :input)}
-          (seq action-fx) (assoc :fx (vec action-fx))
-          (some? action-data) (assoc :data-write action-data))))))
-
-(defn- machine-transition-row
-  "Project the `:rf.machine/transition` event (one per macrostep) into a
-  summary `{:machine-id :before :after :microsteps :event :data-before
-            :data-after}` row. nil when no transition trace fired.
-
-  Per Spec 005 §Trace events the `:before` / `:after` slots carry
-  the full machine snapshot maps (`:state` + `:data` + …); the row
-  hoists `:data-before` / `:data-after` for the rf2-9c27r DATA
-  REDUCTION sub-section so the view layer doesn't re-walk the
-  snapshot map.
-
-  rf2-52u5n — the row also carries the STRUCTURED `:cascade` (the
-  ordered exit/action/entry/microstep step vector the substrate
-  emits on the `:rf.machine/transition` trace per rf2-n9f4z) so the
-  view can render the step-by-step entry/exit cascade under EVENT
-  HANDLER rather than only `{from}→{to} + {n} microstep(s)`. Absent
-  (`nil`) for older traces / non-structured fixtures — the view
-  falls back to the summary in that case."
-  [events]
-  (when-let [ev (find-op events :rf.machine/transition)]
-    (let [before (common/tag-of ev :before)
-          after  (common/tag-of ev :after)]
-      {:machine-id   (common/tag-of ev :machine-id)
-       :event        (common/tag-of ev :event)
-       :before       before
-       :after        after
-       :data-before  (when (map? before) (:data before))
-       :data-after   (when (map? after)  (:data after))
-       :microsteps   (common/tag-of ev :microsteps)
-       :cascade      (common/tag-of ev :cascade)})))
-
-(defn- machine-guard-rows
-  "Project the `:rf.machine/guard-evaluated` stream into rows. Each
-  row carries `:guard-id`, `:outcome` (one of `:pass :fail :threw`
-  per rf2-82a0u). Empty vec when no guards fired."
-  [events]
-  (vec
-    (for [ev (filter-op events :rf.machine/guard-evaluated)]
-      {:guard-id (common/tag-of ev :guard-id)
-       :outcome  (common/tag-of ev :outcome)})))
-
-(defn- machine-timer-rows
-  "Project the `:rf.machine.timer/cancelled` stream (rf2-82a0u —
-  unified across every cancellation path with `:reason` in
-  `:on-exit / :on-destroy / :on-resolution / :on-supersede /
-  :on-frame-destroy`)."
-  [events]
-  (vec
-    (for [ev (filter-op events :rf.machine.timer/cancelled)]
-      {:machine-id (common/tag-of ev :machine-id)
-       :state      (common/tag-of ev :state)
-       :delay      (common/tag-of ev :delay)
-       :reason     (common/tag-of ev :reason)})))
+;; rf2-bhxtr — the 4 legacy category-grouped machine builders
+;; (`machine-lifecycle-rows` / `machine-transition-row` / `machine-guard-rows`
+;; / `machine-timer-rows`) are DELETED. They fed the pre-rf2-u69j7
+;; category-grouped `:machine` map slots (`:lifecycle / :transition / :guards
+;; / :timers`), which post-rf2-u69j7 had ZERO readers — the view + every live
+;; consumer read ONLY `:cascade` (the time-ordered row vector built by
+;; `machine-cascade-rows` below). The per-row category data they projected is
+;; carried verbatim on the cascade rows (`action-cascade-row` /
+;; `transition-cascade-row` / `guard-cascade-row` / `timer-cascade-row`).
 
 ;; ---- machine cascade (time-ordered) -- rf2-u69j7 ------------------------
 ;;
@@ -1524,8 +1448,7 @@
 
   - `:reg-event-db`  → :db (post-handler snapshot)
   - `:reg-event-fx`  → :db + :fx
-  - `:reg-machine`   → :db + :fx + :machine {transition guards
-                                             lifecycle timers}
+  - `:reg-machine`   → :db + :fx + :machine {:cascade …}
 
   The HANDLER `:db` sub-section is rendered from `:db-post-handler`
   (the effective post-handler / pre-flow snapshot) diffed against the
@@ -1536,12 +1459,13 @@
   consumers derive diffs on demand.
 
   Two arities — the 2-arg form (legacy callers / tests) supplies
-  nil/nil for db-before/after. The 4-arg form's `db-after` is no
-  longer read (rf2-sp0n9 removed the flat-row diff that consumed it);
-  the arity is kept stable for existing callers / tests."
+  nil for `db-before`. The 3-arg form takes the epoch record's
+  `:db-before` baseline (the only db snapshot still read). rf2-sp0n9
+  removed the flat-row diff that consumed the post-handler `db-after`;
+  rf2-bhxtr dropped the now-dead `db-after` param entirely."
   ([events event-id]
-   (handler-row events event-id nil nil))
-  ([events event-id db-before _db-after]
+   (handler-row events event-id nil))
+  ([events event-id db-before]
   (let [flavour     (handler-flavour events)
         run-end     (run-end-tags events)
         db-changed  (find-op events :rf.event/db-changed)
@@ -1610,18 +1534,12 @@
       (= :reg-machine flavour)
       (assoc :machine
              ;; rf2-u69j7 — `:cascade` is the time-ordered row vector the
-             ;; view layer renders. The legacy category-grouped slots
-             ;; (`:transition / :guards / :lifecycle / :timers`) are KEPT
-             ;; on the row as projection-side derived data so test fixtures
-             ;; + callers that pre-date the cascade redesign still read
-             ;; the substrate's per-category aggregations cleanly. The
-             ;; view layer reads ONLY `:cascade` post-rf2-u69j7; the
-             ;; legacy slots ride the row as a pure-data convenience.
-             {:cascade     (machine-cascade-rows events)
-              :transition  (machine-transition-row events)
-              :guards      (machine-guard-rows events)
-              :lifecycle   (machine-lifecycle-rows events)
-              :timers      (machine-timer-rows events)})))))
+             ;; view layer renders, the SINGLE source of truth for the
+             ;; machine section. rf2-bhxtr dropped the 4 legacy category-
+             ;; grouped slots (`:transition / :guards / :lifecycle /
+             ;; :timers`): they had no reader post-rf2-u69j7 (the view +
+             ;; every live consumer read only `:cascade`).
+             {:cascade (machine-cascade-rows events)})))))
 
 ;; ---- FLOW step -----------------------------------------------------------
 
@@ -3181,7 +3099,6 @@
   [epoch-record]
   (let [events    (or (:trace-events epoch-record) [])
         db-before (:db-before epoch-record)
-        db-after  (:db-after epoch-record)
         event-id  (or (:event-id epoch-record)
                       (when-let [ev (find-op events :rf.event/dispatched)]
                         (let [v (or (common/tag-of ev :rf.event/v)
@@ -3324,7 +3241,7 @@
                           ;; nil (filtered out below) when no interceptor
                           ;; threw in that phase this cascade.
                           [(interceptor-step events :before)
-                           (handler-row events event-id db-before db-after)
+                           (handler-row events event-id db-before)
                            (interceptor-step events :after)]
                           ;; APP-DB DIFF removed pair-debug 2026-05-26 —
                           ;; redundant with the HANDLER step's `:db`
@@ -3403,17 +3320,10 @@
   (let [ms (:duration-ms step)]
     (and (number? ms) (> ms long-step-threshold-ms))))
 
-;; ---- lifecycle grouping (view-shared data) ------------------------------
-
-(defn group-lifecycle-by-phase
-  "Group machine lifecycle rows by `:phase`. Returns a map from phase
-  keyword → rows-vec. Pure fn for the view to render per-phase
-  sub-sections."
-  [lifecycle-rows]
-  (reduce (fn [acc row]
-            (update acc (or (:phase row) :unknown) (fnil conj []) row))
-          {}
-          (or lifecycle-rows [])))
+;; rf2-bhxtr — `group-lifecycle-by-phase` is DELETED. It grouped the
+;; now-removed `:lifecycle` category slot's rows by `:phase` for the
+;; pre-rf2-u69j7 per-phase view sub-sections; with the slot gone (and the
+;; cascade carrying `:phase` per-row) it had no live reader.
 
 (defn empty-pipeline?
   "True iff `(project record)` would produce zero steps (no dispatch,
