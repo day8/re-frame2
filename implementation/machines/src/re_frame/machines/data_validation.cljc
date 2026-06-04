@@ -121,32 +121,27 @@
   Per Spec 009 §Production builds the body lives inside a
   `(when interop/debug-enabled? ...)` gate so production builds
   return `true` unconditionally."
-  [db event-id frame-id]
+  [db _event-id _frame-id]
+  ;; `event-id` and `frame-id` are accepted but unused at this boundary
+  ;; (the per-snapshot emit already names the machine); the arity matches
+  ;; `validate-app-schema!` so the late-bind hook the router consumes can
+  ;; be invoked uniformly.
   (if interop/debug-enabled?
     (if-let [machine-meta (late-bind/get-fn-cached :machines/machine-meta)]
-      (let [snapshots (get-in db (paths/snapshot-path))]
-        (loop [entries (seq snapshots)
-               ok?     true]
-          (if-let [[machine-id snapshot] (first entries)]
-            (if-let [spec (machine-meta machine-id)]
-              (if-let [schema (:schema spec)]
-                (if (validate-snapshot-data! machine-id snapshot schema
-                                             :macrostep)
-                  (recur (next entries) ok?)
-                  ;; Per the validate-app-schema! pattern (rf2-wkxng): keep
-                  ;; walking so EVERY failing machine surfaces its own trace
-                  ;; (consumers see the full set), and return the conjoined
-                  ;; boolean so the router decides rollback deterministically.
-                  (recur (next entries) false))
-                (recur (next entries) ok?))
-              (recur (next entries) ok?))
-            ;; `event-id` and `frame-id` are accepted but unused at this
-            ;; boundary; the per-snapshot emit already names the machine.
-            ;; Same arity as `validate-app-schema!` so the late-bind hook
-            ;; the router consumes can be invoked uniformly (Clojure
-            ;; doesn't warn on unused fn args — no defensive marker
-            ;; needed).
-            ok?)))
+      ;; Per the validate-app-schema! pattern (rf2-wkxng): validate EVERY
+      ;; snapshot (no short-circuit) so each failing machine surfaces its
+      ;; own trace (consumers see the full set), AND-conjoining the per-
+      ;; snapshot conform decision so the router decides rollback
+      ;; deterministically. A snapshot whose machine declares no `:schema`
+      ;; (or whose spec `machine-meta` can't resolve) conforms vacuously.
+      (reduce-kv
+        (fn [ok? machine-id snapshot]
+          (and (if-let [schema (some-> (machine-meta machine-id) :schema)]
+                 (validate-snapshot-data! machine-id snapshot schema :macrostep)
+                 true)
+               ok?))
+        true
+        (get-in db (paths/snapshot-path)))
       true)
     true))
 
