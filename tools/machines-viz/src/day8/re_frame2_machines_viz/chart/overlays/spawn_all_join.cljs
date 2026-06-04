@@ -38,7 +38,9 @@
   (:require [reagent.core :as r]
             [day8.re-frame2-machines-viz.theme.tokens :as tokens]
             [day8.re-frame2-machines-viz.chart.overlays.overlay-anchor
-             :as anchor]))
+             :as anchor]
+            [day8.re-frame2-machines-viz.chart.overlays.overlay-scaffold
+             :as scaffold]))
 
 ;; ---- DOM measurement ----------------------------------------------------
 ;;
@@ -194,44 +196,21 @@
                        (when-let [spec @latest]
                          (reset! anchored
                                  (anchor/measure-anchor
-                                   anchor/anchor-right-of root (:node-id spec))))))
-        resize-fn  (fn [_] (remeasure!))]
-    (r/create-class
+                                   anchor/anchor-right-of root (:node-id spec))))))]
+    (scaffold/make-resizing-overlay-class
       {:display-name "MachinesViz.SpawnAllJoinOverlay"
-
-       :component-did-mount
-       (fn [_this]
-         (when (exists? js/window)
-           (.addEventListener js/window "resize" resize-fn))
-         (remeasure!))
-
-       :component-did-update
-       (fn [_this _prev] (remeasure!))
-
-       :component-will-unmount
-       (fn [_this]
-         (when (exists? js/window)
-           (.removeEventListener js/window "resize" resize-fn)))
-
-       :reagent-render
+       :root-ref     root-ref
+       :remeasure!   remeasure!
+       :render
        (fn [{:keys [join-spec tick testid on-child-click]
              :or   {testid "rf-mv-chart-spawn-all-join-overlay"}}]
          (reset! latest join-spec)
          (when (and join-spec (:node-id join-spec))
            (let [pos @anchored]
-             [:div {:data-testid testid
-                    :data-node-id (:node-id join-spec)
-                    :data-tick (when (some? tick) (str tick))
-                    :ref (fn [el]
-                           (reset! root-ref (when el (.-offsetParent el))))
-                    :style {:position       "absolute"
-                            :top            0
-                            :left           0
-                            :width          "100%"
-                            :height         "100%"
-                            :pointer-events "none"
-                            :overflow       "visible"
-                            :z-index        4}}
+             [:div (merge (scaffold/overlay-root-props root-ref)
+                          {:data-testid  testid
+                           :data-node-id (:node-id join-spec)
+                           :data-tick    (when (some? tick) (str tick))})
               (when pos
                 (join-card (merge join-spec pos
                                   {:on-child-click on-child-click})))])))})))

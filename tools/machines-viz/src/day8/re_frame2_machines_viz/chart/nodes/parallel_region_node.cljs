@@ -54,8 +54,7 @@
   consistency."
   (:require [reagent.core :as r]
             [day8.re-frame2-machines-viz.chart.nodes.xyflow-node
-             :refer [Handle pos-top pos-right pos-bottom pos-left
-                     chart-constants palette-of]]
+             :refer [four-cardinal-handles chart-constants palette-of]]
             [day8.re-frame2-machines-viz.theme.tokens
              :refer [sans-stack mono-stack]]))
 
@@ -146,9 +145,4 @@
        ;; whose endpoint is a region container has a handle to anchor
        ;; to. Without them xyflow silently drops the edge (same
        ;; mechanic as the compound-node fix).
-       [:> Handle {:type "target" :position pos-top    :style {:opacity 0}}]
-       [:> Handle {:type "source" :position pos-bottom :style {:opacity 0}}]
-       [:> Handle {:type "target" :position pos-left   :id "left"
-                   :style {:opacity 0}}]
-       [:> Handle {:type "source" :position pos-right  :id "right"
-                   :style {:opacity 0}}]])))
+       (four-cardinal-handles)])))

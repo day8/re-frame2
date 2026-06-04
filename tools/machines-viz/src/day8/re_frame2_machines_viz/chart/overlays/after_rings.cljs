@@ -73,7 +73,9 @@
             [day8.re-frame2-machines-viz.chart.overlays.after-rings-geometry
              :as geo]
             [day8.re-frame2-machines-viz.chart.overlays.overlay-anchor
-             :as anchor]))
+             :as anchor]
+            [day8.re-frame2-machines-viz.chart.overlays.overlay-scaffold
+             :as scaffold]))
 
 ;; ---- DOM measurement ----------------------------------------------------
 
@@ -180,30 +182,12 @@
         remeasure!   (fn []
                        (when-let [root @root-ref]
                          (reset! positioned
-                                 (vec (measure-rings root @latest-specs)))))
-        resize-fn    (fn [_] (remeasure!))]
-    (r/create-class
+                                 (vec (measure-rings root @latest-specs)))))]
+    (scaffold/make-resizing-overlay-class
       {:display-name "MachinesViz.AfterRingsOverlay"
-
-       :component-did-mount
-       (fn [_this]
-         (when (exists? js/window)
-           (.addEventListener js/window "resize" resize-fn))
-         (remeasure!))
-
-       :component-did-update
-       (fn [_this _prev]
-         ;; Props (ring-specs / tick) changed → re-read the DOM. xyflow
-         ;; has already committed its layout by the time React calls
-         ;; did-update, so the node rects are current.
-         (remeasure!))
-
-       :component-will-unmount
-       (fn [_this]
-         (when (exists? js/window)
-           (.removeEventListener js/window "resize" resize-fn)))
-
-       :reagent-render
+       :root-ref     root-ref
+       :remeasure!   remeasure!
+       :render
        (fn [{:keys [ring-specs tick testid on-hover on-leave]
              :or   {testid "rf-mv-chart-after-rings-overlay"}}]
          ;; Keep the latest specs visible to the lifecycle + resize
@@ -212,24 +196,14 @@
          (reset! latest-specs (vec (or ring-specs [])))
          (when (seq ring-specs)
            (let [rings @positioned]
-             [:div {:data-testid testid
-                    :data-ring-count (str (count ring-specs))
-                    :data-tick (when (some? tick) (str tick))
-                    :ref (fn [el]
-                           ;; The overlay's offsetParent is the
-                           ;; position:relative wrapper that ALSO holds
-                           ;; the xyflow chart — query node testids from
-                           ;; there so both share the coordinate origin.
-                           (reset! root-ref
-                                   (when el (.-offsetParent el))))
-                    :style {:position       "absolute"
-                            :top            0
-                            :left           0
-                            :width          "100%"
-                            :height         "100%"
-                            :pointer-events "none"  ;; rings opt back in
-                            :overflow       "visible"
-                            :z-index        3}}
+             ;; rf2-idx41 — the after-rings overlay sits at z-index 3 (one
+             ;; below the card overlays) so the rings tuck under any
+             ;; anchored card; `:pointer-events none` lets clicks fall
+             ;; through to the chart, and individual rings opt back in.
+             [:div (merge (scaffold/overlay-root-props root-ref 3)
+                          {:data-testid     testid
+                           :data-ring-count (str (count ring-specs))
+                           :data-tick       (when (some? tick) (str tick))})
               (into [:svg {:data-testid (str testid "-svg")
                            :data-positioned-count (str (count rings))
                            :width  "100%"
