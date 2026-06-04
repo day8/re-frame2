@@ -103,7 +103,7 @@ Filing is a **two-step, approval-gated** mode — distinct from the default diag
 
 After presenting the retrospective, offer filing work only if useful: draft issue text, file via `gh issue create` against the appropriate repo, or split into multiple focused issues.
 
-**Routing.** `re-frame2-pair` — friction in the pair tool (SKILL.md, scripts, recipes, structured results, attach/discovery, cross-platform). `re-frame2` — friction caused by the framework's Tool-Pair contract (missing trace events, gaps in `epoch-history` / `restore-epoch` failure modes, missing registrar query surfaces, source-coord annotation gaps, schema-reflection shortcomings).
+**Routing.** `re-frame2-pair` — friction in the pair tool (SKILL.md, scripts, recipes, structured results, attach/discovery, cross-platform). `re-frame2` — friction caused by the framework's Tool-Pair contract; name the specific surface from [`../shared/tool-pair-surfaces.md`](../shared/tool-pair-surfaces.md) (trace stream, registrar query API, epoch-history / restore, schema reflection, source-coord annotation) rather than re-spelling the list here.
 
 **Filing mechanics — shared recipe.** The procedural rules (redact secrets / tokens / internal URLs / unnecessary local paths, don't dump the raw transcript, search for an existing issue before filing, one issue per materially distinct improvement, and the shell-safe single-quoted here-doc + `--body "$(cat …)"` pattern) live once in [`../shared/issue-filing.md`](../shared/issue-filing.md). Follow it; this skill adds the routing above and the body skeleton in [`references/issue-template.md`](references/issue-template.md) (the worked `gh issue create` example with re-frame2-pair-retro's label scheme).
 
