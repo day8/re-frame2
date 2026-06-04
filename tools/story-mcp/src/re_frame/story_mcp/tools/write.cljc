@@ -210,14 +210,22 @@
 
 (defn tool-unregister-variant
   "Write: programmatically unregister a variant. Gated behind
-  `allow-writes?`."
+  `allow-writes?`.
+
+  `:unregistered?` is always `true` on the success path: `with-variant-id`
+  resolves `:variant-id` via `safe-keyword` against the LIVE
+  registered-variant set (rf2-lqjbk), so an unregistered id never reaches
+  this body — it short-circuits to a `Variant not found` error result
+  upstream. The id therefore always names a currently-registered variant,
+  and the subsequent `unregister!` always removes it. This matches the
+  spec (`spec/API.md` §unregister-variant): `{:unregistered? true …}` on
+  success, `isError: true` when the variant is not registered."
   [arguments]
   (or (assert-writes-allowed "unregister-variant")
       (targs/with-variant-id arguments
         (fn [vk]
-          (let [had? (some? (story/variant->edn vk))]
-            (story/unregister! :variant vk)
-            (result/edn-result {:variant-id vk :unregistered? had?}))))))
+          (story/unregister! :variant vk)
+          (result/edn-result {:variant-id vk :unregistered? true})))))
 
 ;; ---------------------------------------------------------------------------
 ;; Registry descriptors (assembled in `tools.registry/tool-registry`)
@@ -259,10 +267,10 @@
 
    {:name           "unregister-variant"
     :category       :write
-    :description    (str "Unregister a variant. GATED behind `:rf.story-mcp/allow-writes?` (default false). Symmetric to `register-variant`. "
+    :description    (str "Unregister a registered variant. GATED behind `:rf.story-mcp/allow-writes?` (default false). Symmetric to `register-variant`. "
                          "Examples: "
-                         "1. Had-it: {:variant-id \":story.cart/probe\"} -> {:variant-id :story.cart/probe :unregistered? true}. "
-                         "2. Already-gone: {:variant-id \":story.cart/probe\"} -> {:variant-id :story.cart/probe :unregistered? false}. "
+                         "1. Registered: {:variant-id \":story.cart/probe\"} -> {:variant-id :story.cart/probe :unregistered? true}. "
+                         "2. Unknown variant: {:variant-id \":story.no/such\"} -> {:isError true :content [{:text \"Variant not found: :story.no/such\"}]} — an unregistered id is an error, not a no-op (the id is resolved against the live registered-variant set). "
                          "3. Gate closed: any args -> {:isError true :content [{:text \"Write surface disabled...\"}] :structuredContent {:gated true :tool \"unregister-variant\"}}.")
     :typicalTokens  100
     :inputSchema {:type "object"

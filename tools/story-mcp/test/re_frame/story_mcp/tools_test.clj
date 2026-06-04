@@ -1178,6 +1178,31 @@
     (is (true? (-> r :structuredContent :unregistered?)))
     (is (nil? (story/variant->edn :story.button/primary)))))
 
+(deftest unregister-variant-unknown-is-error-not-no-op
+  ;; Correctness review (rf2-nce6f): `unregister-variant` resolves
+  ;; `:variant-id` via `safe-keyword` against the LIVE registered-variant
+  ;; set (rf2-lqjbk `with-variant-id`), so an unregistered id NEVER reaches
+  ;; the handler body — it short-circuits to a `Variant not found` error.
+  ;; The success path therefore always reports `:unregistered? true` (the
+  ;; old `:unregistered? false` "already-gone" branch was structurally
+  ;; unreachable dead code; the descriptor example documenting it was
+  ;; impossible). This pins the spec-conformant contract (spec/API.md
+  ;; §unregister-variant: error when not registered) so the dead branch
+  ;; cannot regress back in.
+  (testing "an unregistered :variant-id is a tool-execution error, never a false-no-op"
+    (config/set-allow-writes! true)
+    (let [r (invoke "unregister-variant" {:variant-id "story.no/such"})]
+      (is (error? r))
+      (is (re-find #"not found" (-> r :content first :text)))
+      (is (not (contains? (:structuredContent r) :unregistered?))
+          "no :unregistered? slot on the not-found path — it's an error, not a success envelope")))
+  (testing "the success path always reports :unregistered? true"
+    (config/set-allow-writes! true)
+    (let [r (invoke "unregister-variant" {:variant-id "story.button/secondary"})]
+      (is (success? r))
+      (is (true? (-> r :structuredContent :unregistered?))
+          "a resolved (hence registered) variant is always actually removed"))))
+
 (deftest gated-error-tool-slot-pins-caller
   ;; Regression for rf2-c52j0. Pre-fix, `assert-writes-allowed` hardcoded
   ;; `:tool "register-variant"` in its error payload, so the two other

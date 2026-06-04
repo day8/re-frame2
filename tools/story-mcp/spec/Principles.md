@@ -260,7 +260,7 @@ fourth eligible tool requires updating both the descriptor AND that
 test's canonical set; the friction is deliberate (mirrors pair-mcp's
 selective `dedup-property` assignment in `descriptors_data.cljs`).
 
-The other sixteen tools ship small, bespoke shapes — `list-stories`,
+The other seventeen tools ship small, bespoke shapes — `list-stories`,
 `get-story`, `register-variant`, the docs / read-failures family —
 where the cache-of-one wrap would add bytes for zero compression. They
 emit raw `:structuredContent` and carry no `:dedup` slot in their
@@ -335,7 +335,7 @@ NOT ship `dispatch`, `eval-cljs`, or the streaming pair — its
 mutation surface is `register-variant` / `unregister-variant` and
 its runtime is JVM-side without a browser eval substrate.
 
-Story-mcp's nineteen current tools are conformant. Two grandfathered
+Story-mcp's twenty current tools are conformant. Two grandfathered
 deviations carry explicit catalogue exceptions in
 [`NAMING.md`](../../mcp-conformance/NAMING.md):
 
@@ -356,7 +356,7 @@ When in doubt, defer to the framework's [Principles](../../../spec/Principles.md
 and Story's [Principles](../../story/spec/Principles.md):
 
 - **Regularity over cleverness** — one obvious way to do a thing.
-  Tool names and shapes are stable; the 19-tool surface is small on
+  Tool names and shapes are stable; the 20-tool surface is small on
   purpose.
 - **Named things over anonymous things** — every tool has a stable
   name; every error reason keyword is stable.

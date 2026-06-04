@@ -19,14 +19,16 @@ closed.
 
 ## What's gated
 
-Two tools sit behind the gate (see
+The Write category sits behind the gate (see
 [`002-Tool-Registry.md`](002-Tool-Registry.md) §Write):
 
 - `register-variant`
 - `unregister-variant`
+- `record-as-variant` — only when `:write-back` is set; the read-only
+  recording path (snippet only) is ungated.
 
-Read tools are never gated. The 16 Dev / Docs / Testing tools (Dev 3 +
-Docs 9 + Testing 4) work regardless of `allow-writes?`.
+Read tools are never gated. The 17 Dev / Docs / Testing tools (Dev 3 +
+Docs 10 + Testing 4) work regardless of `allow-writes?`.
 
 ## How the gate fails
 
@@ -35,10 +37,15 @@ calls a write tool, the response is:
 
 ```json
 {"content": [{"type": "text",
-              "text": "Write surface is gated off; restart with --allow-writes"}],
- "structuredContent": {"gated": true, "reason": "..."},
+              "text": "Write surface disabled. Set `:rf.story-mcp/allow-writes?` (or `--allow-writes` CLI flag, or `-Drf.story-mcp.allow-writes=true` JVM property) to enable. ..."}],
+ "structuredContent": {"gated": true, "tool": "register-variant"},
  "isError": true}
 ```
+
+The `:tool` slot names the gated tool that tripped the gate
+(`register-variant` / `unregister-variant` / `record-as-variant`), so an
+agent inspecting the structured payload sees which call was refused
+(rf2-c52j0 — the slot was once hardcoded and lied about its origin).
 
 Note `isError: true` — this is a **tool-execution error**, not a
 JSON-RPC protocol error. The agent's conversation survives; the
@@ -95,8 +102,8 @@ The gate's tests cover:
 
 ## Cross-references
 
-- [`002-Tool-Registry.md`](002-Tool-Registry.md) §Write — the two
-  gated tools.
+- [`002-Tool-Registry.md`](002-Tool-Registry.md) §Write — the gated
+  Write category.
 - [`001-Wire-Protocol.md`](001-Wire-Protocol.md) §Error codes — why
   `isError: true` not `-32601`.
 - [`DESIGN-RATIONALE.md`](DESIGN-RATIONALE.md) — why opt-in.
