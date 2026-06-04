@@ -351,10 +351,12 @@
 ;; ---- Outcome chip resolver (rf2-u69j7) ----------------------------------
 ;;
 ;; Each cascade row carries a thin outcome chip — `pass | fail | threw`
-;; for guards, `ok | threw` for actions, `cancelled (<reason>)` for
-;; timers, `N microstep(s)` for transitions. The chip colour rides
-;; the outcome keyword (success / warning / error) so the operator can
-;; eye-scan a long cascade for failures without reading every label.
+;; for guards and `cancelled (<reason>)` for timers. Actions carry no
+;; chip (rf2-2hj0h item 7) and `:transition` rows carry no chip
+;; (rf2-cdgva — the prior `N microstep(s)` summary was redundant with
+;; the per-microstep cascade rows). The chip colour rides the outcome
+;; keyword (success / warning / error) so the operator can eye-scan a
+;; long cascade for failures without reading every label.
 
 (defn cascade-outcome-token-key
   "Theme-token keyword for a cascade row's outcome glyph + chip

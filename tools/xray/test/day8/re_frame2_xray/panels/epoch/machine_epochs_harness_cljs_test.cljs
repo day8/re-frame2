@@ -345,13 +345,17 @@
 (deftest quiz-answer-below-mark-settles-zero-microsteps
   (testing "rung #12 — an :answer below the pass mark bumps :score; the
             guarded :always does NOT fire. (a) the transition row's
-            :microsteps is 0 / nil; (c) the quiz stays :asking."
+            :microsteps is 0 / nil; (c) the quiz stays :asking.
+            rf2-cdgva — at N=0 (the common case) the TRANSITION row renders
+            NO `0 microsteps` summary (the prior pure-noise affordance)."
     (setup!)
     (let [record (drive! :quiz/scorer [:quiz/answer])
           tx     (first (rows-of-kind (cascade record) :transition))]
       (is (some? tx) "(c) the :answer action transition row renders")
       (is (contains? #{0 nil} (:microsteps tx))
           "(a) below the mark → ZERO microsteps (the :always guard failed)")
+      (is (nil? (fmt/cascade-outcome-label tx))
+          "(c) rf2-cdgva — N=0 renders NO '0 microsteps' summary (pure noise)")
       (is (= :asking (:state (snapshot :quiz/scorer))))
       (is (= 1 (get-in (snapshot :quiz/scorer) [:data :score]))))))
 
@@ -361,7 +365,10 @@
             (a) the transition row's :microsteps > 0 AND the structured
             :cascade carries a :microstep step whose nested :steps explain the
             eventless transition (the :award action → :passed); (c) the quiz
-            lands in :passed."
+            lands in :passed.
+            rf2-cdgva — the TRANSITION row renders NO `N microstep(s)`
+            outcome summary; the microstep is surfaced as its own cascade
+            row instead, so no signal is lost by dropping the count."
     (setup!)
     (drive! :quiz/scorer [:quiz/answer])                ; score → 1
     (drive! :quiz/scorer [:quiz/answer])                ; score → 2
@@ -374,9 +381,16 @@
           microstep  (first microsteps)]
       ;; (a) the macrostep settled over at least one eventless microstep.
       (is (and (number? (:microsteps tx)) (pos? (:microsteps tx)))
-          "(a) :always settled over N>0 microsteps (Xray renders 'N microstep(s)')")
+          "(a) :always settled over N>0 microsteps (projection preserves the count)")
+      ;; rf2-cdgva — the transition row NO LONGER renders an outcome summary;
+      ;; the redundant `N microstep(s)` count is gone (the microstep below
+      ;; carries the signal). The projection still preserves :microsteps as a
+      ;; legacy pure-data slot; only the RENDERED summary is removed.
+      (is (nil? (fmt/cascade-outcome-label tx))
+          "(c) rf2-cdgva — the TRANSITION row renders NO 'N microstep(s)' summary")
       (is (seq microsteps)
-          "(a) the structured :cascade carries a :microstep step (n9f4z/52u5n)")
+          "(a/c) the microstep is surfaced as its own cascade step — the
+                 signal the dropped count summarised (n9f4z/52u5n)")
       (is (= :asking (:from microstep)))
       (is (= :passed (:to microstep))
           "(a) the microstep transitions :asking → :passed")
