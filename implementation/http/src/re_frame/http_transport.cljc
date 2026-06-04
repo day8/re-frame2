@@ -562,21 +562,21 @@
   synthesised one."
   [{:keys [origin-event explicit-on-success explicit-on-failure
            kind reply-payload frame middleware-ctx]}]
-  (let [explicit       (case kind
-                         :success explicit-on-success
-                         :failure explicit-on-failure)
-        ;; rf2-uheqq — `:after` chain. Reverse-order threading of the
-        ;; response through registered interceptors' `:after`s. Skipped
-        ;; when no middleware-ctx is present (synthetic callers).
-        final-payload  (if middleware-ctx
-                         (middleware/run-after-chain! frame middleware-ctx reply-payload)
-                         reply-payload)]
-    (encoding/dispatch-reply-via-late-bind!
-      {:origin-event  origin-event
-       :explicit-on   explicit
-       :reply-payload final-payload
-       :kind          kind}
-      frame)))
+  (let [explicit (case kind
+                   :success explicit-on-success
+                   :failure explicit-on-failure)]
+    ;; rf2-uheqq — `:after` chain + late-bind dispatch. Shared with the
+    ;; canned-stub reply path (`http-machine-wrapper/dispatch-canned-
+    ;; reply!`) via `middleware/run-after-then-dispatch!` (rf2-k67u3): the
+    ;; `:after` chain is skipped when no middleware-ctx is present
+    ;; (synthetic / test-path callers).
+    (middleware/run-after-then-dispatch!
+      {:frame          frame
+       :middleware-ctx middleware-ctx
+       :origin-event   origin-event
+       :explicit-on    explicit
+       :reply-payload  reply-payload
+       :kind           kind})))
 
 ;; rf2-ee38b.7 — the failure-reply and success-reply dispatch shapes were
 ;; spelled out inline at four / two sites across finalise-success!,

@@ -39,7 +39,9 @@
 
   `canned-success-handler` / `canned-failure-handler` live here because
   the machine-shape wrapper's reply walk is symmetric with the stubs'
-  reply walk — both feed `encoding/dispatch-reply-via-late-bind!`. The
+  reply walk — both feed `middleware/run-after-then-dispatch!` (the
+  shared run-`:after`-then-late-bind reply tail, also used by the real-
+  transport path in `http-transport/dispatch-reply!`). The
   fx registrations that bind the `:rf.http/managed-canned-*` ids to
   these handlers live in `re-frame.http-test-support` (per rf2-cdmle —
   test-only require gate). The `with-managed-request-stubs*` helper —
@@ -50,10 +52,11 @@
             [re-frame.http-middleware :as middleware]
             [re-frame.late-bind       :as late-bind]))
 
-;; rf2-2utlm — the canned stubs delegate to `encoding/dispatch-reply-
-;; via-late-bind!`, the same helper `http-transport/dispatch-reply!`
-;; uses, so the build-reply-event + late-bind lookup pattern lives in
-;; one place.
+;; rf2-2utlm / rf2-k67u3 — the canned stubs delegate to
+;; `middleware/run-after-then-dispatch!`, the shared run-`:after`-then-
+;; late-bind reply tail `http-transport/dispatch-reply!` also uses, so
+;; the `:after`-chain + build-reply-event + late-bind lookup pattern
+;; lives in one place.
 
 ;; ---- canned stub handlers (used by the `:rf.http/managed-canned-*` fxs
 ;; registered in `re-frame.http-test-support` AND the per-call stub
@@ -112,15 +115,21 @@
   stamped a correlation-id can read its own work back in the `:after`.
   An `:after` throw propagates as `:rf.error/http-interceptor-failed`
   (per `run-after-chain!`), matching the real path; the reply is then
-  not dispatched."
+  not dispatched.
+
+  rf2-k67u3 — the run-`:after`-then-dispatch tail is shared with the
+  real-transport reply path (`http-transport/dispatch-reply!`) via
+  `middleware/run-after-then-dispatch!`. The canned path always supplies
+  a `:middleware-ctx` (produced by `run-request-chain`), so the `:after`
+  chain always runs here."
   [{:keys [origin-event explicit-on reply-payload kind frame middleware-ctx]}]
-  (let [final-payload (middleware/run-after-chain! frame middleware-ctx reply-payload)]
-    (encoding/dispatch-reply-via-late-bind!
-      {:origin-event  origin-event
-       :explicit-on   explicit-on
-       :reply-payload final-payload
-       :kind          kind}
-      frame)))
+  (middleware/run-after-then-dispatch!
+    {:frame          frame
+     :middleware-ctx middleware-ctx
+     :origin-event   origin-event
+     :explicit-on    explicit-on
+     :reply-payload  reply-payload
+     :kind           kind}))
 
 (defn canned-success-handler
   "Stub fx — synthesises a success reply per Spec 014 §Testing.

@@ -69,7 +69,8 @@
   `re-frame.flows.registry`'s private `flows` atom + the
   `flows-snapshot` accessor). Frame-scoped: an interceptor registered
   against frame A does not fire for a request dispatched from frame B."
-  (:require [re-frame.http-privacy :as privacy]
+  (:require [re-frame.http-encoding :as encoding]
+            [re-frame.http-privacy :as privacy]
             [re-frame.interop      :as interop]
             [re-frame.source-coords :as source-coords]
             [re-frame.trace        :as trace]))
@@ -347,3 +348,35 @@
      :phase      :after
      :slot-noun  ":after did not return a response map"}
     response))
+
+(defn run-after-then-dispatch!
+  "The shared reply tail: thread `reply-payload` through the per-frame
+  `:after` interceptor chain, then hand the result to the late-bind
+  reply router (`encoding/dispatch-reply-via-late-bind!`).
+
+  Single source of truth for the two reply paths that were previously
+  byte-identical save for the `:after`-guard:
+   - `http-transport/dispatch-reply!` — the real-transport completion
+     path. Synthetic / test-path callers may carry NO `:middleware-ctx`
+     (they built a ctx directly without going through `managed-handler`);
+     the `(if middleware-ctx …)` guard skips the `:after` chain and
+     passes the payload through unchanged — the chain's contract is to
+     see the `:before`'s ctx, not a synthesised one.
+   - `http-machine-wrapper/dispatch-canned-reply!` — the canned-stub
+     path, which always produces a `:middleware-ctx` via
+     `run-request-chain` and therefore always runs the `:after` chain.
+
+  `opts` carries `:frame`, `:middleware-ctx`, and the three keys
+  `dispatch-reply-via-late-bind!` consumes (`:origin-event`,
+  `:explicit-on`, `:kind`). No-op when the router is absent / the reply
+  is silenced (delegated to `dispatch-reply-via-late-bind!`)."
+  [{:keys [frame middleware-ctx origin-event explicit-on reply-payload kind]}]
+  (let [final-payload (if middleware-ctx
+                        (run-after-chain! frame middleware-ctx reply-payload)
+                        reply-payload)]
+    (encoding/dispatch-reply-via-late-bind!
+      {:origin-event  origin-event
+       :explicit-on   explicit-on
+       :reply-payload final-payload
+       :kind          kind}
+      frame)))
