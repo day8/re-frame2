@@ -197,20 +197,36 @@
       history)))
 
 (defn- append-record
-  "Conj `record` onto the frame's history vector, cap to `d` via
-  `subvec` (cheap structural reuse — no copy), then elide the just-
-  crossed record's `:trace-events` per `keep`.
+  "Conj `record` onto the frame's history vector, cap to `d` by
+  MATERIALISING the most-recent-`d` window into a fresh vector, then
+  elide the just-crossed record's `:trace-events` per `keep`.
+
+  The cap MUST materialise — a bare `(subvec history+ ...)` view does
+  NOT release the evicted records. `SubVector.cons` keeps appending to
+  the SAME growing underlying vector and `subvec` of a `SubVector`
+  re-wraps that same backing vector, so over a long session the
+  depth-`d` view's backing PersistentVector accretes every record ever
+  appended (each carrying its full `:db-before` / `:db-after` /
+  `:trace-events` payload) — an unbounded heap leak that defeats the
+  bounded-ring contract even though `history-for` correctly returns
+  only `d` records. `(into [] (subvec ...))` copies the `d`-element
+  window into a concrete PersistentVector whose backing is exactly `d`,
+  so the evicted records become GC-eligible.
 
   HOT PATH: fires once per cascade settle, i.e. once per dispatched
-  user event under steady state. Cost is O(1) in both the depth cap
-  and the trace-events elision — the vector grows by one, optionally
-  drops its leftmost element via `subvec`, and at most one record's
-  `:trace-events` slot is dissoc'd."
+  user event under steady state. Below the cap the append is O(1) (a
+  plain `conj`); once the ring is full each append is O(d) — a `d`-wide
+  copy of the retained window (d defaults to 50, fired once per
+  user-facing event, not per trace emit). The bounded copy is the
+  necessary cost of bounded heap; the prior O(1) `subvec` view was O(1)
+  in time but O(session-length) in retained heap. The trace-events
+  elision stays O(1) — at most one record's `:trace-events` slot is
+  dissoc'd."
   [history record d keep]
   (let [history+ (conj (or history []) record)
         n        (count history+)
         capped   (if (and (pos? d) (> n d))
-                   (subvec history+ (- n d))
+                   (into [] (subvec history+ (- n d)))
                    history+)]
     (elide-just-crossed-trace-events capped keep)))
 
