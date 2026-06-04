@@ -76,22 +76,57 @@ JSON-RPC wire (per
 [spec/015 §3. MCP wire transport](../../../spec/015-Data-Classification.md#in-scope--the-five-observation-points-marks-must-guard)
 and [`tools/mcp-base/spec/elision.md`](../../mcp-base/spec/elision.md)).
 
-The split keeps Story's read surface composable:
+The split keeps Story's read surface composable. The MCP jar is the
+wire owner; egress is where elision lands. **What elision MEANS at that
+boundary depends on the payload class** — the threat model
+([`spec/015-Data-Classification.md`](../../../spec/015-Data-Classification.md))
+scopes the marks to the OBSERVED runtime, not to authored registration
+data, so the egress classifies each payload as runtime/captured VALUE
+(scrubbed) vs. author-published static metadata (intentionally public):
 
-- **Crosses the wire elided** — every payload returned by a story-mcp
-  tool (`get-variant`, `run-variant`, `snapshot-identity`, registry
-  reads, recorder output). The MCP jar is the wire owner; egress is
-  where elision lands.
-- **Crosses the wire raw** — nothing the MCP jar emits. A future
-  in-process consumer that calls the read primitives directly
-  (without going through the MCP jar) gets real values; this is by
-  design so on-box devtool surfaces can read the same data
-  unredacted.
+- **Runtime / captured VALUE slots — scrubbed by default.** Every slot
+  that carries observed runtime state or a captured/plan-resolved value
+  is run through the egress scrubbers (path-based
+  `re-frame.core/elide-wire-value` for `:app-db`; value-based redaction
+  against the variant frame's declared-`:sensitive?` values for derived
+  / non-live trees). This covers the live-state tools' `:app-db` /
+  `:rendered-hiccup` / `:snapshot` / evidence slots and assertion
+  records (`preview-variant` / `run-variant` / `read-failures`), AND the
+  non-live value-bearing slots: `explain-variant`'s plan-RESOLVED
+  `:effective-args` / `:args` / `:substitutions` / `:network` /
+  `:db-seed`, and `record-as-variant`'s `:captured` event vectors + the
+  `:play-snippet` text rendered from them. A declared-sensitive value
+  cannot cross any of these raw by default. The shared
+  `--allow-sensitive-reads` + per-call `:include-sensitive` opt-in is the
+  one documented escape hatch (gate closed ⇒ the opt-in is omitted from
+  `tools/list` and silently ignored at egress).
+- **Author-published STATIC metadata — intentionally public, NOT
+  scrubbed.** The docs-discovery surfaces return the catalogue an author
+  publishes: `get-story` / `get-variant` / `variant->edn` bodies,
+  `list-stories` / `list-modes` / `list-decorators` / `list-tags` /
+  `list-assertions` enumerations, the markdown render, and the
+  `explain` map's plan-STRUCTURE slots (`:source-chain` /
+  `:parent-chain` / `:compose` / `:merge` / `:strict-conflicts` /
+  `:setup-order` / `:script-order` / `:tags` / `:platforms` / …). These
+  are registration-time authoring prose, not runtime/user state, so they
+  cross unredacted by design — scrubbing them would only degrade the
+  discovery UX without protecting any secret. Registry-wide enumerations
+  (modes, decorators) are not frame-keyed and carry no runtime values;
+  their `:args` / `:app-db-patch` / `:response` slots are the author's
+  own published fixture data.
+- **Crosses the wire raw** — a future IN-PROCESS consumer that calls the
+  read primitives directly (without going through the MCP jar) gets real
+  values; this is by design so on-box devtool surfaces can read the same
+  data unredacted. The wire-egress classification above is the MCP jar's
+  responsibility, not Story core's.
 
 Story core's contract is **real-values-in, real-values-out**;
 elision is the MCP jar's responsibility. The §Privacy posture in
 [`000-Vision.md`](000-Vision.md) §5 carries the same split as a
-Vision-level statement.
+Vision-level statement. The per-tool scrubbed-vs-public classification
+is single-sourced with
+[`tools/story-mcp/spec/002-Tool-Registry.md`](../../story-mcp/spec/002-Tool-Registry.md)
+§Wire-egress privacy posture.
 
 ## Story's public write primitives (consumed by MCP write surface)
 

@@ -98,6 +98,32 @@ the canonical silent-swallow failure mode this MUST closes.
 [conv]: ../../../spec/Conventions.md#cross-mcp-indicator-field-vocabulary-suppression-counters
 [s009]: ../../../spec/009-Instrumentation.md#size-elision-in-traces
 
+## Wire-egress privacy posture (which payload classes scrub vs. cross public)
+
+Every Story-MCP payload crosses the AI/off-box boundary through the MCP
+jar's egress. The wire-elision boundary defined in
+[`tools/story/spec/006-MCP-Surface.md`](../../story/spec/006-MCP-Surface.md)
+§Wire-elision boundary is single-sourced here as the per-tool
+classification — the threat model
+([`spec/015-Data-Classification.md`](../../../spec/015-Data-Classification.md))
+scopes the marks to the OBSERVED runtime, not authored registration
+data, so each payload is one of two classes:
+
+| Class | Tools / slots | Egress |
+|---|---|---|
+| **Runtime / captured VALUE** (scrubbed by default) | `preview-variant` / `run-variant` / `read-failures` (`:app-db`, `:rendered-hiccup`, `:snapshot`, evidence slots, assertion records); `explain-variant` (`:effective-args` / `:args` / `:substitutions` / `:network` / `:db-seed`); `record-as-variant` (`:captured` + `:play-snippet`) | path-based `elide-wire-value` for `:app-db`; value-based `egress/scrub-frame-value` (declared-`:sensitive?` values of the variant frame) for derived / non-live trees. `--allow-sensitive-reads` + per-call `:include-sensitive` is the one opt-in. |
+| **Author-published STATIC metadata** (intentionally public) | `get-story` / `get-variant` / `variant->edn` bodies; `list-stories` / `list-modes` / `list-decorators` / `list-tags` / `list-assertions`; `get-docs-markdown`; `explain`'s plan-STRUCTURE slots (`:source-chain` / `:parent-chain` / `:compose` / `:merge` / `:strict-conflicts` / `:setup-order` / `:script-order` / `:tags` / `:platforms` / …) | none — registration-time authoring prose, not runtime/user state; scrubbing would only degrade the discovery UX without protecting a secret. Registry-wide enumerations (modes/decorators) are not frame-keyed and carry no runtime values; their `:args` / `:app-db-patch` / `:response` slots are the author's own published fixtures. |
+
+The value-bearing tools (`preview-variant` / `run-variant` /
+`read-failures` / `explain-variant` / `record-as-variant`) advertise the
+`:include-sensitive` opt-in slot in `tools/list` only when the
+`--allow-sensitive-reads` gate is open; the docs-discovery tools never
+advertise it (they have no value-bearing slot to gate). The shared
+`egress/scrub-frame-value` step keeps the live and non-live scrubs
+byte-identical — a declared-sensitive value leaks identically (i.e. not
+at all, by default) whether it reaches the wire via a live derived tree,
+a plan-resolved arg, or a captured event.
+
 ## Dev — for agents helping build new stories
 
 Three tools that help an agent get its bearings before generating
@@ -343,10 +369,20 @@ view-arg schema + validation, `:network` route stubs + their lowered fx,
 `:sub-overrides` + fidelity, the final `:setup-order` / `:script-order`,
 `:checks` / `:assertions`, `:required-runner`, `:platforms`, `:tags`.
 
-Pure plan-derived data — no run, no live frame state, so no egress scrub
-(it carries no `:app-db` slice). The `:extends`-resolved variant body is
-already public via `get-variant` / `variant->edn`; this adds the plan
-compiler's source/merge/lowering reasoning on top. `:readOnlyHint true`.
+Plan-derived data — no run, no live `:app-db` slice — but the plan
+RESOLVES author args into runtime VALUES. The runtime-resolved value
+slots (`:effective-args` / `:args` / `:substitutions` / `:network` route
+replies / `:db-seed`) are value-redacted against the variant frame's
+declared-`:sensitive?` values at egress (rf2-12f2q) via the shared
+`egress/scrub-frame-value` step — the SAME value-based redaction the
+live tools apply to their derived trees. The plan-STRUCTURE slots
+(`:source-chain` / `:parent-chain` / `:compose` / `:merge` /
+`:strict-conflicts` / `:setup-order` / `:script-order` / `:tags` /
+`:platforms` / …) are author-published discovery metadata and cross
+unredacted. The `:extends`-resolved variant body is already public via
+`get-variant` / `variant->edn`; this adds the plan compiler's
+source/merge/lowering reasoning on top. Pass `:include-sensitive true`
+(gated by `--allow-sensitive-reads`) to opt out. `:readOnlyHint true`.
 
 ## Testing — for agents running stories headlessly
 
@@ -508,6 +544,20 @@ does not expose a free-form filter knob; the recorder owns that
 contract per
 [`tools/story/spec/005-SOTA-Features.md`](../../story/spec/005-SOTA-Features.md)
 §Test Codegen.
+
+Wire-egress posture (rf2-12f2q): the captured event vectors cross the
+AI/off-box boundary in BOTH the `:captured` slot and the `:play-snippet`
+text. A recorded event can carry a declared-sensitive value in its
+payload (a token, a PII field dispatched into the canvas), so the
+captured events are value-redacted against the source variant frame's
+declared-`:sensitive?` values via `egress/scrub-frame-value` before
+egress — the SAME value-based redaction the live-state tools apply to
+their derived trees — and the snippet is rendered FROM the scrubbed
+events so the secret is absent from both wire slots. Pass
+`:include-sensitive true` (gated by `--allow-sensitive-reads`) to opt
+out. The WRITE-BACK path (below) re-registers the RAW events on-box for
+replay fidelity — that is an operator-gated registration via
+`--allow-writes`, not a wire egress.
 
 Optional `:write-back` re-registers the source variant with the
 captured recording translated to a live play body via

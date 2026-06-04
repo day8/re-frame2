@@ -2529,6 +2529,145 @@
         (is (= :fail (:status s)) "the visible failure drives :status :fail")))))
 
 ;; ---------------------------------------------------------------------------
+;; Non-live wire-egress privacy posture (rf2-12f2q) — closing the split
+;; contract.
+;;
+;; The wire-elision contract in tools/story/spec/006-MCP-Surface.md
+;; promises EVERY Story-MCP payload crosses elided (registry reads +
+;; recorder output included). Pre-fix, only the three live-state tools
+;; (`preview-variant` / `run-variant` / `read-failures`) routed their
+;; value-bearing slots through the egress scrubbers; the NON-live tools
+;; (`explain-variant`'s plan-resolved value slots, `record-as-variant`'s
+;; captured event vectors + the snippet derived from them) crossed RAW.
+;;
+;; These tests plant a DISTINCTIVE sensitive literal in those non-live
+;; payloads and assert the MCP wire response does NOT include it by
+;; default, while the documented `:include-sensitive` opt-in (gated by
+;; --allow-sensitive-reads) reveals it. RED before the fix (the literal
+;; crossed verbatim); GREEN after.
+;;
+;; The proof that the WITHOUT-fix path leaks: each test's secret value
+;; reaches the wire slot directly from a captured event / plan-resolved
+;; arg, so without the value-redaction step it would appear verbatim in
+;; `:captured` / `:play-snippet` / the explain value slots.
+;; ---------------------------------------------------------------------------
+
+(deftest explain-variant-redacts-sensitive-effective-args-by-default
+  (testing "a declared-sensitive value resolved into the explain :effective-args is redacted at egress"
+    (with-clean-frame [vid :story.button/primary]
+      ;; The frame app-db carries the secret at a declared-sensitive path;
+      ;; the explain projection re-surfaces the same VALUE in a runtime-
+      ;; resolved value slot. value-redaction matches by VALUE, so we plant
+      ;; the same literal in a value-bearing explain slot via a redef.
+      (seed-app-db! vid {:auth {:token "DISTINCTIVE-EXPLAIN-SECRET"}})
+      (declare-sensitive! vid [:auth :token])
+      (with-redefs [story/explain
+                    (fn [_vk & _]
+                      {:source-chain   [:story.button/primary]   ; structure — public
+                       :effective-args {:api-key "DISTINCTIVE-EXPLAIN-SECRET"} ; value — must scrub
+                       :network        {[:get "/api/me"] {:reply {:token "DISTINCTIVE-EXPLAIN-SECRET"}}}})]
+        (let [r (invoke "explain-variant" {:variant-id "story.button/primary"})
+              s (:structuredContent r)]
+          (is (success? r))
+          (is (not (tree-contains? (:explain s) "DISTINCTIVE-EXPLAIN-SECRET"))
+              "WITHOUT the fix this literal crosses verbatim; the value-bearing explain slots MUST NOT carry it by default")
+          (is (= [:story.button/primary] (get-in s [:explain :source-chain]))
+              "plan-STRUCTURE slots are author-published discovery metadata — intentionally public, untouched")
+          (is (= :rf/redacted (get-in s [:explain :effective-args :api-key]))
+              ":effective-args value matching a declared-sensitive value is redacted"))))))
+
+(deftest explain-variant-includes-sensitive-when-opted-in
+  (testing ":include-sensitive true forwards the raw explain value slots (gate open)"
+    (config/set-allow-sensitive-reads! true)
+    (with-clean-frame [vid :story.button/primary]
+      (seed-app-db! vid {:auth {:token "DISTINCTIVE-EXPLAIN-SECRET"}})
+      (declare-sensitive! vid [:auth :token])
+      (with-redefs [story/explain
+                    (fn [_vk & _]
+                      {:effective-args {:api-key "DISTINCTIVE-EXPLAIN-SECRET"}})]
+        (let [r (invoke "explain-variant" {:variant-id "story.button/primary"
+                                           :include-sensitive true})
+              s (:structuredContent r)]
+          (is (success? r))
+          (is (= "DISTINCTIVE-EXPLAIN-SECRET" (get-in s [:explain :effective-args :api-key]))
+              "the documented opt-in surfaces the raw value"))))))
+
+(deftest explain-variant-gate-closed-ignores-opt-in
+  (testing "gate closed: :include-sensitive true is silently ignored — explain value slots stay redacted"
+    (is (false? (config/sensitive-reads-allowed?)))
+    (with-clean-frame [vid :story.button/primary]
+      (seed-app-db! vid {:auth {:token "DISTINCTIVE-EXPLAIN-SECRET"}})
+      (declare-sensitive! vid [:auth :token])
+      (with-redefs [story/explain
+                    (fn [_vk & _]
+                      {:effective-args {:api-key "DISTINCTIVE-EXPLAIN-SECRET"}})]
+        (let [r (invoke "explain-variant" {:variant-id "story.button/primary"
+                                           :include-sensitive true})
+              s (:structuredContent r)]
+          (is (success? r))
+          (is (= :rf/redacted (get-in s [:explain :effective-args :api-key]))
+              "gate closed: the opt-in cannot exfiltrate the declared-sensitive value"))))))
+
+(deftest record-as-variant-redacts-sensitive-captured-event-by-default
+  (testing "a captured event carrying a declared-sensitive value is redacted in :captured AND :play-snippet"
+    (with-clean-frame [vid :story.button/primary]
+      ;; The frame holds the secret at a declared-sensitive path; the
+      ;; recorded event carries the SAME literal in its payload, so the
+      ;; value-redaction step (matching by value against the frame's
+      ;; declared-sensitive values) must scrub it everywhere it lands.
+      (seed-app-db! vid {:auth {:token "DISTINCTIVE-RECORDED-SECRET"}})
+      (declare-sensitive! vid [:auth :token])
+      (drive-events-during-recording [[:auth/login "DISTINCTIVE-RECORDED-SECRET"]])
+      (let [r (invoke "record-as-variant"
+                      {:variant-id  "story.button/primary"
+                       :duration-ms 100})
+            s (:structuredContent r)]
+        (is (success? r))
+        (is (= 1 (:recorded-event-count s)) "the event was captured")
+        (is (not (tree-contains? (:captured s) "DISTINCTIVE-RECORDED-SECRET"))
+            "WITHOUT the fix this literal crosses verbatim in :captured; it MUST NOT by default")
+        (is (not (re-find #"DISTINCTIVE-RECORDED-SECRET" (:play-snippet s)))
+            "the :play-snippet text is rendered from the scrubbed events, so the secret is absent there too")
+        (is (tree-contains? (:captured s) :rf/redacted)
+            "the matching leaf is replaced with the :rf/redacted sentinel")
+        (is (re-find #":auth/login" (:play-snippet s))
+            "the non-sensitive event id survives — only the secret value is scrubbed")))))
+
+(deftest record-as-variant-includes-sensitive-when-opted-in
+  (testing ":include-sensitive true forwards the raw captured event (gate open)"
+    (config/set-allow-sensitive-reads! true)
+    (with-clean-frame [vid :story.button/primary]
+      (seed-app-db! vid {:auth {:token "DISTINCTIVE-RECORDED-SECRET"}})
+      (declare-sensitive! vid [:auth :token])
+      (drive-events-during-recording [[:auth/login "DISTINCTIVE-RECORDED-SECRET"]])
+      (let [r (invoke "record-as-variant"
+                      {:variant-id        "story.button/primary"
+                       :duration-ms       100
+                       :include-sensitive true})
+            s (:structuredContent r)]
+        (is (success? r))
+        (is (= [[:auth/login "DISTINCTIVE-RECORDED-SECRET"]] (:captured s))
+            "the documented opt-in surfaces the raw captured event")
+        (is (re-find #"DISTINCTIVE-RECORDED-SECRET" (:play-snippet s))
+            "and the raw value rides the snippet text")))))
+
+(deftest record-as-variant-gate-closed-ignores-opt-in
+  (testing "gate closed: :include-sensitive true is silently ignored — captured event stays redacted"
+    (is (false? (config/sensitive-reads-allowed?)))
+    (with-clean-frame [vid :story.button/primary]
+      (seed-app-db! vid {:auth {:token "DISTINCTIVE-RECORDED-SECRET"}})
+      (declare-sensitive! vid [:auth :token])
+      (drive-events-during-recording [[:auth/login "DISTINCTIVE-RECORDED-SECRET"]])
+      (let [r (invoke "record-as-variant"
+                      {:variant-id        "story.button/primary"
+                       :duration-ms       100
+                       :include-sensitive true})
+            s (:structuredContent r)]
+        (is (success? r))
+        (is (not (tree-contains? (:captured s) "DISTINCTIVE-RECORDED-SECRET"))
+            "gate closed: the opt-in cannot exfiltrate the declared-sensitive value")))))
+
+;; ---------------------------------------------------------------------------
 ;; rf2-koq5m (headline P1, privacy/observability MUST at the AI boundary) —
 ;; egress indicator counts (`:dropped-sensitive` / `:elided-large`).
 ;;
@@ -2626,9 +2765,18 @@
     (is (= 0 (egress/count-elided {:a 1 :b [2 3]})))
     (is (= 1 (egress/count-elided {:a {:rf.size/large-elided {:path [:a] :bytes 99}}})))))
 
+;; The full set of tools that surface a value-bearing slot (live `:app-db`
+;; / assertions OR a non-live runtime/captured value) and so must accept
+;; the `:include-sensitive` opt-in. The live three (rf2-73wuj) plus the
+;; non-live two closed in rf2-12f2q (`explain-variant`'s plan-resolved
+;; value slots, `record-as-variant`'s captured events).
+(def ^:private include-sensitive-tools
+  ["preview-variant" "run-variant" "read-failures"
+   "explain-variant" "record-as-variant"])
+
 (deftest egress-tools-input-schema-carries-include-sensitive
-  (testing "every tool surfacing :app-db or assertions accepts :include-sensitive"
-    (doseq [tname ["preview-variant" "run-variant" "read-failures"]]
+  (testing "every tool surfacing a value-bearing slot accepts :include-sensitive"
+    (doseq [tname include-sensitive-tools]
       (let [t     (some #(when (= tname (:name %)) %) registry/tool-registry)
             props (-> t :inputSchema :properties)]
         (is (contains? props :include-sensitive)
@@ -2668,7 +2816,7 @@
   (testing "tools/list omits :include-sensitive from the schema when the gate is closed"
     (is (false? (config/sensitive-reads-allowed?)))
     (let [descriptors (registry/tool-descriptors)]
-      (doseq [tname ["preview-variant" "run-variant" "read-failures"]]
+      (doseq [tname include-sensitive-tools]
         (let [t     (some #(when (= tname (:name %)) %) descriptors)
               props (-> t :inputSchema :properties)]
           (is (not (contains? props :include-sensitive))
@@ -2678,7 +2826,7 @@
   (testing "tools/list advertises :include-sensitive when the gate is open"
     (config/set-allow-sensitive-reads! true)
     (let [descriptors (registry/tool-descriptors)]
-      (doseq [tname ["preview-variant" "run-variant" "read-failures"]]
+      (doseq [tname include-sensitive-tools]
         (let [t     (some #(when (= tname (:name %)) %) descriptors)
               props (-> t :inputSchema :properties)]
           (is (contains? props :include-sensitive)

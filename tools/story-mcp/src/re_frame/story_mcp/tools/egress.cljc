@@ -15,6 +15,23 @@
   live schema-owned `[:rf/runtime :elision]` registries from the named
   frame's app-db; the `:frame variant-id` opts slot is load-bearing.
 
+  ## Non-live runtime/captured value scrub (`scrub-frame-value`, rf2-12f2q)
+
+  The wire-elision contract (`tools/story/spec/006-MCP-Surface.md`)
+  promises EVERY Story-MCP payload crosses elided — not just the three
+  live-state tools'. The NON-live tools also cross runtime/captured
+  VALUES that can sit at a frame's declared-`:sensitive?` paths:
+  `explain-variant`'s plan-RESOLVED value slots (`:effective-args` /
+  `:args` / `:substitutions` / `:network` / `:db-seed`) and
+  `record-as-variant`'s `:captured` event vectors (+ the `:play-snippet`
+  rendered from them). `scrub-frame-value` gives those payloads the SAME
+  value-based redaction `scrub-rendered` applies to live derived trees,
+  keyed to the variant frame — it reads the frame's app-db itself rather
+  than receiving it. Author-published STATIC registration metadata
+  (story/variant bodies, registry enumerations, the explain plan-
+  STRUCTURE slots) is intentionally public and NOT scrubbed; see
+  `scrub-frame-value` for the runtime-vs-authored split.
+
   ## Path-based redaction (`elide-app-db`, `scrub-assertions`)
 
   Apply the cross-MCP privacy-posture rules to every live `:app-db`
@@ -352,6 +369,73 @@
                       (if (empty? secrets)
                         tree
                         (redact-matching tree secrets)))))
+
+;; ---------------------------------------------------------------------------
+;; Non-live runtime/captured value scrub (rf2-12f2q)
+;; ---------------------------------------------------------------------------
+;;
+;; The three live-state tools (`preview-variant` / `run-variant` /
+;; `read-failures`) hold the post-run `:app-db` in hand and feed it to
+;; `elide-app-db` (path) + `scrub-rendered` (value). But the NON-live
+;; tools — `explain-variant`'s plan-resolved value slots and
+;; `record-as-variant`'s captured event vectors — also cross the
+;; AI/off-box boundary carrying runtime/captured VALUES that can sit at a
+;; frame's declared-`:sensitive?` paths: a `:network` route reply seeded
+;; with a real token, an `:effective-args` slot resolved from a sensitive
+;; arg, a captured event dispatched with a secret payload.
+;;
+;; Those tools did NOT route their value-bearing slots through any
+;; scrubber until rf2-12f2q, so the wire-elision contract in
+;; `tools/story/spec/006-MCP-Surface.md` ("every Story-MCP payload crosses
+;; elided; nothing raw") was a promise the implementation only kept for
+;; the three live-state tools. The split is closed here by giving the
+;; non-live tools the SAME value-based redaction — keyed to the variant
+;; frame's declared-sensitive values — that `scrub-rendered` already
+;; applies to the live derived trees. The slot is value-bearing and
+;; frame-keyed (the recorder records against `vk`; the plan is compiled
+;; for `vk`), so the same `sensitive-values vk` candidate set governs it.
+;;
+;; INTENTIONALLY-PUBLIC (NOT scrubbed): the docs-discovery surfaces that
+;; return author-published STATIC registration prose — `get-story` /
+;; `get-variant` / `variant->edn` bodies, `list-stories` / `list-modes` /
+;; `list-decorators` / `list-tags` / `list-assertions` enumerations, the
+;; markdown render, and the `explain` map's plan-STRUCTURE slots
+;; (`:source-chain` / `:parent-chain` / `:compose` / `:merge` /
+;; `:strict-conflicts` / `:setup-order` / `:script-order` / `:tags` /
+;; `:platforms` / …). Those are the catalogue an author publishes for
+;; discovery — not runtime/user state — and the threat model
+;; (`spec/015-Data-Classification.md`) scopes the marks to the OBSERVED
+;; runtime, not authored registration data. Registry-wide enumerations
+;; (modes, decorators) are not frame-keyed and carry no runtime values;
+;; their `:args` / `:app-db-patch` / `:response` slots are the author's
+;; own published fixture data. See `tools/story/spec/006-MCP-Surface.md`
+;; §Wire-elision boundary for the single-sourced classification.
+
+(defn scrub-frame-value
+  "Value-redact a non-live, value-bearing payload `tree` that is keyed to
+  variant `variant-id`'s frame, before wire egress (rf2-12f2q). Reads the
+  frame's live `:app-db` itself (via `re-frame.core/app-db-value`) — the
+  non-live handlers do not already hold it — collects the values sitting
+  at the frame's declared-`:sensitive?` paths, and substitutes any
+  matching leaf in `tree` with `:rf/redacted`.
+
+  Thin wrapper over `scrub-rendered`: it shares the exact same VALUE-based
+  redaction + the non-unique-secret guard, so a secret leaks identically
+  (i.e. not at all, by default) whether it reaches the wire via a live
+  derived tree or a plan-resolved / captured slot. The only difference is
+  that this reads the source app-db rather than receiving it — when the
+  frame has not been allocated (`app-db-value` ⇒ nil) there are no
+  declared-sensitive values to collect, so the payload passes through
+  unwalked.
+
+  `include?` is the same `--allow-sensitive-reads` + per-call
+  `:include-sensitive` opt-out the live tools honour — when true the raw
+  value crosses (the operator signed off on the egress posture)."
+  [tree variant-id include?]
+  (cond
+    include?    tree
+    (nil? tree) tree
+    :else       (scrub-rendered tree (rf/app-db-value variant-id) variant-id include?)))
 
 ;; ---------------------------------------------------------------------------
 ;; Wire-egress indicator counts (rf2-koq5m).
