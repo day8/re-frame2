@@ -801,7 +801,13 @@
             settling event's id is a child's `:event/dispatched` marker (fired
             during the parent's do-fx) and stays buffered for the child's own
             settle (Spec 009 §Dispatch correlation: one dispatch-id = one
-            epoch). Only nil-id orphans are dropped."
+            epoch). Only nil-id orphans are dropped.
+
+            rf2-fxowr — the retained marker carries a PRIVATE survival counter
+            so a STRANDED marker (its child never settles) can be reclaimed on a
+            later harvest (inv-6c). The counter is internal book-keeping; assert
+            on the marker's identity (its dispatch-id + operation), not bare map
+            equality, since the stamp is now present."
     (let [frame      :test/harvest-child
           run-start  {:op-type :rf.event :operation :rf.event/run-start
                       :tags {:rf.trace/phase :run-start :rf.trace/dispatch-id 1 :rf.trace/event-id :parent}}
@@ -814,14 +820,118 @@
       (state/buffer-event! frame body)
       (state/buffer-event! frame child-mark)
       (state/buffer-event! frame orphan)
-      (let [harvested (state/harvest-buffer-for-event! frame)]
+      (let [harvested (state/harvest-buffer-for-event! frame)
+            retained  (state/buffer-for frame)]
         (is (= [run-start body] harvested)
             "the parent's harvest takes only its own (dispatch-id 1) traces")
         ;; The child marker (dispatch-id 2) is RETAINED; the orphan is DROPPED.
-        (is (= [child-mark] (state/buffer-for frame))
-            "the child's dispatch-id marker stays buffered for the child's own
-             settle; the nil-id orphan is discarded")
+        (is (= 1 (count retained))
+            "exactly the child's marker stays buffered; the nil-id orphan is dropped")
+        (is (= 2 (-> retained first :tags :rf.trace/dispatch-id))
+            "the retained marker IS the child's (dispatch-id 2) marker")
+        (is (= :rf.event/dispatched (-> retained first :operation))
+            "and it is the child's :event/dispatched marker, kept for the child's own settle")
         (state/drop-frame-buffer! frame)))))
+
+(deftest inv-6c-harvest-reclaims-stranded-child-marker
+  (testing "rf2-fxowr — a STRANDED child `:event/dispatched` marker (its child
+            never runs to a settle: unregistered handler, frame
+            destroyed/drain-interrupted before dequeue, or depth-halt clears the
+            queue with the child still pending) must NOT accrete in the hottest
+            atom (`capture-buffers`) indefinitely.
+
+            inv-6b proves a child marker is RETAINED for its own settle — that
+            holds for a child that WILL run (claimed as `mine` at the very next
+            harvest). This invariant proves the complementary bound: a marker
+            whose child never settles is RECLAIMED after surviving more than one
+            harvest as `theirs`, so the buffer stays bounded. The non-nil
+            sibling of inv-6's nil-id orphan self-cleaning — the harvest is
+            self-cleaning for BOTH strand classes, not reliant on the upstream
+            terminal paths (rejected-child settle / depth-halt / drain-interrupt
+            clear) being perfect.
+
+            Pre-rf2-fxowr the marker was re-classified `theirs` and re-retained
+            on EVERY subsequent genuine settle for the long-lived frame — one
+            small residue per stranding incident, never GC'd while the frame
+            lives (slow UNBOUNDED accretion)."
+    (let [frame       :test/harvest-stranded
+          ;; A stranded child marker — its child (dispatch-id 99) never ran, so
+          ;; no settling-id will ever match it.
+          stranded    {:op-type :rf.event :operation :rf.event/dispatched
+                       :tags {:rf.trace/dispatch-id 99 :rf.trace/event-id :child-never-ran}}
+          ;; A first genuine, unrelated event settles for this long-lived frame.
+          rs-1        {:op-type :rf.event :operation :rf.event/run-start
+                       :tags {:rf.trace/phase :run-start :rf.trace/dispatch-id 7 :rf.trace/event-id :genuine-1}}
+          body-1      {:op-type :rf.event :operation :rf.event/db-changed
+                       :tags {:rf.trace/dispatch-id 7}}
+          ;; A second genuine, unrelated event settles later.
+          rs-2        {:op-type :rf.event :operation :rf.event/run-start
+                       :tags {:rf.trace/phase :run-start :rf.trace/dispatch-id 8 :rf.trace/event-id :genuine-2}}
+          body-2      {:op-type :rf.event :operation :rf.event/db-changed
+                       :tags {:rf.trace/dispatch-id 8}}]
+      ;; --- first genuine settle while the stranded marker sits in the buffer ---
+      (state/buffer-event! frame stranded)
+      (state/buffer-event! frame rs-1)
+      (state/buffer-event! frame body-1)
+      (let [h1     (state/harvest-buffer-for-event! frame)
+            after1 (state/buffer-for frame)]
+        (is (= [rs-1 body-1] h1)
+            "the first genuine event harvests ONLY its own (dispatch-id 7) traces")
+        (is (not-any? #(= 99 (-> % :tags :rf.trace/dispatch-id)) h1)
+            "the stranded marker is NOT folded into the genuine event's epoch")
+        (is (= 1 (count after1))
+            "the stranded marker survives the FIRST harvest as theirs (its child
+             still notionally has a chance to run within its RTC window)")
+
+        ;; --- second genuine settle: the child still never ran -> RECLAIM ---
+        (state/buffer-event! frame rs-2)
+        (state/buffer-event! frame body-2)
+        (let [h2     (state/harvest-buffer-for-event! frame)
+              after2 (state/buffer-for frame)]
+          (is (= [rs-2 body-2] h2)
+              "the second genuine event harvests ONLY its own (dispatch-id 8) traces")
+          (is (not-any? #(= 99 (-> % :tags :rf.trace/dispatch-id)) h2)
+              "the stranded marker is STILL not folded into a genuine epoch")
+          (is (empty? after2)
+              "rf2-fxowr — the stranded marker is RECLAIMED, not re-retained;
+               `capture-buffers` for the frame is now empty (bounded)")))
+      (state/drop-frame-buffer! frame))))
+
+(deftest inv-6d-harvested-child-marker-carries-no-private-stamp
+  (testing "rf2-fxowr — the private survival counter is internal book-keeping;
+            it must NEVER escape into a harvested epoch's `:trace-events`. When
+            a retained marker is finally claimed as `mine` at its child's own
+            settle, the harvested event is stripped of the private key so the
+            recorded `:trace-events` shape is unchanged (behaviour-preserving for
+            the normal child-runs path)."
+    (let [frame       :test/harvest-clean
+          ;; Parent cascade strands the child marker (stamps it).
+          parent-rs   {:op-type :rf.event :operation :rf.event/run-start
+                       :tags {:rf.trace/phase :run-start :rf.trace/dispatch-id 1 :rf.trace/event-id :parent}}
+          parent-body {:op-type :rf.event :operation :rf.event/db-changed
+                       :tags {:rf.trace/dispatch-id 1}}
+          child-mark  {:op-type :rf.event :operation :rf.event/dispatched
+                       :tags {:rf.trace/dispatch-id 2 :rf.trace/event-id :child}}
+          ;; The child then RUNS: its run-start + body land in the buffer.
+          child-rs    {:op-type :rf.event :operation :rf.event/run-start
+                       :tags {:rf.trace/phase :run-start :rf.trace/dispatch-id 2 :rf.trace/event-id :child}}
+          child-body  {:op-type :rf.event :operation :rf.event/db-changed
+                       :tags {:rf.trace/dispatch-id 2}}]
+      (state/buffer-event! frame parent-rs)
+      (state/buffer-event! frame parent-body)
+      (state/buffer-event! frame child-mark)
+      (state/harvest-buffer-for-event! frame)          ; parent settles; marker stranded+stamped
+      (state/buffer-event! frame child-rs)
+      (state/buffer-event! frame child-body)
+      (let [child-harvest (state/harvest-buffer-for-event! frame)]
+        (is (= [child-mark child-rs child-body] child-harvest)
+            "the child's settle claims the marker + its own traces, BARE — no
+             private survival key leaks into the harvested epoch")
+        (is (every? #(not (contains? % :re-frame.epoch.state/theirs-harvests)) child-harvest)
+            "no harvested event carries the private rf2-fxowr survival counter")
+        (is (empty? (state/buffer-for frame))
+            "buffer empty after the child settle (normal path fully cleared)"))
+      (state/drop-frame-buffer! frame))))
 
 ;; ===========================================================================
 ;; INVARIANT 7 — a tool / inspector frame's OWN render never pollutes the
