@@ -394,9 +394,26 @@
             (fn [m]
               (let [prior-frame (get m frame-id)
                     prospective (assoc prior-frame flow-id flow)]
-                ;; Throws :rf.error/flow-cycle if the prospective map is
-                ;; cyclic; the update fn never returns and the CAS never
-                ;; fires, so the atom is unchanged.
+                ;; Two registration-time rejections, both run on the
+                ;; PROSPECTIVE map inside this update fn so they share the
+                ;; cycle check's atomicity (rf2-qxwib): a throw propagates
+                ;; out of `swap!`, the CAS never fires, and the prior
+                ;; registration survives untouched.
+                ;;
+                ;; 1. Throws :rf.error/flow-path-overlap (rf2-um6d9) if the
+                ;;    new flow's output :path overlaps an already-registered
+                ;;    sibling's :path (one a prefix of the other). The topo
+                ;;    dependency rule compares :path vs :inputs only, so
+                ;;    overlapping outputs get no edge and their eval order is
+                ;;    undefined — reject before any state mutates (Spec 013
+                ;;    §Disjoint output paths). Checked BEFORE the cycle sort
+                ;;    so a frame with overlapping outputs reports the more
+                ;;    specific footgun rather than whatever (or no) cycle the
+                ;;    topo walk happens to surface.
+                ;; 2. Throws :rf.error/flow-cycle if the prospective map is
+                ;;    cyclic; the update fn never returns and the CAS never
+                ;;    fires, so the atom is unchanged.
+                (topo/detect-output-path-overlap! prospective)
                 (topo/topo-sort prospective)
                 (assoc m frame-id prospective))))
      ;; Cycle check + commit done atomically above. The :flow registrar
