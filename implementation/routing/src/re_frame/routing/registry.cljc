@@ -966,15 +966,37 @@
                       (:groups (match/parse-pattern pattern)))
            ;; Resolve a REQUIRED path-param value or throw. Per Spec 012
            ;; §Bidirectional URL ↔ params: an absent or `nil` value
-           ;; raises; a present-but-falsy value (`false`, `0`, `""`) is a
+           ;; raises; a present-but-falsy value (`false`, `0`) is a
            ;; legitimate segment and round-trips. `if-some` discriminates
            ;; falsy-but-present from absent (a plain `(or v throw)` would
            ;; mis-classify falsy as absent). `kind` ("path"/"splat") only
            ;; flavours the diagnostic message.
+           ;;
+           ;; rf2-ede1h.2: an EMPTY-STRING value is rejected the same way
+           ;; as absent/nil. `false`/`0` stringify to non-empty segments
+           ;; (`/page/false`, `/items/0`) that round-trip cleanly, but `""`
+           ;; emits a ZERO-LENGTH segment (`/articles/` for `{:slug ""}`)
+           ;; which `match-url`'s trailing-slash normalisation erases
+           ;; (`/articles/` → `/articles`) before matching — so the URL
+           ;; cannot round-trip back to the same route/params. A path
+           ;; segment has no representation for the empty string; rejecting
+           ;; it on EMISSION (rather than silently emitting an
+           ;; un-round-trippable URL) keeps the bidirectional contract
+           ;; honest. This narrows the spec's "present-but-falsy round-trips"
+           ;; to the values that actually CAN (`false`, `0`); `""` is the
+           ;; one falsy value with no legitimate segment form.
            require-param
            (fn [k kind]
              (if-some [v (get path-params k)]
-               v
+               (if (= "" (str v))
+                 (throw (route-error
+                          :rf.error/missing-route-param
+                          'rf/route-url
+                          (str "route " route-id " requires a non-empty " kind " param " k
+                               " but it was an empty string (a zero-length path segment "
+                               "cannot round-trip through match-url)")
+                          {:param k :route-id route-id :value v}))
+                 v)
                (throw (route-error
                         :rf.error/missing-route-param
                         'rf/route-url
@@ -1052,8 +1074,20 @@
            ;; Per Spec 012 §Fragments §Programmatic navigation with
            ;; fragments: the 4-arity emits `#fragment` when non-nil and
            ;; non-empty. Empty-string fragments collapse to no fragment.
+           ;;
+           ;; The fragment is PERCENT-ENCODED on emission (rf2-ede1h.1) —
+           ;; symmetric with `match-url`/`split-fragment`, which decode the
+           ;; `#fragment` portion through `url/safe-url-decode`
+           ;; (decodeURIComponent semantics). `url/url-encode` is the exact
+           ;; inverse, so the round-trip is byte-exact: a fragment value
+           ;; carrying a literal `%` (e.g. `"50% done"`) emits as
+           ;; `#50%25%20done` and decodes back to `"50% done"`. Appending
+           ;; the raw value instead produced `#50% done`, which `match-url`
+           ;; then read as malformed (`safe-url-decode` throws on the bare
+           ;; `%`) → nil — breaking the bidirectional URL contract for any
+           ;; fragment with a `%` or other %-significant character.
            frag (when (and fragment (not= "" fragment))
-                  (str "#" fragment))]
+                  (str "#" (url/url-encode fragment)))]
        (str path-out qs frag)))))
 
 (defn reset-counters!
