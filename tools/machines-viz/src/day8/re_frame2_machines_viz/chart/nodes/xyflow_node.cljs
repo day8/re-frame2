@@ -37,6 +37,33 @@
 (def pos-bottom (.-Bottom Position))
 (def pos-left   (.-Left Position))
 
+;; ---- four-cardinal edge-attachment Handles ------------------------------
+;;
+;; rf2-idx41 — the leaf state, compound container, parallel-region
+;; container, and event nodes all attach edges the SAME way: an invisible
+;; `Handle` on each cardinal side, with the LEFT + TOP as targets and the
+;; RIGHT + BOTTOM as sources (the left/right handles carry the `"left"` /
+;; `"right"` ids the entry-edge `:targetHandle` + the routed sources
+;; address). That four-`Handle` cluster was copy-pasted in each node ns;
+;; this fragment owns it once. Handles are `opacity 0` (xyflow still
+;; measures them for `handleBounds` so an edge has a slot to anchor to —
+;; the rf2-shv82 compound/region drop fix) without adding visible chrome.
+
+(defn four-cardinal-handles
+  "A React fragment of the four invisible cardinal `Handle`s every
+  edge-bearing chart node uses: TOP + LEFT as `target`s (LEFT carries
+  id `\"left\"`), BOTTOM + RIGHT as `source`s (RIGHT carries id
+  `\"right\"`). Spliced into a node component's hiccup as `(four-cardinal-
+  handles)`."
+  []
+  [:<>
+   [:> Handle {:type "target" :position pos-top    :style {:opacity 0}}]
+   [:> Handle {:type "target" :position pos-left   :id "left"
+               :style {:opacity 0}}]
+   [:> Handle {:type "source" :position pos-bottom :style {:opacity 0}}]
+   [:> Handle {:type "source" :position pos-right  :id "right"
+               :style {:opacity 0}}]])
+
 ;; ---- density-resolved constants -----------------------------------------
 
 (defn chart-constants
