@@ -355,9 +355,9 @@
                          :response     response
                          :decorator-id (:id r)}))
                     fx-override-decorators)
-        ;; Last-wins on fx-id: dedupe pairs preserving the LAST entry
-        ;; per fx-id.
-        by-fx (reduce (fn [acc p] (assoc acc (:fx-id p) p)) {} pairs)
+        ;; Last-wins on fx-id: index pairs by :fx-id so a later entry
+        ;; overwrites an earlier one for the same fx-id.
+        by-fx (into {} (map (juxt :fx-id identity)) pairs)
         finals (vals by-fx)]
     {:overrides     (into {}
                           (map (fn [p] [(:fx-id p) (:stub-id p)]))
