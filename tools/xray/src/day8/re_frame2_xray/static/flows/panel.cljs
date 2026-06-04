@@ -240,28 +240,6 @@
                        :font-style  "italic"}}
          doc])])])
 
-;; ---- empty states --------------------------------------------------------
-
-(defn- empty-state
-  []
-  [:div {:data-testid "rf-xray-static-flows-empty"
-         :style       {:padding     "16px"
-                       :color       (:text-tertiary tokens)
-                       :font-family sans-stack
-                       :font-size   "11px"
-                       :font-style  "italic"}}
-   "No flows registered."])
-
-(defn- empty-filtered
-  [query]
-  [:div {:data-testid "rf-xray-static-flows-empty-filtered"
-         :style       {:padding     "16px"
-                       :color       (:text-tertiary tokens)
-                       :font-family sans-stack
-                       :font-size   "11px"
-                       :font-style  "italic"}}
-   (str "No flows match " (pr-str query) ".")])
-
 ;; ---- root view -----------------------------------------------------------
 
 (rf/reg-view Panel
@@ -285,13 +263,13 @@
      (header)
      (cond
        silent?
-       (empty-state)
+       (search-box/empty-state "rf-xray-static-flows" "flow")
 
        :else
        [:<>
         (search-box query total filtered?)
         (if (empty? flows)
-          (empty-filtered query)
+          (search-box/empty-filtered "rf-xray-static-flows" "flow" query)
           (into [:ul {:data-testid "rf-xray-static-flows-list"
                       :role        "list"
                       :style       {:list-style     "none"

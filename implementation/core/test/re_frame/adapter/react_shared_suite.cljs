@@ -1241,8 +1241,15 @@
   (testing (str name " — a throwing sub recovers to nil + emits :rf.error/sub-exception")
     (rf/reg-event-db :init (fn [_ _] {:items "broken"}))
     (rf/reg-sub :items (fn [db _] (:items db)))
+    ;; Deliberate broken sub: `items` resolves to the string "broken",
+    ;; which has no `.something` method, so the call throws a TypeError
+    ;; at runtime — exercising the :replaced-with-default recovery path.
+    ;; The `^js` hint marks the access as an extern-typed property read so
+    ;; the compiler does not emit an :infer-warning (the throw is the
+    ;; point; the type is intentionally unknowable), keeping the
+    ;; :browser-test compile warning-clean.
     (rf/reg-sub :items-count :<- [:items]
-      (fn [items _] (count (.something items))))
+      (fn [items _] (count (.something ^js items))))
     (rf/dispatch-sync [:init])
     (let [traces (atom [])]
       (trace-tooling/register-listener! ::sub-err (fn [ev] (swap! traces conj ev)))

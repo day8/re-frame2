@@ -39,8 +39,7 @@
   appear in this ns; all colour goes through `theme/tokens`."
   (:require [reagent.core :as r]
             [day8.re-frame2-machines-viz.chart.nodes.xyflow-node
-             :refer [Handle pos-top pos-right pos-bottom pos-left
-                     chart-constants palette-of]]
+             :refer [four-cardinal-handles chart-constants palette-of]]
             [day8.re-frame2-machines-viz.theme.tokens
              :refer [chart-label-stack]]))
 
@@ -216,9 +215,4 @@
           action])
        ;; xyflow attachment points. Handles on every side so elkjs can
        ;; pick the cleanest anchor based on the routed direction.
-       [:> Handle {:type "target" :position pos-top    :style {:opacity 0}}]
-       [:> Handle {:type "target" :position pos-left   :id "left"
-                   :style {:opacity 0}}]
-       [:> Handle {:type "source" :position pos-bottom :style {:opacity 0}}]
-       [:> Handle {:type "source" :position pos-right  :id "right"
-                   :style {:opacity 0}}]])))
+       (four-cardinal-handles)])))
