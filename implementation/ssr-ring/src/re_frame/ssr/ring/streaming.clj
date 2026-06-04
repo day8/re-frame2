@@ -82,7 +82,11 @@
          (or head-html "")
          "</head>"
          "<body" (html/attr-string body-attrs) ">"
-         "<div id=\"" app-element-id "\">")))
+         ;; rf2-7x0qk — `:app-element-id` is an attribute-value position;
+         ;; escape through `html/escape-attr` (same split as the non-
+         ;; streaming `default-html-shell`). `:head` stays raw (content
+         ;; position).
+         "<div id=\"" (html/escape-attr app-element-id) "\">")))
 
 (defn default-streaming-suffix
   "The shell suffix flushed after the final-payload chunk. Closes the
@@ -92,7 +96,11 @@
     :or   {script-src "/main.js"}}]
   (str "</div>"
        (when script-src
-         (str "<script src=\"" script-src "\"></script>"))
+         ;; rf2-7x0qk — `:script-src` is an attribute-value position;
+         ;; escape through `html/escape-attr` (same split as the non-
+         ;; streaming `default-html-shell`). `:body-end` stays raw
+         ;; (content position).
+         (str "<script src=\"" (html/escape-attr script-src) "\"></script>"))
        (or body-end "")
        "</body>"
        "</html>"))
@@ -222,10 +230,13 @@
   ;; so both handlers refuse to construct at the same boundary. For
   ;; streaming specifically, a missing :on-create would otherwise fail
   ;; per-request (500) and a missing :root-view would silently truncate
-  ;; the chunked response from the writer thread; the four trusted-shell
-  ;; opts are injected RAW by the streaming prefix/suffix, same trust
-  ;; contract as the non-streaming `default-html-shell`. See
-  ;; `validate-construction-opts!` for the per-check rationale.
+  ;; the chunked response from the writer thread; the trusted-shell opts
+  ;; cross the same trust boundary as the non-streaming
+  ;; `default-html-shell` — `:head` / `:body-end` injected RAW (content
+  ;; positions), `:script-src` / `:app-element-id` escape-attr'd
+  ;; (attribute-value positions, rf2-7x0qk) by the streaming
+  ;; prefix/suffix. See `validate-construction-opts!` for the per-check
+  ;; rationale.
   (lifecycle/validate-construction-opts! raw-opts)
   ;; Mirror ssr-handler's defaults so streaming and non-streaming
   ;; handlers feel symmetric to callers. `:on-error` resolves the same

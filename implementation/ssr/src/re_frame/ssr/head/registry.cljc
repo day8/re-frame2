@@ -105,12 +105,20 @@
   Always carries `:title` — defaulting to `\"\"` when the frame has no
   `:doc`. Empty-title and missing-title both emit no `<title>` tag (the
   emitter elides empty strings), but a programmatic consumer reading
-  the model sees a stable key shape."
+  the model sees a stable key shape.
+
+  Does NOT carry `{:charset \"utf-8\"}` (rf2-q78s1). Charset is an
+  envelope concern owned by the shell — the always-present document
+  envelope (`re-frame.ssr.ring.shell/default-html-shell` and the
+  streaming prefix) hardcodes `<meta charset=\"utf-8\">` as the first
+  `<head>` byte. A route's `:head` declares page-specific metas; the
+  baseline charset is not a per-route head concern. Carrying it here
+  too produced two `<meta charset>` tags in the non-streaming default
+  document."
   [frame-id]
   (let [doc (when frame-id (:doc (frame/frame-meta frame-id)))]
     {:title (or doc "")
-     :meta  [{:charset "utf-8"}
-             {:name "viewport" :content "width=device-width, initial-scale=1"}]}))
+     :meta  [{:name "viewport" :content "width=device-width, initial-scale=1"}]}))
 
 ;; ---- render-head ----------------------------------------------------------
 

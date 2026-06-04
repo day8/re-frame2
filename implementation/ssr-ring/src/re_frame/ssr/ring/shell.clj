@@ -172,16 +172,23 @@
            / :csp-script-src-allowlist influence the envelope.
 
   Trusted-string contract — per Spec 011 §Trusted shell hook contract
-  (rf2-o6ndb), the four shell opts `:head`, `:body-end`, `:script-src`,
-  and `:app-element-id` are TRUSTED STRINGS injected RAW into the
-  rendered HTML envelope. No escaping, no validation, no sandbox.
-  The shell is caller-controlled config (app boot decides what
-  scripts/analytics tags / asset URLs / head fragments to inject), so
-  the trust-the-caller model is load-bearing here. Hosts that route
-  user-controlled content through any of the four (e.g. config-driven
-  analytics blocks sourced from a customer settings UI, a tenant-
-  admin-editable head fragment, an asset URL composed from a query-
-  string parameter) MUST escape upstream — the shell will not. The
+  (rf2-o6ndb, attribute/content split rf2-7x0qk), the four shell opts
+  split by injection position. `:head` and `:body-end` are TRUSTED
+  STRINGS injected RAW into CONTENT positions (no escaping — free-form
+  HTML content has no single-correct escape). `:script-src` and
+  `:app-element-id` land in ATTRIBUTE-VALUE positions (`<script src>` /
+  `<div id>`) and are `escape-attr`-escaped here (rf2-7x0qk): a
+  double-quoted attribute value has a single correct escape, so a stray
+  `\"` in an otherwise-benign id / URL can't break out of the attribute
+  and emit malformed markup. Escaping `&` + `\"` is lossless. This is
+  structural-correctness, not a sandbox — the content opts (`:head` /
+  `:body-end`) remain raw. The shell is caller-controlled config (app
+  boot decides what scripts/analytics tags / asset URLs / head
+  fragments to inject), so the trust-the-caller model is load-bearing
+  for the CONTENT opts. Hosts that route user-controlled content
+  through `:head` / `:body-end` (e.g. config-driven analytics blocks
+  sourced from a customer settings UI, a tenant-admin-editable head
+  fragment) MUST escape upstream — the shell will not. The
   structured alternative for untrusted-customization use cases is
   `reg-head` (for head fragments per Spec 011 §Head/meta) +
   `reg-view*` + `:rf.server/*` fx (for body content), both of which
@@ -215,12 +222,20 @@
          (or head "")
          "</head>"
          "<body" (html/attr-string body-attrs) ">"
-         "<div id=\"" app-element-id "\">" body-html "</div>"
+         ;; rf2-7x0qk — `:app-element-id` and `:script-src` land INSIDE
+         ;; double-quoted attribute values, so they are escaped through
+         ;; `html/escape-attr` (escapes `&` + `"`, lossless + position-
+         ;; correct). The trusted-string raw-injection contract applies
+         ;; only to the two CONTENT-position opts (`:head` / `:body-end`);
+         ;; an attribute-value position has a single correct escape, so
+         ;; even a benign quote-bearing value can't break out of the
+         ;; attribute. See `validate-trusted-shell-opts!` for the split.
+         "<div id=\"" (html/escape-attr app-element-id) "\">" body-html "</div>"
          ;; Shared id-pinned, `</script>`-escaped payload <script>
          ;; (rf2-7ksyr) — same helper the streaming final chunk uses.
          (payload-script-tag payload-edn)
          (when script-src
-           (str "<script src=\"" script-src "\"></script>"))
+           (str "<script src=\"" (html/escape-attr script-src) "\"></script>"))
          (or body-end "")
          "</body>"
          "</html>")))

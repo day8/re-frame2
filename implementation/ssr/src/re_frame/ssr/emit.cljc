@@ -355,6 +355,37 @@
                           :element  el
                           :recovery :no-recovery}))
 
+         ;; Reserved streaming marker `:rf/suspense-boundary` — recognised
+         ;; ONLY by the streaming shell walker (`re-frame.ssr.streaming`).
+         ;; The standard emitter must NOT treat it as a DOM tag: its
+         ;; name passes the `[A-Za-z][A-Za-z0-9-]*` tag grammar, so
+         ;; without this guard `parse-tag-name` would emit a phantom
+         ;; `<suspense-boundary>` element with the `{:id … :fallback …}`
+         ;; attrs map serialised as bogus attributes (rf2-bee5i). Fail
+         ;; loud — parallel to the `:>` throw above — so a marker that
+         ;; reaches a non-streaming render (e.g. `render-to-string` on a
+         ;; streaming tree) surfaces a structured error rather than
+         ;; silently producing malformed markup. Per Conventions §`:rf/*`
+         ;; reserved hiccup heads + Spec 011 §Streaming SSR.
+         (= :rf/suspense-boundary head)
+         (throw (ex-info ":rf.error/ssr-suspense-boundary-outside-stream"
+                         {:rf.error/id :rf.error/ssr-suspense-boundary-outside-stream
+                          :where    'rf.ssr/emit
+                          :reason   (str ":rf/suspense-boundary (element "
+                                         (pr-str el) ") is a streaming-only "
+                                         "marker recognised by the streaming "
+                                         "shell walker (re-frame.ssr.ring/"
+                                         "stream-handler), not the standard "
+                                         "emitter. It reached render-to-string "
+                                         "outside a stream — that path cannot "
+                                         "resolve the boundary's continuation, "
+                                         "so it would emit a phantom "
+                                         "<suspense-boundary> DOM element. Use "
+                                         "stream-handler to render trees "
+                                         "containing :rf/suspense-boundary.")
+                          :element  el
+                          :recovery :no-recovery}))
+
          (keyword? head)
          (let [;; Look up registered view first.
                maybe-view (registrar/lookup :view head)]
