@@ -202,7 +202,11 @@ projection). The EDN form is the canonical artefact contract from
 
 ### `list-tags`
 
-Canonical + project-custom tags split.
+Canonical + project-custom tags split. The `:canonical` set is the
+bounded 12-entry vector — the seven spec/007 inclusion tags
+(`:dev :docs :test :screenshot :experimental :internal :agent`) plus
+the five rf2-k1k87 `:state/*` magnitude tags
+(`:state/empty :state/small :state/medium :state/large :state/special`).
 
 ### `list-modes`
 
@@ -223,7 +227,8 @@ the same way it enumerates tags / modes / assertions. Optional
 
 ### `list-assertions`
 
-The canonical seven `:rf.assert/*` events with arity + semantics
+The canonical eight `:rf.assert/*` events (the seven dispatched plus
+the tape-evaluated `:rf.assert/schema-error`) with arity + semantics
 docs.
 
 ### `variant->edn`

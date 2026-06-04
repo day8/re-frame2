@@ -423,12 +423,12 @@
 
    {:name           "list-tags"
     :category       :docs
-    :description    (str "Canonical tags (`:dev :docs :test :screenshot :experimental :internal :agent`) + any custom tags registered by the project. Paginated per rf2-76sf6 — `:canonical` stays full (bounded 7); `:custom` and `:all` slice per `:limit` / `:cursor`. "
+    :description    (str "Canonical tags + any custom tags registered by the project. The `:canonical` set is the bounded 12-entry vector — the seven spec/007 inclusion tags (`:dev :docs :test :screenshot :experimental :internal :agent`) plus the five rf2-k1k87 `:state/*` magnitude tags (`:state/empty :state/small :state/medium :state/large :state/special`). Paginated per rf2-76sf6 — `:canonical` stays full (bounded 12); `:custom` and `:all` slice per `:limit` / `:cursor`. "
                          "Examples: "
-                         "1. Fresh registry: {} -> {:canonical [:agent :dev :docs :experimental :internal :screenshot :test] :custom [] :all [:agent :dev :docs ...]}. "
+                         "1. Fresh registry: {} -> {:canonical [:agent :dev :docs :experimental :internal :screenshot :state/empty :state/large :state/medium :state/small :state/special :test] :custom [] :all [:agent :dev :docs ...]}. "
                          "2. Project with custom tags: {} -> {:canonical [...] :custom [:mobile :rtl] :all [:agent :dev :docs ... :mobile :rtl]}. "
                          "3. Pair with list-stories: call this first, then list-stories with :tags to filter the catalogue. "
-                         "4. Large custom set — paginated: {:limit 25} -> {:canonical [...7...] :custom [...25...] :all [...32...] :total 50 :limit 25 :has-more? true :next-cursor \"<base64>\"}.")
+                         "4. Large custom set — paginated: {:limit 25} -> {:canonical [...12...] :custom [...25...] :all [...37...] :total 50 :limit 25 :has-more? true :next-cursor \"<base64>\"}.")
     :typicalTokens  100
     :inputSchema    {:type "object"
                      :properties (s/with-max-tokens (s/with-pagination {}))
