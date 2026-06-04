@@ -111,10 +111,12 @@
   caller's `:install` thunks against the fresh registry."
   [install]
   ;; Mirror `re-frame.story/clear-all!` exactly: reset the side-table,
-  ;; clear the global-decorators vector, and reset the canonical-vocab
-  ;; auto-install gate.
+  ;; reset every leakable process-global config atom (rf2-6ez1u —
+  ;; global-args/global-decorators/editor/project-root/show-sensitive?/
+  ;; suppressed-counters; so a `configure!` in one test cannot leak into
+  ;; the next), and reset the canonical-vocab auto-install gate.
   (registrar/clear-all!)
-  (config/set-global-decorators! [])
+  (config/reset-all!)
   (canonical/reset-installed-flag!)
   (runner-events/clear-all-runs!)
   (canonical/install!)
