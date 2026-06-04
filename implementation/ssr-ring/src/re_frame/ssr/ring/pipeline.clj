@@ -149,7 +149,7 @@
         ;; call site not protected by the handler body's catch.
         {:short-circuit (lifecycle/safe-on-error on-error request t)}))))
 
-(defn ^:private render-error-body
+(defn render-error-body
   "Build a minimal HTML body from a public-error map — the host's
   DEFAULT error template (Spec 011 §Server error projection step 5,
   the \"or the host's default error template\" branch). Used when no
@@ -183,7 +183,7 @@
                      (str "Error code: " code* " (status " status* ")")])]]]
     (ssr/render-to-string hiccup {:doctype? true :emit-hash? false})))
 
-(defn ^:private resolve-error-body
+(defn resolve-error-body
   "Resolve the projected-error HTML body (Spec 011 §Server error
   projection step 5 — \"a registered view (or the host's default error
   template) … receiving the public-error map as its prop\").
@@ -337,6 +337,43 @@
     ;; both work.
     (ssr-response->ring-response post-render-resp html content-type)))
 
+(defn project-render-throw->ring-response
+  "Route a render-time `Throwable` through the SSR error projector and
+  materialise the projected (fail-closed, non-200) Ring error response.
+  Shared by the non-streaming `build-full-response` catch arm AND the
+  streaming `stream-handler` shell phase (rf2-r06pc) so BOTH render-side
+  failure surfaces emit one uniform projected-error body contract.
+
+  Steps (Spec 011 §Server error projection §View-time exceptions):
+
+    1. `ssr/project-render-exception!` — synthesises a
+       `:rf.error/ssr-render-failed` trace event, drives the active
+       projector, stamps the public-error's `:status` onto the response
+       accumulator. Returns the public-error map (or nil — frame missing
+       / not a server frame).
+    2. `ssr/peek-response` — pure read of the now-stamped response
+       accumulator (the projection drain already ran).
+    3. `resolve-error-body` — caller-registered `:error-view` (receiving
+       the public-error map) when present, else the host default
+       template.
+    4. `ssr-response->ring-response` — materialise through the SAME
+       happy-path materialiser, so headers / cookies the drain DID
+       accumulate before the throw still ride the wire.
+
+  When projection returns nil (e.g. no server frame) the locked
+  generic-500 public-error is substituted so the wire still carries a
+  well-formed fail-closed body."
+  [frame-id ^Throwable t opts]
+  (let [public-error  (ssr/project-render-exception! frame-id t)
+        resp*         (ssr/peek-response frame-id)
+        public-error* (or public-error
+                          {:status 500 :code :internal-error
+                           :message "Something went wrong"
+                           :retryable? false})
+        body-html     (resolve-error-body frame-id (:error-view opts) public-error*)
+        content-type  (:content-type opts)]
+    (ssr-response->ring-response resp* body-html content-type)))
+
 (defn build-full-response
   "Render the caller's `:root-view` against `frame-id`, build the
   hydration payload, wrap in the html-shell, and materialise to a Ring
@@ -385,24 +422,12 @@
   (try
     (build-full-response* frame-id resp opts)
     (catch Throwable t
-      (let [public-error  (ssr/project-render-exception! frame-id t)
-            ;; The projector stamped :status onto the response
-            ;; accumulator inside `project-render-exception!`;
-            ;; peek-response returns the resolved snapshot without
-            ;; re-draining (the drain already happened). When
-            ;; projection returned nil (e.g. no server frame) the
-            ;; resolved response is whatever was last accumulated;
-            ;; the render-error-body fallback below still emits the
-            ;; locked-500 generic shape, so the wire still carries
-            ;; a well-formed body.
-            resp*         (ssr/peek-response frame-id)
-            public-error* (or public-error
-                              {:status 500 :code :internal-error
-                               :message "Something went wrong"
-                               :retryable? false})
-            ;; Spec 011 §Server error projection step 5: render a
-            ;; caller-registered `:error-view` (receiving the public-
-            ;; error map) when present, else the host default template.
-            body-html     (resolve-error-body frame-id (:error-view opts) public-error*)
-            content-type  (:content-type opts)]
-        (ssr-response->ring-response resp* body-html content-type)))))
+      ;; The projector stamps :status onto the response accumulator and
+      ;; the projected (fail-closed, non-200) error body is materialised
+      ;; through the SAME path the streaming shell phase now reuses
+      ;; (rf2-r06pc — `project-render-throw->ring-response`). Render-time
+      ;; AND drain-time exceptions thus share one wire-body contract,
+      ;; and the streaming + non-streaming shell-failure surfaces project
+      ;; identically (Spec 011 §Server error projection §View-time
+      ;; exceptions).
+      (project-render-throw->ring-response frame-id t opts))))
