@@ -571,6 +571,70 @@
     (is (= :live (:mode r)))))
 
 ;; -------------------------------------------------------------------------
+;; (8b) Self-noise filter agreement (rf2-qlvq8)
+;; -------------------------------------------------------------------------
+;;
+;; The event-side `spine/db->cascades` walk (head-id / step / focus
+;; resolution + the machine-inspector scrubber) MUST return the same
+;; filtered set as the reactive `:rf.xray/cascades` sub. Both strip
+;; Xray-internal cascades via `self-noise/xray-internal-cascade?`. The
+;; case the filter exists for: an `:rf.xray/*` event dispatched WITHOUT
+;; a `{:frame :rf/xray}` option lands on `:rf/default` and slips past
+;; the ingest gate, surfacing as a cascade in the raw projection. Before
+;; rf2-qlvq8 the sub stripped it but `db->cascades` did not, so j/k
+;; stepping / click-on-head LIVE detection / composed focus could
+;; resolve a target the user never sees in L2.
+
+(defn- seed-mixed-cascades!
+  "Seed the trace buffer with two cascades on `:rf/default`: a normal
+  host event (`:order/submit`) and a frameless `:rf.xray/*` event
+  (`:rf.xray/select-tab`) that landed on the host frame. The xray-
+  internal one is the projection head (last) — exactly the position
+  that would mis-resolve head-id if it survived the event-side walk."
+  []
+  (let [events [{:id 1 :op-type :rf.event :operation :rf.event/dispatched
+                 :tags {:rf.trace/dispatch-id :c-host
+                        :frame :rf/default
+                        :rf.event/v [:order/submit]}}
+                {:id 2 :op-type :rf.event :operation :rf.event/dispatched
+                 :tags {:rf.trace/dispatch-id :c-xray
+                        :frame :rf/default
+                        :rf.event/v [:rf.xray/select-tab]}}]]
+    (rf/with-frame :rf/xray
+      (rf/dispatch-sync [:rf.xray/sync-trace-buffer (vec events)]))))
+
+(deftest db->cascades-strips-xray-internal-cascade
+  (testing "rf2-qlvq8 — db->cascades applies the self-noise filter so the
+            frameless :rf.xray/* cascade on :rf/default is absent from the
+            event-side walk"
+    (setup-xray-frame!)
+    (seed-mixed-cascades!)
+    (let [db        @(frame/app-db-container :rf/xray)
+          cascades  (spine/db->cascades db)
+          ids       (mapv :dispatch-id cascades)]
+      (is (= [:c-host] ids)
+          ":c-xray (an :rf.xray/* cascade) stripped from db->cascades")
+      (is (= :c-host (spine/head-dispatch-id cascades))
+          "head-id resolves to the host cascade, not the xray-internal one")
+      (is (= :c-host (spine/focusable-head-id cascades))
+          "focusable-head-id ignores the xray-internal cascade"))))
+
+(deftest db->cascades-agrees-with-reactive-cascades-sub
+  (testing "rf2-qlvq8 — the event-side walk and the reactive sub return the
+            SAME filtered set for the frameless :rf.xray/*-on-:rf/default
+            case the filter handles"
+    (setup-xray-frame!)
+    (seed-mixed-cascades!)
+    (let [db          @(frame/app-db-container :rf/xray)
+          event-side  (spine/db->cascades db)
+          reactive    (rf/with-frame :rf/xray
+                        @(rf/subscribe [:rf.xray/cascades]))]
+      (is (= event-side reactive)
+          "db->cascades and :rf.xray/cascades agree")
+      (is (= [:c-host] (mapv :dispatch-id reactive))
+          "both omit the xray-internal cascade — sanity that the filter fired"))))
+
+;; -------------------------------------------------------------------------
 ;; (9) Live auto-follow head (rf2-s0s5x Phase A)
 ;; -------------------------------------------------------------------------
 ;;

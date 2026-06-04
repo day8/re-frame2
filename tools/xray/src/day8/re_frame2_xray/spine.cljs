@@ -57,6 +57,7 @@
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.panels.common-helpers :as common]
+            [day8.re-frame2-xray.self-noise :as self-noise]
             [day8.re-frame2-xray.trace-collector :as trace-collector]))
 
 ;; ---- pure helpers --------------------------------------------------------
@@ -708,10 +709,23 @@
   Public so cross-panel spine-shim events (e.g. `:rf.xray/select-
   dispatch-id`, relocated from event_detail.cljs to registry.cljs in
   rf2-5gl5r) can reuse the same projection when they need head-id
-  (rf2-xzzih)."
+  (rf2-xzzih).
+
+  Applies the `self-noise/xray-internal-cascade?` filter (rf2-qlvq8) so
+  this event-side walk matches the reactive `:rf.xray/cascades` sub
+  (registry.cljs) and the first-mount seed (mount.cljs), both of which
+  already strip Xray-internal cascades. Without it, the head-id / step /
+  focus / machine-inspector walks could resolve a target to an
+  `:rf.xray/*` cascade dispatched WITHOUT a `{:frame :rf/xray}` option
+  (palette quick-actions, headless helpers) that landed on `:rf/default`
+  and slipped past the ingest gate — a cascade the user never sees in
+  the L2 list. This is the single projection helper every spine event
+  handler shares, so filtering here keeps the event side and the view
+  side reading the same set."
   [db]
   (let [buffer (or (get db :trace-buffer) (trace-collector/snapshot-from-rings))]
-    (projection/group-cascades buffer)))
+    (into [] (remove self-noise/xray-internal-cascade?)
+          (projection/group-cascades buffer))))
 
 (defn- db->epoch-history
   "Read the Xray app-db's `:epoch-history` slot — the per-frame
