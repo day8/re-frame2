@@ -34,8 +34,8 @@ Audience column: **user** = an event apps dispatch or handle directly; **runtime
 | Event | Audience | Purpose | Source |
 |---|---|---|---|
 | `:rf.route/navigate` | user | Programmatic navigation. | [§Navigation is an event](#navigation-is-an-event) |
-| `:rf.route/handle-url-change` | user | Default handler for URL change (popstate / initial load / SSR). | [§URL changes are events](#url-changes-are-events) |
-| `:rf.route/transitioned` | user | Fired by the runtime on every URL transition. | [§Standard runtime events](#standard-runtime-events) |
+| `:rf.route/handle-url-change` | user | URL-change handler for popstate / initial load / SSR (default scroll `:restore`). Co-equal with `:rf.route/transitioned`. | [§URL changes are events](#url-changes-are-events) |
+| `:rf.route/transitioned` | user | URL-change handler for forward navigation (link click / programmatic push; default scroll `:top`). Co-equal with `:rf.route/handle-url-change`. | [§Standard runtime events](#standard-runtime-events) |
 | `:rf/url-requested` | user | Fired by `route-link` and equivalent. Decides internal vs external navigation. | [§Standard runtime events](#standard-runtime-events) |
 | `:rf.route/navigation-blocked` | user | Dispatched by the runtime when a `:can-leave` guard rejects. | [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol) |
 | `:rf.route/continue` | user | User-dispatched: confirm pending navigation. | [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol) |
@@ -91,7 +91,7 @@ Defined per the [009 Error contract](009-Instrumentation.md#error-contract):
 - `:rf.route/activated` / `:rf.route/deactivated` — fire on every cross-route navigation commit, in `deactivated → activated` order. Same-id navigation (path/query change with no route-id shift) emits neither. First-ever navigation emits `:rf.route/activated` only (no prior route). Per.
 - `:rf.route.nav-token/allocated` — fresh nav-token cascade begins.
 - `:rf.route.nav-token/stale-suppressed` — async result carrying a now-superseded token.
-- `:rf.route/fragment-changed` — fragment-only URL update (the URL changed only in its `#fragment`; `:on-match` did not re-fire). Distinct from the runtime event `:rf.route/transitioned`, which fires on every URL transition. The op-name says what fires it (only a `#fragment` differed) and disambiguates from the runtime event.
+- `:rf.route/fragment-changed` — fragment-only URL update (the URL changed only in its `#fragment`; `:on-match` did not re-fire). Distinct from the runtime URL-change events `:rf.route/transitioned` / `:rf.route/handle-url-change`, which carry a full route transition. The op-name says what fires it (only a `#fragment` differed) and disambiguates from those runtime events.
 - `:rf.route/navigation-blocked` — `:can-leave` guard rejected a navigation.
 - `:rf.error/can-leave-non-boolean` — `:can-leave` sub returned a non-boolean value; the runtime BLOCKED the navigation. Closed contract; see [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol).
 - `:rf.error/duplicate-url-binding` — second frame attempted `:url-bound? true` while another already owns the URL.
@@ -353,7 +353,12 @@ The route-id form is preferred everywhere it can be used because the route-id is
 
 ### URL changes are events
 
-When the user clicks a link, presses Back/Forward, or arrives via a deep link, the runtime fires the canonical event `:rf.route/transitioned` (the pattern's `onUrlChange` analogue per Elm's Browser.application; see "Standard runtime events" below). The default handler is `:rf.route/handle-url-change`:
+When the URL changes, the runtime fires one of **two co-equal events** (the pattern's `onUrlChange` analogue per Elm's Browser.application; see "Standard runtime events" below). Both write the `:rf/route` slice from the URL and run identical match/validation/fragment/`:on-match` logic; they differ only in *who fires them* and the *default scroll strategy*:
+
+- **`:rf.route/transitioned`** — forward navigation (a link click or programmatic `:rf.route/navigate` that pushed a new URL). Default scroll strategy `:top`.
+- **`:rf.route/handle-url-change`** — popstate (Back/Forward), initial page load, and the server-side request URL during SSR. Default scroll strategy `:restore` (the saved position for the URL being returned to). On SSR the runtime threads the `:frame` id through so per-frame error projections can attribute a `:no-such-handler` trace.
+
+Neither delegates to the other — they are sibling handlers over one shared slice-rewrite. The handler below is `:rf.route/handle-url-change`; `:rf.route/transitioned`'s handler is identical except for the `:top` default scroll and the SSR `:frame` threading:
 
 ```clojure
 (rf/reg-event-fx :rf.route/handle-url-change
@@ -629,7 +634,7 @@ When a route is loading and the user navigates away before the load completes, t
 
 ### Mechanism
 
-1. **Allocation.** When `:rf.route/transitioned` fires (URL-driven) or `:rf.route/navigate` runs (programmatic), the default handler allocates a fresh `:nav-token` (a gensym or monotonic counter) and writes it to the `:rf/route` slice alongside the new id/params/query/fragment.
+1. **Allocation.** When a URL-change handler runs — `:rf.route/transitioned` (forward nav, also the event `:rf.route/navigate` pushes through) or `:rf.route/handle-url-change` (popstate / initial / SSR) — it allocates a fresh `:nav-token` (a gensym or monotonic counter) and writes it to the `:rf/route` slice alongside the new id/params/query/fragment.
 2. **Capture.** An `:on-match`-reached handler declares the framework-supplied `:nav-token` cofx via `(inject-cofx :nav-token)`; the cofx injects the current token (read from `[:rf/runtime :routing :current :nav-token]`) under the key `:nav-token` in the handler's coeffects, so the handler captures the epoch live at scheduling time:
 
    ```clojure
@@ -691,14 +696,15 @@ Fixture `route-stale-nav-token-suppression.edn` exercises the canonical race: lo
 
 ## Standard runtime events
 
-Two named events are part of the routing contract. Implementations register them; user code dispatches them; tests can fire them directly.
+Three named events are part of the routing contract. Implementations register a handler for each; user code dispatches them; tests can fire them directly. Users can override any of them by re-registering.
 
-| Event | When it fires | Default handler |
+| Event | When it fires | Default behaviour |
 |---|---|---|
-| `:rf.route/transitioned` | The browser URL has changed (popstate, initial load, server-side request URL). The runtime dispatches this on every URL transition. | The default handler (the runtime registers it) is `:rf.route/handle-url-change`. Users can override by re-registering. |
-| `:rf/url-requested` | The user clicked a link the framework owns (a `route-link` view, or any `<a>` whose `href` resolved to a registered route). The handler decides: navigate internally (dispatch `:rf.route/navigate`) or let the browser follow the link externally (dispatch `:rf.nav/external` or do nothing). | The default handler classifies internal vs external by feeding the URL to `match-url`; matched URLs become `:rf.route/navigate`, unmatched become external. Users can override to enforce per-frame policy (auth-guard, modifier-key handling, etc.). |
+| `:rf.route/transitioned` | Forward navigation: a `route-link` click or a programmatic `:rf.route/navigate` that pushed a new URL onto history. | Rewrites the `:rf/route` slice from the URL (match → validate → fragment-only short-circuit → full rewrite + `:on-match` drain). Default scroll strategy `:top`. |
+| `:rf.route/handle-url-change` | Popstate (Back/Forward), initial page load, and the server-side request URL during SSR. | The **same** slice-rewrite logic as `:rf.route/transitioned` — they are co-equal sibling handlers, not a delegate pair. Differs only in the default scroll strategy `:restore` (the saved position for the URL being returned to) and in threading the `:frame` id so SSR error projections can attribute a `:no-such-handler` trace per-frame. |
+| `:rf/url-requested` | The user clicked a link the framework owns (a `route-link` view, or any `<a>` whose `href` resolved to a registered route). The handler decides: navigate internally (dispatch `:rf.route/navigate`) or let the browser follow the link externally (dispatch `:rf.nav/external` or do nothing). | Classifies internal vs external by feeding the URL to `match-url`; matched URLs become `:rf.route/navigate`, unmatched become external. Users can override to enforce per-frame policy (auth-guard, modifier-key handling, etc.). |
 
-These events are the **decision points** for navigation policy. The policy is enumerable and testable: dispatch `[:rf/url-requested {:url "/cart"}]` from a test, observe the resulting `:rf.route/navigate`, no DOM simulation required.
+`:rf/url-requested` is the **decision point** for navigation policy. The policy is enumerable and testable: dispatch `[:rf/url-requested {:url "/cart"}]` from a test, observe the resulting `:rf.route/navigate`, no DOM simulation required.
 
 `route-link` ships in the routing artefact as a registered view at id `:route/link`. The body:
 
@@ -866,7 +872,7 @@ The route slice (`[:rf/runtime :routing :current]`) carries `:fragment` (string 
  ...}
 ```
 
-Read it via the `:rf.route/fragment` sub. Fragment is **populated by `match-url` from the URL**, written to the slice by `:rf.route/handle-url-change`, and emitted by `route-url` when the 4-arity form is used (or when `:rf.route/navigate` is called with a `:fragment` opt or target-map key).
+Read it via the `:rf.route/fragment` sub. Fragment is **populated by `match-url` from the URL**, written to the slice by the URL-change handlers (`:rf.route/transitioned` / `:rf.route/handle-url-change`), and emitted by `route-url` when the 4-arity form is used (or when `:rf.route/navigate` is called with a `:fragment` opt or target-map key).
 
 ### Fragment-only changes do NOT re-fire `:on-match`
 
@@ -879,7 +885,7 @@ When the new URL differs from the current URL **only** in its fragment (same `:r
 
 The reason: `:on-match` exists to re-load route-scoped data when path or query changes. A fragment-only change does not change loaded data — only the in-page anchor target. Re-firing the loaders would re-fetch unchanged data on every `#section` jump, which is exactly the kind of thrash users complain about.
 
-Views that need to react to fragment changes subscribe to `:rf.route/fragment` (or to `:rf/route` for the whole slice). The `:rf.route/transitioned` event still fires for fragment-only changes — the surface for "the URL is now different" — but `:rf.route/handle-url-change`'s default behaviour distinguishes the cases.
+Views that need to react to fragment changes subscribe to `:rf.route/fragment` (or to `:rf/route` for the whole slice). Whichever URL-change event fires — `:rf.route/transitioned` on forward nav, `:rf.route/handle-url-change` on popstate — the shared slice-rewrite logic distinguishes a fragment-only change from a full transition, so both honour the no-re-fire rule above.
 
 ### `:rf.nav/scroll` integration
 

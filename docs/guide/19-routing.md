@@ -140,14 +140,14 @@ State first, URL second, data-loading third. The ordering is the contract: if th
 
 ## URL changes are also events
 
-The flip side of "navigation is an event" is that *every* way the URL can change comes back in as an event too. A link click, a back/forward press, an inbound deep link — the runtime fires `:rf.route/transitioned`, the canonical "the URL is now different" event, whose default handler `:rf.route/handle-url-change`:
+The flip side of "navigation is an event" is that *every* way the URL can change comes back in as an event too — and there are two of them, one per direction the URL moves. A link click or a programmatic push fires `:rf.route/transitioned`; a back/forward press, an initial page load, or the SSR request URL fires `:rf.route/handle-url-change`. They're **co-equal siblings**, not a delegate pair: each runs the identical slice-rewrite, and they differ only in their default scroll strategy — `:top` for forward nav, `:restore` for popstate (so Back returns you to where you were). Both:
 
-1. Calls `match-url` to resolve the URL against the registered route table.
-2. Sets the route slice at `[:rf/runtime :routing :current]` with the matched id, params, query, fragment, transition, and a fresh `:nav-token`.
-3. Dispatches the matched route's `:on-match` events.
+1. Call `match-url` to resolve the URL against the registered route table.
+2. Set the route slice at `[:rf/runtime :routing :current]` with the matched id, params, query, fragment, transition, and a fresh `:nav-token`.
+3. Dispatch the matched route's `:on-match` events.
 
 ```clojure
-;; The same handler runs for popstate, initial load, and SSR alike.
+;; The handle-url-change handler runs for popstate, initial load, and SSR alike.
 (rf/reg-event-fx :rf.route/handle-url-change ...)
 ```
 

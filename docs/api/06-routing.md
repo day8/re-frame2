@@ -105,8 +105,8 @@ These are the standard events the runtime dispatches (or you dispatch) around ro
 | Event | Notes | Spec |
 |---|---|---|
 | `:rf.route/navigate` | Navigate to a registered route. Args: `{:to :route-id :params {...} :query {...}}`. | 012 |
-| `:rf.route/handle-url-change` | Default handler for `:rf.route/transitioned`. You'd override this if you want custom transition handling. | 012 |
-| `:rf.route/transitioned` | The browser URL changed (popstate, pushState, etc.). The runtime dispatches this; you read it. | 012 |
+| `:rf.route/handle-url-change` | URL-change handler for popstate / initial load / SSR (default scroll `:restore`). Co-equal sibling of `:rf.route/transitioned` — same slice-rewrite logic, not a delegate. Override for custom URL-change handling. | 012 |
+| `:rf.route/transitioned` | URL-change handler for forward navigation — a link click or programmatic push (default scroll `:top`). The runtime dispatches this; you read it. | 012 |
 | `:rf/url-requested` | The user clicked a framework-owned link. `route-link` synthesises this event; you usually let the default handler take it. | 012 |
 | `:rf.route/navigation-blocked` | A `:can-leave` guard rejected a navigation. The pending nav slot in `app-db` carries the rejected navigation. | 012 |
 | `:rf.route/continue` | User-dispatched event proceeding a blocked navigation — "yes, leave the page." | 012 |
