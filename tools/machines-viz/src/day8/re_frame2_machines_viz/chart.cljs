@@ -958,7 +958,43 @@
                                 (js/requestAnimationFrame
                                   (fn [_] (invoke-fit-view! instance opts)))))
                             ;; Test / Node fallback — fire immediately.
-                            (invoke-fit-view! instance opts))))]
+                            (invoke-fit-view! instance opts))))
+        ;; rf2-dnmbs — per-render graph-projection + JS-marshalling cache.
+        ;;
+        ;; `projection/xyflow-graph` (the parsed→xyflow node/edge
+        ;; projector) AND the deep `clj->js` of its node/edge arrays both
+        ;; used to run on EVERY MachineChart render — including renders
+        ;; that change nothing structural (a host `:tick` bump driving an
+        ;; after-ring or highlight flicker up to ~60Hz, a `:fit-signal`
+        ;; bump, a parent re-render). The ELK relayout is correctly gated;
+        ;; this JS marshalling was the OTHER per-render cost and it was
+        ;; ungated — landing on the animation hot path.
+        ;;
+        ;; The cache holds the LAST projected+converted result keyed on the
+        ;; vector of inputs that actually change it. A render whose key
+        ;; matches the stored key reuses the cached `clj->js`-ed `#js`
+        ;; node/edge objects (xyflow receives the SAME object identity, so
+        ;; it skips its own diff too); a render that touches a real input
+        ;; (a highlight change, an ELK settle delivering new positions, a
+        ;; new definition, a density/theme switch) recomputes once and
+        ;; restores. Closure-held in the Form-2 outer scope, so it is
+        ;; per-chart-instance and disposed with the component. The shape is
+        ;; `{:key <input-vec> :js-nodes #js[…] :js-edges #js[…]}`.
+        graph-cache   (atom nil)
+        project+convert!
+        (fn [cache-key project-fn]
+          ;; `project-fn` is a thunk that returns `{:nodes :edges}` (the
+          ;; pure projection). We only call it — and re-`clj->js` — on a
+          ;; cache MISS; a hit returns the stored JS arrays untouched.
+          (let [cached @graph-cache]
+            (if (and cached (= (:key cached) cache-key))
+              cached
+              (let [{:keys [nodes edges]} (project-fn)
+                    fresh {:key      cache-key
+                           :js-nodes (clj->js nodes)
+                           :js-edges (clj->js edges)}]
+                (reset! graph-cache fresh)
+                fresh))))]
     (fn [{:keys [machine-id definition current-state from-highlight to-highlight
                  fired-edge-ids
                  sim? on-state-click on-edge-click read-only?
@@ -969,6 +1005,7 @@
                  fit-signal
                  testid]
           :or   {direction         :tb
+                 density           :regular
                  theme             :dark
                  height            "100%"
                  show-minimap?     false
@@ -1138,7 +1175,11 @@
           ;; node/edge `:data`; the resolved density name surfaces on
           ;; the root as `data-density`.
           (let [chart-vc          (vc/chart-for-density density)
-                density-name      (name (or density :regular))
+                ;; `:density` defaults to `:regular` at the destructure
+                ;; (the render `:or` map), so it is never nil here —
+                ;; `(name density)` is total without the `(or … :regular)`
+                ;; guard.
+                density-name      (name density)
                 ;; rf2-az6e2 — resolve the `:theme` prop to its palette
                 ;; + the chart-semantic token map ONCE per render
                 ;; (independent of `:density`). The token map threads
@@ -1163,8 +1204,27 @@
                 edge-callback     (when-not read-only? on-edge-click)
                 {:keys [positions edge-points edge-labels layout-error]}
                 @layout-state
-                {:keys [nodes edges]}
-                (projection/xyflow-graph parsed
+                fired-edge-id-set (set fired-edge-ids)
+                ;; rf2-dnmbs — memoise the projection + JS marshalling
+                ;; (`xyflow-graph` then `clj->js`) on the inputs that
+                ;; actually change the projected graph. A tick-only /
+                ;; fit-signal-only / parent re-render hits the cache and
+                ;; reuses the converted `#js` arrays; a highlight, an ELK
+                ;; settle (new positions / routes), a new definition, a
+                ;; density/theme switch, or a callback change busts it.
+                ;; `chart-vc` / `ct` are pure functions of `density` /
+                ;; `theme`, so the cheaper keywords stand in for them in
+                ;; the key. The resolved (read-only-gated) callbacks are
+                ;; keyed directly so a changed handler identity rebuilds.
+                cache-key  [parsed positions edge-points edge-labels
+                            highlight-ids from-highlight-id to-highlight-id
+                            fired-edge-id-set sim? callback edge-callback
+                            density theme]
+                {:keys [js-nodes js-edges]}
+                (project+convert!
+                  cache-key
+                  (fn []
+                    (projection/xyflow-graph parsed
                               positions
                               {:highlight-ids     highlight-ids
                                :from-highlight-id from-highlight-id
@@ -1185,13 +1245,13 @@
                                ;; rf2-qeemm (G3) — the fired-this-epoch
                                ;; edge-id set; the projector marks each
                                ;; matching edge :fired. nil → #{} default.
-                               :fired-edge-ids    (set fired-edge-ids)
+                               :fired-edge-ids    fired-edge-id-set
                                :chart             chart-vc
                                ;; rf2-az6e2 — the resolved chart-semantic
                                ;; token map for the active theme; the
                                ;; projector threads it onto every node/edge
                                ;; `:data {:palette}`.
-                               :palette           ct})
+                               :palette           ct})))
                 aria-label (str "State machine"
                                 (when machine-id
                                   (str ": " (name machine-id)))
@@ -1221,7 +1281,7 @@
                    ;; parser→projector→DOM chain end to end and catch
                    ;; silent drops (like the rf2-shv82 compound-endpoint
                    ;; bug) at any layer.
-                   :data-edge-count-projected (str (count edges))
+                   :data-edge-count-projected (str (alength js-edges))
                    ;; rf2-8d7w1 — stash the export/share-relevant chart
                    ;; state on the root DOM node as a JS property so the
                    ;; `export` namespace can derive a share-URL / alt-text
@@ -1299,8 +1359,13 @@
              ;; glow continues to work without an external stylesheet.
              [:style {:dangerouslySetInnerHTML {:__html chart-stylesheet}}]
              [:> ReactFlow
-              {:nodes               (clj->js nodes)
-               :edges               (clj->js edges)
+              ;; rf2-dnmbs — `js-nodes` / `js-edges` are the memoised
+              ;; `clj->js` results from `project+convert!`; a tick-only /
+              ;; overlay-only re-render reuses the SAME `#js` arrays so the
+              ;; deep marshalling is skipped on the 60Hz hot path (and
+              ;; xyflow sees stable object identity, skipping its own diff).
+              {:nodes               js-nodes
+               :edges               js-edges
                :nodeTypes           node-types-memo
                :edgeTypes           edge-types-memo
                :nodesDraggable      false
