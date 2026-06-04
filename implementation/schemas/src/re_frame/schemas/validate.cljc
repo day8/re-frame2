@@ -49,13 +49,11 @@
 
   Per Spec 010 §`:sensitive?` — privacy in schema-validation error
   traces. The emit-sites redact the failing value before
-  stamping a trace event when either:
-    1. The schema slot at the failing path (or a containing slot)
-       carries `:sensitive? true` in its Malli props.
-    2. The surrounding registration metadata (handler-meta / cofx-meta /
-       sub-meta / fx-meta) carries `:sensitive? true` — applies to
-       every validation failure in that handler's scope as a coarse
-       fallback.
+  stamping a trace event when the schema slot at the failing path
+  (or a containing slot) carries `:sensitive? true` in its Malli
+  props. Sensitivity is path-marked at the schema slot only — the
+  removed handler-meta `:sensitive?` registration-metadata fallback
+  no longer applies (see the NOTE below).
   The substitution sentinel is `:rf/redacted` (the framework-reserved
   keyword per Spec 009 §Privacy). The trace event's `:tags`
   map is stamped with `:sensitive? true` so consumers can route on it
