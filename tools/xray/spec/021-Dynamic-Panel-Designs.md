@@ -2901,8 +2901,10 @@ resolves to the schema's source-coord, NOT the handler's:
 
 **Expected / got decomposition row.** When the row's `:explain`
 matches the canonical Malli shape (`{:errors [{:schema … :value …}
-…] :value <root>}`), `decode-malli-explain` extracts a tight
-two-line summary that renders ABOVE the humanized map:
+…] :value <root>}`), the projection's `decode-malli-explain` extracts
+a tight two-line summary and stamps it on the row's `:decoded` slot;
+the view reads that projected field and renders it ABOVE the humanized
+map:
 
 ```
 expected: [:map [:user :string]]

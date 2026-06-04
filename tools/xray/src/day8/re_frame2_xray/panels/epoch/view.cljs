@@ -4987,34 +4987,12 @@
                     "See " link " for the new shape."]
        [:<> "Schema violation. " link " for details."])]))
 
-(defn decode-malli-explain
-  "Decompose a Malli `explain` map into the at-a-glance summary the
-  bead body's §SCHEMA VIOLATION section asks for (rf2-zn6u5).
-
-  Returns `{:expected <schema-form> :got <value> :more-errors <int>}`
-  when `explain` carries the canonical Malli shape — `{:errors [{...}
-  ...] :value <root>}`. Returns `nil` otherwise (non-Malli validators,
-  pre-rf2-2ek7t framework, malformed input) so the caller can drop
-  the decomposition row cleanly.
-
-  - `:expected` reads the FIRST error's `:schema` slot (the schema
-    form that failed at the deepest path Malli reached).
-  - `:got` reads the first error's `:value` when present; falls back
-    to the explain map's root `:value`.
-  - `:more-errors` is `(count errors) - 1` so the call-site can paint
-    a `(+N more)` chip when more than one error rode in.
-
-  Pure data; JVM-testable."
-  [explain]
-  (when (map? explain)
-    (let [errors (:errors explain)]
-      (when (and (sequential? errors) (seq errors))
-        (let [first-err (first errors)]
-          {:expected    (:schema first-err)
-           :got         (if (contains? first-err :value)
-                          (:value first-err)
-                          (:value explain))
-           :more-errors (max 0 (dec (count errors)))})))))
+;; rf2-plev0 — `decode-malli-explain` (the pure explain-map →
+;; {:expected :got :more-errors} transform) moved to the projection
+;; layer (`projection.cljc`, beside its sibling `schema-violation-row`).
+;; The projection now stamps the decoded summary onto each violation
+;; row's `:decoded` slot; `violation-block` below reads that projected
+;; field rather than computing the transform in the view.
 
 (defn violation-block
   "Render one schema-violation sub-block (rf2-2ek7t redesign,
@@ -5038,7 +5016,7 @@
   value, separate handler + schema 'open' buttons) all retired —
   subsumed by the prose + humanized explain."
   [step-key idx {:keys [where failing-id path rollback? recovery
-                        explain explain-humanized kind sensitive?]
+                        explain explain-humanized kind sensitive? decoded]
                  :as   _row}]
   (let [recovery-label  (violation-recovery-label where rollback? recovery)
         ;; The schema source-coord resolution varies by :where. For
@@ -5057,7 +5035,10 @@
                             (when failing-id
                               (violation-kind-coord :schema failing-id)))
         humanized-shown (or explain-humanized explain)
-        decoded         (decode-malli-explain explain)
+        ;; rf2-plev0 — `:decoded` (the expected/got/+N-more summary) is
+        ;; computed in the projection layer (`schema-violation-row`) and
+        ;; rides on the row; the view consumes it rather than running the
+        ;; decode itself.
         testid-base     (str "rf-xray-epoch-violation-"
                              (name (or step-key :unknown)) "-" idx)]
     [:div {:key (str "violation-" step-key "-" idx)
@@ -5080,14 +5061,16 @@
          recovery-label])]
      ;; 2. Prose sentence with inline schema link
      (violation-prose where schema-coord testid-base)
-     ;; 3. Expected / Got decomposition (rf2-zn6u5) — when the row's
-     ;; `:explain` carries the canonical Malli shape, surface the
-     ;; first error's `:schema` (expected) + `:value` (got) as
-     ;; programmer-friendly summary lines ABOVE the full humanized
-     ;; explain map. Multi-error explain maps gain a `(+N more)` chip
-     ;; so the operator sees the first-error-prominent summary the
-     ;; rf2-xgeag bead body designed. Drops out cleanly when
-     ;; `decode-malli-explain` returns nil (non-Malli validator).
+     ;; 3. Expected / Got decomposition (rf2-zn6u5) — the projection's
+     ;; `schema-violation-row` decoded the row's `:explain` (canonical
+     ;; Malli shape) into `:decoded {:expected :got :more-errors}` and
+     ;; stamped it on the row (rf2-plev0). Surface the first error's
+     ;; `:schema` (expected) + `:value` (got) as programmer-friendly
+     ;; summary lines ABOVE the full humanized explain map. Multi-error
+     ;; explain maps gain a `(+N more)` chip so the operator sees the
+     ;; first-error-prominent summary the rf2-xgeag bead body designed.
+     ;; Drops out cleanly when `:decoded` is absent (non-Malli validator —
+     ;; the projection's `decode-malli-explain` returned nil).
      (when decoded
        [:div {:data-testid (str testid-base "-decoded")
               :style schema-violation-explain-body-style}

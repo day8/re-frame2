@@ -458,16 +458,23 @@
   `:app-db / :cofx / :sub-return / :fx-args`). Drives the SCHEMA
   VIOLATIONS step.
 
-  4-arg form omits the rollback flag; 5-arg form stamps it."
+  4-arg form omits the rollback flag; 5-arg form stamps it; 6-arg form
+  additionally carries a Malli `:explain` map (rf2-plev0 — the
+  projection's `schema-violation-row` decodes it into the `:decoded`
+  expected/got summary, mirroring the substrate emit shape that stamps
+  `:explain`)."
   ([where failing-id path value]
    (schema-violation-ev where failing-id path value nil))
   ([where failing-id path value rollback?]
+   (schema-violation-ev where failing-id path value rollback? nil))
+  ([where failing-id path value rollback? explain]
    (ev :error :rf.error/schema-validation-failure
        (cond-> {:where      where
                 :failing-id failing-id
                 :path       path
                 :value      value}
-         (some? rollback?) (assoc :rollback? rollback?)))))
+         (some? rollback?) (assoc :rollback? rollback?)
+         (some? explain)   (assoc :explain explain)))))
 
 (defn schema-hot-reload-ev
   "`:rf.schema/violation` trace (rf2-17vxj) — the hot-reload drift
