@@ -293,7 +293,15 @@
         (is (= :test/main (get-in warn [:tags :frame]))
             ":frame tag carries the offending frame-id")
         (is (string? (get-in warn [:tags :ex-msg]))
-            ":ex-msg tag carries the exception message string"))
+            ":ex-msg tag carries the exception message string")
+        ;; rf2-wmki8.1 — the warning MUST carry :epoch-id (Tool-Pair.md:101)
+        ;; so a tool can correlate the failure to the record that fell back
+        ;; to raw data. The settle-time build-record assigned an :epoch-id;
+        ;; it is the record the fall-back landed under.
+        (is (= (:epoch-id (last-record :test/main))
+               (get-in warn [:tags :epoch-id]))
+            ":epoch-id tag matches the record the redact-fn fell back on
+             (normal settle path)"))
 
       ;; Drain not broken — next cascade records as normal.
       (rf/configure! :epoch-history {:redact-fn nil})
@@ -765,6 +773,47 @@
              attribution path is unchanged; redaction is opt-in)")
         (is (= renotified (last-record :test/main))
             "ring and listener agree on the raw shape")))))
+
+(deftest inv-6-back-fill-throwing-redact-fn-warns-with-epoch-id
+  (testing "rf2-wmki8.1 — a throwing redact-fn on a POST-SETTLE back-fill
+            (non-normal path: a React-deref-timed sub-run back-filled into
+            the most-recently-settled epoch) emits
+            :rf.warning/epoch-redact-fn-exception carrying the BACK-FILL
+            TARGET epoch's :epoch-id (Tool-Pair.md:101). The probe record
+            `compute-redacted-delta` hands `maybe-redact` is shaped
+            `(cond-> record ...)`, so it carries the ring record's
+            :epoch-id — the warning correlates to the record the delta fell
+            back into."
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+
+    ;; Settle a clean cascade first (no redact-fn) so a back-fill target
+    ;; epoch exists, then install a throwing redact-fn for the back-fill.
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+    (rf/dispatch-sync [:inc]  {:frame :test/main})
+    (let [target   (last-record :test/main)
+          warnings (record-warnings!)]
+      (rf/configure! :epoch-history
+                    {:redact-fn (fn [_] (throw (ex-info "back-fill boom" {})))})
+
+      ;; Post-settle reactive recompute → back-fill into `target`, running
+      ;; the throwing redact-fn over the appended delta.
+      (emit-sub-run! :test/main :counter 0 1)
+
+      (let [warn (->> @warnings
+                      (filter #(= :rf.warning/epoch-redact-fn-exception
+                                  (:operation %)))
+                      first)]
+        (is (some? warn)
+            "back-fill redact-fn throw emits the warning")
+        (is (= :test/main (get-in warn [:tags :frame]))
+            ":frame carries the offending frame-id on the back-fill path")
+        (is (= (:epoch-id target) (get-in warn [:tags :epoch-id]))
+            ":epoch-id carries the BACK-FILL TARGET epoch (the record the
+             appended delta fell back into) — not nil")
+        (is (string? (get-in warn [:tags :ex-msg]))
+            ":ex-msg carries the exception message on the back-fill path")))))
 
 ;; ============================================================================
 ;;  Invariant 7 — once-per-slot back-fill redaction; NON-idempotent fns

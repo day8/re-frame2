@@ -471,15 +471,18 @@
 
 ;; ---- 5. trace-events retention cap ----------------------------------------
 
-(deftest retention-cap-default-finite-five
-  (testing "the default :trace-events-keep is the finite default 5 —
-            drive >5 cascades, the oldest records lose :trace-events
-            but keep the structured projections (per rf2-mrsck)"
+(deftest retention-cap-fixture-override-five
+  (testing "rf2-wmki8 — the TEST FIXTURE forces :trace-events-keep 5 (a
+            keep<depth OVERRIDE, NOT the shipped default of 50) so the
+            elision path is reachable cheaply — drive >5 cascades, the
+            oldest records lose :trace-events but keep the structured
+            projections (per rf2-mrsck)"
     (rf/reg-frame :test/main {})
     (rf/reg-event-db :seed (fn [_ _] {:n 0}))
     (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
 
-    (is (= 5 (:trace-events-keep (epoch/current-config))))
+    (is (= 5 (:trace-events-keep (epoch/current-config)))
+        "fixture OVERRIDE — the shipped runtime default is 50 (= :depth)")
 
     (rf/dispatch-sync [:seed] {:frame :test/main})
     (dotimes [_ 6] (rf/dispatch-sync [:inc] {:frame :test/main}))

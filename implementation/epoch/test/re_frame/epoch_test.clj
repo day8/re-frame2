@@ -3221,11 +3221,36 @@
     (is (nil? (epoch/projected-record nil)))
     (is (nil? (epoch/projected-record :not-a-map)))))
 
-(deftest smoke-trace-events-keep-default-finite
-  (testing "rf2-mrsck — current-config reports the finite default
-            :trace-events-keep 5; the older absent-default behaviour
-            (unbounded) is gone (pre-alpha — no back-compat)"
-    (is (= 5 (:trace-events-keep (epoch/current-config))))))
+(deftest smoke-trace-events-keep-fixture-override
+  (testing "rf2-wmki8 — the TEST FIXTURE forces :trace-events-keep 5 (a
+            keep<depth OVERRIDE so the elision path is reachable with a
+            handful of dispatches), NOT the shipped runtime default. This
+            asserts the fixture's override value, deliberately distinct
+            from the shipped default of 50 (see
+            `shipped-trace-events-keep-default-is-50` for the real
+            default)."
+    (is (= 5 (:trace-events-keep (epoch/current-config)))
+        "fixture OVERRIDE — see reset-runtime; NOT the shipped default")))
+
+(deftest shipped-trace-events-keep-default-is-50
+  (testing "rf2-wmki8 — the SHIPPED runtime default :trace-events-keep is
+            50 (= :depth, so every retained epoch keeps its trace; Mike
+            pair-debug 2026-05-27). Asserted against the source-of-truth
+            private `default-trace-events-keep` var, bypassing the
+            fixture's keep<depth override. Pins the default consistently
+            with docs/api/01-core.md and `re-frame.epoch.state`."
+    (is (= 50 @#'state/default-trace-events-keep)
+        "the source-of-truth default var ships 50")
+    ;; The accessor is wired to fall back to that var when the slot is
+    ;; absent from the live config map (the shape a fresh process / a
+    ;; partial `configure!` leaves). Drive a config WITHOUT the slot and
+    ;; confirm the accessor reports the shipped 50 — proving the var is the
+    ;; live default, not just a declared constant.
+    (reset! @#'state/config {:depth 50 :redact-fn nil})
+    (is (= 50 (state/trace-events-keep))
+        "trace-events-keep accessor falls back to the shipped 50 default")
+    (is (= 50 (:trace-events-keep (epoch/current-config) 50))
+        "current-config's :trace-events-keep resolves to the shipped 50")))
 
 ;; ============================================================================
 ;;  rf2-7i872 — write-boundary liveness race (validate-then-destroy)

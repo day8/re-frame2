@@ -114,9 +114,19 @@
   "Run the installed `:redact-fn` against `record` and return its
   result. nil `record` and nil `redact` are pass-throughs (no
   invocation, no try/catch overhead). A throwing fn emits
-  `:rf.warning/epoch-redact-fn-exception` carrying `:frame` and
-  `:ex-msg`, then falls back to the raw record so the drain itself
-  is not broken.
+  `:rf.warning/epoch-redact-fn-exception` carrying `:frame`,
+  `:epoch-id`, and `:ex-msg`, then falls back to the raw record so
+  the drain itself is not broken.
+
+  Per Tool-Pair §Time-travel §Redaction hook (spec/Tool-Pair.md:101):
+  the warning MUST carry both `:frame` and `:epoch-id` so a tool can
+  correlate the failure to the specific record that fell back to raw
+  data. The assembled record (and the post-settle back-fill probe,
+  which is shaped `(cond-> record ...)`) both carry `:epoch-id`, so
+  the same `(:epoch-id record)` read covers every invocation path:
+  normal settle, `reset-frame-db!`, `:halted-destroy`, and the
+  post-settle back-fill (where `compute-redacted-delta` hands this fn
+  a probe carrying the ring record's `:epoch-id`).
 
   Per Tool-Pair §Time-travel §Redaction hook + Security.md §Epoch
   privacy posture (rf2-wp70d): the fn runs ONCE per assembled record,
@@ -157,9 +167,10 @@
           ;; so Closure DCE elides the warning emit + literals
           ;; under :advanced + goog.DEBUG=false.
           (trace/emit! :warning :rf.warning/epoch-redact-fn-exception
-                       {:frame  (:frame record)
-                        :ex-msg #?(:clj (.getMessage ^Throwable e)
-                                   :cljs (.-message e))})
+                       {:frame    (:frame record)
+                        :epoch-id (:epoch-id record)
+                        :ex-msg   #?(:clj (.getMessage ^Throwable e)
+                                     :cljs (.-message e))})
           record))
       record)
     record))

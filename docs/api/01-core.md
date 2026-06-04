@@ -541,7 +541,7 @@ Process-level data knobs live behind `(rf/configure! <key> <opts>)`. The vocabul
 
 | Key | Opts | Default | Status | What it tunes |
 |---|---|---|---|---|
-| `:epoch-history` | `{:depth N :trace-events-keep N :redact-fn fn}` | `{:depth 50, :redact-fn nil}` | v1 (dev-only) | Per-frame epoch ring depth (the time-travel buffer), trace-event retention cap per record, and an optional redactor invoked once per assembled record so ring and listeners see the same shape. |
+| `:epoch-history` | `{:depth N :trace-events-keep N :redact-fn fn}` | `{:depth 50, :trace-events-keep 50, :redact-fn nil}` | v1 (dev-only) | Per-frame epoch ring depth (the time-travel buffer), trace-event retention cap per record (defaults to `:depth` so each retained epoch keeps its trace), and an optional redactor invoked once per assembled record so ring and listeners see the same shape. |
 | `:trace-buffer` | `{:depth N}` | `{:depth 200}` | v1 (dev-only) | The dev-only trace event ring depth. 0 disables. |
 | `:elision` | `{:rf.size/threshold-bytes N}` | `{:rf.size/threshold-bytes 16384}` | v1 | The size threshold above which `elide-wire-value` substitutes a `:rf.size/large-elided` marker. 0 disables runtime auto-detect (only declared / schema entries elide). See [11 — Instrumentation](11-instrumentation.md). |
 

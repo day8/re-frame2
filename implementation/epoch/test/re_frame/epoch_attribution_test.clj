@@ -325,6 +325,101 @@
           "no listener fan-out for a sub-run with no causing cascade"))))
 
 ;; ===========================================================================
+;; rf2-j1ec6.1 — :rf.epoch/sensitive? rollup recomputed on back-fill
+;; ===========================================================================
+;;
+;; THE CONTRACT (Security.md:109 §Sensitive rollup at the record level): when
+;; any path the record carries — INCLUDING `:trace-events` — overlaps a
+;; sensitive slot, the record carries `:rf.epoch/sensitive? true`. Consumers
+;; (off-box shippers, recorder drop-gates) branch on the boolean rollup the
+;; same way they branch on the per-trace-event `:sensitive?` stamp.
+;;
+;; THE BUG: `build-record` computes the rollup ONCE at settle time from the
+;; settle-time events. A post-settle back-fill of a `:sensitive?`-stamped
+;; trace event (a sensitive reactive recompute riding React-deref timing)
+;; appended a sensitive event to `:trace-events` but left the rollup
+;; stale-false — so a coarse drop-gate consumer would NOT drop a record whose
+;; only sensitive content arrived via back-fill.
+;;
+;; THE FIX (mayor-ruled option a, fail-CLOSED): the back-fill swap OR's the
+;; rollup with the appended event's RAW sensitivity (`state/compute-redacted-
+;; delta` → `splice-redacted-delta`), flipping false→true.
+
+(defn- emit-sensitive-sub-run!
+  "Emit a reactive `:rf.sub/run` at React-DEREF timing carrying the
+  top-level `:sensitive? true` stamp — exactly what a sensitive reactive
+  recompute emits (the `:sensitive?` tag wins in `trace/compute-sensitive?`
+  and is hoisted to the envelope top level). Post-settle (empty buffer, no
+  render-key) so the runtime back-fills it into the most-recently-settled
+  epoch (rf2-wi900 path)."
+  [frame-id sub-id prev-value value]
+  (trace/emit! :rf.sub :rf.sub/run
+               {:rf.sub/id             sub-id
+                :rf.sub/query-v        [sub-id]
+                :frame                 frame-id
+                :sensitive?            true
+                :rf.sub/value-changed? (not= prev-value value)
+                :rf.sub/prev-value     prev-value
+                :rf.sub/value          value
+                :rf.sub/cascade?       false
+                :rf.sub/cause-sub      nil}))
+
+(deftest sensitive-rollup-recomputed-on-back-fill
+  (testing "rf2-j1ec6.1 — a post-settle back-fill of a :sensitive?-stamped
+            sub-run flips the record-level :rf.epoch/sensitive? rollup
+            false→true, keeping Security.md:109 literally true post-back-fill
+            (the rollup considers :trace-events overlap). Pre-fix the rollup
+            stayed stale-false — a coarse drop-gate consumer would not drop
+            a record whose only sensitive content arrived via back-fill."
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+    (rf/dispatch-sync [:inc]  {:frame :test/main})
+
+    (let [epoch (last-epoch :test/main)]
+      ;; PRECONDITION — a non-sensitive cascade settles rollup false.
+      (is (false? (:rf.epoch/sensitive? epoch))
+          "settle-time rollup is false (no sensitive content in the cascade)")
+
+      ;; Post-settle: a sensitive reactive recompute back-fills into this epoch.
+      (emit-sensitive-sub-run! :test/main :secret-sub nil "topsecret")
+
+      (let [r (epoch-by-id :test/main epoch)]
+        ;; The back-filled sub-run is present AND carries the sensitive stamp.
+        (is (contains? (sub-run-ids r) :secret-sub)
+            "the sensitive sub-run was back-filled into the causing cascade")
+        (is (some #(and (= :rf.sub/run (:operation %))
+                        (true? (:sensitive? %)))
+                  (:trace-events r))
+            "the back-filled trace event carries the :sensitive? stamp")
+        ;; THE INVARIANT — the rollup was OR'd true at the back-fill swap.
+        (is (true? (:rf.epoch/sensitive? r))
+            "rf2-j1ec6.1 — back-filled sensitivity flips the record rollup true")))))
+
+(deftest non-sensitive-back-fill-leaves-rollup-false
+  (testing "rf2-j1ec6.1 — a back-fill of a NON-sensitive sub-run does NOT
+            flip the rollup (the OR is fail-CLOSED, not fail-open): a clean
+            cascade with a clean back-fill stays false."
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+    (rf/dispatch-sync [:inc]  {:frame :test/main})
+
+    (let [epoch (last-epoch :test/main)]
+      (is (false? (:rf.epoch/sensitive? epoch)))
+      ;; A plain (non-sensitive) reactive recompute back-fills in.
+      (emit-sub-run! :test/main :plain-sub 0 1)
+      (let [r (epoch-by-id :test/main epoch)]
+        (is (contains? (sub-run-ids r) :plain-sub)
+            "the non-sensitive sub-run was back-filled")
+        (is (false? (:rf.epoch/sensitive? r))
+            "rollup stays false — a non-sensitive back-fill never flips it")))))
+
+;; ===========================================================================
 ;; INVARIANT 2 — :rf.view/rendered / :rf.view/render attributed to its CAUSING
 ;;                cascade, not the commit-time / next epoch (rf2-qs6dl)
 ;; ===========================================================================
