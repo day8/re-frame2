@@ -463,7 +463,6 @@
   ["re-frame.schemas" "validate-sub!"]             {:tier :internal-public :owner "010" :status "v1"}
   ["re-frame.schemas" "validate-with-registered-fn"] {:tier :internal-public :owner "010" :status "v1"}
   ["re-frame.schemas" "explain-with-registered-fn"]  {:tier :internal-public :owner "010" :status "v1"}
-  ["re-frame.schemas" "walk-flagged-schema"]                {:tier :internal-public :owner "015" :status "v1"}
   ["re-frame.schemas" "schema-has-sensitive?"]              {:tier :internal-public :owner "015" :status "v1"}
   ["re-frame.schemas" "schema-sensitive-at?"]               {:tier :internal-public :owner "015" :status "v1"}
   ["re-frame.schemas" "extract-sensitive-paths-from-schema"] {:tier :internal-public :owner "015" :status "v1"}

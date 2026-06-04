@@ -134,8 +134,12 @@
 (def clear-walker-opaque-warned!
   storage/clear-walker-opaque-warned!)
 
-;; Per-slot flag walker (rf2-nwv63 / rf2-kj51z / rf2-oghml).
-(def walk-flagged-schema              walker/walk-flagged-schema)
+;; Per-slot flag walker (rf2-nwv63 / rf2-kj51z / rf2-oghml). The
+;; parameterised `walk-flagged-schema` recursion primitive stays internal
+;; to `re-frame.schemas.walker`; the public surface is the two single-flag
+;; entry points below (the late-bind hooks elision consumes) plus the two
+;; sensitivity predicates — not the raw flag-key-parameterised walker
+;; (rf2-7gclb: dead re-export dropped, no consumer reached it).
 (def extract-large-paths-from-schema  walker/extract-large-paths-from-schema)
 (def extract-sensitive-paths-from-schema walker/extract-sensitive-paths-from-schema)
 (def schema-has-sensitive?            walker/schema-has-sensitive?)

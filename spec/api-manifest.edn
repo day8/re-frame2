@@ -6,7 +6,7 @@
  {:doc
  "GENERATED public-API manifest — do NOT hand-edit the :vars list. Regenerate with: clojure -M -m re-frame.api-manifest.gen (run from implementation/scripts/api-manifest/). The tier/owner/status axes are curated in spec/api-manifest-metadata.edn; existence + kind + facade? are derived from live public vars. See that generator ns for the design.",
  :keystone "rf2-3nbl5.2",
- :var-count 472,
+ :var-count 471,
  :tier-vocab
  [:front-porch
   :advanced
@@ -308,7 +308,6 @@
   {:namespace "re-frame.schemas", :var "validate-sub!", :tier :internal-public, :kind :fn, :owner "010", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.schemas", :var "validate-with-registered-fn", :tier :internal-public, :kind :fn, :owner "010", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.schemas", :var "validator-fn", :tier :internal-public, :kind :var, :owner "010", :status "v1", :facade? false, :runtime-verified? true}
-  {:namespace "re-frame.schemas", :var "walk-flagged-schema", :tier :internal-public, :kind :fn, :owner "015", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ssr", :var "adapter", :tier :internal-public, :kind :var, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ssr", :var "apply-error-projection!", :tier :internal-public, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ssr", :var "clear-request!", :tier :internal-public, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
