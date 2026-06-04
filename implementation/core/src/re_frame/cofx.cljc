@@ -319,12 +319,26 @@
            ;; rf2-ryri7.
            (trace/with-call-site (or captured-cs
                                      (some-> trace/*handler-scope* :call-site))
-             (let [event (interceptor/get-coeffect ctx :event)]
+             (let [event    (interceptor/get-coeffect ctx :event)
+                   ;; rf2-fxlgi — the in-flight cascade's frame, read from
+                   ;; the `:frame` coeffect (same source as the
+                   ;; `:rf.cofx/run` / `:skipped-on-platform` siblings'
+                   ;; `frame-id`). `frame-id` itself is bound in the
+                   ;; cofx-found branch's `let`, out of scope here, so
+                   ;; re-read it locally.
+                   frame-id (interceptor/get-coeffect ctx :frame)]
+               ;; rf2-fxlgi — stamp `:frame` so this dev-only misconfig
+               ;; diagnostic is frame-attributed like its siblings above,
+               ;; and so `re-frame.epoch.capture/capture-event!` (which
+               ;; buffers only frame-tagged traces) surfaces it on the
+               ;; emitting frame's epoch / Xray timeline. Consistency tail
+               ;; of the rf2-7d30s error-emit frame-stamp pass.
                (trace/emit-error! :rf.error/no-such-cofx
                                   (cond-> {:rf.cofx/id        cofx-id
                                            :rf.trace/event-id (when (vector? event) (first event))
                                            :recovery          :no-recovery}
-                                    valued? (assoc :rf.cofx/value value)))
+                                    frame-id (assoc :frame frame-id)
+                                    valued?  (assoc :rf.cofx/value value)))
                ctx))))))))
 
 ;; ---- standard cofx --------------------------------------------------------

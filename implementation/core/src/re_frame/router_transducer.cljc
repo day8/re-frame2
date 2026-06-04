@@ -202,8 +202,7 @@
          true            (assoc :db db-after)
          true            (update :steps conj step)
          (seq fx)        (apply-fx-eager fx)
-         (some? error)   (update :errors conj error)
-         (= step :ok)    identity)))))
+         (some? error)   (update :errors conj error))))))
 
 (defn queued-rf
   "Reducing function: commits eagerly per step (same as `sync-rf` for
