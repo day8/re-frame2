@@ -12,7 +12,7 @@ This doc is one of eleven per-namespace contracts indexed from [`README.md`](REA
 - The cross-MCP fail-closed `sensitive-event?` predicate over a trace-event map.
 - The `strip-sensitive` walker (returns `[kept dropped-count]`).
 - The `scrub-snapshot` walker that strips `:traces` / `:epochs` slices from each per-frame snapshot map.
-- The fail-closed malformed-stamp counter (`malformed-count` / `reset-malformed-count!`) — operator-surface observability for the rf2-ih7g4 fail-closed posture; bumped every time a non-boolean truthy `:sensitive?` stamp arrives and is dropped + logged.
+- The fail-closed malformed-stamp counter (`malformed-count` / `reset-malformed-count!`) — operator-surface observability for the rf2-ih7g4 fail-closed posture; bumped exactly **once per dropped malformed event** (a non-boolean truthy `:sensitive?` stamp). `strip-sensitive` / `scrub-snapshot` classify each event exactly once (single-pass — rf2-el9sw), so the count is a faithful per-event metric rather than a scan-strategy-dependent over-count.
 - The fixed cross-server arg-vocabulary name (`:include-sensitive`) every MCP tool surfacing trace-like data MUST accept.
 
 `sensitive` does NOT own:
@@ -26,6 +26,8 @@ This doc is one of eleven per-namespace contracts indexed from [`README.md`](REA
 ### `sensitive-event?` — predicate
 
 Predicate over a trace-event map. **Fail-closed** (rf2-ih7g4): the literal `true` value drops (the documented spec/009 path), AND any other *truthy non-boolean* stamp also drops — with a stderr / `console.warn` contract-drift warning and a bump of the malformed counter. Only an explicit `false` / `nil` / absent stamp passes. The `:rf/trace-event` schema types `:sensitive?` as a boolean (Spec 009 + Spec-Schemas); a non-boolean stamp is a serialisation-bug *contract violation* that we surface (warn + drop) rather than silently treat as non-sensitive.
+
+**The contract-drift warning is value-free (rf2-el9sw).** Logs are an egress boundary on this privacy surface; a malformed stamp is wire-adjacent, untrusted data, and a serialisation bug could put a secret-bearing string / map / vector in `:sensitive?`. The warning therefore carries ONLY a value-free type tag (`type=String`, `type=Keyword`, …) and a fixed `value=:rf/redacted` sentinel — it MUST NOT `pr-str` the raw stamp. The `malformed-count` counter is the quantitative observability hook; the type tag is the qualitative one; neither carries the payload.
 
 Definition (effectively):
 

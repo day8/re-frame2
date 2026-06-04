@@ -131,12 +131,14 @@
             [kept dropped] (sens/strip-sensitive [ev] false)]
         (is (= [] kept) (str "malformed stamp " (pr-str stamp) " was NOT dropped"))
         (is (= 1 dropped))
-        ;; strip-sensitive scans the event with `some` (fast-path) then
-        ;; `filterv` (drop-path) - each calls `sensitive-event?`, so a single
-        ;; malformed event bumps the counter once per scan. Assert it fired
-        ;; (>= 1), not an exact count tied to the scan strategy.
-        (is (pos? (sens/malformed-count))
-            (str "malformed stamp " (pr-str stamp) " did not bump the counter"))))))
+        ;; rf2-el9sw: `strip-sensitive` now classifies each event EXACTLY
+        ;; ONCE (single-pass), so the malformed counter is a faithful
+        ;; per-event metric. (Pre-fix it ran `sensitive-event?` twice —
+        ;; `some` pre-scan + `filterv` drop-scan — so one event bumped the
+        ;; counter ~2×; the assertion then could only check `(pos? ...)`.)
+        (is (= 1 (sens/malformed-count))
+            (str "malformed stamp " (pr-str stamp)
+                 " must bump the counter exactly once per event"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; PROPERTY 2 - gate ON + opt-in: include? true ships everything verbatim

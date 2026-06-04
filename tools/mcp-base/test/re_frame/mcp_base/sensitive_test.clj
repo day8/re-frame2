@@ -3,7 +3,8 @@
   across the MCP pair (rf2-vw4sq). The predicate and the filter
   must stay byte-identical across re-frame2-pair-mcp and story-mcp
   — these tests pin the contract."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.string]
+            [clojure.test :refer [deftest is testing]]
             [re-frame.mcp-base.sensitive :as sensitive]))
 
 ;; ---------------------------------------------------------------------------
@@ -302,6 +303,105 @@
       "reset returns the new value (zero)")
   (is (zero? (sensitive/malformed-count))
       "reset zeroes the counter for the next test"))
+
+;; ---------------------------------------------------------------------------
+;; rf2-el9sw — the malformed-stamp diagnostic must not LEAK and must not
+;; OVERCOUNT. Logs are an egress boundary on this privacy surface: a
+;; malformed truthy `:sensitive?` stamp is wire-adjacent, untrusted data,
+;; and a serialisation bug could carry a secret in it. The fail-closed
+;; posture drops the event from MCP output; the diagnostic must NOT then
+;; re-leak the value across the log boundary, and the malformed counter
+;; must be a faithful PER-EVENT metric (one bump per dropped malformed
+;; event), not a scan-strategy-dependent over-count. Subsumes rf2-lxm3e
+;; (leak) and rf2-5uqwa (over-count).
+;; ---------------------------------------------------------------------------
+
+(deftest malformed-warning-redacts-raw-stamp-value
+  ;; rf2-el9sw / rf2-lxm3e: the contract-drift warning must carry a
+  ;; value-free type tag + a fixed `:rf/redacted` sentinel — NEVER the
+  ;; raw stamp, which could be a secret-bearing string / map / vector.
+  (sensitive/reset-malformed-count!)
+  (doseq [[stamp leak-needle] [["sk_live_SECRET_TOKEN_abc123" "sk_live_SECRET_TOKEN_abc123"]
+                               [:secret/api-key-VALUE          "api-key-VALUE"]
+                               [{:api_key "AKIA_LEAK"
+                                 :token   "bearer_LEAK"}       "AKIA_LEAK"]
+                               [["leaky-vector-ELEMENT"]       "leaky-vector-ELEMENT"]
+                               [42424242                        "42424242"]]]
+    (let [sw   (java.io.StringWriter.)
+          _    (binding [*err* sw]
+                 (sensitive/sensitive-event? {:operation :rf.event/dispatched
+                                              :sensitive? stamp}))
+          text (str sw)]
+      (is (not (.contains text leak-needle))
+          (str "malformed warning leaked the raw stamp payload for " (pr-str stamp)))
+      (is (.contains text ":rf/redacted")
+          (str "malformed warning must emit the :rf/redacted sentinel for " (pr-str stamp)))
+      (is (.contains text "non-boolean truthy")
+          "warning must still surface the fail-closed contract-drift reason")))
+  (sensitive/reset-malformed-count!))
+
+(deftest strip-sensitive-malformed-count-is-exactly-one-per-event
+  ;; rf2-el9sw / rf2-5uqwa: `sensitive-event?` is side-effecting on the
+  ;; malformed path (bump + log). The OLD `strip-sensitive` ran the
+  ;; predicate twice per event (`some` pre-scan + `filterv` drop-scan),
+  ;; so a single malformed event bumped the counter ~2×. The single-pass
+  ;; classifier fixes this: each event is classified exactly once, so the
+  ;; counter is a faithful per-event metric.
+  (sensitive/reset-malformed-count!)
+  (binding [*err* (java.io.StringWriter.)] ; absorb the warnings
+    (let [evts          [{:id 1 :sensitive? false}
+                         {:id 2 :sensitive? "true"} ; malformed → drop, bump 1
+                         {:id 3}
+                         {:id 4 :sensitive? :yes}    ; malformed → drop, bump 1
+                         {:id 5 :sensitive? true}]   ; well-formed → drop, NO bump
+          [kept dropped] (sensitive/strip-sensitive evts false)]
+      (is (= [{:id 1 :sensitive? false} {:id 3}] kept))
+      (is (= 3 dropped) "all three sensitive events drop")
+      (is (= 2 (sensitive/malformed-count))
+          "exactly one bump per MALFORMED event — not ~2× per scan")))
+  (sensitive/reset-malformed-count!))
+
+(deftest strip-sensitive-malformed-warning-emitted-once-per-event
+  ;; rf2-el9sw / rf2-lxm3e: the over-count bug also doubled the WARNING.
+  ;; One malformed event ⇒ exactly one warning line on stderr through
+  ;; `strip-sensitive` (single-pass classification).
+  (sensitive/reset-malformed-count!)
+  (let [sw (java.io.StringWriter.)]
+    (binding [*err* sw]
+      (sensitive/strip-sensitive [{:id 1 :sensitive? "sk_live_ONCE"}] false))
+    (let [lines (->> (clojure.string/split-lines (str sw))
+                     (filter #(.contains ^String % "non-boolean truthy")))]
+      (is (= 1 (count lines))
+          "exactly one contract-drift warning per malformed event (no double-log)")
+      (is (not (.contains (str sw) "sk_live_ONCE"))
+          "and that one warning still does not leak the raw value")))
+  (sensitive/reset-malformed-count!))
+
+(deftest scrub-snapshot-malformed-count-is-exactly-one-per-event
+  ;; rf2-el9sw / rf2-5uqwa: `scrub-snapshot` delegates each slice to
+  ;; `strip-sensitive`, so the per-event count guarantee must hold
+  ;; through the snapshot scrubber too — one malformed trace event in a
+  ;; `:traces` slice bumps the counter exactly once.
+  (sensitive/reset-malformed-count!)
+  (binding [*err* (java.io.StringWriter.)]
+    (let [snap {:rf/default {:traces [{:id 1 :sensitive? "true"}  ; malformed → 1 bump
+                                      {:id 2}]
+                             :epochs [{:event-id :auth :sensitive? :yes}]}} ; malformed → 1 bump
+          [_ dropped] (sensitive/scrub-snapshot snap false)]
+      (is (= 2 dropped))
+      (is (= 2 (sensitive/malformed-count))
+          "scrub-snapshot bumps the counter exactly once per malformed event")))
+  (sensitive/reset-malformed-count!))
+
+(deftest strip-sensitive-no-drop-preserves-identity
+  ;; rf2-el9sw: the single-pass rewrite must keep the rf2-0q30r fast-path
+  ;; identity guarantee — when nothing drops, return the ORIGINAL vector
+  ;; (no fresh allocation).
+  (let [evts [{:id 1} {:id 2 :sensitive? false} {:id 3}]
+        [kept dropped] (sensitive/strip-sensitive evts false)]
+    (is (identical? evts kept)
+        "no-drop path must return the identical input vector (zero allocation)")
+    (is (zero? dropped))))
 
 (deftest scrub-snapshot-2-arity-delegates-to-strip-sensitive
   ;; The 2-arity form is the default-suppress shape used by story-mcp;
