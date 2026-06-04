@@ -24,6 +24,7 @@
             [re-frame.machines.lifecycle-fx.finalize :as finalize]
             [re-frame.machines.lifecycle-fx.join :as join]
             [re-frame.machines.lifecycle-fx.resolver :as resolver]
+            [re-frame.machines.lifecycle-fx.spawn-error :as spawn-error]
             [re-frame.machines.lifecycle-fx.validation :as validation]
             [re-frame.machines.parallel :as parallel]
             [re-frame.machines.paths :as paths]
@@ -73,9 +74,23 @@
 
 (defn- trace-action-failure!
   "Emit `:rf.error/machine-action-exception` for a `result/fail` Result's
-  `::result/info` map. Returns `{}` so the handler short-circuits."
-  [machine-id event frame-id info reason]
-  (let [ex         (:exception info)
+  `::result/info` map. Returns `{}` so the handler short-circuits.
+
+  Per Spec 005 §Final states §`:on-error` (rf2-5hlsh; XState v5 invoke
+  `onError`): an uncaught child action exception is the SECOND `:on-error`
+  trigger (the control-flow case — formerly observability-only). When the
+  THROWING actor is a `:spawn`-spawned child whose spawning parent declares
+  `:spawn :on-error`, route the failure to the parent's declarative
+  `:on-error` transition via `spawn-error/dispatch-spawn-error!` — additive to
+  (not a replacement for) the trace above, which still fires for every action
+  exception. `ctx` carries the failing actor's `:db` + `:snapshot` (whose
+  `:data` was stamped with `:rf/parent-id` / `:rf/spawn-id` at spawn time);
+  the exception envelope rides as the parent transition's `:event` payload so
+  a guard / action can branch on it. Singletons (no parent) and parents that
+  declare no `:on-error` route nowhere — the trace IS the signal, unchanged."
+  [ctx event reason info]
+  (let [{:keys [machine-id frame-id db snapshot]} ctx
+        ex         (:exception info)
         ex-msg     #?(:clj  (when ex (.getMessage ^Throwable ex))
                       :cljs (when ex (.-message ex)))
         ex-data    (when ex (ex-data ex))
@@ -94,6 +109,24 @@
                         :exception-data    ex-data
                         :reason            reason
                         :recovery          :no-recovery})
+    ;; (rf2-5hlsh) — additive control-flow routing. Read the spawning
+    ;; parent / invoke-id off the child's stamped `:data`; if the parent
+    ;; declares `:spawn :on-error`, dispatch the failure into it. The error
+    ;; payload carries the exception envelope so the parent transition's
+    ;; guard / action can branch on it.
+    (let [child-data (:data snapshot)
+          parent-id  (:rf/parent-id child-data)
+          invoke-id  (:rf/spawn-id child-data)]
+      (when (spawn-error/parent-declares-on-error? db parent-id invoke-id)
+        (spawn-error/dispatch-spawn-error!
+          frame-id parent-id invoke-id
+          {:rf.error/id       :rf.error/machine-action-exception
+           :machine-id        machine-id
+           :action-id         action-ref
+           :event             event
+           :exception-message ex-msg
+           :exception-data    ex-data
+           :reason            reason})))
     {}))
 
 ;; ---- 4-step pipeline (rf2-2zzyg) ------------------------------------------
@@ -541,10 +574,9 @@
           intercepted
           (let [boot-result (maybe-boot ctx)]
             (if (result/fail? boot-result)
-              (trace-action-failure! (:machine-id ctx) [transition/start-marker]
-                                     (:frame-id ctx)
-                                     (result/info boot-result)
-                                     "Machine initial-entry action threw.")
+              (trace-action-failure! ctx [transition/start-marker]
+                                     "Machine initial-entry action threw."
+                                     (result/info boot-result))
               (result/with-ok [post-boot-snap boot-fx] boot-result
                 ;; Per rf2-gl588 — PURE init-kick (the Job-B cut-point,
                 ;; sub-decision (b)): when the routed inner event IS the
@@ -591,10 +623,9 @@
                        :fx (vec boot-fx)}))
                   (let [step-result (run-step ctx post-boot-snap)]
                     (if (result/fail? step-result)
-                      (trace-action-failure! (:machine-id ctx) (:inner-event ctx)
-                                             (:frame-id ctx)
-                                             (result/info step-result)
-                                             "Machine action threw.")
+                      (trace-action-failure! ctx (:inner-event ctx)
+                                             "Machine action threw."
+                                             (result/info step-result))
                       ;; Per rf2-n9f4z: pass the full `boot-result` (fx +
                       ;; bootstrap-entry cascade), not just `boot-fx`, so a
                       ;; same-call bootstrap's entry cascade prepends the

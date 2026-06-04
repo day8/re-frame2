@@ -528,6 +528,13 @@
      transitions out. `:entry` and `:exit` ARE permitted.
    - A non-final state declaring `:output-key` is a registration error
      (`:rf.error/machine-output-key-without-final`).
+   - Per Spec 005 §`:on-error` (rf2-5hlsh): a `:final?` leaf MAY declare
+     `:error? true` — a designated ERROR terminal (re-frame2's spelling of
+     XState v5's error final). A child finishing via an error leaf routes to
+     the spawning parent's `:spawn :on-error` transition instead of
+     `:on-done`. `:error?` on a NON-final state is meaningless and rejected
+     (`:rf.error/machine-error-flag-without-final`), symmetric with
+     `:output-key`.
 
   Reject malformed declarations at registration time."
   [state-key state-node]
@@ -555,7 +562,43 @@
              :rf.error/machine-output-key-without-final
              ":output-key is only meaningful on a :final? state."
              {:state      state-key
-              :output-key (:output-key state-node)}))))
+              :output-key (:output-key state-node)}))
+
+    ;; Non-final state declaring :error? — error per rf2-5hlsh (symmetric
+    ;; with :output-key). `:error?` designates an error TERMINAL; it is
+    ;; meaningless on a non-final state.
+    (contains? state-node :error?)
+    (throw (validation-error
+             :rf.error/machine-error-flag-without-final
+             (str ":error? is only meaningful on a :final? state (it designates "
+                  "an error terminal — see Spec 005 §`:on-error`).")
+             {:state  state-key
+              :error? (:error? state-node)}))))
+
+(defn- validate-spawn-on-error!
+  "Per Spec 005 §Final states §`:on-error` (rf2-5hlsh): a `:spawn`-bearing
+  state's `:spawn :on-error` is an `:on`-shaped transition spec — a keyword
+  target, a vector-path target, a single transition map `{:target :guard
+  :actions}`, or a guarded candidate vector. Reject a malformed `:on-error`
+  shape at registration (`:rf.error/machine-bad-on-error-clause`); the guard /
+  action ref resolution is checked by the top-level pass (alongside `:on` /
+  `:on-done`). Absent `:on-error` is fine (the spawn simply has no failure
+  routing — the trace + escape-hatch remain)."
+  [state-key state-node]
+  (when-let [spawn (:spawn state-node)]
+    (when (contains? spawn :on-error)
+      (let [oe (:on-error spawn)]
+        (when-not (or (keyword? oe)
+                      (map? oe)
+                      (and (vector? oe) (seq oe)))
+          (throw (validation-error
+                   :rf.error/machine-bad-on-error-clause
+                   (str ":spawn :on-error must be an :on-shaped transition spec — "
+                        "a keyword target, a vector-path target, a single "
+                        "transition map {:target :guard :actions}, or a "
+                        "non-empty guarded candidate vector. Got: " (pr-str oe) ".")
+                   {:state    state-key
+                    :on-error oe})))))))
 
 (defn- compound?
   "A state node is compound iff it declares a non-empty `:states` map."
@@ -711,6 +754,7 @@
     (validate-spawn-all! s n)
     (validate-no-spawn-timeout-ms! s n)
     (validate-final-state! s n)
+    (validate-spawn-on-error! s n)
     (validate-compound-initial! s n))
   ;; The self-loop check needs each declaring node's absolute path to
   ;; resolve vector `:target`s, so it drives off the path-aware walker.
@@ -774,6 +818,11 @@
       ;; transition (fired when the compound reaches a `:final?` child); its
       ;; guard / action refs must resolve at registration like any other slot.
       (check-transition! (:on-done state-node) s)
+      ;; Per Spec 005 §Final states §`:on-error` (rf2-5hlsh): a `:spawn`-bearing
+      ;; state's `:spawn :on-error` is an `:on`-shaped transition fired when a
+      ;; spawned child fails; its guard / action refs resolve at registration
+      ;; like `:on-done`. (Shape is checked separately by `validate-spawn-on-error!`.)
+      (check-transition! (get-in state-node [:spawn :on-error]) s)
       (check-action! (:entry state-node) s)
       (check-action! (:exit  state-node) s))
     ;; Per Spec 005 §Transition resolution: the machine root's own `:on`
