@@ -321,28 +321,28 @@ Combinators (`:or`, `:and`, `:maybe`, `:tuple`, `:multi`, `:vector`, `:set`) des
 
 ### `:sensitive?` — privacy in schema-validation error traces
 
-> Cross-reference: see [Security.md §Privacy / secret handling](Security.md#privacy--secret-handling) for the framework-wide pattern-level posture — per-slot schema `:sensitive?` is the canonical path-level privacy declaration; handler metadata `:sensitive?` is the whole-handler escape hatch.
+> Cross-reference: see [Security.md §Privacy / secret handling](Security.md#privacy--secret-handling) for the framework-wide pattern-level posture — per-slot schema `:sensitive?` is the canonical path-level privacy declaration. Sensitivity is path-targeted: it is a property of the data value at a path, not of the handler that touched it. The handler-meta `:sensitive?` coarse fallback that earlier drafts described at validation sites has been removed (per [009 §`:sensitive?` registration metadata key](009-Instrumentation.md#the-sensitive-registration-metadata-key)); the validation site consults the per-slot schema declaration only.
 
 Per [009 §Privacy / sensitive data in traces](009-Instrumentation.md#privacy--sensitive-data-in-traces), the `:sensitive?` flag is the framework's declarative privacy marker. The schema-validation hot path MUST honour it before emitting `:rf.error/schema-validation-failure` trace events — those events carry the **failing value verbatim** by default (Malli's standard behaviour), and a sensitive credential / PII slot whose post-handler `app-db` value fails its schema would leak through the trace surface to every registered listener (including off-box error monitors and pair-tool forwarders).
 
-**Two sources of sensitivity** the validation site MUST consult, in this order (most-specific wins):
+**The source of sensitivity** the validation site MUST consult — sensitivity is path-targeted, so this is the single per-slot source (there is no coarse handler-scope fallback):
 
-1. **Per-slot `:sensitive?` on the failing path's schema.** A slot or container whose Malli props carry `:sensitive? true` declares the slot's value sensitive — parallel to `:large?` (per [§`:large?` — schema-driven size-elision nomination](#large--schema-driven-size-elision-nomination) above). Two structural positions are accepted, exactly as for `:large?`:
+**Per-slot `:sensitive?` on the failing path's schema.** A slot or container whose Malli props carry `:sensitive? true` declares the slot's value sensitive — parallel to `:large?` (per [§`:large?` — schema-driven size-elision nomination](#large--schema-driven-size-elision-nomination) above). Two structural positions are accepted, exactly as for `:large?`:
 
-   ```clojure
-   ;; (a) slot-level — the schema slot's per-slot props
-   [:map [:password {:sensitive? true} :string]]
-   ;; ⇒ [:password] sensitive
+```clojure
+;; (a) slot-level — the schema slot's per-slot props
+[:map [:password {:sensitive? true} :string]]
+;; ⇒ [:password] sensitive
 
-   ;; (b) container-level — the schema's own props when the schema is
-   ;;     registered at the path directly
-   (rf/reg-app-schema [:auth :token] [:string {:sensitive? true}])
-   ;; ⇒ [:auth :token] sensitive
-   ```
+;; (b) container-level — the schema's own props when the schema is
+;;     registered at the path directly
+(rf/reg-app-schema [:auth :token] [:string {:sensitive? true}])
+;; ⇒ [:auth :token] sensitive
+```
 
-2. **Registration-meta `:sensitive?`** on the surrounding `reg-event-*` / `reg-sub` / `reg-cofx`. The handler-meta consulted at validation time (per [009 §`:sensitive?` registration metadata key](009-Instrumentation.md#the-sensitive-registration-metadata-key)) carries `:sensitive? true` for handlers that opted in. Per-step validation sites apply it as a coarse fallback: any failure in a sensitive handler's scope is redacted regardless of per-slot props. The `app-db` validation site reads the per-slot props only (no surrounding handler scope to consult — the `validate-app-schema!` call is keyed by frame, not by a single handler's registration).
+There is no second, handler-scope source. Earlier drafts described a **registration-meta `:sensitive?`** coarse fallback — a `:sensitive? true` on the surrounding `reg-event-*` / `reg-sub` / `reg-cofx` that redacted any failure in the handler's scope regardless of per-slot props. That handler-meta annotation has been removed (per [009 §`:sensitive?` registration metadata key](009-Instrumentation.md#the-sensitive-registration-metadata-key)): sensitivity is a property of the data value at a path, not of the handler that touched it. Every validation site — including the `app-db` site (whose `validate-app-schema!` call is keyed by frame, not by a single handler's registration) — reads the per-slot schema props only.
 
-**Redaction shape.** When either source declares the failing slot sensitive, the trace event MUST:
+**Redaction shape.** When the per-slot schema declares the failing slot sensitive, the trace event MUST:
 
 - Replace `:value` (the failing value) and `:received` (if present) with the framework-reserved sentinel keyword `:rf/redacted` (per [009 §Schema-installed redaction](009-Instrumentation.md#schema-installed-redaction) — same sentinel, same reserved-keyword guarantee).
 - Replace `:explain` with `:rf/redacted` — the Malli explainer output carries the failing value verbatim under `:value` / `:errors[].value` and re-leaks it. Tools that want a structural error description without the value reach for the path (`:tags :path`) and the schema's id (`:tags :schema-id`).
@@ -376,7 +376,7 @@ Path-of-failure (`:tags :path`), failing handler id (`:tags :failing-id`), schem
 
 **Composition with `:large?`** (per [009 §Unified wire-elision surface](009-Instrumentation.md#privacy--sensitive-data-in-traces)). A slot carrying both `:sensitive? true` and `:large? true` redacts on sensitivity — the schema-validation emit site never produces a `:rf.size/large-elided` marker for a sensitive value (the marker itself would leak `:path` / `:bytes` / `:digest`). The validation emit-site mirrors the `rf/elide-wire-value` walker's composition rule.
 
-**Composition with handler metadata.** Independent. Handler metadata `:sensitive? true` stamps the whole handler scope and drives always-on substrate policy; per-slot schema metadata redacts the specific value-bearing validation fields.
+**Composition with the complementary privacy sites.** Independent. The other declaration sites — schema-installed redaction for `rf/path`-scoped handlers and the positional `rf/redact-interceptor` (per [009 §Schema-installed redaction](009-Instrumentation.md#schema-installed-redaction)) — scrub event-payload paths on the event/error trace surface; the per-slot schema metadata described here redacts the specific value-bearing schema-validation fields. (The previously-described handler-meta `:sensitive? true` whole-handler stamp has been removed — sensitivity is path-targeted, not handler-scoped.)
 
 **Production elision.** The redaction lives behind the same `(when interop/debug-enabled? ...)` outer gate as the rest of the validation hot path (per [§Production builds](#production-builds)). `:advanced` + `goog.DEBUG=false` builds DCE the entire validate-emit body — including the `:rf/redacted` substitution — alongside the trace surface. The redaction is moot when there is no trace to redact.
 
