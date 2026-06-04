@@ -47,6 +47,20 @@
   reference one source of truth without a require cycle."
   :rf.machine/start)
 
+(def done-event-id
+  "The reserved inner event-id raised when a compound / parallel node reaches
+  its done configuration — re-frame2's `done.state.<id>` (XState v5 `onDone` /
+  SCXML §3.7). The completed node's declaration path rides as the single arg:
+  `[:rf.machine/done <node-path>]`. Per Conventions.md §The single-root
+  reserved set the id lives under the framework-reserved `:rf.machine/*`
+  family (so an enclosing machine never mistakes it for an unknown USER event
+  — `unhandled-event-no-op?` already exempts the whole `:rf/*` root). Defined
+  here (above the resolution helpers) so `pick-transition` /
+  `pick-done-transition` can special-case it. See §The done-state signal
+  helpers (`compound-done-paths` / `done-raise-fx` / `apply-on-done-action`)
+  below for the full mechanism (rf2-bnjb3 / rf2-zlmz7)."
+  :rf.machine/done)
+
 (defn- chase-ref
   "Follow a keyword reference chain through the machine's named-bindings
   map until it hits a fn (or fails). Tolerates one level of indirection
@@ -701,6 +715,53 @@
         (when wildcard-hit
           (assoc wildcard-hit :rf/via-wildcard? true))))))
 
+(defn- pick-done-transition
+  "Per Spec 005 §Final states §The done-state signal (rf2-bnjb3 / rf2-zlmz7):
+  resolve the synthetic completion event `[:rf.machine/done <node-path>]` —
+  raised when the compound / parallel node at `<node-path>` reached its done
+  configuration — to a transition. Two resolution arms, in priority order:
+
+   1. **`:on-done` on the done node** (the XState `onDone` placement, reading
+      like `:spawn`'s `:on-done`). The `:on-done` value is normalised through
+      the SAME candidate machinery as an `:on` clause (a keyword target,
+      vector-path target, single transition map, or guarded candidate vector)
+      and resolved RELATIVE TO THE DONE NODE'S OWN LEVEL — its `:decl-path` is
+      the done node's path, so a keyword target is a SIBLING of the compound /
+      parallel node (the natural \"sub-flow done → advance the outer flow\"
+      placement). This is the headline spelling.
+   2. **An enclosing explicit `:on {:rf.machine/done …}`** (the lower-level
+      escape hatch). When the done node declares no `:on-done` (or its
+      candidates all guard-fail), fall through to the standard leaf→root `:on`
+      walk on the CURRENT active path so an ancestor handling the reserved
+      event-id explicitly can take it. A guard reads the raised node-path off
+      `:event` (`(= <path> (second event))`) to disambiguate which node is
+      done when several could raise it.
+
+  `done-path` is the node's declaration path (the event's second element).
+  Returns `{:transition t :decl-path p}` or nil (no `:on-done` and no
+  enclosing handler — the done signal is then a benign no-op, exactly as an
+  unhandled reserved-`:rf/*` event)."
+  [machine path event snapshot]
+  (let [[_ done-path] event
+        done-node     (when (vector? done-path) (node-at machine done-path))
+        on-done-cands (when done-node
+                        (normalise-candidates (:on-done done-node)
+                                              :rf.error/machine-bad-on-done-clause))
+        on-done-hit   (when (seq on-done-cands)
+                        (select-passing-candidate machine on-done-cands snapshot event))]
+    (if on-done-hit
+      {:transition on-done-hit :decl-path (vec done-path)}
+      ;; Fall through to the standard leaf→root `:on` walk (an ancestor's
+      ;; explicit `:on {:rf.machine/done …}`), then the root `:on`.
+      (or
+        (path-walk/walk-path-leaf-to-root
+          machine path
+          (fn [prefix n]
+            (when-let [hit (match-on-clause machine n done-event-id event snapshot)]
+              {:transition hit :decl-path prefix})))
+        (when-let [hit (match-on-clause machine machine done-event-id event snapshot)]
+          {:transition hit :decl-path []})))))
+
 (defn- pick-transition
   "Walk path leaf→root looking for a transition that matches event-id and
   whose guard passes. Per Spec 005 §Transition resolution — deepest-wins
@@ -718,11 +779,20 @@
   root is the keyword target's parent level.
 
   Special-cases the synthetic :rf.machine.timer/after-elapsed event by
-  delegating to pick-after-transition."
+  delegating to pick-after-transition, and the synthetic
+  `[:rf.machine/done <node-path>]` completion event (rf2-bnjb3 / rf2-zlmz7)
+  by delegating to `pick-done-transition` (the done node's `:on-done`, then
+  an enclosing explicit `:on {:rf.machine/done …}`)."
   [machine path event snapshot]
   (let [event-id (first event)]
-    (if (= :rf.machine.timer/after-elapsed event-id)
+    (cond
+      (= :rf.machine.timer/after-elapsed event-id)
       (pick-after-transition machine path event snapshot)
+
+      (= done-event-id event-id)
+      (pick-done-transition machine path event snapshot)
+
+      :else
       (or
         ;; Steps 1-5: leaf→root over the active state-path nodes.
         (path-walk/walk-path-leaf-to-root
@@ -1603,13 +1673,21 @@
 
 (defn final-on-leaf?
   "Per Spec 005 §Final states (rf2-gn80): true iff the state at the LEAF
-  of `state` declares `:final? true`. The lifecycle-handler boundary calls
-  this on the POST-transition snapshot to RECOMPUTE finality and, when
-  true, fire `:on-done` + auto-destroy. Finality is a pure recompute from
+  of `state` declares `:final? true`. Finality is a pure recompute from
   the post-transition `:state` — it is NOT stamped onto the snapshot
   (there is no `:rf/finished?` slot; per Spec 005 §Persistence posture the
   pure `machine-transition` surface stays free of runtime-only
   bookkeeping).
+
+  This answers \"is the active leaf final?\" — NOT \"does the whole machine
+  finish?\". Per rf2-bnjb3 / rf2-zlmz7 (the done-state / `:on-done` signal)
+  the two questions diverge: a `:final?` leaf that is a DIRECT CHILD of the
+  machine root is whole-machine finality (auto-destroy / spawning parent's
+  `:on-done`); a `:final?` leaf EMBEDDED inside a compound signals only that
+  the enclosing compound is DONE (an in-machine `done.state.<compound>`
+  raise an enclosing transition can take — the machine keeps running). The
+  lifecycle-handler boundary uses `top-level-final?` (not this fn) to gate
+  whole-machine auto-destroy; this fn is the building block.
 
   Note: parallel-region machines compose finality across regions — the
   parent is `:final?` only when EVERY region's active leaf is `:final?`.
@@ -1619,6 +1697,151 @@
   [machine state]
   (let [node (node-at machine (state-path state))]
     (final-state-node? node)))
+
+(defn top-level-final?
+  "Per Spec 005 §Final states §Embedded vs top-level (rf2-bnjb3 / rf2-zlmz7):
+  true iff `state`'s active leaf is `:final?` AND it is a DIRECT CHILD of the
+  machine root — i.e. a length-1 state path. This is the WHOLE-MACHINE
+  finality the lifecycle-handler boundary gates auto-destroy / spawning-
+  parent `:on-done` on.
+
+  The distinction from `final-on-leaf?` is the D7 reconciliation: entering a
+  top-level `:final?` leaf still terminates the actor (singleton auto-destroy,
+  or child → parent `:on-done`); entering a `:final?` leaf NESTED inside a
+  compound instead signals `done.state.<compound>` (a transitionable in-
+  machine completion event — see `compound-done-paths`) and the machine keeps
+  running. For a region of a parallel machine the region body is the root, so
+  this is computed against the region's in-region path; the parallel parent's
+  whole-machine finality is `all-regions-final?` (in
+  `re-frame.machines.lifecycle-fx.finalize`)."
+  [machine state]
+  (let [path (state-path state)]
+    (and (= 1 (count path))
+         (final-state-node? (node-at machine path)))))
+
+;; ---- done-state / :on-done completion signal (rf2-bnjb3 / rf2-zlmz7) -------
+;;
+;; Per Spec 005 §Final states §The done-state signal. XState v5 `onDone` /
+;; SCXML §3.7 `done.state.<id>`: when a COMPOUND state reaches a `<final>`
+;; child — or, for a `<parallel>`, when EVERY region reaches its final state —
+;; the processor raises `done.state.<id>` INTO the machine. An enclosing
+;; transition (`onDone` on the compound/parallel node, or an ancestor's
+;; `<transition event='done.state.id'>`) can take it, advancing the outer
+;; flow WHILE the machine keeps running — the canonical "do these sub-flows,
+;; then continue" pattern.
+;;
+;; re-frame2 ships this as a first-class transitionable signal (replacing the
+;; former `:raise`-from-the-final-leaf's-`:entry` substitute, which collided
+;; with the `:final?`-auto-destroys rule — the rf2-zlmz7 footgun):
+;;
+;;   - The reserved event-id is `:rf.machine/done`; the completed node's
+;;     declaration PATH rides as the event's single arg —
+;;     `[:rf.machine/done <node-path>]`. This is re-frame2's spelling of
+;;     XState's `done.state.<id>` / SCXML's `done.state.id`: the id is the
+;;     node path, carried as data rather than baked into the event-id keyword
+;;     (so the `:on` table stays keyed on a single reserved keyword, and the
+;;     resolver routes by the path arg — see `pick-done-transition`).
+;;   - The author declares `:on-done` ON the compound / parallel node (the
+;;     XState `onDone` placement, reading exactly like `:spawn`'s `:on-done`).
+;;     Its value is an `:on`-shaped transition spec resolved RELATIVE TO THE
+;;     NODE'S OWN LEVEL (a keyword target is a sibling of the compound/parallel
+;;     node). An ancestor may instead handle the raised event explicitly with
+;;     `:on {:rf.machine/done {:guard <matches the path> …}}` — the lower-level
+;;     escape hatch.
+;;   - The raise is injected by `apply-transition-once` the moment the
+;;     committed configuration makes a node NEWLY done, so it drains through
+;;     the SAME FIFO `:raise` queue + macrostep loop: the `:on-done`
+;;     transition fires in the same macrostep, deterministically, bounded by
+;;     `:raise-depth-limit`, atomically.
+
+(defn- compound-done?
+  "True iff the compound at `compound-path` (a non-empty prefix of the active
+  leaf path `leaf-path`) has its ACTIVE DIRECT CHILD be a `:final?` leaf — the
+  node at depth `(count compound-path)` along `leaf-path`. XState/SCXML: a
+  compound is done when it reaches a `<final>` child."
+  [machine leaf-path compound-path]
+  (let [d           (count compound-path)
+        child-path  (subvec (vec leaf-path) 0 (inc d))]
+    (and (< d (count leaf-path))
+         (final-state-node? (node-at machine child-path)))))
+
+(defn compound-done-paths
+  "Per Spec 005 §Final states §The done-state signal (rf2-zlmz7): given the
+  POST-transition leaf path `leaf-path`, return the vector of EMBEDDED
+  compound declaration-paths that are NEWLY done — each compound whose active
+  direct child is a `:final?` leaf, EXCLUDING the machine root (a `:final?`
+  leaf that is a direct child of the root is whole-machine finality, NOT a
+  compound-done signal — see `top-level-final?` / the D7 reconciliation).
+
+  Only the IMMEDIATE-parent compound of the final leaf can be done (its child
+  is the final leaf); ancestors above it are not done unless THEY too reach a
+  `:final?` direct child, which cannot happen in the same configuration (the
+  active child of a grandparent is a compound, not a `:final?` leaf). So this
+  returns at most one path — the final leaf's parent compound — but is shaped
+  as a vector for symmetry with the parallel done-paths and to stay robust if
+  the grammar later admits compound `:final?` (today rejected at
+  registration).
+
+  Returns `[]` when the leaf is not final, or is final at the root (top-level
+  finality). For a region of a parallel machine `machine` is the region body
+  (the region's root), so a region-local compound's done is detected here and
+  the parallel parent's all-regions done is handled separately."
+  [machine leaf-path]
+  (let [leaf-path (vec leaf-path)
+        n         (count leaf-path)]
+    (if (or (< n 2)
+            (not (final-state-node? (node-at machine leaf-path))))
+      ;; Not final, or final at the root (length-1) — no compound-done signal.
+      []
+      ;; The final leaf is at depth n-1; its parent compound is at depth n-1,
+      ;; path `leaf-path[0..n-2]`. That parent is NOT the root (n >= 2). It is
+      ;; the single newly-done compound.
+      (let [parent-path (subvec leaf-path 0 (dec n))]
+        (if (compound-done? machine leaf-path parent-path)
+          [parent-path]
+          [])))))
+
+(defn done-raise-fx
+  "Per Spec 005 §Final states §The done-state signal: build the
+  `[:raise [:rf.machine/done <node-path>]]` fx entries for every EMBEDDED
+  compound the committed `leaf-path` makes newly done. The raises enter the
+  macrostep's FIFO `:raise` queue (verbatim `:raise` fx, drained by
+  `drain-or-defer-raises` / the parallel parent queue) so the enclosing
+  `:on-done` transition fires in the SAME macrostep. Returns `[]` when no
+  compound is newly done (the common case — most transitions land on an
+  ordinary leaf). `machine` is the flat / compound machine or a region body."
+  [machine leaf-path]
+  (mapv (fn [compound-path]
+          [:raise [done-event-id compound-path]])
+        (compound-done-paths machine leaf-path)))
+
+(defn apply-on-done-action
+  "Per Spec 005 §Final states §The done-state signal (rf2-bnjb3): run a
+  PARALLEL ROOT's `:on-done` transition's `:action` against `snap`'s `:data`,
+  threading the standard `{:data :fx}` effects-map contract. The parallel
+  root's `:on-done` carries no in-machine `:target` (root-only parallel has no
+  sibling flat state — registration rejects a `:target`), so this runs the
+  selected candidate's `:action` and collects its `:fx`. The `:on-done` value
+  is normalised through the SAME candidate machinery as an `:on` clause
+  (a guarded candidate-vector resolves first-guard-pass-wins; a bare action-
+  less keyword / map is a data no-op). Returns a `result/ok` carrying
+  `[snap' fx]` (the action's `:data` merged, `:fx` collected), or a
+  `result/fail` if the action threw. A nil / no-candidate `:on-done` returns
+  `(ok snap [])` unchanged. Invoked with the synthetic
+  `[:rf.machine/done []]` event so a 3-arity action introspecting `:event`
+  sees the reserved done discriminator."
+  [machine snap on-done]
+  (let [cands (normalise-candidates on-done :rf.error/machine-bad-on-done-clause)
+        event [done-event-id []]
+        tspec (select-passing-candidate machine cands snap event)]
+    (if (nil? tspec)
+      (result/ok snap [])
+      (let [r (run-action machine snap (:action tspec) event :on-done)]
+        (if (result/fail? r)
+          r
+          (let [new-data (cond-> (:data snap)
+                           (contains? r :data) (merge (:data r)))]
+            (result/ok (assoc snap :data new-data) (vec (or (:fx r) [])))))))))
 
 ;; ---- destroy-time exit cascade (rf2-nahfm) --------------------------------
 ;;
@@ -2126,11 +2349,30 @@
                                        :transition transition
                                        :state-path (:src-path cascade)})
             (result/with-ok [snap-after-spawns spawn-fx] spawn-r
-              (let [all-fx (vec (concat fx
+              (let [;; Per Spec 005 §Final states §The done-state signal
+                    ;; (rf2-bnjb3 / rf2-zlmz7): if the committed configuration
+                    ;; makes an EMBEDDED compound newly done (its active direct
+                    ;; child is a `:final?` leaf), raise `[:rf.machine/done
+                    ;; <compound-path>]` into the macrostep's FIFO `:raise`
+                    ;; queue so the enclosing `:on-done` transition fires in
+                    ;; the SAME macrostep (drained by `drain-or-defer-raises` /
+                    ;; the parallel parent queue). Only an EXTERNAL transition
+                    ;; (a new configuration was entered) can newly satisfy a
+                    ;; compound's done condition — an internal transition keeps
+                    ;; the same `:state`, so the signal (if any) already fired
+                    ;; on the entry that reached the final leaf. A TOP-LEVEL
+                    ;; `:final?` leaf (direct child of the root) raises NO
+                    ;; compound-done — it is whole-machine finality handled at
+                    ;; the lifecycle boundary (auto-destroy / spawning parent's
+                    ;; `:on-done`), the D7 reconciliation.
+                    done-fx (when-not (:internal? cascade)
+                              (done-raise-fx machine (state-path (:state snap-after-spawns))))
+                    all-fx (vec (concat fx
                                         (or after-cancel-fx [])
                                         (or destroy-fx [])
                                         spawn-fx
-                                        (or after-fx [])))]
+                                        (or after-fx [])
+                                        (or done-fx [])))]
                 (result/with-cascade
                   (result/ok snap-after-spawns all-fx)
                   cascade-steps))))))))))

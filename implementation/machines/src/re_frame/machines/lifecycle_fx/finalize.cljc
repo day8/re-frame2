@@ -71,22 +71,13 @@
 
 ;; ---- final-state resolution -----------------------------------------------
 
-(defn all-regions-final?
-  "Per Spec 005 §Final states §Parallel regions and `:final?` (rf2-gn80):
-  a parallel-region machine is `:final?` only when EVERY region's active
-  leaf is `:final?`. Walk each region's body + active path and check the
-  leaf-node's `:final?` flag. Returns false when ANY region's leaf isn't
-  final, or when `:state` is not a parallel state-map."
-  [machine state]
-  (and (parallel/parallel? machine)
-       (map? state)
-       (every?
-         (fn [[region-name region-state]]
-           (let [region-body (get-in machine [:regions region-name])
-                 leaf-node   (transition/node-at region-body
-                                                  (transition/state-path region-state))]
-             (transition/final-state-node? leaf-node)))
-         state)))
+;; Per Spec 005 §Final states §The done-state signal (rf2-bnjb3): the
+;; `all-regions-final?` predicate now lives in `re-frame.machines.parallel`
+;; (shared by the parallel macrostep's done-signal / `:on-done` firing and
+;; this whole-machine finalize path). Re-exported here so existing callers
+;; (and the conformance corpus) keep the `finalize/all-regions-final?`
+;; address. `finalize` requires `parallel`, never the reverse — no cycle.
+(def all-regions-final? parallel/all-regions-final?)
 
 (defn- find-spawn-spec-at
   "Walk `parent-spec`'s state tree to the node at `invoke-id` (the

@@ -165,6 +165,27 @@
   [r]
   (get r ::cascade []))
 
+(defn with-parallel-done
+  "Stamp the `::parallel-done-handled?` flag onto an `:ok` Result. Per Spec
+  005 §Final states §The done-state signal (rf2-bnjb3): when a parallel
+  machine reaches all-regions-final AND its root declared `:on-done`, the
+  parallel layer fires that `:on-done` (run action + emit fx) and marks the
+  Result so the lifecycle boundary (`commit-or-finalize`) does NOT auto-
+  destroy the machine — the transitionable parallel-completion signal keeps
+  the machine alive. Absent / false ⇒ the existing whole-machine finalize
+  runs (singleton auto-destroy / spawning-parent `:on-done`, D7). Internal to
+  the machines engine; namespaced so it never collides with snapshot / fx
+  slots."
+  [r]
+  (if (ok? r) (assoc r ::parallel-done-handled? true) r))
+
+(defn parallel-done-handled?
+  "Read the `::parallel-done-handled?` flag off a Result. Defaults to false
+  when absent (no parallel `:on-done` fired — the whole-machine finalize path
+  applies)."
+  [r]
+  (get r ::parallel-done-handled? false))
+
 #?(:clj
    (defmacro with-ok
      "Pair-destructure an `:ok` Result's `::snap` and `::fx` slots into

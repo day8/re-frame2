@@ -206,20 +206,43 @@
   state-node declares `:type :parallel`, validate the shape at
   registration time.
 
-  Three error categories:
+  Error categories:
     - `:rf.error/machine-parallel-bad-shape` — `:type :parallel` declared
       without a `:regions` map, OR `:regions` is empty, OR `:regions`
       coexists with `:initial` / `:states`, OR a region body is missing
       its own `:initial`.
     - `:rf.error/machine-parallel-nested-not-supported` — a region's own
       state-tree declares `:type :parallel`; nested parallel regions
-      aren't supported in v1."
+      aren't supported in v1.
+    - `:rf.error/machine-parallel-on-done-target` — the parallel root's
+      `:on-done` declares an in-machine `:target` (rf2-bnjb3). A root-only
+      `:type :parallel` machine has no sibling flat state to land a target
+      on; the parallel `:on-done` runs its `:action` + emits `:fx` (the
+      \"then continue\" is a dispatch/raise in that fx), never an in-machine
+      transition target."
   [machine]
   (when (parallel/parallel? machine)
     (when-not (and (map? (:regions machine)) (seq (:regions machine)))
       (throw (validation-error
                :rf.error/machine-parallel-bad-shape
                ":type :parallel requires a non-empty :regions map")))
+    ;; Per rf2-bnjb3: the parallel root's `:on-done` must not carry an
+    ;; in-machine `:target` (root-only parallel has no flat sibling to land
+    ;; on). Normalise the candidate(s) and reject any that declare `:target`.
+    (when-let [on-done (:on-done machine)]
+      (let [cands (cond
+                    (map? on-done)    [on-done]
+                    (vector? on-done) (filterv map? on-done)
+                    :else             [])]
+        (when (some #(contains? % :target) cands)
+          (throw (validation-error
+                   :rf.error/machine-parallel-on-done-target
+                   (str "a parallel root's :on-done cannot declare an in-machine "
+                        ":target — a :type :parallel machine is root-only (no "
+                        "sibling flat state). Express \"then continue\" as an "
+                        ":action / :fx (e.g. a dispatch to a coordinator). Per "
+                        "Spec 005 §Final states §The done-state signal.")
+                   {:on-done on-done})))))
     (when (or (contains? machine :initial) (contains? machine :states))
       (throw (validation-error
                :rf.error/machine-parallel-bad-shape
@@ -746,6 +769,11 @@
       (doseq [t (always-entries state-node)]
         (check-guard!  (:guard t)  s)
         (check-action! (:action t) s))
+      ;; Per Spec 005 §Final states §The done-state signal (rf2-bnjb3 /
+      ;; rf2-zlmz7): an `:on-done` on a compound node is an `:on`-shaped
+      ;; transition (fired when the compound reaches a `:final?` child); its
+      ;; guard / action refs must resolve at registration like any other slot.
+      (check-transition! (:on-done state-node) s)
       (check-action! (:entry state-node) s)
       (check-action! (:exit  state-node) s))
     ;; Per Spec 005 §Transition resolution: the machine root's own `:on`
@@ -767,4 +795,10 @@
         (check-transition! t :rf/root))
       (doseq [root roots
               [_ t] (:after root)]
-        (check-transition! t :rf/root)))))
+        (check-transition! t :rf/root)))
+    ;; Per rf2-bnjb3: the PARALLEL ROOT's own `:on-done` (fired when all
+    ;; regions reach final) carries `:guard` / `:action` refs that must
+    ;; resolve at registration. (`walk-state-nodes` yields per-region nodes,
+    ;; not the parallel root itself, so this is validated explicitly.)
+    (when (parallel/parallel? machine)
+      (check-transition! (:on-done machine) :rf/root))))

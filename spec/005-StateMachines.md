@@ -1333,7 +1333,7 @@ Out of scope of *this section* — see the cross-reference for each:
 
 - **Parallel regions** — first-class capability per [§Parallel regions](#parallel-regions); the N-machines-per-region substitute in [CP-5-MachineGuide §Substitutes](CP-5-MachineGuide.md#substitutes-for-skipped-features) remains the right answer when regions are independent features.
 - **History pseudo-states** — first-class capability per [§History states](#history-states-type-history--shallow--deep--default-target); a `:type :history` node under a compound's `:states` re-enters the compound's last-active configuration (shallow / deep / default-target).
-- **Compound-state `onDone` (`done.state.<compoundId>`)** — substitute: explicit `[:raise …]` from the sub-flow's terminal-leaf `:entry`. **Divergence from XState/SCXML (deliberate), with a footgun.** SCXML §3.7 raises `done.state.<compoundId>` *into the machine* when any compound state reaches a `<final>` child, so an enclosing transition (`onDone` on the compound, or an ancestor's `:on {done.state.x …}`) can advance the outer flow **while the machine keeps running**. re-frame2 has no in-machine compound-done signal: `:final?` is **leaf-only and means whole-machine finality** — entering a `:final?` leaf auto-destroys the entire machine (D7) or fires a *spawning parent's* `:on-done` (per [§Final states](#final-states-final--on-done--output-key)), never a transitionable `done.state` for an *enclosing* state in the same machine. To model "sub-flow completes → advance the outer flow" inside one machine you therefore **must not mark the terminal leaf `:final?`** (that would destroy the machine); instead give it an ordinary leaf with an `:entry` that `[:raise …]`s a synthetic completion event the outer state handles. The principled trade: re-frame2 models "done" as actor-teardown, keeping one finality concept rather than two (`:final?` *and* a separate `done.state` signal). The cost is the substitute is invisible to xstate-trained tooling/AIs — see the footgun cross-note in [§`:final?` constraints](#final-constraints) and the row in [§Deliberate omissions vs xstate](#deliberate-omissions-vs-xstate).
+- **Compound-state `onDone` (`done.state.<compoundId>`)** — **first-class capability** per [§Final states §The done-state signal](#the-done-state-signal). A compound reaching its `:final?` child raises a transitionable in-machine `done.state.<compound>` an enclosing `:on-done` (on the compound) or an ancestor's `:on {:rf.machine/done …}` takes **while the machine keeps running** — the canonical "sub-flow completes → advance the outer flow" pattern. (The former hand-rolled substitute — `[:raise …]` from the terminal leaf's `:entry`, deliberately NOT marking it `:final?` to dodge auto-destroy — is **withdrawn**; it collided with the `:final?`-auto-destroys rule and was invisible to xstate-trained tooling. See [§Final states §The done-state signal](#the-done-state-signal) and the [§Final states §Embedded vs top-level](#embedded-vs-top-level--the-d7-reconciliation) reconciliation.)
 
 `:always`, `:after`, and `:spawn` are all specified independently of the hierarchy work above (see [§Eventless `:always` transitions](#eventless-always-transitions), [§Delayed `:after` transitions](#delayed-after-transitions), and [§Declarative `:spawn`](#declarative-spawn)). All three are state-node keys whose semantics compose with the hierarchical entry/exit cascade described above.
 
@@ -2537,7 +2537,7 @@ xstate's `invoke` admits several features re-frame2 deliberately omits. Each has
 | xstate feature | re-frame2 substitute |
 |---|---|
 | **`onDone`** — fire a callback when the child reaches a final state | re-frame2 ships first-class final states with parent notification — see [§Final states (`:final?` / `:on-done` / `:output-key`)](#final-states-final--on-done--output-key). A leaf state declares `:final? true` (and optionally `:output-key`); the parent's `:spawn` declares `:on-done (fn [{data :data result :result}] new-data)`. The runtime invokes `:on-done` synchronously when the child enters its final state, then auto-destroys the child. |
-| **Compound-state `onDone`** (`done.state.<compoundId>` raised *into the same machine* when a compound reaches its `<final>` child, so an enclosing transition advances *without* tearing the machine down) | No in-machine compound-done signal. `:final?` is whole-machine finality only (auto-destroy / child→parent `:on-done`), never a transitionable `done.state` for an enclosing state. Substitute: leave the sub-flow's terminal leaf **non-`:final?`** and `[:raise …]` a synthetic completion event from its `:entry`, handled by an enclosing state. Marking it `:final?` would destroy the machine (footgun — see [§`:final?` constraints](#final-constraints) and [§Hierarchical compound states §Capability scope](#capability-scope)). |
+| **Compound / parallel `onDone`** (`done.state.<id>` raised *into the same machine* when a compound reaches its `<final>` child — or a parallel reaches all-regions-final — so an enclosing transition advances *without* tearing the machine down) | **Shipped first-class** (no longer omitted) — see [§The done-state signal](#the-done-state-signal). Declare `:on-done` on the compound (resolved at the compound's level — a keyword target is a sibling) or on the parallel root (action + fx; root-only parallel has no in-machine target). The runtime raises `[:rf.machine/done <node-path>]` into the FIFO `:raise` queue, so the enclosing `:on-done` fires in the same macrostep and the machine keeps running. The depth of the `:final?` leaf disambiguates compound-done (embedded) from whole-machine finality (top-level) — the [§Embedded vs top-level](#embedded-vs-top-level--the-d7-reconciliation) reconciliation. (The former `:raise`-from-non-`:final?`-`:entry` substitute is withdrawn.) |
 | **`onError`** — child error callback | Errors flow through the standard `:rf.error/*` machinery and are visible in trace events. The parent observes via the existing error envelope, not a `:spawn`-specific hook. |
 | **Multiple `:spawn` per state** (xstate admits a vector) | One `:spawn` per state. Multiple actors per state suggests refactoring into a compound state where each substate invokes one of the actors. |
 | **`autoForward`** — forward all parent events to the child | Users forward explicitly via `:fx [[:dispatch [child-id ev]]]` from the relevant transitions. Implicit forwarding is invisible at the call site; explicit forwarding is what visualisers and AIs read. |
@@ -2649,13 +2649,74 @@ When `:auth-flow` enters `:done`, the runtime:
 | D9 | Specified and implemented in one delivery (no post-v1 deferral). |
 | D10 | Capability-matrix axis: **`:fsm/final-states`** (naming consistent with `:fsm/parallel-regions`, `:fsm/tags`). Conformance fixtures `final-state-singleton-auto-destroys` and `final-state-child-fires-on-done` exercise the contract. |
 
+### The done-state signal
+
+> **XState v5 term:** `onDone` (on a compound or `parallel` state). **SCXML §3.7:** reaching a `<final>` child — or, for `<parallel>`, all-regions-final — generates `done.state.<id>` into the internal event queue. **rf2-bnjb3** (parallel) + **rf2-zlmz7** (compound).
+
+The whole-machine final case above (D1–D10) is **actor finality** — the machine *finishes* and is torn down (or notifies a *spawning* parent). XState/SCXML also ship a distinct, **transitionable** completion signal: when a **compound** state reaches its `<final>` child — or a **parallel** state reaches all-regions-final — the processor raises `done.state.<id>` *into the machine*, which an enclosing transition can **take**, advancing the outer flow **while the machine keeps running**. This is the canonical *"do these sub-flows, then continue"* pattern. re-frame2 ships it first-class.
+
+**The grammar — `:on-done` on the compound / parallel node.** You declare `:on-done` **on the compound (or parallel-root) node** — the XState `onDone` placement, reading exactly like `:spawn`'s `:on-done`. Its value is an `:on`-shaped transition spec (a keyword target, vector-path target, single transition map `{:target :guard :action}`, or guarded candidate-vector). For a **compound** it is resolved **relative to the compound's own level** — a keyword target is a **sibling** of the compound (the "advance the outer flow" placement).
+
+```clojure
+;; A sub-flow inside a compound. When :flow reaches its :final? child, :flow's
+;; :on-done advances the machine to the SIBLING :next — same macrostep, no teardown.
+(rf/reg-machine :checkout
+  {:initial :flow
+   :states
+   {:flow {:initial :collecting
+           :on-done :next                       ;; ← sibling of :flow (XState onDone)
+           :states  {:collecting {:on {:submit :submitting}}
+                     :submitting {:on {:ok :paid}}
+                     :paid       {:final? true}}} ;; ← embedded final = sub-flow done
+    :next {:on {:reset [:flow]}}}})
+```
+
+**The mechanism — a raise into the FIFO queue.** The moment a transition's committed configuration makes a compound newly done (its active direct child is a `:final?` leaf), the engine raises the synthetic event **`[:rf.machine/done <compound-path>]`** into the macrostep's **FIFO `:raise` queue** (the same queue `[:raise …]` from an action uses). It is drained FIFO *before the macrostep settles* (per [§Drain semantics](#drain-semantics)), so the enclosing `:on-done` transition fires **in the same macrostep**, deterministically, bounded by `:raise-depth-limit`, committed atomically. re-frame2's `[:rf.machine/done <path>]` is the spelling of XState's `done.state.<id>` / SCXML's `done.state.id`: the node *id* is its declaration path, carried as the event's single arg (so the `:on` table stays keyed on one reserved keyword and the resolver routes by the path).
+
+**Two resolution arms** (priority order):
+
+1. **`:on-done` on the done node** — the headline spelling above.
+2. **An enclosing explicit `:on {:rf.machine/done {:guard … :target …}}`** — the lower-level escape hatch. When the done node declares no `:on-done`, the raised event walks the active path leaf→root (then the root `:on`) like any event, so an ancestor can handle `:rf.machine/done` directly. A guard reads the raised path off `:event` (`(fn [{ev :event}] (= [:outer :flow] (second ev)))`) to disambiguate *which* node is done.
+
+**Parallel `:on-done`.** When **every region** of a `:type :parallel` machine reaches its `:final?` leaf, the **parallel root's `:on-done`** fires — the *"do these axes in parallel, then continue"* pattern. Because a `:type :parallel` machine is **root-only** (no nested parallel; the root carries `:regions`, not `:states`), the parallel root has no sibling flat state to land an in-machine `:target` on — so a parallel root's `:on-done` runs its **`:action`** (a `:data` write) and emits its **`:fx`**; the "then continue" is a dispatch / raise in that fx to a coordinator (the re-frame2-idiomatic effects-as-data continuation). Registration rejects a `:target` on a parallel root's `:on-done` (`:rf.error/machine-parallel-on-done-target`). The machine **stays** in the all-final configuration — the natural stable "complete" resting state.
+
+```clojure
+;; Three orthogonal axes run in parallel; when ALL settle final, :on-done's
+;; action emits the "continue" dispatch. The machine survives (no teardown).
+(rf/reg-machine :ingest
+  {:type    :parallel
+   :data    {}
+   :actions {:announce (fn [{d :data}] {:data d :fx [[:dispatch [:pipeline/ingest-complete]]]})}
+   :on-done {:action :announce}                 ;; ← parallel-root onDone (action + fx only)
+   :regions
+   {:fetch    {:initial :loading :states {:loading {:on {:loaded :done}} :done {:final? true}}}
+    :validate {:initial :checking :states {:checking {:on {:ok :done}} :done {:final? true}}}
+    :index    {:initial :building :states {:building {:on {:built :done}} :done {:final? true}}}}})
+```
+
+A **compound region** reaching its own `:final?` child raises a region-local `done.state.<region-compound>` that the region's `:on-done` takes (re-broadcast through the parent's one internal-event queue per [§Parallel-region `:raise` broadcast](#per-region-always--after--spawn-scoping)) — exactly the compound case, scoped to one region; sibling regions are untouched.
+
+### Embedded vs top-level — the D7 reconciliation
+
+The done-state signal and whole-machine finality (D1–D10) are **two distinct concepts keyed on the `:final?` leaf's DEPTH**:
+
+| `:final?` leaf placement | Meaning | Effect |
+|---|---|---|
+| **Direct child of the machine root** (length-1 path) | whole-machine finality (the actor *finishes*) | **auto-destroy** (singleton, D7) / spawning parent's **`:spawn :on-done`** + teardown |
+| **All regions of a `:type :parallel` root final** | the parallel state is done | parallel root's **`:on-done`** fires (machine survives); else whole-machine auto-destroy / spawning-parent `:on-done` (D7) |
+| **Embedded inside a compound** (depth ≥ 2) | compound `done.state.<compound>` signal | raise `[:rf.machine/done <compound>]`; enclosing **`:on-done`** advances; **machine keeps running** |
+
+D7 ("singleton symmetry — final means final, auto-destroy") is therefore **preserved unchanged for top-level finals** — a singleton or spawned actor reaching a root-level `:final?` leaf still tears down. The embedded case is the *new* behaviour: an embedded `:final?` leaf no longer forces whole-machine destroy; it signals compound-done. This is what removes the rf2-zlmz7 footgun — you no longer have to *avoid* `:final?` to keep the machine alive after a sub-flow completes. The runtime gates the two paths on `top-level-final?` (length-1 final) vs `compound-done-paths` (embedded final) at the lifecycle-handler boundary; finality stays a pure recompute from `:state` (no `:rf/finished?` snapshot slot, per [§Composition with persistence, SSR, and time-travel](#composition-with-persistence-ssr-and-time-travel)).
+
+The two `:on-done` hooks are **distinct and complementary**: a node's **own `:on-done`** (on the compound / parallel node) is the *transitionable in-machine* signal; the **`:spawn :on-done`** (on a parent's `:spawn` map) is the *actor-teardown notification* a parent receives when a spawned child finishes. A spawned **parallel** child whose root declares its own `:on-done` fires that (and survives) rather than notifying the spawning parent — choose the hook by intent.
+
 ### `:final?` constraints
 
 - **Leaf-only.** A state declaring `:final? true` MUST NOT declare `:states` (or `:initial`). Compound states cannot themselves be final — their finality is expressed by a leaf inside them. `make-machine-handler` rejects compound `:final?` declarations at registration with `:rf.error/machine-final-state-compound`.
-- **`:final?` is whole-machine finality, NOT compound-`onDone` (footgun).** XState/SCXML raises `done.state.<compoundId>` *into the machine* when a compound reaches its `<final>` child, letting an enclosing transition advance the outer flow while the machine keeps running. re-frame2 has **no** such in-machine signal — entering ANY `:final?` leaf terminates the whole machine (auto-destroy per D7, or the spawning parent's `:on-done`). So to model "a *sub-flow* completes, then the outer flow continues *in the same machine*" the correct pattern is **not** to mark the sub-flow's terminal leaf `:final?` — doing so destroys the machine. Instead make it an ordinary leaf whose `:entry` does `{:fx [[:raise [:sub-flow/done …]]]}`, and handle that raised event on an enclosing/sibling state. Reserve `:final?` for genuine *machine* termination (singleton auto-destroy, or child→parent `:on-done`). See the substitute and rationale in [§Hierarchical compound states §Capability scope](#capability-scope) and the row in [§Deliberate omissions vs xstate](#deliberate-omissions-vs-xstate).
+- **A `:final?` leaf's meaning depends on its DEPTH (the embedded-vs-top-level rule).** A `:final?` leaf that is a **direct child of the machine root** is **whole-machine finality** (singleton auto-destroy per D7, or the spawning parent's `:spawn :on-done`). A `:final?` leaf **embedded inside a compound** instead raises a transitionable in-machine `done.state.<compound>` — the enclosing `:on-done` advances the outer flow **and the machine keeps running**. So to model "a *sub-flow* completes, then the outer flow continues *in the same machine*" you mark the sub-flow's terminal leaf `:final?` and declare `:on-done` on the enclosing compound — the natural XState `onDone` shape. (The pre-rf2-zlmz7 hand-rolled `:raise`-from-`:entry` substitute is withdrawn — it was a footgun precisely because it required *avoiding* `:final?`.) See [§The done-state signal](#the-done-state-signal) and [§Embedded vs top-level](#embedded-vs-top-level--the-d7-reconciliation).
 - **No `:on`, `:always`, `:after`, `:spawn`, `:spawn-all` on a `:final?` state.** Final means final — no further transitions. `make-machine-handler` rejects these combinations at registration with `:rf.error/machine-final-state-has-transitions`. `:entry` and `:exit` actions ARE permitted (the final-state's `:entry` runs as part of the entering cascade; `:exit` runs from the auto-destroy teardown).
 - **`:output-key` requires `:final?`.** A non-final state declaring `:output-key` is a registration error (`:rf.error/machine-output-key-without-final`). On a final state, `:output-key` is optional — when absent, the `result` passed to `:on-done` is `nil`.
-- **Parallel regions and `:final?`.** A leaf inside one region of a parallel-region machine may declare `:final? true`; the meaning is "**this region** has reached its final state." That region halts (no further transitions accepted for it; sibling regions continue). The parent machine as a whole is `:final?` only when EVERY region's active state is `:final?` — at which point the auto-destroy and `:on-done` cascade fires as usual. (This composability uses the existing parallel-region routing; no new primitive.)
+- **Parallel regions and `:final?`.** A leaf inside one region of a parallel-region machine may declare `:final? true`; the meaning is "**this region** has reached its final state." That region halts (no further transitions accepted for it; sibling regions continue). The parent machine as a whole is done only when EVERY region's active state is `:final?` — at which point the parallel root's `:on-done` fires if declared (the transitionable parallel completion signal — the machine keeps running, per [§The done-state signal](#the-done-state-signal)), else the whole-machine auto-destroy / spawning-parent `:on-done` cascade fires (D7). A **compound region** reaching its own `:final?` child raises a region-local `done.state.<region-compound>` its region-local `:on-done` takes — exactly the compound case, scoped to that region (re-broadcast through the parent's one internal-event queue).
 
 ### Composition with `:entry` / `:exit`
 
@@ -2673,10 +2734,12 @@ Existing observers that filter `:rf.machine/destroyed` on `:tags` see the new `:
 
 ### Cross-references
 
+- [§The done-state signal](#the-done-state-signal) — the transitionable compound / parallel `:on-done` (`done.state.<id>`), distinct from the whole-machine finality above.
+- [§Embedded vs top-level](#embedded-vs-top-level--the-d7-reconciliation) — how the `:final?` leaf's depth selects compound-done-signal vs whole-machine teardown.
 - [§Spec-spec keys](#spec-spec-keys) — `:on-done` is listed alongside `:on-spawn` on the parent's `:spawn` map.
-- [§Deliberate omissions vs xstate](#deliberate-omissions-vs-xstate) — the `onDone` row now records that re-frame2 DOES ship final-state-with-on-done.
-- [Spec-Schemas §`:rf/state-node`](Spec-Schemas.md#rftransition-table) — schema for `:final?` and `:output-key`.
-- [Spec 009 §`:op-type` vocabulary](009-Instrumentation.md#op-type-vocabulary) — `:rf.machine/done` registration.
+- [§Deliberate omissions vs xstate](#deliberate-omissions-vs-xstate) — the `onDone` row now records that re-frame2 DOES ship final-state-with-on-done AND first-class compound / parallel `done.state`.
+- [Spec-Schemas §`:rf/state-node`](Spec-Schemas.md#rftransition-table) — schema for `:final?`, `:output-key`, and the `:on-done` node key.
+- [Spec 009 §`:op-type` vocabulary](009-Instrumentation.md#op-type-vocabulary) — `:rf.machine/done` registration (the actor-finality trace; the in-machine `[:rf.machine/done <path>]` raise rides the standard `:raise` queue, not a separate trace family).
 - Conformance fixtures: `final-state-singleton-auto-destroys.edn`, `final-state-child-fires-on-done.edn`.
 - [§Destroy is silent-idempotent](#destroy-is-silent-idempotent) — D4's auto-destroy is followed at most ONCE by an observable `:rf.machine/destroyed` trace; subsequent explicit `[:rf.machine/destroy <id>]` calls on the same finished actor are silent no-ops (aligned with XState convention).
 -.
