@@ -805,9 +805,23 @@
 
 (defn project-rows
   "Project every event in `events` into a row. Returns a vector in
-  chronological order (oldest first). Pure data → data."
+  chronological order (oldest first). Pure data → data.
+
+  Drops any event lacking an `:id` (rf2-wh33n). The runtime allocates a
+  monotonic `:id` per emit, so a nil-`:id` event is a pathological,
+  malformed envelope (`trace_collector/snapshot-from-rings` already
+  sorts such events to the tail via `MAX_SAFE_INTEGER`). Such a row has
+  no stable identity: `row-key` would key it `\"t:nil\"` — colliding
+  with every other nil-`:id` row into one React key — and it cannot be
+  selected (`find-row` matches on `:id`) or expanded (the toggle
+  dispatches `:id`). Filtering it here is the projection-time guard the
+  bead prescribed, and it keeps `row-key` keying on the stable `:id`
+  alone — no positional fallback, honouring the anti-positional-key
+  contract (`project-feed-from-epoch-rows-carry-no-row-index-slot`)."
   [events]
-  (mapv project-row events))
+  (into [] (comp (filter (comp some? :id))
+                 (map project-row))
+        events))
 
 ;; ---- band projection (spec/023 §2 · §4) ---------------------------------
 ;;
