@@ -23,9 +23,11 @@ surfaces. It must not add:
 - New effect substrates.
 - New component substrates.
 
-The sixteen ops route through the existing `re-frame2-pair.runtime`
-namespace via `cljs-eval`. Nothing new is registered against the
-framework; nothing new is introduced into a consumer app's runtime.
+Every op routes through the existing `re-frame2-pair.runtime`
+namespace via `cljs-eval` (canonical catalogue + count:
+[`003-Tool-Catalogue.md`](003-Tool-Catalogue.md)). Nothing new is
+registered against the framework; nothing new is introduced into a
+consumer app's runtime.
 
 This is the downstream-EPs-consume-foundation rule applied to tools:
 tools observe and exercise what the framework emits and registers;
@@ -82,14 +84,17 @@ Concretely:
 
 - The `build` argument defaults to `"app"` but is configurable on
   every op (and via the `SHADOW_CLJS_BUILD_ID` env var).
-- Port discovery walks `$SHADOW_CLJS_NREPL_PORT` → standard shadow
-  paths → `.nrepl-port`. Any of them satisfy the contract.
+- Port discovery walks the cascade normative in
+  [`002-nREPL-Transport.md` §Port discovery](002-nREPL-Transport.md):
+  `--port-file` flag → `$SHADOW_CLJS_NREPL_PORT` → MCP `roots/list`
+  walk → shadow HTTP probe (`:9630/api/project-info`) → cwd-relative
+  scan. Any of them satisfy the contract.
 - Runtime presence is marker-detected (`js/globalThis.__re_frame2_pair_runtime`),
   not version-pinned. The runtime ships into the consumer app via
   shadow-cljs `:devtools :preloads`; a missing marker resolves to a
   structured `:reason :runtime-not-preloaded` error with the setup
   hint, no cljs-eval inject fallback (rf2-7dvg).
-- The runtime contract is the shape of the fourteen ops, not a specific
+- The runtime contract is the shape of the catalogued ops, not a specific
   framework version.
 
 A project that adopts a non-default build id, a custom nREPL port,
@@ -121,14 +126,20 @@ transition. Existing skill docs and runbooks that reference the
 shims keep working; nothing breaks because the MCP server shipped.
 
 The op vocabulary overlaps cleanly: the bash shims cover six of the
-sixteen canonical re-frame2-pair ops (`discover-app`, `eval-cljs`, `dispatch`,
+canonical re-frame2-pair ops (`discover-app`, `eval-cljs`, `dispatch`,
 `trace-window`, `watch-epochs`, `tail-build`), with identical names
-and arg shapes — only the transport differs. The MCP-only additions
-(`restore-epoch`, `reset-frame-db`, `snapshot`, `get-path`, the
-streaming triad `subscribe` / `unsubscribe` / `list-streams`, the
-reactive-sub-cache reader `list-subscriptions`, the
-registrar-introspection pair `handler-meta` / `list-handlers`, and
-`get-re-frame2-pair-instructions`) have no shim equivalent. This is what makes
+and arg shapes — only the transport differs. Every other MCP tool
+(the write pair `restore-epoch` / `reset-frame-db`, `dispatch-dry-run`,
+the mega-op reads `snapshot` / `get-path`, the read-orientation pair
+`orient` / `read-sub`, the view-plane reads `read-dom` / `read-ui`,
+the signal recorder `record` / `read-recording` / `watch-until`, the
+operating-frame trio `set-operating-frame` / `reset-operating-frame` /
+`get-operating-frame`, the streaming triad `subscribe` / `unsubscribe`
+/ `list-streams`, the reactive-sub-cache reader `list-subscriptions`,
+the registrar-introspection pair `handler-meta` / `list-handlers`, and
+`get-re-frame2-pair-instructions` — full catalogue in
+[`003-Tool-Catalogue.md`](003-Tool-Catalogue.md)) has no shim
+equivalent. This is what makes
 the back-compat tractable: the overlap is contract-identical; the
 plumbing underneath is different.
 
@@ -830,10 +841,16 @@ invocation:
       {:hash            h
        :unchanged-since <ms>
        :tool            <name>
+       :via             :result-hash | :precheck
        :hint            "<agent-host instruction string>"}}
      ```
      instead of the full payload. Touch the entry to the tail
-     (LRU bookkeeping).
+     (LRU bookkeeping). The `:via` slot tells the agent host which
+     cache path produced the hit — `:result-hash` (post-eval text
+     hash) or `:precheck` (pre-eval app-db-hash short-circuit, the
+     cheaper path; see § Precheck eligibility below). Canonical
+     marker shape: [`003-Tool-Catalogue.md` §Universal: per-session
+     response cache](003-Tool-Catalogue.md).
    - **Hit, different hash**: state moved on; store the new
      hash + `:sent-at`, return the fresh result.
 
@@ -914,13 +931,17 @@ shared with story-mcp. The shared verbs the pair pins are
 mega-op bare verbs (`snapshot`, `trace-window`, `watch-epochs`)
 reserved for derived projections that span multiple registry kinds.
 
-Pair2-mcp's current tools (`discover-app`, `eval-cljs`,
+Pair2-mcp's current tools (`discover-app`, `orient`, `eval-cljs`,
 `dispatch`, `dispatch-dry-run`, `restore-epoch`, `reset-frame-db`,
-`tail-build`, `snapshot`, `trace-window`, `watch-epochs`, `get-path`,
-`subscribe`, `unsubscribe`, `list-subscriptions`, `list-streams`,
-`handler-meta`, `list-handlers`,
-`get-re-frame2-pair-instructions`) are all conformant against existing
-verbs. `list-subscriptions` reads the reactive sub-cache and
+`trace-window`, `watch-epochs`, `tail-build`, `snapshot`, `get-path`,
+`read-sub`, `read-dom`, `read-ui`, `record`, `read-recording`,
+`watch-until`, `subscribe`, `unsubscribe`, `list-subscriptions`,
+`list-streams`, `handler-meta`, `list-handlers`, `set-operating-frame`,
+`reset-operating-frame`, `get-operating-frame`,
+`get-re-frame2-pair-instructions` — the canonical catalogue, in
+`tools/list` order, lives at
+[`003-Tool-Catalogue.md`](003-Tool-Catalogue.md)) are all conformant
+against existing verbs. `list-subscriptions` reads the reactive sub-cache and
 `list-streams` the streaming-tap registry (rf2-qicji split — the
 `list-<things>` enumeration verb fits both); `list-handlers` came from
 the rf2-4y595 `registry-list` → `list-handlers` rename (see NAMING.md's
@@ -934,7 +955,7 @@ the canonical table.
 When in doubt, defer to the framework's [Principles](../../../spec/Principles.md):
 
 - **Regularity over cleverness** — one obvious way to do a thing.
-  The sixteen op names and shapes are stable.
+  The catalogued op names and shapes are stable.
 - **Named things over anonymous things** — every op has a stable
   name; every reason keyword in an `:ok? false` response is stable.
 - **Public query surfaces** — re-frame2-pair-mcp reads only what the

@@ -31,9 +31,10 @@ the canonical re-frame2-pair ops are exposed as MCP tools — see
 
 ## Architecture at a glance
 
-The artefact is 9,700 LOC across 44 source files — intrinsically large
-(live nREPL bridge + streaming + 17 tools + roots-discovery + resource
-controls). The layering is straightforward but only surfaces from
+The artefact is ~14,700 LOC across ~60 source files — intrinsically large
+(live nREPL bridge + streaming + the full tool catalogue + roots-discovery
++ resource controls; see [`003-Tool-Catalogue.md`](003-Tool-Catalogue.md)
+for the live tool count). The layering is straightforward but only surfaces from
 reading multiple ns docstrings; this diagram sits at the entrance so a
 new reader (human or AI pair) is oriented in 60 seconds.
 
@@ -59,7 +60,8 @@ new reader (human or AI pair) is oriented in 60 seconds.
                        │  tools/<tool>.cljs                          │
                        │    snapshot.cljs, dispatch.cljs,            │
                        │    eval_cljs.cljs, subscribe.cljs, …        │
-                       │    (one file per tool — 17 total)           │
+                       │    (one file per tool — see 003-Tool-       │
+                       │     Catalogue.md for the live count)        │
                        └─────────────────────────────────────────────┘
                               │
                               ▼  bencode round-trip
@@ -82,9 +84,12 @@ new reader (human or AI pair) is oriented in 60 seconds.
 
 ### Concern namespaces
 
-Twelve concern namespaces sit alongside the per-tool bodies. Each owns
+Concern namespaces sit alongside the per-tool bodies. Each owns
 one cross-cutting concern; new tools `:require` from these rather than
-reinventing the lens:
+reinventing the lens. The principal lenses (the wire-pipeline core; the
+src tree carries further concern ns — `resource_controls`, `source_uri`,
+`freshness`, `reserved_frame_guard`, `await_promise`, `result_envelope`,
+… — each owning a narrower slice):
 
 | Lens                          | Owned by                          |
 |---|---|
