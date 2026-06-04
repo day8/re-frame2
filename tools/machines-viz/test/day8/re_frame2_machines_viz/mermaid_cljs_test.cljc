@@ -297,3 +297,53 @@
       (is (str/includes? out ":after rings + :spawn-all rows omitted"))
       ;; Closes the fence
       (is (str/ends-with? out "```")))))
+
+;; -----------------------------------------------------------------------------
+;; :on-done (XState onDone) completion transition (rf2-41goo)
+;;
+;; Spec 005 §The done-state signal: a COMPOUND `:on-done` advances the
+;; outer flow to a SIBLING; a PARALLEL-ROOT `:on-done` runs action-only
+;; (no target — rendered as a note, no phantom arrow). Pre-rf2-41goo
+;; Mermaid projected NO onDone edge.
+
+(def compound-on-done-machine
+  "Spec 005 example: compound `:flow` whose `:on-done` advances to the
+  SIBLING `:next` when its `:final?` `:paid` is reached."
+  {:initial :flow
+   :states  {:flow {:initial :collecting
+                    :on-done :next
+                    :states  {:collecting {:on {:submit :submitting}}
+                              :submitting {:on {:ok :paid}}
+                              :paid       {:final? true}}}
+             :next {:on {:reset [:flow]}}}})
+
+(def parallel-on-done-machine
+  "Spec 005 example: parallel-root `:on-done` runs action-only."
+  {:type    :parallel
+   :on-done {:action :announce}
+   :regions {:fetch    {:initial :loading :states {:loading {:on {:loaded :done}} :done {:final? true}}}
+             :validate {:initial :checking :states {:checking {:on {:ok :done}} :done {:final? true}}}}})
+
+(deftest emit-compound-on-done-renders-sibling-completion-edge
+  (testing "rf2-41goo — a compound `:on-done` renders the completion edge
+            `<compound> --> <sibling> : ✓ done` (the Stately 'do the
+            sub-flow, then continue' arrow), resolved to the SIBLING"
+    (let [out (m/emit compound-on-done-machine {:fenced? false :header-comment? false})]
+      (is (str/includes? out "flow --> next : ✓ done")
+          "the compound advances to its sibling on completion"))))
+
+(deftest emit-parallel-on-done-renders-completion-note
+  (testing "rf2-41goo — a parallel-root `:on-done` (action-only, no
+            target) renders as a note on the parallel root (no phantom
+            target arrow), surfacing the ✓ done completion + its action"
+    (let [out (m/emit parallel-on-done-machine {:fenced? false :header-comment? false})]
+      (is (str/includes? out "note right of")
+          "the parallel-root completion renders as a note")
+      (is (str/includes? out "on-done: ✓ done / announce")
+          "the note carries the completion + its action"))))
+
+(deftest emit-no-on-done-renders-no-completion-affordance
+  (testing "rf2-41goo — a machine with no :on-done renders no ✓ done chip
+            (no false-positive completion arrows)"
+    (let [out (m/emit compound-machine {:fenced? false :header-comment? false})]
+      (is (not (str/includes? out "✓ done"))))))

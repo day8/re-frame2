@@ -153,6 +153,51 @@
     (target-path? target)  (vec target)
     :else                  nil))
 
+(defn on-done-edges
+  "rf2-41goo — emit the completion edge(s) for a node's `:on-done`
+  (Spec 005 §The done-state signal — XState v5 `onDone`).
+
+  When a **compound** node reaches its `:final?` child the engine raises
+  `[:rf.machine/done <compound-path>]` into the macrostep's FIFO queue; the
+  enclosing `:on-done` TRANSITIONS the outer flow **while the machine keeps
+  running** (the canonical 'do these sub-flows, then continue' pattern).
+  `:on-done`'s value is an `:on`-shaped transition spec resolved **relative
+  to the compound's OWN level** — a keyword target is a SIBLING of the
+  compound (`resolve-target-path` with the compound's own path gives
+  `(conj (parent-path compound-path) target)` = sibling). So the edge reads
+  source=compound → target=sibling, carrying a distinct `:on-done? true`
+  flag + the reserved `:rf.machine/done` event so the renderer paints a
+  completion 'done' chip rather than an ordinary event arrow.
+
+  A candidate that omits `:target` (action/fx only — the parallel-root
+  shape, or a compound whose `:on-done` just runs an action) self-anchors
+  on the node and is flagged `:internal? true` so it renders as a TERMINAL
+  completion affordance (a hanging done chip, no outgoing segment) per the
+  Stately convention — the parallel root is root-only and registration
+  rejects a `:target` on it (`:rf.error/machine-parallel-on-done-target`),
+  so its `:on-done` is always action/fx-only.
+
+  `done-path` is the node-id-carrying path the engine raises (the
+  compound's own path / the parallel-root sentinel); it rides the edge as
+  `:done-path` so the SCXML emitter can mint `done.state.<id>` faithfully."
+  [done-path state-path on-done-spec]
+  (keep (fn [candidate]
+          (let [internal? (and (map? candidate)
+                               (not (contains? candidate :target)))
+                tp        (if internal?
+                            (vec state-path)
+                            (resolve-target-path state-path (:target candidate)))]
+            (when tp
+              (cond-> {:from      (vec state-path)
+                       :to        tp
+                       :event     :rf.machine/done
+                       :on-done?  true
+                       :done-path (vec done-path)
+                       :guard     (:guard candidate)
+                       :action    (:action candidate)}
+                internal? (assoc :internal? true)))))
+        (transition-candidates on-done-spec)))
+
 (defn- collect-state-edges
   "Walk a state node and return edge-maps for every statically-
   resolvable transition declared on it. Compound substates recurse.
@@ -161,7 +206,11 @@
   `:target :same-state` (external) resolves to the source path; a
   candidate that omits `:target` entirely (internal — runs only its
   `:action`) self-anchors and is flagged `:internal? true` so the
-  renderer can distinguish it (no exit/entry re-trigger)."
+  renderer can distinguish it (no exit/entry re-trigger).
+
+  rf2-41goo — a compound node's `:on-done` (XState `onDone`) emits the
+  completion edge (sibling target, or a terminal affordance for the
+  action-only form) via `on-done-edges`."
   [state-path state-node]
   (let [edges-from
         (concat
@@ -203,7 +252,12 @@
                        :always? true
                        :guard  (:guard candidate)
                        :action (:action candidate)}]))
-                 (transition-candidates (:always state-node))))
+                 (transition-candidates (:always state-node)))
+         ;; rf2-41goo — the compound / region-compound `:on-done`
+         ;; completion edge (XState `onDone`). The done node is THIS node
+         ;; (its path is the `done.state.<id>` the engine raises).
+         (when-let [od (:on-done state-node)]
+           (on-done-edges state-path state-path od)))
         nested
         (mapcat (fn [[child-id child-node]]
                   (collect-state-edges (conj state-path child-id) child-node))
@@ -331,6 +385,37 @@
            (escape-id-segment (name region-id)))
          (escape-id-segment (str region-id)))))
 
+(def ^:private parallel-root-segment
+  "rf2-41goo — the reserved path segment for the synthetic PARALLEL-ROOT
+  completion node a parallel machine's `:on-done` (XState `onDone`) hangs
+  off. Namespaced under `rf.machines-viz.layout` so it can never collide
+  with a real region-id. The node-id mints a stable, escape-injective
+  string; the `done.state` the engine raises for the whole parallel is the
+  root sentinel `[]`, distinct from this rendering anchor."
+  :rf.machines-viz.layout/parallel-root)
+
+(defn region-scoped-id
+  "rf2-wnzha — the region-SCOPED node-id for a state at `in-region-path`
+  inside the parallel region `region-id`. INJECTIVE ACROSS REGIONS: two
+  regions that share a state NAME (the canonical Spec 005 `:ingest`
+  shape, where every region carries its own `:done {:final? true}` leaf)
+  mint DISTINCT ids, so xyflow keeps both nodes (its `:id` keying drops
+  a duplicate) and the multi-active highlight (`highlight-ids`) attributes
+  each region's active leaf to its OWN node.
+
+  Composed as the region container id (`region-node-id`) + the `__`
+  path separator + the in-region `node-id`, e.g.
+  `region__fetch__done`. The prefix is the same `region__`-scoped id
+  the region's `:parent-id` already carries, so a region state's id reads
+  as 'this leaf, under this region container' — XState v5's orthogonal-
+  region-namespace semantics (each region is its own id namespace).
+  Injective because `region-node-id` is injective over region-ids and
+  `node-id` is injective over in-region paths, joined by the `__`
+  separator that `escape-id-segment` guarantees never appears INSIDE a
+  segment (a literal `_` encodes to `_5f`)."
+  [region-id in-region-path]
+  (str (region-node-id region-id) "__" (node-id in-region-path)))
+
 (defn event-segment
   "Render the leading event segment of an edge label per the
   xstate / Stately graph view convention.
@@ -350,9 +435,16 @@
                               convention: infinity glyph replaces the
                               prior `\"always\"` word so an eventless
                               transition reads as a continuation glyph
-                              against ordinary event-labelled arrows)"
-  [{:keys [event after always?]}]
+                              against ordinary event-labelled arrows)
+    - `:on-done` completion  → `\"✓ done\"` (rf2-41goo — XState `onDone`:
+                              a compound / parallel-root completion
+                              transition. A checkmark-done chip reads as
+                              the 'sub-flow finished, advance the outer
+                              flow' arrow Stately Studio renders, distinct
+                              from an ordinary event arrow)"
+  [{:keys [event after always? on-done?]}]
   (cond
+    on-done?         "✓ done"
     after            (str "⌚ " after "ms")
     always?          "∞"
     (= :* event)     "* (any)"
@@ -586,7 +678,24 @@
   so the chart projector can hand xyflow a `parentId`/sub-flow
   grouping (rf2-xh1lm — v12 reads `parentId`). Region order is
   preserved (regions are an ordered map in practice; we keep
-  insertion order via `:regions`)."
+  insertion order via `:regions`).
+
+  rf2-wnzha — every region-state node-id is REGION-SCOPED
+  (`region-scoped-id`): the in-region path is prefixed with the region
+  container's id, so two regions that share a state NAME mint DISTINCT
+  node-ids. Pre-fix, `parse-flat` kept each region's in-region node-id
+  verbatim (e.g. path `[:done]` → `\"done\"` in EVERY region), so the
+  canonical Spec 005 `:ingest` shape — three regions each carrying a
+  `:done {:final? true}` leaf — collided all three `:done` nodes into
+  ONE: xyflow's `:id` keying dropped two, and `highlight-ids`
+  mis-attributed the multi-active (G1) highlight across regions (lighting
+  region A's `:done` also lit B's + C's). Re-keying every node id, its
+  `:parent-id`, AND every edge `:id`/`:source`/`:target` under the region
+  prefix makes the parse injective across regions. The in-region `:path`
+  is preserved verbatim — it is the state's path WITHIN its region's
+  state-tree (the semantic identity the projector + `highlight-ids`
+  resolve against); only the xyflow-facing string ids are region-scoped.
+  XState v5 gold standard: regions are orthogonal id namespaces."
   [definition]
   (let [regions (:regions definition)
         per-region
@@ -594,15 +703,34 @@
           (fn [idx [region-id region-def]]
             (let [rid       (region-node-id region-id)
                   parsed    (parse-flat region-def)
-                  ;; Tag every state node with its region + parent so
-                  ;; the projector emits xyflow `parentId` grouping
-                  ;; (rf2-xh1lm — v12 reads `parentId`).
+                  ;; rf2-wnzha — region-scope every state node-id (so two
+                  ;; same-named region states never collide) and re-point
+                  ;; a nested-compound child's `:parent-id` to its
+                  ;; region-scoped parent id. A top-level region state's
+                  ;; `:parent-id` is the region container `rid`; a deeper
+                  ;; substate's parent is its OWN region-scoped parent.
                   tagged-nodes
                   (mapv (fn [n]
-                          (assoc n
-                            :region    region-id
-                            :parent-id rid))
+                          (let [path (:path n)]
+                            (assoc n
+                              :id        (region-scoped-id region-id path)
+                              :region    region-id
+                              :parent-id (if (> (count path) 1)
+                                           (region-scoped-id region-id (pop path))
+                                           rid))))
                         (:nodes parsed))
+                  ;; rf2-wnzha — re-key every edge's id/source/target under
+                  ;; the region prefix too (an edge to/from a shared-name
+                  ;; state would otherwise resolve to the colliding id
+                  ;; across regions). `:from-path`/`:to-path` stay the
+                  ;; in-region paths the ids derive from.
+                  scoped-edges
+                  (mapv (fn [e]
+                          (assoc e
+                            :id     (str (region-node-id region-id) "__" (:id e))
+                            :source (region-scoped-id region-id (:from-path e))
+                            :target (region-scoped-id region-id (:to-path e))))
+                        (:edges parsed))
                   ;; The synthetic region container node.
                   region-node
                   {:id        rid
@@ -614,10 +742,46 @@
                    :region-index idx
                    :compound? true}]
               {:nodes (into [region-node] tagged-nodes)
-               :edges (:edges parsed)}))
-          regions)]
-    {:nodes        (vec (mapcat :nodes per-region))
-     :edges        (vec (mapcat :edges per-region))
+               :edges scoped-edges}))
+          regions)
+        ;; rf2-41goo — the PARALLEL-ROOT `:on-done` (XState `onDone` on the
+        ;; parallel state). When EVERY region reaches its `:final?` leaf the
+        ;; parallel root's `:on-done` fires. A `:type :parallel` machine is
+        ;; root-only (no sibling flat state to land a `:target` on), so the
+        ;; parallel-root `:on-done` runs `:action` + `:fx` ONLY — registration
+        ;; rejects a `:target` (`:rf.error/machine-parallel-on-done-target`).
+        ;; So it ALWAYS renders as a TERMINAL completion affordance (a hanging
+        ;; done chip, no sibling segment) — `on-done-edges` self-anchors any
+        ;; target-less candidate (`:internal? true`) on the synthetic
+        ;; parallel-root node. `done-path` is the root sentinel `[]` (the
+        ;; whole-parallel `done.state` the engine signals).
+        root-on-done (:on-done definition)
+        root-od-edges
+        (when root-on-done
+          (->> (on-done-edges [] [parallel-root-segment] root-on-done)
+               (map-indexed
+                 (fn [i e]
+                   (let [base (edge-id (:to e) e)]
+                     (assoc e
+                       :parallel-root? true
+                       :id          (if (zero? i) base (str base "__" i))
+                       :source      (node-id (:from e))
+                       :target      (node-id (:to e))
+                       :from-path   (:from e)
+                       :to-path     (:to e)
+                       :event-label (edge-label e)))))
+               vec))
+        root-node (when (seq root-od-edges)
+                    {:id        (node-id [parallel-root-segment])
+                     :path      [parallel-root-segment]
+                     :label     "parallel"
+                     :depth     0
+                     :parallel-root? true
+                     :compound? false})]
+    {:nodes        (vec (concat (mapcat :nodes per-region)
+                                (when root-node [root-node])))
+     :edges        (vec (concat (mapcat :edges per-region)
+                                root-od-edges))
      :initial-path nil
      :parallel?    true}))
 
@@ -678,11 +842,13 @@
     simultaneously-active leaves. Each region's value is itself a
     keyword-or-path **relative to that region's own state-tree**, so it
     resolves the SAME way the parse mints region-state ids — via
-    `node-id` of the in-region path (parse-parallel does NOT region-
-    prefix a state's node-id; it tags `:region` + `:parent-id` but keeps
-    the in-region `node-id`). A nested region value (a region whose
-    value is itself a vector path) resolves to its DEEPEST leaf, exactly
-    as the single-compound case does. Returns the set of N leaf ids.
+    `region-scoped-id` of the REGION + the in-region path (rf2-wnzha:
+    parse-parallel region-scopes a state's node-id so two regions sharing
+    a state NAME mint DISTINCT ids; the resolver MUST mint the SAME scoped
+    id or the highlight would target a phantom). A nested region value (a
+    region whose value is itself a vector path) resolves to its DEEPEST
+    leaf, exactly as the single-compound case does. Returns the set of N
+    leaf ids.
 
   - **nil / anything else** — the empty set (no highlight).
 
@@ -695,10 +861,16 @@
     (keyword? state) #{(node-id [state])}
     (vector? state)  #{(node-id state)}
     (map? state)     (into #{}
-                           (keep (fn [[_region region-state]]
+                           ;; rf2-wnzha — region-scope each region's
+                           ;; active-leaf id (the region-map KEY is the
+                           ;; region-id) so it agrees with the node ids
+                           ;; `parse-parallel` minted; otherwise a
+                           ;; same-named leaf would mis-attribute across
+                           ;; regions (or resolve to a phantom).
+                           (keep (fn [[region region-state]]
                                    (cond
-                                     (keyword? region-state) (node-id [region-state])
-                                     (vector? region-state)  (node-id region-state)
+                                     (keyword? region-state) (region-scoped-id region [region-state])
+                                     (vector? region-state)  (region-scoped-id region region-state)
                                      :else                   nil)))
                            state)
     :else            #{}))

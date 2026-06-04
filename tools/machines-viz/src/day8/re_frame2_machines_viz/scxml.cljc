@@ -176,10 +176,24 @@
   (->> (transition-candidates always)
        (map #(emit-transition nil % depth))))
 
+(defn- emit-transitions-for-on-done
+  "rf2-41goo — emit the compound / parallel `:on-done` (XState `onDone`)
+  as W3C SCXML's `<transition event=\"done.state.<id>\" .../>`, placed
+  inside the done node's own `<state>` element (SCXML §3.7: reaching a
+  `<final>` child generates `done.state.<id>` into the internal queue; an
+  enclosing transition takes it). `done-event` is the precomputed
+  `\"done.state.<id-str>\"` for THIS node. A target-less candidate
+  (action/fx-only — the parallel-root shape) emits a transition with NO
+  `target` (the action survives as the emitter's `<!-- action -->`
+  comment), faithful to the action-only completion the engine fires."
+  [done-event on-done depth]
+  (->> (transition-candidates on-done)
+       (map #(emit-transition done-event % depth))))
+
 (defn- emit-state
   "Emit a `<state>` (or `<final>`) block for one state-node."
   [state-id state-node depth]
-  (let [{:keys [final? initial states on after always]} state-node
+  (let [{:keys [final? initial states on after always on-done]} state-node
         id-str (path->id-string state-id)
         tag    (if final? "final" "state")
         attrs  (cond-> (str "id=\"" (escape-xml-attr id-str) "\"")
@@ -190,6 +204,11 @@
           (emit-transitions-for-on on (inc depth))
           (emit-transitions-for-after after (inc depth))
           (emit-transitions-for-always always (inc depth))
+          ;; rf2-41goo — the `done.state.<this-id>` completion transition
+          ;; (XState `onDone`). Emitted INSIDE this node's own <state>.
+          (when on-done
+            (emit-transitions-for-on-done (str "done.state." id-str)
+                                          on-done (inc depth)))
           (mapcat (fn [[child-id child-node]]
                     (emit-state child-id child-node (inc depth)))
                   states))]
@@ -232,13 +251,26 @@
             states)
     [(str (indent-str depth) "</scxml>")]))
 
+(def ^:private parallel-root-scxml-id
+  "rf2-41goo — the SCXML id of the synthetic `<parallel>` element. Its
+  W3C completion event is `done.state.<this-id>`."
+  "rf2_parallel_root")
+
 (defn- emit-parallel
-  [{:keys [regions]} depth]
+  [{:keys [regions on-done]} depth]
   (concat
     [(str (indent-str depth)
           "<scxml xmlns=\"http://www.w3.org/2005/07/scxml\""
           " version=\"1.0\">")
-     (str (indent-str (inc depth)) "<parallel id=\"rf2_parallel_root\">")]
+     (str (indent-str (inc depth)) "<parallel id=\"" parallel-root-scxml-id "\">")]
+    ;; rf2-41goo — the parallel-root `:on-done` (XState `onDone`):
+    ;; `done.state.<parallel-id>` raised when ALL regions settle final.
+    ;; A `:type :parallel` machine is root-only — registration rejects a
+    ;; `:target`, so the transition is action/fx-only (no `target`); the
+    ;; action survives as the emitter's `<!-- action -->` comment.
+    (when on-done
+      (emit-transitions-for-on-done (str "done.state." parallel-root-scxml-id)
+                                    on-done (+ depth 2)))
     (mapcat (fn [[region-id region-node]]
               ;; Each region is a state with its own initial + states.
               (emit-state region-id region-node (+ depth 2)))
@@ -494,6 +526,23 @@
                                    [existing simple-cand])
                                  simple-cand))))
 
+                ;; rf2-41goo — a `done.state.<id>` transition is the
+                ;; XState `onDone` completion (SCXML §3.7). It sits inside
+                ;; the done node's own element, so it round-trips back to
+                ;; THIS node's `:on-done` (a single transition spec, not an
+                ;; `:on`-keyed map). The `<id>` payload in the event name is
+                ;; informational (the engine raises it relative to the
+                ;; node); the re-frame2 grammar carries the completion as
+                ;; `:on-done` on the node, so we drop the id suffix.
+                (and event (str/starts-with? event "done.state."))
+                (update acc :on-done
+                        (fn [existing]
+                          (if existing
+                            (if (vector? existing)
+                              (conj existing simple-cand)
+                              [existing simple-cand])
+                            simple-cand)))
+
                 (nil? event)
                 (update acc :always (fnil conj []) cand-map)
 
@@ -586,7 +635,8 @@
                      initial-str     (assoc :initial (unescape-id-string initial-str)))]
     (if (or self? (empty? body))
       [state-id base]
-      (let [{:keys [on after always children-tokens]} (consume-transitions body)
+      (let [{:keys [on after always children-tokens] :as consumed}
+            (consume-transitions body)
             child-blocks (group-children-by-state children-tokens)
             child-states (when (seq child-blocks)
                            (into {}
@@ -595,6 +645,11 @@
                    (seq on)           (assoc :on on)
                    (seq after)        (assoc :after after)
                    (seq always)       (assoc :always always)
+                   ;; rf2-41goo — `:on-done` round-trips from the
+                   ;; `done.state.<id>` transition (may be a bare target,
+                   ;; a candidate map, or a vector — never a collection we
+                   ;; `seq`-test; use the key's presence).
+                   (contains? consumed :on-done) (assoc :on-done (:on-done consumed))
                    (seq child-states) (assoc :states child-states))]
         [state-id node]))))
 
@@ -704,9 +759,17 @@
 
                           :else
                           (recur (inc i) depth)))
-              parallel-body (subvec tail 0 end-idx)]
-          {:type    :parallel
-           :regions (parse-parallel-body parallel-body)})
+              parallel-body (subvec tail 0 end-idx)
+              ;; rf2-41goo — the parallel-root `:on-done` rides a
+              ;; `done.state.<parallel-id>` transition that is a DIRECT
+              ;; child of `<parallel>`. `parse-parallel-body` (via
+              ;; `group-children-by-state`) filters transition tokens at
+              ;; this depth, so pick it up directly via
+              ;; `consume-transitions` before they are dropped.
+              parallel-on-done (:on-done (consume-transitions parallel-body))]
+          (cond-> {:type    :parallel
+                   :regions (parse-parallel-body parallel-body)}
+            (some? parallel-on-done) (assoc :on-done parallel-on-done)))
 
         ;; Flat / compound definition
         (let [initial-str (get-in root-start [:attrs "initial"])

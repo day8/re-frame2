@@ -595,11 +595,13 @@ The resolution is pure and JVM-tested, in two layers:
     singleton holding the **deepest leaf** (`node-id` of the full path).
   - **region-map** (`{:data :loading :form :neutral}`) → the **set of N
     leaves**. Each region value is a keyword-or-path **relative to that
-    region's own state-tree**, resolved via `node-id` of the in-region
-    path (the parse keeps a region state's in-region node-id; it does
-    not region-prefix it). A **nested region value** (a region whose
-    value is itself a vector path) resolves to its **deepest leaf**,
-    exactly as the single-compound case does.
+    region's own state-tree**, resolved via `region-scoped-id` of the
+    region + the in-region path (rf2-wnzha — the parse REGION-SCOPES a
+    region state's node-id, prefixing it with the region container id, so
+    two regions sharing a state NAME mint DISTINCT ids; the resolver mints
+    the same scoped id). A **nested region value** (a region whose value
+    is itself a vector path) resolves to its **deepest leaf**, exactly as
+    the single-compound case does.
   - `nil` / anything else → the empty set.
 
   It **subsumes** the single-active `chart.layout/highlight-id` — for a
