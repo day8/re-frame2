@@ -65,17 +65,20 @@ From [`spec/conformance/README.md` §Capability tagging](https://day8.github.io/
 ```
 :core/*           pattern-required basics — always run
 :fsm/*            FSM-richness axis — flat / hierarchical / eventless-always / delayed-after /
-                  tags / parallel-regions / final-states / registration-validation
+                  tags / parallel-regions / final-states / history / registration-validation
 :actor/*          actor-model axis — own-state / spawn-destroy / cross-actor-fx / invoke /
                   spawn-and-join / system-id
-:flow/*           Flows axis (EP 013) — :flow/basic, :flow/trace
-:rf.http/managed  managed-HTTP (EP 014)
+:flow/*           Flows axis (EP 013, D3 Q8) — wildcard family; ~19 sub-tags at corpus HEAD
+                  (basic / trace / init / reg-v / poke / toggle / topo / dirty-check /
+                   frame-scoped / hot-reload / lifecycle-emits-traces / …) — enumerate
+                  from the fixtures, not this list
+:rf.http/managed  managed-HTTP (EP 014, D3 Q9)
 :routing/*        Q2 yes
 :ssr/*            Q3 yes
 :schemas/*        Q4 yes (regardless of mechanism)
 ```
 
-The decision record's D7 captures the claimed tag set. The harness uses the claim as the filter; only matching fixtures run. **Match the corpus, not the Implementor-Checklist:** the checklist's family list lags the corpus (it omits `:flow/*`, `:rf.http/managed`, `:fsm/final-states`, `:fsm/registration-validation`); the corpus is the acceptance test, so it wins. If you ship the optional EP 013 (Flows) or EP 014 (HTTP) surfaces, declare `:flow/*` / `:rf.http/managed` in D7 or their fixtures will trip the unknown-capability diagnostic below.
+The decision record's D7 captures the claimed tag set. The harness uses the claim as the filter; only matching fixtures run. **The fixtures are authoritative — match them, not any prose list.** Both the Implementor-Checklist's family list and the conformance README's prose enumeration lag the fixtures (they omit `:flow/*` and its sub-tags, `:rf.http/managed`, `:fsm/final-states`, `:fsm/history`, `:fsm/registration-validation`). Enumerate the claimable vocabulary directly from `spec/conformance/fixtures/*` at the pinned commit — e.g. `grep -rho ':fsm/[a-z-]*' spec/conformance/fixtures/ | sort -u` (and the same for `:flow/`, `:actor/`). If you ship the optional EP 005 history surface, EP 013 (Flows), or EP 014 (HTTP), declare `:fsm/history` / `:flow/*` / `:rf.http/managed` in D7 (and, for `:flow/*`, satisfy or skip each sub-tag) or those fixtures trip the unknown-capability diagnostic below.
 
 A port that claims `:core/* + :fsm/flat + :actor/own-state` runs every `:core/*` fixture, every `:fsm/flat` fixture, and every `:actor/own-state` fixture — and skips the hierarchical FSM fixtures, the `:spawn` fixtures, the routing fixtures, etc.
 

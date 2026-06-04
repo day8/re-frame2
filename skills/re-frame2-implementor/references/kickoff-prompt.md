@@ -23,7 +23,7 @@ Steps:
 >
 > *Phase 1 — Lock the decisions. Walk me through `references/phase-1-decisions.md`. For each decision block, surface the options (citing `spec/Implementor-Checklist.md` Part 2 where it has them), name the trade-offs, and ask me for my choice. Capture every choice in a `DECISIONS.md` at the root of this repo using the template at `references/decision-record.md` — including the pinned spec hash from above. Do not write any implementation code in Phase 1.*
 >
-> *Phase 2 — Walk the spec corpus. Once Phase 1 is locked, walk `references/phase-2-impl-order.md` EP by EP in this order: 001 Registration → 002 Frames → 006 Reactive substrate → 004 Views → 009 Instrumentation → then any optional EPs I declared yes for in Phase 1, in the leaf's suggested order. For each EP: read the spec section first, surface the contract the port must expose, surface what the CLJS reference did (as one worked example, not normative), and write the corresponding code in this repo. After 001 / 002 / 006 / 004 / 009 are in place, run the `:core/*` conformance fixtures as the first acceptance gate — this is per `references/conformance.md`.*
+> *Phase 2 — Walk the spec corpus. Once Phase 1 is locked, walk `references/phase-2-impl-order.md` EP by EP in this order: 001 Registration → 002 Frames → 006 Reactive substrate → 004 Views → 009 Instrumentation → then any optional EPs I declared yes for in Phase 1, in the leaf's suggested order. For each EP: read the spec section first, surface the contract the port must expose, surface what the CLJS reference did (as one worked example, not normative), and write the corresponding code in this repo. After 001 / 002 / 006 / 004 / 009 are in place, the `:core/*` conformance fixtures are the first acceptance gate — I'll run the harness (or ask you to); report and diagnose the score per `references/conformance.md`.*
 >
 > *Standing rules for this port:*
 >
@@ -42,7 +42,7 @@ Steps:
 
 Two common amendments the engineer may add:
 
-**"Minimum viable port."** Append: *"Declare Q1 (state machines) = no, Q2 (routing) = no, Q3 (SSR) = no, Q4 = via-host-types, Q5 (stories) = no, Q6 (Tool-Pair) = no, Q7 (AI-Audit) = no. I'm shipping the core only — events / subs / fx / views. Re-evaluate the optional capabilities after the `:core/*` corpus passes."*
+**"Minimum viable port."** Append: *"Declare Q1 (state machines) = no, Q2 (routing) = no, Q3 (SSR) = no, Q4 = via-host-types, Q5 (stories) = no, Q6 (Tool-Pair) = no, Q7 (AI-Audit) = no, Q8 (Flows) = no, Q9 (managed HTTP) = no. I'm shipping the core only — events / subs / fx / views. Re-evaluate the optional capabilities after the `:core/*` corpus passes."*
 
 **"Reference impl tour first."** Append: *"Before Phase 1, walk me through `references/reference-impl-tour.md`. I want to see how the CLJS reference is organised before locking my own decisions — but treat the tour as descriptive, not normative."*
 

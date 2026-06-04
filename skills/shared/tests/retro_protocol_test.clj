@@ -414,6 +414,77 @@
              "single-source assumption is broken and this regression "
              "suite no longer covers the consumer."))))
 
+(deftest pair-retro-loads-shared-issue-filing
+  (testing "re-frame2-pair-retro/SKILL.md links to ../shared/issue-filing.md"
+    (is (str/includes? @pair-retro-skill-md "../shared/issue-filing.md")
+        (str "re-frame2-pair-retro no longer links to the shared "
+             "issue-filing recipe. That leaf is the single home for the "
+             "shell-safe Write-tool + --body-file filing pattern; a "
+             "decoupled consumer can drift from the security boundary."))))
+
+;; ---------------------------------------------------------------------------
+;; Pair-retro frontmatter — pin the `allowed-tools` contract to the shared
+;; issue-filing recipe. The recipe (`issue-filing.md` §Shell-safety) makes the
+;; `Write` tool + `gh issue create --body-file` pair the no-shell-interpolation
+;; boundary for transcript-derived issue bodies. The skill therefore needs
+;; `Write` and `Bash(gh issue create *)` PRESENT, and must NOT carry `Edit`
+;; (it never rewrites source) or `Bash(bd *)` (the monorepo's internal tracker
+;; has no place in a published skill — see `skills/README.md` §Published-skill
+;; allowed-tools baseline). A prior drift had `spec/design.md` claiming the
+;; block omits `Write`, which — if followed by a reauthoring pass — would
+;; remove the only documented shell-safe filing path. This test fails loudly
+;; if a future edit removes `Write`/`gh issue create` or smuggles in
+;; `Edit`/`Bash(bd *)`.
+;; ---------------------------------------------------------------------------
+
+(defn- frontmatter
+  "Return the YAML frontmatter block (between the first two `---` lines) of
+   a SKILL.md, or the whole doc if no closing fence is found."
+  [md]
+  (let [m (re-find #"(?ms)\A---\r?\n(.*?)\r?\n---" md)]
+    (if m (second m) md)))
+
+(deftest pair-retro-frontmatter-grants-write
+  (testing "allowed-tools grants Write for the --body-file shell-safety path"
+    (let [fm (frontmatter @pair-retro-skill-md)]
+      (is (re-find #"(?m)^\s*-\s*Write\s*$" fm)
+          (str "re-frame2-pair-retro's allowed-tools no longer grants "
+               "`Write`. `Write` is required SOLELY to compose "
+               "/tmp/issue-body.md so `gh issue create --body-file` reads "
+               "the transcript-derived body verbatim (no shell expansion). "
+               "Removing it breaks the only documented no-shell-"
+               "interpolation filing path — see ../issue-filing.md "
+               "§Shell-safety.")))))
+
+(deftest pair-retro-frontmatter-grants-gh-issue-create
+  (testing "allowed-tools grants Bash(gh issue create *)"
+    (let [fm (frontmatter @pair-retro-skill-md)]
+      (is (str/includes? fm "Bash(gh issue create *)")
+          (str "re-frame2-pair-retro's allowed-tools no longer grants "
+               "`Bash(gh issue create *)`. This is the approval-gated "
+               "filing surface (L2); without it the skill can draft but "
+               "never file.")))))
+
+(deftest pair-retro-frontmatter-omits-edit
+  (testing "allowed-tools does NOT grant Edit"
+    (let [fm (frontmatter @pair-retro-skill-md)]
+      (is (not (re-find #"(?m)^\s*-\s*Edit\s*$" fm))
+          (str "re-frame2-pair-retro's allowed-tools now grants `Edit`. "
+               "This skill never rewrites source in any repo — friction "
+               "routes to GitHub issues, not edits (design.md §9). Remove "
+               "`Edit` from the frontmatter.")))))
+
+(deftest pair-retro-frontmatter-omits-bd
+  (testing "allowed-tools does NOT grant Bash(bd *)"
+    (let [fm (frontmatter @pair-retro-skill-md)]
+      (is (not (str/includes? fm "Bash(bd"))
+          (str "re-frame2-pair-retro's allowed-tools now grants a "
+               "`Bash(bd ...)` surface. `bd` (beads) is the re-frame2 "
+               "monorepo's internal tracker and has no place in a "
+               "published skill — skills file against the target repo's "
+               "GitHub issues via `gh issue create` (skills/README.md "
+               "§Published-skill allowed-tools baseline).")))))
+
 ;; ---------------------------------------------------------------------------
 ;; Fixtures present — the document-runnable behavioural scenarios live
 ;; alongside this structural test. If they disappear, the prose-only

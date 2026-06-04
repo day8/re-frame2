@@ -56,34 +56,35 @@ Pre-alpha. Ports the v1 `re-frame-pair-improver` skill structure to target re-fr
 
 ## Install
 
-`re-frame2-pair-retro` ships as part of the [`day8/re-frame2`](https://github.com/day8/re-frame2) monorepo. There is no separate npm package or plugin registry entry — clone re-frame2 and reference the skill from `skills/re-frame2-pair-retro/`.
+`re-frame2-pair-retro` ships as part of the [`day8/re-frame2`](https://github.com/day8/re-frame2) monorepo. It carries `package.json` (`@day8/re-frame2-pair-retro`) and `.claude-plugin/plugin.json` packaging metadata for eventual Agent-Skill (`npx skills add`) and Claude-Code-Plugin distribution, but it is **not published to npm or any plugin registry yet** — the current install path is to clone re-frame2 and link the skill from `skills/re-frame2-pair-retro/` (see below).
 
 ### Install the skill in Claude Code
 
-#### Global — for you, across any repo
+**Link, never copy.** Claude Code loads skills from `~/.claude/skills/<name>/`. A `cp -r` copy snapshots the skill and then drifts as the repo is maintained — Claude Code keeps loading the stale copy. For this skill that drift is a security concern, not just polish: the shared redaction / issue-filing protocol it loads is an active AI/off-box boundary, so a stale copy can miss later redaction, prompt-injection, or shell-safety hardening while still filing GitHub issues from sensitive pair-session recaps. Always link the repo source so the active skill is the maintained source by construction.
 
-Clone the re-frame2 repo somewhere stable, then symlink the skill subdirectory into your user Claude config:
+The cross-platform installer at the repo root links *every* re-frame2 skill (this one included) into `~/.claude/skills/`:
+
+```bash
+scripts/install-skills.sh                                              # macOS / Linux (symlinks)
+powershell -ExecutionPolicy Bypass -File scripts/install-skills.ps1    # Windows (junctions, no admin)
+```
+
+It is idempotent, refuses to clobber a non-link copy without `--force` (`-Force`), and supports `--check` (`-Check`) to verify the links. See [`skills/README.md` §Installing (link, never copy)](../README.md#installing-link-never-copy) and [`CONTRIBUTING.md`](../../CONTRIBUTING.md#skills--link-dont-copy) for the full setup.
+
+To link just this one skill:
 
 ```bash
 git clone https://github.com/day8/re-frame2.git ~/src/re-frame2
 mkdir -p ~/.claude/skills
-ln -s ~/src/re-frame2/skills/re-frame2-pair-retro ~/.claude/skills/re-frame2-pair-retro
+ln -s ~/src/re-frame2/skills/re-frame2-pair-retro ~/.claude/skills/re-frame2-pair-retro   # macOS / Linux
 ```
 
-Best when you want the skill available everywhere and are happy to `git pull` updates in one place.
+On Windows, use a junction instead of `ln -s` (no admin required):
 
-#### Project-local — for your whole team via the repo
-
-Copy the skill into the project's own `.claude/skills/re-frame2-pair-retro/` and commit it. Teammates who clone the repo and open Claude Code there get the same pinned version.
-
-```bash
-cd your-re-frame2-project
-cp -r /path/to/re-frame2/skills/re-frame2-pair-retro .claude/skills/re-frame2-pair-retro
-git add .claude/skills/re-frame2-pair-retro
+```powershell
+New-Item -ItemType Junction -Path "$HOME\.claude\skills\re-frame2-pair-retro" -Target "$HOME\src\re-frame2\skills\re-frame2-pair-retro"
 ```
 
-#### Which to choose
+Then `git pull` in the cloned repo to pick up updates everywhere at once.
 
-- **Global** if you're the only person using Claude Code here, or you want one install shared across repos.
-- **Project-local** if your team wants one pinned, shared version.
-- **Both** is fine — the project-local install takes precedence when both are present.
+> **Project-local copying is an explicit pinned-vendoring choice, not the default.** If your team deliberately wants a frozen snapshot committed into a project's `.claude/skills/`, you own the update burden: re-vendor on every re-frame2 release or you will silently run a skill that has fallen behind the shared security hardening above. Prefer linking unless you have a specific reason to pin.

@@ -9,10 +9,10 @@ This skill is the on-demand **complement** to [`re-frame2`](../re-frame2/): re-f
 ## Three filters must hold to trigger
 
 1. **Explicit pull.** The user used review / audit / critique / improvements / anti-pattern phrasing about their own re-frame2 code.
-2. **Source-in-scope.** At least one `.cljs` / `.cljc` file has been read or edited in this conversation, OR the user supplied a snippet inline.
+2. **Source-in-scope.** At least one `.cljs` / `.cljc` file has been read or edited in this conversation, OR the user supplied a snippet inline, OR the user named a concrete `.cljs` / `.cljc` file or directory to review (the skill reads it before critiquing).
 3. **Not a sibling skill's job.** See [`skills/README.md` §Skill routing](../README.md#skill-routing--single-source) for the full disambiguation matrix.
 
-If 1 holds but 2 doesn't, the skill declines and asks for a snippet rather than fabricating findings.
+If 1 holds but 2 doesn't — vocabulary with no file, snippet, or named path — the skill declines and asks for a snippet or a path rather than fabricating findings.
 
 ## Repo contents
 
@@ -57,29 +57,36 @@ Pre-alpha. References catalogue currently has 6 leaves at launch; expected to gr
 
 ## Install
 
-`re-frame2-improver` ships as part of the [`day8/re-frame2`](https://github.com/day8/re-frame2) monorepo. Clone re-frame2 and reference the skill from `skills/re-frame2-improver/`.
+`re-frame2-improver` ships as part of the [`day8/re-frame2`](https://github.com/day8/re-frame2) monorepo. It carries `package.json` and `.claude-plugin/plugin.json` metadata for eventual Agent-Skill / plugin distribution, but it is not published separately yet — the current install path is to clone re-frame2 and **link** the skill from `skills/re-frame2-improver/`.
 
 ### Install the skill in Claude Code
 
-#### Global — for you, across any repo
+**Link, never copy.** Claude Code loads skills from `~/.claude/skills/<name>/`. A `cp -r` copy snapshots the skill and then drifts as the repo is maintained — Claude Code keeps loading the stale copy, which silently falls behind the anti-pattern catalogue and the shared retro-protocol security boundary this skill loads. Always link the repo source.
 
-Clone the re-frame2 repo somewhere stable, then symlink the skill subdirectory into your user Claude config:
+The cross-platform installer at the repo root links *every* re-frame2 skill (this one included) into `~/.claude/skills/`:
+
+```bash
+scripts/install-skills.sh                                              # macOS / Linux (symlinks)
+powershell -ExecutionPolicy Bypass -File scripts/install-skills.ps1    # Windows (junctions, no admin)
+```
+
+It is idempotent, refuses to clobber a non-link copy without `--force` (`-Force`), and supports `--check` (`-Check`). See [`skills/README.md` §Installing (link, never copy)](../README.md#installing-link-never-copy) and [`CONTRIBUTING.md`](../../CONTRIBUTING.md#skills--link-dont-copy) for the full setup.
+
+To link just this one skill:
 
 ```bash
 git clone https://github.com/day8/re-frame2.git ~/src/re-frame2
 mkdir -p ~/.claude/skills
-ln -s ~/src/re-frame2/skills/re-frame2-improver ~/.claude/skills/re-frame2-improver
+ln -s ~/src/re-frame2/skills/re-frame2-improver ~/.claude/skills/re-frame2-improver   # macOS / Linux
 ```
 
-#### Project-local — for your whole team via the repo
+On Windows, use a junction instead of `ln -s` (no admin required):
 
-Copy the skill into the project's own `.claude/skills/re-frame2-improver/` and commit it.
-
-```bash
-cd your-re-frame2-project
-cp -r /path/to/re-frame2/skills/re-frame2-improver .claude/skills/re-frame2-improver
-git add .claude/skills/re-frame2-improver
+```powershell
+New-Item -ItemType Junction -Path "$HOME\.claude\skills\re-frame2-improver" -Target "$HOME\src\re-frame2\skills\re-frame2-improver"
 ```
+
+> **Project-local copying is an explicit pinned-vendoring choice, not the default.** If your team deliberately wants a frozen snapshot committed into a project's `.claude/skills/`, you own the update burden — re-vendor on every re-frame2 release or you will silently run a skill that has fallen behind the catalogue and shared protocol. Prefer linking.
 
 ## License
 

@@ -44,7 +44,7 @@ A self-contained prompt that re-authors the `re-frame2-improver` skill from this
 > *2. `boolean-discriminator-subs.md` → Tags query layer (Spec 005).*
 > *3. `manual-loading-flags.md` → Nine States (`spec/Pattern-NineStates.md`).*
 > *4. `schemaless-events.md` → Schemas at boundaries (Spec 010). May carry an additive "Regression example" section.*
-> *5. `imperative-effects.md` → Data-only fx via `reg-fx` (`spec/Conventions.md`). `:platforms` gating is owned by Spec 011 (SSR), NOT a non-existent Spec 003.*
+> *5. `imperative-effects.md` → split by direction: effectful writes (storage/DOM/inline-dispatch/timers) route to data-only fx via `reg-fx` (`spec/Conventions.md`, `fundamentals/fx.md`); impure / nondeterministic reads (`Date.now`, `Math.random`, `localStorage.getItem`, sub reads) route to a coeffect via `reg-cofx` / `inject-cofx` (`fundamentals/cofx.md`) — do NOT route a read to `reg-fx`. Pure deterministic JS helpers (`parseInt`, `Math.max`) stay non-findings. `:platforms` gating is owned by Spec 011 (SSR), NOT a non-existent Spec 003.*
 > *6. `view-side-hook-state.md` → `app-db` + `reg-sub` (Spec 004 / `spec/Principles.md`). The testing surface is `compute-sub` for subs and `dispatch-sync` + `app-db-value` for events — there is no `compute-event`.*
 >
 > *Locks to preserve verbatim (from design.md §3):*

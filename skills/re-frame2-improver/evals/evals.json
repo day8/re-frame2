@@ -8,7 +8,7 @@
  {"id": 2, "name": "pull-audit-best", "should_trigger": true, "prompt": "Audit this snippet against re-frame2 best practices:\n\n(rf/reg-event-db :cart/loading? (fn [db [_ v]] (assoc db :cart/loading? v)))"},
  {"id": 3, "name": "pull-any-improvements", "should_trigger": true, "prompt": "I read events.cljs and views.cljs earlier. Any improvements you can spot?"},
  {"id": 4, "name": "pull-better-pattern", "should_trigger": true, "prompt": "Is there a better re-frame2 pattern for this state machine?\n\n(rf/reg-event-db :checkout/start ...)"},
- {"id": 5, "name": "pull-spot-antipatterns", "should_trigger": true, "prompt": "Spot any anti-patterns in cart/handlers.cljs?"},
+ {"id": 5, "name": "pull-spot-antipatterns", "should_trigger": true, "prompt": "Spot any anti-patterns in cart/handlers.cljs?", "rationale": "Explicit pull AND a concrete .cljs path named for review — filter 2 (source-in-scope) is satisfied by a named, resolvable path; the skill activates and reads cart/handlers.cljs before critiquing. Contrast #9, which hits the vocabulary but names no source."},
  {"id": 6, "name": "pull-improver-against", "should_trigger": true, "prompt": "Run the re-frame2 improver against the files I just edited."},
  {"id": 7, "name": "pull-critique-mode", "should_trigger": true, "prompt": "Critique my re-frame2 code — focus on subs.cljs and events.cljs in the cart slice."},
  {"id": 8, "name": "pull-snippet-paste", "should_trigger": true, "prompt": "Quick review:\n\n(rf/reg-sub :cart/items-loading? (fn [db _] (boolean (:cart/loading? db))))\n(rf/reg-sub :cart/items-error? (fn [db _] (some? (:cart/error db))))\n(rf/reg-sub :cart/items-loaded? (fn [db _] (some? (:cart/items db))))\n\nAnything wrong?"},

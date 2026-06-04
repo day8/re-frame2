@@ -61,7 +61,7 @@ Output of Phase 1: a single dated decision record committed to the port's own re
 
 With Phase 1 locked, walk [`references/phase-2-impl-order.md`](references/phase-2-impl-order.md) EP-by-EP. The leaf carries, for each EP: what to read first, the contract to expose, how the CLJS reference realised it (as **one** example, not normative), what the conformance fixtures check, common spec-gap traps.
 
-Dependency order is fixed: **EP 001 Registration → 002 Frames → 006 Reactive substrate → 004 Views → 009 Instrumentation**, then a first conformance pass against the `:core/*` fixtures. Optional EPs (010 Schemas, 008 Testing, 005 State machines, 012 Routing, 011 SSR, 013 Flows, 014 HTTP, 007 Stories) follow in the order Phase 1 declared `yes` for them.
+Dependency order is fixed: **EP 001 Registration → 002 Frames → 006 Reactive substrate → 004 Views → 009 Instrumentation**, then a first conformance pass against the `:core/*` fixtures (run by the engineer, or by the agent when asked — see [`references/conformance.md`](references/conformance.md); the agent never runs the engineer's builds unbidden). Optional EPs (010 Schemas, 008 Testing, 005 State machines, 012 Routing, 011 SSR, 013 Flows, 014 HTTP, 007 Stories) follow in the order Phase 1 declared `yes` for them — each gated by its D3 question (Q1 machines, Q2 routing, Q3 SSR, Q4 schemas, Q5 stories, Q8 Flows, Q9 HTTP; Q6 Tool-Pair and Q7 AI-Audit gate the non-EP surfaces).
 
 ## Source discipline
 
