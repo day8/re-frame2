@@ -279,7 +279,3 @@
 (rf/reg-sub :home/selected-tag
   :<- [:home/query]
   (fn [query _] (:tag query)))
-
-(rf/reg-sub :home/feed-kind
-  :<- [:home/query]
-  (fn [query _] (if (= "your" (:feed query)) :your :global)))

@@ -111,30 +111,61 @@
 ;; ============================================================================
 ;; FAVORITES
 ;; ============================================================================
+;;
+;; Optimistic rollback shapes across the app (rf2-ygh4m ITEM 5). realworld
+;; has three optimistic-with-rollback flows and they DELIBERATELY use three
+;; different rollback shapes — because the thing being rolled back differs:
+;;
+;;   - favorite (here): snapshots {:favorited :favoritesCount} and patches
+;;     the article EVERYWHERE it appears (across the :articles / :feed /
+;;     :profile.* slices) via the shared `patch-article-everywhere` /
+;;     `update-article-in-list` helpers below — the cross-slice case.
+;;   - follow (profile.cljs): snapshots a single boolean — one field, one
+;;     slice — so a helper would be heavier than the `assoc-in` it replaces.
+;;   - comment-delete (comments.cljs): snapshots {:index :comment} and
+;;     re-inserts the removed comment at its original position — a positional
+;;     splice the map-and-swap helper here can't express (the entry is gone,
+;;     not present-to-map-over).
+;;
+;; A single shared optimistic helper would have to abstract over "patch a
+;; field across N slices", "flip one boolean", and "re-insert at an index" —
+;; obscuring more than it saves. The shared surface that DOES pay off
+;; (cross-slice article patching) is already factored out below and reused
+;; by `:comment-form/submit-success`'s in-place swap. So: shared where it
+;; helps, distinct where the data shapes genuinely differ — not an oversight.
 
 (rf/reg-event-fx :article/toggle-favorite
   {:doc "Optimistically flip the favorited flag and bump the count, then
          POST or DELETE the favorite. On failure the prior state is
-         restored (rollback)."
+         restored (rollback).
+
+         Auth-gated: favoriting requires a session. An unauthenticated
+         click navigates to login instead of issuing a tokenless request
+         that the real Conduit backend would 401 — so there is no
+         optimistic flip-then-rollback flicker for a logged-out user. (The
+         demo stub 200s everything, which would mask the 401; gating here
+         keeps the example correct against the real backend it documents.)"
    :rf.http/decode-schemas [schema/ArticleResponse]}
   (fn [{:keys [db]} [_ slug]]
-    (if-let [article (find-article db slug)]
-      (let [prior {:favorited      (:favorited article)
-                   :favoritesCount (:favoritesCount article)}
-            favorited? (:favorited article)
-            next-count (if favorited?
-                         (max 0 (dec (:favoritesCount article)))
-                         (inc (:favoritesCount article)))]
-        {:db (patch-article-everywhere db slug
-                                       #(assoc % :favorited (not favorited?)
-                                                 :favoritesCount next-count))
-         :fx [[:rf.http/managed
-               (rh/request {:method     (if favorited? :delete :post)
-                            :path       (str "/articles/" slug "/favorite")
-                            :decode     schema/ArticleResponse
-                            :on-success [:article/favorite-synced slug]
-                            :on-failure [:article/favorite-rollback slug prior]})]]})
-      {})))
+    (if (nil? (get-in db [:auth :user]))
+      {:fx [[:dispatch [:rf.route/navigate :realworld.auth/login]]]}
+      (if-let [article (find-article db slug)]
+        (let [prior {:favorited      (:favorited article)
+                     :favoritesCount (:favoritesCount article)}
+              favorited? (:favorited article)
+              next-count (if favorited?
+                           (max 0 (dec (:favoritesCount article)))
+                           (inc (:favoritesCount article)))]
+          {:db (patch-article-everywhere db slug
+                                         #(assoc % :favorited (not favorited?)
+                                                   :favoritesCount next-count))
+           :fx [[:rf.http/managed
+                 (rh/request {:method     (if favorited? :delete :post)
+                              :path       (str "/articles/" slug "/favorite")
+                              :decode     schema/ArticleResponse
+                              :on-success [:article/favorite-synced slug]
+                              :on-failure [:article/favorite-rollback slug prior]})]]})
+        {}))))
 
 (rf/reg-event-db :article/favorite-synced
   (fn [db [_ slug {:keys [value]}]]

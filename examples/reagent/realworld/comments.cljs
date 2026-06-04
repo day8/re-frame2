@@ -198,12 +198,16 @@
     (let [saved (:comment value)]
       (-> db
           (assoc-in [:comment-form] (comment-form-defaults))
+          ;; Replace the optimistic temp card IN PLACE with the saved
+          ;; comment — preserve its position so a confirmed comment does
+          ;; not visibly teleport from where it was appended (the bottom)
+          ;; to the top. Mirrors favorites.cljs/update-article-in-list:
+          ;; map, swap the matching entry, keep order.
           (update-in [:comments :data]
                      (fn [comments]
-                       (->> (or comments [])
-                            (remove #(= temp-id (:id %)))
-                            (concat [saved])
-                            vec)))))))
+                       (mapv (fn [comment]
+                               (if (= temp-id (:id comment)) saved comment))
+                             (or comments []))))))))
 
 (rf/reg-event-db :comment-form/submit-error
   (fn [db [_ temp-id {:keys [failure]}]]
@@ -326,7 +330,14 @@
        (= article-status :loading)
        [:div.article-preview "Loading article…"]
 
-       article-error
+       ;; Only surface the error view when there is NO article to show.
+       ;; A failed RE-fetch (`:status :error`) of an already-loaded
+       ;; article leaves the prior `:data` in place — render it (the
+       ;; `article` branch below) rather than blanking a page the user is
+       ;; reading. Pattern-RemoteData: never blank loaded data on a
+       ;; refresh failure. (cf. tags.cljs, where the machine keeps prior
+       ;; `:tags` visible across a `:fetch-failed`.)
+       (and article-error (nil? article))
        [:div.article-preview.error
         (str "Couldn't load article: " (pr-str article-error))]
 

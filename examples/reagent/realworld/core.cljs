@@ -205,6 +205,14 @@
 ;; wrapper fx so the demo doesn't have to know one URL ahead of time.
 ;; ----------------------------------------------------------------------------
 
+(def ^:private demo-reply-delay-ms
+  "How long the demo stub defers each canned reply (via the canned-success
+   fx's `:after-ms`, dispatched through `:dispatch-later` — observable in
+   the tape, time-travel-safe, NOT raw `js/setTimeout`). Small but non-zero
+   so the `:loading` UI state is observable in the standalone demo. A
+   demo-seam knob, not a production value."
+  20)
+
 (def ^:private demo-articles
   [{:slug "hello-conduit"
     :title "Hello, Conduit"
@@ -318,8 +326,9 @@
 
                Delegates straight to the framework-shipped
                `:rf.http/managed-canned-success` (Spec 014 §Testing) with
-               the per-URL canned payload and `:after-ms` (rf2-j1mo4): the
-               framework defers the reply via `:dispatch-later` (20 ms) —
+               the per-URL canned payload and `:after-ms`
+               (`demo-reply-delay-ms`, rf2-j1mo4): the framework defers the
+               reply via `:dispatch-later` —
                observable in the tape, time-travel-safe, NOT raw
                `js/setTimeout`. The delay lets the `:loading` UI state be
                observable; `:after-ms` collapses the former schedule-reply
@@ -329,7 +338,7 @@
   (fn fx-managed-demo-stub [frame-ctx args-map]
     (let [payload (demo-payload-for-args args-map)
           stub    (registrar/handler :fx :rf.http/managed-canned-success)]
-      (stub frame-ctx (assoc args-map :after-ms 20 :value payload)))))
+      (stub frame-ctx (assoc args-map :after-ms demo-reply-delay-ms :value payload)))))
 
 ;; React root named `react-root` (not `root`) so it does NOT collide with
 ;; the `root-view` reg-view above. Held in an atom and populated lazily
@@ -361,6 +370,18 @@
 ;; with `realworld.http/request` (which threads the header explicitly)
 ;; — both shapes work; the interceptor pattern is the lighter option
 ;; once the auth slot is established.
+;;
+;; DELIBERATE DUALITY (rf2-ygh4m ITEM 4): this example wires BOTH shapes
+;; live at once so a reader can see them side by side, so every authed
+;; request actually gets the Bearer header written twice — once by
+;; `rh/request` and once here. This is intentional and harmless: the
+;; interceptor `assoc-in`s the SAME header to the SAME value, so the
+;; second write is idempotent (no duplicate header, no precedence
+;; surprise). A real app would pick ONE source of truth — drop the token
+;; logic from `rh/request` (leaving `:auth? false` as a header
+;; suppressor) and keep this single read site, or vice versa. The
+;; side-by-side wiring is a teaching choice, not the recommended
+;; production shape.
 
 (defn- bearer-auth-interceptor [ctx]
   (let [token (some-> (rf/app-db-value (:frame ctx))

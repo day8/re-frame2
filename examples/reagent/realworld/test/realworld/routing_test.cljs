@@ -42,8 +42,24 @@
     (assert (= :realworld/home (rf/compute-sub [:rf.route/id] (rf/app-db-value f)))
             "unguarded route navigates normally with the guard installed")
 
+    ;; Bounce-back stash (rf2-ygh4m ITEM 1): the redirect to login also
+    ;; records the original target at [:auth :return-to] so a post-login
+    ;; handler can return the user there. (We are still on /login from the
+    ;; first redirect above; navigate back to a guarded route to re-stash.)
+    (rf/dispatch-sync [:rf.route/navigate :realworld.user/settings {}] {:frame f})
+    (assert (= {:id :realworld.user/settings :params {}}
+               (get-in (rf/app-db-value f) [:auth :return-to]))
+            "the redirect stashes the original target for post-login bounce-back")
+
     ;; Authenticated: the same guarded nav now proceeds.
     (rf/dispatch-sync [:auth/store-session {:username "eve" :token "t"}] {:frame f})
     (rf/dispatch-sync [:rf.route/navigate :realworld.user/settings {}] {:frame f})
     (assert (= :realworld.user/settings (rf/compute-sub [:rf.route/id] (rf/app-db-value f)))
-            "authenticated nav to a :requires-auth route proceeds")))
+            "authenticated nav to a :requires-auth route proceeds")
+
+    ;; The post-login bounce-back event consumes the stashed target and
+    ;; clears the slot. With a stash present it navigates THERE; we assert
+    ;; the slot is cleared after one consumption.
+    (rf/dispatch-sync [:auth/post-login-redirect] {:frame f})
+    (assert (nil? (get-in (rf/app-db-value f) [:auth :return-to]))
+            ":auth/post-login-redirect clears the :return-to slot")))
