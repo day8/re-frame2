@@ -1746,8 +1746,20 @@ documenting comment and does **not** survive the parse back.
 | `:after {ms :target}`                 | `<transition event="after.ms" target="target"/>` |
 | `:always [...]`                       | `<transition target="..."/>` (eventless) |
 | `{:type :parallel :regions ...}`      | `<parallel>` containing region `<state>`s |
-| Namespaced ids (`:auth/login`)        | `auth.login` (dot-separated; SCXML id grammar) |
-| Vector-path targets                   | dot-joined `parent.child.grandchild` |
+| Namespaced ids (`:auth/login`)        | `auth.login` (`.` separates ns from name; SCXML xsd:ID grammar) |
+| Vector-path targets (`[:parent :child]`) | `parent:child` (`:` joins path SEGMENTS; SCXML xsd:ID grammar) |
+
+> **Id codec (rf2-csq75).** Two separators keep the round-trip
+> injective. A `.` separates a *namespaced keyword's* namespace from
+> its name (`:auth/login` → `auth.login`). A `:` joins the *segments of
+> a vector path* (`[:authenticated :browsing]` → `authenticated:browsing`;
+> a namespaced segment keeps its own dot, e.g. `[:auth/region :browsing]`
+> → `auth.region:browsing`). Because the keyword encoder never emits a
+> `:`, the presence of a `:` is the unambiguous marker of a vector path,
+> so a two-segment path (`authenticated:browsing`) can never collide
+> with a single namespaced keyword (`authenticated.browsing`). The
+> decoder is therefore topology-aware (split on `:`), not dot-count
+> based. Both separators are valid SCXML xsd:ID characters.
 
 ### Not supported (lossy or omitted)
 

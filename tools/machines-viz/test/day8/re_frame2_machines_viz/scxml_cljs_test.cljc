@@ -89,6 +89,29 @@
                     :states  {:neutral {:on {:submit :correct}}
                               :correct {:final? true}}}}})
 
+(def vector-path-target-machine
+  "rf2-csq75 — a compound machine whose transition target is a VECTOR
+  PATH `[:authenticated :browsing]` (a deep-target into a compound
+  child). The encoder must distinguish this from the namespaced keyword
+  `:authenticated/browsing`: pre-fix both dot-joined to
+  `\"authenticated.browsing\"` and the decoder collapsed the vector to a
+  namespaced keyword, silently changing machine semantics."
+  {:initial :idle
+   :states  {:idle          {:on {:login [:authenticated :browsing]}}
+             :authenticated {:initial :browsing
+                             :states  {:browsing {:on {:logout :idle}}
+                                       :paying   {}}}}})
+
+(def vector-path-namespaced-segment-machine
+  "rf2-csq75 — a vector-path target whose FIRST segment is itself a
+  namespaced keyword (`[:auth/region :browsing]`). Exercises the
+  `.`-within-segment + `:`-between-segments codec: a namespaced segment
+  inside a vector path must survive both separators independently."
+  {:initial :a
+   :states  {:a          {:on {:go [:auth/region :browsing]}}
+             :auth/region {:initial :browsing
+                           :states  {:browsing {}}}}})
+
 ;; ---------------------------------------------------------------------------
 ;; Emit shape
 
@@ -217,6 +240,42 @@
   (testing ":type :parallel + :regions round-trips through <parallel>"
     (is (round-trips? parallel-machine))))
 
+(deftest round-trip-vector-path-target
+  (testing "rf2-csq75 — a vector-path transition target round-trips as
+            the SAME vector, NOT collapsed to a namespaced keyword"
+    ;; The exact repro from the bead: the target must come back a vector.
+    (let [spec {:initial :idle
+                :states  {:idle          {:on {:login [:authenticated :browsing]}}
+                          :authenticated {:initial :browsing
+                                          :states  {:browsing {}}}}}
+          back (-> spec scxml/spec->scxml scxml/scxml->spec)]
+      (is (= [:authenticated :browsing]
+             (get-in back [:states :idle :on :login]))
+          "vector target must NOT collapse to :authenticated/browsing")
+      (is (vector? (get-in back [:states :idle :on :login]))
+          "the decoded target is a vector, not a namespaced keyword")
+      (is (= spec back) "the whole spec round-trips exactly"))
+    ;; The colon path-separator must NOT collide with namespaced keywords:
+    ;; a sibling :authenticated/browsing namespaced-keyword target stays a
+    ;; keyword while the vector path stays a vector.
+    (is (round-trips? vector-path-target-machine))
+    (is (round-trips? vector-path-namespaced-segment-machine))
+    (testing "the emitted SCXML uses `:` (not `.`) between vector segments"
+      (let [out (scxml/spec->scxml vector-path-target-machine)]
+        (is (str/includes? out "target=\"authenticated:browsing\"")
+            "vector path joins with the `:` path-segment separator")
+        (is (not (str/includes? out "target=\"authenticated.browsing\""))
+            "the dot-joined (ambiguous) form must NOT appear")))
+    (testing "a namespaced-keyword target stays a namespaced keyword
+              (no false vector promotion)"
+      (let [spec {:initial :a
+                  :states  {:a {:on {:go :auth/login}}
+                            :auth/login {}}}
+            back (-> spec scxml/spec->scxml scxml/scxml->spec)]
+        (is (= :auth/login (get-in back [:states :a :on :go]))
+            "single namespaced keyword must NOT become [:auth :login]")
+        (is (keyword? (get-in back [:states :a :on :go])))))))
+
 ;; ---------------------------------------------------------------------------
 ;; Error cases
 
@@ -262,7 +321,10 @@
                          ["guarded-machine"             guarded-machine]
                          ["after-machine"               after-machine]
                          ["always-machine"              always-machine]
-                         ["parallel-machine"            parallel-machine]]]
+                         ["parallel-machine"            parallel-machine]
+                         ["vector-path-target-machine"  vector-path-target-machine]
+                         ["vector-path-namespaced-segment-machine"
+                          vector-path-namespaced-segment-machine]]]
       (testing name
         (is (= spec (-> spec scxml/spec->scxml scxml/scxml->spec)))))))
 
