@@ -164,6 +164,54 @@
                               :recovery          :logged-and-skipped})))
       offending)))
 
+;; ---- :fx VALUE-shape policing (rf2-24zly) ---------------------------------
+;;
+;; `police-effect-map-shape!` above polices the top-level KEYS only. The
+;; one shape it does NOT check is the :fx VALUE: per Spec-Schemas §:rf/effect-map
+;; the :fx value is `[:vector [:tuple :keyword :any]]` — a sequential of
+;; [fx-id args] pairs. A handler that returns a non-sequential :fx value
+;; (e.g. `{:fx :oops}` or `{:fx {:dispatch [...]}}` — a plausible
+;; forgot-the-outer-vector typo) used to escape policing entirely: the value
+;; was assoc'd straight into the effects map, and `fx/do-fx`'s
+;; `(doseq [pair fx-vec] ...)` then threw an uncaught host exception
+;; ("Don't know how to create ISeq from: …"). Because :fx runs AFTER the :db
+;; commit, that throw escaped `process-event!` into the drain's emergency
+;; release: app-db left mutated, no structured trace, no `:on-error` fire,
+;; downstream queued events abandoned.
+;;
+;; We close the gap symmetric with M-8: a non-sequential (and non-nil) :fx
+;; value emits :rf.error/effect-map-shape (recovery :logged-and-skipped) and
+;; is DROPPED — `:db` still commits, the cascade is not aborted, and there is
+;; no low-level throw. `nil` stays the legal "no fx" no-op (equivalent to an
+;; absent :fx).
+
+(defn- fx-value-ok?
+  "True iff the `:fx` value in `effects` is shaped well enough to walk — i.e.
+  absent, `nil` (legal no-op), or sequential (the documented
+  `[[fx-id args] ...]` vector). A non-nil, non-sequential `:fx` value is the
+  forgot-the-outer-vector typo: emit :rf.error/effect-map-shape naming the
+  offending handler and return false so the caller drops `:fx`."
+  [effects event]
+  (let [fx-val (:fx effects)]
+    (if (or (not (contains? effects :fx))
+            (nil? fx-val)
+            (sequential? fx-val))
+      true
+      (let [event-id (when (vector? event) (first event))
+            reason   (str "Effect-map for `" event-id "` returned a `:fx` value of type `"
+                          (pr-str (type fx-val))
+                          "`; `:fx` must be a vector of `[fx-id args]` pairs"
+                          " (e.g. `[[:dispatch [:saved]]]`) — did you forget the outer vector?")]
+        (trace/emit-error! :rf.error/effect-map-shape
+                           {:failing-id        event-id
+                            :rf.trace/event-id event-id
+                            :rf.event/v        event
+                            :offending-key     :fx
+                            :value             fx-val
+                            :reason            reason
+                            :recovery          :logged-and-skipped})
+        false))))
+
 ;; ---- handler-as-interceptor wrappers --------------------------------------
 ;;
 ;; The three reg-event-* forms share a single :before shape:
@@ -182,7 +230,14 @@
   into the context. Bad-return / nil-return policy lives here too — `nil`
   is the documented legal no-op (rf2-k3bj); any non-map return emits
   :rf.error/effect-handler-bad-return with :no-recovery and the dispatch
-  becomes a no-op."
+  becomes a no-op.
+
+  Two shape checks run before commit: `police-effect-map-shape!` rejects
+  non-:db/:fx top-level keys (M-8), and `fx-value-ok?` rejects a
+  non-sequential `:fx` value (rf2-24zly) — both emit
+  :rf.error/effect-map-shape (:logged-and-skipped) and DROP the offending
+  slot, so a malformed effect map never reaches `fx/do-fx` to throw a raw
+  host exception after the :db commit."
   [ctx event effects]
   (cond
     (nil? effects) ctx                       ;; documented legal no-op
@@ -200,7 +255,8 @@
       (police-effect-map-shape! effects event)
       (cond-> ctx
         (contains? effects :db) (interceptor/assoc-effect :db (:db effects))
-        (contains? effects :fx) (interceptor/assoc-effect :fx (:fx effects))))))
+        (and (contains? effects :fx)
+             (fx-value-ok? effects event)) (interceptor/assoc-effect :fx (:fx effects))))))
 
 (def ^:private kind-spec
   "Per-kind hooks for `wrap-event-handler`. Each entry carries:

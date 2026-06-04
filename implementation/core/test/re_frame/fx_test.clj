@@ -13,6 +13,8 @@
     4. Missing fx-id emits :rf.error/no-such-fx and skips that entry.
     5. :platforms gating skips with :rf.fx/skipped-on-platform.
     6. Effect-map shape (M-8): legacy v1 top-level keys are policed.
+    6b. :fx VALUE shape (rf2-24zly): a non-sequential :fx value is policed
+        (dropped + traced), not thrown — symmetric with M-8.
 
   Per Spec 002 §`:fx` ordering and atomicity guarantees and Spec 009
   §Error contract."
@@ -467,6 +469,124 @@
             "one :rf.error/effect-map-shape trace per offending top-level key")
         (is (= #{:dispatch :http} offending)
             "both legacy keys are flagged")))))
+
+;; ---- 6b. :fx VALUE-shape policing (rf2-24zly) -----------------------------
+;;
+;; M-8 policing above checks the top-level KEYS only. The one shape it skipped
+;; was the :fx VALUE: per Spec-Schemas §:rf/effect-map the :fx value is a
+;; vector of [fx-id args] pairs. A handler returning a NON-sequential :fx value
+;; — `{:fx :oops}` or `{:fx {:dispatch [...]}}`, the forgot-the-outer-vector
+;; typo — used to slip past policing, get assoc'd into the effects map, and
+;; throw an uncaught host exception inside `fx/do-fx`'s `(doseq [pair fx-vec])`.
+;; Because :fx runs AFTER the :db commit, that throw escaped process-event!
+;; into the drain's emergency release: app-db mutated, no structured trace, no
+;; :on-error fire, downstream queued events abandoned.
+;;
+;; The fix (events.cljc `fx-value-ok?`) polices the :fx value symmetric with
+;; M-8: a non-nil, non-sequential :fx value emits :rf.error/effect-map-shape
+;; (:offending-key :fx, recovery :logged-and-skipped) and is DROPPED — :db
+;; still commits, the cascade is not aborted, and `do-fx` never sees the bad
+;; value. nil/absent :fx stays the legal no-op.
+
+(deftest non-sequential-fx-value-keyword-is-policed
+  (testing "{:fx :oops} (a bare keyword instead of a vector) is policed —
+            structured :rf.error/effect-map-shape, NOT a raw host exception"
+    (let [traces (collect-traces! ::fx-val-kw)]
+      (rf/reg-event-fx :fx-test/fx-is-keyword
+        (fn [{:keys [db]} _]
+          ;; Forgot-the-outer-vector typo: :fx is a bare keyword.
+          {:db (assoc db :seeded? true)
+           :fx :oops}))
+      ;; The dispatch MUST NOT throw — the bug was an uncaught
+      ;; IllegalArgumentException escaping the drain after the :db commit.
+      (is (nil? (rf/dispatch-sync [:fx-test/fx-is-keyword]))
+          "dispatch returns normally — no uncaught host exception escapes the drain")
+      (rf/unregister-listener! ::fx-val-kw)
+      ;; :db still committed — the malformed :fx was dropped, not the whole event.
+      (is (= true (:seeded? (rf/app-db-value :rf/default)))
+          ":db still committed; only the malformed :fx slot was dropped")
+      ;; Exactly one structured trace, flagging :fx as the offending slot.
+      (let [shape-traces (filter #(= :rf.error/effect-map-shape (:operation %))
+                                 @traces)]
+        (is (= 1 (count shape-traces))
+            "exactly one :rf.error/effect-map-shape trace for the bad :fx value")
+        (let [t (first shape-traces)]
+          (is (= :error (:op-type t)))
+          (is (= :logged-and-skipped (:recovery t)))
+          (is (= :fx (get-in t [:tags :offending-key]))
+              ":offending-key is :fx (the value-shape gap, not a top-level key)")
+          (is (= :fx-test/fx-is-keyword (get-in t [:tags :rf.trace/event-id]))
+              ":event-id names the offending handler")
+          (is (= :oops (get-in t [:tags :value]))
+              ":value carries the offending non-sequential :fx value")
+          (is (string? (get-in t [:tags :reason]))
+              ":reason is a human-facing description")
+          (is (re-find #"outer vector" (get-in t [:tags :reason]))
+              ":reason hints at the forgot-the-outer-vector typo"))))))
+
+(deftest non-sequential-fx-value-map-is-policed
+  (testing "{:fx {:dispatch [...]}} (a map instead of a vector of pairs) is policed —
+            structured error, the inner :dispatch is NOT performed"
+    (let [traces (collect-traces! ::fx-val-map)
+          fired? (atom false)]
+      ;; Sentinel: if the runtime somehow routed the inner :dispatch, this
+      ;; would flip — it must NOT (the whole :fx value is malformed + dropped).
+      (rf/reg-event-db :fx-test/fx-sentinel
+        (fn [db _] (reset! fired? true) db))
+      (rf/reg-event-fx :fx-test/fx-is-map
+        (fn [_ _]
+          ;; Forgot the outer + inner vector nesting: :fx is a map.
+          {:fx {:dispatch [:fx-test/fx-sentinel]}}))
+      (is (nil? (rf/dispatch-sync [:fx-test/fx-is-map]))
+          "dispatch returns normally — no uncaught host exception")
+      (rf/unregister-listener! ::fx-val-map)
+      (is (false? @fired?)
+          "the malformed :fx map is dropped wholesale — nothing inside it runs")
+      (let [shape-traces (filter #(= :rf.error/effect-map-shape (:operation %))
+                                 @traces)]
+        (is (= 1 (count shape-traces))
+            "exactly one :rf.error/effect-map-shape trace for the bad :fx value")
+        (let [t (first shape-traces)]
+          (is (= :logged-and-skipped (:recovery t)))
+          (is (= :fx (get-in t [:tags :offending-key])))
+          (is (= :fx-test/fx-is-map (get-in t [:tags :rf.trace/event-id])))
+          (is (= {:dispatch [:fx-test/fx-sentinel]} (get-in t [:tags :value]))
+              ":value carries the offending map"))))))
+
+(deftest well-shaped-fx-vector-is-unchanged
+  (testing "the normal {:fx [[fx-id args] ...]} path still fires and emits NO shape trace"
+    (let [traces (collect-traces! ::fx-val-ok)
+          fired  (atom [])]
+      (rf/reg-fx :fx-test/touch-ok
+        (fn [_ args] (swap! fired conj args)))
+      (rf/reg-event-fx :fx-test/fx-is-vector
+        (fn [{:keys [db]} _]
+          {:db (assoc db :seeded? true)
+           :fx [[:fx-test/touch-ok {:k :v}]]}))
+      (rf/dispatch-sync [:fx-test/fx-is-vector])
+      (rf/unregister-listener! ::fx-val-ok)
+      (is (= [{:k :v}] @fired)
+          "the well-shaped :fx entry still fires")
+      (is (= true (:seeded? (rf/app-db-value :rf/default)))
+          ":db committed alongside the legal :fx")
+      (is (empty? (filter #(= :rf.error/effect-map-shape (:operation %)) @traces))
+          "a well-shaped :fx value emits NO :rf.error/effect-map-shape trace"))))
+
+(deftest nil-fx-value-is-a-legal-no-op
+  (testing "{:db ... :fx nil} is the legal no-op — :db commits, NO shape trace"
+    ;; nil/absent :fx must NOT be flagged (it is equivalent to omitting :fx);
+    ;; only a non-nil, non-sequential value is the typo we police.
+    (let [traces (collect-traces! ::fx-val-nil)]
+      (rf/reg-event-fx :fx-test/fx-is-nil
+        (fn [{:keys [db]} _]
+          {:db (assoc db :seeded? true)
+           :fx nil}))
+      (is (nil? (rf/dispatch-sync [:fx-test/fx-is-nil])))
+      (rf/unregister-listener! ::fx-val-nil)
+      (is (= true (:seeded? (rf/app-db-value :rf/default)))
+          ":db committed; nil :fx is a no-op")
+      (is (empty? (filter #(= :rf.error/effect-map-shape (:operation %)) @traces))
+          "nil :fx emits NO :rf.error/effect-map-shape trace — it is the legal no-op"))))
 
 ;; ---- 7. :fx-overrides function-value branch -------------------------------
 ;;
