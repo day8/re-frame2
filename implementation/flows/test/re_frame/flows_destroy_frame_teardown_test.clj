@@ -153,6 +153,49 @@
     (is (some? (registrar/lookup :flow :shared))
         "registrar slot survives because frame B still registers :shared")))
 
+;; ---- registrar slot re-points to a LIVE owner when the slot's current ----
+;;      (last-registered) frame is destroyed (rf2-73pi1 finding 1).
+
+(deftest destroy-frame-of-registrar-owner-repoints-to-surviving-frame
+  (testing "Per rf2-73pi1: destroying the frame whose metadata currently
+            occupies the :flow registrar slot re-points the slot to a
+            surviving owner — the slot must NOT keep naming the dead frame"
+    (rf/reg-frame :fc/a {:doc "frame A"})
+    (rf/reg-frame :fc/b {:doc "frame B"})
+    (let [f-a (fn [w h] (* (or w 0) (or h 0)))
+          f-b (fn [w h] (+ (or w 0) (or h 0)))]
+      ;; :fc/a first, :fc/b last → slot's :frame is :fc/b.
+      (rf/reg-flow {:id :shared :inputs [[:w] [:h]] :output f-a :path [:rect :area]}
+                   {:frame :fc/a})
+      (rf/reg-flow {:id :shared :inputs [[:w] [:h]] :output f-b :path [:rect :area]}
+                   {:frame :fc/b})
+      (is (= :fc/b (:frame (registrar/lookup :flow :shared)))
+          "precondition: slot's metadata names :fc/b (last-registration-wins)")
+      ;; Destroy :fc/b — the slot's current owner. :fc/a still holds :shared.
+      (frame/destroy-frame! :fc/b)
+      (let [slot (registrar/lookup :flow :shared)]
+        (is (some? slot)
+            "slot survives — :fc/a still registers :shared")
+        (is (= :fc/a (:frame slot))
+            "slot re-pointed to the SURVIVING owner :fc/a (not the destroyed :fc/b)")
+        (is (= f-a (:handler-fn slot))
+            "slot's :handler-fn is :fc/a's LIVE body — not :fc/b's stale one")))))
+
+(deftest destroy-frame-non-owner-leaves-registrar-slot-pointing-at-owner
+  (testing "Per rf2-73pi1: destroying a NON-owner frame leaves the registrar
+            slot pointing at its existing live owner — no needless re-point"
+    (rf/reg-frame :fc/a {:doc "frame A"})
+    (rf/reg-frame :fc/b {:doc "frame B"})
+    (rf/reg-flow {:id :shared :inputs [[:w] [:h]] :output (fn [w h] w) :path [:rect :area]}
+                 {:frame :fc/a})
+    (rf/reg-flow {:id :shared :inputs [[:w] [:h]] :output (fn [w h] h) :path [:rect :area]}
+                 {:frame :fc/b})
+    (is (= :fc/b (:frame (registrar/lookup :flow :shared))))
+    ;; Destroy :fc/a — NOT the slot owner. Slot must keep naming :fc/b.
+    (frame/destroy-frame! :fc/a)
+    (is (= :fc/b (:frame (registrar/lookup :flow :shared)))
+        "slot still names the live owner :fc/b — destroying a non-owner frame caused no re-point")))
+
 ;; ---- SSR-style per-request frame churn stays bounded --------------------
 
 (deftest ssr-style-frame-churn-stays-bounded

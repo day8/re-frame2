@@ -126,6 +126,63 @@
     (is (zero? (count (by-op :rf.flow/registered)))
         "real body change still does not re-emit :rf.flow/registered — only first-time")))
 
+(deftest reg-flow-registered-is-per-frame-not-per-global-id
+  (testing "Per rf2-mb9vq: registering the SAME flow-id against two
+            different frames emits TWO `:rf.flow/registered` events, each
+            tagged with its own `:frame`. Pre-fix the second frame's
+            registration was suppressed because `:rf.flow/registered`
+            gated on the GLOBAL registrar `:was` (flow-id-scoped), so a
+            same-id/different-frame FIRST registration was misclassified
+            as a replacement — a per-frame flow inventory built from
+            `op-type :flow` missed it."
+    (rf/reg-frame :left  {:doc "left frame"})
+    (rf/reg-frame :right {:doc "right frame"})
+    ;; First-time registration on :left — emits with :frame :left.
+    (rf/reg-flow {:id     :shared
+                  :inputs [[:n]]
+                  :output (fn [n] (* 2 (or n 0)))
+                  :path   [:result]}
+                 {:frame :left})
+    ;; First-time registration of the SAME id on :right — an INDEPENDENT
+    ;; definition per Spec 013 §Frame-scoping line 102; must ALSO emit.
+    (rf/reg-flow {:id     :shared
+                  :inputs [[:n]]
+                  :output (fn [n] (* 100 (or n 0)))
+                  :path   [:result]}
+                 {:frame :right})
+    (let [evs (by-op :rf.flow/registered)]
+      (is (= 2 (count evs))
+          "TWO :rf.flow/registered — one per frame's first-time registration")
+      (is (= #{:left :right}
+             (set (map #(get-in % [:tags :frame]) evs)))
+          "the two events carry distinct :frame tags (:left and :right)")
+      (is (every? #(= :shared (get-in % [:tags :flow-id])) evs)
+          "both events name the :shared flow-id"))))
+
+(deftest reg-flow-same-frame-re-register-still-suppresses
+  (testing "Per rf2-mb9vq: a genuine SAME-FRAME re-registration still
+            suppresses `:rf.flow/registered` (its hot-reload signal rides
+            `:rf.registry/handler-replaced`) — the per-frame gating must
+            not over-fire for the replacement case."
+    (rf/reg-frame :left {:doc "left frame"})
+    (rf/reg-flow {:id     :shared
+                  :inputs [[:n]]
+                  :output (fn [n] (* 2 (or n 0)))
+                  :path   [:result]}
+                 {:frame :left})
+    (is (= 1 (count (by-op :rf.flow/registered)))
+        "first-time registration on :left emitted once")
+    (reset! *captured* [])
+    ;; Re-register on the SAME frame with a NEW body — replacement, NOT a
+    ;; first-time registration. :rf.flow/registered must NOT fire again.
+    (rf/reg-flow {:id     :shared
+                  :inputs [[:n]]
+                  :output (fn [n] (* 7 (or n 0)))
+                  :path   [:result]}
+                 {:frame :left})
+    (is (zero? (count (by-op :rf.flow/registered)))
+        "same-frame re-registration does NOT re-emit :rf.flow/registered")))
+
 (deftest reg-flow-cycle-does-NOT-emit-registered
   (testing "when reg-flow throws cycle, no :rf.flow/registered fires for the rejected flow"
     (rf/reg-flow {:id :a :inputs [[:b]] :output identity :path [:a]})

@@ -1169,6 +1169,136 @@
         ":right carries :shared in its per-frame registry too")))
 
 ;; ---------------------------------------------------------------------------
+;; 9b-i. Registrar slot re-points to a LIVE owner when the slot's current
+;;       (last-registered) frame is cleared / destroyed (rf2-73pi1 finding 1).
+;;
+;; The `:flow` registrar slot carries the most-recently-registered frame's
+;; metadata (Spec 013 §Frame-scoping line 105). Pre-fix, clearing /
+;; destroying THAT frame while a sibling still held the id left the slot
+;; pointing at the dead frame: registrar-backed tooling / hot-reload went
+;; stale, and the next surviving-frame re-registration computed
+;; `:different-fn?` against the dead frame's stale `:handler-fn` /
+;; metadata. The fix re-points the slot to a surviving owner (or
+;; unregisters when none survive).
+;; ---------------------------------------------------------------------------
+
+(deftest clear-flow-of-registrar-owner-repoints-to-surviving-frame
+  (testing "Per rf2-73pi1: clearing the slot's current owner re-points the
+            registrar to a surviving frame; a subsequent surviving-frame
+            body change then computes :different-fn? against the LIVE body"
+    (rf/reg-frame :left  {:doc "left frame"})
+    (rf/reg-frame :right {:doc "right frame"})
+    (let [f-left  (fn [n] (* 2 (or n 0)))
+          f-right (fn [n] (* 100 (or n 0)))]
+      ;; :left registers first, then :right — so the slot's :frame is :right.
+      (rf/reg-flow {:id :shared :inputs [[:n]] :output f-left  :path [:result]}
+                   {:frame :left})
+      (rf/reg-flow {:id :shared :inputs [[:n]] :output f-right :path [:result]}
+                   {:frame :right})
+      (is (= :right (:frame (registrar/lookup :flow :shared)))
+          "precondition: slot's metadata names :right (last-registration-wins)")
+      ;; Clear :right — the slot's current owner. :left still holds :shared.
+      (rf/clear-flow :shared {:frame :right})
+      (let [slot (registrar/lookup :flow :shared)]
+        (is (some? slot)
+            "slot survives — :left still registers :shared")
+        (is (= :left (:frame slot))
+            "slot re-pointed to the SURVIVING owner :left (not the dead :right)")
+        (is (= f-left (:handler-fn slot))
+            "slot's :handler-fn is :left's LIVE body — not :right's stale one"))
+      ;; Now re-register on :left with a genuinely different body. The
+      ;; registrar's :different-fn? must compare against :left's live body
+      ;; (f-left), so the change is detected as real.
+      (let [seen (atom [])]
+        (registrar/add-replacement-hook!
+          (fn [m] (when (and (= :flow (:kind m)) (= :shared (:id m)))
+                    (swap! seen conj m))))
+        (rf/reg-flow {:id :shared :inputs [[:n]]
+                      :output (fn [n] (* 9 (or n 0))) :path [:result]}
+                     {:frame :left})
+        (is (= 1 (count @seen))
+            "the :left re-registration fired the replacement hook")
+        (is (true? (:different-fn? (first @seen)))
+            ":different-fn? true — computed against :left's LIVE body, not the dead frame's stale :handler-fn (rf2-73pi1)")))))
+
+(deftest clear-flow-non-owner-frame-leaves-registrar-slot-pointing-at-owner
+  (testing "Per rf2-73pi1: clearing a NON-owner frame leaves the registrar
+            slot pointing at its existing (still-live) owner — no churn"
+    (rf/reg-frame :left  {:doc "left frame"})
+    (rf/reg-frame :right {:doc "right frame"})
+    ;; :left first, :right last → slot names :right.
+    (rf/reg-flow {:id :shared :inputs [[:n]] :output (fn [n] n) :path [:result]}
+                 {:frame :left})
+    (rf/reg-flow {:id :shared :inputs [[:n]] :output (fn [n] n) :path [:result]}
+                 {:frame :right})
+    (is (= :right (:frame (registrar/lookup :flow :shared))))
+    ;; Clear :left — NOT the slot owner. The slot must keep naming :right.
+    (rf/clear-flow :shared {:frame :left})
+    (is (= :right (:frame (registrar/lookup :flow :shared)))
+        "slot still names the live owner :right — clearing a non-owner frame caused no re-point")))
+
+(deftest clear-flow-last-owner-still-unregisters-slot
+  (testing "Per rf2-73pi1: when the cleared frame was the LAST owner, the
+            registrar slot is unregistered (the realign helper preserves
+            the prior last-owner-release behaviour)"
+    (rf/reg-flow {:id :solo :inputs [[:n]] :output (fn [n] n) :path [:result]})
+    (is (some? (registrar/lookup :flow :solo)))
+    (rf/clear-flow :solo)
+    (is (nil? (registrar/lookup :flow :solo))
+        "registrar slot unregistered — no surviving frame holds :solo")))
+
+;; ---------------------------------------------------------------------------
+;; 9b-ii. Same-frame re-registration with a CHANGED :path vacates the old
+;;        output path from app-db (rf2-73pi1 finding 2).
+;;
+;; Re-registering an existing flow-id on the SAME frame with a DIFFERENT
+;; :path moves the flow's output. Pre-fix, the previous output path stayed
+;; materialised in app-db — downstream reads saw stale derived state at the
+;; abandoned slot. The fix vacates the old path on same-frame :path change.
+;; ---------------------------------------------------------------------------
+
+(deftest same-frame-reregister-changed-path-vacates-old-path
+  (testing "Per rf2-73pi1: re-registering on the same frame with a new :path
+            clears the OLD path from app-db; the new path computes on the
+            next drain"
+    (rf/reg-event-db :seed (fn [_ [_ n]] {:n n}))
+    (rf/reg-event-db :tick (fn [db _] (update db :tick (fnil inc 0))))
+    ;; Register :move at [:old]; drain so [:old] materialises.
+    (rf/reg-flow {:id :move :inputs [[:n]] :output (fn [n] (* 2 (or n 0)))
+                  :path [:old]})
+    (rf/dispatch-sync [:seed 3])
+    (is (= 6 (:old (rf/app-db-value :rf/default)))
+        "precondition: :old materialised (3 * 2)")
+    ;; Re-register the SAME id on the SAME frame at a DIFFERENT path.
+    (rf/reg-flow {:id :move :inputs [[:n]] :output (fn [n] (* 3 (or n 0)))
+                  :path [:new]})
+    (is (not (contains? (rf/app-db-value :rf/default) :old))
+        ":old was vacated from app-db on the same-frame :path change (rf2-73pi1)")
+    ;; Drive a drain so the re-registered flow (last-inputs invalidated)
+    ;; recomputes at the new path.
+    (rf/dispatch-sync [:tick])
+    (let [db (rf/app-db-value :rf/default)]
+      (is (= 9 (:new db))
+          ":new materialised at the moved path (3 * 3) on the next drain")
+      (is (not (contains? db :old))
+          ":old stays absent — no stale derived state at the abandoned slot"))))
+
+(deftest same-frame-reregister-same-path-leaves-app-db-untouched
+  (testing "Per rf2-73pi1: a same-frame re-registration that KEEPS the :path
+            does NOT vacate the value (negative control — only a :path
+            CHANGE triggers the vacate)"
+    (rf/reg-event-db :seed (fn [_ [_ n]] {:n n}))
+    (rf/reg-flow {:id :keep :inputs [[:n]] :output (fn [n] (* 2 (or n 0)))
+                  :path [:out]})
+    (rf/dispatch-sync [:seed 4])
+    (is (= 8 (:out (rf/app-db-value :rf/default))))
+    ;; Re-register on the same frame with a NEW body but the SAME path.
+    (rf/reg-flow {:id :keep :inputs [[:n]] :output (fn [n] (* 5 (or n 0)))
+                  :path [:out]})
+    (is (= 8 (:out (rf/app-db-value :rf/default)))
+        ":out is NOT vacated — same :path, so the prior value survives until the next recompute")))
+
+;; ---------------------------------------------------------------------------
 ;; 9c. :rf.registry/handler-replaced reflects real :flow body swaps and
 ;;     is suppressed by shape on idempotent reloads.
 ;;
