@@ -6,20 +6,21 @@
 
   Reserved kinds (closed v1 set, per Spec 001 §Registry model):
     :event :sub :fx :cofx :view :frame :route :head
-    :error-projector :flow :machine-guard :machine-action
+    :error-projector :flow
 
-  Per Spec 005 the machine spec's `:guards` / `:actions` maps are the
-  primary source of truth for machine guards and actions — the runtime
-  resolves them through the machine spec, not the registrar.
-
-  The `:machine-guard` / `:machine-action` registrar kinds (rf2-ypu5i)
-  carry **only** per-(machine-id, id) handler-meta surfaces (fn form
-  source + source-coords) for tooling (Xray's focused-transition lens,
-  re-frame-pair source-jump). Ids are 2-vectors `[<machine-id> <id>]`
-  so a guard/action id is naturally scoped to its declaring machine.
-  Registration happens at `reg-machine` time (macro path captures
-  fn form-source via `pr-str`; `reg-machine*` plain-fn path captures
-  no form-source). Production-elided per Spec 009 §Production builds.
+  Machine guards and actions are NOT a registrar kind (rf2-ftrcv,
+  supersedes rf2-ypu5i / rf2-npvsx). Per Spec 005 the machine spec's
+  `:guards` / `:actions` maps are the single source of truth — the
+  runtime resolves them through the machine spec, never the registrar.
+  Their dev-only fn-source handler-meta surface (`(rf/handler-meta
+  :machine-guard [machine-id guard-id])`, consumed by Xray's
+  focused-transition lens + re-frame-pair source-jump) is DERIVED on
+  demand from the machine's existing `:event` registration spec (the
+  co-located `:guards` / `:actions` entries each carry `:source-code` /
+  `:source-coords` in dev), not stored as a separate registrar entry —
+  see `re-frame.core-machines/machine-handler-meta`. Production-elided
+  per Spec 009 §Production builds (the macro emits no `:source-*` slots
+  under `goog.DEBUG=false`, so the derivation returns nil).
 
   App-db schemas are NOT a registrar kind (rf2-cq1ak). `reg-app-schema`
   writes only to the schemas artefact's own per-frame side-table
@@ -45,16 +46,17 @@
 (def kinds
   "The closed set of registry kinds for v1. Adding a new kind is a Spec change.
 
-  `:machine-guard` / `:machine-action` (rf2-ypu5i) carry per-(machine-id,
-  id) handler-meta surfaces for tooling — the runtime still resolves
-  guards/actions through the machine spec's `:guards` / `:actions` maps,
-  not these registrar kinds.
+  Machine guards/actions are NOT registrar kinds (rf2-ftrcv, supersedes
+  rf2-ypu5i / rf2-npvsx) — the runtime resolves them through the machine
+  spec's `:guards` / `:actions` maps, and their dev-only fn-source
+  handler-meta is DERIVED from the machine's `:event` registration spec
+  (see `re-frame.core-machines/machine-handler-meta`), not stored here.
 
   App-db schemas (rf2-cq1ak) are NOT a registrar kind — they live in the
   schemas artefact's per-frame side-table (`schemas/schemas-by-frame`).
   Introspect via `schemas/app-schemas` / `schemas/app-schema-meta-at`."
   #{:event :sub :fx :cofx :view :frame :route :head
-    :error-projector :flow :machine-guard :machine-action})
+    :error-projector :flow})
 
 (defn valid-kind? [k]
   (contains? kinds k))

@@ -17,7 +17,12 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
+            [re-frame.core-machines :as core-machines]
             [re-frame.frame :as frame]
+            ;; Boot the optional machines artefact's late-bind hooks so
+            ;; `reg-machine*` resolves rather than throwing
+            ;; `:rf.error/machines-artefact-missing`.
+            [re-frame.machines]
             [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-helpers :as th]
@@ -476,24 +481,26 @@
 
 ;; ---- (4b) focused-transition lens (rf2-2n34o · spec/003 §Focused-transition lens) -----
 
+;; Per rf2-ftrcv: `:machine-guard` / `:machine-action` are NOT registrar
+;; kinds — `(rf/handler-meta :machine-guard [mid gid])` DERIVES the
+;; fn-source from the machine's `:event` registration spec's co-located
+;; `:guards` / `:actions` entries. So the lens fixtures register a real
+;; machine via `core-machines/reg-machine*` with a PRE-STAMPED spec
+;; (co-located `{:fn .. :source-code ..}` entries — the shape the
+;; `reg-machine` macro emits in dev), letting the test control the exact
+;; `:rf.handler/source` string the lens renders without depending on the
+;; macro's `pr-str` output.
 (defn- register-machine-guard-meta! [machine-id guard-id source]
-  ;; Bypass `reg-machine` — register the handler-meta entry directly so
-  ;; the lens has data to render under JVM/Node tests without booting
-  ;; the `reg-machine` macro pipeline.
-  (registrar/register!
-    :machine-guard [machine-id guard-id]
-    {:rf/guard-id        guard-id
-     :rf/machine-id      machine-id
-     :rf.handler/source  source
-     :handler-fn         (fn [_] true)}))
+  (core-machines/reg-machine* machine-id
+    {:initial :idle
+     :guards  {guard-id {:fn (fn [_] true) :source-code source}}
+     :states  {:idle {:on {:e {:target :idle :guard guard-id}}}}}))
 
 (defn- register-machine-action-meta! [machine-id action-id source]
-  (registrar/register!
-    :machine-action [machine-id action-id]
-    {:rf/action-id       action-id
-     :rf/machine-id      machine-id
-     :rf.handler/source  source
-     :handler-fn         (fn [_] nil)}))
+  (core-machines/reg-machine* machine-id
+    {:initial :idle
+     :actions {action-id {:fn (fn [_] nil) :source-code source}}
+     :states  {:idle {:on {:e {:target :idle :action action-id}}}}}))
 
 (deftest blank-state-renders-verbatim-empty-state-text-rf2-8og3k
   (testing "spec/003 §Empty state — focused event does not target a state

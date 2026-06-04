@@ -344,10 +344,12 @@
      reference-site `:source-coords` onto each `:states`-tree map node
      (state-node / transition map; rf2-npvsx / rf2-vqja2) of the def'd
      value. When that value is later passed to `reg-machine`, the source is
-     already present, so the `:machine-guard` / `:machine-action` registrar
-     handler-metas (and the Epoch machine-cascade source rendering) light up
-     for value-registered machines exactly as for inline ones (rf2-gwj8l).
-     The dev-only `:source-*` slots DCE under `:advanced + goog.DEBUG=false`.
+     already present on the stamped spec, so `(rf/handler-meta :machine-guard
+     [machine-id guard-id])` (and the Epoch machine-cascade source rendering)
+     light up for value-registered machines exactly as for inline ones
+     (rf2-gwj8l) — the source is derived from the `:event` registration spec
+     (rf2-ftrcv), no registrar side-table involved. The dev-only `:source-*`
+     slots DCE under `:advanced + goog.DEBUG=false`.
 
      Use `defmachine` for the `def`-then-register shape; use the
      `reg-machine` macro directly when registering an inline literal."
@@ -1165,10 +1167,29 @@
   resolution. Per Spec 002 §The public registrar query API."}
   registrations registrar/registrations)
 
-(def ^{:doc "Return the registered metadata map for `[kind id]`, or `nil`.
-  Public alias for `re-frame.registrar/lookup`. Used by tooling. Per
-  Spec 002 §The public registrar query API."}
-  handler-meta registrar/handler-meta)
+(defn handler-meta
+  "Return the registration metadata map for `[kind id]`, or `nil`. The
+  general source-meta surface tools (Xray Open-in-editor, re-frame-pair
+  source-jump) read to find a (kind, id)'s definition. Per Spec 002 §The
+  public registrar query API.
+
+  For the ten registrar kinds (`:event :sub :fx :cofx :view :frame :route
+  :head :error-projector :flow`) this is `registrar/lookup`.
+
+  The two machine kinds `:machine-guard` / `:machine-action` are NOT
+  registrar kinds (rf2-ftrcv, supersedes rf2-ypu5i / rf2-npvsx) — `id` is
+  the 2-vector `[<machine-id> <guard-or-action-id>]`, and the dev-only
+  fn-source meta (`:rf.handler/source` + coords) is DERIVED on demand from
+  the machine's `:event` registration spec's co-located `:guards` /
+  `:actions` entries (see `re-frame.core-machines/machine-handler-meta`).
+  The addressing is uniform: callers read
+  `(handler-meta :machine-guard [machine-id guard-id])` exactly as before.
+  Production-elided per Spec 009 (the derivation returns nil when the
+  `:source-*` slots are absent)."
+  [kind id]
+  (case kind
+    (:machine-guard :machine-action) (rf-machines/machine-handler-meta kind id)
+    (registrar/handler-meta kind id)))
 
 (def ^{:doc "Return the set of registered ids under `kind` (no metadata).
   Per Spec 002 §The public registrar query API."}

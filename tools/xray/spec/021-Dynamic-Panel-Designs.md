@@ -2323,8 +2323,10 @@ the verb so the affordance is read inline with the cascade rhythm
   is registered as a `reg-event-fx` carrying `:rf/machine? true`, so its
   registration meta (with the top-level `reg-machine` call-site `:file` /
   `:line`) lives under the `:event` kind. There is NO `:machine`
-  registrar kind (`registrar/kinds` = `:event :sub :fx … :machine-guard
-  :machine-action`); the prior `(rf/handler-meta :machine event-id)`
+  registrar kind (`registrar/kinds` is the closed ten `:event :sub :fx
+  :cofx :view :frame :route :head :error-projector :flow` — and per
+  rf2-ftrcv no `:machine-guard` / `:machine-action` either); the prior
+  `(rf/handler-meta :machine event-id)`
   resolved nil, so the machine EVENT HANDLER painted the glyph-less plain
   span. Reading under `:event` surfaces the call-site coord so the
   machine EVENT HANDLER carries the same `↗` glyph a plain event does.

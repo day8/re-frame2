@@ -238,28 +238,32 @@ child epoch in the spine.
 | Target instance id (`:title/flow-instance-42`) | `:rf.machine/transition` `:tags {:machine-id …}` | available | the head trace's `:machine-id` tag |
 | `from → to` states | `:rf.machine/transition` `:tags` | available | from/to are first-class fields on the transition trace per [Spec 005 §Trace events](../../../spec/005-StateMachines.md#trace-events) |
 | Guard id (`:token?`) | `:rf.machine/guard-evaluated` `:tags {:guard-id …}` per [Spec 005 §Trace events — guard evaluations and action runs](../../../spec/005-StateMachines.md#trace-events--guard-evaluations-and-action-runs) | available | one trace per user-declared guard call site |
-| Guard **fn source** | `(:rf.handler/source (rf/handler-meta :machine-guard [<machine-id> <guard-id>]))` per [Spec 005 §`:machine-guard` / `:machine-action` handler-meta surfaces (rf2-ypu5i)](../../../spec/005-StateMachines.md#machine-guard--machine-action-handler-meta-surfaces) | available (rf2-ypu5i) | the `reg-machine` macro walks the literal spec at expansion time and captures `pr-str` of each guard fn-form into the registrar entry; DEBUG-elided in production |
+| Guard **fn source** | `(:rf.handler/source (rf/handler-meta :machine-guard [<machine-id> <guard-id>]))` per [Spec 005 §`:machine-guard` / `:machine-action` handler-meta surfaces (rf2-ftrcv)](../../../spec/005-StateMachines.md#machine-guard--machine-action-handler-meta-surfaces) | available (rf2-ftrcv) | the `reg-machine` macro walks the literal spec at expansion time and co-locates `pr-str` of each guard fn-form onto the spec's `:guards` entry; `handler-meta` **derives** it from the machine's `:event` registration (NOT a registrar kind); DEBUG-elided in production |
 | Guard return (`true`) | `:rf.machine/guard-evaluated` `:tags {:outcome :pass \| :fail}` | available | binary outcome on the trace |
 | Action id (`:fetch!`) | `:rf.machine/action-ran` `:tags {:action-id …}` | available | one trace per user-declared action invocation |
-| Action **fn source** | `(:rf.handler/source (rf/handler-meta :machine-action [<machine-id> <action-id>]))` per [Spec 005 §`:machine-guard` / `:machine-action` handler-meta surfaces (rf2-ypu5i)](../../../spec/005-StateMachines.md#machine-guard--machine-action-handler-meta-surfaces) | available (rf2-ypu5i) | same shape as guard; the macro stamps each action fn-form's `pr-str` under the `:machine-action` kind |
+| Action **fn source** | `(:rf.handler/source (rf/handler-meta :machine-action [<machine-id> <action-id>]))` per [Spec 005 §`:machine-guard` / `:machine-action` handler-meta surfaces (rf2-ftrcv)](../../../spec/005-StateMachines.md#machine-guard--machine-action-handler-meta-surfaces) | available (rf2-ftrcv) | same shape as guard; the macro co-locates each action fn-form's `pr-str` onto the spec's `:actions` entry, derived back via `handler-meta` |
 | Action `:fx` output | `:rf.machine/action-ran` `:tags {:outcome <return-value>}` | available | the action's return value rides the trace (`:ok` for nil; otherwise the literal `{:fx …}` map) |
 | Downstream `:dispatch [...]` | cascade child-epoch link via the spine | available | the `:dispatch` is a child epoch off the focused cascade; the lens reads the link from the spine's epoch graph |
 
 Every field above flows from existing Spec 005 / Spec 009 trace
 contracts. The guard / action fn-source rows are served by the
-`:machine-guard` / `:machine-action` handler-meta surfaces landed
-under rf2-ypu5i (parallel to `:rf/cofx-id` per #2097) — see
+`:machine-guard` / `:machine-action` handler-meta surfaces (rf2-ftrcv,
+supersedes rf2-ypu5i; parallel to `:rf/cofx-id` per #2097) — see
 [§Core-side enabler — guard / action fn source capture](#core-side-enabler--guard--action-fn-source-capture)
 below for the data contract the lens reads.
 
 #### Core-side enabler — guard / action fn source capture
 
-The lens reads guard and action fn source from the
-`:machine-guard` and `:machine-action` registrar kinds landed under
-rf2-ypu5i (parallel to the `:rf/cofx-id` marker work per #2097).
-The `reg-machine` macro walks the literal spec at expansion time,
-captures `pr-str` of every guard / action fn-form, and writes
-per-(machine-id, id) entries into the registrar under the new kinds:
+The lens reads guard and action fn source via the `:machine-guard` /
+`:machine-action` handler-meta surfaces (rf2-ftrcv, supersedes rf2-ypu5i;
+parallel to the `:rf/cofx-id` marker work per #2097). These are **NOT**
+registrar kinds — `registrar/kinds` is the closed ten. The `reg-machine`
+macro walks the literal spec at expansion time, captures `pr-str` of every
+guard / action fn-form, and co-locates it onto the spec's `:guards` /
+`:actions` entries; that spec is stored under `:rf/machine` in the
+machine's `:event` registration. `(rf/handler-meta :machine-guard [mid
+gid])` **derives** the meta on demand from that `:event` spec (the
+addressing is unchanged — the lens call sites do not change):
 
 ```clojure
 (rf/handler-meta :machine-guard  [<machine-id> <guard-id>])
@@ -281,9 +285,10 @@ The lens renders `:rf.handler/source` inline beneath the guard /
 action id. Production-elided per Spec 009 §Production builds — under
 `:advanced` + `goog.DEBUG=false` the macro emission drops the
 co-located `:source-coords` / `:source-code` slots (the dev arm DCEs)
-and the runtime registrar writes no-op, keeping fn-body bytes out of
+and the `handler-meta` derivation is itself gated on
+`interop/debug-enabled?` (returning nil), keeping fn-body bytes out of
 prod bundles (verified by the elision-probe co-located `:source-code`
-sentinels — rf2-npvsx). The inline `reg-machine` macro is not the only
+sentinels — rf2-ftrcv). The inline `reg-machine` macro is not the only
 capture site: a machine defined with `defmachine` (the `def`-replacement
 that walks the inline literal at the DEFINITION site, rf2-gwj8l) carries
 the same co-located per-element source on the def'd VALUE, so a

@@ -300,13 +300,13 @@
      gate so the dev-only source DCEs under :advanced + `goog.DEBUG=false`.
 
      The DEV arm co-locates `{:fn .. :source-coords .. :source-code ..}`
-     onto each `:guards` / `:actions` / `:on-spawn-actions` entry; the
-     `core-machines/reg-machine-impl` runtime reads each entry's
-     `:source-code` and writes per-(machine-id, guard-id) /
-     per-(machine-id, action-id) entries into the registrar under
-     `:machine-guard` / `:machine-action` so tooling can read
-     `(rf/handler-meta :machine-guard [machine-id guard-id])`. The PROD
-     arm collapses each entry to `{:fn <fn>}` (no source).
+     onto each `:guards` / `:actions` / `:on-spawn-actions` entry of the
+     spec, which `reg-machine*` stores under `:rf/machine` in the machine's
+     `:event` registration. Tooling reads `(rf/handler-meta :machine-guard
+     [machine-id guard-id])`, which DERIVES the fn-source on demand from
+     that `:event` spec (rf2-ftrcv, supersedes rf2-npvsx — no registrar
+     side-table). The PROD arm collapses each entry to `{:fn <fn>}` (no
+     source), so the derivation returns nil under elision.
 
      When `machine` is NOT a literal map (a symbol bound by `def` /
      `defmachine`, a let-bound expr), [[stamp-machine-spec-expr]] returns
@@ -347,10 +347,11 @@
      `(defmachine door-machine {…}) … (reg-machine :door/main
      door-machine)` — carries per-element source even though
      `reg-machine` sees only the `door-machine` symbol at its call site.
-     The co-located source travels WITH the value, so when
-     `reg-machine-impl` reads each entry's `:source-code` at registration
-     time it is present, and the `:machine-guard` / `:machine-action`
-     registrar handler-metas get written.
+     The co-located source travels WITH the value, so when the machine is
+     registered the stamped spec (with its `:source-code` entries) is stored
+     under `:rf/machine` in the `:event` registration, and `(rf/handler-meta
+     :machine-guard [machine-id guard-id])` derives the fn-source from it on
+     demand (rf2-ftrcv — no registrar side-table written).
 
      `ns-sym` / `file` are `*ns*` / `*file*` at expansion time. An
      optional leading `doc` string rides through to the emitted `def`
