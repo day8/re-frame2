@@ -742,5 +742,13 @@
   ["re-frame.mcp-base.sensitive" "scrub-snapshot"]       {:tier :tooling :owner "Tool-Pair" :status "post-v1 lib"}
   ["re-frame.mcp-base.sensitive" "strip-sensitive"]      {:tier :tooling :owner "Tool-Pair" :status "post-v1 lib"}
   ["re-frame.mcp-base.sensitive" "sensitive-event?"]     {:tier :tooling :owner "Tool-Pair" :status "post-v1 lib"}
+  ;; sensitive-stamp? — the raw fail-closed sensitive-rollup classifier
+  ;; (rf2-5613h, private→public). Shared by pair-mcp's epoch-record rollup
+  ;; (:rf.epoch/sensitive?) AND mcp-base's own sensitive-event? trace-stamp
+  ;; check, so both route through ONE fail-closed posture rather than a
+  ;; divergent (true? ...) that fails open on contract drift. Same
+  ;; tier/owner/status as its namespace-sibling sensitive-event? — a
+  ;; cross-tool egress helper, not an application surface.
+  ["re-frame.mcp-base.sensitive" "sensitive-stamp?"]     {:tier :tooling :owner "Tool-Pair" :status "post-v1 lib"}
   ["re-frame.mcp-base.sensitive" "malformed-count"]      {:tier :tooling :owner "Tool-Pair" :status "post-v1 lib"}
   ["re-frame.mcp-base.sensitive" "reset-malformed-count!"] {:tier :tooling :owner "Tool-Pair" :status "post-v1 lib"}}}

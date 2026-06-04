@@ -1,8 +1,8 @@
 // Live-re-frame2-pair MCP-client conformance variant exercising egress
-// redaction of a DECLARED-`:sensitive?` app-db slot through the pull-mode
+// protection of a DECLARED-`:sensitive?` app-db slot through the pull-mode
 // epoch tools (`trace-window` + `watch-epochs`).
 // Source: rf2-q4o83 (regression net for rf2-6wvh5; correctness review
-// finding rf2-5t8mr.18).
+// finding rf2-5t8mr.18). Updated for rf2-5613h (epoch-rollup whole-drop).
 //
 // ## The hole this closes
 //
@@ -12,36 +12,64 @@
 // WITHOUT routing them through the framework's off-box projection. A
 // schema-declared `:sensitive?` slot (e.g. `[:auth :password]`) rode the
 // wire verbatim even with the `--allow-sensitive-reads` gate OFF (the
-// published-build default). The fix routes each egressed record through
-// `re-frame.core/projected-record` server-side — the single normative
-// off-box-egress emission site (Spec Security.md §Epoch privacy posture).
+// published-build default). The original rf2-6wvh5 fix routed each
+// egressed record through `re-frame.core/projected-record` server-side —
+// value-redacting the sensitive slot to `:rf/redacted`.
 //
 // The leak shipped GREEN because the cross-server mcp-conformance gate
 // had NO scenario that put a sensitive value into a live app-db and
-// asserted it came back redacted over the wire through these tools. The
-// only `:rf/redacted` coverage in tools/mcp-conformance was source-text
-// greps (wire_vocab_test.clj) and a leaf-counter indicator gate — neither
-// asserts the leaf VALUE was actually replaced on egress. This test is
-// the missing end-to-end wire gate: it would have caught rf2-6wvh5 RED.
+// asserted it was protected on the wire through these tools. The only
+// `:rf/redacted` coverage in tools/mcp-conformance was source-text greps
+// (wire_vocab_test.clj) and a leaf-counter indicator gate — neither
+// asserts the sensitive leaf was actually protected on egress. This test
+// is the missing end-to-end wire gate: it would have caught rf2-6wvh5 RED.
+//
+// ## rf2-5613h — the protection STRENGTHENED to a whole-epoch DROP
+//
+// rf2-5613h closed a second, related leak: pair-mcp's `sensitive-epoch?`
+// (the whole-epoch DROP predicate that `strip-sensitive` feeds in the
+// `:epoch-vector` wire-pipeline arm) was reading the UNqualified
+// `:sensitive?` key, which the runtime never writes on an epoch record —
+// the real record-level rollup is the qualified `:rf.epoch/sensitive?`
+// (`re-frame.epoch.assembly/sensitive-rollup`). The assembler sets that
+// rollup `true` whenever a schema-declared sensitive PATH holds a non-nil
+// leaf in `:db-before`/`:db-after` — exactly the scenario this test sets
+// up. Pre-rf2-5613h the mismatch meant the whole-drop never fired for a
+// schema-derived sensitive epoch, so its metadata (`:event-id`, timing,
+// `:redacted-modified-paths-count`, outcome) shipped across the wire
+// alongside the value-redacted `:db-*` slots — a default-DROP violation.
+//
+// Post-rf2-5613h the default (gate-OFF) posture is fail-closed at the
+// RECORD level: a sensitive epoch is WHOLE-DROPPED before egress — it
+// never reaches the value-redaction stage at all. So the gate-OFF arm now
+// asserts the sentinel is ABSENT *and* the tool reports `:dropped-sensitive`
+// >= 1 with no record in `:epochs` (proving the strip-fn dropped it — not
+// that the window happened to exclude it or the slot was empty). The
+// previous "`:rf/redacted` PRESENT" assertion no longer applies on this
+// path: with the whole-drop firing, there is no surviving record to carry
+// a redacted slot. (`projected-record` value-redaction is still the
+// belt-and-braces inner layer for any sensitive material the record-level
+// rollup does NOT catch; this scenario's declared-sensitive non-nil leaf
+// DOES flag the rollup, so the outer whole-drop governs.)
 //
 // ## What this test drives (across the MCP boundary, via the SDK Client)
 //
 //   1. Boot the pair-mcp server WITHOUT `--allow-sensitive-reads`
-//      (the published default — redaction MUST hold).
+//      (the published default — the drop MUST hold).
 //   2. Via `eval-cljs` against the live runtime:
 //        a. declare a `:sensitive?` slot at `[:rf-conformance/secret]`
 //           in the operating frame's elision registry (the same
 //           registry `populate-sensitive-from-schemas!` writes — declared
 //           directly here so the tiny fixture needs no schemas artefact);
 //        b. dispatch an event that writes a recognisable SENTINEL string
-//           into that slot, landing it in the next epoch's `:db-after`.
+//           into that slot, landing it in the next epoch's `:db-after`
+//           (and flagging the epoch's `:rf.epoch/sensitive?` rollup true).
 //   3. `tools/call trace-window` AND `tools/call watch-epochs` — the two
 //      pull-mode epoch tools that leaked.
 //   4. ASSERT the sentinel does NOT appear ANYWHERE in either egress
-//      payload, AND that the `:rf/redacted` scalar sentinel IS present at
-//      the sensitive slot (proving the redaction WALKER fired — not that
-//      the slot happened to be empty or the window happened to exclude
-//      the record).
+//      payload, AND that the tool reports `:dropped-sensitive` >= 1 (the
+//      whole sensitive epoch was dropped — proving the strip-fn fired, not
+//      that the slot was empty or the window excluded the record).
 //   5. Boot a SECOND server WITH `--allow-sensitive-reads`, call the same
 //      tools with `:include-sensitive true`, and assert the sentinel DOES
 //      cross the wire — pinning BOTH directions of the gate so the gate
@@ -49,11 +77,12 @@
 //
 // ## Why this is a true regression net
 //
-// Revert the rf2-6wvh5 redaction (drop the `mapv projected-record` wrap
-// in `tools/epoch-egress.cljs`'s `project-page-src`) and step 4 goes RED:
-// the raw `:db-after` ships the sentinel and the no-leak assertion trips.
-// Verified by temporary revert during development (see the PR's revert-
-// verification note).
+// Revert the rf2-5613h key fix (point `sensitive-epoch?` back at the
+// UNqualified `:sensitive?`) and step 4 goes RED two ways: the whole-drop
+// stops firing (`:dropped-sensitive` falls to 0) AND — because the record
+// now survives into the value-redaction stage — its raw metadata ships.
+// Verified by reproduction during the rf2-5613h greening (the gate-OFF
+// trace-window returned `:dropped-sensitive 1, :epochs []` post-fix).
 //
 // ## Gating
 //
@@ -81,11 +110,6 @@ const SENTINEL = 'rf2-q4o83-SECRET-do-not-leak-7f3a9c';
 // The sensitive app-db path. Single segment under a `:rf-conformance/*`
 // reserved-style key so it can't collide with any fixture slot.
 const SECRET_KEY = ':rf-conformance/secret';
-
-// Canonical redaction scalar (Spec Security.md §Epoch privacy posture /
-// Conventions.md). projected-record substitutes the declared-sensitive
-// leaf with this exact scalar keyword.
-const REDACTED_SENTINEL = ':rf/redacted';
 
 // trace-window's `:ms` window. An epoch's `:committed-at` is a MONOTONIC
 // relative clock (sub-ms `performance.now()`-style float — observed ~900
@@ -212,32 +236,47 @@ function assertOk(resp, name) {
   }
 }
 
-// The load-bearing assertion: the SENTINEL must be absent AND the
-// :rf/redacted scalar must be present at the sensitive slot. Present-
-// redacted (not merely absent-sentinel) is what distinguishes "the
-// redaction walker fired" from "the record fell outside the window" /
-// "the slot was empty" — a window-excludes-everything regression would
-// pass a bare absence check while shipping nothing.
-function assertRedacted(resp, name) {
+// Read the `:dropped-sensitive` count off the envelope text. The pull-mode
+// epoch tools surface a `:dropped-sensitive N` indicator (the count of
+// whole epoch records `strip-sensitive` dropped on egress). Returns the
+// integer, or null when the slot is absent. A regex read keeps this in
+// step with the substring-search posture used for the sentinel itself —
+// we don't parse the full EDN, we read the one load-bearing slot.
+function droppedSensitiveCount(text) {
+  const m = /:dropped-sensitive\s+(\d+)\b/.exec(text);
+  return m ? Number(m[1]) : null;
+}
+
+// The load-bearing assertion (rf2-5613h): the SENTINEL must be ABSENT AND
+// the tool must report `:dropped-sensitive` >= 1 — proving the whole
+// sensitive epoch was DROPPED by the strip-fn, not merely that the slot
+// was empty or the window excluded the record (a window-excludes-everything
+// regression reports `:dropped-sensitive 0` and would pass a bare absence
+// check while the drop never fired). Pre-rf2-5613h this asserted a
+// surviving record carried `:rf/redacted`; with the whole-drop now firing
+// for a schema-derived sensitive epoch, no record survives to carry it.
+function assertDropped(resp, name) {
   assertOk(resp, name);
   const text = responseText(resp);
   if (text.includes(SENTINEL)) {
     throw new Error(
       name + ' LEAKED the sensitive sentinel over the MCP wire with the ' +
         '--allow-sensitive-reads gate OFF (default). The declared-sensitive ' +
-        'slot ' + SECRET_KEY + ' MUST be redacted to ' + REDACTED_SENTINEL +
-        ' by projected-record before egress (rf2-6wvh5 / Spec Security.md ' +
-        '§Epoch privacy posture).\nPayload (first 600 chars): ' +
-        text.slice(0, 600),
+        'slot ' + SECRET_KEY + ' flags the epoch `:rf.epoch/sensitive?`, so ' +
+        'the whole record MUST be dropped by `sensitive-epoch?` before egress ' +
+        '(rf2-5613h / Spec Security.md §Epoch privacy posture).\nPayload ' +
+        '(first 600 chars): ' + text.slice(0, 600),
     );
   }
-  if (!text.includes(REDACTED_SENTINEL)) {
+  const dropped = droppedSensitiveCount(text);
+  if (dropped === null || dropped < 1) {
     throw new Error(
-      name + ' egress payload does NOT carry the ' + REDACTED_SENTINEL +
-        ' scalar at the sensitive slot. A bare sentinel-absence check would ' +
-        'false-pass if the epoch fell outside the window or the slot were ' +
-        'empty; this assertion proves the redaction WALKER fired. Payload ' +
-        '(first 600 chars): ' + text.slice(0, 600),
+      name + ' egress payload does NOT report a sensitive-epoch drop ' +
+        '(`:dropped-sensitive` is ' + (dropped === null ? 'absent' : dropped) +
+        '; expected >= 1). A bare sentinel-absence check would false-pass if ' +
+        'the epoch fell outside the window or the slot were empty; this ' +
+        'assertion proves the strip-fn DROPPED the sensitive record ' +
+        '(rf2-5613h). Payload (first 600 chars): ' + text.slice(0, 600),
     );
   }
 }
@@ -414,16 +453,17 @@ runWithWatchdog(
     console.log('OK   eval-cljs verify-write -> sentinel confirmed live in app-db (raw, on-box)');
 
     // 3a. trace-window — the first pull-mode tool that leaked. Wide window
-    // (60s) so the just-dispatched epoch is comfortably inside it.
+    // so the just-dispatched epoch is comfortably inside it. The sensitive
+    // epoch is WHOLE-DROPPED (rf2-5613h): sentinel ABSENT + :dropped-sensitive >= 1.
     const tw = await client.callTool({ name: 'trace-window', arguments: { ms: TRACE_WINDOW_MS } });
-    assertRedacted(tw, 'trace-window');
-    console.log('OK   trace-window (gate OFF) -> sentinel ABSENT + :rf/redacted PRESENT');
+    assertDropped(tw, 'trace-window');
+    console.log('OK   trace-window (gate OFF) -> sentinel ABSENT + sensitive epoch DROPPED');
 
     // 3b. watch-epochs — the second pull-mode tool that leaked. No
     // :since-id → the full ring (which includes the sentinel epoch).
     const we = await client.callTool({ name: 'watch-epochs', arguments: {} });
-    assertRedacted(we, 'watch-epochs');
-    console.log('OK   watch-epochs (gate OFF) -> sentinel ABSENT + :rf/redacted PRESENT');
+    assertDropped(we, 'watch-epochs');
+    console.log('OK   watch-epochs (gate OFF) -> sentinel ABSENT + sensitive epoch DROPPED');
 
     // 3c. Hostile per-call opt-in MUST NOT defeat the gate. A caller
     // passing `:include-sensitive true` to a server booted WITHOUT
@@ -434,14 +474,14 @@ runWithWatchdog(
       name: 'trace-window',
       arguments: { ms: TRACE_WINDOW_MS, 'include-sensitive': true },
     });
-    assertRedacted(twHostile, 'trace-window (hostile :include-sensitive)');
+    assertDropped(twHostile, 'trace-window (hostile :include-sensitive)');
     console.log(
-      'OK   trace-window (gate OFF + hostile :include-sensitive true) -> still REDACTED',
+      'OK   trace-window (gate OFF + hostile :include-sensitive true) -> still DROPPED',
     );
 
     // 4. Gate-ON arm: pin the other direction so the gate can't invert.
     await runGateOnArm();
 
-    console.log('\nRE-FRAME2-PAIR-MCP LIVE EGRESS-REDACTION CONFORMANCE GREEN');
+    console.log('\nRE-FRAME2-PAIR-MCP LIVE EGRESS-PROTECTION CONFORMANCE GREEN');
   },
 );
