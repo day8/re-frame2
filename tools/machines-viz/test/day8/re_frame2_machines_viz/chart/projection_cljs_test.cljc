@@ -1030,6 +1030,58 @@
       (is (every? #(re-find #"top=" (get-in % [:layoutOptions "elk.padding"]))
                   children)))))
 
+;; ---- rf2-8q5pt: container elk.padding is density-derived ----------------
+;;
+;; The bug: the container `elk.padding` was a regular-only literal
+;; `[top=44,left=16,bottom=16,right=16]`. But `:container-title-height`
+;; and `:container-body-pad` are density-dependent, so compact/cosy
+;; reserved the wrong header gap (children crowded or over-spaced the
+;; title strip). The fix derives every side from the active density's
+;; constants via `container-elk-padding`; these pins make the drift
+;; visible to CI (the old "top= is merely present" assertion above could
+;; not see it).
+
+(deftest container-elk-padding-derives-from-density-constants
+  (testing "rf2-8q5pt — top clears the title strip PLUS a body-pad band;
+            sides are the body-pad inset, all density-derived"
+    (doseq [[density vc-map] [[:compact vc/chart-compact]
+                              [:regular vc/chart-regular]
+                              [:cosy    vc/chart-cosy]]]
+      (let [{:keys [container-title-height container-body-pad]} vc-map
+            expected (str "[top="    (+ container-title-height container-body-pad)
+                          ",left="   container-body-pad
+                          ",bottom=" container-body-pad
+                          ",right="  container-body-pad "]")]
+        (is (= expected (projection/container-elk-padding vc-map))
+            (str "padding tracks the " density " density constants"))))))
+
+(deftest container-elk-padding-defaults-to-regular
+  (testing "rf2-8q5pt — the nil-arity (and a nil chart-vc) fall back to
+            the regular density"
+    (is (= (projection/container-elk-padding vc/chart-regular)
+           (projection/container-elk-padding)))
+    ;; Regular: title strip 26 + body-pad 14 = 40 top; 14 on each side.
+    (is (= "[top=40,left=14,bottom=14,right=14]"
+           (projection/container-elk-padding vc/chart-regular)))))
+
+(deftest elk-children-padding-tracks-threaded-density
+  (testing "rf2-8q5pt — `->elk-children` threads `chart-vc` into every
+            container's elk.padding so a compact chart reserves a SMALLER
+            header gap than a cosy chart (was a fixed literal for both)"
+    (let [parsed       (layout/parse-definition parallel-machine)
+          compact-kids (projection/->elk-children parsed nil vc/chart-compact)
+          cosy-kids    (projection/->elk-children parsed nil vc/chart-cosy)
+          pad-of       (fn [child] (get-in child [:layoutOptions "elk.padding"]))]
+      (is (every? #(= (projection/container-elk-padding vc/chart-compact) (pad-of %))
+                  compact-kids)
+          "compact containers use the compact-density padding")
+      (is (every? #(= (projection/container-elk-padding vc/chart-cosy) (pad-of %))
+                  cosy-kids)
+          "cosy containers use the cosy-density padding")
+      (is (not= (projection/container-elk-padding vc/chart-compact)
+                (projection/container-elk-padding vc/chart-cosy))
+          "the two densities reserve genuinely different gaps"))))
+
 ;; ---- measure-then-relayout: ELK sizes to the real box (rf2-d9ro2) -------
 ;;
 ;; The bug: ELK was fed CONSTANT floor dimensions, never the real

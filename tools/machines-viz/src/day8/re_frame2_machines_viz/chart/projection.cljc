@@ -260,6 +260,32 @@
                      :else              1))
            state-nodes))
 
+(defn container-elk-padding
+  "rf2-8q5pt — the `elk.padding` string for a compound / region container,
+  derived from the active density's `visual-constants` rather than a
+  hardcoded literal.
+
+  The container reserves:
+
+    - TOP   = `:container-title-height` (the solid title strip the
+              `compound-node` paints) PLUS a `:container-body-pad` band
+              so the metadata row (compound tags / entry-exit rows) and
+              the first child clear the header;
+    - LEFT / RIGHT / BOTTOM = `:container-body-pad` — the same inset the
+              container chrome leaves around its children below the strip.
+
+  Both keys are density-dependent (`chart-{compact,regular,cosy}`), so a
+  fixed literal reserved the wrong header gap in the non-regular
+  densities (children crowded the strip in `:cosy`, over-spaced it in
+  `:compact`). Pass the resolved density map (`vc/chart-for-density`);
+  defaults to `vc/chart` (regular) so the nil-arity stays stable."
+  ([] (container-elk-padding vc/chart))
+  ([{:keys [container-title-height container-body-pad]}]
+   (str "[top="   (+ container-title-height container-body-pad)
+        ",left="  container-body-pad
+        ",bottom=" container-body-pad
+        ",right=" container-body-pad "]")))
+
 (defn ->elk-children
   "Project parsed nodes + parsed edges into elk.js's `children` shape.
 
@@ -286,10 +312,19 @@
   `chart.cljs`'s measure-then-relayout pass) is forwarded to every
   `elk-child` / `elk-event-child` so leaf states + event-nodes lay out
   at their REAL rendered box rather than the fixed floor. nil / empty on
-  the first pass — identical to the pre-rf2-d9ro2 single-pass."
-  ([parsed] (->elk-children parsed nil))
-  ([{:keys [nodes edges]} measured-dims]
-  (let [node-by-id (into {} (map (juxt :id identity)) nodes)
+  the first pass — identical to the pre-rf2-d9ro2 single-pass.
+
+  rf2-8q5pt — the optional `chart-vc` (the resolved density map from
+  `vc/chart-for-density`, threaded by `chart.cljs` alongside
+  `measured-dims`) sizes each container's `elk.padding` from the active
+  density's title-strip + body-pad constants via `container-elk-padding`,
+  rather than a regular-only literal. nil falls back to `vc/chart`
+  (regular)."
+  ([parsed] (->elk-children parsed nil nil))
+  ([parsed measured-dims] (->elk-children parsed measured-dims nil))
+  ([{:keys [nodes edges]} measured-dims chart-vc]
+  (let [container-pad (container-elk-padding (or chart-vc vc/chart))
+        node-by-id (into {} (map (juxt :id identity)) nodes)
         ;; The event-node's parent container == the source state's
         ;; parent. Top-level when the source has no `:parent-id`.
         event-children
@@ -319,14 +354,17 @@
                                                     ;; before handing to elk.
                                                     (dissoc k ::event-parent)
                                                     (build k)))))
-                           ;; rf2-az6e2 — the container top padding clears
-                           ;; the solid title strip (26px regular) PLUS a
-                           ;; metadata band for compound tags / entry-exit
-                           ;; rows, so children never collide with the
-                           ;; header. Side/bottom padding tracks the
-                           ;; `:container-body-pad` inset.
+                           ;; rf2-az6e2 / rf2-8q5pt — the container top
+                           ;; padding clears the solid title strip PLUS a
+                           ;; body-pad band (metadata row for compound tags
+                           ;; / entry-exit rows), so children never collide
+                           ;; with the header; side/bottom track the
+                           ;; `:container-body-pad` inset. Density-derived
+                           ;; via `container-elk-padding` (was a regular-only
+                           ;; literal `top=44,…16` — wrong gap in
+                           ;; compact/cosy).
                            :layoutOptions {"elk.algorithm" "layered"
-                                           "elk.padding"   "[top=44,left=16,bottom=16,right=16]"}))))
+                                           "elk.padding"   container-pad}))))
         ;; rf2-ly51l — top-level model order: initial state first,
         ;; machine-root annotation last (see `order-state-children`).
         top-state-children (mapv build (order-state-children

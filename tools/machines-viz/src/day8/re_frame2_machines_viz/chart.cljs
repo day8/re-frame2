@@ -268,12 +268,18 @@
   Feeding edges INTO elk (alongside the spacing + label-placement keys in
   `default-elk-options`) is what makes elk's Layered algorithm route the
   edges AROUND node boxes instead of the renderer drawing geometric paths
-  that cut across states."
-  [parsed direction layout-options measured-dims]
+  that cut across states.
+
+  rf2-8q5pt — `chart-vc` (the resolved density map from
+  `vc/chart-for-density`) is forwarded to `projection/->elk-children` so
+  each container's `elk.padding` tracks the active density's title-strip
+  + body-pad constants (was a regular-only literal). nil falls back to
+  the regular density inside the projection."
+  [parsed direction layout-options measured-dims chart-vc]
   #js {:id "root"
        :layoutOptions (clj->js (elk-layout-options parsed layout-options
                                                    direction))
-       :children (clj->js (projection/->elk-children parsed measured-dims))
+       :children (clj->js (projection/->elk-children parsed measured-dims chart-vc))
        ;; rf2-rlq97 — edge-label dims share the `measured-dims` map (it is
        ;; keyed by elk-edge-id for any labelled edge); under events-as-nodes
        ;; the transition text is on the event-node so this is normally a
@@ -554,15 +560,22 @@
   `{node-id {:width :height}}` map of xyflow's reported rendered boxes),
   fed into `->elk-input` so the second (relayout) pass sizes each node
   to its real box. The shorter arities pass nil (first pass / unit
-  tests) — identical to the pre-rf2-d9ro2 single-pass."
+  tests) — identical to the pre-rf2-d9ro2 single-pass.
+
+  rf2-8q5pt — the longest arity also takes `chart-vc` (the resolved
+  density map from `vc/chart-for-density`), fed into `->elk-input` so
+  container `elk.padding` tracks the active density. The shorter arities
+  pass nil → the projection falls back to the regular density."
   ([parsed done-fn]
-   (compute-layout! parsed :tb nil nil nil done-fn))
+   (compute-layout! parsed :tb nil nil nil nil done-fn))
   ([parsed direction layout-options done-fn]
-   (compute-layout! parsed direction layout-options nil nil done-fn))
+   (compute-layout! parsed direction layout-options nil nil nil done-fn))
   ([parsed direction layout-options machine-id done-fn]
-   (compute-layout! parsed direction layout-options machine-id nil done-fn))
+   (compute-layout! parsed direction layout-options machine-id nil nil done-fn))
   ([parsed direction layout-options machine-id measured-dims done-fn]
-   (let [input  (->elk-input parsed direction layout-options measured-dims)
+   (compute-layout! parsed direction layout-options machine-id measured-dims nil done-fn))
+  ([parsed direction layout-options machine-id measured-dims chart-vc done-fn]
+   (let [input  (->elk-input parsed direction layout-options measured-dims chart-vc)
          handle (fn handle-error [e]
                   (report-layout-error! e parsed direction layout-options
                                         machine-id)
@@ -1019,11 +1032,21 @@
             n-states   (count (remove :region? (:nodes parsed)))
             n-regions  (count (filter :region? (:nodes parsed)))
             n-trans    (count (:edges parsed))
+            ;; rf2-8q5pt — resolve the density map ONCE so the ELK pass
+            ;; sizes container `elk.padding` from the active density's
+            ;; title-strip + body-pad constants (was a regular-only
+            ;; literal). `chart-for-density` maps nil → regular and throws
+            ;; on an unknown density (same total resolution the render body
+            ;; does for `chart-vc` at L1177).
+            elk-vc     (vc/chart-for-density density)
             ;; Trigger an elk layout pass when the (definition,
-            ;; direction, layout-options) tuple changes. Keep the
+            ;; direction, layout-options, density) tuple changes. Keep the
             ;; previous positions during in-flight layout to avoid an
-            ;; empty-chart flash.
-            this-key   [definition direction layout-options]
+            ;; empty-chart flash. rf2-8q5pt — `density` joins the key so a
+            ;; density switch (which changes the derived container padding)
+            ;; re-runs ELK rather than rendering the topology with the prior
+            ;; density's header gaps.
+            this-key   [definition direction layout-options density]
             ;; rf2-d9ro2 — one ELK pass. `measured-dims` is nil on the
             ;; FIRST pass (nodes not yet rendered/measured) and the
             ;; xyflow-measured `{node-id {:width :height}}` map on the
@@ -1032,7 +1055,7 @@
             run-layout!
             (fn [measured-dims]
               (compute-layout!
-                parsed direction layout-options machine-id measured-dims
+                parsed direction layout-options machine-id measured-dims elk-vc
                 (fn [result]
                   (when result
                     (reset! layout-state result)
