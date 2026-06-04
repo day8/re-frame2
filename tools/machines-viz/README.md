@@ -93,7 +93,9 @@ Machines-Viz lives under `tools/` so the bundle-isolation contract holds
 (per [`tools/README.md`](../README.md)): nothing in `implementation/` may
 `:require` from this jar. It consumes only the framework's public
 surfaces (`rf/machine-meta`, the machine-snapshots slot, the trace bus)
-and adds no framework primitives. `transit-cljs` is dev-only here, so a
+and adds no framework primitives. `transit-cljs` is a runtime dependency
+of the share-URL encode/decode path (`share.cljs`); it is "dev-only" only
+because the whole Machines-Viz jar is dev-only and bundle-isolated, so a
 consumer's production bundle never pulls transit through Machines-Viz.
 
 ## Publishing
