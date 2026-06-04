@@ -313,6 +313,68 @@
            (emit/render-to-string [:<> [:p "a"] [:p "b"]] {})))))
 
 ;; ===========================================================================
+;; rf2-bee5i — :rf/suspense-boundary is a streaming-only marker. The standard
+;; emitter must REJECT it (fail loud, parallel to :>) rather than emit a
+;; phantom <suspense-boundary> DOM element — its name passes the tag grammar,
+;; so without the guard it would serialise the {:id … :fallback …} attrs as
+;; bogus attributes and the subtree as bogus children.
+;; ===========================================================================
+
+(deftest render-to-string-rejects-suspense-boundary-outside-stream
+  (testing "rf2-bee5i — `[:rf/suspense-boundary {:id … :fallback …} child]`
+            reaching render-to-string outside a stream throws
+            :rf.error/ssr-suspense-boundary-outside-stream instead of
+            emitting a phantom <suspense-boundary> DOM element."
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                          #":rf.error/ssr-suspense-boundary-outside-stream"
+                          (emit/render-to-string
+                            [:rf/suspense-boundary
+                             {:id :b1 :fallback [:span "loading"]}
+                             [:div "resolved"]]
+                            {})))
+    (testing "the marker's id/fallback/subtree never reach the wire as
+              a bogus <suspense-boundary> element"
+      (let [thrown (try (emit/render-to-string
+                          [:rf/suspense-boundary
+                           {:id :secret-boundary :fallback [:span "spin"]}
+                           [:div "leak-me"]]
+                          {})
+                        (catch clojure.lang.ExceptionInfo e e))]
+        (is (instance? clojure.lang.ExceptionInfo thrown))
+        (is (= :rf.error/ssr-suspense-boundary-outside-stream
+               (:rf.error/id (ex-data thrown))))))
+    (testing "a marker NESTED inside a normal DOM tree also fails loud
+              (emit-children recurses into it)"
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                            #":rf.error/ssr-suspense-boundary-outside-stream"
+                            (emit/render-to-string
+                              [:div [:section
+                                     [:rf/suspense-boundary
+                                      {:id :b :fallback [:span "…"]}
+                                      [:p "x"]]]]
+                              {}))))))
+
+(deftest streaming-walker-still-handles-suspense-boundary
+  (testing "rf2-bee5i — the streaming shell walker still recognises
+            :rf/suspense-boundary (the emit-element guard only fires on
+            the NON-streaming path); render-shell materialises the
+            fallback as a <template> and does NOT throw."
+    (let [{:keys [shell-html continuations]}
+          (streaming/render-shell
+            [:div
+             [:rf/suspense-boundary
+              {:id :card-1 :fallback [:span "loading…"]}
+              [:div "resolved card"]]])]
+      (is (str/includes? shell-html "<template")
+          "the fallback materialises as a <template> placeholder")
+      (is (str/includes? shell-html "loading")
+          "the fallback content is rendered inline in the shell")
+      (is (not (str/includes? shell-html "<suspense-boundary"))
+          "no phantom <suspense-boundary> DOM element is emitted")
+      (is (= 1 (count continuations))
+          "the boundary registers exactly one continuation"))))
+
+;; ===========================================================================
 ;; rf2-ynjts.13 — emit-element scalar-child branches (emit.cljc:319-323).
 ;; The strip-prop / raw-text / tag-name security gates are well covered, but
 ;; the load-bearing scalar emission rules — number stringifies, boolean is

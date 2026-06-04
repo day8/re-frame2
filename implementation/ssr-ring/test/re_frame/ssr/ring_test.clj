@@ -1123,6 +1123,68 @@
                           :app-element-id "root"))))))))
 
 ;; ===========================================================================
+;; rf2-7x0qk — :app-element-id and :script-src are ATTRIBUTE-VALUE positions,
+;; escape-attr'd at the shell so a stray double-quote can't break out of the
+;; attribute and emit structurally-broken markup. Contrast :head / :body-end
+;; (content positions) which stay RAW. Structural-correctness, not a sandbox.
+;; ===========================================================================
+
+(deftest shell-escapes-attribute-value-opts-app-id-and-script-src
+  (testing "rf2-7x0qk: default-html-shell escapes :app-element-id and
+            :script-src as attribute values — a quote-bearing value
+            cannot break out of the double-quoted attribute"
+    (let [;; A quote-bearing-but-otherwise-trusted value: an asset URL the
+          ;; caller assembled with a query-string carrying a quote, and an
+          ;; id with a stray quote. Both are attribute-value positions.
+          html (ssr-ring/default-html-shell
+                 "body" "{}"
+                 {:app-element-id "ap\"p"
+                  :script-src     "/main.js?v=\"x\""})]
+      ;; The raw quote must NOT appear unescaped inside the attribute —
+      ;; that would close the attribute early and emit broken markup.
+      (is (not (str/includes? html "<div id=\"ap\"p\">"))
+          "a raw quote in :app-element-id must not break out of id=\"...\"")
+      (is (str/includes? html "<div id=\"ap&quot;p\">")
+          ":app-element-id quote is escape-attr'd to &quot;")
+      (is (not (str/includes? html "src=\"/main.js?v=\"x\"\""))
+          "a raw quote in :script-src must not break out of src=\"...\"")
+      (is (str/includes? html "src=\"/main.js?v=&quot;x&quot;\"")
+          ":script-src quote is escape-attr'd to &quot;")))
+
+  (testing "rf2-7x0qk: an ampersand in :script-src (legal query-string
+            separator) is escape-attr'd to &amp; — lossless, position-correct"
+    (let [html (ssr-ring/default-html-shell
+                 "body" "{}" {:script-src "/main.js?a=1&b=2"})]
+      (is (str/includes? html "src=\"/main.js?a=1&amp;b=2\"")
+          "& in the URL is encoded as &amp; (the attribute-value escape)")))
+
+  (testing "rf2-7x0qk: benign values are unaffected (escape-attr only
+            touches & and \") — the common case round-trips verbatim"
+    (let [html (ssr-ring/default-html-shell
+                 "body" "{}" {:app-element-id "root" :script-src "/bootstrap.js"})]
+      (is (str/includes? html "<div id=\"root\">"))
+      (is (str/includes? html "src=\"/bootstrap.js\"")))))
+
+(deftest streaming-prefix-suffix-escape-attribute-value-opts
+  (testing "rf2-7x0qk: the streaming prefix/suffix share the attribute-value
+            escaping with the non-streaming shell — :app-element-id in the
+            prefix, :script-src in the suffix"
+    (let [prefix-fn (requiring-resolve
+                      're-frame.ssr.ring.streaming/default-streaming-prefix)
+          suffix-fn (requiring-resolve
+                      're-frame.ssr.ring.streaming/default-streaming-suffix)
+          prefix    (prefix-fn "" {:app-element-id "ap\"p"})
+          suffix    (suffix-fn {:script-src "/main.js?v=\"x\""})]
+      (is (str/includes? prefix "<div id=\"ap&quot;p\">")
+          "streaming prefix escapes :app-element-id (parity with default-html-shell)")
+      (is (not (str/includes? prefix "<div id=\"ap\"p\">"))
+          "no raw quote breakout in the streaming prefix")
+      (is (str/includes? suffix "src=\"/main.js?v=&quot;x&quot;\"")
+          "streaming suffix escapes :script-src (parity with default-html-shell)")
+      (is (not (str/includes? suffix "src=\"/main.js?v=\"x\"\""))
+          "no raw quote breakout in the streaming suffix"))))
+
+;; ===========================================================================
 ;; default-html-shell — title is sourced from the head fragment, never the
 ;; shell. Two <title> tags per document is malformed HTML (rf2-3z841).
 ;; ===========================================================================
@@ -1590,6 +1652,33 @@
       ;; Sanity — the envelope-closing </script> for the payload itself
       ;; is still present (it's the genuine terminator).
       (is (str/includes? html "</script>")))))
+
+(deftest shell-with-default-head-emits-exactly-one-charset-meta
+  (testing "rf2-q78s1: the default shell owns the baseline <meta charset>;
+            default-head no longer carries one, so a full document built
+            from default-head threaded through the shell has EXACTLY one
+            charset meta (not two).
+
+            Reproduces the original defect path: default-head →
+            head-model->html → shell :head opt. Before the fix both the
+            shell hardcode AND default-head's :meta produced a charset
+            tag, yielding two."
+    (let [;; The head fragment as the pipeline produces it for a route
+          ;; with no declared :head — default-head rendered to HTML.
+          f          (rf/make-frame {:doc "Charset probe" :platform :server})
+          head-model (rf/active-head f)
+          head-html  (rf/head-model->html head-model)
+          html       (ssr-ring/default-html-shell "body" "{}" {:head head-html})
+          n-charset  (count (re-seq #"(?i)<meta\s+charset" html))]
+      (is (= 1 n-charset)
+          (str "expected exactly one <meta charset> in the default document; saw "
+               n-charset " — head fragment was: " (pr-str head-html)))
+      ;; The viewport meta the head still owns survives.
+      (is (str/includes? html "name=\"viewport\"")
+          "the head still contributes the viewport meta")
+      ;; And the shell's charset is the FIRST head byte (envelope owns it).
+      (is (str/includes? html "<head><meta charset=\"utf-8\">")
+          "the shell hardcodes the baseline charset as the first head byte"))))
 
 ;; ===========================================================================
 ;; rf2-hyk9j TC-3 — destroy-frame-failed trace surfaces on per-request teardown

@@ -163,7 +163,7 @@
              (rf/active-head f))))))
 
 (deftest active-head-falls-back-to-default-when-route-omits-head
-  (testing "no :head on the route → default-head fires (charset + viewport)"
+  (testing "no :head on the route → default-head fires (viewport only)"
     (rf/reg-route :route/no-head
                   {:doc  "Bare route"
                    :path "/"})
@@ -175,8 +175,9 @@
       (let [model (rf/active-head f)]
         (is (= "Default-head probe" (:title model))
             ":doc rolls into :title per Spec 011 §Default head")
-        (is (some #(= "utf-8" (:charset %)) (:meta model))
-            "default carries the utf-8 charset meta")
+        (is (not-any? #(contains? % :charset) (:meta model))
+            "default does NOT carry a charset meta (rf2-q78s1) — charset is an
+             envelope concern owned by the shell, not a per-route head concern")
         (is (some #(= "viewport" (:name %)) (:meta model))
             "default carries the viewport meta")))))
 
