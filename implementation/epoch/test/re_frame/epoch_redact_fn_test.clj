@@ -527,12 +527,14 @@
 ;; (push) AND the ring read (`epoch-history` / MCP `read-recording` /
 ;; `restore-epoch` — pull).
 ;;
-;; THE FIX runs `maybe-redact` over the back-filled record before it lands
-;; in the ring / re-fans to listeners, restoring the settle-time invariant
-;; for the post-settle async classes. These tests pin: (a) a sensitive
-;; value in a back-filled trace-event / sub-run row is REDACTED in the
-;; re-notified record AND in the ring; (b) a non-sensitive value passes
-;; through unchanged (no over-redaction regression — the redact-fn is the
+;; THE FIX runs `maybe-redact` over the back-filled DELTA before it lands
+;; in the ring / re-fans to listeners (rf2-qhxz6 narrowed the original
+;; rf2-82pcg whole-record re-redaction to the appended delta — see
+;; invariant 7 below), restoring the settle-time invariant for the
+;; post-settle async classes. These tests pin: (a) a sensitive value in a
+;; back-filled trace-event / sub-run row is REDACTED in the re-notified
+;; record AND in the ring; (b) a non-sensitive value passes through
+;; unchanged (no over-redaction regression — the redact-fn is the
 ;; AI/MCP-egress boundary; this fix must close the leak without scrubbing
 ;; benign data).
 ;;
@@ -763,3 +765,169 @@
              attribution path is unchanged; redaction is opt-in)")
         (is (= renotified (last-record :test/main))
             "ring and listener agree on the raw shape")))))
+
+;; ============================================================================
+;;  Invariant 7 — once-per-slot back-fill redaction; NON-idempotent fns
+;;                are honoured (rf2-qhxz6)
+;; ============================================================================
+;;
+;; THE CONTRACT (Tool-Pair.md §Redaction hook): ":redact-fn ONCE per
+;; assembled record." That entitles an app author to write a NON-idempotent
+;; fn — one that TRANSFORMS a value rather than substituting an idempotent
+;; `:rf/redacted` sentinel (hash-and-truncate, append-an-audit-marker,
+;; increment-a-closure-counter, base64-a-token).
+;;
+;; THE rf2-82pcg DRIFT (closed here). The rf2-82pcg fix closed the back-fill
+;; leak by re-running the fn over the WHOLE record on EVERY post-settle
+;; back-fill — so an epoch accruing K back-fills invoked the fn 1+K times,
+;; each pass re-redacting the slots prior passes already redacted. A
+;; non-idempotent fn corrupts those already-redacted slots (and
+;; `restore-epoch` rewinds to the corrupted `:db-after`).
+;;
+;; THE rf2-qhxz6 FIX (delta-only). `back-fill-event!` now runs the fn over
+;; ONLY the newly-appended delta. Each slot value is redacted EXACTLY ONCE
+;; across the record's lifetime; the already-redacted slots are never
+;; re-touched; the leak stays closed (the delta IS still redacted). No
+;; idempotency requirement is imposed on the app's `:redact-fn`.
+;;
+;; These tests use a deliberately NON-idempotent fn: it STAMPS a fresh
+;; monotonic counter onto each redactable slot value it touches. If a slot
+;; were re-redacted, its stamp would be a LATER counter than its
+;; first-touch stamp — the test asserts every stamp is its first-touch
+;; value (i.e. each slot touched exactly once).
+
+;; A NON-idempotent redact-fn: each invocation increments a shared counter
+;; and stamps the NEXT counter value onto every :sub-runs row's :value and
+;; every :trace-events :rf.sub/value tag it can see. Re-running it over an
+;; already-stamped value would OVERWRITE the stamp with a later counter —
+;; so a stable first-touch stamp proves once-per-slot. `seq` (call count)
+;; and `touched` (every (slot . stamp) pair, in invocation order) are
+;; exposed for assertions.
+(defn- make-counting-redact-fn []
+  (let [seq*    (atom 0)
+        touched (atom [])]
+    {:seq     seq*
+     :touched touched
+     :redact  (fn [r]
+                (let [n (swap! seq* inc)]
+                  (cond-> r
+                    (vector? (:sub-runs r))
+                    (update :sub-runs
+                            (fn [rows]
+                              (mapv (fn [row]
+                                      (swap! touched conj [:sub-run (:sub-id row) n])
+                                      (assoc row :value [:stamped n (:value row)]))
+                                    rows)))
+                    (vector? (:trace-events r))
+                    (update :trace-events
+                            (fn [evs]
+                              (mapv (fn [ev]
+                                      (if (contains? (:tags ev) :rf.sub/value)
+                                        (do (swap! touched conj [:trace n])
+                                            (update-in ev [:tags :rf.sub/value]
+                                                       (fn [v] [:stamped n v])))
+                                        ev))
+                                    evs))))))}))
+
+(deftest inv-7-non-idempotent-redact-fn-invoked-once-per-slot-across-back-fills
+  (testing "rf2-qhxz6 — a NON-idempotent :redact-fn is invoked EXACTLY ONCE
+            per appended slot across a sequence of post-settle back-fills.
+            The settle-time slots keep their first-touch stamp; each
+            back-fill stamps ONLY its own appended delta; no prior slot is
+            re-stamped (which a whole-record re-redaction would do)."
+    (rf/reg-frame :test/main {})
+    (let [{:keys [seq touched redact]} (make-counting-redact-fn)]
+      (rf/configure! :epoch-history {:redact-fn redact})
+      (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+      (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+
+      (rf/dispatch-sync [:seed] {:frame :test/main})
+      (rf/dispatch-sync [:inc]  {:frame :test/main})
+      (let [settle-calls @seq]
+        ;; THREE post-settle sub-run back-fills onto the SAME last-settled
+        ;; epoch record. A whole-record re-redaction would, on back-fill K,
+        ;; re-stamp all K-1 prior sub-run rows (each call walks the whole
+        ;; growing :sub-runs vector). Delta-only redaction stamps ONLY the
+        ;; newly-appended row each time.
+        (emit-sub-run! :test/main :a 0 100)
+        (emit-sub-run! :test/main :b 0 200)
+        (emit-sub-run! :test/main :c 0 300)
+
+        ;; INVARIANT: exactly one fn invocation per back-fill (plus the
+        ;; settle-time calls). NOT 1+K growth in slot-touches.
+        (is (= (+ settle-calls 3) @seq)
+            "redact-fn invoked once per back-fill — three back-fills =
+             three additional invocations")
+
+        ;; INVARIANT: each :sub-runs row was touched EXACTLY ONCE — the
+        ;; (slot . stamp) ledger holds each sub-id once, at its
+        ;; first-touch counter. A re-redaction would log the same sub-id
+        ;; multiple times (once per subsequent back-fill).
+        (let [sub-run-touches (->> @touched
+                                   (filter #(= :sub-run (first %)))
+                                   (map second))]
+          (is (= [:a :b :c] sub-run-touches)
+              "each sub-id appears EXACTLY ONCE in the touch ledger, in
+               append order — no slot re-redacted on a later back-fill"))
+
+        ;; INVARIANT: the ring record's rows each carry their OWN
+        ;; first-touch stamp (monotonic in append order), NOT a later
+        ;; counter. If row :a had been re-stamped on the :b and :c
+        ;; back-fills its stamp would be the :c-era counter.
+        (let [ring  (last-record :test/main)
+              by-id (into {} (map (juxt :sub-id identity)) (:sub-runs ring))
+              stamp (fn [id] (second (:value (by-id id))))]
+          (is (< (stamp :a) (stamp :b) (stamp :c))
+              "row stamps are strictly increasing in append order — each
+               row carries its first-touch counter; none was re-stamped by
+               a later back-fill (which would equalise / invert the order)")
+          ;; INVARIANT (leak stays closed): the appended delta WAS
+          ;; redacted — every back-filled row's value is the stamped form,
+          ;; not the raw value.
+          (is (= [:stamped (stamp :c) 300] (:value (by-id :c)))
+              "the most-recent back-fill's value IS redacted (stamped) —
+               the leak stays closed for the delta")
+          (is (= [:stamped (stamp :a) 100] (:value (by-id :a)))
+              "the first back-fill's value remains its ORIGINAL stamped
+               form — unchanged by the later :b / :c back-fills"))))))
+
+(deftest inv-7-already-redacted-slots-unchanged-across-back-fill
+  (testing "rf2-qhxz6 — a back-fill leaves every PRE-EXISTING slot value
+            byte-for-byte unchanged; only the appended delta is added. The
+            settle-time :sub-runs / :trace-events / :db-after carry through
+            identically before and after a back-fill (a non-idempotent fn
+            re-run over the whole record would mutate them)."
+    (rf/reg-frame :test/main {})
+    (let [{:keys [redact]} (make-counting-redact-fn)]
+      (rf/configure! :epoch-history {:redact-fn redact})
+      (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+      ;; A settling cascade whose own :sub-runs the settle-time pass stamps.
+      (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+      (rf/dispatch-sync [:seed] {:frame :test/main})
+      (emit-sub-run! :test/main :pre 0 1)        ; back-fill #1 — settled slot
+      (rf/dispatch-sync [:inc]  {:frame :test/main})
+
+      (let [before        (last-record :test/main)
+            before-subs   (:sub-runs before)
+            before-traces (:trace-events before)
+            before-after  (:db-after before)]
+        ;; A fresh back-fill onto this record appends a NEW sub-run.
+        (emit-sub-run! :test/main :post 0 2)
+        (let [after (last-record :test/main)]
+          (is (= before-subs (drop-last (:sub-runs after)))
+              "every pre-existing :sub-runs row is unchanged — the back-fill
+               only APPENDED the new row, never re-stamped the old ones")
+          (is (= before-traces
+                 (vec (take (count before-traces) (:trace-events after))))
+              "every pre-existing :trace-events entry is unchanged — only
+               the new delta event was appended + stamped")
+          (is (= before-after (:db-after after))
+              ":db-after is byte-for-byte unchanged across the back-fill —
+               a whole-record re-redaction by a non-idempotent fn keyed on
+               :db-after would have re-transformed it")
+          ;; And the appended delta IS redacted (leak closed).
+          (let [post-row (->> (:sub-runs after)
+                              (filter #(= :post (:sub-id %))) first)]
+            (is (and (vector? (:value post-row))
+                     (= :stamped (first (:value post-row))))
+                "the appended :post row IS redacted (stamped) — leak closed")))))))
