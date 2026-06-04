@@ -43,6 +43,8 @@
   gates)."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])
+            #?(:clj  [clojure.edn :as edn]
+               :cljs [cljs.reader :as edn])
             [clojure.string :as str]
             [re-frame.ssr.html-helpers :as h]
             [re-frame.security.gen :as gen]))
@@ -252,3 +254,123 @@
         (is (not (str/includes? out "<")) (str "raw < survived: " (pr-str out)))
         (is (not (str/includes? out ">")) (str "raw > survived: " (pr-str out)))
         (is (not (str/includes? out "\"")) (str "raw \" survived: " (pr-str out)))))))
+
+;; ---------------------------------------------------------------------------
+;; PROPERTY 4 - EDN script-body breakout: escape-edn-script-body must break
+;; every `</script` (any casing) inside an EDN <script type="application/edn">
+;; body WITHOUT corrupting the document's readability. The naive whole-string
+;; `<`->`<` replacement (escape-script-body-string) is XSS-safe but
+;; CORRUPTS the EDN: `<` is only a valid reader escape INSIDE a string
+;; literal, so a keyword/symbol token carrying `<` (`:<`, `:a<b`) becomes the
+;; unreadable token `:<` / `:a<b` and the EDN reader throws -
+;; breaking hydration / silently dropping a streaming delta (rf2-rdxxa).
+;;
+;; The fix's two MUSTs:
+;;   (a) no literal `</script` (any casing) survives in the emitted body;
+;;   (b) every VALID EDN payload round-trips through the reader unchanged -
+;;       `<` in string literals AND `<` in keyword/symbol tokens that do not
+;;       form a `</` / `<!` breakout precursor.
+;;   (c) a `</` / `<!` breakout precursor in a TOKEN position (no readable
+;;       in-token escape) fails loud with :rf.error/ssr-edn-script-breakout
+;;       rather than corrupting the document.
+;;
+;; verify-by-revert: restoring the callers to escape-script-body-string makes
+;; the token round-trip assertions go RED (the reader throws on `:a<b`).
+;; ---------------------------------------------------------------------------
+
+(defn- no-script-breakout?
+  "True when `s` carries no literal `</script` closing-tag (any casing) -
+  the HTML tokenizer's script-data-end pattern."
+  [s]
+  (not (str/includes? (str/lower-case s) "</script")))
+
+(def ^:private gen-edn-string-breakout
+  "Draws a hostile EDN document `{:k \"<recased </script…>>\"}` where the
+  STRING VALUE embeds a randomly-recased closing-tag breakout. The breakout
+  lives inside an EDN string literal, so the escape must neutralise it AND
+  round-trip."
+  (gen/gen-fmap
+    (fn [[bits tail]]
+      (pr-str {:k (str "x" (recase "</script" bits) tail "y")}))
+    (fn [rng]
+      (let [[bits rng1] ((gen/gen-vec (count "</script") (gen/gen-elem [0 1])) rng)
+            [tail rng2] (gen/rand-nth rng1 [">" " >" "/" "\t" "\n"])]
+        [[bits tail] rng2]))))
+
+(deftest edn-script-string-breakout-neutralised-and-round-trips
+  (testing "rf2-rdxxa - escape-edn-script-body neutralises EVERY recased
+            `</script` in an EDN string literal so none survives in the body,
+            AND the reader recovers the original document verbatim; sweep 500
+            recased closing-tag payloads"
+    (let [result (gen/for-all
+                   gen-edn-string-breakout 500 11
+                   (fn [edn-doc]
+                     (let [escaped (h/escape-edn-script-body edn-doc)]
+                       (and (no-script-breakout? escaped)
+                            ;; round-trips: reading the escaped body yields the
+                            ;; same value as reading the original EDN doc.
+                            (= (edn/read-string edn-doc)
+                               (edn/read-string escaped))))))]
+      (is (nil? result)
+          (str "an EDN string-literal `</script` breakout survived or the "
+               "document failed to round-trip: " (pr-str result))))))
+
+(def ^:private edn-token-with-angle-corpus
+  ;; VALID EDN documents carrying `<` in keyword/symbol TOKENS that are NOT
+  ;; breakout precursors (no `</` or `<!`). These are exactly what the naive
+  ;; whole-string escape corrupted - they MUST round-trip unchanged.
+  [{:a<b 1}
+   {:k :<}
+   {:< :>}
+   {:less< "ok"}
+   {:k 'sym<tail}
+   {:vec [:< :a<b "<starts-with-angle"]}
+   {:nested {:deep<key {:and<more "v"}}}
+   ;; `<` adjacent to a quote-bearing string value plus a token key
+   {:tok<key "value with </script> inside a string"}])
+
+(deftest edn-tokens-with-angle-round-trip
+  (testing "rf2-rdxxa - keyword/symbol tokens containing a non-breakout `<`
+            round-trip through the EDN reader unchanged (the regression the
+            whole-string `<`->`\\u003c` escape broke), and the body carries no
+            `</script` breakout"
+    (doseq [doc edn-token-with-angle-corpus]
+      (let [edn-doc (pr-str doc)
+            escaped (h/escape-edn-script-body edn-doc)]
+        (is (no-script-breakout? escaped)
+            (str "doc " (pr-str doc) " left a </script breakout: " escaped))
+        (is (= doc (edn/read-string escaped))
+            (str "doc " (pr-str doc) " did NOT round-trip; escaped body: "
+                 escaped))))))
+
+(deftest edn-token-breakout-precursor-fails-loud
+  (testing "rf2-rdxxa - a `</` or `<!` breakout precursor in a TOKEN position
+            has no readable in-token EDN escape, so it fails loud with
+            :rf.error/ssr-edn-script-breakout rather than corrupting the doc"
+    (doseq [edn-doc ["{:a</script>b 1}"
+                     "{:k :</x}"
+                     "{:tag<!-- 1}"
+                     "{:k </script}"]]
+      (let [thrown (try
+                     (h/escape-edn-script-body edn-doc)
+                     nil
+                     (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e
+                       (:rf.error/id (ex-data e))))]
+        (is (= :rf.error/ssr-edn-script-breakout thrown)
+            (str "token-position breakout precursor in " (pr-str edn-doc)
+                 " did not fail loud; got " (pr-str thrown)))))))
+
+(deftest edn-string-with-breakout-precursor-is-escaped-not-rejected
+  (testing "rf2-rdxxa - a `</` / `<!` breakout INSIDE a string literal is
+            escaped (it has the `\\u003c` reader escape) and round-trips - it
+            must NOT trip the token-position fail-loud path"
+    (doseq [doc [{:html "<!-- comment --></script>"}
+                 {:s "a</b><![CDATA[x]]>"}
+                 {:s "</SCRIPT/></script >"}]]
+      (let [edn-doc (pr-str doc)
+            escaped (h/escape-edn-script-body edn-doc)]
+        (is (no-script-breakout? escaped)
+            (str "string-literal breakout survived for " (pr-str doc)))
+        (is (= doc (edn/read-string escaped))
+            (str "string-literal breakout doc did not round-trip: "
+                 (pr-str doc)))))))

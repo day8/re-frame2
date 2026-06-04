@@ -256,3 +256,58 @@
     (is (= streaming/render-shell        ssr/streaming-render-shell))
     (is (= streaming/render-continuation ssr/streaming-render-continuation))
     (is (= streaming/build-final-payload ssr/streaming-build-final-payload))))
+
+;; ===========================================================================
+;; rf2-rdxxa — per-subtree hydration-delta <script> body escaping
+;;
+;; `hydrate-delta-script` drops a `(pr-str delta)` EDN body inside a
+;; `<script data-rf2-suspense-hydrate type="application/edn">`. The body
+;; MUST (a) never carry a literal `</script` breakout and (b) round-trip
+;; through the client's EDN reader unchanged — including delta values that
+;; carry `</script>` in a string AND delta map keys that are keywords with
+;; a (non-breakout) `<`. The earlier whole-string `<`→`<` escape
+;; corrupted such keyword tokens (unreadable `:a<b`), which would
+;; silently drop the speculative delta on the client. EDN-aware escape via
+;; `html-helpers/escape-edn-script-body` fixes both.
+;; ===========================================================================
+
+(defn- delta-script-body
+  "Extract the EDN body between the delta script's `>` and `</script>`."
+  [script-html]
+  (second (re-find #"type=\"application/edn\">(.*?)</script>" script-html)))
+
+(deftest hydrate-delta-script-escapes-breakout-and-round-trips
+  (testing "rf2-rdxxa: a delta carrying a `</script>` substring in a string
+            value AND a keyword key containing `<` cannot close the envelope
+            and round-trips through the EDN reader verbatim"
+    (let [delta   {:public/title "</script><script>alert('xss')</script>"
+                   :a<b 1
+                   :tag :<}
+          script  (streaming/hydrate-delta-script :boundary/x (pr-str delta))
+          body    (delta-script-body script)]
+      ;; (a) no breakout — the raw closing-tag pattern must not survive.
+      (is (not (str/includes? (str/lower-case body) "</script"))
+          "delta body carries no literal </script breakout")
+      ;; the string-literal `<` chars are escaped as <.
+      (is (str/includes? body "\\u003c/script>")
+          "string-literal `<` escaped as \\u003c")
+      ;; (b) the keyword-token `<` is left intact so the body round-trips.
+      (is (str/includes? body ":a<b")
+          "keyword-token `<` left intact (no token corruption)")
+      (is (= delta (clojure.edn/read-string body))
+          "rf2-rdxxa: the EDN reader recovers the full delta verbatim"))))
+
+(deftest hydrate-delta-script-token-breakout-fails-loud
+  (testing "rf2-rdxxa: a `</` breakout precursor in a non-string TOKEN (a
+            symbol value `a</script>b` — valid, readable EDN that prints the
+            literal `</`) has no readable in-token EDN escape, so emission
+            fails loud rather than corrupting the body"
+    ;; A symbol value prints the bare token `a</script>b` carrying a literal
+    ;; `</` outside any string literal — the genuine token-position breakout.
+    ;; (A keyword can't carry `</` in its NAME: the first `/` is the
+    ;; namespace separator, so `:a</b` prints the `<` in the namespace half
+    ;; — `<{`, not `</` — and is safe.)
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                          #":rf.error/ssr-edn-script-breakout"
+                          (streaming/hydrate-delta-script
+                            :boundary/x (pr-str {:k (symbol "a</script>b")}))))))

@@ -125,10 +125,14 @@
   (str "<script data-rf2-suspense-hydrate=\""
        (html/escape-attr (str id))
        "\" type=\"application/edn\">"
-       ;; rf2-7ksyr — escape `<` chars so a delta carrying `</script>`
-       ;; from any user-controlled string cannot close the envelope.
-       ;; Same shape as the final-payload escape in default-html-shell.
-       (html/escape-script-body-string delta-edn)
+       ;; rf2-7ksyr / rf2-rdxxa — EDN-aware escape: `<` inside string
+       ;; literals becomes `<` so a delta carrying `</script>` from
+       ;; a user-controlled string cannot close the envelope, while
+       ;; keyword/symbol tokens with `<` (`:<`, `:a<b`) round-trip
+       ;; unchanged through the client's EDN reader. A `</` / `<!`
+       ;; breakout in a token position fails loud. Same encoder as the
+       ;; final-payload escape in payload-script-tag.
+       (html/escape-edn-script-body delta-edn)
        "</script>"))
 
 ;; ---- per-subtree hydration delta -----------------------------------------

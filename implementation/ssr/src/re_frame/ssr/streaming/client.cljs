@@ -65,10 +65,12 @@
     - The delta `<script>` body is the **bare delta-map** EDN
       (`(pr-str delta)`), NOT a wrapped `{:rf/app-db-delta … :rf/boundary-id …}`
       envelope. The boundary id is carried by the attribute only. The
-      body is `escape-script-body-string`'d (`<` → `\\u003c`);
-      `cljs.reader/read-string` accepts that escape so the delta
-      round-trips. (Spec 011 §Hydration interleaving's wrapped-shape
-      prose is corrected to this shipped contract.)
+      body is `escape-edn-script-body`'d — `<` inside string literals
+      becomes `\\u003c` (which `cljs.reader/read-string` decodes back),
+      while `<` in keyword/symbol tokens (`:<`, `:a<b`) is left intact
+      so the delta round-trips (rf2-rdxxa). (Spec 011 §Hydration
+      interleaving's wrapped-shape prose is corrected to this shipped
+      contract.)
     - A `data-rf2-suspense-failed=\"1\"` marker on a resolved
       `<template>` means the server's continuation render threw and the
       chunk carries the *fallback* HTML; there is no hydrate-delta
