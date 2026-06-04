@@ -3179,6 +3179,133 @@
             ":source :router rides on the routing-internal dispatch envelope")))))
 
 ;; ============================================================================
+;; rf2-cgh8q — the on-match error-trap must not mis-attribute a NON-routing
+;; throw to the loading route. Discrimination is now full event-VECTOR
+;; identity against the route's declared :on-match (not bare event-id
+;; membership), so a colliding same-id dispatch carrying different args
+;; during the loading window does NOT flip the healthy route to :error.
+;; ============================================================================
+
+(deftest on-match-error-does-not-mis-attribute-colliding-same-id-throw
+  (testing "a throw from an event whose id coincides with the active route's
+            :on-match id, but whose FULL vector differs (a button handler's
+            `[:app/load-x \"button\"]` vs the route's `[:app/load-x \"route\"]`),
+            mid-loading-window, does NOT flip the route slice to :error or
+            chain :on-error — rf2-cgh8q. Pre-fix the id-membership check
+            mis-attributed it."
+    (let [on-error-fired? (atom false)]
+      ;; The route's own on-match loader — it dispatches the COLLIDING
+      ;; throwing event as a child of its own cascade, so the throw fires
+      ;; while the slice is still :loading (the realistic reproduction
+      ;; window). The child carries DIFFERENT args than the route's
+      ;; declared on-match vector.
+      (rf/reg-event-fx :app/load-x
+                       (fn [{:keys [db]} [_ origin]]
+                         (if (= origin "button")
+                           ;; The "button"-shaped dispatch throws — it is
+                           ;; NOT the route's on-match vector.
+                           (throw (ex-info "button-throw" {:origin origin}))
+                           ;; The route's on-match dispatch: fire the
+                           ;; colliding throwing child, then no-op.
+                           {:db db
+                            :fx [[:dispatch [:app/load-x "button"]]]})))
+      (rf/reg-event-db :app/route-on-error
+                       (fn [db _] (reset! on-error-fired? true) db))
+      (rf/reg-route :route/collide
+                    {:path     "/collide"
+                     :on-match [[:app/load-x "route"]]
+                     :on-error [:app/route-on-error]})
+      (rf/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}}
+                 (fn [_ _] nil))
+      (rf/dispatch-sync [:rf.route/transitioned "/collide"])
+      (let [slice (get-in (rf/app-db-value :rf/default)
+                          [:rf/runtime :routing :current])]
+        (is (not= :error (:transition slice))
+            "the colliding non-routing throw did NOT flip the route to :error")
+        (is (nil? (:error slice))
+            ":rf.route/error stays empty — no spurious error attribution")
+        (is (false? @on-error-fired?)
+            ":on-error did NOT chain for the mis-attributed throw")))))
+
+(deftest on-match-error-still-flips-on-genuine-on-match-throw
+  (testing "regression guard for rf2-cgh8q — a GENUINE on-match throw
+            (the failing event vector IS one of the route's declared
+            :on-match vectors) still flips :transition :error and chains
+            :on-error. The tightened discrimination must not suppress the
+            real error path."
+    (let [on-error-fired? (atom false)]
+      (rf/reg-event-db :app/genuine-load
+                       (fn [_db [_ arg]]
+                         (throw (ex-info "genuine-boom" {:arg arg}))))
+      (rf/reg-event-db :app/genuine-on-error
+                       (fn [db _] (reset! on-error-fired? true) db))
+      (rf/reg-route :route/genuine
+                    {:path     "/genuine"
+                     ;; on-match carries args — the failing dispatch must
+                     ;; match the FULL vector, not just the id.
+                     :on-match [[:app/genuine-load 42]]
+                     :on-error [:app/genuine-on-error]})
+      (rf/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}}
+                 (fn [_ _] nil))
+      (rf/dispatch-sync [:rf.route/transitioned "/genuine"])
+      (let [slice (get-in (rf/app-db-value :rf/default)
+                          [:rf/runtime :routing :current])]
+        (is (= :error (:transition slice))
+            "a genuine on-match throw (full-vector match) still flips :error")
+        (is (= :app/genuine-load (:rf.route/on-match-id (:error slice)))
+            ":rf.route/on-match-id names the genuine failing event-id")
+        (is (true? @on-error-fired?)
+            ":on-error chains on the genuine on-match throw")))))
+
+;; ============================================================================
+;; rf2-3bv8o — external-url? fails CLOSED on the JVM / no-browser-origin
+;; path: ambiguous or absolute URLs are classed external (no in-app push),
+;; closing the open-redirect bypass surface (leading whitespace before a
+;; scheme, backslash authorities, embedded control chars). Consistent with
+;; the routing fail-closed posture (rf2-6t1xb).
+;; ============================================================================
+
+(deftest url-requested-fails-closed-on-ambiguous-urls-jvm
+  (testing ":rf/url-requested on the JVM (no browser origin) classes
+            ambiguous / bypass-shaped URLs as EXTERNAL — no :rf.nav/push-url,
+            no slice rewrite — and only PROVABLY same-origin rooted paths
+            push through. rf2-3bv8o."
+    (rf/reg-route :route/home {:path "/"})
+    (let [pushed (atom [])]
+      (rf/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}}
+                 (fn [_ url] (swap! pushed conj url)))
+      (rf/dispatch-sync [:rf.route/transitioned "/"])
+      (testing "bypass-shaped / absolute / ambiguous URLs do NOT push"
+        (doseq [hostile ["https://evil.invalid/cart"   ;; scheme
+                         "//evil.invalid/cart"          ;; protocol-relative
+                         "/\\evil.invalid"              ;; backslash authority
+                         " /cart"                       ;; leading-space scheme-anchor bypass
+                         "\thttps://evil.invalid"       ;; embedded tab (browser-stripped)
+                         "javascript:alert(1)"          ;; non-http scheme
+                         "mailto:a@b.c"
+                         "cart"                          ;; bare relative segment (not rooted)
+                         ""]]
+          (reset! pushed [])
+          (rf/dispatch-sync [:rf/url-requested {:url hostile}])
+          (is (empty? @pushed)
+              (str "fail-closed: ambiguous/absolute URL " (pr-str hostile)
+                   " classed external, not pushed"))
+          (is (= :route/home (get-in (rf/app-db-value :rf/default)
+                                     [:rf/runtime :routing :current :id]))
+              (str "fail-closed: " (pr-str hostile)
+                   " did not rewrite the active route"))))
+      (testing "provably same-origin rooted paths DO push through"
+        (doseq [safe ["/cart" "/a/b/c" "/cart?q=1" "/cart#frag" "?q=1" "#frag"]]
+          (reset! pushed [])
+          (rf/dispatch-sync [:rf/url-requested {:url safe}])
+          (is (= [safe] @pushed)
+              (str "safe same-origin reference " (pr-str safe)
+                   " pushes through verbatim")))))))
+
+;; ============================================================================
 ;; rf2-5pyyl — :can-leave non-boolean → BLOCK + :rf.error/can-leave-non-boolean
 ;; ============================================================================
 

@@ -19,7 +19,10 @@
     - reading the failing record's `:frame`
     - reading that frame's route slice at [:rf/runtime :routing :current]
     - checking `:transition` is `:loading` (the slice is mid-drain)
-    - checking the failing event-id is in the active route's `:on-match`
+    - checking the failing record's full `:event` vector IS one of the
+      active route's declared `:on-match` vectors (rf2-cgh8q —
+      full-vector identity, not bare event-id membership; falls back to
+      id-membership only when the event was wire-elided)
 
   All four together identify the error as originating from an :on-match
   cascade for the currently-loading route. The listener then dispatches
@@ -42,16 +45,73 @@
             [re-frame.frame :as frame]
             [re-frame.router :as router]))
 
+(defn- on-match-event-vecs
+  "Return the set of full event VECTORS declared in `route-meta`'s
+  `:on-match`. Empty when the route declares no `:on-match`. Used by the
+  error-emit listener to discriminate which handler-exception records
+  originated from an `:on-match` dispatch — full-vector identity is the
+  tightest always-on discriminator (see `on-match-attributed?`)."
+  [route-meta]
+  (into #{}
+        (filter vector?)
+        (or (:on-match route-meta) [])))
+
 (defn- on-match-event-ids
-  "Return a set of event-ids declared in `route-meta`'s `:on-match`.
-  Empty when the route declares no `:on-match`. Used by the error-emit
-  listener to discriminate which handler-exception records originated
-  from an `:on-match` dispatch."
+  "Return the set of event-ids (head keywords) declared in `route-meta`'s
+  `:on-match`. The coarse fallback discriminator used only when the
+  failing record's full `:event` vector is unavailable (wire-elided to
+  `:rf.size/large-elided` per Spec 009 §size-elision)."
   [route-meta]
   (into #{}
         (comp (filter vector?)
               (map first))
         (or (:on-match route-meta) [])))
+
+(defn- on-match-attributed?
+  "True when the failing handler-exception `record` should be attributed
+  to the active route's `:on-match` drain.
+
+  rf2-cgh8q — the attribution discriminator. Earlier this was bare
+  event-id MEMBERSHIP: `(contains? (on-match-event-ids meta) event-id)`.
+  That mis-attributes a NON-routing throw to the loading route whenever
+  the app concurrently dispatches an event whose id happens to coincide
+  with one of the route's `:on-match` ids during the loading window — the
+  healthy route is then forced to `:error` and a spurious `:on-error`
+  chains. The id-only check cannot tell the route's own
+  `[[:app/load-x 'from-route']]` dispatch apart from a button handler's
+  `[:app/load-x 'from-button']`.
+
+  The tighter, still-always-on discriminator is full event-VECTOR
+  identity against the route's declared `:on-match` vectors: a button
+  dispatch carrying different args (or a bare `[:app/load-x]` versus the
+  route's `[:app/load-x 42]`) no longer collides. The full `:event`
+  vector rides the always-on error record (Spec 009 §Record shape), so
+  this survives `:advanced` + `goog.DEBUG=false` like the rest of the
+  trap.
+
+  Wire elision (Spec 009 §size-elision) can replace a LARGE `:event`
+  with the sentinel `:rf.size/large-elided`. In that one case the full
+  vector is unavailable, so we fall back to the coarse id-membership
+  check rather than silently dropping a genuine on-match error — losing
+  the `:on-error` chain for a large-payload loader is the worse failure
+  than the (already low-likelihood) coincidence the vector check closes.
+
+  Residual coincidence — a DIFFERENT cascade dispatching the byte-for-
+  byte IDENTICAL on-match vector during the loading window — remains
+  indistinguishable from the genuine on-match throw on the always-on
+  substrate (the error record carries no cause/cascade correlation; the
+  epoch cause-event-id surface is dev-only and elides in production).
+  Documented as an accepted limitation in Spec 012 §`:on-match`
+  exception attribution."
+  [route-meta {:keys [event event-id]}]
+  (let [elided? (= event :rf.size/large-elided)]
+    (if (and (vector? event) (not elided?))
+      ;; Full-vector identity — the tight discriminator.
+      (contains? (on-match-event-vecs route-meta) event)
+      ;; `:event` was wire-elided (large payload): fall back to the
+      ;; coarse id-membership check so a genuine on-match throw on a
+      ;; large-payload loader still routes to `:on-error`.
+      (contains? (on-match-event-ids route-meta) event-id))))
 
 (defn on-match-error-handler
   "`:rf.route.internal/on-match-error` event-fx handler. Registered by
@@ -96,24 +156,26 @@
   chains.
 
   Per Spec 012 §Per-route error handling and rf2-ye7sh."
-  [{:keys [error event-id frame exception] :as _record}]
+  [{:keys [error event-id frame exception] :as record}]
   (when (= :rf.error/handler-exception error)
     (let [db            (frame/frame-app-db-value frame)
           route-slice   (when db (get-in db [:rf/runtime :routing :current]))
           route-id      (:id route-slice)
           transition    (:transition route-slice)
           nav-token     (:nav-token route-slice)
-          route-meta    (when route-id (registrar/lookup :route route-id))
-          on-match-ids  (on-match-event-ids route-meta)]
+          route-meta    (when route-id (registrar/lookup :route route-id))]
       ;; Three discriminators all must hold:
       ;;   1. The slice is mid-drain (`:loading`).
-      ;;   2. The failing event-id is in the active route's `:on-match`.
+      ;;   2. The failing record is attributed to the active route's
+      ;;      `:on-match` drain by full-vector identity (rf2-cgh8q),
+      ;;      falling back to id-membership only when the event was
+      ;;      wire-elided — see `on-match-attributed?`.
       ;;   3. A nav-token is present (otherwise routing is uninitialised).
       ;; All three together mean: the failing handler was an :on-match
       ;; dispatch for the currently-loading route.
       (when (and (= :loading transition)
                  nav-token
-                 (contains? on-match-ids event-id))
+                 (on-match-attributed? route-meta record))
         ;; Build the structured error map (Spec 009 §error-contract).
         ;; The exception itself carries the diagnostic detail; we surface
         ;; the canonical :rf.error/ id + tags so apps can switch on it

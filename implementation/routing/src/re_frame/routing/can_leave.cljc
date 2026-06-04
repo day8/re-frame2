@@ -154,11 +154,52 @@
   [_ _]
   {})
 
-(defn- absolute-url-like? [url]
+(defn- safe-in-app-url?
+  "Fail-CLOSED lexical classifier for the no-browser-origin path (JVM /
+  SSR, and CLJS when `js/window` is unavailable). Returns true ONLY when
+  `url` is PROVABLY a same-origin in-app reference; everything ambiguous
+  or absolute returns false -> classed external (rf2-3bv8o).
+
+  Without a browser `Location` to resolve and origin-compare against
+  (the robust CLJS path below), the runtime cannot prove a URL is
+  same-origin. The pre-rf2-3bv8o JVM path was fail-OPEN: it returned the
+  URL verbatim and classed in-app anything that did not lexically look
+  absolute -- a default-ALLOW that let open-redirect bypass vectors
+  (leading whitespace before a scheme, backslash-prefixed authorities a
+  browser normalises to `//`, embedded tab/newline in the scheme) slip
+  through as in-app pushes. This flips to fail-CLOSED, consistent with
+  the routing fail-closed posture established by rf2-6t1xb (a hostile or
+  ambiguous URL resolves to the safe outcome, not the permissive one).
+
+  A URL is accepted as in-app only when, after rejecting any whitespace
+  or ASCII control character (browsers strip tab/CR/LF mid-URL before
+  parsing -- a lexical check that ignores them is bypassable), it begins
+  with a single `/` NOT followed by `/` or a backslash (a rooted
+  same-origin path) -- OR is a pure query (`?...`) / fragment (`#...`)
+  reference. A leading `//` or `/\\` (protocol-relative authority a
+  browser reads as off-origin), a scheme (`name:`), a bare relative
+  segment, the empty string, and any non-string all fail closed."
+  [url]
   (boolean
     (and (string? url)
-         (or (re-find #"^[A-Za-z][A-Za-z0-9+.-]*:" url)
-             (clojure.string/starts-with? url "//")))))
+         (seq url)
+         ;; Reject any whitespace or ASCII control char (incl. DEL)
+         ;; anywhere: a leading space defeats a `^` scheme anchor, and
+         ;; embedded tab/CR/LF are stripped by browsers before parsing --
+         ;; a lexical check that ignores them is a bypass surface. The
+         ;; `\s` + hex-range class is identical under Java (CLJ) and
+         ;; JS (CLJS) regex.
+         (not (re-find #"[\s\x00-\x1f\x7f]" url))
+         (or
+           ;; Pure query or fragment reference -- unambiguously same-doc.
+           (clojure.string/starts-with? url "?")
+           (clojure.string/starts-with? url "#")
+           ;; Rooted path: a single leading `/` NOT followed by `/` or
+           ;; `\` (which a browser would treat as a protocol-relative
+           ;; authority -> off-origin).
+           (and (clojure.string/starts-with? url "/")
+                (not (clojure.string/starts-with? url "//"))
+                (not (clojure.string/starts-with? url "/\\")))))))
 
 (defn- external-url? [url]
   #?(:cljs
@@ -169,11 +210,13 @@
                protocol (.-protocol parsed)]
            (or (not (#{"http:" "https:"} protocol))
                (not= (.-origin parsed) (.-origin loc))))
-         (absolute-url-like? url))
+         ;; No browser Location to origin-compare against — fail closed.
+         (not (safe-in-app-url? url)))
        (catch :default _
-         (absolute-url-like? url)))
+         (not (safe-in-app-url? url))))
      :clj
-     (absolute-url-like? url)))
+     ;; JVM / SSR: no browser origin — fail closed (rf2-3bv8o).
+     (not (safe-in-app-url? url))))
 
 (defn- request-url->app-url [url]
   #?(:cljs
