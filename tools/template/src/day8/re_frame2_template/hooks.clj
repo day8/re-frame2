@@ -148,8 +148,13 @@
      {{nested-dirs}}  — derived `{{top/file}}/{{main/file}}` (file-path
                         component, e.g. `acme/my_app` — used in
                         `src/<nested-dirs>/core.cljs` rename targets).
-     {{substrate}}    — the chosen substrate name (`reagent` / `uix` /
-                        `helix`).
+     {{substrate}}    — the chosen substrate name, lower-case
+                        (`reagent` / `uix` / `helix`).
+     {{substrate-label}} — the chosen substrate's display name, proper-
+                        case (`Reagent` / `UIx` / `Helix`); used in the
+                        substrate-invariant shadow-cljs.edn header comment
+                        and the package.json `description`, both emitted
+                        once from `_shared/`.
      {{substrate-badge-url}} — shields.io badge URL keyed by substrate.
      {{rf2-version}}  — runtime coord version (kept in lockstep with
                         the repo-root VERSION file via the §3 release
@@ -187,6 +192,10 @@
           main-ns         (->ns-form main)]
       {:substrate           substrate-name
        :substrate-kw        substrate
+       :substrate-label     (case substrate
+                              :reagent "Reagent"
+                              :uix     "UIx"
+                              :helix   "Helix")
        :include-story?      include-story?
        :namespace           (str top-ns "." main-ns)
        :nested-dirs         (str top-file "/" main-file)
@@ -235,32 +244,43 @@
 ;;     │   ├── dev/{user.clj, scratch.cljs}
 ;;     │   └── resources/public/{index.html, css/app.css}
 ;;     ├── _shared/     — substrate-agnostic content that needs renames
-;;     │                  (dotfile rename + namespace-path rename for
-;;     │                   src/test files; includes stories.cljs which
+;;     │                  or a flag switch (dotfile rename + namespace-
+;;     │                   path rename for src/test files; the
+;;     │                   substrate-invariant build configs
+;;     │                   shadow-cljs.edn + package.json /
+;;     │                   package_with_story.json; stories.cljs, which
 ;;     │                   only emits under :include-story? true)
-;;     ├── _reagent/    — Reagent-specific content; includes a
-;;     │                  with-story core variant + deps/package
-;;     │                  variants
-;;     ├── _uix/        — UIx-specific content
-;;     └── _helix/      — Helix-specific content
+;;     ├── _reagent/    — Reagent-specific content (core.cljs / views.cljs
+;;     │                  / deps.edn); includes the with-story core +
+;;     │                  deps variants
+;;     ├── _uix/        — UIx-specific content (core.cljs / views.cljs /
+;;     │                  deps.edn)
+;;     └── _helix/      — Helix-specific content (core.cljs / views.cljs
+;;                        / deps.edn)
 ;;
 ;; The underscore-prefix convention signals "not bulk-copied — picked
 ;; up by a transform with :only". Per-substrate sub-trees emit only
-;; for the chosen substrate.
+;; for the chosen substrate; the only files that genuinely vary by
+;; substrate are core.cljs (mount/adapter wiring), views.cljs (the
+;; view macros), and deps.edn (the adapter coord + npm libs).
 
 (defn template-fn
   "Build the `:transform` vector and merge it into the template EDN.
 
    Three transform groups:
 
-     - Shared renames: dotfile rename (e.g. `gitignore` → `.gitignore`)
-       + namespace-path rename for src/test source files.
-     - Per-substrate: substrate-specific files including the entry-
-       point `core.cljs`, the view module, the build configs.
+     - Shared (from `_shared/`): dotfile rename (e.g. `gitignore` →
+       `.gitignore`) + namespace-path rename for src/test source files
+       + the substrate-invariant build configs (`shadow-cljs.edn`,
+       `package.json`).
+     - Per-substrate (from `_<substrate>/`): the files that genuinely
+       differ by substrate — the entry-point `core.cljs`, the view
+       module `views.cljs`, and `deps.edn` (adapter coord + npm libs).
      - Story scaffolding (Reagent-only, under `:include-story? true`):
        picks `core_with_stories.cljs` instead of `core.cljs`, picks
-       `deps_with_story.edn` / `package_with_story.json` instead of
-       the default versions, and emits `stories.cljs` from `_shared/`.
+       `deps_with_story.edn` instead of the default `deps.edn`, swaps
+       the shared `package.json` source for `package_with_story.json`,
+       and emits `stories.cljs` from `_shared/`.
 
    All groups use `:only` so only files explicitly listed in the
    file-map emit (the implicit bulk-copy of `<src-dir>/*` is skipped).
@@ -275,6 +295,14 @@
   (let [nested         (:nested-dirs data)
         substrate      (:substrate data)
         include-story? (:include-story? data)
+        ;; The build configs are substrate-invariant — the React
+        ;; substrate is chosen in deps.edn + core.cljs, never here — so
+        ;; they live in `_shared/` and emit once. The only per-flag
+        ;; variation is package.json's `description`, so the with-story
+        ;; path swaps the source (same `_shared/` dir, same output name).
+        package-src    (if include-story?
+                         "package_with_story.json"
+                         "package.json")
         ;; Shared transforms — renames only. `:only` skips the bulk
         ;; copy of `_shared/*`, so source files that don't appear in
         ;; the file-map below DO NOT emit. Add explicit entries if
@@ -283,6 +311,9 @@
                                 "editorconfig"         ".editorconfig"
                                 "cljfmt.edn"           ".cljfmt.edn"
                                 "clj-kondo/config.edn" ".clj-kondo/config.edn"
+                                ;; Substrate-invariant build configs.
+                                "shadow-cljs.edn"      "shadow-cljs.edn"
+                                package-src            "package.json"
                                 ;; src/test renames — re-home into the user's namespace
                                 ;; path.
                                 "events.cljs"          (str "src/" nested "/events.cljs")
@@ -310,14 +341,9 @@
                               "core.cljs")
                 deps-src    (if include-story?
                               "deps_with_story.edn"
-                              "deps.edn")
-                package-src (if include-story?
-                              "package_with_story.json"
-                              "package.json")]
+                              "deps.edn")]
             [["_reagent" "."
               {deps-src          "deps.edn"
-               "shadow-cljs.edn" "shadow-cljs.edn"
-               package-src       "package.json"
                core-src          (str "src/" nested "/core.cljs")
                "views.cljs"      (str "src/" nested "/views.cljs")}
               :only]])
@@ -325,8 +351,6 @@
           "uix"
           [["_uix" "."
             {"deps.edn"        "deps.edn"
-             "shadow-cljs.edn" "shadow-cljs.edn"
-             "package.json"    "package.json"
              "core.cljs"       (str "src/" nested "/core.cljs")
              "views.cljs"      (str "src/" nested "/views.cljs")}
             :only]]
@@ -334,8 +358,6 @@
           "helix"
           [["_helix" "."
             {"deps.edn"        "deps.edn"
-             "shadow-cljs.edn" "shadow-cljs.edn"
-             "package.json"    "package.json"
              "core.cljs"       (str "src/" nested "/core.cljs")
              "views.cljs"      (str "src/" nested "/views.cljs")}
             :only]])]

@@ -53,10 +53,10 @@ github.com/day8/re-frame2-template/        ; external repo (NEW)
 ├── resources/day8/re_frame2_template/
 │   ├── template.edn                       ; the in-tree template config (resource-side)
 │   ├── root/                              ; bulk-copied content (README, lefthook, dev/, resources/public/)
-│   ├── _shared/                           ; renamed content (dotfiles, src/test sources)
-│   ├── _reagent/                          ; Reagent-specific
-│   ├── _uix/                              ; UIx-specific
-│   └── _helix/                            ; Helix-specific
+│   ├── _shared/                           ; substrate-agnostic content (dotfiles, src/test sources, build configs shadow-cljs.edn + package.json)
+│   ├── _reagent/                          ; Reagent-specific (core.cljs / views.cljs / deps.edn)
+│   ├── _uix/                              ; UIx-specific (core.cljs / views.cljs / deps.edn)
+│   └── _helix/                            ; Helix-specific (core.cljs / views.cljs / deps.edn)
 ├── spec/                                  ; the spec/ tree (000-Vision, 001-Substrate-Variants, ...)
 ├── test/day8/re_frame2_template/
 │   ├── template_test.clj

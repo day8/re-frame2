@@ -174,9 +174,9 @@ local `:local/root` template and walking the tree. Comparing to
 | `_reagent/core.cljs` | Pure-CLJS counter boot | Default path unchanged. Under `:include-ssr? true`, swap to `core_with_ssr.cljc` (shared JVM + CLJS, mirrors `examples/reagent/ssr/core.cljc`). | New: `core_with_ssr.cljc` |
 | Server entry namespace | Absent | New file `server.clj` — composite handler shape (static `/main.js` + favicon 204 + `re-frame.ssr.ring/ssr-handler`); reference body the `implementation/ssr-ring/test/re_frame/ssr/ring_e2e_validator_test.clj` Jetty bring-up. | New: `server.clj` |
 | `_reagent/deps.edn` | core + adapter + schemas + xray + reagent | Under `:include-ssr? true`, swap to `deps_with_ssr.edn` adding `day8/re-frame2-ssr`, `day8/re-frame2-ssr-ring`, `ring/ring-jetty-adapter` (or `info.sunng/ring-jetty9-adapter` per Ring 2.x), and a `:server` alias with `:exec-fn <ns>.server/-main`. Same pattern `:include-story?` uses with `deps_with_story.edn`. | New: `deps_with_ssr.edn` |
-| `_reagent/shadow-cljs.edn` | Single `:app` browser build | Under `:include-ssr? true`, swap to `shadow-cljs_with_ssr.edn` that retains `:app` and points `:output-dir` somewhere `server.clj`'s `:static-root` can locate. (The example's `server.clj` already accepts `:static-root` as an arg — no shadow-side change strictly required, but the README/quick-start needs to reference both watchers.) | New: `shadow-cljs_with_ssr.edn` (optional; current shape may suffice with documentation only) |
+| `_shared/shadow-cljs.edn` | Single `:app` browser build | Under `:include-ssr? true`, swap to `shadow-cljs_with_ssr.edn` that retains `:app` and points `:output-dir` somewhere `server.clj`'s `:static-root` can locate. (The example's `server.clj` already accepts `:static-root` as an arg — no shadow-side change strictly required, but the README/quick-start needs to reference both watchers.) | New: `shadow-cljs_with_ssr.edn` (optional; current shape may suffice with documentation only) |
 | `root/resources/public/index.html` | Static HTML envelope, `<div id="app">` empty | Under `:include-ssr? true`, the live server emits its own envelope at runtime — the static `index.html` becomes optional / dev-fallback. Either: (a) leave as-is and let `server.clj` shadow it; or (b) emit a `dev/index.html` variant explaining the role. Recommended: leave as-is. | — |
-| `_reagent/package.json` | reagent + react/react-dom + shadow | Under `:include-ssr? true`, no change (JVM-side handles SSR; no node-side render dep). | — |
+| `_shared/package.json` | react/react-dom + shadow | Under `:include-ssr? true`, no change (JVM-side handles SSR; no node-side render dep). | — |
 | README quick-start | Single `npx shadow-cljs watch app` flow | Under `:include-ssr? true`, README quick-start branches: (1) `clojure -X:server` to run the SSR server, (2) `npx shadow-cljs watch app` to build the client bundle. Hot-reload of the JVM side is `(require '<ns>.server :reload)` from a REPL. | Either two README variants or one README with a conditional SSR section (deps-new lacks Mustache; needs separate `README_with_ssr.md`) |
 | `_shared/events.cljs` | Counter increment event | Under `:include-ssr? true`, fold `:rf/server-init` in (the bead spec calls for "boot the server" verifying counter still works post-hydration). Recommend keeping events.cljs substrate-shared and adding `_shared/events_with_ssr.cljs` (variant pattern same as the `_with_story` files). | New: `events_with_ssr.cljs` |
 | Tests | `events_test.cljs` only | Under `:include-ssr? true`, add a headless `ssr_test.clj` mirroring the `ssr-tests` fn in `examples/reagent/ssr/core.cljc`. Same gate the worked example uses — boots `ssr/adapter`, renders the root view, asserts HTML content + render-hash marker. | New: `_shared/ssr_test.clj` |
@@ -209,9 +209,12 @@ _reagent/
 ├── deps.edn                        — default
 ├── deps_with_story.edn             — adds Story coord
 ├── deps_with_ssr.edn               — NEW: adds ssr / ssr-ring / Jetty
-├── server.clj                      — NEW: emitted only under :include-ssr? true
-└── shadow-cljs.edn                 — unchanged (or _with_ssr variant
-                                      if the build inventory differs)
+└── server.clj                      — NEW: emitted only under :include-ssr? true
+
+_shared/
+└── shadow-cljs.edn                 — substrate-invariant; unchanged
+                                      (or a _shared/shadow-cljs_with_ssr.edn
+                                      variant if the build inventory differs)
 ```
 
 `template-fn`'s per-substrate Reagent branch grows a second

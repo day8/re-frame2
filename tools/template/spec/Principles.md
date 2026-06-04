@@ -59,19 +59,26 @@ template keeps the example minimal.
 
 ## P3 — Substrate-agnostic shell, substrate-specific surface
 
-Events (`events.cljs`), subs (`subs.cljs`), and the host shell
+Events (`events.cljs`), subs (`subs.cljs`), the build configs
+(`shadow-cljs.edn`, `package.json`), and the host shell
 (`README.md`, `.gitignore`, `resources/public/index.html`) are
 **identical across all three substrates**. They live under
 `_shared/` in the resource tree (plus `root/` for the bulk-copied
 content with default placement).
 
-The substrate-specific files are:
+The substrate-specific files — the only three that genuinely vary
+by substrate — are:
 
-- `core.cljs` — substrate-specific render.
+- `core.cljs` — substrate-specific render / mount + adapter wiring.
 - `views.cljs` — substrate-specific component syntax.
-- `deps.edn` — substrate-specific adapter coord.
-- `shadow-cljs.edn` and `package.json` — substrate-specific npm
-  pins.
+- `deps.edn` — substrate-specific adapter coord + npm libs.
+
+`shadow-cljs.edn` and `package.json` carry **no** substrate-varying
+content (the React substrate is chosen in `deps.edn` + `core.cljs`,
+and react / react-dom are the only npm deps for every variant), so
+they too live under `_shared/` and emit once — the lone per-variant
+difference is a cosmetic substrate label in a comment / description,
+filled by `{{substrate-label}}`.
 
 This split is enforced at the resource-tree level (see
 [002-Generated-Shape.md §Resource tree](002-Generated-Shape.md#resource-tree-template-side)).
