@@ -187,6 +187,144 @@
         (is (= :rf.error/variant-shape (:rf.error/id (ex-data e))))))))
 
 ;; ===========================================================================
+;; rf2-mantt — CLOSED authoring-body schemas (swallow-class fix)
+;; ===========================================================================
+;;
+;; The Variant + Workspace (and sibling) authoring-body `:map`s are
+;; `{:closed true}`: a removed slot (the REMOVED `:play`, rf2-0wrud) or a
+;; typo is REJECTED at `reg-*` call-time with an actionable
+;; `:rf.error/<kind>-shape` that NAMES the unknown key + nearest declared
+;; slot — rather than silently swallowed and dropped at runtime (the
+;; failure mode that shipped a dead Story scaffold, rf2-1774m).
+
+(deftest reg-variant-rejects-removed-play-slot
+  (testing "the REMOVED :play slot (rf2-0wrud) is rejected at reg-time —
+            the closed Variant schema does not silently swallow it"
+    (try
+      (story/reg-variant :story.swallow/play
+        {:events []
+         :play   [[:rf.assert/path-equals [:counter/value] 0]]})
+      (is false "expected an exception — :play must NOT be silently accepted")
+      (catch clojure.lang.ExceptionInfo e
+        (is (= :rf.error/variant-shape (:rf.error/id (ex-data e)))
+            "ex-data carries the :rf.error/variant-shape sentinel")
+        (let [reason (:reason (ex-data e))]
+          (is (re-find #":play" reason)
+              ":reason names the offending :play key")
+          (is (re-find #"did you mean :plays\?" reason)
+              ":reason suggests the nearest declared slot")
+          (is (re-find #"closed" reason)
+              ":reason explains the body is closed"))))))
+
+(deftest reg-variant-rejects-typoed-slot-with-nearest-suggestion
+  (testing "a typo'd variant slot is rejected and the nearest declared
+            slot is suggested (e.g. :scripts → :script)"
+    (try
+      (story/reg-variant :story.swallow/typo
+        {:setup   []
+         :scripts [[:dispatch [:x]]]})              ; typo for :script
+      (is false "expected an exception")
+      (catch clojure.lang.ExceptionInfo e
+        (is (= :rf.error/variant-shape (:rf.error/id (ex-data e))))
+        (is (re-find #"did you mean :script\?" (:reason (ex-data e)))
+            "the nearest-key suggestion points at :script")))))
+
+(deftest reg-variant-migrated-setup-script-authoring-validates
+  (testing "the migrated authoring shape (the template scaffold, rf2-1774m)
+            — :setup preconditions + :script with [:assert [:rf.assert/…]]
+            checkpoints + dispatch-sync increments — VALIDATES cleanly"
+    ;; The exact bodies the migrated template scaffold ships.
+    (is (some? (story/reg-variant :story.migrated/empty
+                 {:doc    "Fresh counter at zero."
+                  :setup  [[:counter/initialise]]
+                  :script [[:assert [:rf.assert/path-equals [:counter/value] 0]]]
+                  :tags   #{:dev :docs :test}
+                  :substrates #{:reagent}}))
+        "empty-variant migrated body validates")
+    (is (some? (story/reg-variant :story.migrated/incremented
+                 {:doc    "three increments dispatched from :script."
+                  :setup  [[:counter/initialise]]
+                  :script [[:dispatch-sync [:counter/increment]]
+                           [:dispatch-sync [:counter/increment]]
+                           [:dispatch-sync [:counter/increment]]
+                           [:assert [:rf.assert/path-equals [:counter/value] 3]]
+                           [:assert [:rf.assert/sub-equals  [:counter/value] 3]]
+                           [:assert [:rf.assert/dispatched? [:counter/increment]]]]
+                  :tags   #{:dev :docs :test}
+                  :substrates #{:reagent}}))
+        "incremented-variant migrated body validates")
+    ;; The lowering ran: :setup → :events, :script → :play-script.
+    (let [body (story/handler-meta :variant :story.migrated/incremented)]
+      (is (contains? body :events) ":setup lowered to :events")
+      (is (contains? body :play-script) ":script lowered to :play-script")
+      (is (not (contains? body :play)) "no dead :play slot survives"))))
+
+(deftest reg-variant-accepts-mcp-origin-stamp
+  (testing "the story-mcp write surface stamps :origin onto the variant
+            body (spec/Cross-Cutting-Designs.md §5) — the closed schema
+            MUST accept it or the MCP register-variant path breaks"
+    (is (some? (story/reg-variant* :story.mcp/written
+                 {:events [] :origin :story-mcp}))
+        ":origin is a declared optional slot")))
+
+(deftest reg-workspace-rejects-typoed-slot
+  (testing "a typo'd workspace slot is rejected at reg-time (closed schema)"
+    (try
+      (story/reg-workspace :Workspace.swallow/typo
+        {:layout :grid :variants [:a] :collumns 2})   ; typo for :columns
+      (is false "expected an exception")
+      (catch clojure.lang.ExceptionInfo e
+        (is (= :rf.error/workspace-shape (:rf.error/id (ex-data e))))
+        (is (re-find #"did you mean :columns\?" (:reason (ex-data e)))
+            "the nearest-key suggestion points at :columns")))))
+
+(deftest reg-workspace-accepts-documented-grid-slots
+  (testing "the documented :variants-grid / :grid slots the canonical
+            testbed + examples + spec/001-Authoring.md author — :columns,
+            :for, :story, :tags — VALIDATE on the closed schema (closing
+            must not drop intended authoring, rf2-mantt triage)"
+    (is (some? (story/reg-workspace :Workspace.docslots/auto
+                 {:doc     "auto-enumerated grid"
+                  :layout  :variants-grid
+                  :for     :story.counter
+                  :columns 2
+                  :tags    #{:docs}}))
+        ":variants-grid + :for + :columns + :tags validates")
+    (is (some? (story/reg-workspace :Workspace.docslots/grid
+                 {:layout   :grid
+                  :variants [:story.counter/empty]
+                  :columns  3
+                  :tags     #{:docs}}))
+        ":grid + :variants + :columns + :tags validates")
+    (is (some? (story/reg-workspace :Workspace.docslots/anchored
+                 {:layout :variants-grid
+                  :story  :story.counter}))
+        ":story (renderer-read anchor slot) validates")))
+
+(deftest reg-workspace-rejects-both-variants-and-for
+  (testing ":variants (explicit) and :for / :story (auto-enumerate anchor)
+            are mutually exclusive on a :variants-grid — declaring both
+            raises :rf.error/workspace-shape (spec/001-Authoring.md
+            §`:variants-grid`)"
+    (try
+      (story/reg-workspace :Workspace.both/variants-and-for
+        {:layout   :variants-grid
+         :variants [:story.counter/empty]
+         :for      :story.counter})
+      (is false "expected an exception")
+      (catch clojure.lang.ExceptionInfo e
+        (is (= :rf.error/workspace-shape (:rf.error/id (ex-data e))))))
+    (testing "and the :story spelling of the anchor is caught too"
+      (try
+        (story/reg-workspace :Workspace.both/variants-and-story
+          {:layout   :variants-grid
+           :variants [:story.counter/empty]
+           :story    :story.counter})
+        (is false "expected an exception")
+        (catch clojure.lang.ExceptionInfo e
+          (is (= :rf.error/workspace-shape (:rf.error/id (ex-data e)))))))))
+
+;; ===========================================================================
 ;; rf2-tl7zk — :plays multi-play schema contract
 ;; ===========================================================================
 

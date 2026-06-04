@@ -553,14 +553,20 @@ pane and §Mount lifecycle for how the RHS embed consumes the slot.
 
 Body:
 
+The body `:map` is **closed** (rf2-mantt): a removed / typo'd slot is
+rejected at `reg-workspace` call-time with `:rf.error/workspace-shape`
+(naming the unknown key + nearest declared slot), not silently swallowed.
+
 ```clojure
 {:doc       "..."
  :layout    :grid | :prose | :variants-grid | :tabs | :custom
  :variants  [<variant-id> ...]                    ; for :grid / :variants-grid / :tabs (explicit list)
- :for       <story-id>                            ; for :variants-grid only — auto-enumerate
- :columns   <integer>                             ; for :grid / :variants-grid — column count
+ :for       <story-id>                            ; for :variants-grid only — auto-enumerate (see anchor note below)
+ :story     <story-id>                            ; for :variants-grid only — the renderer-read anchor spelling (see note)
+ :columns   <integer>                             ; for :grid / :variants-grid — column count (declared; not yet renderer-honoured)
  :content   [{:type :prose :body "md..."} ...]    ; for :prose; bodies render as markdown — see spec/008 §Markdown rendering
  :render    <view-id>                              ; for :custom (a registered view)
+ :tags      #{<tag-id> ...}                        ; workspace tag set (subset of the registered vocabulary)
  :modes     #{<mode-id> ...}                       ; future-reserved — see below
  :isolation :isolated | :shared}                   ; rf2-gqid4 — :variants-grid only
 ```
@@ -604,6 +610,37 @@ explicitly so the authoring intent is in the body.
 Other layouts (`:grid`, `:tabs`) take `:variants` only — they have no
 single parent-story to enumerate against. `:prose` and `:custom`
 ignore both slots.
+
+Declaring **both** `:variants` and `:for` (or its renderer-read synonym
+`:story`, below) on a `:variants-grid` raises `:rf.error/workspace-shape`
+at registration — they are alternatives, not co-equals (rf2-mantt
+enforces this documented rule on the now-closed schema).
+
+#### Workspace anchor: `:for` (authoring) vs `:story` (renderer) — divergence note (rf2-mantt)
+
+The `:variants-grid` auto-enumerate anchor is authored as `:for
+<story-id>` (above). The **renderer** today reads the anchor from a
+`:story` slot (`re-frame.story.ui.workspace/resolve-layout`), falling
+back to deriving `:story.<path>` from the workspace id's namespace. Both
+`:for` and `:story` are declared on the schema; the `:story` spelling
+lets an author name the anchor explicitly to the path the renderer reads
+now. Reconciling the two spellings (the renderer reading `:for`, or
+`:for` lowering to `:story` at registration like `:setup`→`:events`) is a
+follow-up — until then, an auto-grid that relies on the namespace
+derivation needs no anchor slot at all, and an explicit anchor is most
+reliably given via `:story`.
+
+#### Workspace `:columns` slot — declared, not yet renderer-honoured (v1) (rf2-mantt)
+
+The `:columns` integer slot is **declared and documented but not yet
+honoured by the renderer in v1** — the `:grid` / `:variants-grid` CSS
+uses a responsive `auto-fit` template, so an explicit column count is
+accepted at registration (the canonical testbed + the scaffolded
+template + the example apps all author `:columns`) but does not yet pin
+the grid width. Honouring it (a fixed `repeat(N, …)` template when
+`:columns` is present) is a follow-up; the slot is declared so existing
+authoring keeps validating against the closed schema. Same posture as the
+`:modes` slot below.
 
 #### Workspace `:modes` slot — future-reserved (v1) (rf2-q5e36)
 

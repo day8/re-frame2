@@ -291,6 +291,29 @@
   unrecognised values back to `:light` at resolve time."
   [:or :keyword :string])
 
+;; ---- source coordinates ---------------------------------------------------
+
+(def SourceCoords
+  "Schema for the registrar-stamped `:source` slot every authoring body
+  carries after `re-frame.story.registrar/merge-coords` runs.
+
+  The macro path (`re-frame.story.macros/coords-form`) captures `:ns` /
+  `:file` / `:line` / `:column` from `(meta &form)`; programmatic /
+  REPL / MCP-write registrations may carry a partial or absent stamp
+  (only `:ns`, or nothing). The slot is therefore optional on every body
+  schema, and every coordinate key inside it is optional too — but it
+  MUST be declared so the now-`{:closed true}` body schemas accept the
+  registrar's own stamp rather than rejecting it as an unknown key.
+
+  All four keys are optional: `:ns` is a symbol, `:file` a string,
+  `:line` / `:column` positive integers. Per spec/001 §Source-coord
+  stamping."
+  [:map
+   [:ns     {:optional true} :symbol]
+   [:file   {:optional true} :string]
+   [:line   {:optional true} [:int {:min 1}]]
+   [:column {:optional true} [:int {:min 1}]]])
+
 ;; ---- :rf/story ------------------------------------------------------------
 
 (def XrayPreset
@@ -377,19 +400,40 @@
   - `:xray` — per-story Xray preset (auto-open, tab focus, filter
     pre-population). See `XrayPreset` schema. The preset is read on
     variant mount and applied via `re-frame.story.xray-preset/
-    apply-preset!`. (rf2-q9kv5)."
-  [:map
+    apply-preset!`. (rf2-q9kv5).
+
+  ## Closed shape (rf2-mantt)
+
+  The `:map` is `{:closed true}`: a removed / typo'd slot is rejected at
+  `reg-story` call-time with `:rf.error/story-shape` rather than silently
+  swallowed and dropped on the floor. `:source` is the registrar's
+  source-coord stamp (declared so the closed map accepts it)."
+  [:map {:closed true}
    [:doc        {:optional true} :string]
+   [:source     {:optional true} SourceCoords]
    [:component  {:optional true} :keyword]
    [:decorators {:optional true} DecoratorRefs]
    [:args       {:optional true} ArgMap]
    [:argtypes   {:optional true} ArgtypesMap]
+   ;; rf2-mantt — explicit view-args/props schema slots. The canonical
+   ;; first-match key order is `[:rf/props :schema]` (per
+   ;; `re-frame.story.malli-schema/view-args-schema-keys`); `:rf/props`
+   ;; wins over `:schema`. The value is a Malli schema form. Declared so
+   ;; a story body that pins its component's props schema (the canonical
+   ;; testbed's `:story.counter-matrix`) validates on the closed map.
+   [:rf/props   {:optional true} :any]
+   [:schema     {:optional true} :any]
    [:tags       {:optional true} TagSet]
    [:modes      {:optional true} ModeRefSet]
    [:substrates {:optional true} SubstrateSet]
    [:platforms  {:optional true} PlatformSet]
    [:dispatch-console? {:optional true} :boolean]
    [:xray      {:optional true} XrayPreset]
+   ;; rf2-mantt — story-level `:xray-panel` (rf2-6qm77): the default Xray
+   ;; panel-id a variant inherits unless it carries its own `:xray-panel`
+   ;; (the variant slot beats the story slot — `effective-panel` reads
+   ;; variant-first then story). A registered panel-id keyword.
+   [:xray-panel {:optional true} :keyword]
    ;; rf2-zll4h — viewport + background switchers. Per-story override
    ;; that wins over the chrome toolbar selection at canvas mount time.
    ;; Both slots are optional; absent means 'inherit the toolbar
@@ -698,10 +742,37 @@
   Pre-alpha posture: the legacy `:play` slot (vector of event vectors)
   has been removed entirely — there is no transitional dual-acceptance.
   Authors migrate event-vector lists by wrapping each entry as
-  `[:dispatch-sync <event-vec>]` in a `:script` body."
+  `[:dispatch-sync <event-vec>]` in a `:script` body.
+
+  ## Closed shape (rf2-mantt)
+
+  The `:map` is `{:closed true}`: a removed slot (the REMOVED `:play`
+  above) or a typo'd slot is rejected at `reg-variant` call-time with
+  `:rf.error/variant-shape`, naming the unknown key, rather than being
+  silently accepted and then dropped on the floor at runtime (the
+  swallow-class bug rf2-1774m bit the scaffolded template with). Two
+  registrar-stamped slots are declared so the closed map accepts them:
+  `:source` (the source-coord stamp) and `:origin` (the write-surface tag
+  the story-mcp `register-variant` / `record-as-variant` tools stamp per
+  spec/Cross-Cutting-Designs.md §5)."
   [:and
-   [:map
+   [:map {:closed true}
     [:doc                   {:optional true} :string]
+    [:source                {:optional true} SourceCoords]
+    ;; rf2-mantt — `:origin` is the write-surface tag stamped by the
+    ;; story-mcp write tools (`reg-variant*` with `:origin config/origin`)
+    ;; per spec/Cross-Cutting-Designs.md §5 Origin tagging. Declared so
+    ;; the closed map accepts a programmatically-written variant body.
+    [:origin                {:optional true} :keyword]
+    ;; rf2-mantt — `:run-artifact` is the framework-stamped source-artifact
+    ;; back-link a PROMOTED variant carries (spec/017 §Promotion;
+    ;; `re-frame.story.promotion/provenance-link`). Not author-facing — the
+    ;; promotion path writes it into the registered body. A trimmed
+    ;; provenance projection (`:artifact/kind` / `:seed` / `:event-program`
+    ;; / `:fx-decisions` / `:network` / …); left a loose `:map` so the
+    ;; closed body schema accepts it without coupling to the artifact's
+    ;; evolving internal shape.
+    [:run-artifact          {:optional true} [:map-of :any :any]]
     [:extends               {:optional true} :keyword]
     ;; rf2-5x1wt.15 — `:compose` includes registered fragments + checks
     ;; explicitly, applied in declared order (spec/017 §`:compose`).
@@ -732,6 +803,13 @@
     [:plays                 {:optional true} PlaysSpec]
     [:args                  {:optional true} ArgMap]
     [:argtypes              {:optional true} ArgtypesMap]
+    ;; rf2-mantt — explicit view-args/props schema slots (canonical
+    ;; first-match order `[:rf/props :schema]`; see the Story schema +
+    ;; `re-frame.story.malli-schema/view-args-schema-keys`). A variant
+    ;; MAY pin a narrower/stricter props schema than its component-wide
+    ;; one. The value is a Malli schema form.
+    [:rf/props              {:optional true} :any]
+    [:schema                {:optional true} :any]
     ;; rf2-5x1wt.14 — first-class managed-HTTP request stubs. A map of
     ;; `[method url]` → `{:reply {:ok|:failure …}}`. The plan compiler
     ;; lowers `:network` to `[:world :network]` and on to the managed-
@@ -804,6 +882,26 @@
     ;; overrides the parent story's preset.
     [:dispatch-console?     {:optional true} :boolean]
     [:xray                 {:optional true} XrayPreset]
+    ;; rf2-mantt — `:component` is the per-variant view-id override. A
+    ;; variant inherits its parent story's `:component` but MAY name its
+    ;; own; the renderer resolves variant-first, then story
+    ;; (`re-frame.story.ui.canvas` / `multi-substrate` / `workspace`:
+    ;; `(or (:component variant-body) (:component story-body))`).
+    [:component             {:optional true} :keyword]
+    ;; rf2-mantt — `:xray-panel` (rf2-6qm77) is the per-variant Xray
+    ;; panel-id override the RHS embed reads variant-first then story
+    ;; (`re-frame.story.ui.xray-embed/effective-panel`); a registered
+    ;; panel-id keyword (`:app-db` / `:routing` / …). Membership is not
+    ;; enforced here — the embed falls back to the default panel on an
+    ;; unknown id (its own runtime guard).
+    [:xray-panel            {:optional true} :keyword]
+    ;; rf2-mantt — `:frame-binding` (`#{:fresh :attached}`) + `:mcp-bound`
+    ;; (boolean) drive the sidebar frame-binding chip
+    ;; (`re-frame.story.ui.sidebar-signals/frame-binding-signal`). MCP is
+    ;; a binding, not a runner tier — `:mcp-bound` is the UI affordance
+    ;; on top of an `:attached` binding.
+    [:frame-binding         {:optional true} [:enum :fresh :attached]]
+    [:mcp-bound             {:optional true} :boolean]
     ;; rf2-zll4h — viewport + background per-variant overrides. Resolved
     ;; with variant-first, then story-level, then chrome toolbar.
     [:viewport              {:optional true} ViewportSlot]
@@ -871,10 +969,17 @@
   `:checks` / `:assertions` (those compose as checks — `reg-check` — or
   ride the variant's own `:assertions`). Composing a check is done by
   naming the check-id in the variant's `:compose`, not by nesting it in a
-  fragment."
+  fragment.
+
+  ## Closed shape (rf2-mantt)
+
+  `{:closed true}`: a typo'd fragment slot rejects at `reg-fragment`
+  call-time rather than silently no-opping. `:source` is the registrar's
+  source-coord stamp."
   [:and
-   [:map
+   [:map {:closed true}
     [:doc                   {:optional true} :string]
+    [:source                {:optional true} SourceCoords]
     [:args                  {:optional true} ArgMap]
     [:argtypes              {:optional true} ArgtypesMap]
     [:setup                 {:optional true} [:vector EventVector]]
@@ -928,9 +1033,15 @@
   Checks are the inheritable expectation form (distinct from own-only
   `:assertions` on a variant): they inherit through `:extends` and compose
   through `:compose`. A check carries no world/behaviour — no setup,
-  script, args, or overrides — so the body is intentionally tight."
-  [:map
+  script, args, or overrides — so the body is intentionally tight.
+
+  ## Closed shape (rf2-mantt)
+
+  `{:closed true}`: a typo'd check slot rejects at `reg-check` call-time.
+  `:source` is the registrar's source-coord stamp."
+  [:map {:closed true}
    [:doc        {:optional true} :string]
+   [:source     {:optional true} SourceCoords]
    [:assertions [:vector AssertionVector]]])
 
 ;; ---- :rf/workspace --------------------------------------------------------
@@ -959,14 +1070,49 @@
   frame-provider (the rf2-sszlr / `gallery_chrome.cljs` pattern):
   parallel cells of such views share their interior state because the
   last-seeded cell's app-db clobbers the others. Only honoured by
-  `:variants-grid`; ignored on other layouts."
+  `:variants-grid`; ignored on other layouts.
+
+  ## Closed shape (rf2-mantt)
+
+  The `:map` is `{:closed true}`: a typo'd or removed workspace slot is
+  rejected at `reg-workspace` call-time with `:rf.error/workspace-shape`
+  rather than silently swallowed. Closing the schema surfaced four slots
+  that the canonical testbed + both example apps + spec/001-Authoring.md
+  §reg-workspace ALREADY author but the open `:map` never declared
+  (rf2-mantt per-key triage). They are declared optional here so closing
+  does NOT drop intended authoring:
+
+  - `:columns` — `:grid` / `:variants-grid` column-count hint
+    (spec/001-Authoring.md:561). NOTE: declared + documented but NOT yet
+    honoured by the renderer — the grid CSS uses `auto-fit`. Filed as a
+    spec/impl-divergence follow-up; declared (not dropped) so authoring
+    that already sets it keeps validating.
+  - `:for` — `:variants-grid` auto-enumerate anchor story-id
+    (spec/001-Authoring.md:560, 573-602). Same divergence note: the
+    renderer reads the `:story` anchor slot, not `:for`.
+  - `:story` — the `:variants-grid` anchor slot the renderer ACTUALLY
+    reads (`re-frame.story.ui.workspace/resolve-layout`); declared so a
+    body that names the anchor explicitly validates.
+  - `:tags` — workspace tag set (the canonical testbed + examples author
+    `:tags #{:docs}`).
+
+  `:source` is the registrar's source-coord stamp."
   [:and
-   [:map
+   [:map {:closed true}
     [:doc       {:optional true} :string]
+    [:source    {:optional true} SourceCoords]
     [:layout    [:enum :grid :prose :variants-grid :tabs :custom]]
     [:variants  {:optional true} [:vector :keyword]]
+    ;; rf2-mantt — `:for` (spec name) + `:story` (renderer-read anchor)
+    ;; both name the `:variants-grid` auto-enumerate parent story.
+    [:for       {:optional true} :keyword]
+    [:story     {:optional true} :keyword]
+    ;; rf2-mantt — `:columns` is a documented `:grid` / `:variants-grid`
+    ;; column-count hint (not yet renderer-honoured; see docstring).
+    [:columns   {:optional true} [:int {:min 1}]]
     [:content   {:optional true} [:vector WorkspaceContentItem]]
     [:render    {:optional true} :keyword]
+    [:tags      {:optional true} TagSet]
     [:modes     {:optional true} ModeRefSet]
     [:isolation {:optional true} [:enum :isolated :shared]]]
    ;; Layout-specific requirements. :grid / :variants-grid / :tabs need
@@ -980,7 +1126,20 @@
         :variants-grid true                  ; enumerates from registry
         :prose         (vector? content)
         :custom        (keyword? render)
-        false))]])
+        false))]
+   ;; rf2-mantt — `:variants` (explicit list) and `:for` / `:story`
+   ;; (auto-enumerate anchor) are ALTERNATIVES on a `:variants-grid`, not
+   ;; co-equals (spec/001-Authoring.md §`:variants-grid` — "Declaring both
+   ;; raises :rf.error/workspace-shape at registration"). Enforce that
+   ;; documented rule here. `:story` is the renderer's spelling of `:for`,
+   ;; so it counts as an auto-enumerate anchor for the exclusivity check.
+   [:fn {:error/message
+         (str ":variants (explicit list) and :for / :story (auto-enumerate "
+              "anchor) are mutually exclusive on a :variants-grid — pick one "
+              "(spec/001-Authoring.md §`:variants-grid`)")}
+    (fn [body]
+      (not (and (some? (:variants body))
+                (or (some? (:for body)) (some? (:story body))))))]])
 
 ;; ---- :rf/mode -------------------------------------------------------------
 
@@ -993,19 +1152,32 @@
   layout. When present, the toolbar renders one labelled group per axis
   with **single-select-within-axis** semantics. Modes without `:axis`
   render in a trailing un-grouped section with multi-select semantics.
-  The schema change is additive — unchanged bodies remain valid."
-  [:map
-   [:doc  {:optional true} :string]
-   [:axis {:optional true} :keyword]
+  The schema change is additive — unchanged bodies remain valid.
+
+  ## Closed shape (rf2-mantt)
+
+  `{:closed true}`: a typo'd mode slot rejects at `reg-mode` call-time.
+  `:source` is the registrar's source-coord stamp."
+  [:map {:closed true}
+   [:doc    {:optional true} :string]
+   [:source {:optional true} SourceCoords]
+   [:axis   {:optional true} :keyword]
    [:args ArgMap]])
 
 ;; ---- :rf/story-panel ------------------------------------------------------
 
 (def StoryPanel
   "Schema for the body of `reg-story-panel`. Per spec/007 §Story-tool
-  extension hook and IMPL-SPEC §3.1."
-  [:map
+  extension hook and IMPL-SPEC §3.1.
+
+  ## Closed shape (rf2-mantt)
+
+  `{:closed true}`: a typo'd story-panel slot rejects at
+  `reg-story-panel` call-time. `:source` is the registrar's source-coord
+  stamp."
+  [:map {:closed true}
    [:doc       {:optional true} :string]
+   [:source    {:optional true} SourceCoords]
    [:title     :string]
    [:placement [:enum :right :left :bottom :top :modal]]
    [:render    :keyword]
@@ -1022,9 +1194,15 @@
   lives at the decorator's *registration site* — not in a variant body.
 
   The fn-shape is enforced behaviourally (`(fn? wrap)`) and structurally
-  via the schema below. Both JVM and CLJS recognise `(fn? ...)`."
-  [:map
-   [:doc  {:optional true} :string]
+  via the schema below. Both JVM and CLJS recognise `(fn? ...)`.
+
+  ## Closed shape (rf2-mantt)
+
+  `{:closed true}`: a typo'd decorator slot rejects at `reg-decorator`
+  call-time. `:source` is the registrar's source-coord stamp."
+  [:map {:closed true}
+   [:doc    {:optional true} :string]
+   [:source {:optional true} SourceCoords]
    [:kind [:= :hiccup]]
    [:wrap fn?]])
 
@@ -1039,10 +1217,16 @@
   counterpart of `:init` and `002-Runtime.md` §Loader teardown contract.
   Composition order at destroy is reverse-declaration: innermost
   decorator's `:teardown` runs first. The slot is optional; only `:init`,
-  `:app-db-patch`, or `:teardown` need be present (any combination)."
+  `:app-db-patch`, or `:teardown` need be present (any combination).
+
+  ## Closed shape (rf2-mantt)
+
+  `{:closed true}`: a typo'd decorator slot rejects at `reg-decorator`
+  call-time. `:source` is the registrar's source-coord stamp."
   [:and
-   [:map
+   [:map {:closed true}
     [:doc          {:optional true} :string]
+    [:source       {:optional true} SourceCoords]
     [:kind         [:= :frame-setup]]
     [:init         {:optional true} [:vector EventVector]]
     [:teardown     {:optional true} [:vector EventVector]]
@@ -1067,15 +1251,23 @@
     built-in uses this shape so authors can pass `(fx-id, response)` at
     the reference site: `[:rf.story/force-fx-stub :http {...}]`. The
     Stage 5 decorator-resolution layer expands the ref-args into a
-    per-reference body."
+    per-reference body.
+
+  ## Closed shape (rf2-mantt)
+
+  Both branches are `{:closed true}`: a typo'd decorator slot rejects at
+  `reg-decorator` call-time. `:source` is the registrar's source-coord
+  stamp."
   [:or
-   [:map
+   [:map {:closed true}
     [:doc      {:optional true} :string]
+    [:source   {:optional true} SourceCoords]
     [:kind     [:= :fx-override]]
     [:fx-id    :keyword]
     [:response :any]]
-   [:map
+   [:map {:closed true}
     [:doc       {:optional true} :string]
+    [:source    {:optional true} SourceCoords]
     [:kind      [:= :fx-override]]
     [:ref-args? [:= true]]]])
 
@@ -1105,9 +1297,16 @@
     sidebar tag filter at boot. `:exclude` hides variants carrying
     this tag from the default sidebar view (e.g. `:internal` /
     `:experimental` start excluded so they don't crowd the dev shell).
-    Tags without `:default-filter` default to `:include` semantics."
-  [:map
+    Tags without `:default-filter` default to `:include` semantics.
+
+  ## Closed shape (rf2-mantt)
+
+  `{:closed true}`: a typo'd tag slot rejects at `reg-tag` call-time.
+  `:source` is the registrar's source-coord stamp (absent for the
+  auto-installed canonical tags, which register via `reg-tag*` directly)."
+  [:map {:closed true}
    [:doc            {:optional true} :string]
+   [:source         {:optional true} SourceCoords]
    [:axis           {:optional true} :keyword]
    [:default-filter {:optional true} [:enum :include :exclude]]])
 
