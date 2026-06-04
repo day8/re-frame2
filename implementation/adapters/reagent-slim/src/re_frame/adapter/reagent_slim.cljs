@@ -13,6 +13,7 @@
             [reagent2.ratom            :as ratom]
             [reagent2.dom.client       :as rdc]
             [reagent2.impl.batching    :as batching]
+            [reagent2.impl.template    :as template]
             [re-frame.substrate.spine   :as spine]
             [re-frame.views            :as views]))
 
@@ -139,3 +140,19 @@
                 :dispose!          ratom/dispose!
                 :reactive?         ratom/reactive?
                 :after-render      r/after-render}}))
+
+;; ---- warn-once cache reset wiring (rf2-qy6cl) -----------------------------
+;;
+;; The slim hiccup interpreter carries a second warn-once cache beyond the
+;; spine's source-coord/non-DOM-root one: `reagent2.impl.template`'s
+;; `warned-keyword-prop` defonce (the §7.2 D2 keyword-on-non-HTML-prop
+;; notice). The source-coord cache is already chained into
+;; `:adapter/clear-warn-once-caches!` by `make-ratom-adapter` (rf2-4edk);
+;; the keyword-prop cache was left behind. Chain its clear-step here too —
+;; via the same `spine/install-clear-warn-once-step!` helper — so
+;; `make-reset-runtime-fixture` re-arms BOTH slim caches between tests and
+;; a sibling test cannot silently swallow a later same-pair warning. This
+;; lives in the adapter ns (not in reagent2.impl.template) to keep the
+;; vendored `reagent2.*` tree free of any `re-frame.*` edge — bundle
+;; isolation by construction.
+(spine/install-clear-warn-once-step! template/clear-warned-keyword-prop!)

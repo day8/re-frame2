@@ -248,6 +248,23 @@
 (defonce ^:private ^{:doc "[k v-name] → true once warned."}
   warned-keyword-prop (atom #{}))
 
+(defn clear-warned-keyword-prop!
+  "Reset the keyword-prop warn-once cache to empty; returns nil.
+
+  The user-facing contract is `warn once per [k name-of-v] pair` for the
+  process lifetime, so this cache is a `defonce`. Tests, however, must
+  re-arm it between cases — otherwise a sibling test that already warned
+  for a given pair silently swallows a later test's same-pair warning
+  (the rf2-4edk test-isolation hazard, applied here per rf2-qy6cl). The
+  reagent-slim adapter ns wires this into the chained
+  `:adapter/clear-warn-once-caches!` late-bind hook (via
+  `spine/install-clear-warn-once-step!`) so `make-reset-runtime-fixture`
+  clears it alongside every other adapter's warn-once cache. Reset-only;
+  no production behaviour changes (the hook is a test-fixture surface)."
+  []
+  (reset! warned-keyword-prop #{})
+  nil)
+
 (defn- warn-once-keyword-prop! [k v]
   (let [key [(name k) (name v)]]
     (when-not (contains? @warned-keyword-prop key)
