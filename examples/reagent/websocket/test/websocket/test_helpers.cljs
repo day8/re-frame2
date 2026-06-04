@@ -108,6 +108,8 @@
   (rf/reg-machine :ws/connection ws.connection/connection-machine)
   (rf/reg-sub :ws/snapshot       (fn [db _] (get-in db [:rf/runtime :machines :snapshots :ws/connection])))
   (rf/reg-sub :ws/state          :<- [:ws/snapshot] (fn [snap _] (:state snap)))
+  (rf/reg-sub :ws/connecting?    :<- [:ws/snapshot] (fn [snap _] (contains? (:tags snap) :websocket/connecting)))
+  (rf/reg-sub :ws/authenticating? :<- [:ws/snapshot] (fn [snap _] (contains? (:tags snap) :websocket/authenticating)))
   (rf/reg-sub :ws/connected?     :<- [:ws/snapshot] (fn [snap _] (contains? (:tags snap) :websocket/connected)))
   (rf/reg-sub :ws/reconnecting?  :<- [:ws/snapshot] (fn [snap _] (contains? (:tags snap) :websocket/reconnecting)))
   (rf/reg-sub :ws/failed?        :<- [:ws/snapshot] (fn [snap _] (contains? (:tags snap) :websocket/failed)))

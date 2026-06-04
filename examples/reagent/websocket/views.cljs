@@ -9,11 +9,12 @@
 
    Two things to notice as you read the views:
 
-   1. The status indicator reads `:websocket/connected`,
-      `:websocket/reconnecting`, `:websocket/failed` via `rf/machine-has-tag?` —
-      the view doesn't need to know *which* leaf carries the
-      `:connected` intent, only that the tag is present. This is what
-      `:fsm/tags` buys.
+   1. The status indicator reads `:websocket/connecting`,
+      `:websocket/authenticating`, `:websocket/connected`,
+      `:websocket/reconnecting`, `:websocket/failed` via
+      `rf/machine-has-tag?` — every pill branch is tag-driven. The view
+      doesn't need to know *which* leaf carries the `:connected` intent,
+      only that the tag is present. This is what `:fsm/tags` buys.
 
    2. The send form's `disabled` attribute is driven by an explicit
       :ws/connected? sub (rather than a `:cond` over the snapshot's
@@ -40,22 +41,21 @@
                   Drop click without relying on catching the transient
                   RECONNECTING window in the pill text."}
           status-pill []
-  (let [connected?     @(subscribe [:ws/connected?])
-        reconnecting?  @(subscribe [:ws/reconnecting?])
-        failed?        @(subscribe [:ws/failed?])
-        state          @(subscribe [:ws/state])
-        retries        @(subscribe [:ws/retries])
-        err            @(subscribe [:ws/error])]
+  (let [connected?      @(subscribe [:ws/connected?])
+        authenticating? @(subscribe [:ws/authenticating?])
+        connecting?     @(subscribe [:ws/connecting?])
+        reconnecting?   @(subscribe [:ws/reconnecting?])
+        failed?         @(subscribe [:ws/failed?])
+        retries         @(subscribe [:ws/retries])
+        err             @(subscribe [:ws/error])]
     [:div.status {:data-testid "ws-status"}
      (cond
-       failed?         [:span.pill.failed       "FAILED"]
-       reconnecting?   [:span.pill.reconnecting (str "RECONNECTING (attempt " retries ")")]
-       connected?      [:span.pill.connected    "CONNECTED"]
-       (= [:active :authenticating] state)
-       [:span.pill.authenticating "AUTHENTICATING"]
-       (= [:active :connecting] state)
-       [:span.pill.connecting "CONNECTING"]
-       :else           [:span.pill.disconnected "DISCONNECTED"])
+       failed?         [:span.pill.failed         "FAILED"]
+       reconnecting?   [:span.pill.reconnecting   (str "RECONNECTING (attempt " retries ")")]
+       connected?      [:span.pill.connected      "CONNECTED"]
+       authenticating? [:span.pill.authenticating "AUTHENTICATING"]
+       connecting?     [:span.pill.connecting     "CONNECTING"]
+       :else           [:span.pill.disconnected   "DISCONNECTED"])
      (when err
        [:span.error {:data-testid "ws-error"} (str " — " (pr-str err))])
      ;; Always-visible counter (independent of the pill's transient
