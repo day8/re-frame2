@@ -504,17 +504,20 @@ CLI flags:
 | Flag                      | Default       | Effect when set |
 |---------------------------|---------------|------------------|
 | `--no-eval`               | absent (eval-cljs ON) | Disables `eval-cljs` (rf2-a0z0h; inverts the prior rf2-cxx5s default-OFF posture). Default is eval-cljs ENABLED — it is the REPL primitive of a pair-debug session. With this flag, `eval-cljs` returns `{:ok? false :reason :rf.error/eval-cljs-disabled}` without touching the nREPL socket. |
-| `--allow-sensitive-reads` | OFF           | Honours caller-supplied `:include-sensitive true` and `:elision false` on direct-read tools (`snapshot`, `get-path`, `subscribe`, `trace-window`, `watch-epochs`). Also signals the preload runtime to ship verbatim payloads through `app-db-reset!`'s `tap>` emission. Canonical cross-MCP flag name shared with story-mcp (rf2-2x3ql). |
+| `--allow-sensitive-reads` | OFF           | Honours caller-supplied `:include-sensitive true` and `:elision false` on the off-box read surfaces — the direct-read tools (`snapshot`, `get-path`, `subscribe`, `trace-window`, `watch-epochs`) AND `dispatch-dry-run` (rf2-z7roa), whose `:db-state-after-simulation` + `:would-fire-effects[*].args` slots are app-db/fx-derived egress. Also signals the preload runtime to ship verbatim payloads through `app-db-reset!`'s `tap>` emission. Canonical cross-MCP flag name shared with story-mcp (rf2-2x3ql). |
 | `--allow-writes`          | OFF           | Enables the state-mutating tools `restore-epoch` (time-travel undo) and `reset-frame-db` (state injection). Without the flag, both return `{:ok? false :reason :rf.error/writes-disabled}` without touching the nREPL socket. `dispatch` (which drives the application's own handlers) is unaffected. The descriptors still appear in `tools/list`; the gate is enforced at `tools/call` time. Note: this gate protects the named-write audit trail; it does NOT defend against eval-driven writes (eval-cljs can express the same writes), so for a true read-only posture compose with `--no-eval`. |
 
 When `--allow-sensitive-reads` is OFF (the published-build default), the
-direct-read tools above:
+off-box read surfaces above — and `dispatch-dry-run`'s egress slots
+(rf2-z7roa) — :
 
 1. Force `:include-sensitive false` on every call. Caller-supplied
    `:include-sensitive true` is dropped before reaching the walker —
-   declared-sensitive slots in `:app-db` / `:sub-cache` reads return
-   the `:rf/redacted` sentinel; sensitive trace events / epochs are
-   stripped from streaming payloads.
+   declared-sensitive slots in `:app-db` / `:sub-cache` reads (and
+   `dispatch-dry-run`'s `:db-state-after-simulation` /
+   `:would-fire-effects[*].args`) return the `:rf/redacted` sentinel;
+   sensitive trace events / epochs are stripped from streaming
+   payloads.
 2. Force `:elision true` on every call. Caller-supplied
    `:elision false` is dropped — large slots return the
    `:rf.size/large-elided` marker.
@@ -525,6 +528,17 @@ direct-read tools above:
    through `re-frame.core/elide-wire-value` — the same redaction the
    wire path applies — so any registered tap consumer sees the
    pre-redacted shape rather than the raw state.
+
+   This signal is issued by every tool that taps / egresses app-db,
+   between the preload probe and the first state-emitting eval — the
+   read surfaces, `dispatch-dry-run`, AND `reset-frame-db` (rf2-z7roa).
+   `reset-frame-db` in particular MUST issue it before its
+   `app-db-reset!` call so the FIRST reset of a `--allow-writes`
+   session cannot tap raw app-db ahead of the posture landing. The
+   per-build signal cache is marked successful ONLY after the
+   `configure-raw-state!` eval resolves, never speculatively — a
+   concurrent first caller awaits the same in-flight signal rather than
+   racing ahead.
 
 Operators who need raw state for offline debug opt in at server launch
 by passing `--allow-sensitive-reads`. The per-call args then win again
@@ -1000,10 +1014,51 @@ experimenter compose realistic conditions ("what would happen if the
 http call resolved to this response?") without losing the dry-run's
 roll-back guarantee.
 
+### Privacy: an AI-facing read surface (rf2-z7roa)
+
+Dry-run mutates nothing, but it IS an off-box read surface: the
+happy-path envelope returns the would-be app-db verbatim under
+`:db-state-after-simulation` and each recorded fx call's args under
+`:would-fire-effects[*].args`. Reducers / fx routinely derive tokens,
+auth headers, or other declared-`:sensitive?` / oversize values from
+app-db, so an unredacted dry-run could leak those to the model even
+though the `--allow-sensitive-reads` default is OFF.
+
+It is therefore governed by the SAME `--allow-sensitive-reads` posture
+as the direct-read surfaces (`snapshot` / `get-path` / `subscribe`;
+see §`--allow-sensitive-reads`), reusing the existing model rather than
+minting a new confirmation gate:
+
+- **Default (gate OFF)**: `:db-state-after-simulation` and every
+  `:would-fire-effects[*].args` slot are run through the
+  size/sensitive elision walker (`re-frame.core/elide-wire-value`)
+  server-side, before the EDN crosses the wire. Large slots collapse
+  to `:rf.size/large-elided` markers; declared-`:sensitive?` slots
+  redact to `:rf/redacted`. The per-call `elision false` /
+  `include-sensitive true` knobs are forced safe.
+- **Gate ON (`--allow-sensitive-reads`)**: the per-call `elision` /
+  `include-sensitive` knobs win again — `elision false` ships the raw
+  simulation details for debugging; `include-sensitive true` passes
+  declared-sensitive slots through verbatim.
+- `:cascade-summary` is a depth-bounded projection (path lists +
+  counts, not verbatim values) so it rides through unwalked, the same
+  as `dispatch` / `reset-frame-db` / `restore-epoch` (rf2-6yqdl).
+
+Like the read surfaces, the tool also issues `configure-raw-state!`
+(`raw-state/signal-runtime!`) between the preload probe and the eval,
+so the runtime's tap-emitting surfaces (the dry-run's internal
+`restore-epoch` rollback) sit in the gated posture too — not just the
+wire payload.
+
 **Args**: `event` (string, required — EDN-encoded event vector),
 `frame` (string, e.g. `":foo"`; defaults to the operating frame),
 `fx-overrides` (object — user-supplied overrides composed on top of
-the dry-run recorder set), `build` (string).
+the dry-run recorder set), `elision` (boolean, default `true` —
+applies the elision walker to `:db-state-after-simulation` +
+`:would-fire-effects[*].args`; honoured as `false` only under
+`--allow-sensitive-reads`), `include-sensitive` (boolean, default
+`false` — pass declared-`:sensitive?` slots verbatim; honoured only
+under `--allow-sensitive-reads`), `build` (string).
 
 **Returns** (success):
 
@@ -1017,16 +1072,20 @@ the dry-run recorder set), `build` (string).
  :cascade-summary           {... per §Universal: cascade summary ...}
  :would-fire-effects        [{:fx-id :http :args {:url ...}}
                              {:fx-id :navigate :args [:order-confirmation]}]
- :db-state-after-simulation {...}}
+ :db-state-after-simulation {...}
+ :elision                   true}
 ```
 
 The cascade-summary slot uses the same shape as `dispatch` /
 `restore-epoch` / `reset-frame-db` (rf2-6yqdl); operators read one
 vocabulary across all four. `:db-state-after-simulation` is the would-
-be `:db-after` of the rolled-back epoch — surfaced verbatim (subject
-to the normal size-elision / sensitive-paths pipeline at the wire
-boundary) so the operator can inspect what the post-dispatch db
-WOULD have been without re-running through `snapshot`.
+be `:db-after` of the rolled-back epoch — surfaced through the elision
+walker BY DEFAULT (rf2-z7roa; see §Privacy above) so the operator can
+inspect what the post-dispatch db WOULD have been without re-running
+through `snapshot`, while declared-sensitive / oversize slots stay
+redacted unless the operator opted in. The `:elision` slot echoes the
+effective walker state; `:elided-large` reports the marker count when
+non-zero.
 
 **Returns** (failure):
 

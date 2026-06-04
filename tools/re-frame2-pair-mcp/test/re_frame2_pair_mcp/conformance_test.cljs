@@ -769,6 +769,58 @@
     {:isError? true
      :reason :not-an-event-vector}}
 
+   ;; rf2-z7roa — dry-run is an AI-facing READ surface. Gate OFF (the
+   ;; default published posture) MUST run the egress slots
+   ;; (:db-state-after-simulation + :would-fire-effects[*].args) through
+   ;; the elision walker server-side, with sensitive slots forced to
+   ;; redact and large slots forced to elide. The eval form must carry
+   ;; the walker call + the safe walker opts, and must signal the
+   ;; raw-state tap posture (configure-raw-state!) before the dispatch.
+   {:fixture/id    :dispatch-dry-run/gate-off-redacts-egress
+    :fixture/doc   "dispatch-dry-run with --allow-sensitive-reads OFF (default): the form runs :db-state-after-simulation + :would-fire-effects args through elide-wire-value with :rf.size/include-sensitive? false (rf2-z7roa)."
+    :fixture/tool  "dispatch-dry-run"
+    :fixture/allow-raw-state? false
+    :fixture/args  {:event "[:auth/login]"
+                    ;; caller tries to bypass; the gate forces safe.
+                    :elision false
+                    :include-sensitive true}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"  true]
+     ["configure-raw-state!"      nil]
+     ["dispatch-dry-run"          {:value {:ok? true :dry-run? true :rolled-back? true
+                                           :would-fire-effects [{:fx-id :http :args {:headers {:authorization :rf/redacted}}}]
+                                           :db-state-after-simulation {:user {:token :rf/redacted}}}
+                                   :elided-count 0}]
+     [:default                    nil]]
+    :fixture/eval-form-must-contain
+    ["re-frame.core/elide-wire-value"
+     ":db-state-after-simulation"
+     ":would-fire-effects"
+     ":rf.size/include-sensitive? false"
+     ":rf.size/include-large? false"
+     "configure-raw-state!"
+     ":allow-raw-state? false"]
+    :fixture/expect
+    {:isError? false
+     :edn-submap {:ok? true :dry-run? true :elision true}}}
+
+   {:fixture/id    :dispatch-dry-run/gate-on-honours-opt-out
+    :fixture/doc   "dispatch-dry-run with --allow-sensitive-reads ON + caller :elision false ships the raw simulation details — NO walker wrap (rf2-z7roa)."
+    :fixture/tool  "dispatch-dry-run"
+    :fixture/allow-raw-state? true
+    :fixture/args  {:event "[:cart/checkout]" :elision false}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"  true]
+     ["configure-raw-state!"      nil]
+     ["dispatch-dry-run"          {:value {:ok? true :dry-run? true :db-state-after-simulation {:user {:token "raw"}}}
+                                   :elided-count 0}]
+     [:default                    nil]]
+    :fixture/eval-form-must-not-contain
+    ["elide-wire-value"]
+    :fixture/expect
+    {:isError? false
+     :edn-submap {:ok? true :elision false}}}
+
    ;; ---------- restore-epoch (rf2-ee38b.18 — gated write) ----------------
    ;; The --allow-writes gate ships DEFAULT-OFF. The disabled fixture pins
    ;; the gate-closed envelope (no nREPL round-trip); the happy fixture
@@ -822,16 +874,23 @@
      :reason :rf.error/writes-disabled}}
 
    {:fixture/id    :reset-frame-db/happy
-    :fixture/doc   "reset-frame-db with --allow-writes ON passes the runtime's app-db-reset! envelope through; db rides as EDN data."
+    :fixture/doc   "reset-frame-db with --allow-writes ON passes the runtime's app-db-reset! envelope through; db rides as EDN data. Signals configure-raw-state! before app-db-reset! (rf2-z7roa raw-state tap posture)."
     :fixture/tool  "reset-frame-db"
     :fixture/allow-writes? true
+    :fixture/allow-raw-state? false
     :fixture/args  {:db "{:counter 0}"}
     :fixture/eval-script
     [["__re_frame2_pair_runtime"  true]
+     ["configure-raw-state!"      nil]
      ["app-db-reset!"             {:ok? true :frame :rf/default}]
      [:default                    nil]]
     :fixture/eval-form-must-contain
-    ["app-db-reset! {:counter 0}"]
+    ["app-db-reset! {:counter 0}"
+     ;; rf2-z7roa — the raw-state tap posture is signalled (the unit
+     ;; suite pins it lands BEFORE app-db-reset!; the corpus pins it
+     ;; IS emitted on the write path with the gate-OFF posture).
+     "configure-raw-state!"
+     ":allow-raw-state? false"]
     :fixture/expect
     {:isError? false
      :edn-submap {:ok? true :frame :rf/default}}}

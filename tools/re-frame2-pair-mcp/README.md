@@ -197,7 +197,7 @@ your editor is the source of truth.
 | Flag                        | Default | What it does                                                                         |
 |-----------------------------|---------|--------------------------------------------------------------------------------------|
 | `--no-eval`                 | absent (eval-cljs ON) | Opt OUT of the `eval-cljs` tool. Default is eval-cljs ENABLED (rf2-a0z0h; inverts the prior rf2-cxx5s default-OFF posture). See "eval-cljs gate" below. |
-| `--allow-sensitive-reads`   | OFF     | Honour caller-supplied `:include-sensitive true` and `:elision false` on direct-read tools (`snapshot` / `get-path` / `subscribe` / `trace-window` / `watch-epochs`). Default-OFF gate (rf2-c2dtu). Canonical cross-MCP flag name shared with story-mcp (rf2-2x3ql); see "sensitive-reads gate" below. |
+| `--allow-sensitive-reads`   | OFF     | Honour caller-supplied `:include-sensitive true` and `:elision false` on the off-box read surfaces — direct-read tools (`snapshot` / `get-path` / `subscribe` / `trace-window` / `watch-epochs`) AND `dispatch-dry-run` (rf2-z7roa, whose `:db-state-after-simulation` + `:would-fire-effects[*].args` are app-db/fx-derived egress). Default-OFF gate (rf2-c2dtu). Canonical cross-MCP flag name shared with story-mcp (rf2-2x3ql); see "sensitive-reads gate" below. |
 | `--allow-writes`            | OFF     | Enable the state-mutating tools `restore-epoch` (time-travel undo) and `reset-frame-db` (state injection). Default-OFF gate (rf2-ee38b.18); without it both return `{:ok? false :reason :rf.error/writes-disabled}` without touching the nREPL socket. `dispatch` (which drives the app's own handlers) is unaffected. Note: this gate protects the named-write audit trail; it does NOT defend against eval-driven writes (eval can express the same writes), so for a true read-only posture compose with `--no-eval`. See "writes gate" below. |
 | `--port-file <path>`        | —       | Explicit, **cwd-independent** path to the nREPL port file. Highest precedence in port discovery (rf2-3dbwh); see "port-file flag" below. Accepts `--port-file <path>` and `--port-file=<path>`. |
 | `--http-port <n>`           | `9630`  | Shadow's web-server port for the auto-discovery probe (rf2-umoz2). Only consulted at port-discovery step 3; setting it has no effect when `--port-file` or `SHADOW_CLJS_NREPL_PORT` is present. |
@@ -275,17 +275,26 @@ default anyway). Removing it is recommended for clarity.
 
 #### sensitive-reads gate (rf2-c2dtu)
 
-The direct-read surfaces (`snapshot`, `get-path`, `subscribe`,
+The off-box read surfaces (`snapshot`, `get-path`, `subscribe`,
 `trace-window`, `watch-epochs`) can return verbatim slices of a live
-app's state. Spec 009 §Privacy mandates default-suppression: sensitive
-slots redact and large slots elide before any payload crosses the
-LLM-facing wire. Published builds ship with the gate **OFF**:
+app's state. So can `dispatch-dry-run` (rf2-z7roa): it mutates nothing
+but its `:db-state-after-simulation` (the would-be app-db) and
+`:would-fire-effects[*].args` (fx-derived data) are off-box egress,
+so it is gated by the SAME posture even though it is not
+`--allow-writes`-gated. Spec 009 §Privacy mandates default-suppression:
+sensitive slots redact and large slots elide before any payload crosses
+the LLM-facing wire. Published builds ship with the gate **OFF**:
 
 - A caller's `:include-sensitive true` is overridden to `false`.
 - A caller's `:elision false` is overridden to `true`.
 - The preload runtime's `app-db-reset!` taps default-elide both
   `:previous` and `:next` payloads through `re-frame.core/elide-wire-value`
-  before any tap consumer sees them.
+  before any tap consumer sees them. The `configure-raw-state!` signal
+  that flips the runtime into this posture is issued by every tool that
+  taps / egresses app-db — the read surfaces, `dispatch-dry-run`, AND
+  `reset-frame-db` — between the preload probe and the first state-
+  emitting eval, so a first `reset-frame-db` in an `--allow-writes`
+  session can never tap raw app-db ahead of the posture landing.
 
 Operators who need raw state for offline debug opt in at server launch:
 

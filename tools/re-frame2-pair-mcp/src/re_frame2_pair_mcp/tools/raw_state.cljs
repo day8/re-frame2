@@ -125,13 +125,26 @@
 ;; state into the runtime once per session.
 
 (defonce ^:private runtime-signalled?
-  ;; Per-build-id flag — true once `configure-raw-state!` has been called
+  ;; Per-build-id flag — true once `configure-raw-state!` has RESOLVED
   ;; against this build's runtime in the current server lifetime.
+  ;;
+  ;; rf2-z7roa — the flag is set only AFTER the configure eval resolves
+  ;; (success or swallowed-failure), never speculatively before the
+  ;; round-trip lands. Marking it eagerly let a concurrent first tool
+  ;; call short-circuit to resolved-nil and proceed to tap RAW app-db
+  ;; before `configure-raw-state!` had flipped the runtime's posture.
   ;;
   ;; Build-keyed because re-frame2-pair-mcp can talk to multiple shadow-cljs builds
   ;; over the same nREPL connection; each build has its own preloaded
   ;; runtime atom.
   (atom #{}))
+
+(defonce ^:private runtime-signalling
+  ;; Per-build-id IN-FLIGHT configure-raw-state! Promise. A second
+  ;; concurrent caller for the same build awaits the SAME Promise rather
+  ;; than firing a duplicate signal OR racing ahead while the first
+  ;; signal is still in flight (rf2-z7roa). Cleared once resolved.
+  (atom {}))
 
 (defn signal-runtime!
   "Send the boot-gate state to the preload runtime exactly once per
@@ -139,28 +152,56 @@
   flips its own atom — subsequent `app-db-reset!` calls then elide
   before emitting through `tap>`.
 
-  Idempotent: a no-op once the signal has landed for `build-id`. Failure
-  (the runtime predates rf2-c2dtu) is swallowed silently — the wire-side
-  enforcement still holds, so a degraded runtime just means `tap>`
-  consumers see raw values (the pre-rf2-c2dtu posture).
+  Idempotent: a no-op once the signal has RESOLVED for `build-id`. While
+  a signal is in flight for a build, a concurrent caller awaits the same
+  Promise (rf2-z7roa) — it never proceeds to a state-emitting eval ahead
+  of the posture landing. Failure (the runtime predates rf2-c2dtu) is
+  swallowed silently — the wire-side enforcement still holds, so a
+  degraded runtime just means `tap>` consumers see raw values (the
+  pre-rf2-c2dtu posture).
 
-  Called from `tools/invoke` before the first state-emitting tool body
-  runs. Returns a Promise resolving to nil."
+  rf2-z7roa: the per-build `runtime-signalled?` flag is set ONLY after
+  the configure eval resolves, never speculatively before the round-
+  trip. This guarantees a first state-emitting tool call (snapshot /
+  get-path / subscribe / reset-frame-db / dispatch-dry-run) can never
+  tap raw app-db ahead of `configure-raw-state!` flipping the runtime.
+
+  Called between `ensure-runtime!` and the first state-emitting eval in
+  each tool body that taps / egresses app-db. Returns a Promise
+  resolving to nil."
   [conn build-id]
-  (if (contains? @runtime-signalled? build-id)
+  (cond
+    (contains? @runtime-signalled? build-id)
     (js/Promise.resolve nil)
+
+    (contains? @runtime-signalling build-id)
+    (get @runtime-signalling build-id)
+
+    :else
     (let [form (ef/emit
                  (ef/rt-call 'configure-raw-state!
-                             {:allow-raw-state? @allow-raw-state?}))]
-      (swap! runtime-signalled? conj build-id)
-      (-> (nrepl/cljs-eval-value conn build-id form)
-          (.then (fn [_] nil))
-          (.catch (fn [_]
-                    ;; Degraded runtime — predates rf2-c2dtu. Swallow;
-                    ;; the wire-side gate still enforces.
-                    nil))))))
+                             {:allow-raw-state? @allow-raw-state?}))
+          ;; Mark the build resolved + drop the in-flight entry. Run on
+          ;; BOTH the success and swallowed-failure arms — once the
+          ;; round-trip lands (or fails), the posture decision is final.
+          finish! (fn []
+                    (swap! runtime-signalled? conj build-id)
+                    (swap! runtime-signalling dissoc build-id)
+                    nil)
+          p       (-> (nrepl/cljs-eval-value conn build-id form)
+                      (.then (fn [_] (finish!)))
+                      (.catch (fn [_]
+                                ;; Degraded runtime — predates rf2-c2dtu.
+                                ;; Swallow; the wire-side gate still
+                                ;; enforces. Mark resolved so we don't
+                                ;; re-probe a runtime that can't answer.
+                                (finish!))))]
+      (swap! runtime-signalling assoc build-id p)
+      p)))
 
 (defn reset-runtime-signal-cache!
-  "Clear the per-session signal cache. Exposed for tests."
+  "Clear the per-session signal cache (resolved + in-flight). Exposed
+  for tests."
   []
-  (reset! runtime-signalled? #{}))
+  (reset! runtime-signalled? #{})
+  (reset! runtime-signalling {}))

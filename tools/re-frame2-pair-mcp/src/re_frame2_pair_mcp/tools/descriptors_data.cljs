@@ -476,11 +476,20 @@
                      "vocabulary for both. Composes with :fx-overrides — user-supplied overrides win on "
                      "conflict so an experimenter can compose realistic conditions (a canned http stub "
                      "response, say) without losing the rollback guarantee. "
+                     "PRIVACY (rf2-z7roa): dry-run mutates nothing but it IS an AI-facing read surface — "
+                     ":db-state-after-simulation is the would-be app-db and :would-fire-effects[*].args carry "
+                     "fx-derived data. Both egress slots are run through the size/sensitive elision walker "
+                     "BY DEFAULT (large slots -> :rf.size/large-elided markers, declared-sensitive slots -> "
+                     ":rf/redacted), exactly like snapshot / get-path. The :elision (default true) and "
+                     ":include-sensitive (default false) knobs are honoured ONLY when the server was launched "
+                     "with --allow-sensitive-reads; otherwise they are forced safe. :cascade-summary is a "
+                     "depth-bounded projection (path lists + counts) and rides through unwalked. "
                      "Examples: "
                      "1. Probe a write: {:event \"[:cart/checkout]\"} -> {:ok? true :dry-run? true :rolled-back? true :cascade-summary {:event-id :cart/checkout :db-diff {:changed-paths [[:cart] [:order]]} :fx-fired [:dispatch :http :navigate] ...} :would-fire-effects [{:fx-id :http :args {:url ...}} {:fx-id :navigate :args [:order-confirmation]}] :db-state-after-simulation {...}}. "
                      "2. Frame-targeted: {:event \"[:state/transition :paying]\" :frame \":checkout\"} -> dry-run against :checkout's app-db. "
                      "3. Schema violation: {:event \"[:cart/add {:bad :shape}]\"} -> {:ok? true :dry-run? true :cascade-summary {:outcome :error ...}} — the violation surfaces in cascade-summary; the rollback still fires. "
-                     "4. No-op event: {:event \"[:noop]\"} -> {:ok? false :reason :no-new-epoch :hint \"...\"}.")
+                     "4. No-op event: {:event \"[:noop]\"} -> {:ok? false :reason :no-new-epoch :hint \"...\"}. "
+                     "5. Sensitive slot redacted by default: {:event \"[:auth/login]\"} -> {... :db-state-after-simulation {:user {:token :rf/redacted}} :elision true}.")
    :typicalTokens 800
    :annotations idempotent-read-only-annotations
    :outputSchema envelope-or-marker
@@ -494,6 +503,17 @@
                                                                "fx the caller did NOT pre-stub. Use this to compose realistic "
                                                                "conditions (canned http stub, navigation redirect, etc.) without "
                                                                "losing the dry-run's roll-back guarantee.")}
+                              :elision {:type "boolean"
+                                        :description (str "Size/sensitive elision of the :db-state-after-simulation + "
+                                                          ":would-fire-effects[*].args egress slots. Default true (markers "
+                                                          "emitted). Set false to ship the raw simulation details — honoured "
+                                                          "ONLY when the server was launched with --allow-sensitive-reads; "
+                                                          "otherwise forced true (rf2-z7roa).")}
+                              :include-sensitive {:type "boolean"
+                                                  :description (str "Pass declared-:sensitive? app-db slots through verbatim instead of "
+                                                                    "redacting to :rf/redacted. Default false. Honoured ONLY when the "
+                                                                    "server was launched with --allow-sensitive-reads; otherwise forced "
+                                                                    "false (rf2-z7roa).")}
                               :build {:type "string"}}
                  :required ["event"]
                  :additionalProperties false}})
