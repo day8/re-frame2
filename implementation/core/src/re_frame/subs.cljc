@@ -335,14 +335,14 @@
      [value query-v sub-meta frame-id]
      (let [schema (:schema sub-meta)]
        (if (and schema (some? sub-meta))
-         (if-let [validate (late-bind/get-fn :schemas/validate-with-registered-fn)]
+         (if-let [validate (late-bind/get-fn-cached :schemas/validate-with-registered-fn)]
            (if (try (validate schema value)
                     ;; A throwing validator must not crash the render; treat
                     ;; it as a pass (mirrors `subs.memo/maybe-validate-sub!`).
                     (catch :default _ true))
              value
              (let [sub-id  (first query-v)
-                   explain (when-let [exp (late-bind/get-fn
+                   explain (when-let [exp (late-bind/get-fn-cached
                                             :schemas/explain-with-registered-fn)]
                              (try (exp schema value) (catch :default _ nil)))]
                (trace/emit-error! :rf.error/schema-validation-failure
