@@ -59,25 +59,27 @@ List any remaining uncertainty, especially if the best fix might belong upstream
 
 ## Filing with `gh issue create`
 
-Once the body is drafted and the user has approved, file via the GitHub CLI. **Always pass the body through a file or stdin** — never interpolate the transcript-derived body inline (it can carry shell metacharacters the user never sees but the shell would expand). The canonical shape is the here-doc + `--body "$(cat …)"` pattern from [`../../README.md` §Published-skill `allowed-tools` baseline](../../README.md#published-skill-allowed-tools-baseline-security-policy):
+Once the body is drafted and the user has approved, file via the GitHub CLI. Never interpolate the transcript-derived body inline (it can carry shell metacharacters the user never sees but the shell would expand). Instead, **write the body to a file with the `Write` tool**, then pass it with `gh`'s native `--body-file` flag — a single `gh issue create` invocation with no `cat` subshell, so it runs under the skill's `Bash(gh issue *)` permission. This is the canonical shape from [`../../README.md` §Published-skill `allowed-tools` baseline](../../README.md#published-skill-allowed-tools-baseline-security-policy):
 
-```bash
-# Write the body to a temp file (single-quoted here-doc — keeps $, `, and \ literal):
-cat > /tmp/issue-body.md <<'EOF'
-## Problem
-…drawn from the retro transcript…
+1. Use the `Write` tool to compose `/tmp/issue-body.md` (the drafted body as plain markdown — no shell escaping needed; nothing expands it):
 
-## Evidence from a real session
-…
-EOF
+   ```markdown
+   ## Problem
+   …drawn from the retro transcript…
 
-# File against the target repo's issues:
-gh issue create \
-  --repo day8/re-frame2-pair \
-  --title "<short title>" \
-  --body "$(cat /tmp/issue-body.md)" \
-  --label retro
-```
+   ## Evidence from a real session
+   …
+   ```
+
+2. File it against the target repo's issues with one `gh issue create` command:
+
+   ```bash
+   gh issue create \
+     --repo day8/re-frame2-pair \
+     --title "<short title>" \
+     --body-file /tmp/issue-body.md \
+     --label retro
+   ```
 
 For an upstream issue against re-frame2:
 
@@ -85,16 +87,18 @@ For an upstream issue against re-frame2:
 gh issue create \
   --repo day8/re-frame2 \
   --title "<short title>" \
-  --body "$(cat /tmp/issue-body.md)" \
+  --body-file /tmp/issue-body.md \
   --label retro,upstream-from-re-frame2-pair
 ```
+
+`--body-file` reads the body verbatim from disk, so no shell expansion ever touches the transcript-derived text, and the only `Bash` call is a bare `gh issue create` — exactly what the skill's `allowed-tools` grants.
 
 Always run `gh issue list --repo <owner/repo> --search "<keywords>"` first to check for an existing issue on the same friction; reference it instead of duplicating.
 
 ## Filing rules
 
 - File only after explicit user approval.
-- **Never interpolate transcript-derived text directly into a shell command.** Use the here-doc + `--body "$(cat /tmp/file)"` pattern shown above.
+- **Never interpolate transcript-derived text directly into a shell command.** Use the `Write` tool + `--body-file /tmp/issue-body.md` pattern shown above.
 - Redact secrets, tokens, and internal-only details.
 - Prefer one issue per distinct improvement.
 - Search for an existing issue first: `gh issue list --repo <owner/repo> --search "<keywords>"`.

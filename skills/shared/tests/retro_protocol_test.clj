@@ -302,13 +302,15 @@
 ;; surface the protocol grants (`Bash(gh issue *)`). Its load-bearing
 ;; safety claim is a *command-injection* boundary: transcript-derived
 ;; issue bodies can carry shell metacharacters, so the body MUST be
-;; passed via a single-quoted here-doc (keeping $, `, \ literal) rather
-;; than interpolated inline. This is the same untrusted-evidence threat
-;; model as Lock 1, projected onto the shell. The structural test pinned
-;; the three prose locks but left this one — the actual destructive
-;; surface — unguarded; a silent weakening here (dropping the
-;; single-quote requirement, or the "never interpolate inline" rule)
-;; would re-open transcript→shell injection with no gate firing.
+;; composed to a file with the `Write` tool and passed via gh's native
+;; `--body-file` flag (which reads the body verbatim from disk, so no
+;; shell expansion ever touches the transcript-derived text) rather than
+;; interpolated inline. This is the same untrusted-evidence threat model
+;; as Lock 1, projected onto the shell. The structural test pinned the
+;; three prose locks but left this one — the actual destructive surface
+;; — unguarded; a silent weakening here (dropping the `--body-file`
+;; requirement, or the "never interpolate inline" rule) would re-open
+;; transcript→shell injection with no gate firing.
 ;; ---------------------------------------------------------------------------
 
 (deftest issue-filing-shell-safety-section-exists
@@ -322,18 +324,20 @@
              "create); a transcript-derived body interpolated inline is "
              "the attack. Restore the section or update this test."))))
 
-(deftest issue-filing-requires-single-quoted-heredoc
-  (testing "single-quoted here-doc delimiter is mandated"
+(deftest issue-filing-requires-body-file
+  (testing "the Write-tool + --body-file pattern is mandated"
     (let [s (section @issue-filing-md "Shell-safety")]
-      (is (contains-any? s ["single-quoted" "<<'EOF'"])
-          (str "The single-quoted here-doc requirement was dropped from "
-               "issue-filing.md. Without the single-quote, $, backtick, "
-               "and \\ in a transcript-derived body expand in the shell "
-               "— the exact transcript→shell injection vector."))
-      (is (contains-any? s ["stay literal" "keeps $" "literal"])
-          (str "The 'metacharacters stay literal' rationale was dropped. "
-               "It is the reason the single-quote requirement is "
-               "load-bearing, not stylistic.")))))
+      (is (contains-any? s ["--body-file" "`Write` tool" "Write tool"])
+          (str "The `Write`-tool + --body-file requirement was dropped "
+               "from issue-filing.md. Without it, $, backtick, and \\ in "
+               "a transcript-derived body expand in the shell — the exact "
+               "transcript→shell injection vector. --body-file reads the "
+               "body verbatim from disk so nothing expands."))
+      (is (contains-any? s ["verbatim" "bare `gh issue create`"
+                            "nothing expands"])
+          (str "The 'body read verbatim / nothing expands' rationale was "
+               "dropped. It is the reason --body-file is load-bearing, "
+               "not stylistic.")))))
 
 (deftest issue-filing-forbids-inline-interpolation
   (testing "never interpolate transcript-derived text inline"
@@ -342,8 +346,8 @@
                         "never interpolate" "never inline"])
         (str "The 'never interpolate transcript-derived text directly "
              "into a shell command' prohibition is missing. This is the "
-             "imperative half of the shell-safety lock — the here-doc "
-             "recipe is the safe path, this is the banned path."))))
+             "imperative half of the shell-safety lock — the Write-tool + "
+             "--body-file recipe is the safe path, this is the banned path."))))
 
 (deftest issue-filing-gates-create-on-user-approval
   (testing "gh issue create is gated on a fresh in-conversation yes"
@@ -362,7 +366,7 @@
 (deftest protocol-step-six-points-at-shell-safe-filing
   (testing "step 6 still surfaces the shell-safe filing recipe"
     (let [s (section @protocol-md "The seven-step protocol")]
-      (is (contains-any? s ["Shell safety" "single-quoted here-doc"
+      (is (contains-any? s ["Shell safety" "--body-file"
                             "issue-body"])
           (str "The seven-step protocol's pointer to the shell-safe "
                "filing recipe was dropped. The inline reminder is what "
