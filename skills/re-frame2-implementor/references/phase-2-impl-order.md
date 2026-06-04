@@ -159,9 +159,11 @@ Each EP is multi-day work. Plan one focused session per EP; don't try to land tw
 
 ---
 
-## Acceptance gate 1 — run `:core/*` conformance
+## Acceptance gate 1 — `:core/*` conformance
 
-At this point a port with `{Q1=no, Q2=no, Q3=no, Q4=via-host-types-or-no, Q5=no, Q6=no, Q7=no}` is feature-complete against its claim. Run the harness; the `:core/*` fixtures should all pass.
+At this point a port with `{Q1=no, Q2=no, Q3=no, Q4=via-host-types-or-no, Q5=no, Q6=no, Q7=no, Q8=no, Q9=no}` is feature-complete against its claim. The harness runs the `:core/*` fixtures, which should all pass.
+
+**Who runs it.** The engineer runs their own builds and tests; the agent does not run them unbidden (Q14 lock — see [`spec/design.md` §L3](../spec/design.md) and [`output-format.md` §Discipline](output-format.md)). The conformance harness is the one instrument the agent MAY run **when the engineer asks** — at which point the agent runs it and reports/diagnoses the score. Either way the agent's job at the gate is to surface the score and diagnose failures, not to drive the engineer's toolchain.
 
 See `conformance.md` for the harness shape, the EDN-handler-body DSL, and what to do when a fixture won't pass.
 
@@ -193,7 +195,7 @@ For each capability the port declared `yes` for in D3, walk the matching EP. Sug
 
 **Contract.** `reg-machine`, transition tables, `make-machine-handler`, `[:rf/runtime :machines :snapshots <id>]` reserved app-db storage, drain extensions for `:raise`/`:always`/`:after`, hierarchy support per D3 Q1's sub-capability list, declarative `:spawn`.
 
-**Capability sub-decisions.** D3 Q1 declared yes/no for each of: `:fsm/flat`, `:fsm/hierarchical`, `:fsm/eventless-always`, `:fsm/delayed-after`, `:fsm/tags`, `:fsm/parallel-regions`, `:actor/own-state`, `:actor/spawn-destroy`, `:actor/cross-actor-fx`, `:actor/invoke`, `:actor/spawn-and-join`, `:actor/system-id`. Implement only the claimed sub-capabilities; the conformance corpus runs the matching fixture subset.
+**Capability sub-decisions.** D3 Q1 declared yes/no for each of: `:fsm/flat`, `:fsm/hierarchical`, `:fsm/eventless-always`, `:fsm/delayed-after`, `:fsm/tags`, `:fsm/parallel-regions`, `:fsm/final-states`, `:fsm/history`, `:fsm/registration-validation`, `:actor/own-state`, `:actor/spawn-destroy`, `:actor/cross-actor-fx`, `:actor/invoke`, `:actor/spawn-and-join`, `:actor/system-id`. Implement only the claimed sub-capabilities; the conformance corpus runs the matching fixture subset. **`:fsm/history`** is a first-class v1 capability (`:type :history` pseudo-states — shallow / deep / default-target, recorded in the revertible `:rf/history` snapshot slot; Spec 005 §History states, post-v1 deferral withdrawn via rf2-mle6e / PR #2863) backed by 10 corpus fixtures (`history-*.edn`, `scxml-history-*.edn`). A port claiming `:fsm/history` records/restores history and validates placement at registration (a misplaced node — machine root or flat top-level state, no owning compound — throws `:rf.error/machine-history-misplaced`; verify the exact category against `implementation/machines/src/re_frame/machines/lifecycle_fx/validation.cljc` and the `machine-reg-error-grammar-not-in-v1.edn` fixture's `:expect-error`). A port that doesn't implement it puts `:fsm/history` on `known-skipped-capabilities`. Enumerate the live sub-tag set from the fixtures at the pinned commit (`grep -rho ':fsm/[a-z-]*' spec/conformance/fixtures/ | sort -u`) rather than from a prose list — the fixtures lead the README.
 
 **Common trap.** Drain extensions interact with EP 002's run-to-completion drain. Plan the integration carefully — `:always` and `:after` are subtle.
 
@@ -209,11 +211,13 @@ For each capability the port declared `yes` for in D3, walk the matching EP. Sug
 
 **Contract.** `:platforms` metadata on `reg-fx`, `render-to-string`, `:rf/hydrate`, hydration-mismatch detection, `init-platform`.
 
-### EP 013 — Flows (if claimed)
+### EP 013 — Flows (if D3 Q8 = yes)
 
 **Read.** [`spec/013-Flows.md`](https://day8.github.io/re-frame2/spec/013-Flows/).
 
-### EP 014 — HTTP (if claimed)
+**Conformance.** Claims the `:flow/*` family. Enumerate the sub-tags from the fixtures at the pinned commit (`grep -rho ':flow/[a-z-]*' spec/conformance/fixtures/ | sort -u`) — at corpus HEAD ~19 sub-behaviours (basic / trace / init / reg-v / poke / toggle / topo / multi-input-topo / dirty-check / recompute-on-input-change / frame-scoped / frame-destroy-teardown / hot-reload / lifecycle-emits-traces / …). Sub-behaviours not implemented go on `known-skipped-capabilities`.
+
+### EP 014 — HTTP (if D3 Q9 = yes)
 
 **Read.** [`spec/014-HTTPRequests.md`](https://day8.github.io/re-frame2/spec/014-HTTPRequests/) plus [Pattern-RemoteData](https://day8.github.io/re-frame2/spec/Pattern-RemoteData/) and [Managed-Effects](https://day8.github.io/re-frame2/spec/Managed-Effects/) (the managed-fx lifecycle that HTTP rides on).
 
@@ -225,6 +229,6 @@ For each capability the port declared `yes` for in D3, walk the matching EP. Sug
 
 ## Acceptance gate 2 — full claimed-capability conformance pass
 
-When every claimed capability is implemented, run the full conformance harness with the capability filter set to D7's claim list. Score must be `claimed-applicable / claimed-applicable`. Any failure that's not a spec gap is a port bug; any spec gap is drafted as a `day8/re-frame2` GitHub issue and filed only after engineer OK (per [`cardinal-rules.md` §§8–9](cardinal-rules.md)).
+When every claimed capability is implemented, the full conformance harness runs with the capability filter set to D7's claim list (the engineer runs it, or asks the agent to — same who-runs-it rule as gate 1; the agent never runs the engineer's builds unbidden). Score must be `claimed-applicable / claimed-applicable`. Any failure that's not a spec gap is a port bug; any spec gap is drafted as a `day8/re-frame2` GitHub issue and filed only after engineer OK (per [`cardinal-rules.md` §§8–9](cardinal-rules.md)).
 
 When the gate passes, the port is v1-complete against its claim.

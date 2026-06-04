@@ -25,7 +25,9 @@ These are not up for re-litigation. A future authoring pass MUST preserve them u
 
 ### L1 — Explicit-pull only
 
-The skill activates on three filters holding together: (a) review/audit/critique/improvements/anti-pattern phrasing about the user's own re-frame2 code, (b) a body of `.cljs`/`.cljc` source in scope (read, edited, or supplied as a snippet), (c) not a sibling skill's job. Vocabulary alone is not enough. If (a) holds but (b) doesn't: decline and ask for a snippet rather than fabricate evidence.
+The skill activates on three filters holding together: (a) review/audit/critique/improvements/anti-pattern phrasing about the user's own re-frame2 code, (b) a body of `.cljs`/`.cljc` source in scope — read or edited in the conversation, supplied as a snippet, **or named by the user as a concrete `.cljs`/`.cljc` path or directory** (in which case the skill reads it before critiquing), (c) not a sibling skill's job. Vocabulary alone is not enough. If (a) holds but (b) doesn't — no file, snippet, or resolvable named path — decline and ask for a snippet or a path rather than fabricate evidence.
+
+A named path is sufficient scope because resolving it (the skill reads the file) is the same act the in-conversation-read case already satisfies; declining a clear *"spot anti-patterns in `cart/handlers.cljs`"* would be a worse UX than reading the one file the user pointed at. The eval fixtures encode this: a prompt naming a `.cljs` path (`evals.json` #5/#6/#7) is `should_trigger: true`; a vocabulary-only prompt with no path (`#9 neg-vocab-no-source`) is `should_trigger: false`.
 
 ### L2 — Static, never live
 
@@ -77,7 +79,7 @@ Commits and PR title/body read as Mike Thompson's work. No `Co-Authored-By` / ge
 | `boolean-discriminator-subs.md` | 3+ boolean subs on one path acting as a hand-rolled FSM | Tags query layer, Spec 005 |
 | `manual-loading-flags.md` | `assoc :loading? true` / `dissoc` scattered across terminators | Nine States, `spec/Pattern-NineStates.md` |
 | `schemaless-events.md` | Boundary handler ingests untrusted payload with no `:schema` / `reg-app-schema` | Schemas at boundaries, Spec 010 |
-| `imperative-effects.md` | Direct `js/localStorage` / DOM / `js/console` inside `reg-event-*` | Data-only fx via `reg-fx`, `spec/Conventions.md` |
+| `imperative-effects.md` | Direct JS / DOM interop inside `reg-event-*` — effectful *writes* (storage/DOM/dispatch/timers) AND impure *reads* (`Date.now`, `Math.random`, storage reads, sub reads) | Writes → data-only fx (`reg-fx`, `spec/Conventions.md`); reads → coeffect (`reg-cofx` / `inject-cofx`, `cofx.md`) |
 | `view-side-hook-state.md` | `reagent/atom` / `useState` holding non-render-local state | Move to `app-db` + `reg-sub`, Spec 004 / `spec/Principles.md` |
 
 ### Deferred catalogue candidates

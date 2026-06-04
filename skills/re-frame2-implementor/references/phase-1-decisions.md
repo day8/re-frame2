@@ -9,7 +9,7 @@ Every decision in Phase 1 propagates through every line of Phase 2 code. Spendin
 - Spec pin (load-bearing preamble — record before D1)
 - D1. Target host language
 - D2. Substrate / React binding
-- D3. Scope — which EPs ship now
+- D3. Scope — which EPs ship now (Q1–Q9)
 - D4. Always-required realisation decisions (the checklist's Part 2 always-required blocks: Foundation F1–F6, State storage S1–S3, Subscriptions Sub1–Sub2, Views V1–V3, Tracing T1–T3, Errors E1–E2)
 - D5. Schema mechanism
 - D6. Integration story
@@ -116,6 +116,8 @@ Non-React substrates (Vue, Solid, Svelte, vanilla DOM, Replicant, Lit) and non-c
 - **Q5 — Stories** ([EP 007](https://day8.github.io/re-frame2/spec/007-Stories/)). Storybook/devcards-class tooling. Post-v1 in the CLJS reference too.
 - **Q6 — Tool-Pair adapters** ([Tool-Pair.md](https://day8.github.io/re-frame2/spec/Tool-Pair/)). REPL-attached AI inspection surface.
 - **Q7 — AI-Audit grading** ([AI-Audit.md](https://day8.github.io/re-frame2/spec/AI-Audit/)). Self-grading discipline doc.
+- **Q8 — Flows** ([EP 013](https://day8.github.io/re-frame2/spec/013-Flows/)). Declarative derived-state cells (`reg-flow`) recomputed topologically off `app-db`, with their own trace stream and frame-scoped lifecycle. Gates the `:flow/*` conformance family.
+- **Q9 — Managed HTTP** ([EP 014](https://day8.github.io/re-frame2/spec/014-HTTPRequests/)). The `:rf.http/managed` fx — transport, decode, retry-with-backoff, abort, reply addressing — riding the [Managed-Effects](https://day8.github.io/re-frame2/spec/Managed-Effects/) lifecycle. Gates the `:rf.http/managed` conformance family.
 
 **How to choose.** Default to "no" on every optional capability unless the engineer has a concrete consumer that needs it. Smaller v1 surface = faster ship + earlier feedback. Add capabilities post-v1 when consumers ask.
 
@@ -360,15 +362,15 @@ From [Implementor-Checklist §Errors](https://day8.github.io/re-frame2/spec/Impl
 **The capability tag families** ([`spec/conformance/README.md` §Capability tagging](https://day8.github.io/re-frame2/spec/conformance/)):
 
 - `:core/*` — pattern-required basics. Every conformant port claims these.
-- `:fsm/*` — FSM-richness axis (claim if D3 Q1 = yes; pick which sub-capabilities — `:fsm/flat`, `:fsm/hierarchical`, `:fsm/eventless-always`, `:fsm/delayed-after`, `:fsm/tags`, `:fsm/parallel-regions`, `:fsm/final-states`, `:fsm/registration-validation`).
+- `:fsm/*` — FSM-richness axis (claim if D3 Q1 = yes; pick which sub-capabilities — `:fsm/flat`, `:fsm/hierarchical`, `:fsm/eventless-always`, `:fsm/delayed-after`, `:fsm/tags`, `:fsm/parallel-regions`, `:fsm/final-states`, `:fsm/history`, `:fsm/registration-validation`). `:fsm/history` is a first-class v1 FSM capability — `:type :history` pseudo-states (shallow / deep / default-target), the post-v1 deferral withdrawn (rf2-mle6e / PR #2863); the runtime records and restores history per Spec 005 §History states. A port that claims `:fsm/history` validates placement at registration (a misplaced node — at the machine root or a flat top-level state, with no owning compound — is `:rf.error/machine-history-misplaced`, per `implementation/machines/.../validation.cljc` + fixture `machine-reg-error-grammar-not-in-v1.edn`); a port that doesn't implement it puts `:fsm/history` on `known-skipped-capabilities`.
 - `:actor/*` — actor-model axis (claim if D3 Q1 = yes; pick which — `:actor/own-state`, `:actor/spawn-destroy`, `:actor/cross-actor-fx`, `:actor/invoke`, `:actor/spawn-and-join`, `:actor/system-id`).
-- `:flow/*` — Flows axis (`:flow/basic`, `:flow/trace`); claim if D3 ships EP 013.
-- `:rf.http/managed` — managed-HTTP; claim if D3 ships EP 014.
+- `:flow/*` — Flows axis; claim if D3 Q8 = yes. **Wildcard family — the claim is the whole `:flow/*` namespace, expanded to the current fixture sub-tags.** A port claiming `:flow/*` must satisfy every Flow fixture's sub-tag: at corpus HEAD that set is `:flow/basic`, `:flow/trace`, `:flow/init`, `:flow/reg-v`, `:flow/poke`, `:flow/toggle`, `:flow/toggle-via-fx`, `:flow/topo`, `:flow/multi-input-topo`, `:flow/dirty-check`, `:flow/recompute-on-input-change`, `:flow/noop-on-value-equal-input`, `:flow/frame-scoped`, `:flow/frame-destroy-teardown`, `:flow/hot-reload`, `:flow/hot-reload-preserves-output`, `:flow/lifecycle-emits-traces`, `:flow/bad-input`, `:flow/eval-exception`. Enumerate the exact set from `spec/conformance/fixtures/*` at the pinned corpus commit (`grep -rho ':flow/[a-z-]*' spec/conformance/fixtures/ | sort -u`) — the fixtures are authoritative, the README prose list lags them. A port that claims Flows but doesn't implement a particular sub-behaviour puts that sub-tag on `known-skipped-capabilities`.
+- `:rf.http/managed` — managed-HTTP; claim if D3 Q9 = yes.
 - `:routing/*` — claim if D3 Q2 = yes.
 - `:ssr/*` — claim if D3 Q3 = yes.
 - `:schemas/*` — claim if D3 Q4 ≠ no (regardless of mechanism).
 
-These families track the **corpus**, which is the acceptance test; the Implementor-Checklist's list lags it (omitting `:flow/*`, `:rf.http/managed`, `:fsm/final-states`, `:fsm/registration-validation`) — when they diverge, the corpus wins.
+These families track the **corpus**, which is the acceptance test; the Implementor-Checklist's list and even the conformance README's prose enumeration both lag the fixtures (omitting `:flow/*`, `:rf.http/managed`, `:fsm/final-states`, `:fsm/history`, `:fsm/registration-validation`, and most `:flow/*` sub-tags) — when they diverge, **the fixtures win**. Derive the claimable vocabulary from `spec/conformance/fixtures/*` at the pinned commit, not from any prose list.
 
 The harness runs every fixture whose `:fixture/capabilities` is a subset of the claimed set. A deliberately-unclaimed capability goes on the harness's `known-skipped-capabilities` allowlist; a fixture whose capability is in neither the claim nor the allowlist must FAIL the suite, never skip silently (see [`conformance.md` §The two out-of-claim flavours](conformance.md#the-two-out-of-claim-flavours)). The score is `passed / claimed-applicable`.
 

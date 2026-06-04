@@ -51,10 +51,10 @@ Deliver a structured critique:
 Three filters must all hold before activating:
 
 1. **Explicit pull.** The user used review / audit / critique / improvements / anti-pattern phrasing about their own re-frame2 code.
-2. **Source-in-scope.** At least one `.cljs` / `.cljc` file in the project has been read or edited in this conversation, OR the user supplied a snippet inline.
+2. **Source-in-scope.** At least one `.cljs` / `.cljc` file in the project has been read or edited in this conversation, OR the user supplied a snippet inline, OR the user named a concrete `.cljs` / `.cljc` file or directory to review (e.g. *"spot any anti-patterns in `cart/handlers.cljs`?"*). A named path resolves scope: activate, **read the file/directory**, then critique it. A path that doesn't exist or can't be read does not — say so and ask for a snippet rather than fabricate.
 3. **Not a sibling skill's job.** Disambiguation matrix at [`skills/README.md`](../README.md#skill-routing--single-source).
 
-If 1 holds but 2 doesn't: ask for a snippet or a directory to read. Decline rather than fabricate.
+If 1 holds but 2 doesn't — vocabulary about "my project" with no file, snippet, or named path — ask for a snippet or a path to read. Decline rather than fabricate.
 
 ## Workflow
 

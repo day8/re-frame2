@@ -49,6 +49,8 @@ Every spec citation in this record (and in subsequent code) is against the pinne
 | **Q5 — Stories (007)** | <yes / no> | usually no for v1 |
 | **Q6 — Tool-Pair adapters** | <yes / no> | |
 | **Q7 — AI-Audit grading** | <yes / no> | |
+| **Q8 — Flows (013)** | <yes / no> | gates the `:flow/*` conformance family |
+| **Q9 — Managed HTTP (014)** | <yes / no> | gates the `:rf.http/managed` conformance family |
 
 ## D4. Always-required realisation decisions
 
@@ -180,6 +182,7 @@ The set of capability tags this port claims:
 :fsm/tags         <yes / no>
 :fsm/parallel-regions <yes / no>
 :fsm/final-states <yes / no>
+:fsm/history      <yes / no — yes if you implement :type :history pseudo-states (shallow / deep / default-target); first-class v1 capability per Spec 005>
 :fsm/registration-validation <yes / no — yes if you validate machine specs at registration time>
 :actor/own-state  <yes / no>
 :actor/spawn-destroy <yes / no>
@@ -187,14 +190,14 @@ The set of capability tags this port claims:
 :actor/invoke     <yes / no>
 :actor/spawn-and-join <yes / no>
 :actor/system-id  <yes / no>
-:flow/*           <yes / no — yes if D3 claims Flows (EP 013)>
-:rf.http/managed  <yes / no — yes if D3 claims HTTP (EP 014)>
+:flow/*           <yes / no — yes if D3 Q8 = yes; the claim is the whole namespace, expanded to the current fixture sub-tags (grep ':flow/[a-z-]*' spec/conformance/fixtures/ at the pinned commit) — basic / trace / init / reg-v / poke / toggle / topo / dirty-check / frame-scoped / hot-reload / lifecycle-emits-traces / … ; sub-behaviours you don't implement go on known-skipped-capabilities>
+:rf.http/managed  <yes / no — yes if D3 Q9 = yes>
 :routing/*        <yes / no>
 :ssr/*            <yes / no>
 :schemas/*        <yes / no — pick yes if D5 ≠ no, regardless of mechanism>
 ```
 
-The capability families above track the **conformance corpus** (`spec/conformance/README.md` §Capability tagging), which is the acceptance test. The Implementor-Checklist's family list lags the corpus (it omits `:flow/*`, `:rf.http/managed`, `:fsm/final-states`, `:fsm/registration-validation`); when they diverge, the corpus wins.
+The capability families above track the **conformance corpus** (the `spec/conformance/fixtures/*` files, which are the acceptance test). Both the Implementor-Checklist's family list and the conformance README's prose enumeration lag the fixtures (they omit `:flow/*` and its sub-tags, `:rf.http/managed`, `:fsm/final-states`, `:fsm/history`, `:fsm/registration-validation`); when any prose list and the fixtures diverge, **the fixtures win**. Enumerate the claimable vocabulary from `spec/conformance/fixtures/*` at the pinned commit (`grep -rho ':fsm/[a-z-]*' spec/conformance/fixtures/ | sort -u`, same for `:flow/`, `:actor/`, …), not from a prose list.
 
 Score reporting: this port's score is `passed / claimed-applicable` against the above set. A capability the port deliberately doesn't claim goes on the harness's `known-skipped-capabilities` allowlist (see [`conformance.md` §The two out-of-claim flavours](conformance.md#the-two-out-of-claim-flavours)); a fixture carrying a capability in neither the claim nor the allowlist must FAIL the suite, not skip silently.
 
