@@ -170,6 +170,21 @@
       (is (= (:accent tokens/dark-palette) (:focus ct)))
       (is (not= (:accent tokens/dark-palette) (:container-border ct))))))
 
+(deftest chart-tokens-final-error-is-error-hue
+  (testing "rf2-b4loj — `:final-error` (the error-final OUTER-RING hue)
+            resolves to the palette's `:error` token in BOTH themes, and
+            is DISTINCT from the quiet success-final ring role (`:final`).
+            A static error-hue signalling an `:error?` terminal — a
+            re-frame2 extension routing the parent's `:on-error` — that the
+            chart must not hide."
+    (doseq [palette [tokens/dark-palette tokens/light-palette]]
+      (let [ct (tokens/chart-tokens palette)]
+        (is (= (:error palette) (:final-error ct))
+            "error-final ring tracks the palette error hue")
+        (is (not= (:final ct) (:final-error ct))
+            "the error ring is visually distinct from the quiet success ring")
+        (is (string? (:final-error ct)))))))
+
 (deftest chart-label-stack-is-sans
   (testing "rf2-az6e2 — the chart-label font token is sans (structure-
             first reading); recorded decision: mono retained only for

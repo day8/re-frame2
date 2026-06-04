@@ -280,6 +280,16 @@
                                 :depth    (count parent-path)
                                 :initial? (boolean (:initial? state-node))
                                 :final?   (boolean (:final? state-node))
+                                ;; rf2-b4loj — an `:error?` final (Spec 005
+                                ;; §:final?) is a re-frame2 EXTENSION: a child
+                                ;; finishing via it routes the spawning parent's
+                                ;; `:spawn` `:on-error` (vs `:on-done`). Surface
+                                ;; the terminal KIND so the renderer can paint
+                                ;; the error-hue outer ring. `:error?` only
+                                ;; reads on a `:final?` leaf; gate it so a stray
+                                ;; flag on a non-final node never lights the ring.
+                                :error?   (boolean (and (:final? state-node)
+                                                        (:error? state-node)))
                                 :compound? (boolean (:states state-node))
                                 :tags     (set (:tags state-node))}
                          ;; rf2-ee38b.21 — :entry / :exit state actions

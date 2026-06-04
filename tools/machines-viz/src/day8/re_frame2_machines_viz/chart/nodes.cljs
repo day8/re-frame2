@@ -312,6 +312,12 @@
         to-highlight?  (boolean (.-toHighlight d))
         sim?           (boolean (.-sim d))
         final?         (boolean (.-final d))
+        ;; rf2-b4loj — error-terminal KIND. An `:error?` final (a re-frame2
+        ;; EXTENSION that routes the spawning parent's `:on-error` rather
+        ;; than `:on-done`) paints its outer ring in the error hue so the
+        ;; chart does not hide a distinction the framework acts on. NOT
+        ;; XState/Stately parity — re-frame2 semantic clarity.
+        error-final?   (boolean (.-errorFinal d))
         tags           (js->clj (.-tags d))
         tags-attr      (tag-title-attr tags)
         entry          (.-entry d)
@@ -367,15 +373,26 @@
                                          (str "0 0 0 2px " (:glow ct))
                                          (str "0 1px " state-shadow-blur "px rgba(0,0,0,0.25)"))
                      :transition       "border-color 120ms ease, background 120ms ease"}}
-       ;; Final-state QUIET double-ring (outer). The ✓ glyph is dropped.
+       ;; Final-state double-ring (outer). The ✓ glyph is dropped.
+       ;; rf2-b4loj — the ring COLOUR is conditional on terminal KIND:
+       ;; an `:error?` final paints the static `:final-error` error hue
+       ;; (re-frame2 semantic clarity — it routes the parent's `:on-error`);
+       ;; a success final keeps the QUIET runtime-coupled `border-col`.
+       ;; The main node border (above) STAYS `border-col` either way, so an
+       ;; active error-final composes: error ring + runtime main-border,
+       ;; neither clobbering the other.
        (when final?
          [:div {:data-testid (str "rf-mv-chart-final-ring-" (.-id props))
+                :data-error-final (str error-final?)
                 :style {:position      "absolute"
                         :top           "-3px"
                         :left          "-3px"
                         :right         "-3px"
                         :bottom        "-3px"
-                        :border        (str "1px solid " border-col)
+                        :border        (str "1px solid "
+                                            (if error-final?
+                                              (:final-error ct)
+                                              border-col))
                         :border-radius (str (inc corner-radius) "px")
                         :pointer-events "none"}}])
        ;; TITLE STRIP — full-width, left-aligned label.

@@ -82,6 +82,16 @@
    :states  {:a {:on {:go :b}}
              :b {:on {:go :a}}}})
 
+(def ^:private success-and-error-finals
+  "rf2-b4loj — a machine with BOTH a plain success final (:ok) and an
+  `:error?` error final (:boom), so the error-hue outer ring distinction
+  is DOM-assertable. The error final routes the spawning parent's
+  `:on-error` (a re-frame2 extension); the chart must paint it distinctly."
+  {:initial :running
+   :states  {:running {:on {:ok :ok :boom :boom}}
+             :ok      {:final? true}
+             :boom    {:final? true :error? true}}})
+
 (def ^:private parallel-machine
   "A parallel machine: 2 regions, 2 states each (rf2-lkwev)."
   {:type :parallel
@@ -235,6 +245,28 @@
           ;; The dropped ✓ glyph must NOT appear.
           (is (not (re-find #"✓" (.-textContent node)))
               "the ✓ check glyph is dropped (rf2-az6e2)"))))))
+
+(deftest chart-error-final-rings-distinct-from-success
+  (testing "rf2-b4loj — an `:error?` final's outer ring carries the error
+            hue (data-error-final=\"true\") while a success final's ring
+            keeps the quiet runtime-coupled border (data-error-final=
+            \"false\"). The error-final is a re-frame2 extension (routes the
+            spawning parent's `:on-error`) the chart must not hide — NOT
+            XState/Stately parity. success-and-error-finals has one of each."
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises this")
+      (with-mounted-chart
+        {:machine-id :test/flow :definition success-and-error-finals}
+        (fn [_root node]
+          (let [rings (.querySelectorAll
+                       node "[data-testid^=\"rf-mv-chart-final-ring-\"]")
+                attrs (mapv (fn [i] (.getAttribute (aget rings i) "data-error-final"))
+                            (range (.-length rings)))]
+            (is (= 2 (.-length rings)) "both finals render a ring")
+            (is (some #{"true"} attrs)
+                "the :error? final's ring is flagged data-error-final=\"true\"")
+            (is (some #{"false"} attrs)
+                "the success final's ring stays data-error-final=\"false\"")))))))
 
 ;; ---- Controls / MiniMap / Background presence ---------------------------
 

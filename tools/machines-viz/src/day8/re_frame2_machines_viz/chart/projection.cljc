@@ -728,6 +728,13 @@
                                           :sim            (boolean (and active? sim?))
                                           :initial        (boolean (:initial? n))
                                           :final          (boolean (:final? n))
+                                          ;; rf2-b4loj — error-terminal KIND.
+                                          ;; `:error?` finals (a re-frame2
+                                          ;; extension routing the parent's
+                                          ;; `:on-error`) get the error-hue
+                                          ;; outer ring; success finals keep the
+                                          ;; quiet runtime-coupled ring.
+                                          :errorFinal     (boolean (:error? n))
                                           :compound       (boolean (:compound? n))
                                           ;; rf2-vcnvj — serialise each tag
                                           ;; to its FULLY-QUALIFIED string

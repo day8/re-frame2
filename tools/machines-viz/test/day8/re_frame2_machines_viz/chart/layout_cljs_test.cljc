@@ -797,6 +797,48 @@
       (is (false? (:final? idle)) ":final? is false, not nil")
       (is (true?  (:final? success))))))
 
+;; ---- :error? error-terminal KIND threads through parse (rf2-b4loj) ------
+;;
+;; An `:error?` final (Spec 005 §:final?) is a re-frame2 EXTENSION: a child
+;; finishing via it routes the spawning parent's `:spawn` `:on-error` rather
+;; than `:on-done`. The chart surfaces the terminal KIND so the renderer can
+;; paint the error-hue outer ring (NOT XState/Stately parity — XState has no
+;; first-class error-final flag).
+
+(def success-and-error-finals
+  "Two terminals of distinct KIND: a plain success final and an `:error?`
+  error final."
+  {:initial :running
+   :states  {:running {:on {:ok :ok :boom :boom}}
+             :ok      {:final? true}
+             :boom    {:final? true :error? true}}})
+
+(deftest parse-definition-threads-error-final-kind
+  (testing "rf2-b4loj — :error? threads onto the node ONLY for an :error?
+            final; a success final and every non-final node carry :error?
+            false (boolean-wrapped, never nil)"
+    (let [{:keys [nodes]} (layout/parse-definition success-and-error-finals)
+          running (first (filter #(= [:running] (:path %)) nodes))
+          ok      (first (filter #(= [:ok]      (:path %)) nodes))
+          boom    (first (filter #(= [:boom]    (:path %)) nodes))]
+      (is (false? (:error? running)) "non-final node is :error? false")
+      (is (false? (:error? ok))      "success final is :error? false")
+      (is (true?  (:error? boom))    "error final is :error? true")
+      ;; both terminals are still :final? — the KIND is the only difference.
+      (is (true? (:final? ok)))
+      (is (true? (:final? boom))))))
+
+(deftest parse-definition-error-flag-needs-final
+  (testing "rf2-b4loj — a stray :error? on a NON-final node never lights the
+            ring: :error? is gated on :final? so it stays false"
+    (let [{:keys [nodes]} (layout/parse-definition
+                           {:initial :a
+                            :states  {:a {:error? true :on {:go :b}}
+                                      :b {}}})
+          a (first (filter #(= [:a] (:path %)) nodes))]
+      (is (false? (:final? a)))
+      (is (false? (:error? a)) ":error? requires :final?"))))
+
 ;; ---- :on-done (XState onDone) completion edge (rf2-41goo) ---------------
 ;;
 ;; Spec 005 §The done-state signal: a COMPOUND node's `:on-done` advances
