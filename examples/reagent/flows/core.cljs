@@ -82,9 +82,13 @@
 ;; (Spec 013 §Topological sort and cycle detection).
 ;;
 ;; `:cart/discount-rate` is NOT registered at boot. When absent, its path
-;; is nil and `:output` treats it as 0% off. The "Apply 10% discount"
-;; button registers it via `:rf.fx/reg-flow`; "Remove discount" clears it
-;; via `:rf.fx/clear-flow` (which `dissoc-in`s the path back to nil).
+;; is nil and `:cart/total`'s `:output` treats it as 0% off. The "Apply
+;; 10% discount" button registers it via `:rf.fx/reg-flow`; "Remove
+;; discount" clears it via `:rf.fx/clear-flow` (which `dissoc-in`s the
+;; path back to nil). While registered it derives a flat 10% off the live
+;; subtotal — a constant rate today, but reading `[:cart :subtotal]` keeps
+;; it honest: a tiered "5% over $50" rule would slot straight in, and the
+;; rate stays fresh as the cart changes without re-registration.
 (rf/reg-flow
   {:id     :cart/total
    :doc    "Subtotal less the active discount. Reads :cart/subtotal's
@@ -140,11 +144,16 @@
 ;; discount flow is registered / cleared mid-event via the two reserved
 ;; fx-ids. Both route to the dispatching frame automatically.
 ;;
-;; SEQUENCING NOTE (Spec 013 §Sequencing): a flow registered via
-;; `:rf.fx/reg-flow` first runs on the NEXT drain — its initial output
-;; appears one event after registration. So after registering the
-;; discount-rate flow we dispatch a no-op `:cart/touch` to trigger the
-;; re-walk that materialises `[:cart :total]` at the discounted figure.
+;; SEQUENCING NOTE (Spec 013 §Sequencing — the one-event lag): a flow
+;; registered via `:rf.fx/reg-flow` first runs on the NEXT drain — its
+;; initial output appears one event after registration. So after
+;; registering the discount-rate flow we dispatch a no-op `:cart/touch`
+;; whose ONLY job is to drain: by the time it runs, the new flow is in the
+;; registry, so the flow transform on that drain materialises
+;; `[:cart :discount-rate]` (and the dependent `[:cart :total]`) at the
+;; discounted figure. The re-walk is driven by the dispatched event
+;; draining — NOT by `:cart/touch` writing anything (it writes nothing).
+;; This is the spec's own `:wizard/settle` pattern (§Sequencing).
 (rf/reg-event-fx :cart/apply-discount
   {:doc "Engage the 10%-off feature gate by registering a flow that writes
          the discount rate, then nudge a re-walk so :cart/total recomputes."}
@@ -152,11 +161,13 @@
     {:fx [[:rf.fx/reg-flow
            {:id     :cart/discount-rate
             :doc    "The active discount rate (feature-gated; only present
-                     while the discount is engaged)."
-            :inputs [[:cart :discount-engaged?]]
-            :output (fn [_] 0.10)
+                     while the discount is engaged). Reads the live subtotal
+                     so the rule has somewhere to grow; today it is a flat
+                     10% off."
+            :inputs [[:cart :subtotal]]
+            :output (fn [_subtotal] 0.10)
             :path   [:cart :discount-rate]}]
-          [:dispatch [:cart/touch true]]]}))
+          [:dispatch [:cart/touch]]]}))
 
 (rf/reg-event-fx :cart/remove-discount
   {:doc "Disengage the feature gate. `:rf.fx/clear-flow` removes the flow
@@ -164,17 +175,19 @@
          :cart/total recomputes to the full price on the next walk."}
   (fn handler-cart-remove-discount [_ _]
     {:fx [[:rf.fx/clear-flow :cart/discount-rate]
-          [:dispatch [:cart/touch false]]]}))
+          [:dispatch [:cart/touch]]]}))
 
+;; No-op drain — Spec 013 §Sequencing's `:wizard/settle` verbatim:
+;; `(fn [db _] db)`, no schema, dispatched with no args. It writes
+;; NOTHING. Its sole purpose is to make a drain happen on this frame so
+;; the flow transform re-walks with the just-(de)registered discount flow
+;; now visible in the registry — materialising the one-drain-lagged
+;; output. The toggle is the `:rf.fx/reg-flow` / `:rf.fx/clear-flow`
+;; registration itself; this event is the drain that surfaces its effect.
 (rf/reg-event-db :cart/touch
-  {:doc    "No-op state nudge. Writing :cart/discount-engaged? changes the
-            discount flow's input so the walk right after this handler
-            recomputes :cart/discount-rate (and the dependent
-            :cart/total). Pure
-            mechanism to surface the one-drain-lag from §Sequencing."
-   :schema [:cat [:= :cart/touch] :boolean]}
-  (fn handler-cart-touch [db [_ engaged?]]
-    (assoc-in db [:cart :discount-engaged?] engaged?)))
+  {:doc "No-op drain. Exists only to trigger the re-walk that materialises
+         the one-event-lagged discount flow output (Spec 013 §Sequencing)."}
+  (fn handler-cart-touch [db _] db))
 
 ;; Reading a flow's output inside an event handler — Spec 013 §Sub
 ;; integration (a). The handler reads [:cart :total] as plain `app-db`
