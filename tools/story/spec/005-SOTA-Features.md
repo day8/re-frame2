@@ -444,7 +444,7 @@ tooling, and bespoke test integrations consume specific sub-systems;
 this section documents the boundary so a power user reads the right
 ns rather than scanning the facade alone.
 
-The six sub-systems and their public boundaries:
+The seven sub-systems and their public boundaries:
 
 | Sub-system | Lives in | Public surface | Audience |
 |---|---|---|---|
@@ -454,7 +454,7 @@ The six sub-systems and their public boundaries:
 | DOM-capture entries | `re-frame.story.recorder.dom-capture` (CLJS-only) | `install!` / `remove!` (capture-phase listener pair); `record-dom-event!` (write through the atom with `:dom/click` / `:dom/type` / `:dom/submit` shapes); `dom-event?` / `dom-event-kinds` (pure predicates). | `chrome-shell` (paired with the trace-listener install at mount). |
 | Review-dialog | `re-frame.story.recorder` + `re-frame.story.review-dialog` | `open-dialog` / `close-dialog` / `initial-dialog-state`. State-only — the rendering lives in `re-frame.story.ui.recorder-export-dialog`. | `chrome-shell` (the modal that opens on stop). |
 | `:script` snippet codegen | `re-frame.story.recorder` | `gen-play-snippet` (pure: events + opts → EDN string). Re-exported on the facade as `story/gen-play-snippet`. Emits `(reg-variant ... :script {:script [[:dispatch-sync <ev>] ...]})` — the PUBLIC `:script` slot per rf2-7mj4z; each event wrapped as `[:dispatch-sync <ev>]` per rf2-0wrud. | `user-app` (the copy-and-paste form); `mcp-tool` (the structured-output payload for `record-as-variant`). |
-| Rich DOM-aware `:script` export | `re-frame.story.recorder.play-export` + `re-frame.story.recorder.play-export-events` + `re-frame.story.recorder.selector` | The DOM-capture-aware translator that maps `:entries` (with DOM-capture timestamps) into `:click` / `:type` / `:wait` steps + auto-assert tail; `render-variant-form` emits the public `:script` slot (rf2-7mj4z). Sub-namespace export; not on the facade. `gen-play-snippet` is the facade-level entry; this richer translator is the power-user surface. | `chrome-shell`; `mcp-tool`. |
+| Rich DOM-aware `:script` export | `re-frame.story.recorder.play-export` + `re-frame.story.recorder.play-export-events` + `re-frame.story.recorder.selector` | The DOM-capture-aware translator that maps `:entries` (with DOM-capture timestamps) into `:click` / `:type` / `:wait` steps + auto-assert tail; `render-variant-form` emits the public `:script` slot (rf2-7mj4z). The translator entry `recording->play-script` IS re-exported on the facade as `story/recording->play-script` (the runtime counterpart to `gen-play-snippet`, used by the MCP `record-as-variant` write-back); the render-to-EDN fns (`render-play-script` / `render-variant-form`) stay sub-namespace-only. | `chrome-shell`; `mcp-tool`. |
 
 Three architectural observations follow from the map:
 
@@ -465,12 +465,18 @@ Three architectural observations follow from the map:
    (`gen-play-snippet`, `recordable-event?`, `make-assertion`,
    `assertion-vocabulary`) are pure data → data; CLJ-testable on the
    JVM without a process-wide install.
-2. **The facade exposes the headline entries only** (six surfaces:
+2. **The facade exposes the headline entries only** (seven surfaces:
    `start-recording!` / `stop-recording!` / `clear-recording!` /
-   `recording?` / `recorder-state` / `gen-play-snippet`). MCP tool
-   builders and hot-reload tooling that need the assertion-picker or
-   the DOM-capture entries `:require` `re-frame.story.recorder`
-   directly — the sub-ns IS the contract for the power-user surface.
+   `recording?` / `recorder-state` / `gen-play-snippet` /
+   `recording->play-script`). The first six are the recorder-lifecycle
+   + simple text-codegen surfaces; the seventh, `recording->play-script`,
+   is re-exported from `re-frame.story.recorder.play-export` as the
+   runtime data→data counterpart `gen-play-snippet` (it is the body the
+   MCP `record-as-variant` write-back registers). MCP tool builders and
+   hot-reload tooling that need the assertion-picker, the DOM-capture
+   entries, or the render-to-EDN fns `:require`
+   `re-frame.story.recorder` (or its `play-export` sub-ns) directly —
+   the sub-ns IS the contract for the rest of the power-user surface.
 3. **The rich DOM-aware translator is the power-user surface.**
    `gen-play-snippet` emits the simple-projection public `:script` body
    (each captured event wrapped as `[:dispatch-sync <ev>]`). The
