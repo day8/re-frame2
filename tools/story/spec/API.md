@@ -44,6 +44,8 @@ All under `re-frame.story`. All DCE under `:advanced` (see
 |---|---|---|
 | `reg-story` | `(reg-story id metadata)` | [`001-Authoring.md`](001-Authoring.md) §reg-story |
 | `reg-variant` | `(reg-variant id metadata)` | [`001-Authoring.md`](001-Authoring.md) §reg-variant |
+| `reg-fragment` | `(reg-fragment id body)` | [`017-Testing-Story.md`](017-Testing-Story.md) §Strict composition — reusable setup/script/world mixin pulled into a variant via `:compose`. |
+| `reg-check` | `(reg-check id body)` | [`017-Testing-Story.md`](017-Testing-Story.md) §Strict composition — named, reusable assertion pack pulled into a variant via `:compose`. |
 | `reg-workspace` | `(reg-workspace id metadata)` | [`001-Authoring.md`](001-Authoring.md) §reg-workspace |
 | `reg-decorator` | `(reg-decorator id metadata)` | [`001-Authoring.md`](001-Authoring.md) §reg-decorator |
 | `reg-story-panel` | `(reg-story-panel id metadata)` | [`001-Authoring.md`](001-Authoring.md) §reg-story-panel + [`003-Render-Shell.md`](003-Render-Shell.md) §Panel registration contract |
@@ -119,14 +121,14 @@ run so the runner never sees a key it does not own.
 
 | Fn | Signature | Returns |
 |---|---|---|
-| `registrations` | `(registrations kind)` | All registrations for `kind` (Story kinds: `:story`, `:variant`, `:workspace`, `:story-panel`, `:tag`, `:mode`, `:decorator`). |
+| `registrations` | `(registrations kind)` | All registrations for `kind` (Story kinds: `:story`, `:variant`, `:fragment`, `:check`, `:workspace`, `:story-panel`, `:tag`, `:mode`, `:decorator`). |
 | `handler-meta` | `(handler-meta kind id)` | The registered body for `id`. |
 | `ids` | `(ids kind)` | All registered ids of `kind`. |
 | `registered?` | `(registered? kind id)` | Boolean. |
 | `list-tags` | `(list-tags)` | All registered tags (canonical + project). |
 | `list-modes` | `(list-modes)` | All registered modes. |
 | `canonical-tags` | `canonical-tags` | The seven canonical tags as a set. |
-| `canonical-assertion-ids` | `(canonical-assertion-ids)` | The seven `:rf.assert/*` event ids. |
+| `canonical-assertion-ids` | `(canonical-assertion-ids)` | The eight canonical `:rf.assert/*` ids — the seven dispatched as `reg-event-fx` plus the tape-evaluated `:rf.assert/schema-error` (see [`004-Assertions.md`](004-Assertions.md) §`:rf.assert/schema-error`). |
 | `registered-substrates` | `(registered-substrates)` | CLJS-only. The substrate set as registered via `register-substrate!`. |
 
 ## Write helpers (used by MCP write surface and hot-reload tooling)
@@ -138,6 +140,8 @@ public; their unsuffixed macro counterparts cover authored cases.
 |---|---|---|
 | `reg-story*` | `(reg-story* id body)` | Programmatic story registration. |
 | `reg-variant*` | `(reg-variant* id body)` | Programmatic variant registration. |
+| `reg-fragment*` | `(reg-fragment* id body)` | Programmatic fragment registration (the `:compose` mixin surface, spec/017 §Strict composition). |
+| `reg-check*` | `(reg-check* id body)` | Programmatic check registration (the `:compose` assertion-pack surface, spec/017 §Strict composition). |
 | `reg-workspace*` | `(reg-workspace* id body)` | Programmatic workspace registration. |
 | `reg-mode*` | `(reg-mode* id body)` | Programmatic mode registration. |
 | `reg-story-panel*` | `(reg-story-panel* id body)` | Programmatic panel registration. |
@@ -225,8 +229,10 @@ lowers the transitional `:play-script` spelling to the same shape):
 - Bare vector — `:script [[:dispatch-sync [:foo]] ...]`
 - Map         — `:script {:script [...] :auto-run? bool :name str}`
 
-The canonical seven `:rf.assert/*` events (per
-[`004-Assertions.md`](004-Assertions.md)) ride the `:dispatch-sync`
+The seven **dispatched** `:rf.assert/*` events (per
+[`004-Assertions.md`](004-Assertions.md); the eighth canonical id
+`:rf.assert/schema-error` is tape-evaluated, not dispatched) ride the
+`:dispatch-sync`
 rail: `[:dispatch-sync [:rf.assert/path-equals [:n] 3]]`. The
 assertion handler runs synchronously and records into
 `:rf.story/assertions` on the variant's frame.
@@ -298,8 +304,11 @@ ONE `:rf.assert/*` atom and produces ONE assertion-record shape. There
 is no second assertion vocabulary; `:assert-db` / `:assert-dom` are
 **script-step sugar**, not a parallel surface (see below).
 
-The seven `:rf.assert/*` events register at Story load. All record
-into `:assertions` rather than throwing — see
+The seven **dispatched** `:rf.assert/*` events register at Story load
+(the eighth canonical id, `:rf.assert/schema-error`, is tape-evaluated
+rather than registered as a handler — see
+[`004-Assertions.md`](004-Assertions.md) §`:rf.assert/schema-error`).
+All record into `:assertions` rather than throwing — see
 [`004-Assertions.md`](004-Assertions.md) §Record-don't-throw.
 
 | Event id | Payload | Semantics |

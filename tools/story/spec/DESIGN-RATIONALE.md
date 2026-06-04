@@ -131,10 +131,12 @@ persistence.
 
 ### §DCE-dev-only — registration is dev-only
 
-**Decision.** `reg-story`, `reg-variant`, `reg-workspace`, `reg-mode`,
-`reg-story-panel`, `reg-decorator`, and `reg-tag` are **all
-dev-only**. Under `:advanced` compiler builds, all seven macros elide
-to `nil`.
+**Decision.** `reg-story`, `reg-variant`, `reg-fragment`, `reg-check`,
+`reg-workspace`, `reg-mode`, `reg-story-panel`, `reg-decorator`, and
+`reg-tag` are **all dev-only**. Under `:advanced` compiler builds, all
+nine macros elide to `nil` — every one routes through
+`re-frame.story.macros/emit-reg`, the single site that lays down the
+`(when re-frame.story.config/enabled? …)` elision gate.
 
 **Rationale.** Cross-library `:extends` (where lib A registers
 `:story.x/parent` and lib B has `:extends :story.x/parent`) becomes

@@ -17,9 +17,9 @@
   the chrome-level test widget + sidebar status dots, and the play
   step-debugger. This spec carries that surface forward and supersedes
   only its result-reading shape (see §1).
-- [`004-Assertions.md`](004-Assertions.md) — the seven canonical
-  `:rf.assert/*` events and record-don't-throw semantics that the result
-  presentation reads.
+- [`004-Assertions.md`](004-Assertions.md) — the canonical `:rf.assert/*`
+  events (seven dispatched + the tape-evaluated `:rf.assert/schema-error`)
+  and record-don't-throw semantics that the result presentation reads.
 - [`017-Testing-Story.md`](017-Testing-Story.md) — the unified run
   result, the `:cannot-run` third result state, the runner-capability-set
   model, and the epoch-tape evidence projection. **Source of truth for

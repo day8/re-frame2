@@ -1,9 +1,13 @@
 # Story — Authoring
 
-> The registration surface — the seven `reg-*` macros, the EDN-first
-> variant contract, the inclusion-tag vocabulary, source-coord
-> stamping, and the macro-time validation rules. The contract Stage 2
-> implements and Stages 3–8 consume.
+> The registration surface — the nine `reg-*` macros (`reg-story` /
+> `reg-variant` / `reg-fragment` / `reg-check` / `reg-workspace` /
+> `reg-mode` / `reg-story-panel` / `reg-decorator` / `reg-tag`; the
+> `reg-fragment` / `reg-check` composition cohort is specced in
+> [`017-Testing-Story.md`](017-Testing-Story.md) §Strict composition),
+> the EDN-first variant contract, the inclusion-tag vocabulary,
+> source-coord stamping, and the macro-time validation rules. The
+> contract Stage 2 implements and Stages 3–8 consume.
 
 ## Boot — auto-install of the canonical vocabulary (rf2-p1ydc)
 
@@ -36,11 +40,12 @@ implicit, matching Storybook's ergonomic.
 ### Trigger condition
 
 Per-process. The auto-install gate is a single boolean atom in
-`re-frame.story.canonical`. The first call to ANY of the seven
-runtime helpers — `reg-story*` / `reg-variant*` / `reg-workspace*` /
-`reg-mode*` / `reg-story-panel*` / `reg-decorator*` / `reg-tag*` —
+`re-frame.story.canonical`. The first call to ANY of the nine
+runtime helpers — `reg-story*` / `reg-variant*` / `reg-fragment*` /
+`reg-check*` / `reg-workspace*` / `reg-mode*` / `reg-story-panel*` /
+`reg-decorator*` / `reg-tag*` —
 flips the gate true and runs the canonical installer chain. The
-seven `reg-*` macros expand to those runtime helpers, so the same
+nine `reg-*` macros expand to those runtime helpers, so the same
 gate fires from macro-site or programmatic-site registrations alike.
 
 Frames don't enter into it. The registrar's side-table is per-process
@@ -443,8 +448,10 @@ not a second assertion language. See
 [`004-Assertions.md`](004-Assertions.md) §The `:rf.assert/*` events are
 the ONE assertion vocabulary for the fold table + author guidance.
 
-The canonical seven `:rf.assert/*` assertion events (per
-[`004-Assertions.md`](004-Assertions.md)) ride the `:dispatch-sync`
+The seven **dispatched** `:rf.assert/*` assertion events (per
+[`004-Assertions.md`](004-Assertions.md); the eighth canonical id
+`:rf.assert/schema-error` is tape-evaluated, not dispatched) ride the
+`:dispatch-sync`
 rail: `[:dispatch-sync [:rf.assert/path-equals [:n] 3]]`. The
 assertion handler runs synchronously and records into
 `:rf.story/assertions` on the variant's frame — identical semantics

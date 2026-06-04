@@ -1,7 +1,9 @@
 # Story — Assertions and Play
 
-> The seven canonical `:rf.assert/*` events; their record-don't-throw
-> semantics; play-sequence execution; the assertion-side interaction
+> The canonical `:rf.assert/*` events — seven dispatched as
+> `reg-event-fx` handlers plus one tape-evaluated (`:rf.assert/schema-error`),
+> eight canonical ids in all; their record-don't-throw semantics;
+> play-sequence execution; the assertion-side interaction
 > with `force-fx-stub` (the decorator itself lives in
 > [`005-SOTA-Features.md`](005-SOTA-Features.md) §`force-fx-stub`).
 > The contract Stage 5 implements.
@@ -10,9 +12,12 @@
 
 Per
 [spec/007 §Assertion vocabulary](../../../spec/007-Stories.md) the
-canonical seven register at Story load. Each is a regular
+canonical **dispatched seven** register at Story load. Each is a regular
 `reg-event-fx` against the variant's frame. All **record** results
-into `:assertions` (see below) rather than throwing.
+into `:assertions` (see below) rather than throwing. A net-new eighth
+canonical id — `:rf.assert/schema-error` — is *recognised* but NOT
+dispatched; it is tape-evaluated in the result boundary (see
+[§`:rf.assert/schema-error` — the tape-evaluated eighth](#rfassertschema-error--the-tape-evaluated-eighth) below).
 
 | Event id | Payload | Semantics |
 |---|---|---|
@@ -23,6 +28,22 @@ into `:assertions` (see below) rather than throwing.
 | `:rf.assert/state-is` | `[machine-id state]` | Active state of `reg-machine` machine-id is state. Pairs with the per-variant trace-buffer's `:rf.machine/guard-evaluated` + `:rf.machine/action-ran` ops (rf2-ec52e, per [spec/005-StateMachines.md](../../../spec/005-StateMachines.md) + [spec/009-Instrumentation.md §`:op-type` vocabulary](../../../spec/009-Instrumentation.md)) — failures of this assertion can be diagnosed against the captured guard/action trace via Xray's RHS view. |
 | `:rf.assert/no-warnings` | `[]` | No `:rf.warn/*` events seen during play. |
 | `:rf.assert/effect-emitted` | `[fx-id]` or `[fx-id pred]` | Did the variant's drain emit fx-id? See §`:rf.assert/effect-emitted` payload shape. |
+
+### `:rf.assert/schema-error` — the tape-evaluated eighth
+
+The seven above are dispatched as `reg-event-fx` handlers. One further
+canonical id ships and rounds the canonical set out to **eight**:
+
+| Event id | Payload | Semantics |
+|---|---|---|
+| `:rf.assert/schema-error` | `[path malli-schema]` | EXPECTED-schema-violation declaration. Recognised so plan construction accepts it, but **not** installed as a `reg-event-fx` handler — it is **tape-evaluated in the result boundary** (`re-frame.story.result`) by multiset-consumption match against the run's `:rf.warn/schema` tape, NOT dispatched into the frame. Per [`017-Testing-Story.md`](017-Testing-Story.md) §Schema rule. |
+
+`re-frame.story.assertions/canonical-assertion-ids` is therefore a set
+of **eight** — the dispatched seven plus `:rf.assert/schema-error`.
+story-mcp's `list-assertions` surfaces it as the 8th canonical
+assertion. There is deliberately no `:rf.assert/no-schema-errors`: a
+schema-clean run is the knob-free runner FLOOR, refined by this
+expectation rather than asserted as an opt-in.
 
 Each handler returns a map of the form:
 

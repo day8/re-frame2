@@ -22,8 +22,9 @@
 re-frame2-story already ships the programmatic test harness:
 `run-variant-as-test` (and the more general `run-variant` →
 `:assertions` round-trip per spec/004) drives a variant through its
-four-phase lifecycle and accumulates the seven canonical
-`:rf.assert/*` records on the variant's frame. What was missing
+four-phase lifecycle and accumulates the seven dispatched
+`:rf.assert/*` records on the variant's frame (the eighth canonical
+id `:rf.assert/schema-error` is evaluated in the result boundary). What was missing
 through the Stage-4 — Stage-6 push: a **chrome-level surface** that
 runs that harness on demand and renders the aggregated pass/fail
 summary inside the playground — the Storybook 8 "Tests" tab
@@ -579,8 +580,10 @@ the lot (per [spec/005 §Production elision](005-SOTA-Features.md)).
 Per the rf2-9hc8 / rf2-rodx / rf2-qmjo / rf2-q0irb / rf2-ulw5m tetrad:
 the `:test` pane, the chrome widget, and the play step-debugger are
 all **leaves** — they consume the foundation (the four-phase runtime,
-the seven canonical `:rf.assert/*` events, the `:assertions` record
-schema, the per-frame epoch history) and surface it. They do not
+the seven dispatched `:rf.assert/*` events — the canonical set is
+eight once the tape-evaluated `:rf.assert/schema-error` is counted,
+per [`004-Assertions.md`](004-Assertions.md) — the `:assertions`
+record schema, the per-frame epoch history) and surface it. They do not
 register new artefact kinds; the only new shell-state surfaces are
 the `:tests` sub-map (`[:tests :runs]` / `[:tests :watch-mode?]` /
 `[:tests :content-hashes]`) and the stepper's per-variant ratom in

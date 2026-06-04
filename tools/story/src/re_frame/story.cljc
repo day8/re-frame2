@@ -57,8 +57,10 @@
 
   ## Elision
 
-  All seven `reg-*` macros expand to a `(when re-frame.story.config/enabled?
-  ...)` wrapper. Production CLJS builds set
+  All nine `reg-*` macros expand to a `(when re-frame.story.config/enabled?
+  ...)` wrapper (every macro routes through `re-frame.story.macros/emit-reg`
+  via `expand-reg-story` / `gen-reg-call`, the single site that lays down
+  the elision gate). Production CLJS builds set
   `:closure-defines {re-frame.story.config/enabled? false}` and every
   registration form elides to `nil`. The public query helpers are plain
   fns; production code calling them sees an empty side-table.
@@ -172,7 +174,7 @@
             ;; is CLJS-only (it feature-detects Xray via `find-ns-obj`).
             #?(:cljs [re-frame.story.xray-preset :as xray-preset])
             #?(:clj [re-frame.story.macros :as macros]))
-  ;; The seven reg-* macros are defined in the #?(:clj ...) blocks
+  ;; The nine reg-* macros are defined in the #?(:clj ...) blocks
   ;; below. Self-refer them via :require-macros so CLJS callers can
   ;; write `story/reg-story` after `(:require [re-frame.story :as story])`
   ;; without an explicit :require-macros clause at the call site.
@@ -182,7 +184,7 @@
                                      reg-check reg-workspace reg-mode
                                      reg-story-panel reg-decorator reg-tag]])))
 
-;; ---- macros (the seven reg-* forms) --------------------------------------
+;; ---- macros (the nine reg-* forms) ---------------------------------------
 ;;
 ;; Per IMPL-SPEC §6.1 every macro expansion threads through
 ;; `(when re-frame.story.config/enabled? ...)` so the closure compiler

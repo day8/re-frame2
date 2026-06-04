@@ -10,8 +10,9 @@
 The framework's normative spec for stories lives at
 [`spec/007-Stories.md`](../../../spec/007-Stories.md). That document
 locks the registration grammar, the three-way Story / Variant /
-Workspace split, the canonical id grammar, the seven `:rf.assert/*`
-events, the snapshot-identity contract, and the variant-as-data rule.
+Workspace split, the canonical id grammar, the seven dispatched
+`:rf.assert/*` events, the snapshot-identity contract, and the
+variant-as-data rule.
 
 `tools/story/spec/` (this folder) sits *below* the framework spec. It
 is the implementation-flavoured contract for the
@@ -190,8 +191,9 @@ The posture is normative across Story's surfaces:
    that reveals the underlying value" (per
    [spec/015 §The display contract](../../../spec/015-Data-Classification.md#the-display-contract--sentinels)).
 3. **Assertion vocabulary — path-marked args resolve to sentinels.**
-   The seven `:rf.assert/*` events (per
-   [`004-Assertions.md`](004-Assertions.md)) build assertion records
+   The seven dispatched `:rf.assert/*` events (per
+   [`004-Assertions.md`](004-Assertions.md); the eighth canonical id
+   `:rf.assert/schema-error` is tape-evaluated) build assertion records
    whose `:actual` / `:expected` / `:payload` slots pass through
    `re-frame.elision/elide-wire-value` at record-build time. An
    assertion of `:rf.assert/path-equals [:auth :token] :rf/redacted`

@@ -3,10 +3,10 @@
 ## Files
 
 - **[000-Vision.md](000-Vision.md)** — What re-frame2-story is for, what it deliberately isn't, and how it relates to the framework's normative [`spec/007-Stories.md`](../../../spec/007-Stories.md).
-- **[001-Authoring.md](001-Authoring.md)** — Registration surface: the seven `reg-*` macros, EDN-first variant contract, inclusion-tag vocabulary, source-coord stamping, macro-time validation.
+- **[001-Authoring.md](001-Authoring.md)** — Registration surface: the nine `reg-*` macros (incl. the `reg-fragment` / `reg-check` composition cohort specced in [`017-Testing-Story.md`](017-Testing-Story.md)), EDN-first variant contract, inclusion-tag vocabulary, source-coord stamping, macro-time validation.
 - **[002-Runtime.md](002-Runtime.md)** — Per-variant frame allocation; args-precedence resolution; decorator composition; four-phase loader lifecycle; `run-variant` / `reset-variant` / `watch-variant` / `snapshot-identity` / `destroy-variant!`.
 - **[003-Render-Shell.md](003-Render-Shell.md)** — The UI: sidebar, canvas, controls, workspaces, embedded Xray inspector; five workspace layouts; hot-reload decorator fingerprinting; `mount-shell!` / `unmount-shell!` / `active-shell`.
-- **[004-Assertions.md](004-Assertions.md)** — The seven canonical `:rf.assert/*` events with record-don't-throw semantics; play-sequence execution; `force-fx-stub` decorator.
+- **[004-Assertions.md](004-Assertions.md)** — The eight canonical `:rf.assert/*` ids (seven dispatched + the tape-evaluated `:rf.assert/schema-error`) with record-don't-throw semantics; play-sequence execution; `force-fx-stub` decorator.
 - **[005-SOTA-Features.md](005-SOTA-Features.md)** — Layout-debug overlays; a11y axe-core panel; per-variant share URL (live address-bar surface; retired QR popover per rf2-ymnfx Issue B); multi-substrate side-by-side; Xray epoch embed stub; production elision under `:advanced`.
 - **[006-MCP-Surface.md](006-MCP-Surface.md)** — The boundary between Story and `tools/story-mcp/`; surfaces Story exposes for the MCP jar; late-bind `reg-story-panel` for tooling embeds.
 - **[007-Mode-Tabs.md](007-Mode-Tabs.md)** — The render-shell's top-of-canvas `:dev` / `:docs` / `:test` switcher; the chrome-level primitive every 2026 component playground ships (rf2-9hc8).
