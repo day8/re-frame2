@@ -207,6 +207,31 @@
       (is (= #{:a} (:value-changed-subs result))
           "repeats collapse — :value-changed-subs is a deduped set"))))
 
+(deftest value-changed-subs-respects-sub-cap
+  (testing ":value-changed-subs is INDEPENDENTLY bounded by `sub-cap`
+            (rf2-7n0kf). The value-changed scan is independent of the
+            first-seen `:subs` scan, so it carries its own cap guard. A
+            pathological cascade with > sub-cap distinct value-changed
+            sub-ids must NOT grow the set past sub-cap — that is the
+            documented bound + the per-cascade view-render cap's intent"
+    (rf/reg-frame :test/cc {})
+    (seed-buffer! :test/cc
+                  (into [(run-start :ev)]
+                        (map (fn [i] (sub-run (keyword (str "v" i)) true)))
+                        (range 10)))
+    (testing "explicit sub-cap of 3 truncates the value-changed set to 3"
+      (let [result (capture/cascade-cause :test/cc 3)]
+        (is (= 3 (count (:value-changed-subs result)))
+            "value-changed-subs capped at the sub-cap (3), not the 10
+             distinct value-changed sub-ids present in the buffer")
+        (is (= #{:v0 :v1 :v2} (:value-changed-subs result))
+            "the FIRST 3 (first-seen) value-changed subs are kept; the
+             rest dropped — independent of the first-seen :subs scan")))
+    (testing "the default cap (100) admits all 10 value-changed subs"
+      (let [result (capture/cascade-cause :test/cc)]
+        (is (= 10 (count (:value-changed-subs result)))
+            "well under the default 100 cap — all value-changed subs surface")))))
+
 ;; ---- rendered-so-far: counts both rendered + cap-reached ------------------
 
 (deftest rendered-so-far-counts-rendered-emits

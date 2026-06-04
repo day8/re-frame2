@@ -325,15 +325,18 @@
                       trigger event).
     :cause-subs     — distinct sub-ids that ran in the cascade so far,
                       in first-seen order, capped at sub-cap.
-    :value-changed-subs — the SUBSET of :cause-subs whose :sub/run
-                      reported :rf.sub/value-changed? true (rf2-8wrzz.1).
-                      A `set` of sub-ids, NOT capped independently — it is
-                      drawn from the already-capped first-seen scan, so it
-                      is bounded by sub-cap. Used by the views.cljs emit
-                      site to derive :rf.view/triggered-by — the first sub
-                      in THIS view's own read-set whose value changed (the
-                      precise per-view re-render cause). Empty when no sub
-                      changed value (a structural re-render).
+    :value-changed-subs — the SUBSET of subs whose :sub/run reported
+                      :rf.sub/value-changed? true (rf2-8wrzz.1). A `set`
+                      of sub-ids, independently bounded by sub-cap: the
+                      walk gates value-changed accumulation on its own
+                      count, mirroring the first-seen scan's cap on :subs
+                      (rf2-7n0kf — the value-changed scan is independent
+                      of the first-seen scan, so it needs its own guard).
+                      Used by the views.cljs emit site to derive
+                      :rf.view/triggered-by — the first sub in THIS view's
+                      own read-set whose value changed (the precise
+                      per-view re-render cause). Empty when no sub changed
+                      value (a structural re-render).
     :rendered-so-far — count of :rf.view/rendered already emitted into
                       this cascade. Used by the views.cljs emit site to
                       enforce the per-cascade view-render cap.
@@ -368,13 +371,22 @@
 
                            ;; rf2-8wrzz.1 — accumulate the value-changed
                            ;; subset (a set, deduped) so the views.cljs emit
-                           ;; site can derive :rf.view/triggered-by. Tracked
-                           ;; alongside the first-seen scan above; a sub that
-                           ;; ran multiple times in the cascade contributes
-                           ;; once. Bounded by the same buffer the scan walks.
+                           ;; site can derive :rf.view/triggered-by. A sub
+                           ;; that ran multiple times in the cascade
+                           ;; contributes once (set semantics). rf2-7n0kf —
+                           ;; independently bounded by `sub-cap`: this scan
+                           ;; gates value-changed accumulation on its OWN
+                           ;; count, just as the first-seen scan above caps
+                           ;; `:subs`. Without this guard a pathological
+                           ;; full-page cascade with > sub-cap distinct
+                           ;; value-changed sub-ids would grow the set past
+                           ;; the cap, contradicting the documented bound and
+                           ;; defeating the per-cascade view-render cap's
+                           ;; intent for this slot.
                            (and (= :rf.sub/run op)
                                 (some? (:rf.sub/id tags))
-                                (true? (:rf.sub/value-changed? tags)))
+                                (true? (:rf.sub/value-changed? tags))
+                                (< (count (:value-changed-subs acc)) sub-cap))
                            (update :value-changed-subs conj (:rf.sub/id tags))
 
                            ;; Count both :rf.view/rendered AND the one-shot
