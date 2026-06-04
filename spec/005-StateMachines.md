@@ -311,6 +311,11 @@ Precedence inside the standard transition lookup, **at each level**:
 
 A coarser descriptor fires after the more specific ones **at the same level**. Only if *no enabled exact, `:ns/*`, or `:*` candidate* exists at this level does the runtime walk up to the next level and try again (steps 1–3 repeat at each ancestor) — so a leaf `:ns/*` (or `:*`) shadows an exact match on the parent for the same event, and a guard-blocked exact at the leaf falls through to the leaf's own `:ns/*` then `:*` *before* any parent is consulted. This is **XState v5's transition-selection order**: a machine descends the priority ladder within a state (exact, partial-descriptor, catch-all) before walking out to an ancestor; a transition whose guard is not met is simply *not selected*, leaving lower-priority descriptors — including the wildcards — eligible. The full leaf-up-to-root walk is canonically specified at [§Transition resolution — deepest-wins with parent fallthrough](#transition-resolution--deepest-wins-with-parent-fallthrough); for a flat machine the path is one level deep and the three-step rule above is the whole story. If no enabled exact *or* wildcard candidate exists at any level, the snapshot is unchanged and the runtime emits a single benign `:rf.machine.event/unhandled-no-op` trace (see [§Transition resolution](#transition-resolution--deepest-wins-with-parent-fallthrough) for the canonical name + the xstate-v5-parity rationale — an unhandled event is a no-op, not an error).
 
+**A forbidden block is NOT a fallthrough.** Distinguish two superficially-similar exact-key cases — they resolve oppositely:
+
+- An exact entry whose **guard is blocked** is *not enabled*, so resolution falls through to the same-level `:ns/*`, then `:*`, then up the hierarchy (the rule above).
+- A **forbidden block** — `{:on {E {}}}` or `{:on {E nil}}` (see [§Forbidden transitions](#forbidden-transitions--a-child-opts-out-of-an-inherited-transition)) — is an *enabled* internal candidate (it has no guard, so it passes). It **wins its tier** and halts the walk: it does **not** fall through to a same-level `:ns/*` / `:*`, nor to a parent's exact or wildcard. The forbidden block is a deliberate "consume E here", so it shadows every coarser descriptor *and* every ancestor for that event — exactly the intent of opting out of an inherited transition. (This mirrors XState v5, where a guard-failed transition leaves lower-priority descriptors eligible while a `{E: undefined}` forbidden transition is itself selected and stops selection.)
+
 ### Self-transitions (external vs internal)
 
 - `:target :same-state` — **external** self-transition. `:exit` of source and `:entry` of target both fire.
@@ -1305,6 +1310,35 @@ If **no level enables a transition** for an **unknown user event** — no level 
 **Reserved-`:rf/*` lifecycle carve-out.** The no-op classifies an **unknown user event** a machine author may have forgotten to handle — it is NOT emitted for framework lifecycle traffic whose event-id lives in the reserved `:rf/*` root namespace (per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned)). The synthetic creation marker `[:rf.machine/start]` (per [§Synthetic creation marker](#synthetic-creation-marker--rfmachinestart)), the spawn kick-off `[:rf.machine.spawn/spawned]` (per [§Spawn lifecycle — ordering](#spawn-lifecycle--ordering)), and the stories runtime's lifecycle / assertion pings (`:rf.story.lifecycle/*`, `:rf.assert/*`) are framework init, not events the author missed — a machine that declines them simply has no clause for them. (The eager `:rf.machine/start` kick is a pure init-kick that stops before the transition step, so it does not reach the no-op site as a trigger at all; the carve-out subsumes the marker only in its cascade-threaded-`:event`-placeholder role.) This **aligns with xstate**: xstate's own init (`xstate.init`) runs the initial-entry and is NOT reported as an unhandled event — only unknown user events are silently ignored. Distinguishing re-frame2's creation / spawn-kickoff makes us MORE like xstate, not a v5-parity violation. The carve-out is purely about **labelling, not severity** — nothing throws either way; it is a conscious refinement that restores the semantic distinction (severity stays benign, as in the rf2-ugdas downgrade) without reinstating any error advisory.
 
 The deepest-wins rule means a child state can **override** a parent's transition for the same event by declaring its own. Combined with parent fallthrough, this is how hierarchy factors common behaviour to the parent (every authenticated descendant inherits `:logout`) while still allowing local override.
+
+#### Forbidden transitions — a child opts OUT of an inherited transition
+
+Parent fallthrough is what *factors* a common transition to an ancestor; a child sometimes needs the inverse — to **opt out** of an inherited transition *without* replacing it with a real one. The mechanism falls out of the deepest-wins walk: a child `:on` entry that **matches but is internal** halts the leaf→root walk *at the child*, and an internal transition leaves the configuration unchanged — so the parent's inherited transition for that event is **never reached**. This is the **forbidden-transition idiom** — re-frame2's spelling of [XState v5's `on: {LOGOUT: undefined}`](https://stately.ai/docs/transitions#forbidden-transitions) (v4 `LOGOUT: undefined`) and of an [SCXML](https://www.w3.org/TR/scxml/#transition) **targetless internal** `<transition event="logout"/>`: a transition that *consumes* the event so the deepest-wins selection stops at the declaring node and the ancestor's transition is not taken.
+
+Two equivalent spellings — a present `:on` key whose value is the **empty map** or **`nil`**:
+
+```clojure
+{:initial :authenticated
+ :states
+ {:authenticated
+  {:initial :dashboard
+   :on      {:logout [:unauthenticated]}    ;; factored to the parent — every descendant inherits it
+   :states
+   {:dashboard {:on {:open-modal :modal}}    ;; inherits the parent's :logout normally
+    :modal     {:on {:logout {}}             ;; FORBIDDEN — empty map: a matching internal no-op,
+                                             ;;            halts the walk → blocks the parent's :logout
+                     ;; equivalently:  :logout nil
+                     :close      :dashboard}}}}}}
+```
+
+While the machine rests in `:modal`, dispatching `:logout` resolves at `:modal` (a match) to an internal transition with no `:target` and no `:action` — the state is unchanged and the parent's `[:unauthenticated]` is **not** inherited. Leave `:modal` (e.g. `:close` → `:dashboard`) and `:logout` is inherited from `:authenticated` again. The idiom is the natural fit for "this substate must not honour a factored-to-parent transition right now" — an authenticated flow that blocks `:logout` while a modal / unsaved-edit guard is open.
+
+Both forms are unified:
+
+- **`{:on {:logout {}}}`** — an explicit empty transition map. Matches; internal (no `:target`); no-op (no `:action`).
+- **`{:on {:logout nil}}`** — a **present** key with a `nil` value. `nil` is the natural Clojure analogue of XState's `undefined`, so it normalises to the **same** matching internal no-op — it **also blocks**. (Add an `:action` to either form — `{:on {:logout {:action :warn-cannot-logout}}}` — and the block still halts the walk *and* runs the action; the parent transition is still not inherited.)
+
+**Absence is NOT a block.** This turns entirely on the key being **present**. A child whose `:on` table simply has *no* `:logout` entry inherits the parent's `:logout` as usual — absence means "I don't handle this; keep walking", presence-with-`nil`/`{}` means "I consume this here; stop walking". The distinction is the whole point: a missing key must keep falling through, a deliberately-`nil` key must block. (See [§Wildcard transitions](#wildcard-transitions) for how a forbidden block — an *enabled* internal candidate — differs from a *guard-blocked* candidate where the wildcard / parent fallthrough still applies.)
 
 ### Worked example — auth flow
 
