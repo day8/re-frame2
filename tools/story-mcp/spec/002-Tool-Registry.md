@@ -231,7 +231,7 @@ docs.
 Canonical EDN form, text-only result for byte-stable round-tripping
 (content is text, not JSON, to avoid lossy JSON encoding of EDN).
 
-### Deferred Docs tools (not part of the shipped 19)
+### Deferred Docs tools (not part of the shipped 20)
 
 The two sections below sketch additions that are NOT in the
 shipped registry — they appear here for forward-visibility while the
