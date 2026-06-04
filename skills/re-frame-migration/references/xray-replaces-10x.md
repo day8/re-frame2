@@ -37,10 +37,12 @@ Drop both. The `day8.re-frame/re-frame-10x` Maven coord and the `day8.re-frame-1
 
 ```clojure
 ;; deps.edn — dev alias only. Xray MUST NEVER appear in production deps.
-{:aliases {:dev {:extra-deps {day8/re-frame2-xray {:local/root "tools/xray"}}}}}
+;; <path-to-re-frame2> is the local pinned re-frame2 checkout the kickoff
+;; prompt names — an ABSOLUTE path (or one relative to THIS project's deps.edn).
+{:aliases {:dev {:extra-deps {day8/re-frame2-xray {:local/root "<path-to-re-frame2>/tools/xray"}}}}}
 ```
 
-While re-frame2 is in alpha, use the `:local/root` route from a clone of the `day8/re-frame2` repo. Once Xray publishes to Clojars, the coord will be `day8/re-frame2-xray {:mvn/version "<VERSION>"}` (tracking re-frame2's lockstep `<VERSION>`). The skill prints the `:local/root` form when the author hasn't told it otherwise; if the author wants the published coord, they say so in the kickoff prompt.
+While re-frame2 is in alpha, use the `:local/root` route into the same local pinned `day8/re-frame2` checkout the kickoff prompt already names as `<path-to-re-frame2>` (the one holding `MIGRATION.md`). **Do not write `:local/root "tools/xray"`** — a bare relative `tools/xray` resolves against the *target* project's directory, where no such path exists; the migration target is not the re-frame2 repo. Use `<path-to-re-frame2>/tools/xray` (absolute, or relative to this project's `deps.edn`), or whatever path the author supplies. Once Xray publishes to Clojars, the coord becomes `day8/re-frame2-xray {:mvn/version "<VERSION>"}` (tracking re-frame2's lockstep `<VERSION>`) and the `<path-to-re-frame2>` indirection drops away. The skill prints the `<path-to-re-frame2>/tools/xray` form when the author hasn't told it otherwise; if the author wants the published coord, they say so in the kickoff prompt.
 
 `day8/re-frame2-xray` declares `day8/re-frame2-epoch` as a hard dep — no separate add is required. Xray's epoch-aware panels (the time-travel scrubber, the event-detail panel) read from `re-frame.epoch`'s seed table via `rf/epoch-history` / `rf/register-epoch-listener!`; without the epoch artefact those panels render empty even when events have fired. The dep is pulled in transitively by adding Xray.
 

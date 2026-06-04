@@ -38,7 +38,7 @@ The two routes are complementary, not redundant:
 
 | Use the **template** when… | Use this **skill** when… |
 |---|---|
-| You're starting from an empty directory and want a working app in one command. | You're adding re-frame2 to an existing CLJS project that already has its own `deps.edn` / `shadow-cljs.edn`. |
+| You're starting from an empty directory and want a working app in one command. | You're starting greenfield — a brand-new app, or an **empty** CLJS project (shadow-cljs / Clojure present but **zero re-frame2 wiring**) — and want each step explained. (Adding re-frame2 to a **non-trivial** existing app — one with its own state management or substantial code — is an authoring task: route to [`re-frame2`](../re-frame2/), not here. See [`skills/README.md` §Skill routing](../README.md#disqualifiers-vocabulary-alone-is-not-enough).) |
 | You want canonical defaults baked in (Reagent + shadow-cljs + counter sample). | You want to understand each step the template performs, or deviate from it. |
 | You don't care to learn the wiring. | You want the wiring explained as you go, with citations into `spec/` and worked examples. |
 
@@ -102,47 +102,34 @@ skills/re-frame2-setup/
 
 `re-frame2-setup` ships as part of the [`day8/re-frame2`](https://github.com/day8/re-frame2) monorepo. There is no separate npm package or plugin registry entry yet — clone re-frame2, **check out a specific release tag or commit**, **review the skill's `SKILL.md` and reference leaves before installing** (the skill grants `Bash(...)` access to a small set of build/install commands; you should know what you're authorising), and then reference the skill from `skills/re-frame2-setup/`.
 
-Skills under `~/.claude/skills/` and project `.claude/skills/` are agent instructions with shell access. Treat installation the same way you would treat installing any other plugin — pin a version, read the code, commit deliberately.
+Skills under `~/.claude/skills/` are agent instructions with shell access. Treat installation the same way you would treat installing any other plugin — pin the checkout you link from to a reviewed tag, read the code, install deliberately.
 
-### Global — for you, across any project
-
-Clone, check out a release tag, review, then **copy** (not symlink) into your user Claude config. Copying from a pinned checkout means a `git pull` in the working tree later can't silently change the installed skill under your feet:
+**Link, never copy** (the repo-wide policy). Claude Code loads skills from `~/.claude/skills/<name>/`. A `cp -r` snapshots the skill and then drifts as the repo is maintained — Claude Code keeps loading the stale copy. Clone the monorepo, check out a release tag you've reviewed, then run the cross-platform installer, which **links** every skill in the monorepo into `~/.claude/skills/` so the active skill is the reviewed checkout by construction:
 
 ```bash
-# One-time, anywhere
 git clone https://github.com/day8/re-frame2.git
 cd re-frame2
-git checkout <release-tag-or-commit>     # pin to a specific version you've reviewed
+git checkout <release-tag-or-commit>     # pin to a version you've reviewed
 # Review skills/re-frame2-setup/SKILL.md and references/*.md before the next line
-cp -r skills/re-frame2-setup ~/.claude/skills/re-frame2-setup
+scripts/install-skills.sh                                              # macOS / Linux (symlinks)
+powershell -ExecutionPolicy Bypass -File scripts/install-skills.ps1    # Windows (junctions, no admin)
 ```
 
-To upgrade: re-checkout to a newer pin, re-review the diff, and re-copy. The symlink shortcut (`ln -s ...`) is **not recommended** — it makes the installed skill follow whatever you happen to check out in the working tree.
-
-Best when you spin up new re-frame2 projects regularly.
-
-### Project-local — for the new project itself
-
-After step 1 of the canonical path (the project directory exists), copy the skill from a pinned checkout into `.claude/skills/re-frame2-setup/` and commit it. Useful if you want teammates following along on the same project to share the same setup guidance — and pinning the version means everyone reviews the same code.
-
-```bash
-cd your-new-project
-# /path/to/re-frame2 already checked out at a reviewed release tag — see above
-cp -r /path/to/re-frame2/skills/re-frame2-setup .claude/skills/re-frame2-setup
-git add .claude/skills/re-frame2-setup
-```
+To upgrade: `git checkout` a newer reviewed tag in the same clone — the link follows it (so review the diff before bumping). The installer is idempotent, refuses to clobber a non-link copy without `--force` (`-Force`), and supports `--check` (`-Check`). See [`skills/README.md` §Installing (link, never copy)](../README.md#installing-link-never-copy) and [`CONTRIBUTING.md` §skills — link, don't copy](../../CONTRIBUTING.md#skills--link-dont-copy) for the full rationale. For a team following along on one project, link from a shared reviewed checkout rather than committing a `cp -r` snapshot that will go stale.
 
 ## Invoking it in Claude
 
 ### Implicit — just ask
 
-The skill's description auto-matches when you talk about starting a new re-frame2 project:
+The skill's description auto-matches when you talk about starting a new re-frame2 project from nothing (or an empty CLJS project with zero re-frame2 wiring):
 
 > Start a new re-frame2 project for me in this directory.
 >
-> How do I add re-frame2 to my repo?
+> How do I add re-frame2 to my empty CLJS project (shadow-cljs is set up but there's no re-frame2 wiring yet)?
 >
 > Scaffold the smallest working re-frame2 app I can extend.
+
+(Adding re-frame2 to a **non-trivial** existing app — one that already has substantial code or other state management — is authoring, not greenfield setup: that routes to the [`re-frame2`](../re-frame2/) skill.)
 
 ### Explicit — slash command
 

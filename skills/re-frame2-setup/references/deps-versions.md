@@ -71,14 +71,27 @@ A minimal `deps.edn` for a greenfield re-frame2 project:
          day8/re-frame2-schemas    {:mvn/version "<VERSION>"}
          day8/re-frame2-xray       {:mvn/version "<VERSION>"}
 
-         reagent/reagent           {:mvn/version "2.0.1"}}}
+         reagent/reagent           {:mvn/version "2.0.1"}}
+
+ :aliases
+ {;; The build alias the paired shadow-cljs.edn names via {:deps {:aliases [:shadow]}}.
+  ;; It supplies the JVM-side build deps (shadow-cljs + tools.namespace) and the
+  ;; test/dev extra-paths. WITHOUT this alias, `npx shadow-cljs watch app` (whose
+  ;; shadow-cljs.edn reads `{:deps {:aliases [:shadow]}}`) cannot resolve the build
+  ;; classpath. Matches the generator template's deps.edn.
+  :shadow
+  {:extra-paths ["test" "dev"]
+   :extra-deps  {thheller/shadow-cljs        {:mvn/version "<shadow-version>"}
+                 org.clojure/tools.namespace {:mvn/version "1.5.0"}}
+   :main-opts   ["-m" "shadow.cljs.devtools.cli"]}}}
 ```
 
-Replace `<VERSION>` with the VERSION you discovered above. **Every `day8/re-frame2-*` line gets the same value.**
+Replace `<VERSION>` with the VERSION you discovered above (**every `day8/re-frame2-*` line gets the same value**) and `<shadow-version>` with the `shadow-cljs` version from the pinned `implementation/package.json` (the same version you write into `package.json` below — keep them in lockstep).
 
 Notes on the pins:
 - The Clojure / ClojureScript versions match what the re-frame2 repo's own core artefact builds against (`implementation/core/deps.edn`) and what the generator template pins. You can use newer versions if shadow-cljs and Reagent support them; start with these.
 - `reagent/reagent {:mvn/version "2.0.1"}` is pinned **explicitly**, matching the template. The Reagent adapter pulls Reagent in transitively, but pinning the substrate version yourself is the idiomatic choice — it stops a surprise transitive bump from changing your rendering substrate underneath you. Keep the version in lockstep with the adapter's `deps.edn`.
+- The **`:shadow` alias is required**, not optional — the paired `shadow-cljs.edn` (see [`shadow-cljs.md`](shadow-cljs.md)) reads its build classpath from it via `{:deps {:aliases [:shadow]}}`. Omitting it is the most common first-`watch` failure on the manual route. The generator template ships this alias (plus `:cljfmt` / `:clj-kondo` lint aliases — out of scope here, but present in the template's `deps.edn` if you compare); the manual route needs at least `:shadow` for the build to resolve.
 
 ## `package.json` shape
 

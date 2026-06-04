@@ -82,13 +82,13 @@
       "name": "routing-correctness-v1-migration",
       "dimension": "routing-correctness",
       "prompt": "I've got a 6-year-old re-frame v1 application. We use re-frame-http-fx, re-frame-async-flow-fx, and a lot of reg-event-db with named interceptors. We want to migrate to re-frame2. Walk me through the migration — what changes, what breaks, what the equivalents are.",
-      "expected_output": "This is migration, not authoring. The agent does NOT write fresh re-frame2 application code in response. Instead it routes the user to SKILL-REDIRECT.md — specifically the 'Migration from re-frame v1' pointer — and consults that doc rather than trying to derive v1→v2 deltas from memory.",
+      "expected_output": "This is migration, not authoring. The agent does NOT write fresh re-frame2 application code in response. Instead it hands the user off to the dedicated re-frame-migration skill (the single-source routing table in skills/README.md and this skill's own SKILL.md both route v1→v2 migration there), rather than trying to derive v1→v2 deltas from memory. The migration skill drives the rule corpus at migration/from-re-frame-v1/README.md.",
       "files": [],
       "expectations": [
         "The agent does NOT produce a wall of new re-frame2 source code as the primary response.",
-        "The agent points the user at SKILL-REDIRECT.md (or the migration guide URL it carries) for the v1→v2 deltas.",
-        "The agent does NOT re-derive the v1 surface from training memory — it acknowledges that v1→v2 drift makes confident recall unreliable.",
-        "If the agent surfaces specific v2 equivalents for re-frame-http-fx and re-frame-async-flow-fx, it cites them from the redirect target or the relevant pattern leaf (:rf.http/managed, Pattern-AsyncEffect, machines+:spawn) — not from invented memory.",
+        "The agent routes the user to the re-frame-migration skill for the v1→v2 deltas (matching SKILL.md's 'Do not use ... v1→v2 migration (use re-frame-migration)' disqualifier and skills/README.md's routing table).",
+        "The agent does NOT re-derive the v1 surface from training memory — it acknowledges that v1→v2 drift makes confident recall unreliable and that the migration corpus is the authority.",
+        "If the agent surfaces specific v2 equivalents for re-frame-http-fx and re-frame-async-flow-fx, it cites them from the migration skill / corpus or the relevant pattern leaf (:rf.http/managed, Pattern-AsyncEffect, machines+:spawn) — not from invented memory.",
         "The agent does NOT load the re-frame2-setup skill (this is a migration, not a greenfield scaffold)."
       ]
     },

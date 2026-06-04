@@ -57,7 +57,7 @@ Any non-setup question → route to the right skill; don't improvise here.
 ## Canonical greenfield path (seven steps)
 
 1. **Discover the current artefact VERSION.** → [`references/deps-versions.md`](references/deps-versions.md). Day-one deps match the generator template: `day8/re-frame2` + `day8/re-frame2-reagent` + `day8/re-frame2-schemas` + `day8/re-frame2-xray`, plus an explicit `reagent/reagent`.
-2. **Add the day-one artefacts to `deps.edn`.** → `references/deps-versions.md` §`deps.edn`.
+2. **Add the day-one artefacts to `deps.edn`, plus the `:shadow` build alias.** The `:shadow` alias (supplying `thheller/shadow-cljs` + `org.clojure/tools.namespace` and the `test`/`dev` extra-paths) is required — the paired `shadow-cljs.edn` reads its build classpath from it via `{:deps {:aliases [:shadow]}}`. Omitting it is the most common first-`watch` failure. → `references/deps-versions.md` §`deps.edn`.
 3. **Add `react`, `react-dom`, `shadow-cljs` to `package.json`; run `npm install`.** → `references/deps-versions.md` §`package.json`.
 4. **Write `shadow-cljs.edn` and `index.html`.** One `:target :browser` build, `:init-fn your-app.core/init`, `:source-paths` including `src/`, and the `:devtools/preloads [day8.re-frame2-xray.preload]` Xray wiring. `index.html` must provide the true-inline `[data-rf-xray-host]` left layout column beside `#app`; Xray auto-opens there on app load. → [`references/shadow-cljs.md`](references/shadow-cljs.md) for the exact shape, the `:devtools` block, and the `index.html`.
 5. **Write the entry namespace.** `your-app/core.cljs` requires `[re-frame.core :as rf]` and `[re-frame.adapter.reagent :as reagent-adapter]`, then calls `(rf/init! reagent-adapter/adapter)` **before any dispatch or render**. The exported entry symbol is `init` (matching the template's `:init-fn ...core/init`). → [`references/entry-namespace.md`](references/entry-namespace.md) for the canonical shape, the React-root `defonce` pattern, and the order-of-operations contract.
@@ -67,6 +67,7 @@ Any non-setup question → route to the right skill; don't improvise here.
 ## Done checklist
 
 - [ ] `deps.edn` lists `day8/re-frame2`, `day8/re-frame2-reagent`, `day8/re-frame2-schemas`, `day8/re-frame2-xray` at the same VERSION, plus an explicit `reagent/reagent`.
+- [ ] `deps.edn` defines the `:shadow` alias (`thheller/shadow-cljs` + `org.clojure/tools.namespace`, `:extra-paths ["test" "dev"]`) that `shadow-cljs.edn`'s `{:deps {:aliases [:shadow]}}` names — without it the build classpath won't resolve.
 - [ ] `package.json` lists `react`, `react-dom`, `shadow-cljs`.
 - [ ] `npm install` completes without errors.
 - [ ] `shadow-cljs.edn` has one `:builds` entry for the app, `:init-fn` pointing at the entry ns's `init`, and `:devtools/preloads [day8.re-frame2-xray.preload]`.

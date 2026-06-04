@@ -27,7 +27,7 @@ The M-rule numbering in [`MIGRATION.md`](../../../migration/from-re-frame-v1/REA
 | 1 | **M-0** | Already done in Phase 2. The whole migration runs against the new classpath. |
 | 2 | **M-1** | Every other rule assumes `re-frame.core` is the only allowed re-frame namespace. Private-namespace requires would cause spurious compile errors elsewhere. |
 | 3 | **M-38** | Substrate-adapter ns rename (`re-frame.substrate.<name>` → `re-frame.adapter.<name>`). Codebases that explicitly required the substrate (rare; usually only set up code) hit this. |
-| 4 | **M-40** | `(rf/init!)` requires the adapter spec map. Boot path doesn't compile without it. |
+| 4 | **M-40** | `(rf/init!)` requires the adapter spec map. Boot path doesn't compile without it. **Type B** — the rewrite is mechanical given a chosen adapter, but surface every `init!` call site so the author confirms which adapter the app boots against (see [`auto-cross-cutting.md` §Init / adapter](auto-cross-cutting.md#init--adapter-m-40)). |
 
 ### Group 2 — Macro / value-form / shape rewrites (compile-level)
 

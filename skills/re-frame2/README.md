@@ -39,26 +39,18 @@ The leaves cover fundamentals, state-machines, tooling, cross-cutting, project-s
 
 ## Install
 
-`re-frame2` ships as part of the [`day8/re-frame2`](https://github.com/day8/re-frame2) monorepo. There is no separate npm registry entry yet — clone the repo and reference the skill from `skills/re-frame2/`.
+`re-frame2` ships as part of the [`day8/re-frame2`](https://github.com/day8/re-frame2) monorepo. There is no separate npm registry entry yet — clone the repo and **link** the skill into `~/.claude/skills/` (Claude Code loads skills from there).
 
-### Global — for you, across any re-frame2 project
-
-Symlink (or copy) the skill into your user Claude config:
+**Link, never copy.** A copy snapshots the skill and then drifts as the repo is maintained — Claude Code keeps loading the stale copy. Use the cross-platform installer, which links *every* skill in the monorepo so the active skill is the repo source by construction:
 
 ```bash
 git clone https://github.com/day8/re-frame2.git
-ln -s "$(pwd)/re-frame2/skills/re-frame2" ~/.claude/skills/re-frame2
+cd re-frame2
+scripts/install-skills.sh                                              # macOS / Linux (symlinks)
+powershell -ExecutionPolicy Bypass -File scripts/install-skills.ps1    # Windows (junctions, no admin)
 ```
 
-### Project-local — for your team via the repo
-
-Copy the skill into the project's own `.claude/skills/re-frame2/` and commit it:
-
-```bash
-cd your-re-frame2-project
-cp -r /path/to/re-frame2/skills/re-frame2 .claude/skills/re-frame2
-git add .claude/skills/re-frame2
-```
+The installer is idempotent, refuses to clobber a non-link copy without `--force` (`-Force`), and supports `--check` (`-Check`) to verify the links. See [`skills/README.md` §Installing (link, never copy)](../README.md#installing-link-never-copy) and [`CONTRIBUTING.md` §skills — link, don't copy](../../CONTRIBUTING.md#skills--link-dont-copy) for the full rationale and contributor setup. To make the skill available to a team through a project repo, link from a checkout the team shares rather than committing a `cp -r` snapshot that will go stale.
 
 ## How it activates
 

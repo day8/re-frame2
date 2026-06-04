@@ -88,7 +88,7 @@ Same for `uix` / `helix` variants.
 (sub {:re-frame/q ::id :param 1})    → (subscribe [::id 1])   ; vectorize the query-map
 ```
 
-**Edge case → Type B**: any `:re-frame/lifecycle` annotation in the original — drop the annotation, file a follow-up bead if the user explicitly wanted non-default lifecycle.
+**Edge case → Type B**: any `:re-frame/lifecycle` annotation in the original — drop the annotation; if the user explicitly wanted non-default lifecycle, flag it (and, with their approval, file a GitHub issue against `day8/re-frame2` per [`SKILL.md`](../SKILL.md) cardinal rule 7). See [`guided-interceptors-subs.md` §M-23](guided-interceptors-subs.md#m-23--re-framelifecycle-annotation-drop).
 
 ### M-25 — `re-frame.test` rename
 
@@ -178,7 +178,7 @@ The single highest-impact mechanical rewrite. The transformation is structural.
 
 **Procedure** (sweep first, then per-handler rewrite):
 
-1. Discover the project's user-fx ids: `grep -E "\\(rf/reg-fx\\s+:" -r src/`.
+1. Discover the project's user-fx ids: `rg "\(rf/reg-fx\s+:" src/` (the skill's only shell verb is `rg` — see SKILL.md `allowed-tools`).
 2. Add the built-ins: `:dispatch`, `:dispatch-later`, `:dispatch-n`.
 3. For each `reg-event-fx` body, walk the returned effect map literal.
 4. For each top-level key other than `:db`:

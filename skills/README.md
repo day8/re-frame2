@@ -53,8 +53,11 @@ re-frame2 ships **eight** skills, grouped by the situation they cover:
   [`tools/template/`](../tools/template/): use the template
   (`clojure -Tnew create :template io.github.day8/re-frame2-template :name acme/my-app`)
   when you want a one-shot scaffold; reach for this skill when you're
-  adding re-frame2 to an existing CLJS project, or when you want to
-  understand each step the template performs.
+  bootstrapping greenfield — a brand-new app, or an **empty** CLJS project
+  (shadow-cljs / Clojure present but **zero re-frame2 wiring**) — or when
+  you want to understand each step the template performs. Adding re-frame2
+  to a **non-trivial** existing app is an authoring task — route to
+  [`re-frame2/`](./re-frame2/) (see the disqualifier below).
 
 - **[`re-frame-migration/`](./re-frame-migration/)** — migrate an existing
   re-frame v1.x ClojureScript codebase to re-frame2. Drives the
