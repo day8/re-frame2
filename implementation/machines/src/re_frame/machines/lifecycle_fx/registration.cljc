@@ -534,21 +534,39 @@
                 ;; Per rf2-gl588 — PURE init-kick (the Job-B cut-point,
                 ;; sub-decision (b)): when the routed inner event IS the
                 ;; reserved `:rf.machine/start` marker, `maybe-boot` has
-                ;; already run the initial-entry cascade (and emitted
-                ;; `:rf.machine/started`). STOP here — never feed the
-                ;; synthetic marker into `run-step` as a trigger. This
-                ;; removes the misleading `before == after` self-transition
-                ;; for quiet states and the `:*`-wildcard throw for
-                ;; `:fuse/box`-shaped initial states; the marker now means
-                ;; exactly "create + run initial-entry," like `xstate.init`.
-                ;; (`commit-or-finalize` is bypassed: a pure start emits no
-                ;; `:rf.machine/transition`; `:rf.machine/started` is the
-                ;; sole birth signal. No machine reaches a final leaf by
-                ;; running ONLY its initial-entry cascade, so finalize has
-                ;; nothing to do on this path.)
+                ;; already run the INITIAL MACROSTEP — the initial-entry
+                ;; cascade AND the birth-time `:always` + raise settle
+                ;; (rf2-505ic), via `parallel/apply-initial-entry-cascade`
+                ;; — and emitted `:rf.machine/started`. STOP here — never
+                ;; feed the synthetic marker into `run-step` as a trigger.
+                ;; This removes the misleading `before == after` self-
+                ;; transition for quiet states and the `:*`-wildcard throw
+                ;; for `:fuse/box`-shaped initial states; the marker now
+                ;; means exactly "create + run the initial macrostep," like
+                ;; `xstate.init`. (`commit-or-finalize` is bypassed: a pure
+                ;; start emits no `:rf.machine/transition`;
+                ;; `:rf.machine/started` is the sole birth signal.)
+                ;;
+                ;; Per rf2-505ic the birth `:always` settle CAN now land
+                ;; the machine on a final leaf at start (an initial leaf
+                ;; whose `:always` targets a final state) — XState v5 treats
+                ;; such an actor as done immediately. So recompute finality
+                ;; from the settled snapshot (mirroring `commit-or-finalize`)
+                ;; and route to `finalize-machine` when finished, so the
+                ;; `:on-done` + auto-destroy cascade fires on eager start
+                ;; just as it would on the lazy path.
                 (if (= transition/start-marker (first (:inner-event ctx)))
-                  {:db (assoc-in db (:path ctx) post-boot-snap)
-                   :fx (vec boot-fx)}
+                  (let [m (:machine ctx)]
+                    (if (or (and (not (parallel/parallel? m))
+                                 (transition/final-on-leaf? m (:state post-boot-snap)))
+                            (finalize/all-regions-final? m (:state post-boot-snap)))
+                      (finalize/finalize-machine m (:machine-id ctx) (:frame-id ctx)
+                                                 (assoc-in db (:path ctx) post-boot-snap)
+                                                 post-boot-snap
+                                                 (:inner-event ctx)
+                                                 (vec boot-fx))
+                      {:db (assoc-in db (:path ctx) post-boot-snap)
+                       :fx (vec boot-fx)}))
                   (let [step-result (run-step ctx post-boot-snap)]
                     (if (result/fail? step-result)
                       (trace-action-failure! (:machine-id ctx) (:inner-event ctx)

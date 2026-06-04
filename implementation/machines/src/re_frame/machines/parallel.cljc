@@ -360,10 +360,11 @@
                        (long (+ micro-total region-micro))
                        (into cascade region-cascade))))))))))
 
-(defn apply-initial-entry-cascade
-  "Synthesise the bootstrap entry cascade for `machine` against the
-  freshly-synthesised `initial-snapshot`. Returns a `result/ok` Result
-  carrying the new snapshot + fx, or a `result/fail` Result if any
+(defn- run-initial-cascade
+  "Synthesise the bootstrap ENTRY cascade for `machine` against the
+  freshly-synthesised `initial-snapshot` — the initial-descent `:entry`
+  actions only. Returns a `result/ok` Result carrying the post-cascade
+  snapshot + fx (+ `::cascade`), or a `result/fail` Result if any
   `:entry` action threw.
 
   For parallel-region machines (`:type :parallel`), delegates to
@@ -371,7 +372,11 @@
   (declaration-order iteration, threaded `:data` + `:rf/spawn-counter`,
   per-region fx-prefix, `commit-tags-parallel` on commit). For flat /
   compound machines, runs `bootstrap-step` directly — the broadcast
-  invariant doesn't apply."
+  invariant doesn't apply.
+
+  Per rf2-505ic the `:always` fixed-point + raise drain that settles the
+  initial macrostep is a SEPARATE phase — `apply-initial-entry-cascade`
+  composes this entry cascade with `settle-birth`."
   [machine initial-snapshot]
   (if (parallel? machine)
     (reduce-regions machine initial-snapshot bootstrap-step)
@@ -428,52 +433,35 @@
                   (fn [region-spec region-snap]
                     (machine-transition region-spec region-snap event))))
 
-(defn- parallel-machine-transition
-  "Pure function. Given a parallel-region machine, current snapshot, and
-  event, run the parallel MACROSTEP — broadcast the event to every region,
-  then drain the parent's single internal-event queue (region-surfaced
-  `:raise`s, re-broadcast FIFO across all regions) to a fixed point, and
-  return the merged result. Returns a `result/ok` Result on success or a
-  `result/fail` Result if any region's action threw.
+(defn- drain-parent-queue
+  "Drain the parent's single internal-event queue (region-surfaced
+  `:raise`s, re-broadcast FIFO across all regions) to a fixed point,
+  starting from the seed broadcast `first-r`, and return the merged
+  Result. Shared by the parallel event MACROSTEP (`parallel-machine-
+  transition`, seed = the external event's first broadcast) and the
+  parallel BIRTH settle (`settle-birth`, seed = the post-initial-cascade
+  per-region `:always` settle) — rf2-505ic factored this out so birth
+  reuses the identical queue drain rather than duplicating it.
 
-  Per Spec 005 §Transition broadcast: each region resolves the event
-  through its own active state's deepest-wins lookup; resolved regions
-  transition, undeclined regions stay put. The `:data` slot is shared —
-  each region's actions see the prior region's `:data` writes in
-  declaration order. Per rf2-vqubp the broadcast invariant lives in
-  `reduce-regions`.
+  `acc-fx` accumulates only the real (non-`:raise`) fx; `acc-micro` /
+  `acc-cascade` roll up the totals across every (re-)broadcast.
+  `external-handled?` reflects the SEED broadcast alone — re-broadcast
+  internal events are continuation and never re-arm the all-regions-
+  declined no-op (which keys off the inbound `event`).
 
-  Per Spec 005 §Parallel-region `:raise` broadcast (rf2-yi7ts — XState v5
-  parity): a `:raise` emitted by ANY region is NOT region-local. It enters
-  this macrostep's internal-event queue and is re-broadcast across EVERY
-  region against the full evolving snapshot — exactly what an equivalent
-  self-`[:dispatch [<self-id> …]]` would broadcast, but pre-commit and
-  inside the one macrostep. Raises are drained FIFO (rf2-nr434): a raise
-  surfaced earlier is re-broadcast before one surfaced later, and a raise
-  emitted *while handling* a re-broadcast goes to the BACK of the queue.
-  The whole macrostep — external event + every re-broadcast internal event
-  + every region's `:always` microsteps — commits ONCE, atomically.
-  Bounded by the parent `:raise-depth-limit` (default 16); on exceed the
-  macrostep rolls back wholesale (original snapshot, no fx) and emits
-  `:rf.error/machine-raise-depth-exceeded`, matching the single-machine
-  drain.
+  `event` gates the all-regions-declined benign no-op trace; pass `nil`
+  on the birth path (a birth never declines an external event — there is
+  none — so it must never emit the unhandled-no-op). `snapshot` is the
+  atomic-rollback target on `:raise-depth-limit` abort (the input
+  snapshot — for birth, the pre-settle post-cascade snapshot).
 
-  For the synthetic `[:rf.machine.timer/after-elapsed ...]` event,
-  delivery is region-scoped — the broadcast routes to the bearing region
-  only, identified by the region-name prefix on the in-flight timer's
-  `:rf/spawn-id`."
-  [machine snapshot event]
+  Returns a `result/ok` (snapshot + fx, with `::handled?` / `::microsteps`
+  / `::cascade`) or the first region's `result/fail`."
+  [machine snapshot event first-r]
   (let [raise-limit (get machine :raise-depth-limit
-                         transition/raise-depth-limit-default)
-        first-r     (broadcast-once machine snapshot event)]
+                         transition/raise-depth-limit-default)]
     (if (result/fail? first-r)
       first-r
-      ;; Drain the parent internal-event queue. `acc-fx` accumulates only
-      ;; the real (non-:raise) fx; `acc-micro` / `acc-cascade` roll up the
-      ;; macrostep totals across every (re-)broadcast. `handled?` reflects
-      ;; the EXTERNAL event alone — re-broadcast internal events are
-      ;; continuation and never re-arm the all-regions-declined no-op
-      ;; (which keys off the inbound `event` below).
       (result/with-ok [snap0 fx0] first-r
         (let [[raises0 real0] (split-raises fx0)
               external-handled? (result/handled? first-r)]
@@ -503,9 +491,12 @@
                 ;; framework lifecycle traffic — the synthetic bootstrap,
                 ;; the spawn kick-off, the stories-runtime pings — is NOT
                 ;; classified as an unknown-user-event no-op (rf2-ugdas /
-                ;; rf2-t4582). Mirrors the flat-machine emission in
-                ;; `transition/machine-transition-single`.
+                ;; rf2-t4582). On the BIRTH path `event` is `nil`, so the
+                ;; `unhandled-event-no-op?` gate is never reached — birth
+                ;; never emits the no-op. Mirrors the flat-machine emission
+                ;; in `transition/machine-transition-single`.
                 (when (and (not external-handled?)
+                           (some? event)
                            (transition/unhandled-event-no-op? event))
                   (trace/emit! :rf.machine :rf.machine.event/unhandled-no-op
                                {:machine-id (or (:rf/parent-id machine) (:id machine))
@@ -546,6 +537,44 @@
                              (+ acc-micro (result/microsteps step))
                              (into acc-casc (result/cascade step))))))))))))))
 
+(defn- parallel-machine-transition
+  "Pure function. Given a parallel-region machine, current snapshot, and
+  event, run the parallel MACROSTEP — broadcast the event to every region,
+  then drain the parent's single internal-event queue (region-surfaced
+  `:raise`s, re-broadcast FIFO across all regions) to a fixed point, and
+  return the merged result. Returns a `result/ok` Result on success or a
+  `result/fail` Result if any region's action threw.
+
+  Per Spec 005 §Transition broadcast: each region resolves the event
+  through its own active state's deepest-wins lookup; resolved regions
+  transition, undeclined regions stay put. The `:data` slot is shared —
+  each region's actions see the prior region's `:data` writes in
+  declaration order. Per rf2-vqubp the broadcast invariant lives in
+  `reduce-regions`.
+
+  Per Spec 005 §Parallel-region `:raise` broadcast (rf2-yi7ts — XState v5
+  parity): a `:raise` emitted by ANY region is NOT region-local. It enters
+  this macrostep's internal-event queue and is re-broadcast across EVERY
+  region against the full evolving snapshot — exactly what an equivalent
+  self-`[:dispatch [<self-id> …]]` would broadcast, but pre-commit and
+  inside the one macrostep. Raises are drained FIFO (rf2-nr434): a raise
+  surfaced earlier is re-broadcast before one surfaced later, and a raise
+  emitted *while handling* a re-broadcast goes to the BACK of the queue.
+  The whole macrostep — external event + every re-broadcast internal event
+  + every region's `:always` microsteps — commits ONCE, atomically.
+  Bounded by the parent `:raise-depth-limit` (default 16); on exceed the
+  macrostep rolls back wholesale (original snapshot, no fx) and emits
+  `:rf.error/machine-raise-depth-exceeded`, matching the single-machine
+  drain.
+
+  For the synthetic `[:rf.machine.timer/after-elapsed ...]` event,
+  delivery is region-scoped — the broadcast routes to the bearing region
+  only, identified by the region-name prefix on the in-flight timer's
+  `:rf/spawn-id`."
+  [machine snapshot event]
+  (let [first-r (broadcast-once machine snapshot event)]
+    (drain-parent-queue machine snapshot event first-r)))
+
 (defn machine-transition
   "Pure function. Given a machine definition, current snapshot, and event,
   return a `re-frame.machines.result/Result` — either a `result/ok`
@@ -577,6 +606,109 @@
   (if (parallel? machine)
     (parallel-machine-transition machine snapshot event)
     (transition/machine-transition-single machine snapshot event)))
+
+;; ---- birth-time `:always` + raise settle (rf2-505ic) ----------------------
+;;
+;; XState v5 / SCXML gold standard: the INITIAL macrostep is initial-entry
+;; + the eventless (`always`) drain. `createActor(m).start()` evaluates
+;; `always` on the entered initial state(s); if an `always` guard already
+;; holds, the actor settles PAST the initial leaf with NO external event —
+;; the transient initial leaf is never externally observed. re-frame2's own
+;; Spec 005 promises this ("fire as soon as the machine starts" = the
+;; initial cascade into a leaf whose `:always` fires); `settle-birth` runs
+;; the SAME raise-drain + `:always` fixed-point loop the event macrostep
+;; uses, immediately after the entry cascade and BEFORE the birth commit,
+;; for BOTH birth paths (eager `[:rf.machine/start]` + lazy first-event).
+
+(defn- settle-region-birth
+  "Per-region birth settle step for `reduce-regions`: feed the region's
+  post-cascade snapshot through the single-machine `drain-to-fixed-point`
+  with an EMPTY seed cascade (the entry cascade was already captured by
+  `run-initial-cascade`; this phase contributes only the `:always`
+  microsteps). The region DEFERS its raises (`region-spec` carries
+  `:rf/region`, so `drain-to-fixed-point`'s `defer?` is true) — they
+  surface back to the parent queue, which `settle-birth` re-broadcasts."
+  [region-spec region-snap]
+  (transition/drain-to-fixed-point
+    region-spec
+    (result/ok region-snap [])
+    region-snap                         ; atomic-rollback target = post-cascade
+    0                                   ; raise-depth seed
+    true))                              ; defer raises to the parent queue
+
+(defn- settle-birth
+  "Run the birth-time settle — raise drain + `:always` fixed-point loop —
+  against the POST-initial-cascade `boot-snapshot`, BEFORE the machine is
+  committed (rf2-505ic). The shared settling tail of the macrostep, reused
+  so a transient initial leaf whose `:always` guard already holds is
+  settled past — unobserved — on start, exactly as XState v5 / SCXML do.
+
+  For flat / compound machines, seeds the single-machine
+  `transition/drain-to-fixed-point` with `(ok boot-snapshot [])`.
+
+  For parallel-region machines, each region settles its OWN `:always`
+  (deferring raises) via `settle-region-birth`, then the parent's single
+  internal-event queue re-broadcasts every region-surfaced raise FIFO
+  across all regions to a fixed point — the same `drain-parent-queue` the
+  event macrostep uses, seeded with `event nil` so the all-regions-declined
+  no-op never fires on birth.
+
+  Returns a `result/ok` carrying the settled snapshot + fx (with
+  `::microsteps` = the count of `:always` iterations and `::cascade` = the
+  `:always`-microstep steps; the caller prepends the entry cascade), or a
+  `result/fail` if an `:always` action or a drained raise threw. The
+  atomic-rollback target on `:always`/`:raise`-depth abort is
+  `boot-snapshot` (the initial configuration is the committed state — only
+  a runaway settle is abandoned)."
+  [machine boot-snapshot]
+  (if (parallel? machine)
+    (let [first-r (reduce-regions machine boot-snapshot settle-region-birth)]
+      (drain-parent-queue machine boot-snapshot nil first-r))
+    (transition/drain-to-fixed-point
+      machine
+      (result/ok boot-snapshot [])
+      boot-snapshot
+      0
+      false)))
+
+(defn apply-initial-entry-cascade
+  "The machine's INITIAL MACROSTEP (rf2-505ic — XState v5 / SCXML parity):
+  the initial-entry cascade THEN the eventless (`:always`) + raise settle,
+  composed and returned as ONE Result. The single birth site for BOTH
+  paths (eager `[:rf.machine/start]` and lazy first-event); the lifecycle
+  handler's `maybe-boot` calls it once.
+
+   1. `run-initial-cascade` — the initial-descent `:entry` actions
+      (per-region broadcast for parallel machines).
+   2. `settle-birth` — the raise drain + `:always` fixed-point loop on the
+      post-cascade snapshot, BEFORE commit, so a transient initial leaf
+      whose `:always` guard already holds settles past, unobserved.
+
+  Returns a `result/ok` carrying the settled snapshot + the entry fx ++
+  any settle fx, with `::cascade` = the entry cascade ++ the `:always`
+  microsteps (so the `:rf.machine/transition` / `:rf.machine/started`
+  trace surfaces both). A `result/fail` from either phase short-circuits.
+
+  A no-`:always` machine settles in zero microsteps — `settle-birth`
+  finds no matching `:always` and returns the post-cascade snapshot
+  with the tag union re-stamped (identical to the pre-rf2-505ic birth)."
+  [machine initial-snapshot]
+  (let [entry-r (run-initial-cascade machine initial-snapshot)]
+    (if (result/fail? entry-r)
+      entry-r
+      (result/with-ok [boot-snap entry-fx] entry-r
+        (let [settle-r (settle-birth machine boot-snap)]
+          (if (result/fail? settle-r)
+            settle-r
+            (result/with-ok [settled-snap settle-fx] settle-r
+              ;; Compose: entry fx then settle fx; entry cascade then the
+              ;; `:always` microstep cascade. `::microsteps` rides from the
+              ;; settle (the entry cascade ran no `:always`).
+              (-> (result/ok settled-snap (vec (concat entry-fx settle-fx)))
+                  (result/with-cascade
+                    (into (vec (result/cascade entry-r))
+                          (result/cascade settle-r)))
+                  (result/with-microsteps (result/microsteps settle-r))))))))))
 
 ;; ---- destroy-time exit cascade (rf2-nahfm) --------------------------------
 ;;

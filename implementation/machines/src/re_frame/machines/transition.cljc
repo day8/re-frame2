@@ -2291,6 +2291,169 @@
                     :fired? true
                     :frame  frame-id}))))
 
+(defn drain-to-fixed-point
+  "Shared settling tail of the single-machine macrostep — steps 3-5 of
+  Spec 005 §Drain semantics §Level 3, factored out of
+  `machine-transition-single` (rf2-505ic) so the machine-BIRTH cascade
+  reuses the SAME raise-drain + `:always` fixed-point loop the event-driven
+  macrostep uses, rather than duplicating it.
+
+   3. Drain the local `:raise` queue FIFO (rf2-nr434 — XState v5 / SCXML
+      internal-event-queue parity), OR defer per `defer?`.
+   4. `:always` microstep loop — walk the active path leaf→root for any
+      matching `:always`; apply it, drain its raises, re-check from the
+      new state. Repeat to a fixed point.
+   5. Stamp the active-configuration tag union (`commit-tags`) on the
+      settled snapshot and return it, with `::microsteps` (the count of
+      `:always` iterations) and `::cascade` (the structured step vector)
+      stamped on the Result.
+
+  `start-result` is the `result/ok` carrying the snapshot + fx + cascade
+  that SEEDS the drain. For the event-driven macrostep that is the
+  post-exit/action/entry `apply-transition-once` Result; for machine birth
+  it is the post-initial-entry cascade Result. Either way its `::cascade`
+  becomes the base cascade and the `:always` loop appends one `:microstep`
+  step per eventless iteration.
+
+  `rollback-snapshot` is the snapshot the macrostep atomically reverts to
+  if the `:always` loop trips `:always-depth-limit` — the macrostep is
+  atomic per Spec 005 §Bounded depth. The event-driven caller passes the
+  PRE-event snapshot (the whole macrostep unwinds); the birth caller passes
+  the POST-cascade snapshot (the initial state is already the committed
+  configuration — only the runaway `:always` settling is abandoned).
+
+  `raise-depth` seeds the transitive `:raise` depth counter (rf2-b88nm);
+  `defer?` is the effective region-defer flag (a parallel region defers its
+  raises to the parent macrostep — rf2-yi7ts). XState v5 / SCXML parity:
+  `:always` (eventless) transitions settle as part of the SAME step that
+  entered the state, so a transient state passed through here is never
+  externally observed.
+
+  Returns a `result/ok` (snapshot + fx, with `::microsteps` / `::cascade`)
+  or a `result/fail` if an `:always` action or a drained raise threw."
+  [machine start-result rollback-snapshot raise-depth defer?]
+  (let [always-limit (get machine :always-depth-limit always-depth-limit-default)
+        raise-limit  (get machine :raise-depth-limit  raise-depth-limit-default)]
+    (if (result/fail? start-result)
+      start-result
+      (result/with-ok [snap-after-event fx-after-event] start-result
+        (let [raised (drain-or-defer-raises machine snap-after-event fx-after-event raise-limit raise-depth defer?)
+              ;; Per rf2-n9f4z: seed the macrostep cascade with the seeding
+              ;; transition's (event-driven exit/action/entry, OR birth
+              ;; initial-entry) steps; the `:always` loop appends one
+              ;; `:microstep` step per eventless iteration (carrying that
+              ;; microstep's own nested cascade). The accumulated vector is
+              ;; the structured explanation the outer `:rf.machine/
+              ;; transition` trace carries (rf2-52u5n).
+              base-cascade (result/cascade start-result)]
+          (if (result/fail? raised)
+            raised
+            (result/with-ok [snap-after-raise fx-after-raise] raised
+              ;; Step 4: :always microstep loop. Track visited state-paths so that,
+              ;; on depth-limit abort, we can report the path AND fully roll back to
+              ;; `rollback-snapshot` — the macrostep is atomic per Spec 005.
+              (loop [snap    snap-after-raise
+                     fx      fx-after-raise
+                     depth   0
+                     visited [(:state snap-after-raise)]
+                     cascade base-cascade]
+                (cond
+                  (>= depth always-limit)
+                  (do (trace/emit-error! :rf.error/machine-always-depth-exceeded
+                                         {;; The live runtime spec carries the
+                                          ;; machine id under `:rf/parent-id`;
+                                          ;; the spec map forbids `:id`. Mirror
+                                          ;; the guard/action traces' fallback.
+                                          :machine-id (or (:rf/parent-id machine)
+                                                          (:id machine))
+                                          :depth      depth
+                                          :path       visited
+                                          ;; Per rf2-ko8jb: epoch-capture
+                                          ;; admission requires `:frame`.
+                                          :frame      (:rf/frame machine)
+                                          :recovery   :no-recovery})
+                      ;; Macrostep rolls back atomically — no cascade survives
+                      ;; the abort.
+                      (result/ok rollback-snapshot []))
+
+                  :else
+                  (let [snap-path (state-path (:state snap))
+                        always-m  (pick-always-transition machine snap-path snap)]
+                    (if (nil? always-m)
+                      ;; Macrostep fixed-point reached. Recompute the
+                      ;; active-configuration tag union on the committed snapshot
+                      ;; AFTER the new state is settled but BEFORE traces fire
+                      ;; (so the outer handler's `:rf.machine/transition` trace
+                      ;; carries the new tag set). `depth` is the count of
+                      ;; `:always` microsteps taken — stamped onto the Result
+                      ;; via `::microsteps` (per Spec 005 §Trace events) so
+                      ;; `commit-or-finalize` can carry `:microsteps` on the
+                      ;; outer `:rf.machine/transition` trace. Per rf2-n9f4z
+                      ;; the accumulated `cascade` rides via `::cascade`.
+                      (-> (result/ok (commit-tags machine snap) fx)
+                          (result/with-microsteps depth)
+                          (result/with-cascade cascade))
+                      ;; Per rf2-82a0u: `:always` microstep's transition
+                      ;; `:action` `action-ran` emit carries `:phase
+                      ;; :always` so the Handler section can group
+                      ;; eventless cascades distinctly from `:on`-driven
+                      ;; transitions.
+                      (let [step-result (apply-transition-once machine snap nil
+                                                                (:transition always-m)
+                                                                :always)]
+                        (if (result/fail? step-result)
+                          step-result
+                          (result/with-ok [snap2 fx2] step-result
+                            ;; Per Spec 005 §Trace events: one
+                            ;; `:rf.machine.microstep/transition` per microstep,
+                            ;; carrying the from/to states and the 0-based
+                            ;; microstep index, so visualisers/debuggers see the
+                            ;; inner `:always` cascade the outer trace hides.
+                            ;; Per rf2-ejtpd: stamp `:source :always` so the
+                            ;; trigger-kind classifier is uniform with the
+                            ;; dispatch-envelope vocabulary (Spec-Schemas
+                            ;; §`:rf/dispatch-envelope`). `:always` microsteps
+                            ;; do not produce their own envelope (intra-
+                            ;; macrostep); the trace is the surface where the
+                            ;; closed-set value is observable.
+                            (trace/emit! :rf.machine :rf.machine.microstep/transition
+                                         {:machine-id     (or (:rf/parent-id machine)
+                                                              (:id machine))
+                                          :from           (:state snap)
+                                          :to             (:state snap2)
+                                          :microstep-index depth
+                                          :source         :always
+                                          ;; Per rf2-ko8jb: epoch-capture
+                                          ;; admission requires `:frame`.
+                                          :frame          (:rf/frame machine)})
+                            ;; Per rf2-n9f4z: append a `:microstep` cascade
+                            ;; step carrying the microstep's own nested
+                            ;; exit/action/entry `:steps` (from the eventless
+                            ;; transition's `apply-transition-once` cascade) so
+                            ;; the eventless cascade is explainable alongside
+                            ;; the headline transition rather than hidden
+                            ;; behind a bare count.
+                            (let [micro-step {:kind            :microstep
+                                              :region          (:rf/region machine)
+                                              :microstep-index depth
+                                              :from            (:state snap)
+                                              :to              (:state snap2)
+                                              :steps           (result/cascade step-result)}]
+                              ;; Seed the per-`:always`-step drain with the
+                              ;; macrostep's inbound transitive `raise-depth`
+                              ;; (rf2-b88nm) so raises emitted by an `:always`
+                              ;; cascade reached via a raise chain keep counting
+                              ;; against the same `:raise-depth-limit`.
+                              (let [raised2 (drain-or-defer-raises machine snap2 fx2 raise-limit raise-depth defer?)]
+                                (if (result/fail? raised2)
+                                  raised2
+                                  (result/with-ok [snap3 fx3] raised2
+                                    (recur snap3
+                                           (vec (concat fx fx3))
+                                           (inc depth)
+                                           (conj visited (:state snap3))
+                                           (conj cascade micro-step))))))))))))))))))))
+
 (defn machine-transition-single
   "Pure function. Single-machine (flat or compound) implementation of the
   macrostep. Per Spec 005 §Drain semantics §Level 3:
@@ -2303,6 +2466,11 @@
    4. `:always` microstep loop — walk path leaf→root for any matching
       `:always`; apply, drain raises, loop.
    5. Commit (return) the snapshot once `:always` reaches fixed point.
+
+  Steps 3-5 (the raise-drain + `:always` fixed-point settling + tag commit)
+  live in the shared `drain-to-fixed-point` (rf2-505ic) so machine BIRTH
+  reuses the identical settling tail — see `re-frame.machines.parallel`'s
+  `settle-birth` / `apply-initial-entry-cascade`.
 
   Returns a `result/ok` Result on success or a `result/fail` Result if
   any action or `:data`-fn threw. Bounded by `:raise-depth-limit` and
@@ -2345,11 +2513,11 @@
   ([machine snapshot event raise-depth]
    (machine-transition-single machine snapshot event raise-depth false))
   ([machine snapshot event raise-depth defer-raises?]
-  (let [always-limit (get machine :always-depth-limit always-depth-limit-default)
-        raise-limit  (get machine :raise-depth-limit  raise-depth-limit-default)
-        ;; A region of a parallel parent always defers (its raises lift to
+  (let [;; A region of a parallel parent always defers (its raises lift to
         ;; the parent macrostep), even when reached via the bare public
-        ;; arity — see the docstring's `defer-raises?` note.
+        ;; arity — see the docstring's `defer-raises?` note. The depth
+        ;; LIMITS themselves (`:always-depth-limit` / `:raise-depth-limit`)
+        ;; are read inside the shared `drain-to-fixed-point`.
         defer?       (or defer-raises? (some? (:rf/region machine)))
         path             (state-path (:state snapshot))
         match            (pick-transition machine path event snapshot)
@@ -2429,123 +2597,13 @@
                             ;; requires `:frame`.
                             :frame      (:rf/frame machine)}))
             (result/ok snapshot [])))]
+    ;; Steps 3-5: hand the post-event seed Result to the shared
+    ;; `drain-to-fixed-point` — raise-drain FIFO, `:always` fixed-point
+    ;; loop, tag commit (rf2-505ic factored this out so machine birth
+    ;; reuses the identical settling tail). The atomic-rollback target is
+    ;; the PRE-event `snapshot` (the whole macrostep unwinds on
+    ;; `:always`-depth abort). `handled?` rides the Result for the
+    ;; parallel parent's all-regions-declined no-op aggregation.
     (result/with-handled
-     (if (result/fail? result-after-event)
-      result-after-event
-      (result/with-ok [snap-after-event fx-after-event] result-after-event
-        (let [raised (drain-or-defer-raises machine snap-after-event fx-after-event raise-limit raise-depth defer?)
-              ;; Per rf2-n9f4z: seed the macrostep cascade with the
-              ;; event-driven transition's exit/action/entry steps; the
-              ;; `:always` loop appends one `:microstep` step per eventless
-              ;; iteration (carrying that microstep's own nested cascade).
-              ;; The accumulated vector is the structured explanation the
-              ;; outer `:rf.machine/transition` trace carries (rf2-52u5n).
-              base-cascade (result/cascade result-after-event)]
-          (if (result/fail? raised)
-            raised
-            (result/with-ok [snap-after-raise fx-after-raise] raised
-              ;; Step 4: :always microstep loop. Track visited state-paths so that,
-              ;; on depth-limit abort, we can report the path AND fully roll back to
-              ;; the original input snapshot — the macrostep is atomic per Spec 005.
-              (loop [snap    snap-after-raise
-                     fx      fx-after-raise
-                     depth   0
-                     visited [(:state snap-after-raise)]
-                     cascade base-cascade]
-                (cond
-                  (>= depth always-limit)
-                  (do (trace/emit-error! :rf.error/machine-always-depth-exceeded
-                                         {;; The live runtime spec carries the
-                                          ;; machine id under `:rf/parent-id`;
-                                          ;; the spec map forbids `:id`. Mirror
-                                          ;; the guard/action traces' fallback.
-                                          :machine-id (or (:rf/parent-id machine)
-                                                          (:id machine))
-                                          :depth      depth
-                                          :path       visited
-                                          ;; Per rf2-ko8jb: epoch-capture
-                                          ;; admission requires `:frame`.
-                                          :frame      (:rf/frame machine)
-                                          :recovery   :no-recovery})
-                      ;; Macrostep rolls back atomically — no cascade survives
-                      ;; the abort.
-                      (result/ok snapshot []))
-
-                  :else
-                  (let [snap-path (state-path (:state snap))
-                        always-m  (pick-always-transition machine snap-path snap)]
-                    (if (nil? always-m)
-                      ;; Macrostep fixed-point reached. Recompute the
-                      ;; active-configuration tag union on the committed snapshot
-                      ;; AFTER the new state is settled but BEFORE traces fire
-                      ;; (so the outer handler's `:rf.machine/transition` trace
-                      ;; carries the new tag set). `depth` is the count of
-                      ;; `:always` microsteps taken — stamped onto the Result
-                      ;; via `::microsteps` (per Spec 005 §Trace events) so
-                      ;; `commit-or-finalize` can carry `:microsteps` on the
-                      ;; outer `:rf.machine/transition` trace. Per rf2-n9f4z
-                      ;; the accumulated `cascade` rides via `::cascade`.
-                      (-> (result/ok (commit-tags machine snap) fx)
-                          (result/with-microsteps depth)
-                          (result/with-cascade cascade))
-                      ;; Per rf2-82a0u: `:always` microstep's transition
-                      ;; `:action` `action-ran` emit carries `:phase
-                      ;; :always` so the Handler section can group
-                      ;; eventless cascades distinctly from `:on`-driven
-                      ;; transitions.
-                      (let [step-result (apply-transition-once machine snap nil
-                                                                (:transition always-m)
-                                                                :always)]
-                        (if (result/fail? step-result)
-                          step-result
-                          (result/with-ok [snap2 fx2] step-result
-                            ;; Per Spec 005 §Trace events: one
-                            ;; `:rf.machine.microstep/transition` per microstep,
-                            ;; carrying the from/to states and the 0-based
-                            ;; microstep index, so visualisers/debuggers see the
-                            ;; inner `:always` cascade the outer trace hides.
-                            ;; Per rf2-ejtpd: stamp `:source :always` so the
-                            ;; trigger-kind classifier is uniform with the
-                            ;; dispatch-envelope vocabulary (Spec-Schemas
-                            ;; §`:rf/dispatch-envelope`). `:always` microsteps
-                            ;; do not produce their own envelope (intra-
-                            ;; macrostep); the trace is the surface where the
-                            ;; closed-set value is observable.
-                            (trace/emit! :rf.machine :rf.machine.microstep/transition
-                                         {:machine-id     (or (:rf/parent-id machine)
-                                                              (:id machine))
-                                          :from           (:state snap)
-                                          :to             (:state snap2)
-                                          :microstep-index depth
-                                          :source         :always
-                                          ;; Per rf2-ko8jb: epoch-capture
-                                          ;; admission requires `:frame`.
-                                          :frame          (:rf/frame machine)})
-                            ;; Per rf2-n9f4z: append a `:microstep` cascade
-                            ;; step carrying the microstep's own nested
-                            ;; exit/action/entry `:steps` (from the eventless
-                            ;; transition's `apply-transition-once` cascade) so
-                            ;; the eventless cascade is explainable alongside
-                            ;; the headline transition rather than hidden
-                            ;; behind a bare count.
-                            (let [micro-step {:kind            :microstep
-                                              :region          (:rf/region machine)
-                                              :microstep-index depth
-                                              :from            (:state snap)
-                                              :to              (:state snap2)
-                                              :steps           (result/cascade step-result)}]
-                              ;; Seed the per-`:always`-step drain with the
-                              ;; macrostep's inbound transitive `raise-depth`
-                              ;; (rf2-b88nm) so raises emitted by an `:always`
-                              ;; cascade reached via a raise chain keep counting
-                              ;; against the same `:raise-depth-limit`.
-                              (let [raised2 (drain-or-defer-raises machine snap2 fx2 raise-limit raise-depth defer?)]
-                                (if (result/fail? raised2)
-                                  raised2
-                                  (result/with-ok [snap3 fx3] raised2
-                                    (recur snap3
-                                           (vec (concat fx fx3))
-                                           (inc depth)
-                                           (conj visited (:state snap3))
-                                           (conj cascade micro-step))))))))))))))))))
+     (drain-to-fixed-point machine result-after-event snapshot raise-depth defer?)
      handled?))))
