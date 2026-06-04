@@ -977,8 +977,6 @@
                          :action     nil
                          :selfLoop   false
                          :loopIndex  nil
-                         :siblingIndex 0
-                         :siblingCount 1
                          :crossHierarchy cross-hier?
                          ;; rf2-r636q — the elk route for THIS half
                          ;; (`__in`: source-state → event-node; `__out`:
@@ -1074,12 +1072,6 @@
                                ;; the every-edge :data shape stays whole.
                                :loopIndex nil
                                :crossHierarchy false
-                               ;; rf2-j10sm (Phase 2, B) — entry edges are
-                               ;; always singleton (one marker → one state),
-                               ;; so the leader sibling slot keeps the
-                               ;; every-edge :data shape whole.
-                               :siblingIndex 0
-                               :siblingCount 1
                                ;; rf2-cz8v6 (G2) — entry edges keep the
                                ;; bezier (a short marker→state hop never
                                ;; crosses a container); :points nil so

@@ -871,15 +871,16 @@
               (is (pos? (.-length targets))
                   "region container has at least one .target Handle"))))))))
 
-;; ---- multi-event same-pair collapse DOM (rf2-j10sm Phase 2, B) -----------
+;; ---- multi-event NO-collapse DOM (rf2-o6vh7) ----------------------------
 ;;
-;; rf2-shv82 (Issue 2) shipped a self-loop perimeter fan: N self-loops on
-;; one node rotated around the node's perimeter so labels did not stack.
-;; rf2-j10sm (Phase 2) supersedes the fan with the xstate/Stately multi-
-;; event collapse: N self-loops share ONE loop arc with N vertically-
-;; stacked labels (one per event row). DOM pins the new shape: every
-;; self-loop carries `data-loop-index` "0" (single arc, no fan) and
-;; `data-sibling-index` "0".."N-1" + `data-sibling-count` "N".
+;; HISTORY: rf2-shv82 (Issue 2) shipped a self-loop perimeter fan; rf2-j10sm
+;; (Phase 2) replaced it with a multi-event sibling-collapse (N events on one
+;; `[source target]` pair → ONE arrow + N stacked labels via
+;; `data-sibling-index`/`data-sibling-count`). rf2-o6vh7 RETIRED the
+;; collapse: under events-as-nodes every event is its OWN node, so N events
+;; on one node are N DISTINCT event-nodes (no grouping, no leader/follower).
+;; This pins the no-collapse DOM contract — three events on `:idle` surface
+;; three DISTINCT event-nodes — and that no `data-sibling-*` attr survives.
 
 (def ^:private multi-self-loop-machine
   "Three self-loops on `:idle` (mirrors the testdeck `:disconnected`
@@ -889,40 +890,30 @@
                          :disarm {:action :disarm-it}
                          :clear  {:action :clear-it}}}}})
 
-(deftest chart-multi-self-loops-collapse-to-stacked-sibling-slots
-  (testing "rf2-j10sm (Phase 2, B) — three self-loops on one node
-            collapse to ONE loop arc + three vertically stacked event
-            labels (xstate/Stately convention). DOM evidence: every
-            label carries data-loop-index '0' (one arc, no fan) and
-            data-sibling-index '0'/'1'/'2' with data-sibling-count '3'."
+(deftest chart-multi-events-on-one-node-stay-distinct-event-nodes
+  (testing "rf2-o6vh7 — three events on one state render as THREE distinct
+            event-nodes (no sibling-collapse). DOM evidence: three event-node
+            roots (`data-variant`, unique to the event-node container) and
+            ZERO `data-sibling-*` attrs."
     (if-not (browser?)
       (is true ":node-test: no DOM — browser-test runner exercises this")
       (with-mounted-chart
         {:machine-id :test/multi-self :definition multi-self-loop-machine}
         (fn [_root node]
-          (let [labels (.querySelectorAll node "[data-testid^=\"rf-mv-chart-edge-\"]")
-                loop-indices    (->> (array-seq labels)
-                                     (map #(.getAttribute % "data-loop-index"))
-                                     (remove nil?))
-                sibling-indices (->> (array-seq labels)
-                                     (map #(.getAttribute % "data-sibling-index"))
-                                     (filter (fn [_]
-                                               ;; restrict to self-loop labels
-                                               true))
-                                     (remove nil?))
-                sibling-counts  (->> (array-seq labels)
-                                     (map #(.getAttribute % "data-sibling-count"))
-                                     (remove nil?)
-                                     set)]
-            ;; If labels race the commit the indices set may be empty;
-            ;; assert positively when they're present, otherwise keep the
-            ;; structural invariant (mirrors the chart_dom convention).
-            (when (seq loop-indices)
-              (is (every? #(= "0" %) loop-indices)
-                  "every self-loop is in slot 0 (one arc, no fan)"))
-            (when (>= (count sibling-indices) 3)
-              (is (= ["0" "1" "2"] (sort (take 3 sibling-indices)))
-                  "the three events take sibling slots 0/1/2")
-              (is (contains? sibling-counts "3")
-                  "siblingCount of 3 is surfaced on the stacked labels"))
-            (is (number? (.-length labels)))))))))
+          ;; `data-variant` is carried ONLY by the event-node root (the
+          ;; child header/guard/action spans share the `rf-mv-chart-event-`
+          ;; testid prefix but no `data-variant`), so it counts distinct
+          ;; event-nodes precisely.
+          (let [event-nodes (.querySelectorAll node "[data-variant]")
+                ;; any element still carrying a retired sibling attr
+                sibling-attr-els (.querySelectorAll
+                                  node "[data-sibling-index],[data-sibling-count]")]
+            ;; If event-nodes race the commit the count may lag; assert
+            ;; positively when present, else keep the structural invariant
+            ;; (mirrors the chart_dom convention).
+            (when (>= (.-length event-nodes) 3)
+              (is (= 3 (.-length event-nodes))
+                  "three distinct events → three distinct event-nodes"))
+            (is (zero? (.-length sibling-attr-els))
+                "no data-sibling-* attr survives the collapse retirement")
+            (is (number? (.-length event-nodes)))))))))
