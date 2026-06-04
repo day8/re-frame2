@@ -6,7 +6,7 @@
  {:doc
  "GENERATED public-API manifest — do NOT hand-edit the :vars list. Regenerate with: clojure -M -m re-frame.api-manifest.gen (run from implementation/scripts/api-manifest/). The tier/owner/status axes are curated in spec/api-manifest-metadata.edn; existence + kind + facade? are derived from live public vars. See that generator ns for the design.",
  :keystone "rf2-3nbl5.2",
- :var-count 471,
+ :var-count 472,
  :tier-vocab
  [:front-porch
   :advanced
@@ -257,6 +257,7 @@
   {:namespace "re-frame.mcp-base.sensitive", :var "reset-malformed-count!", :tier :tooling, :kind :fn, :owner "Tool-Pair", :status "post-v1 lib", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.mcp-base.sensitive", :var "scrub-snapshot", :tier :tooling, :kind :fn, :owner "Tool-Pair", :status "post-v1 lib", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.mcp-base.sensitive", :var "sensitive-event?", :tier :tooling, :kind :fn, :owner "Tool-Pair", :status "post-v1 lib", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.mcp-base.sensitive", :var "sensitive-stamp?", :tier :tooling, :kind :fn, :owner "Tool-Pair", :status "post-v1 lib", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.mcp-base.sensitive", :var "strip-sensitive", :tier :tooling, :kind :fn, :owner "Tool-Pair", :status "post-v1 lib", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.performance", :var "enabled?", :tier :tooling, :kind :var, :owner "009", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.routing", :var "current-url", :tier :advanced, :kind :fn, :owner "012", :status "v1", :facade? false, :runtime-verified? true}

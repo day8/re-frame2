@@ -181,14 +181,15 @@ const INNER_TESTS = [
     sentinel: 'RE-FRAME2-PAIR-MCP LIVE SUBSCRIBE CONFORMANCE GREEN',
   },
   {
-    // rf2-q4o83 — egress-redaction regression net for the pull-mode
+    // rf2-q4o83 — egress-protection regression net for the pull-mode
     // epoch tools (trace-window / watch-epochs). Drives a declared-
     // sensitive app-db slot through both tools across the MCP wire and
-    // asserts the sentinel is redacted gate-OFF (default) / shipped
-    // gate-ON. This is the gate that would have caught rf2-6wvh5 RED.
-    name: 'live egress-redaction conformance (pull-mode epoch tools)',
+    // asserts the sensitive epoch is WHOLE-DROPPED gate-OFF (default,
+    // rf2-5613h) / shipped gate-ON. This is the gate that would have
+    // caught rf2-6wvh5 RED (and now pins the rf2-5613h whole-drop).
+    name: 'live egress-protection conformance (pull-mode epoch tools)',
     path: path.join(MCP_CONFORMANCE_ROOT, 'test', 'live-re-frame2-pair-redaction.cjs'),
-    sentinel: 'RE-FRAME2-PAIR-MCP LIVE EGRESS-REDACTION CONFORMANCE GREEN',
+    sentinel: 'RE-FRAME2-PAIR-MCP LIVE EGRESS-PROTECTION CONFORMANCE GREEN',
   },
 ];
 
