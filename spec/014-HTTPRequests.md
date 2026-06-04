@@ -182,6 +182,14 @@ Six keys on the args map / request envelope are **CLJS-only** — semantically m
 
 The trace event's `:tags` carry the key name, the request URL, and `:sensitive?` from the request envelope per [§Privacy](#privacy); a request whose URL falls under the query-param denylist or whose handler is marked `:sensitive?` has the URL redacted on the way to the trace surface. The trace is informational only — there is no `:rf.error/*` for this path, and the request is not classified as a failure. Cross-host portable code SHOULD avoid these six keys when JVM support matters, or feature-flag them at the call site. See also [§`:rf.http/cors` is CLJS-only](#rfhttpcors-is-cljs-only) for the symmetric failure-category asymmetry.
 
+A related but distinct JVM degradation is **shape**, not silent no-op: a binary `:decode` is **honoured** on the JVM but yields a different host shape.
+
+| `:decode` value | Where | JVM behaviour |
+|---|---|---|
+| `:blob` / `:array-buffer` / `:form-data` | args map (top-level) | **Honoured, shape-degraded.** `jvm-fetch` reads `ofByteArray` and rides the raw bytes, so the decode is NOT ignored — but the returned value is a `byte[]`, not the native browser `Blob` / `ArrayBuffer` / `FormData` object the CLJS Fetch path yields. An EXPLICIT binary `:decode` emits one `:rf.http/binary-decode-degraded-on-jvm` warning trace per occurrence (`:auto` is not flagged — it resolves to `:blob` from the response Content-Type, unknown at dispatch time). Per [Spec 009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue). |
+
+`:elapsed-ms` on the `:rf.http/timeout` failure category (see [§Failure categories](#failure-categories-closed-set)) is now populated on the JVM as well as CLJS: `run-attempt!` captures a monotonic `System/nanoTime` start mark before issuing the request and threads the measured wall-clock delta into the failure shape. A consumer branching on `:elapsed-ms` sees a value on BOTH hosts rather than nil-on-JVM.
+
 ### Body encoding
 
 If `:body` is a thunk `(fn body)`, the fx invokes it just before sending (after `:retry :backoff` delays elapse). Each retry re-invokes the thunk to obtain a fresh handle — useful when `:body` is a single-shot stream that can't be replayed. Whatever the thunk returns is then encoded per the rules below.
@@ -579,7 +587,7 @@ Pass an `AbortController.signal` directly:
 
 The fx threads the signal through to the underlying transport. User owns the controller's lifecycle. CLJS-only (Fetch supports it; XHR fallback ignores).
 
-The two are mutually exclusive — pick one.
+The two are mutually exclusive — pick one. Supplying BOTH `:abort-signal` AND `:request-id` against one request wires two independent abort mechanisms (the external Fetch signal forwarded into the internal controller AND the `:request-id` supersede/managed-abort path), whose simultaneous-abort behaviour is undefined-by-spec. Per the pre-alpha reject-misuse posture the `:rf.http/managed` fx body rejects the combination at the dispatch site (before `run-attempt!`) with a thrown `:rf.error/http-bad-abort-config` ex-info — see [Spec 009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) — rather than tolerating it.
 
 ### Abort on actor destroy
 
