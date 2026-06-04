@@ -612,8 +612,8 @@
                                          {:frame    frame
                                           :location location
                                           :host     host
-                                          :reason   :not-in-allowlist
-                                          :allow?   (vec allow)})
+                                          :reason    :not-in-allowlist
+                                          :allowlist (vec allow)})
 
               ;; Step 5: pass — populate :redirect, mirror redirect-fx's
               ;; status-flow-through behaviour. Strip :allow / :relative-only?

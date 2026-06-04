@@ -1385,8 +1385,8 @@
           (is (= "evil.example.com" (-> ev :tags :host))
               ":host names the rejected host")
           (is (= ["app.example.com" "alt.example.com"]
-                 (-> ev :tags :allow?))
-              ":allow? tag carries the allowlist for diagnostic clarity")))
+                 (-> ev :tags :allowlist))
+              ":allowlist tag carries the allowlist vector for diagnostic clarity")))
       (is (nil? (:redirect (get-response f)))
           "rejection is a no-op"))))
 
