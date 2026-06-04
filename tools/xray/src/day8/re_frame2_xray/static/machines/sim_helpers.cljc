@@ -78,18 +78,15 @@
 
 ;; ---- definition introspection -------------------------------------------
 
-(defn- walk-states
-  "Walk `state-map` recursively, calling `(f path node)` for every leaf
-  and compound state node. Returns nothing — purely for side-effecting
-  reduction. The companion `collect-event-ids` / `available-transitions`
-  fns build their own accumulators around it."
-  ([f state-map] (walk-states f [] state-map))
-  ([f parent-path state-map]
-   (doseq [[state-id node] state-map]
-     (let [path (conj parent-path state-id)]
-       (f path node)
-       (when (:states node)
-         (walk-states f path (:states node)))))))
+(defn- all-state-nodes
+  "Depth-first seq of every state-node under `state-map` — each compound
+  state's children are flattened in after the parent. Pure: returns the
+  nodes themselves, so callers aggregate with ordinary transforms rather
+  than a side-effecting walk."
+  [state-map]
+  (mapcat (fn [[_state-id node]]
+            (cons node (all-state-nodes (:states node))))
+          state-map))
 
 (defn event-id-suggestions
   "Return the distinct sorted event-ids declared anywhere in `definition`.
@@ -101,13 +98,11 @@
   [definition]
   (if (or (nil? definition) (nil? (:states definition)))
     []
-    (let [acc (atom #{})]
-      (walk-states
-        (fn [_path node]
-          (doseq [event-id (keys (:on node))]
-            (swap! acc conj event-id)))
-        (:states definition))
-      (vec (sort-by str @acc)))))
+    (->> (all-state-nodes (:states definition))
+         (mapcat (comp keys :on))
+         distinct
+         (sort-by str)
+         vec)))
 
 (defn- node-at
   "Walk `definition`'s `:states` down the given `path` (vector of

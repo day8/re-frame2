@@ -74,26 +74,27 @@
       stack-of-bars (each row starts at 0); the panel can choose either
       mode by reading the same projection."
   [{:keys [phases total-ms]}]
-  (let [clean    (filterv (fn [[_ ms]] (and (number? ms) (pos? ms))) (or phases []))
-        sum      (reduce + 0 (map second clean))
-        total    (or (when (and (number? total-ms) (pos? total-ms)) total-ms)
-                     (when (pos? sum) sum)
-                     0)]
+  (let [clean     (filterv (fn [[_ ms]] (and (number? ms) (pos? ms))) (or phases []))
+        durations (mapv second clean)
+        sum       (reduce + 0 durations)
+        total     (or (when (and (number? total-ms) (pos? total-ms)) total-ms)
+                      (when (pos? sum) sum)
+                      0)]
     (if (or (zero? total) (empty? clean))
       []
-      (loop [acc       []
-             offset    0
-             remaining clean]
-        (if (empty? remaining)
-          acc
-          (let [[ph ms] (first remaining)
-                width   (min 1.0 (max 0.0 (/ (double ms) (double total))))]
-            (recur (conj acc {:phase      ph
-                              :duration-ms ms
-                              :width-pct  width
-                              :offset-pct (min 1.0 (max 0.0 (/ (double offset) (double total))))})
-                   (+ offset ms)
-                   (rest remaining))))))))
+      ;; `:offset-pct` is the running sum of PRECEDING durations as a
+      ;; fraction of total — a scan. `(reductions + 0 durations)` yields
+      ;; `[0 d0 d0+d1 …]`; dropping the final element leaves one
+      ;; preceding-sum per phase, so a single `mapv` projects the rows.
+      (let [pct      (fn [n] (min 1.0 (max 0.0 (/ (double n) (double total)))))
+            offsets  (butlast (reductions + 0 durations))]
+        (mapv (fn [[ph ms] offset]
+                {:phase       ph
+                 :duration-ms ms
+                 :width-pct   (pct ms)
+                 :offset-pct  (pct offset)})
+              clean
+              offsets)))))
 
 (defn slowest-phase
   "Identify the phase that owns the largest share of total elapsed time.
