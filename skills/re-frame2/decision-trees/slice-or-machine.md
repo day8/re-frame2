@@ -114,12 +114,12 @@ If you're between slice and machine and none of the four tells clearly fire, the
 
 ## Step 5 — verify against the implementation
 
-Cardinal rule (per SKILL.md §1): when the spec and `implementation/**` disagree, the implementation wins. After picking a shape, point at the example app that uses the same shape:
+Cardinal rule (per SKILL.md §1): when the spec and `implementation/**` disagree, the implementation wins. After picking a shape, cross-check it against a reference declaration that uses the same shape — a worked example or a reference view your project already follows. Match its shape rather than re-deriving:
 
-- A machine? — see `examples/reagent/login/` (state machine + tags + managed-HTTP), `examples/reagent/state_machine_walkthrough/` (the chapter as runnable code), `examples/reagent/nine_states/` (parallel regions).
-- A slice? — see `examples/reagent/counter/` (the smallest possible slice), `examples/reagent/todomvc/` (a list-of-items slice with editing and filters), the 7GUIs cluster.
+- A machine? — match a reference machine that uses state + tags + (where relevant) parallel regions or managed-HTTP. (In the re-frame2 repo itself, see `examples/reagent/login/` for state machine + tags + managed-HTTP, `examples/reagent/state_machine_walkthrough/` for the chapter as runnable code, `examples/reagent/nine_states/` for parallel regions.)
+- A slice? — match a reference slice. (In the re-frame2 repo itself, see `examples/reagent/counter/` for the smallest possible slice, `examples/reagent/todomvc/` for a list-of-items slice with editing and filters, and the 7GUIs cluster.)
 
-If the example contradicts the leaf you'd pick from this tree, **the example wins**. File a bead against the spec; don't silently work around (per Mike's standing directive on file-bead-for-spec-gaps).
+If a reference declaration contradicts the leaf you'd pick from this tree, **the reference wins** — and if that reference is the spec itself disagreeing with `implementation/**`, file a bead against the spec; don't silently work around (per the standing directive on file-bead-for-spec-gaps).
 
 ## Cross-references
 
