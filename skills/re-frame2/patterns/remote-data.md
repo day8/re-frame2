@@ -80,10 +80,10 @@ Used when the lifecycle is *part of* a larger page's machine (the page already h
   {:initial :idle
    :data    {:tags [] :error nil :loaded-at nil :attempt 0}
    :actions
-   {:bump-attempt (fn [d _] {:data (update d :attempt (fnil inc 0))})
-    :set-tags     (fn [d [_ {:keys [tags now]}]]
+   {:bump-attempt (fn [{d :data}] {:data (update d :attempt (fnil inc 0))})
+    :set-tags     (fn [{d :data [_ {:keys [tags now]}] :event}]
                     {:data (assoc d :tags (vec tags) :error nil :loaded-at now)})
-    :set-error    (fn [d [_ {:keys [failure]}]] {:data (assoc d :error failure)})}
+    :set-error    (fn [{d :data [_ {:keys [failure]}] :event}] {:data (assoc d :error failure)})}
    :states
    {:idle     {:tags #{:tags/idle}
                :on   {:fetch-started {:target :loading :action :bump-attempt}}}

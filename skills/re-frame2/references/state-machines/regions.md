@@ -20,7 +20,7 @@ A "region" in re-frame2 has two distinct meanings depending on context:
 
    :actions
    {:set-tags
-    (fn action-set-tags [data [_ {:keys [tags now]}]]
+    (fn action-set-tags [{data :data [_ {:keys [tags now]}] :event}]
       {:data (assoc data :tags (vec tags) :error nil :loaded-at now)})}
 
    :states
@@ -44,7 +44,7 @@ A "region" in re-frame2 has two distinct meanings depending on context:
 (rf/reg-machine :realworld/tags tags-machine)
 ```
 
-Verbatim from `examples/reagent/realworld/tags.cljs:71-142`. The slice's separate `:status` keyword disappears; the state IS the status. The view consumes `:tags/in-flight` via `(rf/machine-has-tag? :realworld/tags :tags/in-flight)` instead of a hand-rolled `(or (= :loading status) (= :fetching status))`.
+Adapted from `examples/reagent/realworld/tags.cljs`. The slice's separate `:status` keyword disappears; the state IS the status. The view consumes `:tags/in-flight` via `(rf/machine-has-tag? :realworld/tags :tags/in-flight)` instead of a hand-rolled `(or (= :loading status) (= :fetching status))`.
 
 ## Parallel regions — the canonical declaration
 
@@ -53,10 +53,10 @@ Verbatim from `examples/reagent/realworld/tags.cljs:71-142`. The slice's separat
   {:type :parallel
    :data {:items [] :error nil :archived-at nil}     ;; shared across regions
 
-   :guards   {:empty?     (fn [data _] (zero? (count (:items data))))
-              :too-many?  (fn [data _] (> (count (:items data)) 7))}
+   :guards   {:empty?     (fn [{:keys [data]}] (zero? (count (:items data))))
+              :too-many?  (fn [{:keys [data]}] (> (count (:items data)) 7))}
 
-   :actions  {:set-items  (fn [data [_ {:keys [items]}]]
+   :actions  {:set-items  (fn [{data :data [_ {:keys [items]}] :event}]
                             {:data (assoc data :items (vec items))})}
 
    :regions

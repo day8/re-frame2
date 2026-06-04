@@ -27,8 +27,8 @@ Spec 005 §Declarative `:spawn` §Worked example (verbatim shape). While the par
 |---|---|---|
 | `:machine-id` *or* `:definition` | which machine to spawn (registered id, or inline transition table) | exactly one |
 | `:data` | initial data for the child — literal map or `(fn [snapshot event] data)` | optional |
-| `:on-spawn` | `(fn [data spawned-id] new-data)` — advisory; record the child id in the parent's `:data` if you want | optional |
-| `:on-done` | `(fn [data result] new-data)` — fires when the child enters a `:final?` state; `result` is the child's `:data` slot named by the final state's `:output-key` (or `nil`). See [§Final states](#final-states--final--on-done--output-key) below. | optional |
+| `:on-spawn` | `(fn [{:keys [data id]}] _)` — advisory; record the child id (`id`) in the parent's `:data` if you want (return is dropped) | optional |
+| `:on-done` | `(fn [{:keys [data result]}] new-data)` — fires when the child enters a `:final?` state; `result` is the child's `:data` slot named by the final state's `:output-key` (or `nil`). See [§Final states](#final-states--final--on-done--output-key) below. | optional |
 | `:start` | event vector dispatched to the newborn after spawn | optional |
 | `:spawn-id` | explicit id instead of gensym (per-state singleton) | optional |
 | `:id-prefix` | base for the gensym'd actor id; defaults to `:machine-id` | optional |
@@ -132,7 +132,7 @@ Validation happens at registration (`re-frame.machines.lifecycle-fx.validation`)
 - **`:on-spawn` is advisory.** The runtime tracks the spawn-id at `[:rf/runtime :machines :spawned <parent-id> <invoke-id>]` itself — you no longer need `:on-spawn` to write the id under any specific `:data` slot for destroy to work. Most apps still set `:on-spawn (fn [{data :data id :id}] (assoc data :pending id))` so other transitions can address the child by name.
 - **`:data` is a literal map or `(fn [snap ev] data)` — not arbitrary code.** When the fn form is used, it runs at state entry against the post-action snapshot (spawn desugar in `re-frame.machines.lifecycle-fx.registration`). If it throws, the transition halts with `:rf.error/machine-action-exception` and the snapshot does NOT commit.
 - **`:start` runs after spawn; if absent the runtime dispatches a synthetic `[:rf.machine.spawn/spawned]`.** Every spawned actor receives `[:rf.machine.spawn/spawned]` if no `:start` was declared — generic child machines can declare a leaf `:on :rf.machine.spawn/spawned :target ...` transition that fires the actor's first work on entry.
-- **Path convention for `:on-spawn`:** the callback receives `:data` directly. Write `(assoc data :pending id)`, not `(assoc-in snap [:data :pending] id)`. Uniform with `:guard` and `:action`.
+- **Path convention for `:on-spawn`:** the callback receives one context map `{:keys [data id]}`; `data` is already the parent's `:data` slot. Write `(assoc data :pending id)`, not `(assoc-in snap [:data :pending] id)`. Uniform single-map shape with `:guard` and `:action`.
 - **One `:spawn` per state.** Multiple children per state → refactor into a compound state where each substate invokes one of the actors, or use `:spawn-all`. Validated at registration; `:spawn` + `:spawn-all` together throws `:rf.error/machine-spawn-all-with-spawn` (`re-frame.machines.lifecycle-fx.validation`).
 
 ## Deeper material
