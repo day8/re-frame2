@@ -282,7 +282,8 @@
       :machine-id  (required)
       :frame-id    (required)
       :on-state-click
-      :on-transition-click
+      :on-edge-click   ;; rf2-qo5xy retired :on-transition-click — a
+                       ;; clickable event-node label fires this
       :read-only?
       :show-microsteps? / :show-after-rings? / :show-invoke-all?
       :auto-pan?

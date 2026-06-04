@@ -169,8 +169,10 @@
 
   Pipeline: serialise the chart's SVG → load it into an `<img>` via a
   data-URL → draw onto a 2x-DPR `<canvas>` → `canvas.toBlob`. The
-  current-state highlight is included (it is a static fill/stroke on
-  the rendered SVG, so it serialises with the rest)."
+  current-state affordance lives on the node-box BORDER + box-shadow
+  ring (xyflow div-nodes), not on the SVG; the serialised SVG carries
+  the rendered edges (incl. fired/focused edge styling), so the PNG
+  frames the topology + edge highlights as rendered."
   [chart-element]
   (let [svg-str (chart-as-svg chart-element)
         root    (chart-root chart-element)

@@ -90,7 +90,6 @@
                                 painted behind each edge label so
                                 overlapping labels remain legible
                                 (rf2-gg7ws — collision-avoidance v1)
-    :final-glyph-px           — final-state ✓ glyph font-size
     :compound-title-px        — compound container title font-size
     :compound-radius          — compound container corner radius
                                 (rf2-k647w — distinct from the
@@ -132,7 +131,6 @@
    :state-label-px         13
    :edge-label-px          11
    :edge-label-backplate-opacity 0.85
-   :final-glyph-px         13
    :compound-title-px      13
 
    ;; ── state-tag pills (rf2-m1b88; rf2-a2b55 restored — sit BELOW
@@ -227,7 +225,6 @@
    :state-label-px         11
    :edge-label-px          9
    :edge-label-backplate-opacity 0.85
-   :final-glyph-px         11
    :compound-title-px      11
 
    ;; ── state-tag pills (tighter than the regular 16/6/9/8) ──────
@@ -311,7 +308,6 @@
    :state-label-px         15
    :edge-label-px          13
    :edge-label-backplate-opacity 0.85
-   :final-glyph-px         15
    :compound-title-px      15
 
    ;; ── state-tag pills (looser than the regular 16/6/9/8) ───────
