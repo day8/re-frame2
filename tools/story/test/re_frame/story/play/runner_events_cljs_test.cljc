@@ -246,6 +246,90 @@
 ;; (coerce-script-lifts-bare-event-vectors + parse-spec-lifts-bare-
 ;; vectors-inside-map). The wrong-layer copy added no signal.
 
+;; ---- CLJS+JVM: every run-loop! exit path settles done-cb (rf2-9x5fm) -----
+;;
+;; The run loop has TWO silent-abort branches that previously returned `nil`
+;; WITHOUT invoking `done-cb`:
+;;
+;;   1. `(nil? state)` — the frame was torn down mid-run (run-state entry
+;;      gone). Reachable on CLJS when a hot-reload reset / teardown clears the
+;;      run-state during an async `:wait` yield.
+;;   2. token mismatch (rf2-ftow6) — a concurrent `run!` took over the
+;;      run-state slot, stamping a fresher `:run-token`.
+;;
+;; When either fired, `done-cb` was never called, so the awaiting continuation
+;; (`runtime/run-phase-4!`'s `step!`) never resolved the play-promise, and the
+;; outer `run-variant` promise hung forever (it chains only `then`, no `catch`
+;; / timeout). The fix routes both branches through `settle-abort!`, which
+;; ALWAYS settles `done-cb` (with the last-known/aborted state) WITHOUT
+;; mutating the shared run-state slot — so the stale loop releases its
+;; continuation but never clobbers a newer run's state.
+;;
+;; These drive `run-loop!` directly (private, var-quoted — the established
+;; Story-test seam). Both abort branches are the FIRST `cond` clauses and
+;; return synchronously (no `setTimeout` yield), so the test is deterministic
+;; on both runtimes: it asserts `done-cb` fired, which is the exact fact a hang
+;; violates. Runs under `npm run test:cljs` — the CLJS runtime where the hang
+;; was reachable.
+
+(def ^:private run-loop!    @#'re/run-loop!)
+(def ^:private set-state!   @#'re/set-state!)
+(def ^:private settle-abort! @#'re/settle-abort!)
+
+(deftest run-loop-aborts-on-missing-state-still-settles-done-cb
+  (testing "rf2-9x5fm — the `(nil? state)` abort branch (frame torn down
+            mid-run) STILL invokes done-cb so the awaiting continuation
+            resolves rather than hanging the play-promise forever"
+    (let [frame-id :story.abort/torn-down
+          settled  (atom :unset)]
+      ;; No run-state entry exists for this [frame-id nil] slot — the frame
+      ;; was torn down (clear-state! wiped it). The loop's first cond clause
+      ;; `(nil? state)` fires.
+      (is (nil? (re/current-state-for-play frame-id nil))
+          "precondition: no run-state for the torn-down frame")
+      (run-loop! frame-id nil "tok-A" (fn [final] (reset! settled final)))
+      (is (not= :unset @settled)
+          "done-cb fired on the torn-down-frame abort — the continuation is
+           released, so the play-promise (and the outer run-variant promise)
+           cannot hang")
+      (is (nil? @settled)
+          "the aborted continuation settles with the last-known state — nil
+           when the slot is gone"))))
+
+(deftest run-loop-aborts-on-token-mismatch-still-settles-done-cb
+  (testing "rf2-9x5fm — the token-mismatch abort branch (a newer run! took
+            over the slot, rf2-ftow6) STILL invokes the STALE loop's done-cb
+            so its continuation resolves; it does NOT clobber the newer run's
+            run-state (no finish! / update-state!)"
+    (let [frame-id :story.abort/token-swap
+          settled  (atom :unset)
+          ;; Seed the slot with a NEWER token than the stale loop carries.
+          newer    (runner/start
+                     (runner/initial-state {:script [[:dispatch [:noop]]] :name nil})
+                     1)]
+      (set-state! frame-id nil (assoc newer :run-token "tok-NEWER"))
+      ;; The stale loop carries "tok-STALE" — it mismatches the slot's
+      ;; "tok-NEWER", so the second cond clause fires.
+      (run-loop! frame-id nil "tok-STALE" (fn [final] (reset! settled final)))
+      (is (not= :unset @settled)
+          "the stale loop's done-cb fired on token mismatch — its continuation
+           is released, never stranded")
+      ;; The newer run still OWNS the slot — the stale abort must not have
+      ;; transitioned it via finish!/update-state!.
+      (let [slot (re/current-state-for-play frame-id nil)]
+        (is (= "tok-NEWER" (:run-token slot))
+            "the slot still carries the NEWER run's token — the stale abort
+             did not clobber it")
+        (is (= :running (:status slot))
+            "the slot's status was NOT transitioned to a terminal status by the
+             stale abort (finish! would have set :pass/:fail/:cannot-run)")))))
+
+(deftest settle-abort-tolerates-nil-done-cb
+  (testing "rf2-9x5fm — settle-abort! is a clean no-op when done-cb is nil
+            (a run! called with no completion hook) and never throws"
+    (is (nil? (settle-abort! :story.abort/no-cb nil nil))
+        "no done-cb → settle-abort! returns nil without throwing")))
+
 ;; ---- JVM-only: integration tests against a live re-frame frame ----------
 ;;
 ;; These reuse the namespace-wide `bridge-reset!` fixture above (which
