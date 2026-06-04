@@ -3,8 +3,8 @@
 
   Per Spec 010 §Default validator the CLJS reference's default validator
   delegates to Malli (`malli.core/validate` / `malli.core/explain`).
-  Historically `re-frame.schemas/default-malli-validate` reached Malli
-  via runtime `resolve` on CLJS:
+  Historically `re-frame.schemas.validator/default-malli-validate` reached
+  Malli via runtime `resolve` on CLJS:
 
       :cljs
       (try
@@ -23,10 +23,10 @@
   The fix follows the rf2-froe / rf2-p7va substitute-validator
   precedent: this namespace exists only to publish Malli's `validate`
   and `explain` fns into the framework's late-bind hook table.
-  `re-frame.schemas/default-malli-validate` and
-  `default-malli-explain` consult the table at call time and delegate
-  to whatever's published; absent any publisher they soft-pass per the
-  Spec 010 §Recommended soft-pass rule.
+  `re-frame.schemas.validator/default-malli-validate` and
+  `re-frame.schemas.validator/default-malli-explain` consult the table
+  at call time and delegate to whatever's published; absent any
+  publisher they soft-pass per the Spec 010 §Recommended soft-pass rule.
 
   Post-rf2-v96fh (schema implies validation) apps do NOT require this
   namespace explicitly: the `re-frame.schemas` facade `:require`s it for
@@ -67,8 +67,9 @@
 ;; ---- publish Malli into the late-bind hook table -------------------------
 ;;
 ;; Per rf2-t0hq the two hooks `:schemas/malli-validate` and
-;; `:schemas/malli-explain` are read by `re-frame.schemas/default-malli-
-;; validate` / `default-malli-explain` on every validate call. Both
+;; `:schemas/malli-explain` are read by
+;; `re-frame.schemas.validator/default-malli-validate` /
+;; `default-malli-explain` on every validate call. Both
 ;; sides of the seam are in this artefact so the contract is local;
 ;; the seam is published as a hook key so future ports
 ;; (`re-frame.schemas.zod` / `.pydantic` / ...) can register their own

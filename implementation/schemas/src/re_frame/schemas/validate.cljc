@@ -96,8 +96,7 @@
 ;; NOTE: the handler-meta `:sensitive?` annotation has been removed.
 ;; Sensitivity is now path-marked at the schema slot — `walk-schema?`
 ;; consults `walker/schema-has-sensitive?` to drive the failure-trace
-;; redaction. Wrappers pass `false` for the `meta-sensitive?` parameter
-;; (kept positional for callsite stability).
+;; redaction.
 
 (defn- redact-tags
   "Replace value-bearing slots in a tags map with the `:rf/redacted`
@@ -233,16 +232,9 @@
                      fx) — its `:schema` slot, if any, is the schema.
     - `value`        the value being checked (event vector, cofx
                      value, sub return value, fx args).
-    - `meta-sensitive?` boolean — historical handler-meta sensitivity
-                     flag. Now always `false` from callers; the
-                     handler-meta `:sensitive?` annotation has been
-                     removed. Sensitivity is determined by the schema-
-                     level per-slot `:sensitive?` walker (consulted in
-                     the failure branch).
-    - `walk-schema?` boolean — when true AND `meta-sensitive?` is
-                     false AND the validator fails, consult the
-                     schema's per-slot `:sensitive?` walker before
-                     emitting. Event vectors are not schema-walked
+    - `walk-schema?` boolean — when true AND the validator fails,
+                     consult the schema's per-slot `:sensitive?` walker
+                     before emitting. Event vectors are not schema-walked
                      (event vectors aren't `:map`-shaped, so per-slot
                      `:sensitive?` props don't apply) so wrappers
                      pass `false`; cofx / fx / sub-return pass `true`.
@@ -267,15 +259,14 @@
   central `redact-tags` cond->. The `:rf.fx/args` clause is a no-op on
   the other three surfaces (their base-tags don't contain the
   slot), so a single redactor covers every meta-bearing emit site."
-  [reg-meta value meta-sensitive? walk-schema? build-base-tags]
+  [reg-meta value walk-schema? build-base-tags]
   (if-let [vf @validator/validator-fn]
     (if-let [schema (:schema reg-meta)]
       (if (vf schema value)
         true
         (let [explanation (validator/run-explainer schema value)
-              sensitive?  (or meta-sensitive?
-                              (and walk-schema?
-                                   (walker/schema-has-sensitive? schema)))
+              sensitive?  (and walk-schema?
+                               (walker/schema-has-sensitive? schema))
               base-tags   (build-base-tags schema explanation)
               tags        (cond-> base-tags sensitive? redact-tags)]
           (emit-validation-failure! tags)
@@ -451,7 +442,6 @@
      (run-validation
        handler-meta
        event
-       false  ;; handler-meta `:sensitive?` removed; no per-slot walk for event vectors
        false  ;; event vectors aren't `:map`-shaped — no per-slot walk
        (fn [schema explanation]
          (cond-> {:where      :event
@@ -474,28 +464,41 @@
   Failures emit `:rf.error/schema-validation-failure :where
   :sub-return`; the caller replaces the value with the default (nil)
   per the `:replaced-with-default` recovery. Returns true/false per
-  the `run-validation` contract."
-  [sub-id query-v value sub-meta]
-  (if interop/debug-enabled?
-    (run-validation
-      sub-meta
-      value
-      false  ;; handler-meta `:sensitive?` removed; rely on schema-walker
-      true   ;; consult schema's per-slot `:sensitive?` walker on fail
-      (fn [schema explanation]
-        {:where          :sub-return
-         :rf.sub/id      sub-id
-         :failing-id     sub-id
-         :schema-id      sub-id
-         :rf.sub/query-v query-v
-         :received       value
-         :value      value
-         :explain    explanation
-         :reason     (reason-string "Subscription " sub-id
-                                    " return value failed schema "
-                                    schema value)
-         :recovery   :replaced-with-default}))
-    true))
+  the `run-validation` contract.
+
+  The optional 5-arity `frame` (rf2-9cm27) stamps a `:frame` tag onto
+  the failure trace — the reaction's frame. Without it the trace carries
+  no `:frame`, so `re-frame.epoch.capture/capture-event!` — which buffers
+  a trace into the in-flight cascade ONLY when the trace's tags carry the
+  cascade's `:frame` — silently DROPS the violation from the epoch's
+  `:trace-events`, leaving the Xray Issues / Schema-timeline lens (which
+  reads off `:trace-events`) blind to it. Mirrors `validate-event!`'s
+  `:frame` fix (rf2-lo28u) so every per-step validation trace is captured
+  uniformly. The 4-arity stays for direct (non-runtime) callers (the
+  elision probe, unit tests) where there is no reaction frame to
+  attribute to."
+  ([sub-id query-v value sub-meta] (validate-sub! sub-id query-v value sub-meta nil))
+  ([sub-id query-v value sub-meta frame]
+   (if interop/debug-enabled?
+     (run-validation
+       sub-meta
+       value
+       true   ;; consult schema's per-slot `:sensitive?` walker on fail
+       (fn [schema explanation]
+         (cond-> {:where          :sub-return
+                  :rf.sub/id      sub-id
+                  :failing-id     sub-id
+                  :schema-id      sub-id
+                  :rf.sub/query-v query-v
+                  :received       value
+                  :value      value
+                  :explain    explanation
+                  :reason     (reason-string "Subscription " sub-id
+                                             " return value failed schema "
+                                             schema value)
+                  :recovery   :replaced-with-default}
+           frame (assoc :frame frame))))
+     true)))
 
 (defn validate-cofx!
   "Per Spec 010 §Validation order step 2 — after a cofx injects its
@@ -503,28 +506,39 @@
   :schema on the cofx's metadata. Failures emit
   `:rf.error/schema-validation-failure :where :cofx`; the caller
   skips the handler (recovery: `:no-recovery`). Returns true/false
-  per the `run-validation` contract."
-  [cofx-id event-id value cofx-meta]
-  (if interop/debug-enabled?
-    (run-validation
-      cofx-meta
-      value
-      false  ;; handler-meta `:sensitive?` removed; rely on schema-walker
-      true   ;; consult schema's per-slot `:sensitive?` walker on fail
-      (fn [schema explanation]
-        {:where      :cofx
-         :rf.cofx/id cofx-id
-         :event-id   event-id
-         :failing-id event-id
-         :schema-id  cofx-id
-         :received   value
-         :value      value
-         :explain    explanation
-         :reason     (reason-string "Coeffect " cofx-id
-                                    " injected value failed schema "
-                                    schema value)
-         :recovery   :no-recovery}))
-    true))
+  per the `run-validation` contract.
+
+  The optional 5-arity `frame` (rf2-9cm27) stamps a `:frame` tag onto
+  the failure trace — the in-flight cascade's frame. Without it the
+  trace carries no `:frame`, so `re-frame.epoch.capture/capture-event!`
+  silently DROPS the violation from the epoch's `:trace-events` (it
+  buffers a trace into the in-flight cascade ONLY when the trace's tags
+  carry the cascade's `:frame`), leaving the Xray Schema-timeline lens
+  blind to it. Mirrors `validate-event!`'s `:frame` fix (rf2-lo28u). The
+  4-arity stays for direct (non-runtime) callers (the elision probe,
+  unit tests)."
+  ([cofx-id event-id value cofx-meta] (validate-cofx! cofx-id event-id value cofx-meta nil))
+  ([cofx-id event-id value cofx-meta frame]
+   (if interop/debug-enabled?
+     (run-validation
+       cofx-meta
+       value
+       true   ;; consult schema's per-slot `:sensitive?` walker on fail
+       (fn [schema explanation]
+         (cond-> {:where      :cofx
+                  :rf.cofx/id cofx-id
+                  :event-id   event-id
+                  :failing-id event-id
+                  :schema-id  cofx-id
+                  :received   value
+                  :value      value
+                  :explain    explanation
+                  :reason     (reason-string "Coeffect " cofx-id
+                                             " injected value failed schema "
+                                             schema value)
+                  :recovery   :no-recovery}
+           frame (assoc :frame frame))))
+     true)))
 
 (defn validate-fx!
   "Per Spec 010 §Validation order step 5 — before an fx handler runs,
@@ -540,29 +554,40 @@
   do this here is gone, and Spec 010 §`:sensitive?` now lists
   `:rf.fx/args` alongside `:value` / `:received` / `:explain` as the
   canonical redacted slots (and `:rf.sub/query-v` on the sub-return
-  surface, per rf2-adtp2)."
-  [fx-id event-id args fx-meta]
-  (if interop/debug-enabled?
-    (run-validation
-      fx-meta
-      args
-      false  ;; handler-meta `:sensitive?` removed; rely on schema-walker
-      true   ;; consult schema's per-slot `:sensitive?` walker on fail
-      (fn [schema explanation]
-        (cond-> {:where      :fx-args
-                 :rf.fx/id   fx-id
-                 :rf.fx/args args
-                 :failing-id fx-id
-                 :schema-id  fx-id
-                 :received   args
-                 :value      args
-                 :explain    explanation
-                 :reason     (reason-string "Effect " fx-id
-                                            " args failed schema "
-                                            schema args)
-                 :recovery   :skipped}
-          event-id (assoc :event-id event-id))))
-    true))
+  surface, per rf2-adtp2).
+
+  The optional 5-arity `frame` (rf2-9cm27) stamps a `:frame` tag onto
+  the failure trace — the in-flight cascade's frame. Without it the
+  trace carries no `:frame`, so `re-frame.epoch.capture/capture-event!`
+  silently DROPS the violation from the epoch's `:trace-events` (it
+  buffers a trace into the in-flight cascade ONLY when the trace's tags
+  carry the cascade's `:frame`), leaving the Xray Schema-timeline lens
+  blind to it. Mirrors `validate-event!`'s `:frame` fix (rf2-lo28u). The
+  4-arity stays for direct (non-runtime) callers (the elision probe,
+  unit tests)."
+  ([fx-id event-id args fx-meta] (validate-fx! fx-id event-id args fx-meta nil))
+  ([fx-id event-id args fx-meta frame]
+   (if interop/debug-enabled?
+     (run-validation
+       fx-meta
+       args
+       true   ;; consult schema's per-slot `:sensitive?` walker on fail
+       (fn [schema explanation]
+         (cond-> {:where      :fx-args
+                  :rf.fx/id   fx-id
+                  :rf.fx/args args
+                  :failing-id fx-id
+                  :schema-id  fx-id
+                  :received   args
+                  :value      args
+                  :explain    explanation
+                  :reason     (reason-string "Effect " fx-id
+                                             " args failed schema "
+                                             schema args)
+                  :recovery   :skipped}
+           event-id (assoc :event-id event-id)
+           frame    (assoc :frame frame))))
+     true)))
 
 ;; ---- public boundary-validation entry point (rf2-r2uh integration) -------
 ;;

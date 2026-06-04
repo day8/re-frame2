@@ -630,7 +630,13 @@
 
                     :else
                     (body-fn (mapv #(compute-sub % db) inputs) query-v))]
-            (subs-memo/maybe-validate-sub! v query-v query-id meta))
+            ;; rf2-9cm27 — `compute-sub` is the pure testing form (Spec 008
+            ;; §Testing): a compute against a SUPPLIED db, outside any
+            ;; reactive cascade. No in-flight reaction frame to attribute to,
+            ;; so `frame-id` is nil — the `:where :sub-return` trace from
+            ;; this path is not tied to a per-frame epoch (mirrors the
+            ;; direct-caller 4-arity contract).
+            (subs-memo/maybe-validate-sub! v query-v query-id meta nil))
           (catch #?(:clj Throwable :cljs :default) e
             (let [msg #?(:clj (.getMessage ^Throwable e) :cljs (.-message e))]
               (trace/emit-error!

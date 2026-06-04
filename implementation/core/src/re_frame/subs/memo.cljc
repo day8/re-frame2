@@ -95,12 +95,18 @@
 
   Looked up lazily through the late-bind registry so this namespace
   stays free of a hard re-frame.schemas dep (avoids load-order
-  surprises)."
-  [value query-v sub-id sub-meta]
+  surprises).
+
+  rf2-9cm27 — `frame-id` (the reaction's frame) is passed through to
+  `validate-sub!` so the `:where :sub-return` failure trace carries
+  `:frame` and lands in the per-frame epoch `:trace-events` (epoch
+  capture buffers only frame-tagged traces). Mirrors the `:where
+  :app-db` / `:where :event` traces."
+  [value query-v sub-id sub-meta frame-id]
   (if (and sub-meta (:schema sub-meta))
     ;; Sticky hook (rf2-f72pd) — fires per-sub recompute.
     (if-let [validate (late-bind/get-fn-cached :schemas/validate-sub!)]
-      (if (try (validate sub-id query-v value sub-meta)
+      (if (try (validate sub-id query-v value sub-meta frame-id)
                (catch #?(:clj Throwable :cljs :default) _ true))
         value
         nil)
@@ -238,7 +244,7 @@
                           (body-fn (first in-vals) query-v)
                           (body-fn (vec in-vals) query-v))))
             elapsed-ms (when interop/debug-enabled? (- (interop/now-ms) t0))
-            validated (maybe-validate-sub! computed query-v query-id sub-meta)]
+            validated (maybe-validate-sub! computed query-v query-id sub-meta frame-id)]
         ;; Emit AFTER compute+validate so the trace carries the computed
         ;; value + attribution (rf2-l1jz8). The base tag is unconditional
         ;; (op-type vocabulary parity with the prod path); the attribution

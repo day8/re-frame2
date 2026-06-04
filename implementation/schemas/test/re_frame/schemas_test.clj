@@ -329,6 +329,12 @@
           (is (= :sub-return (-> v :tags :where)))
           (is (= :items (-> v :tags :rf.sub/id)))
           (is (= :items (-> v :tags :schema-id)))
+          ;; rf2-9cm27 — the :frame tag must ride the trace so the
+          ;; violation lands in the per-frame epoch :trace-events
+          ;; (epoch/capture buffers only frame-tagged traces). The
+          ;; reaction recomputed on :rf/default.
+          (is (= :rf/default (-> v :tags :frame))
+              ":frame tag carries the reaction's frame")
           (is (= :replaced-with-default (:recovery v))))))))
 
 (deftest compute-sub-validates-return-value
@@ -380,6 +386,12 @@
             (is (= :cap/seed (-> v :tags :failing-id)))
             (is (= :app-version/bad (-> v :tags :rf.cofx/id)))
             (is (= :app-version/bad (-> v :tags :schema-id)))
+            ;; rf2-9cm27 — the :frame tag must ride the trace so the
+            ;; violation lands in the per-frame epoch :trace-events
+            ;; (epoch/capture buffers only frame-tagged traces). The
+            ;; dispatch ran on :rf/default.
+            (is (= :rf/default (-> v :tags :frame))
+                ":frame tag carries the in-flight cascade's frame")
             (is (= :no-recovery (:recovery v)))))))))
 
 (deftest cofx-validation-passes-when-conforming
@@ -443,6 +455,12 @@
             (is (= :my/notify (-> v :tags :schema-id)))
             (is (= :ui/announce (-> v :tags :event-id))
                 "the originating event-id threads through to the fx-args trace")
+            ;; rf2-9cm27 — the :frame tag must ride the trace so the
+            ;; violation lands in the per-frame epoch :trace-events
+            ;; (epoch/capture buffers only frame-tagged traces). The
+            ;; dispatch ran on :rf/default.
+            (is (= :rf/default (-> v :tags :frame))
+                ":frame tag carries the in-flight cascade's frame")
             (is (= :skipped (:recovery v))
                 "fx-args failure recovery is :skipped per Spec 010 row 5")))
         (let [handled (filter #(= :rf.fx/handled (:operation %)) @traces)]
@@ -519,7 +537,98 @@
           (is (= {:x "bad"} (-> v :tags :rf.fx/args)))
           (is (= {:x "bad"} (-> v :tags :value)))
           (is (= {:x "bad"} (-> v :tags :received)))
-          (is (= :skipped   (:recovery v))))))))
+          (is (= :skipped   (:recovery v)))
+          ;; rf2-9cm27 — a DIRECT call (4-arity, no frame) carries NO
+          ;; :frame tag. The runtime callers pass the in-flight frame via
+          ;; the optional trailing arity; direct callers (probe, unit
+          ;; tests) do not, exactly like validate-event!'s 3-arity.
+          (is (not (contains? (:tags v) :frame))
+              "direct 4-arity call emits no :frame (runtime callers supply it)"))))))
+
+;; ---- rf2-9cm27: cofx / fx / sub validation traces carry :frame -----------
+;;
+;; CORRECTNESS. validate-cofx! / validate-fx! / validate-sub! must stamp a
+;; :frame tag on their :rf.error/schema-validation-failure trace — exactly
+;; like validate-event! (rf2-lo28u) and validate-app-schema! already do.
+;; re-frame.epoch.capture/capture-event! buffers a trace into the in-flight
+;; cascade ONLY when the trace's tags carry the cascade's :frame; an
+;; untagged violation reaches the global trace stream but is SILENTLY
+;; DROPPED from the per-frame epoch :trace-events, so the Xray Issues /
+;; Schema-timeline lens (which reads :trace-events) is blind to it.
+;;
+;; The :rf/default-frame assertions on the three end-to-end tests above
+;; (cofx-validation-fires-and-skips-handler /
+;;  fx-args-validation-fires-and-skips-only-the-offending-fx /
+;;  sub-return-validation-fires-and-replaces-with-default) prove the tag
+;; lands. These tests prove the tag carries the ACTUAL in-flight frame, not
+;; a hardcoded default — a NAMED frame's dispatch / reaction must attribute
+;; the violation to that frame (mirrors
+;; schema-fires-only-on-the-frame-it-registers-against for :where :app-db).
+
+(deftest cofx-validation-frame-tag-attributes-named-frame
+  (testing "rf2-9cm27 — a cofx validation failure on a NAMED frame stamps
+            that frame's id on the trace (not :rf/default), so the epoch
+            capture buffers it into the right per-frame cascade."
+    (rf/reg-frame :test/cofx-frame {})
+    (rf/reg-cofx :probe/cofx
+      {:schema :string}
+      (fn [ctx] (assoc-in ctx [:coeffects :probe/cofx] 42)))   ;; int, not string
+    (rf/reg-event-fx :probe/cofx-seed
+      [(rf/inject-cofx :probe/cofx)]
+      (fn [_ _] {}))
+    (let [traces (atom [])]
+      (rf/register-listener! ::cf-frame (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:probe/cofx-seed] {:frame :test/cofx-frame})
+      (rf/unregister-listener! ::cf-frame)
+      (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
+                             @traces))]
+        (is (some? v) "the cofx violation fired")
+        (is (= :cofx (-> v :tags :where)))
+        (is (= :test/cofx-frame (-> v :tags :frame))
+            ":frame tag carries the named in-flight cascade frame")))))
+
+(deftest fx-args-validation-frame-tag-attributes-named-frame
+  (testing "rf2-9cm27 — an fx-args validation failure on a NAMED frame
+            stamps that frame's id on the trace (not :rf/default)."
+    (rf/reg-frame :test/fx-frame {})
+    (rf/reg-fx :probe/fx
+      {:schema [:map [:x :int]]}
+      (fn [_ctx _args] nil))
+    (rf/reg-event-fx :probe/fx-seed
+      (fn [_ _] {:fx [[:probe/fx {:x "bad"}]]}))   ;; string, not int
+    (let [traces (atom [])]
+      (rf/register-listener! ::fx-frame (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:probe/fx-seed] {:frame :test/fx-frame})
+      (rf/unregister-listener! ::fx-frame)
+      (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
+                             @traces))]
+        (is (some? v) "the fx-args violation fired")
+        (is (= :fx-args (-> v :tags :where)))
+        (is (= :test/fx-frame (-> v :tags :frame))
+            ":frame tag carries the named in-flight cascade frame")))))
+
+(deftest sub-return-validation-frame-tag-attributes-named-frame
+  (testing "rf2-9cm27 — a sub-return validation failure on a NAMED frame
+            stamps the reaction's frame id on the trace (not :rf/default)."
+    (rf/reg-frame :test/sub-frame {})
+    (rf/reg-event-db :probe/sub-break (fn [db _] (assoc db :items [1 2 3]))) ;; ints, not strings
+    (rf/reg-sub :probe/items
+      {:schema [:vector :string]}
+      (fn [db _] (:items db)))
+    (let [traces (atom [])]
+      (rf/register-listener! ::sr-frame (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:probe/sub-break] {:frame :test/sub-frame})
+      ;; Subscribe within the named frame so the reaction recomputes there.
+      ;; subscribe-once takes the frame-id FIRST (2-arity), not an opts map.
+      (is (nil? (rf/subscribe-once :test/sub-frame [:probe/items]))
+          "malformed sub yields nil per :replaced-with-default recovery")
+      (rf/unregister-listener! ::sr-frame)
+      (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
+                             @traces))]
+        (is (some? v) "the sub-return violation fired")
+        (is (= :sub-return (-> v :tags :where)))
+        (is (= :test/sub-frame (-> v :tags :frame))
+            ":frame tag carries the reaction's named frame")))))
 
 ;; ---- G2 (rf2-rbbmt): direct-call shape for event / cofx / sub ------------
 ;;
