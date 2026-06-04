@@ -5,14 +5,18 @@
   A share-URL is a **viewer-side artefact**: its only job is to let a
   remote recipient render a chart from a pasted link, with no running
   app and no trace bus. The payload carries the machine topology plus
-  the active state's NAME — and nothing else. Two classes of data are
-  structurally excluded (per `Principles.md` §No session data in
-  shares):
+  the active state's CONFIGURATION (its name/address) — and nothing
+  else. Two classes of data are structurally excluded (per
+  `Principles.md` §No session data in shares):
 
   - **Runtime `:data`** off the snapshot — a machine's `:data` value
     may carry tokens, form contents, or request payloads. The
     `:snapshot` map is `{:closed true}` and carries `:state` only; the
-    encoder neither reads nor serialises `:data`.
+    encoder neither reads nor serialises `:data`. The `:state` value
+    is a state CONFIGURATION (the three Spec 005 §Snapshot-shape arms:
+    a flat keyword, a compound vector-path, or a parallel region-map);
+    vector paths and region-maps are state names/addresses, NOT runtime
+    data.
   - **Local-filesystem `:source-coords`** — they reveal usernames /
     workstation layout / repo structure and are useless to a viewer
     with no editor handler wired. The encoder strips definition
@@ -171,13 +175,31 @@
 ;;   {:machine-id keyword?
 ;;    :frame-id   keyword?
 ;;    :definition <MachineDefinition>
-;;    :snapshot   {:state keyword?}  ;; OPTIONAL, {:closed true}, :state only}
+;;    :snapshot   {:state <state-configuration>}}  ;; OPTIONAL, {:closed true}, :state only
+;;
+;; The `:snapshot` `:state` is a STATE CONFIGURATION — one of the three
+;; Spec 005 §Snapshot-shape arms that `MachineChart` `:current-state`
+;; (via `chart.layout/highlight-ids`) already accepts:
+;;
+;;   - flat keyword       `:idle`
+;;   - compound path      `[:auth :authing]`              (vector of keywords)
+;;   - parallel region-map `{:data :loading :form :neutral}`
+;;                          (region-name keyword → flat-or-compound arm)
+;;
+;; Vector paths + region-maps are state names/ADDRESSES, not runtime
+;; data — they are allowed. Runtime `:data` is NOT.
 ;;
 ;; Anything outside the allowlist is silently dropped at encode time;
 ;; the decoder REJECTS extra keys on :snapshot (the security-relevant
 ;; closed map) with :invalid-chart-state, but tolerates unknown
 ;; top-level keys on inbound payloads only insofar as they were never
 ;; emitted (a hand-edited URL adding :snapshot {:data ...} must fail).
+;;
+;; Encode + decode validate the SAME `valid-chart-state?` (incl. the
+;; snapshot shape) so the two are SYMMETRIC: the encoder never emits a
+;; payload the decoder would reject (the rf2-9l8h8 bug was an encoder
+;; that accepted compound/parallel snapshots a keyword-only decoder
+;; then refused — an undecodable URL).
 
 (defn- valid-definition?
   "A MachineDefinition is either a flat/compound spec (`:initial` +
@@ -188,19 +210,54 @@
        (or (and (:initial d) (map? (:states d)) (seq (:states d)))
            (and (= :parallel (:type d)) (map? (:regions d)) (seq (:regions d))))))
 
+(defn- valid-state-path?
+  "A compound `:state` arm: a non-empty vector of keywords naming the
+  path from the root state-node to the active leaf (`[:auth :authing]`).
+  Mirrors the vector arm `chart.layout/highlight-ids` resolves."
+  [v]
+  (and (vector? v)
+       (seq v)
+       (every? keyword? v)))
+
+(defn- valid-state-configuration?
+  "A snapshot `:state` value is a STATE CONFIGURATION — one of the three
+  Spec 005 §Snapshot-shape arms (the same arms `MachineChart`
+  `:current-state` accepts via `chart.layout/highlight-ids`):
+
+  - **flat keyword** — `:idle`.
+  - **compound path** — a non-empty vector of keywords (`[:auth :authing]`).
+  - **parallel region-map** — a non-empty map of region-name keyword →
+    that region's own flat-or-compound arm (keyword or vector path),
+    e.g. `{:data :loading :form [:edit :dirty]}`.
+
+  Vector paths + region-maps are state names/addresses, NOT runtime
+  data."
+  [state]
+  (cond
+    (keyword? state) true
+    (vector? state)  (valid-state-path? state)
+    (map? state)     (and (seq state)
+                          (every? (fn [[region region-state]]
+                                    (and (keyword? region)
+                                         (or (keyword? region-state)
+                                             (valid-state-path? region-state))))
+                                  state))
+    :else            false))
+
 (defn- valid-snapshot?
-  "A :snapshot (when present) is a closed map carrying :state only."
+  "A :snapshot (when present) is a closed map carrying :state only,
+  where `:state` is a valid STATE CONFIGURATION (one of the three
+  Spec 005 §Snapshot-shape arms — see `valid-state-configuration?`)."
   [s]
   (and (map? s)
-       (keyword? (:state s))
-       (= #{:state} (set (keys s)))))
+       (= #{:state} (set (keys s)))
+       (valid-state-configuration? (:state s))))
 
 (defn- valid-core-chart-state?
   "Validate the load-bearing ChartState slots (`:machine-id`,
-  `:frame-id`, `:definition`). `:snapshot` is NOT checked here — the
-  encoder allowlists it (dropping runtime `:data`) before serialising,
-  so a caller passing a full snapshot is tolerated rather than rejected.
-  Used at encode time."
+  `:frame-id`, `:definition`). `:snapshot` is NOT checked here — see
+  `valid-chart-state?` for the whole-shape check used at BOTH encode and
+  decode time."
   [cs]
   (and (map? cs)
        (keyword? (:machine-id cs))
@@ -209,9 +266,14 @@
 
 (defn- valid-chart-state?
   "Validate a fully-allowlisted ChartState shape. `:snapshot` is
-  optional; when present it must be `{:state <kw>}` EXACTLY. Used on the
-  decode side, where an inbound `:snapshot` carrying extra keys (a
-  hand-edited URL smuggling `:data`) MUST be rejected."
+  optional; when present it must be `{:state <state-configuration>}`
+  EXACTLY (closed; `:state` only). Used on BOTH sides so encode/decode
+  stay symmetric — the encoder validates the allowlisted chart state
+  with this same predicate before serialising, so it never emits a
+  payload the decoder would reject (a hand-edited URL smuggling `:data`
+  onto `:snapshot`, or a malformed `:state` that is none of the three
+  arms, is rejected at decode; an in-process caller passing the same is
+  rejected at encode)."
   [cs]
   (and (valid-core-chart-state? cs)
        (or (not (contains? cs :snapshot))
@@ -227,8 +289,11 @@
     (cond-> {:machine-id machine-id
              :frame-id   frame-id
              :definition (strip-meta definition)}
-      ;; :snapshot is allowlisted to :state ONLY — :data is dropped here
-      ;; structurally even if the caller passed a full snapshot.
+      ;; :snapshot is allowlisted to :state ONLY — runtime :data and any
+      ;; other snapshot key are dropped here structurally even if the
+      ;; caller passed a full snapshot. The :state VALUE (a flat keyword,
+      ;; a compound vector-path, or a parallel region-map) is preserved
+      ;; intact — it is a state name/address, not runtime data.
       (and (map? snapshot) (contains? snapshot :state))
       (assoc :snapshot {:state (:state snapshot)}))))
 
@@ -268,35 +333,44 @@
   {:machine-id :auth/login-flow
    :frame-id   :app/main
    :definition {:initial :idle :states {...}}
-   :snapshot   {:state :loading}}   ;; optional; :state ONLY
+   :snapshot   {:state :loading}}   ;; optional; :state ONLY (a state
+                                    ;; CONFIGURATION — flat keyword,
+                                    ;; compound vector-path, or parallel
+                                    ;; region-map)
   ```
 
-  The encoder (1) validates + allowlists `chart-state` (dropping
-  runtime `:data` + `:source-coords`), (2) strips definition metadata,
-  (3) canonicalises map / set ordering, (4) wraps in the versioned
-  envelope, (5) transit-writes (json) → base64url-encodes, (6) wraps
-  the fragment into `:host`.
+  The encoder (1) allowlists `chart-state` (dropping runtime `:data` +
+  `:source-coords` + extra `:snapshot` keys) and strips definition
+  metadata, (2) VALIDATES the allowlisted result against the SAME
+  `valid-chart-state?` the decoder uses — so encode/decode stay
+  symmetric and the encoder never emits a payload the decoder would
+  reject, (3) canonicalises map / set ordering, (4) wraps in the
+  versioned envelope, (5) transit-writes (json) → base64url-encodes,
+  (6) wraps the fragment into `:host`.
 
   Throws `:rf.machines-viz.share/encode-failed` (an ex-info with
-  `:reason :invalid-chart-state`) when `chart-state` does not validate."
+  `:reason :invalid-chart-state`) when the chart state does not validate
+  — including a `:snapshot` `:state` that is none of the three allowed
+  configuration arms (a malformed `:state` would yield an undecodable
+  URL, so it is rejected at encode)."
   ([chart-state] (encode-share-url chart-state nil))
   ([chart-state {:keys [host] :or {host default-host}}]
-   (when-not (valid-core-chart-state? chart-state)
-     (throw (ex-info ":rf.machines-viz.share/encode-failed — invalid-chart-state"
-                     {:rf.error/id :rf.machines-viz.share/encode-failed
-                      :where       'machines-viz.share/encode-share-url
-                      :recovery    :no-recovery
-                      :reason      :invalid-chart-state
-                      :chart-state chart-state})))
-   (let [allowlisted (allowlist-chart-state chart-state)
-         envelope    (canonicalise
-                       {:rf.machines-viz.share/v       current-version
-                        :rf.machines-viz.share/chart   allowlisted
-                        :rf.machines-viz.share/created (js/Date.now)})
-         writer      (transit/writer :json)
-         transit-str (transit/write writer envelope)
-         fragment    (bytes->base64url transit-str)]
-     (str host "#" fragment-key "=" fragment))))
+   (let [allowlisted (allowlist-chart-state chart-state)]
+     (when-not (valid-chart-state? allowlisted)
+       (throw (ex-info ":rf.machines-viz.share/encode-failed — invalid-chart-state"
+                       {:rf.error/id :rf.machines-viz.share/encode-failed
+                        :where       'machines-viz.share/encode-share-url
+                        :recovery    :no-recovery
+                        :reason      :invalid-chart-state
+                        :chart-state chart-state})))
+     (let [envelope    (canonicalise
+                         {:rf.machines-viz.share/v       current-version
+                          :rf.machines-viz.share/chart   allowlisted
+                          :rf.machines-viz.share/created (js/Date.now)})
+           writer      (transit/writer :json)
+           transit-str (transit/write writer envelope)
+           fragment    (bytes->base64url transit-str)]
+       (str host "#" fragment-key "=" fragment)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Decoder
@@ -402,8 +476,11 @@
   `MachineChart` prop map the viewer page mounts (per `API.md`
   §Read-only viewer): `:machine-id` + `:definition` from the payload,
   `:current-state` from `:snapshot`'s `:state` (nil → no highlight),
-  and `:read-only? true`. `:frame-id` is payload provenance, not a
-  chart prop, so it is not threaded onto the props."
+  and `:read-only? true`. The `:state` value is a state configuration —
+  a flat keyword, a compound vector-path, or a parallel region-map — and
+  is passed through verbatim; `MachineChart` `:current-state` accepts all
+  three arms. `:frame-id` is payload provenance, not a chart prop, so it
+  is not threaded onto the props."
   [envelope]
   (let [chart (:rf.machines-viz.share/chart envelope)]
     (cond-> {:machine-id (:machine-id chart)
