@@ -355,6 +355,72 @@
       (is (= {:state :idle} (-> diff-mts first :opts :before))
           "the threaded `:before` is the prior instance snapshot"))))
 
+;; ---- rf2-227cz: a wholly-new slice reads :added, not plain ---------------
+;;
+;; The bug: an instance / singleton present in `:value` but ABSENT in the
+;; focused epoch's pre-image was tagged `no-diff` and rendered identically
+;; to an unchanged slice — so the one thing that should make each event
+;; visually distinct (the newly-created machine / spawn / route appearing)
+;; carried NO marker. The fix tags it the `h/added` sentinel and the view
+;; translates that to the edn-inspector's `:added? true` first-run signal
+;; (which washes the whole subtree green). These tests assert the view
+;; mounts the inspector with `:added? true` (NOT a `:before` opt) for a
+;; wholly-new instance / singleton.
+
+(deftest newly-added-machine-instance-mounts-added-not-before
+  (testing "rf2-227cz — a machine present in :value but absent in the
+            focused epoch's :before renders :added (not plain): its
+            instance section mounts the inspector with `:added? true`
+            and NO `:before` opt"
+    (let [before (runtime-db {:rf/machines {:door/main {:state :open}}})
+          after  (runtime-db {:rf/machines {:door/main    {:state :open}
+                                            :traffic/light {:state :red}}})
+          model  (h/current-state-sections after before)
+          tree   (state/state-body model)
+          new-mc (find-by-testid
+                   tree "rf-xray-app-db-state-instance-:rf/machines-:traffic/light")
+          mounts (find-edn-inspector-mounts new-mc)]
+      (is (seq mounts) "the newly-added machine's instance section mounts")
+      (is (some #(true? (:added? (:opts %))) mounts)
+          "the new machine mounts with `:added? true` — the whole subtree
+           washes :added (green) for the focused epoch")
+      (is (not-any? #(contains? (:opts %) :before) mounts)
+          "an :added slice carries NO `:before` opt (it has no pre-image —
+           the first-run path synthesises the missing-sentinel)"))))
+
+(deftest existing-machine-instance-still-diffs-not-added
+  (testing "rf2-227cz — a machine present in BOTH :value and :before
+            still threads `:before` (diffs in place); it does NOT get
+            the `:added?` first-run treatment"
+    (let [before (runtime-db {:rf/machines {:door/main {:state :open}}})
+          after  (runtime-db {:rf/machines {:door/main    {:state :closed}
+                                            :traffic/light {:state :red}}})
+          model  (h/current-state-sections after before)
+          tree   (state/state-body model)
+          door   (find-by-testid
+                   tree "rf-xray-app-db-state-instance-:rf/machines-:door/main")
+          mounts (find-edn-inspector-mounts door)]
+      (is (some #(contains? (:opts %) :before) mounts)
+          "the pre-existing machine threads `:before` (a real diff)")
+      (is (not-any? #(true? (:added? (:opts %))) mounts)
+          "a pre-existing machine is NOT marked :added"))))
+
+(deftest newly-added-singleton-slice-mounts-added-not-before
+  (testing "rf2-227cz — a singleton reserved slice (e.g. :rf/route) that
+            appeared this epoch (absent in :before) mounts the inspector
+            with `:added? true` and no `:before`"
+    (let [before (runtime-db {})
+          after  (runtime-db {:rf/route {:id :home}})
+          model  (h/current-state-sections after before)
+          tree   (state/state-body model)
+          route  (find-by-testid tree "rf-xray-app-db-state-area-:rf/route")
+          mounts (find-edn-inspector-mounts route)]
+      (is (seq mounts) "the newly-added route slice mounts")
+      (is (some #(true? (:added? (:opts %))) mounts)
+          "the new route slice mounts with `:added? true`")
+      (is (not-any? #(contains? (:opts %) :before) mounts)
+          "an :added slice carries no `:before` opt"))))
+
 (deftest no-diff-model-renders-current-state-no-annotation
   (testing "the 1-arity (no pre-image) model renders plain current-state
             — every mount is BROWSE mode (no `:before` opt) so the
@@ -366,7 +432,11 @@
       (is (seq mounts) "the panel mounts edn-inspector widget instances")
       (is (every? #(not (contains? (:opts %) :before)) mounts)
           "no mount carries a `:before` opt — no diff annotation
-           without a pre-image"))))
+           without a pre-image")
+      (is (not-any? #(true? (:added? (:opts %))) mounts)
+          "rf2-227cz — and no mount is marked :added in 1-arity / cold-
+           boot mode: with no focused epoch there is no 'this epoch added
+           it' claim, so every slot renders plain current-state"))))
 
 ;; ---- popup affordance (rf2-7sdja) ---------------------------------------
 ;;

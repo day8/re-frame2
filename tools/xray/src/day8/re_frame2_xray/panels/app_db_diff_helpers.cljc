@@ -370,6 +370,29 @@
   against nil'. Pure data."
   ::no-diff)
 
+(def added
+  "Sentinel `:before` value meaning 'diff mode IS on, but this whole
+  section / instance / singleton slice is ABSENT in the focused epoch's
+  pre-image — it just came into existence this epoch'. Distinct from
+  `no-diff` (no pre-image at all → render plain) AND from a real prior
+  value (a genuine before → annotate the change in place).
+
+  rf2-227cz: an instance / singleton present in `:value` but absent in
+  `:before` MUST read `:added` (the whole subtree lights up green),
+  NOT plain current-state. Previously such a slot was tagged `no-diff`
+  and rendered identically to an unchanged slice, so the one thing that
+  should make each event visually distinct — the newly-created machine /
+  spawn / route appearing — was invisible. The renderer translates this
+  sentinel to the edn-inspector's `:added? true` first-run signal
+  (rf2-kp7bw), which synthesises the prior side as
+  `engine/missing-sentinel` and washes the whole subtree `:added`.
+
+  Note: this is ONLY emitted in diff mode (a real pre-image is present
+  for the focused epoch). The 1-arity / cold-boot path still uses
+  `no-diff` everywhere — with no focused epoch there is no 'this epoch
+  added it' claim to make. Pure data."
+  ::added)
+
 (defn- instances-of
   "Decompose a map-of-instances reserved-area value into an ordered
   vector of `{:id <instance-id> :value <per-instance-state>
@@ -382,7 +405,13 @@
   instance's `:before` is the prior value at that instance id, so the
   renderer can carry the inline `← changed` annotation (spec/021 §4.3).
   When `before-area` is `no-diff` every instance is tagged `no-diff` —
-  current-state only. Pure data → data."
+  current-state only.
+
+  rf2-227cz: in DIFF mode (`before-area` is NOT `no-diff`) an instance
+  id present now but ABSENT in `before-area` is tagged the `added`
+  sentinel, NOT `no-diff` — the freshly-created machine / spawn must
+  light up `:added` (green) rather than render identically to an
+  unchanged instance. Pure data → data."
   [area-value before-area]
   (if (and (map? area-value) (seq area-value))
     (->> area-value
@@ -391,7 +420,10 @@
                  :value  v
                  :before (if (= no-diff before-area)
                            no-diff
-                           (get before-area id no-diff))}))
+                           ;; Diff mode: a known prior snapshot diffs in
+                           ;; place; an instance absent from `before-area`
+                           ;; is `:added` (rf2-227cz), not `no-diff`.
+                           (get before-area id added))}))
          (sort-by (comp pr-str :id))
          vec)
     []))
@@ -454,6 +486,16 @@
   annotation but stays on the diff engine, which renders identically to
   current-state for unchanged trees.
 
+  rf2-227cz — a third `:before` value, the `added` sentinel, marks a
+  whole instance / singleton slice that is present in `:value` but
+  ABSENT in the focused epoch's pre-image (it came into existence this
+  epoch). The renderer translates `added` to the edn-inspector's
+  `:added? true` first-run signal so the whole subtree washes `:added`
+  (green) rather than rendering as plain unchanged state. (The TOP
+  user-domain section needs no sentinel — `:before-top` is the whole
+  prior user-domain map, so a NEW user-domain key already classifies
+  `:added` per-key inside the diff engine.)
+
   Pure data → data. JVM-runnable. nil-safe throughout (absent db,
   empty db, absent reserved keys, empty registries, absent before-db)."
   ([db] (current-state-sections db no-diff))
@@ -465,7 +507,13 @@
                        (if diff?
                          (let [path (get runtime-areas area-id)
                                v    (get-in before-db path ::absent)]
-                           (if (= ::absent v) no-diff v))
+                           ;; rf2-227cz — in diff mode a singleton slice
+                           ;; absent in `before-db` is `:added` (the slot
+                           ;; appeared this epoch — e.g. first navigation
+                           ;; populating `:rf/route`), NOT `no-diff`. Only
+                           ;; a slot genuinely present (incl. present-nil)
+                           ;; diffs in place.
+                           (if (= ::absent v) added v))
                          no-diff))]
      {:top   (user-domain-db db)
       :before-top (if diff?
