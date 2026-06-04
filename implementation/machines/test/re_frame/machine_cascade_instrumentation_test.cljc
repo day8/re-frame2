@@ -101,7 +101,7 @@
         :on  {:entry :enter-fan-on
               :exit  :exit-fan-on
               :on    {:hvac/power-cycle {:target :off :action :fan-off}
-                      :hvac/nudge {:target :same-state :action :nudge-fan}
+                      :hvac/nudge {:target :same-state :reenter? true :action :nudge-fan}
                       :hvac/tweak {:action :tweak-fan}}}}}}
      :actions
      {:enter-running       (trail-action :action:power-on)
@@ -210,8 +210,9 @@
 ;; ---- self-transitions (external = exit+entry; internal = action only) -----
 
 (deftest external-self-transition-shows-exit-and-entry
-  (testing ":hvac/nudge (external self-transition, :target :same-state) on
-   :fan :on re-enters itself: exit :fan-on -> nudge -> entry :fan-on"
+  (testing ":hvac/nudge (external self-transition, :target :same-state +
+   :reenter? true) on :fan :on re-enters itself: exit :fan-on -> nudge ->
+   entry :fan-on"
     (reg-hvac!)
     (boot-hvac!)
     (rf/dispatch-sync [:hvac/controller [:hvac/power-cycle]]) ;; :fan -> :on

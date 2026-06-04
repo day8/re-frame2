@@ -437,7 +437,7 @@
    {:label "Hvac: mode-toggle (:heating ⇄ :cooling — multi-level LCA cascade)"
     :event [:machine-epochs/send [[:hvac/controller [:hvac/mode-toggle]]]]
     :watch "Cascade ORDER: exit :heating (deepest-first) → :swap-mode @ LCA :conditioning → entry :cooling (shallowest-first)."}
-   {:label "Hvac: nudge fan — EXTERNAL self-transition (:target :same-state)"
+   {:label "Hvac: nudge fan — EXTERNAL self-transition (:target :same-state :reenter? true)"
     :event [:machine-epochs/send [[:hvac/controller [:hvac/nudge]]]]
     :watch "Cascade: :fan :on re-enters itself — exit :fan-on → :nudge-fan → entry :fan-on; NO spurious {:on}→{:on} no-op row."}
    {:label "Hvac: tweak fan — INTERNAL self-transition (omit :target)"

@@ -1663,7 +1663,8 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
   [:or
    TransitionTarget                                                         ;; target shorthand — keyword OR vector path; see TransitionTarget below
    [:map
-    [:target  {:optional true} TransitionTarget]                            ;; one of: keyword (relative to declaring state), [:vector :keyword] (absolute path from root), or :same-state (external self-transition); omit for internal
+    [:target  {:optional true} TransitionTarget]                            ;; one of: keyword (relative to declaring state), [:vector :keyword] (absolute path from root), or :same-state (self-target); omit for internal
+    [:reenter? {:optional true} :boolean]                                   ;; rf2-eicq0 — XState-v5 `reenter`. A self / proper-ancestor target (on the active path) is INTERNAL by default (no exit/entry); `:reenter? true` makes it EXTERNAL (re-run :exit then :entry; restart :after timers; tear-down + respawn :spawn/:spawn-all). No-op for a disjoint-subtree target (the LCCA already lies above both). Absent => false.
     [:guard   {:optional true} GuardRef]                                    ;; one fn or one registered id
     [:action  {:optional true} ActionRef]                                   ;; one fn or one registered id (singular — no :actions vector)
     [:meta    {:optional true} :map]
@@ -1673,7 +1674,10 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
 ;; (005-StateMachines.md#target-resolution--vector-vs-keyword).
 ;;   - keyword form  — relative to the state where the transition is DECLARED (sibling resolution)
 ;;   - vector form   — absolute path from the root
-;; Plus the literal :same-state for external self-transitions.
+;; Plus the literal :same-state, which names the declaring state itself (a
+;; self-target). A self / proper-ancestor target is INTERNAL by default
+;; (XState-v5, rf2-eicq0); pair it with :reenter? true for the external
+;; (exit + re-enter) self-transition.
 (def TransitionTarget
   [:or :keyword [:vector :keyword]])
 

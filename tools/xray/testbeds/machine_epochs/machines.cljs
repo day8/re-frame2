@@ -332,13 +332,13 @@
 
       :on
       {:tags  #{:fan/on}
-       ;; :nudge is an EXTERNAL self-transition (:target :same-state forces a
-       ;; real exit→entry of :on); :tweak is an INTERNAL self-transition
-       ;; (omit :target) — action-only, no exit/entry. :tweak-fan must do real
-       ;; work (bump :tweaks) so the internal transition stays a genuine
-       ;; transition, not a no-op.
+       ;; :nudge is an EXTERNAL self-transition (:target :same-state +
+       ;; :reenter? true forces a real exit→entry of :on — rf2-eicq0 v5 flip);
+       ;; :tweak is an INTERNAL self-transition (omit :target) — action-only,
+       ;; no exit/entry. :tweak-fan must do real work (bump :tweaks) so the
+       ;; internal transition stays a genuine transition, not a no-op.
        :on    {:hvac/power-cycle :off
-               :hvac/nudge {:target :same-state}
+               :hvac/nudge {:target :same-state :reenter? true}
                :hvac/tweak {:action :tweak-fan}}}}}}
 
    :actions
