@@ -303,7 +303,11 @@ Per Spec 011 §Server-only `reg-cofx` for request context."
 ;; trace surface is gated off. Catches every `:rf.error/*` category that
 ;; flows through `re-frame.error-emit/dispatch-on-error!` —
 ;; `:rf.error/handler-exception` (router), `:rf.error/fx-handler-
-;; exception` family (fx), `:rf.error/flow-eval-exception` (flows).
+;; exception` family (fx), `:rf.error/flow-eval-exception` (flows), and
+;; `:rf.error/sub-exception` (reactive sub-run — rf2-vvwmi routed it onto
+;; the always-on substrate so a sub that throws mid-`render-to-string`
+;; projects a fail-closed 5xx under production hardening instead of
+;; recovering to nil → silent HTTP 200).
 (rf-emit/register-error-listener! ::error-projection
                                   error-listener/error-emit-projection-listener)
 
@@ -311,7 +315,9 @@ Per Spec 011 §Server-only `reg-cofx` for request context."
 ;; preserved for `:rf.error/*` categories that emit ONLY via
 ;; `trace/emit-error!` (no always-on emission path): `:rf.error/no-such-
 ;; handler`, `:rf.error/no-such-route`, `:rf.error/schema-validation-
-;; failure`, `:rf.error/sub-exception`, `:rf.error/drain-depth-exceeded`.
+;; failure`, `:rf.error/drain-depth-exceeded`. (`:rf.error/sub-exception`
+;; ALSO fires here for the dev trace surface, but its production status
+;; source of truth is now the always-on substrate above — rf2-vvwmi.)
 ;; These categories DCE under `interop/debug-enabled? = false`; the
 ;; substrate-shipping projector relies on the dev gate for them. Both
 ;; listeners share id `::error-projection` to keep the contract surface
