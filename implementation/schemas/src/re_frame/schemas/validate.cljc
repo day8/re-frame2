@@ -60,11 +60,17 @@
   (until rf2-isdwf's top-level hoisting lands in core).
 
   The value-bearing slots are redacted (`:value`, `:received`,
-  `:explain`, plus `:rf.fx/args` on `:where :fx-args` emissions and
-  `:rf.sub/query-v` on `:where :sub-return` emissions — see `redact-tags`);
-  the structural / categorical slots (`:path`, `:failing-id`,
-  `:schema-id`, `:reason`) are kept — consumers need them to locate
-  the broken slot without leaking user data.
+  `:explain`, `:explain-humanized`, plus `:rf.fx/args` on
+  `:where :fx-args` emissions and `:rf.sub/query-v` on
+  `:where :sub-return` emissions — see `redact-tags`); the structural /
+  categorical slots (`:path`, `:failing-id`, `:schema-id`, `:reason`)
+  are kept — consumers need them to locate the broken slot without
+  leaking user data. Per rf2-qhq3f `:explain-humanized` (the
+  operator-readable decomposition of the explainer's output) is
+  value-bearing too — it carries the failing value verbatim under
+  Malli's path-shaped humanize output — so it redacts symmetrically
+  with `:explain` (present as the `:rf/redacted` sentinel on sensitive
+  failures, not omitted).
 
   Per rf2-4fbsd the emit-sites carry two slots for the failing value
   (`:value` and `:received`, per Spec 010 §`:sensitive?`) and one slot
@@ -102,13 +108,15 @@
   error traces. Stamps `:sensitive? true` so consumers filter
   correctly. Idempotent — safe to call on an already-redacted map.
 
-  The five redacted slots (`:value`, `:received`, `:explain`,
-  `:rf.fx/args`, `:rf.sub/query-v`) are the canonical set per the
-  Spec 010 §`:sensitive?` redaction-shape list. Two of them are
-  per-surface doubled-id names carried only on a single emit-site
-  (`:rf.fx/args` on `:where :fx-args`; `:rf.sub/query-v` on
-  `:where :sub-return`); the `contains?` guards make those clauses
-  no-ops on the other surfaces whose tag maps don't carry the slot.
+  The six redacted slots (`:value`, `:received`, `:explain`,
+  `:explain-humanized`, `:rf.fx/args`, `:rf.sub/query-v`) are the
+  canonical set per the Spec 010 §`:sensitive?` redaction-shape list.
+  Three of them are per-surface / conditional names carried only on a
+  subset of emit-sites (`:rf.fx/args` on `:where :fx-args`;
+  `:rf.sub/query-v` on `:where :sub-return`; `:explain-humanized` only
+  when the `:schemas/humanize-explain!` hook is installed); the
+  `contains?` guards make those clauses no-ops on the surfaces whose
+  tag maps don't carry the slot.
   Per rf2-nijom this replaces the previous fx-only `extra-redact`
   lambda — the redaction is now symmetric across every value-bearing
   slot, and the schema lists them canonically.
@@ -119,15 +127,32 @@
   typically carries the same secret material the registered schema
   is gating (user ids, auth tokens, document ids). Without
   redaction the failure trace re-leaks it alongside the failing
-  return value the other clauses just scrubbed."
+  return value the other clauses just scrubbed.
+
+  Per rf2-qhq3f — `:explain-humanized` (the operator-readable
+  decomposition of the explainer's output, per Spec 010 §Humanize-hook)
+  is itself value-bearing: Malli's `malli.error/humanize` carries the
+  failing value verbatim under its path-shaped output. Spec 010
+  §Humanize-hook §Composition with `:sensitive?` requires BOTH
+  `:explain` AND `:explain-humanized` to redact symmetrically — a
+  redacted-raw / leaked-humanized split would re-leak the value the
+  `:explain` clause just scrubbed. The slot is built from the
+  pre-redaction explanation at the emit-sites (so it carries the real
+  humanized payload on non-sensitive failures) and this clause scrubs
+  it to the sentinel on sensitive failures — the sentinel is present
+  (not omitted), so the trace shape is symmetric across sensitive and
+  non-sensitive surfaces and Xray's violation block, which prefers
+  `:explain-humanized`, reads `:rf/redacted` rather than falling through
+  to a missing slot."
   [tags]
   (cond-> tags
-    (contains? tags :value)         (assoc :value          redacted-sentinel)
-    (contains? tags :received)      (assoc :received       redacted-sentinel)
-    (contains? tags :explain)       (assoc :explain        redacted-sentinel)
-    (contains? tags :rf.fx/args)    (assoc :rf.fx/args     redacted-sentinel)
-    (contains? tags :rf.sub/query-v) (assoc :rf.sub/query-v redacted-sentinel)
-    true                            (assoc :sensitive? true)))
+    (contains? tags :value)             (assoc :value             redacted-sentinel)
+    (contains? tags :received)          (assoc :received          redacted-sentinel)
+    (contains? tags :explain)           (assoc :explain           redacted-sentinel)
+    (contains? tags :explain-humanized) (assoc :explain-humanized redacted-sentinel)
+    (contains? tags :rf.fx/args)        (assoc :rf.fx/args        redacted-sentinel)
+    (contains? tags :rf.sub/query-v)    (assoc :rf.sub/query-v    redacted-sentinel)
+    true                                (assoc :sensitive? true)))
 
 (defn- common-prefix
   "Return the longest common prefix of two sequential collections (as a
@@ -198,25 +223,46 @@
   (str subject id-or-path slot-tail (pr-str schema)
        ", got " (error/type-of-value value) "."))
 
-(defn- emit-validation-failure!
-  "Single emit seam for `:rf.error/schema-validation-failure` traces.
-  Augments `tags` with `:explain-humanized` when the
-  `:schemas/humanize-explain!` late-bind hook is present + an
-  `:explain` slot is in `tags` (per rf2-2ek7t). Centralises the
-  trace emit so consumers (Xray's violation block, future tools)
-  always see the humanized payload when the registered validator
-  ships one — no per-call-site coordination needed.
+(defn- humanize-explain
+  "Compute the operator-readable `:explain-humanized` payload from a
+  RAW explainer output (per Spec 010 §Humanize-hook, rf2-2ek7t).
+  Returns the humanized shape when the `:schemas/humanize-explain!`
+  late-bind hook is installed and `explanation` is non-nil; nil
+  otherwise (no hook installed — non-Malli validator / adapter ns not
+  required — or the explainer produced nothing).
+
+  Per rf2-qhq3f this MUST be called on the explainer's output BEFORE
+  any privacy redaction is applied to the tag map. The earlier design
+  humanized inside the central emit seam, AFTER `redact-tags` had
+  already overwritten `:explain` with `:rf/redacted`; on a sensitive
+  failure the humanizer was then handed the sentinel keyword, returned
+  nil, and `:explain-humanized` was silently OMITTED — a shape drift
+  against Spec 010 §Humanize-hook §Composition with `:sensitive?`,
+  which requires the slot present and redacted to the sentinel
+  (symmetric with `:explain`). Computing here, from the raw
+  explanation, lets the emit-sites stamp the slot into base-tags so
+  the shared `redact-tags` cond-> scrubs it on sensitive surfaces and
+  leaves the real payload on non-sensitive ones.
 
   Failures inside the humanizer degrade silently (humanize is a
   cosmetic enrichment; a thrown humanizer can't suppress the
   failure trace itself)."
+  [explanation]
+  (when (some? explanation)
+    (when-let [hum-fn (late-bind/get-fn :schemas/humanize-explain!)]
+      (try (hum-fn explanation) (catch #?(:clj Throwable :cljs :default) _ nil)))))
+
+(defn- emit-validation-failure!
+  "Single emit seam for `:rf.error/schema-validation-failure` traces.
+  A thin wrapper over `trace/emit-error!` — the `:explain-humanized`
+  augmentation now happens at the call-sites (via `humanize-explain`
+  folded into base-tags BEFORE redaction, per rf2-qhq3f) so the
+  privacy redaction in `redact-tags` can scrub the humanized slot
+  symmetrically with `:explain`. Centralising the bare emit keeps the
+  category keyword in one place; future cross-cutting tag shaping
+  lands here."
   [tags]
-  (let [humanized (when-let [hum-fn (late-bind/get-fn :schemas/humanize-explain!)]
-                    (when-let [exp (:explain tags)]
-                      (try (hum-fn exp) (catch #?(:clj Throwable :cljs :default) _ nil))))
-        tags*     (cond-> tags
-                    (some? humanized) (assoc :explain-humanized humanized))]
-    (trace/emit-error! :rf.error/schema-validation-failure tags*)))
+  (trace/emit-error! :rf.error/schema-validation-failure tags))
 
 (defn- run-validation
   "Shared core of the four meta-bearing validate-*! fns (event / cofx /
@@ -252,11 +298,17 @@
   on a path that runs per-event / per-cofx / per-fx / per-sub-return.
 
   Per rf2-nijom this primitive no longer carries an `extra-redact`
-  escape hatch — the four canonical redacted slots
-  (`:value`, `:received`, `:explain`, `:rf.fx/args`) all live on the
-  central `redact-tags` cond->. The `:rf.fx/args` clause is a no-op on
-  the other three surfaces (their base-tags don't contain the
-  slot), so a single redactor covers every meta-bearing emit site."
+  escape hatch — the canonical redacted slots
+  (`:value`, `:received`, `:explain`, `:explain-humanized`,
+  `:rf.fx/args`, `:rf.sub/query-v`) all live on the central
+  `redact-tags` cond->. The per-surface clauses are no-ops on the
+  surfaces whose base-tags don't contain the slot, so a single
+  redactor covers every meta-bearing emit site. Per rf2-qhq3f the
+  `:explain-humanized` slot is folded into base-tags here (from the
+  RAW explanation via `humanize-explain`, before redaction) so the
+  redactor scrubs it symmetrically with `:explain` on sensitive
+  failures rather than the humanizer being handed an already-redacted
+  `:explain` and silently dropping the slot."
   [reg-meta value walk-schema? build-base-tags]
   (if-let [vf @validator/validator-fn]
     (if-let [schema (:schema reg-meta)]
@@ -265,7 +317,13 @@
         (let [explanation (validator/run-explainer schema value)
               sensitive?  (and walk-schema?
                                (walker/schema-has-sensitive? schema))
-              base-tags   (build-base-tags schema explanation)
+              ;; Per rf2-qhq3f — humanize from the RAW explanation here,
+              ;; before redaction, and fold the slot into base-tags so
+              ;; `redact-tags` scrubs it symmetrically with `:explain`
+              ;; on sensitive failures (sentinel present, not omitted).
+              humanized   (humanize-explain explanation)
+              base-tags   (cond-> (build-base-tags schema explanation)
+                            (some? humanized) (assoc :explain-humanized humanized))
               tags        (cond-> base-tags sensitive? redact-tags)]
           (emit-validation-failure! tags)
           false))
@@ -391,6 +449,12 @@
                        sensitive?  (if in-path
                                      (walker/schema-sensitive-at? schema in-path)
                                      (walker/schema-has-sensitive? schema))
+                       ;; Per rf2-qhq3f — humanize from the RAW
+                       ;; explanation, before redaction, so the
+                       ;; `:explain-humanized` slot is scrubbed
+                       ;; symmetrically with `:explain` on sensitive
+                       ;; app-db failures (sentinel present, not omitted).
+                       humanized   (humanize-explain explanation)
                        base-tags   (cond-> {:where           :app-db
                                             :path            leaf-path
                                             :registered-path reg-path
@@ -404,7 +468,8 @@
                                                                schema leaf-value)
                                             :rollback?       true
                                             :recovery        :no-recovery}
-                                     event-id (assoc :failing-id event-id))
+                                     event-id          (assoc :failing-id event-id)
+                                     (some? humanized) (assoc :explain-humanized humanized))
                        tags        (if sensitive? (redact-tags base-tags) base-tags)]
                    (emit-validation-failure! tags)
                    (recur (next entries) false)))))

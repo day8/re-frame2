@@ -38,7 +38,8 @@
     3. **Backward-compat** — non-sensitive validation failures emit
        unchanged (`:value`, `:explain` ride verbatim; no top-level
        `:sensitive?` stamp on the event)."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.schemas :as schemas]
             ;; Per rf2-t0hq + rf2-qyfie — the Malli adapter ns must be
@@ -600,6 +601,136 @@
             ":rf.sub/query-v rides verbatim — no redaction on non-sensitive subs")
         (is (= 99 (-> v :tags :value))
             ":value also rides verbatim — legacy backward-compat")))))
+
+;; ---- humanized-explain redaction symmetry (rf2-qhq3f) --------------------
+;; Per Spec 010 §Humanize-hook §Composition with `:sensitive?` — when the
+;; failing slot is sensitive the substrate redacts BOTH `:explain` AND
+;; `:explain-humanized` to `:rf/redacted` (symmetric). Before the fix the
+;; humanization happened in the central emit seam AFTER `:explain` had
+;; already been overwritten with `:rf/redacted`, so the humanizer was
+;; handed the sentinel, returned nil, and `:explain-humanized` was
+;; silently OMITTED — a contract drift (Xray's violation block prefers
+;; `:explain-humanized` and would fall through to a missing slot) and a
+;; missing regression on a privacy-sensitive path. These tests pin the
+;; symmetric shape: present-and-redacted on sensitive failures,
+;; real-payload on non-sensitive ones, never the raw value.
+
+(deftest non-sensitive-app-db-failure-carries-humanized-payload
+  (testing "rf2-qhq3f — a NON-sensitive app-db validation failure (Malli
+            humanizer hook loaded) carries the real :explain-humanized
+            payload alongside the raw :explain"
+    (rf/reg-app-schema [:auth :token] [:string])
+    (let [traces (atom [])]
+      (rf/register-listener! ::hum-plain (fn [ev] (swap! traces conj ev)))
+      (schemas/validate-app-schema! {:auth {:token 42}} :auth/init-bad)
+      (rf/unregister-listener! ::hum-plain)
+      (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
+                             @traces))]
+        (is (some? v) "a trace fired")
+        (is (not (contains? v :sensitive?))
+            "non-sensitive — no top-level :sensitive? stamp")
+        (is (contains? (:tags v) :explain-humanized)
+            ":explain-humanized present on a non-sensitive failure")
+        (is (not= :rf/redacted (-> v :tags :explain-humanized))
+            ":explain-humanized is the real humanized payload, not the sentinel")
+        (is (some? (-> v :tags :explain))
+            ":explain rides verbatim too")))))
+
+(deftest sensitive-app-db-failure-redacts-humanized-present-not-omitted
+  (testing "rf2-qhq3f — a SENSITIVE app-db validation failure emits
+            :explain-humanized :rf/redacted alongside :explain
+            :rf/redacted. The slot is PRESENT (the sentinel), not
+            omitted — symmetric redaction per Spec 010 §Humanize-hook"
+    (rf/reg-app-schema [:auth :token] [:string {:sensitive? true}])
+    (let [traces (atom [])]
+      (rf/register-listener! ::hum-redact (fn [ev] (swap! traces conj ev)))
+      (schemas/validate-app-schema! {:auth {:token 42}} :auth/init-bad)
+      (rf/unregister-listener! ::hum-redact)
+      (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
+                             @traces))]
+        (is (some? v) "a trace fired")
+        (is (true? (:sensitive? v)))
+        (is (= :rf/redacted (-> v :tags :explain))
+            ":explain redacted")
+        (is (contains? (:tags v) :explain-humanized)
+            ":explain-humanized PRESENT — not silently omitted (the drift this fixes)")
+        (is (= :rf/redacted (-> v :tags :explain-humanized))
+            ":explain-humanized is the :rf/redacted sentinel — symmetric with :explain")))))
+
+(deftest sensitive-app-db-failure-humanized-leaks-no-raw-value
+  (testing "rf2-qhq3f — the raw sensitive value never appears in
+            :explain-humanized on a sensitive failure (fail-closed
+            privacy proof). Use a distinctive secret so a leak would be
+            unmistakable in the trace surface"
+    (let [secret "TOP-SECRET-token-9f3a2"]
+      ;; Schema wants an :int; the secret is a string — fails. The value
+      ;; itself is the sensitive material that must not surface.
+      (rf/reg-app-schema [:auth :token] [:int {:sensitive? true}])
+      (let [traces (atom [])]
+        (rf/register-listener! ::no-leak (fn [ev] (swap! traces conj ev)))
+        (schemas/validate-app-schema! {:auth {:token secret}} :auth/init-bad)
+        (rf/unregister-listener! ::no-leak)
+        (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
+                               @traces))]
+          (is (some? v))
+          (is (true? (:sensitive? v)))
+          (is (= :rf/redacted (-> v :tags :explain-humanized)))
+          (is (not (str/includes? (pr-str (:tags v)) secret))
+              "the raw secret does NOT appear anywhere in the emitted tags"))))))
+
+(deftest sensitive-sub-return-failure-redacts-humanized-present-not-omitted
+  (testing "rf2-qhq3f — the meta-bearing run-validation path (sub-return)
+            also emits :explain-humanized :rf/redacted (present, not
+            omitted) on a sensitive failure, and the raw value never
+            surfaces in the humanized slot"
+    (let [secret "sub-secret-deadbeef"]
+      (rf/reg-event-db :secrets/init  (fn [_ _] {:secrets [secret]}))
+      (rf/reg-event-db :secrets/break (fn [db _] (assoc db :secrets [1 2 3])))
+      (rf/reg-sub :secrets
+        {:schema [:vector [:string {:sensitive? true}]]}
+        (fn [db _] (:secrets db)))
+      (let [traces (atom [])]
+        (rf/register-listener! ::sr-hum (fn [ev] (swap! traces conj ev)))
+        (rf/dispatch-sync [:secrets/init])
+        (rf/subscribe-once [:secrets])          ;; well-typed first pass
+        (rf/dispatch-sync [:secrets/break])
+        (rf/subscribe-once [:secrets])          ;; malformed return — fails
+        (rf/unregister-listener! ::sr-hum)
+        (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
+                               @traces))]
+          (is (some? v) "a sub-return failure fired")
+          (is (true? (:sensitive? v)))
+          (is (= :rf/redacted (-> v :tags :explain)))
+          (is (contains? (:tags v) :explain-humanized)
+              ":explain-humanized present on the sub-return surface too")
+          (is (= :rf/redacted (-> v :tags :explain-humanized))
+              ":explain-humanized redacted on the meta-bearing run-validation path")
+          (is (not (str/includes? (pr-str (:tags v)) secret))
+              "the raw secret does not leak through the humanized slot"))))))
+
+(deftest non-sensitive-sub-return-failure-carries-humanized-payload
+  (testing "rf2-qhq3f — backward-compat on the sub-return surface: a
+            non-sensitive sub keeps the real humanized payload"
+    (rf/reg-event-db :widgets/init  (fn [_ _] {:widgets {:w1 "ok"}}))
+    (rf/reg-event-db :widgets/break (fn [db _] (assoc-in db [:widgets :w1] 99)))
+    (rf/reg-sub :widget
+      {:schema :string}                                  ;; no :sensitive?
+      (fn [db [_ wid]] (get-in db [:widgets wid])))
+    (let [traces (atom [])]
+      (rf/register-listener! ::sr-plain (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:widgets/init])
+      (rf/subscribe-once [:widget :w1])
+      (rf/dispatch-sync [:widgets/break])
+      (rf/subscribe-once [:widget :w1])
+      (rf/unregister-listener! ::sr-plain)
+      (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
+                             @traces))]
+        (is (some? v))
+        (is (not (contains? v :sensitive?)))
+        (is (contains? (:tags v) :explain-humanized)
+            ":explain-humanized present")
+        (is (not= :rf/redacted (-> v :tags :explain-humanized))
+            ":explain-humanized is the real humanized payload on a non-sensitive sub")))))
 
 ;; ---- composition with :large? --------------------------------------------
 
