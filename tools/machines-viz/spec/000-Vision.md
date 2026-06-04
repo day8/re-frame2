@@ -229,8 +229,11 @@ must tell."
 `tools/xray/` and `tools/story/` both depend on
 `tools/machines-viz/`. The arrow does not invert. Machines-Viz
 does not know about Xray's chrome or Story's variant runtime —
-it only knows it has a `:machine-id`, a `:frame-id`, and two
-callbacks the host wired.
+the chart is presentation-only, so it only knows the
+`:machine-id`, `:definition`, and `:current-state` the host pulled
+and passed in, plus the two callbacks the host wired. It takes no
+`:frame-id` (that survives only as share-envelope payload
+provenance, [`API.md`](./API.md) §ShareEnvelope).
 
 ## Surface set
 
