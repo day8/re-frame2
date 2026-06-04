@@ -379,14 +379,20 @@
             ;; frame is structurally untouched. Restored in the catch below.
             last-inputs-before (registry/frame-last-inputs-snapshot frame-id)]
         (try
-          (loop [remaining  ordered
-                 db         db
-                 any-dirty? false]
+          ;; The drain threads ONLY the transformed `db` — the loop is a pure
+          ;; left-fold over the topo-ordered flows. `evaluate-flow!` returns a
+          ;; `[new-db dirty?]` tuple but the cascade has no consumer for the
+          ;; dirty flag: the router writes the returned db value straight into
+          ;; the `:db` effect slot regardless. So discard the second slot here
+          ;; (the per-flow `:rf.flow/skip` / `:rf.flow/computed` traces carry
+          ;; the dirty/clean signal tools actually read).
+          (loop [remaining ordered
+                 db        db]
             (if (empty? remaining)
               db
-              (let [flow            (flow-map (first remaining))
-                    [new-db dirty?] (evaluate-flow! frame-id db flow)]
-                (recur (rest remaining) new-db (or any-dirty? dirty?)))))
+              (let [flow         (flow-map (first remaining))
+                    [new-db _]   (evaluate-flow! frame-id db flow)]
+                (recur (rest remaining) new-db))))
           (catch #?(:clj Throwable :cljs :default) e
             ;; Atomicity contract: discard ALL flow side-effects of this
             ;; aborted drain. The pending `:db` effect is dropped by the
