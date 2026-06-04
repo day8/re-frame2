@@ -1417,7 +1417,7 @@ of them ship post-rf2-ybjkx:
 |---|---|---|---|
 | `:toggle-theme` | Toggle theme (dark ↔ light) | `#{:dynamic :static}` | Flips the `rf-xray-theme-{dark,light}` class on the shell root. |
 | `:cycle-reduced-motion` | Cycle reduced-motion override (OS → always → never) | `#{:dynamic :static}` | Three-state cycle: `:os` (OS pref alone) → `:always` (force reduce) → `:never` (force full). User override of `prefers-reduced-motion: reduce`; rides the `--rf-xray-motion-scale` seam in `theme/global-styles/motion-css`. Persists across reloads. |
-| `:snapshot-app-db` | Snapshot app-db | `#{:dynamic :static}` | Dumps the focused frame's app-db to the JS console + clipboard for sharing. |
+| `:snapshot-app-db` | Snapshot app-db | `#{:dynamic :static}` | Dumps the focused frame's app-db to the JS console + clipboard for sharing. Both are off-box sinks, so the payload is routed through `runtime/egress-value` first (pinned to the focused frame) — sensitive ⇒ `:rf/redacted`, large ⇒ `:rf.size/large-elided`, fail-closed; the verb has no raw opt-in (rf2-mxzgg). |
 | `:jump-to-settings` | Jump to Settings | `#{:dynamic :static}` | Equivalent to the `,` / `s` bare-key shortcut; available from the palette so the user can fuzzy-find the gesture without leaving the keyboard. |
 | `:toggle-mode` | Toggle mode (Dynamic ↔ Static) | `#{:dynamic :static}` | Chord parity with `Cmd-Shift-M`; flips `:rf.xray/mode` between `:dynamic` and `:static`. |
 | `:clear-epoch-history` | Clear epoch history | `#{:dynamic}` | Drops Xray's epoch snapshots (Dynamic-only — no epoch concept under Static). |

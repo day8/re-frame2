@@ -32,6 +32,7 @@
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [day8.re-frame2-xray.config :as config]
+            [day8.re-frame2-xray.runtime :as runtime]
             [day8.re-frame2-xray.trace-collector :as trace-collector]
             [day8.re-frame2-xray.palette.recents :as recents]
             [day8.re-frame2-xray.palette.sources :as sources]))
@@ -116,28 +117,74 @@
 ;; user can paste into a teammate's chat / a gist. Clipboard writes
 ;; can reject (insecure context, no permission); we swallow the throw
 ;; so the console log lands either way.
+;;
+;; ## Off-box egress (rf2-mxzgg / rf2-6fgob)
+;;
+;; The JS console AND the system clipboard are both OFF-BOX egress
+;; sinks (Tool-Pair §Privacy egress, Security.md §Off-box egress):
+;; whatever lands there can be screenshotted, pasted into a teammate's
+;; chat, or scraped from a console log. The raw `(rf/app-db-value tf)`
+;; can carry schema-/path-declared sensitive slots (`{:auth {:token …}}`)
+;; or oversized blobs, so it MUST NOT cross either sink unredacted.
+;;
+;; We therefore route the captured value through the runtime's single
+;; named safe-egress fn `runtime/egress-value` — the SAME fail-closed
+;; projection the `get-app-db` accessor uses (post rf2-a96xq). On the
+;; bare (no-opt) call the off-box defaults are baked in: sensitive
+;; slots ⇒ `:rf/redacted`, large slots ⇒ `:rf.size/large-elided`. The
+;; whole-db read has no `:path` (the value IS the walked root), so the
+;; root-keyed schema declarations match directly. Raw egress is only
+;; ever reachable via the documented operator opt-in
+;; (`{:include-sensitive? true}` / `{:include-large? true}`); the
+;; palette command surfaces NO opt-in arg, so the command default is
+;; always the redacted/elided projection — never the raw db.
+;;
+;; ## Why the egress runs inside `(rf/with-frame tf …)`
+;;
+;; `egress-value` (→ `elide-wire-value`) resolves the schema-declared
+;; sensitive / large declarations from `frame/current-frame` when no
+;; explicit `:frame` opt is passed. The snapshot reads the FOCUSED
+;; frame's db (`tf`), which is NOT necessarily the frame the fx fires
+;; in (the palette dispatches against `:rf/xray`). Pinning the current
+;; frame to `tf` for the egress makes the walker match `tf`'s OWN
+;; declarations — so a host frame's `[:auth :token]` redacts against
+;; the host frame's schema, not the (empty) Xray-frame declarations.
+;; Fail-closed: a frame with no declarations still emits the raw value
+;; only when that frame declared nothing sensitive, exactly as the
+;; per-frame contract intends.
 
 (defn- snapshot-app-db!
-  "Side-effect: drop `(rf/app-db-value target-frame)` onto the JS
-  console and copy a pr-str of it to the clipboard when reachable.
-  No-op when neither console nor clipboard is present (test
-  runtimes). Returns nil."
+  "Side-effect: drop the focused frame's app-db onto the JS console and
+  copy a pr-str of it to the clipboard when reachable. The value is
+  routed through `runtime/egress-value` FIRST (fail-closed off-box
+  defaults — sensitive ⇒ `:rf/redacted`, large ⇒ `:rf.size/large-
+  elided`), pinned to the FOCUSED frame so that frame's own schema
+  declarations govern the redaction, so neither off-box sink ever
+  receives the raw db (rf2-mxzgg). No-op when neither console nor
+  clipboard is present (test runtimes). Returns nil."
   [target-frame]
   (try
-    (let [tf  (or target-frame :rf/default)
-          db  (when (some? (frame/frame tf))
-                (rf/app-db-value tf))
-          tag (str "[rf2-xray] palette snapshot · frame "
-                   (pr-str tf))]
+    (let [tf      (or target-frame :rf/default)
+          ;; Egress BEFORE anything reaches console/clipboard. Both are
+          ;; off-box sinks; `egress-value`'s default polarity redacts
+          ;; sensitive + size-elides large slots. No `:path` — the
+          ;; whole-db snapshot IS the walked root, so root-keyed schema
+          ;; declarations match directly. `with-frame tf` pins the
+          ;; declaration lookup to the focused frame (see comment above).
+          payload (when (some? (frame/frame tf))
+                    (rf/with-frame tf
+                      (runtime/egress-value (rf/app-db-value tf))))
+          tag     (str "[rf2-xray] palette snapshot · frame "
+                       (pr-str tf))]
       (when (and (exists? js/console) (.-log js/console))
         (try
-          (.log js/console tag db)
+          (.log js/console tag payload)
           (catch :default _ nil)))
       (when (and (exists? js/navigator)
                  (.-clipboard js/navigator)
                  (.-writeText (.-clipboard js/navigator)))
         (try
-          (.writeText (.-clipboard js/navigator) (pr-str db))
+          (.writeText (.-clipboard js/navigator) (pr-str payload))
           (catch :default _ nil))))
     (catch :default _ nil))
   nil)
@@ -178,9 +225,12 @@
   (rf/reg-fx :rf.xray.palette.fx/popout popout-fx!)
 
   ;; rf2-ybjkx — snapshot app-db fx. Side-effect handler; reads the
-  ;; focused frame's db and ships it to the JS console + clipboard.
-  ;; Late-bound through the framework's `frame/frame` registry so a
-  ;; nil-frame ctx is a silent no-op rather than a throw.
+  ;; focused frame's db, routes it through `runtime/egress-value` (the
+  ;; fail-closed off-box safe-egress projection, rf2-mxzgg) and ships
+  ;; the REDACTED/size-elided payload to the JS console + clipboard —
+  ;; both off-box sinks. Late-bound through the framework's
+  ;; `frame/frame` registry so a nil-frame ctx is a silent no-op rather
+  ;; than a throw.
   (rf/reg-fx :rf.xray.palette.fx/snapshot-app-db
     (fn [_ctx {:keys [target-frame]}]
       (snapshot-app-db! target-frame)))

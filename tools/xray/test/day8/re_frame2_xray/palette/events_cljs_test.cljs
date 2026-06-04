@@ -9,8 +9,14 @@
 
   The palette pop-out fx is replaced with a counting stub so the
   Ctrl+Enter / open-popout invocations can be asserted without
-  driving the mount layer (which would need a real `window.open`)."
+  driving the mount layer (which would need a real `window.open`).
+
+  rf2-mxzgg — the snapshot-app-db egress tests stub `js/console.log`
+  and a clipboard `writeText` so the off-box payload (both sinks) can
+  be captured and asserted to carry the redacted/size-elided
+  projection rather than the raw secret."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+            [goog.object :as gobj]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -429,3 +435,146 @@
        false]))
   (is (empty? (:palette-recents (xray-db)))
       "panel jumps don't pollute the recents vector"))
+
+;; ---- rf2-mxzgg — snapshot-app-db routes off-box payload through safe egress
+
+;; The `:palette/snapshot-app-db` verb fires the
+;; `:rf.xray.palette.fx/snapshot-app-db` fx, which reads the focused
+;; frame's app-db and ships it to TWO off-box sinks: `console.log` and
+;; `navigator.clipboard.writeText`. Pre-rf2-mxzgg it shipped the RAW
+;; `(rf/app-db-value tf)` — a schema-declared sensitive slot
+;; (`{:auth {:password "shh"}}`) crossed both sinks unredacted. The fix
+;; routes the value through `runtime/egress-value` (the same fail-closed
+;; projection `get-app-db` uses) FIRST, so the off-box payload carries
+;; `:rf/redacted` by default. These tests capture both sinks and assert
+;; the secret never leaves the box on the command default.
+
+(defn- capture-snapshot-sinks!
+  "Stub `js/console.log` + a `navigator.clipboard.writeText` so the
+  snapshot fx's two off-box payloads are captured rather than emitted.
+  Returns `{:console (atom []) :clipboard (atom [])}` carrying every
+  payload each sink received; the caller restores nothing because the
+  test fixture resets the runtime + the node globals are per-process
+  scratch (the real console.log is restored explicitly below)."
+  []
+  (let [console-payloads   (atom [])
+        clipboard-payloads (atom [])
+        orig-log           (when (and (exists? js/console) (.-log js/console))
+                             (.-log js/console))]
+    ;; console.log(tag, value) — capture the SECOND arg (the payload),
+    ;; but ONLY when the first arg is the snapshot tag so we don't
+    ;; swallow the test reporter's own output (CLJS `println` on the
+    ;; node-test target routes through `js/console.log`; a blanket stub
+    ;; would eat a FAIL banner emitted while the stub is installed).
+    (set! (.-log js/console)
+          (fn [& args]
+            (when (and (string? (first args))
+                       (re-find #"\[rf2-xray\] palette snapshot" (first args)))
+              (swap! console-payloads conj (second args)))
+            (when orig-log (apply orig-log args))
+            nil))
+    ;; Install a clipboard whose writeText records the EDN string. node
+    ;; test runtimes have no navigator.clipboard, so we synthesise one.
+    (let [nav (if (exists? js/navigator)
+                js/navigator
+                (let [n (js-obj)]
+                  (set! js/navigator n)
+                  n))]
+      (gobj/set nav "clipboard"
+                (js-obj "writeText"
+                        (fn [s] (swap! clipboard-payloads conj s) nil))))
+    {:console   console-payloads
+     :clipboard clipboard-payloads
+     :restore   (fn [] (when orig-log (set! (.-log js/console) orig-log)))}))
+
+;; The focused frame is the HOST app's frame, NOT Xray's own `:rf/xray`
+;; frame — the palette dispatches against `:rf/xray` but the snapshot
+;; reads the frame the L1 picker focused (`:target-frame`). We model that
+;; faithfully with a dedicated `:rf/host` frame: the secret + the schema
+;; declarations live on `:rf/host`, and the fix's `(with-frame tf …)`
+;; egress pin makes the walker resolve `:rf/host`'s declarations even
+;; though the fx fires in the `:rf/xray` frame.
+
+(def ^:private host-frame :rf/host)
+
+(defn- seed-sensitive-host! [db-fn]
+  ;; Register the sensitive schema + seed the secret INTO the host frame
+  ;; (not Xray's). `reg-app-schema` / `populate-…!` default to
+  ;; `frame/current-frame`, so we run them inside `(with-frame host …)`.
+  (frame/reg-frame host-frame {})
+  (rf/with-frame host-frame
+    (rf/reg-app-schema [:auth]
+                       [:map
+                        [:username :string]
+                        [:password {:sensitive? true} :string]])
+    (rf/populate-sensitive-from-schemas!)
+    (rf/reg-event-db :test/seed-host (fn [db _] (db-fn db)))
+    (rf/dispatch-sync [:test/seed-host])))
+
+(defn- drive-snapshot-of-host! []
+  ;; Focus the host frame (the slot the L1 picker writes) then drive the
+  ;; real `:palette/snapshot-app-db` verb from the `:rf/xray` frame.
+  (rf/with-frame :rf/xray
+    (rf/dispatch-sync [:rf.xray/set-frame host-frame])
+    (rf/dispatch-sync [:rf.xray/palette-open])
+    (rf/dispatch-sync
+      [:rf.xray/palette-invoke
+       {:source :command
+        :id     :snapshot-app-db
+        :label  "Snapshot app-db"
+        :action [:palette/snapshot-app-db]}
+       false])))
+
+(deftest snapshot-app-db-redacts-sensitive-slot-on-both-off-box-sinks
+  ;; rf2-mxzgg — the command default MUST route the snapshot through
+  ;; safe egress before EITHER off-box sink receives it. The egress is
+  ;; pinned to the focused (host) frame so that frame's own schema
+  ;; declarations govern the redaction.
+  (setup!)
+  (let [sinks (capture-snapshot-sinks!)]
+    (try
+      (seed-sensitive-host!
+        (fn [db] (assoc db :auth {:username "ada" :password "hunter2"})))
+      (drive-snapshot-of-host!)
+      ;; --- console sink ---
+      (let [payload (first @(:console sinks))]
+        (is (some? payload) "the console.log sink received a payload")
+        (is (= :rf/redacted (get-in payload [:auth :password]))
+            "console payload redacts the schema-declared sensitive slot")
+        (is (not= "hunter2" (get-in payload [:auth :password]))
+            "the raw secret never crosses the console off-box sink")
+        (is (= "ada" (get-in payload [:auth :username]))
+            "non-sensitive sibling survives in the console payload"))
+      ;; --- clipboard sink (pr-str of the SAME egressed payload) ---
+      (let [edn (first @(:clipboard sinks))]
+        (is (string? edn) "the clipboard sink received a pr-str payload")
+        (is (re-find #":rf/redacted" edn)
+            "clipboard payload carries the :rf/redacted marker")
+        (is (not (re-find #"hunter2" edn))
+            "the raw secret never crosses the clipboard off-box sink"))
+      (finally ((:restore sinks))))))
+
+(deftest snapshot-app-db-size-elides-large-slot-on-both-off-box-sinks
+  ;; rf2-mxzgg — size minimisation rides the same safe-egress default
+  ;; (polarity parity with the runtime accessors): a schema-declared
+  ;; `:large?` slot is replaced with the `:rf.size/large-elided` marker.
+  (setup!)
+  (let [sinks (capture-snapshot-sinks!)]
+    (try
+      (frame/reg-frame host-frame {})
+      (rf/with-frame host-frame
+        (rf/reg-app-schema [:blob]
+                           [:map
+                            [:payload {:large? true} :any]])
+        (rf/populate-elision-from-schemas!)
+        (rf/reg-event-db :test/seed-blob
+          (fn [db _] (assoc db :blob {:payload {:big "value"}})))
+        (rf/dispatch-sync [:test/seed-blob]))
+      (drive-snapshot-of-host!)
+      (let [payload (first @(:console sinks))]
+        (is (some? payload) "the console.log sink received a payload")
+        (is (contains? (get-in payload [:blob :payload]) :rf.size/large-elided)
+            "console payload size-elides the schema-declared large slot")
+        (is (not= {:big "value"} (get-in payload [:blob :payload]))
+            "the raw large value never crosses the console off-box sink"))
+      (finally ((:restore sinks))))))

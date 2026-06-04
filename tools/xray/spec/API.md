@@ -553,7 +553,7 @@ catalogue.
 |---|---|---|---|---|
 | `:toggle-theme` | Toggle theme (dark ↔ light) | `Settings · Theme` | `[:palette/toggle-theme]` | Dark ↔ Light cycle of the theme class. Popup radio is the canonical UI; this is the keyboard-first ergonomic shortcut. |
 | `:cycle-reduced-motion` | Cycle reduced-motion override (OS → always → never) | `user override of prefers-reduced-motion` | `[:palette/cycle-reduced-motion]` | Three-state cycle `:os → :always → :never → :os`. Overrides `prefers-reduced-motion: reduce` via the `--rf-xray-motion-scale` seam. Persists across reloads. |
-| `:snapshot-app-db` | Snapshot app-db | `→ console.log + clipboard` | `[:palette/snapshot-app-db]` | Drops the focused frame's app-db onto the JS console + clipboard for share-with-teammate capture. |
+| `:snapshot-app-db` | Snapshot app-db | `→ console.log + clipboard` | `[:palette/snapshot-app-db]` | Drops the focused frame's app-db onto the JS console + clipboard for share-with-teammate capture. The console + clipboard are **off-box egress sinks**, so the payload routes through `runtime/egress-value` FIRST (pinned to the focused frame via `with-frame` so that frame's own schema declarations govern) — sensitive slots ⇒ `:rf/redacted`, large slots ⇒ `:rf.size/large-elided`, fail-closed, exactly as the `get-app-db` accessor. The command surfaces no opt-in arg, so the command default is always the redacted/size-elided projection — never the raw db (rf2-mxzgg / rf2-6fgob). |
 | `:jump-to-settings` | Jump to Settings | `,` | `[:palette/jump-to-settings]` | Opens the Settings popup at the General tab. Equivalent to the `,` bare-key shortcut. |
 | `:toggle-mode` | Toggle mode (Dynamic ↔ Static) | `Cmd/Ctrl+Shift+M` | `[:palette/toggle-mode]` | Flip Dynamic ↔ Static. Chord parity with `Cmd/Ctrl+Shift+M` in `keybinding.cljs`. |
 | `:open-popout` | Open Xray in a pop-out window | `rf-xray-popout` | `[:palette/open-popout]` | Opens the same-origin pop-out window via `popout!`. |
@@ -707,6 +707,17 @@ declarations are keyed by absolute path, so a slice egress'd in isolation
 declaration won't match and the raw leaf would cross the boundary
 (rf2-a96xq). A whole-db read passes no `:path` (the value IS the walked
 root, `[]`).
+
+The accessors are not the only off-box egress sites: the command-palette
+`:snapshot-app-db` verb ships the focused frame's app-db to the JS console
+**and** the system clipboard — both off-box sinks — so it routes the
+captured value through `egress-value` before either sink, pinned to the
+focused frame (`with-frame tf`) so that frame's own declarations govern
+the redaction (rf2-mxzgg). The whole-db snapshot passes no `:path` (the
+value IS the walked root). Because the verb exposes no opt-in arg, the
+snapshot is always the redacted / size-elided projection — the raw-egress
+opt-in (`{:include-sensitive? true}` / `{:include-large? true}`) is
+reachable only through the runtime accessors, never the palette command.
 
 ### Inspection band (9 accessors — read-only)
 
