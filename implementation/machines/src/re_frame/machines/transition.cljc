@@ -823,36 +823,64 @@
       `:event` (`(= <path> (second event))`) to disambiguate which node is
       done when several could raise it.
 
-  **Parallel-region scoping of arm 2 (rf2-m3arq).** A region-local compound's
-  done signal is re-broadcast across EVERY sibling region by the parent
-  internal-event queue (`parallel/drain-parent-queue` — the correct XState v5 /
-  SCXML `:raise` rule). The raised `[:rf.machine/done <region-relative-path>]`
-  therefore reaches every region's resolver. XState v5 / SCXML scope the
-  `done.state.<id>` event to the region that raised it — a SIBLING region must
-  NOT catch another region's done. Arm 1 (`:on-done` on the done node) is
-  naturally region-scoped (it resolves the done node by `done-path` relative to
-  the region body and only the originating region carries that node on its
-  active path), but the lower-level arm 2 escape hatch matches on the bare
-  reserved event-id and does NOT itself read the path — so an UNGUARDED
-  `:on {:rf.machine/done …}` in a sibling region would otherwise catch a
-  foreign region's done (a silent cross-region leak). To close it by
-  construction: when `machine` is a region (`:rf/region` present), arm 2 only
-  fires when the raised `done-path` is on THIS region's active `path` (the done
-  compound is a prefix of / equal to the active path — the same `prefix-of?`
-  staleness check `pick-after-transition` / `pick-spawn-error-transition` use).
-  A sibling's done-path is not a prefix of this region's active path, so the
-  sibling declines and the broadcast routes the done to its OWN region only.
-  Flat / compound machines carry no `:rf/region`, so the gate is a no-op there:
-  an unguarded `:on {:rf.machine/done …}` stays unambiguous (only the one
-  machine raises into itself). Arm 1 is left exactly as-is — the conformance-
-  verified leak-free common `:on-done` placement.
+  **Parallel-region scoping — by region IDENTITY, not state-name shape
+  (rf2-12ekv, superseding the rf2-m3arq shape-match).** A region-local
+  compound's done signal is re-broadcast across EVERY sibling region by the
+  parent internal-event queue (`parallel/drain-parent-queue` — the correct
+  XState v5 / SCXML `:raise` rule), so the raised done reaches every region's
+  resolver. XState v5 / SCXML scope `done.state.<id>` to the region that raised
+  it BY NODE IDENTITY — a SIBLING region must NOT catch another region's done,
+  even one whose compound shares the leading state-name (a common shape:
+  per-region `:flow` sub-flows, `:loading`/`:loaded` axes).
 
-  `done-path` is the node's declaration path (the event's second element).
-  Returns `{:transition t :decl-path p}` or nil (no `:on-done` and no
-  enclosing handler — the done signal is then a benign no-op, exactly as an
-  unhandled reserved-`:rf/*` event)."
+  The earlier rf2-m3arq gate compared two REGION-RELATIVE paths with
+  `prefix-of?` — a state-name SHAPE match, not a region-identity test — so it
+  leaked whenever the sibling shared the leading state-name, and it only guarded
+  arm 2 (arm 1 was ungated). The root-cause fix (rf2-12ekv) makes the done-raise
+  carry a REGION-NAME HEAD (`done-raise-fx` stamps `:rf/region` onto the raised
+  path — the same region-name-prefixing discipline `:after` / `:spawn`
+  `:on-error` already use). Here we strip that head and decline a FOREIGN
+  region's done by region NAME, mirroring `pick-after-transition`
+  (`decline-region?` = `(not= region (first carried-path))`) and
+  `pick-spawn-error-transition`. The region-stripped path is then region-
+  relative again for BOTH arms — arm 1 resolves the done node via the stripped
+  `done-path`, arm 2 walks `:on` for the stripped event — so a sibling sharing
+  the path-SHAPE no longer matches: identity (the region-name head), not shape,
+  decides. Flat / compound machines carry no `:rf/region` and the done-raise
+  carries no head, so the strip / decline is inert — an unguarded
+  `:on {:rf.machine/done …}` stays unambiguous (only the one machine raises into
+  itself).
+
+  `done-path` is the node's declaration path (the event's second element,
+  region-stripped when `machine` is a region). Returns `{:transition t
+  :decl-path p}` or nil (no `:on-done` and no enclosing handler — the done
+  signal is then a benign no-op, exactly as an unhandled reserved-`:rf/*`
+  event; a foreign region's done declines to nil here too)."
   [machine path event snapshot]
-  (let [[_ done-path] event
+  (let [[_ raw-done-path] event
+        region        (:rf/region machine)
+        ;; rf2-12ekv — region-identity scoping. The done-raise carries a
+        ;; region-name HEAD when raised from a parallel region (`done-raise-fx`
+        ;; stamps `:rf/region`). Within a region's resolution `machine` is the
+        ;; region body (region-relative `node-at`) and `path` is in-region, so
+        ;; strip the region-name head. A head naming a DIFFERENT region is not
+        ;; this region's done — decline (the broadcast routes the done to its
+        ;; OWN region only). Mirrors `pick-after-transition` /
+        ;; `pick-spawn-error-transition`. A flat / compound machine (no
+        ;; `:rf/region`) carries no head — the strip is inert.
+        decline-region? (and region
+                             (vector? raw-done-path)
+                             (not= region (first raw-done-path)))
+        done-path     (cond
+                        (not (vector? raw-done-path)) raw-done-path
+                        region (vec (rest raw-done-path))
+                        :else  raw-done-path)
+        ;; The done event also rides on `:event` for a guard / action reading
+        ;; `(second event)`; re-stamp it region-relative so the in-region view
+        ;; is consistent (the region-name head is an internal routing detail).
+        event         (if (and region (vector? raw-done-path))
+                        (assoc (vec event) 1 done-path)
+                        event)
         done-node     (when (vector? done-path) (node-at machine done-path))
         ;; rf2-16gxd — gate on PRESENCE of `:on-done`. The forbidden-transition
         ;; nil→`[{}]` rule in `normalise-candidates` is for a PRESENT value;
@@ -863,21 +891,12 @@
                         (normalise-candidates (:on-done done-node)
                                               :rf.error/machine-bad-on-done-clause))
         on-done-hit   (when (seq on-done-cands)
-                        (select-passing-candidate machine on-done-cands snapshot event))
-        ;; rf2-m3arq — arm-2 region scoping. In a parallel region the done
-        ;; signal is broadcast to every sibling; the explicit-`:on` escape
-        ;; hatch must only catch THIS region's own done. A flat / compound
-        ;; machine (no `:rf/region`) is always own-region — the gate is inert.
-        own-region?   (or (not (:rf/region machine))
-                          (and (vector? done-path)
-                               (prefix-of? done-path path)))]
-    (if on-done-hit
-      {:transition on-done-hit :decl-path (vec done-path)}
-      ;; Fall through to the standard leaf→root `:on` walk (an ancestor's
-      ;; explicit `:on {:rf.machine/done …}`), then the root `:on` — but only
-      ;; for THIS region's own done (rf2-m3arq), so a sibling region's
-      ;; broadcast done cannot be caught by an unguarded escape hatch here.
-      (when own-region?
+                        (select-passing-candidate machine on-done-cands snapshot event))]
+    (when-not decline-region?
+      (if on-done-hit
+        {:transition on-done-hit :decl-path (vec done-path)}
+        ;; Fall through to the standard leaf→root `:on` walk (an ancestor's
+        ;; explicit `:on {:rf.machine/done …}`), then the root `:on`.
         (or
           (path-walk/walk-path-leaf-to-root
             machine path
@@ -2018,11 +2037,30 @@
   `drain-or-defer-raises` / the parallel parent queue) so the enclosing
   `:on-done` transition fires in the SAME macrostep. Returns `[]` when no
   compound is newly done (the common case — most transitions land on an
-  ordinary leaf). `machine` is the flat / compound machine or a region body."
+  ordinary leaf). `machine` is the flat / compound machine or a region body.
+
+  **Region-identity scoping (rf2-12ekv).** When `machine` is a parallel region
+  (`:rf/region` present), `compound-done-paths` returns a REGION-RELATIVE path
+  (region-body `node-at`). The parent internal-event queue re-broadcasts the
+  raise across EVERY sibling region (the correct XState v5 / SCXML `:raise`
+  rule — `drain-parent-queue`), so a bare region-relative path carries NO
+  region-identity discriminator: a sibling sharing the leading state-name would
+  falsely match it. Stamp the region name as the path HEAD — the SAME
+  region-name-prefixing discipline `:after` (carried `decl-path`) and `:spawn`
+  `:on-error` (`prefix-region-spawn-id` on the invoke-id) already use — so the
+  done-raise becomes `[:rf.machine/done [<region-name> & <region-relative-path>]]`.
+  `pick-done-transition` then strips the region head and declines a foreign
+  region's done by region NAME (identity), not state-name shape. XState v5 /
+  SCXML raise `done.state.<region-id>`, not a bare state-name; this matches that
+  by node identity. Flat / compound machines (no `:rf/region`) carry no head —
+  the path stays region-relative and the resolver's gate is inert."
   [machine leaf-path]
-  (mapv (fn [compound-path]
-          [:raise [done-event-id compound-path]])
-        (compound-done-paths machine leaf-path)))
+  (let [region (:rf/region machine)]
+    (mapv (fn [compound-path]
+            [:raise [done-event-id (if region
+                                     (vec (cons region compound-path))
+                                     compound-path)]])
+          (compound-done-paths machine leaf-path))))
 
 (defn apply-on-done-action
   "Per Spec 005 §Final states §The done-state signal (rf2-bnjb3): run a

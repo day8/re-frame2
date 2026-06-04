@@ -680,12 +680,15 @@
            region to :work-done; :status stayed :idle"))))
 
 (deftest scxml-parallel-region-done-not-caught-by-sibling-unguarded-on
-  (testing "rf2-m3arq: a region-local done.state is region-SCOPED — a SIBLING
-            region's UNGUARDED `:on {:rf.machine/done …}` escape hatch must NOT
-            catch another region's done signal, even though the parent
+  (testing "rf2-m3arq + rf2-12ekv: a region-local done.state is region-SCOPED —
+            a SIBLING region's UNGUARDED `:on {:rf.machine/done …}` escape hatch
+            must NOT catch another region's done signal, even though the parent
             internal-event queue re-broadcasts the raise across every region
             (the correct XState v5 / SCXML `:raise` rule). XState v5 / SCXML
-            scope `done.state.<id>` to the region that raised it. Spec 005
+            scope `done.state.<id>` to the region that raised it BY IDENTITY.
+            Strengthened for rf2-12ekv: `:other` now SHARES the leading
+            state-name `:flow` (the rf2-m3arq shape-match leaked on exactly
+            this collision; only region-NAME scoping closes it). Spec 005
             §Final states §The done-state signal × §Parallel regions; the
             arm-2 escape-hatch region scoping in `pick-done-transition`."
     (let [m {:type :parallel :data {}
@@ -700,22 +703,138 @@
                                               :inner-done {:final? true}}}
                               :work-done {}}}
               ;; :other carries an UNGUARDED escape hatch on the SAME reserved
-              ;; event-id. Before rf2-m3arq the re-broadcast of :work's
-              ;; region-local done would be CAUGHT here, leaking :other →
+              ;; event-id AND shares the leading state-name `:flow`. Before
+              ;; rf2-12ekv the re-broadcast of :work's region-relative done
+              ;; [:flow] would be CAUGHT here (shape match), leaking :other →
               ;; :hijacked. It must stay put: :work's done is not :other's done.
-              :other {:initial :idle
+              :other {:initial :flow
                       :on {:rf.machine/done :hijacked}
-                      :states {:idle {} :hijacked {}}}}}
+                      :states {:flow {:initial :wait
+                                      :states {:wait {}}}
+                               :hijacked {}}}}}
           ;; :finish lands :work at [:flow :inner-done]; :flow is done →
-          ;; region-local [:rf.machine/done [:flow]] raise → re-broadcast across
-          ;; BOTH regions. :work catches its own done (region-owned) → :work-done.
-          ;; :other declines (the done-path is not on :other's active path).
-          r (step m {:state {:work [:flow :step] :other :idle} :data {}} [:finish])]
-      (is (= {:work :work-done :other :idle} (:state r))
+          ;; region-scoped [:rf.machine/done [:work :flow]] raise → re-broadcast
+          ;; across BOTH regions. :work catches its own done (region-name head
+          ;; matches) → :work-done. :other declines (head names :work, not
+          ;; :other) even though :other ALSO has a :flow.
+          r (step m {:state {:work [:flow :step] :other [:flow :wait]} :data {}}
+                  [:finish])]
+      (is (= {:work :work-done :other [:flow :wait]} (:state r))
           ":work caught its own region-local done via its explicit `:on`
            escape hatch → :work-done; :other's UNGUARDED `:on {:rf.machine/done}`
-           did NOT catch :work's done (no cross-region leak) → :other stayed
-           :idle"))))
+           did NOT catch :work's done (no cross-region leak) despite sharing the
+           `:flow` state-name → :other stayed [:flow :wait]"))))
+
+(deftest scxml-parallel-region-done-arm2-not-caught-by-sibling-shared-state-name
+  (testing "rf2-12ekv: arm 2 region scoping must be by region IDENTITY, not
+            state-name SHAPE. A region-local done.state is region-SCOPED even
+            when a SIBLING region shares the LEADING state-name on the done
+            compound's region-relative path. XState v5 / SCXML scope
+            `done.state.<id>` to the originating region by node identity, never
+            by a same-named compound in a sibling. The rf2-m3arq arm-2 gate
+            used `prefix-of?` on two REGION-RELATIVE paths — a shape match that
+            falsely passes when the sibling shares the leading state-name. The
+            fix region-name-prefixes the done-raise path (as `:after` /
+            `:on-error` already do) and declines by region-NAME head. Spec 005
+            §Final states §The done-state signal × §Parallel regions
+            (005:2819 — \"sibling regions are untouched\")."
+    (let [m {:type :parallel :data {}
+             :regions
+             ;; :work owns a compound :flow that goes done on :finish, via the
+             ;; lower-level explicit `:on {:rf.machine/done …}` escape hatch
+             ;; (arm 2). Its done-raise carries the region-relative path [:flow].
+             {:work {:initial :flow
+                     :on {:rf.machine/done :work-done}
+                     :states {:flow {:initial :step
+                                     :states {:step {:on {:finish :inner-done}}
+                                              :inner-done {:final? true}}}
+                              :work-done {}}}
+              ;; :other ALSO has a compound named :flow on its active path —
+              ;; SHARING the leading state-name — and an UNGUARDED escape hatch.
+              ;; The bare region-relative done-path [:flow] is a prefix of
+              ;; :other's active path [:flow :wait], so the rf2-m3arq shape-match
+              ;; gate falsely passes and :other's hatch fires → :hijacked. It
+              ;; must stay put: :work's done is not :other's done.
+              :other {:initial :flow
+                      :on {:rf.machine/done :hijacked}
+                      :states {:flow {:initial :wait
+                                      :states {:wait {}}}
+                               :hijacked {}}}}}
+          r (step m {:state {:work [:flow :step] :other [:flow :wait]} :data {}}
+                  [:finish])]
+      (is (= {:work :work-done :other [:flow :wait]} (:state r))
+          ":work caught its OWN region-local done → :work-done; :other shares
+           the leading state-name :flow but its UNGUARDED `:on {:rf.machine/done}`
+           must NOT catch :work's done (region IDENTITY, not name shape) →
+           :other stayed [:flow :wait]"))))
+
+(deftest scxml-parallel-region-done-arm1-not-caught-by-sibling-shared-state-name
+  (testing "rf2-12ekv: arm 1 (`:on-done` on the done node) must ALSO be
+            region-scoped by identity. The rf2-m3arq fix only gated arm 2 (and
+            with a shape match); arm 1 was ungated entirely. A sibling region
+            carrying an `:on-done` on a compound at the SAME region-relative
+            path as the originating region's done compound resolves the done
+            node via `node-at` against the sibling's body and fires on the
+            broadcast — a silent cross-region leak. The fix region-name-prefixes
+            the done-raise path and declines BOTH arms by region-NAME head.
+            Spec 005 §Final states §The done-state signal × §Parallel regions."
+    (let [m {:type :parallel :data {}
+             :regions
+             ;; :work's compound :flow goes done on :finish and advances itself
+             ;; via its own `:on-done` (arm 1) — the headline placement.
+             {:work {:initial :flow
+                     :states {:flow {:initial :step
+                                     :on-done :work-done
+                                     :states {:step {:on {:finish :inner-done}}
+                                              :inner-done {:final? true}}}
+                              :work-done {}}}
+              ;; :other ALSO has a compound :flow at the SAME region-relative
+              ;; path, carrying its OWN `:on-done`. The bare broadcast done-path
+              ;; [:flow] resolves :other's :flow node (same shape) so its ungated
+              ;; arm-1 `:on-done` fires → :hijacked. It must stay put.
+              :other {:initial :flow
+                      :states {:flow {:initial :wait
+                                      :on-done :hijacked
+                                      :states {:wait {}}}
+                               :hijacked {}}}}}
+          r (step m {:state {:work [:flow :step] :other [:flow :wait]} :data {}}
+                  [:finish])]
+      (is (= {:work :work-done :other [:flow :wait]} (:state r))
+          ":work's compound :flow reached final, its `:on-done` advanced :work →
+           :work-done; :other's same-shaped :flow `:on-done` must NOT fire on
+           :work's done (region IDENTITY) → :other stayed [:flow :wait]"))))
+
+(deftest scxml-parallel-region-done-arm1-negative-control-genuine-sibling-done
+  (testing "rf2-12ekv negative control: the region-identity scoping must NOT
+            block a region's OWN compound-done from firing its own `:on-done`
+            when a sibling shares the leading state-name. Both regions go done
+            on the SAME external event; each must advance via its OWN `:on-done`
+            — proving the gate declines a FOREIGN region's done, not the OWN
+            region's. Spec 005 §Final states §The done-state signal × §Parallel
+            regions."
+    (let [m {:type :parallel :data {}
+             :regions
+             {:work {:initial :flow
+                     :states {:flow {:initial :step
+                                     :on-done :work-done
+                                     :states {:step {:on {:finish :inner-done}}
+                                              :inner-done {:final? true}}}
+                              :work-done {}}}
+              :other {:initial :flow
+                      :states {:flow {:initial :step
+                                      :on-done :other-done
+                                      :states {:step {:on {:finish :inner-done}}
+                                               :inner-done {:final? true}}}
+                               :other-done {}}}}}
+          ;; :finish lands BOTH regions at [:flow :inner-done]; each :flow is
+          ;; done → each region raises its OWN region-scoped done → each fires
+          ;; its OWN `:on-done`. No leak, no over-decline.
+          r (step m {:state {:work [:flow :step] :other [:flow :step]} :data {}}
+                  [:finish])]
+      (is (= {:work :work-done :other :other-done} (:state r))
+          "each region's own compound-done fired its OWN `:on-done` even though
+           both share the leading state-name :flow — region scoping declines a
+           FOREIGN region's done, never the OWN region's"))))
 
 ;; ===========================================================================
 ;; §6. Eventless / :always microstep settle (transient transitions)
