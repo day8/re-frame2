@@ -2,10 +2,11 @@
 
 > ↑ [`skills/`](../) — index of all re-frame2 skills.
 
-`re-frame2-xray` is a Claude Code **tour skill** for [Xray](https://github.com/day8/re-frame2/tree/main/tools/xray) — the re-frame2 in-app devtools panel. It answers two questions, and only two:
+`re-frame2-xray` is a Claude Code **tour skill** for [Xray](https://github.com/day8/re-frame2/tree/main/tools/xray) — the re-frame2 in-app devtools panel. It answers three questions, and only three:
 
 1. **How do I launch Xray?** — the inline panel, the pop-out, the programmatic `init!`, the wired hotkeys, and the Dynamic ↔ Static mode toggle.
 2. **Which tab shows X?** — a one-line purpose for each tab across both modes: the 6 Dynamic event-spine tabs (Epoch · app-db · Views · Trace · Machine · Routes) and the 5 Static registry-browse tabs.
+3. **What's the chrome around the tabs for?** — the first-screen navigation primitives: time-travel inspect / `Reset`-rewind, the filter-pill cluster, the command palette, and the Settings popup.
 
 Workflow procedures (find-wrong-sub, scrub-bad-epoch, click-to-source, redaction-marker semantics) are out of scope for this iteration — see `SKILL.md` §Out of scope for what to do when one of those comes up.
 

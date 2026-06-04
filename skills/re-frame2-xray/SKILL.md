@@ -44,7 +44,7 @@ Anchor on that, then note the deliberate divergences.
 |---|---|---|
 | Action log (the left-rail list of dispatched actions) | The **L2 event spine** — one row per dispatched event, live-tailing | Each row is an *epoch* (a full six-domino cascade), not a single reducer call — far richer than an action entry |
 | Inspecting one action's state diff | The **Epoch** tab (hero) — the focused dispatch's numbered cascade, DISPATCH → COEFFECTS → HANDLER → FLOWS → SIDE EFFECTS → SUBSCRIPTIONS → VIEWS | Redux shows action + state diff; the Epoch cascade shows the *whole causal chain* (cofx, interceptors, fx, flows, sub recompute, re-render), not just before/after state |
-| Time-travel / "jump to state" replay | The **scrubber · rewind · pins** chrome | **Passive by default** — scrubbing rebases the panels but does NOT move `app-db`; moving the live app is the explicit, confirmed `r` / `Shift+r` rewind (`restore-epoch`). Redux's slider *replays dispatches* into the store; Xray inverts that. |
+| Time-travel / "jump to state" replay | The **inspect · `Reset`-rewind** chrome | **Passive by default** — picking an epoch rebases the panels but does NOT move `app-db`; moving the live app is the explicit `Reset` button (`restore-epoch` to the focused epoch's `:db-after`). Redux's slider *replays dispatches* into the store; Xray inverts that. |
 | State tree inspector | The **app-db** tab — sectioned, lazy-tree, inline diff annotations | Sectioned by reserved area (machines, routes, system-ids…) with downstream-subs hover, not a raw single tree |
 | React DevTools Profiler "why did this render?" | The **Views** tab — render-cause chips (`← :sub-id` vs `← props`) on every re-render leaf | Built into the same panel and tied to the epoch, not a separate profiler tab |
 | *(no Redux equivalent)* | **Static mode** — event-INDEPENDENT browse of what's *registered* (machines / routes / schemas / flows / interceptors) | Redux has no "what's registered?" surface; this is the registry-catalogue half Xray adds |
@@ -64,8 +64,8 @@ This skill answers three questions, and only three:
  spec/007-UX-IA.md §Static mode).
 3. **What's the chrome around the tabs for?** — the first-screen
  navigation primitives the user meets immediately: the time-travel
- scrubber / rewind / pins, the filter-pill cluster, the command
- palette, the Settings popup, and Share-URL / per-cascade export.
+ inspect / `Reset`-rewind, the filter-pill cluster, the command
+ palette, and the Settings popup.
 
 Deep workflow recipes (find-wrong-sub, redaction-marker grammar,
 click-to-source / open-in-editor internals) are **out of scope** in this
@@ -143,7 +143,7 @@ catalogues a richer map; these are what is actually wired:
 | `Ctrl+Shift+C` | global | Toggle the Xray shell (mount on first press; CSS show/hide after). `Ctrl+Shift` deliberately avoids Safari's `Cmd+Shift+C` Inspect collision. |
 | `Cmd/Ctrl+Shift+M` | global | Toggle mode — Dynamic ↔ Static (`:rf.xray/toggle-mode`). Cmd on macOS, Ctrl elsewhere. |
 | `Cmd/Ctrl+K` | global | Open the command palette (`:rf.xray/palette-toggle`); opens the shell first if hidden. Cmd on macOS, Ctrl elsewhere. |
-| `Space` `L` `j` `k` `G` `,`/`s` `Esc` | focus-gated | Spine + chrome shortcuts. These bare keys fire **only** when the Xray shell is visible AND the keydown target is inside the shell AND not an editable field (and not inside a modal). Space = pause/resume LIVE · `L` = snap to LIVE · `j`/`k` = step the focused event back/forward · `G` (Shift+G) = fast-forward to head · `,` or `s` = Settings popup · `Esc` = clear the focus lens. |
+| `Space` `L` `j` `k` `G` `,`/`s` | focus-gated | Spine + chrome shortcuts. These bare keys fire **only** when the Xray shell is visible AND the keydown target is inside the shell AND not an editable field (and not inside a modal). Space = pause/resume LIVE · `L` = snap to LIVE · `j`/`k` = step the focused event back/forward · `G` (Shift+G) = fast-forward to head · `,` or `s` = Settings popup. (`Esc` is **not** a wired spine key — it is a modal-local close handler owned by the palette / Settings popup, per `keybinding.cljs`.) |
 
 `Cmd/Ctrl+K` **is** wired — do not say it was struck. The pop-out has no
 hotkey; use `(xray/popout!)` or the future right-click affordance on the
@@ -166,15 +166,21 @@ it.
  **RETRO** (inspecting a past epoch). `Space` pauses/resumes LIVE; `L`
  snaps back to LIVE; the head row pulses while live. Spec
  [`007-UX-IA.md` §L1](../../tools/xray/spec/007-UX-IA.md).
-- **Time-travel scrubber · rewind · pins.** The ribbon `[◀ ▶ ⏭]` cluster
- + the L2 list walk history **without disturbing the live app** —
- scrubbing is *passive* (panels rebase; `app-db` does NOT move). Rewind
- is *explicit and confirmed*: `r` (rewind) / `Shift+r` (hard rewind with
- a failure-mode modal) calls `(rf/restore-epoch …)`; `*` pins a labelled
- snapshot that survives the ring buffer ageing out. This passive-by-
- default / rewind-opt-in posture is the load-bearing inversion from
- re-frame-10x v1. Spec
- [`002-Time-Travel.md`](../../tools/xray/spec/002-Time-Travel.md).
+- **Time-travel: passive inspect vs explicit rewind.** The ribbon
+ `[◀ ▶ ⏭]` nav cluster + the L2 list walk history **without disturbing
+ the live app** — picking an epoch is *passive INSPECTION* (panels
+ rebase; `app-db` does NOT move). Rewind is the *separate, explicit*
+ **`Reset` button** on the far-right of the L3 tab-bar ribbon (rf2-hga49):
+ it dispatches `:rf.xray/reset-to-epoch` against the *observed* app frame
+ + the focused epoch, rewinding that frame's live `app-db` to the epoch's
+ `:db-after` via `(rf/restore-epoch …)` — disabled when no epoch is
+ focused; on the rare framework failure (epoch aged out) it shows a brief
+ inline flash, never a modal. This passive-inspect-by-default /
+ rewind-opt-in posture is the load-bearing inversion from re-frame-10x
+ v1. (Spec [`002-Time-Travel.md`](../../tools/xray/spec/002-Time-Travel.md)
+ catalogues a richer keymap — `r` rewind, `R` re-dispatch, `*` pin — that
+ is **normative for the future, not yet wired**; the `Reset` button is
+ what works today.)
 - **Filter pills.** The L1.5 events ribbon carries IN / OUT pills, a mute
  set, an `N events hidden by filters` count, and `Clear Filters`. Pills
  are transient and reset on load. Each pill is a typed predicate
@@ -186,25 +192,28 @@ it.
  source kinds — **panel jumps · recent events · frame switch · registered
  handlers · settings · command verbs**. Mode-aware (Dynamic vs Static),
  recency-boosted; `Ctrl+Enter` pops out a poppable item. Command verbs
- include Clear trace buffer, Clear epoch history, Snapshot app-db, Toggle
- theme, Cycle reduced-motion, Cycle density, Jump to Settings, Toggle
- mode, Open pop-out. Source
+ include Clear trace buffer, Clear epoch history, Reset redacted-events
+ counter, Snapshot app-db, Toggle theme, Cycle reduced-motion, Jump to
+ Settings, Toggle mode, Open pop-out (Cycle display density rides the
+ separate `settings` source). Source
  [`palette/sources.cljc`](../../tools/xray/src/day8/re_frame2_xray/palette/sources.cljc).
-- **Settings popup (`,` / `s`).** A 6-tab modal — **General · Theme ·
- Filters · Keybindings · Buffer · Diff** — tuning density, panel
- position/width, theme, reduced-motion, epoch-history depth, trace-buffer
- keep, and app-db diff thresholds. This runtime popup (not `init!` opts)
- is where `:theme` / `:density` / buffer-depth actually get tuned. Source
+- **Settings popup (`,` / `s`).** A 4-tab modal — **General ·
+ Keybindings · Buffer · Diff** — tuning density, panel position/width,
+ auto-open-on-error, the read-only keybindings catalogue, epoch-history
+ depth / trace-buffer keep, and app-db diff thresholds. (The Theme tab
+ was removed, rf2-ou3pn — the ribbon theme icon is canonical; the Filters
+ tab was removed, rf2-wknb3 — filter UI lives on the L1.5 events ribbon.)
+ This runtime popup (not `init!` opts) is where `:density` / buffer-depth
+ actually get tuned. Source
  [`settings/view.cljs`](../../tools/xray/src/day8/re_frame2_xray/settings/view.cljs).
-- **Share-URL + per-cascade export.** **Share** encodes the current Xray
- context (focused machine · scrubber position · selected tab) into a flat,
- human-legible query-string URL a teammate can paste back. **Per-cascade
- export** ("Export this epoch") emits one self-contained EDN document
- (copy-to-clipboard / download-as-file) for triaging a single cascade in
- isolation. (Note: there is no *whole-session* export per Lock 4 — these
- are the narrower share units.) Source
- [`share.cljs`](../../tools/xray/src/day8/re_frame2_xray/share.cljs)
- + [`export/cascade.cljc`](../../tools/xray/src/day8/re_frame2_xray/export/cascade.cljc).
+- **Sharing state with a teammate.** The Share-URL affordance (button +
+ modal + `share.cljs` infra) and the per-cascade EDN export were
+ **removed** (rf2-nugvv, 2026-06-04 — `share.cljs` and `export/cascade.cljc`
+ are deleted). The surviving share unit is the **Snapshot app-db** command
+ palette verb (`Cmd/Ctrl+K` → "Snapshot app-db"): it drops the focused
+ frame's `app-db` onto the JS console + clipboard for paste-to-a-teammate.
+ Source [`palette/sources.cljc`](../../tools/xray/src/day8/re_frame2_xray/palette/sources.cljc)
+ (`:snapshot-app-db` command).
 
 ---
 
@@ -326,8 +335,8 @@ short of improvising.
  [`tools/xray/spec/007-UX-IA.md`](../../tools/xray/spec/007-UX-IA.md)
  and the per-panel specs (`tools/xray/spec/00N-*.md`). A future
  iteration may codify these as recipes; today the spec is the answer.
- (First-screen chrome — scrubber/rewind/pins, filter pills, the command
- palette, Settings, Share/export — is **in scope**: see §The chrome
+ (First-screen chrome — time-travel inspect / `Reset`-rewind, filter
+ pills, the command palette, Settings — is **in scope**: see §The chrome
  around the tabs above.)
 - **Driving Xray programmatically** (hot-swap a sub via REPL, time-
  travel from CLJS, dispatch into the runtime from a tool). Route to
@@ -360,8 +369,10 @@ short of improvising.
 - **Don't invent hotkeys.** Four families are globally wired today —
  `Ctrl+Shift+C` (toggle shell), `Cmd/Ctrl+Shift+M` (mode toggle),
  `Cmd/Ctrl+K` (command palette), plus the focus-gated bare keys
- (`Space`/`L`/`j`/`k`/`G`/`,`/`s`/`Esc`). There is **no** `Ctrl+Shift+/`
- and `Cmd/Ctrl+K` was **not** struck. Everything else in
+ (`Space`/`L`/`j`/`k`/`G`/`,`/`s`). There is **no** `Ctrl+Shift+/`,
+ no wired `r`/`R`/`*` rewind/pin keys (those are spec-only — the
+ `Reset` button is the live rewind), `Esc` is modal-local not a wired
+ spine key, and `Cmd/Ctrl+K` was **not** struck. Everything else in
  [`spec/007-UX-IA.md` §Keyboard](../../tools/xray/spec/007-UX-IA.md#keyboard)
  is normative for the future, not for "what works in your build right
  now." Cite

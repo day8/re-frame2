@@ -65,8 +65,10 @@ own lens. Cross-epoch signals belong on L2 badges, never inside L4.
 ### Inspection vs Rewind
 
 Clicking an L2 row is **INSPECTION** — L4 panels rebind to that epoch's
-captured snapshots; app-db is NOT rolled back. Rewind is a separate
-affordance in the focused-epoch header (`002-Time-Travel.md`).
+captured snapshots; app-db is NOT rolled back. Rewind is a separate,
+explicit affordance — the **`Reset` button** on the far-right of the L3
+tab-bar ribbon (rf2-hga49), which rewinds the observed frame's live
+`app-db` to the focused epoch's `:db-after` (`002-Time-Travel.md`).
 
 ## Panel-by-panel (Dynamic mode)
 
