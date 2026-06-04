@@ -387,7 +387,16 @@
   Per Spec 012 §Routing failure semantics (rf2-wbvme): if any captured
   group is malformed percent-encoding (`safe-url-decode` returns nil
   for a non-nil group), the URL fails closed as a route-miss rather
-  than throwing through the call site."
+  than throwing through the call site.
+
+  Per Spec 012 §Path-pattern grammar (Optional segment group): a param
+  inside an unmatched optional group is ABSENT, not nil-valued (rf2-yejde).
+  An optional group that didn't participate in the match yields a nil
+  regex capture; we drop such keys so the params map omits them entirely.
+  This matters for routes carrying a `:params` schema: Malli `{:optional
+  true}` governs KEY PRESENCE, so a present `{:slug nil}` would be rejected
+  whereas an absent `:slug` validates. A legitimately empty-string capture
+  (\"\") is non-nil and survives — only the regex-unmatched (nil) case drops."
   [compiled url]
   (let [{:keys [regex names]} compiled
         m (re-matches regex url)]
@@ -401,4 +410,11 @@
         ;; treat as no-match (route-miss, never throw).
         (when (every? (fn [[g d]] (or (nil? g) (some? d)))
                       (map vector groups decoded))
-          (zipmap (map keyword names) decoded))))))
+          ;; After the malformed-%-encoding guard, any remaining nil
+          ;; decoded value corresponds to a nil regex group — an unmatched
+          ;; optional group. Strip those keys so the param is absent, not
+          ;; nil-valued (rf2-yejde).
+          (into {}
+                (comp (filter (fn [[_ v]] (some? v)))
+                      (map (fn [[n v]] [(keyword n) v])))
+                (map vector names decoded)))))))
