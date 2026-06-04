@@ -30,11 +30,16 @@ Then add to your Claude Code settings:
 }
 ```
 
-The server auto-discovers the nREPL port from (in order):
-1. `$SHADOW_CLJS_NREPL_PORT`
-2. `target/shadow-cljs/nrepl.port`
-3. `.shadow-cljs/nrepl.port`
-4. `.nrepl-port`
+On the first tool call the server discovers the live shadow-cljs nREPL
+via a **five-step cascade** (per `tools/re-frame2-pair-mcp/spec/002-nREPL-Transport.md` §Port discovery — discovery is **lazy on first tool call**, not boot, because the `roots/list` request can only fire after the client's `initialize` handshake):
+
+1. `--port-file <abs>` launch flag — explicit, cwd-independent override (rf2-3dbwh).
+2. `$SHADOW_CLJS_NREPL_PORT` env var.
+3. **MCP `roots/list` walk** (rf2-3grub — the zero-config primary path) — ask the agent host for its open workspace roots, walk each (bounded, skipping `node_modules` / `.git` / `target`) for `shadow-cljs.edn` paired with the adjacent `.shadow-cljs/nrepl.port`. One match → silent attach; multiple → an `elicitation/create` prompt so the user picks the project; zero → step 4.
+4. **Shadow HTTP probe** (rf2-umoz2) — `GET http://127.0.0.1:9630/api/project-info` returns the consumer build's `:project-home`, against which the server reads `target/shadow-cljs/nrepl.port`, `.shadow-cljs/nrepl.port`, `.nrepl-port` (in that order). HTTP port overridable via `--http-port <n>` (default 9630). Fallback for hosts that don't expose `roots`.
+5. CWD-relative scan of the same three port-file candidates — legacy fallback for environments without shadow's web server.
+
+The `--port-file` and `$SHADOW_CLJS_NREPL_PORT` escape hatches (steps 1-2) win the cascade — pass one when discovery misses (no running shadow, non-default `:http :port`, exotic setup). Shadow restarts are absorbed transparently: each subsequent tool call re-reads the cached `<project-home>/.shadow-cljs/nrepl.port` and reconnects if the port changed.
 
 ## Stale-binary post-merge hook (rf2-6jj3r)
 
