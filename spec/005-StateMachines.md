@@ -340,9 +340,13 @@ Guards or actions that need to branch on the discrete FSM state name or on any u
 
 The context-map shape is uniform across every callback slot — `:state` and `:meta` are always present alongside `:data` and `:event` for `:guard` / `:action` / `:entry` / `:exit`. There is no opt-in flag and no separate 3-arity variant; the runtime delivers the full map and the user's destructure pattern decides what's bound.
 
+For a guard / action running **inside a parallel region**, the context map additionally carries `:tags` (the machine-wide active-configuration tag union) and `:all-state` (the full region-name → active-state map) — the cross-region `stateIn` substitute. These two keys are present only for region callbacks; flat / compound machines never carry them. See [§Cross-region coordination — tags as `stateIn`](#cross-region-coordination--tags-as-statein).
+
 Compound logic is expressed via function composition or as a named entry in the machine's `:guards` map — the name carries semantic content visualisers and AIs read. Resolution is machine-scoped per [§Registration — the machine IS the event handler](#registration--the-machine-is-the-event-handler); unresolved references fail registration with `:rf.error/machine-unresolved-guard`.
 
-**No combinator data form (deliberate divergence from XState v5).** XState ships higher-order guard combinators — `and([...])`, `or([...])`, `not(...)`, `stateIn(...)` (from `xstate/guards`) — so authors can compose named guards declaratively, e.g. `guard: and(['isAuthed', 'hasQuota'])`. re-frame2 has **no `{:and …}` / `{:or …}` / `{:not …}` data form**; a `:guard` is exactly one inline fn or one keyword into the machine's `:guards` map (`GuardRef` in [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table)). Compound logic is ordinary Clojure boolean composition inside one fn, or — preferably — a *named* entry in `:guards` whose name carries the semantic content a visualiser or an AI reads (the `:active-and-under-quota?` idiom above). This follows the spec's bias toward **one explicit primitive over many implicit conveniences** ([Principles](Principles.md)): a combinator tree obscures the predicate's meaning, whereas a name states it. The `stateIn` analog is the `:state` key already present in every guard's context map ([§Snapshot introspection](#snapshot-introspection--state--meta)). An XState migrant reaching for `and`/`or`/`not` writes a fn (or a named guard) instead.
+**No combinator data form (deliberate divergence from XState v5).** XState ships higher-order guard combinators — `and([...])`, `or([...])`, `not(...)`, `stateIn(...)` (from `xstate/guards`) — so authors can compose named guards declaratively, e.g. `guard: and(['isAuthed', 'hasQuota'])`. re-frame2 has **no `{:and …}` / `{:or …}` / `{:not …}` data form**; a `:guard` is exactly one inline fn or one keyword into the machine's `:guards` map (`GuardRef` in [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table)). Compound logic is ordinary Clojure boolean composition inside one fn, or — preferably — a *named* entry in `:guards` whose name carries the semantic content a visualiser or an AI reads (the `:active-and-under-quota?` idiom above). This follows the spec's bias toward **one explicit primitive over many implicit conveniences** ([Principles](Principles.md)): a combinator tree obscures the predicate's meaning, whereas a name states it. An XState migrant reaching for `and`/`or`/`not` writes a fn (or a named guard) instead.
+
+`stateIn(...)`'s substitute depends on what the guard is testing. For a guard reading **this machine's own** active state, it is the `:state` key already present in every guard's context map ([§Snapshot introspection](#snapshot-introspection--state--meta)). For the case `stateIn` actually exists to serve — **one parallel region's guard predicating on a sibling region's active state** — it is the machine-wide `:tags` union (the coarse, idiomatic substitute) or the `:all-state` region map (the precise substitute), both threaded into every region's guard/action ctx; see [§Cross-region coordination — tags as `stateIn`](#cross-region-coordination--tags-as-statein).
 
 ### Actions
 
@@ -1423,6 +1427,59 @@ If **every region** declines the event (no region matched a transition), the mac
 
 The post-broadcast snapshot's `:state` is the map of region-name → that region's new state value. Regions that didn't transition keep their prior value in place.
 
+### Cross-region coordination — tags as `stateIn`
+
+xstate/SCXML term: **`stateIn(stateValue)`** (XState v5, from `xstate/guards`; v4 `in: '#someState'`) / the **`In(stateID)`** predicate (W3C SCXML B.1). This is the canonical orthogonal-region coordination primitive: one region's transition guard predicates on a **sibling** region's active state — region `:checkout`'s `:submit` guarded by "the `:form` region is in `:valid`" — without coupling the regions through shared `:data`.
+
+re-frame2 ships the same **behaviour** without a separate `stateIn` primitive (deliberate divergence — behavioural parity, not API mimicry; see the *No combinator data form* note in [§Guards](#guards)). When a guard or action runs **inside a region** of a parallel machine, its context map carries two extra cross-region keys alongside the usual `:data` / `:event` / `:state` / `:meta`:
+
+| ctx key | value | use |
+|---|---|---|
+| **`:tags`** | the **machine-wide** active-configuration tag union — every active state's `:tags` across **every** region (per [§Tags compose across regions](#tags-compose-across-regions)) | the **coarse** `stateIn` substitute: a sibling region advertises a state-tag, and any region's guard reads `(contains? (:tags ctx) :form/valid)`. This is **the** documented `stateIn` equivalent (the more general / more idiomatic mechanism — a tag is a *named* render-state, exactly the Nine States idiom). |
+| **`:all-state`** | the full region-name → active-state map (`{:form :valid :checkout :idle}`) | the **precise** sibling-state read: `(= :valid (:form (:all-state ctx)))` matches a sibling region's discrete state value directly, the literal analog of `stateIn({form: 'valid'})`. |
+
+Both keys reflect the **evolving macrostep snapshot**: regions transition in declaration order within one broadcast, so a region whose guard runs later sees the *post-transition* state of any sibling that transitioned **earlier in the same macrostep** (and the FIFO `:raise` re-broadcast — per [§`:raise` is the exception](#per-region-always--after--spawn-scoping) — rebuilds the union against the full evolving snapshot on every re-broadcast, consistent with the broadcast/FIFO drain). A region reading its **own** current state uses `:state` (or, for the pre-transition own value, `:all-state` under its own region name — though `:state` is the canonical own-state read); `:all-state` is the mechanism for reading **siblings**.
+
+These two keys appear **only** for region guards/actions. A **flat / compound** machine's guard/action ctx is exactly `{:data :event :state :meta}` — unchanged — because its `stateIn` substitute is its own `:state` (a flat machine has no siblings to coordinate with). The implementation keys the cross-region keys off the parallel-region marker, so flat/compound machines are untouched.
+
+#### Worked example — `:submit` guarded on a sibling region's validity
+
+```clojure
+;; The xstate `stateIn({form: 'valid'})` example, expressed as re-frame2's
+;; tag substitute: :checkout's :submit fires only when the :form region is
+;; in :valid (which advertises :form/valid in the machine-wide tag union).
+(rf/reg-machine :ui/checkout
+  {:type    :parallel
+   :data    {}
+   :guards  {:form-valid? (fn [{:keys [tags]}]
+                            (contains? tags :form/valid))}
+   :regions
+   {:form     {:initial :editing
+               :states  {:editing {:tags #{:form/editing} :on {:complete :valid}}
+                         :valid   {:tags #{:form/valid}}}}
+    :checkout {:initial :idle
+               :states  {:idle       {:on {:submit {:target :submitting
+                                                    :guard  :form-valid?}}}
+                         :submitting {:tags #{:checkout/submitting}}}}}})
+
+(rf/dispatch-sync [:ui/checkout [:submit]])
+;; :form is still :editing → :form/valid is NOT in the union → :submit BLOCKED.
+;; snapshot :state stays {:form :editing :checkout :idle}
+
+(rf/dispatch-sync [:ui/checkout [:complete]])   ; :form → :valid (tag :form/valid)
+(rf/dispatch-sync [:ui/checkout [:submit]])
+;; :checkout's guard now reads :form/valid in (:tags ctx) → :submit FIRES.
+;; snapshot :state → {:form :valid :checkout :submitting}
+```
+
+The precise variant reads the sibling's state value directly:
+
+```clojure
+:guards {:form-is-valid? (fn [{:keys [all-state]}] (= :valid (:form all-state)))}
+```
+
+Both styles ship; prefer the **tag** query — a tag is a named, visualiser-/AI-legible render-state, and it survives a sibling region refactoring its internal state names as long as the tag stays put. (The same-macrostep coordination case — a single event that flips `:form` to `:valid` *and* lets `:checkout` proceed in one macrostep — works because the tag union is the **evolving** snapshot: `:form` is processed before `:checkout` in declaration order, so `:checkout`'s guard already sees `:form/valid`.)
+
 ### Per-region `:always` / `:after` / `:spawn` scoping
 
 Each region's state-node keys (`:always`, `:after`, `:spawn`, `:entry`, `:exit`) operate **scoped to that region**:
@@ -1496,6 +1553,7 @@ Parallel-region transitions emit one `:rf.machine/transition` macrostep trace pe
 
 - [§Snapshot shape](#snapshot-shape) — the three-arm `:state` form.
 - [§State tags](#state-tags) — tag union extends across regions.
+- [§Cross-region coordination — tags as `stateIn`](#cross-region-coordination--tags-as-statein) — the `:tags` / `:all-state` ctx keys threaded into region guards/actions (the XState v5 `stateIn` / SCXML `In()` substitute).
 - [CP-5-MachineGuide §Substitutes](CP-5-MachineGuide.md#substitutes-for-skipped-features) — the N-machines-per-region pattern for the independent-features case.
 - [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table) — `:type` + `:regions` schema.
 - [Spec-Schemas §`:rf/machine-snapshot`](Spec-Schemas.md#rfmachine-snapshot) — `:state` widened.
@@ -1714,7 +1772,7 @@ Per the locked design decision (§9.3): `:tags` is a state-node slot, not a tran
 
 ### What tags are *not*
 
-- **Not a transition-driver.** Guards' inputs are `:data` + the event, not the tag set. A transition can't react to a tag flipping on; if you need that, the right answer is to change the state directly (an `:always` transition guarded on `:data` is the canonical mechanism).
+- **Not an autonomous transition-driver.** A tag flipping on does not, by itself, *fire* a transition — there is no "on this tag appearing" trigger. A transition still needs an event or an eventless `:always` step to fire; if you need a state change to follow a `:data` condition autonomously, the canonical mechanism is an `:always` transition guarded on `:data`. **Guards CAN read the tag set, though** — for a parallel region's guard the machine-wide `:tags` union is in the context map as the cross-region `stateIn` substitute (see [§Cross-region coordination — tags as `stateIn`](#cross-region-coordination--tags-as-statein)), so a guard *can* predicate on a sibling region's render-state. The distinction: tags are a guard **input** (a sibling region advertises one, this region's guard reads it on the next event/`:always`), not a guard **trigger**.
 - **Not a `:meta` synonym.** Per-state `:meta` (the long-standing tooling-visible slot, e.g. `{:terminal? true}`) lives alongside `:tags` and is independently queryable via `(machine-meta id)`. Tags are about **runtime active-configuration projection**; `:meta` is about **static state-node metadata**.
 - **Not user-writable on the snapshot.** Actions can't return `:tags` in their `{:data :fx}` effect map; the slot is runtime-owned.
 - **Not a substitute for `:rf/machine`.** Views that need the whole snapshot still subscribe to `:rf/machine`; `:rf/machine-has-tag?` is for the predicate-shaped query. Both are first-class.
