@@ -1973,6 +1973,44 @@
                                (:action-id t)  (assoc :action-id (:action-id t)))))))]
     (when (seq picks) picks)))
 
+(defn- redact-sensitive-event-vector
+  "Egress guard for the cascade-summary `:event-vector` slot (rf2-6nks4,
+  finding-2).
+
+  The `:event-vector` slot copies the epoch's RAW `:trigger-event` — the
+  original dispatch vector, e.g. `[:auth/login {:password \"hunter2\"}]`.
+  When the source epoch is declared sensitive (`:rf.epoch/sensitive?
+  true`) that raw payload MUST NOT cross the off-box egress boundary
+  under the default privacy posture: `cascade-summary` is the ONE place
+  the trigger-event leaves the runtime verbatim, and the consuming MCP
+  tools (`restore-epoch` passes the runtime map through verbatim;
+  `dispatch-dry-run` deliberately does NOT walk `:cascade-summary`,
+  treating it as a counts-only projection) trust this projection to be
+  already-safe. The merged rf2-z7roa elision walker scrubs dispatch-dry-
+  run's `:db-state-after-simulation` / `:would-fire-effects` but left
+  the cascade-summary `:event-vector` UNWALKED — a restore / dry-run of
+  a sensitive historical epoch shipped the raw event payload even under
+  `--allow-sensitive-reads` OFF.
+
+  Fail-closed: when the epoch is sensitive AND the raw-state gate is OFF
+  (the published-build default — the MCP server flips it to OFF the
+  moment a state-emitting tool first fires unless the operator launched
+  with `--allow-sensitive-reads`), the slot redacts to the `:rf/redacted`
+  sentinel — the SAME sentinel the wire-path `elide-wire-value` walker
+  substitutes for a declared-sensitive slot. The redaction is keyed to
+  the epoch-level `:rf.epoch/sensitive?` rollup rather than per-value
+  elision because the trigger-event is not addressed by an app-db path
+  the `[:rf/runtime :elision]` registry can classify — its sensitivity
+  is a property of the epoch, not of a declared-sensitive db slot.
+
+  Raw only on opt-in: when the gate is ON the operator deliberately
+  asked for raw reads, so the verbatim trigger-event rides through. A
+  non-sensitive epoch is never redacted regardless of the gate."
+  [trigger-event sensitive?]
+  (if (and sensitive? (not (:allow-raw-state? @raw-state-config)))
+    :rf/redacted
+    trigger-event))
+
 (defn cascade-summary
   "Project an assembled `:rf/epoch-record` into the compact wire shape
   surfaced by dispatch / reset-frame-db / restore-epoch / dispatch-dry-
@@ -2004,7 +2042,12 @@
                :subs-recomputed (count (or sub-runs []))
                :renders         (count (or renders []))}
         event-id      (assoc :event-id event-id)
-        trigger-event (assoc :event-vector trigger-event)
+        ;; rf2-6nks4 (finding-2): the raw trigger-event is redacted to
+        ;; `:rf/redacted` when the epoch is sensitive and the raw-state
+        ;; gate is OFF (fail-closed default) — see
+        ;; `redact-sensitive-event-vector`. Raw only on opt-in.
+        trigger-event (assoc :event-vector
+                             (redact-sensitive-event-vector trigger-event sensitive?))
         transitions   (assoc :machine-transitions transitions)
         elapsed       (assoc :elapsed-ms elapsed)
         errors        (assoc :errors errors)
@@ -2471,6 +2514,12 @@
     (let [diff       (db-diff-summary pre-db (:db-after target))
           fx-fired   (->> (:effects target) (map :fx-id) distinct vec)
           transitions (machine-transitions-summary (:trace-events target))
+          ;; rf2-6nks4 (finding-2): a restore of a SENSITIVE historical
+          ;; epoch must not ship the target's raw trigger-event under the
+          ;; default off-box posture. Read the target epoch's
+          ;; `:rf.epoch/sensitive?` rollup and redact the `:event-vector`
+          ;; through the same fail-closed gate cascade-summary uses.
+          sensitive?  (:rf.epoch/sensitive? target)
           ;; Every fx in the target's :effects fired BEFORE the restore;
           ;; the restore rewinds db only. They are unreplayable by
           ;; construction.
@@ -2488,7 +2537,10 @@
                 :renders         (count (or (:renders target) []))
                 :restore?       true}
          (:event-id target)      (assoc :event-id (:event-id target))
-         (:trigger-event target) (assoc :event-vector (:trigger-event target))
+         (:trigger-event target) (assoc :event-vector
+                                        (redact-sensitive-event-vector
+                                          (:trigger-event target) sensitive?))
+         sensitive?              (assoc :sensitive? true)
          transitions             (assoc :machine-transitions transitions))
        :unreplayable-effects unreplayable})))
 

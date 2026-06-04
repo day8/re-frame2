@@ -11,8 +11,10 @@
     - the success / restore-rejected envelope shapes."
   (:require [cljs.test :refer-macros [deftest is async]]
             [cljs.reader]
+            [clojure.string :as str]
             [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.nrepl :as nrepl]
+            [re-frame2-pair-mcp.tools.raw-state :as raw-state]
             [re-frame2-pair-mcp.tools.writes :as writes]
             [re-frame2-pair-mcp.tools.restore-epoch :as restore-epoch]))
 
@@ -21,17 +23,46 @@
     (swap! conn assoc :probed-builds #{:app})
     conn))
 
+;; The tool now issues TWO evals on the happy path: the
+;; `configure-raw-state!` signal (raw-state/signal-runtime!, rf2-6nks4)
+;; and the `restore-epoch` form. The stub matches by substring — the
+;; configure eval resolves to nil (swallowed); the restore eval resolves
+;; to `canned-value`. `captured*` records the LAST non-configure form
+;; (the restore form) so the existing form-shape assertions keep working;
+;; `with-captured-all!` (below) records EVERY form for ordering tests.
 (defn- with-captured-eval!
   [captured* canned-value body-fn]
   (let [orig nrepl/cljs-eval-value
+        run  (fn [form-str]
+               (if (str/includes? form-str "configure-raw-state!")
+                 (js/Promise.resolve nil)
+                 (do (reset! captured* form-str)
+                     (js/Promise.resolve canned-value))))
         stub (fn
-               ([_conn _build-id form-str]
-                (reset! captured* form-str)
-                (js/Promise.resolve canned-value))
-               ([_conn _build-id form-str _opts]
-                (reset! captured* form-str)
-                (js/Promise.resolve canned-value)))]
+               ([_conn _build-id form-str] (run form-str))
+               ([_conn _build-id form-str _opts] (run form-str)))]
     (set! nrepl/cljs-eval-value stub)
+    (raw-state/reset-runtime-signal-cache!)
+    (-> (js/Promise.resolve nil)
+        (.then (fn [_] (body-fn)))
+        (.finally (fn [] (set! nrepl/cljs-eval-value orig))))))
+
+(defn- with-captured-all!
+  "Record EVERY emitted form (configure + restore) in order, so a test
+  can assert the raw-state signal precedes the restore eval (rf2-6nks4)."
+  [forms* canned-value body-fn]
+  (let [orig nrepl/cljs-eval-value
+        run  (fn [form-str]
+               (swap! forms* conj form-str)
+               (js/Promise.resolve
+                 (if (str/includes? form-str "configure-raw-state!")
+                   nil
+                   canned-value)))
+        stub (fn
+               ([_conn _build-id form-str] (run form-str))
+               ([_conn _build-id form-str _opts] (run form-str)))]
+    (set! nrepl/cljs-eval-value stub)
+    (raw-state/reset-runtime-signal-cache!)
     (-> (js/Promise.resolve nil)
         (.then (fn [_] (body-fn)))
         (.finally (fn [] (set! nrepl/cljs-eval-value orig))))))
@@ -193,6 +224,79 @@
                      (is (= [{:fx-id :http :coord [:my.app.cart 42 4]}]
                             (:unreplayable-effects edn))
                          "unreplayable-effects rides through verbatim"))
+                   (done)))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-6nks4 (finding-2) — sensitive cascade-summary :event-vector egress.
+;;
+;; The runtime's restore-cascade-summary redacts the target epoch's raw
+;; :event-vector to :rf/redacted when the epoch is sensitive AND the
+;; raw-state gate is OFF (the published-build default). For that runtime
+;; redaction to fire, the tool MUST signal `configure-raw-state!` to the
+;; runtime BEFORE the restore eval — exactly like dispatch-dry-run. These
+;; tests pin the WIRE boundary (the signal ordering + gate posture pushed);
+;; the runtime redaction itself is exercised by the bb runtime test
+;; (skills/re-frame2-pair/tests/runtime/cascade_summary_redaction_test.clj).
+;; ---------------------------------------------------------------------------
+
+(deftest signals-raw-state-posture-before-the-restore-eval
+  (async done
+    (let [forms (atom [])
+          prev  (raw-state/allow-raw-state-enabled?)]
+      (raw-state/set-allow-raw-state! false)
+      (-> (with-writes-on!
+            (fn []
+              (with-captured-all! forms true
+                (fn []
+                  (restore-epoch/restore-epoch-tool (fresh-conn) #js {:epoch-id "7"})))))
+          (.then (fn [_]
+                   (let [all      @forms
+                         cfg-idx  (first (keep-indexed (fn [i f] (when (str/includes? f "configure-raw-state!") i)) all))
+                         rst-idx  (first (keep-indexed (fn [i f] (when (str/includes? f "restore-epoch") i)) all))]
+                     (is (some? cfg-idx) "configure-raw-state! is signalled")
+                     (is (some? rst-idx) "the restore-epoch form is evaluated")
+                     (is (< cfg-idx rst-idx)
+                         "raw-state posture is signalled BEFORE the restore eval (so the runtime redacts a sensitive :event-vector)")
+                     (is (str/includes? (nth all cfg-idx) ":allow-raw-state? false")
+                         "the gate-OFF posture is pushed to the runtime"))))
+          (.finally (fn [] (raw-state/set-allow-raw-state! prev) (done)))))))
+
+(deftest redacted-sensitive-event-vector-rides-through
+  ;; The runtime already redacted the sensitive target epoch's
+  ;; :event-vector to :rf/redacted (gate OFF). The tool passes the
+  ;; runtime envelope through verbatim — the redacted marker must survive
+  ;; on the wire, and the raw payload must NOT appear anywhere.
+  (async done
+    (let [redacted-cascade {:epoch-id 7
+                            :event-id :auth/login
+                            :event-vector :rf/redacted
+                            :sensitive? true
+                            :frame :rf/default
+                            :outcome :ok
+                            :db-diff {:changed-paths [[:auth]] :added-paths [] :removed-paths []}
+                            :fx-fired [:http]
+                            :subs-recomputed 1
+                            :renders 1
+                            :restore? true}
+          runtime-envelope {:ok? true :restored? true :epoch-id 7
+                            :frame :rf/default
+                            :cascade-summary redacted-cascade
+                            :unreplayable-effects [{:fx-id :http}]}]
+      (-> (with-writes-on!
+            (fn []
+              (with-captured-eval! (atom nil) runtime-envelope
+                (fn []
+                  (restore-epoch/restore-epoch-tool (fresh-conn) #js {:epoch-id "7"})))))
+          (.then (fn [r]
+                   (is (not (err? r)))
+                   (let [edn  (read-result-text r)
+                         text (tu/extract-text r)]
+                     (is (= :rf/redacted (get-in edn [:cascade-summary :event-vector]))
+                         "the redacted :event-vector marker rides through verbatim")
+                     (is (true? (get-in edn [:cascade-summary :sensitive?]))
+                         "the :sensitive? annotation rides through")
+                     (is (not (str/includes? text "password"))
+                         "no raw payload literal appears on the wire"))
                    (done)))))))
 
 (deftest legacy-true-runtime-falls-back-to-stub-envelope
