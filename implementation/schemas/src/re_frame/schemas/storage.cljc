@@ -59,6 +59,65 @@
                     {:received opts-or-frame-id
                      :expected "keyword frame-id or opts map"}))))
 
+;; ---- registration-time path-shape validation (rf2-sk0ql) ------------------
+;;
+;; A `reg-app-schema` `path` is a `get-in`/`assoc-in`-shaped path: a
+;; SEQUENTIAL collection of keys, or the empty vector `[]` for the whole
+;; `app-db` root (Spec 010 §`app-db` schemas — path-based / §A schema for
+;; the whole `app-db` / §Digest algorithm "path is a vector of keywords
+;; (or the empty vector for the root schema)").
+;;
+;; Before rf2-sk0ql `reg-app-schema` / `reg-app-schemas` stored the `path`
+;; verbatim with no shape check. A non-sequential scalar — a bare keyword
+;; (`:n`), a string, a number, nil — registered successfully and surfaced
+;; through introspection, but `validate-app-schema!` later evaluates
+;; `(get-in db reg-path)` over every stored path, and `get-in` with a
+;; non-sequential `ks` throws `IllegalArgumentException` ("Don't know how
+;; to create ISeq from: …"). The live router's `run-post-commit-validation!`
+;; wraps that call in a defensive try/catch (a buggy validator must not
+;; mask app-db state) and treats the throw as `true` — so an invalid `:db`
+;; commit is installed permanently with NO `:rf.error/schema-validation-
+;; failure` trace and NO rollback. Worse, the poisoned entry persists in
+;; the frame's registry and makes EVERY subsequent commit's validation
+;; throw, silently disabling post-commit validation for the whole frame —
+;; a correctness- and privacy-relevant bypass (the redaction-bearing
+;; failure traces never fire).
+;;
+;; Fix: fail loud at registration time, BEFORE writing `schemas-by-frame`,
+;; with a framework error id (`:rf.error/bad-app-schema-path`). An invalid
+;; shape never lands, so the validation hot path can never be poisoned.
+;; Always-on (NOT gated by `interop/debug-enabled?`): a malformed
+;; registration is a programming error that must surface in every build,
+;; and the cost is one cheap predicate per `reg-app-schema` call.
+
+(defn valid-app-schema-path?
+  "True when `path` is a valid `reg-app-schema` path: a sequential
+  collection of keys (a vector / seq), INCLUDING the empty vector `[]`
+  for the whole-`app-db` root schema. Non-sequential scalars — a bare
+  keyword, string, number, nil, map, set — are rejected: they break the
+  `(get-in db path)` the validation hot path runs.
+
+  `sequential?` (not `vector?`) is deliberate — `get-in`/`assoc-in`
+  accept any sequential `ks`, and the bead's suggested direction permits
+  non-vector seqs; the only hard requirement is sequential-ness so the
+  validation walk's `get-in` cannot throw."
+  [path]
+  (sequential? path))
+
+(defn assert-app-schema-path!
+  "Throw `:rf.error/bad-app-schema-path` (per Spec 009 error catalogue)
+  when `path` is not a valid `reg-app-schema` path shape. Called by
+  `reg-app-schema` / `reg-app-schemas` BEFORE the store mutation so a
+  malformed path never lands in `schemas-by-frame` and can never poison
+  the `validate-app-schema!` hot path (rf2-sk0ql)."
+  [path]
+  (when-not (valid-app-schema-path? path)
+    (throw (ex-info ":rf.error/bad-app-schema-path"
+                    {:received path
+                     :expected (str "a sequential get-in path (vector/seq "
+                                    "of keys), or [] for the app-db root")
+                     :rf.error/id :rf.error/bad-app-schema-path}))))
+
 (defn coerce->frame-id
   "Resolve a frame-id from the `opts-or-frame-id` argument the read
   surface accepts: coerce through `coerce-opts` (keyword sugar / opts
@@ -387,9 +446,27 @@
   (a string, number, vector, …) throws `:rf.error/bad-app-schemas-arg`.
   Write and read now AGREE on the opts contract — previously a bare
   keyword was silently swallowed and the schema registered against the
-  DEFAULT frame, a footgun that disagreed with every read entry point."
+  DEFAULT frame, a footgun that disagreed with every read entry point.
+
+  Per rf2-sk0ql the `path` must be a `get-in`/`assoc-in`-shaped path: a
+  SEQUENTIAL collection of keys, or the empty vector `[]` for the whole-
+  `app-db` root (Spec 010 §`app-db` schemas — path-based / §A schema for
+  the whole `app-db`). A non-sequential scalar (a bare keyword, string,
+  number, nil) throws `:rf.error/bad-app-schema-path` at registration —
+  BEFORE the store mutation — so it can never land. Previously such a
+  shape registered fine but made `validate-app-schema!`'s `(get-in db
+  path)` throw, which the router silently swallowed as a validation pass,
+  installing an invalid commit with no failure trace and no rollback and
+  poisoning every subsequent commit's validation for the frame."
   ([path schema] (reg-app-schema path schema {}))
   ([path schema opts-or-frame-id]
+   ;; Per rf2-sk0ql — reject a malformed `path` shape BEFORE the store
+   ;; mutation. A non-sequential scalar (bare keyword / string / number /
+   ;; nil) would register fine but make `validate-app-schema!`'s
+   ;; `(get-in db path)` throw, which the router silently swallows as a
+   ;; validation pass (a correctness- + privacy-relevant bypass). Always-on
+   ;; — a malformed registration is a programming error in every build.
+   (assert-app-schema-path! path)
    (let [opts         (coerce-opts opts-or-frame-id)
          frame-id     (resolve-frame opts)
          ;; Capture the path's prior schema BEFORE the swap so the
@@ -499,6 +576,14 @@
    ;; sugar; bad shape → `:rf.error/bad-app-schemas-arg`). Write/read
    ;; agree; the singular `reg-app-schema` call re-coerces the
    ;; already-coerced map (idempotent — a map passes through verbatim).
+   ;; Per rf2-sk0ql — validate EVERY path shape up front, before any
+   ;; store mutation, so a single malformed key cannot half-register the
+   ;; batch (the earlier-iterated entries would otherwise land before the
+   ;; bad key's delegated `reg-app-schema` throws). Reject the whole call
+   ;; atomically. (`reg-app-schema` re-asserts per entry — cheap and
+   ;; idempotent — but this up-front sweep is what guarantees the
+   ;; all-or-nothing contract.)
+   (run! assert-app-schema-path! (keys path->schema))
    (let [opts       (coerce-opts opts-or-frame-id)
          frame-id   (resolve-frame opts)
          entry-opts (assoc opts :rf/defer-elision-populate? true)
