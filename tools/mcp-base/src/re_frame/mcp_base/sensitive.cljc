@@ -268,7 +268,26 @@
   contract — re-frame2-pair-mcp passes its union predicate that also catches
   the epoch-level `:sensitive?` rollup (`sensitive-event? OR
   sensitive-epoch?`). The default arity preserves the
-  trace-event-only filter for story-mcp consumers."
+  trace-event-only filter for story-mcp consumers.
+
+  ## Slice-shape discipline + fail-closed (rf2-wm9kp)
+
+  A `:traces` / `:epochs` slice is a SEQUENTIAL batch of trace-event maps
+  (a vector in the typical runtime emission, or a lazy seq when composed
+  via `concat`/`map`/`filter`). The scrubber only normalises (`vec`) and
+  runs `strip-fn` on a genuinely `sequential?` slice. A non-sequential
+  slice (nil, a scalar, a string, or a single event MAP) is NOT a batch,
+  so it passes through UNCHANGED — honouring the documented contract
+  (`Non-map slices … pass through unchanged`). The prior unconditional
+  `(vec …)` mangled these shapes: `nil → []`, `\"oops\" → [\\o \\o …]`, and
+  a single event map → a vector of map-entries — which silently lost the
+  event shape, reported zero drops, AND carried any secret in that map
+  straight past the filter.
+
+  Fail-CLOSED exception: a single MAP slice that is itself a sensitive
+  event (`sensitive-event?`) is DROPPED, not passed through — shipping it
+  raw would leak the very secret the filter exists to suppress. It is
+  replaced with the empty batch and counted as one drop."
   ([snapshot include?]
    (scrub-snapshot snapshot include? strip-sensitive))
   ([snapshot include? strip-fn]
@@ -283,10 +302,28 @@
      ;; Single walk over the snapshot, same cost as before.
      (let [scrub-slice
            (fn [frame-map slice-key acc]
-             (if (contains? frame-map slice-key)
-               (let [[kept n] (strip-fn (vec (get frame-map slice-key)) false)]
-                 [(assoc frame-map slice-key kept) (+ acc n)])
-               [frame-map acc]))
+             (if-not (contains? frame-map slice-key)
+               [frame-map acc]
+               (let [slice (get frame-map slice-key)]
+                 (cond
+                   ;; Genuine sequential trace-event batch (vector or lazy
+                   ;; seq): normalise + scrub. `(vec …)` realises a lazy
+                   ;; seq before `strip-fn` runs.
+                   (sequential? slice)
+                   (let [[kept n] (strip-fn (vec slice) false)]
+                     [(assoc frame-map slice-key kept) (+ acc n)])
+
+                   ;; Fail-CLOSED: a single map that is itself a sensitive
+                   ;; event is NOT a batch and would leak its secret if
+                   ;; shipped raw — drop it (empty batch) and count it.
+                   (sensitive-event? slice)
+                   [(assoc frame-map slice-key []) (inc acc)]
+
+                   ;; Any other non-sequential shape (nil, scalar, string,
+                   ;; non-sensitive single map) is not a batch — pass it
+                   ;; through byte-identically per the helper contract.
+                   :else
+                   [frame-map acc]))))
            scrub-frame
            (fn [frame-map]
              (let [[fm1 d1] (scrub-slice frame-map :traces 0)]

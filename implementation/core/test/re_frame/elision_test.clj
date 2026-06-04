@@ -403,3 +403,130 @@
                    [:user/name]  {:value "Ada" :ref-count 1}}]
     (is (= sub-cache (rf/elide-wire-value sub-cache))
         "No declarations ⇒ walker returns the sub-cache shape verbatim")))
+
+;; ---------------------------------------------------------------------------
+;; Collection-nested schema-declared elision at direct-read egress
+;; (rf2-wm9kp).
+;;
+;; The schema walker emits INDEX-FREE declarations for positional/keyed
+;; containers — `[:items] [:vector [:map [:token {:sensitive? true} :string]]]`
+;; declares `[:items :token]`, NOT `[:items 0 :token]`; a `:map-of` value
+;; `[:by-id] [:map-of :string [:map [:secret {:sensitive? true} :string]]]`
+;; declares `[:by-id :secret]`, NOT `[:by-id "a" :secret]`. The wire-elision
+;; walker walks a RUNTIME value, so it sees the indexed/keyed paths. Before
+;; rf2-wm9kp the walker matched only EXACT concrete runtime paths, so the
+;; declaration never matched and the secret crossed the direct-read MCP
+;; boundary (`get-app-db` / `get-path` / `snapshot`) RAW. The fix threads a
+;; candidate declaration-coordinate set that drops vector indices / map-of
+;; keys, so the index-free declaration matches the indexed/keyed runtime
+;; path. Mirrors the schema-validation-trace alignment (rf2-g5auo's
+;; `schema-sensitive-at?`), but on the runtime value rather than the schema.
+
+(deftest collection-nested-sensitive-vector-of-maps-redacts
+  ;; rf2-wm9kp Finding 1 (the headline leak). WITHOUT the fix
+  ;; `(rf/elide-wire-value {:items [{:token "SECRET"}]})` returned the
+  ;; secret verbatim because decl `[:items :token]` did not match runtime
+  ;; `[:items 0 :token]`.
+  (rf/reg-app-schema [:items]
+                     [:vector [:map [:token {:sensitive? true} :string]]])
+  (is (= [[:items :token]] (rf/populate-sensitive-from-schemas!))
+      "schema walker declares the index-free path")
+  (let [out (rf/elide-wire-value {:items [{:token "SECRET"}
+                                          {:token "SECRET2"}]})]
+    (is (= :rf/redacted (get-in out [:items 0 :token]))
+        "vector-element sensitive slot redacts at direct-read egress")
+    (is (= :rf/redacted (get-in out [:items 1 :token]))
+        "every vector element redacts, not just index 0"))
+  ;; Opt-in escape hatch still passes the raw value (the get-path /
+  ;; snapshot `:rf.size/include-sensitive? true` path).
+  (is (= "SECRET"
+         (get-in (rf/elide-wire-value {:items [{:token "SECRET"}]}
+                                      {:rf.size/include-sensitive? true})
+                 [:items 0 :token]))
+      "include-sensitive? true ⇒ collection-nested sensitive passes raw"))
+
+(deftest collection-nested-sensitive-map-of-redacts
+  ;; rf2-wm9kp Finding 1 — `:map-of` value-map sensitive slot. Decl
+  ;; `[:by-id :secret]` must match runtime `[:by-id "a" :secret]`.
+  (rf/reg-app-schema [:by-id]
+                     [:map-of :string [:map [:secret {:sensitive? true} :string]]])
+  (rf/populate-sensitive-from-schemas!)
+  (let [out (rf/elide-wire-value {:by-id {"a" {:secret "SECRET"}
+                                          "b" {:secret "SECRET2"}}})]
+    (is (= :rf/redacted (get-in out [:by-id "a" :secret])))
+    (is (= :rf/redacted (get-in out [:by-id "b" :secret]))
+        "map-of value-map sensitive slot redacts for every key")))
+
+(deftest collection-nested-sensitive-sequential-redacts
+  ;; rf2-wm9kp Finding 1 — `:sequential` of maps (the runtime value can
+  ;; arrive as a lazy seq / list, not just a vector).
+  (rf/reg-app-schema [:logs]
+                     [:sequential [:map [:pw {:sensitive? true} :string]]])
+  (rf/populate-sensitive-from-schemas!)
+  (let [out (rf/elide-wire-value {:logs (list {:pw "SECRET"})})]
+    (is (= :rf/redacted (-> out :logs vec (get-in [0 :pw])))
+        "sequential-element sensitive slot redacts")))
+
+(deftest collection-nested-sensitive-set-of-maps-redacts
+  ;; rf2-wm9kp Finding 1 — `:set` element maps descend at the same base
+  ;; path (no positional segment), same as vector/sequential.
+  (rf/reg-app-schema [:tags]
+                     [:set [:map [:s {:sensitive? true} :string]]])
+  (rf/populate-sensitive-from-schemas!)
+  (let [out (rf/elide-wire-value {:tags #{{:s "SECRET"}}})]
+    (is (= :rf/redacted (:s (first (:tags out))))
+        "set-element sensitive slot redacts")))
+
+(deftest collection-nested-sensitive-mixed-map-vector-map-redacts
+  ;; rf2-wm9kp Finding 1 — mixed map → vector → map nesting. Decl
+  ;; `[:root :rows :pw]` matches runtime `[:root :rows N :pw]`.
+  (rf/reg-app-schema [:root]
+                     [:map [:rows [:vector [:map [:pw {:sensitive? true} :string]]]]])
+  (rf/populate-sensitive-from-schemas!)
+  (let [out (rf/elide-wire-value {:root {:rows [{:pw "SECRET"} {:pw "SECRET2"}]}})]
+    (is (= :rf/redacted (get-in out [:root :rows 0 :pw])))
+    (is (= :rf/redacted (get-in out [:root :rows 1 :pw])))))
+
+(deftest collection-nested-no-over-redaction-of-sibling-slots
+  ;; rf2-wm9kp Finding 1 — the matcher must be PRECISE: a non-sensitive
+  ;; sibling leaf inside the same collection element map rides verbatim.
+  ;; The candidate-path fork must not blanket-redact the element.
+  (rf/reg-app-schema [:items]
+                     [:vector [:map
+                               [:token {:sensitive? true} :string]
+                               [:name :string]]])
+  (rf/populate-sensitive-from-schemas!)
+  (let [out (rf/elide-wire-value {:items [{:token "SECRET" :name "Ada"}]})]
+    (is (= :rf/redacted (get-in out [:items 0 :token])))
+    (is (= "Ada" (get-in out [:items 0 :name]))
+        "sibling non-sensitive slot is NOT over-redacted")))
+
+(deftest collection-nested-large-emits-marker-with-runtime-path
+  ;; rf2-wm9kp Finding 1 (symmetry) — a `:large?` slot nested under a
+  ;; collection element map emits the `:rf.size/large-elided` marker, and
+  ;; the marker's `:path` is the CONCRETE indexed runtime path so a
+  ;; follow-up `get-path` lands on the exact element.
+  (rf/reg-app-schema [:docs]
+                     [:vector [:map [:blob {:large? true :hint "blob"} :string]]])
+  (rf/populate-elision-from-schemas!)
+  (let [out  (rf/elide-wire-value {:docs [{:blob "<<5MB-blob>>"}]})
+        slot (get-in out [:docs 0 :blob])]
+    (is (elision/marker? slot)
+        "collection-nested :large? slot emits a size marker")
+    (is (= [:docs 0 :blob] (get-in slot [:rf.size/large-elided :path]))
+        "marker :path is the concrete indexed runtime path (re-fetchable)")
+    (is (= "blob" (get-in slot [:rf.size/large-elided :hint])))))
+
+(deftest collection-nested-sensitive-wins-over-large
+  ;; rf2-wm9kp Finding 1 (symmetry) — when a collection-nested slot is
+  ;; BOTH `:large?` and `:sensitive?`, sensitive wins (redact, no marker),
+  ;; same precedence as the top-level `sensitive-wins-over-large` case.
+  (rf/reg-app-schema [:vault]
+                     [:vector [:map [:k {:large? true :sensitive? true} :string]]])
+  (rf/populate-elision-from-schemas!)
+  (rf/populate-sensitive-from-schemas!)
+  (let [out  (rf/elide-wire-value {:vault [{:k "payload"}]})
+        slot (get-in out [:vault 0 :k])]
+    (is (= :rf/redacted slot))
+    (is (not (elision/marker? slot))
+        "sensitive suppresses the large marker even when nested in a vector")))

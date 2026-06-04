@@ -265,6 +265,92 @@
     (is (= [{:id 1} {:id 3}] (get-in out [:rf/default :traces])))))
 
 ;; ---------------------------------------------------------------------------
+;; Slice-shape discipline + fail-closed for malformed slices (rf2-wm9kp
+;; Finding 2). `scrub-snapshot` USED to `(vec …)` any present `:traces` /
+;; `:epochs` value unconditionally — even non-sequential ones. That
+;; mangled the shape (`nil → []`, `"oops" → [\o \o …]`, a single event
+;; map → a vector of map-entries) AND, for a malformed single SENSITIVE
+;; event map, reported zero drops while carrying the secret straight
+;; through (fail-OPEN). The fix only normalises + scrubs a genuinely
+;; `sequential?` batch; non-sequential shapes pass through byte-identical,
+;; and a single sensitive-event map is DROPPED fail-closed.
+;; ---------------------------------------------------------------------------
+
+(deftest scrub-snapshot-nil-slice-passes-through-unchanged
+  ;; rf2-wm9kp F2 — a nil `:traces` / `:epochs` slice is not a batch; it
+  ;; must survive as nil, not be coerced to `[]`.
+  (let [snap {:rf/default {:traces nil :epochs nil}}
+        [out dropped] (sensitive/scrub-snapshot snap false)]
+    (is (zero? dropped))
+    (is (contains? (get out :rf/default) :traces))
+    (is (nil? (get-in out [:rf/default :traces]))
+        "nil :traces survives as nil (no `[]` mangle)")
+    (is (nil? (get-in out [:rf/default :epochs]))
+        "nil :epochs survives as nil")))
+
+(deftest scrub-snapshot-scalar-slice-passes-through-unchanged
+  ;; rf2-wm9kp F2 — a scalar slice is not a batch.
+  (let [snap {:rf/default {:traces 7 :epochs :marker}}
+        [out dropped] (sensitive/scrub-snapshot snap false)]
+    (is (zero? dropped))
+    (is (= 7 (get-in out [:rf/default :traces])))
+    (is (= :marker (get-in out [:rf/default :epochs])))))
+
+(deftest scrub-snapshot-string-slice-passes-through-unchanged
+  ;; rf2-wm9kp F2 — a string is `seqable?` but NOT a trace-event batch.
+  ;; The old `(vec "oops")` produced `[\o \o \p \s]`.
+  (let [snap {:rf/default {:traces "oops"}}
+        [out dropped] (sensitive/scrub-snapshot snap false)]
+    (is (zero? dropped))
+    (is (= "oops" (get-in out [:rf/default :traces]))
+        "string slice survives verbatim (no char-vector mangle)")))
+
+(deftest scrub-snapshot-non-sensitive-single-map-slice-passes-through
+  ;; rf2-wm9kp F2 — a single (non-sensitive) event MAP is not a batch; it
+  ;; passes through byte-identical rather than becoming a vec of entries.
+  (let [snap {:rf/default {:traces {:id 1 :op :something}}}
+        [out dropped] (sensitive/scrub-snapshot snap false)]
+    (is (zero? dropped))
+    (is (= {:id 1 :op :something} (get-in out [:rf/default :traces]))
+        "non-sensitive single map survives verbatim (no entry-vec mangle)")))
+
+(deftest scrub-snapshot-sensitive-single-map-slice-dropped-fail-closed
+  ;; rf2-wm9kp F2 (the leak) — a single MAP slice that is itself a
+  ;; sensitive event must be DROPPED, not shipped raw. Pre-fix the
+  ;; unconditional `(vec …)` turned `{:id 1 :sensitive? true}` into
+  ;; `[[:id 1] [:sensitive? true]]`, reported zero drops, and carried the
+  ;; secret across the boundary. Fail-closed: drop + count.
+  (let [snap {:rf/default {:traces {:id 1 :sensitive? true :payload "SECRET"}}}
+        [out dropped] (sensitive/scrub-snapshot snap false)]
+    (is (= 1 dropped) "the malformed sensitive single-map is counted as a drop")
+    (is (= [] (get-in out [:rf/default :traces]))
+        "the sensitive single-map is dropped (empty batch), not shipped raw")
+    ;; The secret never appears anywhere in the scrubbed output.
+    (is (not (clojure.string/includes? (pr-str out) "SECRET"))
+        "no trace of the secret survives in the scrubbed snapshot")))
+
+(deftest scrub-snapshot-sensitive-single-map-epochs-dropped-fail-closed
+  ;; rf2-wm9kp F2 — the exact bead probe shape: nil `:traces` (passes
+  ;; through) + a malformed sensitive single-map `:epochs` (dropped).
+  (let [snap {:rf/default {:traces nil :epochs {:id 1 :sensitive? true}}}
+        [out dropped] (sensitive/scrub-snapshot snap false)]
+    (is (= 1 dropped))
+    (is (nil? (get-in out [:rf/default :traces])) ":traces nil survives")
+    (is (= [] (get-in out [:rf/default :epochs]))
+        "sensitive single-map :epochs dropped fail-closed")))
+
+(deftest scrub-snapshot-sequential-batch-still-scrubbed
+  ;; rf2-wm9kp F2 — the legitimate path is unchanged: a vector batch is
+  ;; normalised + scrubbed. (Companion to the existing lazy-seq test which
+  ;; pins the seq case.)
+  (let [snap {:rf/default {:traces [{:id 1 :sensitive? true} {:id 2}]
+                           :epochs [{:event-id :a :sensitive? true} {:event-id :b}]}}
+        [out dropped] (sensitive/scrub-snapshot snap false)]
+    (is (= 2 dropped))
+    (is (= [{:id 2}] (get-in out [:rf/default :traces])))
+    (is (= [{:event-id :b}] (get-in out [:rf/default :epochs])))))
+
+;; ---------------------------------------------------------------------------
 ;; Malformed counter — operator-surface observability for the fail-
 ;; closed gate (rf2-8cpsg / F19).
 ;; ---------------------------------------------------------------------------
