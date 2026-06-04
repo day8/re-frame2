@@ -184,14 +184,19 @@
   an inline :rf/response write. Registered in the `re-frame.ssr` façade
   under `::error-projection`.
 
-  This listener covers ONLY the `:rf.error/*` categories that fire
-  exclusively through `trace/emit-error!` (no always-on emission path):
-  `:rf.error/no-such-handler`, `:rf.error/no-such-route`,
-  `:rf.error/schema-validation-failure`, `:rf.error/sub-exception`,
+  This listener covers the `:rf.error/*` categories that fire through
+  `trace/emit-error!`: `:rf.error/no-such-handler`,
+  `:rf.error/no-such-route`, `:rf.error/schema-validation-failure`,
   `:rf.error/drain-depth-exceeded`. They elide under
   `interop/debug-enabled? = false`. The production-survivable channel for
-  the 500-class errors is `error-emit-projection-listener` (below). In
-  dev both fire for those — last-write-wins + idempotent projection makes
+  the 500-class errors is `error-emit-projection-listener` (below).
+
+  `:rf.error/sub-exception` ALSO arrives here (it still emits on the dev
+  trace surface), but as of rf2-vvwmi it ALSO rides the always-on
+  substrate below — that is its production status source of truth (a sub
+  throwing mid-`render-to-string` under production hardening must project
+  a fail-closed 5xx, not recover to a silent 200). In dev both listeners
+  fire for sub-exception — last-write-wins + idempotent projection makes
   the duplicate benign (rf2-fb598)."
   [event]
   (when (= :error (:op-type event))
@@ -226,13 +231,16 @@
     ;; error-emit substrate, but keep the guard so a future routing
     ;; change can't reintroduce a re-entrant projection.)
     (when-not (= :rf.error/sanitised-on-projection op)
-      (let [;; Frame is normally on the flat error-emit record directly
-            ;; (`:frame`). When absent we consult `candidate-frame-for-
-            ;; error` on the synthesised event — which, per rf2-7d30s, now
-            ;; only honours an explicit `[:tags :frame]` and no longer
-            ;; guesses the single active server frame. A record with no
-            ;; routable server frame correctly no-ops (see
-            ;; `candidate-frame-for-error`).
+      (let [;; The error-emit record carries the frame on its flat `:frame`
+            ;; slot directly. Per rf2-7d30s every error-emit site reachable
+            ;; inside a server-frame drain stamps that slot from the
+            ;; drain's known frame; a record with no routable server frame
+            ;; correctly no-ops (no projector runs, no stray status). Per
+            ;; rf2-mn4rd the former `candidate-frame-for-error` fallback was
+            ;; dead: it read `[:tags :frame]` on the synthesised event,
+            ;; which IS `(:frame record)` re-applied through the same
+            ;; `server-frame?` predicate — so it could never yield a frame
+            ;; the direct check below had not already accepted.
             direct-frame-id (:frame record)
             ;; Synthesise a trace-event-shaped envelope. The projector
             ;; reads `(:operation event)`; we copy the relevant flat
@@ -249,11 +257,9 @@
                                :time              (:time       record)
                                :source-coord      (:source-coord record)
                                :recovery          :no-recovery}}]
-        (when-let [frame-id (if (and direct-frame-id
-                                     (error-projector/server-frame? direct-frame-id))
-                              direct-frame-id
-                              (candidate-frame-for-error event))]
-          (buffer-error-trace! frame-id event))))))
+        (when (and direct-frame-id
+                   (error-projector/server-frame? direct-frame-id))
+          (buffer-error-trace! direct-frame-id event))))))
 
 (defn peek-response
   "PURE read of the resolved response accumulator for a frame — does

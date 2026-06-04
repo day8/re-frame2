@@ -313,26 +313,69 @@
                         :frame          frame-id}))
         validated)
       (catch #?(:clj Throwable :cljs :default) e
-        (let [msg #?(:clj (.getMessage e) :cljs (.-message e))]
-          ;; rf2-7d30s — frame-attribute the sub-exception (the reactive
-          ;; sub-run knows its `frame-id`, used by the success emit above).
-          ;; Without `:frame` the error is dropped by
-          ;; `re-frame.epoch.capture/capture-event!` (frame-tagged only) so
-          ;; the Xray Issues lens misses it, and the SSR error-projection
-          ;; listener cannot map the `:rf.error/sub-exception` category to a
-          ;; per-frame 5xx under concurrent server frames.
-          (trace/emit-error!
-            :rf.error/sub-exception
-            {:failing-id        query-id
-             :rf.sub/id         query-id
-             :sub-query         query-v
-             :frame             frame-id
-             :exception         e
-             :exception-message msg
-             :reason            (str "Subscription `" query-id
-                                     "` threw while computing: "
-                                     msg ". Returning nil.")
-             :recovery          :replaced-with-default}))
+        (let [msg    #?(:clj (.getMessage e) :cljs (.-message e))
+              reason (str "Subscription `" query-id
+                          "` threw while computing: "
+                          msg ". Returning nil.")
+              ;; Shared `:tags` body — consumed by BOTH the always-on
+              ;; error-emit policy-event (below) and the dev-only trace.
+              ;; rf2-7d30s — frame-attribute the sub-exception (the reactive
+              ;; sub-run knows its `frame-id`, used by the success emit
+              ;; above). Without `:frame` the error is dropped by
+              ;; `re-frame.epoch.capture/capture-event!` (frame-tagged only)
+              ;; so the Xray Issues lens misses it, and the SSR error-
+              ;; projection listener cannot map the `:rf.error/sub-exception`
+              ;; category to a per-frame 5xx.
+              tags   {:failing-id        query-id
+                      :rf.sub/id         query-id
+                      :sub-query         query-v
+                      :frame             frame-id
+                      :exception         e
+                      :exception-message msg
+                      :reason            reason
+                      :recovery          :replaced-with-default}]
+          ;; rf2-vvwmi — route the reactive `:rf.error/sub-exception`
+          ;; through the ALWAYS-ON `error-emit/dispatch-on-error!`
+          ;; substrate (mirroring router.cljc's handler-exception and
+          ;; fx.cljc's reserved-fx typed-throw paths) so it survives
+          ;; `interop/debug-enabled? = false` (CLJS `:advanced` +
+          ;; `goog.DEBUG=false`; JVM `-Dre-frame.debug=false`). Under that
+          ;; production-hardening posture (the one Spec 011 §Substrate
+          ;; mandates SSR run in) the dev-only `trace/emit-error!` below
+          ;; is elided — so a subscription that throws mid-`render-to-
+          ;; string` would otherwise recover to nil here, yielding a
+          ;; silent HTTP 200 with broken HTML and no 5xx projection. The
+          ;; always-on path lets the SSR `error-emit-projection-listener`
+          ;; stamp the (elided) 500 — the projector's PUBLIC shape never
+          ;; leaks `:exception` / message; that detail rides the trace +
+          ;; off-box listener record only (Spec 011 §Internal trace
+          ;; events are not leaked). A reactive sub has no triggering
+          ;; event vector, so `:event` / `:event-id` are nil.
+          ;;
+          ;; Reached via the late-bind hook `:error-emit/dispatch-on-
+          ;; error` — this subs layer cannot statically require
+          ;; `re-frame.error-emit` (would form a load cycle, same as
+          ;; fx.cljc). Always invoked (NOT under `interop/debug-enabled?`)
+          ;; — that is the whole point: it is the production-survivable
+          ;; status source of truth.
+          (when-let [dispatch-on-error!
+                     (late-bind/get-fn-cached :error-emit/dispatch-on-error)]
+            (dispatch-on-error!
+              :rf.error/sub-exception
+              nil                                 ;; event (reactive — none)
+              nil                                 ;; event-id
+              frame-id
+              e
+              0                                   ;; elapsed-ms
+              (interop/now-ms)                    ;; time
+              {:operation :rf.error/sub-exception
+               :op-type   :error
+               :tags      tags
+               :recovery  :replaced-with-default}))
+          ;; Dev-only trace path — preserved for the trace surface +
+          ;; retain-N buffer + dev-side projection (carries the same rich
+          ;; internal detail). DCEs under `:advanced` + `goog.DEBUG=false`.
+          (trace/emit-error! :rf.error/sub-exception tags))
         nil))))
 
 ;; ---- memoisation wrappers ------------------------------------------------
