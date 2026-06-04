@@ -53,9 +53,20 @@ The pipeline is a **two-stage** gate (rf2-ih7g4) that folds both sums in a **sin
 
 The algorithm runs synchronously at the wire boundary, after the response body has been assembled but before the consumer-side transport ships it. The cost is one walk over the `:content` vector — O(content size).
 
-### Why the secondary char gate is structurally dominated today
+### Why the secondary char gate is load-bearing today (rf2-of2cd)
 
-Under the live `token-estimate = (quot count 4)` rule, the two sums are not independent: if `chars > cap*8` then `tokens = (quot chars 4) > 2*cap > cap`, so the token gate has already tripped whenever the char gate would. The char disjunct is therefore intentional **defence-in-depth** against a FUTURE `token-estimate` refinement that decouples chars from tokens (one that recognises base64 / CJK with a lower per-char cost) — not dead code. `over-cap?` / `reported-count` are extracted as pure fns over already-summed counts so the dominated branch is unit-trippable in isolation (`cap_test.clj`).
+A naive reading argues the char gate is structurally dominated: for a SINGLE string of length `L`, `chars = L` and `tokens = (quot L 4)`, so `chars > cap*8` ⇒ `tokens = (quot L 4) > 2*cap > cap` — the token gate would have already tripped. That single-string argument is real but does NOT generalise to the multi-slot sum the pipeline actually folds.
+
+`token-estimate` floors **per string** (`quot` truncates), so the sum of floors is not the floor of the sum:
+
+```
+Σ (quot len_i 4)  ≤  quot (Σ len_i) 4    ; strictly less when the
+                                         ; per-string remainders are sub-4
+```
+
+A content vector of MANY short strings drives the gap to its extreme: 3000 slots of 3 chars each give `tokens = Σ (quot 3 4) = 0` while `chars = 9000`. At `cap = 1` the token gate is quiet (`0 > 1` is false) yet the char gate fires (`9000 > 8`), and `apply-cap` correctly replaces the over-budget payload with the overflow marker. The `watch-epochs` / `trace-window` slices are exactly this shape — a long vector of small per-record text slots. So the secondary char gate is reachable through the **live** `apply-cap` path today, not merely future-proofing.
+
+The branch is doubly justified: load-bearing now AND defence-in-depth against a FUTURE `token-estimate` refinement (one recognising base64 / CJK at a lower per-char cost) that would decouple the sums further. `over-cap?` / `reported-count` are extracted as pure fns over already-summed counts so both disjuncts and the `reported` selector are exercised directly in isolation (`cap_test.clj`) AND through the live many-short-strings `apply-cap` path (`apply-cap-many-short-strings-trips-char-gate`).
 
 ## Per-server specialisation hook — the `ResultIO` protocol
 
