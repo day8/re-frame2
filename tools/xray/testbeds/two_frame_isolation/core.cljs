@@ -1,6 +1,6 @@
 (ns two-frame-isolation.core
-  "Two-frame isolation testbed (rf2-6qgbs.1, repointed under rf2-wa8my) —
-  THE canonical multi-frame isolation surface for Xray.
+  "Two-frame isolation testbed — THE canonical multi-frame isolation
+  surface for Xray.
 
   ## Shape
 
@@ -27,15 +27,11 @@
 
   ## Why standard-epochs ×2
 
-  The earlier shape mounted the (now-deleted) shared `testdeck.*`
-  tabs-as-routes panel. That coupled this testbed to a bespoke
-  multi-module app whose tabs-as-routes machinery doubled as a manual
-  multi-frame ROUTING demo. The routing surface now has its own home
-  (`routes_epochs`, the gate's Routing-panel deck); the multi-frame
-  isolation gate assertion lives on the framework `testbeds/multi_frame`
-  surface. This testbed's single job is therefore the cleanest possible
-  per-frame ISOLATION proof: mount the SAME deck twice and watch the two
-  reactive contexts stay independent.
+  This testbed's single job is the cleanest possible per-frame ISOLATION
+  proof: mount the SAME deck twice and watch the two reactive contexts stay
+  independent. The routing surface has its own home (`routes_epochs`, the
+  gate's Routing-panel deck); the multi-frame isolation gate assertion lives
+  on the framework `testbeds/multi_frame` surface.
 
   `standard-epochs.core` registers every event / sub / view / cofx / fx /
   flow / schema ONCE globally at namespace load (requiring it below is
@@ -45,11 +41,11 @@
   reuse only its registrations + its `root` Var, and supply our own
   two-frame harness + mount here.
 
-  ## Per-frame run-step events (rf2-3xakq → rf2-5sjbg — isolation-preserving)
+  ## Per-frame run-step events — isolation-preserving
 
   `standard-epochs.core/root` is the shared step-driver runner
   (`runner.core`), parameterised over `[host-frame prefix run-step-event]`.
-  The runner's cursor now lives in app-db's `:step` slot — and per-frame
+  The runner's cursor lives in app-db's `:step` slot — and per-frame
   app-db gives EACH frame mount its OWN `:step`, so the two cursors are
   isolated by construction. This testbed registers a DISTINCT run-step event
   per frame (each closing over its frame's host-frame so the step's child
@@ -63,7 +59,7 @@
   frame — no shared cursor, correct per-frame isolation. Pressing Step (or a
   RUN-THIS-STEP button) in `:above` moves ONLY `:above`'s app-db (including
   its `:step`) / sub-cache / epoch history. There is NO Reagent atom for step
-  state anywhere (rf2-5sjbg).
+  state anywhere.
 
   ## What this proves — per-frame isolation
 
@@ -110,18 +106,18 @@
             ;; event (that targets `:rf/default`).
             [standard-epochs.core :as se]
             [re-frame.adapter.reagent :as reagent-adapter]
-            ;; rf2-6jyf6 — Xray's `configure!` to seed `:project-root`
-            ;; so the Event lens 'open' chip resolves a classpath-relative
-            ;; `:file` slot to an absolute on-disk URI.
+            ;; Xray's `configure!` to seed `:project-root` so the Event
+            ;; lens 'open' chip resolves a classpath-relative `:file` slot
+            ;; to an absolute on-disk URI.
             [day8.re-frame2-xray.config :as xray-config]
-            ;; Shared testbed-config helper (rf2-5dphw): derives the
-            ;; open-in-editor project-root from the build env.
+            ;; Shared testbed-config helper: derives the open-in-editor
+            ;; project-root from the build env.
             [re-frame.testbed.config :as testbed-config]
-            ;; The shared step-driver runner (rf2-5sjbg). We register a
-            ;; DISTINCT run-step event per frame (each targeting that
-            ;; frame's host-frame) so each mount's Step button drives ONLY
-            ;; its own frame — the isolation proof. The cursor itself lives
-            ;; in each frame's app-db `:step`.
+            ;; The shared step-driver runner. We register a DISTINCT
+            ;; run-step event per frame (each targeting that frame's
+            ;; host-frame) so each mount's Step button drives ONLY its own
+            ;; frame — the isolation proof. The cursor itself lives in each
+            ;; frame's app-db `:step`.
             [runner.core :as runner])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
@@ -133,7 +129,7 @@
 (def frame-below :below)
 
 ;; ============================================================================
-;; PER-FRAME RUN-STEP EVENTS (rf2-5sjbg — distinct driver per mount)
+;; PER-FRAME RUN-STEP EVENTS — distinct driver per mount
 ;; ============================================================================
 ;;
 ;; The standard-epochs `root` is the step-driver runner; the cursor lives in
@@ -214,11 +210,11 @@
 (defonce react-root
   (rdc/create-root (js/document.getElementById "app")))
 
-;; rf2-5dphw — open-in-editor project-root derived from the build
-;; environment (the build-time `re-frame.testbed.config/repo-root`
-;; goog-define joined with this testbed's tool-relative subdir), not a
-;; hardcoded personal path. `?project-root=<path>` still overrides per
-;; session. See `re-frame.testbed.config` for the cross-platform mechanism.
+;; The open-in-editor project-root is derived from the build environment
+;; (the build-time `re-frame.testbed.config/repo-root` goog-define joined
+;; with this testbed's tool-relative subdir), not a hardcoded personal
+;; path. `?project-root=<path>` still overrides per session. See
+;; `re-frame.testbed.config` for the cross-platform mechanism.
 (defn- resolve-project-root []
   (testbed-config/resolve-project-root "tools/xray/testbeds"))
 

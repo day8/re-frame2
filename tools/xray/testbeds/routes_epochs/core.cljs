@@ -1,10 +1,10 @@
 (ns routes-epochs.core
-  "ROUTES-EPOCHS testbed (rf2-5crg4 → rf2-3xakq) — the ROUTING sibling of the
-  `standard_epochs` deck, converted to the shared queued-step RUNNER
-  (`runner.core`, the rf2-8pbjr pilot). A deliberately simple Xray driving
-  surface aimed squarely at the **Routing panel** (`rf-xray-routing`).
+  "ROUTES-EPOCHS testbed — the ROUTING sibling of the `standard_epochs`
+  deck, on the shared queued-step RUNNER (`runner.core`). A deliberately
+  simple Xray driving surface aimed squarely at the **Routing panel**
+  (`rf-xray-routing`).
 
-  ## Shape (rf2-3xakq — adopt the shared queued-step RUNNER)
+  ## Shape — the shared queued-step RUNNER
 
   ONE purple Step button (`routes-epochs-step`) walks the routing ladder
   top to bottom while the operator watches how Xray's Routing panel renders
@@ -18,13 +18,10 @@
         show (the runner sets `:step = n`), and
     (b) exercises exactly ONE additional ROUTING feature via a child dispatch.
 
-  Replaces the bespoke numbered-button ladder (`routes-epochs-rung-<n>`):
-  same events, same routing features, same coverage — but driven by the
-  shared runner. The runner's per-step RUN-THIS-STEP affordance (rf2-kipb5)
-  is exactly the RANDOM-ACCESS addressing the feature-matrix scenario needs
-  — it drives rungs OUT OF ORDER (#3, #1, #4, #5, #7, #10, #11), asserting
-  the Routing panel after each, which the runner's sequential cursor alone
-  could not provide.
+  The runner's per-step RUN-THIS-STEP affordance is the RANDOM-ACCESS
+  addressing the feature-matrix scenario needs — it drives rungs OUT OF
+  ORDER (#3, #1, #4, #5, #7, #10, #11), asserting the Routing panel after
+  each, which the runner's sequential cursor alone could not provide.
 
   Progressive: step 1 is a plain `navigate`; each later step layers one
   more routing concept on top. A SINGLE frame, plainly mounted, with the
@@ -72,13 +69,13 @@
     #11 guarded/blocked nav — a `:can-leave` guard refuses; outcome
                              `blocked` + `:rf/pending-navigation` is set.
 
-  ## Runner cursor = app-db `:step` (rf2-5sjbg)
+  ## Runner cursor = app-db `:step`
 
   The runner cursor lives in app-db's `:step` slot, written by
   `runner.core`'s run-step event. `:step` churning every step IS the
-  per-step App-db / Epoch delta the panels show (it REPLACES the old
-  `:baseline` counter — same thing). The deck reads as an ordinary
-  re-frame2 app: app-db + events + subs, NO Reagent atom for step state.
+  per-step App-db / Epoch delta the panels show. The deck reads as an
+  ordinary re-frame2 app: app-db + events + subs, NO Reagent atom for step
+  state.
 
   ## Test surface, not tutorial
 
@@ -109,18 +106,18 @@
             ;; lens 'open' chip resolves a classpath-relative `:file` to
             ;; an absolute on-disk URI.
             [day8.re-frame2-xray.config :as xray-config]
-            ;; Shared testbed-config helper (rf2-5dphw): derives the
-            ;; open-in-editor project-root from the build env.
+            ;; Shared testbed-config helper: derives the open-in-editor
+            ;; project-root from the build env.
             [re-frame.testbed.config :as testbed-config]
-            ;; The shared step-driver runner (rf2-5sjbg). This deck supplies
-            ;; a `steps` vector + registers `:routes-epochs/run-step` via
+            ;; The shared step-driver runner. This deck supplies a `steps`
+            ;; vector + registers `:routes-epochs/run-step` via
             ;; `runner/reg-runner!`; the runner drives the ONE-button series
             ;; + the per-step RUN buttons off app-db `:step`.
             [runner.core :as runner])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; ============================================================================
-;; The inspected app frame (rf2-8pbjr — only the app frame is Xray-relevant)
+;; The inspected app frame — only the app frame is Xray-relevant.
 ;; ============================================================================
 
 (def host-frame :rf/default)
@@ -203,12 +200,12 @@
 ;; APP-DB SEED
 ;; ============================================================================
 ;;
-;; `:step` is the runner cursor (rf2-5sjbg) — the index of the last-run
-;; step, written by `runner.core`'s run-step event; its churn every step IS
-;; the per-step App-db / Epoch delta (it REPLACES the old `:baseline`
-;; counter). `:articles` feeds the params / nested-route targets.
-;; `:profile` is the slot the route-driven loader (step #8) fills from the
-;; route params. `:settings-dirty?` arms the `:can-leave` guard (step #11).
+;; `:step` is the runner cursor — the index of the last-run step, written
+;; by `runner.core`'s run-step event; its churn every step IS the per-step
+;; App-db / Epoch delta. `:articles` feeds the params / nested-route
+;; targets. `:profile` is the slot the route-driven loader (step #8) fills
+;; from the route params. `:settings-dirty?` arms the `:can-leave` guard
+;; (step #11).
 
 (def initial-db
   {:step            nil
@@ -270,8 +267,8 @@
 ;; settings?`. The guard returns `false` (block) while `:settings-dirty?`
 ;; is set — so a navigation AWAY from settings is refused, the runtime
 ;; writes `:rf/pending-navigation`, and the Routing panel's NAVIGATION
-;; THIS EPOCH outcome reads `blocked`. The contract is closed (rf2-5pyyl):
-;; only literal `true` / `false` are accepted, hence `(boolean ...)`.
+;; THIS EPOCH outcome reads `blocked`. The guard contract accepts only
+;; literal `true` / `false`, hence `(boolean ...)`.
 
 (rf/reg-sub :routes-epochs/can-leave-settings?
   (fn [db _] (boolean (not (:settings-dirty? db)))))
@@ -329,13 +326,12 @@
 ;; step's `:event` into the host-frame. Navigation cascades through
 ;; `:routes-epochs/go` (→ :rf.route/navigate); the redirect step (#6) fires a
 ;; SECOND navigation cascade via its route's `:on-match`. Manual stepping
-;; needs no pacing — each cascade fires + renders while the operator watches
-;; (rf2-5sjbg dropped the settle machinery).
+;; needs no pacing — each cascade fires + renders while the operator watches.
 ;;
-;; The ladder order matches the historical numbered rungs 1..11 (1-based):
-;; step index 0 = rung #1, step index N-1 = rung #N. The feature-matrix
-;; scenario keeps the 1-based rung vocabulary and drives the runner's
-;; per-step RUN button at index (rung - 1).
+;; The 0-based step index maps to the 1-based rung vocabulary the
+;; feature-matrix scenario uses: step index 0 = rung #1, step index N-1 =
+;; rung #N. The scenario drives the runner's per-step RUN button at index
+;; (rung - 1).
 
 (def steps
   [;; -- Navigation basics — CURRENT ROUTE + NAVIGATION THIS EPOCH --
@@ -382,7 +378,7 @@
     :watch "Attempt → home FROM dirty settings · the guard refuses · CURRENT ROUTE STAYS :settings · outcome blocked · :rf/pending-navigation fills."}])
 
 ;; ============================================================================
-;; RUNNER WIRING (rf2-5sjbg) — register the deck's run-step event
+;; RUNNER WIRING — register the deck's run-step event
 ;; ============================================================================
 
 (runner/reg-runner! {:id         :routes-epochs/run-step
@@ -457,11 +453,11 @@
 (defonce react-root
   (rdc/create-root (js/document.getElementById "app")))
 
-;; rf2-5dphw — open-in-editor project-root is derived from the build
-;; environment, not a hardcoded personal path. `re-frame.testbed.config`
-;; joins the build-time repo-root goog-define with this testbed's
-;; tool-relative subdir; `?project-root=<path>` still overrides per
-;; session. See that ns for the cross-platform mechanism.
+;; The open-in-editor project-root is derived from the build environment,
+;; not a hardcoded personal path. `re-frame.testbed.config` joins the
+;; build-time repo-root goog-define with this testbed's tool-relative
+;; subdir; `?project-root=<path>` still overrides per session. See that ns
+;; for the cross-platform mechanism.
 (defn- resolve-project-root []
   (testbed-config/resolve-project-root "tools/xray/testbeds"))
 

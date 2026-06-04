@@ -1,17 +1,16 @@
 (ns standard-epochs.core
-  "STANDARD-EPOCHS testbed (rf2-gsr6z, runner-shaped rf2-3xakq) — a
-  deliberately simple Xray driving surface that supersedes the step-deck.
+  "STANDARD-EPOCHS testbed — a deliberately simple Xray driving surface.
 
-  ## Shape (rf2-3xakq — adopt the shared queued-step RUNNER)
+  ## Shape — the shared queued-step RUNNER
 
   ONE purple Step button (`<prefix>-step`) walks a step ladder top to
   bottom while the operator watches how Xray's panels render each step;
   EVERY step row's index is ALSO a RANDOM-ACCESS RUN-THIS-STEP button
   (`<prefix>-step-<n>-run`, n = 0-based step index) so any step can be
-  driven directly. The runner (`runner.core`, the rf2-8pbjr pilot) is the
-  shared harness; this deck supplies the `steps` vector (CODE DATA) and is
-  mounted with a runner atom + a host-frame + a testid prefix. Each step
-  DISPATCHES one event that
+  driven directly. The runner (`runner.core`) is the shared harness; this
+  deck supplies the `steps` vector (CODE DATA) and is mounted with a
+  host-frame + a testid prefix (the cursor lives in app-db's `:step`, not
+  a passed atom). Each step DISPATCHES one event that
 
     (a) lands on the run-step epoch as the `:step` app-db delta the panels
         show (the runner sets `:step = n`), and
@@ -21,12 +20,12 @@
   There are NO tabs, NO routing/URL machinery, NO machines, NO SSR. Read
   each step's `:watch` note; Xray itself is the check.
 
-  ## Parameterised root (rf2-3xakq → rf2-5sjbg — the two-frame mount)
+  ## Parameterised root — the two-frame mount
 
-  `root` is a PURE ladder taking `[host-frame prefix]` — just the runner +
-  the two children + the diamond probe, NO header, NO reset button
-  (rf2-7prmj), NO runner atom (rf2-5sjbg: the runner cursor lives in
-  app-db's `:step`, not a passed atom). The single-frame deck (`run`) mounts
+  `root` is a PURE ladder taking `[host-frame prefix run-step-event]` —
+  just the runner + the two children + the diamond probe, NO header, NO
+  reset button, NO runner atom (the runner cursor lives in app-db's
+  `:step`, not a passed atom). The single-frame deck (`run`) mounts
   the `standalone` wrapper, which renders the deck's title + intro header
   ABOVE `[root :rf/default \"standard-epochs\"]` on the plain default frame,
   Xray auto-mounting inline. The TWO-FRAME isolation testbed
@@ -50,11 +49,10 @@
               dispatched child event); #2 adds a coeffect to the event
               detail, #4 a one-shot fx, #5 a cascade dispatch-id tree.
     App-db  — the `:step` cursor churns every step · #5 flow writes a
-              derived slot. (The rich
-              App-db DIFF shapes — added / removed-to-empty / changed
-              (diff-mode-3) — plus the large-collection / edn-inspector
-              cases live in the sibling `edn_inspector` deck, which drives
-              them through the App-db panel — rf2-74u2s → rf2-1niob.)
+              derived slot. (The rich App-db DIFF shapes — added /
+              removed-to-empty / changed — plus the large-collection /
+              edn-inspector cases live in the sibling `edn_inspector` deck,
+              which drives them through the App-db panel.)
     Views   — two children make re-render CAUSES separable. Child A is
               SUBSCRIPTION-driven (an own L1→L2→L3 chain + the arg-keyed
               `[:standard-epochs/greater-than? N]` sub); Child B is
@@ -79,7 +77,7 @@
               app-db schema violation (survives rollback).
     Reactive— #20 diamond probe (c ← a,b ← root): the join sub's recompute
               count surfaces whether the substrate double-computes an
-              intermediate sub per single root change (rf2-kt5nx).
+              intermediate sub per single root change.
 
   ## Test surface, not tutorial
 
@@ -113,11 +111,11 @@
             ;; lens 'open' chip resolves a classpath-relative `:file` to
             ;; an absolute on-disk URI.
             [day8.re-frame2-xray.config :as xray-config]
-            ;; Shared testbed-config helper (rf2-5dphw): derives the
-            ;; open-in-editor project-root from the build env.
+            ;; Shared testbed-config helper: derives the open-in-editor
+            ;; project-root from the build env.
             [re-frame.testbed.config :as testbed-config]
-            ;; The shared step-driver runner (rf2-5sjbg). This deck supplies
-            ;; a `steps` vector + registers `:standard-epochs/run-step` via
+            ;; The shared step-driver runner. This deck supplies a `steps`
+            ;; vector + registers `:standard-epochs/run-step` via
             ;; `runner/reg-runner!`; the runner drives the ONE-button series
             ;; + the per-step RUN buttons off app-db `:step`. The two-frame
             ;; testbed reuses `root` + `steps` with its own per-frame
@@ -129,11 +127,10 @@
 ;; APP-DB SEED
 ;; ============================================================================
 ;;
-;; One flat, named seed. `:step` is the runner cursor (rf2-5sjbg) — the
-;; index of the last-run step, written by `runner.core`'s run-step event.
-;; It REPLACES the old `:baseline` counter: `:step` churning every step IS
-;; the per-step App-db / Epoch delta the panels show. `:base` feeds button
-;; #5's flow only.
+;; One flat, named seed. `:step` is the runner cursor — the index of the
+;; last-run step, written by `runner.core`'s run-step event. `:step`
+;; churning every step IS the per-step App-db / Epoch delta the panels
+;; show. `:base` feeds button #5's flow only.
 ;;
 ;; `:views` holds the Views/subscriptions section's OWN state — kept on
 ;; its own slots, so the section's mount/unmount/sub behaviour is exercised
@@ -162,8 +159,8 @@
 (rf/reg-event-db :standard-epochs/reset
   {:doc "Seed event — re-seed app-db and unmount both child views. Used by
          `run` (dispatch-sync on load) and by two_frame_isolation's per-frame
-         :on-create. There is no on-page reset button (rf2-7prmj); a reload
-         re-seeds. The runner cursor `:step` re-seeds to nil here."}
+         :on-create. There is no on-page reset button; a reload re-seeds.
+         The runner cursor `:step` re-seeds to nil here."}
   (fn handler-reset [_db _ev]
     initial-db))
 
@@ -226,9 +223,8 @@
 ;; throws on the way back out of the chain (button #14). The foil to the
 ;; :before interceptor above: the failing step is the interceptor's :after,
 ;; not the handler, so the per-step placement renders the exception under
-;; the interceptor's :after step (rf2-yz57h) and the framework attributes
-;; it to the interceptor rather than collapsing it into a handler
-;; exception (rf2-mszrz).
+;; the interceptor's :after step and the framework attributes it to the
+;; interceptor rather than collapsing it into a handler exception.
 (def throwing-interceptor-after
   (rf/->interceptor
     :id    :standard-epochs/throwing-interceptor-after
@@ -505,8 +501,17 @@
   (fn [root [_ threshold]] (> root threshold)))
 
 ;; ============================================================================
-;; DIAMOND — redundant-recompute probe (rf2-kt5nx)
+;; DIAMOND — redundant-recompute probe
 ;; ============================================================================
+;;
+;; MEASUREMENT INSTRUMENT — DO NOT COPY THIS PATTERN. The `:diamond-c` sub
+;; below deliberately side-effects in its compute fn (`swap!` a counter) to
+;; MEASURE how many times the substrate runs it. That is the one and only
+;; reason a sub here breaks subs-must-be-pure: the raw reaction-run count is
+;; precisely the thing under observation. It is a diagnostic probe, NOT app
+;; code, and NOT a pattern to lift into a real subscription. The safety is
+;; structural: `diamond-c-runs` is a plain atom (NOT a ratom) and is NOT an
+;; input to any sub, so the `swap!` cannot feed back into the reactive graph.
 ;;
 ;; A classic reactive DIAMOND:
 ;;
@@ -516,17 +521,12 @@
 ;;          \        /
 ;;        :diamond-c             (the JOINING sub :<- a,b)
 ;;
-;; Button #20 bumps the root ONCE. The join sub `:diamond-c` increments a
+;; Button #20 bumps the root ONCE. The join sub `:diamond-c` increments the
 ;; counter each time its compute fn RUNS. Press once: the counter should rise
 ;; by exactly 1; a rise of 2 means the substrate recomputes the intermediate
 ;; join sub TWICE per single root change (the push-based diamond redundant-
 ;; recompute). The count is shown by the `diamond-display` view below and is
 ;; cross-checkable against Xray's Reactive / Trace lens.
-;;
-;; Side-effecting in a sub compute fn is deliberate HERE — this is a
-;; diagnostic instrument, not app code, and the raw reaction-run count is the
-;; thing we want to observe. `diamond-c-runs` is a plain atom (not a ratom)
-;; and is NOT an input to any sub, so the swap! cannot feed back into the graph.
 
 (defonce diamond-c-runs (atom 0))
 
@@ -630,10 +630,9 @@
 ;; RUN button) dispatches `[:standard-epochs/run-step n]`, which sets app-db
 ;; `:step = n` (the per-step delta the panels show) and dispatches the step's
 ;; `:event` into the host-frame. The ladder walks Events →
-;; Views/subscriptions → Errors/Issues → Reactive (the historical button
-;; order 1..20 preserved). Manual stepping needs no pacing — each async step
-;; (cascade, mount/unmount, slow fx) fires + renders on its own schedule
-;; while the operator watches (rf2-5sjbg dropped the settle machinery).
+;; Views/subscriptions → Errors/Issues → Reactive (steps 1..20). Manual
+;; stepping needs no pacing — each async step (cascade, mount/unmount,
+;; slow fx) fires + renders on its own schedule while the operator watches.
 
 (def steps
   [;; -- Events — Epoch / Trace / App-db scalar --
@@ -705,7 +704,7 @@
     :watch "Diamond c ← a,b ← root: bump the root once; c's recompute count should rise by 1 (clean), 2 = double-compute."}])
 
 ;; ============================================================================
-;; THE HOST FRAME + THE RUNNER WIRING (rf2-5sjbg)
+;; THE HOST FRAME + THE RUNNER WIRING
 ;; ============================================================================
 ;;
 ;; `host-frame` is the inspected app frame the runner drives. The standalone
@@ -724,13 +723,13 @@
 ;; ROOT — pure ladder, parameterised over (host-frame, prefix, run-step-event)
 ;; ============================================================================
 ;;
-;; rf2-3xakq → rf2-5sjbg — `root` takes the host-frame + testid prefix + the
-;; deck's run-step event id so the deck is mountable BOTH on its own single
-;; (`:rf/default`) frame (via the `standalone` wrapper below) AND twice (once
-;; per `:above` / `:below` frame) by the two-frame isolation testbed. rf2-7prmj
-;; — `root` is a PURE ladder (runner + children + diamond): the title + intro
-;; header live in the standalone `run` path only, and there is no deck-reset
-;; button, so the two-frame cards stay clean per-frame ladders. The
+;; `root` takes the host-frame + testid prefix + the deck's run-step event
+;; id so the deck is mountable BOTH on its own single (`:rf/default`) frame
+;; (via the `standalone` wrapper below) AND twice (once per `:above` /
+;; `:below` frame) by the two-frame isolation testbed. `root` is a PURE
+;; ladder (runner + children + diamond): the title + intro header live in
+;; the standalone `run` path only, and there is no deck-reset button, so the
+;; two-frame cards stay clean per-frame ladders. The
 ;; reg-view-injected `subscribe` closes over the surrounding frame-provider's
 ;; frame id, so the same source drives an isolated reactive context (and an
 ;; isolated per-frame `:step`) per mount; the runner dispatches the run-step
@@ -767,11 +766,11 @@
 (defonce react-root
   (rdc/create-root (js/document.getElementById "app")))
 
-;; rf2-5dphw — open-in-editor project-root is derived from the build
-;; environment, not a hardcoded personal path. `re-frame.testbed.config`
-;; joins the build-time repo-root goog-define with this testbed's
-;; tool-relative subdir; `?project-root=<path>` still overrides per
-;; session. See that ns for the cross-platform mechanism.
+;; The open-in-editor project-root is derived from the build environment,
+;; not a hardcoded personal path. `re-frame.testbed.config` joins the
+;; build-time repo-root goog-define with this testbed's tool-relative
+;; subdir; `?project-root=<path>` still overrides per session. See that ns
+;; for the cross-platform mechanism.
 (defn- resolve-project-root []
   (testbed-config/resolve-project-root "tools/xray/testbeds"))
 
@@ -779,9 +778,9 @@
 ;; STANDALONE WRAPPER — header (title + intro) above the shared `root`
 ;; ============================================================================
 ;;
-;; rf2-7prmj — the title + intro live HERE, not in the shared `root`, because
-;; `root` is mounted TWICE by `two_frame_isolation` (once per :above / :below
-;; frame). Extracting the header keeps the shared `root` a pure ladder, so the
+;; The title + intro live HERE, not in the shared `root`, because `root` is
+;; mounted TWICE by `two_frame_isolation` (once per :above / :below frame).
+;; Extracting the header keeps the shared `root` a pure ladder, so the
 ;; two-frame cards stay clean (no per-frame title duplication) while the
 ;; standalone deck still shows the Epochs header. There is no deck-reset
 ;; button: reloading re-seeds via `run` (the frames re-seed via :on-create),
