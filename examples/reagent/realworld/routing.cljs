@@ -112,24 +112,55 @@
 ;; the on-match drain runs; for THIS sketch we gate the programmatic
 ;; navigation surface the navbar uses, which is the path the headless
 ;; tests exercise.)
+;;
+;; Bounce-back (`:return-to`). The headline of an auth guard is returning
+;; the user to where they were headed once they sign in. `:rf.route/navigate`
+;; opts (the 3rd arg) are NOT persisted by the runtime — the navigate
+;; handler reads `:query` / `:fragment` / `:replace?` / `:scroll` /
+;; `:bypass-leave-guard?` from opts and drops everything else (Spec 012
+;; §Navigation is an event), so an opts-borne `:return-to` would silently
+;; evaporate. We therefore stash the original target in `app-db` instead:
+;; the `:before` records the intended target on the ctx, and an `:after`
+;; folds it into the login navigation's committed `:db` at
+;; `[:auth :return-to]`. The auth machine's `:store-session` action reads
+;; that slot on a successful login and bounces there (falling back to
+;; home), then clears it (auth.cljs).
+
+(def ^:private guard-target-key
+  "Private top-level ctx slot the `:before` uses to signal the `:after`
+   that it redirected, carrying the original {:id :params} target. Lives
+   on the ctx (not in `:coeffects`/`:effects`) so it is invisible to the
+   handler and to the committed app-db — pure intra-interceptor signalling."
+  :realworld.routing/guard-return-to)
 
 (def auth-guard
   {:id     :realworld.routing/auth-guard
    :before (fn auth-guard-before [ctx]
-             (let [event (get-in ctx [:coeffects :event])]
-               (if (= :rf.route/navigate (first event))
-                 (let [target      (second event)
-                       route-meta  (rf/handler-meta :route target)
+             (let [[ev-id target params] (get-in ctx [:coeffects :event])]
+               (if (= :rf.route/navigate ev-id)
+                 (let [route-meta  (rf/handler-meta :route target)
                        needs-auth? (boolean (some #{:requires-auth} (:tags route-meta)))
                        logged-in?  (some? (get-in ctx [:coeffects :db :auth :user]))]
                    (if (and needs-auth? (not logged-in?))
-                     ;; Rewrite the in-flight event to a login redirect.
-                     ;; `:rf.route/navigate` is [_ target params opts]; the
-                     ;; original target rides through under :return-to.
-                     (assoc-in ctx [:coeffects :event]
-                               [:rf.route/navigate :realworld.auth/login {} {:return-to target}])
+                     ;; Rewrite the in-flight event to a login redirect and
+                     ;; record the original target so the `:after` can stash
+                     ;; it for post-login bounce-back.
+                     (-> ctx
+                         (assoc-in [:coeffects :event]
+                                   [:rf.route/navigate :realworld.auth/login])
+                         (assoc guard-target-key {:id target :params (or params {})}))
                      ctx))
-                 ctx)))})
+                 ctx)))
+   :after  (fn auth-guard-after [ctx]
+             ;; Only acts when the `:before` redirected (the slot is set)
+             ;; AND the login navigation actually committed a `:db` effect
+             ;; (a no-op re-nav or rejected navigation writes none — leave
+             ;; it alone). Folds the stashed target into the committed db.
+             (if-let [return-to (get ctx guard-target-key)]
+               (if (get-in ctx [:effects :db])
+                 (assoc-in ctx [:effects :db :auth :return-to] return-to)
+                 ctx)
+               ctx))})
 
 ;; ============================================================================
 ;; ROUTER WIRING

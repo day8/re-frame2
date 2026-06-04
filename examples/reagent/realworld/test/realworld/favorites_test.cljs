@@ -16,6 +16,11 @@
   (with-new-frame [f (rf/make-frame {:on-create [:app/initialise]
                                  :fx-overrides {:rf.http/managed :realworld.test/favorite-rollback}})]
     (rf/dispatch-sync [:articles/initialise] {:frame f})
+    ;; :article/toggle-favorite is auth-gated (rf2-ygh4m): a logged-out
+    ;; click navigates to login instead of issuing a tokenless request.
+    ;; Authenticate first so this test exercises the optimistic-rollback
+    ;; path it is here to cover.
+    (rf/dispatch-sync [:auth/store-session {:username "alice" :email "a@b.c" :token "jwt" :bio nil :image nil}] {:frame f})
     (rf/dispatch-sync [:articles/loaded
                        {:kind :success
                         :value {:articles [{:slug "hello"

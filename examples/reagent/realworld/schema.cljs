@@ -129,10 +129,20 @@
 (def AuthSlice
   "The auth slice. :user holds the current :User payload (or nil);
    :token is the JWT (or nil). The auth machine snapshot itself lives at
-   [:rf/runtime :machines :snapshots :auth/flow]."
+   [:rf/runtime :machines :snapshots :auth/flow].
+
+   :return-to is the optional post-login bounce-back target stashed by the
+   routing auth-guard (routing.cljs) when an unauthenticated user is
+   redirected away from a `:requires-auth` route; `:auth/post-login-redirect`
+   reads and clears it (auth.cljs). Present only between the redirect and the
+   next successful login."
   [:map
-   [:user  [:maybe User]]
-   [:token [:maybe :string]]])
+   [:user      [:maybe User]]
+   [:token     [:maybe :string]]
+   [:return-to {:optional true}
+    [:map
+     [:id     :keyword]
+     [:params [:maybe :map]]]]])
 
 (def AuthFlowSnapshot
   [:map

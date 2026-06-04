@@ -275,34 +275,44 @@
 ;; ============================================================================
 
 (rf/reg-event-fx :profile/follow
-  {:doc "Optimistically mark the profile as followed; reconcile on reply."
+  {:doc "Optimistically mark the profile as followed; reconcile on reply.
+
+         Auth-gated (same rationale as favorites.cljs/:article/toggle-favorite):
+         following requires a session, so an unauthenticated click navigates
+         to login rather than optimistically flipping `:following` and then
+         rolling back after the real backend 401s."
    :rf.http/decode-schemas [schema/ProfileResponse]}
   (fn [{:keys [db]} _]
-    (let [username (username-from-db db)]
-      {:db (assoc-in db [:profile :data :following] true)
-       :fx [[:rf.http/managed
-             (rh/request {:method     :post
-                          :path       (str "/profiles/" username "/follow")
-                          :decode     schema/ProfileResponse
-                          :on-success [:profile/followed]
-                          :on-failure [:profile/follow-rollback false]})]]})))
+    (if (nil? (get-in db [:auth :user]))
+      {:fx [[:dispatch [:rf.route/navigate :realworld.auth/login]]]}
+      (let [username (username-from-db db)]
+        {:db (assoc-in db [:profile :data :following] true)
+         :fx [[:rf.http/managed
+               (rh/request {:method     :post
+                            :path       (str "/profiles/" username "/follow")
+                            :decode     schema/ProfileResponse
+                            :on-success [:profile/followed]
+                            :on-failure [:profile/follow-rollback false]})]]}))))
 
 (rf/reg-event-db :profile/followed
   (fn [db [_ {:keys [value]}]]
     (assoc-in db [:profile :data] (:profile value))))
 
 (rf/reg-event-fx :profile/unfollow
-  {:doc "Optimistically clear the followed flag; reconcile on reply."
+  {:doc "Optimistically clear the followed flag; reconcile on reply.
+         Auth-gated like `:profile/follow` above."
    :rf.http/decode-schemas [schema/ProfileResponse]}
   (fn [{:keys [db]} _]
-    (let [username (username-from-db db)]
-      {:db (assoc-in db [:profile :data :following] false)
-       :fx [[:rf.http/managed
-             (rh/request {:method     :delete
-                          :path       (str "/profiles/" username "/follow")
-                          :decode     schema/ProfileResponse
-                          :on-success [:profile/unfollowed]
-                          :on-failure [:profile/follow-rollback true]})]]})))
+    (if (nil? (get-in db [:auth :user]))
+      {:fx [[:dispatch [:rf.route/navigate :realworld.auth/login]]]}
+      (let [username (username-from-db db)]
+        {:db (assoc-in db [:profile :data :following] false)
+         :fx [[:rf.http/managed
+               (rh/request {:method     :delete
+                            :path       (str "/profiles/" username "/follow")
+                            :decode     schema/ProfileResponse
+                            :on-success [:profile/unfollowed]
+                            :on-failure [:profile/follow-rollback true]})]]}))))
 
 (rf/reg-event-db :profile/unfollowed
   (fn [db [_ {:keys [value]}]]

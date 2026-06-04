@@ -64,6 +64,21 @@
         (assoc-in [:auth :user] nil)
         (assoc-in [:auth :token] nil))))
 
+(rf/reg-event-fx :auth/post-login-redirect
+  {:doc "Bounce the freshly-authenticated user back to the route the auth
+         guard intercepted (`[:auth :return-to]`, set in routing.cljs), or
+         home when there is none. Dispatched by the auth machine's
+         `:store-session` action — machine actions can't navigate or read
+         `:db` directly (Spec 005 §Hard-disallow `:db`), so the bounce is an
+         ordinary event. Reads AND clears the slot in one step so a later
+         plain login can't re-bounce to a stale target."}
+  (fn [{:keys [db]} _]
+    (let [return-to (get-in db [:auth :return-to])]
+      {:db (update db :auth dissoc :return-to)
+       :fx [[:dispatch (if return-to
+                         [:rf.route/navigate (:id return-to) (:params return-to)]
+                         [:rf.route/navigate :realworld/home])]]})))
+
 ;; ============================================================================
 ;; AUTH STATE MACHINE
 ;; ============================================================================
@@ -127,11 +142,16 @@
 
       :store-session
       (fn [{[_ {:keys [value]}] :event}]
+        ;; Per Spec 005 §Hard-disallow `:db`, a machine action sees no
+        ;; `:db` and emits no `:db`; the post-login bounce-back therefore
+        ;; runs as an ordinary event (`:auth/post-login-redirect`) that
+        ;; reads the guard-stashed `:return-to` slot, navigates there (or
+        ;; home), and clears it. See routing.cljs for where the slot is set.
         (let [user (:user value)]
           {:data {:error nil}
            :fx [[:dispatch [:auth/store-session user]]
                 [:auth.session/persist {:token (:token user)}]
-                [:dispatch [:rf.route/navigate :realworld/home]]]}))
+                [:dispatch [:auth/post-login-redirect]]]}))
 
       :record-error
       (fn [{[_ {:keys [failure]}] :event}]
@@ -174,6 +194,17 @@
 (rf/reg-event-fx :auth/initialise
   [(rf/inject-cofx :auth.session/token)]
   (fn handler-auth-initialise [{:keys [db auth.session/token]} _]
+    ;; ITEM 8 (rf2-ygh4m): we dispatch `:auth/flow [:auth/restore token]`
+    ;; UNCONDITIONALLY — even when `token` is nil — on purpose. This first
+    ;; delivery is what spawns the auth machine's snapshot (the machine
+    ;; materialises at `:idle` on its first event), so the navbar's
+    ;; `:auth/state` sub reads `:idle` rather than `nil` from cold boot.
+    ;; The do-we-have-a-token? decision is then made by the machine's
+    ;; `:idle` `:has-token?` guard: a blank token routes to the no-op
+    ;; `{:target :idle}` branch, a real one kicks `:begin-restore`. Guarding
+    ;; the dispatch here would skip the machine spawn on a no-token boot —
+    ;; the guard stays where it belongs (one source of truth for the
+    ;; token decision, in the machine).
     {:db (assoc db :auth {:user nil
                           :token token})
      :fx [[:dispatch [:auth/flow [:auth/restore token]]]]}))

@@ -30,7 +30,14 @@
    :comment-form])
 
 (defn exportable-db [db]
-  (select-keys db ssr-slice-keys))
+  ;; Secrets do not cross the SSR seam. The bearer JWT lives at
+  ;; [:auth :token]; embedding it in server-rendered HTML would leak a
+  ;; live credential into page source (view-source-visible, proxy-logged,
+  ;; CDN-cacheable). Redact it at the payload boundary — the client
+  ;; re-derives the token from localStorage on hydrate via
+  ;; `:auth/initialise` (auth.cljs), so dropping it here costs nothing.
+  (cond-> (select-keys db ssr-slice-keys)
+    (contains? db :auth) (update :auth dissoc :token)))
 
 (defn hydration-payload [db render-tree]
   {:rf/version     1
