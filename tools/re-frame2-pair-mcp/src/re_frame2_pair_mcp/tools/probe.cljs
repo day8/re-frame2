@@ -690,3 +690,55 @@
       (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
       (.then on-value)
       (.catch (fn [err] (err->result fail-reason err)))))
+
+;; ---------------------------------------------------------------------------
+;; Map-envelope projection for the "runtime fn always returns a map" tools
+;; (rf2-u4s4x).
+;;
+;; `read-dom` and `read-ui` (rf2-q0r7e) both route a single
+;; `(re-frame2-pair.runtime/<dom-read|ui-read> {...})` form through
+;; `eval-after-runtime!`. The runtime fn ALWAYS returns a map (its own
+;; `{:ok? ...}` envelope, or a structured no-document / bad-selector
+;; error). A nil / non-map value reaching the `on-value` callback therefore
+;; means the eval came back BLANK — `cljs-eval-value` reads a blank shadow
+;; result as `nil` (the runtime didn't answer: a dropped WebSocket, or a
+;; full page refresh wiped the preload marker).
+;;
+;; Left unguarded, `(wire/ok-text nil)` projects to a `null`
+;; structuredContent the npm SDK's outputSchema validation rejects at the
+;; transport layer (`expected record at structuredContent, received null`,
+;; rf2-r5erl) — bypassing the normal `{:ok? false}` error contract. Both
+;; read tools carried a byte-for-byte-identical map?/blank guard; this
+;; helper folds it onto ONE projection so a fix or regression-guard on the
+;; blank-result contract covers both. Only the per-tool `:reason`, `:hint`,
+;; and any extra error slots (read-dom echoes `:selector`) differ — those
+;; ride in as args.
+;; ---------------------------------------------------------------------------
+
+(defn map-result-or-blank
+  "Build the `on-value` callback for a tool whose runtime fn always
+  returns a MAP envelope (rf2-u4s4x — read-dom / read-ui). Returns a
+  1-arity fn suitable as `eval-after-runtime!`'s `on-value`:
+
+    - a MAP envelope ⇒ `(wire/ok-text (assoc envelope :build build-id))`,
+      echoing the canonical resolved `:build` (rf2-8t3ct / rf2-fmho5).
+    - a nil / non-map ⇒ `(wire/err-text {...})` carrying `:ok? false`,
+      `:build`, the per-tool `:reason` / `:hint`, and any `error-extras`
+      (e.g. read-dom's `:selector`) — the rf2-r5erl-safe structured
+      blank-result error (never a `null` structuredContent).
+
+  `blank-reason` / `blank-hint` are the tool-specific blank-result
+  vocabulary; `error-extras` is an optional map of extra slots merged
+  into the error envelope."
+  ([build-id blank-reason blank-hint]
+   (map-result-or-blank build-id blank-reason blank-hint nil))
+  ([build-id blank-reason blank-hint error-extras]
+   (fn [envelope]
+     (if (map? envelope)
+       (wire/ok-text (assoc envelope :build build-id))
+       (wire/err-text
+         (merge {:ok?    false
+                 :reason blank-reason
+                 :build  build-id
+                 :hint   blank-hint}
+                error-extras))))))

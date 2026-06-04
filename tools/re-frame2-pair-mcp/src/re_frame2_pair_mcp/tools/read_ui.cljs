@@ -193,24 +193,19 @@
                     (let [m (js->clj point :keywordize-keys true)]
                       (when (map? m) (select-keys m [:x :y]))))
             form  (read-ui-form vid pt selector max-text frame)]
+        ;; The runtime's `ui-read` ALWAYS returns a map, so a non-map at
+        ;; `on-value` means a BLANK eval (rf2-r5erl, the sibling of
+        ;; read-dom's bug). The shared `probe/map-result-or-blank` projects
+        ;; a map → `ok-text` with the `:build` echo (rf2-8t3ct / rf2-fmho5),
+        ;; or a blank → a structured `:ok? false` error so `ok-text` never
+        ;; sees `nil` and emits the `null` structuredContent the SDK rejects.
+        ;; read-dom carries the identical projection.
         (probe/eval-after-runtime!
           conn build-id form :rf.error/read-ui-failed
-          (fn [envelope]
-            ;; The runtime's `ui-read` ALWAYS returns a map. A nil /
-            ;; non-map means a BLANK eval result (the runtime didn't
-            ;; answer) — guard it so `ok-text` never sees `nil` and
-            ;; emits a `null` structuredContent the SDK rejects
-            ;; (rf2-r5erl, the sibling of read-dom's bug). Echo the
-            ;; resolved `:build` on success for round-trippable
-            ;; selection (rf2-8t3ct / rf2-fmho5).
-            (if (map? envelope)
-              (wire/ok-text (assoc envelope :build build-id))
-              (wire/err-text
-                {:ok?    false
-                 :reason :rf.error/read-ui-blank-result
-                 :build  build-id
-                 :hint   (str "read-ui's browser eval returned a blank "
-                              "value (no map envelope). Reload the app tab "
-                              "so the re-frame2-pair runtime reconnects, "
-                              "then retry; run discover-app to confirm "
-                              ":liveness :fresh.")}))))))))
+          (probe/map-result-or-blank
+            build-id :rf.error/read-ui-blank-result
+            (str "read-ui's browser eval returned a blank "
+                 "value (no map envelope). Reload the app tab "
+                 "so the re-frame2-pair runtime reconnects, "
+                 "then retry; run discover-app to confirm "
+                 ":liveness :fresh.")))))))
