@@ -361,7 +361,10 @@
           "overflow output must signal incompleteness with `…`"))))
 
 (deftest inline-preview-vector
-  (is (= "[1, 2, 3]"
+  ;; rf2-7hqwe — a sequential collection is SPACE-separated (`[1 2 3]`),
+  ;; matching canonical EDN print spacing; commas are reserved for map
+  ;; entries.
+  (is (= "[1 2 3]"
          (ei/inline-preview-string [1 2 3] 3 80))))
 
 (deftest inline-preview-set
@@ -3117,6 +3120,57 @@
       ;; Scalars from the nested vector.
       (is (re-find #":a" text))
       (is (re-find #":b" text)))))
+
+;; ---- rf2-7hqwe — inline / collapsed inter-element spacing ----------------
+;;
+;; The inline (one-line) + collapsed-preview renders MUST separate
+;; consecutive elements with canonical EDN spacing — a single SPACE
+;; between sequential (vector / list / set / seq) elements, and `, `
+;; between map / record entries — rather than running them together
+;; (`["machine-epochs":machine-epochs/run-step26:rf/default]`) or
+;; comma-separating sequentials (`[a, b, c]`). Pins the exact
+;; separator string so the regression can't silently re-appear.
+
+(deftest inline-separator-per-kind
+  (testing "rf2-7hqwe — sequential kinds space-separate; maps/records comma"
+    (is (= " "  (ei/inline-separator :vector)))
+    (is (= " "  (ei/inline-separator :list)))
+    (is (= " "  (ei/inline-separator :seq)))
+    (is (= " "  (ei/inline-separator :set)))
+    (is (= " "  (ei/inline-separator :map-entry)))
+    (is (= ", " (ei/inline-separator :map)))
+    (is (= ", " (ei/inline-separator :record)))))
+
+(deftest render-inline-recursive-vector-space-separated
+  (testing "rf2-7hqwe — an inline vector renders elements space-separated,
+            matching canonical EDN (not comma-separated, not run-together)"
+    (let [v    ["machine-epochs" :machine-epochs/run-step 26 :rf/default]
+          text (collect-text (ei/render-inline-recursive v))]
+      ;; Exact canonical EDN inline form — the single space between each
+      ;; element is the load-bearing assertion (no `, `, no concatenation).
+      (is (= "[\"machine-epochs\" :machine-epochs/run-step 26 :rf/default]"
+             text))
+      ;; Defence-in-depth: the exact run-together symptom from the bug
+      ;; report (`run-step26`, `26:rf/default`) must NOT be present.
+      (is (not (re-find #"run-step26" text))
+          "the integer must not run into the preceding keyword")
+      (is (not (re-find #"26:rf" text))
+          "the trailing keyword must not run into the preceding integer")
+      (is (not (re-find #", " text))
+          "a sequential vector must not comma-separate its elements"))))
+
+(deftest render-inline-recursive-map-comma-separated
+  (testing "rf2-7hqwe — an inline map keeps `, ` between k/v pairs and a
+            space within each pair"
+    (let [text (collect-text (ei/render-inline-recursive {:a 1 :b 2}))]
+      (is (= "{:a 1, :b 2}" text)))))
+
+(deftest inline-preview-string-vector-space-separated
+  (testing "rf2-7hqwe — collapsed-preview of a sequential is space-separated"
+    (is (= "[\"machine-epochs\" :machine-epochs/run-step 26 :rf/default]"
+           (ei/inline-preview-string
+             ["machine-epochs" :machine-epochs/run-step 26 :rf/default] 5 80)))
+    (is (= "[1 2 3]" (ei/inline-preview-string [1 2 3] 5 80)))))
 
 (deftest width-slot-set-and-clear-events
   (testing "rf2-kbdk8 — set-width / clear-width app-db reducers"

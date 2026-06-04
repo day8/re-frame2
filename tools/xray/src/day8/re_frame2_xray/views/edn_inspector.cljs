@@ -928,6 +928,23 @@
    :map-entry  {:open "["  :close "]"  :tone-key :accent}
    :record     {:open "{"  :close "}"  :tone-key :info}})
 
+(defn inline-separator
+  "Inter-element separator STRING for an inline / collapsed render of a
+  collection of `kind`, matching canonical EDN print spacing (rf2-7hqwe):
+
+  - maps / records — `\", \"` between consecutive key/value PAIRS, e.g.
+    `{:a 1, :b 2}` (the space WITHIN a pair is supplied separately by the
+    key→value gap, not by this separator).
+  - vectors / lists / sets / seqs — a single `\" \"` space, e.g.
+    `[\"machine-epochs\" :machine-epochs/run-step 26 :rf/default]`,
+    `#{:a :b}`, `(1 2 3)`.
+
+  EDN treats commas as whitespace, but idiomatic print uses commas ONLY
+  to separate map entries; sequential collections are space-separated.
+  Pure; JVM-portable. Public so tests can pin the per-kind spacing."
+  [kind]
+  (if (#{:map :record} kind) ", " " "))
+
 (defn- record-tag
   "Render `#user.MyRec` prefix for a defrecord instance. CLJS records
   expose the constructor's name via `(.-name (type v))`."
@@ -1018,23 +1035,29 @@
                          (catch :default _ []))
         head        (take max-elements head-seq)
         more?       (> (count head-seq) max-elements)
+        ;; rf2-7hqwe — inter-element separator follows canonical EDN
+        ;; spacing: `, ` between map/record entries, a single space
+        ;; between sequential (vector / list / set / seq) elements. Was
+        ;; a hardcoded `, ` for ALL kinds, which previewed `[a, b, c]`
+        ;; rather than `[a b c]`.
+        sep         (inline-separator kind)
         item-str    (fn [el]
                       (cond
-                        (and (= kind :map)
+                        (and (#{:map :record} kind)
                              (or (map-entry? el)
                                  (and (vector? el) (= 2 (count el)))))
                         (str (inline-scalar-str (first el))
                              " " (inline-scalar-str (second el)))
                         :else
                         (inline-scalar-str el)))
-        joined      (str/join ", " (map item-str head))
-        with-more   (str joined (when more? (if (seq joined) ", …" "…")))
+        joined      (str/join sep (map item-str head))
+        with-more   (str joined (when more? (if (seq joined) (str sep "…") "…")))
         result      (str open with-more close)]
     (if (<= (count result) max-chars)
       result
       ;; Try one-element preview as a middle ground.
       (let [one  (when (seq head) (item-str (first head)))
-            mid  (str open one (when (or more? (> (count head) 1)) ", …") close)]
+            mid  (str open one (when (or more? (> (count head) 1)) (str sep "…")) close)]
         (if (and one (<= (count mid) max-chars))
           mid
           fallback)))))
@@ -1806,8 +1829,13 @@
               [:span {:style {:color (get tokens tone-key)}
                       :data-rf-bracket "1"}
                text])
+            ;; rf2-7hqwe — inter-element separator follows canonical EDN
+            ;; spacing: `, ` between map/record entries, a single space
+            ;; between sequential (vector / list / set / seq / map-entry)
+            ;; elements. Pre-fix this was a hardcoded `, ` for ALL kinds,
+            ;; which printed sequentials as `[a, b, c]` rather than `[a b c]`.
             sep
-            [:span {:style (token-style :text-tertiary)} ", "]
+            [:span {:style (token-style :text-tertiary)} (inline-separator kind)]
             labelled? (#{:map :record :map-entry} kind)
             pairs     (children-of value)
             item-children
@@ -2142,8 +2170,13 @@
                           (apply concat
                                  (map-indexed
                                    (fn [i [k cv]]
-                                     (let [sep (when (pos? i)
-                                                 [:span {:style (token-style :text-tertiary)} ", "])
+                                     (let [;; rf2-7hqwe — EDN-correct separator:
+                                           ;; `, ` between map/record entries,
+                                           ;; a single space between sequential
+                                           ;; elements (was hardcoded `, `).
+                                           sep (when (pos? i)
+                                                 [:span {:style (token-style :text-tertiary)}
+                                                  (inline-separator kind)])
                                            ks  (when labelled? (key-segment k))
                                            sp  (when labelled?
                                                  [:span {:style (token-style :text-tertiary)} " "])]
