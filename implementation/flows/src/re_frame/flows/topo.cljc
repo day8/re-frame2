@@ -17,7 +17,17 @@
   either direction. Kahn's algorithm produces the order; on cycle we
   reconstruct a DFS path through the stuck nodes and throw
   `:rf.error/flow-cycle` with a closing-repeat cycle vector
-  (e.g. `[:a :b :a]`) — tools like Xray render this directly."
+  (e.g. `[:a :b :a]`) — tools like Xray render this directly.
+
+  This module also owns `detect-output-path-overlap!` — the symmetric
+  check the registry runs alongside the cycle check at `reg-flow` time
+  (Spec 013 §Disjoint output paths): two flows in one frame whose OUTPUT
+  `:path`s overlap (one a prefix of the other, identical included) have
+  no dependency edge between them (the edge rule compares `:path` vs
+  `:inputs`, never `:path` vs `:path`), so their relative evaluation
+  order is undefined and they would race for the shared slot under
+  last-write-wins. That is an authoring footgun, not a valid topology,
+  so it is rejected at registration with `:rf.error/flow-path-overlap`."
   ;; Pure module — no requires. .cljc-portable so the JVM test sweep
   ;; can exercise the algorithm without dragging the CLJS runtime in.
   )
@@ -47,6 +57,88 @@
               (or (prefix? a-path b-input)
                   (prefix? b-input a-path)))
             (:inputs b-flow)))))
+
+(defn output-paths-overlap?
+  "True iff two flows' OUTPUT `:path`s collide on the same app-db slot —
+  i.e. one path is a prefix of the other (identical paths included, since
+  every vector is a prefix of itself). Per Spec 013 §Disjoint output
+  paths: `[:x]` overlaps `[:x]` (identical), `[:x]` overlaps `[:x :y]`
+  (parent/child — writing `[:x]` clobbers everything under it, and writing
+  `[:x :y]` lands inside `[:x]`'s value), but `[:x :y]` and `[:x :z]` are
+  disjoint (siblings — neither is a prefix of the other)."
+  [a-path b-path]
+  (or (prefix? a-path b-path)
+      (prefix? b-path a-path)))
+
+(defn- first-overlapping-pair
+  "Scan the prospective per-frame `flow-map` (`{flow-id flow-map}`) for the
+  first pair of DISTINCT flows whose output `:path`s overlap (one a prefix
+  of the other). Return `{:flow-ids [lo hi] :paths [lo-path hi-path]}` for
+  the offending pair, or `nil` if every pair is disjoint.
+
+  Terminates by construction: a single `for` over the `(< i j)` upper
+  triangle of the entry vector (O(F²) prefix comparisons, F = the frame's
+  flow count — a handful of nodes at v1, same order as the graph build),
+  short-circuited by `(some ...)`. The reported pair is deterministically
+  ordered by `hash` so the report is stable across runs without requiring
+  flow-ids be mutually comparable (`sort` throws on mixed-type ids) —
+  mirroring `extract-cycle-path`'s deterministic pick."
+  [flow-map]
+  (let [entries (vec flow-map)
+        n       (count entries)]
+    (some (fn [[i j]]
+            (let [[a-id a-flow] (nth entries i)
+                  [b-id b-flow] (nth entries j)
+                  a-path        (:path a-flow)
+                  b-path        (:path b-flow)]
+              (when (output-paths-overlap? a-path b-path)
+                (let [[lo-id hi-id]     (sort-by hash [a-id b-id])
+                      [lo-path hi-path] (if (= lo-id a-id)
+                                          [a-path b-path]
+                                          [b-path a-path])]
+                  {:flow-ids [lo-id hi-id]
+                   :paths    [lo-path hi-path]}))))
+          (for [i (range n)
+                j (range (inc i) n)]
+            [i j]))))
+
+(defn detect-output-path-overlap!
+  "Symmetric with `topo-sort`'s cycle check (Spec 013 §Disjoint output
+  paths). Given a prospective per-frame `flow-map` (`{flow-id flow-map}`),
+  throw `:rf.error/flow-path-overlap` if any two distinct flows have
+  overlapping output `:path`s — otherwise return `flow-map` unchanged so
+  the caller can thread it.
+
+  WHY this is a registration error, not a topo edge: the dependency rule
+  (`depends-on?`) compares one flow's `:path` against another's `:inputs`,
+  never `:path` vs `:path`. Two same-frame flows whose outputs overlap but
+  whose inputs are disjoint therefore get NO edge — both are 'ready' at
+  topo-sort start and their relative order falls out of map-iteration
+  order, a non-contract. The loser of that undefined order silently loses
+  the shared slot under last-write-wins. Rejecting at `reg-flow` (inside
+  the atomic `swap!`, like the cycle check) closes the footgun before any
+  state mutates.
+
+  The `ex-info` carries the canonical thrown-error shape (per Spec 009
+  §The thrown-error shape) — `:rf.error/id` / `:where` / `:recovery`
+  `:fix-registration` (the caller fixes one flow's `:path` and retries,
+  exactly like the cycle / validate-flow rejections) / `:reason` — plus
+  `:overlap`, the offending `{:flow-ids [id-a id-b] :paths [path-a
+  path-b]}` pair, so tools (Xray's flow panel) name the colliding flows
+  directly.
+
+  Pure-data, no requires (the shape is inlined rather than reaching for
+  `registry.cljc`'s `flow-error` helper) — same posture as the cycle
+  throw in `topo-sort`."
+  [flow-map]
+  (when-let [overlap (first-overlapping-pair flow-map)]
+    (throw (ex-info ":rf.error/flow-path-overlap"
+                    {:rf.error/id :rf.error/flow-path-overlap
+                     :where    'rf/reg-flow
+                     :recovery :fix-registration
+                     :reason   "Two flows in the same frame have overlapping output :paths (one is a prefix of the other, identical included). Their relative evaluation order is undefined — the topo-sort dependency rule compares :path against :inputs, never :path against :path, so no edge orders them and the shared slot would be written last-write-wins in map-iteration order (per Spec 013 §Disjoint output paths). Give each flow a disjoint :path."
+                     :overlap  overlap})))
+  flow-map)
 
 (defn- extract-cycle-path
   "Given the dependency graph `id → #{deps...}` and the set of stuck

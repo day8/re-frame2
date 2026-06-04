@@ -225,6 +225,24 @@ The closing repeat is the contract: tools rendering the cycle (e.g. Xray) displa
 
 Cycles can also form *during* flow registration if the new flow completes a cycle that was incomplete before it was registered. The detection runs every `reg-flow` call.
 
+**Disjoint output paths.** Flows in the same frame **MUST** write to pairwise-disjoint output `:path`s — no two flows' `:path`s may stand in a prefix relationship (identical paths included). `reg-flow` throws `:rf.error/flow-path-overlap` at registration time when a new flow's `:path` overlaps an already-registered sibling's. This is checked on every `reg-flow` call, inside the same atomic check-and-insert as cycle detection — the error fires before any state mutates, and the prior registration survives.
+
+The reason this is an error and not merely a topological edge: the dependency rule above compares one flow's `:path` against another's **`:inputs`**, never `:path` against `:path`. Two flows whose *outputs* overlap but whose *inputs* are disjoint therefore get **no edge** between them — both are ready at topsort start, and their relative order falls out of map-iteration order, which is not a contract. The flow that runs second silently wins the shared slot under last-write-wins, with no detection and no documented ordering. Rejecting at registration removes the footgun rather than papering over it with a tie-break that would leave the collision silent.
+
+```clojure
+;; All of these throw at registration — the second flow's :path
+;; overlaps the first's (one is a prefix of the other, identical included):
+(rf/reg-flow {:id :a :inputs [[:w]] :output identity :path [:x]})
+(rf/reg-flow {:id :b :inputs [[:h]] :output identity :path [:x]})
+;; → ex-info ":rf.error/flow-path-overlap"  (identical paths)
+
+(rf/reg-flow {:id :c :inputs [[:w]] :output identity :path [:x]})
+(rf/reg-flow {:id :d :inputs [[:h]] :output identity :path [:x :y]})
+;; → ex-info ":rf.error/flow-path-overlap"  (:x is a prefix of [:x :y])
+```
+
+The thrown `ex-info`'s `ex-data` carries `:overlap` — `{:flow-ids [id-a id-b] :paths [path-a path-b]}` naming the colliding pair (deterministically ordered so the report is stable across runs) — alongside the canonical `:rf.error/id` / `:where` `'rf/reg-flow` / `:recovery :fix-registration` slots ([009 §The thrown-error shape](009-Instrumentation.md#the-thrown-error-shape--the-rferrorid-ex-data-contract)). The caller gives one of the two flows a disjoint `:path` and retries. Sibling paths that merely share a non-prefix element are **not** an overlap: `[:x :y]` and `[:x :z]` are disjoint (each writes its own leaf under a shared parent), and only the prefix relationship — where one write would clobber or be subsumed by the other — is rejected.
+
 ## Dirty-check semantics
 
 A flow recomputes only when its inputs change by **`=`-equality** since its last evaluation:

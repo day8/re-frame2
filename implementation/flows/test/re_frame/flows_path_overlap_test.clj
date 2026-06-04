@@ -1,0 +1,248 @@
+(ns re-frame.flows-path-overlap-test
+  "Per rf2-um6d9 — overlapping output `:path`s between sibling flows are
+  rejected at registration.
+
+  THE FINDING (senior-dev review rf2-y7lm8): the topo dependency rule
+  (`topo/depends-on?`, Spec 013 §Topological sort) compares ONLY flow A's
+  `:path` against flow B's `:inputs` — never `:path` vs `:path`. So two
+  flows in the SAME frame whose OUTPUT `:path`s overlap (one a prefix of
+  the other, identical included) but whose `:inputs` are disjoint from
+  each other's outputs get NO dependency edge. Both are 'ready' at
+  topo-sort start; their relative evaluation order falls out of
+  `(keys flow-map)` map-iteration order — a non-contract — so the shared
+  app-db slot is written last-write-wins, non-deterministically, with no
+  detection and no warning.
+
+  THE FIX: detect-and-reject at `reg-flow`, symmetric with the existing
+  cycle check and inside the same atomic `swap!` — two registered flows on
+  the same frame with overlapping output `:path`s is an error
+  (`:rf.error/flow-path-overlap`). See `topo/detect-output-path-overlap!`
+  and the registry `reg-flow` update fn.
+
+  This file pins both ends:
+    - the pure `topo` helpers (`output-paths-overlap?` /
+      `detect-output-path-overlap!`) — algorithm-level, no runtime;
+    - the integrated `rf/reg-flow` path — the rejection actually fires at
+      registration, the prior registration survives, and DISJOINT
+      sibling outputs (the common, valid case) still register cleanly.
+
+  TERMINATION NOTE (rf2-um6d9 redo): `detect-output-path-overlap!` scans
+  the upper triangle of the frame's flow pairs via `(some ... (for ...))`
+  — terminating by construction. The disjoint-map and disjoint-sibling
+  tests below are the explicit regression guard: pre-fix the scan looped
+  forever on any frame with ≥2 disjoint flows, hanging the whole JVM suite."
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+            [re-frame.core :as rf]
+            [re-frame.flows :as flows]
+            [re-frame.flows.topo :as topo]
+            [re-frame.frame :as frame]
+            [re-frame.registrar :as registrar]
+            [re-frame.schemas :as schemas]
+            [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.trace :as trace]))
+
+;; ---- per-test reset (mirrors flows_test.clj) ------------------------------
+
+(defn- reset-runtime [test-fn]
+  (registrar/clear-all!)
+  (reset! frame/frames {})
+  (flows/reset-flows!)
+  (reset! schemas/schemas-by-frame {})
+  (trace/clear-listeners!)
+  (rf/init! plain-atom/adapter)
+  (require 're-frame.routing :reload)
+  (require 're-frame.ssr :reload)
+  (test-fn))
+
+(use-fixtures :each reset-runtime)
+
+;; ---------------------------------------------------------------------------
+;; 1. topo/output-paths-overlap? — the prefix-relation predicate
+;; ---------------------------------------------------------------------------
+
+(deftest output-paths-overlap?-identical-paths
+  (testing "identical :paths overlap (a vector is a prefix of itself)"
+    (is (true? (topo/output-paths-overlap? [:x] [:x])))
+    (is (true? (topo/output-paths-overlap? [:a :b] [:a :b])))))
+
+(deftest output-paths-overlap?-prefix-in-either-direction
+  (testing "parent/child overlap — one :path is a prefix of the other (Spec 013 §Disjoint output paths)"
+    (is (true? (topo/output-paths-overlap? [:x] [:x :y]))
+        "[:x] is a prefix of [:x :y] — writing [:x] clobbers the child")
+    (is (true? (topo/output-paths-overlap? [:x :y] [:x]))
+        "symmetric: [:x] is still a prefix of [:x :y] with args flipped")))
+
+(deftest output-paths-overlap?-disjoint-siblings
+  (testing "sibling leaves under a shared parent do NOT overlap — neither is a prefix of the other"
+    (is (false? (topo/output-paths-overlap? [:x :y] [:x :z]))
+        "[:x :y] and [:x :z] are disjoint (each owns its own leaf)")
+    (is (false? (topo/output-paths-overlap? [:a] [:b]))
+        "wholly unrelated single-key paths are disjoint")
+    (is (false? (topo/output-paths-overlap? [:a :b :c] [:a :b :d]))
+        "deeper sibling leaves [:a :b :c] / [:a :b :d] are disjoint too")
+    (is (true? (topo/output-paths-overlap? [:a :b] [:a :b :c :d]))
+        "but a deep child [:a :b :c :d] DOES overlap its ancestor [:a :b]")))
+
+(deftest output-paths-overlap?-shared-non-prefix-element
+  (testing "shared NON-prefix element is not an overlap (prefix-based, not membership-based)"
+    ;; [:x :y] vs [:y :x] share both elements but neither is a prefix of
+    ;; the other → disjoint. Mirrors depends-on?'s prefix-not-membership
+    ;; rule (flows_topo_test.clj depends-on?-false-when-...share-element).
+    (is (false? (topo/output-paths-overlap? [:x :y] [:y :x])))))
+
+;; ---------------------------------------------------------------------------
+;; 2. topo/detect-output-path-overlap! — the prospective-map scanner
+;; ---------------------------------------------------------------------------
+
+(deftest detect-output-path-overlap!-passes-disjoint-map
+  (testing "a frame map of pairwise-disjoint output paths passes (returns the map unchanged) — and TERMINATES"
+    ;; REGRESSION GUARD (rf2-um6d9 redo): pre-fix the scan looped forever on
+    ;; a ≥2-flow disjoint map; this assertion only completes if the scan
+    ;; terminates.
+    (let [flow-map {:a {:id :a :inputs [[:w]] :output identity :path [:x :a]}
+                    :b {:id :b :inputs [[:h]] :output identity :path [:x :b]}
+                    :c {:id :c :inputs [[:q]] :output identity :path [:y]}}]
+      (is (= flow-map (topo/detect-output-path-overlap! flow-map))
+          "disjoint outputs: no throw, threads the map through"))))
+
+(deftest detect-output-path-overlap!-throws-on-identical-paths
+  (testing "two flows with identical output :paths throw :rf.error/flow-path-overlap with the canonical thrown-error shape"
+    (let [flow-map {:a {:id :a :inputs [[:w]] :output identity :path [:x]}
+                    :b {:id :b :inputs [[:h]] :output identity :path [:x]}}
+          thrown   (try (topo/detect-output-path-overlap! flow-map)
+                        nil
+                        (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? thrown) "overlapping outputs raise")
+      (is (= ":rf.error/flow-path-overlap" (.getMessage ^Throwable thrown))
+          "ex-info message is the documented category")
+      (let [data (ex-data thrown)]
+        (is (= :rf.error/flow-path-overlap (:rf.error/id data))
+            "ex-data carries the canonical :rf.error/id discriminator (Spec 009 §The thrown-error shape)")
+        (is (= 'rf/reg-flow (:where data))
+            "ex-data carries :where 'rf/reg-flow — the user-facing call site")
+        (is (= :fix-registration (:recovery data))
+            "ex-data carries :recovery :fix-registration — caller-fixable like the cycle / validate-flow rejections")
+        (is (string? (:reason data))
+            "ex-data carries :reason as a human-readable string")
+        (let [{:keys [flow-ids paths]} (:overlap data)]
+          (is (= #{:a :b} (set flow-ids))
+              "ex-data :overlap names the colliding flow-ids")
+          (is (= 2 (count paths))
+              "ex-data :overlap carries the two colliding paths")
+          (is (every? #{[:x]} paths)
+              "both colliding paths are [:x]"))
+        (is (= #{:rf.error/id :where :recovery :reason :overlap}
+               (set (keys data)))
+            "ex-data carries exactly the canonical slots + :overlap")))))
+
+(deftest detect-output-path-overlap!-throws-on-prefix-paths
+  (testing "two flows where one :path is a PREFIX of the other throw :rf.error/flow-path-overlap"
+    (let [flow-map {:parent {:id :parent :inputs [[:w]] :output identity :path [:x]}
+                    :child  {:id :child  :inputs [[:h]] :output identity :path [:x :y]}}
+          thrown   (try (topo/detect-output-path-overlap! flow-map)
+                        nil
+                        (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? thrown) "prefix-related outputs raise")
+      (is (= :rf.error/flow-path-overlap (:rf.error/id (ex-data thrown))))
+      (is (= #{:parent :child} (set (:flow-ids (:overlap (ex-data thrown))))))
+      (is (= #{[:x] [:x :y]} (set (:paths (:overlap (ex-data thrown)))))
+          "the parent and child paths are both reported"))))
+
+(deftest detect-output-path-overlap!-deterministic-pair-ordering
+  (testing "the reported :overlap pair is stable across runs (sort-by hash, not iteration order)"
+    (let [flow-map {:a {:id :a :inputs [[:w]] :output identity :path [:x]}
+                    :b {:id :b :inputs [[:h]] :output identity :path [:x]}}
+          overlap-of (fn [] (-> (try (topo/detect-output-path-overlap! flow-map)
+                                     (catch clojure.lang.ExceptionInfo e (ex-data e)))
+                                :overlap))]
+      (is (= (overlap-of) (overlap-of) (overlap-of))
+          "repeated detection yields an identical :overlap (deterministic ordering)"))))
+
+;; ---------------------------------------------------------------------------
+;; 3. integrated rf/reg-flow — THE bug repro: same-frame overlapping
+;;    outputs + DISJOINT inputs (no cycle, no edge) must be rejected.
+;; ---------------------------------------------------------------------------
+
+(deftest reg-flow-rejects-overlapping-output-paths-with-disjoint-inputs
+  (testing "rf2-um6d9 — two same-frame flows whose OUTPUT :paths overlap but whose INPUTS are disjoint are rejected at registration"
+    ;; This is the exact silent-footgun shape: A reads [:src-a] writes
+    ;; [:dest]; B reads [:src-b] writes [:dest]. Inputs are disjoint
+    ;; (neither reads the other's output) so the topo dependency rule
+    ;; produces NO edge — pre-fix both were 'ready' and the shared slot
+    ;; [:dest] was written in undefined order. Post-fix the second
+    ;; registration is rejected.
+    (rf/reg-flow {:id :a :inputs [[:src-a]] :output identity :path [:dest]})
+    (let [thrown (try
+                   (rf/reg-flow {:id :b :inputs [[:src-b]] :output identity :path [:dest]})
+                   nil
+                   (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? thrown)
+          "registering a second flow on the same frame with an overlapping output :path throws")
+      (is (= :rf.error/flow-path-overlap (:rf.error/id (ex-data thrown)))
+          "the rejection is :rf.error/flow-path-overlap")
+      (is (= #{:a :b} (set (:flow-ids (:overlap (ex-data thrown)))))
+          "the offending pair is named in :overlap"))
+    ;; The rejected REPLACEMENT must not have vacated / disturbed the
+    ;; prior registration (symmetric with the cycle-check atomicity).
+    (is (contains? (get (flows/flows-snapshot) :rf/default) :a)
+        "the prior flow :a survives the rejected registration")
+    (is (not (contains? (get (flows/flows-snapshot) :rf/default) :b))
+        "the rejected flow :b never lands in the committed registry")))
+
+(deftest reg-flow-allows-disjoint-sibling-output-paths
+  (testing "rf2-um6d9 — flows writing to DISJOINT sibling paths under a shared parent register cleanly (the common valid case is unaffected) — and TERMINATES"
+    ;; REGRESSION GUARD (rf2-um6d9 redo): the integrated equivalent of the
+    ;; disjoint-map test — pre-fix this reg-flow call hung the suite.
+    (rf/reg-flow {:id :w :inputs [[:in-w]] :output identity :path [:rect :w]})
+    (rf/reg-flow {:id :h :inputs [[:in-h]] :output identity :path [:rect :h]})
+    (let [committed (get (flows/flows-snapshot) :rf/default)]
+      (is (contains? committed :w) "the [:rect :w] flow registered")
+      (is (contains? committed :h) "the [:rect :h] flow registered — no false-positive overlap"))))
+
+(deftest reg-flow-overlap-is-frame-scoped
+  (testing "rf2-um6d9 — overlapping output :paths on DIFFERENT frames are NOT an overlap (frames are isolated app-dbs)"
+    (rf/reg-frame :frame-a {:doc "isolated frame a"})
+    (rf/reg-frame :frame-b {:doc "isolated frame b"})
+    ;; Same flow-id-shape, same output :path, but DIFFERENT frames —
+    ;; their writes land in different app-dbs, so no collision.
+    (rf/reg-flow {:id :x :inputs [[:in]] :output identity :path [:dest]} {:frame :frame-a})
+    (rf/reg-flow {:id :x :inputs [[:in]] :output identity :path [:dest]} {:frame :frame-b})
+    (is (contains? (get (flows/flows-snapshot) :frame-a) :x)
+        "frame-a holds its :x flow")
+    (is (contains? (get (flows/flows-snapshot) :frame-b) :x)
+        "frame-b holds its own :x flow — overlap detection is per-frame, not cross-frame")))
+
+(deftest reg-flow-re-registration-does-not-self-overlap
+  (testing "rf2-um6d9 — re-registering an existing flow-id with the SAME :path (hot-reload) is NOT a self-overlap"
+    ;; The footgun-adjacent case: a flow keeps its :path across a
+    ;; hot-reload re-registration. The prospective map is
+    ;; (assoc prior-frame flow-id flow) — the same key, so the map still
+    ;; holds ONE entry for :a and detect-output-path-overlap! (which
+    ;; scans DISTINCT entries) never compares :a's path against itself.
+    ;; A false positive here would break hot-reload of any flow.
+    (rf/reg-flow {:id :a :inputs [[:src]] :output identity :path [:dest]})
+    (is (nil? (try
+                (rf/reg-flow {:id :a :inputs [[:src]] :output (fn [v] v) :path [:dest]})
+                nil
+                (catch clojure.lang.ExceptionInfo e e)))
+        "re-registering :a with the same :path must not throw :rf.error/flow-path-overlap")
+    (is (contains? (get (flows/flows-snapshot) :rf/default) :a)
+        "the re-registered flow :a is committed")))
+
+(deftest reg-flow-still-rejects-cycles-and-passes-clean-topologies
+  (testing "rf2-um6d9 — adding the overlap check does not disturb the cycle check or the happy path"
+    ;; Happy path: a real dependency (B reads what A writes) registers and
+    ;; topo-sorts cleanly — disjoint OUTPUTS, a genuine input edge.
+    (rf/reg-flow {:id :a :inputs [[:seed]]  :output identity :path [:a-out]})
+    (rf/reg-flow {:id :b :inputs [[:a-out]] :output identity :path [:b-out]})
+    (is (= #{:a :b} (set (keys (get (flows/flows-snapshot) :rf/default))))
+        "a clean dependency topology (disjoint outputs, real edge) registers both flows")
+    ;; Cycle check still fires: C reads B's output [:b-out]; re-registering
+    ;; B to read C's output [:c-out] closes the cycle b → c → b.
+    (rf/reg-flow {:id :c :inputs [[:b-out]] :output identity :path [:c-out]})
+    (let [thrown (try
+                   (rf/reg-flow {:id :b :inputs [[:a-out] [:c-out]] :output identity :path [:b-out]})
+                   nil
+                   (catch clojure.lang.ExceptionInfo e e))]
+      (is (= :rf.error/flow-cycle (:rf.error/id (ex-data thrown)))
+          "a cycle-forming re-registration is still rejected with :rf.error/flow-cycle"))))
