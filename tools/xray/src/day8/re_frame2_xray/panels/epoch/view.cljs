@@ -2521,8 +2521,10 @@
 ;;   - Duration chip (right-aligned, with long-step warning when
 ;;     `:duration-ms > 16ms` per rf2-nqt3d).
 ;;   - Outcome chip — `✓ pass / ▲ fail / ✗ threw` for guards;
-;;     `✓ ok / ✗ threw` for actions; `→ N microstep(s)` for the
-;;     transition; `· cancelled (<reason>)` for timers.
+;;     `· cancelled (<reason>)` for timers. Actions carry NO chip
+;;     (rf2-2hj0h item 7); the `:transition` row carries NO chip
+;;     (rf2-cdgva — the prior `N microstep(s)` summary was redundant
+;;     with the per-microstep cascade rows).
 ;;   - Body: source code (ALWAYS VISIBLE per the bead body's
 ;;     "interleaved source code" requirement) + outcome detail
 ;;     (per-action fx attribution + data-write delta for actions;
@@ -3261,13 +3263,20 @@
            ;; presence/absence of the exception box.
            (= :action kind)     nil
            (= :timer kind)      :cancelled
+           ;; rf2-cdgva — the `:transition` row carries NO outcome chip. The
+           ;; prior `N microstep(s)` summary was redundant: every `:always`
+           ;; microstep (N>0) is itself a FIRST-CLASS cascade row in this same
+           ;; mini-pipeline (its own `:rf.machine/transition` + nested
+           ;; exit/action/entry rows, post akvfe/2hj0h), so the count merely
+           ;; tallied rows already present; when N=0 (the common case) it was
+           ;; pure noise. The prominent `<before> → <after>` header verb is the
+           ;; transition's whole story.
            ;; rf2-iu3no — the benign no-op carries NO outcome chip. The
            ;; "[NO OP]" kind-pill + the "staying in {state}" verb already
            ;; tell the whole story; the prior "ignored" chip was a third
            ;; restatement of the same fact.
            :else                nil)
-         (when (= :transition kind)
-           outcome-lbl))]]
+         nil)]]
      ;; Source code body (always visible per rf2-u69j7) — actions + guards
      ;; render their source (or the rf2-iwy0c machine-def link when none
      ;; was captured); the `:transition` row renders the rf2-iwy0c

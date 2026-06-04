@@ -1629,7 +1629,13 @@ rather than collapsing to a plain `reg-event-db` handler.
     outcome detail), not a chip. (rf2-4yrr6 had already dropped the threw
     chip; item 7 drops the success `:ok` chip too, so the action row's
     outcome reads purely off presence/absence of the exception box.)
-  - `:transition` → `N microstep(s)` (the headline)
+  - `:transition` → **NO outcome chip** (rf2-cdgva — the prior
+    `N microstep(s)` summary was REDUNDANT: every `:always` microstep
+    (N>0) is itself a first-class cascade row in this same mini-pipeline
+    — its own `:rf.machine/transition` + nested exit/action/entry rows,
+    post akvfe/2hj0h — so the count merely tallied rows already present;
+    when N=0, the common case, it was pure noise. The prominent
+    `<before> → <after>` header verb is the transition's whole story.)
   - `:timer` → `· cancelled (<reason>)`
   - `:no-op` → NO outcome chip (rf2-iu3no — the `NO OP` pill + the
     `staying in {state}` verb carry the whole notice; the rf2-ugdas

@@ -7,7 +7,7 @@
   epoch-record → ordered vector of pipeline-step rows (data-in /
   data-out). These fns are the OTHER side of that boundary: they turn
   a projected row's slots into the display STRINGS the view paints
-  (`0.1ms` / `:my-ns/foo` / `guard :x` / `2 microsteps`). Parking them
+  (`0.1ms` / `:my-ns/foo` / `guard :x` / `cancelled (on-exit)`). Parking them
   in the projection ns blurred the data/presentation line — a reader
   could not tell load-bearing derivation from cosmetic formatting, and
   the projection ns carried two jobs.
@@ -390,10 +390,16 @@
     :guard       → `pass | fail | threw`
     :action      → `ok | threw` (the action's outcome map is rich;
                                  the chip carries only the headline)
-    :transition  → `→ N microstep(s)` (the headline reads off
-                                       `:microsteps`)
-    :timer       → `cancelled (<reason>)`"
-  [{:keys [kind outcome threw? microsteps reason]}]
+    :timer       → `cancelled (<reason>)`
+
+  rf2-cdgva — the `:transition` row no longer carries an outcome label.
+  The prior `N microstep(s)` summary was redundant: every `:always`
+  microstep (N>0) is itself a first-class cascade row in the same
+  mini-pipeline (post akvfe/2hj0h), so the count merely tallied rows
+  already present; when N=0 (the common case) it was pure noise. The
+  prominent `<before> → <after>` header verb is the transition's whole
+  story, so a `:transition` row returns nil here (the no-op default)."
+  [{:keys [kind outcome threw? reason]}]
   (case kind
     :guard      (if (keyword? outcome) (name outcome) nil)
     :action     (cond
@@ -402,9 +408,6 @@
                   (map? outcome)        "ok"
                   (keyword? outcome)    (name outcome)
                   :else                 nil)
-    :transition (when (number? microsteps)
-                  (str microsteps " microstep"
-                       (when (not= 1 microsteps) "s")))
     :timer      (str "cancelled"
                      (when reason (str " (" (name reason) ")")))
     ;; rf2-iu3no — the benign no-op carries NO outcome chip. The "[NO OP]"

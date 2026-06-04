@@ -1535,12 +1535,20 @@
     (is (= "ok"    (fmt/cascade-outcome-label {:kind :action :outcome :ok})))
     (is (= "threw" (fmt/cascade-outcome-label
                      {:kind :action :threw? true :outcome :rf.error/action-threw})))
-    (is (= "1 microstep"
-           (fmt/cascade-outcome-label {:kind :transition :microsteps 1})))
-    (is (= "3 microsteps"
-           (fmt/cascade-outcome-label {:kind :transition :microsteps 3})))
     (is (= "cancelled (on-exit)"
-           (fmt/cascade-outcome-label {:kind :timer :reason :on-exit})))))
+           (fmt/cascade-outcome-label {:kind :timer :reason :on-exit}))))
+  (testing "rf2-cdgva — the `:transition` row carries NO outcome label.
+            The prior `N microstep(s)` summary was redundant: every
+            `:always` microstep is itself a first-class cascade row in the
+            same mini-pipeline (post akvfe/2hj0h), so the count tallied
+            rows already present; at N=0 (the common case) it was noise.
+            The headline `<before> → <after>` verb is the whole story."
+    ;; N>0 — the microstep rows themselves carry the signal; no count chip.
+    (is (nil? (fmt/cascade-outcome-label {:kind :transition :microsteps 3})))
+    (is (nil? (fmt/cascade-outcome-label {:kind :transition :microsteps 1})))
+    ;; N=0 — the common (no `:always` follow-up) macrostep; never noisy.
+    (is (nil? (fmt/cascade-outcome-label {:kind :transition :microsteps 0})))
+    (is (nil? (fmt/cascade-outcome-label {:kind :transition})))))
 
 ;; ---- FLOW ---------------------------------------------------------------
 
