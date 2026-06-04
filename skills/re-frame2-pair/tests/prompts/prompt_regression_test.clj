@@ -43,6 +43,7 @@
 (def ^:private ops-md (delay (slurp-rel "references/ops.md")))
 (def ^:private skill-md (delay (slurp-rel "SKILL.md")))
 (def ^:private errors-md (delay (slurp-rel "references/errors.md")))
+(def ^:private vocabulary-md (delay (slurp-rel "references/vocabulary.md")))
 (def ^:private hot-reload (delay (slurp-rel "references/ops.md")))
 
 ;; ---------------------------------------------------------------------------
@@ -183,6 +184,77 @@
  (is (str/includes? @hot-reload "Hot-reload coordination"))
  (is (str/includes? @hot-reload "probe"))
  (is (str/includes? @hot-reload "tail-build"))))
+
+;; ---------------------------------------------------------------------------
+;; Privacy-contract drift (rf2-k2off)
+;; ---------------------------------------------------------------------------
+;;
+;; The skill-facing privacy guarantee MUST match what the pair-mcp tools
+;; actually enforce:
+;;   - The guarantee is scoped to the STRUCTURED MCP read/stream tools,
+;;     NOT to raw `eval-cljs` (which is default-ON and returns its value
+;;     un-walked, regardless of --allow-sensitive-reads).
+;;   - Epoch egress (trace-window / watch-epochs / the :epoch streaming
+;;     topic) is REDACTED/ELIDED by default via projected-record /
+;;     elide-wire-value (rf2-6wvh5 / rf2-vr2hn) — not shipped raw.
+;; These assertions fail if the docs drift back to the over-broad
+;; "sensitive data does not cross the LLM boundary by default" claim or
+;; the stale "epoch records are not dropped / carry no sensitive stamp"
+;; wording the rf2-k2off review caught.
+
+(defn- includes-ci? [text needle]
+  (str/includes? (str/lower-case text) (str/lower-case needle)))
+
+(deftest skill-scopes-guarantee-to-structured-tools
+  (testing "SKILL.md privacy bullet names the eval-cljs carve-out, not a blanket guarantee"
+    ;; The carve-out must be present: eval-cljs is default-ON + un-elided
+    ;; + not governed by --allow-sensitive-reads.
+    (is (includes-ci? @skill-md "raw-eval carve-out")
+        (str "SKILL.md no longer references the raw-eval carve-out — the "
+             "privacy guarantee may have drifted back to the over-broad "
+             "blanket claim (rf2-k2off)."))
+    (is (or (str/includes? @skill-md "not governed by this gate")
+            (str/includes? @skill-md "NOT governed by this gate"))
+        "SKILL.md must state eval-cljs is NOT governed by --allow-sensitive-reads.")
+    (is (str/includes? @skill-md "without running the elision walker")
+        "SKILL.md must state eval-cljs returns its value un-elided."))
+  (testing "SKILL.md must NOT carry the bare over-broad guarantee as a standalone claim"
+    ;; The exact stale lede the review flagged. Its presence (verbatim,
+    ;; un-narrowed) is the regression.
+    (is (not (str/includes? @skill-md "Sensitive data does not cross the LLM boundary by default."))
+        (str "SKILL.md carries the over-broad 'Sensitive data does not "
+             "cross the LLM boundary by default.' lede — narrow it to the "
+             "structured MCP reads/streams (rf2-k2off)."))))
+
+(deftest vocabulary-epoch-egress-matches-impl
+  (testing "vocabulary.md reflects projected/elided epoch egress (rf2-6wvh5 / rf2-vr2hn)"
+    (is (str/includes? @vocabulary-md "projected-record")
+        (str "vocabulary.md no longer mentions projected-record — the epoch "
+             "egress description may be stale (pre-rf2-6wvh5 'not dropped' "
+             "claim)."))
+    (is (str/includes? @vocabulary-md ":rf.epoch/sensitive?")
+        "vocabulary.md must name the :rf.epoch/sensitive? epoch rollup stamp.")
+    (is (str/includes? @vocabulary-md "raw-eval carve-out")
+        "vocabulary.md must carry the raw-eval carve-out section.")
+    ;; Guard the specific stale wording the review flagged: a claim that
+    ;; epoch records do NOT carry a sensitive stamp, OR that they are NOT
+    ;; dropped, would be a regression to the pre-tightening posture.
+    (is (not (str/includes? @vocabulary-md "Epoch records do not carry a top-level `:sensitive?` stamp"))
+        (str "vocabulary.md carries the stale 'Epoch records do not carry a "
+             "top-level :sensitive? stamp' wording — epoch records carry "
+             ":rf.epoch/sensitive? and are projected/redacted on egress "
+             "(rf2-k2off)."))))
+
+(deftest ops-md-raw-eval-rows-carry-privacy-carveout
+  (testing "ops.md flags the raw-eval privacy carve-out for the catalogue rows"
+    (is (includes-ci? @ops-md "privacy carve-out")
+        (str "ops.md no longer carries the raw-eval privacy carve-out — the "
+             "raw `eval-cljs` read rows (snapshot / sub-cache / trace-buffer "
+             "/ epoch-history) document an un-elided path that must steer "
+             "sensitive reads to the structured tools (rf2-k2off)."))
+    (is (and (str/includes? @ops-md "trace-buffer")
+             (str/includes? @ops-md "epoch-history"))
+        "ops.md must still name the raw trace-buffer / epoch-history surfaces the carve-out governs.")))
 
 ;; ---------------------------------------------------------------------------
 ;; Run

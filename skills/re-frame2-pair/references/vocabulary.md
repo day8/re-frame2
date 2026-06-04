@@ -71,19 +71,69 @@ deliberate request and can pre-filter with `(re-frame.trace.tooling/trace-buffer
 
 ### What gets dropped, what doesn't
 
+The guarantee is scoped to the **structured MCP read / stream tools**
+(`snapshot`, `get-path`, `read-sub`, `subscribe`, `trace-window`,
+`watch-epochs`) — the off-box wire boundary they egress through. It does
+**not** extend to raw `eval-cljs` (see §The raw-eval carve-out below).
+
 - **Dropped from streaming subs by default**: any trace event whose
-  top-level `:sensitive?` is `true`. The legacy `last-trace-event-id`
-  cursor still advances over them so `:since`-based ring-buffer reads
-  remain monotonic.
-- **Not dropped**: events with `:sensitive? false` or no `:sensitive?`
-  key, the underlying `re-frame.trace.tooling/trace-buffer` ring, and `:rf/epoch-record`
-  values surfaced via `epoch-history` / the `:epoch` streaming topic.
-  Epoch records do not carry a top-level `:sensitive?` stamp per spec;
-  schema-sensitive slots are redacted by the app-side elision walker
-  before off-box egress.
+  top-level `:sensitive?` is `true` (the `streaming-drop?` filter on the
+  `:trace` / `:fx` / `:error` / `:frameless` topics), plus any whole
+  epoch record the runtime stamped `:rf.epoch/sensitive?` on the `:epoch`
+  topic (the server's `strip-sensitive`). The legacy `last-trace-event-id`
+  cursor still advances over dropped trace events so `:since`-based
+  ring-buffer reads remain monotonic.
+- **Redacted / elided by default (NOT shipped raw)**: `:rf/epoch-record`
+  values that the structured pull-mode tools (`trace-window`,
+  `watch-epochs`) and the `:epoch` streaming topic egress. As of
+  rf2-6wvh5 / rf2-vr2hn the pull-mode tools route every egressed record
+  through `re-frame.core/projected-record` and the streaming `:epoch`
+  topic wraps each delivered record through `re-frame.core/elide-wire-value`
+  **server-side, before it crosses the nREPL wire** — so a schema-sensitive
+  slot inside `:db-before` / `:db-after` / `:trigger-event` /
+  `:trace-events` lands as `:rf/redacted` and a declared-large slot as
+  `:rf.size/large-elided`, even with the `--allow-sensitive-reads` gate
+  OFF (the published default) and even if a caller passed
+  `:include-sensitive true`. Epoch records **do** carry a top-level
+  `:rf.epoch/sensitive?` rollup (a namespaced key, not the bare
+  trace-event `:sensitive?`); the `cascade-summary` projection surfaces it
+  as `:sensitive? true`.
+- **Not gated**: events with `:sensitive? false` or no `:sensitive?` key,
+  and the underlying `re-frame.trace.tooling/trace-buffer` ring read
+  directly via `eval-cljs` — that ring is a deliberate raw read surface
+  (see §The raw-eval carve-out).
 - **Sentinel-aware**: `:rf/redacted` keywords appear where schema
   metadata declares a sensitive slot and the egress policy excludes
-  sensitive values.
+  sensitive values; `:rf.size/large-elided` markers appear for
+  declared-large slots.
+
+### The raw-eval carve-out — eval-cljs is OUTSIDE the structured guarantee
+
+The `--allow-sensitive-reads` guarantee covers the **structured** tools
+above. It does **not** cover `eval-cljs`, which is a separate surface
+with a separate gate:
+
+- `eval-cljs` is **default-ON** (governed only by the independent
+  `--no-eval` opt-out, never by `--allow-sensitive-reads`), and it
+  returns the form's value as `:value` **without running the
+  sensitive/large elision walker**. A raw
+  `(re-frame2-pair.runtime/snapshot)` / `(re-frame2-pair.runtime/sub-cache)`
+  / `(re-frame.trace.tooling/trace-buffer)` / `(rf/epoch-history :rf/default)`
+  eval can therefore return verbatim app-db, sub-cache, trace-buffer, or
+  epoch-history values — passwords, tokens, PII — to the AI host even
+  with `--allow-sensitive-reads` OFF.
+- So **do not reach for raw `eval-cljs` to read a privacy-sensitive
+  app-db path, sub value, trace event, or epoch payload when a structured
+  elided tool fits** — use `get-path`, `read-sub`, `snapshot {path}`,
+  `trace-window`, `watch-epochs`, or `subscribe`, which all apply the
+  wire-boundary elision. Reserve raw eval for forensics / cross-
+  referencing / recovery, and only pour raw state into an eval when the
+  user / operator explicitly asks for the unmasked value.
+- The same carve-out applies to the dedicated state-injection /
+  time-travel eval forms (`app-db-reset!`, `rf/restore-epoch`): they are
+  the default-reachable write path because eval is default-ON (the
+  `--allow-writes`-gated `reset-frame-db` / `restore-epoch` tools are the
+  audited alternative).
 
 ### Asking for the unmasked view
 
@@ -93,14 +143,22 @@ servers. When OFF (the published-build posture), the following surfaces
 ride the redacted/elided shape regardless of any per-call MCP arg or
 in-runtime `configure-privacy!` toggle:
 
-- `snapshot`, `get-path`, `subscribe`, `trace-window`, `watch-epochs` —
-  forced wire arg `:include-sensitive false` + forced `:elision true`.
-  (The MCP wire arg is `:include-sensitive`, no `?`; the runtime
-  `configure-privacy!` opt and the walker option
-  `:rf.size/include-sensitive?` keep the `?`.)
+- `snapshot`, `get-path`, `read-sub`, `subscribe`, `trace-window`,
+  `watch-epochs` — forced wire arg `:include-sensitive false` + forced
+  `:elision true`. For the epoch-egressing tools (`trace-window`,
+  `watch-epochs`, and the `:epoch` streaming topic) the forced posture
+  routes each record through `projected-record` / `elide-wire-value`
+  server-side (rf2-6wvh5 / rf2-vr2hn) so sensitive slots inside the
+  `:db-before` / `:db-after` payloads redact. (The MCP wire arg is
+  `:include-sensitive`, no `?`; the runtime `configure-privacy!` opt and
+  the walker option `:rf.size/include-sensitive?` keep the `?`.)
 - The preload's `app-db-reset!` — both `:previous` and `:next` slots in
   the `tap>` emission default-elide through `re-frame.core/elide-wire-value`
   before any registered tap consumer sees them.
+- **`eval-cljs` is NOT in this set** — it is default-ON and un-walked
+  regardless of `--allow-sensitive-reads` (see §The raw-eval carve-out
+  above). The `--allow-sensitive-reads` opt-in only re-opens the
+  per-call args on the structured tools listed here.
 
 Operators who explicitly want the unmasked view — rare; only when the
 pair tool is itself the trust boundary, e.g. a self-hosted MCP server
