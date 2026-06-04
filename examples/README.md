@@ -134,7 +134,7 @@ If you've finished the guide and want to see code:
 3. **Then [`reagent/todomvc/`](reagent/todomvc/README.md)** — classic benchmark shape: persistence, editing, filters, and browser routing pressure.
 4. **Then [`reagent/routing/`](reagent/routing/)** or [`reagent/ssr/`](reagent/ssr/) — pick whichever is closer to your interest.
 5. **Then [`reagent/managed_http_counter/`](reagent/managed_http_counter/)** — the smallest possible Spec 014 demo, before the broader RealWorld surface.
-6. **Then [`reagent/state_machine_walkthrough/`](reagent/state_machine_walkthrough/)** — the ch.11 prose as runnable code; its headless scenarios live in the sibling `state_machine_walkthrough/test/` tree (driven by the `state-machine-walkthrough-runs-headless` gate deftest in [`implementation/core/test/re_frame/examples_test.clj`](../implementation/core/test/re_frame/examples_test.clj)).
+6. **Then [`reagent/state_machine_walkthrough/`](reagent/state_machine_walkthrough/)** — the ch.11 prose as runnable code; its headless scenarios run via the `state-machine-walkthrough-runs-headless` gate deftest in [`implementation/core/test/re_frame/examples_test.clj`](../implementation/core/test/re_frame/examples_test.clj).
 7. **Then [`reagent/seven_guis/`](reagent/seven_guis/)** — survey of the pattern across many UI shapes.
 8. **Then [`reagent/nine_states/`](reagent/nine_states/README.md)** — the page-level cardinality / lifecycle conventions wired together.
 9. **Then [`reagent/realworld/`](reagent/realworld/)** — substantial-app shape across the widest surface in the repo.
