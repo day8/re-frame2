@@ -172,12 +172,14 @@ else
         mcp_conformance=true
         mcp_live=true
         ;;
-      examples/scripts/serve-and-run-examples-tests.cjs|examples/scripts/run-examples-tests.cjs|examples/scripts/spec-helpers.cjs)
+      examples/scripts/serve-and-run-examples-tests.cjs|examples/scripts/run-examples-tests.cjs|examples/scripts/spec-helpers.cjs|examples/scripts/examples-filter.cjs)
         # rf2-bxdk8 + rf2-cjp0i — the orchestrator + runner + helpers
         # under examples/scripts/ drive the adapter-testbed-smokes job
-        # (via `npm run test:examples`). They are the *only* paths
-        # under examples/ that fire this gate; the rest of examples/**
-        # is test-free per rf2-8cevm.
+        # (via `npm run test:examples`). rf2-l72e2 — examples-filter.cjs
+        # is the shared example-set manifest + selection logic both the
+        # orchestrator and runner import, so a change to it must fire the
+        # gate too. They are the *only* paths under examples/ that fire
+        # this gate; the rest of examples/** is test-free per rf2-8cevm.
         adapter_testbed_smokes=true
         ;;
       implementation/schemas/*|implementation/machines/*|implementation/routing/*|implementation/flows/*|implementation/http/*|implementation/ssr/*|implementation/ssr-ring/*|implementation/epoch/*|implementation/deps.edn)

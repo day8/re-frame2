@@ -38,17 +38,21 @@ const fs = require('fs');
 const path = require('path');
 const { resolveExamplesPort } = require('./examples-port.cjs');
 const {
+  EXAMPLES,
+  parseFilterPatterns,
+  selectEntries,
+} = require('./examples-filter.cjs');
+const {
   createHarnessCleanup,
   spawnHarnessProcess,
   waitForHttpReady,
 } = require('../../implementation/scripts/lib/local-browser-harness.cjs');
 
-// Narrow filter. When set, only the EXAMPLES entries whose `build` id
-// includes any one of the comma-separated substrings are compiled +
-// staged, and the value is propagated to the Playwright runner via
-// the `EXAMPLES_FILTER` env-var so the runner only executes matching
-// specs. Unset (or empty) = the full sweep. The filter is supplied
-// via either:
+// Narrow filter. When set, only the EXAMPLES entries the filter selects
+// are compiled + staged, and the value is propagated to the Playwright
+// runner via the `EXAMPLES_FILTER` env-var so the runner executes exactly
+// the same selected set's specs. Unset (or empty) = the full sweep. The
+// filter is supplied via either:
 //
 //   1. CLI flag (cross-platform; the recommended shape):
 //      node serve-and-run-examples-tests.cjs --filter adapters
@@ -60,12 +64,17 @@ const {
 // single CI invocation today (adapter-testbed-smokes) passes
 // `adapters/` to scope the runner to the 3 adapter smokes.
 //
-// The filter is substring-matched against the shadow-cljs build id
-// (`adapters/<name>-testbed`), giving a single knob that composes
-// with both the orchestrator's compile/stage loop and the runner's
-// spec walker. Per Spec 008-Testing §Test surfaces — this is the
-// changed-surface CI tier for adapter-mount regressions (the nightly
-// / release rigorous gate remains separate).
+// Selection is shared with the runner via examples-filter.cjs's
+// `selectEntries`, which matches each pattern against an entry's
+// shadow-cljs build id (`adapters/<name>-testbed`) AND its paired
+// spec.cjs path in one canonical separator space. That means build-id
+// shapes (`adapters/reagent-testbed`, `reagent-testbed`) and path shapes
+// (`adapters/reagent/testbed`, `reagent/testbed`) select the SAME entries
+// in both the compile/stage phase here and the spec-run phase in the
+// runner (rf2-l72e2 — previously a build-id-shaped filter staged the
+// surface then matched zero specs). Per Spec 008-Testing §Test surfaces
+// — this is the changed-surface CI tier for adapter-mount regressions
+// (the nightly / release rigorous gate remains separate).
 function parseFilterFromArgs(argv) {
   // Accept `--filter <value>` or `--filter=<value>`. Ignore unknown
   // flags so future additions don't break — the orchestrator has no
@@ -80,12 +89,9 @@ function parseFilterFromArgs(argv) {
 const FILTER = parseFilterFromArgs(process.argv)
             || (process.env.EXAMPLES_FILTER || '').trim();
 // Split a comma-separated filter into the list of substrings. Empty
-// filter returns an empty array (meaning "pass-through everything"
-// — see `selectedExample` below).
-function parseFilterPatterns(raw) {
-  if (!raw) return [];
-  return raw.split(',').map((s) => s.trim()).filter((s) => s.length > 0);
-}
+// filter returns an empty array (meaning "pass-through everything").
+// Shared with the runner via examples-filter.cjs so the two phases parse
+// the filter identically.
 const FILTER_PATTERNS = parseFilterPatterns(FILTER);
 // Port resolution lives in examples-port.cjs (resolveExamplesPort, called
 // at the top of main()). Default is 8050 — in the examples orchestrator's
@@ -109,73 +115,22 @@ const READY_TIMEOUT_MS = 30000;
 const cleanup = createHarnessCleanup();
 cleanup.installSignalHandlers();
 
-// Each entry: shadow-cljs build id, the html source to stage, and the
-// directory under out/examples it lands in. The url-path is what the
-// Playwright spec navigates to under http://127.0.0.1:PORT/.
-//
-// Policy: the `examples/` tree is TEST-FREE. The orchestrator drives
-// the three adapter smokes (Reagent / UIx / Helix); every build below
-// is paired with a `spec.cjs`; never add a build here whose only
-// purpose is "compile + stage with no spec to drive it" (that's dead
-// CI weight).
-//
-// Real regressions are caught by substrate contract tests, the Xray
-// feature-matrix gate, bundle-isolation, the perf-bundle gate, and
-// mcp-conformance — not by per-example or per-testbed Playwright
-// specs. The testbed surfaces themselves (`tools/xray/testbeds/**` +
-// `testbeds/**`) stay in-tree as Xray observation targets; the build
-// targets stay in `implementation/shadow-cljs.edn` but no `EXAMPLES`
-// row references them here.
-const EXAMPLES = [
-  // ----- Adapter smokes (3 of 3) ----------------------------------------
-  // Per-adapter end-to-end smoke. Each adapter (Reagent / UIx / Helix)
-  // ships a standalone counter under
-  // implementation/adapters/<name>/testbed/ that proves the adapter
-  // wires up end-to-end (mount, subscribe, dispatch, re-render). The
-  // shadow build emits straight into out/examples/adapter-testbeds/<name>/,
-  // so the HTML is staged alongside main.js and the static server picks
-  // it up under /adapter-testbeds/<name>/. The companion spec.cjs sits
-  // beside core.cljs + index.html and is discovered via SPEC_ROOTS in
-  // run-examples-tests.cjs (which scans implementation/adapters/).
-  {
-    build: 'adapters/reagent-testbed',
-    htmlSrc: path.join(REPO_ROOT, 'implementation', 'adapters', 'reagent', 'testbed', 'index.html'),
-    outDir: path.join(OUT_ROOT, 'adapter-testbeds', 'reagent'),
-  },
-  {
-    build: 'adapters/uix-testbed',
-    htmlSrc: path.join(REPO_ROOT, 'implementation', 'adapters', 'uix', 'testbed', 'index.html'),
-    outDir: path.join(OUT_ROOT, 'adapter-testbeds', 'uix'),
-  },
-  {
-    build: 'adapters/helix-testbed',
-    htmlSrc: path.join(REPO_ROOT, 'implementation', 'adapters', 'helix', 'testbed', 'index.html'),
-    outDir: path.join(OUT_ROOT, 'adapter-testbeds', 'helix'),
-  },
-];
+// The example set (shadow-cljs build id + HTML source + output dir +
+// paired spec.cjs path) is declared ONCE in examples-filter.cjs and
+// imported as EXAMPLES above. Policy reminder: the `examples/` tree is
+// TEST-FREE; every entry pairs a build with an existing spec.cjs (never
+// stage a surface nothing tests). Real regressions are caught by
+// substrate contract tests, the Xray feature-matrix gate,
+// bundle-isolation, the perf-bundle gate, and mcp-conformance.
 
-// Substring-match a build id against the filter. Empty filter =
-// pass-through. The same predicate gates compile and stage so a
-// narrow run never spins up resources for excluded surfaces.
-//
-// `normalizeForFilter` collapses kebab/snake and `\`/`/` cosmetic
-// variants on both sides before substring-matching. Build ids already
-// use kebab-case so this is a no-op for typical filters; the gain is
-// symmetry with `run-examples-tests.cjs` (which sees
-// snake_case-bearing spec paths). Keep the predicate in lockstep so a
-// single EXAMPLES_FILTER value gates compile, stage, and spec runner
-// identically. See the runner for the substring-trap rationale.
-function normalizeForFilter(s) {
-  return s.replace(/_/g, '-').replace(/\\/g, '/');
-}
-function selectedExample(ex) {
-  if (FILTER_PATTERNS.length === 0) return true;
-  const normalized = normalizeForFilter(ex.build);
-  return FILTER_PATTERNS.some((p) => normalized.includes(normalizeForFilter(p)));
-}
-
+// Selection is delegated to the shared `selectEntries`, which matches the
+// filter against each entry's build id AND its spec path in one canonical
+// separator space — so the orchestrator's compile/stage set is identical
+// to the runner's spec set for any filter shape (rf2-l72e2). The same
+// selection gates compile and stage so a narrow run never spins up
+// resources for excluded surfaces.
 function selectedExamples() {
-  return EXAMPLES.filter(selectedExample);
+  return selectEntries(FILTER_PATTERNS);
 }
 
 function compileAll() {
