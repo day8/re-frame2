@@ -45,7 +45,7 @@
 {:rf/version 1
  :rf/app-db {:articles [{:id "a" :title "Article A" :body "Body A"}
                         {:id "b" :title "Article B" :body "Body B"}]
-             :route {:id :ssr.app/articles :params {}}}
+             :rf/runtime {:routing {:current {:id :ssr.app/articles :params {}}}}}
  :rf/render-hash "deadbeef"}
   </script>
   <script src="main.js"></script>

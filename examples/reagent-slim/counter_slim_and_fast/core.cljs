@@ -69,15 +69,18 @@
   [counter-buttons])
 
 ;; -- Mount -------------------------------------------------------------------
+;;
+;; The React root is held in an atom and materialised lazily inside `run`
+;; (not at ns-load) per examples/TESTING.md §Example mount-isolation
+;; convention: ns-load must produce no DOM side effects so co-required
+;; example namespaces don't race `create-root` onto the shared `#app`.
+;; This genuinely mirrors the behavioural twin `examples/reagent/counter`
+;; — the one blessed mount shape across the whole example tree. The only
+;; intentional divergence from the twin is the substrate swap (the
+;; `reagent2.*` imports + the slim adapter Var), which is the bundle-
+;; isolation contract this fixture exists to prove.
 
-;; Eager `(defonce root (create-root ..))` — intentionally mirrors its
-;; behavioural twin `examples/reagent/counter`, not the lazy
-;; `(defonce react-root (atom nil))` shape the larger examples use. This
-;; is a release / bundle-isolation fixture (never co-loaded with the
-;; browser-test build), so the eager form is the clearer, smaller shape
-;; and the divergence is deliberate.
-(defonce root
-  (rdc/create-root (js/document.getElementById "app")))
+(defonce react-root (atom nil))
 
 (defn run []
   ;; Slim adapter — the difference from `examples/reagent/counter` is
@@ -97,4 +100,7 @@
   ;; `:advanced`. (A no-op like `js/console.log` would be elided.)
   (set! (.-counterSlimPrerender js/globalThis)
         (rds/render-to-static-markup [counter-app]))
-  (rdc/render root [counter-app]))
+  (when (exists? js/document)
+    (when-not @react-root
+      (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
+    (rdc/render @react-root [counter-app])))

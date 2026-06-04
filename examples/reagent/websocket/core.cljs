@@ -67,8 +67,10 @@
 ;; `#app` element; running `create-root` at ns-load would race multiple
 ;; roots onto the same container and leak example-A's mount into
 ;; example-B's tests. Mounting in `run` keeps ns-load DOM-side-effect-free.
-;; The headless fixtures live in `test/websocket/<feature>_test.cljs`
-;; and run in any CLJS host without React.
+;; The headless fixtures live in the framework test tree at
+;; `implementation/adapters/reagent/test/re_frame/websocket_cljs_test.cljs`
+;; (the example tree is test-free, rf2-8cevm) and run in any CLJS host
+;; without React.
 
 (defonce react-root (atom nil))
 

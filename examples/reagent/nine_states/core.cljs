@@ -684,8 +684,10 @@
 ;; Deferring `create-root` to `run` keeps ns-load DOM-side-effect-free,
 ;; so multiple example namespaces can co-exist in one CLJS build (the
 ;; browser test runner) without stepping on each other's mount points.
-;; The headless fixtures live in `test/nine_states/core_test.cljs` and
-;; run in any CLJS host without touching React.
+;; The headless fixtures live in the framework test tree at
+;; `implementation/adapters/reagent/test/re_frame/nine_states_cljs_test.cljs`
+;; (the example tree is test-free, rf2-8cevm) and run in any CLJS host
+;; without touching React.
 
 (defonce react-root (atom nil))
 

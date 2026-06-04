@@ -24,11 +24,10 @@
    Test-free per the examples policy (no inline test fn, no sibling
    `test/` tree): the login flow this file wires is a near-twin of the
    `:auth.login/flow` machine the sibling `state_machine_walkthrough`
-   example exercises headlessly — its `test/state_machine_walkthrough/
-   core_test.cljc` drives the happy-path / retry-then-lockout / pure
-   machine-transition scenarios, gated by the
+   example exercises headlessly — the
    `state-machine-walkthrough-runs-headless` deftest in
-   `implementation/core/test/re_frame/examples_test.clj`. The walkthrough
+   `implementation/core/test/re_frame/examples_test.clj` drives the
+   happy-path / retry-then-lockout / pure machine-transition scenarios. The walkthrough
    registers its OWN parallel `:auth.login/flow` variant (same states,
    guards, actions; it adds an `:auth/locked` tag on `:locked-out`
    because its root-view renders a dedicated lockout panel — this file

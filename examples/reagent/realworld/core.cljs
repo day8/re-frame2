@@ -27,7 +27,9 @@
    This is the canonical Spec 014 (`:rf.http/managed`) demo. Every
    Conduit endpoint goes via the framework-shipped managed-HTTP fx;
    the demo entry below installs a canned-stub override so the CLJS
-   test fixtures (realworld/test/realworld/) run without a network."
+   test fixtures (in the framework test tree at
+   `implementation/adapters/reagent/test/re_frame/realworld_cljs_test.cljs`;
+   the example tree is test-free, rf2-8cevm) run without a network."
   (:require [clojure.string :as str]
             [reagent2.dom.client :as rdc]
             [re-frame.core :as rf]

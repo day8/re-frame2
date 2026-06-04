@@ -2,9 +2,10 @@
   "Browser entry-point for the state-machines walkthrough.
 
   The pure machine, fxs and subs live in `core.cljc` alongside
-  docs/guide/12-machines.md; the headless tests live in the sibling
-  `test/state_machine_walkthrough/core_test.cljc`. This namespace is the
-  CLJS-only browser layer: views + Reagent mount + a `run` fn that
+  docs/guide/12-machines.md; the headless tests live in the framework
+  test tree (the `state-machine-walkthrough-runs-headless` deftest in
+  `implementation/core/test/re_frame/examples_test.clj`). This namespace
+  is the CLJS-only browser layer: views + Reagent mount + a `run` fn that
   installs a per-frame `:fx-overrides` redirecting `:rf.http/managed`
   to the canned-failure stub registered in `core.cljc`.
 
@@ -12,8 +13,8 @@
   flow — three failed attempts that cycle :submitting → :error-shown
   → :idle, then a fourth submit that fails the `:under-retry-limit`
   guard and lands at `:locked-out`. That path is exactly what the
-  headless tests under `test/state_machine_walkthrough/` walk
-  through, so the stub needs to fail every request."
+  `state-machine-walkthrough-runs-headless` deftest walks through,
+  so the stub needs to fail every request."
   (:require [reagent2.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent-slim :as reagent-slim-adapter]
