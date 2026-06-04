@@ -307,6 +307,38 @@
     (f)))
 
 ;; ---- write API (the runtime helpers the macros expand to) ----------------
+;;
+;; Every `reg-*!` helper ends the same way — write the prepared body into the
+;; side-table slot, bump the mutation tick, return the id (`store!`) — and the
+;; seven helpers with NO per-kind preprocessing (fragment / check / workspace /
+;; mode / story-panel / decorator / tag) share their ENTIRE body: auto-install,
+;; assert the id shape, merge source-coords, validate the shape, store
+;; (`reg-simple!`). `reg-story*` (Form-B `:variants` strip + tag check) and
+;; `reg-variant*` (authored-body validation + public-vocabulary lowering + tag
+;; check) carry kind-specific steps, so they expand the flow inline but still
+;; finish through `store!`.
+
+(defn- store!
+  "Write `body` into the `[kind id]` side-table slot, bump the mutation tick,
+  and return `id`. The shared write tail of every `reg-*!` helper."
+  [kind id body]
+  (swap! kind->id->body assoc-in [kind id] body)
+  (bump-tick!)
+  id)
+
+(defn- reg-simple!
+  "The full registration flow for a kind with NO per-kind preprocessing:
+  auto-install the canonical vocabulary, police the id shape, merge source
+  coords, validate the body against the kind schema, then `store!`. Returns
+  `id`. Used by fragment / check / workspace / mode / story-panel / decorator /
+  tag — every kind whose body is stored verbatim after the standard
+  validate-and-stamp."
+  [kind id body]
+  (maybe-auto-install!)
+  (assert-id! kind id)
+  (->> (-> body merge-coords)
+       (validate-shape! kind id)
+       (store! kind id)))
 
 (defn reg-story*
   "Runtime helper for `reg-story` macro. Validates the body, stamps
@@ -324,9 +356,7 @@
                  merge-coords
                  (->> (validate-shape! :story id)))
         _    (validate-tag-membership! id (:tags body))]
-    (swap! kind->id->body assoc-in [:story id] body)
-    (bump-tick!)
-    id))
+    (store! :story id body)))
 
 (defn reg-variant*
   "Runtime helper for `reg-variant` macro. Per IMPL-SPEC §10 + spec/017
@@ -370,9 +400,7 @@
                      merge-coords
                      (->> (validate-shape! :variant id)))
         _        (validate-tag-membership! id (:tags body))]
-    (swap! kind->id->body assoc-in [:variant id] body)
-    (bump-tick!)
-    id))
+    (store! :variant id body)))
 
 (defn reg-fragment*
   "Runtime helper for `reg-fragment` macro (rf2-5x1wt.15). A fragment is a
@@ -385,14 +413,7 @@
   `:setup`/`:events` and `:script`/`:play-script` spellings at compose
   time, so the fragment keeps the author's spelling."
   [id body]
-  (maybe-auto-install!)
-  (assert-id! :fragment id)
-  (let [body (-> body
-                 merge-coords
-                 (->> (validate-shape! :fragment id)))]
-    (swap! kind->id->body assoc-in [:fragment id] body)
-    (bump-tick!)
-    id))
+  (reg-simple! :fragment id body))
 
 (defn reg-check*
   "Runtime helper for `reg-check` macro (rf2-5x1wt.15). A check is a named,
@@ -402,52 +423,24 @@
   compiler and by run results so a failed check shows its id alongside the
   underlying assertion records."
   [id body]
-  (maybe-auto-install!)
-  (assert-id! :check id)
-  (let [body (-> body
-                 merge-coords
-                 (->> (validate-shape! :check id)))]
-    (swap! kind->id->body assoc-in [:check id] body)
-    (bump-tick!)
-    id))
+  (reg-simple! :check id body))
 
 (defn reg-workspace*
   "Runtime helper for `reg-workspace` macro."
   [id body]
-  (maybe-auto-install!)
-  (assert-id! :workspace id)
-  (let [body (-> body
-                 merge-coords
-                 (->> (validate-shape! :workspace id)))]
-    (swap! kind->id->body assoc-in [:workspace id] body)
-    (bump-tick!)
-    id))
+  (reg-simple! :workspace id body))
 
 (defn reg-mode*
   "Runtime helper for `reg-mode` macro. Per IMPL-SPEC §2.8.3 modes ship
   in v1."
   [id body]
-  (maybe-auto-install!)
-  (assert-id! :mode id)
-  (let [body (-> body
-                 merge-coords
-                 (->> (validate-shape! :mode id)))]
-    (swap! kind->id->body assoc-in [:mode id] body)
-    (bump-tick!)
-    id))
+  (reg-simple! :mode id body))
 
 (defn reg-story-panel*
   "Runtime helper for `reg-story-panel` macro. Per spec/007 §Story-tool
   extension hook."
   [id body]
-  (maybe-auto-install!)
-  (assert-id! :story-panel id)
-  (let [body (-> body
-                 merge-coords
-                 (->> (validate-shape! :story-panel id)))]
-    (swap! kind->id->body assoc-in [:story-panel id] body)
-    (bump-tick!)
-    id))
+  (reg-simple! :story-panel id body))
 
 (defn reg-decorator*
   "Runtime helper for `reg-decorator` macro. Per IMPL-SPEC §3.1 the
@@ -455,26 +448,12 @@
   Story surface — it lives at the decorator's registration site, NOT in
   a variant body. The schema enforces this."
   [id body]
-  (maybe-auto-install!)
-  (assert-id! :decorator id)
-  (let [body (-> body
-                 merge-coords
-                 (->> (validate-shape! :decorator id)))]
-    (swap! kind->id->body assoc-in [:decorator id] body)
-    (bump-tick!)
-    id))
+  (reg-simple! :decorator id body))
 
 (defn reg-tag*
   "Runtime helper for `reg-tag` macro."
   [id body]
-  (maybe-auto-install!)
-  (assert-id! :tag id)
-  (let [body (-> body
-                 merge-coords
-                 (->> (validate-shape! :tag id)))]
-    (swap! kind->id->body assoc-in [:tag id] body)
-    (bump-tick!)
-    id))
+  (reg-simple! :tag id body))
 
 ;; ---- canonical tag bootstrap ---------------------------------------------
 
