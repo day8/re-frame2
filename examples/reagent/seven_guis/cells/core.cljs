@@ -41,6 +41,7 @@
             ;; Loading the ns here registers its late-bind hooks so
             ;; rf/reg-app-schema resolves.
             [re-frame.schemas]
+            [re-frame.views]
             [re-frame.adapter.reagent-slim :as reagent-slim-adapter]
             [clojure.set]
             [clojure.string :as str])
