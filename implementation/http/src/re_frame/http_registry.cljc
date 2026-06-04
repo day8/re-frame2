@@ -232,6 +232,44 @@
 ;; id as either a leaf value (declarative :spawn) or as a value under
 ;; :children (declarative :spawn-all).
 
+(def ^:private spawned-registry-path
+  "The runtime-owned spawn-registry slot in a frame's app-db, per Spec 005
+  §Declarative :spawn (mirrors `re-frame.machines.paths/spawned-path` — the
+  authoritative owner). Pinned here as a single named constant so the
+  structural coupling to the machines runtime's app-db layout has ONE site
+  rather than being inlined at each reader (rf2-b7h0q).
+
+  NOTE on the late-bind boundary: the http artefact does not (and must not)
+  statically `:require` `re-frame.machines`, so it cannot reference
+  `machines.paths/spawned-path` directly — it re-states the path here. The
+  cleaner long-term shape is to invert the existing
+  `:http/abort-on-actor-destroy` hook direction and have machines PUBLISH a
+  `:machines/spawned-actor-id?` membership test (so the structural walk
+  lives next to the registry shape it depends on); that inversion is a
+  cross-artefact change tracked separately and out of scope for this
+  http-only fix."
+  [:rf/runtime :machines :spawned])
+
+(defn- read-spawned-registry
+  "Read ONLY the runtime-owned spawn-registry slot from `frame-id`'s app-db
+  — `(get-in db spawned-registry-path)` — without retaining the whole map.
+
+  PERF (rf2-b7h0q): `frame/frame-app-db-value` is a substrate `deref` that
+  returns the persistent app-db map BY REFERENCE (no structural copy, no
+  scan), so the read is genuinely O(1) regardless of app-db size; the
+  `get-in` that follows is a fixed three-key descent. This is the
+  load-bearing assumption that makes calling this once per managed request
+  (`compute-actor-id`) cheap even for large app-dbs. Apps with no state
+  machines carry no `:spawned` slot, so this returns nil and the caller's
+  `(seq …)` test short-circuits before any structural walk.
+
+  Returns the spawned registry map, or nil when the frame is unregistered /
+  carries no machines runtime."
+  [frame-id]
+  (let [db (frame/frame-app-db-value frame-id)]
+    (when (map? db)
+      (get-in db spawned-registry-path))))
+
 (defn- spawned-actor-id?
   "Return true if `event-id` is currently bound somewhere under
   `[:rf/runtime :machines :spawned <parent> <invoke-id>]` in `spawned`
@@ -260,17 +298,18 @@
 
   Per rf2-hzn1a — fast path for the common case (no spawned actors).
   Apps that don't use state machines never carry a populated `:spawned`
-  registry; we still deref the db to check, but the seq-empty test
-  short-circuits before the O(parents × invokes) walk. This keeps the
-  cost on the no-machines hot path at one deref + one path lookup + one
+  registry; we read only that slot via `read-spawned-registry` (an O(1)
+  by-reference db deref + a fixed three-key descent — see that fn's PERF
+  note, rf2-b7h0q) and the `(seq …)` test short-circuits before the
+  O(parents × invokes) structural walk. This keeps the cost on the
+  no-machines hot path at one by-reference deref + one path lookup + one
   seq-check, rather than a full structural walk against the (always
   empty) registry."
   [frame-id origin-event]
   (let [event-id (when (vector? origin-event) (first origin-event))]
     (when (and event-id
                (not= event-id :rf.http/managed))
-      (let [db      (frame/frame-app-db-value frame-id)
-            spawned (when (map? db) (get-in db [:rf/runtime :machines :spawned]))]
+      (let [spawned (read-spawned-registry frame-id)]
         (when (seq spawned)
           (when (spawned-actor-id? spawned event-id)
             event-id))))))

@@ -104,6 +104,39 @@
                        :url         url
                        :reason      "`:request :url` is required and must be a non-blank string per Spec 014 §Request envelope; a missing / nil / blank url cannot be dispatched"})))))
 
+(defn- validate-abort-config!
+  "Per Spec 014 §`:abort-signal` (external): `:abort-signal` and
+  `:request-id` are mutually exclusive — \"pick one\" (rf2-culoe).
+
+  A request supplying BOTH gets two independent abort mechanisms wired
+  against the one in-flight request — the caller's external Fetch signal
+  forwarded into the internal controller AND the `:request-id`
+  supersede/managed-abort path — which can race, with behaviour under
+  simultaneous abort undefined-by-spec. Per the pre-alpha reject-misuse
+  posture this is a dispatch-time configuration error, not a tolerated
+  combination: throw `:rf.error/http-bad-abort-config` at the fx-call
+  site (before `run-attempt!`), matching the at-source guarding the rest
+  of the surface already carries (`validate-retry!` →
+  `:rf.error/http-bad-retry-on`, `validate-url!` →
+  `:rf.error/http-bad-request`, `build-reply-event` →
+  `:rf.error/http-bad-reply-target`). This closes the one stated abort
+  constraint that previously had no guard.
+
+  Presence is what's checked, not truthiness: an explicit `:request-id
+  nil` opts out of internal abort (the registry never indexes a nil id),
+  so only a present, non-nil `:request-id` alongside a present, non-nil
+  `:abort-signal` is the conflicting shape. `contains?` + `some?` express
+  that precisely."
+  [{:keys [request-id abort-signal] :as args-map}]
+  (when (and (contains? args-map :request-id)   (some? request-id)
+             (contains? args-map :abort-signal) (some? abort-signal))
+    (throw (ex-info ":rf.error/http-bad-abort-config"
+                    {:rf.error/id :rf.error/http-bad-abort-config
+                     :where       :rf.http/managed
+                     :recovery    :no-recovery
+                     :request-id  request-id
+                     :reason      "`:abort-signal` and `:request-id` are mutually exclusive per Spec 014 §`:abort-signal` (external) — pick one. Supplying both wires two independent abort mechanisms (the external Fetch signal forwarded into the internal controller AND the `:request-id` supersede/managed-abort path) against a single request; their simultaneous-abort behaviour is undefined-by-spec"}))))
+
 (defn- normalise-args
   "Validate + normalise the args map. Returns a context ready for the
   per-host attempt loop.
@@ -202,6 +235,12 @@
   ;; transport loop (or silently dropped when the bad member never
   ;; fires). Per Spec 014 §Closed-set `:retry :on` validation.
   (validate-retry! args-map)
+  ;; rf2-culoe — `:abort-signal` / `:request-id` mutual-exclusivity.
+  ;; Like `validate-retry!`, fires at the dispatch site (before the
+  ;; middleware chain and `run-attempt!`) so the misuse is rejected at
+  ;; source rather than wiring two racing abort mechanisms against one
+  ;; request. Per Spec 014 §`:abort-signal` (external).
+  (validate-abort-config! args-map)
   (let [frame-id     (or (:frame frame-ctx) :rf/default)
         ;; rf2-622e3 — resolve once, thread the result through
         ;; frame-ctx's :event slot so normalise-args reads it
