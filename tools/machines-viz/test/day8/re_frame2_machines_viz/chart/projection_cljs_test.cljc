@@ -2016,19 +2016,16 @@
       (is (= expected ev-node-ids)
           "every parsed edge id has a matching event-node"))))
 
-;; ---- self-loop fan superseded by multi-event collapse (rf2-shv82 → rf2-j10sm)
+;; ---- multi-event NO-collapse: distinct event-nodes (rf2-o6vh7) ----------
 ;;
-;; rf2-shv82 (Issue 2) introduced a per-source self-loop perimeter fan:
-;; N self-loops on `:disconnected` rotated around the node's perimeter
-;; so their labels did not stack. rf2-j10sm (Phase 2, B) supersedes the
-;; fan with the xstate/Stately multi-event collapse: N self-loops share
-;; ONE loop arc with N vertically-stacked labels (one event per row).
-;; That collapse is the right convention; the fan is preserved in
-;; `chart.edges/edge-path` for direct callers / future explicit-fan
-;; affordances, but the projection layer no longer fans — every
-;; self-loop carries `:loopIndex 0` (the historical single-self-loop
-;; slot) and rides the multi-event sibling stack via `:siblingIndex` +
-;; `:siblingCount` instead.
+;; HISTORY: rf2-shv82 (Issue 2) introduced a per-source self-loop perimeter
+;; fan; rf2-j10sm (Phase 2, B) replaced it with a multi-event sibling-
+;; collapse (N self-loops → ONE arc + N stacked labels via `:siblingIndex` /
+;; `:siblingCount`). rf2-o6vh7 RETIRED that collapse: under events-as-nodes
+;; every event is its OWN first-class node, so N events on one
+;; `[source target]` pair stay N DISTINCT event-nodes (no grouping, no
+;; leader/follower, no `:siblingIndex`/`:siblingCount`). These tests pin the
+;; no-collapse contract: parsed-edge count == event-node count, always.
 
 (def ^:private multi-self-loop-machine
   "Three self-loops on `:idle` (mirrors the testdeck `:disconnected`
@@ -2178,8 +2175,7 @@
       (is (some? entry))
       (is (false? (:crossHierarchy (:data entry))))
       (is (nil?   (:loopIndex (:data entry))))
-      ;; rf2-j10sm (Phase 2, B) — entry edges are always singleton
-      ;; (marker → state) so they ride the every-edge :data shape with
-      ;; siblingIndex 0 + siblingCount 1.
-      (is (= 0 (:siblingIndex (:data entry))))
-      (is (= 1 (:siblingCount (:data entry)))))))
+      ;; rf2-o6vh7 — sibling-collapse retired: no :siblingIndex/:siblingCount
+      ;; on any edge :data, entry edges included.
+      (is (not (contains? (:data entry) :siblingIndex)))
+      (is (not (contains? (:data entry) :siblingCount))))))

@@ -443,30 +443,14 @@
         ;; reserved channel — instead of the geometric midpoint heuristic.
         label-pos  (let [lp (.-labelPos d)]
                      (when lp {:x (.-x lp) :y (.-y lp)}))
-        ;; rf2-j10sm (Phase 2, B) — multi-event same-`[source target]`
-        ;; collapse. The projector groups edges by their `[source target]`
-        ;; pair and assigns each a `:siblingIndex` 0..N-1 + a
-        ;; `:siblingCount` N (in emission order). ONLY the leader
-        ;; (`:siblingIndex 0`) renders the SVG path + arrowhead; siblings
-        ;; suppress the path but render their OWN label, vertically
-        ;; stacked above/below the leader so adjacent event labels read as
-        ;; one xstate/Stately-style event-list on a single arrow rather
-        ;; than N overlapping arrows + N overlapping labels. nil / 1 keeps
-        ;; the single-event behaviour pixel-identical.
-        sibling-index   (or (.-siblingIndex d) 0)
-        sibling-count   (or (.-siblingCount d) 1)
-        sibling-leader? (zero? sibling-index)
+        ;; rf2-o6vh7 — multi-event sibling-collapse RETIRED. Under
+        ;; events-as-nodes every parsed transition is its OWN event-node,
+        ;; so same-`[source target]` transitions stay DISTINCT edges (one
+        ;; arrow each). There is no leader/follower grouping; every edge
+        ;; renders its path + label at the geometric anchor.
         {:keys [edge-label-px
                 action-pill-height action-pill-pad-x action-pill-px
                 action-pill-radius action-pill-row-gap]} vc
-        ;; rf2-j10sm (Phase 2, B) — per-sibling label-y offset. Vertical
-        ;; row pitch ≈ (label font-size + 6px padding) so adjacent labels
-        ;; touch without overlap. Centred on the geometric anchor
-        ;; (`label-y`) so a 3-event group reads as [−Δ, 0, +Δ]; a 2-event
-        ;; group as [−Δ/2, +Δ/2]; single-event group as [0].
-        row-pitch       (+ edge-label-px 6)
-        label-y-offset  (* row-pitch
-                           (- sibling-index (/ (dec sibling-count) 2.0)))
         ;; rf2-cz8v6 (G2) — path selection lives in the pure `edge-path`
         ;; helper (self-loop → elk route → bezier), so the test suite
         ;; pins the SAME geometry the renderer paints.
@@ -486,27 +470,23 @@
                                      :fired? fired? :quiet? quiet? :chart vc})]
     (r/as-element
       [:<>
-       ;; rf2-j10sm (Phase 2, B) — non-leader siblings (same `[source
-       ;; target]` pair, siblingIndex > 0) suppress the SVG path so N
-       ;; events on one transition render as ONE arrow with N stacked
-       ;; labels (the xstate/Stately convention), not N overlapping
-       ;; arrows. Single-event edges (siblingCount 1) always render the
-       ;; path — leader == only sibling.
-       (when sibling-leader?
-         [:> BaseEdge {:id (.-id props)
-                       :path path
-                       ;; Internal self-transitions suppress the arrowhead
-                       ;; (no exit/entry re-trigger to point back at).
-                       :markerEnd (when-not internal? marker-end)
-                       :style #js {:stroke stroke
-                                   :strokeWidth stroke-w
-                                   :strokeDasharray (when internal? "4 3")
-                                   ;; rf2-qeemm (G3) — the fired-this-epoch edge
-                                   ;; animates the same glow as the focused lens
-                                   ;; (it traversed), so a fired arm that is NOT
-                                   ;; the focused FROM→TO still pulses.
-                                   :animation (when (or focused? fired?)
-                                                "mv-chart-transition-glow 720ms ease-out infinite")}}])
+       ;; rf2-o6vh7 — every edge renders its own SVG path + arrowhead.
+       ;; Sibling-collapse is retired: distinct event-nodes mean distinct
+       ;; arrows, so there is no path-suppression for "follower" edges.
+       [:> BaseEdge {:id (.-id props)
+                     :path path
+                     ;; Internal self-transitions suppress the arrowhead
+                     ;; (no exit/entry re-trigger to point back at).
+                     :markerEnd (when-not internal? marker-end)
+                     :style #js {:stroke stroke
+                                 :strokeWidth stroke-w
+                                 :strokeDasharray (when internal? "4 3")
+                                 ;; rf2-qeemm (G3) — the fired-this-epoch edge
+                                 ;; animates the same glow as the focused lens
+                                 ;; (it traversed), so a fired arm that is NOT
+                                 ;; the focused FROM→TO still pulses.
+                                 :animation (when (or focused? fired?)
+                                              "mv-chart-transition-glow 720ms ease-out infinite")}}]
        (when (seq label)
        [:> EdgeLabelRenderer
         [:div {:data-testid (str "rf-mv-chart-edge-" (.-id props))
@@ -533,13 +513,6 @@
                ;; placement adjustment reads; surfaced so the DOM suite
                ;; can pin label-anchor-near-source-bend behaviour.
                :data-cross-hierarchy (str cross-hierarchy?)
-               ;; rf2-j10sm (Phase 2, B) — sibling slot in the merged
-               ;; multi-event group + per-group total. Surfaced so DOM
-               ;; tests + hosts can pin which event in a stacked label
-               ;; list this label is, and whether the edge collapsed
-               ;; (sibling-count > 1).
-               :data-sibling-index (str sibling-index)
-               :data-sibling-count (str sibling-count)
                :data-machine-level (str (boolean (.-machineLevel d)))
                ;; rf2-u422r — clickable edges surface their fireable
                ;; event-id so a host (Xray on-chart sim) + tests can
@@ -561,7 +534,7 @@
                                     :toPath   to-path})))
                :style {:position       "absolute"
                        :transform      (str "translate(-50%, -50%) translate("
-                                            label-x "px," (+ label-y label-y-offset) "px)")
+                                            label-x "px," label-y "px)")
                        :pointer-events "auto"
                        :cursor         (if clickable? "pointer" "default")
                        :font-family    chart-label-stack

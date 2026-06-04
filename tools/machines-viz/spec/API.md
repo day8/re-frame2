@@ -461,64 +461,41 @@ every other respect; where the legacy sections describe edge
 behaviour, read "edge" as "inbound or outbound edge attached to an
 event-node" unless explicitly stated otherwise.
 
-### Multi-event label collapse — one arrow, N stacked labels (rf2-j10sm Phase 2, B — SUPERSEDED by rf2-qo5xy)
+### Multi-event label collapse — SUPERSEDED and RETIRED (rf2-j10sm Phase 2, B → rf2-qo5xy → rf2-o6vh7)
 
-> rf2-qo5xy events-as-nodes paradigm SUPERSEDES this section's
-> collapse-to-one-arc convention: each event now projects as its own
-> first-class `rf2-event` node, so two transitions A→B emit two
-> distinct event-nodes (no collapse). The text below is preserved
-> for context — the rf2-j10sm rationale (legibility of N transitions
-> on one source/target pair) is honoured by the new paradigm in a
-> different way (each event-node is its own scannable box rather
-> than one of N stacked labels on a shared arrow).
+> **SUPERSEDED + RETIRED.** rf2-j10sm (Phase 2, B) once collapsed N
+> transitions sharing a `[source target]` pair into ONE arrow with N
+> vertically-stacked labels (the old xstate/Stately "multiple events
+> on one transition" rendering), assigning each edge a `:siblingIndex`
+> / `:siblingCount` and suppressing the SVG path on every non-leader.
+>
+> The rf2-qo5xy **events-as-nodes** paradigm supersedes that model:
+> each event projects as its own first-class `rf2-event` node, so N
+> transitions on one `[source target]` pair emit N **distinct**
+> event-nodes (no collapse, no grouping, no leader/follower). rf2-o6vh7
+> RETIRED the dead collapse machinery: `:siblingIndex` / `:siblingCount`
+> no longer appear on any edge `:data`, and the renderer carries no
+> `data-sibling-*` attrs or path-suppression. The legibility rationale
+> (N transitions on one source/target pair) is honoured in the new
+> paradigm by each event-node being its own scannable box. Same
+> `[source target]` event-node grouping, if ever wanted, would be a new
+> explicit feature — it is not reimplemented here.
 
-N transitions sharing a `[source target]` pair render as **ONE** arrow
-with **N vertically-stacked event labels** — the xstate/Stately
-Studio convention for "multiple events on one transition." This
-applies uniformly to:
+### Self-loop fan — `:loopIndex` (rf2-shv82 Issue 2 — SUPERSEDED)
 
-- **Multiple self-loops on one state** (e.g. testdeck `:disconnected`
-  with `:ws/arm-fail`, `:ws/disarm-fail`, `:ws/clear`): one loop arc,
-  three labels stacked.
-- **Multiple parallel transitions A → B** on different events: one
-  arrow, N labels.
-
-The projector groups edges by `[source target]` (in emission order)
-and assigns each:
-
-- `:siblingIndex` — the slot in the label stack (0..N-1).
-- `:siblingCount` — the group total (N). Singleton edges carry 1.
-
-The renderer (`chart.edges/transition-edge`) paints the SVG path +
-arrowhead **only when `:siblingIndex` is 0** (the leader); every
-sibling renders its OWN label, offset by `siblingIndex - (N-1)/2`
-rows in Y. So a 3-event group reads as `[−Δ, 0, +Δ]`, a 2-event group
-as `[−Δ/2, +Δ/2]`, a singleton as `[0]` (the historical single-event
-position pixel-identical to pre-collapse). Each label keeps its own
-`data-event-id`, click handler, and `data-fired` / `data-active`
-flags — so an Xray on-chart sim can still dispatch any individual
-event in the stack.
-
-The chart surfaces `data-sibling-index` + `data-sibling-count` on
-every transition edge label so DOM tests + hosts can pin the slot
-assignment.
-
-### Self-loop fan — `:loopIndex` (rf2-shv82 Issue 2 → superseded by rf2-j10sm)
-
-The historical multi-self-loop perimeter fan (rf2-shv82, Issue 2)
-rotated N self-loops around a node's perimeter so their labels did
-not stack. The multi-event collapse above **supersedes** the fan: N
-self-loops on one source share **one** loop arc with N stacked
-labels (visually cleaner than N fanned arcs + N labels). The fan
-geometry is preserved in `chart.edges/edge-path` for direct callers
-that want explicit per-loop rotation (no projection callers exist
-today), but the projection layer no longer fans — every self-loop
-carries `:loopIndex 0` (the historical single-self-loop slot) and
-rides the label stack via `:siblingIndex` / `:siblingCount` instead.
+> **SUPERSEDED.** The historical multi-self-loop perimeter fan
+> (rf2-shv82, Issue 2) rotated N self-loops around a node's perimeter so
+> their labels did not stack. Under the rf2-qo5xy events-as-nodes
+> paradigm each self-event is its own event-node, so multiple self-loops
+> on one state are multiple distinct event-nodes — there is no fan and no
+> collapse to reconcile. The fan geometry survives only in
+> `chart.edges/edge-path` for direct callers that want explicit per-loop
+> rotation (no projection callers exist); every self-loop edge carries
+> `:loopIndex 0`. (The rf2-o6vh7 retirement removed the `:siblingIndex` /
+> `:siblingCount` machinery this section once referenced.)
 
 The chart still surfaces `data-loop-index` on every self-loop edge
-label for DOM-test back-compat; a non-self-loop edge carries no
-`data-loop-index`.
+label for DOM tests; a non-self-loop edge carries no `data-loop-index`.
 
 ### Label rendering — padded backgrounds (rf2-j10sm Phase 1, D)
 
