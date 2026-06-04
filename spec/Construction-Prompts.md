@@ -827,18 +827,18 @@ The handler reads `(get-in db [:rf/runtime :routing :current])` for any path/que
 ```clojure
 (defn install-router! [frame-id]
   (.addEventListener js/window "popstate"
-    #(rf/dispatch [:rf.route/transitioned (.. js/window -location -href)] {:frame frame-id}))
-  (rf/dispatch [:rf.route/transitioned (.. js/window -location -href)] {:frame frame-id}))
+    #(rf/dispatch [:rf.route/handle-url-change (.. js/window -location -href)] {:frame frame-id}))
+  (rf/dispatch [:rf.route/handle-url-change (.. js/window -location -href)] {:frame frame-id}))
 ```
 
-`:rf.route/transitioned` is the runtime's URL-change event; its default handler is `:rf.route/handle-url-change`.
+Routing has two co-equal URL-change events. Popstate and the initial sync (above) dispatch `:rf.route/handle-url-change` (default scroll `:restore`); forward navigation — a `route-link` click or programmatic push — dispatches `:rf.route/transitioned` (default scroll `:top`). Both run the identical slice-rewrite; neither delegates to the other.
 
 **Pattern-level discipline:**
 
 - The route is in `app-db`; the URL is derivable. Never make routing state live outside `app-db`.
 - Navigation is an event. Don't call browser APIs directly from view code; dispatch `:rf.route/navigate` (or use `route-link`).
 - Per-route data loading is **declarative** — list events in `:on-match` on `reg-route`. The runtime dispatches them.
-- Server-side renders set the route via `:rf.route/transitioned` against the request URL; the same `:on-match` events run server-side.
+- Server-side renders set the route via `:rf.route/handle-url-change` against the request URL; the same `:on-match` events run server-side.
 - Path params and query params are **separate maps** — `(get-in db [:rf/runtime :routing :current :params])` and `(get-in db [:rf/runtime :routing :current :query])`.
 
 **AI-first checklist:**
