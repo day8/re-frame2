@@ -115,14 +115,14 @@ You navigate by dispatching, the same verb you use for everything else:
 ;; With path params
 (rf/dispatch [:rf.route/navigate :route/cart.item-detail {:id "abc-123"}])
 
-;; With query params
-(rf/dispatch [:rf.route/navigate :route/search {} {:q "clojure" :page 2}])
+;; With query params — query goes in the 3rd-position opts map
+(rf/dispatch [:rf.route/navigate :route/search {} {:query {:q "clojure" :page 2}}])
 
-;; With a fragment
-(rf/dispatch [:rf.route/navigate :route/docs {:page "routing"} {} "scroll-restoration"])
+;; With a fragment — also an opts key
+(rf/dispatch [:rf.route/navigate :route/docs {:page "routing"} {:fragment "scroll-restoration"}])
 
 ;; Replace rather than push (login redirects, redirect-on-load)
-(rf/dispatch [:rf.route/navigate :route/login {} {} nil {:replace? true}])
+(rf/dispatch [:rf.route/navigate :route/login {} {:replace? true}])
 
 ;; URL-string escape hatch, for dynamic / user-supplied URLs
 (rf/dispatch [:rf.route/navigate {:url "/some/path"}])
@@ -438,7 +438,7 @@ And the auth guard — *"redirect to login if this route needs auth and you're n
                     logged-in?  (some? (get-in ctx [:coeffects :db :auth :user]))]
                 (if (and needs-auth? (not logged-in?))
                   (assoc-in ctx [:coeffects :event]
-                            [:rf.route/navigate :route/login {} {} nil {:return-to target}])
+                            [:rf.route/navigate :route/login {} {:return-to target}])
                   ctx)))))
 ```
 
