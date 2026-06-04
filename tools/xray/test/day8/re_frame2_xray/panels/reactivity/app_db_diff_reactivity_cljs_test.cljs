@@ -114,23 +114,30 @@
             "rf2-70tkv — LIVE mode auto-follows the head cascade; the
              App-db Diff panel rebinds to the new head's diff")))))
 
-;; ---- rf2-yng0y — atomic focused-epoch before-image ----------------------
+;; ---- rf2-02j4r / rf2-yng0y — atomic per-epoch-delta before+after --------
 ;;
 ;; The zoom-nav stale-frame flash (rf2-yng0y) was a stale `:before` that
 ;; lagged the focused `:epoch-id` by one animation frame, because the
 ;; before-image resolved through a deep composed chain
 ;; (`:focus → focus-epoch-id → selected-epoch-record → app-db-state`).
 ;; The fix collapses that chain into ONE sub
-;; (`:rf.xray/app-db-current+diff`) that resolves `:before` and
-;; `:epoch-id` from the SAME epoch record in a single computation, so
-;; they can never disagree.
+;; (`:rf.xray/app-db-current+diff`) that resolves the focused record's
+;; slots in a single computation, so they can never disagree.
+;;
+;; rf2-02j4r REVERSED the rf2-yng0y `:value = live-db` design: `:value`
+;; is now the focused epoch's `:db-after`, so the inline diff is the
+;; per-epoch delta `db-before(N) → db-after(N)` — NOT the cumulative
+;; live-vs-`db-before(N)` that bled later events onto earlier selections.
+;; Both `:value` and `:before` are pulled from the SAME focused record,
+;; which STRENGTHENS atomicity (every slot from one record).
 ;;
 ;; The flash itself is timing-sensitive (it only paints under real mouse
 ;; timing vs rAF batching, which a unit test cannot reproduce
 ;; deterministically). What we CAN assert deterministically is the
 ;; ATOMICITY INVARIANT that makes the flash impossible by construction:
-;; the sub never returns a `{:before :epoch-id}` pair where `:before`
-;; differs from the `:db-before` of the record named by `:epoch-id`.
+;; the sub never returns a `{:value :before :epoch-id}` triple where
+;; `:value`/`:before` differ from the `:db-after`/`:db-before` of the
+;; record named by `:epoch-id`.
 
 (defn- db-before-of
   "The `:db-before` of the `epoch-id` record in the fixture history,
@@ -139,49 +146,65 @@
   (some (fn [r] (when (= epoch-id (:epoch-id r)) (:db-before r)))
         epoch-history))
 
+(defn- db-after-of
+  "The `:db-after` of the `epoch-id` record in the fixture history,
+  or nil when `epoch-id` is nil / absent."
+  [epoch-id]
+  (some (fn [r] (when (= epoch-id (:epoch-id r)) (:db-after r)))
+        epoch-history))
+
 (defn- assert-atomic!
   "Read `:rf.xray/app-db-current+diff` and assert the atomicity
-  invariant: `:before` equals the `:db-before` of `:epoch-id`."
+  invariant: `:before` equals the `:db-before` of `:epoch-id` AND
+  `:value` equals its `:db-after` (per-epoch-delta, rf2-02j4r)."
   [label]
-  (let [{:keys [before epoch-id]} (h/read-sub :rf.xray/app-db-current+diff)]
+  (let [{:keys [value before epoch-id]} (h/read-sub :rf.xray/app-db-current+diff)]
     (is (= (db-before-of epoch-id) before)
         (str label " — :before must equal the :db-before of :epoch-id "
              "(atomicity invariant rf2-yng0y); got before=" (pr-str before)
              " epoch-id=" (pr-str epoch-id)))
+    (is (= (db-after-of epoch-id) value)
+        (str label " — :value must equal the :db-after of :epoch-id "
+             "(per-epoch-delta, rf2-02j4r); got value=" (pr-str value)
+             " epoch-id=" (pr-str epoch-id)))
     epoch-id))
 
 (deftest current+diff-before-is-atomic-with-epoch-id
-  (testing "rf2-yng0y — the atomic sub's `:before` is ALWAYS the
-            `:db-before` of its own `:epoch-id`, across every focus
-            selection. There is no `{:before :epoch-id}` pair where the
-            two name different epochs — the stale-`before` glitch is
-            impossible by construction."
+  (testing "rf2-yng0y / rf2-02j4r — the atomic sub's `:before` is ALWAYS
+            the `:db-before` of its own `:epoch-id` and `:value` is its
+            `:db-after`, across every focus selection. No
+            `{:value :before :epoch-id}` triple names a different epoch
+            for any slot — the stale-`before` glitch is impossible by
+            construction, and the diff is always the epoch's own delta."
     (h/setup-xray-frame!)
     (h/seed-cascades! cascades)
     (h/seed-epoch-history! epoch-history)
-    ;; Focus :c1 (epoch :e1, db-before {}).
+    ;; Focus :c1 (epoch :e1, db-before {}, db-after {:counter 1}).
     (h/focus-cascade! :c1)
     (is (= :e1 (assert-atomic! "focus :c1")))
-    (let [{:keys [before epoch-id]} (h/read-sub :rf.xray/app-db-current+diff)]
+    (let [{:keys [value before epoch-id]} (h/read-sub :rf.xray/app-db-current+diff)]
       (is (= :e1 epoch-id))
-      (is (= {} before) ":e1's db-before is the empty map"))
-    ;; Flip to :c2 (epoch :e2, db-before {:counter 1}) — the slot the
-    ;; flash used to surface on. before + epoch-id move together.
+      (is (= {} before) ":e1's db-before is the empty map")
+      (is (= {:counter 1} value) ":e1's db-after is {:counter 1}"))
+    ;; Flip to :c2 (epoch :e2, db-before {:counter 1}, db-after
+    ;; {:counter 2}) — the slot the flash used to surface on. value +
+    ;; before + epoch-id all move together.
     (h/focus-cascade! :c2)
     (is (= :e2 (assert-atomic! "focus :c2")))
-    (let [{:keys [before epoch-id]} (h/read-sub :rf.xray/app-db-current+diff)]
+    (let [{:keys [value before epoch-id]} (h/read-sub :rf.xray/app-db-current+diff)]
       (is (= :e2 epoch-id))
-      (is (= {:counter 1} before) ":e2's db-before is {:counter 1}"))
+      (is (= {:counter 1} before) ":e2's db-before is {:counter 1}")
+      (is (= {:counter 2} value) ":e2's db-after is {:counter 2}"))
     ;; Flip back — invariant holds in both directions.
     (h/focus-cascade! :c1)
     (is (= :e1 (assert-atomic! "focus :c1 (return)")))))
 
-(deftest current+diff-value-is-stable-while-before-tracks-focus
-  (testing "rf2-yng0y — the App-DB tab is a CURRENT-STATE inspector:
-            `:value` is the live target-frame-db (constant as the
-            operator scrubs epochs); only `:before` moves per epoch.
-            Confirms the panel's atomic contract — value steady, before
-            tracking — so the diff overlay is the sole per-epoch change."
+(deftest current+diff-value-and-before-both-track-focus
+  (testing "rf2-02j4r — the App-DB tab shows the SELECTED epoch's OWN
+            delta: BOTH `:value` (db-after) and `:before` (db-before)
+            move per epoch, so the inline diff is db-before(N) →
+            db-after(N) and nothing later bleeds in. (This REVERSES the
+            rf2-yng0y `:value = live-db, constant as you scrub` design.)"
     (h/setup-xray-frame!)
     (h/seed-cascades! cascades)
     (h/seed-epoch-history! epoch-history)
@@ -191,11 +214,75 @@
       (h/focus-cascade! :c2)
       (let [v2 (:value (h/read-sub :rf.xray/app-db-current+diff))
             b2 (:before (h/read-sub :rf.xray/app-db-current+diff))]
-        (is (= v1 v2)
-            ":value is constant across the scrub (live target-frame-db)")
+        (is (not= v1 v2)
+            ":value moves with the focused epoch (db-after(N)) — NOT a
+             constant live-db (rf2-02j4r reversal)")
         (is (not= b1 b2)
-            ":before moves with the focused epoch — the diff overlay is
-             the only per-epoch change")))))
+            ":before moves with the focused epoch (db-before(N))")
+        (is (= {:counter 1} v1) ":e1's value is its db-after")
+        (is (= {:counter 2} v2) ":e2's value is its db-after")))))
+
+;; ---- rf2-02j4r — no later-event bleed onto an earlier selection ---------
+;;
+;; THE BUG: focusing a NON-head epoch N showed the CUMULATIVE diff
+;; live-db vs db-before(N) — every change from N forward to NOW lit up,
+;; so a key added by a LATER event bled onto epoch N's selection. This
+;; test focuses an EARLIER epoch after a later event has occurred and
+;; asserts the sub yields exactly epoch N's own delta (db-after(N)),
+;; with no trace of the later event's key. The head-only test passes
+;; under the OLD buggy code (live == db-after at head); this one focuses
+;; a non-head epoch, so it FAILS under the old code and PASSES only with
+;; the per-epoch-delta fix.
+
+(def bleed-cascades
+  [(h/cascade :early :rf/default)
+   (h/cascade :late  :rf/default)])
+
+(def bleed-history
+  ;; :early adds :media/deep; :late (the LATER event) adds :media/shallow.
+  ;; The live head db carries BOTH keys.
+  [(h/mock-epoch :ep-early :early
+                 {:counter 1}
+                 {:counter 1 :media/deep :on})
+   (h/mock-epoch :ep-late  :late
+                 {:counter 1 :media/deep :on}
+                 {:counter 1 :media/deep :on :media/shallow :on})])
+
+(deftest earlier-epoch-shows-own-delta-no-later-bleed
+  (testing "rf2-02j4r — selecting an EARLIER epoch after a later event
+            occurred shows ONLY that epoch's own delta; the later
+            event's added key does NOT bleed in. Focus :ep-early (which
+            added :media/deep): :value must be ep-early's db-after
+            (carrying :media/deep but NOT :media/shallow), and the diff
+            against :before introduces ONLY :media/deep."
+    (h/setup-xray-frame!)
+    (h/seed-cascades! bleed-cascades)
+    (h/seed-epoch-history! bleed-history)
+    ;; Scrub BACK to the earlier epoch (the head is :ep-late).
+    (h/focus-cascade! :early)
+    (let [{:keys [value before epoch-id]}
+          (h/read-sub :rf.xray/app-db-current+diff)]
+      (is (= :ep-early epoch-id) "focus resolved to the earlier epoch")
+      (is (= {:counter 1 :media/deep :on} value)
+          ":value is ep-early's OWN db-after — :media/deep present")
+      (is (not (contains? value :media/shallow))
+          "rf2-02j4r — :media/shallow (added by the LATER :late event)
+           must NOT bleed into the earlier selection's :value")
+      (is (= {:counter 1} before)
+          ":before is ep-early's db-before (no :media/* keys yet)")
+      ;; The inline diff (value vs before) introduces ONLY :media/deep.
+      (let [added-keys (remove (set (keys before)) (keys value))]
+        (is (= [:media/deep] (vec added-keys))
+            "the per-epoch delta adds exactly :media/deep — nothing the
+             later event introduced")))
+    ;; Sanity: focusing the LATER epoch shows ITS own delta (:media/shallow).
+    (h/focus-cascade! :late)
+    (let [{:keys [value before]} (h/read-sub :rf.xray/app-db-current+diff)]
+      (is (contains? value :media/shallow)
+          ":late's db-after carries :media/shallow")
+      (let [added-keys (remove (set (keys before)) (keys value))]
+        (is (= [:media/shallow] (vec added-keys))
+            ":late's per-epoch delta adds exactly :media/shallow")))))
 
 (deftest app-db-state-section-model-tracks-focused-before
   (testing "rf2-yng0y — `:rf.xray/app-db-state` (the panel's consumed

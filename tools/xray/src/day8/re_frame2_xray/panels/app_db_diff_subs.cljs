@@ -336,17 +336,37 @@
         (h/epochs-touching-path history focused-path)
         [])))
 
-  ;; ---- rf2-yng0y — ATOMIC current-state + focused-epoch before-image --
+  ;; ---- rf2-02j4r — PER-EPOCH-DELTA current-state + before-image -------
   ;;
-  ;; The app-db tab is a CURRENT-STATE inspector (re-frame-10x style)
-  ;; that ALSO carries the focused epoch's diff inline (spec/021 §4.1 —
-  ;; "what does state LOOK LIKE — and what just changed?"):
+  ;; The app-db tab shows the SELECTED epoch's OWN delta — what THIS
+  ;; event changed, and nothing later (spec/021 §4.1, spec/004
+  ;; §Diff-semantics):
   ;;
-  ;;   :value  = the observed frame's LIVE app-db (constant as you scrub)
-  ;;   :before = the focused epoch's `:db-before` (the inline-diff
-  ;;             pre-image — the ONLY thing that changes per epoch)
+  ;;   :value  = the focused epoch's `:db-after`  (the post-state OF that
+  ;;             event — moves per epoch as you scrub)
+  ;;   :before = the focused epoch's `:db-before` (the pre-state OF that
+  ;;             event — moves per epoch as you scrub)
   ;;
-  ;; ## Why one sub, not a 5-deep chain (rf2-yng0y root-cause fix)
+  ;; Both come from the SAME focused record, so the inline diff is
+  ;; exactly `db-before(N) → db-after(N)` — epoch N's per-epoch delta,
+  ;; independent of any later event. Selecting :media/deep highlights
+  ;; ONLY what :media/deep changed; :media/shallow stays unhighlighted
+  ;; until you select ITS epoch.
+  ;;
+  ;; ## Why per-epoch-delta, not live-vs-before (rf2-02j4r reversal)
+  ;;
+  ;; The rf2-yng0y design set `:value = the LIVE target-frame-db`
+  ;; ("constant as you scrub", a re-frame-10x current-state framing).
+  ;; Diffing LIVE-value vs focused-`:db-before` equals the per-epoch
+  ;; delta ONLY when the focused epoch is HEAD (live == that epoch's
+  ;; `:db-after`). Scrub to ANY non-head epoch and it became a
+  ;; CUMULATIVE diff — everything changed from the focused epoch forward
+  ;; to NOW — so later events' changes bled onto earlier selections.
+  ;; That actively misled during the core time-travel use case (Mike,
+  ;; 2026-06-04). The fix: `:value` follows the focused epoch's
+  ;; `:db-after`, so the diff is the epoch's own delta at every position.
+  ;;
+  ;; ## Why one sub, not a 5-deep chain (rf2-yng0y root-cause fix KEPT)
   ;;
   ;; Previously the section model resolved through a deep composed
   ;; chain — `:rf.xray/focus → :rf.xray/focus-epoch-id →
@@ -361,21 +381,24 @@
   ;;
   ;; This sub collapses the chain: it joins the live db, the epoch
   ;; history, and the spine `:rf.xray/focus` map DIRECTLY, then resolves
-  ;; the focused record's `:db-before` and `:epoch-id` together in ONE
-  ;; computation. `:before` and `:epoch-id` are pulled from the SAME
-  ;; `record`, so they can NEVER disagree — there is no intermediate
-  ;; reaction layer carrying a stale `:before` for a frame, and so no
-  ;; stale projection can paint. (Note: `(peek history)` is NOT a
-  ;; fallback here — the App-DB before-image follows the FOCUSED epoch;
-  ;; the `(peek history)` fallback that `:rf.xray/selected-epoch-diff`
-  ;; uses is a separate Epoch-panel/MCP concern.)
+  ;; the focused record's `:db-after`, `:db-before` and `:epoch-id`
+  ;; together in ONE computation. All three are pulled from the SAME
+  ;; `record`, so they can NEVER disagree — pulling `:value` from the
+  ;; focused record too STRENGTHENS the atomicity (every slot from one
+  ;; record, not value-from-live + before-from-record). (Note: `(peek
+  ;; history)` is NOT a fallback here — the App-DB diff follows the
+  ;; FOCUSED epoch; the `(peek history)` fallback that
+  ;; `:rf.xray/selected-epoch-diff` uses is a separate Epoch-panel/MCP
+  ;; concern.)
   ;;
   ;; ATOMICITY INVARIANT (asserted by the deterministic unit test):
-  ;;   for any returned map, `(= :before (:db-before <record of
-  ;;   :epoch-id>))` — `:before` is, by construction, the `:db-before`
-  ;;   of the epoch named by `:epoch-id`. When no epoch is focused
-  ;;   (cold boot, no cascades) both are nil and the panel renders plain
-  ;;   current-state.
+  ;;   for any returned map with a focused epoch, `:value` =
+  ;;   `(:db-after <record of :epoch-id>)` AND `:before` =
+  ;;   `(:db-before <record of :epoch-id>)` — both are, by construction,
+  ;;   the slots of the epoch named by `:epoch-id`. When no epoch is
+  ;;   focused (cold boot, no cascades) `:value` falls back to the LIVE
+  ;;   db and `:before` is nil — the panel renders plain current-state
+  ;;   with no diff overlay (unchanged from rf2-yng0y).
   (rf/reg-sub :rf.xray/app-db-current+diff
     :<- [:rf.xray/target-frame-db]
     :<- [:rf.xray/epoch-history]
@@ -384,9 +407,15 @@
       (let [epoch-id (:epoch-id focus)
             record   (when epoch-id (find-epoch-in-history history epoch-id))
             before   (when record (:db-before record))]
-        {:value    db
-         ;; `:before` and `:epoch-id` come from the SAME record — they
-         ;; move together, never one-frame apart.
+        {;; rf2-02j4r — `:value` is the focused epoch's `:db-after` (its
+         ;; OWN post-state), so the inline diff is db-before(N) →
+         ;; db-after(N) = epoch N's per-epoch delta, not the cumulative
+         ;; live-vs-db-before(N) that bled later events onto earlier
+         ;; selections. Cold boot / no focus → fall back to the LIVE db
+         ;; (plain current-state, no diff).
+         :value    (if record (:db-after record) db)
+         ;; `:value`, `:before` and `:epoch-id` all come from the SAME
+         ;; record — they move together, never one-frame apart.
          :before   before
          :epoch-id (when record epoch-id)})))
 

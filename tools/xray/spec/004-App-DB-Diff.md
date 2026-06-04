@@ -94,6 +94,28 @@ paths (the runtime stays cheap); Xray runs the diff on the panel's
 first mount per epoch, caches per `[frame-id epoch-id]`, and discards
 on epoch age-out.
 
+### Diff semantics: per-epoch delta (rf2-02j4r)
+
+The diff is always the **selected epoch N's own delta** —
+`db-before(N) → db-after(N)`, the change introduced by THIS event
+compared to the immediately previous event. Both sides come from the
+**same focused epoch record**: `:db-before` is the pre-image and
+`:db-after` is the post-image (the App-DB panel surfaces `:db-after` as
+its `:value`). The delta is therefore **independent of any later
+event** — scrubbing back to an earlier epoch shows only what that epoch
+changed, never the cumulative change since.
+
+> **rf2-02j4r (2026-06-04)** reversed the earlier rf2-yng0y App-DB-panel
+> design, which diffed the **live** target-frame db against the focused
+> epoch's `:db-before`. That equals the per-epoch delta only when the
+> focused epoch is head; at any non-head epoch it became a cumulative
+> live-vs-`db-before(N)` diff, so later events' changes bled onto earlier
+> selections. The panel now pulls `:value` from the focused record's
+> `:db-after` (see [`021` §4.5](021-Dynamic-Panel-Designs.md#45-per-epoch-delta-not-cumulative-rf2-02j4r)).
+> The Editscript engine call here is unchanged — it always diffed the
+> record's `:db-before`/`:db-after` pair; the reversal was in which value
+> the *panel* presents as the current-state side.
+
 > **rf2-nfgps — frame-scoped cache key.** The per-epoch caches key on
 > the COMPOUND `[frame-id epoch-id]`, never `:epoch-id` alone. The
 > framework's epoch contract guarantees `:epoch-id` is unique only
