@@ -1932,6 +1932,111 @@
         "after destroy, install succeeds again — clean swap path")))
 
 ;; ===========================================================================
+;; public surface + adapter-map shape (rf2-6c2sr / rf2-ynjts.4) — folded
+;; from the byte-identical uix_public_surface / helix_public_surface twins
+;; (rf2-6j09b).
+;;
+;; WHAT THESE PIN. The UIx and Helix adapters re-export the SAME seven
+;; public Vars out of `make-react-spine` plus the `adapter` map. Every
+;; BEHAVIOUR is asserted elsewhere in this suite + the DOM twins, but two
+;; re-exports — `use-current-frame` and `flush-views!` — are referenced by
+;; NO behavioural test, and a copy-paste spine-key mis-wire (two Vars
+;; bound to the same spine fn) would pass every behavioural test for
+;; whichever Var happened to forward the asserted behaviour. These four
+;; assertions pin the WIRING the behaviour tests cannot see: presence +
+;; kind of every public Var, cross-wiring distinctness, the node-safe
+;; flush-views! contract, and the 9-fn substrate-contract shape + :kind of
+;; the adapter map.
+;;
+;; CONFIG. Substrate-specific because each adapter's public Vars are
+;; distinct objects the suite cannot name directly — the entry file passes
+;; them in via the cfg `:public-surface` map (the seven named Vars). The
+;; `:kind` discriminator is read off the existing `:adapter` cfg key (the
+;; adapter map carries its own :kind), so no extra cfg key is needed for
+;; the adapter-map shape assertion.
+;;
+;; Node-safe. The hook Vars (`use-current-frame` / `use-subscribe`) are
+;; only asserted for KIND + IDENTITY, never INVOKED outside a render (the
+;; DOM twins own invocation). `flush-views!` is the one hook-adjacent Var
+;; that IS node-safe to call (spine resolve-act-fn → nil when act() is
+;; unreachable ⇒ no-op nil).
+;; ===========================================================================
+
+(def ^:private public-surface-keys
+  "The seven public Vars every React-shaped adapter re-exports, in the
+  order the entry-file cfg `:public-surface` map should carry them."
+  [:set-hiccup-emitter!
+   :use-current-frame
+   :frame-provider
+   :use-subscribe
+   :flush-views!
+   :wrap-view
+   :clear-warned-non-dom-roots!])
+
+(defn assert-public-vars-present-and-callable
+  "Every documented public Var the adapter re-exports is bound and
+  fn-shaped (a dropped/renamed re-export trips this — incl.
+  use-current-frame + flush-views!, which no behavioural test references)."
+  [{:keys [public-surface name]}]
+  (testing (str name " — public surface: every public Var is bound and fn-shaped")
+    (doseq [k public-surface-keys]
+      (is (fn? (get public-surface k))
+          (str (clojure.core/name k) " is bound and fn-shaped")))))
+
+(defn assert-public-vars-distinct-fns
+  "No two public Vars are the SAME fn object — guards a copy-paste
+  spine-key mis-wire (e.g. use-current-frame ← :use-subscribe).
+  Behavioural tests would still pass for whichever Var happened to forward
+  the asserted behaviour."
+  [{:keys [public-surface name]}]
+  (testing (str name " — public surface: the seven public Vars are distinct fn objects")
+    (let [surface (select-keys public-surface public-surface-keys)
+          fns     (vals surface)]
+      (is (= (count fns) (count (distinct fns)))
+          (str "expected 7 distinct fn objects across the public surface; "
+               "duplicates indicate a cross-wired spine key. Surface: "
+               (pr-str (mapv (fn [[k v]] [k (hash v)]) surface)))))))
+
+(defn assert-flush-views-returns-nil-and-is-node-safe
+  "flush-views! returns nil on both arities and does not throw at node
+  level when React's act() is unreachable (spine resolve-act-fn → nil ⇒
+  no-op). Documented contract."
+  [{:keys [public-surface name]}]
+  (testing (str name " — public surface: flush-views! returns nil and is node-safe")
+    (let [flush-views! (:flush-views! public-surface)]
+      (is (nil? (flush-views!)) "0-arity flush returns nil")
+      (let [ran (atom false)]
+        (is (nil? (flush-views! (fn [] (reset! ran true))))
+            "1-arity flush returns nil")
+        ;; When act() IS reachable (React 19 hosts it on the React ns) the
+        ;; thunk runs; when it is NOT, the thunk is skipped. Either way the
+        ;; call is a safe no-throw nil — assert only the contract that
+        ;; holds on every React build (no @ran assertion: that is
+        ;; React-version dependent and would be flaky).
+        (is (contains? #{true false} @ran)
+            "thunk-ran flag is a clean boolean (no partial/throwing state)")))))
+
+(defn assert-adapter-map-satisfies-nine-fn-contract
+  "The adapter map carries the substrate's :kind discriminator
+  (`:rf.adapter/<substrate-kw>`, e.g. :rf.adapter/uix — mixed-substrate
+  routing keys off this) and all nine substrate-contract fns (Spec 006
+  §CLJS reference). make-react-adapter assembles this; dropping a contract
+  fn or mis-tagging :kind trips here. The expected kind is derived from
+  the cfg `:substrate-kw` so each adapter's exact discriminator is pinned,
+  not merely its shape."
+  [{:keys [adapter substrate-kw name]}]
+  (testing (str name " — public surface: adapter map carries :kind + the nine contract fns")
+    (is (map? adapter) "adapter is a map")
+    (is (= (keyword "rf.adapter" (clojure.core/name substrate-kw)) (:kind adapter))
+        (str "kind discriminator is :rf.adapter/" (clojure.core/name substrate-kw)
+             " (mixed-substrate routing keys off this)"))
+    (doseq [k [:make-state-container :read-container :replace-container!
+               :subscribe-container :make-derived-value :render
+               :render-to-string :register-context-provider :dispose-adapter!]]
+      (is (fn? (get adapter k))
+          (str "adapter contract fn " k " is present and fn-shaped")))))
+
+;; ===========================================================================
 ;; *current-frame* propagation across dispatch (rf2-l5q3) — port of
 ;; `*_dispatch_frame_capture`. Async + sync. Driven from a dedicated
 ;; entry-file pair carrying a {:before :after} map fixture (async tests

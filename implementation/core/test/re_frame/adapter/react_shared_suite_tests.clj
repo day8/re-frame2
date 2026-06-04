@@ -251,7 +251,17 @@
    {:test 'xspec-portable-story-fx-override
     :fn   'assert-xspec-portable-story-fx-override}
    {:test 'xspec-adapter-already-installed
-    :fn   'assert-xspec-adapter-already-installed}])
+    :fn   'assert-xspec-adapter-already-installed}
+
+   {:section "public surface + adapter-map shape (rf2-6c2sr / rf2-ynjts.4 — folded from uix_public_surface + helix_public_surface, rf2-6j09b)"}
+   {:test 'public-vars-present-and-callable
+    :fn   'assert-public-vars-present-and-callable}
+   {:test 'public-vars-distinct-fns
+    :fn   'assert-public-vars-distinct-fns}
+   {:test 'public-flush-views-returns-nil-and-node-safe
+    :fn   'assert-flush-views-returns-nil-and-is-node-safe}
+   {:test 'public-adapter-map-nine-fn-contract
+    :fn   'assert-adapter-map-satisfies-nine-fn-contract}])
 
 (def ^{:doc "Public seq of {:test name :fn assert-fn} maps a code reader
   can `(require)` from a JVM REPL to list every generated test name.

@@ -31,7 +31,10 @@
   wiring, the late-bind hook publication set + directory cross-check,
   chained clear-warn-once-caches!, the routing pipeline, the headless
   runtime slice, :rf.view/rendered, make-derived-value per-arity +
-  watch-baseline, managed-HTTP, and the cross-Spec headless subset.
+  watch-baseline, managed-HTTP, the cross-Spec headless subset, and
+  (rf2-6j09b) the public-surface guard: presence/kind/cross-wiring
+  distinctness of the seven re-exported Vars + the adapter-map :kind +
+  nine-fn shape, folded from the former uix_public_surface_cljs_test.cljs.
 
   The async *current-frame*-across-dispatch contract (rf2-l5q3) is
   forwarded from a dedicated entry pair carrying a map-form fixture —
@@ -71,7 +74,18 @@
    :wrap-view        uix-adapter/wrap-view
    :clear-warn!      uix-adapter/clear-warned-non-dom-roots!
    :set-emitter!     uix-adapter/set-hiccup-emitter!
-   :render-to-string (:render-to-string uix-adapter/adapter)})
+   :render-to-string (:render-to-string uix-adapter/adapter)
+   ;; rf2-6j09b — the seven public Vars the suite's public-surface guard
+   ;; asserts (presence/kind/distinctness). Substrate-specific because each
+   ;; adapter's re-exports are distinct objects the suite cannot name
+   ;; directly; folded from the former uix_public_surface_cljs_test.cljs.
+   :public-surface   {:set-hiccup-emitter!         uix-adapter/set-hiccup-emitter!
+                      :use-current-frame           uix-adapter/use-current-frame
+                      :frame-provider              uix-adapter/frame-provider
+                      :use-subscribe               uix-adapter/use-subscribe
+                      :flush-views!                uix-adapter/flush-views!
+                      :wrap-view                   uix-adapter/wrap-view
+                      :clear-warned-non-dom-roots! uix-adapter/clear-warned-non-dom-roots!}})
 
 ;; Emit one (deftest name (re-frame.adapter.react-shared-suite/assert-name cfg))
 ;; per row in `react-shared-suite-tests/test-specs`. The macro ns owns

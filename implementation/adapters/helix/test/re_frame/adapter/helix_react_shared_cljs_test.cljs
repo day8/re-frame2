@@ -32,7 +32,10 @@
   wiring, the late-bind hook publication set + directory cross-check,
   chained clear-warn-once-caches!, the routing pipeline, the headless
   runtime slice, :rf.view/rendered, make-derived-value per-arity +
-  watch-baseline, managed-HTTP, and the cross-Spec headless subset.
+  watch-baseline, managed-HTTP, the cross-Spec headless subset, and
+  (rf2-6j09b) the public-surface guard: presence/kind/cross-wiring
+  distinctness of the seven re-exported Vars + the adapter-map :kind +
+  nine-fn shape, folded from the former helix_public_surface_cljs_test.cljs.
 
   The async *current-frame*-across-dispatch contract (rf2-l5q3) is
   forwarded from a dedicated entry pair carrying a map-form fixture —
@@ -72,7 +75,18 @@
    :wrap-view        helix-adapter/wrap-view
    :clear-warn!      helix-adapter/clear-warned-non-dom-roots!
    :set-emitter!     helix-adapter/set-hiccup-emitter!
-   :render-to-string (:render-to-string helix-adapter/adapter)})
+   :render-to-string (:render-to-string helix-adapter/adapter)
+   ;; rf2-6j09b — the seven public Vars the suite's public-surface guard
+   ;; asserts (presence/kind/distinctness). Substrate-specific because each
+   ;; adapter's re-exports are distinct objects the suite cannot name
+   ;; directly; folded from the former helix_public_surface_cljs_test.cljs.
+   :public-surface   {:set-hiccup-emitter!         helix-adapter/set-hiccup-emitter!
+                      :use-current-frame           helix-adapter/use-current-frame
+                      :frame-provider              helix-adapter/frame-provider
+                      :use-subscribe               helix-adapter/use-subscribe
+                      :flush-views!                helix-adapter/flush-views!
+                      :wrap-view                   helix-adapter/wrap-view
+                      :clear-warned-non-dom-roots! helix-adapter/clear-warned-non-dom-roots!}})
 
 ;; Emit one (deftest name (re-frame.adapter.react-shared-suite/assert-name cfg))
 ;; per row in `react-shared-suite-tests/test-specs`. The macro ns owns
