@@ -644,6 +644,52 @@
             (-> ev :tags :rf.trace/dispatch-id)))
         events))
 
+;; rf2-fxowr — bounded `theirs` retention. A `:event/dispatched` marker that
+;; rides a DIFFERENT dispatch-id ("theirs") is normally claimed as "mine" at
+;; the child's OWN settle — the very next harvest after the parent strands it
+;; (proven: parent harvest leaves it theirs, child run-start makes the next
+;; harvest's settling-id match, marker harvested as mine). So in the normal
+;; child-runs path a marker survives exactly ONE harvest as theirs.
+;;
+;; A child that NEVER runs to a settle (handler unregistered, frame
+;; destroyed / drain-interrupted before dequeue, depth-halt clears the queue
+;; with the child still pending) leaves its marker stranded: no settling-id
+;; will ever match it, so it is re-classified theirs and re-retained on EVERY
+;; subsequent genuine settle for the long-lived frame — slow UNBOUNDED
+;; accretion in the hottest atom (`capture-buffers`). This is the non-nil
+;; sibling of the rf2-ee38b nil-orphan strand: that fix made the harvest
+;; self-cleaning for nil-id orphans; this extends the same self-cleaning to
+;; cover a stranded non-nil child marker.
+;;
+;; The bound: stamp each retained theirs marker with a private survival
+;; counter (`::theirs-harvests`). The FIRST time a marker is theirs it is
+;; retained with the counter at 1 (its child still has its chance to run).
+;; The SECOND time the same marker would be theirs the child has demonstrably
+;; not come to claim it within its run-to-completion window, so it is
+;; RECLAIMED (dropped) rather than re-retained. The normal child-runs path is
+;; untouched: the marker is claimed as mine at the next harvest, before it can
+;; reach the drop threshold. The private key never escapes — only stranded
+;; markers being dropped ever carry it past one harvest, and a marker harvested
+;; as mine is stripped of it (defensive; the normal path never stamps it onto a
+;; mine-classified event anyway).
+(def ^:private theirs-harvests-key ::theirs-harvests)
+
+(def ^:private theirs-retention-limit
+  ;; A theirs marker may survive at most ONE harvest as theirs (the parent's,
+  ;; which strands it); on the harvest that would make it theirs a SECOND time
+  ;; its child never ran, so it is reclaimed. 1 = "retain across one harvest,
+  ;; drop on the next."
+  1)
+
+(defn- strip-strand-stamp
+  "Drop the private rf2-fxowr survival counter from an event map so it never
+  escapes into a harvested epoch's `:trace-events`. A no-op for the
+  overwhelming majority of events (the key is absent)."
+  [ev]
+  (if (contains? ev theirs-harvests-key)
+    (dissoc ev theirs-harvests-key)
+    ev))
+
 (defn harvest-buffer-for-event!
   "Per rf2-nj6p7 — per-event harvest. Atomically read the frame's in-flight
   buffer and split it by the settling event's `:dispatch-id`:
@@ -665,6 +711,11 @@
       one `:dispatch-id` = one epoch). It stays buffered for the child's
       own `harvest-buffer-for-event!` at the child's settle.
 
+  Per rf2-fxowr a stranded theirs marker (its child never ran) is RECLAIMED
+  after surviving more than one harvest as theirs, so the buffer stays bounded
+  — the self-cleaning posture rf2-ee38b established for nil-id orphans, now
+  extended to the non-nil stranded-child case.
+
   Falls back to a full read-and-clear when the buffer carries no
   `:event/run-start` (a rejected / aborted dispatch) — there is no
   settling id to scope by, and `settle!`'s empty-buffer / no-trigger
@@ -679,7 +730,9 @@
       ;;       — a child's `:event/dispatched` marker fired during THIS event's
       ;;         do-fx carrying the CHILD's id; LEFT in the buffer for the
       ;;         child's own settle (Spec 009 §Dispatch correlation: one
-      ;;         dispatch-id = one epoch).
+      ;;         dispatch-id = one epoch) — UNLESS it has already survived a
+      ;;         prior harvest as theirs (rf2-fxowr stranded child), in which
+      ;;         case it is reclaimed below.
       ;;   * ORPHAN (nil event-dispatch-id)
       ;;       — an out-of-cascade emit (e.g. `:frame/created`) with no
       ;;         cascade to ride. DISCARDED here.
@@ -696,20 +749,36 @@
       ;; `event-dispatch-id = settling-id` predicate already guarantees an
       ;; orphan never folds into an epoch's `:trace-events`; this only changes
       ;; whether it lingers in the buffer (no) vs. is dropped (yes).
-      (let [mine   (filterv (fn [ev] (= (-> ev :tags :rf.trace/dispatch-id) settling-id)) buffer)
-            theirs (filterv (fn [ev]
-                              (let [event-dispatch-id (-> ev :tags :rf.trace/dispatch-id)]
-                                (and (some? event-dispatch-id) (not= event-dispatch-id settling-id))))
-                            buffer)]
-        ;; Leave the other-event traces (non-nil, non-matching id) in the
-        ;; buffer for their own event's settle; drop orphans + ours.
+      ;;
+      ;; Per rf2-fxowr the SAME self-cleaning now covers a stranded non-nil
+      ;; child: a theirs marker carries a private `::theirs-harvests` survival
+      ;; counter; one whose counter already reached the retention limit (its
+      ;; child never ran to a settle within its RTC window) is reclaimed rather
+      ;; than re-retained, so `capture-buffers` stays bounded.
+      (let [mine   (mapv strip-strand-stamp
+                         (filterv (fn [ev] (= (-> ev :tags :rf.trace/dispatch-id) settling-id))
+                                  buffer))
+            ;; Theirs markers that have NOT yet exhausted their retention —
+            ;; bumped one survival generation and kept for the child's settle.
+            theirs (into []
+                         (keep (fn [ev]
+                                 (let [event-dispatch-id (-> ev :tags :rf.trace/dispatch-id)]
+                                   (when (and (some? event-dispatch-id)
+                                              (not= event-dispatch-id settling-id))
+                                     (let [survived (get ev theirs-harvests-key 0)]
+                                       (when (< survived theirs-retention-limit)
+                                         (assoc ev theirs-harvests-key (inc survived))))))))
+                         buffer)]
+        ;; Leave the surviving other-event markers in the buffer for their own
+        ;; event's settle; drop orphans, ours, and stranded (retention-exhausted)
+        ;; theirs markers.
         (if (seq theirs)
           (swap! capture-buffers assoc frame-id theirs)
           (swap! capture-buffers dissoc frame-id))
         mine)
       ;; No run-start — rejected/aborted dispatch. Clear and return all.
       (do (swap! capture-buffers dissoc frame-id)
-          buffer))))
+          (mapv strip-strand-stamp buffer)))))
 
 (defn drop-frame-buffer!
   "Drop the frame's in-flight capture buffer."

@@ -264,3 +264,46 @@
     (rf/dispatch-sync [:probe/init])
     (is (pos? (count (rf/epoch-history :rf/default)))
         "with the gate ON, a dispatch lands a record in the ring")))
+
+;; ---- 6. Bounded capture buffer — stranded child marker reclaim (rf2-fxowr) --
+;;
+;; The cross-target pin for the JVM `epoch-attribution-test/inv-6c`. The harvest
+;; seam lives in `re-frame.epoch.state` (.cljc), so it runs under CLJS too; this
+;; locks the bounded-`theirs`-retention contract on the CLJS runtime — a child
+;; `:event/dispatched` marker whose child never settles is RECLAIMED after
+;; surviving more than one harvest, so `capture-buffers` (the hottest atom)
+;; stays bounded rather than accreting one residue per stranding incident.
+
+(deftest stranded-child-marker-reclaimed-cljs
+  (testing "rf2-fxowr — a stranded child marker (its child never runs to a
+            settle) does NOT accrete in `capture-buffers`: it is retained across
+            one harvest as theirs, then reclaimed on the next genuine settle."
+    (let [frame    :test/stranded-cljs
+          stranded {:op-type :rf.event :operation :rf.event/dispatched
+                    :tags {:rf.trace/dispatch-id 99 :rf.trace/event-id :child-never-ran}}
+          rs-1     {:op-type :rf.event :operation :rf.event/run-start
+                    :tags {:rf.trace/phase :run-start :rf.trace/dispatch-id 7 :rf.trace/event-id :g1}}
+          body-1   {:op-type :rf.event :operation :rf.event/db-changed
+                    :tags {:rf.trace/dispatch-id 7}}
+          rs-2     {:op-type :rf.event :operation :rf.event/run-start
+                    :tags {:rf.trace/phase :run-start :rf.trace/dispatch-id 8 :rf.trace/event-id :g2}}
+          body-2   {:op-type :rf.event :operation :rf.event/db-changed
+                    :tags {:rf.trace/dispatch-id 8}}]
+      (state/buffer-event! frame stranded)
+      (state/buffer-event! frame rs-1)
+      (state/buffer-event! frame body-1)
+      (let [h1 (state/harvest-buffer-for-event! frame)]
+        (is (= [rs-1 body-1] h1)
+            "the first genuine event harvests ONLY its own traces")
+        (is (= 1 (count (state/buffer-for frame)))
+            "the stranded marker survives one harvest as theirs"))
+      (state/buffer-event! frame rs-2)
+      (state/buffer-event! frame body-2)
+      (let [h2 (state/harvest-buffer-for-event! frame)]
+        (is (= [rs-2 body-2] h2)
+            "the second genuine event harvests ONLY its own traces")
+        (is (not-any? #(= 99 (-> % :tags :rf.trace/dispatch-id)) h2)
+            "the stranded marker is never folded into a genuine epoch")
+        (is (empty? (state/buffer-for frame))
+            "rf2-fxowr — the stranded marker is RECLAIMED; the buffer is bounded"))
+      (state/drop-frame-buffer! frame))))
