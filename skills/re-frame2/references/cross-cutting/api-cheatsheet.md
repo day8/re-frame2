@@ -9,7 +9,7 @@ One-line signatures for the public `re-frame.core` surface. **For full docstring
 | `rf/reg-event-db` | `(id [intercept?] (fn [db ev] new-db))` |
 | `rf/reg-event-fx` | `(id [intercept?] (fn [cofx ev] fx-map))` |
 | `rf/reg-event-ctx` | `(id [intercept?] (fn [ctx] ctx'))` |
-| `rf/reg-fx` | `(id (fn [value] ...))` |
+| `rf/reg-fx` | `(id [metadata?] (fn [ctx args] ...))` — `ctx` is `{:frame :event}`; `args` is the `:fx` entry's 2nd slot |
 | `rf/reg-cofx` | `(id (fn [cofx & args] cofx'))` |
 | `rf/reg-sub` | `(id [signals?] (fn [db\|inputs query-v] value))` |
 | `rf/reg-view` | `(sym [args] body)` — defn-shape, auto-injects `dispatch`/`subscribe` |
