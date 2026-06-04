@@ -47,12 +47,19 @@ main read**.
   sim-clones); cross-frame diff; pin-two-epochs side-by-side.
 - **[005-Schema-Timeline.md](005-Schema-Timeline.md)** — Per-schema
   timeline; empty→non-empty flash; full Malli explanation in detail.
+  **Post-v1 (unbuilt):** the standalone timeline panel is the
+  destination — today schema-fail surfacing ships inline in the Epoch
+  panel plus the Static Schemas registry catalogue (see the doc's
+  §Affordance v1-status note).
 - **[006-Hydration-Debugger.md](006-Hydration-Debugger.md)** — The
-  hydration mismatch bisector. Hero SSR feature. Side-by-side server vs
-  client with sub-attribution + likely-cause hypothesis. Future
-  sections: server error projection trace; payload-policy verdict; head
-  model inspector; per-request frame teardown auditor; streaming SSR
-  boundary timeline; side-by-side SSR replay (post-v1 dream).
+  hydration mismatch bisector. The destination **hero SSR feature**.
+  Side-by-side server vs client with sub-attribution + likely-cause
+  hypothesis. Future sections: server error projection trace;
+  payload-policy verdict; head model inspector; per-request frame
+  teardown auditor; streaming SSR boundary timeline; side-by-side SSR
+  replay (post-v1 dream). **Post-v1 (unbuilt):** no Hydration tab
+  ships today; the only present artefact is an unwired per-pane
+  element-diff renderer (see the doc's §Affordance v1-status note).
 - **[007-UX-IA.md](007-UX-IA.md)** — Typography, colour tokens, animation
   timings, keyboard maps, density gradients — the pixels-that-feel-right
   reference.

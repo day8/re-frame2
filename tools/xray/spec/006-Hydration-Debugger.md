@@ -28,16 +28,40 @@ divergent value on each side**, names the **upstream `app-db` slice**
 each side observed, and emits a **heuristic "likely cause" hypothesis**
 that links to the source.
 
-This is the **hero SSR feature**. Xray is the only re-frame2-shaped tool
-that can do this — the framework already emits the structured data; this
-spec turns it into the picture.
+This is the **hero SSR feature** of the destination design. Xray is
+the only re-frame2-shaped tool that can do this — the framework already
+emits the structured data; this spec turns it into the picture.
 
 ## Affordance
 
-Issues tab — hydration mismatch bisector with sub-attribution. Per
+**v1 status — UNBUILT (post-v1; renderer-only fragment present).** The
+hydration-mismatch bisector described in this doc is the destination,
+not a shipped surface. There is **no Hydration L4 tab** in the live
+panel inventory (the mountable surface is enumerated in
+`tools/xray/src/day8/re_frame2_xray/panel_enum.cljc` plus the
+`reg-l4-tab!` call sites — 6 Dynamic + 5 Static tabs, none of them
+Hydration), and none of the panel's state plumbing exists: the subs/
+events [`014-Registry-Catalogue.md`](014-Registry-Catalogue.md)
+catalogues for it (`:rf.xray/hydration-debugger-data`,
+`…/hydration-has-mismatch?`, `…/hydration-reroot-path`,
+`…/selected-mismatch-id`, `…/select-mismatch`,
+`…/clear-mismatch-selection`, `…/reroot-tree-view`) return zero hits in
+`tools/xray/src`. The **only** artefact present is a pure per-pane
+element-diff renderer at
+`tools/xray/src/day8/re_frame2_xray/panels/hydration_pane_render.cljs`
+— it is required by nothing but its own test and is mounted by no
+panel. The README's "Hero SSR feature" framing
+([`README.md`](README.md)) likewise describes the destination, not v1.
+Read the rest of this doc (and its §Affordance below) as the future
+design.
+
+The destination affordance — once built — is the hydration mismatch
+bisector with sub-attribution. Per
 [`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md) §2.3 the
-canonical bug-class catalogue. The bisector replaces a generic Issues
-row with a dedicated drill-into surface:
+canonical bug-class catalogue. The bisector replaces a generic issue
+row with a dedicated drill-into surface (note: the Issues tab the
+original design hosted it in was removed per rf2-gbz39 Option (c); the
+post-v1 home is the inline/popover surface per 019 §7):
 
 ```
 ┌─ Hydration mismatch  ·  cascade #1  :rf/hydrate ───────────────────────┐
@@ -404,8 +428,9 @@ detail for the same selection is O(1).
 
 The projection hands the panel view a plain map:
 `{:has-mismatch? :mismatch-summary :selected-mismatch-id :detail
-:source-coord :re-root-path :target-frame}` (per
-[`014-Registry-Catalogue.md` §Hydration debugger](./014-Registry-Catalogue.md#hydration-debugger)).
+:source-coord :re-root-path :target-frame}` (the destination shape — per
+[`014-Registry-Catalogue.md` §Hydration debugger — UNBUILT](./014-Registry-Catalogue.md#hydration-debugger--unbuilt-post-v1-renderer-only),
+which records that none of these registrations exist today).
 The `:detail` slot carries the per-mismatch projection record:
 `{:id :path :server-tree :client-tree :server-hash :client-hash
 :frame :view-id :failing-id :divergence-kind :hypothesis

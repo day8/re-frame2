@@ -139,9 +139,12 @@ Malli rejections live in the trace today as `:rf.error/schema-validation-failure
 events with `:explain` payloads. The user shouldn't have to walk the trace
 to find them. Two surfaces:
 
-- **Inline Malli explanation** in the Issues tab — the human-readable
-  variant of `:explain`, with the offending path highlighted, the schema
-  source-coord linked.
+- **Inline Malli explanation** inline in the Epoch panel — the
+  human-readable variant of `:explain`, with the offending path
+  highlighted, the schema source-coord linked. (Pre rf2-gbz39 this
+  lived in the Issues tab; that tab was removed — Option (c) — and
+  issues now surface inline + via the L2 event-row pink-wash + the
+  always-on issues-ribbon signal.)
 - **Per-violation drilldown** — click a schema-violation row → opens the
   Epoch panel for the cascade that produced it; the violating handler's
   `reg-event-*` registration is linked.
@@ -363,7 +366,8 @@ navigations have an animated leading edge.
 Click any bar → spine seeks to that nav-token's allocation cascade.
 
 **Affordance:** Nav-token timeline popover (R-C3); cross-cuts the Trace
-tab and the Issues tab.
+tab and the inline issue surfaces (the issues-ribbon signal + the L2
+event-row pink-wash; the Issues tab was removed per rf2-gbz39 Option (c)).
 
 #### R.2 — "My route's `:on-match` events didn't fire."
 
@@ -469,8 +473,12 @@ The "Likely cause" line is heuristic — Xray suggests "session not
 injected" when the divergent sub depends on `:auth/*` and the server's
 `:auth/*` slice is empty.
 
-**Affordance:** Issues tab — hydration mismatch bisector with
-sub-attribution (S-C2). The hero SSR feature.
+**Affordance:** inline issue surface + dedicated drill-into — hydration
+mismatch bisector with sub-attribution (S-C2). The hero SSR feature.
+(The original design hosted this in the Issues tab; that tab was
+removed per rf2-gbz39 Option (c). The bisector itself is unbuilt
+post-v1 — see [`006-Hydration-Debugger.md`](006-Hydration-Debugger.md)
+§Affordance.)
 
 #### S.2 — "Server rendered a 500 page; what was the internal exception?"
 
@@ -484,8 +492,9 @@ panel — shows the internal trace + the projector's source-coord + the
 public projection map + the rendered client response. The author sees
 exactly what crossed the wire and what did not.
 
-**Affordance:** Issues tab / Epoch panel — server error projection trace
-(S-C5).
+**Affordance:** Epoch panel (inline) — server error projection trace
+(S-C5). (Pre rf2-gbz39 this also surfaced in the Issues tab; that tab
+was removed — Option (c) — and the Epoch panel is now the home.)
 
 #### S.3 — "Streaming SSR shipped a chunk that hydrated incorrectly."
 
@@ -660,7 +669,9 @@ the subsequent flows that did NOT run:
 The "Subsequent flows did not run" list is the killer feature — prevents a
 subtle data-corruption bug class.
 
-**Affordance:** Issues tab — flow cascade-halt alarm (F-C8).
+**Affordance:** inline issue surface — flow cascade-halt alarm (F-C8),
+raised via the issues-ribbon signal + the L2 event-row pink-wash. (Pre
+rf2-gbz39 this lived in the Issues tab; that tab was removed — Option (c).)
 
 #### F.5 — Other managed-effects bug classes (catalogued)
 
@@ -819,8 +830,10 @@ back after reading the spec as the destination:
    deserves more than a row. Options:
    - **(a)** Add Hydration as a **conditional 8th tab** (visible only
      when SSR is detected for the session). Tab count goes from 7 → 7-or-8.
-   - **(b)** Promote it to an inline panel inside the Issues tab. Stays
-     at 7.
+   - **(b)** ~~Promote it to an inline panel inside the Issues tab.~~
+     Moot — the Issues tab was removed per rf2-gbz39 Option (c); the
+     equivalent today is an inline panel reachable from the inline
+     issue surfaces (Epoch panel + issues-ribbon).
    - **(c)** Make it a `h`-keyboard popover (consistent with Nav-token
      `r`).
    - **Lean: (c).** Keeps the chrome at 7 tabs; joins the popover
@@ -837,8 +850,10 @@ back after reading the spec as the destination:
 3. **Security advisor voice (open-redirect, trusted-shell, payload
    leak).**
    - **(a)** Quiet, surface-only. Show the warning if asked; don't push.
-   - **(b)** Loud, push to Issues tab. Make security mistakes a
-     first-class issue.
+   - **(b)** Loud, push to the inline issue surfaces (issues-ribbon
+     signal + L2 event-row pink-wash). Make security mistakes a
+     first-class issue. (Pre rf2-gbz39 this read "push to Issues tab";
+     that tab was removed — Option (c).)
    - **(c)** Configurable via Settings. Default to (a); power-users opt
      into (b).
    - **Lean: (a) for v1; (c) when patterns stabilise.** Xray is a

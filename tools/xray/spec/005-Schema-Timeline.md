@@ -29,8 +29,32 @@ actions: open source, filter timeline to just this schema.
 
 ## Affordance
 
-Issues tab — schema-violation timeline (today as its own panel; future
-folds into Issues per [`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md)).
+**v1 status — UNBUILT (post-v1).** The horizontal schema-violation
+timeline described in this doc is the destination, not a shipped
+surface: none of its driving subs/events exist in `tools/xray/src`
+(`:rf.xray/schema-violation-timeline`, `…/schema-timeline-window`,
+`…/select-violation`, `…/set-schema-filter`, the
+`:rf.xray/schema-timeline-prev-rows` flash-cue cache, etc. — zero
+hits), and the Issues tab it names as its host was removed (rf2-gbz39
+Option (c); see [`016-Auxiliary-Panels.md`](016-Auxiliary-Panels.md)
+§Issues and [`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md)).
+Read the rest of this doc as the future design.
+
+**Today** schema-fail surfacing ships across two real surfaces:
+
+1. **Inline in the Epoch panel** — a schema validation failure shows
+   inline in the cascade's effect-handlers step (rf2-kt6js), so a
+   `:db` schema-fail is read where the dispatch produced it rather
+   than in a separate timeline.
+2. **The Static Schemas catalogue** — a flat browse-all of every
+   *registered* schema (app-db / event / sub) at
+   `tools/xray/src/day8/re_frame2_xray/static/schemas/panel.cljs`,
+   reached via the Static surface's Schemas sub-tab. It is a
+   registry browser, not a violation/recovery/timeline view.
+
+When the timeline lands post-v1 it folds into the kept surfaces per
+[`019-Cross-Cutting-Insight.md`](019-Cross-Cutting-Insight.md), not a
+re-introduced Issues tab.
 
 ---
 
@@ -165,7 +189,9 @@ issues. After that, the label rests until cleared.
 
 The flash-cue is the schema timeline's only motion affordance and
 the panel's primary "look here" signal for regressions. Its
-mechanics are normative.
+mechanics are normative **for the post-v1 timeline panel** (per the
+§Affordance v1-status note above — this panel is unbuilt today); they
+become live contract when the panel ships.
 
 **Trigger.** A row's label MUST flash on the
 **empty→non-empty transition** of its in-window violation set —

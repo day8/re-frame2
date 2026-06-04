@@ -111,6 +111,30 @@ below; the three render states are:
       `[guard]` chip + `+ <action>` pills inside the event box; `⌚`
       glyph for `:after`, `∞` for `:always`). `:after` countdown
       rings overlay armed timer states.
+    - **Chart-collapse toggle** (rf2-3d987 issue #4). An inline
+      `▾` / `▸` button in the chart's nested header collapses the
+      topology chart to give the BEFORE / AFTER snapshot pair more
+      vertical room; expanded is the default (so a first-time operator
+      always sees the topology). The collapsed/expanded choice is
+      **persisted per-machine** so one machine's chart can rest
+      collapsed while another's stays expanded. State contract:
+        - App-db slot — `[:rf.xray/machine-canvas :chart-collapsed-by-id
+          <machine-id>]` (`true` = collapsed; absent / `false` =
+          expanded, the default).
+        - localStorage key — `xray.machine-canvas.chart-collapsed-by-id`
+          (one EDN map keyed by machine-id; round-trips the slot).
+        - Event — `:rf.xray.machine-canvas/set-chart-collapsed`
+          `{:machine-id <id> :mode <:collapsed | :expanded | :toggle>}`
+          (the `▾`/`▸` button dispatches `:toggle`); it writes the slot
+          and fires the persist fx.
+        - Subs — `:rf.xray.machine-canvas/chart-collapsed-for`
+          (per-machine boolean) + `:rf.xray.machine-canvas/chart-collapsed-by-id`
+          (the whole map).
+        - Fx — `:rf.xray.machine-canvas/persist-chart-collapsed` writes
+          the map to localStorage.
+        - Hydration — `:rf.xray.machine-canvas/hydrate-chart-collapsed`
+          replays the persisted map into app-db at boot (same posture as
+          the Canvas/List view-mode hydration).
     - Guards list (when the trace carried guard-evaluated events for
       this transition).
     - Actions list (when the trace carried action-ran events).

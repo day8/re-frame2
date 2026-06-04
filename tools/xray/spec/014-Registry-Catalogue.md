@@ -7,19 +7,34 @@ or human reader handed only the Xray spec MUST be able to reconstruct
 the registry's surface from this catalogue alone, without reading
 `tools/xray/src/day8/re_frame2_xray/registry.cljs`.
 
-> **rf2-qy0nu drift notice (2026-05-18).** The 8-dead-panel sweep
-> deleted `mcp-server`, `hydration-debugger`, `performance`, `routes`,
-> `schema-violation-timeline`, `effects`, `flows`, and `time-travel`
-> from the source tree. Their per-panel sections below (and several
-> cross-panel entries that lived inside those panels' install! fns) are
-> now stale. The registry's authoritative shape lives in `registry.cljs`
-> + `tools/xray/test/day8/re_frame2_xray/registry_cljs_test.cljs`'s
+> **rf2-qy0nu drift notice (2026-05-18) — superseded by the
+> rf2-zerqv reconciliation below.** The 8-dead-panel sweep deleted the
+> standalone `mcp-server`, `hydration-debugger`, `performance`,
+> `schema-violation-timeline`, `effects`, and the dynamic `flows`
+> panels from the source tree, along with `time-travel`'s
+> panel-private rows. Routing and Schemas were NOT deleted — they
+> survive as the Dynamic Routes tab + the Static Routes / Schemas
+> catalogue tabs (`static/<name>/panel.cljs`, registered via
+> `reg-l4-tab!` with `:modes #{:static}`); their sections below are
+> normative. The registry's authoritative shape lives in
+> `registry.cljs` +
+> `tools/xray/test/day8/re_frame2_xray/registry_cljs_test.cljs`'s
 > `all-sub-names` / `all-event-names` / `all-fx-names` enumerations,
 > which the test suite asserts every registration matches exactly.
-> Rewriting this catalogue against the surviving surface is tracked
-> separately; until then, treat any §MCP server / §Routes / §Schemas /
-> §Hydration / §Effects / §Flows / §Performance subsection as historical
-> reference, not normative spec.
+>
+> **rf2-zerqv reconciliation (2026-06-04).** The stale per-panel
+> sections this notice flagged have now been reconciled against the
+> live source: §Schema-violation timeline + §Hydration debugger are
+> marked UNBUILT (post-v1) with their absent subs/events called out;
+> §Effects + §Performance are marked DROPPED (no live surface);
+> §Flows is marked superseded by the Static Flows catalogue (its
+> registrations live under §Static mode); and §Views tab is
+> re-anchored onto the live `:rf.xray/reactive-data` /
+> `:rf.xray/reactive-show-unchanged?` / `:rf.xray/reactive-toggle-unchanged`
+> surface. The live panel inventory is the 6 Dynamic tabs
+> (Epoch / App-DB / Views / Trace / Machine / Routes) + 5 Static tabs
+> (Machines / Routes / Schemas / Flows / Interceptors) per
+> `panel_enum.cljc` + the `reg-l4-tab!` call sites.
 >
 > **rf2-yhl5v follow-up (2026-06-02).** The §Time-travel scrubber
 > subsection has been reconciled to the surviving live surface: the
@@ -223,80 +238,77 @@ Slice-centric `app-db` inspector. Reads the host frame's `app-db` via
 |---|---|---|
 | `:rf.xray.fx/copy-to-clipboard` | `{:text <string>}` | Best-effort write via `navigator.clipboard.writeText`. No-op on non-browser targets (Node test, JVM). |
 
-## Schema-violation timeline
+## Schema-violation timeline — UNBUILT (post-v1)
 
-Spec: [`005-Schema-Timeline.md`](./005-Schema-Timeline.md).
+Spec: [`005-Schema-Timeline.md`](./005-Schema-Timeline.md) (§Affordance
+v1-status note).
+
+**No registrations exist.** The standalone schema-violation timeline
+panel is unbuilt — `git grep` across `tools/xray/src` returns zero hits
+for every sub/event the original design named
+(`:rf.xray/schema-violation-timeline`, `…/schema-timeline-window`,
+`…/schema-violations-window`, `…/schema-timeline-prev-rows`,
+`…/selected-violation-id`, `…/schema-filter`, `…/select-violation`,
+`…/set-schema-filter`, `…/registered-schemas`,
+`…/clear-violation-selection`, `…/set-schema-timeline-window`). They
+are NOT in `registry.cljs` / `registry_cljs_test`'s enumerations.
+
+**Today** schema-fail surfacing ships inline in the Epoch panel
+(rf2-kt6js) and as the Static Schemas registry catalogue
+(`static/schemas/panel.cljs`, registrations enumerated under §Static
+mode below). When the timeline lands post-v1 its registrations get
+catalogued here against the then-live source.
+
+## Hydration debugger — UNBUILT (post-v1; renderer-only)
+
+Spec: [`006-Hydration-Debugger.md`](./006-Hydration-Debugger.md)
+(§Affordance v1-status note).
+
+**No registrations exist.** The hydration-mismatch bisector panel is
+unbuilt — there is no Hydration L4 tab in the live inventory
+(`panel_enum.cljc` + the `reg-l4-tab!` call sites), and `git grep`
+across `tools/xray/src` returns zero hits for every sub/event the
+original design named (`:rf.xray/hydration-debugger-data`,
+`…/hydration-has-mismatch?`, `…/hydration-reroot-path`,
+`…/selected-mismatch-id`, `…/select-mismatch`,
+`…/clear-mismatch-selection`, `…/reroot-tree-view`). The only present
+artefact is a pure per-pane element-diff renderer
+(`panels/hydration_pane_render.cljs`) that no panel mounts. None of the
+above are in `registry.cljs` / `registry_cljs_test`'s enumerations.
+
+(`:rf.xray/open-in-editor` — the shared jump-to-source event the
+original design listed here — IS live, but it belongs to the shared
+source-coord wiring, not this panel; it is catalogued under §Shared
+infrastructure / the panels that use it.)
+
+## Views tab (reactive perspective)
+
+Spec: [`021-Dynamic-Panel-Designs.md` §3](./021-Dynamic-Panel-Designs.md#3-the-view-panel-reactive-perspective--steps-7-8)
+(the normative Views design; [`012-Views.md`](./012-Views.md) is
+superseded historical exploration). The Views tab renders the focused
+cascade's reactive perspective.
+
+**Re-anchored (rf2-zerqv).** The pre-rewrite Subscriptions-panel family
+this section used to list — `:rf.xray/subscriptions-data`,
+`…/select-sub`, `…/clear-selected-sub`, `…/sub-cache`, `…/sub-filters`,
+`…/sub-chain-open?`, `…/show-invalidation-chain`,
+`…/hide-invalidation-chain`, `…/set-sub-cache-override-for-test` —
+no longer exists (zero hits in `tools/xray/src`). The live Views/
+Reactive panel registers exactly the ids below
+(`reactive_panel_subs.cljs` + `reactive_panel_events.cljs`).
 
 ### Subscriptions
 
 | Sub | Returns |
 |---|---|
-| `:rf.xray/registered-schemas` | Vector of `path-or-id` row keys from `rf/app-schemas`. `[]` when the schemas artefact is not on the classpath. |
-| `:rf.xray/selected-violation-id` | The trace event's `:id` (stable per-process per [`spec/009-Instrumentation.md`](../../../spec/009-Instrumentation.md)). |
-| `:rf.xray/schema-filter` | Schema-id or `nil`. Narrows the rendered rows to one schema. |
-| `:rf.xray/schema-timeline-window` | `{:t0 :t1}` in ms; falls back to the default 60s window ending at now. |
-| `:rf.xray/schema-violations-window` | Vector of projected violation rows in chronological order, filtered to the current window. |
-| `:rf.xray/schema-timeline-prev-rows` | Cache of previously-rendered rows so the panel's flash cue can detect empty→non-empty transitions. |
-| `:rf.xray/schema-violation-timeline` | Composite — `{:rows :window :total-violations :rendered-violations :selected-violation :schema-filter}`. |
+| `:rf.xray/reactive-data` | Composite the view reads — `:<-` over `:rf.xray/focus` + `:rf.xray/epoch-history`; projects the focused cascade's reactive perspective: `{:focus :frame :dispatch-id :triggered-by :seed-paths :has-cascade?}` merged with the per-record projection (L1 / L2+ sub partition, inputs + code columns). JVM/empty-focus paths degrade to the empty projection. |
+| `:rf.xray/reactive-show-unchanged?` | Boolean — panel-local UI toggle reading `:reactive/show-unchanged?` off Xray's db (whether unchanged subs render). |
 
 ### Events
 
 | Event | Vector shape | Behaviour |
 |---|---|---|
-| `:rf.xray/clear-violation-selection` | `[_]` | Closes the detail side panel. |
-| `:rf.xray/select-violation` | `[_ violation-id]` | Selects by trace-event `:id`. Passing `nil` clears. |
-| `:rf.xray/set-schema-filter` | `[_ schema-id]` | Narrows to one schema. Passing `nil` clears the filter. |
-| `:rf.xray/set-schema-timeline-window` | `[_ {:t0 :t1}]` | Sets the window. Invalid maps (`nil`, non-numeric, `t0 >= t1`) revert to the default window. |
-
-## Hydration debugger
-
-Spec: [`006-Hydration-Debugger.md`](./006-Hydration-Debugger.md).
-
-### Subscriptions
-
-| Sub | Returns |
-|---|---|
-| `:rf.xray/selected-mismatch-id` | Mismatch trace event's `:id`, or `nil` (composite picks the latest). |
-| `:rf.xray/hydration-reroot-path` | Re-root path for the side-by-side tree view per spec §Render-tree hash bisector, or `nil`. |
-| `:rf.xray/hydration-has-mismatch?` | Boolean — `true` iff the target-frame's trace stream carries at least one mismatch event. Cheap projection (composite of `:rf.xray/trace-buffer` + `:rf.xray/target-frame`) for chrome indicators (issues-ribbon, navigator badge) that need only the binary status without paying for the full `:rf.xray/hydration-debugger-data` composite. |
-| `:rf.xray/hydration-debugger-data` | Composite — `{:has-mismatch? :mismatch-summary :selected-mismatch-id :detail :source-coord :re-root-path :target-frame}`. |
-
-### Events
-
-| Event | Vector shape | Behaviour |
-|---|---|---|
-| `:rf.xray/select-mismatch` | `[_ mismatch-id]` | Drives the side-by-side rebase. Drops the re-root (subtree-specific). |
-| `:rf.xray/clear-mismatch-selection` | `[_]` | Clears selection + re-root. |
-| `:rf.xray/reroot-tree-view` | `[_ path]` | Re-roots at `path` (per spec §Render-tree hash bisector). Empty path clears. |
-| `:rf.xray/open-in-editor` | `[_ coord]` | Records the attempted source-coord. Full handler lives in `open-in-editor.cljs`; this is the thin record-the-attempt path. |
-
-## Views tab (incl. nested subs — replaces the pre-rewrite Subscriptions panel)
-
-Spec: [`012-Views.md`](./012-Views.md). Subs nest under views per the
-rewrite; the sub-cache + sub-graph primitives below continue to back
-the nested-sub-row renderer in the Views tab.
-
-### Subscriptions
-
-| Sub | Returns |
-|---|---|
-| `:rf.xray/sub-cache` | Target frame's live sub-cache via `rf/sub-cache`. CLJS-only; JVM returns `nil` (panel renders empty state). Test override via `:sub-cache-override` on Xray's db. |
-| `:rf.xray/sub-error-cache` | `{query-v <error-info>}`. v1 wiring keeps it empty until the error-collector plumbing lands. |
-| `:rf.xray/selected-sub` | Query-v of the user's selection (drives the chain affordance). |
-| `:rf.xray/sub-filters` | Set of active filter-chip statuses. |
-| `:rf.xray/sub-chain-open?` | Boolean — is the chain affordance open? |
-| `:rf.xray/subscriptions-data` | Composite — `{:rows :status-counts :total :selected-query-v :active-filters :chain-open? :chain}`. |
-
-### Events
-
-| Event | Vector shape | Behaviour |
-|---|---|---|
-| `:rf.xray/select-sub` | `[_ query-v]` | Sets selection. |
-| `:rf.xray/clear-selected-sub` | `[_]` | Clears selection + chain-open. |
-| `:rf.xray/toggle-sub-filter` | `[_ status]` | Adds / removes a status from the filter set. |
-| `:rf.xray/show-invalidation-chain` | `[_ query-v]` | Opens the chain affordance. Optional `query-v` sets selection in one shot. |
-| `:rf.xray/hide-invalidation-chain` | `[_]` | Closes the chain. |
-| `:rf.xray/set-sub-cache-override-for-test` | `[_ ov]` | Test-only override hook. Production code paths MUST NOT dispatch. `nil` clears. |
+| `:rf.xray/reactive-toggle-unchanged` | `[_]` | Flips the `:reactive/show-unchanged?` UI flag. |
 
 ## Issues ribbon
 
@@ -321,69 +333,49 @@ axis independent; empty / `nil` disables the axis.
 | `:rf.xray.issues/toggle-prefix` | `[_ prefix]` | Toggles a prefix chip in/out. |
 | `:rf.xray.issues/clear-filters` | `[_]` | Clears every chip axis. |
 
-## Flows panel
+## Flows panel — superseded by the Static Flows catalogue
 
 Spec consumer: framework Spec 013 (registered-flow surface) + Spec 009
 (`:rf.flow/*` trace vocabulary).
 
-### Subscriptions
+**The dynamic Flows panel was dropped.** Its sub/event family —
+`:rf.xray/flows-data`, the dynamic `:rf.xray/registered-flows` sub,
+`…/flow-trace-events`, `…/selected-flow-id`, `…/select-flow-id`,
+`…/clear-flow-selection`, `…/set-registered-flows-override-for-test` —
+no longer exists (zero hits in `tools/xray/src`). The live Flows
+surface is the **Static catalogue** (`static/flows/panel.cljs`),
+registered as an `:modes #{:static}` L4 tab and namespaced under
+`:rf.xray.static.flows/*` (`…/query`, `…/set-query`, `…/tab-data`,
+`…/registered-flows`, `…/registered-flows-override`,
+`…/set-registered-flows-override-for-test`), one of the Static
+sub-tabs alongside Machines / Routes / Schemas / Interceptors (see
+§Static mode below). (The bare `:rf.xray/registered-flows` string that
+remains in `static/flows/panel.cljs` is a doc comment describing the
+underlying `(rf/registrations :flow)` read, not a registered sub.)
 
-| Sub | Returns |
-|---|---|
-| `:rf.xray/registered-flows` | `(rf/registrations :flow)` — process-global registry. Test override via `:registered-flows-override`. |
-| `:rf.xray/flow-trace-events` | Trace-buffer's `:op-type :flow` slice. |
-| `:rf.xray/selected-flow-id` | Flow-id or `nil`. |
-| `:rf.xray/flows-data` | Composite — `{:rows :status-counts :total :selected-flow-id}`. |
+## Effects panel — DROPPED (no live surface)
 
-### Events
+**No Effects tab exists.** The dynamic Effects panel was dropped; its
+sub/event family — `:rf.xray/effects-data`, `…/registered-fxs`,
+`…/fx-trace-events`, `…/selected-fx-id`, `…/select-fx-id`,
+`…/clear-fx-selection`, `…/set-registered-fxs-override-for-test` — no
+longer exists (zero hits in `tools/xray/src`) and there is no Effects
+L4 tab in the live inventory (`panel_enum.cljc` + the `reg-l4-tab!`
+call sites). The shipped managed-effects surface is the inline
+`mount-managed-fx!` list (`panel_enum.cljc` `:managed-fx` entry) and
+the per-cascade fx rows in the Epoch/Trace panels — not a standalone
+Effects panel. Interceptors get their own Static sub-tab; see §Static
+mode.
 
-| Event | Vector shape | Behaviour |
-|---|---|---|
-| `:rf.xray/select-flow-id` | `[_ flow-id]` | Sets selection. |
-| `:rf.xray/clear-flow-selection` | `[_]` | Clears selection. |
-| `:rf.xray/set-registered-flows-override-for-test` | `[_ ov]` | Test-only override hook. |
+## Performance panel — DROPPED (use Chrome DevTools)
 
-## Effects panel
-
-Spec consumer: framework Spec 002 §reg-fx + Spec 009 (`:rf.fx/*` trace
-vocabulary).
-
-### Subscriptions
-
-| Sub | Returns |
-|---|---|
-| `:rf.xray/registered-fxs` | `(rf/registrations :fx)` — process-global registry. Test override via `:registered-fxs-override`. |
-| `:rf.xray/fx-trace-events` | Trace-buffer's fx-related slice (`:op-type :fx` + fx-layer error categories). |
-| `:rf.xray/selected-fx-id` | Fx-id or `nil`. |
-| `:rf.xray/effects-data` | Composite — `{:rows :outcome-counts :total :selected-fx-id}`. |
-
-### Events
-
-| Event | Vector shape | Behaviour |
-|---|---|---|
-| `:rf.xray/select-fx-id` | `[_ fx-id]` | Sets selection. |
-| `:rf.xray/clear-fx-selection` | `[_]` | Clears selection. |
-| `:rf.xray/set-registered-fxs-override-for-test` | `[_ ov]` | Test-only override hook. |
-
-## Performance panel
-
-Spec: [`000-Vision.md` L92](./000-Vision.md). Per-cascade duration
-capture, perf-tier colour mapping, budget-warning markers. No
-panel-owned events — reuses `:rf.xray/select-dispatch-id` and
-`:rf.xray/select-panel` for the pivot-into-event-detail affordance.
-
-### Subscriptions
-
-| Sub | Returns |
-|---|---|
-| `:rf.xray/performance-budget-ms` | Over-budget threshold in ms; default per `perf-helpers/default-budget-ms`. |
-| `:rf.xray/performance-data` | Composite — `{:rows :total :tier-counts :over-budget-count :budget-ms :empty?}`. |
-
-### Events
-
-| Event | Vector shape | Behaviour |
-|---|---|---|
-| `:rf.xray/set-performance-budget-ms` | `[_ budget-ms]` | Sets the threshold. `nil` / non-positive resets to default. |
+**No Performance panel exists.** The panel was explicitly dropped (see
+[`016-Auxiliary-Panels.md`](./016-Auxiliary-Panels.md) §Performance —
+"Use Chrome DevTools"); its subs/events —
+`:rf.xray/performance-data`, `…/performance-budget-ms`,
+`…/set-performance-budget-ms` — no longer exist (zero hits in
+`tools/xray/src`) and there is no Performance L4 tab in the live
+inventory.
 
 ## Trace panel
 
@@ -485,7 +477,7 @@ rf2-o5f5f.2 + rf2-o5f5f.3 + rf2-ybjkx + rf2-8l3uk.
 | Sub | Returns | Notes |
 |---|---|---|
 | `:rf.xray/mode` | `:dynamic` / `:static`. | Default `:dynamic`. Hydrated from `xray.mode` localStorage on boot. |
-| `:rf.xray.static/selected-tab` | Keyword sub-tab id (`:machines` / `:routes` / `:schemas` / `:views` / `:events`). | Default `:machines` per `static/shell.cljs`. |
+| `:rf.xray.static/selected-tab` | Keyword sub-tab id — one of the live Static tabs (`:machines` / `:routes` / `:schemas` / `:flows` / `:interceptors`, registered via `reg-l4-tab!` with `:modes #{:static}`). | Default `:machines` per `static/shell.cljs`. |
 | `:rf.xray.static.machines/selected-id` | Selected machine-id keyword for the Static Machines master-detail. | `nil` until first selection; persisted via the Static Machines persistence fx. |
 | `:rf.xray.static.machines/sub-mode` | Effective sub-mode keyword for the focused machine (`:topology` / `:sim` / `:instances` / `:cascade`). | Composite of `:rf.xray.static.machines/sub-mode-by-id` + the focused machine-id; default `:topology`. |
 | `:rf.xray.static.routes/expanded-id` | Set of route-ids whose meta-expander is open (per-row inline expand surface in the Static Routes panel). | Default `#{}`; sourced from the Static Routes panel's UI-state slot. |

@@ -1075,6 +1075,18 @@ active-node / dashed compound container / inline guard+action labels +
 the `after: ◴ Ns → :event` countdown ring are the visual elements the
 Figma design fixes; xyflow renders them with the §6.0 palette mapping.
 
+Alongside the Canvas|List view-mode toggle, the chart's nested header
+carries a per-machine **chart-collapse toggle** (`▾` / `▸`, rf2-3d987
+issue #4) that collapses the whole topology chart to give the BEFORE /
+AFTER snapshot pair more room; expanded is the default and the choice
+persists per-machine (slot `[:rf.xray/machine-canvas
+:chart-collapsed-by-id <machine-id>]` + localStorage
+`xray.machine-canvas.chart-collapsed-by-id`). Its full state /
+event / sub / fx contract is normative in
+[`003-Machine-Inspector.md` §Post-collapse Dynamic panel shape](003-Machine-Inspector.md#post-collapse-dynamic-panel-shape-rf2-y9xmf-rf2-8og3k).
+(This is rf2-3d987 issue #4; issue #3 — the retired Before/After
+CSS-grid snapshot layout — is covered in §9.1.5.)
+
 Layout direction: **left-to-right by default** (matches typical state-
 machine convention; xyflow's dagre layout option `rankdir: 'LR'`).
 Operator can flip to top-to-bottom via Settings → View → Machines layout
