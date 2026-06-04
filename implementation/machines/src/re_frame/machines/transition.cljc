@@ -456,19 +456,34 @@
     a vector of maps       -> multiple guarded candidates    (first guard-pass wins)
     a single transition map
 
-  Returns a vector of candidate transition maps (possibly empty for a nil
-  value). Keeping `:on` and `:after` on this ONE normaliser is what stops
-  the two value-form grammars drifting apart — the guarded candidate-vector
-  form (`[{:guard g :target s} {:target s2 :action a}]`) resolves
-  identically whether it is reached through an `:on` clause or an `:after`
-  delay entry.
+  Returns a vector of candidate transition maps. Keeping `:on` and `:after`
+  on this ONE normaliser is what stops the two value-form grammars drifting
+  apart — the guarded candidate-vector form (`[{:guard g :target s}
+  {:target s2 :action a}]`) resolves identically whether it is reached
+  through an `:on` clause or an `:after` delay entry.
+
+  rf2-16gxd — the FORBIDDEN-TRANSITION value form. A nil VALUE (the key is
+  PRESENT in the table with value nil — `{:on {:logout nil}}`) normalises to
+  a single unguarded INTERNAL candidate `[{}]`, exactly as the empty map
+  `{:on {:logout {}}}` does. Both are enabled, targetless (internal) no-ops
+  that the leaf→root walk treats as a match — halting deepest-wins at this
+  level and thereby BLOCKING a parent's inherited transition for the event
+  (re-frame2's spelling of XState v5 `on: {LOGOUT: undefined}` / a SCXML
+  targetless internal `<transition event=\"E\"/>`). nil is the natural
+  Clojure analogue of XState `undefined`, so the nil and empty-map forms are
+  unified here — there is no nil-vs-`{}` trap. NOTE: this is the rule for a
+  PRESENT value; an ABSENT key is a different thing entirely (no candidates,
+  the walk continues to the parent). Callers that look up an OPTIONAL slot
+  (`match-on-clause`'s `:on` tier select, `pick-done-transition` / the
+  parallel-root `apply-on-done-action`'s `:on-done`) gate the call on the
+  key's PRESENCE so absence never reaches this nil arm.
 
   `bad-value-id` names the error category to throw for an unrecognised
   value form so each caller surfaces its own slot-specific taxonomy
   (`:on` → `machine-bad-on-clause`, `:after` → `machine-bad-after-spec`)."
   [v bad-value-id]
   (cond
-    (nil? v)                        []
+    (nil? v)                        [{}]
     (keyword? v)                    [{:target v}]
     (and (vector? v)
          (every? map? v)
@@ -731,12 +746,24 @@
   [machine node event-id event snapshot]
   (let [on            (:on node)
         select        (fn [k]
-                        (select-passing-candidate
-                          machine
-                          (normalise-candidates
-                            (get on k)
-                            :rf.error/machine-bad-on-clause)
-                          snapshot event))
+                        ;; rf2-16gxd — gate on PRESENCE. An ABSENT key yields
+                        ;; no candidates (this tier is not enabled → fall
+                        ;; through to the next tier, then to the parent). A
+                        ;; PRESENT key normalises its value, where a nil value
+                        ;; (`{:on {E nil}}`) is the FORBIDDEN-transition form —
+                        ;; it normalises to an enabled internal candidate
+                        ;; (`[{}]`) exactly like the empty map `{:on {E {}}}`,
+                        ;; so the walk halts here and blocks a parent's
+                        ;; inherited E. Distinguishing absent from present-nil
+                        ;; is the whole point of the forbidden idiom: absence ≠
+                        ;; block.
+                        (when (contains? on k)
+                          (select-passing-candidate
+                            machine
+                            (normalise-candidates
+                              (get on k)
+                              :rf.error/machine-bad-on-clause)
+                            snapshot event)))
         ;; Tier 1 — exact event-id. Tier 2 — `:ns/*` (skipped for a
         ;; non-namespaced event-id; `ns-key` is nil and `select` is never
         ;; called). Tier 3 — total `:*`. Most-specific wins; each tier is
@@ -779,7 +806,12 @@
   [machine path event snapshot]
   (let [[_ done-path] event
         done-node     (when (vector? done-path) (node-at machine done-path))
-        on-done-cands (when done-node
+        ;; rf2-16gxd — gate on PRESENCE of `:on-done`. The forbidden-transition
+        ;; nil→`[{}]` rule in `normalise-candidates` is for a PRESENT value;
+        ;; an ABSENT `:on-done` must yield no candidates so resolution falls
+        ;; through to the enclosing explicit `:on {:rf.machine/done …}` walk
+        ;; (it must NOT synthesise a blocking internal no-op on the done node).
+        on-done-cands (when (and done-node (contains? done-node :on-done))
                         (normalise-candidates (:on-done done-node)
                                               :rf.error/machine-bad-on-done-clause))
         on-done-hit   (when (seq on-done-cands)
