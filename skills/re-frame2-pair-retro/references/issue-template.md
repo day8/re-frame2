@@ -22,6 +22,8 @@ When unsure, ask the user. Sometimes both: a tool-side workaround now and an ups
 - `Surface <signal> instead of requiring manual reconstruction`
 - `Promote <private-ns reach-through> to a public Tool-Pair surface` (upstream)
 
+**Shell-safe titles (same boundary as the body).** The title is passed inline as `--title "<short title>"` — `gh issue create` has no `--title-file` flag, so the file trick that protects the body cannot protect the title. **Author the title yourself from a restricted safe alphabet** — letters, digits, spaces, and `- . , / ( ) :` only — by filling the placeholders above with summarised text. **Never paste a transcript-/evidence-derived string** (a suggested title, a quoted failure message, a recap line) into `--title`: it can carry `$(…)`, backticks, `"`, `\`, or a newline that the shell expands before `gh` sees argv, bypassing the no-interpolation boundary even when the body is safe. Re-read the assembled `--title` in the pre-emission reviewer pass; if any shell metacharacter survived, rewrite it. See [`../../shared/issue-filing.md`](../../shared/issue-filing.md) §Shell-safety: the title is an inline argument.
+
 ## Body
 
 ```md
@@ -59,7 +61,12 @@ List any remaining uncertainty, especially if the best fix might belong upstream
 
 ## Filing with `gh issue create`
 
-Once the body is drafted and the user has approved, file via the GitHub CLI. Never interpolate the transcript-derived body inline (it can carry shell metacharacters the user never sees but the shell would expand). Instead, **write the body to a file with the `Write` tool**, then pass it with `gh`'s native `--body-file` flag — a single `gh issue create` invocation with no `cat` subshell, so it runs under the skill's `Bash(gh issue *)` permission. This is the canonical shape from [`../../README.md` §Published-skill `allowed-tools` baseline](../../README.md#published-skill-allowed-tools-baseline-security-policy):
+Once the body is drafted and the user has approved, file via the GitHub CLI. Two shell arguments carry session-derived text — the **body** and the **title** — and both must be kept clear of the shell:
+
+- **Body:** never interpolate the transcript-derived body inline (it can carry shell metacharacters the user never sees but the shell would expand). Instead, **write the body to a file with the `Write` tool**, then pass it with `gh`'s native `--body-file` flag — a single `gh issue create` invocation with no `cat` subshell, so it runs under the skill's `Bash(gh issue *)` permission.
+- **Title:** `gh` has no `--title-file`, so `--title` is always inline argv. **Author the title yourself from the safe-alphabet patterns above** — never paste an evidence-/transcript-derived string into `--title` (see §Title patterns). In the worked commands below, `<short title>` is a placeholder for that agent-authored safe title, not a slot to paste session text into.
+
+This is the canonical shape from [`../../README.md` §Published-skill `allowed-tools` baseline](../../README.md#published-skill-allowed-tools-baseline-security-policy):
 
 1. Use the `Write` tool to compose `/tmp/issue-body.md` (the drafted body as plain markdown — no shell escaping needed; nothing expands it):
 
@@ -91,14 +98,14 @@ gh issue create \
   --label retro,upstream-from-re-frame2-pair
 ```
 
-`--body-file` reads the body verbatim from disk, so no shell expansion ever touches the transcript-derived text, and the only `Bash` call is a bare `gh issue create` — exactly what the skill's `allowed-tools` grants.
+`--body-file` reads the body verbatim from disk, so no shell expansion ever touches the transcript-derived text, and the only `Bash` call is a bare `gh issue create` — exactly what the skill's `allowed-tools` grants. The `--title` value is safe only because it is agent-authored from the safe alphabet (§Title patterns), not because it is read from a file.
 
 Always run `gh issue list --repo <owner/repo> --search "<keywords>"` first to check for an existing issue on the same friction; reference it instead of duplicating.
 
 ## Filing rules
 
 - File only after explicit user approval.
-- **Never interpolate transcript-derived text directly into a shell command.** Use the `Write` tool + `--body-file /tmp/issue-body.md` pattern shown above.
+- **Never interpolate transcript-derived text directly into a shell command.** Use the `Write` tool + `--body-file /tmp/issue-body.md` pattern for the body, and **author the `--title` from the safe alphabet** (§Title patterns) — never paste evidence text into `--title`, `--label`, or `--repo`.
 - Redact secrets, tokens, and internal-only details.
 - Prefer one issue per distinct improvement.
 - Search for an existing issue first: `gh issue list --repo <owner/repo> --search "<keywords>"`.
