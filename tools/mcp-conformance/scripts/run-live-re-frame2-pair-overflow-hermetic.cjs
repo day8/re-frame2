@@ -158,14 +158,27 @@ const POLL_MS = 100;
 // (rf2-zb5z6). The orchestrator's name keeps `overflow` for backward
 // compatibility with the workflow YAML's script reference; the
 // `INNER_TESTS` list IS the authoritative inventory.
+//
+// Per rf2-ybiz0: each entry carries the test's success `sentinel` — the
+// `... CONFORMANCE GREEN` line it prints ONLY on a real (non-skipped)
+// pass. The hermetic env guarantees `$SHADOW_CLJS_NREPL_PORT` is set, so
+// the inner test's SKIP gate MUST NOT fire here — yet a SKIP still
+// exits 0. Without a sentinel check, a regression that broke the
+// orchestrator's SETUP path (port probe, bundle compile, runtime
+// sentinel) short of an inner-test FAILURE could leave the load-bearing
+// redaction gate SKIPping (exit 0) while CI shows the hermetic job green
+// via the OTHER inner tests. Asserting the sentinel (and the absence of
+// a `SKIP ` banner) makes a silent in-hermetic SKIP turn the gate RED.
 const INNER_TESTS = [
   {
     name: 'live overflow conformance',
     path: path.join(MCP_CONFORMANCE_ROOT, 'test', 'live-re-frame2-pair-overflow.cjs'),
+    sentinel: 'RE-FRAME2-PAIR-MCP LIVE OVERFLOW CONFORMANCE GREEN',
   },
   {
     name: 'live subscribe / notifications/progress conformance',
     path: path.join(MCP_CONFORMANCE_ROOT, 'test', 'live-re-frame2-pair-subscribe.cjs'),
+    sentinel: 'RE-FRAME2-PAIR-MCP LIVE SUBSCRIBE CONFORMANCE GREEN',
   },
   {
     // rf2-q4o83 — egress-redaction regression net for the pull-mode
@@ -175,6 +188,7 @@ const INNER_TESTS = [
     // gate-ON. This is the gate that would have caught rf2-6wvh5 RED.
     name: 'live egress-redaction conformance (pull-mode epoch tools)',
     path: path.join(MCP_CONFORMANCE_ROOT, 'test', 'live-re-frame2-pair-redaction.cjs'),
+    sentinel: 'RE-FRAME2-PAIR-MCP LIVE EGRESS-REDACTION CONFORMANCE GREEN',
   },
 ];
 
@@ -708,13 +722,20 @@ async function main() {
     for (const test of INNER_TESTS) {
       const testFile = path.basename(test.path);
       log(`running ${testFile} - ${test.name}`);
+      // Capture the inner test's stdout so we can assert it actually RAN
+      // (printed its GREEN sentinel) — not merely exited 0 (a SKIP also
+      // exits 0). Per rf2-ybiz0.
+      let stdoutText = '';
       const testStatus = await new Promise((resolve, reject) => {
         const child = crossSpawn(process.execPath, [test.path], {
           cwd: MCP_CONFORMANCE_ROOT,
           stdio: ['ignore', 'pipe', 'pipe'],
           env: testEnv,
         });
-        child.stdout.on('data', (d) => recordChunk(`[${testFile}:stdout] `, d));
+        child.stdout.on('data', (d) => {
+          stdoutText += String(d);
+          recordChunk(`[${testFile}:stdout] `, d);
+        });
         child.stderr.on('data', (d) => recordChunk(`[${testFile}:stderr] `, d, 'stderr'));
         child.on('error', reject);
         child.on('exit', (code, signal) => {
@@ -743,6 +764,37 @@ async function main() {
         err.exitCode = testStatus;
         throw err;
       }
+      // ---- Observable-SKIP guard (rf2-ybiz0) ------------------------------
+      // The inner test exited 0 — but a SKIP also exits 0. The hermetic
+      // env sets $SHADOW_CLJS_NREPL_PORT, so the inner test's SKIP gate
+      // MUST NOT have fired. Assert it printed its success sentinel AND
+      // did NOT print a SKIP banner. A broken setup path that left the
+      // test SKIPping (port-file probe / bundle-compile / runtime-sentinel
+      // wait silently regressed in a way that didn't propagate the env)
+      // would otherwise leave this load-bearing gate UN-EXERCISED while
+      // the hermetic job stayed green on the other inner tests. This is
+      // an ORCHESTRATION failure (exit 2): the contract didn't fail, the
+      // setup did.
+      if (stdoutText.includes('\nSKIP ') || stdoutText.startsWith('SKIP ')) {
+        throw new Error(
+          `${testFile} SKIPped inside the hermetic orchestrator (exit 0) — ` +
+            'but the hermetic env guarantees $SHADOW_CLJS_NREPL_PORT is set, ' +
+            'so a SKIP here means the setup path regressed and left this ' +
+            'load-bearing live gate UN-EXERCISED (a silent SKIP would ship ' +
+            'green via the other inner tests). rf2-ybiz0. Inner stdout tail: ' +
+            stdoutText.slice(-400),
+        );
+      }
+      if (test.sentinel && !stdoutText.includes(test.sentinel)) {
+        throw new Error(
+          `${testFile} exited 0 but did NOT print its success sentinel ` +
+            `("${test.sentinel}"). The live gate did not actually run to ` +
+            'completion (a SKIP, an early return, or a truncated run). ' +
+            'rf2-ybiz0 requires each inner test to PROVE it ran, not just ' +
+            'exit 0. Inner stdout tail: ' + stdoutText.slice(-400),
+        );
+      }
+      log(`${testFile} ran to completion (sentinel observed)`);
     }
     log('RE-FRAME2-PAIR-MCP LIVE HERMETIC CONFORMANCE GREEN (' +
       INNER_TESTS.length + ' inner tests)');

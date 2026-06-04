@@ -33,10 +33,21 @@ const {
   runWithWatchdog,
   assertJsonRpcErrorCodes,
   assertDescriptorShape,
+  assertClassificationRatchet,
 } = require('./_runner.cjs');
 
 const RE_FRAME2_PAIR_MCP_DIR = path.resolve(__dirname, '..', '..', 're-frame2-pair-mcp');
 const SERVER = path.join(RE_FRAME2_PAIR_MCP_DIR, 'out', 'server.js');
+
+// Per-tool annotation-classification ratchet (rf2-yi451). Pins each
+// descriptor's EXACT readOnly/destructive posture + budget-hint prose so
+// a tool silently re-classified (a destructive write re-labelled
+// readOnly — a trust-boundary regression an agent host would auto-approve)
+// turns this gate RED for an unchanged tool-set. Sourced from this
+// slice's own fixture (mirrors tools/re-frame2-pair-mcp/tool-descriptors.edn).
+const EXPECTED_CLASSIFICATIONS = JSON.parse(
+  fs.readFileSync(path.join(__dirname, 'fixtures', 're-frame2-pair-classifications.json'), 'utf8'),
+);
 
 // Canonical tool-name list — sourced from re-frame2-pair-mcp's own fixture
 // (rf2-drke0, mirrors story-mcp's rf2-36upq TE7) so this conformance
@@ -101,6 +112,19 @@ runWithWatchdog(
     assertDescriptorShape(listed.tools, { allowOpenWorld: true });
     console.log(
       'OK   every tool descriptor: inputSchema(type=object,max-tokens) + outputSchema + annotations hint',
+    );
+
+    // 2e. Per-tool classification CONTENT ratchet (rf2-yi451). The shape
+    // check above pins that SOME classifier is set; this pins WHICH —
+    // the exact readOnly/destructive posture per tool + the budget-hint
+    // prose. A destructive write tool (dispatch, eval-cljs, restore-epoch,
+    // reset-frame-db) silently re-classified readOnly would ship green
+    // under the shape check (readOnlyHint alone satisfies "≥1 set") but
+    // turns RED here. See _runner.cjs for the per-posture rationale.
+    assertClassificationRatchet(listed.tools, EXPECTED_CLASSIFICATIONS);
+    console.log(
+      'OK   per-tool classification ratchet: readOnly/destructive posture + ' +
+        'budget-hint prose pinned (rf2-yi451)',
     );
 
     // 3. Canonical workflow (degraded, since no nREPL is available).

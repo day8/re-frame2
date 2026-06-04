@@ -387,10 +387,163 @@ function assertDescriptorShape(tools, { allowOpenWorld } = {}) {
   }
 }
 
+// ---------------------------------------------------------------------
+// Per-descriptor CONTENT ratchet (rf2-yi451).
+//
+// `assertDescriptorShape` (above) pins that EVERY descriptor carries
+// SOME classification hint and a `max-tokens` PROP — but never WHICH
+// classifier, nor that the budget hint carries prose. The `tools/list`
+// name ratchet (`tool-names.json`, compared in each end-to-end-*.cjs)
+// pins WHICH tools exist. NEITHER pins per-tool CONTENT, so for an
+// UNCHANGED tool-set:
+//
+//   - a destructive write tool (restore-epoch, reset-frame-db,
+//     register-variant, …) silently re-classified `readOnlyHint:true`
+//     / `destructiveHint` dropped still passes — `readOnlyHint` alone
+//     satisfies the "≥1 set" check. annotations are the TRUST SIGNAL an
+//     agent host uses to auto-approve a call, so a destructive tool
+//     re-labelled read-only is a real (if narrow) safety regression;
+//   - a tool that dropped its `max-tokens` budget-hint PROSE ships green
+//     — only the PROP presence is pinned, not the description text.
+//
+// This ratchet closes both gaps. `expected` is a per-server fixture
+// (`test/fixtures/<server>-classifications.json`):
+//
+//   - `classifications` — tool-name -> posture, one of:
+//       `read-only`   readOnlyHint===true  AND destructiveHint!==true
+//       `destructive` destructiveHint===true AND readOnlyHint!==true
+//       `neither`     readOnlyHint!==true  AND destructiveHint!==true
+//                     (session-pin / streaming tools — classified via
+//                      openWorldHint; pinning `neither` catches a
+//                      side-effecting tool that wrongly gained
+//                      readOnlyHint, masking its effect)
+//   - `closed-world`  — tools whose descriptor MUST carry
+//                       `openWorldHint:false` (inline / no-runtime-reach
+//                       tools, e.g. get-re-frame2-pair-instructions). All
+//                       OTHER tools are not pinned on openWorldHint here
+//                       — the read-only/destructive axis is the trust-
+//                       classification a flipped-hint regression breaks;
+//                       the openWorld axis is the per-server `allowOpenWorld`
+//                       dimension `assertDescriptorShape` already handles.
+//
+// Also pins, per descriptor, that the `max-tokens` property carries a
+// NON-EMPTY `description` (the budget-hint prose — TOKEN-BUDGETS.md
+// §"Per-call override slot").
+//
+// The fixture's `classifications` key-set MUST match the live tool-set
+// EXACTLY (every tool pinned, no stale rows) — a tool present on the
+// wire but absent from the fixture (or vice-versa) trips, so a NEW tool
+// can't slip past unclassified and a REMOVED tool can't leave a dangling
+// row. Throws on the first violation with a server-agnostic message.
+// ---------------------------------------------------------------------
+function assertClassificationRatchet(tools, expected) {
+  const table = (expected && expected.classifications) || {};
+  const closedWorld = new Set((expected && expected['closed-world']) || []);
+  const liveNames = tools.map((t) => t.name).sort();
+  const pinnedNames = Object.keys(table).sort();
+
+  // 0. The fixture must pin EXACTLY the live tool-set — no unclassified
+  // new tool, no stale removed row. (The name ratchet already pins the
+  // live set against tool-names.json; this keeps the classification
+  // fixture in lockstep so a new tool can't ship unclassified.)
+  if (JSON.stringify(liveNames) !== JSON.stringify(pinnedNames)) {
+    const missing = liveNames.filter((n) => !table[n]);
+    const stale = pinnedNames.filter((n) => !tools.some((t) => t.name === n));
+    throw new Error(
+      'classification ratchet (rf2-yi451): the fixture must pin every live ' +
+        'tool exactly.\n  unclassified live tools (add a row): ' +
+        JSON.stringify(missing) +
+        '\n  stale fixture rows (no such tool): ' +
+        JSON.stringify(stale),
+    );
+  }
+
+  for (const t of tools) {
+    const a = t.annotations || {};
+    const posture = table[t.name];
+    const ro = a.readOnlyHint === true;
+    const de = a.destructiveHint === true;
+
+    // 1. The load-bearing classification: the EXACT readOnly/destructive
+    // posture. A flipped or dropped hint trips here.
+    if (posture === 'read-only') {
+      if (!ro || de) {
+        throw new Error(
+          'tool ' + t.name + ' classification regressed: fixture pins ' +
+            '`read-only` (readOnlyHint:true, destructiveHint NOT true) but the ' +
+            'live descriptor has readOnlyHint=' + JSON.stringify(a.readOnlyHint) +
+            ', destructiveHint=' + JSON.stringify(a.destructiveHint) +
+            '. annotations are the trust signal an agent host uses to ' +
+            'auto-approve a call — a misclassification is a safety regression ' +
+            '(rf2-yi451). Got annotations: ' + JSON.stringify(a),
+        );
+      }
+    } else if (posture === 'destructive') {
+      if (!de || ro) {
+        throw new Error(
+          'tool ' + t.name + ' classification regressed: fixture pins ' +
+            '`destructive` (destructiveHint:true, readOnlyHint NOT true) but the ' +
+            'live descriptor has readOnlyHint=' + JSON.stringify(a.readOnlyHint) +
+            ', destructiveHint=' + JSON.stringify(a.destructiveHint) +
+            '. A destructive write tool silently re-labelled read-only would ' +
+            'be auto-approved by an agent host — the exact false-green this ' +
+            'ratchet exists to turn RED (rf2-yi451). Got annotations: ' +
+            JSON.stringify(a),
+        );
+      }
+    } else if (posture === 'neither') {
+      if (ro || de) {
+        throw new Error(
+          'tool ' + t.name + ' classification regressed: fixture pins ' +
+            '`neither` (a session-pin / streaming tool — NEITHER readOnlyHint ' +
+            'NOR destructiveHint true) but the live descriptor has ' +
+            'readOnlyHint=' + JSON.stringify(a.readOnlyHint) +
+            ', destructiveHint=' + JSON.stringify(a.destructiveHint) +
+            '. A side-effecting tool that gained readOnlyHint would be ' +
+            'wrongly auto-approved (rf2-yi451). Got annotations: ' +
+            JSON.stringify(a),
+        );
+      }
+    } else {
+      throw new Error(
+        'tool ' + t.name + ' fixture posture ' + JSON.stringify(posture) +
+          ' is not one of read-only / destructive / neither (rf2-yi451 fixture bug)',
+      );
+    }
+
+    // 2. openWorld posture for the closed-world (no-runtime-reach) tools.
+    // These ship static / inline content; openWorldHint MUST be false so
+    // a host doesn't treat them as reaching an external world.
+    if (closedWorld.has(t.name) && a.openWorldHint !== false) {
+      throw new Error(
+        'tool ' + t.name + ' is pinned closed-world (inline / no runtime ' +
+          'reach) but the live descriptor has openWorldHint=' +
+          JSON.stringify(a.openWorldHint) + ' (MUST be false). rf2-yi451.',
+      );
+    }
+
+    // 3. Budget-hint PROSE — the `max-tokens` property must carry a
+    // non-empty description (TOKEN-BUDGETS.md §"Per-call override slot").
+    // `assertDescriptorShape` pins the PROP presence; this pins that the
+    // hint text wasn't dropped/emptied.
+    const props = (t.inputSchema && t.inputSchema.properties) || {};
+    const mt = props['max-tokens'];
+    if (!mt || typeof mt.description !== 'string' || mt.description.trim().length === 0) {
+      throw new Error(
+        'tool ' + t.name + " 'max-tokens' property MUST carry a non-empty " +
+          'budget-hint description (TOKEN-BUDGETS.md §"Per-call override slot"; ' +
+          'a dropped hint ships green under the prop-presence-only check). ' +
+          'rf2-yi451. Got: ' + JSON.stringify(mt),
+      );
+    }
+  }
+}
+
 module.exports = {
   runWithWatchdog,
   connectServer,
   closeQuietly,
   assertJsonRpcErrorCodes,
   assertDescriptorShape,
+  assertClassificationRatchet,
 };

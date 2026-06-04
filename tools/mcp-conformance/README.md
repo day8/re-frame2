@@ -59,6 +59,61 @@ handshake, walks one canonical workflow per server using `listTools()`
 and `callTool()`, and tears the transport down cleanly. Any spec drift
 on the server side surfaces as an SDK parse-error.
 
+### Coverage boundary — keyword-intern bounds (rf2-fphr3)
+
+The charter's threat model asks whether the corpus has teeth on the
+**keyword-intern bounds** — the DoS surface where a server keywordizes
+an unbounded stream of agent-supplied strings (event ids, sub ids,
+frame ids, mode/slice args) into the JVM's never-shrinking global
+keyword table. **This is NOT a cross-server WIRE contract** (the
+conformance gate's natural remit — egress redaction, overflow markers,
+flag gating, descriptor shape); it is a per-server **input-sanitisation**
+property, and it is **covered, by construction, at the `mcp-base` unit
+layer** — the shared coercion ns every server routes agent-supplied ids
+through (the conformance gate covers the wire; intern bounding is
+covered by `mcp-base`'s `args` tests):
+
+- **`re-frame.mcp-base.args/safe-keyword`** — the bounded-allowlist
+  resolver. Membership-checks BEFORE constructing the keyword (via JVM
+  `find-keyword`, which never interns), so a caller-supplied string
+  outside the finite set never mints a fresh keyword. Pinned by
+  `tools/mcp-base/test/re_frame/mcp_base/args_test.clj`
+  (`safe-keyword-disallowed-string-returns-nil-and-does-not-intern`
+  for the bare-name arm, plus
+  `safe-keyword-disallowed-NAMESPACED-string-returns-nil-and-does-not-intern`
+  — rf2-ynjts.17 — for the namespaced arm the registry-backed frame-id
+  / `:rf.assert/*` coercions actually hit). Both assert via a
+  `find-keyword` probe that the rejected novel name is absent from the
+  table both before and after the call: a literal no-intern-on-rejection
+  proof.
+- **`re-frame.mcp-base.args/parse-mode`** — routes every finite-set arm
+  through `safe-keyword` so the membership check precedes any intern
+  (rf2-ih7g4 flipped the historical intern-then-check order). Pinned by
+  `parse-mode-unknown-string-does-not-intern`.
+- **`re-frame.mcp-base.args/fresh-keyword`** — the deliberately-interning
+  primitive, reserved (per its docstring policy) for **bounded-cost**
+  sites only: operator-gated write paths (story-mcp's `--allow-writes`
+  + the `:story.<path>/<name>` grammar bound), runtime-registry-bounded
+  read paths (re-frame2-pair-mcp's frame-id coercion, where the live
+  registry size caps allocation), and grammar-bounded registrars.
+  Pinned by `fresh-keyword-interns-on-fresh-input` (rf2-xxtrz).
+
+On the wire-validated paths the conformance corpus DOES drive
+(`dispatch` event ids, `read-sub` sub ids), the server additionally
+VALIDATES the id against the live registrar and refuses unknowns with
+`:reason :unknown-id` + `:nearest` matches (rf2-3bu3d.3) — bounding the
+accepted set to the registered universe before any intern. So the
+intern surface is doubly bounded: the `mcp-base` allowlist/registry gate
+upstream, and the registrar validation at the tool body.
+
+This note records the seam so a reviewer does not read the conformance
+gate's silence on intern bounds as "uncovered". If a future open-world
+intern path emerges that is bounded by NEITHER a `mcp-base` allowlist nor
+a runtime registry (e.g. an arbitrary-topic-string surface that
+keywordizes without a finite gate), that is a server-side bug to file
+against `mcp-base` / the owning server — not a hole in this cross-server
+wire gate.
+
 ## Files
 
 - `package.json` — depends on `@modelcontextprotocol/sdk` only
@@ -87,7 +142,11 @@ on the server side surfaces as an SDK parse-error.
   ON + `:include-sensitive true`. Pins BOTH directions so the gate can't
   silently invert. This is the regression net for rf2-6wvh5 (the leak
   the gate let ship green). Gated on `$SHADOW_CLJS_NREPL_PORT` (same
-  posture as the other live variants).
+  posture as the other live variants). Has a standalone
+  `npm run test:re-frame2-pair-live-redaction` script (rf2-ybiz0) for
+  local runnability + parity with the overflow / subscribe variants —
+  without a live port it SKIPs, with one (e.g. an externally-attached
+  shadow-cljs) it runs the full gate.
 - `scripts/run-live-re-frame2-pair-overflow-hermetic.cjs` — hermetic
   orchestrator (rf2-uw6d6) that boots shadow-cljs against the re-frame2-pair
   fixture (`skills/re-frame2-pair/tests/fixture/`), launches headless
@@ -95,7 +154,12 @@ on the server side surfaces as an SDK parse-error.
   (`live-re-frame2-pair-overflow.cjs`, `live-re-frame2-pair-subscribe.cjs`,
   `live-re-frame2-pair-redaction.cjs`) against the spawned
   `SHADOW_CLJS_NREPL_PORT`. Closes the CI-coverage gap the SKIP path
-  leaves on each.
+  leaves on each. **Observable-SKIP guard (rf2-ybiz0):** after each inner
+  test exits 0 the orchestrator asserts it printed its `... CONFORMANCE
+  GREEN` sentinel AND did NOT print a `SKIP ` banner — so a setup-path
+  regression that left a load-bearing live gate SKIPping (exit 0, never
+  exercised) turns the hermetic job RED (exit 2, orchestration failure)
+  instead of riding green on the other inner tests.
 - `test/end-to-end-story.cjs` — story-mcp conformance (full write-loop
   with `--allow-writes` enabled) + closed-world read-path success
   envelopes
