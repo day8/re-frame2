@@ -214,17 +214,29 @@ the resource-control caps live in
 
 ### nREPL port discovery
 
-The server walks the following sources in order:
+The normative cascade lives in
+[`002-nREPL-Transport.md` §Port discovery](./002-nREPL-Transport.md);
+it wins on any drift. The server resolves the port lazily on the first
+tool call (not at boot — `roots/list` can only be issued after the MCP
+`initialize` handshake), walking the following sources in precedence
+order:
 
-1. `$SHADOW_CLJS_NREPL_PORT` env var.
-2. `target/shadow-cljs/nrepl.port` (shadow-cljs's standard location).
-3. `.shadow-cljs/nrepl.port`.
-4. `.nrepl-port` (generic nREPL convention).
+1. `--port-file <path>` launch flag — explicit, cwd-independent override.
+2. `$SHADOW_CLJS_NREPL_PORT` env var.
+3. MCP `roots/list` walk — ask the client for its workspace roots, walk
+   each for `shadow-cljs.edn`, pair with the adjacent
+   `.shadow-cljs/nrepl.port`; multiple matches drive `elicitation/create`.
+4. Shadow HTTP probe — `GET http://127.0.0.1:9630/api/project-info`
+   yields `:project-home`, then read `target/shadow-cljs/nrepl.port` /
+   `.shadow-cljs/nrepl.port` / `.nrepl-port` against that root
+   (`--http-port` overrides the default 9630).
+5. CWD-relative scan of the same three candidates (legacy fallback).
 
 If none resolve, the server boots in degraded mode (per
 [`001-Wire-Protocol.md`](./001-Wire-Protocol.md) §Degraded boot) and
 returns a structured error on every `tools/call` until the port
-becomes resolvable. No restart needed once shadow-cljs comes up.
+becomes resolvable; subsequent calls retry discovery. No restart needed
+once shadow-cljs comes up.
 
 ## Launch
 
@@ -420,8 +432,9 @@ vocabulary changes.
 ## What this doesn't expose
 
 - **No new framework primitives.** No new registries, no new
-  dispatch types, no new effect substrates. The fourteen ops route
-  through existing `re-frame2-pair.runtime` surfaces. See
+  dispatch types, no new effect substrates. Every op routes
+  through existing `re-frame2-pair.runtime` surfaces (canonical
+  count: [`003-Tool-Catalogue.md`](./003-Tool-Catalogue.md)). See
   [`Principles.md`](./Principles.md) § Tool consumes the framework.
 - **No remote-attach protocol.** re-frame2-pair-mcp is stdio-only; the agent
   host owns the network plumbing. A custom WebSocket protocol was

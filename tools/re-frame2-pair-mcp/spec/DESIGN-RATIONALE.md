@@ -199,8 +199,10 @@ resolve-fn}` pending map).
 ## Lock #4 — Tool catalogue cardinality
 
 **Locked 2026-05-12 (Mike).** **Seven ops at v0.1.0**, mirroring the
-bash-shim catalogue exactly. The catalogue has since grown to **fourteen
-ops** via successive additive drops; see *Subsequent evolution* below.
+bash-shim catalogue exactly. The catalogue has since grown to
+**twenty-eight ops** via successive additive drops (canonical count:
+[`003-Tool-Catalogue.md`](./003-Tool-Catalogue.md)); see *Subsequent
+evolution* below.
 
 ### Question
 
@@ -278,13 +280,16 @@ decomposition; bounded surface) still holds — both amendments are
   `notifications/progress` mechanism. Push-mode replacement for the
   polling-shaped `watch-epochs`. No bash-shim equivalent.
 
-Net: re-frame2-pair-mcp ships **fourteen ops** (`discover-app`, `eval-cljs`,
-`dispatch`, `trace-window`, `watch-epochs`, `tail-build`, `snapshot`,
-`get-path`, `subscribe`, `unsubscribe`, `list-subscriptions`,
-`handler-meta`, `list-handlers`, `get-re-frame2-pair-instructions`). The bash
-shims ship six. The shim catalogue is a strict subset of the MCP
-catalogue, with identical names and arg shapes for every overlapping
-op.
+Net: by the first post-Lock wave re-frame2-pair-mcp shipped **fourteen
+ops** (`discover-app`, `eval-cljs`, `dispatch`, `trace-window`,
+`watch-epochs`, `tail-build`, `snapshot`, `get-path`, `subscribe`,
+`unsubscribe`, `list-subscriptions`, `handler-meta`, `list-handlers`,
+`get-re-frame2-pair-instructions`); subsequent additive drops (below)
+carried the catalogue to **twenty-eight ops** total — canonical count
+and full listing at [`003-Tool-Catalogue.md`](./003-Tool-Catalogue.md).
+The bash shims ship six. The shim catalogue is a strict subset of the
+MCP catalogue, with identical names and arg shapes for every
+overlapping op.
 
 Post-Lock additions accumulated as follows:
 
@@ -463,16 +468,17 @@ changes.
   existing runbooks, skill docs, and personal workflows that
   reference them. The benefit of removal (less code) is small
   compared to the cost (someone's session breaking on a Tuesday).
-- **Overlapping op vocabulary.** Six of the fourteen MCP tools
+- **Overlapping op vocabulary.** Six of the MCP tools
   (`discover-app`, `eval-cljs`, `dispatch`, `trace-window`,
   `watch-epochs`, `tail-build`) mirror the six bash shims exactly,
-  with identical names and arg shapes. The remaining eight
-  (`snapshot`, `get-path`, `subscribe`, `unsubscribe`,
+  with identical names and arg shapes. Every other tool in the
+  catalogue (`snapshot`, `get-path`, `subscribe`, `unsubscribe`,
   `list-subscriptions`, `handler-meta`, `list-handlers`,
-  `get-re-frame2-pair-instructions`) are MCP-only additions per Lock #4's
-  *Subsequent evolution* note — they have no shim equivalent.
-  Agents can mix calls in the same workflow during transition —
-  no all-or-nothing switch is required.
+  `get-re-frame2-pair-instructions`, and the later additive drops —
+  full listing at [`003-Tool-Catalogue.md`](./003-Tool-Catalogue.md))
+  is an MCP-only addition per Lock #4's *Subsequent evolution* note —
+  none have a shim equivalent. Agents can mix calls in the same
+  workflow during transition — no all-or-nothing switch is required.
 - **MCP server isn't proven across the team yet.** Side-by-side
   shipping gives the MCP server time to accumulate trust before
   becoming the only path.
@@ -757,7 +763,7 @@ take?
 | 1 | Implementation language | **ClojureScript + shadow-cljs → Node** | 2026-05-12 |
 | 2 | Agent-host transport | **MCP over stdio** | 2026-05-12 |
 | 3 | Connection model | **Single persistent nREPL socket** | 2026-05-12 |
-| 4 | Tool catalogue cardinality | **Seven ops at v0.1.0; grown to fourteen** (mirror the shim catalogue + `snapshot` + `get-path` + `subscribe`/`unsubscribe`/`list-subscriptions` + `handler-meta`/`list-handlers` + `get-re-frame2-pair-instructions`) | 2026-05-12 |
+| 4 | Tool catalogue cardinality | **Seven ops at v0.1.0; grown additively to twenty-eight** (canonical listing: [`003-Tool-Catalogue.md`](./003-Tool-Catalogue.md); see Lock #4 *Subsequent evolution* for the drop-by-drop lineage) | 2026-05-12 |
 | 5 | bencode pinning | **`bencode@~2.0.3`** (CommonJS; position-not-bytes) | 2026-05-12 |
 | 6 | Bash-shim deprecation | **Side-by-side, no removal scheduled** | 2026-05-12 |
 | 7 | Wire-boundary token cap | **Egress-centralised wrapper + pluggable `:strategy` + truncate-with-`{:rf.mcp/overflow …}`-marker** | 2026-05-13 |
@@ -767,7 +773,7 @@ take?
 These nine locks together define re-frame2-pair-mcp's shipped surface.
 Anything outside these decisions is up for design discussion;
 anything inside is direction-set and shipped. Lock #4's
-cardinality has since grown additively from seven to fourteen
+cardinality has since grown additively from seven to twenty-eight
 (see its *Subsequent evolution* note); the load-bearing direction
 — mirror the shim catalogue, prefer mode flags over op decomposition,
 keep the surface bounded — still holds. Lock #7 sets the wire-budget

@@ -3,11 +3,13 @@
 //
 // This test does NOT need a live shadow-cljs nREPL — it exercises:
 //   - initialize handshake
-//   - tools/list (expects all fourteen tools: original six bash-shim mirrors
-//     + snapshot + get-path + subscribe/unsubscribe/list-subscriptions streaming
-//     trio + handler-meta + list-handlers registrar-introspection pair (rf2-cibp8 /
-//     rf2-pctf8; renamed from subscription-info / registry-list per rf2-4y595) +
-//     get-re-frame2-pair-instructions agent-onboarding (rf2-fnpqg))
+//   - tools/list (expects the full tool catalogue — asserted against the
+//     fixtures/tool-names.json snapshot below, which is the single source
+//     consumers parse; the catalogue spans the original six bash-shim
+//     mirrors plus the mega-op reads, the streaming/registrar/recorder/
+//     operating-frame/view-plane/orientation additions, and the
+//     get-re-frame2-pair-instructions onboarding text. Canonical count +
+//     listing: spec/003-Tool-Catalogue.md)
 //   - tools/call eval-cljs against an absent nREPL — eval-cljs is ON by
 //     default post-rf2-a0z0h, so this test simply expects the graceful
 //     :nrepl-port-not-found degraded envelope. The disabled-gate envelope
