@@ -62,15 +62,38 @@
   [s]
   (when (and (string? s) (seq (str/trim s))) s))
 
+(defn- query-param-from-search
+  "Pure parser for the per-session override knob: given a URL query string
+  `search` (the `?a=b&c=d` form, as produced by `location.search`) and a
+  `param-name`, return that param's value URL-decoded, trimmed, and
+  non-blank — or nil when the param is absent, blank, or the search string
+  itself is blank/nil.
+
+  `js/URLSearchParams` is a host global (present in browsers AND in Node),
+  so this fn carries no `js/window` dependency and is fully exercisable
+  off-browser. It is the testable heart of the override contract: param
+  selection, URL-decoding (`%2F` → `/`), trimming, and the blank-falls-
+  through rule all live here. The only genuinely browser-bound step — reading
+  `location.search` off the live document — is isolated in `query-param`."
+  [search param-name]
+  (when-let [s (non-blank search)]
+    (let [params (js/URLSearchParams. s)]
+      (when-let [raw (non-blank (.get params param-name))]
+        (str/trim raw)))))
+
 (defn- query-param
   "Return the named URL query param as a trimmed non-blank string, or nil
   when absent / blank / running outside a browser. The per-session
-  override knob — not a Xray/Story-API surface, so kept private."
+  override knob — not a Xray/Story-API surface, so kept private.
+
+  Thin browser-only adapter: reads `location.search` off the live document
+  when a `js/window` exists, then delegates the parse/decode/trim/non-blank
+  contract to the pure `query-param-from-search`. Outside a browser (e.g.
+  `:node-test`) there is no `js/window`, so this returns nil and the
+  build-time `repo-root` tier governs (the intended non-browser degradation)."
   [param-name]
   (when (exists? js/window)
-    (let [params (-> js/window .-location .-search (js/URLSearchParams.))]
-      (when-let [raw (non-blank (.get params param-name))]
-        (str/trim raw)))))
+    (query-param-from-search (-> js/window .-location .-search) param-name)))
 
 (defn- strip-trailing-slash
   "Return `s` without a single trailing slash, leaving a lone `\"/\"` intact."

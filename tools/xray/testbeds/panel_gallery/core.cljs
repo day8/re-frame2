@@ -204,8 +204,12 @@
 ;; The URI build is invariant to the host page URL — `resolve-uri` reads the
 ;; configured root, not `window.location`. The query-param branch only
 ;; influences which root we PASS to the configure! call; the resolver itself
-;; never reaches into the document. The unit test
-;; `panel-gallery-project-root-invariant-to-host-url` pins that contract.
+;; never reaches into the document. Two real tests pin this contract: the
+;; URI-build invariance to host URL is pinned by
+;; `re-frame2-xray.open-in-editor-cljs-test/resolve-uri-invariant-to-host-url`,
+;; and the `?project-root=` override branch (parse / URL-decode / trim and
+;; its precedence over the build-time repo-root) is pinned by
+;; `re-frame.testbed.config-cljs-test` in tools/testbed-support.
 
 ;; rf2-5dphw — open-in-editor project-root derived from the build
 ;; environment (the build-time `re-frame.testbed.config/repo-root`
@@ -214,8 +218,10 @@
 ;; session. The URI build stays invariant to the host page URL — the
 ;; resolver reads the configured root, not `window.location`; the
 ;; query-param branch only influences which root we PASS to `configure!`.
-;; The unit test `panel-gallery-project-root-invariant-to-host-url` pins
-;; that contract.
+;; The host-URL invariance is pinned by
+;; `re-frame2-xray.open-in-editor-cljs-test/resolve-uri-invariant-to-host-url`;
+;; the `?project-root=` override parse + precedence is pinned by
+;; `re-frame.testbed.config-cljs-test` in tools/testbed-support.
 (defn- resolve-project-root []
   (testbed-config/resolve-project-root "tools/xray/testbeds"))
 
