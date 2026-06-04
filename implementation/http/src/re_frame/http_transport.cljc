@@ -973,21 +973,56 @@
   (let [{:keys [request-id actor-id]} ctx
         fired?     (atom false)
         timer-cell (atom nil)
+        ;; rf2-meq28 — forward-reference cell for the stamped handle, the
+        ;; same idiom as `timer-cell` here and `handle-holder` in
+        ;; `run-attempt!` (rf2-lz7se). The abort-fn is constructed before
+        ;; `record-in-flight!` returns the handle, so it cannot close over
+        ;; `handle` lexically; it reads it lazily through `@handle-cell` at
+        ;; fire time (always after registration completes).
+        handle-cell (atom nil)
         abort-fn   (fn [reason]
                      ;; Win the once-only transition; a concurrent timer
                      ;; fire that loses here bails without retrying.
                      (when (compare-and-set! fired? false true)
                        (when-let [t @timer-cell]
                          (interop/clear-timeout! t))
-                       ;; Drop the backoff handle from both indexes — the
-                       ;; same teardown a live-fetch abort performs.
-                       (registry/clear-in-flight! request-id)
+                       ;; rf2-meq28 — drop the backoff handle from both
+                       ;; indexes via the 2-arg `clear-in-flight!`, passing
+                       ;; the stamped handle (through `@handle-cell`) so the
+                       ;; actor-in-flight slot is cleared BY IDENTITY,
+                       ;; independent of whether `request-id` is non-nil.
+                       ;; This mirrors the rf2-lz7se fix at the live-fetch
+                       ;; abort-fn in `run-attempt!` and the by-identity
+                       ;; clear the timer-fires path below already uses.
+                       ;; The earlier 1-arg form resolved by request-id and
+                       ;; no-op'd on a nil id — correct only under the
+                       ;; implicit, load-bearing invariant that an anonymous
+                       ;; (request-id-less, issued-from-actor) request can be
+                       ;; aborted SOLELY via actor-destroy (which eager-
+                       ;; dissocs the actor slot first). An anonymous request
+                       ;; can carry a `:retry` config and sit in this backoff
+                       ;; window with `actor-id` set / `request-id` nil; any
+                       ;; future non-pre-clearing trigger (frame-level
+                       ;; abort-all, timeout-driven abort of a sleeping retry)
+                       ;; would strand the handle. Passing the handle drops
+                       ;; that fragility: the 2-arg `remove-from-actor-index!`
+                       ;; is an identity-based vector remove that no-ops
+                       ;; against an already-cleared (or absent) slot, so it
+                       ;; is a safe idempotent no-op on the actor-destroy path
+                       ;; while closing the gap for any future trigger.
+                       (registry/clear-in-flight! request-id @handle-cell)
                        (dispatch-aborted! ctx reason)))
         handle     (registry/record-in-flight!
                      request-id actor-id
                      {:abort-fn   abort-fn
                       :url        (:url ctx)
                       :sensitive? (true? (:sensitive? ctx))})
+        ;; rf2-meq28 — publish the stamped handle so the abort-fn closure
+        ;; (defined above, before `handle` was bound) can pass it to the
+        ;; 2-arg `clear-in-flight!` via `@handle-cell`. The reset! happens
+        ;; synchronously here, before the timer is armed, so the cell is
+        ;; always populated by the time any abort can fire.
+        _          (reset! handle-cell handle)
         ;; Schedule AFTER registering so the request is cancellable the
         ;; instant the timer is armed. The callback wins/loses the same
         ;; `fired?` CAS: on a win it clears its own handle and proceeds;

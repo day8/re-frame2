@@ -26,13 +26,18 @@
       cleans the actor-in-flight index (rf2-lz7se)
    6b. Registry-level: 2-arg clear-in-flight! empties an anonymous
        handle's actor slot without a pre-clear (the unconditional-
-       correctness guarantee); 1-arg form leaks it (rf2-lz7se)"
+       correctness guarantee); 1-arg form leaks it (rf2-lz7se)
+   6c. `schedule-backoff-handle!`'s abort-fn cleans an anonymous
+       (request-id-less) backoff handle's actor slot when fired by a
+       trigger that does NOT pre-clear the actor slot — the sibling of
+       (6b) at the second abort-fn site (rf2-meq28)"
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.flows :as flows]
             [re-frame.frame :as frame]
             [re-frame.http-managed :as http-managed]
             [re-frame.http-registry :as http-registry]
+            [re-frame.http-transport :as http-transport]
             [re-frame.machines :as machines]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
@@ -501,3 +506,50 @@
         ;; Clean up via the correct form so the fixture leaves a clean registry.
         (http-registry/clear-in-flight! nil h2)
         (is (empty? (http-managed/actor-in-flight-snapshot)))))))
+
+;; ---- (6c) the SECOND abort-fn site — schedule-backoff-handle! (rf2-meq28) ---
+;; ----      sibling of (6b): a backoff-window abort fired WITHOUT a -----------
+;; ----      pre-clear must clean the anonymous handle's actor slot -----------
+
+(def ^:private schedule-backoff-handle!
+  @#'http-transport/schedule-backoff-handle!)
+
+(deftest backoff-abort-fn-cleans-anonymous-handle-without-actor-slot-preclear
+  (testing "schedule-backoff-handle!'s abort-fn — the SECOND of two structurally-identical abort-fns — cleans an anonymous (request-id-less, issued-from-actor) backoff handle's actor-in-flight slot when fired by a trigger that does NOT pre-clear the slot first. This is the rf2-meq28 sibling of (6b): the abort-fn now passes its in-scope handle to the 2-arg clear-in-flight!, so the actor slot is removed by identity regardless of the nil request-id. The earlier 1-arg form no-op'd on the nil id and stranded the handle under any abort trigger that does not pre-clear (actor-destroy's eager dissoc was the only thing masking the leak)"
+    (http-managed/clear-all-in-flight!)
+    (let [actor-id :worker/anon-backoff#1
+          ;; Anonymous request sitting in a backoff window: request-id nil,
+          ;; actor-id set. A request issued from inside a spawned actor with
+          ;; a `:retry` config and no `:request-id` lands here. The ctx
+          ;; silences its reply via explicit `:on-failure nil` so the
+          ;; abort-fn's `dispatch-aborted!` reply-dispatch is a clean no-op,
+          ;; isolating this test on the registry teardown.
+          ctx      {:request-id          nil
+                    :actor-id            actor-id
+                    :url                 "http://x/anon-backoff"
+                    :sensitive?          false
+                    :explicit-on-failure {:supplied? true :value nil}}
+          ;; A very long delay so the retry timer never fires during the
+          ;; test — the abort-fn wins the once-only `fired?` CAS and the
+          ;; timer callback (which would otherwise also reach the registry)
+          ;; bails on its lost CAS.
+          _        (schedule-backoff-handle! ctx 600000)
+          slot     (get (http-managed/actor-in-flight-snapshot) actor-id)
+          handle   (first slot)]
+      (is (= 1 (count slot))
+          "the anonymous backoff handle is registered solely in the actor-in-flight index")
+      (is (empty? (http-managed/in-flight-snapshot))
+          "anonymous backoff handle is absent from the request-id index (request-id is nil)")
+      (is (nil? (:request-id handle))
+          "the registered backoff handle carries no :request-id — the leak vector the 1-arg form left open")
+      ;; Fire the abort-fn DIRECTLY (the abort trigger) WITHOUT touching the
+      ;; actor slot first — this simulates a future non-pre-clearing trigger
+      ;; (frame-level abort-all, a timeout-driven abort of a sleeping retry).
+      ;; Before rf2-meq28 the abort-fn's 1-arg clear-in-flight! no-op'd on the
+      ;; nil id and the handle stranded here; the 2-arg form (the fix) removes
+      ;; it from the actor index by identity.
+      ((:abort-fn handle) :actor-destroyed)
+      (is (empty? (http-managed/actor-in-flight-snapshot))
+          "the backoff abort-fn's handle-passing 2-arg clear-in-flight! removed the anonymous handle from the actor index — no stranded slot")
+      (is (empty? (http-managed/in-flight-snapshot))
+          "request-id index remains empty"))))
