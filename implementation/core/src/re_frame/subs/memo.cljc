@@ -314,11 +314,19 @@
         validated)
       (catch #?(:clj Throwable :cljs :default) e
         (let [msg #?(:clj (.getMessage e) :cljs (.-message e))]
+          ;; rf2-7d30s — frame-attribute the sub-exception (the reactive
+          ;; sub-run knows its `frame-id`, used by the success emit above).
+          ;; Without `:frame` the error is dropped by
+          ;; `re-frame.epoch.capture/capture-event!` (frame-tagged only) so
+          ;; the Xray Issues lens misses it, and the SSR error-projection
+          ;; listener cannot map the `:rf.error/sub-exception` category to a
+          ;; per-frame 5xx under concurrent server frames.
           (trace/emit-error!
             :rf.error/sub-exception
             {:failing-id        query-id
              :rf.sub/id         query-id
              :sub-query         query-v
+             :frame             frame-id
              :exception         e
              :exception-message msg
              :reason            (str "Subscription `" query-id

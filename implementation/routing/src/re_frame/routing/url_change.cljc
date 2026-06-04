@@ -167,8 +167,13 @@
         ;; when the unmatched-URL path resolves to :rf.route/not-found AND
         ;; no such route is registered. Tools / AI scaffolds key off this.
         (when (and fallback? (nil? route-meta))
+          ;; rf2-7d30s — frame-attribute the warning (matches the
+          ;; `:rf.warning/malformed-url` sibling above and the
+          ;; programmatic path in navigate.cljc) so it lands in the
+          ;; emitting frame's epoch / Xray.
           (trace/emit! :warning :rf.warning/no-not-found-route
-                       {:url url}))
+                       (cond-> {:url url}
+                         frame (assoc :frame frame))))
         ;; :rf.error/no-such-handler discriminates from event / frame
         ;; handler misses by :kind :route. The :frame tag (present when the
         ;; caller threads it in — `:rf.route/handle-url-change`) lets the

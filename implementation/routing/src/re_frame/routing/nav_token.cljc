@@ -66,7 +66,7 @@ result. Per Spec 012 §Navigation tokens — stale-result suppression."})
 (defn simulate-http-resolution-handler
   "`:rf.test/simulate-http-resolution` event-fx handler. Registered by
   the façade so a `:reload` re-wires it on a fresh registrar."
-  [{:keys [db]} [_ {:keys [on-success-event carried-nav-token]}]]
+  [{:keys [db frame]} [_ {:keys [on-success-event carried-nav-token]}]]
   (let [current (get-in db [:rf/runtime :routing :current :nav-token])]
     (cond
       (= carried-nav-token current)
@@ -75,12 +75,16 @@ result. Per Spec 012 §Navigation tokens — stale-result suppression."})
 
       :else
       ;; Stale — suppress.
+      ;; rf2-7d30s — frame-attribute the suppression (matches the
+      ;; production `with-nav-token-handler` path) so it lands in the
+      ;; emitting frame's epoch / Xray.
       (do (trace/emit-error! :rf.route.nav-token/stale-suppressed
-                             {:carried-token     carried-nav-token
-                              :current-token     current
-                              :rf.trace/event-id (when (vector? on-success-event)
-                                                   (first on-success-event))
-                              :recovery          :replaced-with-default})
+                             (cond-> {:carried-token     carried-nav-token
+                                      :current-token     current
+                                      :rf.trace/event-id (when (vector? on-success-event)
+                                                           (first on-success-event))
+                                      :recovery          :replaced-with-default}
+                               frame (assoc :frame frame)))
           {}))))
 
 (defn- inner-fx-event-id
@@ -148,8 +152,11 @@ result. Per Spec 012 §Navigation tokens — stale-result suppression."})
       ;; Stale — suppress. Same trace shape as
       ;; `:rf.test/simulate-http-resolution` so a single conformance
       ;; assertion covers both production and test paths.
+      ;; rf2-7d30s — `frame-id` (resolved above) frame-attributes the
+      ;; suppression so it lands in the emitting frame's epoch / Xray.
       (trace/emit-error! :rf.route.nav-token/stale-suppressed
                          {:carried-token     nav-token
                           :current-token     current
                           :rf.trace/event-id (inner-fx-event-id do-entry)
+                          :frame             frame-id
                           :recovery          :replaced-with-default}))))

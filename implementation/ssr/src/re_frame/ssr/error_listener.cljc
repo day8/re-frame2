@@ -17,27 +17,29 @@
             [re-frame.trace :as trace]))
 
 (defn- candidate-frame-for-error
-  "Select the frame to project against for a trace-event. Prefer the
-  frame named in :tags :frame; otherwise pick a single registered
-  server frame if exactly one exists. Returns nil when no server
-  frame applies (so client-platform errors don't write to a stray
-  response accumulator)."
+  "Select the frame to project against for a trace-event: the frame named
+  in `[:tags :frame]` when it names a registered server frame, else nil.
+
+  Returns nil when the trace carries no routable server `:frame` — an
+  explicit no-op rather than a guess. Per rf2-7d30s the former
+  single-active-server-frame fallback was REMOVED: under concurrent SSR
+  load many server frames are live simultaneously (the canonical shape —
+  see ssr-ring's concurrency stress test), so guessing the single frame
+  silently mis-attributed (or, with >1 frame live, dropped) the
+  projection — shipping a 200 for a request that should have been a
+  4xx/5xx. Every error-emit site reachable inside a server-frame drain
+  now stamps `[:tags :frame]` from the drain's known frame (audit under
+  rf2-7d30s: core/spec.cljc boundary validation, core/subs reactive
+  sub-exception + sub-override validation, routing navigate/url-change/
+  nav-token; the schemas-artefact validate-*! fns and router miss paths
+  already stamped it), so a trace that arrives here without `:frame` is
+  genuinely unroutable and correctly no-ops — no projector runs, no
+  stray response accumulator is written, and a client-platform error
+  never bleeds into a server response."
   [trace-event]
   (let [tag-frame (get-in trace-event [:tags :frame])]
-    (cond
-      (and tag-frame (error-projector/server-frame? tag-frame))
-      tag-frame
-
-      ;; Routing's :rf.error/no-such-handler may not have carried :frame
-      ;; in older code paths. Fall back to the single active server
-      ;; frame if there is exactly one — the canonical SSR-request
-      ;; shape.
-      (nil? tag-frame)
-      (let [server-frame-ids (filter error-projector/server-frame? (frame/frame-ids))]
-        (when (= 1 (count server-frame-ids))
-          (first server-frame-ids)))
-
-      :else nil)))
+    (when (and tag-frame (error-projector/server-frame? tag-frame))
+      tag-frame)))
 
 ;; Per-frame buffer of captured error trace events. The trace listener
 ;; appends here synchronously when the error fires; apply-pending-
@@ -224,10 +226,13 @@
     ;; error-emit substrate, but keep the guard so a future routing
     ;; change can't reintroduce a re-entrant projection.)
     (when-not (= :rf.error/sanitised-on-projection op)
-      (let [;; Frame may be on the flat record directly (`:frame`); fall
-            ;; back to the candidate-frame lookup used on the trace-cb
-            ;; path so a record missing `:frame` still routes to the
-            ;; single active server frame when one exists.
+      (let [;; Frame is normally on the flat error-emit record directly
+            ;; (`:frame`). When absent we consult `candidate-frame-for-
+            ;; error` on the synthesised event — which, per rf2-7d30s, now
+            ;; only honours an explicit `[:tags :frame]` and no longer
+            ;; guesses the single active server frame. A record with no
+            ;; routable server frame correctly no-ops (see
+            ;; `candidate-frame-for-error`).
             direct-frame-id (:frame record)
             ;; Synthesise a trace-event-shaped envelope. The projector
             ;; reads `(:operation event)`; we copy the relevant flat

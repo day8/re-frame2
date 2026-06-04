@@ -172,12 +172,21 @@
                 unmatched-url
                 (try (registry/route-url route-id path-params query-params fragment)
                      (catch #?(:clj Throwable :cljs :default) ex
+                       ;; rf2-7d30s — stamp the in-flight cascade's `:frame`
+                       ;; (destructured from the cofx at the handler top) so
+                       ;; this navigate-reject lands in the emitting frame's
+                       ;; epoch (epoch capture buffers only frame-tagged
+                       ;; traces) AND so the SSR error-projection listener
+                       ;; can map it to a 4xx for the correct frame under
+                       ;; concurrent server frames — not the single-frame
+                       ;; fallback's guess.
                        (trace/emit-error! :rf.error/schema-validation-failure
-                                          {:where    :event
-                                           :route-id route-id
-                                           :error    (or (ex-data ex)
-                                                         {:message (ex-message ex)})
-                                           :recovery :no-recovery})
+                                          (cond-> {:where    :event
+                                                   :route-id route-id
+                                                   :error    (or (ex-data ex)
+                                                                 {:message (ex-message ex)})
+                                                   :recovery :no-recovery}
+                                            frame (assoc :frame frame)))
                        ::reject)))
           on-match-vec (vec (or (:on-match route-meta) []))
           ;; Spec 012 §Per-route data loading rule 3: a programmatic
@@ -202,17 +211,20 @@
         (seq misplaced)
         (do
           (trace/emit-error! :rf.error/navigate-arity-misuse
-                             {:where    :event
-                              :route-id route-id
-                              :reason   (str "opts-shaped key(s) "
-                                             (str/join ", " (map pr-str misplaced))
-                                             " appeared in the PARAMS slot (2nd arg) of "
-                                             "[:rf.route/navigate " route-id " params opts]. "
-                                             "These belong in the OPTS map (3rd arg): "
-                                             "[:rf.route/navigate " route-id " {} {...opts}]. "
-                                             "Navigation rejected.")
-                              :keys     (vec misplaced)
-                              :recovery :no-recovery})
+                             (cond-> {:where    :event
+                                      :route-id route-id
+                                      :reason   (str "opts-shaped key(s) "
+                                                     (str/join ", " (map pr-str misplaced))
+                                                     " appeared in the PARAMS slot (2nd arg) of "
+                                                     "[:rf.route/navigate " route-id " params opts]. "
+                                                     "These belong in the OPTS map (3rd arg): "
+                                                     "[:rf.route/navigate " route-id " {} {...opts}]. "
+                                                     "Navigation rejected.")
+                                      :keys     (vec misplaced)
+                                      :recovery :no-recovery}
+                               ;; rf2-7d30s — frame-attribute the reject so it
+                               ;; lands in the emitting frame's epoch.
+                               frame (assoc :frame frame)))
           {})
 
         ;; Caller-bug schema failure: reject (slice unchanged, no push).
@@ -263,8 +275,12 @@
               ;; points now agree: warn (don't reject), keep the requested
               ;; URL, render the not-found view.
               (when (and unmatched-url (nil? route-meta))
+                ;; rf2-7d30s — frame-attribute the warning (mirrors the
+                ;; URL-driven sibling in url_change.cljc) so it's visible
+                ;; in the emitting frame's epoch / Xray.
                 (trace/emit! :warning :rf.warning/no-not-found-route
-                             {:url unmatched-url}))
+                             (cond-> {:url unmatched-url}
+                               frame (assoc :frame frame))))
               ;; rf2-g8tzb / commit-navigation: nav-token alloc, the
               ;; allocated/activation traces, the slice publish, and the
               ;; fx assembly are the shared commit shape. The programmatic
