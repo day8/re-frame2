@@ -136,18 +136,18 @@
   caller-facing `render-head` carries the documented two-shape contract
   on its signature and delegates the work here."
   [head-id {:keys [frame] :as opts}]
-  (let [route (if (contains? opts :route)
-                (:route opts)
-                (frame-route frame))
-        meta  (registrar/lookup :head head-id)]
-    (when-not meta
+  (let [route    (if (contains? opts :route)
+                   (:route opts)
+                   (frame-route frame))
+        head-reg (registrar/lookup :head head-id)]
+    (when-not head-reg
       (throw (ex-info ":rf.error/no-such-head"
                       {:rf.error/id :rf.error/no-such-head
                        :where    'rf/active-head
                        :head-id  head-id
                        :reason   (str "No head registered under " head-id ".")
                        :recovery :no-recovery})))
-    (let [head-fn (:handler-fn meta)
+    (let [head-fn (:handler-fn head-reg)
           db      (when frame (frame/frame-app-db-value frame))
           model   (head-fn db route)]
       (record-fragment! frame head-id model)
