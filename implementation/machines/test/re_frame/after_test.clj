@@ -129,6 +129,83 @@
         (is (= :warn (:state (snapshot :a/multi)))
             "stale 30s firing does not transition")))))
 
+;; ---- same-tick tie-break: first-fired advances epoch, slower drops stale --
+;;
+;; rf2-3kvdb — xstate-parity STEP-ALGORITHM slice (determinism of
+;; simultaneously-enabled transitions).
+;;
+;; XState v5 / SCXML §3.13 resolve simultaneously-enabled transitions by
+;; DOCUMENT ORDER (earlier-listed wins). re-frame2 DELIBERATELY diverges
+;; here (per Spec 005 §Multiple :after per state): `:after` timers are real
+;; HOST-CLOCK deferred events, not entries in a synchronous in-engine queue,
+;; so there is no cross-timer arbitration. The `:after` map is keyed by
+;; delay, so two entries with the SAME delay are impossible (map keys
+;; dedupe). The only race is two entries with DIFFERENT delays whose host
+;; callbacks land in the SAME scheduler tick — each fires as a SEPARATE
+;; synthetic timer-elapsed event. The observable contract is
+;; first-fired-wins, the rest drop stale: the first event to dequeue drives
+;; the transition, the exit advances the per-path epoch, and every other
+;; same-tick timer's event then carries a now-stale epoch and drops
+;; (:rf.machine.timer/stale-after). No double-transition.
+;;
+;; This test PINS that contract (NO engine change — the behaviour already
+;; holds; we prove the deliberate non-guarantee externally). Two timers at
+;; DIFFERENT delays (5000 + 30000) are scheduled at one entry (same epoch);
+;; we capture that epoch, then dispatch BOTH synthetic events back-to-back
+;; — the in-test analogue of two host callbacks landing in the same tick.
+;; The 5000ms event (modelled as the first to dequeue) wins; the 30000ms
+;; event arrives carrying the pre-transition epoch and drops as stale.
+
+(deftest after-same-tick-first-fired-wins-slower-drops-stale
+  (testing "two :after timers (DIFFERENT delays) whose callbacks land in the
+            same tick: first-fired advances the epoch + transitions; the
+            slower one drops stale — no double-transition (rf2-3kvdb)"
+    (let [m {:initial :idle
+             :data    {}
+             :states
+             {:idle    {:on {:fetch :loading}}
+              :loading {:after {5000  :warn
+                                30000 :timeout}
+                        :on    {:loaded :ready}}
+              :warn    {}        ;; terminal — proves NO further transition
+              :timeout {}
+              :ready   {}}}
+          traces (atom [])]
+      (rf/reg-machine :a/tiebreak m)
+      (rf/register-listener! ::tb (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:a/tiebreak [:fetch]])
+      (is (= :loading (:state (snapshot :a/tiebreak))))
+      ;; Both timers were scheduled at THIS entry's epoch — the same-tick
+      ;; precondition: neither has fired yet, so both carry `epoch`.
+      (let [epoch (get-in (snapshot :a/tiebreak) [:data :rf/after-epoch [:loading]])]
+        (is (= 1 epoch) "both timers carry the entry epoch (none fired yet)")
+        ;; First host callback to dequeue (the 5000ms deadline) — fires,
+        ;; transitions :loading → :warn, and the exit advances the epoch.
+        (rf/dispatch-sync [:a/tiebreak [:rf.machine.timer/after-elapsed 5000 epoch [:loading]]])
+        (is (= :warn (:state (snapshot :a/tiebreak)))
+            "first-fired timer wins → :warn")
+        (is (not= epoch
+                  (get-in (snapshot :a/tiebreak) [:data :rf/after-epoch [:loading]]))
+            "the winning transition advanced the [:loading] per-path epoch")
+        (is (some #(and (= :rf.machine.timer/fired (:operation %))
+                        (true?  (:fired? (:tags %)))
+                        (= 5000 (:delay (:tags %))))
+                  @traces)
+            "first timer emits :fired? true")
+        ;; The slower 30000ms callback lands in the SAME tick but dequeues
+        ;; AFTER the transition. It carries the pre-transition `epoch`, which
+        ;; no longer matches — it MUST drop stale, NOT drive a second
+        ;; transition into :timeout.
+        (reset! traces [])
+        (rf/dispatch-sync [:a/tiebreak [:rf.machine.timer/after-elapsed 30000 epoch [:loading]]])
+        (is (= :warn (:state (snapshot :a/tiebreak)))
+            "slower same-tick timer drops stale — NO double-transition to :timeout")
+        (is (some #(and (= :rf.machine.timer/stale-after (:operation %))
+                        (= 30000 (:delay (:tags %))))
+                  @traces)
+            "the slower timer emits :stale-after (deliberate non-guarantee, pinned)"))
+      (rf/unregister-listener! ::tb))))
+
 ;; ---- :guard suppresses one :after; siblings continue ---------------------
 
 (deftest after-guard-suppresses-one-siblings-continue

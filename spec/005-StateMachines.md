@@ -2037,7 +2037,13 @@ Per [§Entry/exit cascading along the LCA](#entryexit-cascading-along-the-lca), 
 
 ### Multiple `:after` per state
 
-All entries in an `:after` map run **independently**. Whichever timer fires first (and matches its `:guard`) triggers its transition; the resulting state exit advances the epoch and the remaining timers all go stale. Order between simultaneously-firing timers is implementation-defined — authors should not rely on tie-break behaviour for two timers with the same delay.
+All entries in an `:after` map run **independently**. Whichever timer fires first (and matches its `:guard`) triggers its transition; the resulting state exit advances the epoch and the remaining timers all go stale.
+
+**Tie-break — the same-tick case (deliberate substrate divergence).** The `:after` map is keyed by delay, so two entries with the *same* delay are impossible — the map keys dedupe. The only race is **two entries with _different_ delays whose host-clock callbacks land in the same scheduler tick** (the same JS macrotask, or the same JVM scheduler quantum). When that happens each fired timer is a **separate** synthetic timer-elapsed event ([§Epoch-based stale detection](#epoch-based-stale-detection)) dispatched independently; the order they reach the router is the **host scheduler's** order, not a machine-document order. There is no cross-timer arbitration step.
+
+The observable outcome is **first-fired-wins, the rest drop stale**: the first synthetic event to dequeue at the parent's handler drives the transition, the state exit advances the scheduling node's per-path epoch, and every other same-tick timer's event then carries a now-stale epoch and silently drops (`:rf.machine.timer/stale-after`). No double-transition occurs.
+
+This is a **deliberate divergence** from the XState v5 / SCXML *document-order conflict resolution* rule (SCXML §3.13: simultaneously-enabled transitions resolve deterministically by document order — earlier-listed wins). The re-frame2 substrate reason: `:after` timers are real **host-clock deferred events**, not entries in a synchronous in-engine queue, so a strict document-order tie-break would require the runtime to **batch** separately-arriving host-clock callbacks into a synthetic same-tick arbitration step. That machinery fights the re-frame runtime model (each timer is its own epoch-bearing deferred event) for a marginal case whose observable outcome — *first valid timer to arrive wins; the transition makes the rest stale* — is already the correct FSM semantic. Authors must therefore **not** rely on a document-order tie-break between two same-tick `:after` timers; the deadline that elapses first (as the host clock reports it) is the one that fires.
 
 ```clojure
 :loading
