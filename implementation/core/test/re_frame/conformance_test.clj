@@ -52,6 +52,14 @@
             ;; conformance fixtures reference them by id; opt in here
             ;; so the fxs register before any fixture runs.
             [re-frame.http-test-support]
+            ;; rf2-dbiv8 — the test-only `:rf.test/simulate-http-resolution`
+            ;; fixture event moved out of the `re-frame.routing` production
+            ;; façade to the sibling `re-frame.routing.test-support`
+            ;; namespace. The routing/stale-nav-token-suppression fixture
+            ;; dispatches it; opt in here so the event registers before
+            ;; any fixture runs (the reset-runtime fixture also :reloads
+            ;; it after clear-all!).
+            [re-frame.routing.test-support]
             ;; rf2-v0jwt — the epoch artefact publishes the late-bind
             ;; hooks (`:epoch/settle!`, `:epoch/epoch-history`, …) the
             ;; router calls to commit drain-boundary records. Without
@@ -249,6 +257,11 @@
    (requiring-resolve 're-frame.routing/route-sub-fn))
   ;; Re-evaluate the registration ns-bodies by removing-and-reloading.
   (require 're-frame.routing :reload)
+  ;; rf2-dbiv8 — re-seat the test-only `:rf.test/simulate-http-resolution`
+  ;; fixture event after clear-all! (it lives in the test-support ns, not
+  ;; the production façade; the routing/stale-nav-token-suppression
+  ;; fixture dispatches it).
+  (require 're-frame.routing.test-support :reload)
   (require 're-frame.ssr :reload)
   ;; Spec 014 — re-register :rf.http/managed and friends after clear-all!.
   (require 're-frame.http-managed :reload)

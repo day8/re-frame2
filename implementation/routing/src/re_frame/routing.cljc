@@ -151,10 +151,12 @@
                nav-token/nav-token-cofx-meta
                nav-token/nav-token-cofx)
 
-;; :rf.test/simulate-http-resolution + :rf.route/with-nav-token — Spec
-;; 012 §Navigation tokens — stale-result suppression.
-(events/reg-event-fx :rf.test/simulate-http-resolution
-                     nav-token/simulate-http-resolution-handler)
+;; :rf.route/with-nav-token — Spec 012 §Navigation tokens — stale-result
+;; suppression. The test-only `:rf.test/simulate-http-resolution` fixture
+;; analogue is NOT wired here — it lives behind an explicit
+;; `re-frame.routing.test-support` require so the `:rf.test/*` fixture
+;; event never reaches a production registry (rf2-dbiv8, mirrors the
+;; managed-HTTP canned-stub gate rf2-cdmle).
 (fx/reg-fx :rf.route/with-nav-token
            nav-token/with-nav-token-meta
            nav-token/with-nav-token-handler)

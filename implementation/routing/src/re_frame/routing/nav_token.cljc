@@ -6,18 +6,20 @@
       (`[:rf/runtime :routing :current :nav-token]`) into an `:on-match`
       handler's `:coeffects` under key `:nav-token`, so the handler can
       capture it and thread it into an async continuation;
-    - `:rf.test/simulate-http-resolution` — the test-only fixture
-      analogue of the production-grade fx below;
     - `:rf.route/with-nav-token` fx — wraps an async-completion fx
       entry (`:do`) with a stale-result check: match → run; mismatch →
       suppress and emit `:rf.route.nav-token/stale-suppressed`.
 
+  The test-only `:rf.test/simulate-http-resolution` fixture analogue of
+  this fx lives in `re-frame.routing.test-support` (rf2-dbiv8) — behind
+  an explicit test-support require, so it never reaches a production
+  registry. This namespace carries only production surface.
+
   Spec-Schemas carries the `:rf.fx/with-nav-token-args` shape.
 
   Internal namespace; the public facade is `re-frame.routing`. The
-  facade registers the test-only event + the fx so a `:reload` of the
-  façade re-wires both on a fresh registrar. Per the rf2-2yabr cohesion
-  split: NAV-TOKEN seam."
+  facade registers the fx so a `:reload` of the façade re-wires it on a
+  fresh registrar. Per the rf2-2yabr cohesion split: NAV-TOKEN seam."
   (:require [re-frame.frame :as frame]
             [re-frame.fx :as fx]
             [re-frame.interop :as interop]
@@ -62,30 +64,6 @@ result. Per Spec 012 §Navigation tokens — stale-result suppression."})
      (assoc-in ctx [:coeffects :nav-token] token)))
   ([ctx token]
    (assoc-in ctx [:coeffects :nav-token] token)))
-
-(defn simulate-http-resolution-handler
-  "`:rf.test/simulate-http-resolution` event-fx handler. Registered by
-  the façade so a `:reload` re-wires it on a fresh registrar."
-  [{:keys [db frame]} [_ {:keys [on-success-event carried-nav-token]}]]
-  (let [current (get-in db [:rf/runtime :routing :current :nav-token])]
-    (cond
-      (= carried-nav-token current)
-      ;; Token matches — dispatch the continuation.
-      {:fx [[:dispatch on-success-event]]}
-
-      :else
-      ;; Stale — suppress.
-      ;; rf2-7d30s — frame-attribute the suppression (matches the
-      ;; production `with-nav-token-handler` path) so it lands in the
-      ;; emitting frame's epoch / Xray.
-      (do (trace/emit-error! :rf.route.nav-token/stale-suppressed
-                             (cond-> {:carried-token     carried-nav-token
-                                      :current-token     current
-                                      :rf.trace/event-id (when (vector? on-success-event)
-                                                           (first on-success-event))
-                                      :recovery          :replaced-with-default}
-                               frame (assoc :frame frame)))
-          {}))))
 
 (defn- inner-fx-event-id
   "Best-effort extraction of an `event-id` from an `:do` fx entry. For
