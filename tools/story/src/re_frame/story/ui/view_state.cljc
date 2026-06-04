@@ -184,11 +184,12 @@
   variant rests on no rung (a bare as-mounted render). A variant can be
   upgraded only above its lowest active rung. Pure data → int|nil."
   [plan]
-  (let [active (plan-fidelity plan)]
-    (->> ladder-rungs
-         (filter #(contains? active (:rung %)))
-         (map :rank)
-         (reduce (fn [acc r] (if acc (max acc r) r)) nil))))
+  (let [active (plan-fidelity plan)
+        ranks  (->> ladder-rungs
+                    (filter #(contains? active (:rung %)))
+                    (map :rank))]
+    (when (seq ranks)
+      (apply max ranks))))
 
 ;; ===========================================================================
 ;; PURE: source / provenance summaries
