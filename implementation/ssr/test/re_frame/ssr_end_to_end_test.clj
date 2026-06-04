@@ -1465,6 +1465,150 @@
       (is (nil? (:redirect (get-response f)))
           "rejection is a no-op"))))
 
+;; --- rf2-v3eg3 finding 1: scheme-bearing open-redirect BYPASS -------------
+;;
+;; The pre-fix gate used java.net.URI.getHost as the policy discriminator
+;; and only rejected when host was truthy. Java reports a nil host for a
+;; scheme-bearing OPAQUE URI (`http:evil.example.com` — scheme present,
+;; no authority) and for a hierarchical URI with no authority
+;; (`http:/evil`). Those slipped BOTH the :relative-only? and the :allow
+;; host gates and populated :redirect — a browser given
+;; `Location: http:evil.example.com` navigates OFF-ORIGIN. The fix gates
+;; on parsed-URL SHAPE: a relative reference is `scheme==nil AND
+;; authority==nil`; anything else is non-relative and subject to the
+;; host gates, and a scheme-bearing-but-host-less URL has no defensible
+;; redirect interpretation.
+
+(deftest safe-redirect-rejects-scheme-bearing-opaque-http-bypass
+  (testing "rf2-v3eg3 finding 1: `http:evil.example.com` (opaque, host=nil)
+            is the open-redirect bypass — it MUST be rejected (no :redirect)
+            under :relative-only?, under :allow, AND with no policy"
+    (doseq [[label policy] [["no-policy"      {}]
+                            ["relative-only?" {:relative-only? true}]
+                            ["allow"          {:allow ["app.example.com"]}]]]
+      (rf/reg-event-fx :sr/opaque-http
+        (fn [_ _]
+          {:fx [[:rf.server/safe-redirect
+                 (merge {:location "http:evil.example.com"} policy)]]}))
+      (let [f      (rf/make-frame {:platform :server})
+            traces (capture-safe-redirect-traces!
+                     (fn [] (rf/dispatch-sync [:sr/opaque-http] {:frame f})))]
+        (is (seq traces)
+            (str "[" label "] a :rf.error/safe-redirect-* trace fires — "
+                 "the bypass is closed"))
+        (is (nil? (:redirect (get-response f)))
+            (str "[" label "] no :redirect mutation — the off-origin "
+                 "scheme-bearing opaque URI is rejected"))))))
+
+(deftest safe-redirect-rejects-scheme-bearing-opaque-https-bypass
+  (testing "rf2-v3eg3 finding 1: `https:evil.example.com` (opaque, host=nil)
+            rejected as :rf.error/safe-redirect-invalid-url
+            (:reason :scheme-without-host)"
+    (rf/reg-event-fx :sr/opaque-https
+      (fn [_ _]
+        {:fx [[:rf.server/safe-redirect {:location "https:evil.example.com"}]]}))
+    (let [f      (rf/make-frame {:platform :server})
+          traces (capture-safe-redirect-traces!
+                   (fn [] (rf/dispatch-sync [:sr/opaque-https] {:frame f})))]
+      (is (some #(and (= :rf.error/safe-redirect-invalid-url (:operation %))
+                      (= :scheme-without-host (-> % :tags :reason)))
+                traces)
+          ":scheme-without-host reason names the shape failure")
+      (is (nil? (:redirect (get-response f)))
+          "rejection is a no-op"))))
+
+(deftest safe-redirect-rejects-mailto-scheme
+  (testing "rf2-v3eg3 finding 1: `mailto:user@example.com` — a non-http(s)
+            scheme is rejected outright as scheme-rejected
+            (:reason :scheme-not-allowed)"
+    (rf/reg-event-fx :sr/mailto
+      (fn [_ _]
+        {:fx [[:rf.server/safe-redirect {:location "mailto:user@example.com"}]]}))
+    (let [f      (rf/make-frame {:platform :server})
+          traces (capture-safe-redirect-traces!
+                   (fn [] (rf/dispatch-sync [:sr/mailto] {:frame f})))]
+      (is (some #(and (= :rf.error/safe-redirect-scheme-rejected (:operation %))
+                      (= "mailto" (-> % :tags :scheme))
+                      (= :scheme-not-allowed (-> % :tags :reason)))
+                traces)
+          "mailto: rejected as :scheme-not-allowed")
+      (is (nil? (:redirect (get-response f)))
+          "rejection is a no-op"))))
+
+(deftest safe-redirect-rejects-ftp-scheme
+  (testing "rf2-v3eg3 finding 1: `ftp:example.com` — non-http(s) scheme
+            rejected outright (opaque form, host=nil)"
+    (rf/reg-event-fx :sr/ftp
+      (fn [_ _]
+        {:fx [[:rf.server/safe-redirect {:location "ftp:example.com"}]]}))
+    (let [f      (rf/make-frame {:platform :server})
+          traces (capture-safe-redirect-traces!
+                   (fn [] (rf/dispatch-sync [:sr/ftp] {:frame f})))]
+      (is (some #(= :rf.error/safe-redirect-scheme-rejected (:operation %))
+                traces)
+          "ftp: rejected (non-http(s) scheme)")
+      (is (nil? (:redirect (get-response f)))
+          "rejection is a no-op"))))
+
+(deftest safe-redirect-rejects-protocol-relative-under-policy
+  (testing "rf2-v3eg3 finding 1: `//evil.example.com/path` (protocol-relative,
+            authority=evil.example.com) is NOT a relative reference — it is
+            rejected under :relative-only? and under :allow (host mismatch)"
+    (doseq [[label policy expected-reason]
+            [["relative-only?" {:relative-only? true} :relative-only-violation]
+             ["allow"          {:allow ["app.example.com"]} :not-in-allowlist]]]
+      (rf/reg-event-fx :sr/protocol-relative
+        (fn [_ _]
+          {:fx [[:rf.server/safe-redirect
+                 (merge {:location "//evil.example.com/path"} policy)]]}))
+      (let [f      (rf/make-frame {:platform :server})
+            traces (capture-safe-redirect-traces!
+                     (fn [] (rf/dispatch-sync [:sr/protocol-relative] {:frame f})))]
+        (is (some #(and (= :rf.error/safe-redirect-host-disallowed (:operation %))
+                        (= expected-reason (-> % :tags :reason)))
+                  traces)
+            (str "[" label "] protocol-relative rejected with reason "
+                 expected-reason))
+        (is (nil? (:redirect (get-response f)))
+            (str "[" label "] no :redirect mutation"))))))
+
+(deftest safe-redirect-accepts-normal-relative-path-control
+  (testing "rf2-v3eg3 finding 1 CONTROL: a normal relative path still passes
+            cleanly under :relative-only? — the hardening did not over-reject
+            the legitimate same-origin case"
+    (rf/reg-event-fx :sr/relative-control
+      (fn [_ _]
+        {:fx [[:rf.server/safe-redirect
+               {:location "/account/settings" :relative-only? true}]]}))
+    (let [f      (rf/make-frame {:platform :server})
+          traces (capture-safe-redirect-traces!
+                   (fn [] (rf/dispatch-sync [:sr/relative-control] {:frame f})))
+          resp   (get-response f)]
+      (is (empty? traces)
+          "no :rf.error/safe-redirect-* trace on a legitimate relative path")
+      (is (= "/account/settings" (-> resp :redirect :location))
+          ":location lands on the response :redirect slot")
+      (is (= 302 (-> resp :redirect :status))
+          ":status defaults to 302"))))
+
+(deftest safe-redirect-still-accepts-allowed-absolute-host-control
+  (testing "rf2-v3eg3 finding 1 CONTROL: a well-formed absolute http(s) URL
+            whose host IS in the allowlist still passes — the shape gate
+            did not break the legitimate absolute-redirect path"
+    (rf/reg-event-fx :sr/abs-control
+      (fn [_ _]
+        {:fx [[:rf.server/safe-redirect
+               {:location "https://app.example.com/dashboard"
+                :allow    ["app.example.com"]}]]}))
+    (let [f      (rf/make-frame {:platform :server})
+          traces (capture-safe-redirect-traces!
+                   (fn [] (rf/dispatch-sync [:sr/abs-control] {:frame f})))
+          resp   (get-response f)]
+      (is (empty? traces)
+          "no trace on an allowlisted absolute host")
+      (is (= "https://app.example.com/dashboard" (-> resp :redirect :location))
+          ":location passes through"))))
+
 ;; --- CRLF defence-in-depth still holds ------------------------------------
 
 (deftest safe-redirect-also-rejects-crlf-injection
@@ -1687,6 +1831,95 @@
       (expect-fx-error-keyword!
         traces :rf.error/cookie-invalid-path
         "delete-cookie with CRLF in :path"))))
+
+(deftest ssr-set-cookie-crlf-checks-every-attribute
+  (testing "rf2-kjf3m.1 / Spec 011 §CRLF fail-fast: :rf.server/set-cookie
+            CRLF-checks EVERY attribute the host adapter serialises —
+            :max-age, :same-site, :expires — not just :value/:path/:domain.
+            The fx boundary is the single enforcement point for non-Ring
+            host adapters; a string :max-age sourced from request context
+            must not re-enter the header line as CRLF-bearing payload."
+    ;; The concrete failing scenario from the bead: string :max-age
+    ;; carrying a forged second Set-Cookie line.
+    (testing ":max-age (string form) with CRLF → :rf.error/cookie-invalid-max-age"
+      (rf/reg-event-fx :ck/crlf-in-max-age
+        (fn [_ _]
+          {:fx [[:rf.server/set-cookie
+                 {:name    "session"
+                  :value   "x"
+                  :max-age "3600\r\nSet-Cookie: admin=1; Path=/"}]]}))
+      (let [f      (rf/make-frame {:platform :server})
+            traces (capture-fx-traces!
+                     (fn [] (rf/dispatch-sync [:ck/crlf-in-max-age] {:frame f})))]
+        (expect-fx-error-keyword!
+          traces :rf.error/cookie-invalid-max-age
+          "set-cookie with CRLF in :max-age")
+        (is (empty? (:cookies (get-response f)))
+            "no cookie lands on the accumulator — rejection is a no-op")))
+
+    (testing ":same-site with CRLF → :rf.error/cookie-invalid-same-site"
+      (rf/reg-event-fx :ck/crlf-in-same-site
+        (fn [_ _]
+          {:fx [[:rf.server/set-cookie
+                 {:name      "session"
+                  :value     "x"
+                  :same-site "Lax\r\nSet-Cookie: admin=1"}]]}))
+      (let [f      (rf/make-frame {:platform :server})
+            traces (capture-fx-traces!
+                     (fn [] (rf/dispatch-sync [:ck/crlf-in-same-site] {:frame f})))]
+        (expect-fx-error-keyword!
+          traces :rf.error/cookie-invalid-same-site
+          "set-cookie with CRLF in :same-site")))
+
+    (testing ":expires with CRLF → :rf.error/cookie-invalid-expires"
+      (rf/reg-event-fx :ck/crlf-in-expires
+        (fn [_ _]
+          {:fx [[:rf.server/set-cookie
+                 {:name    "session"
+                  :value   "x"
+                  :expires "Wed, 09 Jun 2027 10:18:14 GMT\r\nSet-Cookie: admin=1"}]]}))
+      (let [f      (rf/make-frame {:platform :server})
+            traces (capture-fx-traces!
+                     (fn [] (rf/dispatch-sync [:ck/crlf-in-expires] {:frame f})))]
+        (expect-fx-error-keyword!
+          traces :rf.error/cookie-invalid-expires
+          "set-cookie with CRLF in :expires")))
+
+    (testing "bare LF / bare CR / NUL in :max-age all rejected"
+      (doseq [hostile ["lf\nbad" "cr\rbad" (str "nul" (char 0) "bad")]]
+        (rf/reg-event-fx :ck/probe-max-age
+          (fn [_ _]
+            {:fx [[:rf.server/set-cookie
+                   {:name "s" :value "x" :max-age hostile}]]}))
+        (let [f      (rf/make-frame {:platform :server})
+              traces (capture-fx-traces!
+                       (fn [] (rf/dispatch-sync [:ck/probe-max-age] {:frame f})))]
+          (expect-fx-error-keyword!
+            traces :rf.error/cookie-invalid-max-age
+            (str "hostile :max-age " (pr-str hostile))))))))
+
+(deftest ssr-set-cookie-clean-attributes-still-accepted
+  (testing "rf2-kjf3m.1 regression guard: legitimate cookie attributes still
+            flow — integer :max-age, keyword/string :same-site, a clean
+            :expires string. The CRLF gate str-coerces and only bans
+            CR/LF/NUL; benign values pass."
+    (rf/reg-event-fx :ck/clean-attrs
+      (fn [_ _]
+        {:fx [[:rf.server/set-cookie
+               {:name      "session"
+                :value     "abc123"
+                :max-age   3600                ;; int — (str 3600) is clean
+                :same-site "Strict"
+                :path      "/"
+                :expires   "Wed, 09 Jun 2027 10:18:14 GMT"}]]}))
+    (let [f       (rf/make-frame {:platform :server :on-create [:ck/clean-attrs]})
+          cookies (:cookies (get-response f))]
+      (is (= 1 (count cookies))
+          "the clean cookie lands on the accumulator")
+      (is (= 3600 (-> cookies first :max-age))
+          "integer :max-age survives unchanged (not coerced to string)")
+      (is (= "Strict" (-> cookies first :same-site))
+          ":same-site survives"))))
 
 (deftest ssr-clean-names-still-accepted
   (testing "rf2-z7gor — regression guard: legitimate header names + cookie

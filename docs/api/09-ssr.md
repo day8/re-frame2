@@ -6,7 +6,7 @@ This works because the framework was designed around immutable data and an expli
 
 This chapter covers the rendering primitives (`render-to-string`, the streaming triple, the structural-hash), the head model (`reg-head`, `active-head`, `render-head`), the per-request response accumulator and its server-only fx, the error-projection seam (`reg-error-projector`, `project-error`), and the `:platforms` metadata that gates fx execution by active platform.
 
-The normative source is [011-SSR.md](../../spec/011-SSR.md). The SSR surfaces live in `re-frame.ssr` (artefact `day8/re-frame2-ssr`); the Ring host-adapter lives in `re-frame.ssr.ring`. Neither is re-exported from `re-frame.core` — apps targeting SSR add the artefacts to their deps and require the namespace directly.
+The normative source is [011-SSR.md](../../spec/011-SSR.md). The SSR surfaces live in `re-frame.ssr` (artefact `day8/re-frame2-ssr`); the Ring host-adapter lives in `re-frame.ssr.ring`. The implementation ships in a separate artefact — you add `day8/re-frame2-ssr` to your deps and require the namespace to get the full surface. For convenience, a curated set of the rendering and head primitives is **re-exported from `re-frame.core` as late-bound wrappers** (`render-to-string`, `render-tree-hash`, `project-error`, `render-head`, `active-head`, `head-model->html`, `head-snapshot`): these resolve to the `re-frame.ssr` implementation at call time when the artefact is on the classpath, and throw a clear "SSR not loaded" error otherwise. So apps that already `(:require [re-frame.core :as rf])` can call `rf/render-to-string` directly; the host-adapter surface (`re-frame.ssr.ring`) and the per-request `:rf.server/*` fx are **not** re-exported — require `re-frame.ssr` / `re-frame.ssr.ring` for those.
 
 ## Rendering primitives
 
@@ -213,7 +213,7 @@ Full rationale: [Conventions §Configuration surfaces](../../spec/Conventions.md
 
 ## Hydration
 
-The server-rendered HTML carries a `__rf_payload` chunk that the client deserialises into `app-db` on bootstrap. The structural-hash from `render-tree-hash` is captured at render time and checked at hydration; mismatch surfaces `:rf.ssr/version-mismatch` or `:rf.ssr/schema-digest-mismatch` rather than silently mounting a broken DOM.
+The server-rendered HTML carries a `__rf_payload` chunk that the client deserialises into `app-db` on bootstrap. The structural-hash from `render-tree-hash` is captured at render time and checked at hydration; a mismatch between the server-render hash and the client-render hash surfaces **`:rf.ssr/hydration-mismatch`** (in `:hard-error` mode it also throws; otherwise it warns and re-renders client-side) rather than silently mounting a broken DOM. This is distinct from the two payload-provenance checks the reference `:rf/hydrate` handler runs — `:rf.ssr/version-mismatch` (the payload was produced by a different framework version) and `:rf.ssr/schema-digest-mismatch` (the app's schema set drifted since the payload was built); those guard payload compatibility, while `:rf.ssr/hydration-mismatch` guards the render-tree structural hash.
 
 The hydration payload shape lives at [Spec-Schemas §`:rf/hydration-payload`](../../spec/Spec-Schemas.md#rfhydration-payload).
 

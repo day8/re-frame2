@@ -198,9 +198,16 @@
 
 (defn- validate-cookie-attr!
   "Throw `:rf.error/cookie-invalid-<field>` if the cookie attribute
-  string contains CR / LF / NUL. Applied to `:value`, `:path`, `:domain`
-  — the string-typed fields that are concatenated verbatim into the
-  Set-Cookie wire form by host adapters. Per rf2-z7gor."
+  string contains CR / LF / NUL. Applied to EVERY attribute that a host
+  adapter concatenates into the Set-Cookie wire form — `:value`, `:path`,
+  `:domain`, `:max-age`, `:same-site`, `:expires`. The value is
+  `str`-coerced first because callers legitimately pass non-string
+  forms (`:max-age` as an int, `:expires` as an instant); the CR/LF/NUL
+  ban applies to the serialised form a host adapter would emit. Per
+  rf2-z7gor (the fx-boundary gate) and rf2-kjf3m.1 (Spec 011 §CRLF
+  fail-fast mandates checking EVERY attribute, not just :value — an
+  attacker who controls any one attribute must not be able to re-enter
+  the header line as CRLF-bearing payload)."
   [field-key v]
   (let [s (str v)]
     (when (http-validation/contains-injection-char? s)
@@ -220,12 +227,27 @@
 (defn- validate-cookie!
   "Run name + field validators across the cookie map. Per rf2-z7gor —
   gate the structured cookie at the fx boundary so misuse surfaces with
-  the dispatching event in scope rather than as a deep adapter exception."
+  the dispatching event in scope rather than as a deep adapter exception.
+
+  CRLF-checks EVERY attribute a host adapter serialises into the
+  Set-Cookie line, not just `:value` (rf2-kjf3m.1 / Spec 011 §CRLF
+  fail-fast). The fx boundary is the single enforcement point for
+  non-Ring host adapters (Pedestal / HttpKit / custom) that read the
+  accumulator and serialise cookies themselves; the Ring materialiser
+  re-checks at wire-write time, but the two boundaries must not diverge
+  on what they accept. `:max-age` and `:expires` are commonly non-string
+  (int / instant) — `validate-cookie-attr!` `str`-coerces before the
+  CR/LF/NUL ban, so a string `:max-age` sourced from request context
+  (`\"3600\\r\\nSet-Cookie: admin=1\"`) is rejected at the fx boundary
+  rather than splitting the header on a non-Ring host."
   [cookie]
   (validate-cookie-name! (:name cookie))
-  (when (some? (:value  cookie)) (validate-cookie-attr! :value  (:value  cookie)))
-  (when (some? (:path   cookie)) (validate-cookie-attr! :path   (:path   cookie)))
-  (when (some? (:domain cookie)) (validate-cookie-attr! :domain (:domain cookie)))
+  (when (some? (:value     cookie)) (validate-cookie-attr! :value     (:value     cookie)))
+  (when (some? (:path      cookie)) (validate-cookie-attr! :path      (:path      cookie)))
+  (when (some? (:domain    cookie)) (validate-cookie-attr! :domain    (:domain    cookie)))
+  (when (some? (:max-age   cookie)) (validate-cookie-attr! :max-age   (:max-age   cookie)))
+  (when (some? (:same-site cookie)) (validate-cookie-attr! :same-site (:same-site cookie)))
+  (when (some? (:expires   cookie)) (validate-cookie-attr! :expires   (:expires   cookie)))
   cookie)
 
 (def status-writes-key   :rf.server/_status-writes)
@@ -438,19 +460,40 @@
 ;;
 ;; The caller-untrusted variant of :rf.server/redirect. Where redirect-fx
 ;; accepts arbitrary :location strings, safe-redirect-fx parses the URL
-;; and runs a five-step gate before populating the :redirect slot:
+;; and gates on the parsed URL SHAPE — not merely on the presence of a
+;; host — before populating the :redirect slot:
 ;;
 ;;   1. URL must parse — :rf.error/safe-redirect-invalid-url on failure.
 ;;   2. Reject javascript: / data: / vbscript: schemes (no safe redirect
 ;;      interpretation; consistent with the rf2-vwcsq custom-editor
 ;;      scheme-rejection policy) — :rf.error/safe-redirect-scheme-rejected.
-;;   3. :relative-only? true AND URL has a host →
+;;   2b. Reject any scheme outside #{http https} outright — a redirect
+;;      Location is only ever an http(s) absolute URL or a relative
+;;      reference; mailto:, ftp:, and other schemes have no place as a
+;;      redirect target — :rf.error/safe-redirect-scheme-rejected.
+;;   2c. Reject a SCHEME-BEARING URL whose host is not extractable. An
+;;      http(s) URI that is opaque (`http:evil.example.com` — scheme
+;;      present, authority absent) or hierarchical-without-authority
+;;      (`http:/evil` — no `//host`) parses cleanly but has nil host.
+;;      Java's URI.getHost returns nil for these, so the host-based gates
+;;      (steps 3/4) cannot see them — yet a browser given
+;;      `Location: http:evil.example.com` navigates OFF-ORIGIN. These
+;;      have no defensible redirect interpretation →
+;;      :rf.error/safe-redirect-invalid-url (:reason :scheme-without-host).
+;;   3. :relative-only? true AND the URL is NOT a relative reference →
 ;;      :rf.error/safe-redirect-host-disallowed (:reason :relative-only-violation).
+;;      A relative reference is `scheme == nil AND authority == nil`
+;;      (e.g. `/dashboard`, `dashboard`, `a/b`). A protocol-relative
+;;      `//evil.example.com` HAS an authority and is therefore NOT
+;;      relative — it is rejected under :relative-only? .
 ;;   4. :allow [...] supplied AND URL's host not in allowlist →
 ;;      :rf.error/safe-redirect-host-disallowed (:reason :not-in-allowlist).
+;;      A non-relative target that reaches this gate has, after step 2c,
+;;      an extractable host; if it is absent from the allowlist it is
+;;      rejected.
 ;;   5. Pass — set Location header (same shape as redirect-fx).
 ;;
-;; All four failure modes EMIT (via re-frame.trace) rather than THROW.
+;; All failure modes EMIT (via re-frame.trace) rather than THROW.
 ;; Throwing would bubble out as :rf.error/fx-handler-exception and the
 ;; programmer reading the trace would see a generic fx-handler-exception
 ;; pointing at safe-redirect-fx rather than the specific category.
@@ -459,13 +502,27 @@
 ;; the specific :rf.error/safe-redirect-* category.
 ;;
 ;; Mitigation for the open-redirect class (security audit 2026-05-14
-;; §P3.2): an attacker-controlled ?next=... URL parameter cannot redirect
-;; off-origin when the app uses safe-redirect-fx instead of redirect-fx.
+;; §P3.2; scheme-bypass hardening rf2-v3eg3 finding 1): an
+;; attacker-controlled ?next=... URL parameter cannot redirect off-origin
+;; when the app uses safe-redirect-fx instead of redirect-fx — including
+;; the scheme-bearing opaque-URI bypass (`http:evil.example.com`) that
+;; defeats a host-presence-only gate.
 
 (def ^:private rejected-schemes
   "Closed set of schemes the safe-redirect-fx rejects outright. Per
   rf2-zfm8v decision step 2 and rf2-vwcsq's custom-editor scheme policy."
   #{"javascript" "data" "vbscript"})
+
+(def ^:private allowed-schemes
+  "Closed set of schemes a redirect Location may legitimately carry. A
+  redirect target is either a relative reference (no scheme) or an
+  absolute http(s) URL — every other scheme (mailto, ftp, file, tel, …)
+  is rejected outright as a redirect target. Per rf2-v3eg3 finding 1
+  (scheme-bypass hardening): the safe-redirect gate decides non-http(s)
+  schemes by rejecting them rather than by maintaining a per-app scheme
+  allowlist — an opt-in scheme allowlist can be layered later if a real
+  use case appears."
+  #{"http" "https"})
 
 (def ^:private scheme-prefix-re
   "Matches the scheme prefix of an absolute URL — `<scheme>:` where the
@@ -529,19 +586,29 @@
      :allow          [\"app.example.com\" \"alt.example.com\"]  ;; host allowlist
      :status         302}                  ;; defaults 302 if absent
 
-  Validation order (per Spec 009 §Error event catalogue):
+  Validation order (per Spec 009 §Error event catalogue). The gate is on
+  the parsed URL SHAPE, not merely on host presence (rf2-v3eg3 finding 1):
 
-    1. URL parses → :rf.error/safe-redirect-invalid-url on failure
-    2. scheme ∈ #{javascript data vbscript} → :rf.error/safe-redirect-scheme-rejected
-    3. :relative-only? true + URL has host → :rf.error/safe-redirect-host-disallowed
-       (:reason :relative-only-violation)
-    4. :allow supplied + host ∉ allow → :rf.error/safe-redirect-host-disallowed
-       (:reason :not-in-allowlist)
-    5. Pass → set :redirect (same shape as :rf.server/redirect)
+    1.  URL parses → :rf.error/safe-redirect-invalid-url on failure
+    2.  scheme ∈ #{javascript data vbscript} → :rf.error/safe-redirect-scheme-rejected
+    2b. scheme ∉ #{http https} → :rf.error/safe-redirect-scheme-rejected
+        (:reason :scheme-not-allowed) — mailto:, ftp:, file:, … rejected
+    2c. scheme present but host not extractable (opaque `http:evil` or
+        authority-less `http:/evil`) → :rf.error/safe-redirect-invalid-url
+        (:reason :scheme-without-host) — the scheme-bearing open-redirect
+        bypass that defeats a host-presence-only gate
+    3.  :relative-only? true + URL is NOT a relative reference (has a
+        scheme OR an authority — incl. protocol-relative `//host`) →
+        :rf.error/safe-redirect-host-disallowed (:reason :relative-only-violation)
+    4.  :allow supplied + host ∉ allow → :rf.error/safe-redirect-host-disallowed
+        (:reason :not-in-allowlist)
+    5.  Pass → set :redirect (same shape as :rf.server/redirect)
 
-  Mitigation for the open-redirect class (audit 2026-05-14 §P3.2):
-  an attacker-controlled ?next=... URL parameter cannot redirect
-  off-origin when the app uses safe-redirect-fx.
+  Mitigation for the open-redirect class (audit 2026-05-14 §P3.2;
+  scheme-bypass hardening rf2-v3eg3 finding 1): an attacker-controlled
+  ?next=... URL parameter cannot redirect off-origin when the app uses
+  safe-redirect-fx — including scheme-bearing opaque URIs such as
+  `http:evil.example.com`.
 
   Per rf2-zfm8v (Mike decision, Option A — ship safe-redirect-fx
   alongside redirect-fx, 2026-05-14)."
@@ -580,30 +647,78 @@
                                       :reason   "URL did not parse"})
 
           :else
-          (let [scheme #?(:clj (.getScheme ^URI uri) :cljs nil)
-                host   #?(:clj (.getHost   ^URI uri) :cljs nil)]
+          (let [scheme    #?(:clj (.getScheme    ^URI uri) :cljs nil)
+                host      #?(:clj (.getHost       ^URI uri) :cljs nil)
+                authority #?(:clj (.getAuthority  ^URI uri) :cljs nil)
+                scheme-lc (when scheme (clojure.string/lower-case scheme))
+                ;; A relative reference carries neither a scheme nor an
+                ;; authority — `/dashboard`, `dashboard`, `a/b`. This is
+                ;; the open-redirect-safe shape: the browser resolves it
+                ;; against the current origin. A protocol-relative
+                ;; `//evil.example.com` has an authority (host non-nil)
+                ;; and is NOT relative. A scheme-bearing opaque URI
+                ;; `http:evil.example.com` has a scheme and is NOT
+                ;; relative — even though Java reports its host as nil.
+                ;; (rf2-v3eg3 finding 1: shape, not host-presence.)
+                relative? (and (nil? scheme) (nil? authority))]
             (cond
               ;; Step 2: scheme rejection (post-parse path — covers
               ;; schemes whose body DID parse cleanly, e.g.
               ;; `javascript:foo` without parens).
-              (and scheme (rejected-schemes (clojure.string/lower-case scheme)))
+              (and scheme-lc (rejected-schemes scheme-lc))
               (emit-safe-redirect-error! :rf.error/safe-redirect-scheme-rejected
                                          {:frame    frame
                                           :location location
                                           :scheme   scheme})
 
-              ;; Step 3: :relative-only? gate
-              (and relative-only? host)
+              ;; Step 2b: any non-http(s) scheme is rejected outright. A
+              ;; redirect Location is an http(s) absolute URL or a
+              ;; relative reference — mailto:, ftp:, file:, tel:, etc.
+              ;; have no defensible redirect interpretation and would
+              ;; otherwise slip the host-based gates (nil host).
+              ;; (rf2-v3eg3 finding 1.)
+              (and scheme-lc (not (allowed-schemes scheme-lc)))
+              (emit-safe-redirect-error! :rf.error/safe-redirect-scheme-rejected
+                                         {:frame    frame
+                                          :location location
+                                          :scheme   scheme
+                                          :reason   :scheme-not-allowed})
+
+              ;; Step 2c: a scheme-bearing http(s) URL whose host is not
+              ;; extractable — an opaque URI (`http:evil.example.com`) or
+              ;; a hierarchical URI with no authority (`http:/evil`).
+              ;; These parse cleanly with a nil host, so the host-based
+              ;; gates below cannot see them, yet a browser navigates
+              ;; off-origin on `Location: http:evil.example.com`. No
+              ;; defensible redirect interpretation. (rf2-v3eg3 finding 1
+              ;; — the scheme-bypass that defeated the host-presence-only
+              ;; open-redirect gate.)
+              (and scheme-lc (nil? host))
+              (emit-safe-redirect-error! :rf.error/safe-redirect-invalid-url
+                                         {:frame    frame
+                                          :location location
+                                          :scheme   scheme
+                                          :reason   :scheme-without-host})
+
+              ;; Step 3: :relative-only? gate — reject anything that is
+              ;; NOT a relative reference (has a scheme OR an authority),
+              ;; not merely anything whose host is extractable. This
+              ;; closes the opaque-URI and protocol-relative bypasses.
+              (and relative-only? (not relative?))
               (emit-safe-redirect-error! :rf.error/safe-redirect-host-disallowed
                                          {:frame    frame
                                           :location location
                                           :host     host
                                           :reason   :relative-only-violation})
 
-              ;; Step 4: :allow [...] allowlist. DNS hostnames are
+              ;; Step 4: :allow [...] allowlist. After step 2c every
+              ;; non-relative target reaching here has an extractable
+              ;; host. A relative reference (no host) is allowed through
+              ;; — :allow gates absolute targets, it does not block
+              ;; same-origin relative redirects. DNS hostnames are
               ;; case-insensitive (RFC 1035 §2.3.3), so lower-case both
-              ;; sides — matching the header/cookie token-grammar treatment
-              ;; elsewhere in this file.
+              ;; sides — matching the header/cookie token-grammar
+              ;; treatment elsewhere in this file.
               (and (seq allow)
                    host
                    (not (contains? (into #{} (map clojure.string/lower-case) allow)
