@@ -1669,23 +1669,22 @@
    reconstructing a cascade should be tolerant of partially-truncated
    bundles when `:dropped-events` is non-zero."
   [sub-id]
-  (let [snap (atom nil)]
-    (swap! subscriptions
-           (fn [m]
-             (if-let [sub (get m sub-id)]
-               (do (reset! snap {:queue           (:queue sub)
-                                 :topic           (:topic sub)
-                                 :dropped-events  (:dropped-events sub 0)
-                                 :dropped-bytes   (:dropped-bytes  sub 0)
-                                 :overflow-reason (:overflow-reason sub)})
-                   (assoc m sub-id (-> sub
-                                       (assoc :queue [])
-                                       (assoc :queue-bytes 0)
-                                       (assoc :dropped-events 0)
-                                       (assoc :dropped-bytes 0)
-                                       (assoc :overflow-reason nil))))
-               (do (reset! snap nil) m))))
-    (if-let [{:keys [queue topic dropped-events dropped-bytes overflow-reason]} @snap]
+  ;; Atomically reset the drained sub's queue + counters and capture the
+  ;; PRE-drain state in one shot via `swap-vals!` (returns [old new]) — no
+  ;; scratch atom threaded out of the swap closure. The reset is a pure
+  ;; `update`-of-the-sub; the drained snapshot is just the old map's entry.
+  (let [[old _] (swap-vals! subscriptions
+                            (fn [m]
+                              (if (contains? m sub-id)
+                                (update m sub-id #(-> %
+                                                      (assoc :queue [])
+                                                      (assoc :queue-bytes 0)
+                                                      (assoc :dropped-events 0)
+                                                      (assoc :dropped-bytes 0)
+                                                      (assoc :overflow-reason nil)))
+                                m)))]
+    (if-let [{:keys [queue topic dropped-events dropped-bytes overflow-reason]}
+             (get old sub-id)]
       (let [base {:ok?             true
                   :sub-id          sub-id
                   :dropped-events  (or dropped-events 0)
