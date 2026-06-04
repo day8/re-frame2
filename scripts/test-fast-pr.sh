@@ -108,6 +108,13 @@ run "lockstep version drift" "./.github/scripts/verify-version-lockstep.sh" \
 run "skill/MCP allowed-tools drift" "python scripts/check_skill_mcp_drift.py --verbose --ci" \
   python "$repo_root/scripts/check_skill_mcp_drift.py" --verbose --ci
 
+# README inventory ratchet (rf2-198k3): layout-map<->disk bijection +
+# 'N <noun>' count-numeral claims.  Runs unconditionally (not gated on a
+# markdown diff) because the drift it catches can be triggered by a *dir*
+# add/remove that never touches an .md file.  Fast + pure-Python.
+run "README inventory ratchet" "python scripts/check_readme_inventories.py" \
+  python "$repo_root/scripts/check_readme_inventories.py"
+
 run "core JVM" "cd implementation/core && clojure -M:test" \
   bash -lc "cd '$repo_root/implementation/core' && clojure -M:test"
 
