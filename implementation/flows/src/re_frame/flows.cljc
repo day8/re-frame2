@@ -108,9 +108,9 @@
   surface DCEs in CLJS production (Spec 009 §Production builds)."
   [frame-id flow new-output]
   (when-let [schema (:schema flow)]
-    (when-let [validate (late-bind/get-fn :schemas/validate-with-registered-fn)]
+    (when-let [validate (late-bind/get-fn-cached :schemas/validate-with-registered-fn)]
       (when-not (validate schema new-output)
-        (let [explain     (late-bind/get-fn :schemas/explain-with-registered-fn)
+        (let [explain     (late-bind/get-fn-cached :schemas/explain-with-registered-fn)
               explanation (when explain (explain schema new-output))]
           (trace/emit-error! :rf.error/schema-validation-failure
                              {:category   :rf.error/schema-validation-failure
