@@ -457,6 +457,33 @@
       (is (false? (finalize/all-regions-final? m (:state left-only)))
           "one region still pending ⇒ the parallel machine is NOT done"))))
 
+(deftest scxml-parallel-region-ancestor-restart-is-region-local
+  (testing "SCXML §3.4 + §3.13 (rf2-emz8l): the LCCA ancestor-restart applies
+            PER REGION — a transition to a region-local compound ancestor
+            restarts ONLY that region's subtree (exit+re-enter+re-init); the
+            sibling region is untouched. Each region runs the same transition
+            engine, so the LCCA fix is inherited. Spec 005 §Parallel regions
+            §Entry/exit cascading along the LCCA."
+    (let [[log mk] (order-recorder)
+          m {:type :parallel :data {}
+             :regions
+             {:left {:initial :grp
+                     :states
+                     {:grp {:entry (mk :entry-grp) :exit (mk :exit-grp)
+                            :initial :one
+                            ;; declared on the region-local compound ancestor
+                            :on {:reset {:target [:grp] :action (mk :L-action)}}
+                            :states {:one {:entry (mk :entry-1) :exit (mk :exit-1)
+                                           :on {:adv :two}}
+                                     :two {:entry (mk :entry-2) :exit (mk :exit-2)}}}}}
+              :right {:initial :idle :states {:idle {:entry (mk :entry-R)} :busy {}}}}}
+          ;; Position :left at the NON-initial child :two, :right at :idle.
+          r (step m {:state {:left [:grp :two] :right :idle} :data {}} [:reset])]
+      (is (= {:left [:grp :one] :right :idle} (:state r))
+          ":left's :grp restarts and re-inits to :one; :right (declines :reset) stays put")
+      (is (= [:exit-2 :exit-grp :L-action :entry-grp :entry-1] @log)
+          "ONLY :left's region cascades: exit :two,:grp → action → re-enter :grp → re-init :one; :right untouched"))))
+
 ;; ===========================================================================
 ;; §6. Eventless / :always microstep settle (transient transitions)
 ;;
@@ -702,6 +729,144 @@
           "a self-naming keyword target stays at the source state")
       (is (= [:exit :action :entry] @log)
           "onexit → action → onentry — identical to the `:same-state` sentinel"))))
+
+;; ===========================================================================
+;; §10b. External transition to a PROPER ANCESTOR on the active path
+;;       (LCCA-restart geometry — rf2-emz8l)
+;;
+;; SCXML §3.13 `getEffectiveTargetStates` + `findLCCA`: a transition from a
+;; descendant leaf to one of its PROPER ANCESTORS A is (by default) EXTERNAL.
+;; The LCCA of {source, A} is A's PARENT (A is a proper ancestor of the
+;; source but NOT of itself), so the exit set is A's whole active subtree
+;; INCLUDING A, and the entry set re-enters A and re-descends A's default-
+;; initial chain. Net effect: A's onexit + onentry both fire and A
+;; re-initialises. This is the natural generalisation of the external
+;; SELF-transition (§10) — a self-target is the degenerate case where A is
+;; the source leaf itself.
+;;
+;; BEFORE rf2-emz8l the engine bounded the exit set by the longest common
+;; PREFIX of the source path and the (initial-cascaded) target leaf. For an
+;; ancestor target whose `:initial` chain re-descends to the source, that
+;; LCP equals the full path → the exit AND entry sets were BOTH empty → a
+;; SILENT NO-OP where XState fires A's exit+entry and re-initialises A. The
+;; fix computes the true LCCA against the target BASE (pre-initial-cascade):
+;; when the target is a prefix of the active path, the LCCA is pulled up to
+;; the target's parent. Spec 005 §Entry/exit cascading along the LCCA.
+;; ===========================================================================
+
+(deftest scxml-external-transition-to-proper-ancestor-restarts-subtree
+  (testing "SCXML §3.13: an EXTERNAL transition from a descendant leaf to a
+            PROPER ANCESTOR A restarts A — exit A's active subtree (deepest-
+            first, INCLUDING A), run the transition action at the LCCA
+            (A's parent), then re-enter A and re-descend A's :initial chain
+            (shallowest-first). Before rf2-emz8l this was a silent no-op.
+            Spec 005 §Entry/exit cascading along the LCCA."
+    (let [[log mk] (order-recorder)
+          ;; Active config [:p :a :x]; :x targets its grandparent :a via an
+          ;; absolute vector. A's :initial is :x, so the restart re-descends
+          ;; back to [:p :a :x] — the exact case the LCP-as-LCA missed.
+          m {:initial :p :data {}
+             :states
+             {:p {:entry (mk :entry-P) :exit (mk :exit-P)     ;; LCCA — neither fires
+                  :initial :a
+                  :states
+                  {:a {:entry (mk :entry-A) :exit (mk :exit-A)
+                       :initial :x
+                       :states
+                       {:x {:entry (mk :entry-X) :exit (mk :exit-X)
+                            :on {:restart {:target [:p :a] :action (mk :ACTION)}}}}}}}}}
+          r (step m {:state [:p :a :x] :data {}} [:restart])]
+      (is (= [:p :a :x] (:state r))
+          "after restarting A the configuration re-descends A's :initial back to [:p :a :x]")
+      (is (= [:exit-X :exit-A :ACTION :entry-A :entry-X] @log)
+          "exit deepest-first (X then A) → action at the LCCA (:p) → re-enter A → re-descend A's :initial (X); :p (the LCCA) neither exits nor enters"))))
+
+(deftest scxml-external-transition-to-ancestor-diverging-initial-re-inits
+  (testing "SCXML §3.13: restarting ancestor A re-descends A's CURRENT
+            :initial child even when A's active child differed from :initial
+            at restart time. Source [:p :a :two]; A's :initial is :one, so
+            the restart re-enters A and re-descends to [:p :a :one] (the
+            re-initialisation the LCCA restart guarantees). Spec 005
+            §Entry/exit cascading along the LCCA."
+    (let [[log mk] (order-recorder)
+          m {:initial :p :data {}
+             :states
+             {:p {:initial :a
+                  :states
+                  {:a {:entry (mk :entry-A) :exit (mk :exit-A)
+                       :initial :one
+                       :states
+                       {:one {:entry (mk :entry-1) :exit (mk :exit-1)}
+                        :two {:entry (mk :entry-2) :exit (mk :exit-2)
+                              :on {:restart {:target [:p :a]}}}}}}}}}
+          ;; Seed the active config at the NON-initial child :two.
+          r (step m {:state [:p :a :two] :data {}} [:restart])]
+      (is (= [:p :a :one] (:state r))
+          "restarting A re-initialises it to its :initial child :one (not back to :two)")
+      (is (= [:exit-2 :exit-A :entry-A :entry-1] @log)
+          "exit :two then A → re-enter A → re-descend A's :initial (:one)"))))
+
+(deftest scxml-external-transition-to-ancestor-via-same-state-on-ancestor
+  (testing "SCXML §3.13 / Spec 005 §Self-transitions: `:target :same-state`
+            declared ON an ancestor and matched while a DESCENDANT leaf is
+            active restarts the ancestor — the same LCCA-restart geometry as
+            the §10 compound external self-transition, exercised through the
+            pure engine. The descendant declines the event, the ancestor
+            handles it. Spec 005 §Entry/exit cascading along the LCCA."
+    (let [[log mk] (order-recorder)
+          m {:initial :session :data {}
+             :states
+             {:session
+              {:entry (mk :entry-session) :exit (mk :exit-session)
+               :initial :active
+               ;; declared on the COMPOUND ancestor; :active declines :reauth
+               :on {:reauth {:target :same-state :action (mk :renew)}}
+               :states
+               {:active {:entry (mk :entry-active) :exit (mk :exit-active)}}}}}
+          r (step m {:state [:session :active] :data {}} [:reauth])]
+      (is (= [:session :active] (:state r))
+          "the compound self-restart re-descends :session's :initial child")
+      (is (= [:exit-active :exit-session :renew :entry-session :entry-active] @log)
+          "exit cascade leaf→root (:active, :session) → action → entry cascade root→leaf (re-runs :initial)"))))
+
+(deftest scxml-ancestor-restart-regression-disjoint-targets-unchanged
+  (testing "REGRESSION GUARD (rf2-emz8l): the LCCA fix must NOT disturb
+            DISJOINT-subtree targets. A sibling-leaf transition and a
+            cross-level-to-sibling-subtree transition keep their plain
+            common-prefix LCA — the common-ancestor node neither exits nor
+            enters. Spec 005 §Entry/exit cascading along the LCCA."
+    ;; (a) sibling-leaf: [:p :a] -> :b (sibling under :p). LCCA = :p; only
+    ;;     the leaves cross the boundary, :p untouched.
+    (let [[log mk] (order-recorder)
+          m {:initial :p :data {}
+             :states {:p {:entry (mk :entry-P) :exit (mk :exit-P)
+                          :initial :a
+                          :states {:a {:entry (mk :entry-A) :exit (mk :exit-A)
+                                       :on {:go :b}}
+                                   :b {:entry (mk :entry-B) :exit (mk :exit-B)}}}}}
+          r (step m {:state [:p :a] :data {}} [:go])]
+      (is (= [:p :b] (:state r)) "sibling-leaf transition lands at the sibling")
+      (is (= [:exit-A :entry-B] @log)
+          "only :a exits and :b enters; the common ancestor :p neither exits nor enters (unchanged)"))
+    ;; (b) cross-level to a sibling SUBTREE: [:p :a :x] -> [:p :b :y].
+    ;;     LCCA = :p; mirrors scxml-lca-cascade-* — must be untouched by the fix.
+    (let [[log mk] (order-recorder)
+          m {:initial :p :data {}
+             :states
+             {:p {:entry (mk :entry-P) :exit (mk :exit-P)
+                  :initial :a
+                  :states
+                  {:a {:entry (mk :entry-A) :exit (mk :exit-A)
+                       :initial :x
+                       :states {:x {:entry (mk :entry-X) :exit (mk :exit-X)
+                                    :on {:go {:target [:p :b :y]}}}}}
+                   :b {:entry (mk :entry-B) :exit (mk :exit-B)
+                       :initial :y
+                       :states {:y {:entry (mk :entry-Y) :exit (mk :exit-Y)}}}}}}}
+          r (step m {:state [:p :a :x] :data {}} [:go])]
+      (is (= [:p :b :y] (:state r)) "cross-level lands at the sibling subtree leaf")
+      (is (= [:exit-X :exit-A :entry-B :entry-Y] @log)
+          "exit X,A → enter B,Y; the LCCA :p untouched (sibling-subtree case unchanged by the fix)"))))
 
 ;; ===========================================================================
 ;; §11. :after — delayed transitions (SEMANTIC CORE: fire + stale)

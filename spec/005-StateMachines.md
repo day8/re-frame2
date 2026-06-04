@@ -299,6 +299,8 @@ The wildcard fires after specific matches **at the same level**. Only if *neithe
 
 Internal transitions are how to update `:data` without re-running entry/exit machinery.
 
+A `:target` naming the declaring state's own keyword (e.g. `:target :idle` on a state-node keyed `:idle`) is equivalent to `:target :same-state` — it names the same state as the source, so it is also **external**. On a **compound** source, the external self-transition re-enters the state *and* re-descends its `:initial` chain (a full restart of its subtree). This is the degenerate case (target = source) of the more general **ancestor-restart** geometry: an external `:target` naming a **proper ancestor** A on the active path restarts A the same way — exit A's subtree (including A), then re-enter and re-initialise A. See [§Entry/exit cascading along the LCA §Computing the LCCA](#computing-the-lcca--the-longest-common-prefix-shortcut-and-its-one-exception) for the exit-set geometry that makes both cases fall out of the same LCCA rule.
+
 ### Guards
 
 A guard is **`(fn [{:keys [data event state meta]}] boolean)`** — a single context-map argument. **One inline fn or one keyword reference into the machine's `:guards` map** — never a compound data form.
@@ -964,10 +966,10 @@ A transition that fires runs an ordered sequence of action slots. **Flat machine
 
 Each slot is optional; absent slots are skipped.
 
-**Compound machines** generalise the slot list along the LCA-cascade described in [§Hierarchical compound states §Entry/exit cascading](#entryexit-cascading-along-the-lca). Given source path A and target path B, with LCA L (longest common prefix):
+**Compound machines** generalise the slot list along the LCCA-cascade described in [§Hierarchical compound states §Entry/exit cascading](#entryexit-cascading-along-the-lca). Given source path A and target path B, with LCCA L (the **least common compound ancestor** — see that section for the exact definition; it is the longest common prefix *except* when B lies on A's active path, where it pulls up to re-enter the targeted ancestor):
 
 1. **Exit cascade** — `:exit` actions of A's states from leaf back to (but not including) L. **Deepest-first.**
-2. **Transition `:action`** — fires once at the LCA boundary.
+2. **Transition `:action`** — fires once at the LCCA boundary.
 3. **Entry cascade** — `:entry` actions of B's states from (the level just below) L down to leaf. **Shallowest-first.**
 4. **Initial cascade** — if B's leaf is itself a compound state, descend its `:initial` chain; each cascaded state's `:entry` action fires shallowest-first as the path lengthens.
 
@@ -1234,13 +1236,27 @@ A target naming a compound state implicitly cascades through its `:initial` chai
 
 ### Entry/exit cascading along the LCA
 
-When the snapshot transitions from path A to path B, the runtime walks both paths and computes the **LCA** (longest common prefix). Three boundaries fire, in this order:
+When the snapshot transitions from path A (the source) to path B (the target), the runtime walks both paths and computes the **LCCA** — the **least common compound ancestor**, the deepest compound state that is a **proper** ancestor of *both* A's leaf and B's target node. (XState v5 / SCXML §3.13 `findLCCA`; "LCA" is the historical short name and the section anchor, but the computation is the LCCA.) Three boundaries fire, in this order:
 
-1. **Exit cascade.** Walk A from leaf back toward LCA, firing each state's `:exit` action — **deepest-first**. Stop at LCA exclusive (LCA itself does not exit; we are not leaving it).
-2. **Transition `:action`.** Runs once at the LCA boundary, between exit and entry.
-3. **Entry cascade.** Walk B from (the level just below) LCA down to leaf, firing each state's `:entry` action — **shallowest-first**. If B's leaf is itself a compound state, continue cascading via its `:initial` chain; the cascaded states' `:entry` actions fire as the path extends.
+1. **Exit cascade.** Walk A from leaf back toward the LCCA, firing each state's `:exit` action — **deepest-first**. Stop at the LCCA exclusive (the LCCA itself does not exit; we are not leaving it).
+2. **Transition `:action`.** Runs once at the LCCA boundary, between exit and entry.
+3. **Entry cascade.** Walk B from (the level just below) the LCCA down to the target node, firing each state's `:entry` action — **shallowest-first**. If the target is itself a compound state, continue cascading via its `:initial` chain; the cascaded states' `:entry` actions fire as the path extends.
 
-This is a generalisation of the flat exit → action → entry rule (where path length is 1 and LCA is the root).
+#### Computing the LCCA — the longest-common-prefix shortcut and its one exception
+
+For the **common case** — A and B lie in *disjoint* subtrees (a sibling-leaf transition, a cross-level transition to a sibling subtree, or a transition to the root) — the LCCA *is* the longest common prefix of A and B: the two paths diverge at some node, and that node's parent (the last shared element) is a proper ancestor of both, so it survives the transition (it neither exits nor enters). This is why the longest-common-prefix shortcut is correct for the vast majority of transitions, and the worked examples below all fall in this case.
+
+The shortcut **breaks in exactly one geometry**: when **B (the target node, *before* its own `:initial` cascade) lies on A's active path** — i.e. the target is the source state itself (an [external self-transition](#self-transitions-external-vs-internal)) or a **proper ancestor of the source**. Here B is *itself* one of the states the transition involves, so the common *compound* ancestor must be a **proper** ancestor of B. The LCCA pulls **up to B's parent**, and the geometry becomes a **restart of B**:
+
+- B and everything below it on the active path **exit** (deepest-first, **including B** — B's `:exit` runs);
+- the transition `:action` fires at the LCCA (B's parent);
+- B **re-enters** (B's `:entry` runs) and **re-descends its `:initial` chain** — B re-initialises to its initial child, regardless of which child was active when the transition fired.
+
+Net effect for a target naming a proper ancestor A of the source: `exit (source-subtree leaf→A) → action → enter A → re-descend A's :initial`. This is the XState v5 / SCXML default for an external transition to an ancestor (the LCCA of {source, A} is A's parent, so A is in the exit set), and it makes "transition to A" a first-class **restart this compound state** operation. The external [self-transition](#self-transitions-external-vs-internal) is the degenerate case where A is the source leaf itself.
+
+> **Why the LCCA, not the plain longest common prefix?** If the LCA were computed as the longest common prefix of A and B's *initial-cascaded leaf*, an ancestor target whose `:initial` chain re-descends to the source would yield a common prefix equal to the *full* source path — the exit and entry sets would **both be empty** and the transition would be a **silent no-op**: A's `:exit`/`:entry` would not fire and A would not re-initialise. Getting the exit set wrong this way is the classic hierarchical-state-machine "LCCA trap". The LCCA is therefore computed against the target **base** (the resolved target node *before* its `:initial` re-descent — the initial cascade is part of *entering* the target, not of locating the common ancestor): when that base lies on the active path, the boundary is pulled up to the target's parent and A restarts.
+
+This is a generalisation of the flat exit → action → entry rule (where path length is 1 and the LCCA is the root).
 
 ### Transition resolution — deepest-wins with parent fallthrough
 
