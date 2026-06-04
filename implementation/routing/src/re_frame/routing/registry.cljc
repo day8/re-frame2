@@ -687,6 +687,38 @@
           nil
           (route-table))))))
 
+;; ---- route-url param-segment emission ------------------------------------
+;; `route-url`'s pattern walk hits a `:name` / `*name` segment in two
+;; places — the top-level loop (params may be absent → throw) and
+;; `emit-group` (an optional group is only entered when all its inner
+;; params are present → read directly). Both share the identical
+;; cursor-advance (`segment-end` to the segment boundary, `keyword` the
+;; captured name) and the same `:` → url-encode / `*` → url-encode-splat
+;; encoder dispatch. The two helpers below carry that shared shape so
+;; the four branch bodies collapse to a bounds-read + an encode call,
+;; and the encoder-vs-segment-kind mapping cannot drift between the two
+;; walk sites.
+
+(defn- param-seg-bounds
+  "Given `pattern` (length `n`) with the cursor `i` sitting on a `:` or
+  `*` sigil, return `[end k]`: `end` is the index just past the param
+  name (the next segment boundary) and `k` is the captured name as a
+  keyword."
+  [^String pattern n i]
+  (let [start (inc i)
+        end   (match/segment-end pattern n start)]
+    [end (keyword (subs pattern start end))]))
+
+(defn- encode-param
+  "Percent-encode a path-param `v` for emission: splat values
+  (`splat?`) preserve literal '/' between captured segments
+  (`url-encode-splat`); a plain named param is a single component
+  (`url-encode`)."
+  [splat? v]
+  (if splat?
+    (url/url-encode-splat v)
+    (url/url-encode v)))
+
 (defn route-url
   "Per Spec 012 §Bidirectional URL ↔ params. Build a URL string from a
   route-id + path-params (+ optional query-params + optional fragment).
@@ -782,6 +814,22 @@
            ;; re-walking the pattern body.
            groups (or (:groups (:rf.route/compiled route-meta))
                       (:groups (match/parse-pattern pattern)))
+           ;; Resolve a REQUIRED path-param value or throw. Per Spec 012
+           ;; §Bidirectional URL ↔ params: an absent or `nil` value
+           ;; raises; a present-but-falsy value (`false`, `0`, `""`) is a
+           ;; legitimate segment and round-trips. `if-some` discriminates
+           ;; falsy-but-present from absent (a plain `(or v throw)` would
+           ;; mis-classify falsy as absent). `kind` ("path"/"splat") only
+           ;; flavours the diagnostic message.
+           require-param
+           (fn [k kind]
+             (if-some [v (get path-params k)]
+               v
+               (throw (route-error
+                        :rf.error/missing-route-param
+                        'rf/route-url
+                        (str "route " route-id " requires " kind " param " k " but it was absent (or nil)")
+                        {:param k :route-id route-id}))))
            ;; Inner loop emits the body of an optional group whose params
            ;; are all present. State threads as (loop [i parts]); returns
            ;; [next-i parts'] when the group's '}' (and optional '?') is
@@ -800,17 +848,13 @@
                         after-close)
                       parts])
 
-                   (= ch \:)
-                   (let [start (inc i)
-                         end   (match/segment-end pattern n start)
-                         k     (keyword (subs pattern start end))]
-                     (recur end (conj parts (url/url-encode (get path-params k)))))
-
-                   (= ch \*)
-                   (let [start (inc i)
-                         end   (match/segment-end pattern n start)
-                         k     (keyword (subs pattern start end))]
-                     (recur end (conj parts (url/url-encode-splat (get path-params k)))))
+                   ;; `:name` / `*name` inside an optional group — the
+                   ;; group is only entered when all its inner params are
+                   ;; present, so read directly (no require check).
+                   (or (= ch \:) (= ch \*))
+                   (let [[end k] (param-seg-bounds pattern n i)]
+                     (recur end (conj parts (encode-param (= ch \*)
+                                                          (get path-params k)))))
 
                    :else
                    (recur (inc i) (conj parts (str ch)))))))
@@ -829,37 +873,13 @@
                          (recur i' parts'))
                        (recur close-end parts)))
 
-                   (= ch \:)
-                   (let [start (inc i)
-                         end   (match/segment-end pattern n start)
-                         k     (keyword (subs pattern start end))
-                         ;; Per Spec 012 §Bidirectional URL ↔ params: an
-                         ;; absent or `nil` value raises; a present-but-falsy
-                         ;; value (`false`, `0`, `""`) is a legitimate
-                         ;; segment and round-trips through url-encode.
-                         ;; `(or v throw)` mis-classifies falsy as absent;
-                         ;; `if-some` discriminates correctly.
-                         v     (if-some [v (get path-params k)]
-                                 v
-                                 (throw (route-error
-                                          :rf.error/missing-route-param
-                                          'rf/route-url
-                                          (str "route " route-id " requires path param " k " but it was absent (or nil)")
-                                          {:param k :route-id route-id})))]
-                     (recur end (conj parts (url/url-encode v))))
-
-                   (= ch \*)
-                   (let [start (inc i)
-                         end   (match/segment-end pattern n start)
-                         k     (keyword (subs pattern start end))
-                         v     (if-some [v (get path-params k)]
-                                 v
-                                 (throw (route-error
-                                          :rf.error/missing-route-param
-                                          'rf/route-url
-                                          (str "route " route-id " requires splat param " k " but it was absent (or nil)")
-                                          {:param k :route-id route-id})))]
-                     (recur end (conj parts (url/url-encode-splat v))))
+                   ;; `:name` / `*name` in the top-level pattern — the
+                   ;; value is REQUIRED; `require-param` throws on absent.
+                   (or (= ch \:) (= ch \*))
+                   (let [splat?  (= ch \*)
+                         [end k] (param-seg-bounds pattern n i)
+                         v       (require-param k (if splat? "splat" "path"))]
+                     (recur end (conj parts (encode-param splat? v))))
 
                    :else
                    (recur (inc i) (conj parts (str ch)))))))
