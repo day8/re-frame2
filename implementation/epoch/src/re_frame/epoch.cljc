@@ -45,7 +45,7 @@
             [re-frame.epoch.capture :as capture]
             [re-frame.epoch.listeners :as listeners]
             [re-frame.epoch.state :as state]
-            [re-frame.epoch.write :as write]
+            [re-frame.epoch.tool-pair :as tool-pair]
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
@@ -443,7 +443,7 @@
 ;; ---- restore --------------------------------------------------------------
 ;;
 ;; Precondition validators, schema/handler/version probes, and
-;; `perform-restore!` live in `re-frame.epoch.write` (Phase-2 seam E,
+;; `perform-restore!` live in `re-frame.epoch.tool-pair` (Phase-2 seam E,
 ;; rf2-0wi86). The orchestrator below stays in the facade — it wires
 ;; the precondition check + the trace emission + the perform step into
 ;; a four-line case-match.
@@ -470,10 +470,10 @@
   [frame-id epoch-id]
   (if-not interop/debug-enabled?
     false
-    (let [{:keys [outcome epoch op tags]} (write/check-restore-preconditions! frame-id epoch-id)]
+    (let [{:keys [outcome epoch op tags]} (tool-pair/check-restore-preconditions! frame-id epoch-id)]
       (case outcome
-        :ok   (write/perform-restore! frame-id epoch)
-        :fail (do (write/emit-precondition-failure! op tags)
+        :ok   (tool-pair/perform-restore! frame-id epoch)
+        :fail (do (tool-pair/emit-precondition-failure! op tags)
                   false)))))
 
 ;; ---- reset-frame-db! (Tool-Pair §Pair-tool writes, rf2-zq55) -------------
@@ -552,15 +552,15 @@
   [frame-id new-db]
   (if-not interop/debug-enabled?
     false
-    (let [{:keys [outcome op tags]} (write/check-reset-frame-db-preconditions! frame-id new-db)]
+    (let [{:keys [outcome op tags]} (tool-pair/check-reset-frame-db-preconditions! frame-id new-db)]
       (case outcome
         :ok   (perform-reset-frame-db! frame-id new-db)
-        :fail (do (write/emit-precondition-failure! op tags)
+        :fail (do (tool-pair/emit-precondition-failure! op tags)
                   false)))))
 
 ;; ---- projected egress -----------------------------------------------------
 ;;
-;; The projection helpers live in `re-frame.epoch.write` (Phase-2
+;; The projection helpers live in `re-frame.epoch.tool-pair` (Phase-2
 ;; seam E, rf2-0wi86); the public docstrings stay here so the facade
 ;; remains the canonical API reference.
 
@@ -593,7 +593,7 @@
   `register-epoch-listener!` registration under `interop/debug-enabled?`
   per Spec 009 §User-side listener registration."
   [record]
-  (write/projected-record record))
+  (tool-pair/projected-record record))
 
 (defn projected-history
   "Convenience: return the projected vector of records for a frame.
@@ -602,7 +602,7 @@
   snapshot, a recorder dumping the full session) can call this once
   rather than walking the raw ring and re-wrapping each record."
   [frame-id]
-  (write/projected-history frame-id))
+  (tool-pair/projected-history frame-id))
 
 ;; ---- late-bind hook registration ------------------------------------------
 ;;
