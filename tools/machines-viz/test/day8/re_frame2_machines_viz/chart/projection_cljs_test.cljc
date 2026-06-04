@@ -207,6 +207,51 @@
           region (node-by-id graph (layout/region-node-id :audio))]
       (is (= "parallel-region" (:type region))))))
 
+;; ---- error-final KIND threading + composition (rf2-b4loj) --------------
+;;
+;; An `:error?` final (Spec 005 §:final?) is a re-frame2 EXTENSION routing
+;; the spawning parent's `:on-error` (vs `:on-done`). The projector threads
+;; the terminal KIND onto `:data {:errorFinal ...}` so the renderer paints
+;; the error-hue OUTER RING for error terminals while a success final keeps
+;; the quiet runtime-coupled ring. NOT XState/Stately parity — re-frame2
+;; semantic clarity. `:output-key` is deliberately OUT of scope here.
+
+(def success-and-error-finals
+  "Two terminals of distinct KIND: a plain success final + an `:error?`
+  error final."
+  {:initial :running
+   :states  {:running {:on {:ok :ok :boom :boom}}
+             :ok      {:final? true}
+             :boom    {:final? true :error? true}}})
+
+(deftest xyflow-graph-threads-error-final-kind
+  (testing "rf2-b4loj — :data :errorFinal is true ONLY for an :error?
+            final; a success final and a non-final node carry false"
+    (let [parsed  (layout/parse-definition success-and-error-finals)
+          graph   (projection/xyflow-graph parsed {} {})
+          running (node-by-id graph (layout/node-id [:running]))
+          ok      (node-by-id graph (layout/node-id [:ok]))
+          boom    (node-by-id graph (layout/node-id [:boom]))]
+      ;; both terminals are :final; only the error final is :errorFinal.
+      (is (true?  (:final (:data ok))))
+      (is (true?  (:final (:data boom))))
+      (is (false? (:errorFinal (:data running))) "non-final → false")
+      (is (false? (:errorFinal (:data ok)))      "success final → false")
+      (is (true?  (:errorFinal (:data boom)))    "error final → true"))))
+
+(deftest xyflow-graph-active-error-final-composes
+  (testing "rf2-b4loj — an :error? final that is ALSO the current state
+            carries BOTH :active true (drives the runtime main-border) AND
+            :errorFinal true (drives the static error-hue ring) on its
+            :data — the two signals compose, neither clobbers the other"
+    (let [parsed (layout/parse-definition success-and-error-finals)
+          hi     (layout/node-id [:boom])
+          graph  (projection/xyflow-graph parsed {} {:highlight-id hi})
+          boom   (node-by-id graph hi)]
+      (is (true? (:active     (:data boom))) "the error final is active")
+      (is (true? (:errorFinal (:data boom))) "AND it is an error terminal")
+      (is (true? (:final      (:data boom)))))))
+
 ;; ---- xyflow-graph :on-state-click threading (rf2-34ff3) ----------------
 ;;
 ;; rf2-34ff3 (A-PRIME) — `:on-state-click` is threaded onto the `:data`

@@ -138,6 +138,43 @@ scoping + §3.1 G9).
 > unambiguous final-state signal; the glyph competed with the state
 > title for attention against the structure-first grammar.
 
+> **rf2-b4loj error-final terminal KIND (re-frame2 semantic clarity, NOT
+> XState/Stately parity).** Spec 005 §`:final?` lets a `:final?` leaf
+> declare `:error?` true — an **error terminal**. This is a re-frame2
+> **extension**: a child that finishes via an `:error?` final routes the
+> spawning parent's `:spawn` **`:on-error`** transition instead of
+> `:on-done`. XState v5 has final-states-with-output and actor `onError`
+> but **no first-class error-final flag**, and Stately therefore draws no
+> such marker — so this is *not* a parity feature to look up; it is a
+> distinction **the re-frame2 framework acts on** that the chart must not
+> hide.
+>
+> The affordance keeps the structure-first grammar (border/hue, not a
+> competing glyph — consistent with the dropped `✓`): an `:error?` final's
+> **outer ring** is painted in the `:final-error` palette token (the
+> theme's `:error` hue, light + dark). A success final's outer ring stays
+> the **quiet, runtime-coupled** resting border. The **main node border**
+> is unchanged either way — it continues to carry the runtime
+> active/focus/sim signal — so the two compose: an *active* error-final
+> renders the runtime highlight on its main border **and** the static
+> error hue on its outer ring, neither clobbering the other.
+>
+> The terminal KIND threads `:final?` leaf → `:error?` (gated on `:final?`)
+> in `chart.layout/collect-nodes` → `:data {:errorFinal …}` in
+> `chart.projection` → the conditional ring colour in `chart.nodes/`
+> `state-node`. **Scope:** `:output-key` (the all-finals output-display
+> property, Spec 005:2840) is *out* of this affordance — it belongs to a
+> separate all-finals output decision if it earns one.
+>
+> **Text emitters (mermaid / SCXML) carry no error-final distinction.**
+> Mermaid's `[*]` terminal and SCXML's `<final>` element have no
+> first-class error-terminal concept — the error-final ring is a
+> visual-chart affordance only. Both emitters render an `:error?` final
+> identically to a success final (`[*]` / `<final>`); the round-trip is
+> lossless on `:final?` but does **not** preserve `:error?`. This is by
+> design: the chart surfaces a re-frame2-specific routing distinction the
+> portable text formats cannot represent.
+
 ### 1.5 Event labels
 
 Stately labels transitions by **type**: normal → event name; delayed
@@ -200,7 +237,7 @@ parse (`chart/layout.cljc`) + pure projection (`chart/projection.cljc`)
 | **Parallel regions — active CONTAINER chrome** | ✅ **Closed (rf2-80rm2 / G4).** The region (and, for self-consistency, the compound) **container** reads as active when ANY descendant leaf is active — the projector folds the container into `:active` by walking each active leaf UP its `:parent-id` chain (reusing the G1 active set; no duplicate highlight logic). `parallel-region-node` / `compound-node` then paint active chrome (solid emphasised boundary + the `:info` active-token glow ring, the same affordance state nodes use), so an active region reads as active at the zone level, not just the leaf inside it. **Palette delegated to Figma.** | `projection.cljc` `xyflow-graph` (`active-container-ids` parent-id walk); `nodes/parallel_region_node.cljs`; `nodes.cljs` `compound-node`. |
 | **Transition scoping** | ✅ `:on`, `:after`, `:always`, machine-level (top-level `:on`) fallback, **`:on-done` (XState `onDone`) compound / parallel completion** (rf2-41goo), external + internal self-transitions, vector-of-candidates forks. **Machine-level fallback projects ONCE** (rf2-vcnvj): a top-level `:on` is sourced from a synthetic MACHINE-ROOT node into its target as a SINGLE chip — not one back-edge per leaf (the pre-vcnvj per-state expansion repeated the chip AND injected N back-edges that scrambled ELK's top-to-bottom ranking). **`:on-done` (rf2-41goo)**: a COMPOUND's `:on-done` projects a completion edge from the compound to its SIBLING target (resolved at the compound's own level), an `✓ done` chip distinct from an ordinary event arrow; a PARALLEL-ROOT's `:on-done` (action/fx-only — registration rejects a `:target`) renders as a TERMINAL completion affordance (a hanging done chip, no sibling segment). Self-loops render as a small loop (not a degenerate bezier); internal self-transitions render dashed + no arrowhead. | `layout.cljc` `collect-state-edges`, `on-done-edges`, `collect-machine-edges` (root-sourced), `machine-root-id`, `resolve-target-path`; `projection.cljc` (`machine-root` node type, `:onDone` / `:doneState` event-node data); `nodes.cljs` `machine-root-node`; `edges.cljs` (self-loop path, internal dash). |
 | **Initial** | ✅ Filled-dot `initial-marker` node + unlabelled entry edge into the initial state, at **every** compound level (xstate/SCXML semantics). | `nodes.cljs` `initial-marker`; `projection.cljc` (marker-nodes + entry-edges); `layout.cljc` `collect-nodes` (per-level `:initial?`). |
-| **Final** | ✅ Quiet doubled border (outer ring 1px proud) on `state-node`. **No glyph** — the prior `✓` check glyph is DROPPED (rf2-az6e2, §1.4); the doubled border is the unambiguous final-state signal. | `nodes.cljs` `state-node` (final ring; no glyph). |
+| **Final** | ✅ Quiet doubled border (outer ring 1px proud) on `state-node`. **No glyph** — the prior `✓` check glyph is DROPPED (rf2-az6e2, §1.4); the doubled border is the unambiguous final-state signal. **Error-terminal KIND (rf2-b4loj, §1.4 — re-frame2 clarity, NOT XState/Stately parity):** an `:error?` final (Spec 005 §`:final?`, the re-frame2 extension that routes the spawning parent's `:spawn :on-error`) paints its outer ring in the `:final-error` token (theme `:error` hue) while a success final keeps the quiet runtime-coupled ring; the main border stays runtime-driven so an active error-final composes both signals. `:output-key` is out of scope. | `nodes.cljs` `state-node` (conditional error-ring colour); `layout.cljc` `collect-nodes` (`:error?` gated on `:final?`); `projection.cljc` (`:errorFinal` on `:data`); `theme/tokens.cljc` (`:final-error`). |
 | **History** | 🪝 **Render-hook only (rf2-az6e2, §1.4) — NOT yet emitted.** The `history-marker` renderer (shallow `H` / deep `H*`) is registered in the node-types map, but `chart.layout/parse-definition` emits **no** history pseudo-state node today (the parsed node shape carries no history data), so the projector never produces one. First-class `:history` is NOT shipped; the hook is shaped to the grammar awaiting parsed history topology (and Spec 005 history semantics). | `nodes.cljs` `history-marker` (registered hook); `layout.cljc` (no history emission). |
 | **Event labels** | ✅ `event [guard] / action` composed label; `after(<ms>)`, `always`, `* (any)` wildcard segments; opaque chart-bg backplate (rf2-j10sm Phase 1) for legibility against overlapping ink; label is clickable when a fireable event-id + host callback are present. **Multi-event collapse SUPERSEDED + RETIRED** (rf2-j10sm Phase 2 → rf2-qo5xy → rf2-o6vh7): the old collapse rendered N transitions on one `[source target]` pair as ONE arrow + N stacked labels (`:siblingIndex` / `:siblingCount`). Under events-as-nodes (rf2-qo5xy) each event is its OWN event-node, so same-`[source target]` transitions stay DISTINCT event-nodes (no collapse); rf2-o6vh7 removed the dead `:siblingIndex` / `:siblingCount` + `data-sibling-*` machinery. (The rf2-r7vsr post-render collision-avoidance overlay was **retired** in rf2-0xbgx: events-as-nodes moved labels onto event-nodes and left the in/out edges label-less, so the edge-label sweep was inert; elk layout + events-as-nodes makes label-on-node-body collisions a non-issue.) | `layout.cljc` `edge-label`/`event-segment`; `edges.cljs` `transition-edge`; `projection.cljc` `xyflow-graph` (one event-node per parsed transition). |
 | **Guards / actions** | ✅ Guard in `[...]`, action after `/`; entry/exit state actions render as `entry / <name>` / `exit / <name>` rows under the label; state-tag pills above. | `layout.cljc` `edge-label`, `name-of`; `nodes.cljs` `state-node` (entry/exit rows, tag pills). |
@@ -352,7 +389,8 @@ fill), and colours resolved through the active-theme **chart-tokens**
 | **State (FROM — focused-event origin)** | distinct accent on the border (reads as "we left here") | *`:focus` border + `:focus-wash` header* |
 | **State (TO — focused-event landing)** | the **active** affordance, heavier than FROM | *`:active`, heaviest stroke* |
 | **State (sim — what-if, not live)** | a hue reserved for informational/not-live | *`:sim` border + `:sim-wash` header* |
-| **Final state** | **quiet doubled** border (outer ring proud of corner). **No glyph** (rf2-az6e2 dropped the ✓) | *outer ring in the resting/runtime border colour* |
+| **Final state (success)** | **quiet doubled** border (outer ring proud of corner). **No glyph** (rf2-az6e2 dropped the ✓) | *outer ring in the resting/runtime border colour* |
+| **Final state (error — `:error?`)** | doubled border whose **outer ring is the error hue** (rf2-b4loj — re-frame2 clarity, the terminal routes the parent's `:on-error`; NOT XState/Stately parity). Main border stays runtime-driven so an active error-final composes both | *outer ring in `:final-error` (theme `:error`); main border unchanged* |
 | **Initial marker** | small **neutral** filled dot + unlabelled arrow into the initial state, at every compound level (NOT accent-blue) | *`:pseudo-marker` dot* |
 | **History pseudo-state (HOOK)** | small symbolic node — shallow `H` / deep `H*` — inside the owning compound; NOT a state box. **Renderer registered as a hook; projector emits none until parsed history topology exists** (this bead adds no statechart history semantics) | *`history-marker` node-type registered; `:pseudo-*` constants carry the variant* |
 | **Compound container** | **solid subtle-neutral** box + full-width title strip; NO dashed border, NO accent wash by default | *`:container-body-bg` fill, `:container-border` solid, `:container-header-bg` strip* |

@@ -311,6 +311,12 @@
        — re-exported off the palette so a renderer reads one map.
     :active / :focus / :sim / :final
        — runtime-state accents (active = :info, focus = :accent, etc.).
+    :final-error
+       — the error-final OUTER-RING hue (rf2-b4loj). STATIC error-hue
+         signalling an `:error?` terminal (a re-frame2 extension that
+         routes the spawning parent's `:on-error`), distinct from the
+         quiet success-final ring; does not displace the runtime
+         main-border accent.
 
   Pure data → map of strings; JVM-portable. Defaults to `dark-palette`
   so a renderer that never threads a palette still resolves the dark
@@ -348,6 +354,17 @@
       :focus  (g :accent)
       :sim    (g :yellow)
       :final  (g :text-secondary)
+      ;; rf2-b4loj — the error-final OUTER RING hue. A `:error?` final
+      ;; (Spec 005 §:final?) is a re-frame2 EXTENSION: a child finishing
+      ;; via it routes the spawning parent's `:spawn` `:on-error`
+      ;; transition (vs `:on-done`). The chart must not hide a distinction
+      ;; the framework acts on, so the success-final's quiet ring is
+      ;; replaced by the error hue ONLY for error terminals. STATIC (the
+      ;; main border still carries runtime/active/focus/sim), so an active
+      ;; error-final composes: error ring + active main-border, neither
+      ;; clobbering the other. NOT XState/Stately parity — XState has no
+      ;; first-class error-final flag; this is re-frame2 semantic clarity.
+      :final-error (g :error)
       ;; tints used for runtime washes (kept subtle — border/header/glow
       ;; carry the runtime signal, not the whole fill, per the bead)
       :active-wash (with-alpha :info   0.14 palette)
