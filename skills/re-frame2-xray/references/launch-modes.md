@@ -162,7 +162,7 @@ guarded so a second call is a no-op.
 (require '[day8.re-frame2-xray.core :as xray])
 
 (xray/init!
- {:default-frame :app/main ; target-frame for the scrubber
+ {:default-frame :app/main ; observed frame for the spine
  :theme :dark ; / :light (settings persist)
  :density :compact ; / :cosy (settings persist)
  :buffer-depths {:epoch 50}}) ; per-frame ring depth
@@ -227,7 +227,7 @@ Four hotkey families have keydown listeners attached today
 | `Ctrl+Shift+C` | global | Toggle the Xray shell (mount on first press; CSS show/hide thereafter). `Ctrl+Shift` avoids Safari's `Cmd+Shift+C` Inspect collision on macOS. |
 | `Cmd/Ctrl+Shift+M` | global | Toggle mode — Dynamic ↔ Static (`:rf.xray/toggle-mode`). Cmd on macOS, Ctrl elsewhere. |
 | `Cmd/Ctrl+K` | global | Open the command palette (`:rf.xray/palette-toggle`); opens the shell first if it's hidden. Cmd on macOS, Ctrl elsewhere. |
-| `Space` `L` `j` `k` `G` `,`/`s` `Esc` | focus-gated | Spine + chrome shortcuts. Space = pause/resume LIVE · `L` = snap to LIVE · `j`/`k` = step focused event back/forward · `G` (Shift+G) = fast-forward to head · `,` or `s` = Settings popup · `Esc` = clear the focus lens. |
+| `Space` `L` `j` `k` `G` `,`/`s` | focus-gated | Spine + chrome shortcuts. Space = pause/resume LIVE · `L` = snap to LIVE · `j`/`k` = step focused event back/forward · `G` (Shift+G) = fast-forward to head · `,` or `s` = Settings popup. (`Esc` is **not** a wired spine key — it is a modal-local close handler owned by the palette / Settings popup.) |
 
 [`spec/007-UX-IA.md` §Keyboard](../../../tools/xray/spec/007-UX-IA.md#keyboard)
 catalogues additional shortcuts that remain normative for the future but
