@@ -30,7 +30,7 @@ Out of scope: streaming responses (chunked / SSE), bidirectional WebSocket (see 
 | `:accept` post-decode normalisation | `(fn [decoded] {:ok v} or {:failure m})` lets a structurally-valid 200 surface as a domain failure. |
 | `:retry` — transport-level only | Function of failure category + attempt count; nothing else. Semantic retry belongs in a state machine — see *§The retry-ownership boundary*. |
 | `:request-id` abort | Stable `=`-comparable id; `[:rf.http/managed-abort id]` cancels in-flight, dispatching `:rf.http/aborted` via the reply path. |
-| Eight-category failure taxonomy | `:rf.http/transport`, `:rf.http/cors`, `:rf.http/timeout`, `:rf.http/aborted`, `:rf.http/http-4xx`, `:rf.http/http-5xx`, `:rf.http/decode-failure`, `:rf.http/payload`. Closed set. |
+| Eight-category failure taxonomy | `:rf.http/transport`, `:rf.http/cors`, `:rf.http/timeout`, `:rf.http/aborted`, `:rf.http/http-4xx`, `:rf.http/http-5xx`, `:rf.http/decode-failure`, `:rf.http/accept-failure`. Closed set. |
 | Machine-form wrapper | A child invokable machine of `:rf.http/managed` — `:spawn` it like any other; on reply it transitions to `:succeeded` / `:failed` and dispatches `[<parent-id> [:succeeded value]]` / `[<parent-id> [:failed failure]]` back. Destroying the wrapper aborts in-flight. |
 
 ## Canonical declaration — fx form

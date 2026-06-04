@@ -515,7 +515,7 @@ Per [012 §Tooling and AI-amenability](../../spec/012-Routing.md#tooling-and-ai-
 
 **Type B** (semantic flag).
 
-Per [002 §Re-registration — surgical update](../../spec/002-Frames.md), a *fresh* `reg-frame` (i.e. the first registration for a given keyword) initialises `app-db` to `{}` and then runs `:on-create`. Apps that synchronously poke `re-frame.db/app-db` at top level (`(reset! re-frame.db/app-db {...})` in a namespace body, before any `reg-frame` runs) are doubly affected: M-1 forbids the private-namespace access (mechanical rewrite to `(reg-frame :rf/default {:on-create [[:app/seed initial-state]]})`), and the seeded value must move into the `:on-create` event.
+Per [002 §Re-registration — surgical update](../../spec/002-Frames.md), a *fresh* `reg-frame` (i.e. the first registration for a given keyword) initialises `app-db` to `{}` and then runs `:on-create`. Apps that synchronously poke `re-frame.db/app-db` at top level (`(reset! re-frame.db/app-db {...})` in a namespace body, before any `reg-frame` runs) are doubly affected: M-1 forbids the private-namespace access (mechanical rewrite to `(reg-frame :rf/default {:on-create [:app/seed initial-state]})`), and the seeded value must move into the `:on-create` event.
 
 **What to look for:** top-level `(reset! re-frame.db/app-db ...)` (or `(swap! re-frame.db/app-db ...)`) calls in namespace bodies.
 
