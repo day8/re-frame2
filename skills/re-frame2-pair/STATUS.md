@@ -1,8 +1,8 @@
 # Implementation status
 
-A living record of what's actually implemented, what's scaffolded, and what's blocked. Updated per release. See `docs/initial-spec.md` for the design this is measured against.
+A living record of what's actually implemented, what's scaffolded, and what's blocked. Updated per release. See `docs/initial-spec.md` for the original design this is measured against; the live surface is now the MCP server (`tools/re-frame2-pair-mcp/`) + the injected `re-frame2-pair.runtime` preload, and the normative contract is re-frame2's [Tool-Pair Spec](https://github.com/day8/re-frame2/blob/main/spec/Tool-Pair.md).
 
-**Last updated:** 2026-05-13 — fixture app + initial validation envelope
+**Last updated:** 2026-06-04 — MCP-server-primary; push-mode streaming landed
 
 ---
 
@@ -10,58 +10,45 @@ A living record of what's actually implemented, what's scaffolded, and what's bl
 
 | Area | State |
 |---|---|
-| Design spec | Complete (see `docs/initial-spec.md`) |
-| `SKILL.md` | Written — the full vocabulary Claude learns |
+| Design spec | Complete (see `docs/initial-spec.md`) — superseded as the *transport* description by the MCP server |
+| Transport | **MCP server (`tools/re-frame2-pair-mcp/`) is the ONLY skill-facing transport.** `allowed-tools:` carries no shell tool. |
+| Tool catalogue | **28 MCP tools** (catalogued in `tools/re-frame2-pair-mcp/tool-descriptors.edn`). 26 reachable from `allowed-tools:`; `restore-epoch` + `reset-frame-db` are gated behind the default-OFF `--allow-writes` flag. |
+| `SKILL.md` + `references/*.md` | Written — the full vocabulary Claude learns; the routed leaves carry the live surface. |
 | `preload/re_frame2_pair/runtime.cljs` | Written — helpers over re-frame2's public Tool-Pair surfaces. Loaded into the app via shadow-cljs `:devtools :preloads`. |
-| `scripts/ops.clj` + shell shims | Written — babashka dispatches every op |
-| `.claude-plugin/plugin.json` | Written |
-| `package.json` + GH Actions (CI + release) | Written |
+| Bash shims (`scripts/*.sh` + `ops.clj`) | **Retired from the skill surface** — kept on disk only for the project's own e2e harness and ad-hoc shell use. See [`ops.md` §Bash-shim appendix](references/ops.md#bash-shim-appendix-not-reachable-from-this-skill). |
+| Push-mode streaming | **Landed** — `subscribe` / `unsubscribe` MCP tools push live trace/epoch events as `notifications/progress`. See [`streaming-subscriptions.md`](references/streaming-subscriptions.md). |
 | Fixture app | **Landed** — `tests/fixture/`. Minimal Reagent counter + `re-frame2-pair.runtime` preload. |
-| End-to-end against a live re-frame2 app | **Scaffolded** — three Playwright specs under `tests/e2e/`, soft-skips when no fixture. |
-| Shim integration (changed-surface PR) | **Landed** — 7 tests, 28 assertions against a stubbed nREPL. |
-| Prompt regression (changed-surface PR) | **Landed** — 8 tests, 27 assertions, structural drift on `references/*.md` + `SKILL.md`. |
+| `.claude-plugin/plugin.json`, `package.json`, GH Actions (CI + release) | Written |
 
-**Changed-surface validation envelope is in place.** Live-runtime e2e is
-opt-in/manual. The bb-runnable test surfaces (`tests/runtime/`,
-`tests/shim/`, `tests/prompts/`) run in PR CI when
-`skills/re-frame2-pair/**` changes; the live e2e fixture provides ground
-truth on demand. Still pre-alpha — see *Known unknowns* below.
+**Validation envelope is in place.** The changed-surface test surfaces run in PR CI when `skills/re-frame2-pair/**` changes; the live e2e fixture provides ground truth on demand. Boot gates: `eval-cljs` ships ENABLED (`--no-eval` to opt out); `--allow-sensitive-reads` (default OFF) and `--allow-writes` (default OFF) are the privacy + write gates. Still pre-alpha — see *Known unknowns* below.
 
 ---
 
-## Per-phase status (against `docs/initial-spec.md` §6)
+## Surface status (against the Tool-Pair contract)
 
-| Phase | Deliverable | State | Notes |
-|---|---|---|---|
-| 0 | `eval-cljs.sh` round-trips a form | **Coded, not yet run** | `scripts/eval-cljs.sh` + `ops.clj` implement it; needs a live nREPL to verify. |
-| 1 | Read surface (§4.1) | **Coded** | `app-db/snapshot`, `app-db/get`, `app-db/schemas`, `registrar/list`, `registrar/describe`, `subs/cache`, `subs/sample`, `machines/*` — all over `rf/app-db-value`, `rf/snapshot-of`, `rf/registrations`, `rf/handler-meta`, `rf/sub-cache`, `rf/machines`, `rf/machine-meta`, `rf/app-schemas`. |
-| 2 | Dispatch + trace (§4.2–§4.3) | **Coded** | `pair-dispatch!` / `pair-dispatch-sync!` / `dispatch-and-collect`; trace consumed via `re-frame.trace.tooling/register-listener!`, `re-frame.trace.tooling/trace-buffer`, `rf/register-epoch-listener!`, `rf/epoch-history`. No 10x dependency. |
-| 3 | Live watch (§4.4) | **Coded, pull-mode only** | `scripts/watch-epochs.sh` runs repeated short evals at 100ms cadence against `epochs-since`; assembled-stream listener feeds an internal stash. Streaming-via-`:out` deferred. |
-| 4 | Hot-swap (REPL) | **Coded** | Delivered by `reg-event-fx`/`reg-sub`/`reg-fx`/`reg-machine` via `eval-cljs.sh`. Re-registration emits `:rf.registry/handler-replaced` per Spec 001 §Hot-reload semantics. |
-| 5 | Hot-reload coordination (§4.5) | **Coded** | `tail-build.sh` implements the probe-based protocol — preferred probes target `(rf/handler-meta ...)` since the meta map's `:line` / `:column` / `:handler-fn` change after re-registration. |
-| 6 | Time-travel (§4.6) | **Coded — first-class** | `restore-epoch`, `undo-step-back`, `undo-to-epoch` all delegate to `rf/restore-epoch`. Six documented failure modes per Tool-Pair §Time-travel. No adapter — re-frame2 ships this directly. |
-| 7 | Diagnostics recipes (§4.7) | **Coded as SKILL.md procedures** | Listed; will be refined as real usage surfaces needed ops. |
-| 8 | Packaging | **Coded** | `package.json`, `plugin.json`, GH Actions for CI + npm release on tag. See `RELEASING.md`. |
+| Surface | State | Notes |
+|---|---|---|
+| Orientation + discovery | **Live** | `discover-app` (health probe + `:freshness` token), `orient` (one-round-trip app-shape summary), `get-re-frame2-pair-instructions`, `list-handlers`, `handler-meta`. |
+| Read (data plane) | **Live** | `snapshot` (multi-slice, `:app-db` summary/path-sliced modes), `get-path`, `read-sub`, `read-ui`, `read-dom`, `list-subscriptions`, `machines/*` — over `rf/app-db-value`, `rf/snapshot-of`, `rf/sub-cache`, `rf/machines`, `rf/machine-meta`, `rf/app-schemas`, etc. |
+| Dispatch | **Live** | `dispatch` (returns the consequence by default; `sync`/`queued`/`trace`/`await-render`/`settle` modes), `dispatch-dry-run` (simulate without committing — NOT `--allow-writes`-gated), per-call `frame:` + `fx-overrides:`. |
+| Trace (read-only) | **Live** | `trace-window`, `record` / `read-recording`, plus the eval-form trace ops over `re-frame.trace.tooling/trace-buffer` + `rf/epoch-history` + the assembled-epoch projections. |
+| Live watch | **Live — both modes** | Pull-mode `watch-epochs` / `watch-until` AND push-mode `subscribe` / `unsubscribe` (`notifications/progress`). The Phase-3-era "streaming-via-`:out` deferred" note is obsolete — push-mode landed. |
+| Hot-swap (REPL) | **Live** | `reg-event`/`reg-sub`/`reg-fx`/`reg-machine` via `eval-cljs`. Re-registration emits `:rf.registry/handler-replaced` per Spec 001 §Hot-reload semantics. Ephemeral — source edit for permanence. |
+| Hot-reload coordination | **Live** | `tail-build` implements the probe-based protocol — preferred probes target `(rf/handler-meta ...)` since the meta map's `:line` / `:column` / `:handler-fn` change after re-registration. |
+| Time-travel | **Live — first-class** | `restore-epoch`, `reset-frame-db` (dedicated tools, `--allow-writes`-gated) + the default-reachable eval forms `(rf/restore-epoch ...)` / `app-db-reset!` and the `undo-step-back` / `undo-to-epoch` sugar. **Seven** documented failure modes per Tool-Pair §Time-travel. No adapter — re-frame2 ships this directly. |
+| Packaging | **Live** | `package.json`, `plugin.json`, GH Actions for CI + npm release on tag (`@day8/re-frame2-pair-mcp`). See `RELEASING.md`. |
 
 ---
 
-## Known unknowns — the §8a spike deliverables
+## Known unknowns
 
-Three things need to be proven against a fixture before calling this beyond pre-alpha.
+A few things still want ground-truth against a live fixture before calling this beyond pre-alpha.
 
-### 1. Runtime discovery
+### 1. Runtime discovery across environments
 
-`scripts/discover-app.sh` needs to actually connect against a real re-frame2 app. Specific unknowns:
+`discover-app` must connect against a real re-frame2 app in varied setups. nREPL port location: `$SHADOW_CLJS_NREPL_PORT` (a CWD-independent override) wins outright; otherwise the server scans `target/shadow-cljs/nrepl.port`, `.shadow-cljs/nrepl.port`, `.nrepl-port` at both the CWD and under `implementation/`, and picks the most-recently-modified file (so a live build's freshly-written port file beats a stale leftover). `re-frame.interop/debug-enabled?` reachability post-init is verified by the health check.
 
-- nREPL port location across shadow-cljs versions. `$SHADOW_CLJS_NREPL_PORT` (a CWD-independent override) wins outright; otherwise we scan `target/shadow-cljs/nrepl.port`, `.shadow-cljs/nrepl.port`, `.nrepl-port` at both the CWD and under `implementation/`, and pick the most-recently-modified file (so a live build's freshly-written port file beats a stale leftover).
-- CLJS-mode switch — does `(shadow.cljs.devtools.api/cljs-eval <build-id> <form-str> {})` return the `:value` in a parseable edn form, or wrapped in a shadow-specific result map?
-- `re-frame.interop/debug-enabled?` — verify the symbol is reachable post-init. The current health check reads the var directly, which works in CLJS but may need adjustment if the symbol is moved.
-
-### 2. CLJS eval round-trip
-
-Does `scripts/eval-cljs.sh '(+ 1 2)'` return `{:ok? true :value 3}`? If not, `ops.clj`'s `cljs-eval-value` parsing needs adjustment.
-
-### 3. `data-rf2-source-coord` format — RESOLVED 2026-05-09
+### 2. `data-rf2-source-coord` format — RESOLVED 2026-05-09
 
 Per [Spec 006 §Source-coord annotation](https://github.com/day8/re-frame2/blob/main/spec/006-ReactiveSubstrate.md) and [Tool-Pair §Source-mapping](https://github.com/day8/re-frame2/blob/main/spec/Tool-Pair.md) the emitted attribute value is:
 
@@ -71,7 +58,7 @@ data-rf2-source-coord="<ns>:<handler-id>:<line>:<col>"
 
 Four colon-separated segments, where `<ns>` and `<handler-id>` derive from the registry id keyword (`(namespace id)` / `(name id)`). Either coord segment may be the literal `?` for programmatic `reg-view*` calls that bypassed the macro path. Non-DOM roots (Fragment `:<>`, `:>` interop, fn-component head) are exempt — pair tools fall back to `(rf/handler-meta :view id)` for those.
 
-`preload/re_frame2_pair/runtime.cljs` `parse-rf2-coord` now returns `{:ns :handler-id :line :col}` (or nil for malformed / non-4-segment input). Verified by `tests/runtime/parse_rf2_coord_test.clj` (run via `bb`).
+`preload/re_frame2_pair/runtime.cljs` `parse-rf2-coord` returns `{:ns :handler-id :line :col}` (or nil for malformed / non-4-segment input). Verified by `tests/runtime/parse_rf2_coord_test.clj`.
 
 > **Compatibility note.** Tool-Pair.md declares the attribute's value format opaque to consumers — re-frame2-pair parses it pragmatically so the DOM-to-source bridge can be useful, but skill consumers MUST NOT depend on the parsed shape's stability across re-frame2 versions. If the format shifts, update the parser (and these tests) in one place.
 
@@ -79,12 +66,12 @@ Four colon-separated segments, where `<ns>` and `<handler-id>` derive from the r
 
 ## What's genuinely verified
 
-- `re-frame.core` exposes the Tool-Pair surfaces this skill consumes — `register-listener!`, `register-epoch-listener!`, `epoch-history`, `restore-epoch`, `configure`, `registrations`, `handler-meta`, `frame-ids`, `frame-meta`, `app-db-value`, `snapshot-of`, `sub-cache`, `machines`, `machine-meta`, `app-schemas` — confirmed in `implementation/core/src/re_frame/core.cljc`. The `trace-buffer` reader lives in `re-frame.trace.tooling` (re-exported on `rf/` JVM-side only); CLJS callers use the `re-frame.trace.tooling` ns directly.
-- Epoch records carry the documented `:rf/epoch-record` shape — confirmed in `re-frame2/implementation/src/re_frame/epoch.cljc` (`:epoch-id`, `:frame`, `:committed-at`, `:event-id`, `:trigger-event`, `:db-before`, `:db-after`, `:trace-events`, `:sub-runs`, `:renders`, `:effects`).
-- `restore-epoch` implements the six documented failure modes per Tool-Pair §Time-travel.
+- `re-frame.core` exposes the Tool-Pair surfaces this skill consumes — `register-listener!`, `register-epoch-listener!`, `epoch-history`, `restore-epoch`, `reset-frame-db!`, `configure`, `registrations`, `handler-meta`, `frame-ids`, `frame-meta`, `app-db-value`, `snapshot-of`, `sub-cache`, `machines`, `machine-meta`, `app-schemas` — confirmed in `implementation/core/src/re_frame/core.cljc`. The `trace-buffer` reader lives in `re-frame.trace.tooling` (re-exported on `rf/` JVM-side only); CLJS callers use the `re-frame.trace.tooling` ns directly.
+- Epoch records carry the documented `:rf/epoch-record` shape (`:epoch-id`, `:frame`, `:committed-at`, `:event-id`, `:trigger-event`, `:db-before`, `:db-after`, `:trace-events`, `:sub-runs`, `:renders`, `:effects`).
+- `restore-epoch` implements the **seven** documented failure modes per Tool-Pair §Time-travel.
 - shadow-cljs nREPL accepts JVM `(shadow.cljs.devtools.api/cljs-eval ...)` calls (well-known).
 
-Everything else is structurally correct per the Tool-Pair Spec but not runtime-verified.
+Everything else is structurally correct per the Tool-Pair Spec but not exhaustively runtime-verified.
 
 ---
 
@@ -92,16 +79,9 @@ Everything else is structurally correct per the Tool-Pair Spec but not runtime-v
 
 In order:
 
-1. ~~Stand up a fixture re-frame2 app (minimal Reagent v2 + shadow-cljs).~~
-   **Done** — `tests/fixture/`.
-2. Ground-truth the three items under *Known unknowns* against the
-   live fixture using the `tests/e2e/` runner.
-3. Adjust `runtime.cljs` and `ops.clj` to match any findings.
-4. Wire `tests/runtime/` into an actual shadow-cljs test build (the bb
-   mirrors are the canonical drift-detector for now).
-5. ~~Wire `tests/shim/` and `tests/prompts/` into PR CI.~~
-   **Done** — changed-surface only via `skills-structural`.
-6. Graduate out of pre-alpha and cut `v0.1.0-beta.1`.
+1. Continue ground-truthing the *Known unknowns* against the live fixture using the `tests/e2e/` runner.
+2. Adjust `runtime.cljs` to match any findings.
+3. Graduate out of pre-alpha and cut `v0.1.0-beta.1`.
 
 ---
 
