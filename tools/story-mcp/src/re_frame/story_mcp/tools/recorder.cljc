@@ -35,6 +35,7 @@
             [re-frame.story :as story]
             [re-frame.story-mcp.config :as config]
             [re-frame.story-mcp.tools.args :as targs]
+            [re-frame.story-mcp.tools.egress :as egress]
             [re-frame.story-mcp.tools.result :as result]
             [re-frame.story-mcp.tools.schemas :as s]
             [re-frame.story-mcp.tools.write :as write]))
@@ -150,6 +151,18 @@
                               Wire-key shape per rf2-pmwgn: no `?` —
                               Anthropic's input-schema property-name
                               regex rejects it.
+    :include-sensitive optional — opt out of wire-egress redaction of the
+                              captured event payloads (default false;
+                              rf2-12f2q). Gated by --allow-sensitive-reads.
+
+  Wire-egress posture (rf2-12f2q): the captured event vectors cross the
+  AI/off-box boundary in both the `:captured` slot and the `:play-snippet`
+  text. They are value-redacted against the source variant frame's
+  declared-`:sensitive?` values before egress (the SAME value-based
+  redaction the live-state tools apply to their derived trees), and the
+  snippet is rendered FROM the scrubbed events. The WRITE-BACK path
+  re-registers the RAW events on-box (an operator-gated registration via
+  `--allow-writes`, not a wire egress) so replay keeps full fidelity.
 
   Output:
     `{:variant-id <source>
@@ -245,13 +258,32 @@
                                     :else vk)
                       doc         (:doc arguments)
                       alias-arg   (:alias arguments)
+                      incl?       (targs/include-sensitive? arguments)
                       started     (now-ms)
                       _           (story/start-recording! vk)
                       _           (sleep-ms duration-ms)
                       final-state (story/stop-recording!)
                       events      (vec (:events final-state))
+                      ;; rf2-12f2q — the captured event vectors cross the
+                      ;; AI/off-box boundary in BOTH the `:captured` slot
+                      ;; and the `:play-snippet` text. A recorded event can
+                      ;; carry a declared-sensitive value in its payload (an
+                      ;; auth token, a PII field dispatched into the canvas),
+                      ;; so we value-redact the events against the source
+                      ;; frame's declared-sensitive values before egress —
+                      ;; the SAME value-based redaction the live tools apply
+                      ;; to their derived trees. The snippet is then rendered
+                      ;; FROM the scrubbed events, so the secret is absent
+                      ;; from both wire slots in one place (no fragile text
+                      ;; substitution). `:include-sensitive true` opts out
+                      ;; (gated by --allow-sensitive-reads). The WRITE-BACK
+                      ;; path below re-registers the RAW events on-box (an
+                      ;; on-box registration the operator gated via
+                      ;; --allow-writes, not a wire egress) so replay keeps
+                      ;; full fidelity.
+                      wire-events (egress/scrub-frame-value events vk incl?)
                       snippet     (story/gen-play-snippet
-                                    events
+                                    wire-events
                                     (cond-> {:variant-id target-vid :extends extends}
                                       (string? doc)       (assoc :doc doc)
                                       (string? alias-arg) (assoc :alias alias-arg)))
@@ -259,7 +291,7 @@
                                    :play-snippet         snippet
                                    :recorded-event-count (count events)
                                    :duration-ms          (- (now-ms) started)
-                                   :captured             events
+                                   :captured             wire-events
                                    :written-back?        false}]
                   (if-not write-back?
                     (result/edn-result base)
@@ -273,7 +305,7 @@
   per IMPL-SPEC §7.3."
   [{:name           "record-as-variant"
     :category       :write
-    :description    (str "Bridge the recorder's start → capture → snippet pipeline across the MCP boundary. Starts a recording against the source variant's frame, blocks for `:duration-ms`, stops, returns the `(reg-variant ...)` snippet `gen-play-snippet` emits. Optional `:write-back` re-registers the variant with the captured recording translated to a live `:script` slot (the public phase-4 play surface) — GATED behind `:rf.story-mcp/allow-writes?` (same gate as `register-variant`). Wire-key shape per rf2-pmwgn: input-schema property keys MUST omit the trailing `?` (Anthropic regex); the response key `:written-back?` is not bound by the same rule. "
+    :description    (str "Bridge the recorder's start → capture → snippet pipeline across the MCP boundary. Starts a recording against the source variant's frame, blocks for `:duration-ms`, stops, returns the `(reg-variant ...)` snippet `gen-play-snippet` emits. The captured event payloads (in both the `:captured` slot and the `:play-snippet` text) are value-redacted against the source frame's declared-sensitive values before egress (rf2-12f2q); pass `:include-sensitive true` to opt out (gated by --allow-sensitive-reads). Optional `:write-back` re-registers the variant with the captured recording translated to a live `:script` slot (the public phase-4 play surface) — GATED behind `:rf.story-mcp/allow-writes?` (same gate as `register-variant`); write-back re-registers the RAW events on-box for replay fidelity. Wire-key shape per rf2-pmwgn: input-schema property keys MUST omit the trailing `?` (Anthropic regex); the response key `:written-back?` is not bound by the same rule. "
                          "Examples: "
                          "1. Snippet-only record (no write-back): {:variant-id \":story.cart/full\" :duration-ms 2000} -> {:variant-id :story.cart/full :play-snippet \"(story/reg-variant :story.cart/full {:extends :story.cart/full :script {:auto-run? true :script [[:dispatch-sync [:cart/add ...]]]}})\" :recorded-event-count 4 :duration-ms 2012 :captured [[:cart/add ...]] :written-back? false}. "
                          "2. With write-back (gate must be open): {:variant-id \":story.cart/full\" :duration-ms 1000 :write-back true :new-variant-id \":story.cart/recorded\"} -> {... :written-back? true :new-variant-id :story.cart/recorded}. "
@@ -289,6 +321,7 @@
     :inputSchema {:type "object"
                   :properties (s/with-max-tokens
                                 (s/with-dedup
+                                  (s/with-include-sensitive
                                   {:variant-id     s/kw-or-string
                                    :duration-ms    {:type "integer" :minimum 0 :maximum max-duration-ms
                                                     :description (str "Milliseconds to block between start and stop. Default 0. JVM-only (CLJS hosts no-op). "
@@ -304,7 +337,7 @@
                                                     :description "Short ns alias for the rendered form (default \"story\")."}
                                    :write-back     {:type "boolean"
                                                     :description (str "When true, also re-register the variant with the captured recording as a live `:script` body. Requires `allow-writes?`. "
-                                                                      "Wire-key shape: no `?` per Anthropic's `^[a-zA-Z0-9_.-]{1,64}$` input-schema property-name regex (rf2-pmwgn).")}}))
+                                                                      "Wire-key shape: no `?` per Anthropic's `^[a-zA-Z0-9_.-]{1,64}$` input-schema property-name regex (rf2-pmwgn).")}})))
                   :required ["variant-id"]
                   :additionalProperties false}
     :outputSchema s/write-gated-output-schema
