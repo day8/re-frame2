@@ -108,6 +108,15 @@ run "lockstep version drift" "./.github/scripts/verify-version-lockstep.sh" \
 run "skill/MCP allowed-tools drift" "python scripts/check_skill_mcp_drift.py --verbose --ci" \
   python "$repo_root/scripts/check_skill_mcp_drift.py" --verbose --ci
 
+# Cite-integrity guard (rf2-1nb8k): every M-id the re-frame-migration skill
+# cites must name a consistent rule in MIGRATION.md.  Catches the id-collision /
+# phantom-cite class (skill cited M-66/M-67 for rules MIGRATION.md assigned to
+# History-states / Xray-static-mode).  Runs unconditionally — fast pure-Python,
+# and the drift can be introduced by a MIGRATION.md *heading* edit that the
+# markdown-diff gate below also sees but doesn't semantically check.
+run "skill migration cite-integrity" "python scripts/check_skill_migration_cites.py --verbose --ci" \
+  python "$repo_root/scripts/check_skill_migration_cites.py" --verbose --ci
+
 # README inventory ratchet (rf2-198k3): layout-map<->disk bijection +
 # 'N <noun>' count-numeral claims.  Runs unconditionally (not gated on a
 # markdown diff) because the drift it catches can be triggered by a *dir*

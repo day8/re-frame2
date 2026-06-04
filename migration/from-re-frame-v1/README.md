@@ -117,7 +117,7 @@ Hit every alias the project uses (`rf/`, `re-frame/`, `re-frame.core/`, bare `cl
 
 | Old usage | Replace with |
 |---|---|
-| `@re-frame.db/app-db` | `(rf/get-frame-db :rf/default)` — returns the current `app-db` value (a plain map). |
+| `@re-frame.db/app-db` | `(rf/app-db-value :rf/default)` — returns the current `app-db` value (a plain map). |
 | `(reset! re-frame.db/app-db v)` | Don't. If the user truly needs to bypass the event pipeline, replace with `(rf/dispatch-sync [::reset-app-db v])` and add a handler that does the reset. Flag this for human review — direct mutation is almost always a code smell. |
 | `(re-frame.core/clear-subscription-cache!)` (no-arg, public) | `(rf/clear-sub-cache! :rf/default)` — public v2 surface; frame-id is required (the v1 zero-arg form is gone). Per [API §`clear-sub-cache!`](../../spec/API.md#dispatch-and-subscribe). The no-arg call site cleared *the* (single) sub-cache; in v2 every frame has its own cache and the call site must name the target — `:rf/default` is the like-for-like replacement for code that didn't address frames. |
 | `re-frame.subs/clear-sub-cache!` (private alias) | `(rf/clear-sub-cache! :rf/default)` (or whichever frame is intended) — same rewrite as the public form above; the private-namespace alias was the v1 way to reach the same function. |
@@ -678,8 +678,8 @@ re-frame2 does not ship `reg-sub-raw`. The substrate now has explicit answers fo
    ;; v2 — registered fx subscribes to the source and dispatches; sub reads app-db
    (rf/reg-fx :ws/connect
      (fn [m _]
-       (let [d (rf/dispatcher)] ;; *current-frame* is bound to (:frame m) inside the binary handler
-         (websocket/on-message #(d [:ws/message-received %])))))
+       (let [{:keys [dispatch]} (rf/frame-handle (:frame m))] ;; handle locked to (:frame m)
+         (websocket/on-message #(dispatch [:ws/message-received %])))))
 
    (rf/reg-event-db :ws/message-received
      (fn [db [_ msg]]
@@ -1088,7 +1088,7 @@ rf/trace-api-version                             ;; version slot, never wired
 | `reg-event-error-handler` | per-frame `:on-error` slot, or `(rf/register-listener! key cb)` filtering on `:rf.error/*` | The single-slot global error-handler is gone (per M-13's note this was already a fragile policy). v2 layers error policy at the frame level (`:on-error` in `reg-frame` metadata) and exposes the structured error stream via the trace listener API. **Type B** — the rewrite depends on whether the v1 handler was per-frame ergonomic policy (use `:on-error`) or process-wide observer (use `register-listener!`). |
 | `spawn-machine` | `[:rf.machine/spawn spec]` (fx, inside an event handler's `:fx`) | The fx-id is canonical; the public fn `spawn-machine` is dropped. From outside a handler (e.g. boot-time), wrap in `(rf/dispatch-sync [:my-bootstrap-event])` whose handler returns `{:fx [[:rf.machine/spawn spec]]}`. |
 | `destroy-machine` | `[:rf.machine/destroy actor-id]` (fx, inside an event handler's `:fx`) | Same — fx-id is canonical; the public fn is dropped. |
-| `make-restore-fn` | `epoch/restore-epoch` (epoch-id-keyed; refuses halted-cascade records) + `epoch/reset-frame-db!` (value-shape replace). For the v1 snapshot+closure pattern, write it inline: `(let [snapshot (rf/get-frame-db frame-id)] (fn [] (rf/reset-frame-db! frame-id snapshot)))`. | The epoch surface is the v2 mechanism for state capture and restore. Pre-alpha posture rejects v1 helpers that have a v2 replacement. |
+| `make-restore-fn` | `epoch/restore-epoch` (epoch-id-keyed; refuses halted-cascade records) + `epoch/reset-frame-db!` (value-shape replace). For the v1 snapshot+closure pattern, write it inline: `(let [snapshot (rf/app-db-value frame-id)] (fn [] (rf/reset-frame-db! frame-id snapshot)))`. | The epoch surface is the v2 mechanism for state capture and restore. Pre-alpha posture rejects v1 helpers that have a v2 replacement. |
 
 **Why:** each of these v1 surfaces had a v2-canonical equivalent that subsumed the use case (trace listeners, point-event tracing, fx-shaped lifecycle, run-to-completion drain, frame-level error policy, epoch-based capture/restore). Carrying the v1 names as separate documented entries created drift between the API table and the actual v2 surfaces.
 
@@ -1492,7 +1492,7 @@ Per [Spec 014 §Middleware](../../spec/014-HTTPRequests.md#middleware), re-frame
 (rf/reg-http-interceptor
   :auth-header
   {:before (fn [ctx]
-             (let [token (-> (rf/get-frame-db (:frame ctx)) :auth :token)]
+             (let [token (-> (rf/app-db-value (:frame ctx)) :auth :token)]
                (cond-> ctx
                  token (assoc-in [:request :headers "Authorization"]
                                  (str "Bearer " token)))))})
@@ -1851,19 +1851,19 @@ After (mechanical):
                     (rf/dispatch (conj (if ok? on-success on-failure) response)))}))))
 ```
 
-The simple ignore-`m` rewrite preserves v1 sync semantics — the handler runs and any dispatches it issues default to `:rf/default`. For multi-frame correctness in async callbacks, follow up with the frame-bound dispatcher pattern:
+The simple ignore-`m` rewrite preserves v1 sync semantics — the handler runs and any dispatches it issues default to `:rf/default`. For multi-frame correctness in async callbacks, follow up with the frame-bound handle pattern:
 
 ```clojure
 (rf/reg-fx :http-xhrio
   (fn [m request]                                     ;; binary; frame-aware
-    (let [d (rf/dispatcher)                           ;; *current-frame* bound to (:frame m)
+    (let [{:keys [dispatch]} (rf/frame-handle (:frame m)) ;; handle locked to (:frame m)
           {:keys [on-success on-failure]} request]
       (ajax/ajax-request
         {:handler (fn [[ok? response]]
-                    (d (conj (if ok? on-success on-failure) response)))}))))
+                    (dispatch (conj (if ok? on-success on-failure) response)))}))))
 ```
 
-The dispatcher-capture step is needed only for async-dispatching fx that target multi-frame use; sync-only handlers are correct after the mechanical `_`-prepend.
+The handle-capture step is needed only for async-dispatching fx that target multi-frame use; sync-only handlers are correct after the mechanical `_`-prepend.
 
 **What to look for.** Greps for `reg-fx` followed by a one-arg `fn` literal:
 
@@ -1900,7 +1900,7 @@ v1's `re-frame-test/run-test-sync` was carried into v2 as a "compatibility shim"
   (ts/run-test-sync
     (rf/reg-event-db :counter/inc (fn [db _] (update db :n inc)))
     (rf/dispatch-sync [:counter/inc])
-    (is (= 1 (:n (rf/get-frame-db :rf/default))))))
+    (is (= 1 (:n (rf/app-db-value :rf/default))))))
 
 ;; after — body is hoisted; per-test fixture handles registrar isolation
 (use-fixtures :each
@@ -1909,7 +1909,7 @@ v1's `re-frame-test/run-test-sync` was carried into v2 as a "compatibility shim"
 (deftest legacy-flow
   (rf/reg-event-db :counter/inc (fn [db _] (update db :n inc)))
   (rf/dispatch-sync [:counter/inc])
-  (is (= 1 (:n (rf/get-frame-db :rf/default)))))
+  (is (= 1 (:n (rf/app-db-value :rf/default)))))
 ```
 
 If the file does not already install a `:each` fixture, add one — every v2 test suite installs `make-reset-runtime-fixture` (or, for ad-hoc per-test rollbacks, calls `with-fresh-registrar` directly inside the body). Per [Spec 008 §Built-in test-runner namespace](../../spec/008-Testing.md#built-in-test-runner-namespace).
@@ -1923,7 +1923,7 @@ For ad-hoc bodies that want a one-off registrar bracket without converting the w
     (fn []
       (rf/reg-event-db :tmp/inc (fn [db _] (update db :n inc)))
       (rf/dispatch-sync [:tmp/inc])
-      (is (= 1 (:n (rf/get-frame-db :rf/default)))))))
+      (is (= 1 (:n (rf/app-db-value :rf/default)))))))
 ```
 
 **Why:** v2's `dispatch-sync` is already synchronous so the macro added nothing on the drain axis; the registrar-isolation half is covered by the per-test fixture every v2 suite already installs. Carrying a shim whose job is duplicated by the standard fixture is migration drift, not migration tax-relief. Per pre-alpha policy: cut freely.
@@ -2489,6 +2489,74 @@ The prior `:rf.xray/static-mode?` flag was a back-compat hedge that does not app
 
 ---
 
+### M-68. Frame-affordance redesign — `bound-fn` / `dispatcher` / `subscriber` / `current-frame` / `get-frame-db` / `frame-bound-fn` renamed (rf2-kkut0)
+
+**Type A** (mechanical, closed rename table). The frame-affordance surface was redesigned so the affordance is chosen by **intent**: a one-shot operation bundle (`frame-handle`), an explicit async-boundary wrapper (`frame-bound-fn*`), the macro that owns the fn-syntax (`frame-bound-fn`), the instance-safety id primitive (`current-frame-id`), and the value accessor (`app-db-value`). The old names are **removed** — stale call sites raise unresolved-symbol.
+
+| Old (v2-pre-rename) | New | Note |
+|---|---|---|
+| `(rf/bound-fn [a] body)` | `(rf/frame-bound-fn [a] body)` | The macro now owns the fn-syntax. The old `bound-fn` shadowed `clojure.core/bound-fn` and is removed. |
+| `(rf/frame-bound-fn f)` / `(rf/frame-bound-fn id f)` | `(rf/frame-bound-fn* f)` / `(rf/frame-bound-fn* id f)` | The fn becomes the `*`-twin (matching `dispatch` / `dispatch*`); `frame-bound-fn` is now the macro. |
+| `(rf/dispatcher)` | `(:dispatch (rf/frame-handle))` | Or the injected `dispatch` inside a `reg-view`. `dispatcher` is replaced by the `frame-handle` operation bundle. |
+| `(rf/subscriber)` | `(:subscribe (rf/frame-handle))` | Or the injected `subscribe` inside a `reg-view`. |
+| `(rf/current-frame)` | `(rf/current-frame-id)` | Returns an id — kept public as an instance-safety primitive. |
+| `(rf/get-frame-db id)` | `(rf/app-db-value id)` | Returns a VALUE, not a container. (`app-db-container` is the container accessor; reach for it only when a container is genuinely wanted.) |
+
+`dispatcher` / `subscriber` are subsumed by the `frame-handle` **operation bundle** `{:frame :dispatch :dispatch-sync :subscribe}` — capture it once at a stable point (render time, or fx-handler entry with `(rf/frame-handle (:frame m))`) and reach the operations off the bundle.
+
+```clojure
+;; before (v2-pre-rename)
+(let [d (rf/dispatcher)
+      s (rf/subscriber)
+      db (rf/get-frame-db (rf/current-frame))]
+  ...)
+
+;; after
+(let [{:keys [dispatch subscribe frame]} (rf/frame-handle)
+      db (rf/app-db-value frame)]                          ;; or (rf/app-db-value (rf/current-frame-id))
+  ...)
+```
+
+**Detect.** Call sites of `rf/bound-fn`, the fn-arity `rf/frame-bound-fn` (1- or 2-arg), `rf/dispatcher`, `rf/subscriber`, `rf/current-frame`, or `rf/get-frame-db` — through any alias (`rf/`, `re-frame.core/`, a `:refer` clause).
+
+**Mechanical sweep.** Apply the closed rename table above. The only judgement step is the `dispatcher` / `subscriber` → `frame-handle` rewrite: prefer the injected `dispatch` / `subscribe` lexical bindings when the call site is inside a `reg-view` body (per [M-22](#m-22-reg-view-is-now-a-defn-shape-macro--keyword-shape-calls-must-rewrite)); otherwise capture the handle once via `(rf/frame-handle)` (or `(rf/frame-handle frame-id)` to lock an explicit frame) and destructure the operations. Per pre-alpha posture old names are **removed** — stale call sites raise unresolved-symbol. v2-pre-rename codebases only — v1 had no frame substrate.
+
+**Cross-references.** [Spec 002 §`frame-handle`](../../spec/002-Frames.md#frame-handle--the-keystone-affordance-cljs-reference) and [§`frame-bound-fn` / `frame-bound-fn*`](../../spec/002-Frames.md#frame-bound-fn--frame-bound-fn--frame-capturing-closures-cljs-reference); [Spec 004 §Affordance for plain fns](../../spec/004-Views.md#affordance-for-plain-fns-rfframe-handle) for plain-fn capture; [API.md](../../spec/API.md).
+
+---
+
+### M-69. Listener-registration namespace consolidation — `register-event-emit-listener!` / `register-trace-listener!` / `register-error-emit-listener!` families renamed
+
+**Type A** (mechanical, closed rename table). The dev/prod axis moves into the **namespace**: `re-frame.trace/*` is dev-only (DCE'd in production via `goog.DEBUG=false`), `re-frame.emit/*` (event + error) is always-on. With the axis carried by the namespace, the per-fn `-trace-` / `-emit-` infixes became redundant and are dropped. The old names are **removed** — stale call sites raise unresolved-symbol.
+
+| Old (v2-pre-rename) | New |
+|---|---|
+| `register-trace-listener!` / `unregister-trace-listener!` / `clear-trace-listeners!` | `register-listener!` / `unregister-listener!` / `clear-listeners!` |
+| `register-event-emit-listener!` / `unregister-event-emit-listener!` / `clear-event-emit-listeners!` | `register-event-listener!` / `unregister-event-listener!` / `clear-event-listeners!` |
+| `register-error-emit-listener!` / `unregister-error-emit-listener!` / `clear-error-emit-listeners!` | `register-error-listener!` / `unregister-error-listener!` / `clear-error-listeners!` |
+
+The `-trace-` infix is dropped because the canonical home namespace (`re-frame.trace`) already says "trace"; the `-emit-` infix is dropped because the always-on namespace (`re-frame.emit`) already says "emit". The `rf/<name>` re-exports mirror the home-namespace names.
+
+```clojure
+;; before (v2-pre-rename)
+(rf/register-event-emit-listener! :audit (fn [rec] ...))
+(rf/register-error-emit-listener! :sentry (fn [rec] ...))
+(rf/register-trace-listener!      :xray (fn [ev] ...))
+
+;; after
+(rf/register-event-listener! :audit (fn [rec] ...))
+(rf/register-error-listener! :sentry (fn [rec] ...))
+(rf/register-listener!       :xray (fn [ev] ...))
+```
+
+**Detect.** Call sites of any `register-*-emit-listener!` / `register-trace-listener!` (and their `unregister-` / `clear-` siblings) through any alias.
+
+**Mechanical sweep.** Apply the closed rename table above. Per pre-alpha posture old names are **removed** — stale call sites raise unresolved-symbol. v2-pre-rename codebases only — the v1→v2 [M-55](#m-55-listener-registration-verb-unification--register--cb--register--listener) rename used the `-emit-` / `-trace-` infix names that M-69 supersedes.
+
+**Cross-references.** [Spec 009 §The listener API](../../spec/009-Instrumentation.md#the-listener-api); [API.md](../../spec/API.md); [M-55](#m-55-listener-registration-verb-unification--register--cb--register--listener) (the v1→v2 verb-unification rule this supersedes).
+
+---
+
 ## Opt-in modernisation (only if asked)
 
 These are not required for migration. Apply them only if the user has explicitly asked to modernise the codebase to use re-frame2's new features.
@@ -2672,7 +2740,7 @@ re-frame2 ships UIx 2.x as a second canonical browser substrate alongside Reagen
 - **Adapter install.** Drop the `[re-frame.adapter.reagent]` `:require` and add `[re-frame.adapter.uix]`; the `:require`'s ns-load auto-registers the adapter as the default, so `(rf/init!)` with no args picks up UIx without an explicit adapter argument. Apps that explicitly passed the Reagent adapter to `init!` (the older form `(rf/init! reagent-adapter/adapter)`) drop the arg; the no-arg form is the canonical surface.
 - **View registration.** `reg-view` (the macro) stays Reagent-only per Spec 006 Decision 4. Rewrite each `(reg-view foo [args] body)` as a UIx `(defui foo [args] ...)` paired with a `(rf/reg-view* ::foo {} foo)` if the app needs registry-keyed addressing for the view (most don't).
 - **Subscription reads.** `@(subscribe [:foo])` inside views becomes `(uix-adapter/use-subscribe [:foo])` — a hook call, not a deref. Outside of views (event handlers, fx, REPL) the substrate-agnostic `(rf/subscribe [:foo])` and `(rf/subscribe-once [:foo])` still work; only the view-layer reactive read shape changes.
-- **Dispatch.** Same as before — `(rf/dispatch [...])` / `(rf/dispatcher)`. No change.
+- **Dispatch.** Same as before — `(rf/dispatch [...])` / `(:dispatch (rf/frame-handle))`. No change.
 - **Local component state.** `(reagent.core/atom ...)` and Form-2 closures become `(uix.core/use-state ...)` / `use-reducer` / `use-ref`. This is the largest mechanical change in a typical view body.
 - **Frame-provider.** `[rf/frame-provider {:frame :session} children…]` becomes the UIx adapter's `($ uix-adapter/frame-provider {:frame :session :children […]})`. Both adapters consume the same underlying React Context object (Decision 2), so a tree containing both works during a phased migration.
 - **Test flush.** Reagent tests calling `r/flush` become UIx tests calling `(uix-adapter/flush-views!)` — wraps React's `act()`.
@@ -2691,7 +2759,7 @@ re-frame2 ships Helix 0.2.x as a third canonical browser substrate alongside Rea
 - **Adapter install.** Drop the `[re-frame.adapter.reagent]` `:require` and add `[re-frame.adapter.helix]`; the `:require`'s ns-load auto-registers the adapter as the default, so `(rf/init!)` with no args picks up Helix without an explicit adapter argument. Apps that explicitly passed the Reagent adapter to `init!` (the older form `(rf/init! reagent-adapter/adapter)`) drop the arg; the no-arg form is the canonical surface.
 - **View registration.** `reg-view` (the macro) stays Reagent-only per Spec 006 Decision 4. Rewrite each `(reg-view foo [args] body)` as a Helix `(defnc foo [args] ...)` paired with a `(rf/reg-view* ::foo {} foo)` if the app needs registry-keyed addressing for the view (most don't).
 - **Subscription reads.** `@(subscribe [:foo])` inside views becomes `(helix-adapter/use-subscribe [:foo])` — a hook call, not a deref. Outside of views (event handlers, fx, REPL) the substrate-agnostic `(rf/subscribe [:foo])` and `(rf/subscribe-once [:foo])` still work; only the view-layer reactive read shape changes.
-- **Dispatch.** Same as before — `(rf/dispatch [...])` / `(rf/dispatcher)`. No change.
+- **Dispatch.** Same as before — `(rf/dispatch [...])` / `(:dispatch (rf/frame-handle))`. No change.
 - **Local component state.** `(reagent.core/atom ...)` and Form-2 closures become `(helix.hooks/use-state ...)` / `use-reducer` / `use-ref`. This is the largest mechanical change in a typical view body.
 - **Frame-provider.** `[rf/frame-provider {:frame :session} children…]` becomes the Helix adapter's `($ helix-adapter/frame-provider {:frame :session :children […]})`. All three React-shaped adapters consume the same underlying React Context object (Decision 2), so a tree containing both works during a phased migration.
 - **Test flush.** Reagent tests calling `r/flush` become Helix tests calling `(helix-adapter/flush-views!)` — wraps React's `act()`.

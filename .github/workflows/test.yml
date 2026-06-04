@@ -127,6 +127,16 @@ jobs:
       - name: Diff MCP tool catalogues vs skill allowed-tools
         run: python scripts/check_skill_mcp_drift.py --verbose --ci
 
+      # Cite-integrity guard (rf2-1nb8k): every M-id the re-frame-migration
+      # skill cites must name a consistent rule in MIGRATION.md. Catches the
+      # id-collision / phantom-cite class (skill cited M-66/M-67 for rules
+      # MIGRATION.md had assigned to History-states / Xray-static-mode).
+      - name: Self-test the cite-integrity guard
+        run: python scripts/check_skill_migration_cites.py --self-test
+
+      - name: Verify skill M-id cites resolve in MIGRATION.md
+        run: python scripts/check_skill_migration_cites.py --verbose --ci
+
   # PR-time gate for README link drift (rf2-br5u7). Source: the
   # rf2-oavap README sweep used a local `ai/link-sweep-v2.py` audit
   # that flagged 5 issues — 3 real, 2 false-positives caused by GitHub
