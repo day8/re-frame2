@@ -40,10 +40,34 @@
        `:exception` / message / internal detail across the HTTP
        boundary).
 
+  ## SCOPE — core/accumulator layer ONLY (rf2-c0bq1)
+
+  IMPORTANT: this suite drives `(rf/subscribe-once …)` FIRST — which runs
+  the sub body SYNCHRONOUSLY and buffers the projected status — and reads
+  `(ssr/get-response …)` AFTER. That is the INVERSE of the reference Ring
+  handler order, which reads `get-response` ONCE *before* the render walk
+  (the walk being where a reactive sub actually throws). So this suite
+  proves the listener / accumulator / per-frame-attribution layer is
+  correct, but it does NOT — and must not be read as — proof that the
+  fail-closed 500 reaches the WIRE. rf2-c0bq1 documented exactly that
+  false-confidence trap: the reference adapter shipped a silent 200 for a
+  render-time sub-throw despite every assertion here being green, because
+  the adapter read the (empty) buffer before the render that fills it.
+
+  The WIRE/end-to-end fail-closed contract is pinned by the handler-level
+  tripwire `re-frame.ssr.ring-rendertime-sub-failclosed-test` (ssr-ring
+  artefact), which drives a render-time throwing sub through the REAL
+  read-then-render handler order and asserts a non-200 on the wire. Do not
+  extend THIS suite to cover the wire path — the layering split is
+  deliberate (this = core attribution; that = adapter wire ordering).
+
   Companion suites:
     - `ssr_error_two_frame_attribution_test`     — two-frame, DEV path.
     - `ssr_error_projector_substrate_test`       — always-on path, single frame.
-    - `re-frame.trace-test`                      — the core sub-exception emit site."
+    - `re-frame.trace-test`                      — the core sub-exception emit site.
+    - `re-frame.ssr.ring-rendertime-sub-failclosed-test` (ssr-ring) — the
+      WIRE-level fail-closed tripwire that this suite's inverse ordering
+      could NOT prove (rf2-c0bq1)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.interop :as interop]
@@ -99,6 +123,12 @@
         ;; Both frames are live registered server frames — the exact
         ;; >1-server-frame shape the removed fallback could not handle.
         ;; frame-a derefs the throwing sub; frame-b derefs the clean one.
+        ;;
+        ;; rf2-c0bq1 — NOTE THE ORDERING: subscribe-once (runs the sub,
+        ;; buffers the status) THEN get-response. This is the INVERSE of
+        ;; the Ring handler (get-response-then-render). It proves the core
+        ;; attribution layer, NOT the wire. The wire fail-closed contract
+        ;; lives in `ring-rendertime-sub-failclosed-test`.
         (rf/subscribe-once fa [:throwing-sub])
         (rf/subscribe-once fb [:clean-sub])
 
