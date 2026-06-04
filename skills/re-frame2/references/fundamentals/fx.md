@@ -34,12 +34,13 @@ Verified in `implementation/core/src/re_frame/fx.cljc` (the `reg-fx` fn). Metada
 
 Each `:fx` entry is a 2-vector: `[fx-id args]`. The runtime walks them in source order, synchronously, after `:db` commits (`fx.cljc:4-9`). Any other top-level key — `:dispatch`, `:dispatch-later`, `:http`, etc — emits `:rf.error/effect-map-shape` and is dropped (`police-effect-map-shape!` in `events.cljc`). v2 deliberately removed v1's auto-routed top-level effect keys.
 
-The reserved fx-ids the core runtime handles directly (`fx.cljc:10-22`):
+The reserved fx-ids the core runtime handles directly (`fx.cljc:10-16`):
 
 | fx-id | args | Effect |
 |---|---|---|
 | `:dispatch` | event-vector | Enqueue at back of frame's router |
 | `:dispatch-later` | `{:ms n :event ev}` | Enqueue after `n` ms |
+| `:raise` | event-vector | Machine-internal: re-enter the machine locally as a pre-commit microstep in the same macrostep (state-machines leaves) |
 | `:rf.fx/reg-flow` / `:rf.fx/clear-flow` | flow spec | (Flows artefact; Spec 013) |
 
 Machine fx-ids (`:rf.machine/spawn`, `:rf.machine/destroy`) ship in `day8/re-frame2-machines`; they register through the same `reg-fx` path when that artefact is loaded.
