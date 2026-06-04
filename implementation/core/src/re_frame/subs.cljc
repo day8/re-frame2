@@ -324,8 +324,15 @@
      exactly the 'pin a state the real derivation could never produce'
      anti-pattern; schema-validating it closes that honesty gap. Reuses
      the registered validator so a substituted (non-Malli) validator
-     covers this surface identically to `:sub-return`."
-     [value query-v sub-meta]
+     covers this surface identically to `:sub-return`.
+
+     `frame-id` (rf2-7d30s) is the subscribing frame — stamped onto the
+     failure trace so `re-frame.epoch.capture/capture-event!` (which
+     buffers only frame-tagged traces) attributes the override-validation
+     failure to that frame's epoch, mirroring `:sub-return`'s `:frame`
+     stamp (validate.cljc `validate-sub!` 5-arity). Without it the trace
+     is invisible to the per-frame epoch / Xray Schema-timeline lens."
+     [value query-v sub-meta frame-id]
      (let [schema (:schema sub-meta)]
        (if (and schema (some? sub-meta))
          (if-let [validate (late-bind/get-fn :schemas/validate-with-registered-fn)]
@@ -339,18 +346,19 @@
                                             :schemas/explain-with-registered-fn)]
                              (try (exp schema value) (catch :default _ nil)))]
                (trace/emit-error! :rf.error/schema-validation-failure
-                                  {:where          :sub-override
-                                   :rf.sub/id      sub-id
-                                   :failing-id     sub-id
-                                   :schema-id      sub-id
-                                   :rf.sub/query-v query-v
-                                   :received       value
-                                   :value          value
-                                   :explain        explain
-                                   :reason         (str "Subscription " sub-id
-                                                        " :sub-override value failed schema "
-                                                        (pr-str schema) ".")
-                                   :recovery       :replaced-with-default})
+                                  (cond-> {:where          :sub-override
+                                           :rf.sub/id      sub-id
+                                           :failing-id     sub-id
+                                           :schema-id      sub-id
+                                           :rf.sub/query-v query-v
+                                           :received       value
+                                           :value          value
+                                           :explain        explain
+                                           :reason         (str "Subscription " sub-id
+                                                                " :sub-override value failed schema "
+                                                                (pr-str schema) ".")
+                                           :recovery       :replaced-with-default}
+                                    frame-id (assoc :frame frame-id)))
                nil))
            value)
          value))))
@@ -372,12 +380,12 @@
 
      CLJS-only and called ONLY inside `subscribe`'s `interop/debug-enabled?`
      gate, so this DCEs in production."
-     [_frame-id query-v]
+     [frame-id query-v]
      (when-let [resolve-override (late-bind/get-fn :subs/resolve-sub-override)]
        (when-let [hit (resolve-override query-v)]
          (let [v        (first hit)
                sub-meta (registrar/lookup :sub (first query-v))
-               v*       (maybe-validate-sub-override! v query-v sub-meta)]
+               v*       (maybe-validate-sub-override! v query-v sub-meta frame-id)]
            (adapter/make-derived-value [] (constantly v*)))))))
 
 (defn subscribe
