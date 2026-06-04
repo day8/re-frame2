@@ -2077,24 +2077,45 @@
   ;; `:always-depth-limit`.
   16)
 
-(def ^:private raise-depth-limit-default
+(def raise-depth-limit-default
   ;; Per Spec 005 §Drain semantics: bounds the recursive `:raise` queue
   ;; drain. Symmetric with `always-depth-limit-default` — 16 is generous
   ;; for hand-authored event-chains and catches accidental cycles.
   ;; Overridable per machine via `:raise-depth-limit`.
+  ;;
+  ;; Public (not `^:private`) so the parallel layer's parent-owned
+  ;; internal-event-queue drain (`parallel.cljc`, rf2-yi7ts) bounds its
+  ;; re-broadcast loop on the SAME default, keeping one source of truth
+  ;; for the limit rather than duplicating the magic 16.
   16)
 
 ;; Forward-declared so `drain-raises` can call `machine-transition-single`
 ;; directly. The recursive `:raise` step is always against an already-
-;; resolved single (or region) machine context — for a parallel parent,
-;; `parallel-machine-transition` (in `re-frame.machines.parallel`) has
-;; already routed into `machine-transition-single` per-region, and the
-;; recursive call from inside drain-raises uses the SAME `machine` value
-;; (the region-machine, with `parallel?` false). Bypassing the public
-;; parallel-dispatch entry here avoids a per-raise cross-namespace var
-;; deref on CLJS and keeps the parallel layer cleanly above the single-
-;; machine drain.
+;; resolved single (flat / compound) machine context — for a parallel
+;; parent, `parallel-machine-transition` (in `re-frame.machines.parallel`)
+;; owns the macrostep's internal-event queue and re-broadcasts each raise
+;; across ALL regions itself, so a region NEVER drains its own raises (see
+;; the `:rf/region` defer below). For a flat / compound machine the
+;; recursive call uses the SAME `machine` value (`parallel?` false).
+;; Bypassing the public parallel-dispatch entry here avoids a per-raise
+;; cross-namespace var deref on CLJS and keeps the parallel layer cleanly
+;; above the single-machine drain.
 (declare machine-transition-single)
+
+(defn- split-raise-fx
+  "Partition `fx-vec` into `{:raises [...] :rest [...]}` — `:raises` is the
+  subvector of `[:raise <event-vec>]` entries (kept verbatim so they re-enter
+  a raise queue as raises), `:rest` is every other fx entry, both preserving
+  source order. Used by `drain-raises` to peel a deferred nested macrostep's
+  surfaced raises off its real (do-fx-bound) fx so the raises can be appended
+  to the FIFO queue while the real fx accumulate (rf2-nr434)."
+  [fx-vec]
+  (reduce (fn [acc [fx-id :as entry]]
+            (if (= :raise fx-id)
+              (update acc :raises conj entry)
+              (update acc :rest conj entry)))
+          {:raises [] :rest []}
+          fx-vec))
 
 (defn- drain-raises
   "Drain the :raise queue inside fx-vec. Each :raise becomes an inline
@@ -2102,6 +2123,20 @@
   the accumulator. Returns a `result/ok` Result carrying the post-drain
   `[snap accum-fx]`, or a `result/fail` Result if any recursive step
   failed.
+
+  **FIFO drain (rf2-nr434 — XState v5 / SCXML parity).** The queue is
+  drained breadth-first: a raised event's OWN raises are APPENDED to the
+  BACK of the queue, behind the still-pending sibling raises, exactly as
+  SCXML's internal-event queue pops the front and a `<raise>` enqueues at
+  the back. So a transition that raises `[A]` then `[B]`, where A's
+  handler itself raises `[C]`, processes them `A, B, C` — `C` goes behind
+  `B`, NOT ahead of it. (The earlier engine prepended — `(concat fx2
+  rest-pending)` — for a depth-first `A, C, B`; that was an unblessed
+  divergence, now aligned to the XState v5 gold standard.) A linear
+  self-chain (each step raises exactly one event) settles to the same
+  order under either discipline; FIFO vs depth-first differ only when a
+  single transition raises ≥2 events AND an earlier one transitively
+  raises more.
 
   `start-depth` seeds the loop's raise-depth counter with the count of
   raises ALREADY processed transitively before this drain — see
@@ -2114,7 +2149,15 @@
   would blow the host call stack instead of firing the clean
   `:rf.error/machine-raise-depth-exceeded`. Breadth (raise siblings in a
   single fx vector) and transitive depth (nested raise chains) both count
-  toward the same `:raise-depth-limit`."
+  toward the same `:raise-depth-limit` — order discipline (FIFO vs
+  depth-first) does not change the COUNT of raises drained, so the bound
+  trips at the same depth either way.
+
+  This is the FLAT / COMPOUND-machine queue owner. A parallel parent does
+  NOT reach here: `parallel-machine-transition` owns the macrostep's
+  internal-event queue and re-broadcasts each region-emitted raise across
+  every region (rf2-yi7ts). A region therefore DEFERS its raises — see
+  `drain-or-defer-raises` and `machine-transition-single`'s `defer?`."
   [machine snapshot fx-vec depth-limit start-depth]
   (loop [pending fx-vec
          accum   []
@@ -2147,22 +2190,65 @@
             rest-pending (rest pending)]
         (case fx-id
           :raise
-          ;; Pass `(inc depth)` as the nested call's transitive seed so a
-          ;; raise that itself raises keeps counting against this drain's
-          ;; budget rather than restarting at 0 (rf2-b88nm).
-          (let [step-result (machine-transition-single machine snap args (inc depth))]
+          ;; Pop this raise, apply its event-transition + its OWN `:always`
+          ;; settling via a recursive `machine-transition-single`, but DEFER
+          ;; that recursion's raises (`defer-raises? true`) so they surface
+          ;; back here UN-drained rather than the nested call draining them
+          ;; itself (which would be depth-first). Pass `(inc depth)` as the
+          ;; transitive seed so the nested call's depth bound continues from
+          ;; this drain's count (rf2-b88nm).
+          (let [step-result (machine-transition-single machine snap args (inc depth) true)]
             (if (result/fail? step-result)
               step-result
               (result/with-ok [snap2 fx2] step-result
-                (recur (concat fx2 rest-pending)
-                       accum
-                       snap2
-                       (inc depth)))))
+                ;; Split the deferred result's fx into the raised events
+                ;; (`new-raises`) and the real do-fx-bound fx (`real-fx`).
+                ;; FIFO (rf2-nr434 — XState/SCXML parity): APPEND `new-raises`
+                ;; to the BACK of the queue, behind the still-pending sibling
+                ;; raises (`rest-pending`), so a sibling raised earlier drains
+                ;; before this raise's nested raises. (Was a depth-first
+                ;; prepend that fully drained the nested chain first — the
+                ;; unblessed divergence this aligns.)
+                (let [{new-raises :raises real-fx :rest} (split-raise-fx fx2)]
+                  (recur (concat rest-pending new-raises)
+                         (into accum real-fx)
+                         snap2
+                         (inc depth))))))
 
           (recur rest-pending
                  (conj accum [fx-id args])
                  snap
                  depth))))))
+
+(defn- drain-or-defer-raises
+  "FIFO raise drain, OR a pass-through defer, per the macrostep's queue
+  ownership. Two callers defer (`defer-raises?` true), so the `:raise` fx
+  entries stay in `fx-vec` and ride out un-drained on the Result for the
+  queue-owner to harvest and re-feed:
+
+   - **FIFO recursion (rf2-nr434).** When `drain-raises` pops a raise it
+     re-enters `machine-transition-single` with `defer-raises? true`, so
+     that raise's OWN raises surface back to `drain-raises`' queue and get
+     APPENDED to the back (behind the pending siblings) — true breadth-first
+     ordering, matching SCXML's internal-event queue. Without deferral the
+     recursive call would fully drain its nested raises before returning,
+     re-introducing depth-first order.
+
+   - **Parallel-region broadcast (rf2-yi7ts).** A REGION of a parallel
+     parent always defers (its `machine-transition-single` runs with
+     `defer-raises? true`); its raises belong to the PARENT macrostep's one
+     internal-event queue, which re-broadcasts each across every region
+     against the full evolving snapshot (XState/SCXML parity: `raise` enqueues
+     on the machine's single internal queue, not a per-region one).
+
+  When NOT deferring (the queue-owning top-level flat / compound drain), this
+  delegates to the local FIFO `drain-raises`. `:always` is unaffected either
+  way — it stays region-local and settles within whichever microstep owns it.
+  Returns a `result/ok` (or a `result/fail` if a local drain step threw)."
+  [machine snapshot fx-vec depth-limit start-depth defer-raises?]
+  (if defer-raises?
+    (result/ok snapshot fx-vec)
+    (drain-raises machine snapshot fx-vec depth-limit start-depth)))
 
 (defn- emit-pick-traces!
   "Fire the three pre-transition timer traces for a `pick-transition`
@@ -2212,7 +2298,8 @@
       along the state path).
    2. Run the exit cascade → transition's action → entry cascade
       (`apply-transition-once`).
-   3. Drain the local `:raise` queue depth-first.
+   3. Drain the local `:raise` queue FIFO (rf2-nr434 — XState v5 / SCXML
+      internal-event-queue parity).
    4. `:always` microstep loop — walk path leaf→root for any matching
       `:always`; apply, drain raises, loop.
    5. Commit (return) the snapshot once `:always` reaches fixed point.
@@ -2224,6 +2311,27 @@
   checks `parallel?` and either broadcasts across regions or falls
   through to this fn.
 
+  **Raise deferral (`defer-raises?`).** Steps 3 / 4 either DRAIN the
+  `:raise` queue locally or DEFER it (pass `:raise` fx through un-drained
+  on the Result). Two callers defer, both so the queue-owner above sees a
+  faithful FIFO queue:
+
+   - `drain-raises` re-enters this fn with `defer-raises? true` when it
+     pops a raise (rf2-nr434), so the popped raise's OWN raises surface
+     back un-drained and `drain-raises` appends them to the BACK of its
+     FIFO queue (true breadth-first; a self-draining recursion would be
+     depth-first).
+   - A REGION of a parallel parent (`:rf/region` present) ALWAYS defers
+     (rf2-yi7ts): its raises belong to the PARENT macrostep's one
+     internal-event queue, which re-broadcasts each across EVERY region
+     against the full evolving snapshot (XState v5 / SCXML: `raise` targets
+     the machine's single internal queue, never a per-region one).
+
+  `:always` stays region-local and settles within whichever microstep owns
+  it, regardless of deferral. The effective defer flag is `(or defer-raises?
+  (some? (:rf/region machine)))` so a region defers even when reached via
+  the bare public arity.
+
   `raise-depth` is the count of `:raise` recursions already consumed
   before reaching this call. The public entry passes 0; `drain-raises`
   passes its running count so a self-chaining single-raise accumulates
@@ -2233,10 +2341,16 @@
   raises emitted anywhere in this macrostep continue counting from the
   inbound transitive depth."
   ([machine snapshot event]
-   (machine-transition-single machine snapshot event 0))
+   (machine-transition-single machine snapshot event 0 false))
   ([machine snapshot event raise-depth]
+   (machine-transition-single machine snapshot event raise-depth false))
+  ([machine snapshot event raise-depth defer-raises?]
   (let [always-limit (get machine :always-depth-limit always-depth-limit-default)
         raise-limit  (get machine :raise-depth-limit  raise-depth-limit-default)
+        ;; A region of a parallel parent always defers (its raises lift to
+        ;; the parent macrostep), even when reached via the bare public
+        ;; arity — see the docstring's `defer-raises?` note.
+        defer?       (or defer-raises? (some? (:rf/region machine)))
         path             (state-path (:state snapshot))
         match            (pick-transition machine path event snapshot)
         ;; Per Spec 005 §Parallel regions (005:1168-1171): a region reports
@@ -2319,7 +2433,7 @@
      (if (result/fail? result-after-event)
       result-after-event
       (result/with-ok [snap-after-event fx-after-event] result-after-event
-        (let [raised (drain-raises machine snap-after-event fx-after-event raise-limit raise-depth)
+        (let [raised (drain-or-defer-raises machine snap-after-event fx-after-event raise-limit raise-depth defer?)
               ;; Per rf2-n9f4z: seed the macrostep cascade with the
               ;; event-driven transition's exit/action/entry steps; the
               ;; `:always` loop appends one `:microstep` step per eventless
@@ -2425,7 +2539,7 @@
                               ;; (rf2-b88nm) so raises emitted by an `:always`
                               ;; cascade reached via a raise chain keep counting
                               ;; against the same `:raise-depth-limit`.
-                              (let [raised2 (drain-raises machine snap2 fx2 raise-limit raise-depth)]
+                              (let [raised2 (drain-or-defer-raises machine snap2 fx2 raise-limit raise-depth defer?)]
                                 (if (result/fail? raised2)
                                   raised2
                                   (result/with-ok [snap3 fx3] raised2
