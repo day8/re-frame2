@@ -1071,6 +1071,40 @@
            (is (empty? out2)
                "subsequent reads stay silent — warning is one-shot per variant"))))))
 
+;; rf2-a1lvd — the one-shot warning cache (`warned-both-slots`) is re-armed
+;; by `clear-all-runs!` (the test-fixture path). Without the reset, a prior
+;; test (or a prior hot-reload session) that warned for a variant id would
+;; suppress the warning forever after. Verify the full re-arm cycle: warn
+;; fires → clear-all-runs! → warn fires AGAIN.
+#?(:clj
+   (deftest both-slots-warning-re-arms-after-clear-all-runs
+     (testing "clear-all-runs! resets warned-both-slots so the both-slots
+               warning fires again for a previously-warned variant"
+       (require '[re-frame.story.registrar :as registrar])
+       (let [registrar (resolve 're-frame.story.registrar/kind->id->body)]
+         (swap! @registrar assoc-in
+                [:variant :story.multi/both-rearm]
+                {:play-script [[:dispatch [:legacy]]]
+                 :plays       [{:name "p" :script [[:dispatch [:plays]]]}]})
+         (let [warn1 (with-out-str
+                       (binding [*err* *out*]
+                         (re/variant-plays :story.multi/both-rearm)))
+               ;; one-shot in effect: a second read before the clear is silent
+               silent (with-out-str
+                        (binding [*err* *out*]
+                          (re/variant-plays :story.multi/both-rearm)))
+               _      (re/clear-all-runs!)
+               ;; after the reset the suppression set is empty → warns again
+               warn2  (with-out-str
+                        (binding [*err* *out*]
+                          (re/variant-plays :story.multi/both-rearm)))]
+           (is (re-find #":play-script.*:plays" warn1)
+               "first read warns")
+           (is (empty? silent)
+               "second read before the clear stays silent — one-shot holds")
+           (is (re-find #":play-script.*:plays" warn2)
+               "after clear-all-runs! the warning re-arms and fires again"))))))
+
 ;; ---- rf2-ftow6: concurrent-run race fix ---------------------------------
 ;;
 ;; The Playwright matrix-before-load scenario could overshoot counter

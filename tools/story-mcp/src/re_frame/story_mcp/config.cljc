@@ -53,9 +53,11 @@
   "The MCP protocol version this server advertises in the `initialize`
   handshake. Pinned to `2025-06-18` — the latest spec at Stage 7 land.
 
-  The spec's version-negotiation rule: if the client requests a version
-  we don't recognise, we still respond with the one we support; the
-  client decides whether to disconnect. Per
+  `handle-initialize` advertises this value unconditionally — it never
+  inspects or echoes the client's requested `protocolVersion`. That is
+  spec-acceptable under the MCP lifecycle version-negotiation rule: the
+  server responds with a version it supports and the client decides
+  whether to disconnect on a mismatch. Per
   https://modelcontextprotocol.io/specification/2025-06-18/basic/lifecycle
   §Version Negotiation."
   "2025-06-18")

@@ -61,10 +61,13 @@
 ;; ---- handshake ------------------------------------------------------------
 
 (defn- handle-initialize
-  "Build the `initialize` response. Echoes the client's `protocolVersion`
-  when we support it (only `2025-06-18` at Stage 7 land); otherwise we
-  reply with our supported version and let the client decide whether to
-  disconnect per the spec's version-negotiation rule."
+  "Build the `initialize` response. Unconditionally advertises the
+  server's pinned protocol-version (`config/protocol-version`) and
+  ignores the client's requested `protocolVersion` entirely — `_params`
+  is never read. This is spec-acceptable: per the MCP lifecycle
+  version-negotiation rule the server replies with a version it supports
+  and the client decides whether to disconnect on a mismatch (we never
+  inspect or echo the client's version)."
   [id _params]
   (proto/response id
                   {:protocolVersion config/protocol-version

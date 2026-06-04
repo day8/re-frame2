@@ -101,6 +101,17 @@
   step-boundaries
   (atom {}))
 
+(defonce ^:private ^{:doc "Set of variant ids that have already received
+                          the both-:play-script-and-:plays console
+                          warning. One warning per variant per page
+                          lifetime keeps the console quiet. rf2-a1lvd:
+                          re-armed by `clear-all-runs!` so a fresh test
+                          + each hot-reload reset can warn again (a
+                          warn-once cache that is never reset suppresses
+                          the affordance across test order + hot-reload)."}
+  warned-both-slots
+  (atom #{}))
+
 (defn current-state
   "Read the current run-state for `frame-id`, or nil if no run exists."
   [frame-id]
@@ -186,16 +197,24 @@
   nil)
 
 (defn clear-all-runs!
-  "Wipe ALL per-variant run-state across every frame — the three
-  per-process atoms (`run-state` / `runs-by-play` / `active-play`).
-  Used by the Story test-fixture helper (rf2-lh99f) so a fresh test
-  doesn't observe a previous test's play outcomes; `clear-state!` is
-  the per-frame counterpart called from teardown."
+  "Wipe ALL per-variant run-state across every frame — the four
+  per-process atoms (`run-state` / `runs-by-play` / `active-play` /
+  `step-boundaries`) AND the `warned-both-slots` one-shot warning cache
+  (rf2-a1lvd). Used by the Story test-fixture helper (rf2-lh99f) so a
+  fresh test doesn't observe a previous test's play outcomes;
+  `clear-state!` is the per-frame counterpart called from teardown.
+
+  Clearing `warned-both-slots` here re-arms the both-`:play-script`-and-
+  `:plays` console warning per test and per hot-reload reset, mirroring
+  the established warn-once-clear pattern (cf. rf2-4edk / qy6cl): a
+  warn-once cache that is never reset suppresses the affordance across
+  test order + hot-reload."
   []
   (reset! run-state      {})
   (reset! runs-by-play   {})
   (reset! active-play    {})
   (reset! step-boundaries {})
+  (reset! warned-both-slots #{})
   nil)
 
 (defn- update-state!
@@ -276,13 +295,6 @@
         (runner/parse-spec (when body (:play-script body)))))))
 
 ;; ---- multi-play warning (one-shot) ---------------------------------------
-
-(defonce ^:private ^{:doc "Set of variant ids that have already received
-                          the both-:play-script-and-:plays console
-                          warning. One warning per variant per page
-                          lifetime keeps the console quiet."}
-  warned-both-slots
-  (atom #{}))
 
 (defn- warn-both-slots-once!
   [variant-id]
