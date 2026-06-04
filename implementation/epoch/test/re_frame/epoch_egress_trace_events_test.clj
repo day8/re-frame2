@@ -2,7 +2,7 @@
   "Coverage for the `:trace-events` re-root in off-box egress projection
   (rf2-ynjts.7 testing-review gap-fill).
 
-  Per rf2-ta0y7 (`re-frame.epoch.write/reroot-trace-event-db-slots` +
+  Per rf2-ta0y7 (`re-frame.epoch.tool-pair/reroot-trace-event-db-slots` +
   `elide-trace-events-slot`): the `:rf.event/db-pending` (t1) and
   `:rf.event/db-pending-post-flow` (t2) trace events each carry the FULL
   pending app-db value under `:tags :rf.event/db`. The bulk

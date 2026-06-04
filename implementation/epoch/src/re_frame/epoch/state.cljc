@@ -482,13 +482,27 @@
 
   Reads only `:trace-events`, which the most-recent `:trace-events-keep`
   records retain — exactly the window a post-settle render can target
-  (the back-fill never reaches older, projection-only records). One pass
-  newest-first; short-circuits at the first matching epoch."
+  (the back-fill never reaches older, projection-only records). The scan
+  is BOUNDED to that keep-window: a record past it had its `:trace-events`
+  elided (`elide-just-crossed-trace-events`), so `epoch-value-changed-for-
+  view?` short-circuits to `false` on it via `(some f nil)` — it can never
+  contribute a hit. Stopping at `(- (count history) keep)` makes the scan
+  genuinely O(keep) rather than O(depth) per miss (the common mount /
+  mount-burst-tail case this fn exists to catch), matching the fused-walk
+  / O(keep) framing the rest of this file holds (rf2-3rg4j). A nil `keep`
+  means every record retains `:trace-events`, so the scan reaches index 0.
+  One pass newest-first; short-circuits at the first matching epoch."
   [frame-id render-key]
   (let [history (history-for frame-id)
-        deps    (render-deps-for frame-id render-key)]
-    (loop [i (dec (count history))]
-      (when (>= i 0)
+        deps    (render-deps-for frame-id render-key)
+        n       (count history)
+        keep    (trace-events-keep)
+        ;; Older records carry no `:trace-events`, so they can never match;
+        ;; stop the scan at the keep-window's oldest retained index. nil
+        ;; `keep` = retain everything → scan to index 0.
+        lo      (if (nat-int? keep) (max 0 (- n keep)) 0)]
+    (loop [i (dec n)]
+      (when (>= i lo)
         (let [record (nth history i)]
           (if (epoch-value-changed-for-view? record render-key deps)
             (:epoch-id record)

@@ -20,7 +20,7 @@
 
   Plus the `current-schema-digest` accessor that both `build-record`
   (digest pinned on the record) and the restore-preconditions seam
-  (`re-frame.epoch.write`) consume.
+  (`re-frame.epoch.tool-pair`) consume.
 
   Per rf2-0wi86 Phase-2 seam D: this namespace is dependency-free
   beyond state (atoms + counter), capture (cascade walks), and the

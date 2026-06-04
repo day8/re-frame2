@@ -1,7 +1,15 @@
-(ns re-frame.epoch.write
-  "Tool-Pair write surfaces — the preconditions, restore-perform, and
+(ns re-frame.epoch.tool-pair
+  "Tool-Pair boundary surfaces — the preconditions, restore-perform, and
   off-box projection helpers behind `restore-epoch`, `reset-frame-db!`,
   `projected-record`, and `projected-history`.
+
+  The name (rf2-dga99) covers BOTH halves of the seam: the WRITE-in
+  boundary (precondition validators + `perform-restore!` behind the
+  Tool-Pair time-travel surfaces) AND the off-box egress READ boundary
+  (`projected-record` / `projected-history`, the privacy projection per
+  Security.md §Epoch privacy posture). The former `write` name accurately
+  named the first half but undersold the projection egress — both are
+  Tool-Pair-contract surfaces, so `tool-pair` names the seam honestly.
 
   Responsibilities:
 
