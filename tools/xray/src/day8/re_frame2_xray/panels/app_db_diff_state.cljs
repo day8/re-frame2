@@ -203,7 +203,18 @@
   containers, and force-expands the ancestor chain over changed
   descendants (spec/021 §4.3 + §10.4). App-db's depth heuristic is
   depth-3-collapsed by default (§10.4). The keyword-accent is already
-  orange (owned by rf2-ad7zx.3)."
+  orange (owned by rf2-ad7zx.3).
+
+  rf2-227cz — a third `before` value, the `h/added` sentinel, marks a
+  whole instance / singleton slice present in `:value` but ABSENT in the
+  focused epoch's pre-image (it came into existence this epoch). For
+  that case the body passes `:added? true` (NOT `:before`) so the
+  edn-inspector's first-run path (rf2-kp7bw) synthesises the prior side
+  as `engine/missing-sentinel` and washes the WHOLE subtree `:added`
+  (green). Without this the freshly-created machine / spawn / route
+  slice rendered identically to an unchanged one and the per-event diff
+  was near-invisible — the focused epoch's actual change (a new instance
+  appearing) carried no visual marker at all."
   [value before render-id title]
   (let [_node-key (str "app-db-state/" render-id)
         ;; rf2-pvsxs — stable `:site-id` so expansion overrides survive
@@ -213,7 +224,11 @@
         ;; site-id reuses the existing per-surface key without
         ;; introducing a new namespace.
         site-id [:rf.xray/app-db render-id]
-        has-before? (not= h/no-diff before)]
+        ;; rf2-227cz — three before-states: `no-diff` (render plain),
+        ;; `added` (this whole slice is new this epoch → `:added? true`),
+        ;; or a real pre-image (diff against it → `:before`).
+        added?      (= h/added before)
+        has-before? (and (not added?) (not= h/no-diff before))]
     ;; rf2-7sdja — App-DB does NOT use `:popup-affordance?` (Mike's
     ;; live-testing call 2026-05-26). The side panel has plenty of
     ;; horizontal room; the whole-tree inspector renders comfortably
@@ -240,7 +255,13 @@
               :zoomable? true
               :header title}
        has-before?
-       (assoc :before (f/display-value before)))]))
+       (assoc :before (f/display-value before))
+       ;; rf2-227cz — a wholly-new slice (absent in the focused epoch's
+       ;; pre-image) opts into the inspector's first-run `:added?` path
+       ;; so the entire subtree washes `:added` (green) rather than
+       ;; rendering as plain unchanged state.
+       added?
+       (assoc :added? true))]))
 
 ;; ---- top (user-domain) section ------------------------------------------
 

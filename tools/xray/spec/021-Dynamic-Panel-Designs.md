@@ -755,6 +755,31 @@ each machine, each spawned instance, Route, and every reserved singleton alike. 
 annotation in place on the changed nodes within each section ("← was X"), with the
 ancestor chain force-expanded so the operator never expands to find a change (§10.4).
 
+**Three before-states per section (rf2-227cz).** The section model
+(`current-state-sections`) tags each section / instance / singleton's
+`:before` slot one of three ways, and `value-body` routes each to the
+shared renderer accordingly:
+
+| `:before` slot | Meaning | Renderer call |
+|---|---|---|
+| `no-diff` sentinel | No pre-image threaded (1-arity / cold boot, no focused epoch) | plain current-state — no `:before`, no `:added?` |
+| real prior value | The slice existed in the focused epoch's `:db-before` | `:before` threaded → inline `← was X` diff in place |
+| `added` sentinel | The slice is present in `:value` but **absent** in the focused epoch's `:db-before` — it came into existence this epoch | `:added? true` (the §10.0.13 first-run path) → whole subtree washes `:added` (green) |
+
+The third row is the fix for rf2-227cz: previously an instance /
+singleton absent in the focused epoch's pre-image was tagged `no-diff`
+and rendered identically to an unchanged slice, so the one change that
+should make each event visually distinct — a newly-created machine /
+spawn / route appearing — carried no marker and the per-event diff was
+near-invisible. An absent-in-`:before` slice now reads `:added` via the
+same first-run `:added?` signal the SUBSCRIPTIONS step uses (§10.0.13).
+The `added` sentinel is emitted ONLY in diff mode (a real pre-image is
+present for the focused epoch); the cold-boot 1-arity path still tags
+every slot `no-diff`. The TOP user-domain section needs no sentinel —
+its `:before-top` is the whole prior user-domain map, so a NEW
+user-domain key already classifies `:added` per-key inside the diff
+engine.
+
 ### §4.4 Cascade overlay — downstream subs
 
 Hover (or click) any changed path → popover lists subs and views
@@ -4387,7 +4412,7 @@ signal to render plainly. None set any mode flag:
 |--------------------------------------|--------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------|
 | Epoch HANDLER step `:db`             | `panels/epoch/view.cljs` — `handler-db-diff-block` (effective post-handler db `:db-post-handler` = t1, else `db-before` when no-`:db`-with-flow, else fallback `:db-after`; `:before db-before` · rf2-4wywy / rf2-48oc4) | `data-testid="rf-xray-epoch-handler-db-full-with-diff"`                     |
 | Epoch FLOW step `:db`                | `panels/epoch/view.cljs` — `render-flow-step` (path-scoped pre→post diff `:db-pre-flow` (effective post-handler db) → `:db-post-flow` (t2) · rf2-4wywy / rf2-48oc4) | `data-testid="rf-xray-epoch-flow-db-diff-<name>"`                           |
-| App-DB panel (per `:rf/*` section)   | `panels/app_db_diff_state.cljs` — `value-body` (one mount; `:before` via `cond->`)         | App-DB panel-gallery story fixtures + segment-inspector tests               |
+| App-DB panel (per `:rf/*` section)   | `panels/app_db_diff_state.cljs` — `value-body` (one mount; `:before` via `cond->` for a real pre-image; `:added? true` via `cond->` for a slice absent in the focused epoch's pre-image, i.e. the `h/added` sentinel — rf2-227cz §4.3) | App-DB panel-gallery story fixtures + segment-inspector tests               |
 | Machine Inspector snapshot drill-in  | `panels/machine_inspector.cljs` — `snapshot-block` (`:before` via `cond->` when captured)  | `data-testid="rf-xray-machine-snapshot-block-<id>"` with `data-rf-xray-diff-mode="full+diff"` |
 | Epoch SUBSCRIPTIONS step value cells | `panels/epoch/view.cljs` — `subs-value-cell` container branch (`:before` / `:added?`)      | `data-testid="rf-xray-epoch-sub-row-*"` mount                               |
 

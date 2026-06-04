@@ -398,8 +398,10 @@
 
 (deftest current-state-sections-2-arity-instance-before-is-prior-snapshot
   (testing "each machine instance carries its prior snapshot as :before;
-            an instance absent before-cascade gets the no-diff sentinel.
-            Snapshots live at [:rf/runtime :machines :snapshots]."
+            an instance absent before-cascade gets the `added` sentinel
+            (rf2-227cz — the freshly-created machine must light up
+            :added, NOT render plain like an unchanged one). Snapshots
+            live at [:rf/runtime :machines :snapshots]."
     (let [before {:rf/runtime {:machines {:snapshots {:title/flow {:state :idle}}}}}
           after  {:rf/runtime {:machines {:snapshots {:title/flow {:state :loaded}
                                                        :auth       {:state :idle}}}}}
@@ -409,12 +411,13 @@
       (is (= {:state :idle} (:before flow))
           "title/flow diffs against its prior snapshot")
       (is (= {:state :loaded} (:value flow)))
-      (is (= h/no-diff (:before auth))
-          "a freshly-spawned machine has no pre-image → no-diff"))))
+      (is (= h/added (:before auth))
+          "rf2-227cz — a freshly-spawned machine (absent in before) is
+           the `added` sentinel, not `no-diff`"))))
 
 (deftest current-state-sections-2-arity-singleton-before-is-prior-slice
   (testing "a singleton slice carries its prior value as :before; an
-            absent-before singleton gets the no-diff sentinel"
+            absent-before singleton gets the `added` sentinel (rf2-227cz)"
     (let [before {:rf/runtime {:routing {:current {:id :home}}}}
           after  {:rf/runtime {:routing  {:current {:id :cart}}
                                :machines {:system-ids #{:app}}}}
@@ -423,21 +426,24 @@
           sysids (area-by model :rf/system-ids)]
       (is (= {:id :home} (:before route)) "route diffs old → new")
       (is (= {:id :cart} (:value route)))
-      (is (= h/no-diff (:before sysids))
-          "system-ids absent before-cascade → no-diff"))))
+      (is (= h/added (:before sysids))
+          "rf2-227cz — system-ids absent before-cascade → `added`
+           (the slice appeared this epoch), not `no-diff`"))))
 
 (deftest current-state-sections-2-arity-nil-before-db-safe
   (testing "a nil db-before (boot epoch — every slot is newly added) is
-            handled: before-db degrades to {}, every section's :before is
-            the no-diff sentinel for absent slots"
+            handled: before-db degrades to {}; an absent singleton slot
+            classifies `added` (rf2-227cz — the route slot appeared this
+            epoch)"
     (let [model (h/current-state-sections
                   {:counter 1 :rf/runtime {:routing {:current {:id :home}}}}
                   nil)]
       ;; nil db-before still flips diff? on (no-diff sentinel is the ONLY
       ;; way to opt out), so the user-domain before is {} not the sentinel.
       (is (= {} (:before-top model)))
-      (is (= h/no-diff (:before (area-by model :rf/route)))
-          "an added route slot (absent before) → no-diff"))))
+      (is (= h/added (:before (area-by model :rf/route)))
+          "rf2-227cz — an added route slot (absent before) → `added`,
+           not `no-diff`"))))
 
 ;; ---- (4) 'Show me when this changed' walker -----------------------------
 
