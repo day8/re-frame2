@@ -679,7 +679,25 @@
                                           :initial        (boolean (:initial? n))
                                           :final          (boolean (:final? n))
                                           :compound       (boolean (:compound? n))
-                                          :tags           (vec (:tags n))
+                                          ;; rf2-vcnvj — serialise each tag
+                                          ;; to its FULLY-QUALIFIED string
+                                          ;; (`door/open`, not `open`) HERE,
+                                          ;; before xyflow `clj->js`-es the
+                                          ;; `:data` map. `clj->js`'s default
+                                          ;; keyword-fn is `name`, which drops
+                                          ;; the namespace — so a `:door/open`
+                                          ;; tag would arrive at the renderer
+                                          ;; as the truncated `"open"` and the
+                                          ;; `nodes/tag-label` identity fix
+                                          ;; (which runs AFTER the round-trip)
+                                          ;; could never recover it. Stringify
+                                          ;; via `symbol` so the namespace
+                                          ;; survives the boundary intact.
+                                          :tags           (mapv (fn [t]
+                                                                  (if (keyword? t)
+                                                                    (str (symbol t))
+                                                                    (str t)))
+                                                                (:tags n))
                                           ;; rf2-ee38b.21 — :entry / :exit
                                           ;; state actions (Spec 005
                                           ;; §State nodes) ride the payload
@@ -876,72 +894,86 @@
                     (assoc :parentId parent-id
                            :extent   "parent"))))
               edge-descriptors)
+        ;; rf2-idx41 — the two halves of the events-as-nodes route
+        ;; (source-state → event-node, event-node → target-state) emit
+        ;; structurally-identical xyflow edges: same `:type`, the same
+        ;; resting/active/fired marker COLOUR cond, and a `:data` payload
+        ;; that differs only in its routed `:points` / `:labelPos`, the
+        ;; quiet-vs-primary flag, and the `:inbound`/`:outbound` marker.
+        ;; `events-as-nodes-edge` builds one half from those few
+        ;; differing values so the shared shape lives in ONE place (the
+        ;; two were copy-pasted before, drifting risk on every `:data`
+        ;; key add). `half` is `:in` (quiet source→event, 10px arrowhead)
+        ;; or `:out` (primary event→target, 18px arrowhead).
+        marker-color
+        (fn [{:keys [fired? focused? from-active?]}]
+          (cond
+            fired?       (:edge-fired ct)
+            focused?     (:edge-active ct)
+            from-active? (:edge-active ct)
+            :else        (:edge-quiet ct)))
+        events-as-nodes-edge
+        (fn [half {:keys [edge ev-node-id from-active? focused? fired?
+                          cross-hier?] :as desc} points label-pos]
+          (let [in? (= half :in)
+                w   (if in? 10 18)]
+            {:id        (str (:id edge) (if in? "__in" "__out"))
+             :source    (if in? (:source edge) ev-node-id)
+             :target    (if in? ev-node-id (:target edge))
+             :type      "transition"
+             ;; rf2-az6e2 — the `__in` (source→event) half is the QUIET
+             ;; segment: a SMALL 10px arrowhead in the quiet colour so the
+             ;; PRIMARY 18px arrowhead reads on the `__out` (event→target)
+             ;; half and the pair reads as ONE transition route.
+             :markerEnd {:type   "arrowclosed"
+                         :color  (marker-color desc)
+                         :width  w
+                         :height w}
+             :data      {:eventLabel ""
+                         :eventLineLabel ""
+                         :active     from-active?
+                         :focused    focused?
+                         :fired      fired?
+                         :afterMs    nil
+                         :guard      nil
+                         :action     nil
+                         :selfLoop   false
+                         :loopIndex  nil
+                         :siblingIndex 0
+                         :siblingCount 1
+                         :crossHierarchy cross-hier?
+                         ;; rf2-r636q — the elk route for THIS half
+                         ;; (`__in`: source-state → event-node; `__out`:
+                         ;; event-node → target-state). nil when elk
+                         ;; emitted no route (bezier fallback).
+                         :points     points
+                         ;; rf2-rlq97 — elk's computed label position (nil
+                         ;; under events-as-nodes; renderer falls back to
+                         ;; its geometric anchor).
+                         :labelPos   label-pos
+                         :internal   false
+                         :machineLevel (boolean (:machine-level? edge))
+                         :eventId    nil
+                         :fromPath   (:from-path edge)
+                         :toPath     (:to-path edge)
+                         :onClick    nil
+                         :chart      chart
+                         :palette    ct
+                         :inbound    in?
+                         :outbound   (not in?)
+                         ;; rf2-az6e2 — the `__in` half paints thinner + in
+                         ;; the quiet colour so the pair reads as one
+                         ;; transition with the primary arrowhead on `__out`.
+                         :quietSegment in?
+                         :eventNodeId ev-node-id
+                         :spec-edge-id (:id edge)}}))
         ;; Inbound edges: source-state → event-node. One per parsed
         ;; transition. No label rides on this edge (the event-node holds
         ;; the event/guard/action text); the edge is structural —
         ;; "this state handles this event".
         inbound-edges
-        (mapv (fn [{:keys [edge ev-node-id from-active? focused? fired?
-                           cross-hier? in-points in-label-pos]}]
-                {:id        (str (:id edge) "__in")
-                 :source    (:source edge)
-                 :target    ev-node-id
-                 :type      "transition"
-                 ;; rf2-az6e2 — the source→event (`__in`) segment is the
-                 ;; QUIET half of the two-edge route: a SMALL arrowhead
-                 ;; (10px, down from 14) in the quiet edge colour, so the
-                 ;; primary arrowhead reads on the event→target (`__out`)
-                 ;; segment and the pair reads as ONE transition route.
-                 :markerEnd {:type "arrowclosed"
-                             :color (cond
-                                      fired?    (:edge-fired ct)
-                                      focused?  (:edge-active ct)
-                                      from-active? (:edge-active ct)
-                                      :else     (:edge-quiet ct))
-                             :width 10
-                             :height 10}
-                 :data      {:eventLabel ""
-                             :eventLineLabel ""
-                             :active     from-active?
-                             :focused    focused?
-                             :fired      fired?
-                             :afterMs    nil
-                             :guard      nil
-                             :action     nil
-                             :selfLoop   false
-                             :loopIndex  nil
-                             :siblingIndex 0
-                             :siblingCount 1
-                             :crossHierarchy cross-hier?
-                             ;; rf2-r636q — the elk `__in` route
-                             ;; (source-state → event-node). Was
-                             ;; hardcoded nil, which (with the broken
-                             ;; bare-id lookup) meant the inbound segment
-                             ;; never routed around an intervening
-                             ;; container. nil when elk emitted no route
-                             ;; (bezier fallback).
-                             :points     in-points
-                             ;; rf2-rlq97 — elk's computed label position
-                             ;; (nil under events-as-nodes; the renderer
-                             ;; falls back to its geometric anchor).
-                             :labelPos   in-label-pos
-                             :internal   false
-                             :machineLevel (boolean (:machine-level? edge))
-                             :eventId    nil
-                             :fromPath   (:from-path edge)
-                             :toPath     (:to-path edge)
-                             :onClick    nil
-                             :chart      chart
-                             :palette    ct
-                             :inbound    true
-                             ;; rf2-az6e2 — the quiet source→event half of
-                             ;; the route. The renderer paints it thinner +
-                             ;; in the quiet colour so the pair reads as one
-                             ;; transition with the primary arrowhead on the
-                             ;; event→target segment.
-                             :quietSegment true
-                             :eventNodeId ev-node-id
-                             :spec-edge-id (:id edge)}})
+        (mapv (fn [{:keys [in-points in-label-pos] :as desc}]
+                (events-as-nodes-edge :in desc in-points in-label-pos))
               edge-descriptors)
         ;; Outbound edges: event-node → target-state. Omitted for
         ;; internal transitions (`:internal? true`) — the event-node
@@ -950,64 +982,9 @@
         ;; change").
         outbound-edges
         (->> edge-descriptors
-             (remove (fn [{:keys [internal?]}] internal?))
-             (mapv (fn [{:keys [edge ev-node-id focused? fired? from-active?
-                                cross-hier? out-points out-label-pos]}]
-                     {:id        (str (:id edge) "__out")
-                      :source    ev-node-id
-                      :target    (:target edge)
-                      :type      "transition"
-                      ;; rf2-az6e2 — the event→target (`__out`) segment is
-                      ;; the PRIMARY half of the route: it carries the full-
-                      ;; size arrowhead (18px) so the eye reads the
-                      ;; transition's landing. Colour resolves through the
-                      ;; active-theme chart-tokens.
-                      :markerEnd {:type "arrowclosed"
-                                  :color (cond
-                                           fired?    (:edge-fired ct)
-                                           focused?  (:edge-active ct)
-                                           from-active? (:edge-active ct)
-                                           :else     (:edge-quiet ct))
-                                  :width 18
-                                  :height 18}
-                      :data      {:eventLabel ""
-                                  :eventLineLabel ""
-                                  :active     from-active?
-                                  :focused    focused?
-                                  :fired      fired?
-                                  :afterMs    nil
-                                  :guard      nil
-                                  :action     nil
-                                  :selfLoop   false
-                                  :loopIndex  nil
-                                  :siblingIndex 0
-                                  :siblingCount 1
-                                  :crossHierarchy cross-hier?
-                                  ;; rf2-r636q — the elk `__out` route
-                                  ;; (event-node → target-state). Keyed by
-                                  ;; the `<spec-edge-id>__out` elk edge id
-                                  ;; the producer actually emits (was the
-                                  ;; bare canonical id → always missed).
-                                  :points     out-points
-                                  ;; rf2-rlq97 — elk's computed label
-                                  ;; position (nil under events-as-nodes;
-                                  ;; renderer falls back to geometric anchor).
-                                  :labelPos   out-label-pos
-                                  :internal   false
-                                  :machineLevel (boolean (:machine-level? edge))
-                                  :eventId    nil
-                                  :fromPath   (:from-path edge)
-                                  :toPath     (:to-path edge)
-                                  :onClick    nil
-                                  :chart      chart
-                                  :palette    ct
-                                  :outbound   true
-                                  ;; rf2-az6e2 — the primary event→target
-                                  ;; half (not quiet); carries the full
-                                  ;; arrowhead + the standard stroke.
-                                  :quietSegment false
-                                  :eventNodeId ev-node-id
-                                  :spec-edge-id (:id edge)}})))
+             (remove :internal?)
+             (mapv (fn [{:keys [out-points out-label-pos] :as desc}]
+                     (events-as-nodes-edge :out desc out-points out-label-pos))))
         proj-edges (vec (concat inbound-edges outbound-edges))
 
         ;; Initial-state markers — a small filled dot wired into each

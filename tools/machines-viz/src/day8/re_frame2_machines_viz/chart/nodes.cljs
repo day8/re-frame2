@@ -55,6 +55,7 @@
              :as parallel-region-node]
             [day8.re-frame2-machines-viz.chart.nodes.xyflow-node
              :refer [Handle pos-top pos-right pos-bottom pos-left
+                     four-cardinal-handles
                      chart-constants palette-of]]
             [day8.re-frame2-machines-viz.chart.projection :as projection]
             [day8.re-frame2-machines-viz.theme.tokens
@@ -124,13 +125,30 @@
   PRESERVING the namespace. A `:door/open` tag reads `door/open`, not
   the truncated `open` — the bead's tag-identity fix. The pre-vcnvj
   `(name tag)` dropped the namespace, collapsing `:door/open`,
-  `:lift/open`, … to the same visible `open`."
+  `:lift/open`, … to the same visible `open`.
+
+  The projector (`chart.projection`) already stringifies each tag to
+  its fully-qualified form (`\"door/open\"`) BEFORE xyflow `clj->js`-es
+  the node `:data` (whose default keyword-fn is `name` and would
+  otherwise strip the namespace). By the time the renderer reads tags
+  back they are plain strings, so the string branch carries the live
+  path; the keyword branch is kept defensive for any direct caller."
   [t]
   (cond
     (keyword? t) (if-let [ns (namespace t)]
                    (str ns "/" (name t))
                    (name t))
     :else        (str t)))
+
+(defn- tag-testid-seg
+  "The `data-testid` segment for a tag chip. A `/` in a testid breaks
+  CSS / Playwright selectors, so collapse a namespaced tag to its
+  trailing `name` segment (`door/open` → `open`). The full identity
+  stays on `data-tag` / `title` for host introspection (rf2-vcnvj)."
+  [tag]
+  (let [label (tag-label tag)
+        idx   (.lastIndexOf label "/")]
+    (if (neg? idx) label (subs label (inc idx)))))
 
 (defn- tag-title-attr
   "Compose a state's `:tags` set (Spec 005 user-declared semantic
@@ -175,9 +193,9 @@
   [tag ct {:keys [tag-pill-height tag-pill-pad-x tag-pill-px
                   tag-pill-radius tag-pill-gap]}]
   (let [label      (tag-label tag)
-        testid-seg (if (keyword? tag) (name tag) (str tag))]
+        testid-seg (tag-testid-seg tag)]
     [:span {:key   label
-            :title (str tag)
+            :title label
             :data-testid (str "rf-mv-chart-state-tag-" testid-seg)
             :data-tag    label
             :style {:display          "inline-flex"
@@ -400,16 +418,7 @@
           (when exit
             (action-row {:kind :exit :name-str exit :vc vc :ct ct}))])
        ;; xyflow attachment points (invisible — edges connect here)
-       [:> Handle {:type "target" :position pos-top
-                   :style {:opacity 0}}]
-       [:> Handle {:type "source" :position pos-bottom
-                   :style {:opacity 0}}]
-       [:> Handle {:type "target" :position pos-left
-                   :id "left"
-                   :style {:opacity 0}}]
-       [:> Handle {:type "source" :position pos-right
-                   :id "right"
-                   :style {:opacity 0}}]])))
+       (four-cardinal-handles)])))
 
 ;; ---- compound node ------------------------------------------------------
 
@@ -503,12 +512,7 @@
                       :text-overflow "ellipsis"}}
         label]
        ;; rf2-shv82 — invisible xyflow attachment points.
-       [:> Handle {:type "target" :position pos-top    :style {:opacity 0}}]
-       [:> Handle {:type "source" :position pos-bottom :style {:opacity 0}}]
-       [:> Handle {:type "target" :position pos-left   :id "left"
-                   :style {:opacity 0}}]
-       [:> Handle {:type "source" :position pos-right  :id "right"
-                   :style {:opacity 0}}]])))
+       (four-cardinal-handles)])))
 
 ;; ---- initial marker node ------------------------------------------------
 
