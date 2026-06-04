@@ -42,28 +42,32 @@ When implementing surfaces a missing surface, an inconsistency, or an undocument
 
 **Body contents — public evidence only.** The issue body quotes `spec/` and names the EP / fixture / capability. It does NOT paste private port source, the engineer's commits, transcripts, repo-local paths, or any text the engineer hasn't seen. Re-use spec text; describe the gap; show the minimal reproduction shape; stop.
 
-**Shell safety for `gh issue create`.** Spec-gap bodies often include error traces, log output, or excerpts from the engineer's port — text the user never inspects character by character. Always pass the body via a file:
+**Shell safety for `gh issue create`.** Spec-gap bodies often include error traces, log output, or excerpts from the engineer's port — text the user never inspects character by character. Never interpolate that text inline into the shell command (where `$`, `` ` ``, and `\` would expand). Instead, **write the body to a file with the `Write` tool**, then pass it with `gh`'s native `--body-file` flag — a single `gh issue create` invocation with no `cat` subshell, so it runs under the skill's `Bash(gh issue *)` permission:
 
-```bash
-cat > /tmp/spec-gap.md <<'EOF'
-## Context
-…port and EP being implemented…
+1. Use the `Write` tool to create `/tmp/spec-gap.md`:
 
-## What the spec is silent on
-…concrete surface, with quotes from spec/<EP>.md…
+   ```markdown
+   ## Context
+   …port and EP being implemented…
 
-## Why this is a spec gap, not a port bug
-…cannot be resolved without consulting outside sources…
-EOF
+   ## What the spec is silent on
+   …concrete surface, with quotes from spec/<EP>.md…
 
-gh issue create \
-  --repo day8/re-frame2 \
-  --title "spec-gap(EP-NNN): <one-line>" \
-  --body "$(cat /tmp/spec-gap.md)" \
-  --label spec-gap,from-implementor
-```
+   ## Why this is a spec gap, not a port bug
+   …cannot be resolved without consulting outside sources…
+   ```
 
-The single-quoted here-doc delimiter (`<<'EOF'`) keeps `$`, `` ` ``, and `\` inside the body literal. Pattern is documented in `skills/README.md` §Published-skill `allowed-tools` baseline.
+2. File it with one `gh issue create` command:
+
+   ```bash
+   gh issue create \
+     --repo day8/re-frame2 \
+     --title "spec-gap(EP-NNN): <one-line>" \
+     --body-file /tmp/spec-gap.md \
+     --label spec-gap,from-implementor
+   ```
+
+`--body-file` reads the body verbatim from disk, so no shell expansion ever touches the transcript-derived text, and the only `Bash` call is a bare `gh issue create` — exactly what the skill's `allowed-tools` grants. Pattern is documented in `skills/README.md` §Published-skill `allowed-tools` baseline.
 
 ## 9. Approval gate before any cross-repo side effect
 

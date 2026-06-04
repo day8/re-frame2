@@ -231,20 +231,26 @@ rather than theoretical attacks.
   carries a one-line reminder that nREPL is a remote-evaluation
   surface and must stay bound to `localhost` in dev.
 - **Shell-safety pattern for transcript-derived text.** When a skill
-  composes a shell command from text drawn out of the conversation —
-  transcripts, error traces, user-supplied recaps — pass the body via
-  stdin or a here-doc, never via direct interpolation. Canonical
-  shape:
+  composes a `gh issue create` body from text drawn out of the
+  conversation — transcripts, error traces, user-supplied recaps —
+  never interpolate that text inline (where `$`, `` ` ``, or `\` would
+  expand). Write the body to a file with the **`Write` tool**, then
+  pass it with `gh`'s native `--body-file` flag. Canonical shape:
 
-  ```bash
-  cat > /tmp/issue-body.md <<'EOF'
-  …transcript-derived body…
-  EOF
-  gh issue create --title "<short title>" --body "$(cat /tmp/issue-body.md)"
-  ```
+  1. `Write` the body to `/tmp/issue-body.md` (transcript-derived
+     markdown — no shell escaping needed; nothing expands it).
+  2. File it with one `gh issue create` command:
 
-  Single-quoted here-doc delimiter (`<<'EOF'`) so the shell doesn't
-  expand `$`, `` ` ``, or `\` inside the body. The skill files
+     ```bash
+     gh issue create --title "<short title>" --body-file /tmp/issue-body.md
+     ```
+
+  `--body-file` reads the body verbatim from disk, so no shell
+  expansion ever touches the transcript-derived text, and the only
+  `Bash` call is a bare `gh issue create` — runnable under the
+  restricted `Bash(gh issue *)` permission these skills declare (a
+  `cat > file` here-doc or a `--body "$(cat …)"` subshell is **not**,
+  since neither is a bare `gh issue` invocation). The skill files
   affected by this pattern are the retro / improvement-filing skills
   (`re-frame2-pair-retro`, `re-frame2-implementor`).
 

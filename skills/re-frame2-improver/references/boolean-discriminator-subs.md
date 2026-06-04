@@ -47,15 +47,27 @@ Spec source: [`spec/005-StateMachines.md`](../../../spec/005-StateMachines.md) �
     @(rf/subscribe [:article/loaded?])  [article-body]))
 ```
 
-**After** — machine + tags + one selector:
+**After** — machine + tags + one selector. The states carry `:tags` for the render question **and** `:on` transitions for the driving events, so the machine actually moves through its lifecycle (a tag-only machine would be stuck in `:loading` forever):
 
 ```clojure
 (rf/reg-machine :article
   {:initial :loading
-   :states  {:loading {:tags #{:article/loading}}
-             :error   {:tags #{:article/error}}
-             :empty   {:tags #{:article/empty}}
-             :loaded  {:tags #{:article/loaded}}}})
+   :data    {:data nil :error nil}
+   :guards  {:empty-result? (fn [{[_ data] :event}] (empty? data))}
+   :actions {:set-data  (fn [{d :data [_ data] :event}] {:data (assoc d :data data :error nil)})
+             :set-error (fn [{d :data [_ err]  :event}] {:data (assoc d :error err)})}
+   :states
+   {:loading {:tags #{:article/loading}
+              :on   {:load-success [{:guard :empty-result? :target :empty :action :set-data}
+                                     {:target :loaded :action :set-data}]
+                     :load-failure {:target :error :action :set-error}}}
+    :error   {:tags #{:article/error} :on {:reload :loading}}
+    :empty   {:tags #{:article/empty} :on {:reload :loading}}
+    :loaded  {:tags #{:article/loaded} :on {:reload :loading}}}})
+
+;; Drive it: (rf/dispatch [:article [:load-success items]])  ;; → :empty or :loaded
+;;           (rf/dispatch [:article [:load-failure err]])    ;; → :error
+;;           (rf/dispatch [:article [:reload]])              ;; back to :loading
 
 (defn article-page []
   (cond
@@ -64,6 +76,8 @@ Spec source: [`spec/005-StateMachines.md`](../../../spec/005-StateMachines.md) �
     @(rf/machine-has-tag? :article :article/empty)   [empty-state]
     @(rf/machine-has-tag? :article :article/loaded)  [article-body]))
 ```
+
+The guarded-vector transition on `:load-success` (first match wins) routes an empty payload to `:empty` and a non-empty one to `:loaded` — the same discrimination the boolean cluster encoded, now declared once in the transition table instead of recomputed in four subs.
 
 ## Edge cases — when boolean subs are fine
 
