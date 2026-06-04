@@ -36,6 +36,7 @@
   call-sites."
   (:require [re-frame.late-bind :as late-bind]
             [re-frame.machines.lifecycle-fx.resolver :as resolver]
+            [re-frame.machines.lifecycle-fx.spawn-error :as spawn-error]
             [re-frame.machines.lifecycle-fx.teardown :as teardown]
             [re-frame.machines.lifecycle-fx.traces :as traces]
             [re-frame.machines.parallel :as parallel]
@@ -170,10 +171,18 @@
                                           (transition/state-path (:state next-snapshot))))
         output-key  (:output-key final-node)
         result      (when output-key (get child-data output-key))
+        ;; Per Spec 005 §Final states §`:on-error` (rf2-5hlsh; XState v5 invoke
+        ;; `onError`): a `:final?` leaf MAY also declare `:error? true` — a
+        ;; designated ERROR terminal. When a `:spawn`-spawned child finishes
+        ;; via an error leaf AND its spawning parent declares `:spawn :on-error`,
+        ;; the runtime routes the failure to a PARENT TRANSITION (control flow,
+        ;; not just observability) instead of the `:data`-only `:on-done`
+        ;; callback. A plain `:final?` leaf keeps firing `:on-done`.
+        error-leaf? (true? (:error? final-node))
         parent-id   (:rf/parent-id child-data)
         invoke-id   (:rf/spawn-id child-data)
-        ;; (1) Find parent's `:on-done`, if this is a `:spawn`-spawned
-        ;; actor. The parent's spec carries the `:spawn` map at
+        ;; (1) Find parent's `:on-done` / `:on-error`, if this is a `:spawn`-
+        ;; spawned actor. The parent's spec carries the `:spawn` map at
         ;; `invoke-id`. Per rf2-a2sn1 — resolve the parent's spec from the
         ;; registrar (a singleton parent) OR, for a NESTED spawn whose
         ;; parent is itself a spawned actor (no per-instance registration),
@@ -187,13 +196,25 @@
         spawn-spec  (when (and parent-meta invoke-id)
                       (find-spawn-spec-at parent-meta invoke-id))
         on-done-fn  (:on-done spawn-spec)
+        ;; `:on-error` is a transition spec (not a fn) — its PRESENCE on the
+        ;; resolved `:spawn` map decides whether the error-leaf trigger routes
+        ;; to a parent transition. The transition itself is resolved natively
+        ;; by the parent's engine (`pick-spawn-error-transition`) when the
+        ;; dispatched `[:rf.machine.spawn/error …]` event arrives, so finalize
+        ;; only decides "fire the dispatch?" here.
+        on-error?   (and error-leaf?
+                         parent-id
+                         (some? (:on-error spawn-spec)))
         parent-path (paths/snapshot-path parent-id)
         ;; (2) Emit `:rf.machine/done` trace BEFORE the destroy cascade
-        ;; (D6 ordering).
+        ;; (D6 ordering). Fired for EVERY finish (success or error leaf) —
+        ;; `:on-error` is additive, the done trace is the actor-finality
+        ;; signal regardless of which spawn hook routes the result.
         _ (trace/emit! :rf.machine :rf.machine/done
                        {:machine-id machine-id
                         :output     result
                         :parent-id  parent-id
+                        :error?     error-leaf?
                         :frame      frame-id})
         ;; (3) Apply :on-done to the parent's `:data`. The parent's
         ;; snapshot lives at [:rf/runtime :machines :snapshots <parent-id>]; we read it,
@@ -202,9 +223,12 @@
         ;; §Final states / rf2-grw4i / rf2-v0rrr the callback receives
         ;; one context-map arg and returns the new `:data` map. If the
         ;; parent has no snapshot (spawned a child but was itself
-        ;; destroyed) or no `:on-done`, this reduces to identity.
+        ;; destroyed) or no `:on-done`, this reduces to identity. An ERROR
+        ;; leaf routing to `:on-error` SKIPS `:on-done` — the two spawn hooks
+        ;; are mutually exclusive per finish (error-leaf → transition,
+        ;; success-leaf → `:data` callback).
         db-after-on-done
-        (if (and on-done-fn parent-id)
+        (if (and on-done-fn parent-id (not on-error?))
           (let [parent-snap     (get-in db parent-path)
                 parent-data     (:data parent-snap)
                 new-parent-data (try
@@ -253,6 +277,19 @@
     (timer/cancel-actor-timers! frame-id machine-id)
     (traces/emit-system-id-released! frame-id released-sid machine-id)
     (registrar/unregister! :event machine-id)
+    ;; (7) Per Spec 005 §Final states §`:on-error` (rf2-5hlsh): when the child
+    ;; finished via an ERROR leaf AND the spawning parent declares
+    ;; `:spawn :on-error`, dispatch the synthetic reserved failure event into
+    ;; the parent. It resolves natively through the parent's macrostep
+    ;; (`pick-spawn-error-transition`), firing the declarative `:on-error`
+    ;; transition (target / guard / actions) with the error payload on
+    ;; `:event` — the XState `invoke onError` control flow. Dispatched (not
+    ;; raised) because the parent is a SEPARATE actor with its own handler /
+    ;; snapshot — symmetric with how the spawn fx dispatches `:start` into the
+    ;; child. The teardown above already ran (the child auto-destroys on its
+    ;; error leaf, like any `:final?`); this only ROUTES the failure.
+    (when on-error?
+      (spawn-error/dispatch-spawn-error! frame-id parent-id invoke-id result))
     {:db db-after-destroy
      ;; rf2-nahfm — append the destroy-time `:exit` cascade's fx to
      ;; the transition's fx vector so any `:exit`-emitted dispatches /

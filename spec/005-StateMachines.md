@@ -2476,7 +2476,8 @@ The map under `:spawn` accepts the following keys:
 | `:data` | initial data for the child — literal map or `(fn [{:keys [snapshot event]}] data)` (per — unified context-map) | optional |
 | `:id-prefix` | base for the gensym'd actor id (`:request/protocol#42`) | optional; defaults to `:machine-id` |
 | `:on-spawn` | `(fn [{:keys [data id]}] _)` — advisory callback fired with the spawned id; return is ignored (runtime tracks the id at `[:rf/runtime :machines :spawned <parent> <invoke-id>]`) | optional |
-| `:on-done` | `(fn [{:keys [data result]}] new-data)` — fires when the child enters a `:final?` state; `result` is the child's `:data` slot named by the final state's `:output-key` (or `nil` if no `:output-key` declared) — see [§Final states](#final-states-final--on-done--output-key). Returns the parent's new `:data` map. | optional |
+| `:on-done` | `(fn [{:keys [data result]}] new-data)` — fires when the child enters a (non-error) `:final?` state; `result` is the child's `:data` slot named by the final state's `:output-key` (or `nil` if no `:output-key` declared) — see [§Final states](#final-states-final--on-done--output-key). Returns the parent's new `:data` map. | optional |
+| `:on-error` | an `:on`-shaped **transition** spec `{:target :guard :action}` (or keyword / vector-path target, or guarded candidate vector) — fires when the spawned child **FAILS**: it reaches a designated error `:final?` leaf (`:error? true`), or one of its actions throws an uncaught exception. The parent moves to the transition's `:target` (resolved at the `:spawn`-bearing state's own level — a keyword target is a sibling), running its `:guard` / `:action`. The error payload rides on the transition's `:event` (the child's `:output-key` slot for the error-leaf trigger, or the exception envelope for the action-exception trigger). re-frame2's spelling of XState v5 `invoke onError` — control flow, not just observability. See [§`:on-error`](#on-error--child-failure-control-flow). | optional |
 | `:start` | event vector dispatched to the newborn after spawn | optional |
 | `:spawn-id` | explicit id instead of gensym (useful for tests / per-state singleton actors) | optional |
 
@@ -2580,7 +2581,7 @@ The desugaring is uniform — no special-casing for hierarchy. Whatever cascadin
 
 ### Errors
 
-`:spawn` introduces **no new error categories**. Failures route through the existing `:rf.error/*` machinery:
+`:spawn` introduces **no new error categories**. Failures route through the existing `:rf.error/*` machinery (and, when the parent declares `:on-error`, *additionally* drive a declarative parent transition — see [§`:on-error`](#on-error--child-failure-control-flow)):
 
 - If `:data` is a function and it throws, the error surfaces as `:rf.error/machine-action-exception` (the standard category for any user-supplied fn that throws during a machine action — see [Cross-Spec-Interactions §11](Cross-Spec-Interactions.md#11-machine-action-throws)). The transition halts; the snapshot does not commit.
 - If `:machine-id` references an unregistered machine, the spawn fx itself errors per existing spawn semantics — no `:spawn`-specific category.
@@ -2594,7 +2595,7 @@ xstate's `invoke` admits several features re-frame2 deliberately omits. Each has
 |---|---|
 | **`onDone`** — fire a callback when the child reaches a final state | re-frame2 ships first-class final states with parent notification — see [§Final states (`:final?` / `:on-done` / `:output-key`)](#final-states-final--on-done--output-key). A leaf state declares `:final? true` (and optionally `:output-key`); the parent's `:spawn` declares `:on-done (fn [{data :data result :result}] new-data)`. The runtime invokes `:on-done` synchronously when the child enters its final state, then auto-destroys the child. |
 | **Compound / parallel `onDone`** (`done.state.<id>` raised *into the same machine* when a compound reaches its `<final>` child — or a parallel reaches all-regions-final — so an enclosing transition advances *without* tearing the machine down) | **Shipped first-class** (no longer omitted) — see [§The done-state signal](#the-done-state-signal). Declare `:on-done` on the compound (resolved at the compound's level — a keyword target is a sibling) or on the parallel root (action + fx; root-only parallel has no in-machine target). The runtime raises `[:rf.machine/done <node-path>]` into the FIFO `:raise` queue, so the enclosing `:on-done` fires in the same macrostep and the machine keeps running. The depth of the `:final?` leaf disambiguates compound-done (embedded) from whole-machine finality (top-level) — the [§Embedded vs top-level](#embedded-vs-top-level--the-d7-reconciliation) reconciliation. (The former `:raise`-from-non-`:final?`-`:entry` substitute is withdrawn.) |
-| **`onError`** — child error callback | Errors flow through the standard `:rf.error/*` machinery and are visible in trace events. The parent observes via the existing error envelope, not a `:spawn`-specific hook. |
+| **`onError`** — child error callback / **transition** | **Shipped first-class** (no longer observability-only) — see [§`:on-error`](#on-error--child-failure-control-flow). Declare `:on-error` on the parent's `:spawn` map as an `:on`-shaped **transition** spec `{:target :guard :action}`. When the spawned child FAILS — it reaches a designated error `:final?` leaf (`:error? true`), or one of its actions throws — the parent **moves to the `:on-error :target`** (resolved at the `:spawn`-bearing state's level), with the error payload on the transition's `:event`. This is XState v5's `invoke onError` semantics: a transition (control flow), not merely an observable. Errors STILL flow through the `:rf.error/*` machinery + trace events (observability is unchanged — `:on-error` is additive), and the explicit dispatch-back-to-parent (`[:fx [[:dispatch [parent-id [:failed err]]]]]`) remains the lower-level escape hatch. |
 | **Multiple `:spawn` per state** (xstate admits a vector) | One `:spawn` per state. Multiple actors per state suggests refactoring into a compound state where each substate invokes one of the actors. |
 | **`autoForward`** — forward all parent events to the child | Users forward explicitly via `:fx [[:dispatch [child-id ev]]]` from the relevant transitions. Implicit forwarding is invisible at the call site; explicit forwarding is what visualisers and AIs read. |
 
@@ -2656,6 +2657,8 @@ A leaf state may declare `:final? true`. Entering that state **terminates the ma
 - If the machine was spawned by a parent's `:spawn`, the parent's `:spawn :on-done (fn [{data :data result :result}] new-data)` fires (with `result` = the child's `:data` slot named by the final state's `:output-key`, or `nil` when `:output-key` is absent). The child is then **auto-destroyed**.
 - If the machine is a **singleton** (registered top-level, no parent `:spawn`), the machine still auto-destroys on entry to `:final?` — "final means final" (D7 below). Apps wanting a persistent terminal state simply **omit `:final?`** and use an ordinary leaf state.
 
+A `:final?` leaf may additionally declare **`:error? true`** — a designated **error terminal** (re-frame2's spelling of XState v5's error final). When a spawned child finishes via an error leaf AND its spawning parent declares `:spawn :on-error`, the runtime routes the failure to the parent's **`:on-error` transition** rather than the `:data`-only `:on-done` callback — see [§`:on-error`](#on-error--child-failure-control-flow). An error leaf with no parent `:on-error` behaves exactly like any other `:final?` leaf (auto-destroy + the `:rf.machine/done` trace, which carries `:error? true`). `:error?` on a non-final state is a registration error (`:rf.error/machine-error-flag-without-final`, symmetric with `:output-key`).
+
 ```clojure
 ;; Child machine — declares its terminal state with :final? + :output-key.
 (rf/reg-machine :auth-flow
@@ -2704,6 +2707,63 @@ When `:auth-flow` enters `:done`, the runtime:
 | D8 | **`:system-id` interaction** — the runtime auto-clears `[:rf/runtime :machines :system-ids <system-id>]` reverse-index entry on done. The clear runs **after `:on-done` fires** so the hook can still read the binding. |
 | D9 | Specified and implemented in one delivery (no post-v1 deferral). |
 | D10 | Capability-matrix axis: **`:fsm/final-states`** (naming consistent with `:fsm/parallel-regions`, `:fsm/tags`). Conformance fixtures `final-state-singleton-auto-destroys` and `final-state-child-fires-on-done` exercise the contract. |
+
+### `:on-error` — child-failure control flow
+
+> **XState v5 term:** `invoke onError` (a **transition** the parent takes when an invoked actor errors). **rf2-5hlsh** — Mike-ruled 2026-06-04: *XState `onError` is a transition, not just observability; pre-alpha is when to avoid baking in clumsy substitutes.*
+
+`:spawn :on-done` is the *success* notification — a `:data`-only callback the parent runs when a spawned child reaches a (non-error) `:final?` state. `:spawn :on-error` is its **symmetric failure counterpart**, but a **transition** rather than a callback: when a spawned child FAILS, the parent **changes state** declaratively, at the `:spawn` site. This is XState v5's `invoke onError` — the parent reacts to the child failing by transitioning, not merely observing an error envelope.
+
+**The grammar — an `:on`-shaped transition on the parent's `:spawn` map.** `:on-error` sits beside `:on-done` on the parent's `:spawn` map. Its value is an `:on`-shaped transition spec — a keyword target, a vector-path target, a single transition map `{:target :guard :action}`, or a guarded candidate vector — resolved **relative to the `:spawn`-bearing state's own level** (a keyword target is a **sibling** of the spawning state, the natural *"child failed → move the parent out of the spawning state"* placement). It is normalised + guard-resolved through the **same candidate machinery as an `:on` clause**, so first-guard-pass-wins and an unguarded candidate is the unconditional fallback.
+
+```clojure
+;; Child declares a designated error terminal with :error? + :output-key.
+(rf/reg-machine :auth-flow
+  {:initial :running
+   :data    {}
+   :states
+   {:running {:on {:server-error {:target :failed
+                                  :action (fn [{data :data ev :event}]
+                                            {:data (assoc data :reason (second ev))})}
+                   :server-ok    {:target :done
+                                  :action (fn [{data :data ev :event}]
+                                            {:data (assoc data :token (second ev))})}}}
+    :done    {:final? true :output-key :token}
+    :failed  {:final? true :error? true :output-key :reason}}})  ;; ← error terminal
+
+;; Parent: :on-done (success → :data) AND :on-error (failure → transition).
+(rf/reg-machine :login
+  {:initial :idle
+   :data    {}
+   :states
+   {:idle {:on {:submit :authenticating}}
+
+    :authenticating
+    {:spawn {:machine-id :auth-flow
+              :on-done    (fn [{data :data result :result}] (assoc data :token result))
+              :on-error   {:target :error                    ;; ← sibling of :authenticating
+                           :action (fn [{data :data ev :event}]
+                                     ;; ev = [:rf.machine.spawn/error <invoke-id> <error>]
+                                     (assoc data :error (nth ev 2)))}}}
+
+    :error {:on {:retry :authenticating}}}})
+```
+
+**Two failure triggers** (both route to the same `:on-error` transition):
+
+1. **The child reaches a designated error `:final?` leaf** (`:error? true`). The error payload is the child's `:data` slot named by that leaf's `:output-key` (or `nil`). The child auto-destroys (it reached `:final?`), then the failure routes to the parent.
+2. **An uncaught child action exception** (`:rf.error/machine-action-exception`). The exception envelope (`{:rf.error/id :machine-id :action-id :event :exception-message :exception-data :reason}`) is the error payload. (This was *observability-only* before rf2-5hlsh — the action-exception trace fired but nothing drove a parent transition.)
+
+**The mechanism — a dispatch into the parent.** The failure is delivered as the reserved event `[<parent-id> [:rf.machine.spawn/error <invoke-id> <error>]]` dispatched into the parent (a **separate** actor with its own handler / snapshot — so a *dispatch*, symmetric with how the spawn fx dispatches `:start` into the newborn child, not the in-machine `[:raise …]` the compound/parallel `done.state` uses). The parent's macrostep resolves it natively: `:rf.machine.spawn/error` routes to the active `:spawn`-bearing state's `:on-error`, firing the transition with full engine semantics — entry/exit cascade, `:always` / `:raise` drain, traces, and the parent's own finalize. The error payload rides on the transition's `:event` (`(nth ev 2)`), so a guard / action can branch on it.
+
+**Two resolution arms** (priority order — symmetric with the compound `done.state` resolution):
+
+1. **`:on-error` on the parent's `:spawn` map** — the headline spelling above.
+2. **An enclosing explicit `:on {:rf.machine.spawn/error {:guard … :target …}}`** — the lower-level escape hatch. When no `:spawn :on-error` is declared (or its candidates all guard-fail), the dispatched event walks the active path leaf→root (then the root `:on`) like any event, so an ancestor can handle `:rf.machine.spawn/error` directly. A guard reads the invoke-id / error off `:event` to disambiguate which spawn failed.
+
+**`:on-error` is additive — the escape hatch is preserved.** Declaring `:on-error` does NOT replace the lower-level forms. The `:rf.machine/done` / `:rf.error/machine-action-exception` traces STILL fire (observability is unchanged). And the explicit dispatch-back-to-parent — a child action emitting `[:fx [[:dispatch [parent-id [:failed err]]]]]` and the parent declaring `:on {:failed :error}` — keeps working. `:on-error` is the *declarative invoke-site* control-flow form; the explicit dispatch is the *lower-level* form. Choose `:on-error` for the canonical XState-shaped failure routing; reach for the explicit dispatch when the child needs to send a richer, app-shaped failure event the parent's normal `:on` table handles.
+
+**Success vs failure are mutually exclusive per finish.** A child reaching a **plain** `:final?` leaf fires `:on-done` (success → `:data` callback). A child reaching an `:error?` `:final?` leaf fires `:on-error` (failure → transition) and SKIPS `:on-done`. A child throwing fires `:on-error`. (`:on-done` and `:on-error` may both be declared on one `:spawn` map — the runtime picks the right one by how the child finished.)
 
 ### The done-state signal
 
@@ -2772,6 +2832,7 @@ The two `:on-done` hooks are **distinct and complementary**: a node's **own `:on
 - **A `:final?` leaf's meaning depends on its DEPTH (the embedded-vs-top-level rule).** A `:final?` leaf that is a **direct child of the machine root** is **whole-machine finality** (singleton auto-destroy per D7, or the spawning parent's `:spawn :on-done`). A `:final?` leaf **embedded inside a compound** instead raises a transitionable in-machine `done.state.<compound>` — the enclosing `:on-done` advances the outer flow **and the machine keeps running**. So to model "a *sub-flow* completes, then the outer flow continues *in the same machine*" you mark the sub-flow's terminal leaf `:final?` and declare `:on-done` on the enclosing compound — the natural XState `onDone` shape. (The pre-rf2-zlmz7 hand-rolled `:raise`-from-`:entry` substitute is withdrawn — it was a footgun precisely because it required *avoiding* `:final?`.) See [§The done-state signal](#the-done-state-signal) and [§Embedded vs top-level](#embedded-vs-top-level--the-d7-reconciliation).
 - **No `:on`, `:always`, `:after`, `:spawn`, `:spawn-all` on a `:final?` state.** Final means final — no further transitions. `make-machine-handler` rejects these combinations at registration with `:rf.error/machine-final-state-has-transitions`. `:entry` and `:exit` actions ARE permitted (the final-state's `:entry` runs as part of the entering cascade; `:exit` runs from the auto-destroy teardown).
 - **`:output-key` requires `:final?`.** A non-final state declaring `:output-key` is a registration error (`:rf.error/machine-output-key-without-final`). On a final state, `:output-key` is optional — when absent, the `result` passed to `:on-done` is `nil`.
+- **`:error?` requires `:final?`.** A `:final?` leaf MAY declare `:error? true` to mark it an **error terminal** (XState v5's error final) — a child finishing via it routes to the spawning parent's `:spawn :on-error` transition (see [§`:on-error`](#on-error--child-failure-control-flow)) instead of `:on-done`. `:error?` on a non-final state is a registration error (`:rf.error/machine-error-flag-without-final`, symmetric with `:output-key`). An error leaf MAY also carry `:output-key` (to carry the error payload) and `:entry` / `:exit`.
 - **Parallel regions and `:final?`.** A leaf inside one region of a parallel-region machine may declare `:final? true`; the meaning is "**this region** has reached its final state." That region halts (no further transitions accepted for it; sibling regions continue). The parent machine as a whole is done only when EVERY region's active state is `:final?` — at which point the parallel root's `:on-done` fires if declared (the transitionable parallel completion signal — the machine keeps running, per [§The done-state signal](#the-done-state-signal)), else the whole-machine auto-destroy / spawning-parent `:on-done` cascade fires (D7). A **compound region** reaching its own `:final?` child raises a region-local `done.state.<region-compound>` its region-local `:on-done` takes — exactly the compound case, scoped to that region (re-broadcast through the parent's one internal-event queue).
 
 ### Composition with `:entry` / `:exit`
@@ -2782,7 +2843,7 @@ A final state's `:entry` action runs as part of the entering cascade (before the
 
 Synchronous ordering (per D4):
 
-1. `:rf.machine/done` — emitted with `:machine-id` (the finishing actor), `:output` (the value read at `:output-key`, or `nil`), `:parent-id` (the parent's registration id, or `nil` for singletons).
+1. `:rf.machine/done` — emitted with `:machine-id` (the finishing actor), `:output` (the value read at `:output-key`, or `nil`), `:parent-id` (the parent's registration id, or `nil` for singletons), `:error?` (`true` when the actor finished via an `:error?` `:final?` leaf — see [§`:on-error`](#on-error--child-failure-control-flow); `false` otherwise). The done trace fires for EVERY finish — `:on-error` is additive and does not suppress it.
 2. `:rf.machine/destroyed` — enriched with `:reason :rf.machine/finished` (the discriminator that distinguishes "the actor finished naturally" from "the parent cascade destroyed it").
 3. `:rf.machine/system-id-released` — when the actor was `:system-id`-bound. Fires AFTER `:on-done` ran (so `:on-done` could still look up the binding).
 
@@ -2792,9 +2853,10 @@ Existing observers that filter `:rf.machine/destroyed` on `:tags` see the new `:
 
 - [§The done-state signal](#the-done-state-signal) — the transitionable compound / parallel `:on-done` (`done.state.<id>`), distinct from the whole-machine finality above.
 - [§Embedded vs top-level](#embedded-vs-top-level--the-d7-reconciliation) — how the `:final?` leaf's depth selects compound-done-signal vs whole-machine teardown.
-- [§Spec-spec keys](#spec-spec-keys) — `:on-done` is listed alongside `:on-spawn` on the parent's `:spawn` map.
-- [§Deliberate omissions vs xstate](#deliberate-omissions-vs-xstate) — the `onDone` row now records that re-frame2 DOES ship final-state-with-on-done AND first-class compound / parallel `done.state`.
-- [Spec-Schemas §`:rf/state-node`](Spec-Schemas.md#rftransition-table) — schema for `:final?`, `:output-key`, and the `:on-done` node key.
+- [§`:on-error`](#on-error--child-failure-control-flow) — the symmetric child-FAILURE control-flow hook (`:spawn :on-error` transition; `:error?` error terminal), distinct from the `:data`-only success notification `:on-done`.
+- [§Spec-spec keys](#spec-spec-keys) — `:on-done` and `:on-error` are listed alongside `:on-spawn` on the parent's `:spawn` map.
+- [§Deliberate omissions vs xstate](#deliberate-omissions-vs-xstate) — the `onDone` row now records that re-frame2 DOES ship final-state-with-on-done AND first-class compound / parallel `done.state`; the `onError` row records that `:spawn :on-error` ships first-class (control flow, not observability-only).
+- [Spec-Schemas §`:rf/state-node`](Spec-Schemas.md#rftransition-table) — schema for `:final?`, `:output-key`, `:error?`, and the `:on-done` / `:on-error` node keys.
 - [Spec 009 §`:op-type` vocabulary](009-Instrumentation.md#op-type-vocabulary) — `:rf.machine/done` registration (the actor-finality trace; the in-machine `[:rf.machine/done <path>]` raise rides the standard `:raise` queue, not a separate trace family).
 - Conformance fixtures: `final-state-singleton-auto-destroys.edn`, `final-state-child-fires-on-done.edn`.
 - [§Destroy is silent-idempotent](#destroy-is-silent-idempotent) — D4's auto-destroy is followed at most ONCE by an observable `:rf.machine/destroyed` trace; subsequent explicit `[:rf.machine/destroy <id>]` calls on the same finished actor are silent no-ops (aligned with XState convention).
@@ -3825,9 +3887,9 @@ Convergences: machines-as-actors, run-to-completion, encapsulated state, snapsho
 
 ### Deliberate name divergence — `:spawn` (NOT `:invoke`)
 
-re-frame2's declarative child-actor key is **`:spawn`**, not xstate's `:invoke`. This is a deliberate divergence on the single most semantically-loaded machine surface. The convergence of names (`:final?`, `:on-done`, `:guard`, `:action`, `:entry`, `:exit`, `:after`, `:always`, `:tags`, `:type :parallel`, `:regions`, `:system-id`) is high enough that AI agents trained on the xstate corpus would otherwise generate almost-correct code that misses re-frame2's per-feature spec nuances. Renaming the spawn-on-entry / destroy-on-exit slot to `:spawn` breaks the convergence trap on the surface where the semantics diverge the most:
+re-frame2's declarative child-actor key is **`:spawn`**, not xstate's `:invoke`. This is a deliberate divergence on the single most semantically-loaded machine surface. The convergence of names (`:final?`, `:on-done`, `:on-error`, `:guard`, `:action`, `:entry`, `:exit`, `:after`, `:always`, `:tags`, `:type :parallel`, `:regions`, `:system-id`) is high enough that AI agents trained on the xstate corpus would otherwise generate almost-correct code that misses re-frame2's per-feature spec nuances. Renaming the spawn-on-entry / destroy-on-exit slot to `:spawn` breaks the convergence trap on the surface where the semantics diverge the most:
 
-- re-frame2 has no `:onError` sibling — failure flows through the framework's `:rf.error/*` machinery + `:on-child-error` (on `:spawn-all`).
+- re-frame2 ships `:on-error` as a first-class `:spawn` sibling — a **transition** the parent takes when the spawned child fails (XState v5 `invoke onError` parity; see [§`:on-error`](#on-error--child-failure-control-flow)). The `:rf.error/*` machinery + the `:on-child-error` join hook (on `:spawn-all`) remain; `:on-error` is the single-child declarative control-flow form.
 - re-frame2 has no `:onSnapshot` — the snapshot lives in `app-db` and is read by subscribing to `:rf/machine`.
 - re-frame2 has no per-actor mailbox — events route through the per-frame queue.
 - re-frame2's `:spawn` IS state-bound (destroyed on exit) by construction; xstate's `:invoke` shares the property but the surface invites the assumption that other lifetime patterns are also supported (they aren't in v1).

@@ -61,6 +61,30 @@
   below for the full mechanism (rf2-bnjb3 / rf2-zlmz7)."
   :rf.machine/done)
 
+(def spawn-error-event-id
+  "The reserved inner event-id dispatched into a PARENT machine when one of
+  its `:spawn`-spawned children FAILS — re-frame2's spelling of XState v5
+  `invoke onError` (control flow, not just observability — rf2-5hlsh). Two
+  triggers raise it (both fired from the child's finalize / action-exception
+  path in `lifecycle-fx.finalize` / `lifecycle-fx.registration`):
+
+    1. the child reaches a designated ERROR `:final?` leaf (`:error? true`);
+    2. an uncaught child action exception (`:rf.error/machine-action-exception`).
+
+  The dispatched event shape is `[<parent-id> [:rf.machine.spawn/error
+  <invoke-id> <error>]]` — `<invoke-id>` is the absolute prefix-path of the
+  parent's `:spawn`-bearing state (so the resolver routes to the right
+  `:spawn :on-error`), `<error>` is the error payload (the child's
+  `:output-key` slot for the error-leaf trigger, or the exception envelope for
+  the action-exception trigger). `pick-transition` special-cases it via
+  `pick-spawn-error-transition`, which resolves the active `:spawn`-bearing
+  state's `:on-error` `:on`-shaped transition spec at that state's own level —
+  SYMMETRIC with the `:spawn :on-done` teardown hook, but a TRANSITION
+  (parent state change) rather than a `:data`-only callback. Lives under the
+  framework-reserved `:rf.machine.spawn/*` family (so `unhandled-event-no-op?`
+  exempts it). See `pick-spawn-error-transition` below."
+  :rf.machine.spawn/error)
+
 (defn- chase-ref
   "Follow a keyword reference chain through the machine's named-bindings
   map until it hits a fn (or fails). Tolerates one level of indirection
@@ -829,6 +853,87 @@
         (when-let [hit (match-on-clause machine machine done-event-id event snapshot)]
           {:transition hit :decl-path []})))))
 
+(defn- pick-spawn-error-transition
+  "Per Spec 005 §Final states §`:on-error` — child-failure control flow
+  (rf2-5hlsh; XState v5 `invoke onError`): resolve the synthetic parent event
+  `[:rf.machine.spawn/error <invoke-id> <error>]` — dispatched into the PARENT
+  when one of its `:spawn`-spawned children failed — to a transition.
+
+  `<invoke-id>` is the absolute prefix-path of the parent's `:spawn`-bearing
+  state. The resolver routes by it: find the `:spawn`-bearing state node at
+  `<invoke-id>` (the SAME placement the spawn was declared at, so the
+  `:on-error` is resolved at THAT state's level — a keyword target is a
+  SIBLING of the `:spawn`-bearing state, the natural \"child failed → move the
+  parent out of the spawning state\" placement). Its `:spawn :on-error` value
+  is an `:on`-shaped transition spec (a keyword target, vector-path target,
+  single transition map `{:target :guard :actions}`, or guarded candidate
+  vector) — normalised + guard-resolved through the SAME candidate machinery as
+  an `:on` clause. The error payload rides on `:event` (`(nth ev 2)`) so a
+  guard / action can branch on it.
+
+  Two resolution arms, in priority order — symmetric with
+  `pick-done-transition`:
+
+   1. **`:on-error` on the parent's `:spawn` map** — the headline spelling.
+      Resolved at the `:spawn`-bearing state's decl-path. Only fires when the
+      parent's ACTIVE path still includes that state (the spawning state is
+      still occupied — the common case, since the child failing is what should
+      move the parent out of it).
+   2. **An enclosing explicit `:on {:rf.machine.spawn/error …}`** — the
+      lower-level escape hatch (kept additive). When no `:spawn :on-error` is
+      declared (or its candidates all guard-fail), the raised event walks the
+      active path leaf→root like any event, so an ancestor handling the
+      reserved id explicitly can take it. A guard reads the invoke-id /error off
+      `:event` to disambiguate which spawn failed.
+
+  Returns `{:transition t :decl-path p}` or nil (no `:on-error` and no
+  enclosing handler — the failure signal is then a benign no-op, exactly like
+  an unhandled reserved-`:rf/*` event; the existing trace emission + the
+  explicit dispatch-back-to-parent escape hatch remain the lower-level forms)."
+  [machine path event snapshot]
+  (let [[_ raw-invoke-id] event
+        region         (:rf/region machine)
+        ;; Per Spec 005 §Per-region `:spawn` scoping (rf2-l67o): a `:spawn`
+        ;; declared inside a parallel region carries a region-name-prefixed
+        ;; invoke-id (`prefix-region-spawn-id`). Within a region's resolution
+        ;; `machine` is the region body (region-relative `node-at`) and `path`
+        ;; is in-region, so strip the region-name head — mirroring the
+        ;; `pick-after-transition` region handling. A prefix naming a DIFFERENT
+        ;; region is not this region's spawn; decline so the broadcast routes
+        ;; to the bearing region only.
+        invoke-id      (cond
+                         (not (vector? raw-invoke-id)) raw-invoke-id
+                         region (when (= region (first raw-invoke-id))
+                                  (vec (rest raw-invoke-id)))
+                         :else  raw-invoke-id)
+        ;; The `:spawn`-bearing state lives at `invoke-id` (absolute prefix
+        ;; path, region-stripped above). It is only resolvable when still on
+        ;; the active `path` — a transition that already exited the spawning
+        ;; state cannot land an `:on-error` (the spawn is gone). `prefix-of?`
+        ;; mirrors the `:after` staleness check.
+        spawn-node     (when (and (vector? invoke-id)
+                                  (seq invoke-id)
+                                  (prefix-of? invoke-id path))
+                         (node-at machine invoke-id))
+        on-error       (get-in spawn-node [:spawn :on-error])
+        on-error-cands (when (and spawn-node (some? on-error))
+                         (normalise-candidates on-error
+                                               :rf.error/machine-bad-on-error-clause))
+        on-error-hit   (when (seq on-error-cands)
+                         (select-passing-candidate machine on-error-cands snapshot event))]
+    (if on-error-hit
+      {:transition on-error-hit :decl-path (vec invoke-id)}
+      ;; Fall through to the standard leaf→root `:on` walk (an ancestor's
+      ;; explicit `:on {:rf.machine.spawn/error …}`), then the root `:on`.
+      (or
+        (path-walk/walk-path-leaf-to-root
+          machine path
+          (fn [prefix n]
+            (when-let [hit (match-on-clause machine n spawn-error-event-id event snapshot)]
+              {:transition hit :decl-path prefix})))
+        (when-let [hit (match-on-clause machine machine spawn-error-event-id event snapshot)]
+          {:transition hit :decl-path []})))))
+
 (defn- pick-transition
   "Walk path leaf→root looking for a transition that matches event-id and
   whose guard passes. Per Spec 005 §Transition resolution — deepest-wins
@@ -858,6 +963,9 @@
 
       (= done-event-id event-id)
       (pick-done-transition machine path event snapshot)
+
+      (= spawn-error-event-id event-id)
+      (pick-spawn-error-transition machine path event snapshot)
 
       :else
       (or
