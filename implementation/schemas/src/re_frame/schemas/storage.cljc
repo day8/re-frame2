@@ -59,6 +59,19 @@
                     {:received opts-or-frame-id
                      :expected "keyword frame-id or opts map"}))))
 
+(defn coerce->frame-id
+  "Resolve a frame-id from the `opts-or-frame-id` argument the read
+  surface accepts: coerce through `coerce-opts` (keyword sugar / opts
+  map / throw on bad shape), then `resolve-frame` (`:frame` or the
+  active frame). The query entry points (`app-schema-at` /
+  `app-schema-meta-at` / `app-schemas` / `app-schemas-digest`) use the
+  opts ONLY to name a frame, so they collapse the coerce+resolve pair
+  through this helper. The `reg-*` entry points keep the two-step form —
+  they read further keys off the coerced opts (`:rf/defer-elision-populate?`)
+  and so need the intermediate map."
+  [opts-or-frame-id]
+  (resolve-frame (coerce-opts opts-or-frame-id)))
+
 ;; ---- validator-unavailable warning (rf2-fq7d2) ----------------------------
 ;;
 ;; Per Spec 010 §Recommended soft-pass, the schemas artefact ships with a
@@ -512,8 +525,7 @@
   Per Spec 010 §Schemas as a tooling and agent surface."
   ([path] (app-schema-at path {}))
   ([path opts-or-frame-id]
-   (let [opts     (coerce-opts opts-or-frame-id)
-         frame-id (resolve-frame opts)]
+   (let [frame-id (coerce->frame-id opts-or-frame-id)]
      (when-let [m (get-in @schemas-by-frame [frame-id path])]
        (:schema m)))))
 
@@ -536,8 +548,7 @@
                                       ;; (keyword sugar also accepted)"
   ([path] (app-schema-meta-at path {}))
   ([path opts-or-frame-id]
-   (let [opts     (coerce-opts opts-or-frame-id)
-         frame-id (resolve-frame opts)]
+   (let [frame-id (coerce->frame-id opts-or-frame-id)]
      (get-in @schemas-by-frame [frame-id path]))))
 
 (defn app-schemas
@@ -557,8 +568,7 @@
   given). Schemas registered against a different frame do not appear."
   ([] (app-schemas {}))
   ([opts-or-frame-id]
-   (let [opts     (coerce-opts opts-or-frame-id)
-         frame-id (resolve-frame opts)]
+   (let [frame-id (coerce->frame-id opts-or-frame-id)]
      (reduce-kv (fn [acc path m] (assoc acc path (:schema m)))
                 {}
                 (get @schemas-by-frame frame-id {})))))
