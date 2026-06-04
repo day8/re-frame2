@@ -224,9 +224,15 @@
     1. `[:tags :reason]`           — most categories carry this
     2. `[:tags :exception-message]` — handler / fx exceptions
     3. `[:tags :rf.event/v]`        — dispatched event vector
-    4. `[:tags :failing-id]`        — registrar miss / effect-map shape
-    5. `[:tags :path]`              — schema validation
-    6. `(str operation)` only — fallback
+    4. `[:tags :unresolved-input]`  — `:rf.error/no-such-sub` (the query
+                                      vector that failed to resolve; per
+                                      Spec 009 §Error catalogue +
+                                      `re-frame.subs` emit, rf2-agpv2.3 /
+                                      rf2-qn9ss — re-synced from the
+                                      pre-agpv2.3 `:rf.sub/query-v` slot)
+    5. `[:tags :failing-id]`        — registrar miss / effect-map shape
+    6. `[:tags :path]`              — schema validation
+    7. `(str operation)` only — fallback
 
   Pure data → string; JVM-testable."
   [{:keys [operation tags] :as _ev}]
@@ -235,6 +241,9 @@
                    (:exception-message tags)
                    (when (vector? (:rf.event/v tags))
                      (pr-str (:rf.event/v tags)))
+                   (when (some? (:unresolved-input tags))
+                     (try (pr-str (:unresolved-input tags))
+                          (catch #?(:clj Throwable :cljs :default) _ nil)))
                    (when (some? (:failing-id tags))
                      (str (:failing-id tags)))
                    (when (some? (:path tags))
