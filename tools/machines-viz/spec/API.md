@@ -1521,6 +1521,33 @@ EDN on the clipboard instead of the URL. Per
 
 ## Exporters
 
+### What the image exporters capture (rf2-sr6l3)
+
+`chart-as-svg` / `chart-as-png!` capture the **full rendered React Flow
+viewport** — the boxed state nodes, compound / region containers, event
+chips, final rings, labels, the **active-state border + glow
+affordance**, and the edge layer — **not** just the edge `<svg>`.
+
+The chart's visual grammar renders as **inline-styled DOM `<div>`
+nodes** inside `.react-flow__viewport`, *around* xyflow's edge
+`svg.react-flow__edges`. The exporters embed the live viewport DOM in a
+standalone SVG `<foreignObject>`; because every node component renders
+with inline styles, the `<foreignObject>` paints the same grammar the
+operator sees — including the current-state highlight — with no external
+stylesheet to embed. The viewport's own pan/zoom transform is
+neutralised and the SVG is sized to the union of the node flow-boxes, so
+the export frames the **whole topology at 1:1** regardless of the live
+zoom/pan.
+
+**Export-root discovery is keyed on the `_rfMvChartState` seam, not the
+default `data-testid`.** `MachineChart` stamps the seam on its root via
+`:ref` regardless of the host's `:testid` prop, so `chart-element` may
+be the chart **root**, a **descendant** node inside it, or a **wrapping
+element** around it, and the lookup resolves the same root — for the
+default *and* any custom `:testid`. (The prior implementation hard-coded
+`[data-testid='rf-mv-chart']`, which failed to find a custom-`:testid`
+chart from a wrapper / descendant.)
+
 ### PNG
 
 ```clojure
@@ -1533,24 +1560,33 @@ EDN on the clipboard instead of the URL. Per
 ;; => Promise; clipboard contains the PNG + a text/plain alt-text sidecar
 ```
 
-The PNG is rasterised at 2x DPR on a transparent background; the
-current-state highlight is included. An alt-text sidecar (a
-`text/plain` clipboard payload) summarises the machine: id, current
-state, node count, transition count.
+The PNG is rasterised at 2x DPR on a transparent background from the
+complete viewport SVG (above), so it includes the **state boxes** and
+the **current-state highlight** (the active node's accent border +
+box-shadow glow). An alt-text sidecar (a `text/plain` clipboard payload)
+summarises the machine: id, current state, node count, transition count.
 
 ### SVG
 
 ```clojure
 (export/chart-as-svg chart-element)
-;; => String — image/svg+xml with embedded fonts
+;; => String — image/svg+xml (a <foreignObject>-embedded viewport
+;;    capture) with embedded fonts
 
 (export/copy-svg-to-clipboard! chart-element)
 ;; => Promise; clipboard contains the SVG as image/svg+xml
 ```
 
-The SVG includes `<title>` and `<desc>` elements summarising the
-machine (same content as the PNG sidecar). Fonts are embedded so the
-SVG renders identically when pasted into a doc or a Figma frame.
+The SVG carries the full viewport (state boxes + active-state
+affordance + edges, per [§What the image exporters capture](#what-the-image-exporters-capture-rf2-sr6l3))
+plus `<title>` and `<desc>` elements summarising the machine (same
+content as the PNG sidecar). Fonts are embedded so the SVG renders with
+the same typography when pasted into a doc or a Figma frame.
+
+Both image exporters throw `:rf.machines-viz.export/no-svg` when the
+chart has not rendered a viewport yet (an empty / nil-definition
+placeholder renders no chart), and `:rf.machines-viz.export/no-chart-state`
+when `chart-element` resolves to no seam-bearing chart root.
 
 ### Share URL
 
