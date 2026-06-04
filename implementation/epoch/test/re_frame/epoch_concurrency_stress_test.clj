@@ -115,6 +115,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.epoch :as epoch]
+            [re-frame.epoch.assembly :as assembly]
             [re-frame.epoch.state :as state]
             [re-frame.flows :as flows]
             [re-frame.frame :as frame]
@@ -539,3 +540,142 @@
           (str "Diagnostic — reads: " @read-count
                ", restore-ok: " @ok-count
                ", restore-fail: " @fail-count)))))
+
+;; ---- Scenario 4 (rf2-7i872) ----------------------------------------------
+;;
+;; CAS-retry double-invoke of the app `:redact-fn`. `back-fill-event!`
+;; mutates the single global `histories` atom under `swap!`. Pre-rf2-7i872
+;; the redaction transform (which invokes the app `:redact-fn`) ran INSIDE
+;; the swap update fn (`redact-appended-delta`), so a JVM CAS retry of the
+;; ring mutation RE-RAN the update fn → RE-INVOKED `:redact-fn`. A
+;; non-idempotent fn (the documented contract — hash-and-truncate,
+;; increment-a-counter) is corrupted by the re-run, and a THROWING fn emits
+;; one `:rf.warning/epoch-redact-fn-exception` warning PER invocation, so a
+;; retry emits DUPLICATE warnings. rf2-7i872 moved the `:redact-fn`
+;; invocation (`compute-redacted-delta`) OUTSIDE the swap; only the PURE
+;; splice (`splice-redacted-delta`) rides inside, so a retry re-splices but
+;; never re-invokes the fn.
+;;
+;; This scenario drives N threads, each performing M post-settle sub-run
+;; back-fills (`state/back-fill-sub-run!`) against its OWN frame's settled
+;; epoch — but ALL frames share the single global `histories` atom, so the
+;; CAS on that atom is heavily contended and retries WILL occur (the whole
+;; point — pre-fix this is where the double-invoke manifests). Each thread
+;; counts its own `:redact-fn` invocations.
+;;
+;;   Invariant 1 (non-idempotent): total `:redact-fn` invocations EQUALS
+;;     total back-fills. A CAS retry re-invoking the fn would push the count
+;;     ABOVE the back-fill count.
+;;   Invariant 2 (throwing fn): a throwing `:redact-fn` emits EXACTLY ONE
+;;     `:rf.warning/epoch-redact-fn-exception` warning per back-fill — never
+;;     a duplicate from a retried update fn.
+;;
+;; CLJS is single-threaded; the race cannot manifest there — JVM-only.
+
+(defn- sub-run-event
+  "A bare `:rf.sub/run` trace-event map (the shape `back-fill-sub-run!`
+  appends to `:trace-events`). We call `state/back-fill-sub-run!` directly
+  (the production post-settle path) rather than firing through `trace/emit!`
+  so the test drives concurrent back-fills against the contended global
+  `histories` atom from N threads — the cross-frame CAS contention the
+  runtime's per-frame single-drainer would otherwise serialise away."
+  [frame-id sub-id value]
+  {:op-type   :rf.sub
+   :operation :rf.sub/run
+   :tags      {:rf.sub/id      sub-id
+               :rf.sub/query-v [sub-id]
+               :frame          frame-id
+               :rf.sub/value   value}})
+
+(deftest redact-fn-invoked-once-per-back-fill-under-cas-contention
+  (testing (str n-threads " threads × " stress-iters
+                " sub-run back-fills each, all contending the single global "
+                "histories atom — the app :redact-fn (a counting, throwing "
+                "fn) is invoked EXACTLY ONCE per back-fill (no CAS-retry "
+                "double-invoke) and emits EXACTLY ONE warning per back-fill "
+                "(rf2-7i872)")
+    (rf/configure! :epoch-history {:depth (* 2 stress-iters)})
+    ;; ONE process-global :redact-fn (the shape `maybe-redact` reads from the
+    ;; config atom) shared across every thread. It counts every invocation
+    ;; and ALWAYS throws — so it drives BOTH invariants at once:
+    ;;   * invocation count (the catch-side increment + the throw) must equal
+    ;;     the total number of back-fills, never more;
+    ;;   * each throw routes through `maybe-redact`'s try/catch, emitting one
+    ;;     `:rf.warning/epoch-redact-fn-exception` warning per invocation.
+    (let [n          n-threads
+          invokes    (atom 0)
+          warnings   (atom 0)
+          redact-fn  (fn [_r]
+                       (swap! invokes inc)
+                       (throw (ex-info "rf2-7i872 boom" {})))]
+      (rf/configure! :epoch-history {:redact-fn redact-fn})
+      (rf/register-listener!
+        ::warn-watcher
+        (fn [ev]
+          (when (and (= :warning (:op-type ev))
+                     (= :rf.warning/epoch-redact-fn-exception
+                        (:operation ev)))
+            (swap! warnings inc))))
+
+      (let [frames (mapv (fn [t] (keyword "rf7i872.cas" (str "frame-" t)))
+                         (range n))]
+        ;; Seed each frame with one settled epoch (the back-fill target).
+        ;; NOTE: the seed cascade itself runs maybe-redact once at settle —
+        ;; account for those baseline invocations below.
+        (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+        (doseq [frame-id frames]
+          (rf/reg-frame frame-id {})
+          (rf/dispatch-sync [:seed] {:frame frame-id}))
+        ;; Baseline: invocations + warnings accrued from the n seed settles
+        ;; (one maybe-redact pass per settle; each throws + warns). Reset the
+        ;; ledgers so the contended back-fill phase is measured in isolation.
+        (reset! invokes 0)
+        (reset! warnings 0)
+
+        (let [latch   (CountDownLatch. 1)
+              futures (mapv
+                        (fn [frame-id]
+                          (future
+                            (.await latch)
+                            (let [epoch-id (-> (rf/epoch-history frame-id)
+                                               first :epoch-id)]
+                              (dotimes [i stress-iters]
+                                (let [sid (keyword (str "s" i))]
+                                  ;; Production post-settle path: maybe-redact
+                                  ;; is the redact transform (reads the global
+                                  ;; :redact-fn), exactly as
+                                  ;; listeners/record-sub-run! passes it.
+                                  (state/back-fill-sub-run!
+                                    frame-id epoch-id
+                                    (sub-run-event frame-id sid i)
+                                    {:sub-id sid :value i}
+                                    assembly/maybe-redact)))
+                              :done)))
+                        frames)]
+          (.countDown latch)
+          (let [results (mapv await-future futures)]
+            (doseq [r results]
+              (is (not= ::timeout r) "back-fill thread completed within timeout"))
+
+            (let [total-back-fills (* n stress-iters)]
+              ;; --- Invariant 1: the :redact-fn was invoked EXACTLY ONCE per
+              ;;     back-fill — never more. A count ABOVE total-back-fills
+              ;;     means a CAS retry on the contended histories atom
+              ;;     re-invoked the fn (the rf2-7i872 double-invoke bug, when
+              ;;     the redact ran INSIDE the swap). Equality also proves the
+              ;;     fix didn't accidentally DROP the redaction.
+              (is (= total-back-fills @invokes)
+                  (str ":redact-fn invoked " @invokes " times for "
+                       total-back-fills " back-fills (" n " frames × "
+                       stress-iters "). A count above means a CAS retry "
+                       "re-invoked the fn inside the swap (rf2-7i872)."))
+
+              ;; --- Invariant 2: EXACTLY ONE warning per back-fill — never a
+              ;;     duplicate from a retried update fn re-running the
+              ;;     throwing fn.
+              (is (= total-back-fills @warnings)
+                  (str "Expected " total-back-fills
+                       " redact-fn-exception warnings (one per back-fill); "
+                       "got " @warnings ". A higher count means a CAS retry "
+                       "re-invoked the throwing fn and emitted a duplicate "
+                       "warning (rf2-7i872).")))))))))

@@ -566,60 +566,85 @@
 ;; does the ring mutation and the two public fns are thin wrappers
 ;; pinning the slot.
 
-(defn- redact-appended-delta
+(defn- compute-redacted-delta
   "Run `redact` over ONLY the newly-appended delta (the new `:trace-events`
-  `event` and the new `slot` `row`), then splice the redacted delta back
-  onto `record` — leaving every already-redacted slot value untouched.
-  Returns the updated record. Per rf2-qhxz6: this honours the Tool-Pair
-  §Redaction hook contract literally — `:redact-fn` sees each appended
-  slot value EXACTLY ONCE across the record's whole lifetime, so a
-  NON-idempotent `:redact-fn` (one that transforms a value rather than
-  substituting an idempotent `:rf/redacted` sentinel — e.g. hash-and-
-  truncate, append an audit marker, increment a counter) never re-runs
-  over a slot it already scrubbed.
+  `event` and the new `slot` `row`) and return a MAP of the redacted delta
+  VALUES keyed by their target slot:
+
+    {:append?       <bool — was there a :trace-events delta?>
+     :row?          <bool — was there a structured `slot` row delta?>
+     :trace-events  <redacted :trace-events delta value, when :append?>
+     :slot          <the structured slot keyword>
+     :slot-value    <redacted `slot` delta value, when :row?>}
+
+  Returns `nil` when there is no delta to append (an unmount on a record
+  whose `:trace-events` was already dropped by the keep-window cap).
+
+  Per rf2-7i872: `redact` (the app-supplied `:redact-fn`, via
+  `assembly/maybe-redact`) is INVOKED HERE — exactly ONCE — and the caller
+  runs this OUTSIDE the `swap!` retry loop. A JVM CAS retry of the ring
+  mutation must NOT re-invoke the app's `:redact-fn`: it is documented
+  non-idempotent (hash-and-truncate, increment-a-counter) and a throwing
+  fn emits a `:rf.warning/epoch-redact-fn-exception` warning per call — a
+  retry would corrupt the prior output and emit DUPLICATE warnings. Only
+  the PURE splice (`splice-redacted-delta`) rides inside the swap.
 
   HOW. We hand `redact` a probe record shaped exactly like the assembled
   record (so an `:redact-fn` that keys on whole-record structure — reads
   `:db-after` / `:frame` / `:rf.epoch/sensitive?` for its decision — still
   composes) BUT whose `:trace-events` / `slot` lists carry ONLY the new
   delta element. The fn redacts that delta in place; we extract the
-  redacted element(s) and `conj` them onto `record`'s real (already-
-  redacted) slots. The leak the rf2-82pcg fix closed STAYS closed — the
-  appended slots still pass through `:redact-fn` before reaching either
-  egress channel — but each slot is now redacted once, not 1+K times.
+  redacted element(s) for the caller to splice onto the real slots. The
+  leak the rf2-82pcg fix closed STAYS closed — the appended slots still
+  pass through `:redact-fn` before reaching either egress channel — and
+  per rf2-qhxz6 each slot is redacted exactly once (no idempotency
+  requirement on `:redact-fn`).
 
-  Slot extraction. When `redact` returns the probe slot still as a vector
-  (the common per-element-transform / sentinel-substitution shape) we take
-  its element(s) — the redacted delta — and `conj` onto the real slot.
-  When `redact` instead COLLAPSES the whole slot to a non-vector sentinel
-  (e.g. `(assoc r :trace-events :rf/redacted)` — a whole-slot scrub), the
-  fn's intent is to redact the entire slot, so we write that sentinel to
-  the real slot. We only `conj` onto a real slot that is a vector (or
-  absent); a real slot already collapsed to a sentinel by a prior
-  whole-slot scrub is left at the sentinel (the delta is subsumed).
-
-  Pure (record-in, record-out); `redact` is the only injected fn it
-  calls, so it stays retry-safe inside the `swap!`."
+  `record` is the current ring record — supplies the probe CONTEXT (the
+  immutable post-settle fields a whole-record-keyed `:redact-fn` reads).
+  The redacted delta VALUES it returns are spliced by the caller; the
+  context fields themselves are never written back (the real record's
+  already-redacted slots are left untouched)."
   [record slot event row redact]
-  (let [append?  (contains? record :trace-events)
-        ;; Probe = the real record's context with ONLY the new delta in
-        ;; the redactable list slots. Other slots ride unchanged so a
-        ;; whole-record-keyed `:redact-fn` reads the same context it saw
-        ;; at settle time.
-        delta?   (or append? (some? row))
-        ;; No delta to append (an unmount on a record whose `:trace-events`
-        ;; was already dropped by the keep-window cap) → nothing to redact,
-        ;; return the record untouched (do NOT spuriously re-redact it).
-        probe    (when delta?
-                   (cond-> record
-                     append?     (assoc :trace-events [event])
-                     (some? row) (assoc slot [row])))
-        redacted (when delta? (redact probe))
-        ;; Splice a redacted delta value back onto the real slot. `dv` is
-        ;; the redacted probe-slot value: a vector (per-element / sentinel-
-        ;; substitution) → conj its element(s) onto the real slot; a non-
-        ;; vector (whole-slot collapse) → adopt that sentinel for the slot.
-        splice   (fn [rec real-slot dv]
+  (let [append? (contains? record :trace-events)
+        row?    (some? row)
+        delta?  (or append? row?)]
+    (when delta?
+      (let [probe    (cond-> record
+                       append? (assoc :trace-events [event])
+                       row?    (assoc slot [row]))
+            redacted (redact probe)]
+        (cond-> {:append? append? :row? row? :slot slot}
+          append? (assoc :trace-events (:trace-events redacted))
+          row?    (assoc :slot-value (get redacted slot)))))))
+
+(defn- splice-redacted-delta
+  "PURE splice of a precomputed redacted delta (from
+  `compute-redacted-delta`) onto `record`'s real slots — leaving every
+  already-redacted slot value untouched. Returns the updated record.
+
+  Per rf2-7i872: this is the ONLY part of the back-fill that rides inside
+  the ring `swap!`. It invokes NO injected fn — a CAS retry re-runs this
+  splice (re-reading the retried record's real slots) but NEVER re-invokes
+  the app's `:redact-fn`, so the non-idempotent / throwing-fn contract is
+  preserved across contention.
+
+  Slot extraction. When the precomputed delta value is still a vector
+  (the common per-element-transform / sentinel-substitution shape) we
+  `conj` its element(s) onto the real slot. When `redact` instead
+  COLLAPSED the whole slot to a non-vector sentinel (e.g.
+  `(assoc r :trace-events :rf/redacted)` — a whole-slot scrub), we adopt
+  that sentinel for the slot. We only `conj` onto a real slot that is a
+  vector (or absent); a real slot already collapsed to a sentinel by a
+  prior whole-slot scrub is left at the sentinel (the delta is subsumed).
+
+  `delta` nil (no append) is a pass-through — return the record
+  untouched (do NOT spuriously re-redact it)."
+  [record delta]
+  (if (nil? delta)
+    record
+    (let [{:keys [append? row? slot trace-events slot-value]} delta
+          splice (fn [rec real-slot dv]
                    (cond
                      (and (vector? dv) (vector? (get rec real-slot)))
                      (update rec real-slot into dv)
@@ -632,9 +657,9 @@
 
                      :else               ; whole-slot collapse by the fn
                      (assoc rec real-slot dv)))]
-    (cond-> record
-      append?     (splice :trace-events (:trace-events redacted))
-      (some? row) (splice slot (get redacted slot)))))
+      (cond-> record
+        append? (splice :trace-events trace-events)
+        row?    (splice slot slot-value)))))
 
 (defn- back-fill-event!
   "Append `event` and its projected `row` (into the `slot` projection)
@@ -661,44 +686,57 @@
       (Xray Views / Reactive panel) — is always present on a built
       record; the projected row is appended when non-nil.
 
-  REDACTION (rf2-82pcg leak-closure + rf2-qhxz6 once-per-slot fix).
+  REDACTION (rf2-82pcg leak-closure + rf2-qhxz6 once-per-slot +
+  rf2-7i872 redact-outside-swap fix).
   `redact` is the installed redaction transform (`assembly/maybe-redact`,
   injected by the caller so this state ns keeps no `assembly` require —
-  `assembly` already requires this ns). It runs INSIDE the swap, over ONLY
-  the newly-appended delta (via `redact-appended-delta`), so the redacted
-  delta is what lands in the ring AND what is returned for the listener
-  re-fan. Pre-rf2-82pcg the raw appended slots reached both egress
-  channels (ring-read: `epoch-history` / MCP `read-recording` /
-  `restore-epoch`; and the listener fan-out) bypassing the `:redact-fn`
-  (the leak). The rf2-82pcg fix re-ran the fn over the WHOLE record on
-  every back-fill — closing the leak but invoking the fn 1+K times for an
-  epoch accruing K back-fills, which corrupts a NON-idempotent fn's prior
-  output. rf2-qhxz6 narrows the redaction to the appended delta so the
-  Tool-Pair §Redaction hook 'once per assembled record' contract holds
-  literally: each slot value is redacted EXACTLY ONCE and the fn carries
-  no idempotency requirement. The leak stays closed — the appended delta
-  is still scrubbed before egress. `redact` defaults to `identity` for
-  callers / tests that need the bare raw append.
+  `assembly` already requires this ns). It runs over ONLY the newly-
+  appended delta (via `compute-redacted-delta`), so the redacted delta is
+  what lands in the ring AND what is returned for the listener re-fan.
+  Pre-rf2-82pcg the raw appended slots reached both egress channels
+  (ring-read: `epoch-history` / MCP `read-recording` / `restore-epoch`;
+  and the listener fan-out) bypassing the `:redact-fn` (the leak). The
+  rf2-82pcg fix re-ran the fn over the WHOLE record on every back-fill —
+  closing the leak but invoking the fn 1+K times for an epoch accruing K
+  back-fills, which corrupts a NON-idempotent fn's prior output. rf2-qhxz6
+  narrowed the redaction to the appended delta so the Tool-Pair §Redaction
+  hook 'once per assembled record' contract holds literally: each slot
+  value is redacted EXACTLY ONCE and the fn carries no idempotency
+  requirement. The leak stays closed — the appended delta is still
+  scrubbed before egress. `redact` defaults to `identity` for callers /
+  tests that need the bare raw append.
 
-  The `swap!` update fn is PURE — it mutates only the history map and
-  smuggles nothing out (the prior shape `reset!`'d a local out-param atom
-  from inside the swap fn, a side-effecting-swap-fn that is unsound under
-  CAS retry). `redact` is the only injected fn it calls; `maybe-redact`
-  is itself pure (record-in, record-out; a throwing `:redact-fn` is
-  caught there and falls back to the unredacted record), so the swap fn
-  stays retry-safe. The record index is resolved once up-front (within-
-  frame drain is single-threaded — Spec 002 §Run-to-completion — so no
-  append can shift it between this deref and the swap), reused by both the
-  pure swap and the post-swap read. nil when the epoch is absent from the
-  ring (evicted, or fired before any cascade settled)."
+  Per rf2-7i872: the `:redact-fn` is invoked exactly ONCE, by
+  `compute-redacted-delta`, BEFORE and OUTSIDE the ring `swap!`. The swap
+  update fn is `splice-redacted-delta` — PURE: it splices the
+  PRECOMPUTED redacted delta onto the (re-read) ring record, invoking NO
+  injected fn. A JVM CAS retry re-runs only the pure splice; it NEVER
+  re-invokes the app's `:redact-fn`. This matters because the documented
+  `:redact-fn` is non-idempotent (hash-and-truncate, increment-a-counter)
+  and a throwing fn emits one `:rf.warning/epoch-redact-fn-exception`
+  warning per call — re-invoking it inside a retryable swap would corrupt
+  the prior output and emit DUPLICATE warnings (the bug rf2-7i872 closed:
+  the old `redact-appended-delta` ran `redact` inside the swap fn). The
+  swap fn also smuggles nothing out (the pre-rf2-qhxz6 shape `reset!`'d a
+  local out-param atom from inside the swap fn, itself unsound under CAS
+  retry). The record index is resolved once up-front (within-frame drain
+  is single-threaded — Spec 002 §Run-to-completion — so no append can
+  shift it between this deref and the swap), reused by the delta probe,
+  the pure swap, and the post-swap read. nil when the epoch is absent from
+  the ring (evicted, or fired before any cascade settled)."
   ([frame-id epoch-id slot event row]
    (back-fill-event! frame-id epoch-id slot event row identity))
   ([frame-id epoch-id slot event row redact]
    (let [idx (epoch-index (history-for frame-id) epoch-id)]
      (when idx
-       (let [append (fn [record]
-                      (redact-appended-delta record slot event row redact))]
-         (-> (swap! histories update-in [frame-id idx] append)
+       ;; rf2-7i872: invoke `redact` (the app `:redact-fn`) ONCE here,
+       ;; OUTSIDE the swap, against the current ring record (the probe
+       ;; context). The swap below only splices the precomputed redacted
+       ;; delta — a CAS retry re-runs the pure splice, never the fn.
+       (let [record (get-in @histories [frame-id idx])
+             delta  (compute-redacted-delta record slot event row redact)
+             splice (fn [rec] (splice-redacted-delta rec delta))]
+         (-> (swap! histories update-in [frame-id idx] splice)
              (get-in [frame-id idx])))))))
 
 (defn back-fill-render!
@@ -1012,14 +1050,34 @@
   `frame-id`. Guards against re-firing the atom watcher on the
   no-op case (cb already observes that frame) — for the common
   long-lived listener observing the same frame on every cascade,
-  this is a single deref + membership check with no swap."
+  this is a single deref + membership check with no swap.
+
+  Per rf2-7i872 (unregister-mid-fan-out race): `notify-listeners!`
+  iterates a listener SNAPSHOT, then calls this fn per cb-id BEFORE
+  invoking the callback. If `unregister-epoch-listener!` removed the cb
+  between the snapshot and now, recording an observation would
+  RE-INTRODUCE bookkeeping for a cb that no longer exists — the stale
+  cb-id then lingers in `observed-frames-by-cb` and later receives a
+  bogus `:rf.epoch.cb/silenced-on-frame-destroy` trace on frame destroy.
+  The swap is therefore made conditional on the cb-id STILL being a live
+  listener AT RECORD TIME: the swap update fn re-reads the (live)
+  `listeners` map and refuses to (re)add an observation for a cb that has
+  since been dropped. The liveness check rides INSIDE the swap so the
+  drop-vs-record decision is taken against a consistent listener snapshot
+  on every CAS retry — a `drop-listener!` landing mid-swap is honoured."
   [cb-id frame-id]
   (when frame-id
     (let [current @observed-frames-by-cb]
-      (when-not (contains? (get current cb-id) frame-id)
+      (when (and (not (contains? (get current cb-id) frame-id))
+                 (contains? @listeners cb-id))
         (swap! observed-frames-by-cb
                (fn [m]
-                 (if (contains? (get m cb-id) frame-id)
+                 (if (or (contains? (get m cb-id) frame-id)
+                         ;; Liveness re-check inside the swap: a
+                         ;; `drop-listener!` that landed between the
+                         ;; outer guard and this CAS attempt must not be
+                         ;; undone by re-adding the cb's observation.
+                         (not (contains? @listeners cb-id)))
                    m
                    (update m cb-id (fnil conj #{}) frame-id))))))))
 
