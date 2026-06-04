@@ -440,7 +440,7 @@
             (vreset! last-result computed)
             computed))))))
 
-(defn make-layer-n-1-memoised-body
+(defn make-layer-n-single-input-memoised-body
   "Specialised memo wrapper for layer-2 subs with a single `:<-` input
   (the dominant layer-2 shape — see rf2-v1nu0 perf-sweep finding).
   Fixed-arity-1 — avoids the varargs-seq allocation that a
@@ -516,7 +516,7 @@
   yields nil on every call without touching the memo cells.
 
   See `make-layer-1-memoised-body` for the layer-1 specialisation and
-  `make-layer-n-1-memoised-body` for the layer-2 single-input
+  `make-layer-n-single-input-memoised-body` for the layer-2 single-input
   specialisation (rf2-0y2bp)."
   [body-fn query-id query-v frame-id input-signals sub-meta]
   (let [last-in-vals (volatile! ::unset)
