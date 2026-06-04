@@ -1910,6 +1910,110 @@
           "success path must NOT emit the head-resolution-failed trace"))))
 
 ;; ===========================================================================
+;; rf2-lia3i — head-resolution failure correctness is ENFORCED at the
+;; handler level (not incidental to call ordering)
+;; ===========================================================================
+;;
+;; CONTRACT (Spec 011 §1070, lifecycle/resolve-head, rf2-bof8i Option B):
+;; a throwing route `:head` fn is a RECOVERABLE DEGRADATION — the request
+;; ships a 200 with an empty `<head>` fragment ("a buggy head fn can't
+;; take down the request") AND emits `:rf.error/ssr-head-resolution-failed`
+;; for observability. This is the deliberate counterpoint to the view/sub
+;; FAIL-CLOSED posture (rf2-vvwmi / rf2-7d30s, Spec 011 §744/§748-751):
+;; a view or reactive sub that throws mid-render projects a non-200
+;; because the page is unusable; a head fn that throws degrades to a 200
+;; because only the `<head>` metadata is missing — the body still renders.
+;;
+;; Pre-rf2-lia3i the degraded-200 outcome was SAFE BY TIMING ONLY:
+;; `ssr-handler` reads `get-response` (ring.clj:343 — drains + reads the
+;; status) BEFORE `build-full-response` → `resolve-head` fires the head
+;; trace (pipeline.clj:286), so the buffered head trace was never
+;; projected onto the already-captured status. A reorder (head resolution
+;; before `get-response`, a second flush after the render, or a re-read of
+;; `get-response`) would have let the default projector map the head trace
+;; → 500 and silently flip the degraded 200 to a 500.
+;;
+;; rf2-lia3i enforces the contract at the projection BUFFERING chokepoint:
+;; `re-frame.ssr.error-listener` skips `:rf.error/ssr-head-resolution-failed`
+;; in BOTH projection listeners (dev-only + always-on), so the head trace
+;; is never buffered for status projection regardless of call ordering.
+;; This handler-level test PINS the wire contract: a throwing `:head` fn
+;; → a 200 (degraded) response with the body intact + the observability
+;; trace fired. The default projector maps `:rf.error/*` → 500, so if a
+;; future change ever let the head trace project, the status assertion
+;; below turns red — the reordering-regression tripwire.
+
+(defn- register-head-throwing-app!
+  "Register an app whose active route declares a `:head` fn that throws.
+  The body view renders cleanly — only head resolution fails — so the
+  test isolates the head-degradation contract from the view/sub
+  fail-closed path."
+  []
+  (rf/reg-head :head/throws
+               (fn [_db _route]
+                 (throw (ex-info "synthetic head failure (rf2-lia3i)"
+                                 {:reason :test}))))
+  (rf/reg-route :route/head-throws
+                {:doc  "Route whose head fn throws"
+                 :path "/head-throws"
+                 :head :head/throws})
+  (rf/reg-event-db :init/seed-throwing-head-route
+    {:platforms #{:server}}
+    (fn [db _]
+      (assoc-in db [:rf/runtime :routing :current]
+                {:id :route/head-throws})))
+  (rf/reg-view* :pages/head-throws-body
+    (fn [] [:div.page [:h1 "Body rendered fine"]])))
+
+(deftest handler-throwing-head-fn-ships-degraded-200-not-projected-error
+  (testing "rf2-lia3i: a throwing route :head fn → ssr-handler returns a
+            200 (degraded — empty head, body intact), NOT a projected
+            4xx/5xx. The head-resolution failure is a recoverable
+            degradation (Spec 011 §1070), enforced not incidental."
+    (register-head-throwing-app!)
+    (let [traces  (atom [])
+          _       (rf/register-listener! ::head-fail-watch
+                    (fn [ev]
+                      (when (= :rf.error/ssr-head-resolution-failed
+                               (:operation ev))
+                        (swap! traces conj ev))))
+          handler (ssr-ring/ssr-handler
+                    {:on-create [:init/seed-throwing-head-route]
+                     :root-view [:pages/head-throws-body]
+                     :payload   :rf.ssr.payload/whole-app-db})
+          response (try
+                     (handler {:uri "/head-throws" :request-method :get})
+                     (finally
+                       (rf/unregister-listener! ::head-fail-watch)))]
+      ;; THE PIN: a throwing head fn must NOT take down the request.
+      ;; The default projector maps any projected :rf.error/* → 500;
+      ;; were the head trace ever projected (a reorder regression),
+      ;; this would be 500 and the assertion turns red.
+      (is (= 200 (:status response))
+          "throwing :head fn degrades to a 200 — NEVER a projected
+           4xx/5xx (Spec 011 §1070 degrade-gracefully contract;
+           ENFORCED via the projector-skip, not incidental to the
+           get-response/resolve-head ordering)")
+      (let [body (:body response)]
+        (is (string? body))
+        (is (str/includes? body "<!DOCTYPE html>")
+            "the document still ships — the body rendered")
+        (is (str/includes? body "Body rendered fine")
+            "the body view content is intact — only the head degraded")
+        ;; Empty head fragment: the throwing head fn contributed no
+        ;; route-specific tags. The shell's hardcoded charset meta is an
+        ;; envelope concern (rf2-q78s1), not produced by resolve-head, so
+        ;; its presence does not contradict the empty-fragment contract;
+        ;; the synthetic-failure marker simply never reaches the wire.
+        (is (not (str/includes? body "synthetic head failure"))
+            "the throwable's message never crosses the wire"))
+      ;; Observability preserved: the spec contract is degrade AND emit.
+      (is (= 1 (count @traces))
+          ":rf.error/ssr-head-resolution-failed still fires for
+           observability (Spec 011 §1070 Option B) — degraded, not
+           silent"))))
+
+;; ===========================================================================
 ;; rf2-joibj — per-request frame-id keyword is EDN-spec-compliant
 ;;
 ;; `setup-request-frame!` builds the frame-id via

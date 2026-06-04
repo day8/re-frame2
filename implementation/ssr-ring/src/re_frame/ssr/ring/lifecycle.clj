@@ -219,7 +219,20 @@
   rf2-bof8i (trace-emit on caught throw, Mike decision Option B over
   silent fallback — the always-on error-emit substrate per rf2-vnjfg /
   rf2-bacs4 carries the trace independent of the trace ring buffer's
-  dev-only gating)."
+  dev-only gating).
+
+  Degrade-gracefully is the deliberate counterpoint to the view/sub
+  FAIL-CLOSED posture (rf2-vvwmi / rf2-7d30s, Spec 011 §744/§748-751):
+  a view or reactive sub that throws mid-render projects a non-200
+  (the page is unusable); a head fn that throws ships a 200 with an
+  empty `<head>` (only the metadata is missing — the body still
+  renders + hydrates). To make the degraded-200 outcome ENFORCED rather
+  than incidental to `ssr-handler`'s `get-response`-before-`resolve-head`
+  call ordering, `:rf.error/ssr-head-resolution-failed` is registered as a
+  recoverable-degradation category that the projection listeners skip by
+  design (`re-frame.ssr.error-listener/non-projection-eligible-errors`,
+  rf2-lia3i): the trace ships for observability but is never buffered for
+  status projection, so no call-ordering change can flip the 200."
   [frame-id]
   (try
     (let [model (rf/active-head frame-id)]
