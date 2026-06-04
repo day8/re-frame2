@@ -51,8 +51,9 @@
   ;; message string when a `rf/restore-epoch` rewind fails (epoch aged
   ;; out of the buffer, or a restore-during-drain rejection). nil =
   ;; nothing to show. The flash is INLINE on the tab ribbon — never a
-  ;; modal — and self-clears (the Reset event schedules the clear). A
-  ;; failure must never be a silent lie; it must also never block.
+  ;; modal — and clears on the next reset attempt (`:rf.xray/reset-to-
+  ;; epoch` dissocs the slot before re-running the restore, rf2-wa7tk).
+  ;; A failure must never be a silent lie; it must also never block.
   (rf/reg-sub :rf.xray/reset-flash
     (fn [db _query]
       (get db :reset-flash)))
@@ -190,9 +191,22 @@
   ;; are power users). A nil frame / epoch-id is a guarded no-op (the
   ;; button is disabled when no epoch is focused, but the event stays
   ;; defensive).
+  ;;
+  ;; rf2-wa7tk — clear any STALE failure flash on every fresh attempt.
+  ;; The flash is set by `:rf.xray/reset-flash-failed` on a failed
+  ;; restore but had no auto-dismiss and no success-path clear, so a
+  ;; later SUCCESSFUL reset left the "Reset failed" message standing —
+  ;; a silent lie (the sub still returned the stale string, the ribbon
+  ;; kept rendering it). Dissoc-ing `:reset-flash` here in the `:db`
+  ;; honours the documented "the next successful reset" clear contract
+  ;; (`:rf.xray/clear-reset-flash` docstring): a fresh attempt wipes the
+  ;; prior failure, and the fx re-sets the flash only when THIS attempt
+  ;; also fails. The dissoc runs before the fx so a failure that fires
+  ;; `:rf.xray/reset-flash-failed` synchronously still wins.
   (rf/reg-event-fx :rf.xray/reset-to-epoch
-    (fn [_cofx [_ frame epoch-id]]
-      {:fx [[:rf.xray.fx/restore-epoch {:frame frame :epoch-id epoch-id}]]}))
+    (fn [{:keys [db]} [_ frame epoch-id]]
+      {:db (dissoc db :reset-flash)
+       :fx [[:rf.xray.fx/restore-epoch {:frame frame :epoch-id epoch-id}]]}))
 
   ;; `:rf.xray/reset-flash-failed` (rf2-hga49) — set the inline failure
   ;; flash. Dispatched from `:rf.xray.fx/restore-epoch` when
@@ -204,8 +218,10 @@
       (assoc db :reset-flash "Reset failed — epoch unavailable (see Trace)")))
 
   ;; `:rf.xray/clear-reset-flash` (rf2-hga49) — clear the inline flash.
-  ;; Dispatched by the view's auto-dismiss timer / the next successful
-  ;; reset. `:rf.trace/no-emit? true` per the sibling rationale.
+  ;; The steady-state clear path is `:rf.xray/reset-to-epoch` dissoc-ing
+  ;; the slot on every fresh attempt (rf2-wa7tk); this event remains the
+  ;; explicit imperative clear (tests + any future dismiss affordance).
+  ;; `:rf.trace/no-emit? true` per the sibling rationale.
   (rf/reg-event-db :rf.xray/clear-reset-flash
     {:rf.trace/no-emit? true}
     (fn [db _event]
