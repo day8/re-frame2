@@ -35,4 +35,15 @@
          day8/re-frame2-epoch    {:local/root "../../epoch"}
          ;; Tool artefacts with JVM-loadable (.cljc) public namespaces.
          day8/re-frame2-story    {:local/root "../../../tools/story"}
-         day8/re-frame2-mcp-base {:local/root "../../../tools/mcp-base"}}}
+         day8/re-frame2-mcp-base {:local/root "../../../tools/mcp-base"}}
+ ;; Projection-check unit tests (rf2-0u8kz). Same quiet-runner shape as the
+ ;; per-artefact :test aliases. The tests reconcile synthetic + live inputs
+ ;; through the pure reconcilers so the namespace-qualified resolution
+ ;; contract (a fully-qualified panel symbol must match its EXACT [ns var],
+ ;; never merely share a bare var name) is regression-locked.
+ :aliases
+ {:test {:extra-paths ["test"]
+         :extra-deps  {day8/re-frame2-test-quiet {:local/root "../../test-quiet"}
+                       io.github.cognitect-labs/test-runner
+                       {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+         :main-opts   ["-m" "re-frame.test-quiet.runner"]}}}

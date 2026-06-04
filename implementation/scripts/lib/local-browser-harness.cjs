@@ -8,12 +8,30 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// A "usable explicit port" is an integer in 1..65535 — a port a caller
+// can pin, advertise in a BASE_URL, and probe. Port 0 is excluded: it
+// binds (the OS assigns an ephemeral port) but the assigned port is only
+// knowable by reading it back off the bound socket, so advertising :0 is
+// never what a caller wants. Out-of-range (<1, >65535) and non-integers
+// are excluded because net.listen throws ERR_SOCKET_BAD_PORT on them.
+// (rf2-0u8kz — matches the strict 1..65535 contract the example/Story
+// port resolvers already enforce in examples/scripts/port-resolver.cjs.)
+function isValidExplicitPort(port) {
+  return Number.isInteger(port) && port >= 1 && port <= 65535;
+}
+
 // True if the given TCP port is currently free on 127.0.0.1. We bind a
 // temporary listener and immediately release it; EADDRINUSE (or any
 // other bind error) is treated as "not free" so callers fall back to an
-// OS-chosen port. (rf2-84gzw — shared with serve-and-run-browser-tests
-// and check-story-static, which carry their own copies for now.)
+// OS-chosen port. A port outside 1..65535 (including 0) is reported "not
+// free" WITHOUT touching net.listen — port 0 would otherwise bind an
+// ephemeral port (a false "free" for an unusable advertised port), and
+// negative / overflow values would throw ERR_SOCKET_BAD_PORT instead of
+// the controlled fall-through. (rf2-84gzw / rf2-0u8kz — shared with
+// serve-and-run-browser-tests and check-story-static, which carry their
+// own copies for now.)
 function isPortFree(port) {
+  if (!isValidExplicitPort(port)) return Promise.resolve(false);
   return new Promise((resolve) => {
     const srv = net.createServer();
     srv.once('error', () => resolve(false));
@@ -36,12 +54,18 @@ function findFreePort() {
   });
 }
 
-// Resolve a port to serve on: prefer `preferredPort` when it is free,
-// otherwise fall back to an OS-chosen free port. `onFallback(preferred,
-// fallback)` is invoked (if provided) when the preferred port is busy so
-// callers can log the substitution.
+// Resolve a port to serve on: prefer `preferredPort` when it is a usable
+// explicit port (integer 1..65535) AND currently free, otherwise fall
+// back to an OS-chosen free port. `onFallback(preferred, fallback)` is
+// invoked (if provided) on EITHER fallback trigger — a busy preferred
+// port OR an invalid one (0, negative, overflow, NaN, non-integer) — so
+// callers log the substitution rather than advertising an unusable :0 or
+// crashing net.listen with ERR_SOCKET_BAD_PORT. (rf2-0u8kz centralised
+// the explicit-port validation here; callers that derive preferredPort
+// from an env var — e.g. `Number(process.env.XRAY_FEATURE_GATE_PORT)` —
+// no longer leak 0/out-of-range values into the listen path.)
 async function resolveServePort(preferredPort, opts = {}) {
-  if (Number.isInteger(preferredPort) && (await isPortFree(preferredPort))) {
+  if (isValidExplicitPort(preferredPort) && (await isPortFree(preferredPort))) {
     return preferredPort;
   }
   const fallback = await findFreePort();
@@ -354,6 +378,7 @@ module.exports = {
   fetchToken,
   findFreePort,
   isPortFree,
+  isValidExplicitPort,
   probeHttp,
   resolveServePort,
   sleep,

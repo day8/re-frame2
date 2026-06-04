@@ -180,9 +180,13 @@ async function resolvePort() {
   const envRaw = process.env.BROWSER_TEST_PORT;
   if (envRaw && envRaw.trim() !== '') {
     const parsed = parseInt(envRaw, 10);
-    if (!Number.isInteger(parsed) || parsed < 0 || parsed > 65535) {
+    // A usable explicit port is an integer in 1..65535 (rf2-0u8kz). Port 0
+    // is rejected here too: it binds an ephemeral port but is useless as an
+    // advertised BASE_URL, so treat it like any other invalid value and
+    // choose a free port deterministically.
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) {
       console.error(
-        `BROWSER_TEST_PORT="${envRaw}" is not a valid TCP port; ignoring and choosing a free port.`
+        `BROWSER_TEST_PORT="${envRaw}" is not a valid TCP port (want 1..65535); ignoring and choosing a free port.`
       );
       return await findFreePort();
     }

@@ -11,6 +11,7 @@ const {
   fetchToken,
   findFreePort,
   isPortFree,
+  isValidExplicitPort,
   resolveServePort,
   spawnHarnessProcess,
   terminateProcessTree,
@@ -268,6 +269,55 @@ test('waitForOwnedHttpReady reports token-never-served for a tokenless responder
     assert.equal(result.reason, 'token-never-served');
   } finally {
     server.close();
+  }
+});
+
+// rf2-0u8kz regression — explicit-port validation. An explicit preferred
+// port is usable only as an integer in 1..65535; 0 / negative / overflow /
+// non-integer values must NOT bind net.listen (0 would bind an unusable
+// ephemeral port — a false "free"; the others throw ERR_SOCKET_BAD_PORT).
+test('isValidExplicitPort accepts only integers 1..65535', () => {
+  assert.equal(isValidExplicitPort(1), true);
+  assert.equal(isValidExplicitPort(8037), true);
+  assert.equal(isValidExplicitPort(65535), true);
+  // Invalid: 0, negative, overflow, non-integer, NaN, non-number.
+  assert.equal(isValidExplicitPort(0), false);
+  assert.equal(isValidExplicitPort(-1), false);
+  assert.equal(isValidExplicitPort(65536), false);
+  assert.equal(isValidExplicitPort(99999), false);
+  assert.equal(isValidExplicitPort(8037.5), false);
+  assert.equal(isValidExplicitPort(NaN), false);
+  assert.equal(isValidExplicitPort('8037'), false);
+  assert.equal(isValidExplicitPort(undefined), false);
+  assert.equal(isValidExplicitPort(null), false);
+});
+
+test('isPortFree reports false for 0 / out-of-range / non-integer without throwing', async () => {
+  // Port 0 binds an ephemeral port at the OS layer, but is not a usable
+  // ADVERTISED port — isPortFree must short-circuit to false rather than
+  // bind-and-release it (the bug: returning true here let callers advertise
+  // :0). Negative / overflow / non-integer must not reach net.listen
+  // (which throws ERR_SOCKET_BAD_PORT) — the guard reports false cleanly.
+  assert.equal(await isPortFree(0), false);
+  assert.equal(await isPortFree(-1), false);
+  assert.equal(await isPortFree(65536), false);
+  assert.equal(await isPortFree(99999), false);
+  assert.equal(await isPortFree(8037.5), false);
+  assert.equal(await isPortFree(NaN), false);
+});
+
+test('resolveServePort never returns 0 and falls back (logged) for invalid preferred ports', async () => {
+  for (const bad of [0, -1, 65536, 99999, 8037.5, NaN, undefined, '8037']) {
+    let fellBack = false;
+    let reported;
+    const resolved = await resolveServePort(bad, {
+      onFallback: (preferred) => { fellBack = true; reported = preferred; },
+    });
+    assert.equal(fellBack, true, `expected fallback for preferred=${String(bad)}`);
+    assert.equal(reported, bad, 'onFallback receives the original invalid preferred value');
+    assert.ok(isValidExplicitPort(resolved), `fallback ${resolved} must be a usable port`);
+    assert.notEqual(resolved, 0);
+    assert.equal(await isPortFree(resolved), true);
   }
 });
 
