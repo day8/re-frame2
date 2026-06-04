@@ -81,13 +81,16 @@ What surface does Machines-Viz ship at v1.0?
 
 ## Lock #2 — `MachineChart` prop contract
 
-**Locked 2026-05-13 (Mike, lifted from Xray 003).**
-**Props: `:machine-id`, `:frame-id`, `:on-state-click`,
-`:on-edge-click` (plus read-only flags).** (The original lock named
-`:on-transition-click`; rf2-qo5xy's events-as-nodes paradigm retired
-it — transitions render as event-nodes and a clickable event-node
-label fires `:on-edge-click`. The names below are reconciled to the
-shipped contract.)
+**Locked 2026-05-13 (Mike, lifted from Xray 003); shipped pick
+revised 2026-06-04 (rf2-ewirq) to the presentation-only contract the
+implementation landed.**
+**Props: `:machine-id`, `:definition`, `:current-state`,
+`:on-state-click`, `:on-edge-click` (plus read-only flags).** (The
+original lock named `:on-transition-click`; rf2-qo5xy's events-as-nodes
+paradigm retired it — transitions render as event-nodes and a clickable
+event-node label fires `:on-edge-click`. The names below are reconciled
+to the shipped contract — see [`API.md`](./API.md) §Props for the full
+prop table.)
 
 ### Question
 
@@ -95,53 +98,61 @@ What does the host pass to `MachineChart` to render a chart?
 
 ### Options considered
 
-- **Pass the machine definition directly.** The host pulls the
-  registration via `(rf/machine-meta id)` and passes the
-  transition table to the chart. Rejected — couples hosts to the
-  framework's internal definition shape and makes hot-reload
-  fragile (the chart wouldn't re-pick-up edits without explicit
-  host plumbing).
-- **Pass the snapshot directly.** The host derefs
-  `[:rf/runtime :machines :snapshots <id>]` and passes the snapshot to the chart.
-  Rejected — the chart loses access to history (transition
-  events, microstep replay, `:after` rings); it would have to
-  re-derive snapshot transitions from frame deltas.
 - **Pass an id + a frame.** The chart resolves the registration
   via `(rf/machine-meta machine-id)` and subscribes to
-  `[:rf/runtime :machines :snapshots machine-id]` within `frame-id`. The host stays
-  thin; the chart owns its data plane.
+  `[:rf/runtime :machines :snapshots machine-id]` within a `:frame-id`
+  prop; the host stays thin and the chart owns its data plane. This
+  was the original 2026-05-13 pick lifted from Xray 003. **Reversed
+  in implementation** — coupling the chart to a frame + a framework
+  registry subscription made it un-testable in isolation (every test
+  would need a live frame + a registered machine) and tied one
+  presentation component to the runtime's subscription plane. The
+  `:frame-id` prop never shipped on the chart (it survives only as
+  share-envelope *payload provenance*, [`API.md`](./API.md)
+  §ShareEnvelope — the registered machine's frame at share time, not a
+  `MachineChart` prop).
+- **Pass the snapshot directly.** The host derefs
+  `[:rf/runtime :machines :snapshots <id>]` and passes the snapshot to the chart.
+  Rejected — the chart loses access to the topology (states,
+  transitions, guards, `:after` rings); it would have to re-derive
+  the chart structure from a bare state name.
 
 ### Pick
 
-**Pass an id + a frame, plus two callbacks.**
+**Pass an id + the definition + the live state, plus two callbacks —
+the chart is presentation-only.**
+
+The host pulls the registration via `(rf/machine-meta machine-id)` and
+passes the `:definition` (topology) and `:current-state` (the live
+snapshot `:state` value) straight in. The chart does **not** subscribe
+to any framework registry and takes **no `:frame-id`** — it renders
+exactly what it is handed.
 
 ```clojure
 [viz/MachineChart {:machine-id          :auth/login-flow
-                   :frame-id            :app/main
+                   :definition          (rf/machine-meta :auth/login-flow)
+                   :current-state       :authing
                    :on-state-click      (fn [path] ...)
                    :on-edge-click       (fn [{:keys [event-id from-path to-path]}] ...)
-                   :read-only?          false      ;; viewer page sets true
-                   :show-microsteps?    true       ;; per-chart preference
-                   :show-after-rings?   true
-                   :show-invoke-all?    true}]
+                   :read-only?          false}]  ;; viewer page sets true
 ```
 
 ### Why
 
-- **Thin host interface** — the host doesn't need to thread the
-  definition or the snapshot. Xray's panel is a one-liner;
-  Story's per-variant panel is the same.
-- **Hot-reload safe** — the chart re-reads `(rf/machine-meta id)`
-  on every mount and on registry-change traces; the host doesn't
-  have to plumb hot-reload through.
+- **Testable in isolation** — a presentation-only component that takes
+  its definition + state as plain data needs no live frame and no
+  registered machine to render; a unit test passes a literal
+  definition map. Owning a frame-scoped subscription would have made
+  every chart test stand up a runtime.
+- **Thin host interface** — the host pulls `(rf/machine-meta id)` once
+  and threads `:definition` + `:current-state`. Xray's panel is a
+  one-liner; Story's per-variant panel is the same. Hosts that want
+  hot-reload re-pull on registry-change traces (host plumbing, not a
+  chart concern).
 - **Callback shape locks the host's freedom** — Xray wires
   `:on-state-click` to "jump to source"; Story wires it to
   "highlight in the per-variant chrome"; the viewer page no-ops
   both. Each host chooses, the component stays neutral.
-- **Per-chart visibility toggles ride on props** — `:show-microsteps?`
-  etc. let the host (or the chart's own settings menu) toggle
-  granularity without re-mounting. Defaults are conservative;
-  hosts opt in.
 - **Read-only flag opts out of clicks** — the viewer page sets
   `:read-only? true` so neither callback fires regardless of
   what the host passes.
