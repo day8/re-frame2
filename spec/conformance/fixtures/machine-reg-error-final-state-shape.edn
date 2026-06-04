@@ -59,9 +59,19 @@
                                     :output-key :phase}}}}
 
   ;; (5) Control: a :final? leaf MAY declare :entry / :exit — validates silently.
+  ;; The :entry / :exit action ref `:log` resolves against the definition's
+  ;; own :actions map. Because this is a `:reg-machine` Mode-B call the host
+  ;; validates the RAW :definition (no `:fixture/handlers` realisation, per
+  ;; spec/conformance/README.md §The `:reg-machine` op), so the :actions
+  ;; entry uses the canonical co-located REGISTERED-ENTRY shape `{:fn ...}`
+  ;; that the resolver (`chase-ref`) unwraps — the same shape a real
+  ;; `reg-machine` stamps. The validator confirms the ref RESOLVES; it does
+  ;; not invoke the body (rf2-ylpnn — the validator now follows the full
+  ;; resolution chain rather than testing first-key membership, so a
+  ;; dangling `:log :identity` indirection would be rejected here).
   {:call       :reg-machine
    :definition {:initial :running
-                :actions {:log :identity}
+                :actions {:log {:fn :rf.conformance/noop-action}}
                 :states  {:running {:on {:finish :done}}
                           :done    {:final? true
                                     :entry  :log
