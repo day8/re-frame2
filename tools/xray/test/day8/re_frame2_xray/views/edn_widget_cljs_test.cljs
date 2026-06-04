@@ -1,4 +1,4 @@
-(ns day8.re-frame2-xray.views.edn-widget.widget-cljs-test
+(ns day8.re-frame2-xray.views.edn-widget-cljs-test
   "Tests for the Xray EDN widget facade — post-rf2-oqa60 phase 1.
 
   After the edn-inspector rebuild the facade is a thin delegate over
@@ -22,7 +22,7 @@
      hiccup whose root data-attribute identifies the new widget."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [clojure.string :as str]
-            [day8.re-frame2-xray.views.edn-widget.widget :as w]
+            [day8.re-frame2-xray.views.edn-widget :as w]
             [day8.re-frame2-xray.theme.tokens :refer [tokens]]))
 
 ;; ---- helpers ------------------------------------------------------------

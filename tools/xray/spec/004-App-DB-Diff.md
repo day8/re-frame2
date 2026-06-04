@@ -568,8 +568,9 @@ Not present:
 
 If the user wants to mutate `app-db`, they do so via `(rf/dispatch
 ...)` from the REPL, or via the Re-dispatch affordance from the event
-log. Xray's writes are funnelled through dispatch (per
-[`002-Time-Travel.md`](./002-Time-Travel.md) §The read-only constraint).
+log. Xray's writes are funnelled through dispatch — inspection is the
+default, rewind is opt-in (per
+[Tool-Pair §Time-travel: epoch snapshots and undo](../../../spec/Tool-Pair.md#time-travel-epoch-snapshots-and-undo)).
 
 ## "Show me when this changed"
 

@@ -60,7 +60,7 @@
             [day8.re-frame2-xray.static.shared.search-box :as search-box]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens type-scale mono-stack sans-stack]]
-            [day8.re-frame2-xray.views.edn-widget.widget :as edn]))
+            [day8.re-frame2-xray.views.edn-widget :as edn]))
 
 ;; ---- pure helpers --------------------------------------------------------
 

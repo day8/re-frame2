@@ -1,4 +1,4 @@
-(ns day8.re-frame2-xray.views.edn-widget.widget
+(ns day8.re-frame2-xray.views.edn-widget
   "Canonical Xray EDN widget facade — thin wrapper over the first-
   class `views.edn-inspector` widget.
 

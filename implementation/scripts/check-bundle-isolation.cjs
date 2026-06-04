@@ -464,7 +464,7 @@ const ARTEFACTS = [
   // zprint — the canonical pretty-printer Xray's EDN widget
   // `code-block` uses to pre-format handler-source strings before the
   // in-bundle tokenizer renders them
-  // (tools/xray/src/.../views/edn_widget/widget.cljs). Same posture
+  // (tools/xray/src/.../views/edn_widget.cljs). Same posture
   // as cljs-devtools: dev-only, consumed only by tools/ (Xray), gated
   // behind the Xray `:devtools/preloads`. Production bundles MUST
   // NOT pull zprint — the formatter body + its rewrite-clj dep weigh

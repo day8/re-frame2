@@ -179,7 +179,7 @@
    ;; ── syntax-highlighter palette (rf2-79ojx · One Dark / Calva default) ──
    ;; Dedicated tokens for CLJS-value rendering in the edn-inspector widget
    ;; (`views/edn_inspector.cljs`) AND the in-bundle Clojure source-text
-   ;; highlighter (`views/edn_widget/widget.cljs`). One palette, shared by
+   ;; highlighter (`views/edn_widget.cljs`). One palette, shared by
    ;; both surfaces, so a `:foo` keyword in the source-text panel paints
    ;; the same hue as `:foo` rendered as a value in the App-DB panel.
    ;;
