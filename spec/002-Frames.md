@@ -1007,7 +1007,15 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
           (trace! :rf.frame/drain-interrupted
                   {:frame (:id frame) :dropped dropped}))
         (throw ::halt))
-      (when (> depth (:drain-depth (:config frame)))
+      ;; `>=` not `>`: `:drain-depth` is the MAX number of events a single
+      ;; drain processes (rf2-agpv2.1). The loop enters with `depth` = the
+      ;; count of events already processed this drain; events run at depths
+      ;; 0,1,…,(drain-depth-1) — exactly `drain-depth` events — and the
+      ;; halt fires when `depth` first reaches `drain-depth` (the
+      ;; (drain-depth+1)th event never runs). This matches the `:test`
+      ;; preset's "drain bounded at 100" = at-most-100 reading and the
+      ;; `:halted-depth` epoch's `:depth` tag (= `drain-depth`).
+      (when (>= depth (:drain-depth (:config frame)))
         ;; Per-event epochs (rule 3): already-settled events kept their own
         ;; durable :ok epochs + db writes — there is NO whole-drain rollback,
         ;; so :rollback? is false. Drop the remaining queue (the next, halting

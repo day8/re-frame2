@@ -78,7 +78,17 @@
       (empty? path)
       redacted-sentinel
 
-      (some? (get-in payload (butlast path)))
+      ;; rf2-agpv2.4 — the parent must be ASSOCIATIVE for `assoc-in` to
+      ;; descend into it, not merely non-nil. A `(some? …)` guard let a
+      ;; non-nil scalar parent through (e.g. payload `{:auth "tok"}` with
+      ;; redact path `[:auth :password]`): `assoc-in` then recurses into
+      ;; the string and throws ("cannot assoc onto a String"). That throw
+      ;; lands inside a `:before` interceptor and aborts the whole event
+      ;; (classified `:rf.error/interceptor-exception`, no `:db` commit, no
+      ;; `:fx`) — a redaction that silently drops the event. `associative?`
+      ;; treats a non-associative parent as a no-op, matching the
+      ;; missing-leaf no-op posture below.
+      (associative? (get-in payload (butlast path)))
       (assoc-in payload path redacted-sentinel)
 
       :else
