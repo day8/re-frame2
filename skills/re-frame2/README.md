@@ -12,7 +12,7 @@ This skill carries the recipes, decision rules, and canonical declarations Claud
 |---|---|
 | Writing new re-frame2 code (`.cljs` / `.cljc`) | Greenfield project bootstrap → `re-frame2-setup` |
 | Choosing between slice / region / machine | Inspecting a running app → `re-frame2-pair` |
-| Picking a canonical pattern | Migrating a v1 app → `SKILL-REDIRECT.md` |
+| Picking a canonical pattern | Migrating a v1 app → [`re-frame-migration`](../re-frame-migration/) |
 | Composing patterns | Full API reference / EP rationale → `SKILL-REDIRECT.md` |
 
 ## Layout
@@ -80,7 +80,7 @@ The skill's `description` triggers on natural-language references to re-frame2 s
 
 ## Status
 
-**Alpha.** All scaffolding and leaves are populated: `references/fundamentals/` (including the Flows leaf), `references/state-machines/`, `references/tooling/`, `references/cross-cutting/`, the nine canonical patterns under `patterns/`, and both decision trees (`pick-a-pattern`, `slice-or-machine`). The loading map is reconciled and the derived-from-implementation footers are pinned at main `89bd9c3`. All worked examples the leaves cite — including `examples/reagent/{websocket,long_running_work,flows}/` — have shipped; the evals harness is the only in-flight item and is not a blocker for skill use.
+**Alpha.** All scaffolding and leaves are populated: `references/fundamentals/` (including the Flows leaf), `references/state-machines/`, `references/tooling/`, `references/cross-cutting/`, the nine canonical patterns under `patterns/`, and both decision trees (`pick-a-pattern`, `slice-or-machine`). The loading map is reconciled and the derived-from-implementation footers are pinned at main `89bd9c3`. All worked examples the leaves cite — including `examples/reagent/{websocket,long_running_work,flows}/` — have shipped, and the evals harness has landed under `evals/` (`README.md` + `evals.json`). No in-flight items remain.
 
 ## License
 
