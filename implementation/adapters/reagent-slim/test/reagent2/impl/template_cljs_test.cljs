@@ -472,6 +472,41 @@
       (is (array? arr) "expand-seq returns a JS array")
       (is (= 3 (alength arr))))))
 
+(deftest as-element-seq-children-interior-nil-false
+  ;; rf2-8u8tx.1 — expand-seq must NOT truncate at the first nil/false
+  ;; element. The idiomatic conditional-list shape
+  ;;   (for [x xs] (when (pred? x) [:li ...]))
+  ;; yields interior nils for filtered-out rows; a truthiness-gated loop
+  ;; would stop at the first one and silently drop it AND every later
+  ;; child. Stock Reagent maps as-element over the WHOLE seq (nil → React
+  ;; null), so the list is never truncated.
+  (testing "interior nil does not truncate — later children survive"
+    (let [;; (list [:li 1] nil [:li 3]) — the shape produced by
+          ;; (for [x [1 2 3]] (when (odd? x) [:li {:key x} x]))
+          seq-children (for [n (range 1 4)]
+                         (when (odd? n) ^{:key n} [:li n]))
+          arr (template/expand-seq seq-children)]
+      (is (= 3 (alength arr))
+          "all 3 positions present (nil placeholder kept, not dropped)")
+      (is (some? (aget arr 0)) "[:li 1] survives")
+      (is (nil? (aget arr 1)) "interior nil → React null placeholder")
+      (is (some? (aget arr 2))
+          "[:li 3] survives — NOT truncated by the interior nil")))
+  (testing "interior false does not truncate — later children survive"
+    (let [seq-children (list ^{:key 0} [:span "a"] false ^{:key 2} [:span "c"])
+          arr (template/expand-seq seq-children)]
+      (is (= 3 (alength arr)) "all 3 positions present")
+      (is (some? (aget arr 0)) "first element survives")
+      (is (some? (aget arr 2))
+          "trailing element survives past the interior false")))
+  (testing "leading nil does not abort the whole seq"
+    (let [seq-children (list nil ^{:key 1} [:span "b"] ^{:key 2} [:span "c"])
+          arr (template/expand-seq seq-children)]
+      (is (= 3 (alength arr)))
+      (is (nil? (aget arr 0)))
+      (is (some? (aget arr 1)) "element after leading nil survives")
+      (is (some? (aget arr 2))))))
+
 ;; ---------------------------------------------------------------------------
 ;; Void tags — children rejected per HTML5
 ;; ---------------------------------------------------------------------------

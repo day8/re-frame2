@@ -69,9 +69,9 @@ UIx-specific surfaces live in `re-frame.adapter.uix` (artefact `day8/re-frame2-u
 - **Kind**: UIx component (function)
 - **Signature**:
   ```clojure
-  ($ uix-adapter/frame-provider {:frame :session :children […]})
+  ($ uix-adapter/frame-provider {:frame :session} child…)
   ```
-- **Description**: The UIx-shaped frame provider.
+- **Description**: The UIx-shaped frame provider. Children ride the idiomatic `$` trailing-args channel — pass them after the `{:frame …}` prop map, exactly as for any other UIx component (no `:children` prop-map key).
 
 ### `uix-adapter/wrap-view`
 
@@ -158,9 +158,9 @@ Helix-specific surfaces live in `re-frame.adapter.helix` (artefact `day8/re-fram
 - **Kind**: Helix component (function)
 - **Signature**:
   ```clojure
-  ($ helix-adapter/frame-provider {:frame :session :children […]})
+  ($ helix-adapter/frame-provider {:frame :session} child…)
   ```
-- **Description**: The Helix-shaped frame provider.
+- **Description**: The Helix-shaped frame provider. Children ride the idiomatic `$` trailing-args channel — pass them after the `{:frame …}` prop map, exactly as for any other Helix component (no `:children` prop-map key).
 
 ### `helix-adapter/wrap-view`
 
