@@ -360,22 +360,48 @@
   ([flow] (reg-flow flow {}))
   ([flow {:keys [frame] :as _opts}]
    (validate-flow flow)
-   (let [frame-id     (or frame (frame/current-frame))
-         flow-id      (:id flow)
-         prior-frame  (get @flows frame-id)
-         ;; Per rf2-7csri: detect cycles on a PROSPECTIVE flow-map
-         ;; BEFORE mutating the atom or the registrar. The earlier
-         ;; write-then-rollback path silently deleted the prior
-         ;; registration along with the rejected one when a REPLACEMENT
-         ;; introduced a cycle — the rollback dissoc'd by flow-id,
-         ;; vacating the slot the prior entry was sharing. Now we run
-         ;; topo-sort on (prior-frame `assoc` new-entry) up-front; if it
-         ;; throws, nothing has been written and the prior registration
-         ;; stays intact.
-         prospective  (assoc prior-frame flow-id flow)]
-     (topo/topo-sort prospective)
-     ;; Cycle check passed — commit. The :flow registrar slot keys on
-     ;; flow-id only; stamp :frame into the metadata so introspection
+   (let [frame-id (or frame (frame/current-frame))
+         flow-id  (:id flow)]
+     ;; ATOMIC check-and-insert (rf2-qxwib). The cycle check and the
+     ;; commit are ONE `swap!` update fn over `@flows`: it reads the
+     ;; frame's CURRENTLY-COMMITTED flow-map, runs topo-sort on the
+     ;; prospective map, and — only if that passes — returns the map
+     ;; with the new flow assoc'd in. `swap!` re-invokes the update fn
+     ;; (re-reading committed state, re-running the cycle check) whenever
+     ;; a concurrent writer wins the compare-and-set, so a cycle can
+     ;; NEVER be admitted by interleaving.
+     ;;
+     ;; Pre-fix (rf2-7csri-era) this was check-THEN-act: it read
+     ;; `@flows` once, built a prospective map, ran topo-sort, then
+     ;; committed in a SEPARATE `swap!`. Two threads reg-flow'ing on the
+     ;; same frame two flows that together form a cycle (T1: A reads B's
+     ;; path; T2: B reads A's path) could each pass the check against the
+     ;; OTHER's not-yet-committed flow (neither sees it), then both
+     ;; commit — leaving a cyclic registry that throws on every drain.
+     ;; Folding the validation into the update fn closes that TOCTOU.
+     ;;
+     ;; Single-threaded path is unchanged in cost: `swap!` invokes the
+     ;; update fn exactly once with no contention, so this runs the same
+     ;; single topo-sort the prior code did. Only contended same-frame
+     ;; registration pays the retry (re-running the cheap Kahn sort over
+     ;; a handful of nodes), and only then to preserve correctness.
+     ;;
+     ;; The cycle-check throw propagates OUT of `swap!`, so on rejection
+     ;; the atom is left untouched and the prior registration survives —
+     ;; preserving the rf2-7csri "a rejected REPLACEMENT does not vacate
+     ;; the slot the prior entry shares" guarantee, now atomically.
+     (swap! flows
+            (fn [m]
+              (let [prior-frame (get m frame-id)
+                    prospective (assoc prior-frame flow-id flow)]
+                ;; Throws :rf.error/flow-cycle if the prospective map is
+                ;; cyclic; the update fn never returns and the CAS never
+                ;; fires, so the atom is unchanged.
+                (topo/topo-sort prospective)
+                (assoc m frame-id prospective))))
+     ;; Cycle check + commit done atomically above. The :flow registrar
+     ;; slot keys on flow-id only; stamp :frame into the metadata so
+     ;; introspection
      ;; / hot-reload hooks can read the owning frame. `register!`
      ;; returns `{:was previous :now metadata}` — `:was` is nil on
      ;; first-time registration, non-nil on hot-reload re-registration.
@@ -397,7 +423,6 @@
                              (assoc flow
                                     :frame      frame-id
                                     :handler-fn (:output flow))))]
-       (swap! flows assoc-in [frame-id flow-id] flow)
        ;; Per Spec 009 §:op-type vocabulary: :rf.flow/registered fires
        ;; on FIRST-TIME registration only. On re-registration the
        ;; cross-kind `:rf.registry/handler-replaced` trace (emitted by
