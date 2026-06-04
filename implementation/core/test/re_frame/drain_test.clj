@@ -210,6 +210,47 @@
            (rf/app-db-value :drain.rollback/two))
         "the overflow drain's per-event writes are durable — no whole-drain rollback")))
 
+(deftest drain-depth-halts-after-exactly-drain-depth-events
+  ;; rf2-agpv2.1 — CANONICAL pin of the drain-depth event count.
+  ;;
+  ;; `:drain-depth` is the MAXIMUM number of events a single drain
+  ;; processes. The router halts at `(>= depth drain-depth)` (router.cljc
+  ;; run-one-pass!), and Spec 002 §Drain-loop pseudocode now matches with
+  ;; `(>= depth (:drain-depth …))`. So for a runaway self-redispatching
+  ;; cascade under drain-depth N, EXACTLY N handler bodies run (depths
+  ;; 0,1,…,N-1) and the (N+1)th event is the halting event that never
+  ;; runs. This test pins that count directly so a future flip back to
+  ;; `>`/`>=` (an off-by-one) fails HERE rather than in a far-away
+  ;; cascade assertion. The `:depth` tag on the halt equals N.
+  (testing "a runaway cascade under drain-depth N runs EXACTLY N handlers, then halts"
+    (doseq [n [1 4 8 100]]
+      (let [frame-id (keyword "drain.count" (str "loop-" n))
+            runs     (atom 0)
+            traces   (atom [])
+            event-id (keyword "drain.count" (str "tick-" n))]
+        (rf/register-listener! ::count (fn [ev] (swap! traces conj ev)))
+        (rf/reg-frame frame-id {:drain-depth n})
+        (rf/reg-event-fx event-id
+          (fn [_ _]
+            (swap! runs inc)
+            {:fx [[:dispatch [event-id]]]}))
+        (rf/dispatch-sync [event-id] {:frame frame-id})
+        (rf/unregister-listener! ::count)
+        (is (= n @runs)
+            (str "exactly " n " handler bodies ran for drain-depth " n
+                 " (got " @runs ")"))
+        (let [hit (some (fn [ev]
+                          (when (= :rf.error/drain-depth-exceeded
+                                   (:operation ev))
+                            ev))
+                        @traces)]
+          (is (some? hit)
+              (str "drain-depth-exceeded trace fired for drain-depth " n))
+          (when hit
+            (is (= n (get-in hit [:tags :depth]))
+                (str ":depth tag equals drain-depth " n
+                     " (the halting event's depth = N)"))))))))
+
 ;; ---- 3. dispatch-sync-in-handler ------------------------------------------
 
 (deftest dispatch-sync-in-handler-jvm

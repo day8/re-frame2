@@ -150,6 +150,44 @@
           db-changed (first (events-of evs :rf.event/db-changed))]
       (is (= "scalar" (get-in db-changed [:tags :rf.event/v 1]))))))
 
+;; ---- rf2-agpv2.4: a non-associative parent value is a redaction no-op -----
+
+(deftest redact-path-with-scalar-parent-does-not-abort-the-event
+  (testing "a 2+-segment redact path whose intermediate is a non-associative
+            scalar is a no-op — it must NOT throw inside the `:before` chain
+            and abort the event. Pre-fix the `(some? …)` parent guard let a
+            non-nil scalar through, and `assoc-in` recursed into it
+            (\"cannot assoc onto a String\"), turning a privacy-redaction
+            into a dropped event (classified :rf.error/interceptor-exception,
+            no :db commit, no :fx). The fix guards with `associative?`."
+    (let [seen (atom nil)]
+      ;; Redact path [:auth :password] but the payload's :auth is a SCALAR
+      ;; string, so the parent (get-in payload [:auth]) is non-nil but
+      ;; non-associative — the exact mis-declaration the bead calls out.
+      (rf/reg-event-db :auth/scalar-parent
+        [(rf/redact-interceptor [[:auth :password]])]
+        (fn [db [_ payload]]
+          (reset! seen payload)
+          (assoc db :committed payload)))
+      (let [evs        (record-traces
+                         #(rf/dispatch-sync
+                            [:auth/scalar-parent {:auth "a-token-string"}]))
+            db-changed (first (events-of evs :rf.event/db-changed))
+            errors     (events-of evs :rf.error/interceptor-exception)]
+        ;; (1) No throw escaped the `:before` chain → no interceptor-exception.
+        (is (empty? errors)
+            "the scalar-parent redact path did NOT abort the event")
+        ;; (2) The handler ran and its :db commit landed (event not dropped).
+        (is (= {:auth "a-token-string"} @seen)
+            "handler body ran with the raw payload")
+        (is (= {:auth "a-token-string"}
+               (:committed (rf/app-db-value :rf/default)))
+            ":db commit landed — the event was NOT aborted")
+        ;; (3) The trace surface left the scalar untouched (no-op redaction).
+        (is (some? db-changed) "a db-changed trace was emitted")
+        (is (= "a-token-string" (get-in db-changed [:tags :rf.event/v 1 :auth]))
+            "the non-associative parent passed through unredacted (no-op)")))))
+
 ;; ---- (removed) composition with handler-meta `:sensitive?` ---------------
 ;;
 ;; The handler-meta `:sensitive?` annotation has been removed. The trace-

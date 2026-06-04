@@ -557,6 +557,104 @@
     (is (not (contains? (cache-keys) [:a])))
     (is (not (contains? (cache-keys) [:b])))))
 
+;; ---- rf2-agpv2.2: input ref-count must not leak on the not-cached path ----
+;;
+;; `compute-and-cache!` subscribes each layer-2+ `:<-` input (bumping its
+;; ref-count) BEFORE it re-resolves the frame to read `:sub-cache`. The
+;; on-dispose that SYMMETRICALLY releases those inputs is wired only inside
+;; `(when (and cache sub-meta) …)`. If the frame is destroyed (or its
+;; container torn down) BETWEEN `subscribe`'s frame-record resolution and
+;; `compute-and-cache!`'s re-resolution, `cache` is nil: the parent
+;; reaction is built and returned but never cached and never dispose-wired,
+;; so without the compensating release the just-subscribed inputs leak
+;; forever. We reproduce the narrow seam deterministically by redefining
+;; `frame/frame` to return the live record while the inputs are resolved,
+;; then nil on the parent's cache-read re-resolution (= "frame destroyed at
+;; the seam"). The fix releases the inputs on that not-cached path.
+
+(deftest layer-2-input-refs-released-when-frame-destroyed-mid-build
+  (testing "a layer-2 build whose parent cache-read sees a destroyed frame
+            still releases the inputs it subscribed (no ref-count leak)"
+    (rf/reg-event-db :init (fn [_ _] {:a 2 :b 3}))
+    (rf/reg-sub :a (fn [db _] (:a db)))
+    (rf/reg-sub :b (fn [db _] (:b db)))
+    (rf/reg-sub :sum :<- [:a] :<- [:b] (fn [[a b] _] (+ a b)))
+    (rf/dispatch-sync [:init])
+
+    (let [real-frame  frame/frame
+          ;; Trip the parent's cache-read re-resolution (and only that one)
+          ;; to nil: once BOTH inputs are present in the real cache, the
+          ;; next `frame/frame` call for :rf/default is the parent's
+          ;; `(:sub-cache (frame/frame …))` read inside `compute-and-cache!`
+          ;; for [:sum]. Returning nil there is exactly "the frame was
+          ;; destroyed between line-500 resolution and line-269 re-read".
+          tripped?    (atom false)
+          inputs-cached? (fn []
+                           (let [c @(:sub-cache (real-frame :rf/default))]
+                             (and (contains? c [:a]) (contains? c [:b]))))]
+      (with-redefs [frame/frame
+                    (fn [id]
+                      (if (and (= id :rf/default)
+                               (not @tripped?)
+                               (inputs-cached?))
+                        (do (reset! tripped? true) nil) ;; the parent cache-read
+                        (real-frame id)))]
+        (let [r (rf/subscribe [:sum])]
+          ;; The reaction is still built+returned (callers don't explode);
+          ;; under :replaced-with-default the parent simply isn't cached.
+          (is (some? r) "a reaction is still returned on the not-cached path")
+          (is (true? @tripped?)
+              "the parent cache-read re-resolution was tripped to nil")))
+
+      ;; The parent [:sum] was NOT cached (cache was nil at the read).
+      (is (not (contains? (cache-keys) [:sum]))
+          "[:sum] was not cached — the destroyed-frame seam")
+      ;; THE FIX: the inputs subscribed during the layer-2 build were
+      ;; released on the not-cached path, so they cascaded to ref-count 0
+      ;; and disposed. Pre-fix they would sit orphaned at ref-count 1.
+      (is (not (contains? (cache-keys) [:a]))
+          "input :a released (no orphaned ref) — rf2-agpv2.2")
+      (is (not (contains? (cache-keys) [:b]))
+          "input :b released (no orphaned ref) — rf2-agpv2.2"))))
+
+;; ---- rf2-agpv2.3: no-such-sub trace tag-shape matches Spec 009 -------------
+;;
+;; Spec 009 §Error catalogue documents `:rf.error/no-such-sub` tags as
+;; `:rf.sub/id` / `:unresolved-input` / `:resolved-inputs`. Spec/Ownership
+;; names 009 as the canonical owner of the trace-event model; the
+;; `NoSuchSubTags` projection in Spec-Schemas is non-canonical. This pins
+;; the emit to the canonical shape so tooling keying off the documented tag
+;; names finds them. Recovery (nil-yielding reaction, not cached) is
+;; unchanged and covered by `subscribe-before-register-does-not-cache`.
+
+(deftest no-such-sub-trace-tags-match-spec-009
+  (testing "subscribing an unregistered sub emits Spec-009 tag-shape"
+    (rf/reg-event-db :init (fn [_ _] {:n 7}))
+    (rf/dispatch-sync [:init])
+    (let [traces (atom [])]
+      (rf/register-listener! ::no-such (fn [ev] (swap! traces conj ev)))
+      ;; [:missing/sub] is not registered → :rf.error/no-such-sub.
+      (let [r (rf/subscribe [:missing/sub])]
+        (is (nil? @r) ":replaced-with-default — the reaction yields nil"))
+      (rf/unregister-listener! ::no-such)
+      (let [hit (some (fn [ev]
+                        (when (= :rf.error/no-such-sub (:operation ev)) ev))
+                      @traces)]
+        (is (some? hit) "no-such-sub trace fired")
+        (when hit
+          (let [tags (:tags hit)]
+            ;; Canonical Spec-009 shape.
+            (is (= :missing/sub (:rf.sub/id tags))
+                ":rf.sub/id is the unregistered sub's id")
+            (is (= [:missing/sub] (:unresolved-input tags))
+                ":unresolved-input is the full query-vector that failed to resolve")
+            (is (= [] (:resolved-inputs tags))
+                ":resolved-inputs is empty — the miss is detected before input resolution")
+            (is (contains? tags :frame) ":frame tag retained for routing")
+            ;; The pre-fix shape MUST be gone.
+            (is (not (contains? tags :rf.sub/query-v))
+                "the pre-fix :rf.sub/query-v tag is gone (aligned to Spec 009)")))))))
+
 ;; ---- ref-counting and hot-reload smoke (relocated from smoke_test.clj, rf2-zqar3) ----
 
 (deftest sub-cache-ref-counting

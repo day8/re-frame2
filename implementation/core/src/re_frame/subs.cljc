@@ -230,8 +230,21 @@
   (let [query-id      (first query-v)
         sub-meta      (registrar/lookup :sub query-id)
         _             (when (nil? sub-meta)
+                        ;; Per Spec 009 §Error catalogue (`:rf.error/no-such-sub`
+                        ;; tags `:rf.sub/id` / `:unresolved-input` /
+                        ;; `:resolved-inputs`): the unregistered sub is the one
+                        ;; being subscribed here (`query-id`); `:unresolved-input`
+                        ;; carries the full query-vector that failed to resolve
+                        ;; and `:resolved-inputs` is empty — the miss is detected
+                        ;; on `sub-meta` lookup, before any `:<-` input is
+                        ;; resolved. (rf2-agpv2.3 — aligns the emit tag-shape to
+                        ;; Spec 009; recovery is unchanged: nil-yielding reaction,
+                        ;; not cached.)
                         (trace/emit-error! :rf.error/no-such-sub
-                                           {:rf.sub/query-v query-v :frame frame-id}))
+                                           {:rf.sub/id        query-id
+                                            :unresolved-input query-v
+                                            :resolved-inputs  []
+                                            :frame            frame-id}))
         body-fn       (:handler-fn sub-meta)
         input-signals (:input-signals sub-meta)
         layer-1?      (empty? input-signals)
@@ -293,6 +306,26 @@
                          (if (identical? reaction (get-in m [k :reaction]))
                            (dissoc m k)
                            m))))))
+    ;; rf2-agpv2.2 — symmetric input release on the not-cached path.
+    ;; A layer-2+ build already subscribed each `:<-` input above (bumping
+    ;; their ref-counts), but the dispose-wiring that releases them lives
+    ;; ONLY inside the `(when (and cache sub-meta) …)` branch. If the frame
+    ;; was destroyed (or its container torn down) BETWEEN `subscribe`'s
+    ;; frame-record resolution and this re-resolution, `cache` is now nil:
+    ;; the reaction is built and returned but never cached and never
+    ;; dispose-wired, so without this branch nothing would ever call
+    ;; `unsubscribe` for those inputs — a monotonic ref-count leak until
+    ;; `clear-sub-cache!`. Release them here so the input ref-count stays
+    ;; symmetric with the bumps. Layer-1 has no subscribed inputs (its
+    ;; input is the app-db container, not a subscribe), and the
+    ;; no-such-sub miss (`sub-meta` nil) has no `:<-` inputs, so this
+    ;; only fires for a layer-2+ reaction that escaped caching.
+    (when (and (not (and cache sub-meta))
+               (not layer-1?)
+               (seq input-signals))
+      (doseq [input-q input-signals]
+        (try (unsubscribe frame-id input-q)
+             (catch #?(:clj Throwable :cljs :default) _ nil))))
     reaction))
 
 ;; ---- the sub-override subscribe seam (rf2-7pgiz; CLJS, dev-only) ----------
