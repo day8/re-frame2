@@ -427,6 +427,27 @@
       (is (nil? thrown)
           "an internal action-only :always must NOT be rejected at registration"))))
 
+(deftest always-targetless-fixed-point-demo-registers
+  (testing "the CANONICAL fixed-point / re-evaluate-until-condition machine —
+            a targetless guarded :always with an :action — registers via
+            reg-machine without throwing (acdlp ruling B)."
+    ;; This is the exact machine the SCXML conformance corpus models in
+    ;; `scxml-eventless-settles-to-fixed-point` (the :more?/:bump counter
+    ;; that settles :n 0→3). That corpus drives the PURE engine via `step`;
+    ;; this case proves the same shape is also registration-legal via the
+    ;; full `reg-machine` validator (per the acdlp acceptance: the demo must
+    ;; register, not only step). A self-:target form of this counter would
+    ;; throw :rf.error/machine-always-self-loop — see the rejection tests
+    ;; above — so the targetless form is the only registration-legal one.
+    (let [m {:initial :a
+             :data    {:n 0}
+             :guards  {:more? (fn [{d :data}] (< (:n d) 3))}
+             :actions {:bump  (fn [{d :data}] {:data (update d :n inc)})}
+             :states  {:a {:always [{:guard :more? :action :bump}]}}}
+          thrown (registration-throws? :rf.always-self-loop/fixed-point m)]
+      (is (nil? thrown)
+          "the canonical targetless guarded :always counter must register cleanly"))))
+
 (deftest always-self-loop-vector-target-rejected
   (testing "an :always entry whose vector :target is its own absolute path is rejected"
     (let [m {:initial :outer
