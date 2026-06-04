@@ -5,10 +5,13 @@
    - Pattern-NineStates — one parallel state machine with three orthogonal
      regions (`:feed` × `:filter` × `:data`) replacing the prior multi-axis
      state-in-separate-slices shape.
-   - Pattern-RemoteData lifecycle folded into the `:data` region; the
-     region's state-keyword IS the status. The actual article items still
-     live in app-db slices (`:articles`, `:feed`) so optimistic-update
-     paths in favorites.cljs continue to find articles across slices.
+   - Pattern-RemoteData lifecycle tracked by the `:data` region; the
+     region's state-keyword drives the home-page render decision. This is
+     a deliberate hybrid: unlike the full machine-form fold in `tags.cljs`,
+     the `:articles`/`:feed` slices stay in the standard 5-key slice form
+     (keeping their `:status` field) so the items live in app-db and
+     favorites.cljs's optimistic-update paths can scan across slices. See
+     the `:data` region note below.
    - route-query driven loading (`?tag=` and `?feed=your`) — every
      navigation broadcasts the corresponding feed-region transition.
    - home-page tabs expressed as feed-region state transitions.
@@ -49,10 +52,25 @@
 ;;             without inspecting the feed region.
 ;;
 ;;   :data   — Pattern-NineStates' data lifecycle for whichever feed is
-;;             active. The slice's `:status` field is gone — the region's
-;;             state-keyword IS the lifecycle phase. The :resolving
+;;             active. The region's state-keyword is what drives the
+;;             home-page *render decision* (via the render-priority table
+;;             + the `:articles.home/render` selector sub) — the view
+;;             never branches on the slice's `:status`. The :resolving
 ;;             eventless microstep picks `:empty` or `:some` from the
 ;;             count stamped into the machine's shared `:data`.
+;;
+;;             Note this is a deliberate HYBRID, not the full machine-form
+;;             fold used by `tags.cljs`/`settings.cljs` (where the slice —
+;;             and its `:status` — genuinely disappears). Here the
+;;             `:articles` slice stays in the standard 5-key slice form
+;;             (the slice-form half of the README's "two shapes
+;;             side-by-side" comparison): the article items live in
+;;             app-db so favorites.cljs's optimistic-update paths can scan
+;;             across slices, and the slice keeps its `:status` field
+;;             (required by `schema/RequestSlice`, asserted by the unit
+;;             tests). The machine's `:data` region tracks the same
+;;             lifecycle independently and is the single source of the
+;;             render decision.
 ;;
 ;; Per Spec 005 §Transition broadcast: every event delivered to the
 ;; machine is broadcast to every region. Region-distinct event names
