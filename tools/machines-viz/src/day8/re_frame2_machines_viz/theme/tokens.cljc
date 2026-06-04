@@ -64,10 +64,19 @@
 
 (def dark-palette
   "Dark-theme colour tokens — the GitHub-style blue/neutral Figma
-  palette (rf2-ad7zx.13). Mirrors `day8.re-frame2-xray.theme.tokens`
-  at the values level (drift-gate `xray-and-machines-viz-dark-palettes-
-  match-values`, rf2-z7ms8) so the chart renders identically whether
-  embedded by Xray, Story, the read-only viewer, or a user dev shell.
+  palette (rf2-ad7zx.13). A strict SUBSET of Xray's `dark-palette`:
+  every key here also exists in Xray at the SAME hex value (drift-gates
+  `machines-viz-dark-palette-keys-subset-of-xray` +
+  `xray-and-machines-viz-dark-palettes-match-values`, rf2-593jn / was
+  rf2-z7ms8) so the chart renders identically whether embedded by Xray,
+  Story, the read-only viewer, or a user dev shell.
+
+  rf2-593jn — machines-viz publishes ONLY the tokens its chart actually
+  consumes. Xray's chrome-only tokens (`:chrome-ribbon-*`, `:active-bg`/
+  `:active-text`, `:diff-*`, `:syntax-*`, `:bg-issue-row`,
+  `:selected-row-bg`) are NOT mirrored here — the chart never reads them,
+  and the relaxed subset gate no longer forces a no-op mirror for each
+  new Xray chrome token.
 
   The orange-identity scheme (`brand`, `accent-dynamic`, `accent-static`,
   the per-mode colour swap) is removed; the Figma export carries a
@@ -78,19 +87,6 @@
    :bg-2           "#242424"
    :bg-3           "#2a2a2a"
    :bg-active      "#2a2a2a"
-
-   ;; chrome ribbon (rf2-xawwb · Figma-Make surface) — mirrored from
-   ;; Xray's dark-palette to satisfy the `xray-and-machines-viz-dark-
-   ;; palettes-match-key-set` drift gate. These are Xray-chrome tokens
-   ;; (the chart itself doesn't read them) but the gate requires an exact
-   ;; key-set mirror, so they're published here at the same values.
-   :chrome-ribbon-bg              "#0d1117"
-   :chrome-ribbon-text            "#e6edf3"
-   :chrome-ribbon-text-muted      "#8b949e"
-   :chrome-ribbon-tab-active      "#2a2a2a"
-   :chrome-ribbon-tab-active-text "#e6edf3"
-   :active-bg                     "#1f6feb"
-   :active-text                   "#ffffff"
 
    :border-subtle  "#2a2a2a"
    :border-default "#373737"
@@ -110,27 +106,13 @@
    :dim            "#6e7681"
    :hover          "#2a2a2a"
 
-   ;; violation wash (rf2-xgeag · key parity mirror with Xray)
+   ;; violation wash (rf2-xgeag · value mirror with Xray)
    :bg-violation   "#3a1f25"
-
-   ;; L2 issue-row wash (rf2-b8guz · key parity mirror with Xray) — the
-   ;; light-pink wash Xray paints behind an L2 event row whose epoch
-   ;; contains an issue. machines-viz never paints it, but the drift gate
-   ;; (rf2-z7ms8) requires the dark-palette key set to match Xray's, so the
-   ;; token is mirrored here at its Xray value. rf2-hga49 paled it (~15% →
-   ;; ~10%) so Xray's darker selected-row-bg reads through it — mirrored.
-   :bg-issue-row   "#f851491a"
-
-   ;; L2 selected-row background (rf2-hga49 · key parity mirror with Xray).
-   ;; Xray's darker-than-hover selected-row fill. machines-viz never paints
-   ;; it, but the dark drift gate (rf2-z7ms8) asserts full key-set parity,
-   ;; so the key is mirrored here at its Xray value.
-   :selected-row-bg "#3a3a3a"
 
    ;; functional categorical hues (spec/022 carve-out)
    ;; Two pink/violet-family hues — see Xray's `dark-palette` block for
-   ;; rationale. The drift gate (rf2-z7ms8) requires these to match Xray's
-   ;; values; this mirror is updated alongside rf2-cgm4f.
+   ;; rationale. The values gate (rf2-z7ms8) requires these to match
+   ;; Xray's values; this mirror is updated alongside rf2-cgm4f.
    :green          "#3fb950"
    :yellow         "#d29922"
    :orange         "#FB923C"
@@ -139,35 +121,7 @@
    :magenta-pink   "#ec4899"   ; pink-500 — added rf2-cgm4f
    :info           "#79c0ff"
 
-   ;; syntax-highlighter palette (rf2-79ojx · One Dark / Atom One Dark)
-   ;; mirrored from Xray's dark-palette so the `xray-and-machines-viz-
-   ;; dark-palettes-match-key-set` drift gate stays green. Tokens are
-   ;; Xray-source-highlighter + edn-inspector surface; the chart itself
-   ;; does not read them. See Xray's `tokens.cljc` for the palette
-   ;; rationale (CLJS-editor-syntax-highlight scheme — keyword magenta /
-   ;; string green / number orange / boolean gold / nil grey).
-   :syntax-keyword     "#c678dd"
-   :syntax-string      "#98c379"
-   :syntax-number      "#d19a66"
-   :syntax-boolean     "#e5c07b"
-   :syntax-nil         "#7f848e"
-   :syntax-symbol      "#61afef"
-   :syntax-builtin     "#61afef"
-   :syntax-punctuation "#abb2bf"
-
    :red-deep       "#a83a3a"
-
-   ;; diff row chrome (rf2-awqts) — mirrored from Xray's dark-palette
-   ;; so the key-set drift gate stays green. The chart doesn't read
-   ;; these tokens directly (diff signalling is Xray-specific), but
-   ;; mirroring keeps the two palette surfaces symmetric.
-   :diff-gutter          "#5fbcb6"
-   :diff-added-wash      "#3fb9501a"
-   :diff-modified-wash   "#d299221f"
-   :diff-removed-wash    "#f851491a"
-   :diff-added-stripe    "#3fb950"
-   :diff-modified-stripe "#d29922"
-   :diff-removed-stripe  "#f85149"
 
    :white          "#ffffff"})
 
@@ -191,18 +145,6 @@
    :bg-3           "#e8e8e8"
    :bg-active      "#e8e8e8"
 
-   ;; chrome ribbon (rf2-xawwb · Figma-Make surface) — mirrored from
-   ;; Xray's light-palette so the two palettes stay symmetric (the dark
-   ;; drift gate is key-set equality; the light gate checks shared-key
-   ;; values agree). Xray-chrome tokens; the chart doesn't read them.
-   :chrome-ribbon-bg              "#2a2a2a"
-   :chrome-ribbon-text            "#ffffff"
-   :chrome-ribbon-text-muted      "#b0b0b0"
-   :chrome-ribbon-tab-active      "#ffffff"
-   :chrome-ribbon-tab-active-text "#24292f"
-   :active-bg                     "#0969da"
-   :active-text                   "#ffffff"
-
    :border-subtle  "#e8e8e8"
    :border-default "#d1d1d1"
 
@@ -221,26 +163,13 @@
    :dim            "#8c959f"
    :hover          "#e8e8e8"
 
-   ;; violation wash (rf2-xgeag · key parity mirror with Xray)
+   ;; violation wash (rf2-xgeag · value mirror with Xray)
    :bg-violation   "#fde0e3"
-
-   ;; L2 issue-row wash (rf2-b8guz · key parity mirror with Xray) — the
-   ;; light-theme mirror of Xray's `:bg-issue-row`. machines-viz never
-   ;; paints it; mirrored here at its Xray value so the two light palettes
-   ;; stay symmetric (the dark drift gate asserts full key-set parity).
-   ;; rf2-hga49 paled it (~18% → ~12%) in lock-step with Xray.
-   :bg-issue-row   "#c844441f"
-
-   ;; L2 selected-row background (rf2-hga49 · key parity mirror with Xray).
-   ;; Light-theme mirror of Xray's darker-than-hover selected-row fill.
-   ;; machines-viz never paints it; mirrored so its own light/dark key sets
-   ;; stay symmetric and the Xray↔machines-viz dark drift gate passes.
-   :selected-row-bg "#d4d4d4"
 
    ;; functional categorical hues
    ;; Two pink/violet-family hues — see Xray's `light-palette` block for
-   ;; rationale. The drift gate (rf2-z7ms8) requires these to match Xray's
-   ;; values; this mirror is updated alongside rf2-cgm4f.
+   ;; rationale. The values gate (rf2-z7ms8) requires these to match
+   ;; Xray's values; this mirror is updated alongside rf2-cgm4f.
    :green          "#1a7f37"
    :yellow         "#9a6700"
    :orange         "#C2570F"
@@ -249,30 +178,7 @@
    :magenta-pink   "#db2777"   ; pink-600 — added rf2-cgm4f
    :info           "#0550ae"
 
-   ;; syntax-highlighter palette (rf2-79ojx · One Light / Atom One Light)
-   ;; mirrored from Xray's light-palette so the light drift gate
-   ;; (`xray-and-machines-viz-light-palettes-match-values`) stays green.
-   ;; See Xray's `tokens.cljc` for the palette rationale.
-   :syntax-keyword     "#a626a4"
-   :syntax-string      "#50a14f"
-   :syntax-number      "#986801"
-   :syntax-boolean     "#c18401"
-   :syntax-nil         "#a0a1a7"
-   :syntax-symbol      "#4078f2"
-   :syntax-builtin     "#4078f2"
-   :syntax-punctuation "#383a42"
-
    :red-deep       "#9A3030"
-
-   ;; diff row chrome (rf2-awqts) — mirrored from Xray's light-palette
-   ;; per the dark-palette pattern above.
-   :diff-gutter          "#178f86"
-   :diff-added-wash      "#1a7f371a"
-   :diff-modified-wash   "#9a67001f"
-   :diff-removed-wash    "#c844441a"
-   :diff-added-stripe    "#1a7f37"
-   :diff-modified-stripe "#9a6700"
-   :diff-removed-stripe  "#cf222e"
 
    :white          "#ffffff"})
 
@@ -367,14 +273,15 @@
 ;;
 ;; rf2-az6e2 — the structured topology grammar needs a small set of
 ;; SEMANTIC chart roles (neutral container header/body, dividers,
-;; event-chip fill/border, pseudo-state marker, edge quiet/active). The
-;; Xray↔machines-viz dark-palette drift gate (rf2-z7ms8) asserts the two
-;; dark-palette KEY SETS are byte-identical, so we MUST NOT add new keys
-;; to `dark-palette` / `light-palette`. Instead `chart-tokens` DERIVES
-;; the semantic roles from the EXISTING palette entries, parameterised by
-;; the active palette — so theme support is real (a `:light` host resolves
-;; every chart role against `light-palette`) without growing the palette
-;; or breaking the mirror gate.
+;; event-chip fill/border, pseudo-state marker, edge quiet/active).
+;; Rather than add a bespoke role key per surface, `chart-tokens`
+;; DERIVES the semantic roles from the EXISTING base-palette entries,
+;; parameterised by the active palette — so theme support is real (a
+;; `:light` host resolves every chart role against `light-palette`)
+;; without inflating the base palette. (rf2-593jn relaxed the
+;; Xray↔machines-viz drift gate to a subset check, so machines-viz may
+;; now add a genuinely-consumed token; but derivation remains the
+;; cleaner shape for roles that are pure functions of the base hues.)
 
 (defn chart-tokens
   "rf2-az6e2 — resolve the chart's SEMANTIC role tokens against a base

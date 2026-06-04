@@ -457,20 +457,26 @@
 
 ;; ---- rf2-z7ms8 — Xray ↔ machines-viz palette drift CI gate ------------
 
-(deftest xray-and-machines-viz-dark-palettes-match-key-set
-  (testing "rf2-z7ms8 — the machines-viz dark-palette must expose
-            EVERY key Xray's dark-palette does (it's an explicit
-            mirror). Asserting the key-set rather than equality lets
-            Xray's dark-palette grow (e.g. new utility tokens) without
-            forcing machines-viz to re-publish — only the SHARED keys
-            must agree on value (see the next test)."
+(deftest machines-viz-dark-palette-keys-subset-of-xray
+  (testing "rf2-593jn (was rf2-z7ms8) — every key the machines-viz
+            dark-palette publishes must also exist in Xray's
+            dark-palette. The gate is one-directional: machines-viz
+            publishes ONLY the tokens its chart consumes (a strict
+            subset), while Xray's palette is free to carry chrome-only
+            tokens the chart never reads (`:chrome-ribbon-*`, `:diff-*`,
+            `:syntax-*`, `:bg-issue-row`, `:selected-row-bg`, …) without
+            forcing machines-viz to mirror them as no-ops. A
+            machines-viz-only key here means the chart reaches for a
+            token Xray's source of truth doesn't define — a genuine
+            drift the shared-values gate (next test) cannot catch
+            because there is no Xray entry to compare against."
     (let [xray-keys (set (keys t/dark-palette))
-          mv-keys    (set (keys mv/dark-palette))]
-      (is (= xray-keys mv-keys)
-          (str "key drift: xray-only "
-               (vec (sort (set/difference xray-keys mv-keys)))
-               " vs machines-viz-only "
-               (vec (sort (set/difference mv-keys xray-keys))))))))
+          mv-keys    (set (keys mv/dark-palette))
+          mv-only    (set/difference mv-keys xray-keys)]
+      (is (empty? mv-only)
+          (str "machines-viz dark-palette publishes key(s) absent from "
+               "Xray's dark-palette (source of truth): "
+               (vec (sort mv-only)))))))
 
 (deftest xray-and-machines-viz-dark-palettes-match-values
   (testing "rf2-z7ms8 — for every key SHARED between the two
