@@ -157,6 +157,75 @@
         (when previous (apply previous args))
         nil))))
 
+;; ---- warn-once clear-fn governance registry (rf2-z79p8) -------------------
+;;
+;; Every process-wide `defonce` warn-once cache in the adapter / views
+;; family (`warned-non-dom-roots`, the rf2-9hoos `seen-render-keys` set,
+;; the slim hiccup interpreter's `warned-keyword-prop` cache, and the
+;; Spec 004 `warned-plain-fn-frame-pairs` plain-fn-under-non-default-frame
+;; set) must be wiped by the standard `make-reset-runtime-fixture` between
+;; tests — otherwise a sibling test's first-encounter warning silently
+;; swallows a later test's same-key warning. The mechanism is the chained
+;; `:adapter/clear-warn-once-caches!` late-bind hook the fixture fires.
+;;
+;; This defect class has now bitten four times: rf2-4edk (the original
+;; source-coord cache), rf2-9hoos (seen-render-keys), rf2-qy6cl (the slim
+;; keyword-prop cache), and rf2-z79p8 (the plain-fn pairs cache — the 4th
+;; straggler). Each fix was the SAME one-liner: chain the clear-fn. The
+;; pattern is fragile because there is no single chokepoint and nothing
+;; asserts the set of `defonce` warn-once caches equals the set of clears
+;; in the chain — a 5th cache can be added with a bare `defonce` + a
+;; standalone clear-fn and silently escape the fixture.
+;;
+;; `register-warn-once-clear-fn!` is that chokepoint: it both (a) chains
+;; the clear-fn into `:adapter/clear-warn-once-caches!` and (b) records
+;; the cache in this governance registry with `:arm` / `:armed?` probes.
+;; The governance assertion (warn_once_clear_governance test) enumerates
+;; the registry, arms every cache, fires the chain once, and asserts each
+;; cache is empty afterwards — so a future 5th cache that registers but
+;; forgets the chain (or escapes the chokepoint entirely) trips the gate.
+
+(defonce
+  ^{:doc "Vector of governance entries for the adapter/views warn-once
+   `defonce` caches that MUST be wiped by the chained
+   `:adapter/clear-warn-once-caches!` fixture hook. Populated at ns-load
+   by `register-warn-once-clear-fn!`. Each entry is
+   `{:label keyword, :clear-fn fn, :arm fn, :armed? fn}`. Consumed only by
+   the warn-once-clear governance assertion (rf2-z79p8); production never
+   reads it. The registry is the authoritative enumeration of the cache
+   class — the assertion proves every member is actually cleared by the
+   single canonical chain."}
+  warn-once-clear-registry
+  (atom []))
+
+(defn register-warn-once-clear-fn!
+  "Canonical chokepoint (rf2-z79p8) for wiring a process-wide warn-once
+  `defonce` cache into the chained `:adapter/clear-warn-once-caches!`
+  fixture-reset hook. Call this — never a bare `chain-fn!` on that key —
+  so the cache is BOTH chained AND enrolled in the governance registry
+  the warn-once-clear assertion checks.
+
+  Args (a single map):
+    :label    — keyword naming the cache (for assertion failure messages).
+    :clear-fn — the zero-arg clear-thunk (resets the cache to empty, nil).
+    :arm      — zero-arg thunk that seeds the cache with a sentinel so
+                `armed?` returns true. Lets the governance assertion drive
+                the cache to a known non-empty state.
+    :armed?   — zero-arg predicate true iff the cache holds the sentinel
+                (i.e. has NOT been cleared).
+
+  Effects: chains `:clear-fn` into `:adapter/clear-warn-once-caches!`
+  (so `make-reset-runtime-fixture` wipes it) and appends the entry to
+  `warn-once-clear-registry`. Returns nil.
+
+  `re-frame.substrate.spine/install-clear-warn-once-step!` delegates here
+  with default arm/armed? probes for the adapters' source-coord caches."
+  [{:keys [label clear-fn arm armed?] :as entry}]
+  (chain-fn! :adapter/clear-warn-once-caches! clear-fn)
+  (swap! warn-once-clear-registry conj
+         {:label label :clear-fn clear-fn :arm arm :armed? armed?})
+  nil)
+
 (defn require-fn!
   "Return the fn registered under `hook-key`, or throw a structured
   `:rf.error/<artefact>-artefact-missing` ex-info when the hook is

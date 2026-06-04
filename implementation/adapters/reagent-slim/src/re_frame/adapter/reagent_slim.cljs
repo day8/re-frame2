@@ -155,4 +155,12 @@
 ;; lives in the adapter ns (not in reagent2.impl.template) to keep the
 ;; vendored `reagent2.*` tree free of any `re-frame.*` edge — bundle
 ;; isolation by construction.
-(spine/install-clear-warn-once-step! template/clear-warned-keyword-prop!)
+;;
+;; rf2-z79p8: enrol with an explicit label but NO arm/armed? probes — the
+;; cache atom is `^:private` in reagent2.impl.template and reaching into it
+;; from here would breach the same bundle-isolation rule. The empirical
+;; governance assertion skips probe-less entries; the source-enumeration
+;; assertion and the dedicated template_keyword_prop re-arm test cover this
+;; cache.
+(spine/install-clear-warn-once-step! template/clear-warned-keyword-prop!
+                                     {:label :reagent-slim/warned-keyword-prop})

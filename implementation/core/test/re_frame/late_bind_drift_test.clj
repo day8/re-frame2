@@ -83,13 +83,21 @@
   #"\(substrate-adapter/route-hook!\s+\S+\s+(:[a-zA-Z][a-zA-Z0-9.!?*+\-]*/[a-zA-Z][a-zA-Z0-9!?*+\-]*)")
 
 (def ^:private chain-fn-call-re
-  "Match `(late-bind/chain-fn! :namespace/key ...`.
+  "Match `(late-bind/chain-fn! :namespace/key ...` and the bare
+  `(chain-fn! :namespace/key ...` form.
 
   Per rf2-1fh5h chained hooks are published through `chain-fn!`
   (which calls `set-fn!` internally, wrapping the step-fn in a
   chain-into-previous closure). Drift scan treats this call shape as
-  equivalent to direct `set-fn!` publication."
-  #"\(late-bind/chain-fn!\s+(:[a-zA-Z][a-zA-Z0-9.!?*+\-]*/[a-zA-Z][a-zA-Z0-9!?*+\-]*)")
+  equivalent to direct `set-fn!` publication.
+
+  The `late-bind/` alias prefix is OPTIONAL (rf2-z79p8): the canonical
+  warn-once-clear chokepoint `register-warn-once-clear-fn!` lives INSIDE
+  `re-frame.late-bind` and calls `chain-fn!` unqualified there, so the
+  authoritative `:adapter/clear-warn-once-caches!` publication is a bare
+  `(chain-fn! :adapter/clear-warn-once-caches! ...)` literal. Matching the
+  unqualified form keeps that key documented as published."
+  #"\((?:late-bind/)?chain-fn!\s+(:[a-zA-Z][a-zA-Z0-9.!?*+\-]*/[a-zA-Z][a-zA-Z0-9!?*+\-]*)")
 
 (def ^:private set-fns-block-re
   "Match a `(late-bind/set-fns! { ... })` map-form block; the named

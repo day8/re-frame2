@@ -232,9 +232,32 @@
 (late-bind/set-fn! :views/clear-plain-fn-warned-pairs!
                    clear-plain-fn-warned-pairs!)
 
-;; Register a clear of the `warned-non-dom-roots` cache under the
-;; chained `:adapter/clear-warn-once-caches!` hook. Each adapter (helix,
-;; uix) and this views ns all contribute a clear-step;
-;; `make-reset-runtime-fixture` invokes the top of the chain and every
-;; contributor's reset runs.
-(late-bind/chain-fn! :adapter/clear-warn-once-caches! clear-warned-non-dom-roots!)
+;; Enrol BOTH warn-once `defonce` caches this ns owns into the chained
+;; `:adapter/clear-warn-once-caches!` hook, via the canonical governance
+;; chokepoint `late-bind/register-warn-once-clear-fn!` (rf2-z79p8). Each
+;; adapter (helix, uix), the slim hiccup interpreter, re-frame.views, and
+;; this ns all contribute a clear-step; `make-reset-runtime-fixture`
+;; invokes the top of the chain and every contributor's reset runs. The
+;; chokepoint also records each cache in the warn-once-clear governance
+;; registry so the governance assertion proves the chain wipes it.
+;;
+;;   1. `warned-non-dom-roots` — the rf2-4edk source-coord / non-DOM-root
+;;      cache (kept chained here as it was at line 240 pre-rf2-z79p8).
+;;   2. `warned-plain-fn-frame-pairs` — the Spec 004 plain-fn-under-non-
+;;      default-frame suppression set (rf2-z79p8: the 4th straggler, NOT
+;;      chained before this fix, so the standard fixture never re-armed
+;;      it — only three test files reset it by hand). The standalone
+;;      `:views/clear-plain-fn-warned-pairs!` hook (set above) is RETAINED
+;;      for the per-frame destroy path / elision-probe direct call; this
+;;      adds the fixture-chain wiring it was missing.
+(late-bind/register-warn-once-clear-fn!
+  {:label    :views/warned-non-dom-roots
+   :clear-fn clear-warned-non-dom-roots!
+   :arm      (fn [] (swap! warned-non-dom-roots conj ::governance-sentinel))
+   :armed?   (fn [] (contains? @warned-non-dom-roots ::governance-sentinel))})
+
+(late-bind/register-warn-once-clear-fn!
+  {:label    :views/warned-plain-fn-frame-pairs
+   :clear-fn clear-plain-fn-warned-pairs!
+   :arm      (fn [] (swap! warned-plain-fn-frame-pairs conj ::governance-sentinel))
+   :armed?   (fn [] (contains? @warned-plain-fn-frame-pairs ::governance-sentinel))})

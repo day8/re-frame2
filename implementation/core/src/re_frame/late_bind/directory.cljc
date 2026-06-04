@@ -618,7 +618,7 @@
                    re-frame.adapter.uix]
     :chained?    true
     :design-bead "rf2-4edk"
-    :description "Chained reset of every adapter's warn-once defonce caches. re-frame.views also chains its rf2-9hoos seen-render-keys reset (the :mount? discriminator's per-process set) so the standard runtime-reset fixture wipes it without new call-site wiring."}
+    :description "Chained reset of EVERY adapter/views warn-once defonce cache the standard make-reset-runtime-fixture must wipe between tests. Per rf2-z79p8 every contributor enrols through the single governance chokepoint re-frame.late-bind/register-warn-once-clear-fn! (which chains the clear-fn here AND records it in the warn-once-clear governance registry). Members: re-frame.views.warn-once's warned-non-dom-roots + warned-plain-fn-frame-pairs (the rf2-z79p8 4th straggler), re-frame.views's rf2-9hoos seen-render-keys (:mount? discriminator), the React-hook spine's per-adapter source-coord cache (re-frame.substrate.spine, used by helix/uix), and the slim hiccup interpreter's warned-keyword-prop (re-frame.adapter.reagent-slim, rf2-qy6cl). The warn-once-clear governance assertion enumerates the registry and proves each member is wiped by this chain so a future 5th cache cannot silently escape the fixture."}
    {:key         :adapter/current-frame
     :producer-ns '[re-frame.adapter.reagent
                    re-frame.adapter.reagent-slim

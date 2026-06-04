@@ -674,9 +674,16 @@
 ;; The `:mount?` discriminator (rf2-9hoos) keys off a per-process
 ;; seen-render-keys set; a fixture that reuses a render-key across cases
 ;; would otherwise see the second case's first render reported as a
-;; rerender. Chain `clear-seen-render-keys!` into the existing
+;; rerender. Enrol `clear-seen-render-keys!` into the existing
 ;; `:adapter/clear-warn-once-caches!` reset hook (rf2-4edk) so the
 ;; standard runtime-reset fixture wipes it alongside the warn-once
-;; caches — no new fixture wiring needed at call sites.
+;; caches — no new fixture wiring needed at call sites. Routed through
+;; the canonical governance chokepoint `register-warn-once-clear-fn!`
+;; (rf2-z79p8) so this cache is enrolled in the warn-once-clear registry
+;; the governance assertion checks.
 
-(late-bind/chain-fn! :adapter/clear-warn-once-caches! clear-seen-render-keys!)
+(late-bind/register-warn-once-clear-fn!
+  {:label    :views/seen-render-keys
+   :clear-fn clear-seen-render-keys!
+   :arm      (fn [] (swap! seen-render-keys conj ::governance-sentinel))
+   :armed?   (fn [] (contains? @seen-render-keys ::governance-sentinel))})
