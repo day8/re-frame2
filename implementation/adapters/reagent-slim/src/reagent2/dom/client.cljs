@@ -83,13 +83,32 @@
 (defn- resolve-act
   "Look up React's `act`. Returns the fn or nil. Re-resolved on every
   call (not cached) so a test fixture that swaps the React module
-  mid-run sees the swap on the next `flush-views!`."
+  mid-run sees the swap on the next `flush-views!`.
+
+  React-floor asymmetry (rf2-uuzkp). This SUBSTRATE-level resolver is
+  React-19-floored BY INTENT: it probes only `(.-act react)` and has NO
+  `react-dom/test-utils` fallback, so under a React-18.2 dev tree (where
+  `act` lived in test-utils) the substrate-level `flush-views!` below
+  degrades to a plain synchronous flush. This is NOT in conflict with the
+  CANONICAL cross-substrate test-flush path: the adapter-ns `flush-views!`
+  Var (`re-frame.adapter.reagent-slim/flush-views!`, surfaced identically
+  across all four substrates per rf2-b6nm5 Decision 6) routes through the
+  spine's `resolve-act-fn` (`re-frame.substrate.spine`), which DOES carry
+  the test-utils fallback (rf2-jk7hr) and so works under React 18.x. The
+  fallback there is load-bearing for the stock-Reagent (non-slim) adapter;
+  this substrate-level resolver intentionally omits it. A future React-floor
+  change, or a caller reaching this substrate-level `flush-views!` directly
+  (e.g. for its Promise return / Suspense ordering), should expect the
+  React-19 floor here and use the adapter-ns Var when React-18 graceful
+  degradation is required."
   []
   (or (.-act react)
       ;; Fallback: pre-18.3 lived in react-dom/test-utils. We don't
       ;; require that ns up top because Stage 4-B's React floor is
       ;; 19+; the .-act check on the react module is the only path
-      ;; we exercise.
+      ;; we exercise. See the React-floor asymmetry note above for why
+      ;; the canonical adapter-ns flush-views! (via the spine resolver)
+      ;; still degrades gracefully under React 18.x while this one does not.
       nil))
 
 (defn- microtask-tick
