@@ -2160,11 +2160,12 @@
 ;; scalar (`0`, `200`, `:ok`), naive matching scrubs every benign leaf that
 ;; merely equals it — degrading the agent's view AND leaking the secret's
 ;; value-CLASS. `sensitive-values` guards that: a candidate value that ALSO
-;; sits at a NON-sensitive app-db path is dropped from the secret set, because
-;; the path-based `:app-db` egress already ships that value verbatim (it is
+;; appears, verbatim, in the POST-elision `:app-db` (the actual wire bytes —
+;; hardened from the raw db in rf2-f3kf7) is dropped from the secret set,
+;; because the path-based `:app-db` egress already ships that value (it is
 ;; provably already disclosed, so excluding it leaks nothing new). These tests
 ;; pin BOTH the precision win AND the fail-SAFE invariant (a value that is
-;; UNIQUELY secret — only under sensitive paths — stays redacted).
+;; UNIQUELY secret — absent from the elided db — stays redacted).
 ;; ---------------------------------------------------------------------------
 
 (deftest scrub-rendered-short-scalar-aliased-to-public-path-is-not-over-scrubbed
@@ -2232,6 +2233,112 @@
               "matching leaves are replaced with the :rf/redacted sentinel")
           (is (= "card" (get-in out [1 :class]))
               "benign attribute values survive untouched"))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-f3kf7 — :large?-blind under-scrub (the headline fix).
+;;
+;; The g7cd1 guard dropped any candidate that ALSO appeared at a non-sensitive
+;; app-db path, on the premise that elide-app-db ships such a value verbatim.
+;; That premise is FALSE for a :large?-declared non-sensitive path:
+;; elide-wire-value replaces the slot with the :rf.size/large-elided marker, so
+;; the value is NOT on the wire — yet the old guard walked the RAW db, saw the
+;; secret at the :large? position, classified it public, and dropped it from
+;; the secret set, leaking it VERBATIM into the derived trees. The fix
+;; classifies "public" against the POST-elision :app-db (the actual wire
+;; bytes), so a value masked by ANY elision class stays redacted. These tests
+;; pin the no-under-scrub invariant on the in-scope MCP egress.
+;; ---------------------------------------------------------------------------
+
+(deftest scrub-rendered-secret-aliased-into-large-subtree-stays-redacted
+  (testing "FAIL-SAFE (rf2-f3kf7): a secret at a sensitive path that ALSO lives inside a :large?-declared subtree MUST stay redacted — the :large? slot is the marker on the wire, NOT the verbatim value, so it does not license dropping the secret"
+    (with-clean-frame [vid :story.button/primary]
+      ;; The repro: the token sits at sensitive [:auth :token] AND nested in
+      ;; [:cache :blob], which is :large?-declared. The :app-db egress ships
+      ;; [:cache :blob] as the :rf.size/large-elided marker (token NOT
+      ;; disclosed), so the token must remain a protected secret everywhere.
+      (let [token  "sk-live-DISTINCTIVE-TOPSECRET-9f8a7b6c"
+            db     {:public "ok"
+                    :auth   {:token token}
+                    :cache  {:blob {:size 9001 :payload token}}}
+            ;; Derived trees re-embed the token at non-app-db positions
+            ;; (narrative :db-before/:after, rendered hiccup, snapshot).
+            hiccup [:div [:input {:type "password" :value token}]
+                    [:span "narrative db-before: " token]]]
+        (seed-app-db! vid db)
+        (declare-sensitive! vid [:auth :token])
+        (declare-large! vid [:cache :blob])
+        ;; Sanity: the :app-db egress masks the :large? subtree (token gone)
+        ;; AND redacts the sensitive path — so the token is NOT on the
+        ;; :app-db wire via either route, which is exactly why the derived
+        ;; tree must keep it redacted.
+        (let [elide-app-db (requiring-resolve 're-frame.story-mcp.tools.egress/elide-app-db)
+              wire-db      (elide-app-db db vid false)]
+          (is (not (tree-contains? wire-db token))
+              "the token is NOT shipped verbatim in the :app-db slot (large-masked + sensitive-redacted)")
+          (is (= :rf/redacted (get-in wire-db [:auth :token]))
+              "the sensitive path is redacted in the wire :app-db")
+          (is (contains? (get-in wire-db [:cache :blob]) :rf.size/large-elided)
+              "the :large? subtree is replaced by the marker in the wire :app-db"))
+        (let [scrub-rendered (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-rendered)
+              out            (scrub-rendered hiccup db vid false)]
+          (is (not (tree-contains? out token))
+              "the secret MUST NOT survive anywhere in the derived tree (no under-scrub)")
+          (is (tree-contains? out :rf/redacted)
+              "matching leaves are replaced with the :rf/redacted sentinel")
+          (is (= "narrative db-before: " (get-in out [2 1]))
+              "benign leaves are preserved"))))))
+
+(deftest scrub-rendered-seq-indexed-sensitive-stays-redacted
+  (testing "FAIL-SAFE (rf2-f3kf7 secondary): a seq-indexed :sensitive? declaration [:tokens 0] keeps its element redacted in derived trees — the set/seq same-path walk no longer misclassifies it public"
+    (with-clean-frame [vid :story.button/primary]
+      ;; [:tokens 0] is sensitive and is a UNIQUE value (no benign alias on
+      ;; the wire). The slot is a SEQ (list), the shape the old guard
+      ;; mis-walked: `collect-public-values!` walked set/seq elements at the
+      ;; PARENT path `[:tokens]`, so `under-prefix? [:tokens 0] [:tokens]`
+      ;; returned false (prefix longer than the walk-path) — the element was
+      ;; treated as non-governed/public and dropped from the secret set =>
+      ;; under-scrub. The fix classifies against the POST-elision db, where
+      ;; `elide-wire-value`'s walk-seq HAS indexed + redacted the element, so
+      ;; it never appears at a public wire position and stays in the set.
+      (let [secret "uniq-seq-secret-TOPSECRET"
+            db     {:public "ok"
+                    :tokens (list secret "second-public-token")}
+            hiccup [:ul [:li {:data-idx 0} secret]
+                    [:li {:data-idx 1} "second-public-token"]]]
+        (seed-app-db! vid db)
+        (declare-sensitive! vid [:tokens 0])
+        (let [scrub-rendered (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-rendered)
+              out            (scrub-rendered hiccup db vid false)]
+          (is (not (tree-contains? out secret))
+              "the seq-indexed secret MUST NOT survive in the derived tree (no under-scrub)")
+          (is (tree-contains? out :rf/redacted)
+              "the matching leaf is replaced with the :rf/redacted sentinel")
+          (is (tree-contains? out "second-public-token")
+              "the non-sensitive sibling element survives untouched"))))))
+
+(deftest scrub-rendered-large-aliased-public-scalar-not-over-scrubbed
+  (testing "g7cd1 NOT regressed (rf2-f3kf7): a short sensitive scalar aliased to a PLAIN non-sensitive path is still un-over-scrubbed — the fix only tightens against ELIDED positions, not plain ones"
+    (with-clean-frame [vid :story.button/primary]
+      ;; The g7cd1 common case must survive the elided-db reclassification:
+      ;; 0 sits at sensitive :http-status AND at the PLAIN non-sensitive
+      ;; :retry-count (no :large?, no :sensitive?), so 0 IS on the wire
+      ;; verbatim and must NOT scrub benign 0 leaves.
+      (let [db     {:http-status 0     ; sensitive
+                    :retry-count 0      ; plain non-sensitive, same scalar
+                    :public      "ok"}
+            hiccup [:ul {:tabindex 0}
+                    [:li {:data-level 0} "first"]
+                    [:li {:data-level 0} "second"]]]
+        (seed-app-db! vid db)
+        (declare-sensitive! vid [:http-status])
+        (let [scrub-rendered (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-rendered)
+              out            (scrub-rendered hiccup db vid false)]
+          (is (not (tree-contains? out :rf/redacted))
+              "0 is on the wire at the plain :retry-count path, so it is dropped from the secret set — no benign 0 over-scrubbed (g7cd1 preserved)")
+          (is (= 0 (get-in out [1 :tabindex]))
+              "benign 0 attribute values survive untouched")
+          (is (= 0 (get-in out [2 1 :data-level]))
+              "benign 0 leaves deep in the tree survive"))))))
 
 ;; The two integration tests below pin the WIRING — that `preview-variant`
 ;; and `run-variant` route `:rendered-hiccup` / `:effective-args` / `:snapshot`

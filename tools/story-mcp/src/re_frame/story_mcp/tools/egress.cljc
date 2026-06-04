@@ -48,11 +48,15 @@
   Value-matching is a heuristic; its one collateral hazard is a
   sensitive path holding a SHORT/COMMON scalar (`0`, `200`, `:ok`),
   which would scrub every benign leaf that equals it. `sensitive-values`
-  guards that (rf2-g7cd1) by dropping any candidate that ALSO appears at
-  a NON-sensitive app-db path — such a value is already disclosed
-  verbatim by the path-based `:app-db` egress, so excluding it leaks
-  nothing new while restoring the benign leaves. See `sensitive-values`
-  for the fail-SAFE argument."
+  guards that (rf2-g7cd1, hardened rf2-f3kf7) by dropping any candidate
+  that ALSO appears, VERBATIM, in the POST-elision `:app-db` (the actual
+  wire bytes) — such a value is already disclosed by the path-based
+  `:app-db` egress, so excluding it leaks nothing new while restoring the
+  benign leaves. Classifying against the elided db (not the raw db) is
+  load-bearing: a secret aliased into a `:large?`-declared subtree is
+  replaced by the `:rf.size/large-elided` marker on the wire, so it is NOT
+  disclosed and MUST stay redacted. See `sensitive-values` for the
+  fail-SAFE argument."
   (:require [re-frame.core :as rf]
             [re-frame.late-bind :as late-bind]
             [re-frame.mcp-base.elision :as base-elision]
@@ -140,10 +144,10 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- under-prefix?
-  "True when `path` is `prefix` or descends from it (element-wise
-  prefix match). Both are indexed vectors. Used to decide whether an
-  app-db position is governed by a declared-`:sensitive?` path — a slot
-  marked sensitive covers itself AND everything beneath it."
+  "True when `path` is `prefix` or descends from it (element-wise prefix
+  match). Both are indexed vectors. Used to decide whether an app-db
+  position is governed by a declared-`:sensitive?` path — a slot marked
+  sensitive covers itself AND everything beneath it."
   [prefix path]
   (let [pn (count prefix)]
     (and (<= pn (count path))
@@ -153,46 +157,93 @@
              (= (nth prefix i) (nth path i)) (recur (inc i))
              :else                           false)))))
 
-(defn- collect-public-values!
-  "Walk `node` at `path`, conj!ing onto transient set `acc!` every value
-  (intermediate collections AND leaves) that (a) is `=` to a candidate
-  secret and (b) sits at a position NOT governed by any sensitive
-  prefix. A value reached only under a sensitive prefix is never
-  collected, so it cannot dilute the candidate set. Returns `acc!`.
+(defn- collect-governed-values!
+  "Walk the RAW `node` at `path`, conj!ing onto transient set `acc!` every
+  scalar value sitting at (or beneath) a `:sensitive?` prefix — the
+  candidate secrets. Returns `acc!`.
 
-  Map keys are walked at the same `path` as their entry (a key is not a
-  distinct app-db segment), so a candidate used as a benign key at a
-  non-sensitive position also counts as public."
-  [acc! node path sensitive-prefixes candidates]
+  Indexing MIRRORS `elide-wire-value`'s walk so a declared path lands on
+  the SAME node the elider redacts: maps descend by key, vectors AND seqs
+  descend by integer index (the fix for the seq-indexed `[:tokens 0]`
+  facet — `get-in` cannot read a seq index, so the old candidate-by-`get-in`
+  extraction silently dropped seq-indexed secrets => under-scrub), and
+  sets are walked at their own path (set elements have no stable index, so
+  a whole sensitive-declared set contributes all its members).
+
+  Only governed positions contribute, and `nil` / boolean leaves are
+  skipped (a `nil`/`false` is not a secret and value-matching it would
+  scrub swathes of benign tree). Collections that ARE governed still
+  recurse so nested scalars under a sensitive subtree are all collected."
+  [acc! node path sensitive-prefixes]
   (let [governed? (some #(under-prefix? % path) sensitive-prefixes)]
-    (when (and (not governed?) (contains? candidates node))
+    (when (and governed?
+               (not (coll? node))
+               (not (nil? node))
+               (not (boolean? node)))
       (conj! acc! node))
     (cond
       (map? node)
       (reduce-kv (fn [a k v]
-                   (collect-public-values! a k path sensitive-prefixes candidates)
-                   (collect-public-values! a v (conj path k) sensitive-prefixes candidates))
+                   (collect-governed-values! a v (conj path k) sensitive-prefixes))
                  acc! node)
 
       (vector? node)
-      (reduce (fn [a i] (collect-public-values! a (nth node i) (conj path i)
-                                                sensitive-prefixes candidates))
+      (reduce (fn [a i] (collect-governed-values! a (nth node i) (conj path i)
+                                                  sensitive-prefixes))
               acc! (range (count node)))
 
-      (or (set? node) (seq? node))
-      ;; Sets / seqs have no stable path segment for elements, so we walk
-      ;; them at the SAME path (the collection's own position). Membership
-      ;; is what matters for value-aliasing, not the index.
-      (reduce (fn [a x] (collect-public-values! a x path sensitive-prefixes candidates))
+      (seq? node)
+      (let [idx (volatile! -1)]
+        (reduce (fn [a x]
+                  (collect-governed-values! a x (conj path (vswap! idx inc))
+                                            sensitive-prefixes))
+                acc! node))
+
+      (set? node)
+      ;; Sets have no stable element index; walk members at the set's own
+      ;; path so a sensitive-declared set contributes every member.
+      (reduce (fn [a x] (collect-governed-values! a x path sensitive-prefixes))
               acc! node)
 
       :else
       acc!)))
 
+(defn- collect-wire-values!
+  "Walk the POST-elision `node`, conj!ing onto transient set `acc!` every
+  value (intermediate collections AND leaves) that is `=` to a candidate
+  secret. `node` is the elided `:app-db` — the actual wire bytes — so any
+  candidate found here is one the path-based `:app-db` egress ships
+  VERBATIM. Returns `acc!`.
+
+  Because the input is already elided, every `:sensitive?` slot is the
+  `:rf/redacted` sentinel and every `:large?` (or auto-detected) slot is
+  the `:rf.size/large-elided` marker — the secret value simply is not
+  present at any governed position, so there is no path-shape reasoning to
+  get right (no prefix walk, no seq-index correction). Membership is the
+  only question; map keys, vector elements, and set/seq elements are all
+  walked, since a candidate aliased to ANY surviving wire position is
+  disclosed."
+  [acc! node candidates]
+  (when (contains? candidates node)
+    (conj! acc! node))
+  (cond
+    (map? node)
+    (reduce-kv (fn [a k v]
+                 (collect-wire-values! a k candidates)
+                 (collect-wire-values! a v candidates))
+               acc! node)
+
+    (coll? node)
+    (reduce (fn [a x] (collect-wire-values! a x candidates))
+            acc! node)
+
+    :else
+    acc!))
+
 (defn- sensitive-values
   "The set of live values sitting at `variant-id`'s declared-`:sensitive?`
-  app-db paths, read out of `app-db`. Used to value-redact derived trees
-  (rendered hiccup, effective-args, snapshot) where the same value
+  app-db paths, read out of the RAW `app-db`. Used to value-redact derived
+  trees (rendered hiccup, effective-args, snapshot) where the same value
   reappears at a non-app-db path the path-based walker can't reach.
 
   Refreshes the schema-owned declarations first (the elision registry is
@@ -201,7 +252,7 @@
   or `false` leaf is not a secret and value-matching them would scrub
   swathes of benign tree.
 
-  ## Non-unique-secret guard (rf2-g7cd1)
+  ## Non-unique-secret guard (rf2-g7cd1, hardened rf2-f3kf7)
 
   Value-based redaction is a heuristic: it substitutes EVERY derived-tree
   leaf `=` a sensitive value. When a sensitive path holds a short/common
@@ -209,31 +260,51 @@
   every benign leaf that merely happens to equal it — degrading the
   agent's view AND leaking the secret's value-CLASS.
 
-  The guard subtracts any candidate value that ALSO appears at a
-  NON-sensitive app-db position. Such a value is provably NOT a protected
-  secret: `elide-app-db` (path-based) ships it VERBATIM in the `:app-db`
-  slot via that non-sensitive path, so it is already disclosed on the
-  wire. Removing it from the derived-tree secret set therefore leaks
-  nothing new — the fail-SAFE invariant (never leak a genuine secret)
-  holds by construction. A value that appears ONLY under sensitive paths
-  stays in the set and is still redacted everywhere (no under-scrub); the
-  irreducible same-value aliasing case (a uniquely-secret short scalar)
-  still over-scrubs — that residual is fail-SAFE, never under-safe."
+  The guard subtracts any candidate value that ALSO appears, VERBATIM, on
+  the wire — i.e. in the POST-elision `:app-db` (`elide-app-db` of the raw
+  db). Such a value is provably NOT a protected secret: the path-based
+  `:app-db` egress already discloses it, so removing it from the
+  derived-tree secret set leaks nothing new — the fail-SAFE invariant
+  (never leak a genuine secret) holds by construction.
+
+  Classifying against the elided db (rather than the raw db) is the
+  correction for rf2-f3kf7: the original guard walked the RAW db, so a
+  secret that ALSO lived under a `:large?`-declared non-sensitive path was
+  seen at that position and dropped from the secret set — yet
+  `elide-app-db` replaces a `:large?` slot with the `:rf.size/large-elided`
+  marker, so the secret was NOT on the wire and then leaked VERBATIM into
+  the derived trees. Reasoning against the actual wire bytes closes that
+  hole AND is robust to any future elision class (digests, new markers,
+  the string auto-detect threshold), not just `:large?` — and it subsumes
+  the seq-indexed `:sensitive?` edge (an indexed element redacted by
+  `elide-wire-value` simply does not appear in the elided db).
+
+  A value that survives ONLY under sensitive / large positions (so is
+  absent from the elided db) stays in the set and is redacted everywhere
+  (no under-scrub); the irreducible same-value aliasing case (a
+  uniquely-secret short scalar) still over-scrubs — that residual is
+  fail-SAFE, never under-safe."
   [app-db variant-id]
   (refresh-elision-from-schemas! variant-id)
   (let [decls              (rf/elision-sensitive-declarations variant-id)
         sensitive-prefixes (mapv vec (keys decls))
-        candidates         (into #{}
-                                 (comp (map (fn [path] (get-in app-db path ::absent)))
-                                       (remove #(or (= ::absent %) (nil? %) (boolean? %))))
-                                 sensitive-prefixes)]
+        ;; Collect candidate secrets by WALKING the raw db at governed
+        ;; positions (mirroring the elider's indexing) rather than reading
+        ;; each declared path with `get-in` — `get-in` cannot index into a
+        ;; seq, so seq-indexed declarations (`[:tokens 0]`) would otherwise
+        ;; silently yield no candidate and the secret would leak.
+        candidates         (persistent!
+                             (collect-governed-values! (transient #{}) app-db []
+                                                        sensitive-prefixes))]
     (if (empty? candidates)
       #{}
-      (let [public (persistent!
-                     (collect-public-values! (transient #{}) app-db []
-                                              sensitive-prefixes candidates))]
-        ;; Keep only candidates that appear EXCLUSIVELY under sensitive
-        ;; paths — those are the genuinely-secret values.
+      ;; Classify "public" against the actual wire bytes: the elided
+      ;; app-db. A candidate present here is shipped verbatim by the
+      ;; :app-db egress (already disclosed) so it is dropped; one that is
+      ;; absent (redacted / elided away) stays redacted in derived trees.
+      (let [wire   (rf/elide-wire-value app-db {:frame variant-id})
+            public (persistent!
+                     (collect-wire-values! (transient #{}) wire candidates))]
         (into #{} (remove public) candidates)))))
 
 (defn- redact-matching
