@@ -127,11 +127,10 @@
     (when (pos? n)
       (let [first-el (nth focusables 0)
             last-el  (nth focusables (dec n))
-            idx      (loop [i 0]
-                       (cond
-                         (= i n)                  nil
-                         (= active (nth focusables i)) i
-                         :else                    (recur (inc i))))]
+            ;; index of `active` within the cycle, or nil when focus
+            ;; sits outside the focusable set.
+            idx      (first (keep-indexed (fn [i el] (when (= active el) i))
+                                          focusables))]
         (cond
           ;; focus outside the cycle → pull to the boundary
           (nil? idx)              (if shift? last-el first-el)
