@@ -41,10 +41,42 @@
 ;; rest fall back to the EDN text. The two slots always agree on the
 ;; payload by construction — same `v`, two projections.
 ;;
-;; The `:structuredContent` value is `clj->js v` — a JSON-coercible
-;; projection (keywords lose their `:`, sets become arrays, etc.).
-;; The text slot remains the source of truth for cljs-readable round-
-;; trip; the structured slot is the SDK-friendly view.
+;; The `:structuredContent` value is a JSON-coercible projection of `v`
+;; (keywords lose their `:`, sets become arrays, etc.). The text slot
+;; remains the source of truth for the cljs-readable round-trip; the
+;; structured slot is the SDK-friendly view.
+;;
+;; ## Namespaced keywords keep their namespace (rf2-t2n04)
+;;
+;; A bare `(clj->js v)` is namespace-LOSSY in two compounding ways, and
+;; both silently corrupt key-bearing reads:
+;;
+;;   - For MAP KEYS, `clj->js`'s default `:keyword-fn` is `name`, which
+;;     drops the namespace: `:rf/runtime` → `"runtime"`, not `"rf/runtime"`.
+;;   - For keyword VALUES, `clj->js` ALWAYS uses `(name v)` (the
+;;     `:keyword-fn` option is consulted for keys ONLY), so machine-id
+;;     values `:door/main :traffic/light` collapse to `"main" "light"`.
+;;
+;; The damage is not cosmetic: a `snapshot` whose `(keys app-db)` carries
+;; `:rf/runtime` projects to the name-only `"runtime"`, so an agent that
+;; reads the structured slot and threads `[:runtime ...]` back through
+;; `get-path` hits `nil` — the real key is `:rf/runtime`. (This sent a
+;; live 2026-06-04 session down a false "snapshots are empty" path.)
+;; Same defect class as the machines-viz `:door/open` → `"open"` tag
+;; truncation (#2922): stringify keywords to their FULLY-QUALIFIED form
+;; at the `clj->js` boundary so the namespace survives.
+;;
+;; The fix pre-walks `v`, replacing every keyword (key OR value) with
+;; `(str (symbol kw))` — the colon-less fully-qualified token
+;; (`:rf/runtime` → `"rf/runtime"`, `:ok?` → `"ok?"`) — BEFORE `clj->js`
+;; sees it. `clj->js` then only structurally coerces the (now
+;; keyword-free) tree; sets/vectors/maps coerce exactly as before. This
+;; is also what the spec's documented projection already PROMISED —
+;; `:structuredContent` "drops the leading colon — ["rf/default"]"
+;; (003-Tool-Catalogue §Id representation, rf2-cg37y); the code was
+;; merely failing to honour its own contract. The EDN text slot
+;; (`pr-str v`) is untouched: it stays the canonical, fully-typed,
+;; cljs-`read`-able round-trip.
 ;;
 ;; ## structuredContent must never be `null` (rf2-r5erl)
 ;;
@@ -78,22 +110,66 @@
   sentinel and know the payload was empty."
   {"rf.mcp/null" true})
 
+(defn- qualify-keywords
+  "Recursively replace every keyword in `x` (map KEY or VALUE, at any
+  depth, in maps / vectors / lists / sets) with its colon-less
+  fully-qualified string token via `(str (symbol kw))`
+  (`:rf/runtime` → `\"rf/runtime\"`, `:ok?` → `\"ok?\"`), leaving every
+  non-keyword scalar and collection structure otherwise intact.
+
+  Applied to a payload BEFORE `clj->js` so the structured projection
+  preserves keyword namespaces (rf2-t2n04). `clj->js`'s built-in
+  keyword handling is namespace-lossy for both keys (default
+  `:keyword-fn` is `name`) and values (always `name`); pre-stringifying
+  here is the single point that closes both holes. `clj->js` then sees
+  no keywords and only coerces the surrounding structure
+  (vectors → arrays, sets → arrays, maps → objects) unchanged.
+
+  `(symbol kw)` carries the namespace into the symbol's `str`
+  (`(str (symbol :a/b))` ⇒ `\"a/b\"`); a bare `(name kw)` would drop it.
+  Hand-rolled (rather than `clojure.walk/postwalk`) so it stays a
+  dependency-free, allocation-frugal single pass that touches only the
+  collection branches that can contain keywords."
+  [x]
+  (cond
+    (keyword? x) (str (symbol x))
+    (map? x)     (persistent!
+                  (reduce-kv (fn [m k v]
+                               (assoc! m (qualify-keywords k) (qualify-keywords v)))
+                             (transient {})
+                             x))
+    (set? x)     (into #{} (map qualify-keywords) x)
+    (vector? x)  (mapv qualify-keywords x)
+    (seq? x)     (map qualify-keywords x)
+    :else        x))
+
 (defn- structured-of
   "Project `v` to the `:structuredContent` JS value, guaranteeing a
-  non-null record (rf2-r5erl). `(clj->js v)` is `null` exactly when
-  `v` is `nil`; substitute the `:rf.mcp/null` sentinel object so the
-  SDK's outputSchema validation (which requires an object) never
-  rejects the result at the transport layer."
+  non-null record (rf2-r5erl) AND preserving keyword namespaces
+  (rf2-t2n04).
+
+  Keyword namespaces are kept by pre-walking `v` through
+  `qualify-keywords` before `clj->js` — a bare `clj->js` drops the
+  namespace on both map keys and keyword values. The EDN `:content`
+  text slot (`pr-str v`) is the namespace-faithful canonical form;
+  this slot is the SDK-friendly mirror.
+
+  `(clj->js v)` is `null` exactly when `v` is `nil`; substitute the
+  `:rf.mcp/null` sentinel object so the SDK's outputSchema validation
+  (which requires an object) never rejects the result at the transport
+  layer."
   [v]
   (if (nil? v)
     (clj->js null-structured-sentinel)
-    (let [sc (clj->js v)]
+    (let [sc (clj->js (qualify-keywords v))]
       ;; clj->js of a non-nil scalar can still be a JS primitive (a
       ;; number / string / boolean), which is also not a record. Wrap
       ;; any non-object projection in the sentinel-shaped envelope so
       ;; the slot is always object-typed. (Tool payloads are maps in
-      ;; practice; this is the total-function backstop.)
-      (if (object? sc) sc (clj->js {"rf.mcp/value" v})))))
+      ;; practice; this is the total-function backstop.) The wrapped
+      ;; value reuses the keyword-qualified projection so a bare-keyword
+      ;; payload keeps its namespace inside the envelope too.
+      (if (object? sc) sc (clj->js {"rf.mcp/value" (qualify-keywords v)})))))
 
 (defn ok-text
   "Success result envelope. Always emits both `:content` (the
