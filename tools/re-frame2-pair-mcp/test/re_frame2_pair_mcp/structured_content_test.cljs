@@ -41,8 +41,9 @@
       (is (some? (j/get result :structuredContent))
           "the :structuredContent slot is present (rf2-hj3pi)")
       ;; The structured slot should be a JS object whose shape mirrors
-      ;; the input. Keywords lose their `:` prefix and become bare keys
-      ;; under clj->js (JSON-coercible projection).
+      ;; the input. Keywords lose their `:` prefix in the JSON-coercible
+      ;; projection but KEEP their namespace (rf2-t2n04 — `:rf/x` →
+      ;; "rf/x"); plain keys like `:ok?` become the bare "ok?".
       (is (object? (j/get result :structuredContent))
           ":structuredContent is a JS object")
       (is (= true (j/get-in result [:structuredContent :ok?]))
@@ -134,3 +135,67 @@
             (str "scalar " (pr-str v) " must wrap to an object structuredContent"))
         (is (= (pr-str v) (content-text result))
             "the EDN text slot still carries the verbatim scalar")))))
+
+;; ---------------------------------------------------------------------------
+;; Namespaced keywords keep their namespace over the wire (rf2-t2n04).
+;;
+;; A bare `(clj->js v)` is namespace-lossy: the default `:keyword-fn` for
+;; map KEYS is `name` (`:rf/runtime` → `"runtime"`), and keyword VALUES
+;; always go through `name` too (`:door/main` → `"main"`). Both drop the
+;; namespace AND the colon, so an agent reading the structured slot then
+;; threading the name-only key back through `get-path` hits `nil`. The
+;; fix stringifies every keyword to its colon-less fully-qualified token
+;; (`"rf/runtime"`) before `clj->js`. The EDN text slot stays the
+;; namespace-faithful, fully-typed canonical round-trip.
+;; ---------------------------------------------------------------------------
+
+(deftest namespaced-keyword-map-key-keeps-namespace-in-structured-slot
+  (testing "a namespaced map KEY survives to the structured slot as ns/name (rf2-t2n04)"
+    (let [payload {:rf/runtime {:loaded? true} :step 3}
+          result  (wire/ok-text payload)]
+      ;; The structured slot key must be the fully-qualified token, NOT
+      ;; the name-only "runtime" the old clj->js produced.
+      (is (some? (j/get-in result [:structuredContent "rf/runtime"]))
+          ":rf/runtime serialises to the \"rf/runtime\" key, not \"runtime\"")
+      (is (nil? (j/get-in result [:structuredContent "runtime"]))
+          "the name-only \"runtime\" key must NOT appear (the lossy old shape)")
+      (is (= true (j/get-in result [:structuredContent "rf/runtime" "loaded?"]))
+          "nested values under the namespaced key still round-trip")
+      ;; A plain (un-namespaced) key keeps its bare name.
+      (is (= 3 (j/get-in result [:structuredContent "step"]))
+          "plain keys remain bare-named")
+      ;; The EDN text slot is the canonical fully-typed form, unchanged.
+      (is (= (pr-str payload) (content-text result))
+          "the EDN text slot carries the verbatim namespace-faithful EDN"))))
+
+(deftest namespaced-keyword-values-keep-namespace-in-structured-slot
+  (testing "namespaced keyword VALUES (e.g. machine-ids) keep their namespace (rf2-t2n04)"
+    ;; clj->js's :keyword-fn applies to KEYS only; keyword values always
+    ;; went through `name`. This pins the value path too.
+    (let [payload {:machine-ids [:door/main :traffic/light :quiz/scorer]
+                   :current     :door/open}
+          result  (wire/ok-text payload)
+          ids     (js->clj (j/get-in result [:structuredContent "machine-ids"]))]
+      (is (= ["door/main" "traffic/light" "quiz/scorer"] ids)
+          "namespaced keyword values serialise as ns/name, not the truncated name")
+      (is (= "door/open" (j/get-in result [:structuredContent "current"]))
+          "a scalar namespaced keyword value keeps its namespace")
+      (is (= (pr-str payload) (content-text result))
+          "EDN text slot unchanged — the canonical round-trip"))))
+
+(deftest namespaced-keyword-round-trips-through-the-structured-slot
+  (testing "reading the structured-slot token back yields the original keyword (rf2-t2n04)"
+    ;; The whole point: an agent that reads the structured slot can
+    ;; reconstruct the exact key it must thread back into get-path.
+    (doseq [kw [:rf/runtime :door/open :examples/step-deck]]
+      (let [payload {kw 1}
+            result  (wire/ok-text payload)
+            ;; The structured key is the colon-less fully-qualified token.
+            token   (-> (j/get result :structuredContent)
+                        js/Object.keys
+                        (aget 0))]
+        (is (= (str (symbol kw)) token)
+            (str kw " serialises to its colon-less fully-qualified token"))
+        ;; Round-trip: prefixing a colon reads back to the original kw.
+        (is (= kw (keyword token))
+            (str "(keyword \"" token "\") reconstructs " kw))))))
