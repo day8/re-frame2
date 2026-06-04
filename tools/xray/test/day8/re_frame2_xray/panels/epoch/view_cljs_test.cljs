@@ -1506,15 +1506,19 @@
       (is (nil? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-trigger-1"))
           "the redundant echoed `event [...]` line is gone"))))
 
-;; ---- rf2-iu3no — the benign no-op collapses to `[NO OP] staying in {state}` --
+;; ---- rf2-yueoa — the no-op renders `[TRANSITION] [NO OP] staying in {state}` --
+;; (rf2-iu3no established the collapsed verb + dropped ordinal + no outcome
+;; chip; rf2-yueoa adds the `[TRANSITION]` badge in FRONT of a `[NO OP]`
+;; qualifier — a no-op is still the transition STEP of the cascade.)
 
 (deftest machine-handler-cascade-no-op-row-collapses-test
-  (testing "rf2-iu3no — a SINGLE-machine genuine no-op row renders the
-            `NO OP` kind-pill (the SOLE marker) + the verb `staying in
-            {state}`, drops the unexplained leading ordinal '1', and
-            carries NO outcome chip. RED before the fix: a `1` ordinal +
-            a `no-op — … received … no transition` verb + an `ignored`
-            outcome chip — four restatements of one fact."
+  (testing "rf2-yueoa — a SINGLE-machine genuine no-op row renders the SAME
+            `[TRANSITION]` badge a real transition uses, PLUS a `[NO OP]`
+            QUALIFIER chip (NOT a bare NO-OP row), then the verb `staying in
+            {state}`: `[TRANSITION] [NO OP] staying in {state}`. The
+            unexplained leading ordinal '1' stays dropped (rf2-iu3no) and the
+            row carries NO outcome chip. RED before rf2-yueoa: a bare `[NO OP]`
+            kind pill with no `[TRANSITION]` badge."
     (let [step {:step :handler :badge :HANDLER :step-number 3
                 :flavour :reg-machine :event-id :door/main
                 :fx []
@@ -1527,13 +1531,28 @@
           tree (view/render-handler-step step)]
       (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-row-1"))
           "the no-op row renders")
-      ;; The `[NO OP]` pill is the sole marker.
-      (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-kind-no-op"))
-          "the NO OP kind-pill is present")
-      (is (string/includes? (text-of tree "rf-xray-epoch-machine-cascade-kind-no-op")
-                            "NO OP")
-          "the pill reads `NO OP` (space, not hyphen)")
-      ;; The stray leading "1" ordinal is SUPPRESSED for the no-op.
+      ;; rf2-yueoa — the `[TRANSITION]` badge renders exactly as a real
+      ;; transition's, using the SAME kind-pill (testid + magenta hue). It is
+      ;; NOT a bare `[NO OP]` kind pill any more.
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-kind-transition"))
+          "the no-op row carries the `[TRANSITION]` badge a real transition uses")
+      (is (= "TRANSITION"
+             (text-of tree "rf-xray-epoch-machine-cascade-kind-transition"))
+          "the badge reads `TRANSITION`")
+      (is (= (badge/cascade-kind-colour :transition)
+             (:background (style-of tree "rf-xray-epoch-machine-cascade-kind-transition")))
+          "the `[TRANSITION]` badge paints the SAME magenta hue a real transition does")
+      ;; rf2-yueoa — the `[NO OP]` QUALIFIER chip follows the badge (a separate
+      ;; testid from a kind pill — it is a qualifier on the transition step,
+      ;; not the row's kind). The old bare `…-kind-no-op` pill is GONE.
+      (is (nil? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-kind-no-op"))
+          "no bare `[NO OP]` kind pill — the qualifier carries the NO-OP marker now")
+      (is (some? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-no-op-qualifier"))
+          "the `[NO OP]` qualifier chip is present")
+      (is (= "NO OP"
+             (text-of tree "rf-xray-epoch-machine-cascade-no-op-qualifier"))
+          "the qualifier reads `NO OP` (space, not hyphen)")
+      ;; The stray leading "1" ordinal is SUPPRESSED for the no-op (rf2-iu3no).
       (is (nil? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-ordinal-1"))
           "the unexplained leading '1' ordinal is dropped for the no-op row")
       ;; The verb is the consequence only: `staying in :alarming`.
@@ -1545,7 +1564,7 @@
         (is (not (string/includes? verb "transition")) "no ', no transition' suffix"))
       ;; NO outcome chip — the prior `ignored` chip is gone.
       (is (nil? (th/find-by-testid tree "rf-xray-epoch-machine-cascade-outcome-ignored"))
-          "no `ignored` outcome chip — the pill + verb are the whole notice"))))
+          "no `ignored` outcome chip — the badge + qualifier + verb are the whole notice"))))
 
 (deftest machine-handler-cascade-multi-machine-no-op-keeps-name-test
   (testing "rf2-iu3no — when >1 machine is in play (broadcast / parallel

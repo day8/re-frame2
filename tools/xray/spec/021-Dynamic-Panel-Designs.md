@@ -1515,24 +1515,43 @@ start is a pure init-kick that never reaches the no-op site as a trigger),
 so this row never stands in for a machine's birth. It ranks WITH the
 `:transition` slot (it stands
 in for "the state change that did not happen") and renders, collapsed to
-the **CONSEQUENCE only** (rf2-iu3no): a muted (`:text-tertiary`) **`NO OP`**
-kind pill as the SOLE marker, plus the verb **`staying in {state}`** — the
-machine matched no transition, so its state is unchanged. The earlier
-rf2-ugdas sentence (`no-op — <machine> received <event> in <state>, no
-transition`) stacked the pill + a `no-op —` prefix + an event echo + a
-`, no transition` suffix — four restatements of one fact; it is collapsed
-away. The focused-epoch **Event header already names the event**, so the
-verb does not echo it; the cascade is a SINGLE muted row, so its `1..N`
-left-rail step ordinal is **suppressed** (it read as an unexplained
-leading "1"); and the row carries **NO outcome chip** (the prior `ignored`
-chip was a third restatement). The **machine name is kept ONLY when >1
-machine is in play this epoch** (a broadcast event hitting parallel regions
-/ sibling machines) so the operator can tell WHICH machine stood pat —
-`machine-cascade-rows` stamps `:show-machine-name?` on the no-op row when
-the cascade spans more than one distinct `:machine-id`; the single-machine
-case drops it (the EVENT HANDLER section names the lone machine above), so
-the multi-machine render reads `[NO OP] :hvac/controller staying in
-{state}`. This is explicitly NOT the red exception card and NOT pink.
+the **CONSEQUENCE only** (rf2-iu3no), as **`[TRANSITION] [NO OP] staying in
+{state}`** (rf2-yueoa). A no-op is still the **TRANSITION step** of the
+cascade — a transition was ATTEMPTED (the door's `:may-close?` guard failed,
+or the event matched no transition); it just produced no state change — so
+the row carries the **SAME filled magenta `[TRANSITION]` badge a real
+transition row uses** (`cascade-kind-pill :transition` — identical chrome +
+hue + testid `rf-xray-epoch-machine-cascade-kind-transition`), then a
+**`[NO OP]` QUALIFIER** chip that marks "this transition step resulted in no
+state change", then the verb **`staying in {state}`** — the machine matched
+no transition, so its state is unchanged. The qualifier is an OUTLINED muted
+(`:text-tertiary`) chip — a refinement on the solid badge beside it, not a
+second filled kind pill — reusing the `badge/cascade-kind-label :no-op`
+string (`NO OP`, space not hyphen — rf2-iu3no) and the same outlined-marker
+grammar skmc7's `[NO-OP]` uses in the Machine tab's focused-event header. It
+carries the testid `rf-xray-epoch-machine-cascade-no-op-qualifier` (distinct
+from a kind pill — it qualifies the transition step, it is NOT the row's
+kind). The earlier rf2-yueoa-predecessor (rf2-iu3no) rendered a BARE `[NO
+OP]` kind pill as the sole marker — but a bare no-op row dropped the
+`[TRANSITION]` reading, making the no-op look like a different KIND of step
+rather than a transition that produced nothing; rf2-yueoa restores the
+`[TRANSITION]` badge so the row reads consistently with a real transition
+(badge first, then the qualifier). The earlier rf2-ugdas sentence (`no-op —
+<machine> received <event> in <state>, no transition`) stacked a pill + a
+`no-op —` prefix + an event echo + a `, no transition` suffix — four
+restatements of one fact; it stays collapsed away. The focused-epoch **Event
+header already names the event**, so the verb does not echo it; the cascade
+is a SINGLE row, so its `1..N` left-rail step ordinal is **suppressed**
+(rf2-iu3no — it read as an unexplained leading "1"); and the row carries
+**NO outcome chip** (the prior `ignored` chip was a third restatement). The
+**machine name is kept ONLY when >1 machine is in play this epoch** (a
+broadcast event hitting parallel regions / sibling machines) so the operator
+can tell WHICH machine stood pat — `machine-cascade-rows` stamps
+`:show-machine-name?` on the no-op row when the cascade spans more than one
+distinct `:machine-id`; the single-machine case drops it (the EVENT HANDLER
+section names the lone machine above), so the multi-machine render reads
+`[TRANSITION] [NO OP] :hvac/controller staying in {state}`. This is
+explicitly NOT the red exception card and NOT pink.
 Because its trace op-type is `:rf.machine`
 (machine-activity, not a severity), the L2 pink-wash / issues-ribbon
 `issue-event?` predicate does not match it, so the event row stays
@@ -1565,10 +1584,17 @@ rather than collapsing to a plain `reg-event-db` handler.
   Suppressed for the single-row `:no-op` notice (rf2-iu3no — the lone
   "1" was unexplained noise).
 - **Kind pill / merged action badge** — colour-coded. For `:guard` /
-  `:transition` / `:timer` / `:no-op` / `:start` it is a single KIND pill
+  `:transition` / `:timer` / `:start` it is a single KIND pill
   (`badge/cascade-kind-label` — see `badge.cljc` for the hue assignments;
-  the `:no-op` pill reads `NO OP` (space, not hyphen — rf2-iu3no); the
-  `:start` pill reads `START` in the `:success` (green) tone, rf2-it4vt).
+  the `:start` pill reads `START` in the `:success` (green) tone, rf2-it4vt).
+  **A `:no-op` row carries the `[TRANSITION]` KIND pill PLUS a `[NO OP]`
+  QUALIFIER** (rf2-yueoa): a no-op is still the transition STEP of the
+  cascade, so it renders the SAME magenta `[TRANSITION]` pill a real
+  transition uses, followed by an OUTLINED muted `[NO OP]` qualifier chip
+  (`cascade-no-op-qualifier`, testid `…-no-op-qualifier`, reusing the
+  `badge/cascade-kind-label :no-op` `NO OP` string — space not hyphen,
+  rf2-iu3no) — reading `[TRANSITION] [NO OP] staying in {state}`, NOT a bare
+  `[NO OP]` row.
   **For `:action` rows the KIND pill + the separate phase chip MERGE into
   ONE descriptive badge** (rf2-2hj0h item 5 — `badge/cascade-action-badge-
   label`): `[EXIT ACTION]` / `[ENTRY ACTION]` / `[TRANSITION ACTION]` /
