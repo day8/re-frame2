@@ -1181,7 +1181,9 @@
 (deftest navigate-url-form-unmatched-routes-to-not-found
   (testing ":rf.route/navigate with an unmatched {:url ...} target lands on
             :rf.route/not-found carrying {:url url} in :params, and pushes
-            the not-found route's URL"
+            the REQUESTED url (NOT the not-found route's literal /404) so
+            the address bar keeps the URL the caller aimed at — consistent
+            with the URL-driven not-found path (rf2-0zr2o, Option A)"
     (rf/reg-route :route/home {:path "/"})
     (rf/reg-route :rf.route/not-found {:path "/404"})
     (let [pushed (atom [])]
@@ -1196,15 +1198,19 @@
             ":params carries the unmatched URL under :url")
         (is (some? (:nav-token slice))
             "a fresh nav-token is allocated for the not-found navigation"))
-      (is (= ["/404"] @pushed)
-          ":rf.nav/push-url pushed the not-found route's own URL"))))
+      (is (= ["/no/such/path"] @pushed)
+          ":rf.nav/push-url pushed the REQUESTED url — the address bar keeps
+           /no/such/path, NOT the not-found route's fabricated /404"))))
 
-(deftest navigate-url-form-unmatched-without-not-found-route-rejects
+(deftest navigate-url-form-unmatched-without-not-found-route-commits-and-warns
   (testing "unmatched {:url ...} target with NO :rf.route/not-found route
-            registered REJECTS — route-url throws :no-such-route for the
-            unregistered :rf.route/not-found id, the navigate handler catches
-            it and emits :rf.error/schema-validation-failure (:where :event),
-            leaving the slice unchanged and pushing nothing"
+            registered still COMMITS the not-found slice, pushes the
+            REQUESTED url, and emits :rf.warning/no-not-found-route — it does
+            NOT reject. Mirrors the URL-driven path (url-change-fx), which
+            warns + commits rather than throwing. Pre-rf2-0zr2o this branch
+            called route-url on the unregistered :rf.route/not-found id,
+            which threw :no-such-route and rejected; pushing the requested
+            url verbatim removes that route-url call entirely (Option A)."
     ;; NB: kept a SEPARATE deftest from the registered-not-found case above
     ;; — the per-deftest fixture gives this a clean registrar with NO
     ;; :rf.route/not-found, which is exactly the condition under test.
@@ -1214,24 +1220,79 @@
       (rf/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
-      ;; Land on home so we have a slice to prove untouched.
+      ;; Land on home so the not-found commit displaces a known slice.
       (rf/dispatch-sync [:rf.route/navigate :route/home])
       (reset! pushed [])
-      (let [before (get-in (rf/app-db-value :rf/default) [:rf/runtime :routing :current])]
-        (rf/register-listener! ::nav-nf-reject (fn [ev] (swap! traces conj ev)))
-        (rf/dispatch-sync [:rf.route/navigate {:url "/no/such/path"}])
-        (rf/unregister-listener! ::nav-nf-reject)
-        (is (= before (get-in (rf/app-db-value :rf/default) [:rf/runtime :routing :current]))
-            "slice unchanged — no :rf.route/not-found route means route-url
-             throws :no-such-route, the navigate handler rejects")
-        (is (empty? @pushed)
-            "rejected navigation pushes no URL")
-        (let [err (first (filter #(= :rf.error/schema-validation-failure (:operation %))
-                                 @traces))]
-          (is (some? err)
-              "the caught route-url throw surfaces as :rf.error/schema-validation-failure")
-          (is (= :event (-> err :tags :where))
-              "the error tags :where :event (event-boundary path)"))))))
+      (rf/register-listener! ::nav-nf-warn (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:rf.route/navigate {:url "/no/such/path"}])
+      (rf/unregister-listener! ::nav-nf-warn)
+      (let [slice (get-in (rf/app-db-value :rf/default) [:rf/runtime :routing :current])]
+        (is (= :rf.route/not-found (:id slice))
+            "slice commits to :rf.route/not-found even with no such route
+             registered — consistent with the URL-driven path")
+        (is (= {:url "/no/such/path"} (:params slice))
+            ":params carries the unmatched URL under :url"))
+      (is (= ["/no/such/path"] @pushed)
+          ":rf.nav/push-url pushed the REQUESTED url verbatim — NOT a
+           fabricated /404, and no rejection")
+      (is (some (fn [ev] (= :rf.warning/no-not-found-route (:operation ev)))
+                @traces)
+          ":rf.warning/no-not-found-route fires when no 404 route is
+           registered — same signal as the URL-driven path")
+      (is (not-any? (fn [ev]
+                      (= :rf.error/schema-validation-failure (:operation ev)))
+                    @traces)
+          "no schema-validation-failure error — the unmatched path no longer
+           rejects via a route-url throw"))))
+
+;; ---- rf2-0zr2o: programmatic-miss and URL-driven-miss agree on the URL ----
+;;
+;; The two not-found entry points must keep the same URL in the address bar.
+;; PROGRAMMATIC `navigate {:url <miss>}` pushes the REQUESTED url (Option A);
+;; URL-DRIVEN `:rf.route/transitioned <miss>` emits NO push (the URL already
+;; changed via link/popstate). This regression pins both halves in one test
+;; so a future refactor cannot drift the programmatic path back to /404 or
+;; sneak a push onto the URL-driven path.
+
+(deftest not-found-address-bar-parity-programmatic-vs-url-driven
+  (testing "programmatic navigate to an unmatched url pushes the REQUESTED
+            url (not /404); the URL-driven not-found path stays unchanged
+            (emits no push) — both keep the requested url in the address bar
+            (rf2-0zr2o)"
+    (rf/reg-route :route/home {:path "/"})
+    ;; The not-found route's literal :path is /404; the fix must NOT push it.
+    (rf/reg-route :rf.route/not-found {:path "/404"})
+    (let [pushed (atom [])]
+      (rf/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}}
+                 (fn [_ url] (swap! pushed conj url)))
+
+      ;; ---- PROGRAMMATIC miss: pushes the requested url, not /404 ----
+      (rf/dispatch-sync [:rf.route/navigate {:url "/no/such/path"}])
+      (let [slice (get-in (rf/app-db-value :rf/default) [:rf/runtime :routing :current])]
+        (is (= :rf.route/not-found (:id slice))
+            "programmatic miss renders the not-found view (slice id)")
+        (is (= {:url "/no/such/path"} (:params slice))
+            "programmatic miss carries the requested url in :params"))
+      (is (= ["/no/such/path"] @pushed)
+          "programmatic miss pushes the REQUESTED url — NOT the not-found
+           route's literal /404")
+      (is (not-any? #(= "/404" %) @pushed)
+          "/404 is never pushed — the address bar is not rewritten to the
+           not-found route's own path")
+
+      ;; ---- URL-DRIVEN miss: unchanged — emits no push at all ----
+      (reset! pushed [])
+      (rf/dispatch-sync [:rf.route/transitioned "/another/miss"])
+      (let [slice (get-in (rf/app-db-value :rf/default) [:rf/runtime :routing :current])]
+        (is (= :rf.route/not-found (:id slice))
+            "URL-driven miss also renders the not-found view")
+        (is (= {:url "/another/miss"} (:params slice))
+            "URL-driven miss carries the requested url in :params"))
+      (is (empty? @pushed)
+          "URL-driven miss emits NO push — the URL already changed via
+           link/popstate, so the address bar already shows the requested url
+           (this path is unchanged by rf2-0zr2o)"))))
 
 ;; ---- pending-nav protocol: continue / cancel with NO pending slot --------
 ;;
