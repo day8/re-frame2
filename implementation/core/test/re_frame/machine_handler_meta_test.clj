@@ -1,29 +1,31 @@
 (ns re-frame.machine-handler-meta-test
-  "rf2-ypu5i — `:rf/guard-id` + `:rf/action-id` markers + reg-machine
-  handler-meta source capture. Per Spec 005 §Trace events — guard
-  evaluations and action runs + Xray Spec 003 §Focused-transition
-  lens (rf2-99rhe).
+  "rf2-ftrcv (supersedes rf2-ypu5i / rf2-npvsx) — machine guard/action
+  fn-source handler-meta is a GENERAL source-meta surface DERIVED from the
+  machine's `:event` registration spec, NOT a registrar kind. Per Spec 005
+  §Trace events — guard evaluations and action runs + Xray Spec 003
+  §Focused-transition lens (rf2-99rhe).
 
   The `reg-machine` macro walks the literal machine spec at expansion
-  time and captures `pr-str` of every guard / action fn-form. The
-  runtime (`core-machines/reg-machine-impl`) then writes per-(machine-
-  id, id) entries into the registrar under `:machine-guard` /
-  `:machine-action` kinds so tools can read
+  time and captures `pr-str` of every guard / action fn-form, co-locating
+  `{:fn .. :source-coords .. :source-code ..}` onto each `:guards` /
+  `:actions` entry. `reg-machine*` stores the whole stamped spec under
+  `:rf/machine` in the machine's `:event` registration. Tools read
 
       (rf/handler-meta :machine-guard  [<machine-id> <guard-id>])
       (rf/handler-meta :machine-action [<machine-id> <action-id>])
 
-  Each entry carries `:rf/guard-id` / `:rf/action-id` (the bare id),
-  `:rf/machine-id` (the scoping machine), `:rf.handler/source` (the
-  `pr-str` of the literal fn-form), `:handler-fn` (the actual
-  function), and `:ns` / `:line` / (`:column`) / `:file` from the
-  per-element coord walker.
+  which DERIVES the meta on demand from that `:event` spec — there is NO
+  `:machine-guard` / `:machine-action` registrar kind (the addressing is
+  unchanged; only the storage moved). Each derived meta carries
+  `:rf/guard-id` / `:rf/action-id` (the bare id), `:rf/machine-id` (the
+  scoping machine), `:rf.handler/source` (the `pr-str` of the literal
+  fn-form), `:handler-fn` (the actual function), and `:ns` / `:line` /
+  (`:column`) / `:file` from the per-element coord walker.
 
-  Production-elision (rf2-npvsx): the whole capture-and-write path is
-  gated on `re-frame.interop/debug-enabled?`; under `:advanced` +
-  `goog.DEBUG=false` the macro emits co-located `:guards` / `:actions`
-  entries with NO `:source-code` slot, so the runtime's registrar writes
-  no-op."
+  Production-elision (rf2-ftrcv): the derivation is gated on
+  `re-frame.interop/debug-enabled?`; under `:advanced` + `goog.DEBUG=false`
+  the macro emits co-located `:guards` / `:actions` entries with NO
+  `:source-code` slot, so the derivation returns nil."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
@@ -50,14 +52,66 @@
 
 (use-fixtures :each reset-runtime)
 
-;; ---- the new registrar kinds are well-formed -----------------------------
+;; ---- the registrar kind set is the clean ten -----------------------------
 
-(deftest registrar-kinds-include-machine-guard-and-action
-  (testing "rf2-ypu5i: `:machine-guard` and `:machine-action` are valid registrar kinds"
-    (is (contains? registrar/kinds :machine-guard))
-    (is (contains? registrar/kinds :machine-action))
-    (is (registrar/valid-kind? :machine-guard))
-    (is (registrar/valid-kind? :machine-action))))
+(deftest registrar-kinds-are-the-clean-ten
+  (testing "rf2-ftrcv: `:machine-guard` / `:machine-action` are NOT registrar kinds"
+    (is (= #{:event :sub :fx :cofx :view :frame :route :head
+             :error-projector :flow}
+           registrar/kinds)
+        "registrar/kinds is the canonical ten — no machine *registration* kinds")
+    (is (not (registrar/valid-kind? :machine-guard))
+        "(valid-kind? :machine-guard) = false")
+    (is (not (registrar/valid-kind? :machine-action))
+        "(valid-kind? :machine-action) = false"))
+  (testing "rf2-ftrcv: registering a machine writes NO :machine-guard / :machine-action registrar entry"
+    (rf/reg-machine :rf2-ftrcv/no-side-table
+      {:initial :idle
+       :guards  {:ok? (fn [_] true)}
+       :actions {:go! (fn [_] nil)}
+       :states  {:idle {:on {:e {:target :idle :guard :ok? :action :go!}}}}})
+    (is (= {} (registrar/registrations :machine-guard))
+        "no :machine-guard registrar side-table is created")
+    (is (= {} (registrar/registrations :machine-action))
+        "no :machine-action registrar side-table is created")
+    (is (nil? (registrar/lookup :machine-guard [:rf2-ftrcv/no-side-table :ok?]))
+        "registrar/lookup of the derived kind is nil — the storage moved")
+    ;; The DERIVED handler-meta addressing is unchanged — Xray + pair-MCP
+    ;; source-jump call sites still resolve through (rf/handler-meta ...).
+    (is (some? (rf/handler-meta :machine-guard [:rf2-ftrcv/no-side-table :ok?]))
+        "the (rf/handler-meta :machine-guard ...) addressing still resolves")))
+
+;; ---- the dev handler-meta addressing is unchanged ------------------------
+
+(deftest dev-handler-meta-addressing-unchanged
+  (testing "rf2-ftrcv acceptance: (rf/handler-meta :machine-guard [mid gid]) returns
+  :rf.handler/source in dev — the UNCHANGED surface Xray's GUARDS RUN lens +
+  pair-MCP source-jump read. The two machine kinds dispatch to the
+  machine-spec-derived source; the ten registrar kinds fall through to the
+  registrar lookup."
+    (rf/reg-machine :rf2-ftrcv/addressing
+      {:initial :idle
+       :guards  {:token? (fn [{data :data}] (get-in data [:session :token]))}
+       :actions {:fetch! (fn [_ctx] {:fx [[:dispatch [:loading/complete]]]})}
+       :states  {:idle {:on {:go {:target :idle :guard :token? :action :fetch!}}}}})
+    (let [g (rf/handler-meta :machine-guard  [:rf2-ftrcv/addressing :token?])
+          a (rf/handler-meta :machine-action [:rf2-ftrcv/addressing :fetch!])]
+      (is (string? (:rf.handler/source g))
+          "dev: :machine-guard handler-meta carries :rf.handler/source")
+      (is (string? (:rf.handler/source a))
+          "dev: :machine-action handler-meta carries :rf.handler/source"))
+    (testing "the ten registrar kinds still fall through to the registrar lookup"
+      (rf/reg-event-db :rf2-ftrcv/plain-event (fn [db _] db))
+      (is (= (registrar/lookup :event :rf2-ftrcv/plain-event)
+             (rf/handler-meta :event :rf2-ftrcv/plain-event))
+          ":event handler-meta is the registrar lookup, unchanged"))
+    (testing "an unknown (machine-id, id) addresses to nil, not a throw"
+      (is (nil? (rf/handler-meta :machine-guard [:rf2-ftrcv/no-such :nope]))
+          "no :event registration → nil")
+      (is (nil? (rf/handler-meta :machine-guard [:rf2-ftrcv/addressing :no-such-guard]))
+          "absent guard id → nil")
+      (is (nil? (rf/handler-meta :machine-guard :not-a-vector))
+          "non-vector id → nil (no throw)"))))
 
 ;; ---- single guard / single action capture --------------------------------
 
@@ -161,19 +215,29 @@
       (is (str/includes? (:rf.handler/source mg) ":ready?"))
       (is (str/includes? (:rf.handler/source ma) ":dispatch")))))
 
-;; ---- registrations enumeration ------------------------------------------
+;; ---- enumeration via the :event registration spec (no side-table) --------
 
-(deftest registrations-enumerates-machine-guard-and-action-entries
-  (testing "rf2-ypu5i: `(rf/registrations :machine-guard)` returns the per-machine entries"
-    (rf/reg-machine :rf2-ypu5i/enum
+(deftest guards-and-actions-enumerable-via-event-registration-spec
+  (testing "rf2-ftrcv: the guard/action source lives on the machine's :event
+  registration spec — tools enumerate it from there, NOT from a
+  `(rf/registrations :machine-guard)` side-table (which no longer exists)"
+    (rf/reg-machine :rf2-ftrcv/enum
       {:initial :idle
        :guards  {:ok? (fn [_] true)}
        :actions {:go! (fn [_] nil)}
        :states  {:idle {:on {:e {:target :idle :guard :ok? :action :go!}}}}})
-    (let [guards  (rf/registrations :machine-guard)
-          actions (rf/registrations :machine-action)]
-      (is (contains? guards  [:rf2-ypu5i/enum :ok?]))
-      (is (contains? actions [:rf2-ypu5i/enum :go!])))))
+    ;; No registrar side-table.
+    (is (= {} (rf/registrations :machine-guard)))
+    (is (= {} (rf/registrations :machine-action)))
+    ;; The co-located source rides on `:rf/machine` in the :event registration.
+    (let [spec (:rf/machine (registrar/lookup :event :rf2-ftrcv/enum))]
+      (is (string? (get-in spec [:guards  :ok? :source-code]))
+          "guard source co-located on the :event registration's spec")
+      (is (string? (get-in spec [:actions :go! :source-code]))
+          "action source co-located on the :event registration's spec"))
+    ;; And the derived handler-meta surface resolves both.
+    (is (= :ok? (:rf/guard-id  (rf/handler-meta :machine-guard  [:rf2-ftrcv/enum :ok?]))))
+    (is (= :go! (:rf/action-id (rf/handler-meta :machine-action [:rf2-ftrcv/enum :go!]))))))
 
 ;; ---- re-registration clears stale entries --------------------------------
 
@@ -218,26 +282,27 @@
 
 ;; ---- production elision --------------------------------------------------
 
-(deftest production-elision-suppresses-handler-meta-writes
-  (testing "rf2-ypu5i: with `interop/debug-enabled?` stubbed false, the
-  runtime path no-ops — mirrors the elision contract that protects fn
+(deftest production-elision-suppresses-handler-meta-derivation
+  (testing "rf2-ftrcv: with `interop/debug-enabled?` stubbed false, the
+  derivation returns nil — mirrors the elision contract that protects fn
   body bytes from shipping in CLJS production bundles. The JVM path
   here is the structural sentinel; the actual CLJS bundle elision is
   asserted by `npm run test:elision`"
     (with-redefs [interop/debug-enabled? false]
       ;; `reg-machine*` skips the macro stamp entirely; call it directly
       ;; with a pre-stamped (co-located) spec simulating the macro emission
-      ;; under dev to isolate the runtime gate. Under `debug-enabled? false`
-      ;; the runtime path must no-op even though the spec DOES carry
-      ;; `:source-code` on its entries (the production CLJS bundle never
-      ;; ships those — that absence is asserted by `npm run test:elision`).
-      (core-machines/reg-machine* :rf2-ypu5i/elided
+      ;; under dev to isolate the derivation gate. Under `debug-enabled?
+      ;; false` the derivation must return nil even though the registered
+      ;; `:event` spec DOES carry `:source-code` on its entries (the
+      ;; production CLJS bundle never ships those — that absence is asserted
+      ;; by `npm run test:elision`).
+      (core-machines/reg-machine* :rf2-ftrcv/elided
         {:initial :idle
          :guards  {:g? {:fn (fn [_] true) :source-code "(fn [_] true)"}}
          :actions {:a! {:fn (fn [_] nil)  :source-code "(fn [_] nil)"}}
-         :states  {:idle {:on {:e {:target :idle :guard :g? :action :a!}}}}}))
-    ;; Under prod elision the runtime writes nothing.
-    (is (nil? (rf/handler-meta :machine-guard  [:rf2-ypu5i/elided :g?]))
-        "production-elided: no :machine-guard slot")
-    (is (nil? (rf/handler-meta :machine-action [:rf2-ypu5i/elided :a!]))
-        "production-elided: no :machine-action slot")))
+         :states  {:idle {:on {:e {:target :idle :guard :g? :action :a!}}}}})
+      ;; Under prod elision the derivation no-ops (gated inside the call).
+      (is (nil? (rf/handler-meta :machine-guard  [:rf2-ftrcv/elided :g?]))
+          "production-elided: :machine-guard derivation returns nil")
+      (is (nil? (rf/handler-meta :machine-action [:rf2-ftrcv/elided :a!]))
+          "production-elided: :machine-action derivation returns nil"))))
