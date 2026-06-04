@@ -440,16 +440,32 @@
 
   Returns:
 
-    {:id      <boundary-id>
-     :html    <subtree-html-or-fallback-html>
-     :delta   <app-db-delta-map-or-nil>
-     :failed? <boolean>}
+    {:id            <boundary-id>
+     :html          <subtree-html-or-fallback-html>
+     :delta         <app-db-delta-map-or-nil>
+     :failed?       <boolean>
+     :continuations [{:id … :subtree … :fallback …} …]}
+
+  The subtree is rendered through the SAME streaming shell walker
+  `render-shell` uses (Spec 011 §922-924/§966/§983 — \"the same emitter,
+  recursion-friendly — a nested `:rf/suspense-boundary` re-recurses
+  through this same drain\"). A nested `:rf/suspense-boundary` inside the
+  subtree therefore does NOT throw (the non-streaming emitter would —
+  `emit.cljc` `:rf.error/ssr-suspense-boundary-outside-stream`); instead
+  it materialises its OWN fallback `<template>` inline and registers a
+  NEW continuation. Those newly-discovered continuations are returned on
+  `:continuations` so the host adapter appends them at the TAIL of its
+  FIFO drain queue and keeps draining until empty — preserving the
+  document-order intuition (each chunk hydrates a strictly-later DOM
+  region). `:continuations` is `[]` when the subtree carries no nested
+  boundaries (the common case).
 
   Failure semantics per Spec 011 §Failure semantics — inline fallback:
   a subtree-render throw is caught, the original `:fallback` hiccup is
   materialised in its place, `:rf.ssr/suspense-boundary-failed` is
-  emitted on the trace bus, and the per-subtree delta is omitted (the
-  client keeps its pre-failure delta)."
+  emitted on the trace bus, the per-subtree delta is omitted (the client
+  keeps its pre-failure delta), and `:continuations` is `[]` (a failed
+  outer cannot have registered inner boundaries — the walk aborted)."
   [frame-id {:keys [id subtree fallback]}]
   ;; Snapshot before-db. The continuation may dispatch events
   ;; synchronously during render (subscribe-time computation reads from
@@ -461,13 +477,23 @@
   ;; demonstrates the pattern); see Spec 011 §Streaming SSR.
   (let [before-db (frame/frame-app-db-value frame-id)]
     (try
-      (let [resolved-html (emit/render-to-string subtree nil)
-            after-db      (frame/frame-app-db-value frame-id)
-            delta         (subtree-delta before-db after-db)]
-        {:id      id
-         :html    resolved-html
-         :delta   delta
-         :failed? false})
+      ;; Bind the per-render parse-tag-name memo (mirrors `render-shell`)
+      ;; and drain the subtree through `walk-shell` so a nested boundary
+      ;; registers a continuation instead of hitting the non-streaming
+      ;; emitter's `:rf/suspense-boundary` reject. `dedupe-continuations`
+      ;; applies the same last-write-wins duplicate-id contract within
+      ;; this continuation's nested registrations.
+      (binding [emit/*tag-name-cache* (volatile! {})]
+        (let [acc           (new-continuations-acc)
+              resolved-html (walk-shell subtree acc)
+              nested        (dedupe-continuations @acc)
+              after-db      (frame/frame-app-db-value frame-id)
+              delta         (subtree-delta before-db after-db)]
+          {:id            id
+           :html          resolved-html
+           :delta         delta
+           :failed?       false
+           :continuations nested}))
       (catch #?(:clj Throwable :cljs :default) t
         (trace/emit-error! :rf.ssr/suspense-boundary-failed
                            {:id        id
@@ -482,10 +508,11 @@
                                 ;; side runtime treats an empty
                                 ;; resolved chunk as a no-op.
                                 ""))]
-          {:id      id
-           :html    fallback-html
-           :delta   nil
-           :failed? true})))))
+          {:id            id
+           :html          fallback-html
+           :delta         nil
+           :failed?       true
+           :continuations []})))))
 
 (defn build-final-payload
   "After every continuation has drained, construct the canonical

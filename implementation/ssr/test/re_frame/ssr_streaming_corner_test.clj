@@ -133,11 +133,17 @@
 ;; ===========================================================================
 
 (deftest boundary-nested-inside-resolved-subtree-registers-inner-continuation
-  (testing "rf2-u91hb: when a continuation's subtree contains ANOTHER
-            :rf/suspense-boundary, the inner boundary registers during
-            the continuation's render — at the tail of the drain queue
-            per Spec 011 §Boundary nesting and recursion (FIFO over
-            registration order)."
+  (testing "rf2-sgvn6 / rf2-b1v8v: when a continuation's subtree contains
+            ANOTHER :rf/suspense-boundary, the inner boundary registers
+            DURING the continuation's render — render-continuation drains
+            the subtree through the streaming walker (NOT the non-streaming
+            emitter), so the inner boundary materialises its own fallback
+            <template> inline and returns a NEW continuation on
+            :continuations for the host to append at the tail of the FIFO
+            drain queue (Spec 011 §922-924/§966/§983). It does NOT
+            fail-soft — the prior impl rendered the subtree through
+            emit/render-to-string, which THREW on the buried marker and
+            inline-fallback'd, never registering the inner boundary."
     (let [tree [:div
                 [:rf/suspense-boundary
                  {:id :outer :fallback [:p "outer loading"]}
@@ -158,22 +164,13 @@
       (is (not (str/includes? shell-html "inner loading"))
           "inner fallback NOT in the shell (still buried in the
            unresolved outer subtree)")
-      ;; Drain the outer — the inner boundary's hiccup is emitted by
-      ;; the standard emitter (since render-continuation calls
-      ;; emit/render-to-string, not the walker). This means the inner
-      ;; boundary's HICCUP shape lands in the resolved chunk as-is —
-      ;; including the inner's fallback rendered inline. The wire
-      ;; contract per Spec 011: nested boundaries that fire inside a
-      ;; continuation register a new drain entry; the SSR ring adapter
-      ;; threads them through (`stream-handler` re-invokes the walker
-      ;; per resolved chunk). At the pure-streaming level
-      ;; (render-continuation), the inner boundary renders via the
-      ;; non-streaming emitter, which surfaces an exception on the
-      ;; unrecognised :rf/suspense-boundary head — caught as a
-      ;; failure and inline-fallback'd. Pin THAT contract.
+      ;; Drain the outer — render-continuation walks the subtree through
+      ;; the streaming walker, so the buried :rf/suspense-boundary is
+      ;; RECOGNISED: its fallback materialises inline as a <template> and
+      ;; a NEW continuation for the inner is registered + returned on
+      ;; :continuations. The outer does NOT fail.
       ;; rf2-usio0 — drain the outer entry verbatim; its declared
-      ;; :fallback rides from `record-continuation!`. Re-injecting it by
-      ;; hand masks an empty-fallback regression on the fail-soft path.
+      ;; :fallback rides from `record-continuation!`.
       (let [fid    (make-server-frame)
             entry  (first continuations)
             captured (atom [])
@@ -182,21 +179,92 @@
         (is (= [:p "outer loading"] (:fallback entry))
             "record-continuation! stored the outer boundary's declared
              :fallback on the entry")
-        ;; The pure render-continuation path (without the ring
-        ;; adapter's per-chunk re-walker) DOES fail on the buried
-        ;; suspense-boundary keyword — which exercises the
-        ;; inline-fallback contract. The ring host adapter's writer
-        ;; loop is what actually re-walks; the pure runtime layer
-        ;; pins the fail-soft semantics.
-        (is (or (not (:failed? result))
-                (and (:failed? result)
-                     (some #(= :rf.ssr/suspense-boundary-failed (:operation %))
-                           @captured)))
-            "outer continuation either resolves cleanly (renderer
-             passed the unknown head through) OR fails-soft into the
-             fallback (per Spec 011 §Failure semantics — inline
-             fallback). Either is acceptable; what is NOT acceptable
-             is an uncaught throw escaping the drain.")))))
+        (is (not (:failed? result))
+            "the outer continuation resolves cleanly — the streaming
+             walker recognises the buried :rf/suspense-boundary instead
+             of throwing on it (rf2-sgvn6 / rf2-b1v8v)")
+        (is (empty? (filter #(= :rf.ssr/suspense-boundary-failed (:operation %))
+                            @captured))
+            "NO suspense-boundary-failed trace — the nested boundary is
+             registered, not fail-soft'd")
+        ;; The inner boundary's resolved chunk is NOT in the outer's HTML;
+        ;; instead the outer HTML carries the inner's FALLBACK <template>.
+        (is (str/includes? (:html result) "data-rf2-suspense-id=\":inner\"")
+            "the outer's resolved HTML carries the inner boundary's
+             <template> placeholder (its fallback), stamped with the
+             inner id")
+        (is (str/includes? (:html result) "data-rf2-suspense-fallback=\"1\"")
+            "the inner placeholder is a fallback template (deferred), not
+             the resolved inner body")
+        (is (str/includes? (:html result) "inner loading")
+            "the inner's fallback hiccup materialised inline in the
+             outer's resolved chunk")
+        (is (not (str/includes? (:html result) "inner body"))
+            "the inner BODY is NOT in the outer chunk — it is deferred to
+             the inner continuation's own drain")
+        ;; The new continuation lands on :continuations for the host to
+        ;; append at the TAIL of its FIFO drain queue.
+        (is (= 1 (count (:continuations result)))
+            "render-continuation returns the ONE newly-registered inner
+             continuation for the host to append (FIFO tail)")
+        (is (= :inner (-> result :continuations first :id))
+            "the inner boundary's id propagates on the returned
+             continuation entry")
+        (is (= [:p "inner loading"] (-> result :continuations first :fallback))
+            "the inner continuation carries its declared :fallback")
+        ;; Draining the inner continuation now resolves the inner body.
+        (let [inner-entry  (-> result :continuations first)
+              inner-result (streaming/render-continuation fid inner-entry)]
+          (is (not (:failed? inner-result)))
+          (is (str/includes? (:html inner-result) "inner body")
+              "the inner continuation's resolved chunk carries the inner
+               body — drained AFTER the outer, at the tail of the FIFO")
+          (is (empty? (:continuations inner-result))
+              "the inner subtree has no further nested boundaries — its
+               :continuations is empty"))))))
+
+(deftest boundary-three-levels-deep-drains-each-level-FIFO
+  (testing "rf2-sgvn6 / rf2-b1v8v: nesting is UNBOUNDED — a level-1 boundary
+            whose subtree nests a level-2 boundary whose subtree nests a
+            level-3 boundary drains one level per continuation, each
+            registering the next at the FIFO tail. Proves the recursion is
+            genuinely re-entrant (Spec 011 §924 — the same drain re-recurses)."
+    (let [tree [:rf/suspense-boundary
+                {:id :lvl1 :fallback [:p "l1 loading"]}
+                [:section.l1
+                 [:rf/suspense-boundary
+                  {:id :lvl2 :fallback [:p "l2 loading"]}
+                  [:section.l2
+                   [:rf/suspense-boundary
+                    {:id :lvl3 :fallback [:p "l3 loading"]}
+                    [:p "deepest body"]]]]]]
+          {:keys [continuations]} (streaming/render-shell tree)
+          fid (make-server-frame)]
+      (is (= [:lvl1] (mapv :id continuations))
+          "shell sees only level-1; deeper levels are buried")
+      ;; Drain level-1 → registers level-2.
+      (let [r1 (streaming/render-continuation fid (first continuations))]
+        (is (not (:failed? r1)))
+        (is (str/includes? (:html r1) "data-rf2-suspense-id=\":lvl2\"")
+            "level-1 chunk carries level-2's fallback template")
+        (is (not (str/includes? (:html r1) "data-rf2-suspense-id=\":lvl3\""))
+            "level-3 still buried inside the unresolved level-2 subtree")
+        (is (= [:lvl2] (mapv :id (:continuations r1)))
+            "level-1 drain registers exactly level-2 at the tail")
+        ;; Drain level-2 → registers level-3.
+        (let [r2 (streaming/render-continuation fid (-> r1 :continuations first))]
+          (is (not (:failed? r2)))
+          (is (str/includes? (:html r2) "data-rf2-suspense-id=\":lvl3\"")
+              "level-2 chunk carries level-3's fallback template")
+          (is (= [:lvl3] (mapv :id (:continuations r2)))
+              "level-2 drain registers exactly level-3 at the tail")
+          ;; Drain level-3 → resolves the deepest body, no further nesting.
+          (let [r3 (streaming/render-continuation fid (-> r2 :continuations first))]
+            (is (not (:failed? r3)))
+            (is (str/includes? (:html r3) "deepest body")
+                "level-3 resolves the deepest body")
+            (is (empty? (:continuations r3))
+                "no further nesting below level-3")))))))
 
 (deftest boundary-inside-registered-view-body-is-reachable-by-walker
   (testing "rf2-u91hb: when a registered view's body contains

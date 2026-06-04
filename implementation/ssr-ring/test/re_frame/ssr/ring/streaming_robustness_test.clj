@@ -682,3 +682,86 @@
             (is (= 500 status)
                 "render-time sub-throw fail-closed 500 rides the full
                  Jetty round-trip — never a silent 200 (rf2-r06pc)")))))))
+
+;; ===========================================================================
+;; Test 7 (rf2-sgvn6 / rf2-b1v8v) — NESTED suspense boundary drains its
+;;                                  inner chunk on the actual wire (FIFO)
+;; ===========================================================================
+;;
+;; The end-to-end bytes-on-wire proof for the nested-streaming fix. An
+;; OUTER `:rf/suspense-boundary` whose subtree contains an INNER
+;; `:rf/suspense-boundary` must stream the inner boundary's resolved
+;; chunk over the real Jetty transport — the inner registers DURING the
+;; outer continuation's render and the daemon writer's GROWABLE FIFO
+;; appends it at the tail (Spec 011 §922-924/§966/§983).
+;;
+;; Before the fix: the outer continuation rendered its subtree through the
+;; NON-streaming emitter, which threw on the buried `:rf/suspense-boundary`
+;; head (`:rf.error/ssr-suspense-boundary-outside-stream`); the throw was
+;; caught as a FAILED outer continuation that re-emitted its own fallback,
+;; and the inner boundary never registered or resolved — wrong streamed
+;; HTML for nested Suspense UI. This test pins, on the wire:
+;;   - the outer boundary is NOT marked failed,
+;;   - the inner boundary's resolved chunk + body stream,
+;;   - the inner resolved chunk lands AFTER the outer resolved chunk (FIFO),
+;;   - no orphan daemon thread.
+
+(deftest nested-boundary-inner-chunk-streams-on-wire-FIFO
+  (testing "rf2-sgvn6 / rf2-b1v8v: an outer boundary containing an inner
+            boundary streams the inner resolved chunk on the real Jetty
+            wire, at the FIFO tail, with the outer resolved cleanly (not
+            failed)."
+    (rf/reg-event-fx :rf.test.server/init-nested
+      {:platforms #{:server}}
+      (fn [_ _] {:db {}}))
+    (rf/reg-view ^{:rf/id :test/wire-inner} wire-inner []
+      [:div.inner-body "WIRE_INNER_BODY"])
+    (rf/reg-view ^{:rf/id :test/wire-outer} wire-outer []
+      [:section.outer
+       [:p "WIRE_OUTER_CONTENT"]
+       [:rf/suspense-boundary
+        {:id :wire/inner :fallback [:p "wire inner loading"]}
+        [:test/wire-inner]]])
+    (rf/reg-view ^{:rf/id :test/wire-nested-root} wire-nested-root []
+      [:main
+       [:h1 "WireNested"]
+       [:rf/suspense-boundary
+        {:id :wire/outer :fallback [:p "wire outer loading"]}
+        [:test/wire-outer]]
+       [:footer "End"]])
+    (let [handler (ssr-ring/stream-handler
+                    {:on-create [:rf.test.server/init-nested]
+                     :root-view [:test/wire-nested-root]
+                     :payload :rf.ssr.payload/whole-app-db})]
+      (with-jetty [port handler]
+        (let [client (new-http-client)
+              {:keys [status body]} (http-get-string client port "/")
+              idx-outer-resolved (str/index-of body "data-rf2-suspense-id=\":wire/outer\" data-rf2-suspense-resolved=\"1\"")
+              idx-inner-resolved (str/index-of body "data-rf2-suspense-id=\":wire/inner\" data-rf2-suspense-resolved=\"1\"")
+              idx-inner-body     (str/index-of body "WIRE_INNER_BODY")
+              idx-payload        (str/index-of body "__rf_payload")]
+          (is (= 200 status) "nested stream rides the wire as 200")
+          (is (str/includes? body "wire outer loading")
+              "outer fallback in the shell on the wire")
+          (is (some? idx-outer-resolved)
+              "outer resolved chunk on the wire (NOT a failed re-emit)")
+          (is (not (str/includes? body "data-rf2-suspense-id=\":wire/outer\" data-rf2-suspense-resolved=\"1\" data-rf2-suspense-failed=\"1\""))
+              "outer boundary NOT marked failed on the wire (rf2-sgvn6)")
+          (is (some? idx-inner-resolved)
+              "inner boundary's resolved chunk streamed on the wire — the
+               nested continuation registered + drained at the FIFO tail")
+          (is (some? idx-inner-body)
+              "inner resolved chunk carries the inner body bytes on the wire")
+          (is (and idx-outer-resolved idx-inner-resolved
+                   (< idx-outer-resolved idx-inner-resolved))
+              "inner resolved chunk streams AFTER the outer (FIFO tail,
+               Spec 011 §966/§983)")
+          (is (and idx-inner-resolved idx-payload
+                   (< idx-inner-resolved idx-payload))
+              "inner resolved chunk before the final payload")))
+      ;; No orphan daemon thread after the nested stream completes.
+      (let [leaked (await-no-streaming-threads! 5000)]
+        (is (empty? leaked)
+            (str "no orphan rf2-ssr-streaming-* daemon thread after a
+                 nested-boundary stream. Live threads observed: "
+                 (mapv (fn [^Thread t] (.getName t)) leaked)))))))
