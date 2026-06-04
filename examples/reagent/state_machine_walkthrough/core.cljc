@@ -46,9 +46,17 @@
 ;; map; cross-machine reuse is via Clojure vars (define a fn, name it
 ;; locally in each machine's :guards / :actions).
 ;;
-;; This is intentionally the SAME login machine as the `login` example
-;; (examples/reagent/login/core.cljs) — same states, guards, and actions.
-;; The two examples differ in what they teach AROUND the machine: `login`
+;; This is a near-twin of the login machine in the `login` example
+;; (examples/reagent/login/core.cljs) — same states, guards, actions, and
+;; transitions. The one deliberate divergence: this variant tags `:locked-out`
+;; with `:auth/locked` because the walkthrough's root-view renders a dedicated
+;; lockout panel that branches on that tag (views.cljs); the `login` example
+;; omits the tag since its view never distinguishes lockout. The two examples
+;; register the id `:auth.login/flow` independently — a machine id is a
+;; per-frame registry key, not a global handle, and the two never co-load
+;; (this walkthrough runs JVM-headless with `remove-ns` between runs; login
+;; builds standalone), so the shared name is parallel, not a collision.
+;; The two examples also differ in what they teach AROUND the machine: `login`
 ;; wires it into a live Reagent view; this walkthrough drives it HEADLESSLY
 ;; (the sibling core-test ns) to show the pure machine-transition + drain
 ;; testing story from docs/guide/12-machines.md. Read `login` first for the
