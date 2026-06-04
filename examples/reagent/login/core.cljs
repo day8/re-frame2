@@ -45,15 +45,16 @@
      machines.cljs | events_test.cljs
 
    Kept as a single file here for brevity."
-  ;; Substrate note: this example stays on STOCK Reagent
-  ;; (`reagent.dom.client` + the `re-frame.adapter.reagent` adapter) rather
-  ;; than reagent-slim. login is the canonical cross-substrate base — it is
-  ;; mirrored 1:1 as `login-uix` and `login-helix` (Spec 006 §Adapter
-  ;; shipping convention Decision 7), so keeping it on the reference
-  ;; substrate makes the three substrate variants a clean apples-to-apples
-  ;; comparison. (`counter` / `counter_slim_and_fast` are the dedicated
-  ;; stock-vs-slim contrast pair; the rest of the catalogue defaults to
-  ;; slim.)
+  ;; Substrate note: this example runs on STOCK Reagent
+  ;; (`reagent.dom.client` + the `re-frame.adapter.reagent` adapter), like
+  ;; the rest of the `examples/reagent/` catalogue. login is the canonical
+  ;; cross-substrate base — it is mirrored 1:1 as `login-uix` and
+  ;; `login-helix` (Spec 006 §Adapter shipping convention Decision 7), so
+  ;; keeping it on the reference substrate makes the three substrate
+  ;; variants a clean apples-to-apples comparison. (`counter` /
+  ;; `counter_slim_and_fast` are the dedicated stock-vs-slim contrast pair;
+  ;; the slim build is the only one that mounts `reagent-slim`, and it
+  ;; lives under `examples/reagent-slim/`.)
   (:require [reagent.dom.client :as rdc]
             [reagent.core :as reagent]
             [re-frame.core :as rf]

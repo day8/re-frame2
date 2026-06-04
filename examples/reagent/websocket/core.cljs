@@ -34,9 +34,9 @@
 
    Run standalone via `npm run test:examples`; the mock server keeps
    the app self-contained."
-  (:require [reagent2.dom.client :as rdc]
+  (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
-            [re-frame.adapter.reagent-slim :as reagent-slim-adapter]
+            [re-frame.adapter.reagent :as reagent-adapter]
             [websocket.schema]
             [websocket.connection]
             [websocket.messages]
@@ -75,7 +75,7 @@
 (defonce react-root (atom nil))
 
 (defn run []
-  (rf/init! reagent-slim-adapter/adapter)
+  (rf/init! reagent-adapter/adapter)
   (rf/dispatch-sync [:ws.app/initialise])
   (when (exists? js/document)
     (when-not @react-root

@@ -21,14 +21,14 @@
    would naturally live in user/library space (cf. re-frame-undo today).
    This example shows the canonical primitive pattern; productionising it is
    library work, not framework work."
-  (:require [reagent2.dom.client :as rdc]
+  (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             ;; `re-frame.schemas` ships in day8/re-frame2-schemas.
             ;; Loading the ns here registers its late-bind hooks so
             ;; rf/reg-app-schema resolves.
             [re-frame.schemas]
             [re-frame.views]
-            [re-frame.adapter.reagent-slim :as reagent-slim-adapter])
+            [re-frame.adapter.reagent :as reagent-adapter])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; ============================================================================
@@ -233,7 +233,7 @@
 
 (defn run []
   ;; Pass the adapter spec map directly — no registry.
-  (rf/init! reagent-slim-adapter/adapter)
+  (rf/init! reagent-adapter/adapter)
   (rf/dispatch-sync [:drawer/initialise])
   (when (exists? js/document)
     (when-not @react-root

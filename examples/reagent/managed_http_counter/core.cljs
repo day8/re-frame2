@@ -23,7 +23,7 @@
   http-managed-*.edn). The example itself is the runnable
   cross-substrate sanity check: the same fx, the same reply shape,
   end-to-end through Reagent and Fetch."
-  (:require [reagent2.dom.client :as rdc]
+  (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.views]
             ;; Managed-HTTP ships in day8/re-frame2-http.
@@ -42,7 +42,7 @@
             ;; patch / head / options) that synthesise the canonical
             ;; [:rf.http/managed args-map] envelope.
             [re-frame.http :as rf.http]
-            [re-frame.adapter.reagent-slim :as reagent-slim-adapter])
+            [re-frame.adapter.reagent :as reagent-adapter])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; -- App-db shape ------------------------------------------------------------
@@ -229,7 +229,7 @@
 
 (defn run []
   ;; Pass the adapter spec map directly — no registry.
-  (rf/init! reagent-slim-adapter/adapter)
+  (rf/init! reagent-adapter/adapter)
   (rf/dispatch-sync [:counter/initialise])
   (when (exists? js/document)
     (when-not @react-root

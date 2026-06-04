@@ -1,9 +1,9 @@
 (ns todomvc.core
   (:require [clojure.string :as str]
-            [reagent2.dom.client :as rdc]
+            [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.views]
-            [re-frame.adapter.reagent-slim :as reagent-slim-adapter]
+            [re-frame.adapter.reagent :as reagent-adapter]
             [todomvc.db]
             [todomvc.events]
             [todomvc.subs]
@@ -38,7 +38,7 @@
 
 (defn run []
   ;; Pass the adapter spec map directly — no registry.
-  (rf/init! reagent-slim-adapter/adapter)
+  (rf/init! reagent-adapter/adapter)
   (rf/dispatch-sync [:todo/initialise])
   (rf/dispatch-sync [:rf.route/handle-url-change (current-path)])
   (.addEventListener js/window "hashchange"

@@ -11,7 +11,7 @@
    - `:rf.route/handle-url-change` for popstate / initial load
    - `:rf.route/id` and `:rf.route/params` for route reads
    - `:rf/url-requested` for user-initiated anchor clicks"
-  (:require [reagent2.dom.client :as rdc]
+  (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.views]
             ;; Routing ships in day8/re-frame2-routing.
@@ -19,7 +19,7 @@
             ;; its load-time hook + reg-sub registrations; without it,
             ;; rf/reg-route below throws :rf.error/routing-artefact-missing.
             [re-frame.routing]
-            [re-frame.adapter.reagent-slim :as reagent-slim-adapter])
+            [re-frame.adapter.reagent :as reagent-adapter])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; ============================================================================
@@ -157,7 +157,7 @@
 
 (defn run []
   ;; Pass the adapter spec map directly — no registry.
-  (rf/init! reagent-slim-adapter/adapter)
+  (rf/init! reagent-adapter/adapter)
   (rf/dispatch-sync [:routing.app/initialise])
   (install-router!)
   (when (exists? js/document)

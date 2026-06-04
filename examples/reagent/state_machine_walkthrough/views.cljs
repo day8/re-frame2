@@ -15,9 +15,9 @@
   guard and lands at `:locked-out`. That path is exactly what the
   `state-machine-walkthrough-runs-headless` deftest walks through,
   so the stub needs to fail every request."
-  (:require [reagent2.dom.client :as rdc]
+  (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
-            [re-frame.adapter.reagent-slim :as reagent-slim-adapter]
+            [re-frame.adapter.reagent :as reagent-adapter]
             [state-machine-walkthrough.core])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
@@ -106,7 +106,7 @@
 
 (defn run []
   ;; Pass the adapter spec map directly — no registry.
-  (rf/init! reagent-slim-adapter/adapter)
+  (rf/init! reagent-adapter/adapter)
   ;; Install the canned-failure override on the default frame so every
   ;; `:rf.http/managed` request resolves :failure. The chapter's
   ;; lockout scenario depends on three consecutive failures.
