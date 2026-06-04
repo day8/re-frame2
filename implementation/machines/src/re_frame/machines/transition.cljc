@@ -609,28 +609,48 @@
 
 (defn- match-on-clause
   "Given a node-or-machine map carrying an `:on` table, return the first
-  candidate transition for `event-id` (explicit then `:*` wildcard) whose
-  guard passes, or nil. Per Spec 005 §Transition resolution — the
-  per-level matching rule applied identically at every state-node and at
-  the machine root.
+  candidate transition for `event-id` (explicit candidates, then the `:*`
+  wildcard) whose guard passes, or nil. Per Spec 005 §Transition
+  resolution — the per-level matching rule applied identically at every
+  state-node and at the machine root.
 
-  rf2-e7yhv — when the match came from the `:*` WILDCARD branch (no
-  explicit `event-id` entry, the wildcard matched), the returned
-  transition is stamped `:rf/via-wildcard? true`. This rides the
-  `:transition` slot through `apply-transition-once` into a
-  `:rf.error/machine-action-exception` trace (when the wildcard's action
-  throws — the xstate-v5 'fail loudly on unknown' idiom) so a consumer can
-  attribute the throw to a `:*` wildcard action rather than a named
-  transition."
+  rf2-icj9t — `:*` is the LEAST-PRIORITY ENABLED transition at its level,
+  NOT a 'no explicit KEY exists' fallback. Resolution within a level:
+    1. try the explicit `event-id` candidates (a guarded candidate-VECTOR
+       falls through its own entries via `select-passing-candidate`);
+    2. if NO explicit candidate is enabled — the key is absent, OR every
+       guarded candidate's guard returned false (or threw) — fall through
+       to the same-level `:*` wildcard and select over ITS candidates.
+  Returning nil only when neither the explicit candidates nor the wildcard
+  yield an enabled transition lets `pick-transition`'s leaf→root walk
+  descend to the parent (whose own explicit→`:*` resolution then repeats),
+  so a guard-blocked explicit key correctly falls through to same-level
+  `:*` and then to ancestors — matching XState v5's transition-selection
+  order (descend priority within a state before walking to its ancestor).
+
+  rf2-e7yhv — when the returned match came from the `:*` WILDCARD branch
+  (the explicit candidates were absent or all guard-blocked, and the
+  wildcard's candidate fired), the transition is stamped
+  `:rf/via-wildcard? true`. This rides the `:transition` slot through
+  `apply-transition-once` into a `:rf.error/machine-action-exception`
+  trace (when the wildcard's action throws — the xstate-v5 'fail loudly on
+  unknown' idiom) so a consumer can attribute the throw to a `:*` wildcard
+  action rather than a named transition."
   [machine node event-id event snapshot]
-  (let [explicit (get-in node [:on event-id])
-        wildcard (when (nil? explicit) (get-in node [:on :*]))
-        cands    (normalise-candidates
-                   (or explicit wildcard)
-                   :rf.error/machine-bad-on-clause)
-        hit      (select-passing-candidate machine cands snapshot event)]
-    (cond-> hit
-      (and hit (some? wildcard)) (assoc :rf/via-wildcard? true))))
+  (let [explicit-cands (normalise-candidates
+                         (get-in node [:on event-id])
+                         :rf.error/machine-bad-on-clause)
+        explicit-hit   (select-passing-candidate machine explicit-cands snapshot event)]
+    (if explicit-hit
+      explicit-hit
+      ;; No explicit candidate was enabled (absent key OR every guarded
+      ;; candidate's guard failed) — fall through to the same-level `:*`.
+      (let [wildcard-cands (normalise-candidates
+                             (get-in node [:on :*])
+                             :rf.error/machine-bad-on-clause)
+            wildcard-hit   (select-passing-candidate machine wildcard-cands snapshot event)]
+        (when wildcard-hit
+          (assoc wildcard-hit :rf/via-wildcard? true))))))
 
 (defn- pick-transition
   "Walk path leaf→root looking for a transition that matches event-id and
