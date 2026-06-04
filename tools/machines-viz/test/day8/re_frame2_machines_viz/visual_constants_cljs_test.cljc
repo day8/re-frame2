@@ -56,15 +56,14 @@
     :corner-radius
     :stroke-width
     :stroke-width-emphasis
-    :compound-pad-x
-    :compound-pad-y
-    :compound-stroke-dash
     :compound-radius                ;; rf2-k647w — render constant promoted
-    ;; typography (rf2-gg7ws — lifted 11/9 → 13/11)
-    :state-label-px
+    ;; typography (rf2-gg7ws — edge-label lifted 9 → 11)
     :edge-label-px
-    :edge-label-backplate-opacity
-    :compound-title-px
+    ;; edge arrowheads (rf2-dt5b1 — ride the density so the head scales
+    ;; with the stroke; quiet `__in` < primary `__out`)
+    :arrow-width
+    :arrow-width-quiet
+    :arrow-width-entry
     ;; rf2-6d4y3 — :final-glyph-px removed: the final-state ✓ glyph was
     ;; dropped (rf2-az6e2 — the quiet doubled border is the unambiguous
     ;; final-state signal) and no renderer ever read the constant; it
@@ -72,6 +71,13 @@
     ;; rf2-ee38b.21 — :caption-strip-px / :caption-text-px removed:
     ;; no renderer ever read them (there is no caption strip in the
     ;; chart). They were carried only to satisfy this parity test.
+    ;; rf2-dt5b1 — :state-label-px / :compound-pad-x / :compound-pad-y /
+    ;; :compound-stroke-dash / :compound-title-px / :edge-label-backplate-
+    ;; opacity / :dot-grid-alpha removed: no renderer ever read them (the
+    ;; state label rides :state-title-px; the compound chrome reads the
+    ;; :container-* keys; the dot grid is xyflow's <Background> :gap/:size
+    ;; with no alpha; the edge-label backplate paints the opaque
+    ;; :event-chip-bg theme token). They were carried only for this test.
     ;; state-tag pills (rf2-m1b88; rf2-a2b55 restored under state-name)
     :tag-pill-height
     :tag-pill-pad-x
@@ -121,8 +127,7 @@
     :root-context-pad
     ;; dot-grid background (rf2-m4nj4)
     :dot-grid-spacing-px
-    :dot-grid-radius-px
-    :dot-grid-alpha})
+    :dot-grid-radius-px})
 
 ;; ---- shape pins ---------------------------------------------------------
 
@@ -145,18 +150,13 @@
         "every vc/chart entry resolves to a non-nil value")))
 
 (deftest chart-numeric-keys-are-numbers
-  (testing "every key that the chart code uses as a numeric (geometry,
-            typography sizes, padding, alpha, opacity) resolves to a
-            number"
-    (let [numeric-keys (disj expected-chart-keys :compound-stroke-dash)]
-      (doseq [k numeric-keys]
-        (is (number? (get vc/chart k))
-            (str "vc/chart key " k " resolves to a number"))))))
-
-(deftest chart-compound-stroke-dash-is-string
-  (testing ":compound-stroke-dash is the SVG `stroke-dasharray` attr
-            string, not a number"
-    (is (string? (:compound-stroke-dash vc/chart)))))
+  (testing "every chart key resolves to a number (geometry, typography
+            sizes, padding, arrowhead widths). rf2-dt5b1 — the only
+            string-valued key (:compound-stroke-dash) was removed, so
+            every remaining key is numeric."
+    (doseq [k expected-chart-keys]
+      (is (number? (get vc/chart k))
+          (str "vc/chart key " k " resolves to a number")))))
 
 (deftest chart-corner-radius-locked-at-six
   (testing "rf2-g6cig — corner-radius is locked at 6px per the
@@ -168,15 +168,16 @@
     (is (= 6 (:corner-radius vc/chart)))))
 
 (deftest chart-typography-meets-chart-floor
-  (testing "rf2-gg7ws — state-label-px + edge-label-px lifted from the
+  (testing "rf2-gg7ws — state-title-px + edge-label-px lifted from the
             spec/007-UX-IA refused-floor (11 / 9) to a chart-
             appropriate 13 / 11 per the 2026-05-20 visual-quality
             audit. The refused-floor was set for dense data-grid
             surfaces; applying it to a chart that competes with
             xstate-stately's typography was a category error. Pin so a
             future layout-fit win that walks back under the chart
-            floor fails CI."
-    (is (= 13 (:state-label-px vc/chart)))
+            floor fails CI. (rf2-dt5b1 — the state label rides
+            `:state-title-px`; the unread `:state-label-px` was removed.)"
+    (is (= 13 (:state-title-px vc/chart)))
     (is (= 11 (:edge-label-px vc/chart)))))
 
 (deftest chart-regular-compound-radius-matches-shipped-render
@@ -186,22 +187,17 @@
             as a looser container."
     (is (= 10 (:compound-radius vc/chart)))))
 
-(deftest chart-edge-label-backplate-opacity-is-fractional
-  (testing "rf2-gg7ws — edge-label backplate opacity is in (0, 1).
-            At 1 the backplate would be opaque white (overprinted
-            chart canvas); at 0 it would be invisible (no
-            collision-avoidance). ~0.85 is the sweet spot."
-    (let [a (:edge-label-backplate-opacity vc/chart)]
-      (is (pos? a))
-      (is (< a 1.0)))))
-
-(deftest chart-dot-grid-alpha-is-fractional
-  (testing "rf2-m4nj4 — dot-grid is a subtle backdrop; alpha must
-            stay in (0, 1) — a value at 1 would make the dots opaque
-            and overwhelm chart content"
-    (let [a (:dot-grid-alpha vc/chart)]
-      (is (pos? a))
-      (is (< a 1.0)))))
+(deftest chart-arrowhead-quiet-smaller-than-primary
+  (testing "rf2-dt5b1 — the QUIET `__in` arrowhead is smaller than the
+            PRIMARY `__out` arrowhead so the primary head reads as the
+            route's terminus and the source→event→target pair reads as
+            ONE transition. The entry-marker head sits between."
+    (is (< (:arrow-width-quiet vc/chart)
+           (:arrow-width-entry vc/chart)
+           (:arrow-width vc/chart)))
+    (is (= 18 (:arrow-width vc/chart)))
+    (is (= 10 (:arrow-width-quiet vc/chart)))
+    (is (= 12 (:arrow-width-entry vc/chart)))))
 
 ;; ---- density variants (rf2-32gw5) --------------------------------------
 ;;
@@ -242,29 +238,34 @@
     (is (= 6 (:corner-radius vc/chart-cosy)))))
 
 (deftest density-typography-monotonic
-  (testing "rf2-32gw5 — `state-label-px` is monotonic across the
+  (testing "rf2-32gw5 — `state-title-px` is monotonic across the
             density axis: compact < regular < cosy. If a density's
             type walks back or up unexpectedly the picker UI would
             ship a 'cosy' value that's actually tighter than
             'regular' — a labelling bug. Same monotonicity holds for
-            edge labels."
-    (is (< (:state-label-px vc/chart-compact)
-           (:state-label-px vc/chart-regular)
-           (:state-label-px vc/chart-cosy)))
+            edge labels. (rf2-dt5b1 — `:state-title-px` carries the
+            state label; the unread `:state-label-px` was removed.)"
+    (is (< (:state-title-px vc/chart-compact)
+           (:state-title-px vc/chart-regular)
+           (:state-title-px vc/chart-cosy)))
     (is (< (:edge-label-px vc/chart-compact)
            (:edge-label-px vc/chart-regular)
            (:edge-label-px vc/chart-cosy)))))
 
 (deftest density-geometry-monotonic
-  (testing "rf2-32gw5 — compound padding + dot-grid spacing are also
-            monotonic. Compact tightens; cosy loosens. Density is
-            ONE knob — every quantity that should track it does."
-    (is (< (:compound-pad-x vc/chart-compact)
-           (:compound-pad-x vc/chart-regular)
-           (:compound-pad-x vc/chart-cosy)))
+  (testing "rf2-32gw5 — dot-grid spacing + (rf2-dt5b1) arrowhead widths
+            are also monotonic. Compact tightens; cosy loosens. Density
+            is ONE knob — every quantity that should track it does. The
+            arrowhead scaling is the rf2-dt5b1 fix: the head no longer
+            sits at a baked literal regardless of the stroke density."
     (is (< (:dot-grid-spacing-px vc/chart-compact)
            (:dot-grid-spacing-px vc/chart-regular)
-           (:dot-grid-spacing-px vc/chart-cosy)))))
+           (:dot-grid-spacing-px vc/chart-cosy)))
+    (doseq [k [:arrow-width :arrow-width-quiet :arrow-width-entry]]
+      (is (< (get vc/chart-compact k)
+             (get vc/chart-regular k)
+             (get vc/chart-cosy k))
+          (str "arrowhead key " k " is monotonic compact < regular < cosy")))))
 
 (deftest density-compound-radius-monotonic
   (testing "rf2-k647w — `:compound-radius` (the render constant the

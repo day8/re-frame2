@@ -593,11 +593,10 @@
 
 ;; ---- graph projection (parsed + positions → xyflow nodes/edges) ---------
 ;;
-;; rf2-0gmwp — the pure projector (`xyflow-graph` / `choose-edge-type`
-;; / the elk `children` shape) moved to `chart.projection` so the JVM
-;; test corpus can pin it without loading xyflow/elkjs. `chart.cljs`
-;; retains only the JS-interop layout glue above + the React component
-;; below.
+;; rf2-0gmwp — the pure projector (`xyflow-graph` / the elk `children`
+;; shape) moved to `chart.projection` so the JVM test corpus can pin it
+;; without loading xyflow/elkjs. `chart.cljs` retains only the JS-interop
+;; layout glue above + the React component below.
 
 ;; ---- inline keyframes ---------------------------------------------------
 
