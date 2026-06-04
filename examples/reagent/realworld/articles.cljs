@@ -295,9 +295,9 @@
 ;; SUBSCRIPTIONS
 ;; ============================================================================
 
-(rf/reg-sub :articles            (fn [db _] (:articles db)))
-(rf/reg-sub :articles/data       :<- [:articles] (fn [s _] (:data s)))
-(rf/reg-sub :articles/error      :<- [:articles] (fn [s _] (:error s)))
+(rf/reg-sub :articles/slice      (fn [db _] (:articles db)))
+(rf/reg-sub :articles/data       :<- [:articles/slice] (fn [s _] (:data s)))
+(rf/reg-sub :articles/error      :<- [:articles/slice] (fn [s _] (:error s)))
 
 ;; The `:tags/data` sub is defined in `realworld.tags`. The
 ;; popular-tags lifecycle is the :data-region machine variant of

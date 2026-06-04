@@ -147,7 +147,7 @@
 ;; SUBSCRIPTIONS / VIEWS
 ;; ============================================================================
 
-(rf/reg-sub :articles (fn [db _] (:articles db)))
+(rf/reg-sub :articles/slice (fn [db _] (:articles db)))
 
 (rf/reg-sub :articles/show-bodies?
   (fn [db _]
@@ -168,7 +168,7 @@
 ;; the reaction so re-renders fire on app-db changes. Same code, both
 ;; sides — that's the SSR/CLJS parity Spec 011 promises.
 (rf/reg-view ^{:rf/id :pages/articles} articles-page []
-  (let [arts         @(subscribe [:articles])
+  (let [arts         @(subscribe [:articles/slice])
         show-bodies? @(subscribe [:articles/show-bodies?])]
     [:div.page
      [:h1 "Recent articles"]

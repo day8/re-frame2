@@ -447,12 +447,12 @@
 ;; SUBSCRIPTIONS — slice readers + the render-model selector
 ;; ============================================================================
 
-(rf/reg-sub :new-todo
+(rf/reg-sub :new-todo/slice
   (fn sub-new-todo [db _] (get db :new-todo)))
 
-(rf/reg-sub :new-todo/draft   :<- [:new-todo] (fn [s _] (:draft s)))
-(rf/reg-sub :new-todo/errors  :<- [:new-todo] (fn [s _] (:errors s)))
-(rf/reg-sub :new-todo/touched :<- [:new-todo] (fn [s _] (:touched s)))
+(rf/reg-sub :new-todo/draft   :<- [:new-todo/slice] (fn [s _] (:draft s)))
+(rf/reg-sub :new-todo/errors  :<- [:new-todo/slice] (fn [s _] (:errors s)))
+(rf/reg-sub :new-todo/touched :<- [:new-todo/slice] (fn [s _] (:touched s)))
 
 (rf/reg-sub :new-todo/field-error
   {:doc "Per-field error, only after the user has touched the field."}

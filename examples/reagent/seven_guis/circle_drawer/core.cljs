@@ -158,25 +158,25 @@
 
 ;; Layer-2 slice sub. The Layer-3 readers below chain off this one via
 ;; `:<-`, so the [:drawer ...] traversal happens once per app-db swap
-;; (in `:drawer`) rather than once per dependent recompute. Matches the
-;; realworld layering pattern (`:articles → :articles/data → ...`).
+;; (in `:drawer/slice`) rather than once per dependent recompute. Matches
+;; the realworld layering pattern (`:articles/slice → :articles/data → ...`).
 
-(rf/reg-sub :drawer (fn [db _] (:drawer db)))
+(rf/reg-sub :drawer/slice (fn [db _] (:drawer db)))
 
 (rf/reg-sub :drawer/circles
-  :<- [:drawer]
+  :<- [:drawer/slice]
   (fn [drawer _] (:circles drawer)))
 
 (rf/reg-sub :drawer/dialog
-  :<- [:drawer]
+  :<- [:drawer/slice]
   (fn [drawer _] (:dialog drawer)))
 
 (rf/reg-sub :drawer/can-undo?
-  :<- [:drawer]
+  :<- [:drawer/slice]
   (fn [drawer _] (seq (:undo drawer))))
 
 (rf/reg-sub :drawer/can-redo?
-  :<- [:drawer]
+  :<- [:drawer/slice]
   (fn [drawer _] (seq (:redo drawer))))
 
 ;; ============================================================================

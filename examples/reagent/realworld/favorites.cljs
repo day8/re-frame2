@@ -188,9 +188,9 @@
 ;; SUBSCRIPTIONS
 ;; ============================================================================
 
-(rf/reg-sub :feed (fn [db _] (:feed db)))
-(rf/reg-sub :feed/data :<- [:feed] (fn [slice _] (:data slice)))
-(rf/reg-sub :feed/error :<- [:feed] (fn [slice _] (:error slice)))
-(rf/reg-sub :feed/loading? :<- [:feed]
+(rf/reg-sub :feed/slice (fn [db _] (:feed db)))
+(rf/reg-sub :feed/data :<- [:feed/slice] (fn [slice _] (:data slice)))
+(rf/reg-sub :feed/error :<- [:feed/slice] (fn [slice _] (:error slice)))
+(rf/reg-sub :feed/loading? :<- [:feed/slice]
   (fn [slice _] (#{:loading :fetching} (:status slice))))
 

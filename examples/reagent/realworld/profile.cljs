@@ -326,9 +326,9 @@
 ;; SUBSCRIPTIONS
 ;; ============================================================================
 
-(rf/reg-sub :profile         (fn [db _] (:profile db)))
-(rf/reg-sub :profile/data    :<- [:profile] (fn [s _] (:data s)))
-(rf/reg-sub :profile/error   :<- [:profile] (fn [s _] (:error s)))
+(rf/reg-sub :profile/slice   (fn [db _] (:profile db)))
+(rf/reg-sub :profile/data    :<- [:profile/slice] (fn [s _] (:data s)))
+(rf/reg-sub :profile/error   :<- [:profile/slice] (fn [s _] (:error s)))
 
 (rf/reg-sub :profile.articles/data
   (fn [db _] (get-in db [:profile.articles :data])))

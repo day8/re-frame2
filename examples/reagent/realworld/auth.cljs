@@ -305,14 +305,14 @@
 (rf/reg-sub :auth.login-form/draft
   (fn [db _] (get-in db [:auth :login-form :draft])))
 
-(rf/reg-sub :auth.login-form
+(rf/reg-sub :auth.login-form/slice
   (fn [db _] (get-in db [:auth :login-form])))
 
 (rf/reg-sub :auth.login-form/field-error
   {:doc "Per-field validation error for the login form. Per
          Pattern-Forms §Error visibility: reveal every error after the
          first submit click, OR once a field is :touched."}
-  :<- [:auth.login-form]
+  :<- [:auth.login-form/slice]
   (fn [form [_ field]]
     (when (or (:submit-attempted? form)
               (contains? (:touched form) field))
@@ -321,14 +321,14 @@
 (rf/reg-sub :auth.register-form/draft
   (fn [db _] (get-in db [:auth :register-form :draft])))
 
-(rf/reg-sub :auth.register-form
+(rf/reg-sub :auth.register-form/slice
   (fn [db _] (get-in db [:auth :register-form])))
 
 (rf/reg-sub :auth.register-form/field-error
   {:doc "Per-field validation error for the register form. Per
          Pattern-Forms §Error visibility: reveal every error after the
          first submit click, OR once a field is :touched."}
-  :<- [:auth.register-form]
+  :<- [:auth.register-form/slice]
   (fn [form [_ field]]
     (when (or (:submit-attempted? form)
               (contains? (:touched form) field))
