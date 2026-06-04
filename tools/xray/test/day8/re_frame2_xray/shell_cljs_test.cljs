@@ -2714,15 +2714,51 @@
     (rf/with-frame :rf/xray
       (is (string? @(rf/subscribe [:rf.xray/reset-flash]))
           "a false restore sets the inline failure flash"))
-    ;; clear, then success path → no flash
-    (rf/with-frame :rf/xray
-      (rf/dispatch-sync [:rf.xray/clear-reset-flash]))
+    ;; rf2-wa7tk — success path WITHOUT a manual clear: the fresh
+    ;; reset attempt must itself dissoc the stale failure flash (the
+    ;; documented "next successful reset" contract). Pre-fix the stale
+    ;; "Reset failed" string survived a subsequent successful reset —
+    ;; a silent lie on the ribbon.
     (with-redefs [rf/restore-epoch (fn [_frame _epoch-id] true)]
       (rf/with-frame :rf/xray
         (rf/dispatch-sync [:rf.xray/reset-to-epoch :rf/default "epoch-9"])))
     (rf/with-frame :rf/xray
       (is (nil? @(rf/subscribe [:rf.xray/reset-flash]))
-          "a successful restore leaves no flash"))))
+          "a successful restore clears the stale failure flash (rf2-wa7tk)"))))
+
+(deftest reset-to-epoch-clears-stale-flash-before-reattempt
+  (testing "rf2-wa7tk — `:rf.xray/reset-to-epoch` dissocs any stale
+            `:reset-flash` on EVERY fresh attempt, before re-running the
+            restore. A second FAILED reset still shows a flash (the fx
+            re-sets it); the key invariant is that the slot is cleared
+            first, so a stale failure can never outlive the gesture that
+            produced it. Without the clear, the success-path test above
+            would only pass because it manually dispatched
+            `:rf.xray/clear-reset-flash` — papering over the bug."
+    (xray-setup!)
+    ;; first attempt fails → flash set
+    (with-redefs [rf/restore-epoch (fn [_frame _epoch-id] false)]
+      (rf/with-frame :rf/xray
+        (rf/dispatch-sync [:rf.xray/reset-to-epoch :rf/default "epoch-1"])))
+    (rf/with-frame :rf/xray
+      (is (string? @(rf/subscribe [:rf.xray/reset-flash]))
+          "first failed reset sets the flash"))
+    ;; second attempt ALSO fails → the fresh attempt clears the old
+    ;; string first, then the fx re-sets a (current) failure flash.
+    (with-redefs [rf/restore-epoch (fn [_frame _epoch-id] false)]
+      (rf/with-frame :rf/xray
+        (rf/dispatch-sync [:rf.xray/reset-to-epoch :rf/default "epoch-2"])))
+    (rf/with-frame :rf/xray
+      (is (string? @(rf/subscribe [:rf.xray/reset-flash]))
+          "a second failed reset still surfaces a flash (re-set by the fx)"))
+    ;; third attempt succeeds → no manual clear; the attempt's own
+    ;; dissoc must wipe the flash.
+    (with-redefs [rf/restore-epoch (fn [_frame _epoch-id] true)]
+      (rf/with-frame :rf/xray
+        (rf/dispatch-sync [:rf.xray/reset-to-epoch :rf/default "epoch-3"])))
+    (rf/with-frame :rf/xray
+      (is (nil? @(rf/subscribe [:rf.xray/reset-flash]))
+          "a successful reset clears the flash with no manual clear (rf2-wa7tk)"))))
 
 (deftest reset-flash-failed-sets-inline-flash-and-clears
   (testing "rf2-hga49 — a restore failure sets the inline `:rf.xray/reset-
