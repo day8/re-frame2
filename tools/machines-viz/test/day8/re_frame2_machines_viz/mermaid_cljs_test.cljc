@@ -347,3 +347,73 @@
             (no false-positive completion arrows)"
     (let [out (m/emit compound-machine {:fenced? false :header-comment? false})]
       (is (not (str/includes? out "✓ done"))))))
+
+;; ---- compound ACTION-ONLY :on-done note (rf2-ay42f) --------------------
+;;
+;; rf2-ay42f — a COMPOUND whose `:on-done` is ACTION-ONLY (no :target; the
+;; engine just runs an action when the sub-flow completes; the machine
+;; stays in the all-final config) is a documented Spec 005 shape
+;; (`on-done-edges` docstring in chart/layout.cljc names it). The chart +
+;; SCXML emitters both surface it as a terminal completion affordance, but
+;; PRE-FIX mermaid SILENTLY DROPPED it: `collect-on-done-edges` kept only
+;; target-bearing candidates, and the note path covered only the
+;; parallel-root. So the G9 'faithful across all three emitters' claim was
+;; false for this shape. The fix renders a `note` (the same way the
+;; parallel-root action-only :on-done is rendered), so all three emitters
+;; surface the completion.
+
+(def compound-action-only-on-done-machine
+  "rf2-ay42f — a compound `:flow` whose `:on-done` is ACTION-ONLY (no
+  :target — the engine runs `:announce` on completion; the machine stays
+  in the all-final config). The shape `on-done-edges` names in its
+  docstring."
+  {:initial :flow
+   :states  {:flow {:initial :collecting
+                    :on-done {:action :announce}
+                    :states  {:collecting {:on {:submit :submitting}}
+                              :submitting {:on {:ok :paid}}
+                              :paid       {:final? true}}}}})
+
+(deftest emit-compound-action-only-on-done-renders-completion-note
+  (testing "rf2-ay42f — a COMPOUND action-only :on-done (no target) renders
+            a completion note (no phantom arrow) so mermaid is faithful to
+            the chart + SCXML emitters (closing the G9 cross-emitter gap)"
+    (let [out (m/emit compound-action-only-on-done-machine
+                      {:fenced? false :header-comment? false})]
+      (is (str/includes? out "note right of flow")
+          "the compound's completion renders as a note on the compound")
+      (is (str/includes? out "on-done: ✓ done / announce")
+          "the note carries the completion + its action")
+      ;; an action-only :on-done has NO sibling — so NO phantom `✓ done`
+      ;; EDGE (the target-bearing form's `--> ... : ✓ done` arrow).
+      (is (not (str/includes? out "--> flow : ✓ done"))
+          "no phantom completion arrow for an action-only compound :on-done"))))
+
+(deftest emit-region-compound-action-only-on-done-renders-note
+  (testing "rf2-ay42f — a compound INSIDE a parallel region whose :on-done
+            is action-only also renders a completion note (the walk covers
+            nested + region-scoped compounds, not just the top level)"
+    (let [machine {:type    :parallel
+                   :regions {:audio {:initial :session
+                                     :states  {:session {:initial :idle
+                                                         :on-done {:action :chime}
+                                                         :states  {:idle {:on {:go :busy}}
+                                                                   :busy {:final? true}}}}}
+                             :video {:initial :hidden
+                                     :states  {:hidden {:on {:show :shown}}
+                                               :shown  {:final? true}}}}}
+          out     (m/emit machine {:fenced? false :header-comment? false})]
+      (is (str/includes? out "note right of audio__session")
+          "the region-nested compound's completion renders as a note")
+      (is (str/includes? out "on-done: ✓ done / chime")
+          "the note carries the completion + its action"))))
+
+(deftest emit-target-bearing-on-done-renders-edge-not-note
+  (testing "rf2-ay42f regression guard — a TARGET-bearing compound :on-done
+            still renders the sibling completion EDGE (not a note); only
+            the action-only form gets a note"
+    (let [out (m/emit compound-on-done-machine {:fenced? false :header-comment? false})]
+      (is (str/includes? out "flow --> next : ✓ done")
+          "a target-bearing :on-done keeps its sibling completion arrow")
+      (is (not (str/includes? out "note right of flow"))
+          "a target-bearing :on-done does NOT also render a note"))))

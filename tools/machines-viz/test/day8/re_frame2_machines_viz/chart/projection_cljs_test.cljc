@@ -16,6 +16,7 @@
   machines-viz helper test uses."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
+            [clojure.string :as str]
             [day8.re-frame2-machines-viz.chart.layout :as layout]
             [day8.re-frame2-machines-viz.chart.projection :as projection]
             [day8.re-frame2-machines-viz.theme.tokens :as tokens]
@@ -2296,3 +2297,75 @@
     (let [graph (projection/xyflow-graph
                   (layout/parse-definition compound-machine) {} {})]
       (is (empty? (filter #(:onDone (:data %)) (:nodes graph)))))))
+
+;; ---- parallel-root completion ANCHOR is inert (rf2-dblqx) ---------------
+;;
+;; rf2-dblqx — the synthetic PARALLEL-ROOT node (rf2-41goo's anchor for the
+;; whole-parallel `:on-done` completion affordance) is NOT a statechart
+;; state — it is a rendering sentinel (`:path
+;; [:rf.machines-viz.layout/parallel-root]`). Pre-fix it fell through the
+;; node-:type cond to `"state"` AND through the `:onClick` guard (which
+;; excluded only `:machine-root?` + region), so it projected as a CLICKABLE
+;; `parallel` state box — clicking it would dispatch on-state-click against
+;; the phantom sentinel path. The SAME inert-synthetic-chip class rf2-34ff3
+;; fixed for the machine-root chip + region containers; this pins that the
+;; parallel-root anchor is INERT (typed `"machine-root"`, carries NO
+;; `:onClick`), mirroring the 34ff3 guard.
+
+(defn- parallel-root-anchor
+  "The synthetic parallel-root completion-anchor node in a projected
+  parallel-with-:on-done graph. It is the only `\"machine-root\"`-typed
+  node in `ingest-on-done` (the regions carry no top-level `:on`, so no
+  region mints a machine-root chip)."
+  [graph]
+  (first (filter #(= "machine-root" (:type %)) (:nodes graph))))
+
+(deftest xyflow-graph-parallel-root-anchor-is-inert
+  (testing "rf2-dblqx — the parallel-root :on-done anchor is INERT: it is
+            NOT typed `state` and carries NO :onClick (mirroring the
+            rf2-34ff3 inert machine-root + region containers), so a user
+            cannot click a phantom `parallel` state and fire on-state-click
+            against the rendering sentinel path."
+    (let [cb     (fn [_path] :clicked)
+          parsed (layout/parse-definition ingest-on-done)
+          graph  (projection/xyflow-graph parsed {} {:on-state-click cb})
+          anchor (parallel-root-anchor graph)]
+      (is (some? anchor)
+          "a parallel machine with a root :on-done projects the anchor node")
+      (is (= "machine-root" (:type anchor))
+          "the parallel-root anchor is a quiet root-context chip, NOT a state box")
+      (is (not= "state" (:type anchor))
+          "rf2-dblqx — the anchor must NOT fall through to the `state` type")
+      (is (not (contains? (:data anchor) :onClick))
+          "rf2-dblqx — the parallel-root anchor carries NO :onClick (not an
+           on-state-click target — its path is a rendering sentinel)")
+      ;; the real region leaves still carry :onClick (the fix is surgical)
+      (let [leaf (node-by-id graph (layout/region-scoped-id :fetch [:loading]))]
+        (is (= cb (:onClick (:data leaf)))
+            "a real leaf inside a region still carries :onClick")))))
+
+;; ---- parallel-root done-state label matches SCXML (rf2-bs3us) -----------
+;;
+;; rf2-bs3us — the parallel-root done-path is the engine's root sentinel
+;; `[]`, whose `node-id` is the EMPTY string, so the naive
+;; `(str "done.state." (node-id done-path))` yielded the degenerate
+;; `"done.state."` (trailing dot, no id) — diverging from the SCXML
+;; emitter's `"done.state.rf2_parallel_root"`. The chart now uses the
+;; shared canonical sentinel id so the two emitters agree.
+
+(deftest xyflow-graph-parallel-root-done-state-matches-scxml
+  (testing "rf2-bs3us — the parallel-root :on-done :doneState label is the
+            non-degenerate `done.state.<id>` form (matching the SCXML
+            emitter), not the empty `done.state.`"
+    (let [parsed  (layout/parse-definition ingest-on-done)
+          od-edge (first (filter :on-done? (:edges parsed)))
+          graph   (projection/xyflow-graph parsed {} {})
+          ev-node (event-node-for graph (:id od-edge))
+          done    (:doneState (:data ev-node))]
+      (is (some? ev-node))
+      (is (= (str "done.state." layout/parallel-root-done-state-id) done)
+          "the chart label uses the shared canonical parallel-root id")
+      (is (not= "done.state." done)
+          "rf2-bs3us — NOT the degenerate empty-suffix label")
+      (is (str/ends-with? done "rf2_parallel_root")
+          "matches the SCXML emitter's done.state.rf2_parallel_root form"))))

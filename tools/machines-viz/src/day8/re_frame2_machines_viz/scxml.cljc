@@ -68,7 +68,11 @@
   with a `:reason` keyword for programmatic dispatch.
 
   Per [`API.md`](../../spec/API.md) §SCXML import/export."
-  (:require [clojure.string :as str]))
+  (:require [clojure.string :as str]
+            ;; rf2-bs3us — share the canonical parallel-root done-state id
+            ;; with the chart projector so the two emitters agree on the
+            ;; `done.state.<id>` label (single source of truth).
+            [day8.re-frame2-machines-viz.chart.layout :as layout]))
 
 ;; ---------------------------------------------------------------------------
 ;; Id mapping
@@ -253,8 +257,13 @@
 
 (def ^:private parallel-root-scxml-id
   "rf2-41goo — the SCXML id of the synthetic `<parallel>` element. Its
-  W3C completion event is `done.state.<this-id>`."
-  "rf2_parallel_root")
+  W3C completion event is `done.state.<this-id>`.
+
+  rf2-bs3us — sourced from the shared canonical sentinel
+  (`layout/parallel-root-done-state-id`) so the SCXML emitter's
+  `done.state.<id>` event and the chart projector's `:doneState` renderer
+  label agree on the parallel-root done-state id."
+  layout/parallel-root-done-state-id)
 
 (defn- emit-parallel
   [{:keys [regions on-done]} depth]

@@ -293,6 +293,62 @@
              :label (edge-label "✓ done" candidate)}))
         (transition-candidates on-done)))
 
+(defn- on-done-action-only?
+  "rf2-ay42f — true when an `:on-done` spec is ACTION-ONLY: it has at
+  least one candidate, and EVERY candidate is target-less (the engine just
+  runs an action when the sub-flow completes; the machine stays in the
+  all-final config). A target-bearing candidate routes a `✓ done` edge
+  (`collect-on-done-edges`); a target-less one has no arrow to draw."
+  [on-done]
+  (let [cands (transition-candidates on-done)]
+    (and (seq cands)
+         (every? #(nil? (resolve-target-path [] [] (:target %))) cands))))
+
+(defn- on-done-action-label
+  "rf2-ay42f — the `on-done: ✓ done / <action>` note body for an
+  action-only `:on-done` (the same caption `render-parallel-on-done-note`
+  paints for the parallel-root form). The first candidate's `:action`
+  surfaces when present."
+  [on-done]
+  (let [action (some :action (transition-candidates on-done))]
+    (cond-> "on-done: ✓ done"
+      action (str " / " (label-value action)))))
+
+(defn- collect-compound-on-done-notes
+  "rf2-ay42f — emit a `note right of <compound>` for every COMPOUND state
+  whose `:on-done` is ACTION-ONLY (target-less). Mermaid has no
+  transitionable completion glyph for an action-only done (there is no
+  sibling state to arrow to — the engine just runs the action; the machine
+  stays in the all-final config), so — exactly as the PARALLEL-ROOT
+  action-only `:on-done` is rendered (`render-parallel-on-done-note`) — we
+  render a note carrying `on-done: ✓ done / <action>`.
+
+  Pre-fix, `collect-on-done-edges` kept ONLY target-bearing candidates, so
+  a compound action-only `:on-done` (a documented Spec 005 shape — see
+  `on-done-edges`' docstring in `chart/layout.cljc`) was SILENTLY DROPPED
+  in mermaid while the chart + SCXML emitters surfaced it — breaking the
+  G9 'faithful across all three emitters' parity claim. This closes the
+  asymmetry: a target-bearing compound `:on-done` routes a `✓ done` edge,
+  an action-only one carries a note, so the completion is always visible.
+
+  Walks the state tree the same way `collect-edges` does (compound
+  substates recurse), so a deeply-nested compound's action-only completion
+  is covered too. Returns a flat seq of note lines."
+  [root-path states]
+  (mapcat
+    (fn [[state-id state-node]]
+      (let [state-path (conj (vec root-path) state-id)
+            self       (when (and (:states state-node)
+                                  (on-done-action-only? (:on-done state-node)))
+                         [(str "  note right of " (sanitise-id state-path))
+                          (str "    " (on-done-action-label (:on-done state-node)))
+                          "  end note"])
+            child      (when (:states state-node)
+                         (collect-compound-on-done-notes state-path
+                                                         (:states state-node)))]
+        (concat self child)))
+    states))
+
 (defn- collect-root-fallback-edges
   [root-path on-map]
   (let [source-path (conj (vec root-path) root-fallback-segment)]
@@ -415,7 +471,12 @@
                                fallback-edges)
         edge-lines     (map render-edge edges)
         final-lines    (render-final-edges root-path states)
-        compound-lines (render-compound-blocks root-path states 1)]
+        compound-lines (render-compound-blocks root-path states 1)
+        ;; rf2-ay42f — a COMPOUND whose `:on-done` is action-only
+        ;; (target-less) has no sibling arrow to draw; render its
+        ;; completion as a note so it is not silently dropped (the
+        ;; chart + SCXML emitters both surface it).
+        on-done-notes  (collect-compound-on-done-notes root-path states)]
     (str/join "\n"
               (concat
                (when header-comment? [header-comment])
@@ -424,7 +485,8 @@
                (render-root-fallback-alias root-path on 1)
                compound-lines
                edge-lines
-               final-lines))))
+               final-lines
+               on-done-notes))))
 
 (defn- region-initial-line
   [region-path initial depth]
@@ -459,13 +521,12 @@
   inventing a phantom target arrow."
   [on-done]
   (when on-done
-    (let [cands  (transition-candidates on-done)
-          action (some :action cands)
-          body   (cond-> "on-done: ✓ done"
-                   action (str " / " (label-value action)))]
-      [(str "  note right of " (sanitise-id parallel-root-path))
-       (str "    " body)
-       "  end note"])))
+    ;; rf2-ay42f — share the `on-done: ✓ done / <action>` caption with the
+    ;; COMPOUND action-only note (`on-done-action-label`) so the two
+    ;; action-only completion forms read identically.
+    [(str "  note right of " (sanitise-id parallel-root-path))
+     (str "    " (on-done-action-label on-done))
+     "  end note"]))
 
 (defn- render-parallel-body
   [{:keys [regions on on-done]} header-comment?]
@@ -480,7 +541,14 @@
         edge-lines  (map render-edge edges)
         final-lines (mapcat (fn [[region-id {:keys [states]}]]
                               (render-final-edges [region-id] states))
-                            regions)]
+                            regions)
+        ;; rf2-ay42f — a COMPOUND inside a region whose `:on-done` is
+        ;; action-only renders the same completion note the flat/compound
+        ;; emitter and the parallel-root use (no sibling arrow to draw).
+        region-on-done-notes
+        (mapcat (fn [[region-id {:keys [states]}]]
+                  (collect-compound-on-done-notes [region-id] states))
+                regions)]
     (str/join "\n"
               (concat
                (when header-comment? [header-comment])
@@ -492,6 +560,7 @@
                ["  }"]
                edge-lines
                final-lines
+               region-on-done-notes
                ;; rf2-41goo — the parallel-root completion note (action/fx-
                ;; only; no sibling target).
                (render-parallel-on-done-note on-done)))))

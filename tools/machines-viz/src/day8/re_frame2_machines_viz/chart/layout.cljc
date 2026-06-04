@@ -394,6 +394,20 @@
   root sentinel `[]`, distinct from this rendering anchor."
   :rf.machines-viz.layout/parallel-root)
 
+(def parallel-root-done-state-id
+  "rf2-bs3us — the canonical id string for the whole-parallel completion
+  signal (`done.state.<this>`). The engine raises `done.state` for the
+  parallel root with the root sentinel path `[]`, whose `node-id` is the
+  EMPTY string — so a naive `(str \"done.state.\" (node-id done-path))` for
+  the parallel-root yields the degenerate `\"done.state.\"` (trailing dot,
+  no id). This stable, non-empty sentinel id is the SINGLE SOURCE OF TRUTH
+  shared by the chart projector's `:doneState` renderer label AND the SCXML
+  emitter's `<parallel id=...>` / `done.state.<id>` event, so the two
+  emitters agree on the parallel-root done-state label (pre-fix the chart
+  said `\"done.state.\"` while SCXML said `\"done.state.rf2_parallel_root\"`).
+  Matches SCXML's `<parallel>` element id convention."
+  "rf2_parallel_root")
+
 (defn region-scoped-id
   "rf2-wnzha — the region-SCOPED node-id for a state at `in-region-path`
   inside the parallel region `region-id`. INJECTIVE ACROSS REGIONS: two
@@ -703,6 +717,26 @@
           (fn [idx [region-id region-def]]
             (let [rid       (region-node-id region-id)
                   parsed    (parse-flat region-def)
+                  ;; rf2-7i7t3 — a region def is a compound state map and MAY
+                  ;; carry a top-level `:on` (a legal Spec 005 region-level
+                  ;; fallback). `parse-flat` mints a synthetic MACHINE-ROOT
+                  ;; node (`{:path [] :machine-root? true}`) + machine-level
+                  ;; edges (rf2-vcnvj) WHENEVER its definition has a top-level
+                  ;; `:on`. But the machine-root concept is a FLAT/top-level-
+                  ;; machine artifact — a region is NOT a machine; it has no
+                  ;; root context (XState v5: a region is just an orthogonal
+                  ;; compound state, its `:on` is an ordinary region-scoped
+                  ;; transition). Pre-fix, that synthetic root node got region-
+                  ;; scoped to a DEGENERATE id (`region-scoped-id :fetch []` =
+                  ;; `"region__fetch__"`, trailing `__` + empty path segment)
+                  ;; and kept `:machine-root? true`, so the projector painted a
+                  ;; stray `root` chip nested INSIDE the region container. We
+                  ;; DROP the synthetic machine-root node here and re-point its
+                  ;; fallback edges' source to the REGION CONTAINER (`rid`)
+                  ;; below, so a region-level `:on` reads as a fallback hanging
+                  ;; off the region — no phantom root.
+                  region-nodes
+                  (remove :machine-root? (:nodes parsed))
                   ;; rf2-wnzha — region-scope every state node-id (so two
                   ;; same-named region states never collide) and re-point
                   ;; a nested-compound child's `:parent-id` to its
@@ -718,17 +752,27 @@
                               :parent-id (if (> (count path) 1)
                                            (region-scoped-id region-id (pop path))
                                            rid))))
-                        (:nodes parsed))
+                        region-nodes)
                   ;; rf2-wnzha — re-key every edge's id/source/target under
                   ;; the region prefix too (an edge to/from a shared-name
                   ;; state would otherwise resolve to the colliding id
                   ;; across regions). `:from-path`/`:to-path` stay the
                   ;; in-region paths the ids derive from.
+                  ;;
+                  ;; rf2-7i7t3 — a region-level machine fallback edge
+                  ;; (`:machine-level? true`, `:from-path []`) would otherwise
+                  ;; region-scope its source to the DEGENERATE `region__<id>__`
+                  ;; (node-id of `[]` is empty) — the dropped phantom root.
+                  ;; Source it from the REGION CONTAINER (`rid`) instead, so the
+                  ;; fallback chip hangs off the region the way the machine-
+                  ;; level fallback hangs off the top-level machine root.
                   scoped-edges
                   (mapv (fn [e]
                           (assoc e
                             :id     (str (region-node-id region-id) "__" (:id e))
-                            :source (region-scoped-id region-id (:from-path e))
+                            :source (if (:machine-level? e)
+                                      rid
+                                      (region-scoped-id region-id (:from-path e)))
                             :target (region-scoped-id region-id (:to-path e))))
                         (:edges parsed))
                   ;; The synthetic region container node.
