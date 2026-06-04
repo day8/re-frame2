@@ -724,6 +724,132 @@
       (is (empty? (filter #(= :rf.error/effect-map-shape (:operation %)) @traces))
           "no :rf.error/effect-map-shape trace for a clean multi-entry :fx"))))
 
+;; ---- 6d. per-ENTRY arity / fx-id-type policing (rf2-18kwf) ----------------
+;;
+;; 6c (rf2-n6d3m) tightened the do-fx walk to police a non-vector ENTRY. But
+;; the guard still waved through ANY non-empty vector, so two malformed VECTOR
+;; shapes leaked into `handle-one-fx`:
+;;
+;;   (1) a NON-keyword head — `["not-a-keyword" {:x 1}]` reached fx lookup and
+;;       was mis-reported as `:rf.error/no-such-fx` (an UNKNOWN fx-id), when it
+;;       is really a bad fx-id TYPE (a shape violation).
+;;   (2) a surplus 3rd field — `[:some/fx {:used true} {:dropped true}]` was
+;;       SILENTLY truncated because `handle-one-fx` destructures only
+;;       `[original-fx-id args]`; the 3rd slot vanished with no diagnostic.
+;;
+;; Per `:rf/effect-map` the entry shape is `[:tuple :keyword :any]` (Spec-
+;; Schemas §:rf/effect-map; spec/009 §:rf.error/effect-map-shape case (c)).
+;; The fix tightens `fx-entry-ok?` to walk ONLY a 1- or 2-element vector whose
+;; head is a keyword; both malformed shapes above now emit one
+;; :rf.error/effect-map-shape (:offending-key :fx, :logged-and-skipped), drop
+;; just that entry, and let siblings run — symmetric with 6c.
+;;
+;; The 1-arity no-args shorthand `[:fx-id]` stays valid: `handle-one-fx`
+;; destructures `args` as nil for it, and it is in wide use (source-order /
+;; multi-entry tests above). `well-formed-multi-entry-fx-emits-no-shape-trace`
+;; already pins that it emits NO shape trace.
+
+(deftest fx-entry-non-keyword-head-is-policed-and-skipped
+  (testing "a vector :fx entry whose head is NOT a keyword (`[\"str\" {}]`) is a
+            shape violation — :rf.error/effect-map-shape, that entry skipped,
+            siblings still run — NOT mis-reported as an unknown fx-id"
+    (let [traces (collect-traces! ::fx-entry-non-kw)
+          fired  (atom [])]
+      (rf/reg-fx :fx-test/entry-nonkw-sibling
+        (fn [_ args] (swap! fired conj args)))
+      (rf/reg-event-fx :fx-test/entry-non-keyword-head
+        (fn [{:keys [db]} _]
+          {:db (assoc db :seeded? true)
+           :fx [[:fx-test/entry-nonkw-sibling {:k 1}]
+                ["not-a-keyword" {:x 1}]            ;; bad fx-id TYPE, not unknown id
+                [:fx-test/entry-nonkw-sibling {:k 2}]]}))
+      (is (nil? (rf/dispatch-sync [:fx-test/entry-non-keyword-head]))
+          "dispatch returns normally — no uncaught host exception")
+      (rf/unregister-listener! ::fx-entry-non-kw)
+      (is (= [{:k 1} {:k 2}] @fired)
+          "both well-shaped siblings fired in order; the bad-head entry was skipped")
+      (is (= true (:seeded? (rf/app-db-value :rf/default)))
+          ":db committed; only the malformed entry was dropped")
+      ;; The diagnostic must be the SHAPE category, not no-such-fx — a string
+      ;; head is a shape violation, not an unregistered keyword id.
+      (is (empty? (filter #(= :rf.error/no-such-fx (:operation %)) @traces))
+          "a non-keyword head is NOT mis-reported as :rf.error/no-such-fx")
+      (let [shape-traces (filter #(= :rf.error/effect-map-shape (:operation %))
+                                 @traces)]
+        (is (= 1 (count shape-traces))
+            "exactly one :rf.error/effect-map-shape trace for the bad-head entry")
+        (let [t (first shape-traces)]
+          (is (= :error (:op-type t)))
+          (is (= :logged-and-skipped (:recovery t)))
+          (is (= :fx (get-in t [:tags :offending-key])))
+          (is (= :fx-test/entry-non-keyword-head (get-in t [:tags :rf.trace/event-id]))
+              ":event-id names the offending handler")
+          (is (= :rf/default (get-in t [:tags :frame])))
+          (is (= ["not-a-keyword" {:x 1}] (get-in t [:tags :value]))
+              ":value carries the offending entry verbatim")
+          (is (string? (get-in t [:tags :reason])))
+          (is (re-find #"fx-id" (get-in t [:tags :reason]))
+              ":reason flags the bad fx-id (the first element)"))))))
+
+(deftest fx-entry-surplus-third-field-is-policed-not-truncated
+  (testing "a vector :fx entry with a surplus 3rd field
+            (`[:fx {:used true} {:dropped true}]`) is a shape violation —
+            :rf.error/effect-map-shape, that entry skipped, siblings still run —
+            NOT silently truncated to a 2-tuple by `handle-one-fx`"
+    (let [traces (collect-traces! ::fx-entry-arity3)
+          fired  (atom [])]
+      (rf/reg-fx :fx-test/entry-arity3-sink
+        (fn [_ args] (swap! fired conj args)))
+      (rf/reg-event-fx :fx-test/entry-surplus-field
+        (fn [{:keys [db]} _]
+          {:db (assoc db :seeded? true)
+           :fx [[:fx-test/entry-arity3-sink {:k 1}]
+                [:fx-test/entry-arity3-sink {:used true} {:dropped true}]
+                [:fx-test/entry-arity3-sink {:k 2}]]}))
+      (is (nil? (rf/dispatch-sync [:fx-test/entry-surplus-field]))
+          "dispatch returns normally — no uncaught host exception")
+      (rf/unregister-listener! ::fx-entry-arity3)
+      ;; CRITICAL: the 3-element entry must NOT fire as a silently-truncated
+      ;; 2-tuple `[:fx-test/entry-arity3-sink {:used true}]`. Only the two
+      ;; well-shaped siblings run.
+      (is (= [{:k 1} {:k 2}] @fired)
+          "the surplus-field entry was dropped (NOT truncated + fired); siblings ran")
+      (is (= true (:seeded? (rf/app-db-value :rf/default)))
+          ":db committed; only the malformed entry was dropped")
+      (let [shape-traces (filter #(= :rf.error/effect-map-shape (:operation %))
+                                 @traces)]
+        (is (= 1 (count shape-traces))
+            "exactly one :rf.error/effect-map-shape trace for the surplus-field entry")
+        (let [t (first shape-traces)]
+          (is (= :logged-and-skipped (:recovery t)))
+          (is (= :fx (get-in t [:tags :offending-key])))
+          (is (= :fx-test/entry-surplus-field (get-in t [:tags :rf.trace/event-id])))
+          (is (= [:fx-test/entry-arity3-sink {:used true} {:dropped true}]
+                 (get-in t [:tags :value]))
+              ":value carries the full over-long entry verbatim")
+          (is (string? (get-in t [:tags :reason])))
+          (is (re-find #"two elements|surplus" (get-in t [:tags :reason]))
+              ":reason flags the surplus element(s)"))))))
+
+(deftest fx-entry-no-args-shorthand-is-valid
+  (testing "the 1-arity no-args shorthand `[:fx-id]` is a VALID entry — it
+            fires (args nil) and emits NO :rf.error/effect-map-shape trace"
+    ;; Pins the lower bound of the tightened arity check: 1-element vectors
+    ;; with a keyword head are the documented no-args shorthand, NOT a shape
+    ;; violation. (The upper bound — arity ≥ 3 — is pinned above.)
+    (let [traces (collect-traces! ::fx-entry-noargs)
+          fired  (atom [])]
+      (rf/reg-fx :fx-test/noargs-sink
+        (fn [_ args] (swap! fired conj args)))
+      (rf/reg-event-fx :fx-test/entry-noargs
+        (fn [_ _] {:fx [[:fx-test/noargs-sink]]}))
+      (rf/dispatch-sync [:fx-test/entry-noargs])
+      (rf/unregister-listener! ::fx-entry-noargs)
+      (is (= [nil] @fired)
+          "the no-args shorthand fired once with nil args")
+      (is (empty? (filter #(= :rf.error/effect-map-shape (:operation %)) @traces))
+          "the no-args `[:fx-id]` shorthand emits NO shape trace — it is valid"))))
+
 ;; ---- 7. :fx-overrides function-value branch -------------------------------
 ;;
 ;; Per Spec 002 §`:fx-overrides` §Pattern-level contract vs CLJS reference:

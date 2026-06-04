@@ -750,23 +750,36 @@
 ;;
 ;; Per `:rf/effect-map` (Spec-Schemas §:rf/effect-map) each entry is a
 ;; `[:tuple :keyword :any]` — a `[fx-id args]` vector. The do-fx walk used to
-;; guard with `(when (and (vector? pair) (seq pair)) …)`, which silently
+;; guard with `(when (and (vector? pair) (seq pair)) …)`, which (a) silently
 ;; dropped EVERY non-vector entry with no diagnostic — including the clear
 ;; typo `{:fx [[:good a] :oops]}` (a bare keyword where a `[fx-id args]` pair
-;; was meant). The handler appears to fire its effects but the typo'd entry
-;; vanishes without trace — the same debuggability gap class the framework
-;; polices loudly elsewhere (interceptors-in-metadata, M-8 effect keys, the
-;; `:fx` value shape).
+;; was meant) — and (b) waved ANY non-empty vector through, so a non-keyword
+;; head (`["not-a-keyword" {}]`) reached `handle-one-fx` and was mis-reported
+;; as `:rf.error/no-such-fx` (wrong diagnostic), and a surplus tuple field
+;; (`[:some/fx {:used true} {:dropped true}]`) was SILENTLY truncated because
+;; `handle-one-fx` destructures only `[original-fx-id args]`. Both are shape
+;; violations; the framework polices them loudly elsewhere (interceptors-in-
+;; metadata, M-8 effect keys, the `:fx` value shape) so it must here too.
 ;;
-;; We tolerate the legitimately-empty idiom and police the clear typo:
+;; We tolerate the legitimately-empty idiom and police every clear typo:
 ;;
 ;;   nil / [] (empty)        → silent no-op. The documented conditional-fx
 ;;                             idiom `[(when cond? [:fx-id args])]` nil-pads
 ;;                             entries on purpose; a `[]` is likewise a
 ;;                             deliberate no-op. NO trace.
-;;   non-empty vector        → walked normally. An unregistered fx-id head is
-;;                             still policed downstream by `handle-one-fx`'s
+;;   [:fx-id] / [:fx-id args]→ walked normally. A 1- or 2-element vector whose
+;;                             head is a keyword is the documented pair (the
+;;                             1-arity no-args shorthand `[:fx-id]` is in wide
+;;                             use, e.g. `[[:fx-test/a] [:fx-test/b]]`; the
+;;                             2-arity carries args). An unregistered fx-id head
+;;                             is still policed downstream by `handle-one-fx`'s
 ;;                             :rf.error/no-such-fx path — not our concern here.
+;;   vector, NON-keyword head→ shape violation. `["not-a-keyword" {}]` is NOT an
+;;                             unknown fx-id, it is a bad fx-id type. Emit
+;;                             :rf.error/effect-map-shape, drop, siblings run.
+;;   vector, arity ≥ 3       → shape violation. The surplus slot would be
+;;                             silently discarded by `handle-one-fx`. Emit
+;;                             :rf.error/effect-map-shape, drop, siblings run.
 ;;   non-`nil`, non-empty,   → the clear typo (a keyword / map / string / number
 ;;   NON-vector entry          / list where a `[fx-id args]` vector was meant).
 ;;                             Emit :rf.error/effect-map-shape naming the entry +
@@ -777,28 +790,51 @@
 (defn- fx-entry-ok?
   "True iff an individual `:fx` entry `pair` is shaped well enough to walk —
   i.e. `nil`, an empty collection (both the legal conditional-fx no-op), or a
-  non-empty vector (the documented `[fx-id args]` pair). A non-`nil`, non-empty,
-  NON-vector entry is the forgot-the-inner-vector typo: emit
+  1- or 2-element vector whose head is a keyword (the documented `[fx-id]` /
+  `[fx-id args]` pair — the 1-arity no-args shorthand is supported because
+  `handle-one-fx` destructures `args` as `nil` for it). Anything else is a
+  shape violation: a non-`nil`, non-empty, NON-vector entry (forgot-the-inner-
+  vector typo), a vector with a NON-keyword head (bad fx-id type — would be
+  mis-reported as an unknown fx-id), or a vector of arity ≥ 3 (the surplus
+  slot would be silently truncated by `handle-one-fx`). On a violation, emit
   :rf.error/effect-map-shape naming the offending entry + handler and return
-  false so the walk drops just that entry. `event` (the originating event
-  vector, when supplied) names the offending handler; absent ⇒ the trace
-  degrades gracefully (nil event-id)."
+  false so the walk drops just that entry — siblings still run. `event` (the
+  originating event vector, when supplied) names the offending handler; absent
+  ⇒ the trace degrades gracefully (nil event-id)."
   [pair frame-id event]
   (cond
     ;; Legal no-op: nil or empty — the conditional-fx idiom. Skip, no trace.
     (nil? pair)               false
     (and (vector? pair)
-         (seq pair))          true        ;; well-shaped, non-empty — walk it
+         (#{1 2} (count pair))
+         (keyword? (first pair))) true     ;; [fx-id] / [fx-id args] — walk it
     (and (coll? pair)
          (empty? pair))       false        ;; empty [] / () — legal no-op, no trace
     :else
-    ;; Non-nil, non-empty, non-vector — the clear typo. Police + drop.
+    ;; A shape violation. Three sub-cases, distinguished only for the human-
+    ;; facing :reason; all drop the entry + emit one :rf.error/effect-map-shape.
     (let [event-id (when (vector? event) (first event))
-          reason   (str "Effect-map for `" event-id "` returned an `:fx` entry of type `"
-                        (pr-str (type pair))
-                        "` (value `" (pr-str pair) "`); each `:fx` entry must be a "
-                        "`[fx-id args]` vector (e.g. `[:dispatch [:saved]]`)"
-                        " — did you forget the inner vector?")]
+          reason   (cond
+                     (not (vector? pair))
+                     (str "Effect-map for `" event-id "` returned an `:fx` entry of type `"
+                          (pr-str (type pair))
+                          "` (value `" (pr-str pair) "`); each `:fx` entry must be a "
+                          "`[fx-id args]` vector (e.g. `[:dispatch [:saved]]`)"
+                          " — did you forget the inner vector?")
+
+                     (not (keyword? (first pair)))
+                     (str "Effect-map for `" event-id "` returned an `:fx` entry `"
+                          (pr-str pair) "` whose fx-id (the first element) is `"
+                          (pr-str (first pair)) "` of type `" (pr-str (type (first pair)))
+                          "`; each `:fx` entry must be a `[fx-id args]` vector whose "
+                          "fx-id is a keyword (e.g. `[:dispatch [:saved]]`).")
+
+                     :else ;; arity ≥ 3 (the empty-vector arity-0 case is handled above)
+                     (str "Effect-map for `" event-id "` returned an `:fx` entry `"
+                          (pr-str pair) "` with " (count pair) " elements; each `:fx` "
+                          "entry must be a `[fx-id args]` vector of at most two elements "
+                          "(e.g. `[:dispatch [:saved]]` or the no-args `[:fx-id]`)"
+                          " — the surplus element(s) would be silently discarded."))]
       (trace/emit-error! :rf.error/effect-map-shape
                          {:failing-id        event-id
                           :rf.trace/event-id event-id
