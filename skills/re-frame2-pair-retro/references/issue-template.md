@@ -9,7 +9,7 @@ The default filing path is a **GitHub issue** against the target repo — `re-fr
 Before drafting, decide the target repo:
 
 - **`re-frame2-pair`** — friction in the pair tool itself: SKILL.md, scripts, recipes, attach logic, structured results, cross-platform handling.
-- **`re-frame2`** — friction caused by a gap in the framework's Tool-Pair contract: missing trace event category, under-specified `:rf.epoch/*` failure mode, missing registrar query, source-coord shape question, schema-reflection limitation, private-namespace reach-through that should be promoted.
+- **`re-frame2`** — friction caused by a gap in the framework's Tool-Pair contract. Name the specific surface from [`../../shared/tool-pair-surfaces.md`](../../shared/tool-pair-surfaces.md) (e.g. missing trace event category, under-specified `:rf.epoch/*` failure mode, missing registrar query, source-coord shape question, schema-reflection limitation) or a private-namespace reach-through that should be promoted.
 
 When unsure, ask the user. Sometimes both: a tool-side workaround now and an upstream GitHub issue for the long-term fix; cross-link them.
 
