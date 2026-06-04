@@ -109,16 +109,19 @@
   ## Divergences found
 
   This corpus originally PINNED one semantic divergence from the SCXML
-  core: **external self-transition semantics were not implemented**. That
-  divergence is now RESOLVED by rf2-46ban. Per Spec 005 §Self-transitions
-  and Spec-Schemas TransitionTarget, `:target :same-state` (and a `:target`
-  naming the source state's own keyword) fire BOTH the source `:exit` and
-  the re-entered `:entry`, leaving the state unchanged. The §Self-transitions
-  tests assert the conformant ordering: the INTERNAL omit-target case fires
-  the action only (no exit/entry), and the two EXTERNAL cases
-  (`scxml-external-self-transition-same-state-sentinel` /
-  `…-own-keyword-target`) fire exit → action → entry and stay at the source.
-  No outstanding divergences remain in this corpus."
+  core: **external self-transition semantics were not implemented**
+  (resolved by rf2-46ban, which gave the engine SCXML external-default
+  self-transitions). rf2-eicq0 then ALIGNED THE DEFAULT to XState v5 (the
+  gold standard), which FLIPPED SCXML's default: a targeted self/ancestor
+  transition is INTERNAL by default; the external restart is the opt-in
+  `:reenter? true`. SCXML's `type=\"external\"` default is therefore a
+  DELIBERATE DIVERGENCE re-frame2 does NOT follow — it follows v5. The
+  §Self-transitions tests assert the v5 model: the INTERNAL (omit-target,
+  or default self/ancestor target) cases fire the action only (no
+  exit/entry); the EXTERNAL cases carry `:reenter? true` and fire
+  exit → action → entry, re-descending a compound's :initial chain. The
+  SCXML default-external semantics are still EXERCISED (via `:reenter? true`)
+  but are no longer the re-frame2 default."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing]]
       :cljs [cljs.test :refer-macros [deftest is testing]])
@@ -471,8 +474,9 @@
                      :states
                      {:grp {:entry (mk :entry-grp) :exit (mk :exit-grp)
                             :initial :one
-                            ;; declared on the region-local compound ancestor
-                            :on {:reset {:target [:grp] :action (mk :L-action)}}
+                            ;; declared on the region-local compound ancestor;
+                            ;; :reenter? true makes the ancestor target external
+                            :on {:reset {:target [:grp] :reenter? true :action (mk :L-action)}}
                             :states {:one {:entry (mk :entry-1) :exit (mk :exit-1)
                                            :on {:adv :two}}
                                      :two {:entry (mk :entry-2) :exit (mk :exit-2)}}}}}
@@ -1018,25 +1022,30 @@
           "no effects emitted for an unhandled event"))))
 
 ;; ===========================================================================
-;; §10. Self-transitions (internal vs external)
+;; §10. Self-transitions (internal default vs external opt-in — rf2-eicq0)
 ;;
-;; SCXML §3.13 `<transition type="internal|external">`: an EXTERNAL
-;; self-transition (the default) EXITS and RE-ENTERS the source state
-;; (firing onexit then onentry); an INTERNAL self-transition fires only the
-;; transition's executable content WITHOUT exit/entry. Harel: external
-;; self-loop re-triggers entry; internal does not. Spec 005 §Self-
-;; transitions: `:target :same-state` (external) fires exit+entry; omit
-;; `:target` (internal) fires neither.
+;; XState v5 is the gold standard: a TARGETED self/ancestor transition is
+;; INTERNAL BY DEFAULT (fires the action, NOT onexit/onentry); the EXTERNAL
+;; self-transition (exit + re-enter; re-descend a compound's :initial chain)
+;; is the OPT-IN `:reenter? true`. This INVERTS SCXML §3.13
+;; `<transition type="internal|external">`, where external is the default and
+;; `type="internal"` opts out — XState v5 deliberately flipped the default
+;; (the v4 `internal` flag was replaced by the inverted `reenter`). A
+;; targetless transition is internal in both models.
 ;;
-;; RESOLVED BY rf2-46ban: the engine now implements EXTERNAL self-transition
-;; semantics. `re-frame.machines.transition/target-path` resolves the
+;; HISTORY: rf2-46ban first gave the engine EXTERNAL self-transition
+;; semantics (`:target :same-state` → exit/entry); that was the v4/SCXML
+;; external-DEFAULT shape. rf2-eicq0 flipped the DEFAULT to v5 internal and
+;; introduced `:reenter? true` as the external handle.
+;;
+;; The engine: `re-frame.machines.transition/target-path` resolves the
 ;; `:same-state` sentinel (and a `:target` naming the declaring state's own
-;; keyword) to the declaring state's own path, and `compute-cascade-paths`
-;; pulls the LCA up to that state's parent so the state lands in BOTH the
-;; exit and entry cascades — exit → action → entry fire, the configuration
-;; unchanged. The INTERNAL (omit-target) case is unchanged: action only, no
-;; exit/entry. The former DOCUMENTED-DIVERGENCE test below is flipped to
-;; assert the SCXML-conformant ordering + landing state.
+;; keyword) to the declaring state's own path; `compute-cascade-paths`
+;; pulls the LCA up to that state's parent (so the state lands in BOTH the
+;; exit and entry cascades — exit → action → entry) ONLY when the transition
+;; carries `:reenter? true`. Without `:reenter?`, an active-path target folds
+;; into the effective `internal?` flag: action only, no exit/entry, config
+;; unchanged.
 ;; ===========================================================================
 
 (deftest scxml-internal-self-transition-fires-action-only
@@ -1057,15 +1066,16 @@
           "ONLY the action fired — no onexit, no onentry (internal semantics, SCXML-conformant)"))))
 
 (deftest scxml-external-self-transition-same-state-sentinel
-  (testing "SCXML §3.13 external self-transition (`:target :same-state`)
+  (testing "external self-transition (`:target :same-state` + `:reenter? true`)
             fires onexit THEN the transition's action THEN onentry of the
             source, leaving the configuration at the source state. Spec 005
-            §Self-transitions + Spec-Schemas TransitionTarget (`:same-state`
-            is the documented literal sentinel). Resolved by rf2-46ban."
+            §Self-transitions + Spec-Schemas (`:same-state` is the documented
+            literal sentinel; `:reenter? true` is the v5 external opt-in —
+            rf2-eicq0)."
     (let [[log mk] (order-recorder)
           m {:initial :a :data {}
              :states {:a {:entry (mk :entry) :exit (mk :exit)
-                          :on {:self {:target :same-state :action (mk :action)}}}}}
+                          :on {:self {:target :same-state :reenter? true :action (mk :action)}}}}}
           r (step m {:state :a :data {}} [:self])]
       (is (= :a (:state r))
           "external self-transition stays at the source state")
@@ -1073,48 +1083,73 @@
           "onexit → action → onentry (external self-transition re-enters the state)"))))
 
 (deftest scxml-external-self-transition-own-keyword-target
-  (testing "SCXML §3.13 / Spec 005 §Entry/exit cascading: a `:target`
-            naming the declaring state's OWN keyword is ALSO an external
-            self-transition (\"if `:target` names the same state as the
-            source, the transition is external — exit and entry fire\").
-            Same exit → action → entry ordering as `:same-state`.
-            Resolved by rf2-46ban."
+  (testing "Spec 005 §Entry/exit cascading: a `:target` naming the declaring
+            state's OWN keyword with `:reenter? true` is an external
+            self-transition — exit and entry fire. Same exit → action → entry
+            ordering as `:same-state`. rf2-eicq0."
     (let [[log mk] (order-recorder)
           m {:initial :a :data {}
              :states {:a {:entry (mk :entry) :exit (mk :exit)
-                          :on {:self {:target :a :action (mk :action)}}}}}
+                          :on {:self {:target :a :reenter? true :action (mk :action)}}}}}
           r (step m {:state :a :data {}} [:self])]
       (is (= :a (:state r))
           "a self-naming keyword target stays at the source state")
       (is (= [:exit :action :entry] @log)
           "onexit → action → onentry — identical to the `:same-state` sentinel"))))
 
+(deftest scxml-default-self-transition-is-internal
+  (testing "rf2-eicq0 v5 DEFAULT FLIP: a `:target :same-state` (or own-keyword)
+            WITHOUT `:reenter?` is INTERNAL — the action fires, onexit/onentry
+            do NOT. This is the breaking regression guard that the OLD
+            external-default (rf2-46ban) is gone. Spec 005 §Self-transitions."
+    ;; :same-state, no :reenter?
+    (let [[log mk] (order-recorder)
+          m {:initial :a :data {}
+             :states {:a {:entry (mk :entry) :exit (mk :exit)
+                          :on {:self {:target :same-state :action (mk :action)}}}}}
+          r (step m {:state :a :data {}} [:self])]
+      (is (= :a (:state r)) "default self-target leaves the configuration unchanged")
+      (is (= [:action] @log)
+          ":target :same-state is INTERNAL by default — ONLY the action fired (v5 flip)"))
+    ;; own-keyword target, no :reenter?
+    (let [[log mk] (order-recorder)
+          m {:initial :a :data {}
+             :states {:a {:entry (mk :entry) :exit (mk :exit)
+                          :on {:self {:target :a :action (mk :action)}}}}}
+          r (step m {:state :a :data {}} [:self])]
+      (is (= :a (:state r)) "default own-keyword self-target stays put")
+      (is (= [:action] @log)
+          "own-keyword self-target is INTERNAL by default — ONLY the action fired"))))
+
 ;; ===========================================================================
-;; §10b. External transition to a PROPER ANCESTOR on the active path
-;;       (LCCA-restart geometry — rf2-emz8l)
+;; §10b. External (:reenter? true) transition to a PROPER ANCESTOR
+;;       (LCCA-restart geometry — rf2-emz8l; default flipped by rf2-eicq0)
 ;;
-;; SCXML §3.13 `getEffectiveTargetStates` + `findLCCA`: a transition from a
-;; descendant leaf to one of its PROPER ANCESTORS A is (by default) EXTERNAL.
-;; The LCCA of {source, A} is A's PARENT (A is a proper ancestor of the
-;; source but NOT of itself), so the exit set is A's whole active subtree
-;; INCLUDING A, and the entry set re-enters A and re-descends A's default-
-;; initial chain. Net effect: A's onexit + onentry both fire and A
-;; re-initialises. This is the natural generalisation of the external
-;; SELF-transition (§10) — a self-target is the degenerate case where A is
-;; the source leaf itself.
+;; A `:reenter? true` transition from a descendant leaf to one of its PROPER
+;; ANCESTORS A restarts A: the LCCA of {source, A} is A's PARENT (A is a
+;; proper ancestor of the source but NOT of itself), so the exit set is A's
+;; whole active subtree INCLUDING A, and the entry set re-enters A and
+;; re-descends A's default-initial chain. Net effect: A's onexit + onentry
+;; both fire and A re-initialises. This is the natural generalisation of the
+;; external SELF-transition (§10) — a self-target is the degenerate case
+;; where A is the source leaf itself.
+;;
+;; Under the rf2-eicq0 v5 flip this restart is OPT-IN: an ancestor target
+;; WITHOUT `:reenter?` is INTERNAL (action only, config preserved). XState v5
+;; flipped the SCXML default; re-frame2 follows it.
 ;;
 ;; BEFORE rf2-emz8l the engine bounded the exit set by the longest common
 ;; PREFIX of the source path and the (initial-cascaded) target leaf. For an
 ;; ancestor target whose `:initial` chain re-descends to the source, that
 ;; LCP equals the full path → the exit AND entry sets were BOTH empty → a
-;; SILENT NO-OP where XState fires A's exit+entry and re-initialises A. The
-;; fix computes the true LCCA against the target BASE (pre-initial-cascade):
-;; when the target is a prefix of the active path, the LCCA is pulled up to
-;; the target's parent. Spec 005 §Entry/exit cascading along the LCCA.
+;; SILENT NO-OP. The fix computes the true LCCA against the target BASE
+;; (pre-initial-cascade): when the (`:reenter?`) target is a prefix of the
+;; active path, the LCCA is pulled up to the target's parent. Spec 005
+;; §Entry/exit cascading along the LCCA.
 ;; ===========================================================================
 
 (deftest scxml-external-transition-to-proper-ancestor-restarts-subtree
-  (testing "SCXML §3.13: an EXTERNAL transition from a descendant leaf to a
+  (testing "a `:reenter? true` transition from a descendant leaf to a
             PROPER ANCESTOR A restarts A — exit A's active subtree (deepest-
             first, INCLUDING A), run the transition action at the LCCA
             (A's parent), then re-enter A and re-descend A's :initial chain
@@ -1122,8 +1157,9 @@
             Spec 005 §Entry/exit cascading along the LCCA."
     (let [[log mk] (order-recorder)
           ;; Active config [:p :a :x]; :x targets its grandparent :a via an
-          ;; absolute vector. A's :initial is :x, so the restart re-descends
-          ;; back to [:p :a :x] — the exact case the LCP-as-LCA missed.
+          ;; absolute vector + :reenter?. A's :initial is :x, so the restart
+          ;; re-descends back to [:p :a :x] — the exact case the LCP-as-LCA
+          ;; missed.
           m {:initial :p :data {}
              :states
              {:p {:entry (mk :entry-P) :exit (mk :exit-P)     ;; LCCA — neither fires
@@ -1133,7 +1169,7 @@
                        :initial :x
                        :states
                        {:x {:entry (mk :entry-X) :exit (mk :exit-X)
-                            :on {:restart {:target [:p :a] :action (mk :ACTION)}}}}}}}}}
+                            :on {:restart {:target [:p :a] :reenter? true :action (mk :ACTION)}}}}}}}}}
           r (step m {:state [:p :a :x] :data {}} [:restart])]
       (is (= [:p :a :x] (:state r))
           "after restarting A the configuration re-descends A's :initial back to [:p :a :x]")
@@ -1141,7 +1177,7 @@
           "exit deepest-first (X then A) → action at the LCCA (:p) → re-enter A → re-descend A's :initial (X); :p (the LCCA) neither exits nor enters"))))
 
 (deftest scxml-external-transition-to-ancestor-diverging-initial-re-inits
-  (testing "SCXML §3.13: restarting ancestor A re-descends A's CURRENT
+  (testing "restarting ancestor A (`:reenter? true`) re-descends A's CURRENT
             :initial child even when A's active child differed from :initial
             at restart time. Source [:p :a :two]; A's :initial is :one, so
             the restart re-enters A and re-descends to [:p :a :one] (the
@@ -1157,7 +1193,7 @@
                        :states
                        {:one {:entry (mk :entry-1) :exit (mk :exit-1)}
                         :two {:entry (mk :entry-2) :exit (mk :exit-2)
-                              :on {:restart {:target [:p :a]}}}}}}}}}
+                              :on {:restart {:target [:p :a] :reenter? true}}}}}}}}}
           ;; Seed the active config at the NON-initial child :two.
           r (step m {:state [:p :a :two] :data {}} [:restart])]
       (is (= [:p :a :one] (:state r))
@@ -1165,8 +1201,33 @@
       (is (= [:exit-2 :exit-A :entry-A :entry-1] @log)
           "exit :two then A → re-enter A → re-descend A's :initial (:one)"))))
 
+(deftest scxml-default-ancestor-target-is-internal
+  (testing "rf2-eicq0: a DEFAULT ancestor target (NO :reenter?) is INTERNAL —
+            the action fires, no exit/entry, the active descendant config is
+            PRESERVED (no restart, no :initial re-descent). Spec 005
+            §Self-transitions."
+    (let [[log mk] (order-recorder)
+          m {:initial :p :data {}
+             :states
+             {:p {:initial :a
+                  :states
+                  {:a {:entry (mk :entry-A) :exit (mk :exit-A)
+                       :initial :one
+                       :states
+                       {:one {:entry (mk :entry-1) :exit (mk :exit-1)}
+                        :two {:entry (mk :entry-2) :exit (mk :exit-2)
+                              ;; ancestor target, NO :reenter? — internal
+                              :on {:touch {:target [:p :a] :action (mk :ACTION)}}}}}}}}}
+          ;; Seed at the NON-initial child :two; an internal target must NOT
+          ;; restart A back to :one.
+          r (step m {:state [:p :a :two] :data {}} [:touch])]
+      (is (= [:p :a :two] (:state r))
+          "default ancestor target PRESERVES the active config — NO restart, NO :initial re-descent")
+      (is (= [:ACTION] @log)
+          "ONLY the action fired — ancestor target without :reenter? is internal (v5 default flip)"))))
+
 (deftest scxml-external-transition-to-ancestor-via-same-state-on-ancestor
-  (testing "SCXML §3.13 / Spec 005 §Self-transitions: `:target :same-state`
+  (testing "Spec 005 §Self-transitions: `:target :same-state` + `:reenter? true`
             declared ON an ancestor and matched while a DESCENDANT leaf is
             active restarts the ancestor — the same LCCA-restart geometry as
             the §10 compound external self-transition, exercised through the
@@ -1178,8 +1239,9 @@
              {:session
               {:entry (mk :entry-session) :exit (mk :exit-session)
                :initial :active
-               ;; declared on the COMPOUND ancestor; :active declines :reauth
-               :on {:reauth {:target :same-state :action (mk :renew)}}
+               ;; declared on the COMPOUND ancestor; :active declines :reauth.
+               ;; :reenter? true makes the ancestor self-target external.
+               :on {:reauth {:target :same-state :reenter? true :action (mk :renew)}}
                :states
                {:active {:entry (mk :entry-active) :exit (mk :exit-active)}}}}}
           r (step m {:state [:session :active] :data {}} [:reauth])]

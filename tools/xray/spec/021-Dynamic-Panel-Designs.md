@@ -1635,9 +1635,10 @@ spurious row whenever a `:no-op` row was present) is therefore **RETIRED**
 (rf2-it4vt): there is nothing left to drop. With rf2-gl588 the eager start
 is a PURE init-kick that never feeds the marker into the transition step, so
 there is no `before == after` self-transition for creation either. A genuine
-self-transition (`:target :same-state`, EXTERNAL — `:exit` + `:entry` fire;
-or INTERNAL — the action runs) has a real `match`, so the unhandled-no-op
-branch is never reached and NO `:no-op` row fires: its transition row (with
+self-transition (`:target :same-state` + `:reenter? true`, EXTERNAL — `:exit`
++ `:entry` fire, rf2-eicq0; or INTERNAL — omit `:target`, or a self-target
+without `:reenter?` — the action runs) has a real `match`, so the
+unhandled-no-op branch is never reached and NO `:no-op` row fires: its transition row (with
 microsteps > 0 / an action cascade) is preserved untouched. The
 no-op row also makes the cascade's handler-flavour `:reg-machine` even when
 no action ran, so the EVENT HANDLER machine section renders the notice

@@ -556,13 +556,13 @@
 
 (deftest hvac-self-transitions-external-vs-internal
   (testing "rungs #22/#23 — EXTERNAL self-transition (:hvac/nudge,
-            :target :same-state) fires exit+entry of :fan :on; INTERNAL
-            (:hvac/tweak) fires its :tweak-fan action ONLY. (a) the structured
-            cascade region steps distinguish them; (c) neither emits a spurious
-            no-op transition row; both stay :fan :on."
+            :target :same-state + :reenter? true) fires exit+entry of :fan :on;
+            INTERNAL (:hvac/tweak) fires its :tweak-fan action ONLY. (a) the
+            structured cascade region steps distinguish them; (c) neither emits
+            a spurious no-op transition row; both stay :fan :on."
     (setup!)
     (drive! :hvac/controller [:hvac/power-cycle])       ; fan → :on
-    ;; #22 — external self-transition: :target :same-state re-enters :on.
+    ;; #22 — external self-transition: :target :same-state + :reenter? re-enters :on.
     (let [record (drive! :hvac/controller [:hvac/nudge])
           rows   (cascade record)
           steps  (region-steps record :fan)]

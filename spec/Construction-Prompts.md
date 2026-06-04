@@ -468,8 +468,12 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
    {:action :update-preview-radius}
 
    :poke
-   ;; external self-transition — :target :same-state, so :exit and :entry DO fire.
+   ;; external self-transition — :target :same-state WITH :reenter? true, so
+   ;; :exit and :entry DO fire (and a compound re-descends its :initial). The
+   ;; :reenter? opt-in is required: a self / ancestor target is INTERNAL by
+   ;; default (XState-v5, rf2-eicq0).
    {:target :same-state
+    :reenter? true
     :action :randomise-poke-count}}}}
 ```
 

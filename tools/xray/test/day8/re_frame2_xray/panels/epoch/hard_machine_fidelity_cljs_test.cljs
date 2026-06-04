@@ -50,8 +50,9 @@
     3. ALL ACTION KINDS WITH OBSERVABLE LCA ORDERING — every exit/action/entry
        appends a `<phase>:<state>` tag to a shared `:trail`; the cascade
        order is the trail order.
-    4. INTERNAL vs EXTERNAL SELF-TRANSITIONS — external (`:target :same-state`,
-       #2843) fires exit+entry; internal (omit `:target`) fires action-only;
+    4. INTERNAL vs EXTERNAL SELF-TRANSITIONS — external (`:target :same-state`
+       + `:reenter? true`, rf2-eicq0) fires exit+entry; internal (omit
+       `:target`, or a self-target without `:reenter?`) fires action-only;
        neither emits a spurious no-op transition row (#2841)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as string]
@@ -134,7 +135,8 @@
        :entry :enter-fan-on
        :exit  :exit-fan-on
        :on    {:hvac/power-cycle {:target :off :action :fan-off}
-               :hvac/nudge {:target :same-state :action :nudge-fan}
+               ;; :reenter? true — external self-transition (rf2-eicq0 v5 flip)
+               :hvac/nudge {:target :same-state :reenter? true :action :nudge-fan}
                :hvac/tweak {:action :tweak-fan}}}}}}
    :actions
    {:enter-running       (trail-action 'enter-running       :action:power-on)
@@ -462,8 +464,9 @@
 
 (deftest external-self-transition-renders-exit-and-entry
   (testing "rf2-k08ay case 4 (external) — `:hvac/nudge` is an external
-            self-transition (`:target :same-state`). Per Spec 005 §Self-
-            transitions + rf2-46ban (#2843) it re-enters the state: `:exit`
+            self-transition (`:target :same-state` + `:reenter? true`). Per
+            Spec 005 §Self-transitions (rf2-46ban + rf2-eicq0: external is now
+            the `:reenter?` opt-in) it re-enters the state: `:exit`
             THEN action THEN `:entry` fire, configuration unchanged. The Epoch
             cascade must render BOTH an exit row and an entry row (so the
             operator sees the re-entry), and — critically per rf2-e6q97

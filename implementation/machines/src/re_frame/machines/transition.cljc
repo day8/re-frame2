@@ -2187,7 +2187,12 @@
   "Phase 1 — derive the transition's geometry. Returns a map with:
     :src-path       — source state path (vector).
     :target-leaf    — initial-cascaded target path (nil for internal).
-    :internal?      — true iff the transition has no `:target`.
+    :internal?      — the EFFECTIVE internal flag (rf2-eicq0): true iff the
+                      transition has no `:target`, OR its target lands on the
+                      active path (self / proper ancestor) WITHOUT
+                      `:reenter? true`. An active-path target is internal by
+                      default (XState-v5); `:reenter? true` makes it external
+                      (exit/entry re-run, `:after`/`:spawn` restart).
     :lca-len        — common-prefix length of src and target.
     :cascade-steps  — per rf2-n9f4z, the vec of cascade STEP maps in
                       execution order (`:exit` × N deepest-first → the
@@ -2236,11 +2241,27 @@
   (let [src-path      (state-path (:state snapshot))
         decl-path     (:decl-path transition (vec (take 1 src-path)))
         raw-target    (:target transition)
-        internal?     (nil? raw-target)
+        ;; `targetless?` is the structural "no `:target` declared" predicate.
+        ;; It is NOT the same as the effective `internal?` flag computed
+        ;; below: under the XState-v5 model (rf2-eicq0) a TARGETED transition
+        ;; whose target lands on the ACTIVE PATH (self or proper ancestor) is
+        ;; ALSO internal by default — it only becomes external when the
+        ;; transition opts in with `:reenter? true`. So `internal?` = no
+        ;; target, OR an active-path target without `:reenter?`.
+        targetless?   (nil? raw-target)
+        ;; `:reenter? true` is the opt-in for an EXTERNAL self/ancestor
+        ;; transition: re-run `:exit` then `:entry`, restart the target's
+        ;; `:after` timers + tear-down-and-respawn its `:spawn`/`:spawn-all`
+        ;; children. Absent / false ⇒ a self/ancestor target is internal
+        ;; (no exit/entry churn). The flag is meaningful only for a target on
+        ;; the active path; for a disjoint-subtree target the LCCA already
+        ;; lies above both source and target, so exit/entry fire regardless
+        ;; (the flag is a no-op there). Per Spec 005 §Self-transitions.
+        reenter?      (true? (:reenter? transition))
         ;; The target BEFORE initial-cascade re-descent. Needed to detect
-        ;; the external self-transition: a `:target` (the `:same-state`
+        ;; the self/ancestor transition: a `:target` (the `:same-state`
         ;; sentinel, or a keyword naming the declaring state's own key)
-        ;; that resolves to the declaring state itself.
+        ;; that resolves onto the active path.
         target-base0  (target-path decl-path raw-target)
         ;; Per Spec 005 §Restoring — on transition to the pseudo-state: when
         ;; `target-base0` lands on a history pseudo-state, resolve it to the
@@ -2251,7 +2272,7 @@
         ;; then run the standard geometry on it). `:history-restore` rides
         ;; the result so `apply-transition-once` can emit the
         ;; `:rf.machine.history/restored` trace.
-        hist-node     (when (and (not internal?) target-base0)
+        hist-node     (when (and (not targetless?) target-base0)
                         (let [n (node-at machine target-base0)]
                           (when (history-node? n) n)))
         history-restore (when hist-node
@@ -2291,24 +2312,26 @@
         ;;
         ;;  (1) TARGET ON THE ACTIVE PATH — `target-base` is a prefix of
         ;;      `src-path` (the target is the source itself, OR a proper
-        ;;      ANCESTOR of the source). Here `target-base` is itself one of
-        ;;      the states involved, so the common COMPOUND ancestor must be
-        ;;      a PROPER ancestor of `target-base` → pull `lca-len` up to the
-        ;;      target's PARENT (`(count target-base) - 1`). The target then
-        ;;      lands in BOTH the exit and entry cascades: it is exited
-        ;;      (re-running its `:exit`), the transition `:action` fires, the
-        ;;      target is re-entered (re-running its `:entry`) and its
-        ;;      `:initial` chain re-descends (`target-leaf`). This is the
-        ;;      RESTART-the-compound geometry XState v5 / SCXML give an
-        ;;      external transition to an ancestor — without the pull-up the
-        ;;      plain common-prefix LCA equals the full target depth and the
-        ;;      transition is a SILENT NO-OP (rf2-emz8l). It also subsumes the
-        ;;      external SELF-transition (`:target :same-state` / own-keyword;
-        ;;      `target-base == src-path` or `target-base == decl-path`,
-        ;;      always a prefix of the active leaf) — the rf2-46ban precedent,
-        ;;      now one geometry rather than a special case. `max 0` keeps a
-        ;;      root-level target (`target-base == []`) sane: the whole
-        ;;      machine exits + re-enters from the root.
+        ;;      ANCESTOR of the source). Per the XState-v5 model (rf2-eicq0)
+        ;;      this is INTERNAL BY DEFAULT — the source neither exits nor
+        ;;      re-enters; the transition's `:action` fires and the
+        ;;      configuration is unchanged (same shape as a targetless
+        ;;      internal transition). Only when the transition opts in with
+        ;;      `:reenter? true` does the EXTERNAL restart geometry apply:
+        ;;      pull `lca-len` UP to the target's PARENT
+        ;;      (`(count target-base) - 1`) so the target lands in BOTH the
+        ;;      exit and entry cascades — it is exited (re-running its
+        ;;      `:exit`), the transition `:action` fires, the target is
+        ;;      re-entered (re-running its `:entry`) and its `:initial` chain
+        ;;      re-descends (`target-leaf`). That is the RESTART-the-compound
+        ;;      geometry XState v5 gives an external/`reenter:true` transition
+        ;;      to self or an ancestor (and the v4/SCXML DEFAULT, which v5
+        ;;      flipped — see Spec 005 §Self-transitions). Without the pull-up
+        ;;      a re-entering active-path target would have its plain
+        ;;      common-prefix LCA equal the full target depth and the
+        ;;      transition would be a SILENT NO-OP (rf2-emz8l). `max 0` keeps
+        ;;      a root-level target (`target-base == []`) sane: with
+        ;;      `:reenter?` the whole machine exits + re-enters from the root.
         ;;
         ;;  (2) TARGET IN A DISJOINT SUBTREE — sibling-leaf, cross-level to a
         ;;      sibling subtree, or to the root. `target-base` is NOT a prefix
@@ -2318,17 +2341,43 @@
         ;;      common-ancestor node neither exits nor enters. (Here the LCP
         ;;      of `src-path` with `target-base` and with `target-leaf` agree
         ;;      — they diverge before `target-base` ends — so this arm is left
-        ;;      computing against `target-leaf`, unchanged.)
+        ;;      computing against `target-leaf`, unchanged.) `:reenter?` is a
+        ;;      no-op here: the LCCA already lies above both, so exit/entry
+        ;;      fire regardless.
         ;;
-        ;;  An INTERNAL self-transition (no `:target`) is untouched — it never
-        ;;  reaches the cascade (`internal?` short-circuits exit/entry below).
-        target-on-active-path? (and (not internal?)
+        ;;  An INTERNAL transition (no `:target`, OR an active-path target
+        ;;  without `:reenter?`) is untouched — it never reaches the cascade
+        ;;  (`internal?` short-circuits exit/entry below).
+        ;;
+        ;; `target-on-active-path?` is the GEOMETRIC predicate (target lands
+        ;; on the active path), independent of the `:reenter?` opt-in. The
+        ;; EXTERNAL pull-up fires only when re-entry is also REQUESTED
+        ;; (`reenter-active-path?`); otherwise an active-path target is folded
+        ;; into the effective `internal?` flag below.
+        target-on-active-path? (and (not targetless?)
                                     (= (count target-base)
                                        (common-prefix-length src-path target-base)))
+        ;; A HISTORY restore is an external re-entry BY NATURE — it resolves
+        ;; the pseudo-state to a concrete config and re-enters the compound,
+        ;; recording the outgoing config on the way (rf2-mle6e). It must NOT
+        ;; be folded into the internal-default even when the resolved leaf
+        ;; happens to coincide with the source (the never-entered fall-back to
+        ;; the compound's `:initial` can land back on the current leaf). So a
+        ;; history target ALWAYS re-enters, regardless of `:reenter?`.
+        external-re-entry?     (or reenter? (some? history-restore))
+        reenter-active-path?   (and target-on-active-path? external-re-entry?)
+        ;; The EFFECTIVE internal flag threaded to every downstream phase
+        ;; (cascade-steps, `commit-snapshot` state preservation, after-fx /
+        ;; after-cancel / destroy / done-raise / history-record). A
+        ;; self/ancestor target WITHOUT `:reenter?` is internal — XState-v5
+        ;; default (rf2-eicq0). Targetless is always internal. A history
+        ;; restore is never internal (it re-enters by nature, above).
+        internal?     (or targetless?
+                          (and target-on-active-path? (not external-re-entry?)))
         lca-len       (cond
-                        internal?              (count src-path)
-                        target-on-active-path? (max 0 (dec (count target-base)))
-                        :else                  (common-prefix-length src-path target-leaf))
+                        internal?            (count src-path)
+                        reenter-active-path? (max 0 (dec (count target-base)))
+                        :else                (common-prefix-length src-path target-leaf))
         ;; Walk each path once; reuse the `[prefix node]` pair vectors
         ;; for both the cascade ref derivation AND the spawn/destroy fx
         ;; emission downstream (per audit §T6 #2 — eliminate the double
