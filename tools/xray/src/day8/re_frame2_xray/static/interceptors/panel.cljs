@@ -195,28 +195,6 @@
                       :font-size   "11px"}}
         doc])]))
 
-;; ---- empty states --------------------------------------------------------
-
-(defn- empty-state
-  []
-  [:div {:data-testid "rf-xray-static-interceptors-empty"
-         :style       {:padding     "16px"
-                       :color       (:text-tertiary tokens)
-                       :font-family sans-stack
-                       :font-size   "11px"
-                       :font-style  "italic"}}
-   "No interceptors registered."])
-
-(defn- empty-filtered
-  [query]
-  [:div {:data-testid "rf-xray-static-interceptors-empty-filtered"
-         :style       {:padding     "16px"
-                       :color       (:text-tertiary tokens)
-                       :font-family sans-stack
-                       :font-size   "11px"
-                       :font-style  "italic"}}
-   (str "No interceptors match " (pr-str query) ".")])
-
 ;; ---- root view -----------------------------------------------------------
 
 (rf/reg-view Panel
@@ -239,13 +217,13 @@
      (header)
      (cond
        silent?
-       (empty-state)
+       (search-box/empty-state "rf-xray-static-interceptors" "interceptor")
 
        :else
        [:<>
         (search-box query total filtered?)
         (if (empty? interceptors)
-          (empty-filtered query)
+          (search-box/empty-filtered "rf-xray-static-interceptors" "interceptor" query)
           (into [:ul {:data-testid "rf-xray-static-interceptors-list"
                       :role        "list"
                       :style       {:list-style     "none"

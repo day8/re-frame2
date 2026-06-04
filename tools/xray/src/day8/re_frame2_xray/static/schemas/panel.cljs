@@ -269,28 +269,6 @@
                       :font-size   "11px"}}
         doc])]))
 
-;; ---- empty states --------------------------------------------------------
-
-(defn- empty-state
-  []
-  [:div {:data-testid "rf-xray-static-schemas-empty"
-         :style       {:padding     "16px"
-                       :color       (:text-tertiary tokens)
-                       :font-family sans-stack
-                       :font-size   "11px"
-                       :font-style  "italic"}}
-   "No schemas registered."])
-
-(defn- empty-filtered
-  [query]
-  [:div {:data-testid "rf-xray-static-schemas-empty-filtered"
-         :style       {:padding     "16px"
-                       :color       (:text-tertiary tokens)
-                       :font-family sans-stack
-                       :font-size   "11px"
-                       :font-style  "italic"}}
-   (str "No schemas match " (pr-str query) ".")])
-
 ;; ---- root view -----------------------------------------------------------
 
 (rf/reg-view Panel
@@ -313,13 +291,13 @@
      (header)
      (cond
        silent?
-       (empty-state)
+       (search-box/empty-state "rf-xray-static-schemas" "schema")
 
        :else
        [:<>
         (search-box query total filtered?)
         (if (empty? schemas)
-          (empty-filtered query)
+          (search-box/empty-filtered "rf-xray-static-schemas" "schema" query)
           (into [:ul {:data-testid "rf-xray-static-schemas-list"
                       :role        "list"
                       :style       {:list-style     "none"
