@@ -2381,6 +2381,60 @@
            (routing/route-url :route/articles2 {:id "intro" :slug "welcome"}))
         "all inner params present → group emits")))
 
+;; ---- T4b: match-url optional-group param is ABSENT, not nil-valued ------
+;;
+;; Regression for rf2-yejde. Per Spec 012 §Path-pattern grammar (Optional
+;; segment group): "param present only if matched." The canonical example
+;; route /articles/:id{/:slug}? declares :params with {:optional true} on
+;; :slug. Malli {:optional true} governs KEY PRESENCE, not nil values, so a
+;; present {:slug nil} is REJECTED. Pre-fix, match-against zipmap'd the
+;; unmatched optional group as :slug nil → a legitimate /articles/<id> URL
+;; failed :params validation and routed to not-found. The fix strips
+;; nil-valued keys after the zipmap so the unmatched param is absent.
+;;
+;; The stub :params predicate below mirrors Malli {:optional true}: :slug,
+;; *when present*, must be a non-nil string; an ABSENT :slug is fine.
+
+(deftest match-url-optional-group-param-absent-not-nil
+  (testing "an unmatched optional-group param is ABSENT from :params, not
+            nil-valued, so a route carrying a {:optional true} :params
+            schema still matches a URL that omits the optional segment
+            (Spec 012 §Path-pattern grammar §Optional segment group)"
+    (let [restore (with-stub-validator)
+          ;; Mirrors [:map [:id :string] [:slug {:optional true} :string]]:
+          ;; :id must be a non-nil string; :slug, when the KEY is present,
+          ;; must be a non-nil string (a present nil rejects, as Malli does).
+          slug-optional-schema
+          (fn [{:keys [id] :as params}]
+            (and (string? id)
+                 (or (not (contains? params :slug))
+                     (string? (:slug params)))))]
+      (try
+        (rf/reg-route :route/article-slug
+                      {:path   "/articles/:id{/:slug}?"
+                       :params slug-optional-schema})
+
+        (testing "bare /articles/5 — optional :slug unmatched"
+          (let [m (routing/match-url "/articles/5")]
+            (is (some? m) "the route matches structurally")
+            (is (= {:id "5"} (:params m))
+                ":slug is ABSENT (not nil-valued) when the optional group is unmatched")
+            (is (not (contains? (:params m) :slug))
+                "the unmatched optional key is omitted entirely")
+            (is (false? (:validation-failed? m))
+                "a present {:slug nil} would reject the {:optional true} schema; an absent :slug validates cleanly")
+            (is (nil? (:validation-error m))
+                "no validation error for the absent optional param")))
+
+        (testing "/articles/5/intro — optional :slug supplied"
+          (let [m (routing/match-url "/articles/5/intro")]
+            (is (some? m) "the route matches when the optional segment is present")
+            (is (= {:id "5" :slug "intro"} (:params m))
+                "the optional key is present with its captured value when supplied")
+            (is (false? (:validation-failed? m))
+                "the supplied :slug conforms")))
+        (finally (restore))))))
+
 ;; ---- T5: splat /files/*rest matches multi-segment paths ----------------
 
 (deftest splat-multi-segment-match
@@ -3236,6 +3290,31 @@
           "empty param segment → nil (regex requires non-empty capture)")
       (is (nil? (routing.match/match-against compiled "/users"))
           "missing param segment → nil"))))
+
+(deftest match-against-optional-group-omits-unmatched-param
+  (testing "rf2-yejde — a param inside an UNMATCHED optional group is
+            absent from the params map (not nil-valued), so downstream
+            {:optional true} :params schemas accept the match (Spec 012
+            §Path-pattern grammar §Optional segment group: 'param present
+            only if matched')"
+    (let [compiled (routing.match/parse-pattern "/articles/:id{/:slug}?")]
+      (is (= {:id "5"} (routing.match/match-against compiled "/articles/5"))
+          "optional group unmatched → :slug ABSENT, not {:slug nil}")
+      (is (not (contains? (routing.match/match-against compiled "/articles/5") :slug))
+          "the unmatched optional key is omitted entirely")
+      (is (= {:id "5" :slug "intro"}
+             (routing.match/match-against compiled "/articles/5/intro"))
+          "optional group matched → :slug present with its captured value")))
+
+  (testing "rf2-yejde — the nil-strip drops ONLY regex-unmatched (nil)
+            captures; a legitimately matched capture survives. (Named param
+            and splat regexes require a non-empty capture, so a captured
+            value is always non-nil and is never dropped.)"
+    (let [compiled (routing.match/parse-pattern "/u/:a{/:b}?")]
+      ;; :a is always matched (non-nil capture); :b only when present.
+      ;; Neither matched capture is ever stripped.
+      (is (= {:a "x"}       (routing.match/match-against compiled "/u/x")))
+      (is (= {:a "x" :b "y"} (routing.match/match-against compiled "/u/x/y"))))))
 
 (deftest match-against-splat-captures-multi-segment-tail
   (testing "rf2-aleg9 — a `*rest` splat captures the entire trailing
