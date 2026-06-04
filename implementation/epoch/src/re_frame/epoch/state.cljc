@@ -545,24 +545,27 @@
       right cascade.
     * the structured `slot` projection — the primary consumer surface
       (Xray Views / Reactive panel) — is always present on a built
-      record; the projected row is appended when non-nil."
+      record; the projected row is appended when non-nil.
+
+  The `swap!` update fn is PURE — it mutates only the history map and
+  smuggles nothing out (the prior shape `reset!`'d a local out-param atom
+  from inside the swap fn, a side-effecting-swap-fn that is unsound under
+  CAS retry). The record index is resolved once up-front (within-frame
+  drain is single-threaded — Spec 002 §Run-to-completion — so no append
+  can shift it between this deref and the swap), reused by both the pure
+  swap and the post-swap read. nil when the epoch is absent from the ring
+  (evicted, or fired before any cascade settled)."
   [frame-id epoch-id slot event row]
-  (let [updated (atom nil)]
-    (swap! histories update frame-id
-           (fn [history]
-             (let [history (or history [])
-                   idx     (epoch-index history epoch-id)]
-               (if (nil? idx)
-                 history
-                 (let [record   (nth history idx)
-                       record+  (cond-> record
-                                  (contains? record :trace-events)
-                                  (update :trace-events (fnil conj []) event)
-                                  (some? row)
-                                  (update slot (fnil conj []) row))]
-                   (reset! updated record+)
-                   (assoc history idx record+))))))
-    @updated))
+  (let [idx (epoch-index (history-for frame-id) epoch-id)]
+    (when idx
+      (let [append (fn [record]
+                     (cond-> record
+                       (contains? record :trace-events)
+                       (update :trace-events (fnil conj []) event)
+                       (some? row)
+                       (update slot (fnil conj []) row)))]
+        (-> (swap! histories update-in [frame-id idx] append)
+            (get-in [frame-id idx]))))))
 
 (defn back-fill-render!
   "Back-fill `render-event` and its projected `:renders` `render-row`
