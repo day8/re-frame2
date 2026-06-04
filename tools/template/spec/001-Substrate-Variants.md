@@ -86,17 +86,20 @@ choice swaps:
   soft-passing per Spec 010), and `day8/re-frame2-xray` (the in-app
   devtools panel — see
   [002 §Xray devtools](002-Generated-Shape.md#xray-devtools)).
-- `shadow-cljs.edn` and `package.json` — react / react-dom pins
-  are identical; the substrate's own npm dep (where applicable)
-  is added. The `:app` build's `:devtools {:preloads …}` carries
-  `day8.re-frame2-xray.preload` identically across variants.
+`shadow-cljs.edn` and `package.json` are **not** substrate-specific —
+react / react-dom are the only npm deps for every variant, and the
+`:app` build's `:devtools {:preloads …}` carries
+`day8.re-frame2-xray.preload` identically across variants — so they
+live under `_shared/` and emit once (the only per-variant difference
+is a cosmetic substrate label filled by `{{substrate-label}}`).
 
 The substrate-agnostic shell is emitted identically across all three
 variants. It splits across two resource sub-trees (see
 [002-Generated-Shape.md §Resource tree](002-Generated-Shape.md#resource-tree-template-side)):
-the renamed-at-emit sources — `events.cljs`, `subs.cljs`,
-`schema.cljs`, and the dotfiles (`.gitignore` etc.) — live under
-`_shared/`; the default-placement files (`README.md`,
+the renamed-/flag-switched-at-emit sources — `events.cljs`,
+`subs.cljs`, `schema.cljs`, `shadow-cljs.edn`, `package.json`, and
+the dotfiles (`.gitignore` etc.) — live under `_shared/`; the
+default-placement files (`README.md`,
 `resources/public/index.html`, `resources/public/css/app.css`,
 `dev/*`) are bulk-copied from `root/`. `schema.cljs` is
 substrate-agnostic: the whole-app-db Malli schema and `reg-app-schema`

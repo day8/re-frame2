@@ -2,7 +2,7 @@
   "name": "{{name}}",
   "version": "0.1.0",
   "private": true,
-  "description": "re-frame2 application (UIx substrate).",
+  "description": "re-frame2 application ({{substrate-label}} substrate).",
   "scripts": {
     "watch":   "shadow-cljs watch app",
     "release": "shadow-cljs release app",

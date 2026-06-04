@@ -293,9 +293,11 @@ check on the emitted tree is the spike's effective signal.
   same as today's clj-new template.
 - ✓ Story-flag also swaps the `_reagent/deps.edn` for
   `_reagent/deps_with_story.edn` (adds the
-  `day8/re-frame2-story {:mvn/version …}` coord) and the
-  `_reagent/package.json` for `_reagent/package_with_story.json`
-  (adds the `story` npm script). This
+  `day8/re-frame2-story {:mvn/version …}` coord) and the shared
+  `_shared/package.json` for `_shared/package_with_story.json`
+  (description names the Story playground; `package.json` is
+  substrate-invariant so it lives under `_shared/`, not the
+  per-substrate dir). This
   separate-source approach replaces clj-new's Mustache-style
   `{{#include-story?}}…{{/include-story?}}` blocks — deps-new uses
   flat `{{key}}` substitution (see `org.corfield.new.impl/->subst-map`

@@ -130,11 +130,14 @@ tools/template/
     │   ├── .github/workflows/ci.yml      ; baseline CI workflow (rf2-k2z79)
     │   ├── dev/{user.clj, scratch.cljs}
     │   └── resources/public/{index.html, css/app.css}
-    ├── _shared/                          ; substrate-agnostic; renamed at emit
+    ├── _shared/                          ; substrate-agnostic; renamed / flag-switched at emit
     │   ├── gitignore                     ; emitted as .gitignore
     │   ├── editorconfig                  ; emitted as .editorconfig
     │   ├── cljfmt.edn                    ; emitted as .cljfmt.edn
     │   ├── clj-kondo/config.edn          ; emitted under .clj-kondo/
+    │   ├── shadow-cljs.edn               ; substrate-invariant build config
+    │   ├── package.json
+    │   ├── package_with_story.json       ; picked when :include-story? true
     │   ├── events.cljs
     │   ├── events_test.cljs
     │   ├── schema.cljs
@@ -143,15 +146,12 @@ tools/template/
     ├── _reagent/                         ; Reagent-specific
     │   ├── deps.edn
     │   ├── deps_with_story.edn           ; picked when :include-story? true
-    │   ├── shadow-cljs.edn
-    │   ├── package.json
-    │   ├── package_with_story.json       ; picked when :include-story? true
     │   ├── core.cljs
     │   ├── core_with_stories.cljs        ; picked when :include-story? true
     │   └── views.cljs
-    ├── _uix/                             ; UIx-specific (same shape minus story)
+    ├── _uix/                             ; UIx-specific (deps.edn / core.cljs / views.cljs)
     │   └── ...
-    └── _helix/                           ; Helix-specific (same shape minus story)
+    └── _helix/                           ; Helix-specific (deps.edn / core.cljs / views.cljs)
         └── ...
 ```
 
@@ -219,7 +219,8 @@ the template's own additions.
 |---|---|---|
 | `{{namespace}}` | `{{top/ns}}.{{main/ns}}` | `acme.my-app` |
 | `{{nested-dirs}}` | `{{top/file}}/{{main/file}}` | `acme/my_app` |
-| `{{substrate}}` | The chosen substrate name | `reagent`, `uix`, `helix` |
+| `{{substrate}}` | The chosen substrate name, lower-case | `reagent`, `uix`, `helix` |
+| `{{substrate-label}}` | The chosen substrate's display name, proper-case (used in the shared `shadow-cljs.edn` comment + `package.json` description) | `Reagent`, `UIx`, `Helix` |
 | `{{substrate-badge-url}}` | shields.io badge URL by substrate | `https://img.shields.io/badge/substrate-Reagent-1abc9c.svg` |
 | `{{rf2-version}}` | re-frame2 coord version | `0.0.1.alpha` |
 | `{{shadow-version}}` | shadow-cljs pin | `3.4.10` |
@@ -235,7 +236,8 @@ There is **no conditional-section syntax** (Mustache's
 `{{#flag}}…{{/flag}}` is unavailable under deps-new). Conditional
 emission is implemented at the file-selection level — `template-fn`
 picks `core_with_stories.cljs` over `core.cljs`,
-`deps_with_story.edn` over `deps.edn`, etc., per the
+`deps_with_story.edn` over `deps.edn`, and the shared
+`package_with_story.json` over `package.json`, per the
 `:include-story?` flag. The output filename is the same; the
 source-file selection branches.
 

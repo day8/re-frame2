@@ -262,10 +262,16 @@ per-variant top-level tree (no shared tree at all).
 **Why.**
 
 - **Substrate-agnostic shell is the right cut.** Events, subs,
-  host HTML, README, .gitignore are substrate-portable by design.
-  Splitting them out under `_shared/` makes that visible. A reader
-  of `resources/day8/re_frame2_template/` sees the architecture
-  immediately.
+  schema, host HTML, README, .gitignore, and the build configs
+  (`shadow-cljs.edn`, `package.json`) are substrate-portable by
+  design — the React substrate is chosen in `deps.edn` + `core.cljs`,
+  never in the build configs. Splitting them out under `_shared/`
+  makes that visible and keeps each build config as one source rather
+  than three byte-identical copies (the lone per-variant difference is
+  a cosmetic substrate label, filled by `{{substrate-label}}`). A
+  reader of `resources/day8/re_frame2_template/` sees the architecture
+  immediately: only `core.cljs`, `views.cljs`, and `deps.edn` live
+  under the per-substrate dirs.
 - **Adding a substrate is "drop a sub-tree."** Future substrates
   (reagent-slim, SSR variants) plug in by adding a sibling of
   `_reagent/`, `_uix/`, `_helix/`. Nothing in `_shared/` needs to
