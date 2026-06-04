@@ -517,7 +517,16 @@ off-box read surfaces above — and `dispatch-dry-run`'s egress slots
    `dispatch-dry-run`'s `:db-state-after-simulation` /
    `:would-fire-effects[*].args`) return the `:rf/redacted` sentinel;
    sensitive trace events / epochs are stripped from streaming
-   payloads.
+   payloads. The `:cascade-summary` `:event-vector` slot — which copies
+   the epoch's raw `:trigger-event` — is likewise redacted to
+   `:rf/redacted` when the source epoch is `:rf.epoch/sensitive? true`
+   (rf2-6nks4). This redaction is applied SERVER-SIDE inside the runtime
+   projection (`restore-cascade-summary` / `cascade-summary`), keyed to
+   the epoch-level sensitivity rollup rather than per-value elision — the
+   trigger-event is not addressed by an app-db path the elision registry
+   classifies. It therefore covers `restore-epoch` and `dispatch-dry-run`
+   (whose `:cascade-summary` is otherwise NOT walked, being a counts-only
+   projection).
 2. Force `:elision true` on every call. Caller-supplied
    `:elision false` is dropped — large slots return the
    `:rf.size/large-elided` marker.
@@ -531,10 +540,13 @@ off-box read surfaces above — and `dispatch-dry-run`'s egress slots
 
    This signal is issued by every tool that taps / egresses app-db,
    between the preload probe and the first state-emitting eval — the
-   read surfaces, `dispatch-dry-run`, AND `reset-frame-db` (rf2-z7roa).
-   `reset-frame-db` in particular MUST issue it before its
-   `app-db-reset!` call so the FIRST reset of a `--allow-writes`
-   session cannot tap raw app-db ahead of the posture landing. The
+   read surfaces, `dispatch-dry-run`, `restore-epoch`, AND
+   `reset-frame-db` (rf2-z7roa / rf2-6nks4). `reset-frame-db` in
+   particular MUST issue it before its `app-db-reset!` call so the FIRST
+   reset of a `--allow-writes` session cannot tap raw app-db ahead of
+   the posture landing. `restore-epoch` issues it so the runtime
+   redacts a sensitive target epoch's `:cascade-summary` `:event-vector`
+   before building the projection. The
    per-build signal cache is marked successful ONLY after the
    `configure-raw-state!` eval resolves, never speculatively — a
    concurrent first caller awaits the same in-flight signal rather than
@@ -779,7 +791,7 @@ marker so consumers can branch.
 |-----------------------|-----------------------------------|-------|
 | `:epoch-id`           | `:any` (integer in ref runtime)   | The assembled epoch's id. |
 | `:event-id`           | keyword                           | The triggering event-id. Absent on synthetic / halted-trigger-less paths. |
-| `:event-vector`       | vector                            | The original dispatch vector. Absent on synthetic paths. |
+| `:event-vector`       | vector or `:rf/redacted`          | The original dispatch vector. Absent on synthetic paths. **Redacted to `:rf/redacted` when the source epoch is `:rf.epoch/sensitive? true` and `--allow-sensitive-reads` is OFF** (rf2-6nks4) — the raw trigger-event payload (auth tokens, passwords, …) must not cross the off-box boundary under the default posture. Rides verbatim only when the operator opted in via `--allow-sensitive-reads`. |
 | `:frame`              | keyword                           | The frame-id the cascade settled in. |
 | `:outcome`            | `:ok` / `:blocked` / `:error`     | The consumer-facing tier per `outcome->consumer-facing`. Forced `:error` when the cascade contained a thrown handler / machine action — see §Contained throws below. |
 | `:db-diff`            | `{:changed-paths [...] :added-paths [...] :removed-paths [...]}` | Depth-1 path summary of the db delta. Each path is a one-key vector (e.g. `[:cart]`); drill in via `get-path`. |
