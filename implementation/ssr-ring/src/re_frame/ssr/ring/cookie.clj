@@ -21,7 +21,8 @@
   `:name` carries a separate RFC 6265 §4.1.1 token-grammar gate (no
   CTLs, whitespace, or `( ) < > @ , ; : \\ \" / [ ] ? = { }`). Folds in
   the §P2.4 cookie-name grammar finding."
-  (:require [clojure.string :as str])
+  (:require [clojure.string :as str]
+            [re-frame.ssr.http-validation :as http-validation])
   (:import [java.net URLEncoder]
            [java.nio.charset StandardCharsets]
            [java.time Instant ZoneOffset ZonedDateTime]
@@ -56,15 +57,17 @@
 ;; bans CR/LF/NUL inside header values. We reject up front so the
 ;; behaviour is portable across hosts (Jetty 11+ rejects, but earlier
 ;; Jetty / HttpKit / Pedestal don't all defend the same way).
-(def ^:private header-injection-chars-re
-  ;; Java regex: \r, \n, \x00 — the three CTLs RFC 7230 §3.2.4 forbids
-  ;; inside header values.
-  #"[\r\n\x00]")
+;;
+;; The injection-char grammar is single-sourced in
+;; `re-frame.ssr.http-validation/contains-injection-char?` — the SAME
+;; predicate the SSR fx boundary (`re-frame.ssr.response`) enforces, so
+;; the materialiser and the fx-boundary gate can't drift on what counts
+;; as a header-splitting char.
 
 (defn- validate-attribute-string!
   [attr-key v]
   (let [s (str v)]
-    (when (re-find header-injection-chars-re s)
+    (when (http-validation/contains-injection-char? s)
       (throw (ex-info ":rf.error/cookie-invalid-attribute"
                       {:rf.error/id :rf.error/cookie-invalid-attribute
                        :where     'rf.ssr/cookie->set-cookie-header
@@ -80,16 +83,16 @@
 ;; rf2-rpedl / §P2.4 — RFC 6265 §4.1.1 cookie-name = token. The token
 ;; grammar (RFC 7230 §3.2.6) is `1*tchar` where `tchar` is the set of
 ;; visible US-ASCII chars MINUS the separators
-;; `( ) < > @ , ; : \ " / [ ] ? = { }` and whitespace. The regex below
-;; encodes that allowed set explicitly so the grammar is auditable in
-;; place. Empty names are rejected by the `+` quantifier.
-(def ^:private cookie-name-token-grammar
-  #"[!#$%&'*+\-.0-9A-Z\^_`a-z|~]+")
+;; `( ) < > @ , ; : \ " / [ ] ? = { }` and whitespace. Single-sourced in
+;; `re-frame.ssr.http-validation/valid-token-name?` — the SAME predicate
+;; the SSR fx boundary (`re-frame.ssr.response`) enforces on cookie +
+;; header names, so the materialiser and the fx-boundary gate can't drift
+;; on the token grammar.
 
 (defn- validate-cookie-name!
   [n]
   (let [s (clojure.core/name n)]
-    (if (re-matches cookie-name-token-grammar s)
+    (if (http-validation/valid-token-name? s)
       s
       (throw (ex-info ":rf.error/cookie-invalid-name"
                       {:rf.error/id :rf.error/cookie-invalid-name
