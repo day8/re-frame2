@@ -144,7 +144,9 @@
 ;; ---- 6. with-managed-request-stubs* helper --------------------------------
 
 (deftest with-managed-request-stubs-cljs
-  (testing "with-managed-request-stubs* installs a per-call fx that consults [method url] → reply"
+  (testing "rf2-rzqan — with-managed-request-stubs* routes [method url] → reply
+            with NO per-call :fx-overrides (the helper installs the
+            :rf.http/managed override for the thunk's dynamic extent)"
     (rf/reg-event-fx :articles/list
       (fn [_ [_ msg]]
         (if-let [reply (:rf/reply msg)]
@@ -155,11 +157,45 @@
     (rf/with-managed-request-stubs*
       {[:get "/articles"] {:reply {:ok [:hello :world]}}}
       (fn []
-        (rf/dispatch-sync [:articles/list]
-                          {:fx-overrides {:rf.http/managed :rf.http/managed-test-stub}})
+        ;; NO manual :fx-overrides — the documented auto-routing form.
+        (rf/dispatch-sync [:articles/list])
         (let [db (rf/app-db-value :rf/default)]
           (is (= :success (get-in db [:result :kind])))
           (is (= [:hello :world] (get-in db [:result :value]))))))))
+
+;; ---- 6a. rf2-rzqan — bare thunk INTERCEPTS, never reaching the real fx ----
+;;
+;; CLJS counterpart of the JVM interception regression. The documented
+;; `with-managed-request-stubs*` form must route `:rf.http/managed` through
+;; the stub by ITSELF; pre-fix the thunk's bare dispatch reached the real
+;; production Fetch transport. We shadow `:rf.http/managed` with a sentinel
+;; — reaching it proves the override was absent.
+
+(deftest with-managed-request-stubs-intercepts-without-manual-override-cljs-rf2-rzqan
+  (testing "rf2-rzqan — inside with-managed-request-stubs*, a plain dispatch-sync
+            (NO per-call :fx-overrides) is intercepted by the stub and the real
+            :rf.http/managed fx slot is NEVER invoked"
+    (let [real-fx-invoked? (atom false)]
+      (rf/reg-fx :rf.http/managed
+                 (fn [_frame-ctx _args] (reset! real-fx-invoked? true) nil))
+      (rf/reg-event-fx :rzqan/load
+        (fn [_ [_ msg]]
+          (if-let [reply (:rf/reply msg)]
+            {:db {:result reply}}
+            {:fx [[:rf.http/managed
+                   {:request {:method :get :url "/rzqan"}
+                    :decode  :json}]]})))
+      (rf/with-managed-request-stubs*
+        {[:get "/rzqan"] {:reply {:ok {:stubbed true}}}}
+        (fn []
+          (rf/dispatch-sync [:rzqan/load])
+          (let [db (rf/app-db-value :rf/default)]
+            (is (= :success (get-in db [:result :kind]))
+                "the stubbed reply landed via the route-map stub")
+            (is (= {:stubbed true} (get-in db [:result :value])))
+            (is (false? @real-fx-invoked?)
+                "the real :rf.http/managed fx was NEVER invoked — the helper
+                 intercepted (pre-fix: this fired the real Fetch transport)")))))))
 
 ;; ---- 7. with-managed-request-stubs* — failure mapping --------------------
 
@@ -176,8 +212,8 @@
       {[:get "/articles"] {:reply {:failure {:kind   :rf.http/http-4xx
                                              :status 404}}}}
       (fn []
-        (rf/dispatch-sync [:articles/list]
-                          {:fx-overrides {:rf.http/managed :rf.http/managed-test-stub}})
+        ;; Auto-routing — no manual :fx-overrides (rf2-rzqan).
+        (rf/dispatch-sync [:articles/list])
         (let [db (rf/app-db-value :rf/default)]
           (is (= :failure (get-in db [:result :kind])))
           (is (= :rf.http/http-4xx (get-in db [:result :failure :kind])))
@@ -198,8 +234,10 @@
       ;; Configure stubs that do NOT match the request URL.
       {[:get "/articles"] {:reply {:ok []}}}
       (fn []
-        (rf/dispatch-sync [:unmatched/load]
-                          {:fx-overrides {:rf.http/managed :rf.http/managed-test-stub}})
+        ;; Auto-routing — no manual :fx-overrides (rf2-rzqan). The unmatched
+        ;; route still routes THROUGH the stub (which then synthesises the
+        ;; no-match transport failure), never reaching the real client.
+        (rf/dispatch-sync [:unmatched/load])
         (let [db (rf/app-db-value :rf/default)]
           (is (= :failure (get-in db [:result :kind])))
           (is (= :rf.http/transport (get-in db [:result :failure :kind]))))))))

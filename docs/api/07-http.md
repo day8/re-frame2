@@ -209,7 +209,7 @@ Tests want to drive the cascade without hitting the network. The test-support su
   ```clojure
   (with-managed-request-stubs route-map body+)
   ```
-- **Description**: Lexical-scope stubbing. `route-map` is `{[<method> <url>] {:reply <value-or-failure>}}`. Inside the body, requests matching a stubbed route bypass the real client.
+- **Description**: Lexical-scope stubbing. `route-map` is `{[<method> <url>] {:reply {:ok <value>}}}` (success) or `{[<method> <url>] {:reply {:failure <failure-map>}}}` (failure). Inside the body, requests matching a stubbed route bypass the real client — the helper installs the `:rf.http/managed → :rf.http/managed-test-stub` override for the body, so plain `dispatch-sync` calls auto-route by method + URL with NO manual `:fx-overrides`.
 
 ### `with-managed-request-stubs*`
 
@@ -218,7 +218,7 @@ Tests want to drive the cascade without hitting the network. The test-support su
   ```clojure
   (with-managed-request-stubs* route-map body-fn)
   ```
-- **Description**: Plain-fn surface beneath the macro. Use for computed route-maps or non-literal bodies.
+- **Description**: Plain-fn surface beneath the macro. Use for computed route-maps or non-literal bodies. Like the macro, it installs the `:rf.http/managed` override for `body-fn`'s dynamic extent, so dispatches inside auto-route with no manual `:fx-overrides`.
 
 ### `install-managed-request-stubs!`
 
@@ -227,7 +227,7 @@ Tests want to drive the cascade without hitting the network. The test-support su
   ```clojure
   (install-managed-request-stubs! route-map)
   ```
-- **Description**: Lower-level than `with-managed-request-stubs`: install stubs that persist until `uninstall-managed-request-stubs!`. Use when stubs span multiple `deftest`s.
+- **Description**: Lower-level than `with-managed-request-stubs`: registers the `:rf.http/managed-test-stub` fx that persists until `uninstall-managed-request-stubs!`. Use when stubs span multiple `deftest`s. Unlike the wrapper, this does NOT install the `:rf.http/managed` override — dispatch with `{:fx-overrides {:rf.http/managed :rf.http/managed-test-stub}}` (or wrap dispatches in `with-fx-overrides`) to route through it.
 
 ### `uninstall-managed-request-stubs!`
 
@@ -243,7 +243,7 @@ All the test-support surfaces live in `re-frame.http-test-support` (the single h
 ```clojure
 (deftest cart-loads
   (with-managed-request-stubs
-    {[:get "/api/cart"] {:reply [{:id 1 :name "widget"}]}}
+    {[:get "/api/cart"] {:reply {:ok [{:id 1 :name "widget"}]}}}
     (rf/dispatch-sync [:cart/load])
     (is (= 1 (count (subscribe-once [:cart/items]))))))
 ```
