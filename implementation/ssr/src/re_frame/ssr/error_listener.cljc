@@ -68,14 +68,39 @@
 ;; re-read of `get-response` on the same frame) would let a buffered head
 ;; trace project the default `:rf.error/*` → status and silently flip a
 ;; degraded 200 to a 4xx/5xx. The skip closes that hole by construction.
+;;
+;; rf2-sccp5 — `:rf.error/ssr-ring-error-view-failed` (ssr-ring's
+;; `resolve-error-body`, pipeline.clj:228) is the SECOND member of the
+;; same fragility class. It fires `:op-type :error` for observability
+;; when a caller's `:error-view` itself throws, and the host falls back
+;; to the locked default error template — "a buggy error-view must not
+;; bypass the error boundary". It is a RECOVERABLE DEGRADATION by intent,
+;; semantically the same bucket as the head category. CRUCIALLY it is
+;; frame-stamped (`:frame frame-id`) and fires inside `build-full-
+;; response`'s render-time catch AFTER `project-render-exception!` has
+;; ALREADY stamped the projected status and cleared the buffer
+;; (consume-pending-traces!) — so without this skip it is re-buffered
+;; and left in `pending-error-traces` until frame-destroy. Safe TODAY
+;; only because nothing re-reads `get-response`/`flush-response!` on the
+;; frame after that point (the c0bq1 re-flush, pipeline.clj:331, lives on
+;; the HAPPY path inside `build-full-response*`, which the error-view-
+;; failed catch never reaches), and the default projector maps it to the
+;; same 500 the render-time path already stamped. But a CUSTOM projector
+;; mapping the render exception to a 4xx, plus a future post-error
+;; re-flush, would let the buffered trace re-project → its generic 5xx
+;; and silently flip 4xx→5xx. Skipping it here closes that hole by
+;; construction — symmetric with the head category, enforced at the same
+;; chokepoint across both buffering listeners.
 (def ^:private non-projection-eligible-errors
-  #{:rf.error/ssr-head-resolution-failed})
+  #{:rf.error/ssr-head-resolution-failed
+    :rf.error/ssr-ring-error-view-failed})
 
 (defn- non-projection-eligible-error?
   "True when `operation` names a recoverable-degradation error category
   that must NOT be buffered for status projection (it ships its trace for
   observability but the request continues with a degraded fragment).
-  Currently `:rf.error/ssr-head-resolution-failed` (rf2-lia3i)."
+  Members: `:rf.error/ssr-head-resolution-failed` (rf2-lia3i) and
+  `:rf.error/ssr-ring-error-view-failed` (rf2-sccp5)."
   [operation]
   (contains? non-projection-eligible-errors operation))
 
@@ -240,8 +265,9 @@
   (when (= :error (:op-type event))
     (let [op (:operation event)]
       ;; Skip our own sanitisation traces to avoid recursion, and skip
-      ;; recoverable-degradation categories (rf2-lia3i — e.g.
-      ;; `:rf.error/ssr-head-resolution-failed`) that must ship their
+      ;; recoverable-degradation categories (rf2-lia3i / rf2-sccp5 — e.g.
+      ;; `:rf.error/ssr-head-resolution-failed`,
+      ;; `:rf.error/ssr-ring-error-view-failed`) that must ship their
       ;; trace for observability without projecting a non-200 status.
       (when-not (or (= :rf.error/sanitised-on-projection op)
                     (non-projection-eligible-error? op))
@@ -272,11 +298,12 @@
     ;; `:rf.error/sanitised-on-projection` is not delivered through the
     ;; error-emit substrate, but keep the guard so a future routing
     ;; change can't reintroduce a re-entrant projection.) Also refuse
-    ;; recoverable-degradation categories (rf2-lia3i —
-    ;; `:rf.error/ssr-head-resolution-failed`): if a future host-adapter
-    ;; change routes the head-failure trace through the always-on
-    ;; substrate (it rides only the dev trace bus today, but non-Ring
-    ;; adapters MUST emit the same category per Spec 011 §1070), it must
+    ;; recoverable-degradation categories (rf2-lia3i / rf2-sccp5 —
+    ;; `:rf.error/ssr-head-resolution-failed`,
+    ;; `:rf.error/ssr-ring-error-view-failed`): if a future host-adapter
+    ;; change routes a recoverable-degradation trace through the always-on
+    ;; substrate (they ride only the dev trace bus today, but non-Ring
+    ;; adapters MUST emit the same categories per Spec 011 §1070), it must
     ;; STILL not project a non-200 — the skip is symmetric across both
     ;; buffering paths so the degraded-200 contract holds regardless of
     ;; which substrate carries the trace.
