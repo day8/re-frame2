@@ -55,6 +55,7 @@
              :as parallel-region-node]
             [day8.re-frame2-machines-viz.chart.nodes.xyflow-node
              :refer [Handle pos-top pos-right pos-bottom pos-left
+                     four-cardinal-handles
                      chart-constants palette-of]]
             [day8.re-frame2-machines-viz.chart.projection :as projection]
             [day8.re-frame2-machines-viz.theme.tokens
@@ -400,16 +401,7 @@
           (when exit
             (action-row {:kind :exit :name-str exit :vc vc :ct ct}))])
        ;; xyflow attachment points (invisible — edges connect here)
-       [:> Handle {:type "target" :position pos-top
-                   :style {:opacity 0}}]
-       [:> Handle {:type "source" :position pos-bottom
-                   :style {:opacity 0}}]
-       [:> Handle {:type "target" :position pos-left
-                   :id "left"
-                   :style {:opacity 0}}]
-       [:> Handle {:type "source" :position pos-right
-                   :id "right"
-                   :style {:opacity 0}}]])))
+       (four-cardinal-handles)])))
 
 ;; ---- compound node ------------------------------------------------------
 
@@ -503,12 +495,7 @@
                       :text-overflow "ellipsis"}}
         label]
        ;; rf2-shv82 — invisible xyflow attachment points.
-       [:> Handle {:type "target" :position pos-top    :style {:opacity 0}}]
-       [:> Handle {:type "source" :position pos-bottom :style {:opacity 0}}]
-       [:> Handle {:type "target" :position pos-left   :id "left"
-                   :style {:opacity 0}}]
-       [:> Handle {:type "source" :position pos-right  :id "right"
-                   :style {:opacity 0}}]])))
+       (four-cardinal-handles)])))
 
 ;; ---- initial marker node ------------------------------------------------
 
