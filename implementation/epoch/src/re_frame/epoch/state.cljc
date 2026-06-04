@@ -404,6 +404,34 @@
                (assoc-in m [frame-id render-key :epoch-id] epoch-id)))))
   nil)
 
+(defn drop-render-key-mount-attribution!
+  "Forget the mount-anchor + read-set for a SINGLE `render-key` in
+  `frame-id` (rf2-bgapd) — the per-instance eviction tied to a view
+  instance's UNMOUNT. Without it `mount-attribution` accreted one
+  permanent entry per ever-mounted instance (a fresh `instance-token`
+  per mount → a fresh render-key), pruned ONLY on whole-frame destroy:
+  unbounded per-frame heap growth over a long churning session (lists
+  with churning rows, modals, route-scoped components — exactly the
+  long-running time-travel scenario this surface exists to serve). The
+  per-instance peer of `drop-frame-mount-attribution!`'s whole-frame
+  wipe; called from `record-unmount!` after the trace back-fill.
+
+  Drops the now-empty frame map when this was the frame's last
+  render-key so a churned-then-idle frame leaves NO residual `{frame
+  {}}` shell. Idempotent: dropping an absent render-key is a no-op. A
+  late mount-burst tail render arriving AFTER the unmount (pathological
+  ordering) harmlessly re-mints the entry via `record-mount-epoch!` /
+  `record-render-deps!`."
+  [frame-id render-key]
+  (when (and frame-id render-key)
+    (swap! mount-attribution
+           (fn [m]
+             (let [pruned (update m frame-id dissoc render-key)]
+               (if (empty? (get pruned frame-id))
+                 (dissoc pruned frame-id)
+                 pruned)))))
+  nil)
+
 (defn drop-frame-mount-attribution!
   "Forget every render-key's mount-anchor + read-set for `frame-id`
   (frame teardown). Replaces the four-wiper pair

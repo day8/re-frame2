@@ -1214,6 +1214,117 @@
       (is (nil? (state/mount-epoch-for :test/dq2b7-b render-key))))))
 
 ;; ===========================================================================
+;; rf2-bgapd — mount-attribution is bounded across instance churn: a view
+;;             instance's entry is pruned on its per-instance UNMOUNT, not
+;;             retained until whole-frame destroy
+;; ===========================================================================
+;;
+;; THE LEAK (epoch senior-dev review, rf2-bgapd): the render-key is
+;; `[view-id instance-token]` and each MOUNT mints a fresh `instance-token`
+;; (a churning row / re-opened modal / route-scoped component remounts under a
+;; NEW render-key every time). `mount-attribution` is keyed by that render-key
+;; and accumulated an entry (an `:epoch-id` anchor + a `:deps` sub-id set) on
+;; first sighting, removed ONLY by `drop-frame-mount-attribution!` (whole-frame
+;; destroy) — never on per-instance unmount. So for a live frame over a long
+;; churning session the map grew without bound — exactly the long-running
+;; time-travel scenario the epoch surface exists to serve.
+;;
+;; THE FIX: `record-unmount!` now calls `drop-render-key-mount-attribution!`
+;; after the trace back-fill, evicting the unmounting instance's entry.
+
+(deftest drop-render-key-mount-attribution-prunes-single-instance
+  (testing "rf2-bgapd — `drop-render-key-mount-attribution!` evicts ONE
+            render-key's entry (anchor + read-set) and leaves sibling
+            render-keys in the same frame untouched."
+    (let [frame :test/bgapd
+          rk-a  [:row-view 100]
+          rk-b  [:row-view 101]]
+      (state/record-mount-epoch! frame rk-a :epoch/a)
+      (state/record-render-deps! frame rk-a :sub/a)
+      (state/record-mount-epoch! frame rk-b :epoch/b)
+      (state/record-render-deps! frame rk-b :sub/b)
+
+      (state/drop-render-key-mount-attribution! frame rk-a)
+      (is (nil? (state/mount-epoch-for frame rk-a))
+          "instance A's anchor evicted")
+      (is (nil? (state/render-deps-for frame rk-a))
+          "instance A's read-set evicted")
+      (is (= :epoch/b (state/mount-epoch-for frame rk-b))
+          "sibling instance B's anchor survives — eviction is per-render-key")
+      (is (= #{:sub/b} (state/render-deps-for frame rk-b))
+          "sibling instance B's read-set survives")
+
+      ;; Idempotent: dropping an already-absent / never-seen render-key is a
+      ;; no-op, never a throw (a late tail / double-unmount must be harmless).
+      (state/drop-render-key-mount-attribution! frame rk-a)
+      (state/drop-render-key-mount-attribution! frame [:never-mounted 0])
+      (is (= :epoch/b (state/mount-epoch-for frame rk-b))
+          "idempotent prune left the surviving entry intact"))))
+
+(deftest unmount-prunes-mount-attribution-bounded-across-churn
+  (testing "rf2-bgapd — THE leak guard. Mount N instances (each a fresh
+            instance-token → fresh render-key), settle a cascade so the live
+            frame is real, then UNMOUNT every instance. The frame's
+            `mount-attribution` must NOT retain the unmounted instances'
+            entries — it shrinks back toward empty (bounded), NOT retained
+            until whole-frame destroy. Pre-fix every ever-mounted instance
+            left a permanent entry; the map grew without bound across churn."
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed       (fn [_ _] {:rows (vec (range 5))}))
+    (rf/reg-event-db :drop-rows  (fn [db _] (assoc db :rows [])))
+
+    ;; A real settled cascade so the frame has a last-settled epoch the
+    ;; unmount back-fill can land in (the live-frame path, not just the
+    ;; direct-state unit above).
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+
+    ;; Mount N row instances — each a DISTINCT instance-token (the churn that
+    ;; mints a fresh render-key per mount). Each learns an anchor + a read-set
+    ;; the way a real mount does (post-settle render + in-render deref).
+    (let [n            8
+          render-keys  (mapv (fn [i] [:row-view i]) (range n))]
+      (doseq [rk render-keys]
+        (emit-render! :test/main rk)
+        (emit-mount-sub-run! :test/main :rows rk nil [0 1 2 3 4]))
+
+      ;; Every instance now carries a mount-attribution entry.
+      (doseq [rk render-keys]
+        (is (some? (state/mount-epoch-for :test/main rk))
+            (str "instance " rk " has a mount anchor before unmount"))
+        (is (some? (state/render-deps-for :test/main rk))
+            (str "instance " rk " has a learned read-set before unmount")))
+
+      ;; The cascade that removes all rows settles; then (React-teardown
+      ;; timing) every instance's unmount fires post-settle.
+      (rf/dispatch-sync [:drop-rows] {:frame :test/main})
+      (doseq [rk render-keys]
+        (emit-unmount! :test/main rk))
+
+      ;; THE assertion: none of the unmounted instances' entries are retained.
+      ;; mount-attribution is BOUNDED across churn — pruned per-instance on
+      ;; unmount, not held until frame-destroy.
+      (doseq [rk render-keys]
+        (is (nil? (state/mount-epoch-for :test/main rk))
+            (str "instance " rk "'s anchor pruned on unmount — not retained"))
+        (is (nil? (state/render-deps-for :test/main rk))
+            (str "instance " rk "'s read-set pruned on unmount — not retained")))
+
+      ;; And the unmount is STILL observable in its causing cascade's
+      ;; :trace-events — the rf2-59hx3 back-fill is preserved alongside the
+      ;; rf2-bgapd prune (the prune evicts the attribution map, NOT the
+      ;; recorded trace).
+      (let [drop-epoch (last-epoch :test/main)]
+        (is (= :drop-rows (:event-id drop-epoch)))
+        (is (= (set render-keys)
+               (->> (:trace-events drop-epoch)
+                    (filter #(= :rf.view/unmounted (:operation %)))
+                    (map #(-> % :tags :rf.view/render-key))
+                    set))
+            "every instance's unmount is back-filled into the drop-rows
+             cascade's :trace-events (rf2-59hx3 preserved) even though its
+             attribution entry was pruned (rf2-bgapd)")))))
+
+;; ===========================================================================
 ;; INVARIANT 8 — a view UNMOUNT is back-filled into its CAUSING cascade's
 ;;                :trace-events, not silently dropped (rf2-59hx3)
 ;; ===========================================================================

@@ -192,10 +192,24 @@
   updated record is re-fanned to epoch listeners so snapshot consumers
   (Xray's Views panel, which caches `epoch-history` at settle time) re-sync.
 
-  No-op when the frame has no settled epoch yet (an unmount before the first
-  cascade — e.g. a fixture teardown) or when the target epoch has been
-  evicted from the ring — `back-fill-unmount!` returns nil and we skip the
-  re-notify."
+  PRUNE-ON-UNMOUNT (rf2-bgapd): after the back-fill, evict the unmounting
+  instance's `mount-attribution` entry (the `:epoch-id` anchor + learned
+  `:deps` read-set keyed by this `render-key`). Each mount mints a FRESH
+  `instance-token` → a fresh render-key, so without per-instance eviction the
+  map accreted one permanent entry per ever-mounted instance, pruned ONLY on
+  whole-frame destroy — unbounded per-frame heap over a long churning session
+  (the time-travel scenario this surface serves). The eviction runs
+  UNCONDITIONALLY of whether the back-fill found a live epoch: the entry is
+  dead either way once the instance tears down (a fixture-teardown unmount with
+  no settled epoch still strands an entry otherwise). The render-key is read
+  from the same `:rf.view/render-key` tag the mount path uses
+  (`record-render!`); a late mount-burst tail arriving after the prune
+  harmlessly re-mints the entry.
+
+  No-op (for the back-fill leg) when the frame has no settled epoch yet (an
+  unmount before the first cascade — e.g. a fixture teardown) or when the
+  target epoch has been evicted from the ring — `back-fill-unmount!` returns
+  nil and we skip the re-notify."
   [frame-id event]
   (when interop/debug-enabled?
     (when-let [epoch-id (state/last-settled-epoch-id frame-id)]
@@ -203,7 +217,13 @@
         ;; Re-fan the corrected record so snapshot consumers re-read the
         ;; ring. Same failure-isolated fan-out + no-loop contract as the
         ;; render / sub-run back-fill above.
-        (notify-listeners! updated)))))
+        (notify-listeners! updated)))
+    ;; rf2-bgapd — prune the unmounting instance's mount-attribution entry so
+    ;; the map stays bounded across instance churn (NOT retained until
+    ;; whole-frame destroy). Runs whether or not the back-fill found a live
+    ;; epoch — the entry is dead once the instance unmounts.
+    (state/drop-render-key-mount-attribution!
+      frame-id (-> event :tags :rf.view/render-key))))
 
 (defn on-frame-destroyed!
   "Per Tool-Pair §Surface behaviour against destroyed frames (rf2-d656)
