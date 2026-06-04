@@ -170,18 +170,21 @@
   (is (= [:ok 'nope] (args/read-edn-arg "nope(" :missing :invalid))))
 
 ;; ---------------------------------------------------------------------------
-;; parse-filter-arg — the streaming filter map (rf2-hq49). The nil /
-;; string / map arms are covered in subscribe_test; the `:else` arm
-;; (a JS object that is neither a string nor a CLJS map — the shape an
-;; MCP host sends a structured filter as) routes through
+;; parse-filter-arg — the streaming filter map (rf2-hq49). Returns the
+;; tagged `[:ok m]` / `[:err :invalid-filter-edn]` shape (rf2-5kbkl,
+;; mirroring `read-edn-arg`) so a bad filter EDN surfaces as an honest
+;; `:ok? false` error rather than a nonsense filter the runtime applies.
+;; The nil / string / map arms are covered in subscribe_test; the
+;; `:else` arm (a JS object that is neither a string nor a CLJS map —
+;; the shape an MCP host sends a structured filter as) routes through
 ;; `js->clj :keywordize-keys true` and was untested. Pin it (rf2-ynjts.19).
 ;; ---------------------------------------------------------------------------
 
 (deftest parse-filter-arg-js-object-keywordizes
   (let [obj #js {"op-type" "error" "frame" "rf/default"}
         out (args/parse-filter-arg obj)]
-    (is (= {:op-type "error" :frame "rf/default"} out)
-        "JS-object keys keywordized; values left as-is")))
+    (is (= [:ok {:op-type "error" :frame "rf/default"}] out)
+        "JS-object keys keywordized; values left as-is; wrapped in :ok tag")))
 
 (deftest parse-filter-arg-nested-js-object-keywordizes-deep
   ;; `:keywordize-keys true` recurses — a nested JS object's keys are
@@ -189,4 +192,14 @@
   (let [obj #js {"touches-path" #js ["cart" "items"]
                  "meta" #js {"min-ms" 50}}
         out (args/parse-filter-arg obj)]
-    (is (= {:touches-path ["cart" "items"] :meta {:min-ms 50}} out))))
+    (is (= [:ok {:touches-path ["cart" "items"] :meta {:min-ms 50}}] out))))
+
+(deftest parse-filter-arg-malformed-edn-is-err-tagged
+  ;; rf2-5kbkl — the regression: an unparseable EDN string must NOT
+  ;; become a `{:invalid-filter-edn raw}` map that rides into the runtime
+  ;; `:filter` slot. It returns the honest `[:err :invalid-filter-edn]`
+  ;; tag (mirroring read-edn-arg's :invalid arm) so the caller can
+  ;; short-circuit to an `:ok? false` envelope.
+  (is (= [:err :invalid-filter-edn]
+         (args/parse-filter-arg "(((")) ;; unbalanced delimiters
+      "unparseable filter EDN → honest :err tag, not a nonsense map"))

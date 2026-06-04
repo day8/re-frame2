@@ -2331,6 +2331,12 @@ resource controls](#universal-server-resource-controls-streaming-surfaces)).
 
 - `:reason :unknown-topic` if `topic` is missing or not one of the
   four. Surfaced as `isError: true`.
+- `:reason :invalid-filter-edn` if the `filter` arg was supplied as an
+  EDN string that failed to parse (rf2-5kbkl). Surfaced as
+  `isError: true` WITHOUT touching the nREPL socket or reserving a
+  stream slot; the error echoes the offending `:given` string. A
+  malformed filter is rejected up front rather than streamed as a
+  nonsense filter that would silently match nothing.
 - `:reason :runtime-not-preloaded` if the preload hasn't run.
 - `:reason :subscribe-failed` on any other failure during subscribe.
 - `:reason :rf.error/concurrent-stream-limit` if the session already

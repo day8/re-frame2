@@ -339,13 +339,33 @@
 (defn parse-filter-arg
   "MCP-side filter arg can be either a JS object or an EDN string. We
   accept both for ergonomic parity with the bash-shim chain (`pred`
-  has been a JSON object there). Returns an EDN-printable map or nil
-  when missing."
+  has been a JSON object there).
+
+  Returns the tagged `[:ok m]` / `[:err :invalid-filter-edn]` shape
+  (mirroring `read-edn-arg`, rf2-5kbkl) so the caller can surface a bad
+  filter EDN as an honest `:ok? false` error rather than subscribing
+  with a nonsense filter. The two success shapes:
+
+    - `[:ok nil]`  — absent filter (no filtering).
+    - `[:ok m]`    — a parsed EDN string, a CLJS map passed through, or
+                     a JS object keywordised.
+
+  The lone failure shape `[:err :invalid-filter-edn]` is returned when
+  an EDN STRING fails to `read-string`. Pre-rf2-5kbkl this branch
+  returned a `{:invalid-filter-edn raw}` MAP that flowed straight into
+  the runtime `subscribe!` `:filter` slot — a typo'd filter silently
+  became a nonsense filter that streamed the wrong (likely empty) event
+  set with no corrective signal. The tag lets `subscribe-tool`
+  short-circuit to the same honest-error envelope `:unknown-topic`
+  already uses, rather than swallowing the parse failure into a
+  broken-success path."
   [raw]
   (cond
-    (nil? raw)        nil
-    (string? raw)     (try (cljs.reader/read-string raw)
-                           (catch :default _
-                             {:invalid-filter-edn raw}))
-    (map? raw)        raw
-    :else             (js->clj raw :keywordize-keys true)))
+    (nil? raw)        [:ok nil]
+    (string? raw)     (let [parsed (try (cljs.reader/read-string raw)
+                                        (catch :default _ ::reader-fail))]
+                        (if (= ::reader-fail parsed)
+                          [:err :invalid-filter-edn]
+                          [:ok parsed]))
+    (map? raw)        [:ok raw]
+    :else             [:ok (js->clj raw :keywordize-keys true)]))
