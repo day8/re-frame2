@@ -61,7 +61,9 @@ github.com/day8/re-frame2-template/        ; external repo (NEW)
 ├── test/day8/re_frame2_template/
 │   ├── template_test.clj
 │   ├── template_emission_test.clj
-│   └── emitted_test_run_test.clj
+│   ├── emitted_test_run_test.clj
+│   ├── version_lockstep_test.clj            ; pin-lockstep guard (all coords ride one version)
+│   └── test_support.clj                     ; shared test harness (extracted)
 └── .github/workflows/
     └── template-release.yml               ; tag-on-release CI (moved from re-frame2 monorepo)
 
