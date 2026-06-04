@@ -318,6 +318,49 @@
       (is (= [{:n 3} {:n 4} {:n 5}] dbs)
           "the three most-recent are kept; oldest evicted"))))
 
+(deftest ring-cap-materialises-and-releases-evicted-records
+  ;; rf2-rkbil correctness review: the ring cap MUST materialise the
+  ;; retained window into a fresh PersistentVector. A bare
+  ;; `(subvec history+ ...)` view does NOT release the evicted records —
+  ;; `SubVector.cons` keeps appending to the same growing underlying
+  ;; vector and `subvec` of a `SubVector` re-wraps that same backing, so
+  ;; the depth-d view's backing vector accretes EVERY record ever
+  ;; appended (each with its full :db-before / :db-after / :trace-events
+  ;; payload) even though `epoch-history` correctly returns only d
+  ;; records — an unbounded heap leak that defeats the bounded-ring
+  ;; contract. This pins that the retained window is a concrete vector
+  ;; whose backing storage is bounded by the configured depth, so
+  ;; evicted records become GC-eligible.
+  (testing "ring cap releases evicted records (no SubVector backing-vector leak)"
+    (let [depth 3]
+      (rf/configure! :epoch-history {:depth depth})
+      (rf/reg-frame :test/main {})
+      (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+      (rf/reg-event-db :inc  (fn [db [_ i]] (assoc db :n i)))
+
+      (rf/dispatch-sync [:seed] {:frame :test/main})
+      ;; Drive far more events than the depth so the cap fires many times.
+      (dotimes [i 200] (rf/dispatch-sync [:inc i] {:frame :test/main}))
+
+      (let [history (rf/epoch-history :test/main)]
+        (is (= depth (count history))
+            "history is capped at the configured depth")
+        ;; The retained vector must be a concrete PersistentVector, NOT a
+        ;; SubVector view. A SubVector here would mean the backing vector
+        ;; still references all 201 evicted-and-live records.
+        (is (not (instance? clojure.lang.APersistentVector$SubVector history))
+            (str "history must be a materialised PersistentVector, not a "
+                 "SubVector view that retains the evicted records' backing "
+                 "storage; got " (class history)))
+        ;; Belt-and-braces: if a future refactor reintroduces a SubVector,
+        ;; assert its backing vector is bounded by the depth rather than
+        ;; the full append count (the leak signature).
+        (when (instance? clojure.lang.APersistentVector$SubVector history)
+          (let [f (doto (.getDeclaredField clojure.lang.APersistentVector$SubVector "v")
+                    (.setAccessible true))]
+            (is (<= (count (.get f history)) depth)
+                "SubVector backing vector must not retain evicted records")))))))
+
 (deftest depth-zero-disables-recording
   (testing "depth 0 disables ring recording"
     (rf/configure! :epoch-history {:depth 0})
