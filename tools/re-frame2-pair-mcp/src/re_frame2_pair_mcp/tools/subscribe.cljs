@@ -488,7 +488,13 @@
 (defn subscribe-tool [conn raw-args extra]
   (let [build-id           (wire/arg-build conn raw-args)
         topic              (wire/arg-keyword raw-args :topic)
-        filter-map         (args/parse-filter-arg (wire/arg raw-args :filter))
+        ;; rf2-5kbkl — `parse-filter-arg` returns the tagged
+        ;; `[:ok m]` / `[:err :invalid-filter-edn]` shape (mirroring
+        ;; `read-edn-arg`). A bad filter EDN short-circuits to an honest
+        ;; `:ok? false` envelope below rather than riding into the
+        ;; runtime `subscribe!` `:filter` slot as a nonsense filter that
+        ;; would silently stream the wrong (likely empty) event set.
+        [filter-tag filter-map] (args/parse-filter-arg (wire/arg raw-args :filter))
         max-buf-events     (wire/arg raw-args :max-buffered-events)
         max-buf-bytes      (wire/arg raw-args :max-buffered-bytes)
         poll-ms            (or (wire/arg raw-args :poll-ms) default-poll-ms)
@@ -524,6 +530,16 @@
         (wire/err-text {:ok? false :reason :unknown-topic
                         :given (wire/arg raw-args :topic)
                         :hint  "Recognised topics: trace, epoch, fx, error, frameless."}))
+
+      ;; rf2-5kbkl — the filter EDN failed to parse. Surface an honest
+      ;; `:ok? false` error (same one-cond-branch shape as
+      ;; `:unknown-topic` above) instead of subscribing with a garbage
+      ;; filter. No nREPL socket touched.
+      (= :err filter-tag)
+      (js/Promise.resolve
+        (wire/err-text {:ok? false :reason :invalid-filter-edn
+                        :given (wire/arg raw-args :filter)
+                        :hint  "filter must be an EDN-readable map (or a JSON object), e.g. \"{:op-type :error}\"."}))
 
       :else
       ;; rf2-3ijbl — reserve a session-wide stream slot BEFORE any

@@ -7,10 +7,11 @@
   (notifications/progress emission, abort-signal termination) lives
   in `test/stdio-roundtrip.js` and the live-nREPL integration test
   against a real shadow-cljs build."
-  (:require [cljs.test :refer-macros [deftest is testing]]
+  (:require [cljs.test :refer-macros [deftest is testing async]]
             [cljs.reader]
             [clojure.string :as str]
             [applied-science.js-interop :as j]
+            [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.eval-form :as ef]
             [re-frame2-pair-mcp.tools.subscribe :as sub]))
@@ -19,32 +20,76 @@
 ;; `re-frame2-pair-mcp.tools.args/parse-filter-arg`. Tests pin the
 ;; public surface directly so a rename or signature change surfaces
 ;; as a failing test rather than a silent contract drift.
+;;
+;; rf2-5kbkl — the parser returns the tagged `[:ok m]` /
+;; `[:err :invalid-filter-edn]` shape (mirroring `read-edn-arg`). A
+;; malformed filter EDN surfaces as an honest `:ok? false` error rather
+;; than the pre-fix `{:invalid-filter-edn raw}` MAP that flowed straight
+;; into the runtime `:filter` slot as a nonsense filter.
 
 (deftest filter-arg-nil-passes-through
-  (is (nil? (args/parse-filter-arg nil))))
+  (is (= [:ok nil] (args/parse-filter-arg nil))))
 
 (deftest filter-arg-edn-string-reads
-  (is (= {:op-type :error}
+  (is (= [:ok {:op-type :error}]
          (args/parse-filter-arg "{:op-type :error}"))))
 
 (deftest filter-arg-edn-string-with-touches-path
-  (is (= {:touches-path [:cart :items]}
+  (is (= [:ok {:touches-path [:cart :items]}]
          (args/parse-filter-arg "{:touches-path [:cart :items]}"))))
 
-(deftest filter-arg-malformed-edn-surfaces-marker
-  (is (= {:invalid-filter-edn "((("}
+(deftest filter-arg-malformed-edn-is-err-tagged
+  ;; The regression: an unparseable EDN string must NOT become a
+  ;; nonsense `{:invalid-filter-edn raw}` map — it returns the honest
+  ;; `[:err :invalid-filter-edn]` tag so the caller short-circuits.
+  (is (= [:err :invalid-filter-edn]
          (args/parse-filter-arg "(((")))) ;; unbalanced delimiters
 
 (deftest filter-arg-js-object-keywordises
   (let [obj #js {:op-type "error" :event-id "user/login"}
-        out (args/parse-filter-arg obj)]
+        [tag out] (args/parse-filter-arg obj)]
+    (is (= :ok tag))
     (is (map? out))
     (is (= "error" (:op-type out)))
     (is (= "user/login" (:event-id out)))))
 
 (deftest filter-arg-clj-map-passes-through
-  (is (= {:op-type :error}
+  (is (= [:ok {:op-type :error}]
          (args/parse-filter-arg {:op-type :error}))))
+
+;; rf2-5kbkl — end-to-end at the tool boundary: a malformed filter EDN
+;; makes `subscribe-tool` short-circuit to an honest `:ok? false`
+;; envelope (`:reason :invalid-filter-edn`, `:isError true`) WITHOUT
+;; touching the nREPL socket or reserving a stream slot — rather than
+;; subscribing with a garbage filter. A VALID filter is unaffected (it
+;; falls through to the normal subscribe path; covered by the
+;; subscribe-form tests above).
+
+(deftest subscribe-tool-malformed-filter-errors-honestly
+  ;; The headline regression. A malformed filter EDN makes
+  ;; `subscribe-tool` short-circuit to an honest `:ok? false` envelope
+  ;; (`:reason :invalid-filter-edn`, `:isError true`) — the `cond`
+  ;; branch fires BEFORE the `:else` arm reserves a stream slot or
+  ;; touches the nREPL socket, so this resolves synchronously with no
+  ;; live runtime needed and no resource-controls state mutated.
+  (async done
+    (-> (sub/subscribe-tool nil #js {:topic "trace" :filter "((("} nil)
+        (.then (fn [r]
+                 (is (tu/error? r)
+                     "malformed filter EDN surfaces as :isError true")
+                 (let [edn (tu/extract-edn r)]
+                   (is (false? (:ok? edn)))
+                   (is (= :invalid-filter-edn (:reason edn))
+                       "honest :reason, not a silent subscribe with a garbage filter")
+                   (is (= "(((" (:given edn))))
+                 (done))))))
+
+;; The VALID-filter path "works unchanged" is pinned by the
+;; `subscribe-form-with-trace-and-filter` / `-fx-topic` round-trip tests
+;; above: a well-formed filter rides into the runtime `subscribe!`
+;; `:filter` opts slot. With the rf2-5kbkl change those still hold
+;; because `parse-filter-arg` now unwraps the `[:ok m]` tag back to the
+;; same `filter-map` the form constructor consumes.
 
 ;; The subscribe-form constructor is private. Re-implement here over
 ;; the eval-form DSL to pin the IR + emitted source we send to the
