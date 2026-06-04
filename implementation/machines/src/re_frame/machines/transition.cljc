@@ -1516,9 +1516,13 @@
 
 (defn final-on-leaf?
   "Per Spec 005 §Final states (rf2-gn80): true iff the state at the LEAF
-  of `path` declares `:final? true`. Used by `apply-transition-once` to
-  tag the resulting snapshot with `:rf/finished?` so the orchestrating
-  lifecycle handler can fire `:on-done` + auto-destroy.
+  of `state` declares `:final? true`. The lifecycle-handler boundary calls
+  this on the POST-transition snapshot to RECOMPUTE finality and, when
+  true, fire `:on-done` + auto-destroy. Finality is a pure recompute from
+  the post-transition `:state` — it is NOT stamped onto the snapshot
+  (there is no `:rf/finished?` slot; per Spec 005 §Persistence posture the
+  pure `machine-transition` surface stays free of runtime-only
+  bookkeeping).
 
   Note: parallel-region machines compose finality across regions — the
   parent is `:final?` only when EVERY region's active leaf is `:final?`.

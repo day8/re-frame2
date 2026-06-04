@@ -543,3 +543,74 @@
           thrown (registration-throws? :rf.nested-validation/par-good m)]
       (is (nil? thrown)
           "a well-shaped parallel machine should register without throwing"))))
+
+;; ---- multi-hop keyword-indirection in :guards / :actions (rf2-ylpnn) ------
+;; The runtime resolver `transition/chase-ref` tolerates keyword INDIRECTION:
+;; a :guards / :actions entry value may itself be a keyword pointing at
+;; another entry. The registration validator must follow that SAME chain to
+;; its terminal fn — testing membership of only the FIRST key let a multi-hop
+;; chain whose terminal hop is missing pass registration and blow up only at
+;; runtime, defeating the fail-fast contract (Spec 005 §Registration).
+
+(deftest multi-hop-guard-indirection-resolves-registers
+  (testing "a :guard ref through TWO hops of keyword indirection to a fn
+            registers cleanly (control — the runtime resolves it)"
+    (let [m {:initial :idle
+             :guards  {:a :b
+                       :b :c
+                       :c (fn [_] true)}
+             :actions {}
+             :states  {:idle  {:on {:go [{:target :other :guard :a}]}}
+                       :other {}}}
+          thrown (registration-throws? :rf.ylpnn/guard-multi-hop-ok m)]
+      (is (nil? thrown)
+          "a multi-hop guard indirection that terminates at a fn must register"))))
+
+(deftest multi-hop-guard-indirection-dangling-tail-rejected
+  (testing "a :guard ref whose multi-hop indirection chain dangles at the
+            terminal hop (no entry for :b) is rejected at REGISTRATION,
+            not deferred to runtime (rf2-ylpnn)"
+    (let [m {:initial :idle
+             :guards  {:a :b}                    ;; :a → :b, but no :b entry
+             :actions {}
+             :states  {:idle  {:on {:go [{:target :other :guard :a}]}}
+                       :other {}}}
+          thrown (registration-throws? :rf.ylpnn/guard-dangling-tail m)]
+      (is (some? thrown)
+          "a dangling multi-hop guard chain MUST throw at registration")
+      (is (= ":rf.error/machine-unresolved-guard" (.getMessage thrown))
+          "error category names the unresolved-guard contract")
+      (is (= :a (:guard (ex-data thrown)))
+          "ex-data names the head ref the author wrote"))))
+
+(deftest multi-hop-action-indirection-dangling-tail-rejected
+  (testing "a :action ref whose multi-hop indirection chain dangles at the
+            terminal hop is rejected at REGISTRATION (rf2-ylpnn)"
+    (let [m {:initial :idle
+             :guards  {}
+             :actions {:a :b}                    ;; :a → :b, but no :b entry
+             :states  {:idle  {:on {:go [{:target :other :action :a}]}}
+                       :other {}}}
+          thrown (registration-throws? :rf.ylpnn/action-dangling-tail m)]
+      (is (some? thrown)
+          "a dangling multi-hop action chain MUST throw at registration")
+      (is (= ":rf.error/machine-unresolved-action" (.getMessage thrown))
+          "error category names the unresolved-action contract")
+      (is (= :a (:action (ex-data thrown)))
+          "ex-data names the head ref the author wrote"))))
+
+(deftest cyclic-guard-indirection-rejected
+  (testing "a CYCLIC :guard indirection (:a → :b → :a, never a fn) is rejected
+            at registration — chase-ref returns nil on a cycle, so the
+            validator must treat it as unresolved rather than loop (rf2-ylpnn)"
+    (let [m {:initial :idle
+             :guards  {:a :b
+                       :b :a}                     ;; cycle, no terminal fn
+             :actions {}
+             :states  {:idle  {:on {:go [{:target :other :guard :a}]}}
+                       :other {}}}
+          thrown (registration-throws? :rf.ylpnn/guard-cycle m)]
+      (is (some? thrown)
+          "a cyclic guard indirection MUST throw at registration (not loop)")
+      (is (= ":rf.error/machine-unresolved-guard" (.getMessage thrown))
+          "error category names the unresolved-guard contract"))))

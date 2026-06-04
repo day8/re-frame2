@@ -110,15 +110,21 @@
 (defn finalize-machine
   "Per Spec 005 §Final states (rf2-gn80): orchestrate the `:on-done` +
   auto-destroy cascade. Returns `{:db new-db :fx fx}` — the handler's
-  return value when the post-transition snapshot is tagged
-  `:rf/finished? true`.
+  return value when the post-transition snapshot has finished (its active
+  leaf is `:final?`, or — for a parallel machine — every region's active
+  leaf is `:final?`). Finality is RECOMPUTED by the caller
+  (`commit-or-finalize`) from the post-transition `:state` via
+  `final-on-leaf?` / `all-regions-final?`; it is NOT carried on the
+  snapshot (there is no `:rf/finished?` slot — per Spec 005 §Persistence
+  posture the pure surface stays free of runtime-only bookkeeping).
 
   Arguments:
     machine        — the runtime-stamped machine spec (the finishing actor's)
     machine-id     — the finishing actor's id (its event-handler key)
     frame-id       — the frame the actor runs in
     db             — the app-db AT the time the handler was invoked
-    next-snapshot  — the post-transition snapshot (carries `:rf/finished?`)
+    next-snapshot  — the post-transition snapshot (the caller already
+                     determined it is final by recomputing from `:state`)
     _inner-event   — the event that caused the finish (for diagnostics)
     extra-fx       — the fx vector from the transition (passed through)"
   [machine machine-id frame-id db next-snapshot _inner-event extra-fx]

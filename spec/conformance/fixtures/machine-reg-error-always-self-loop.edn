@@ -27,33 +27,39 @@
  :fixture/handlers  {}
 
  :fixture/calls
+ ;; NOTE — these are `:reg-machine` Mode-B calls: the host validates the
+ ;; RAW `:definition` (no `:fixture/handlers` realisation, per
+ ;; spec/conformance/README.md §The `:reg-machine` op). Guard / action
+ ;; keyword refs in a raw definition must therefore RESOLVE against the
+ ;; definition's own `:guards` / `:actions` map to a terminal fn —
+ ;; something pure EDN cannot express — so these structural-taxonomy
+ ;; fixtures use guard-/action-FREE `:always` entries. The self-loop
+ ;; check (and the action-microstep distinction) is orthogonal to guard
+ ;; resolution; omitting the refs keeps the fixture's intent intact and
+ ;; avoids embedding a dangling keyword-indirection chain (rf2-ylpnn).
  [;; (1) Keyword :target naming the declaring state — self-loop, rejected.
   {:call         :reg-machine
    :definition   {:initial :checking
-                  :guards  {:ready? :always/true?}
-                  :states  {:checking {:always [{:guard :ready? :target :checking}]}}}
+                  :states  {:checking {:always [{:target :checking}]}}}
    :expect-error :rf.error/machine-always-self-loop}
 
   ;; (2) Vector :target equal to the declaring leaf's absolute path — rejected.
   {:call         :reg-machine
    :definition   {:initial :outer
-                  :guards  {:p? :always/true?}
                   :states  {:outer {:initial :inner
-                                    :states  {:inner {:always [{:guard  :p?
-                                                                :target [:outer :inner]}]}}}}}
+                                    :states  {:inner {:always [{:target [:outer :inner]}]}}}}}
    :expect-error :rf.error/machine-always-self-loop}
 
-  ;; (3) Control: internal :always (no :target, just :action) is the
-  ;; canonical action-microstep pattern — NOT a self-loop, validates silently.
+  ;; (3) Control: internal :always (no :target) is the canonical
+  ;; action-microstep pattern — NOT a self-loop, validates silently. The
+  ;; action is left implicit (no :action ref) so the raw definition needs
+  ;; no handler resolution; the no-:target shape is what the control pins.
   {:call       :reg-machine
    :definition {:initial :working
-                :guards  {:more? :always/false?}
-                :actions {:step :identity}
-                :states  {:working {:always [{:guard :more? :action :step}]}}}}
+                :states  {:working {:always [{}]}}}}
 
   ;; (4) Control: an :always targeting a DIFFERENT sibling validates silently.
   {:call       :reg-machine
    :definition {:initial :asking
-                :guards  {:enough? :always/true?}
-                :states  {:asking {:always [{:guard :enough? :target :winner}]}
+                :states  {:asking {:always [{:target :winner}]}
                           :winner {}}}}]}

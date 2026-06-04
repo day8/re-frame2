@@ -58,6 +58,37 @@
                     :reason      reason}
                    extras))))
 
+(defn- ref-resolves?
+  "Mirror of the runtime resolver `transition/chase-ref` (rf2-ylpnn): a
+  `:guards` / `:actions` keyword reference resolves iff chasing the
+  keyword-indirection chain through `registry` terminates at a fn (a bare
+  fn registry value, or the co-located `{:fn <fn> ...}` entry map). A
+  registry VALUE may be a fn, an entry map, or another keyword
+  (indirection) — so the validator must follow the FULL chain, not just
+  test membership of the first key. Otherwise a multi-hop chain whose
+  terminal hop is missing (`{:a :b}` with no `:b`) passes registration
+  yet throws `:rf.error/machine-unresolved-guard/-action` at runtime when
+  `chase-ref` returns nil — defeating the fail-fast contract Spec 005
+  §Registration advertises.
+
+  Resolution outcomes, identical to `chase-ref`:
+   - reaches a fn or a `{:fn ...}` map → resolves (truthy);
+   - hits a keyword with no `registry` entry → unresolved (false);
+   - re-visits a keyword (a CYCLE) → unresolved (false) — the runtime
+     `chase-ref` returns nil on a cycle, treating it as unresolved, so a
+     cyclic indirection is now rejected at registration rather than
+     throwing the same unresolved error at runtime."
+  [registry ref]
+  (loop [r ref seen #{}]
+    (cond
+      (fn? r)                r
+      (and (map? r) (:fn r)) (:fn r)
+      (contains? seen r)     false   ;; cycle — unresolved (matches chase-ref nil)
+      (keyword? r)           (if (contains? registry r)
+                               (recur (get registry r) (conj seen r))
+                               false) ;; dangling terminal hop — unresolved
+      :else                  false)))
+
 (defn- validate-no-spawn-timeout-ms!
   "Per rf2-3y3y / Spec 005 §Wall-clock timeouts on :spawn — use parent
   state's `:after`, the pre-release `:timeout-ms` / `:on-timeout` slots
@@ -667,16 +698,21 @@
   ;; a placeholder; real misuse traces at handler-call time fill it in.
   (let [guards-map  (:guards machine)
         actions-map (:actions machine)
+        ;; Follow the FULL chase-ref chain (rf2-ylpnn), not just the first
+        ;; key — a multi-hop keyword indirection (`{:a :b}` → `:b`) whose
+        ;; terminal hop is missing, or a cyclic indirection, is rejected
+        ;; here at registration rather than throwing the same unresolved
+        ;; error at runtime when the timer/guard/action fires.
         check-guard! (fn [g s]
                        (when (and (keyword? g)
-                                  (not (contains? guards-map g)))
+                                  (not (ref-resolves? guards-map g)))
                          (throw (validation-error
                                   :rf.error/machine-unresolved-guard
                                   (str "guard ref " g " does not resolve against the machine's :guards map")
                                   {:guard g :state s}))))
         check-action! (fn [a s]
                         (when (and (keyword? a)
-                                   (not (contains? actions-map a)))
+                                   (not (ref-resolves? actions-map a)))
                           (throw (validation-error
                                    :rf.error/machine-unresolved-action
                                    (str "action ref " a " does not resolve against the machine's :actions map")
