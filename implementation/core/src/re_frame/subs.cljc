@@ -192,7 +192,7 @@
 (declare subscribe unsubscribe)
 
 ;; The memo wrappers (`make-layer-1-memoised-body`,
-;; `make-layer-n-1-memoised-body`, `make-layer-n-memoised-body`) and
+;; `make-layer-n-single-input-memoised-body`, `make-layer-n-memoised-body`) and
 ;; the trace/perf/validate/recover bracket (`validate-and-trace`,
 ;; `maybe-validate-sub!`) live in `re-frame.subs.memo` — extracted
 ;; per rf2-0ytl4 Phase-2 seam S-B. Per-recompute hot path is the closure
@@ -207,7 +207,7 @@
   The compute fn handed to the substrate adapter is built in two
   layers, each named:
 
-    - `make-layer-1-memoised-body` / `make-layer-n-1-memoised-body` /
+    - `make-layer-1-memoised-body` / `make-layer-n-single-input-memoised-body` /
       `make-layer-n-memoised-body` — Spec 006 §No-op via value
       equality (rf2-719e). Wraps the user's body in a `=`-skipping
       memo. The layer-1 form is fixed-arity-1 and compares the db
@@ -247,7 +247,7 @@
                         ;; shape per rf2-v1nu0; specialise to fixed-arity-1
                         ;; for parity with layer-1 (rf2-0y2bp).
                         (= 1 (count input-signals))
-                        (subs-memo/make-layer-n-1-memoised-body
+                        (subs-memo/make-layer-n-single-input-memoised-body
                           body-fn query-id query-v frame-id input-signals sub-meta)
                         :else
                         (subs-memo/make-layer-n-memoised-body
