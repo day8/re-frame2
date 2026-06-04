@@ -356,6 +356,27 @@
       :glow        (with-alpha :info   0.18 palette)
       :glow-fired  (with-alpha :accent 0.18 palette)})))
 
+(defn edge-color
+  "rf2-dt5b1 — the SINGLE source of an edge's stroke + arrowhead colour
+  given its runtime flags, resolved against a `chart-tokens` map `ct`.
+
+  Both the renderer (`chart.edges/edge-stroke`, painting the SVG path)
+  and the projector (`chart.projection`, baking the `:markerEnd :color`
+  the arrowhead paints) route through this fn so a stroke and its
+  arrowhead can never disagree on colour for the same edge state.
+
+  Ordering (XState/Stately gold standard): `fired?` (the edge traversed
+  THIS epoch) wins over `focused?` / `active?` so a fired arm reads as
+  'what just happened' in the FIRED hue; focused / active share the
+  ACTIVE hue; everything else is the resting QUIET hue.
+
+  Pure data → string; JVM-portable."
+  [ct {:keys [active? focused? fired?]}]
+  (cond
+    fired?                (:edge-fired ct)
+    (or focused? active?) (:edge-active ct)
+    :else                 (:edge-quiet ct)))
+
 (defn theme-palette
   "rf2-az6e2 — resolve a `:theme` keyword (`:dark` / `:light`) to its
   base palette via `palettes`. nil / unknown → `dark-palette` (the Xray
@@ -420,44 +441,12 @@
   [ms]
   (str "calc(" ms "ms * var(" (:scale-var-name motion) ", 1))"))
 
-;; ---- tag-pill palette (rf2-m1b88; rf2-a2b55 restored) ------------------
-;;
-;; rf2-so5b0 retired this pair when the visible state-tag pill row was
-;; dropped. rf2-a2b55 reinstates the visible pill row BELOW the state
-;; name (Stately graph view convention: descriptive tags ride a pill
-;; row directly under the state title, not as ancestor-path chips
-;; above), so the deterministic colour rotation is live again. A given
-;; tag id resolves to the same palette token across renders so tests +
-;; the human eye can rely on identity-by-colour.
-
-(def tag-pill-palette
-  "Deterministic colour rotation for state-tag pills (rf2-m1b88;
-  rf2-a2b55 restored). Skips `:red`, `:accent` and `:info` — all
-  reserved for chart semantics (`:red` for cancellation glyphs, the
-  single `:accent` for the initial-state marker + FROM-highlight,
-  `:info` for the TO-highlight / active state). The remaining five
-  spread across cool/warm/neutral so a typical 2-4 tag count reads
-  distinctly."
-  [:advisory :green :yellow :orange :magenta])
-
-(defn- char-code
-  "Portable char → int. JVM uses `int`; CLJS reaches for
-  `charCodeAt` on the string at the per-char index."
-  [^String s idx]
-  #?(:clj  (int (.charAt s ^int idx))
-     :cljs (.charCodeAt s idx)))
-
-(defn tag-pill-color
-  "Map a tag keyword to a stable palette entry. Deterministic — the
-  same tag id resolves to the same token across renders. Pure data
-  → keyword."
-  [tag]
-  (let [^String s (str (when-let [n (and (keyword? tag) (namespace tag))]
-                         (str n "/"))
-                       (if (keyword? tag) (name tag) (str tag)))
-        n (count s)
-        h (loop [i 0 acc 0]
-            (if (< i n)
-              (recur (inc i) (+ acc (char-code s i)))
-              acc))]
-    (nth tag-pill-palette (mod h (count tag-pill-palette)))))
+;; rf2-dt5b1 — the deterministic tag-pill colour rotation
+;; (`tag-pill-palette` / `tag-pill-color`, rf2-m1b88 / rf2-a2b55) was
+;; RETIRED. `chart.nodes/tag-pill` renders every state-tag chip in ONE
+;; neutral style (`:container-header-bg` fill + `:state-border` border +
+;; `:text-secondary` text): structure wins over annotation colour for the
+;; topology view, so the chart reads as containment + transition flow,
+;; not a rainbow of tag hues. Tag IDENTITY survives on the chip's
+;; `data-tag` / `title` attrs + the state-node's `data-tags`. The rotation
+;; had no live caller (it coloured nothing the renderer paints).

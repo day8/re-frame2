@@ -3,11 +3,13 @@
   (rf2-pyvmr — with-alpha;
    rf2-xfx6l — motion/duration-css).
 
-  rf2-so5b0 retired the `tag-pill-color` / `tag-pill-palette` helpers
-  with the visible state-tag pill row; rf2-a2b55 reinstates BOTH
-  helpers AND the pill row (positioned BELOW the state name per
-  Stately graph view convention). Determinism + reserved-token tests
-  for the helper restored at the end of this ns."
+  rf2-dt5b1 — the `tag-pill-color` / `tag-pill-palette` deterministic
+  colour rotation (rf2-m1b88 / rf2-a2b55) was RETIRED: `chart.nodes/`
+  `tag-pill` renders every chip in one neutral style (structure wins
+  over annotation colour for the topology view), so the rotation
+  coloured nothing the renderer paints. The pill row itself + its
+  geometry keys remain. The shared `edge-color` stroke + arrowhead
+  colour helper (rf2-dt5b1) is pinned at the end of this ns."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
             [clojure.string :as str]
@@ -174,27 +176,36 @@
             the raw-EDN context panel."
     (is (= tokens/sans-stack tokens/chart-label-stack))))
 
-;; ---- tag-pill colour rotation (rf2-m1b88; rf2-a2b55 restored) ----------
+;; ---- edge-color — shared stroke + arrowhead colour (rf2-dt5b1) ---------
+;;
+;; `tokens/edge-color` is the SINGLE source both `chart.edges/edge-stroke`
+;; (the SVG path) and `chart.projection` (the arrowhead `:markerEnd`
+;; colour) route through, so a stroke + its arrowhead cannot disagree.
+;; Ordering (XState/Stately gold standard): fired > focused/active >
+;; quiet.
 
-(deftest tag-pill-color-is-deterministic
-  (testing "rf2-m1b88 — `tag-pill-color` resolves the same tag id to
-            the same palette entry across calls, so the human eye can
-            track 'tag X = blue pill' across renders. Pure data →
-            keyword; the same id MUST resolve to the same hue."
-    (let [tag :ws/connecting]
-      (is (= (tokens/tag-pill-color tag)
-             (tokens/tag-pill-color tag))))))
+(deftest edge-color-fired-wins
+  (testing "rf2-dt5b1 — `fired?` wins over `focused?` / `active?`: a
+            fired-this-epoch edge reads as 'what just happened'."
+    (let [ct (tokens/chart-tokens)]
+      (is (= (:edge-fired ct)
+             (tokens/edge-color ct {:fired? true :focused? true :active? true})))
+      (is (= (:edge-fired ct)
+             (tokens/edge-color ct {:fired? true}))))))
 
-(deftest tag-pill-color-skips-reserved-tokens
-  (testing "rf2-m1b88 — `:red` / `:accent` / `:info` are reserved for
-            chart semantics (cancellation glyph; initial-state +
-            FROM-highlight; TO-highlight + active). The palette
-            rotation MUST NOT land on any of those — a state-tag pill
-            sharing a hue with an active-state border would read as
-            'this state is active' on a tag that has nothing to do
-            with activity. Pinned across a small sweep of tag ids."
-    (let [reserved #{:red :accent :info}]
-      (doseq [tag [:a :b :c :ws/active :ws/connecting :foo/bar
-                   :idle :running :error :timeout :loaded]]
-        (is (not (contains? reserved (tokens/tag-pill-color tag)))
-            (str "tag " tag " maps to a reserved chart-semantic token"))))))
+(deftest edge-color-focused-or-active-is-active-hue
+  (testing "rf2-dt5b1 — focused OR active (but not fired) → the ACTIVE
+            hue; the two share one treatment."
+    (let [ct (tokens/chart-tokens)]
+      (is (= (:edge-active ct) (tokens/edge-color ct {:focused? true})))
+      (is (= (:edge-active ct) (tokens/edge-color ct {:active? true})))
+      (is (= (:edge-active ct)
+             (tokens/edge-color ct {:focused? true :active? true}))))))
+
+(deftest edge-color-resting-is-quiet
+  (testing "rf2-dt5b1 — no flags (the resting / quiet segment) → the
+            QUIET hue."
+    (let [ct (tokens/chart-tokens)]
+      (is (= (:edge-quiet ct) (tokens/edge-color ct {})))
+      (is (= (:edge-quiet ct)
+             (tokens/edge-color ct {:fired? false :focused? false :active? false}))))))

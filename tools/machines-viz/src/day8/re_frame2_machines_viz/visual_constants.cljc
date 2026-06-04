@@ -21,14 +21,27 @@
   three maps share the SAME key set (asserted by
   `visual-constants-cljs-test`); a key in one is a key in all.
 
-  rf2-cd053 / rf2-gg7ws — `chart-regular` state-label + edge-label
-  font sizes walked up from the previous spec/007-UX-IA refused-floor
-  (11 / 9) to a chart-appropriate 13 / 11 per the 2026-05-20 visual-
-  quality lift. The refused-floor was set for dense data-grid
-  surfaces; applying it to a chart that competes with xstate-stately's
-  typography was a category error. `chart-compact` deliberately walks
-  back to 11/9 since the compact density IS the dense-grid surface
-  the original floor existed for; `chart-cosy` walks up to 15/13.
+  rf2-cd053 / rf2-gg7ws — `chart-regular`'s edge-label font size walked
+  up from the previous spec/007-UX-IA refused-floor (9) to a chart-
+  appropriate 11 per the 2026-05-20 visual-quality lift. The refused-
+  floor was set for dense data-grid surfaces; applying it to a chart
+  that competes with xstate-stately's typography was a category error.
+  `chart-compact` deliberately walks back to 9 since the compact density
+  IS the dense-grid surface the original floor existed for; `chart-cosy`
+  walks up to 13. (The state-node label rides `:state-title-px` under
+  the rf2-az6e2 structured grammar; the old `:state-label-px` key it
+  superseded was removed rf2-dt5b1 — see below.)
+
+  rf2-dt5b1 — removed seven density-map keys no renderer ever read:
+  `:state-label-px` (superseded by `:state-title-px`), `:compound-pad-x`
+  / `:compound-pad-y` / `:compound-stroke-dash` / `:compound-title-px`
+  (the compound chrome reads the `:container-*` keys), `:dot-grid-alpha`
+  (the dot grid is xyflow's `<Background>` `:gap`/`:size`, no alpha),
+  and `:edge-label-backplate-opacity` (the edge-label backplate paints
+  the opaque `:event-chip-bg` theme token, no separate opacity). Added
+  `:arrow-width` / `:arrow-width-quiet` / `:arrow-width-entry` so the
+  arrowhead size rides the density alongside the stroke (the projector
+  baked literal 10 / 18 / 12 before, ignoring `:density`).
 
   rf2-g6cig — corner-radius locked at 6px across every density. The
   React Flow default (8) reads as 'product chrome'; brutalist (0)
@@ -76,21 +89,20 @@
     :stroke-width             — default node + edge stroke width
     :stroke-width-emphasis    — emphasised node/edge stroke width
                                 (active / focused-event lens)
-    :compound-pad-x           — horizontal inset on compound
-                                container around its children
-    :compound-pad-y           — vertical inset (extra top padding
-                                leaves room for the title strip)
-    :compound-stroke-dash     — dashed pattern for compound borders
-    :state-label-px           — state node label font-size
-                                (rf2-gg7ws lift — regular: 13)
     :edge-label-px            — edge label font-size
                                 (rf2-gg7ws lift — regular: 11)
-    :edge-label-backplate-opacity
-                              — opacity of the small white rect
-                                painted behind each edge label so
-                                overlapping labels remain legible
-                                (rf2-gg7ws — collision-avoidance v1)
-    :compound-title-px        — compound container title font-size
+    :arrow-width              — PRIMARY arrowhead width/height in px,
+                                on the `__out` (event→target) half of an
+                                events-as-nodes route (rf2-dt5b1 — now
+                                rides the density so the head scales with
+                                the stroke instead of a baked literal)
+    :arrow-width-quiet        — QUIET arrowhead width/height on the
+                                `__in` (source→event) half — smaller so
+                                the primary head reads as the route's
+                                terminus and the pair reads as ONE
+                                transition (rf2-dt5b1)
+    :arrow-width-entry        — initial-marker entry-edge arrowhead
+                                width/height (rf2-dt5b1)
     :compound-radius          — compound container corner radius
                                 (rf2-k647w — distinct from the
                                 state-node `:corner-radius` lock; the
@@ -116,22 +128,21 @@
                                 anchor (state label / edge event line)
     :dot-grid-spacing-px      — dot-grid background pattern spacing
                                 (rf2-m4nj4 — 16px)
-    :dot-grid-radius-px       — single dot radius
-    :dot-grid-alpha           — dot opacity (0..1)"
+    :dot-grid-radius-px       — single dot radius"
   {;; ── geometry ─────────────────────────────────────────────────
    :corner-radius          6
    :stroke-width           1.5
    :stroke-width-emphasis  2.5
-   :compound-pad-x         16
-   :compound-pad-y         24
-   :compound-stroke-dash   "4 3"
    :compound-radius        10
 
    ;; ── typography (rf2-gg7ws — chart-regular floor 13/11) ───────
-   :state-label-px         13
    :edge-label-px          11
-   :edge-label-backplate-opacity 0.85
-   :compound-title-px      13
+
+   ;; ── edge arrowheads (rf2-dt5b1 — ride the density so the head
+   ;;    scales with the stroke; quiet `__in` < primary `__out`) ───
+   :arrow-width            18
+   :arrow-width-quiet      10
+   :arrow-width-entry      12
 
    ;; ── state-tag pills (rf2-m1b88; rf2-a2b55 restored — sit BELOW
    ;;    the state name per Stately graph view convention) ─────────
@@ -191,8 +202,7 @@
 
    ;; ── dot-grid background (rf2-m4nj4) ──────────────────────────
    :dot-grid-spacing-px    16
-   :dot-grid-radius-px     1.0
-   :dot-grid-alpha         0.06})
+   :dot-grid-radius-px     1.0})
 
 (def chart-compact
   "Chart visual constants — COMPACT density.
@@ -216,16 +226,15 @@
    :corner-radius          6           ;; rf2-g6cig lock — same in every density
    :stroke-width           1.0
    :stroke-width-emphasis  2.0
-   :compound-pad-x         10
-   :compound-pad-y         18
-   :compound-stroke-dash   "3 2"
    :compound-radius        8           ;; ~25% tighter than regular's 10
 
    ;; ── typography (rf2-gg7ws refused-floor revisited for thumbnails)
-   :state-label-px         11
    :edge-label-px          9
-   :edge-label-backplate-opacity 0.85
-   :compound-title-px      11
+
+   ;; ── edge arrowheads (rf2-dt5b1 — ~25% tighter than regular) ──
+   :arrow-width            14
+   :arrow-width-quiet      8
+   :arrow-width-entry      10
 
    ;; ── state-tag pills (tighter than the regular 16/6/9/8) ──────
    :tag-pill-height        13
@@ -276,8 +285,7 @@
 
    ;; ── dot-grid background ──────────────────────────────────────
    :dot-grid-spacing-px    12
-   :dot-grid-radius-px     0.85
-   :dot-grid-alpha         0.06})
+   :dot-grid-radius-px     0.85})
 
 (def chart-cosy
   "Chart visual constants — COSY density.
@@ -299,16 +307,15 @@
    :corner-radius          6           ;; rf2-g6cig lock — same in every density
    :stroke-width           1.75
    :stroke-width-emphasis  3.0
-   :compound-pad-x         20
-   :compound-pad-y         30
-   :compound-stroke-dash   "5 4"
    :compound-radius        12          ;; ~25% looser than regular's 10
 
    ;; ── typography (walked up one notch from the regular floor) ──
-   :state-label-px         15
    :edge-label-px          13
-   :edge-label-backplate-opacity 0.85
-   :compound-title-px      15
+
+   ;; ── edge arrowheads (rf2-dt5b1 — ~25% looser than regular) ───
+   :arrow-width            22
+   :arrow-width-quiet      12
+   :arrow-width-entry      15
 
    ;; ── state-tag pills (looser than the regular 16/6/9/8) ───────
    :tag-pill-height        19
@@ -359,8 +366,7 @@
 
    ;; ── dot-grid background ──────────────────────────────────────
    :dot-grid-spacing-px    20
-   :dot-grid-radius-px     1.15
-   :dot-grid-alpha         0.06})
+   :dot-grid-radius-px     1.15})
 
 (def chart
   "Default chart visual constants — alias for `chart-regular`.

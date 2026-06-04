@@ -9,28 +9,26 @@
 
   ## Edge kinds (per the bead's scope §Custom edges)
 
-    - `transition-edge` — the canonical edge. Renders the route ELK
-      computed (a smooth poly-path THROUGH ELK's bend-points, rf2-cz8v6)
-      with the event label sitting where ELK placed it (rf2-rlq97 —
-      `:labelPos`, ELK's reserved label channel) behind a small
-      backplate rect. When ELK placed no label (the events-as-nodes
-      default — the transition text rides on the event-NODE) the anchor
-      falls back to a geometric midpoint heuristic.
-    - `after-edge` — `:after`-timer edge. Same path as transition-
-      edge but renders the label as `after(<ms>)` and exposes a
-      `:data-after-ms` attr so a host-side overlay can find the
-      ring's bearing node.
+    - `transition-edge` — the canonical (and only) edge type. Renders
+      the route ELK computed (a smooth poly-path THROUGH ELK's bend-
+      points, rf2-cz8v6) with the event label sitting where ELK placed
+      it (rf2-rlq97 — `:labelPos`, ELK's reserved label channel) behind
+      a small backplate rect. When ELK placed no label (the events-as-
+      nodes default — the transition text rides on the event-NODE) the
+      anchor falls back to a geometric midpoint heuristic. Under events-
+      as-nodes EVERY projected edge is this type; `:after`-timer
+      specifics ride the event-NODE (`:variant \"after\"` + `:afterMs`),
+      not a distinct edge type, so the dead `after-edge` alias + the
+      `choose-edge-type` classifier were removed (rf2-dt5b1).
 
   rf2-0gmwp — there is no `spawn` edge type. Per Spec 005 `:spawn` /
   `:spawn-all` are state-entry actions that bring CHILD actor machines
   into existence; they are NOT same-machine transitions, so the parse
-  (`chart.layout`) emits no spawn edge and `chart.projection/`
-  `choose-edge-type` has no `spawn` arm to classify into. Spawned
-  children surface through the `chart.overlays.spawn-all-join`
-  inspector (anchored beside the spawn-bearing state), not as an edge
-  in this chart. The previously-registered `spawn-edge` component was
-  dead registration — never reachable from any parsed edge — and was
-  removed.
+  (`chart.layout`) emits no spawn edge. Spawned children surface
+  through the `chart.overlays.spawn-all-join` inspector (anchored
+  beside the spawn-bearing state), not as an edge in this chart. The
+  previously-registered `spawn-edge` component was dead registration —
+  never reachable from any parsed edge — and was removed.
 
   ## Substrate posture
 
@@ -124,6 +122,13 @@
      (/ (+ (.-y a) (.-y b)) 2)]))
 
 ;; ---- self-loop fan geometry (rf2-shv82, Issue 2) -----------------------
+;;
+;; FALLBACK-ONLY (rf2-dt5b1): the projector never emits `:selfLoop true`
+;; under events-as-nodes (each self-event is its own event-node), so this
+;; perimeter-fan geometry is unreachable from `chart.projection`. It is
+;; retained for direct `edge-path` callers that construct a self-loop edge
+;; explicitly — the spec commits to it (spec/API.md §Self-loop fan;
+;; 001-Topology-Parity.md). Do NOT delete.
 ;;
 ;; Multiple self-loops on the same node (e.g. `:disconnected` has 3:
 ;; `:ws/arm-fail`, `:ws/disarm-fail`, `:ws/clear`) all anchored at the
@@ -339,12 +344,14 @@
   (`ct`): fired = `:edge-fired`, focused/active = `:edge-active`, resting
   = `:edge-quiet`. The QUIET source→event segment (`quiet?`) paints the
   quiet colour even when the route is otherwise resting so the pair reads
-  as one transition with the primary arrowhead on the event→target half."
-  [ct {:keys [active? focused? fired?]}]
-  (cond
-    fired?                (:edge-fired ct)
-    (or focused? active?) (:edge-active ct)
-    :else                 (:edge-quiet ct)))
+  as one transition with the primary arrowhead on the event→target half.
+
+  rf2-dt5b1 — delegates to the shared `tokens/edge-color`, the SINGLE
+  source the projector's arrowhead-`:markerEnd` colour also routes
+  through, so a stroke and its arrowhead can never resolve different
+  colours for the same edge state."
+  [ct flags]
+  (tokens/edge-color ct flags))
 
 (defn- edge-stroke-width
   "rf2-k647w — edge stroke widths read off the resolved density. The
@@ -594,21 +601,6 @@
                            :white-space      "nowrap"}}
             (str "+ " action-str)])]])])))
 
-;; ---- after-edge ---------------------------------------------------------
-
-;; rf2-gpzb4 — :after-timer edges share the transition-edge body but
-;; carry the after-ms duration as a data-attribute so a host-side
-;; overlay (Xray's machine_after_rings ns) can find the bearing
-;; node and paint a countdown ring on top. The default styling is
-;; identical to transition-edge; future polish (a small countdown-
-;; ring glyph rendered inline on the label) can land in a follow-on
-;; bead.
-
-(def after-edge
-  "Alias for `transition-edge` — `:after`-edge specifics ride on the
-  `:data {:after-ms}` attr; the rendering shape is the same."
-  transition-edge)
-
 ;; ---- edge-types map -----------------------------------------------------
 
 (defn edge-types
@@ -616,10 +608,12 @@
   plain-JS object on every call; callers SHOULD memoise this map at
   component-construction time to avoid re-render churn.
 
-  Only `transition` + `after` are registered — every parsed edge maps
-  to one of those two via `chart.projection/choose-edge-type`. There
-  is no `spawn` type (rf2-0gmwp): spawns are state-entry actions, not
-  edges (see the ns docstring)."
+  Only `transition` is registered — under events-as-nodes EVERY
+  projected edge is the canonical `transition` type (rf2-dt5b1). The
+  `:after`-timer specifics ride the event-NODE (`:variant \"after\"`
+  + `:afterMs`), not a distinct edge type; the dead `after` alias +
+  the `choose-edge-type` classifier it depended on were removed. There
+  is no `spawn` type either (rf2-0gmwp): spawns are state-entry
+  actions, not edges (see the ns docstring)."
   []
-  #js {"transition" transition-edge
-       "after"      after-edge})
+  #js {"transition" transition-edge})

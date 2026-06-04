@@ -25,8 +25,8 @@
 
 (def idle-loading
   "Flat machine with a plain `:on` transition + an `:after` timer + an
-  `:always` eventless transition, so every `choose-edge-type` arm is
-  represented in one parse."
+  `:always` eventless transition, so every transition kind (plain,
+  timer, eventless) is represented in one parse."
   {:initial :idle
    :states  {:idle    {:on    {:start :loading}}
              :loading {:after {1000 {:target :timeout}}
@@ -148,51 +148,36 @@
   [graph parsed-edge-id]
   (edge-by-id graph (str parsed-edge-id "__out")))
 
-;; ---- choose-edge-type (G2) ---------------------------------------------
+;; ---- edge :type (single canonical "transition") ------------------------
+;;
+;; rf2-dt5b1 — the `choose-edge-type` classifier was removed: under
+;; events-as-nodes EVERY projected edge is the canonical `transition`
+;; type (the `:after`-timer specifics ride the event-NODE, not a distinct
+;; edge type). These pins assert the projector emits ONLY `transition`
+;; edges across the parse arms `choose-edge-type` once classified (plain
+;; `:on`, `:after`-timer, `:always` eventless).
 
-(deftest choose-edge-type-plain-transition
-  (testing "a plain `:on` edge → the canonical `transition` type"
-    (is (= "transition"
-           (projection/choose-edge-type {:event :start})))))
+(deftest every-projected-edge-is-transition-type
+  (testing "rf2-dt5b1 — every edge a real parse emits projects as the
+            canonical `transition` type (no `after` / `spawn` arms);
+            `idle-loading` exercises plain `:on` + `:after` + `:always`."
+    (let [graph (projection/xyflow-graph
+                  (layout/parse-definition idle-loading) {} {})]
+      (is (seq (:edges graph)))
+      (is (every? #{"transition"} (map :type (:edges graph)))
+          "all projected edges are the single canonical transition type"))))
 
-(deftest choose-edge-type-after-timer
-  (testing "an `:after`-timer edge → the dedicated `after` type"
-    (is (= "after"
-           (projection/choose-edge-type {:after 1000 :event :after-1000})))))
-
-(deftest choose-edge-type-always-falls-to-transition
-  (testing "an `:always` eventless edge has no distinct edge type — it
-            renders via `transition` (its `always` label segment is
-            composed upstream in chart.layout/edge-label, not here)"
-    (is (= "transition"
-           (projection/choose-edge-type {:always? true :event :always})))))
-
-(deftest choose-edge-type-after-wins-over-always
-  (testing "an edge carrying BOTH `:after` and `:always?` is an
-            `:after`-timer first — the `after` arm precedes the
-            transition fall-through"
-    (is (= "after"
-           (projection/choose-edge-type {:after 500 :always? true})))))
-
-(deftest choose-edge-type-has-no-spawn-arm
-  (testing "rf2-0gmwp — `choose-edge-type` NEVER returns `spawn`.
-            Per Spec 005 `:spawn` / `:spawn-all` are state-entry
-            actions (they spawn child actor machines), not same-machine
-            transitions, so the parser emits no spawn edge and there is
-            no spawn arm to classify into. The dead `spawn-edge`
-            registration was removed. Even an edge map with a stray
-            `:spawn` key falls through to `transition`."
-    (is (not= "spawn" (projection/choose-edge-type {:event :foo})))
-    (is (= "transition" (projection/choose-edge-type {:spawn true :event :foo})))))
-
-(deftest choose-edge-type-matches-live-parsed-edges
-  (testing "every edge a real parse emits classifies to a type that is
-            actually registered in chart.edges/edge-types (transition |
-            after) — pins choose-edge-type against the parser's output"
-    (let [{:keys [edges]} (layout/parse-definition idle-loading)]
-      (is (seq edges))
-      (is (every? #{"transition" "after"}
-                  (map projection/choose-edge-type edges))))))
+(deftest after-timer-rides-the-event-node-not-an-edge-type
+  (testing "rf2-dt5b1 — an `:after`-timer's specifics ride the event-NODE
+            (`:variant \"after\"` + `:afterMs`), NOT a distinct edge type;
+            the structural edges around it are plain `transition` edges."
+    (let [graph      (projection/xyflow-graph
+                       (layout/parse-definition idle-loading) {} {})
+          after-node (first (filter #(= "after" (:variant (:data %)))
+                                    (:nodes graph)))]
+      (is (some? after-node) "the :after timer projects as an event-node")
+      (is (= 1000 (:afterMs (:data after-node))))
+      (is (every? #{"transition"} (map :type (:edges graph)))))))
 
 ;; ---- xyflow-graph node :type dispatch (G1) -----------------------------
 
@@ -936,23 +921,25 @@
 
 (deftest xyflow-graph-density-changes-threaded-constants
   (testing "rf2-k647w — switching the density threads a DIFFERENT
-            constants map: the regular projection's state-label font
+            constants map: the regular projection's state-title font
             size differs from the compact projection's, proving
             `:density` actually changes what the renderer paints.
 
-            rf2-so5b0 — historical assertions on `:tag-pill-height`
-            replaced with `:state-label-px` since the tag-pill family
-            retired with the visible pill row; the state-label keys
-            are now the density's load-bearing typography surface."
+            rf2-so5b0 → rf2-dt5b1 — historical assertions on
+            `:tag-pill-height` (then `:state-label-px`) walk to
+            `:state-title-px`: the tag-pill family retired with the
+            visible pill row, and `:state-label-px` was removed
+            (rf2-dt5b1, unread — the state-node label rides
+            `:state-title-px` under the rf2-az6e2 structured grammar)."
     (let [parsed   (layout/parse-definition idle-loading)
           idle-id  (layout/node-id [:idle])
           regular  (-> (projection/xyflow-graph parsed {} {:chart vc/chart-regular})
                        (node-by-id idle-id) :data :chart)
           compact  (-> (projection/xyflow-graph parsed {} {:chart vc/chart-compact})
                        (node-by-id idle-id) :data :chart)]
-      (is (not= (:state-label-px regular) (:state-label-px compact)))
-      (is (= 13 (:state-label-px regular)))
-      (is (= 11 (:state-label-px compact)))
+      (is (not= (:state-title-px regular) (:state-title-px compact)))
+      (is (= 13 (:state-title-px regular)))
+      (is (= 11 (:state-title-px compact)))
       ;; corner-radius is the locked invariant — identical across both
       (is (= (:corner-radius regular) (:corner-radius compact) 6)))))
 

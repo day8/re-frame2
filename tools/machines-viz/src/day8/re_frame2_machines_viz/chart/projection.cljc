@@ -15,9 +15,10 @@
       `chart.layout/parse-definition` output + a `{node-id position}`
       map into the xyflow `:nodes` + `:edges` shape, carrying the
       per-node / per-edge `:data` payloads (active / from-highlight /
-      to-highlight / sim flags, event labels, tags).
-    - `choose-edge-type` — maps a parsed edge to its registered
-      xyflow edge-type id.
+      to-highlight / sim flags, event labels, tags). Every projected
+      edge is the canonical transition type — under events-as-nodes
+      the `:after`-timer specifics ride the event-NODE (`:variant`
+      after + `:afterMs`), not a distinct edge type.
     - `->elk-children` — the elk.js `children` projection (flat for
       plain machines, nested region containers for parallel ones).
     - The node-size floor constants the elk projection + the node
@@ -468,26 +469,6 @@
    (vec (mapcat #(->elk-edge % label-dims) edges))))
 
 ;; ---- graph projection (parsed + positions → xyflow nodes/edges) ---------
-
-(defn choose-edge-type
-  "Map a parsed edge to its registered xyflow edge-type id (one of the
-  keys in `chart.edges/edge-types`).
-
-  `:after`-timer edges render via the dedicated `after` type (it adds
-  the `after(<ms>)` label + `data-after-ms` attr the ring overlay
-  reads). Every other edge — plain `:on` transitions AND `:always`
-  eventless transitions — renders via the canonical `transition` type;
-  `:always` carries no distinct edge type (its `always` label segment
-  is composed upstream in `chart.layout/edge-label`).
-
-  Note there is deliberately NO `spawn` arm: per Spec 005 `:spawn` /
-  `:spawn-all` are state-entry actions that bring CHILD actor machines
-  into existence — they are not same-machine transitions, so the parse
-  emits no spawn edge for `choose-edge-type` to classify. Spawned
-  children surface through the `chart.overlays.spawn-all-join`
-  inspector, not as an edge in this chart."
-  [edge]
-  (if (:after edge) "after" "transition"))
 
 (defn xyflow-graph
   "Project the parsed graph + a `{node-id position}` map into the
@@ -966,20 +947,26 @@
         ;; `events-as-nodes-edge` builds one half from those few
         ;; differing values so the shared shape lives in ONE place (the
         ;; two were copy-pasted before, drifting risk on every `:data`
-        ;; key add). `half` is `:in` (quiet source→event, 10px arrowhead)
-        ;; or `:out` (primary event→target, 18px arrowhead).
+        ;; key add). `half` is `:in` (quiet source→event, quiet
+        ;; arrowhead) or `:out` (primary event→target, primary arrowhead).
+        ;; rf2-dt5b1 — the arrowhead COLOUR routes through the shared
+        ;; `tokens/edge-color` (the SAME helper `chart.edges/edge-stroke`
+        ;; uses for the SVG path) so the head + stroke cannot disagree;
+        ;; the arrowhead SIZE reads off the resolved density `chart` map
+        ;; (`:arrow-width-quiet` for `__in`, `:arrow-width` for `__out`)
+        ;; so the head scales with the stroke instead of a baked literal.
         marker-color
         (fn [{:keys [fired? focused? from-active?]}]
-          (cond
-            fired?       (:edge-fired ct)
-            focused?     (:edge-active ct)
-            from-active? (:edge-active ct)
-            :else        (:edge-quiet ct)))
+          (tokens/edge-color ct {:fired?   fired?
+                                 :focused? focused?
+                                 :active?  from-active?}))
         events-as-nodes-edge
         (fn [half {:keys [edge ev-node-id from-active? focused? fired?
                           cross-hier?] :as desc} points label-pos]
           (let [in? (= half :in)
-                w   (if in? 10 18)]
+                w   (if in?
+                      (:arrow-width-quiet chart)
+                      (:arrow-width chart))]
             {:id        (str (:id edge) (if in? "__in" "__out"))
              :source    (if in? (:source edge) ev-node-id)
              :target    (if in? ev-node-id (:target edge))
@@ -1080,10 +1067,14 @@
                  :target      (:id n)
                  :targetHandle "left"
                  :type        "transition"
+                 ;; rf2-dt5b1 — the entry-edge arrowhead is a resting
+                 ;; quiet marker (`tokens/edge-color` with all flags
+                 ;; false ⇒ `:edge-quiet`) sized off the resolved density
+                 ;; (`:arrow-width-entry`) like the route arrowheads.
                  :markerEnd   {:type "arrowclosed"
-                               :color (:edge-quiet ct)
-                               :width 12
-                               :height 12}
+                               :color (tokens/edge-color ct {})
+                               :width  (:arrow-width-entry chart)
+                               :height (:arrow-width-entry chart)}
                  ;; Entry edges are non-interactive, but carry the full
                  ;; edge `:data` shape (flags + threaded callback/chart)
                  ;; so the "every edge has X" projection invariants hold.

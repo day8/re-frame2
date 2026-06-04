@@ -499,28 +499,36 @@ label for DOM tests; a non-self-loop edge carries no `data-loop-index`.
 
 ### Label rendering — padded backgrounds (rf2-j10sm Phase 1, D)
 
-Every edge label paints with an **opaque chart-bg backplate** (the
-canvas's own `:bg-1` token, alpha-controlled by
-`:edge-label-backplate-opacity`) and **light text** (`:text-primary`)
-on top — so a label sitting over a node, an edge, or another label
-visually "punches through" with the surrounding canvas colour rather
-than merging into the ink below.
+> **Mostly moot under events-as-nodes (rf2-qo5xy).** The event /
+> guard / action text rides on the event-NODE; the structural in/out
+> edges carry an empty `:eventLabel`, so most edges paint no label.
+> The rare labelled edge (a directly-constructed edge) still paints a
+> padded backplate per the geometry below.
+
+A painted edge label uses an **opaque chip backplate** (the active
+theme's `:event-chip-bg` token — the same neutral fill the event-node
+route chip uses) and **light text** (`:text-primary`) on top, so a
+label sitting over a node, an edge, or another label visually "punches
+through" with the surrounding canvas colour rather than merging into
+the ink below.
 
 Geometry is invariant across densities:
 
 | Style key | Value | Why |
 |---|---|---|
 | `border-radius` | 4px | Softens the chip without reading as product chrome (matches the chart's `:corner-radius` family). |
-| `padding` | `2px 6px` | Adequate breathing room for the mono label glyphs at the regular chart-floor font sizes. |
-| `border` | `1px solid border-default` (idle) / `1px solid yellow` (clickable, host-fed sim) | Idle labels read as a "card" against the canvas; clickable labels stay distinct from inert auto edges (`:after` / `:always`). |
-| `background` | `bg-1` × `edge-label-backplate-opacity` | The chart canvas paints `:bg-1`; an opaque-ish label background blends into it so adjacent labels don't form a solid stacked tile. |
-| `color` | `text-primary` | Light text on dark canvas — matches the chart's text-on-bg posture. |
+| `padding` | `2px 6px` | Adequate breathing room for the label glyphs at the regular chart-floor font sizes. |
+| `border` | `1px solid :event-chip-border` (idle) / `1px solid :sim` (clickable, host-fed sim) | Idle labels read as a "card" against the canvas; clickable labels stay distinct from inert auto edges (`:after` / `:always`). |
+| `background` | `:event-chip-bg` (theme token) | An opaque neutral chip fill so adjacent labels don't form a solid stacked tile and the text punches through the ink below. |
+| `color` | `:text-primary` | Light text on dark canvas — matches the chart's text-on-bg posture. |
 | `z-index` | 5 | Above edges + node borders, below xyflow's `Controls` chrome (which renders at z 6+). |
 
-`:edge-label-backplate-opacity` rides the density map (per
-`visual-constants/chart-*`) and is invariant across the three
-densities (the backplate's contrast budget doesn't scale with type
-size — same posture as pre-rf2-j10sm).
+The backplate fill is a flat theme token (`:event-chip-bg`), not a
+density-scaled opacity — its contrast budget doesn't scale with type
+size, so it reads the same across the three densities. (rf2-dt5b1 — the
+unread `:edge-label-backplate-opacity` density key it once referenced
+was removed; the renderer always painted the opaque token, never an
+alpha-scaled `:bg-1`.)
 
 ### Cross-hierarchy label placement (rf2-shv82, Issue 3)
 
@@ -688,12 +696,18 @@ For the supplied `:definition`, the chart shows:
   is the unambiguous final-state signal.
 - **State tags render as a visible pill row + hover tooltip
   (rf2-a2b55; rf2-so5b0).** A state's declared `:tags` set (Spec 005
-  §State tags) renders as a row of `tag-pill-color`-coloured pills
-  positioned BELOW the state name (Stately graph view convention).
-  Each pill carries a `rf-mv-chart-state-tag-<name>` testid + a
-  `data-tag` attr. In parallel, the whole set surfaces on the
-  state-node's `title` attr (native HTML hover tooltip) + `data-tags`
-  attr (sorted space-joined string for DOM tests + host
+  §State tags) renders as a row of **neutral** pills (one structural
+  fill `:container-header-bg` + `:state-border` border + `:text-
+  secondary` text) positioned BELOW the state name (Stately graph view
+  convention). Structure wins over annotation colour for the topology
+  view, so the chart reads as containment + transition flow, not a
+  rainbow of tag hues (rf2-az6e2; the deterministic per-tag colour
+  rotation `tag-pill-color` / `tag-pill-palette` it once used was
+  removed rf2-dt5b1 — it coloured nothing the renderer paints). Each
+  pill carries a `rf-mv-chart-state-tag-<name>` testid + a `data-tag`
+  attr preserving the declared tag identity. In parallel, the whole set
+  surfaces on the state-node's `title` attr (native HTML hover tooltip)
+  + `data-tags` attr (sorted space-joined string for DOM tests + host
   introspection) — the rf2-so5b0 host-introspection contract. (The
   rf2-so5b0 retirement of the visible row was reverted by rf2-a2b55
   on a paradigm-matched look at Stately's graph view, which paints
@@ -721,7 +735,9 @@ For the supplied `:definition`, the chart shows:
   children + the join state. There is deliberately no `spawn` topology
   edge — `:spawn` / `:spawn-all` are state-entry actions, so spawned
   children surface through this overlay, not as a row of nodes (per
-  `chart.projection/choose-edge-type` and
+  the [§Events as nodes](#events-as-nodes--stately-graph-view-paradigm-rf2-qo5xy)
+  paradigm — every projected edge is the canonical `transition` type
+  and the parser emits no spawn edge — and
   [Xray 003 §`:spawn-all` viz](../../xray/spec/003-Machine-Inspector.md#spawn-all-viz)).
 - **Cancellation cascade (overlay, host-fed).** When the host passes an
   `{:id :cancellation-cascade :spec <map> …}` descriptor in the
@@ -858,17 +874,21 @@ product' character (rf2-g6cig) holds. Specifically:
   read as a different chart, not a smaller one; a 'cosy' chart with
   `corner-radius 10` would read as 'product chrome'. The lock means
   the chart's silhouette is the same at every scale.
-- **`edge-label-backplate-opacity` is invariant** across densities
-  (rf2-gg7ws collision-avoidance v1 — the backplate's contrast
-  budget doesn't scale with type size).
-- **`dot-grid-alpha` is invariant** — the backdrop's subtlety
-  doesn't track density.
+
+The chart's two contrast-budget constants — the edge-label backplate
+fill and the dot-grid backdrop subtlety — also do not scale with type
+size, but they are NOT density-map keys: the backplate paints the flat
+`:event-chip-bg` theme token (no opacity key), and the dot grid is
+xyflow's `<Background>` `:gap` / `:size` with no alpha. (rf2-dt5b1 —
+the unread `:edge-label-backplate-opacity` / `:dot-grid-alpha` density
+keys these bullets once named were removed; no renderer read them.)
 
 Every other geometry / typography knob (`stroke-width`, paddings,
-pill geometry, every `*-px` font size, the dot-grid `spacing-px` /
-`radius-px`) tracks the density axis monotonically: `:compact <
-:regular < :cosy`. The three named maps in `visual-constants` share
-the SAME key set (asserted by `visual-constants-cljs-test`).
+pill geometry, every `*-px` font size, the edge `arrow-width` family,
+the dot-grid `spacing-px` / `radius-px`) tracks the density axis
+monotonically: `:compact < :regular < :cosy`. The three named maps in
+`visual-constants` share the SAME key set (asserted by
+`visual-constants-cljs-test`).
 
 ### Resolution rules
 
@@ -1015,8 +1035,13 @@ colour is subordinate to structure**.
   [`001-Topology-Parity.md`](001-Topology-Parity.md) §History.
 - **Arrow/routing**: the two-edge event-node route reads as **one
   transition** — a quiet source→event segment (thinner stroke, small
-  arrowhead, `:edge-quiet`) and a primary event→target segment (full
-  arrowhead). Fired/focused lights **both** segments together.
+  `:arrow-width-quiet` arrowhead, `:edge-quiet`) and a primary
+  event→target segment (full `:arrow-width` arrowhead). Both arrowhead
+  WIDTHS ride the density map alongside the stroke, and the arrowhead
+  COLOUR resolves through the same `theme.tokens/edge-color` helper the
+  SVG stroke uses (so a head and its stroke can never disagree on
+  colour — rf2-dt5b1). Fired/focused lights **both** segments together
+  (`fired?` > `focused?`/`active?` > quiet).
 - **Typography hierarchy** (loudest → quietest): **state title**
   (`state-title-px`, weight 500/600) › **event chip** (`event-chip-px`)
   › **action chip** (`action-pill-px`, weight 500, `text-secondary`) ›
