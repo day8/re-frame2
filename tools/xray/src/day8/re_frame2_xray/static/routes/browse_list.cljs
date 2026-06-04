@@ -165,28 +165,6 @@
       {:sim-open?  sim-open?
        :routes-map routes-map}])])
 
-(defn- empty-state
-  "Renders when no routes are registered."
-  []
-  [:div {:data-testid "rf-xray-static-routes-empty"
-         :style       {:padding     "16px"
-                       :color       (:text-tertiary tokens)
-                       :font-family sans-stack
-                       :font-size   "11px"
-                       :font-style  "italic"}}
-   "No routes registered."])
-
-(defn- empty-filtered
-  "Renders when the search query filters out every row."
-  [query]
-  [:div {:data-testid "rf-xray-static-routes-empty-filtered"
-         :style       {:padding     "16px"
-                       :color       (:text-tertiary tokens)
-                       :font-family sans-stack
-                       :font-size   "11px"
-                       :font-style  "italic"}}
-   (str "No routes match " (pr-str query) ".")])
-
 (defn render
   "Top-level renderer for the flat-list area of the Static Routes
   panel. `data` is the projection from
@@ -202,13 +180,13 @@
   ;; component, so it cannot recover the frame itself).
   (cond
     silent?
-    (empty-state)
+    (search-box/empty-state "rf-xray-static-routes" "route")
 
     :else
     [:<>
      (search-box dispatch query total-routes filtered?)
      (if (empty? routes)
-       (empty-filtered query)
+       (search-box/empty-filtered "rf-xray-static-routes" "route" query)
        (into [:ul {:data-testid "rf-xray-static-routes-list"
                    :role        "list"
                    :style       {:list-style     "none"
