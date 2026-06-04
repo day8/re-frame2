@@ -33,7 +33,8 @@
             ;; The canned-failure / canned-success stubs below delegate
             ;; to the framework-shipped `:rf.http/managed-canned-*` fxs
             ;; via the registrar so the example demo (views.cljs) and
-            ;; the headless tests (test/state_machine_walkthrough/core_test.cljc)
+            ;; the headless tests (the `state-machine-walkthrough-runs-headless`
+            ;; deftest in implementation/core/test/re_frame/examples_test.clj)
             ;; can share one registration point.
             [re-frame.registrar :as registrar]))
 

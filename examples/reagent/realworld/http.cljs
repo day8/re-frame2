@@ -22,7 +22,9 @@
    ships a Node + Postgres reference backend on http://localhost:3000/api.
    This file does not register any fx — the demo entry (`core.cljs`) wires
    `:rf.http/managed` to a canned-stub override so the CLJS test fixtures
-   (realworld/test/realworld/) run without a network."
+   (in the framework test tree at
+   `implementation/adapters/reagent/test/re_frame/realworld_cljs_test.cljs`;
+   the example tree is test-free, rf2-8cevm) run without a network."
   (:require [re-frame.core :as rf]))
 
 ;; ============================================================================

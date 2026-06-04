@@ -15,12 +15,18 @@
 
    2. **Mock-server bridge.** A small in-process JS `WebSocket`-shaped
       stub the example uses when no real WebSocket endpoint is
-      available — keeps the example standalone for the headless
-      tests (under `test/websocket/`). The stub
-      registers itself as `js/MockWebSocketServer` and a couple of
-      `:rf/inject-socket-event` fxs let the headless tests deliver
-      `:opened` / `:received` / `:closed` events synchronously without
-      a JS event loop.
+      available — keeps the example standalone for the headless tests
+      (in the framework test tree at
+      `implementation/adapters/reagent/test/re_frame/websocket_cljs_test.cljs`;
+      the example tree is test-free, rf2-8cevm). The stub state lives in
+      the `mock-server-state` atom; plain exported fns are the delivery
+      seams — `set-mock-sync!` flips the stub between async (microtask)
+      and sync (immediate `dispatch-sync`) delivery, `send-server-push!`
+      and `simulate-disconnect!` push inbound `:received` / disconnect
+      events from view click handlers, and `reset-mock-server!` clears
+      the side-table between tests. Sync mode lets the headless tests
+      observe a full request/reply round-trip without yielding to the
+      JS event loop.
 
    The split is intentional: production apps swap the bridge for a real
    `(js/WebSocket. url)` and leave the actor machine untouched. The
