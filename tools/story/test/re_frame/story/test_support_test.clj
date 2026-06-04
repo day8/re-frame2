@@ -24,6 +24,7 @@
             [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.story :as story]
+            [re-frame.story.config :as config]
             [re-frame.story.test-support :as story-test]
             [re-frame.story.play.runner-events :as runner-events]))
 
@@ -123,3 +124,107 @@
               (:lifecycle (run-target :story.fixture/bracketed))))]
       (is (= :ready lifecycle)
           "the bracketed run reached :ready (no :pre-mount footgun)"))))
+
+;; ---- 4. config-leak isolation (rf2-6ez1u) --------------------------------
+;;
+;; The fixture (`story-reset!`) calls `config/reset-all!`, which restores
+;; every leakable process-global config atom. These tests lock that a
+;; `configure!` (or any config mutation) in one test cannot leak into a
+;; sibling test in the same JVM run. The footgun the bead names:
+;; `global-args` is Layer 1 of args resolution, so a leaked global arg
+;; silently changes the EFFECTIVE args of an unrelated later variant.
+;;
+;; The two `config-isolation-*` tests mirror the `install-thunk-ran-*`
+;; sibling-pair pattern above: whichever runs first asserts the pristine
+;; default (proving NO prior test leaked) THEN mutates config; the other
+;; proves the mutation did not survive the fixture reset — independent of
+;; clojure.test's run order.
+
+(deftest config-reset-all-restores-every-leakable-atom
+  (testing "config/reset-all! (called by the fixture) restores every
+            leakable config atom to its load-time default — direct,
+            order-independent unit coverage of the reset surface
+            (rf2-6ez1u)"
+    ;; Dirty every leakable atom via the public configure! surface…
+    (story/configure! {:rf.story/global-args       {:theme :dark}
+                       :rf.story/editor            :cursor
+                       :rf.story/project-root      "/tmp/proj"
+                       :rf.privacy/show-sensitive? true})
+    (config/note-suppressed! :some.variant/x)
+    (config/add-global-decorator! [:some/global-decorator])
+    ;; sanity: the mutations landed
+    (is (= {:theme :dark} (config/get-global-args)))
+    (is (true? (config/get-show-sensitive)))
+    ;; …then reset and assert the pristine load-time defaults.
+    (config/reset-all!)
+    (is (= {}      (config/get-global-args))      "global-args → {}")
+    (is (= []      (config/get-global-decorators)) "global-decorators → []")
+    (is (= :vscode (config/get-editor))           "editor → :vscode")
+    (is (nil?      (config/get-project-root))     "project-root → nil")
+    (is (false?    (config/get-show-sensitive))   "show-sensitive? → false")
+    (is (= 0       (config/suppressed-count :some.variant/x))
+        "suppressed-counters → {}")))
+
+(deftest config-reset-all-leaves-toggle-off-callbacks
+  (testing "config/reset-all! does NOT clear toggle-off-callbacks — those
+            are load-time module registrations, not per-test state
+            (rf2-6ez1u). Resetting show-sensitive? also does not FIRE them
+            (reset! restores the default; it does not simulate a runtime
+            true → false privacy toggle)."
+    (let [fired (atom 0)]
+      (config/register-toggle-off-callback! ::probe #(swap! fired inc))
+      ;; flip on via the public surface, then reset-all!
+      (config/set-show-sensitive! true)
+      (config/reset-all!)
+      (try
+        (is (false? (config/get-show-sensitive))
+            "the flag was restored to its false default")
+        (is (zero? @fired)
+            "reset-all! restored the flag without firing the toggle-off hook")
+        ;; the callback is still REGISTERED — a real runtime toggle fires it
+        (config/set-show-sensitive! true)
+        (config/set-show-sensitive! false)
+        (is (= 1 @fired)
+            "the load-time callback survived reset-all! and still fires on a
+             real true → false runtime toggle")
+        (finally
+          (config/unregister-toggle-off-callback! ::probe))))))
+
+(deftest config-isolation-a
+  (testing "this test sees a pristine global config (no sibling leaked into
+            it) THEN dirties global-args — the fixture must roll it back
+            before config-isolation-b runs (rf2-6ez1u)"
+    (is (= {} (config/get-global-args))
+        "global-args is the pristine {} default — no sibling test leaked a
+         configure! into this one")
+    (is (false? (config/get-show-sensitive))
+        "show-sensitive? is the pristine false default")
+    ;; A variant with NO args resolves to exactly the empty global layer.
+    (story/reg-variant :story.cfg/probe-a {:tags #{:test}})
+    (is (= {} (story/resolve-args :story.cfg/probe-a))
+        "with a clean global layer, an arg-less variant resolves to {}")
+    ;; Now leak a Layer-1 global arg + flip the privacy gate. If the
+    ;; fixture's config/reset-all! did NOT run, config-isolation-b would
+    ;; observe these.
+    (story/configure! {:rf.story/global-args       {:rf.cfg/leaked :from-a}
+                       :rf.privacy/show-sensitive? true})
+    (is (= {:rf.cfg/leaked :from-a} (story/resolve-args :story.cfg/probe-a))
+        "the leaked global arg IS Layer 1 of resolution within this test —
+         which is exactly why it must not survive into the next")))
+
+(deftest config-isolation-b
+  (testing "the sibling test sees its OWN clean config slate — the
+            global-args + show-sensitive? config-isolation-a set are gone
+            (config/reset-all! ran in the fixture between them) (rf2-6ez1u)"
+    (is (= {} (config/get-global-args))
+        "config-isolation-a's leaked global-args did NOT survive the reset")
+    (is (false? (config/get-show-sensitive))
+        "config-isolation-a's show-sensitive? flip did NOT survive the reset")
+    (story/reg-variant :story.cfg/probe-b {:tags #{:test}})
+    (is (= {} (story/resolve-args :story.cfg/probe-b))
+        "with the global layer reset, an arg-less variant resolves to {} —
+         NOT to {:rf.cfg/leaked :from-a} (the green-but-wrong footgun this
+         closes)")
+    ;; leak our own, symmetric to the a/b pattern — config-isolation-a's
+    ;; reset proves the converse direction too under either run order.
+    (story/configure! {:rf.story/global-args {:rf.cfg/leaked :from-b}})))

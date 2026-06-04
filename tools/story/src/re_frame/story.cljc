@@ -885,9 +885,15 @@
   `re-frame.registrar/clear-all!`.
 
   Also:
-  - clears the rf2-835ey global-decorators vector so stale ref-by-id
-    entries do not survive a registrar reset and bleed into the next
-    test;
+  - resets every leakable process-global config atom via
+    `re-frame.story.config/reset-all!` (rf2-6ez1u) — `global-args`
+    (Layer 1 of args resolution), `global-decorators`, `editor`,
+    `project-root`, `show-sensitive?`, and `suppressed-counters` — so
+    a `configure!` (or any config mutation) in one test cannot leak
+    into the next and silently perturb a later variant's effective
+    args. (Subsumes the earlier rf2-835ey global-decorators-only
+    clear; `toggle-off-callbacks` are deliberately left intact — they
+    are load-time module registrations, not per-test state.)
   - resets the rf2-p1ydc auto-install gate so the next `reg-*` call
     after `clear-all!` re-installs the canonical vocabulary on demand
     (the registrar's side-table is now empty — the seven canonical
@@ -895,7 +901,7 @@
     be added)."
   []
   (registrar/clear-all!)
-  (config/set-global-decorators! [])
+  (config/reset-all!)
   (canonical/reset-installed-flag!))
 
 ;; ---- canonical test-fixture helper — DIRECT-REQUIRE, not on this facade -

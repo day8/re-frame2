@@ -485,3 +485,59 @@
   ([variant-id]
    (swap! suppressed-counters dissoc (or variant-id :global))
    nil))
+
+;; ---- *reset-all!* (rf2-6ez1u — config-leak test-isolation gap) -----------
+;;
+;; Every leakable process-global config atom above is a `defonce` that
+;; survives across tests in the same JVM run / browser page. The test
+;; fixtures (`re-frame.story/clear-all!`, `re-frame.story.test-support/
+;; story-reset!`) historically reset only the registrar side-table, the
+;; global-decorators vector, the canonical auto-install gate, and the
+;; play run-state — they did NOT touch these config atoms.
+;;
+;; That left a green-but-wrong footgun: a test that called
+;; `(story/configure! {:rf.story/global-args {...}})` or flipped
+;; `:rf.privacy/show-sensitive?` leaked that global state into every
+;; SUBSEQUENT test. Because `global-args` is Layer 1 of args resolution
+;; (`re-frame.story.args/resolve-args` reads `(get-global-args)` at
+;; resolve time), a leaked global arg silently changes the EFFECTIVE
+;; args of an unrelated later variant — order-dependent, hard to debug,
+;; and exactly the footgun class `test_support` exists to close.
+;;
+;; `reset-all!` restores every leakable atom to its load-time default so
+;; the test fixtures can call it once and guarantee a clean config slate.
+;; It deliberately does NOT clear `toggle-off-callbacks` — those are
+;; load-time module registrations (`ui.trace` wires its `clear-buffer!`
+;; once at ns-load), not per-test state; wiping them would silently
+;; break the retroactive-scrub hook for the rest of the run.
+;;
+;; `show-sensitive?` is `reset!` directly (not via `set-show-sensitive!`)
+;; so a reset does NOT fire the true → false toggle-off callbacks —
+;; `reset-all!` restores the load-time default, it does not simulate a
+;; live runtime privacy-toggle.
+
+(defn reset-all!
+  "Reset every leakable process-global config atom to its load-time
+  default. Called by the Story test fixtures (`re-frame.story/clear-all!`
+  and `re-frame.story.test-support/story-reset!`) so a `configure!` (or
+  any other config mutation) in one test cannot leak into the next.
+
+  Resets, in declaration order:
+  - `global-args`        → `{}`     (Layer 1 of args resolution)
+  - `global-decorators`  → `[]`
+  - `editor`             → `:vscode`
+  - `project-root`       → `nil`
+  - `show-sensitive?`    → `false`  (reset directly — does NOT fire the
+                                     true → false toggle-off callbacks)
+  - `suppressed-counters`→ `{}`
+
+  Deliberately leaves `toggle-off-callbacks` intact — those are
+  load-time module registrations, not per-test state (per rf2-6ez1u)."
+  []
+  (reset! global-args {})
+  (reset! global-decorators [])
+  (reset! editor :vscode)
+  (reset! project-root nil)
+  (reset! show-sensitive? false)
+  (reset! suppressed-counters {})
+  nil)
