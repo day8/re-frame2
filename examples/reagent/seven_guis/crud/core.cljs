@@ -137,8 +137,16 @@
                  people)))))
 
 (rf/reg-sub :crud/can-update?
+  {:doc "Update/Delete are enabled only when the selected row is *visible*
+         under the active filter. A selection hidden by the filter must not
+         be actionable — Update/Delete would otherwise touch an invisible row.
+         This is the master/detail edge the 7GUIs CRUD task is meant to model:
+         the answer is derived state (a sub of the filtered list), so the
+         selection is preserved and re-enables itself when the filter clears."}
   :<- [:crud/selected-id]
-  (fn [id _] (some? id)))
+  :<- [:crud/filtered-people]
+  (fn sub-crud-can-update? [[id visible-people] _]
+    (boolean (and id (some #(= id (:id %)) visible-people)))))
 
 ;; ============================================================================
 ;; VIEW
@@ -146,6 +154,7 @@
 
 (reg-view crud-view []
   (let [people      @(subscribe [:crud/filtered-people])
+        filter-text @(subscribe [:crud/filter-text])
         selected-id @(subscribe [:crud/selected-id])
         d-name      @(subscribe [:crud/draft-name])
         d-surname   @(subscribe [:crud/draft-surname])
@@ -155,6 +164,7 @@
       [:label "Filter prefix: "]
       [:input {:type      "text"
                :data-testid "crud-filter"
+               :value     filter-text
                :on-change #(dispatch [:crud/set-filter (.. % -target -value)])}]]
      [:div.row
       [:select.list {:size      6
