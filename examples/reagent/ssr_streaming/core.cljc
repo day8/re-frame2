@@ -201,9 +201,11 @@
 ;; payload) is exercised end-to-end by the browser acceptance test
 ;; `re-frame.ssr.streaming-client-dom-cljs-test`.
 
-#?(:cljs
-   (defonce react-root
-     (rdc/create-root (js/document.getElementById "app"))))
+;; The React root is held in an atom and materialised lazily inside `run`
+;; (not at ns-load) per examples/TESTING.md §Example mount-isolation
+;; convention: ns-load must produce no DOM side effects so co-required
+;; example namespaces don't race `create-root` onto the shared `#app`.
+#?(:cljs (defonce react-root (atom nil)))
 
 #?(:cljs
    (defn run []
@@ -219,9 +221,13 @@
      ;; omitted — the static demo shell carries a placeholder render-hash,
      ;; so hash-mismatch verification would always warn here; a real
      ;; streaming server stamps the genuine hash and a host then passes
-     ;; `:render-tree-fn` to enable mismatch detection.)
+     ;; `:render-tree-fn` to enable mismatch detection.) Hydrate BEFORE
+     ;; first render so the initial render runs against the seeded app-db.
      (ssr/hydrate! {:frame :rf/default})
-     (rdc/render react-root [(rf/view :dashboard/root)])))
+     (when (exists? js/document)
+       (when-not @react-root
+         (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
+       (rdc/render @react-root [(rf/view :dashboard/root)]))))
 
 ;; The JVM-runnable headless test that exercises the server stream
 ;; (shell → per-card resolved chunks → final payload) lives in the sibling

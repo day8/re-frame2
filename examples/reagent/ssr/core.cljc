@@ -272,9 +272,11 @@
   {:doc "Client-side init that runs even if the server didn't render this page."}
   (fn [db _] db))
 
-#?(:cljs
-   (defonce react-root
-     (rdc/create-root (js/document.getElementById "app"))))
+;; The React root is held in an atom and materialised lazily inside `run`
+;; (not at ns-load) per examples/TESTING.md §Example mount-isolation
+;; convention: ns-load must produce no DOM side effects so co-required
+;; example namespaces don't race `create-root` onto the shared `#app`.
+#?(:cljs (defonce react-root (atom nil)))
 
 #?(:cljs
    (defn run []
@@ -290,11 +292,15 @@
      ;; the payload's :rf/app-db slice (locked :replace-app-db policy per
      ;; Spec 011 §The :rf/hydrate event). On a "client-only" load (no
      ;; payload script), :ssr/client-bootstrap runs as a no-op and the page
-     ;; renders the empty-articles fallback.
+     ;; renders the empty-articles fallback. Hydrate BEFORE first render so
+     ;; the initial render runs against the seeded app-db.
      (if-let [payload (read-server-payload)]
        (rf/dispatch-sync [:rf/hydrate payload])
        (rf/dispatch-sync [:ssr/client-bootstrap]))
-     (rdc/render react-root [(rf/view :app/root)])))
+     (when (exists? js/document)
+       (when-not @react-root
+         (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
+       (rdc/render @react-root [(rf/view :app/root)]))))
 
 ;; The JVM-runnable headless test that exercises the full server flow
 ;; (per-request frame → :rf/server-init → managed-HTTP via a canned stub →
