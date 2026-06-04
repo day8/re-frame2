@@ -57,6 +57,7 @@ const {
   runWithWatchdog,
   assertJsonRpcErrorCodes,
   assertDescriptorShape,
+  assertClassificationRatchet,
 } = require('./_runner.cjs');
 const { resolveTrustedExe } = require('../lib/exec-safety.cjs');
 const { decodeDedupEnvelope } = require('../lib/dedup-envelope.cjs');
@@ -81,6 +82,15 @@ const CLOJURE = process.env.STORY_MCP_CMD
 const EXPECTED_TOOLS = JSON.parse(
   fs.readFileSync(path.join(STORY_MCP_CWD, 'test', 'fixtures', 'tool-names.json'), 'utf8'),
 ).names;
+
+// Per-tool annotation-classification ratchet (rf2-yi451). Pins each
+// descriptor's EXACT readOnly/destructive posture + budget-hint prose so
+// a tool silently re-classified turns this gate RED for an unchanged
+// tool-set. Sourced from this slice's own fixture (mirrors
+// tools/story-mcp/tool-descriptors.edn).
+const EXPECTED_CLASSIFICATIONS = JSON.parse(
+  fs.readFileSync(path.join(__dirname, 'fixtures', 'story-classifications.json'), 'utf8'),
+);
 
 // Fixture variant — namespaced under `story.mcp-conformance` so it
 // won't collide with anything the canonical-vocabulary install
@@ -150,6 +160,17 @@ runWithWatchdog(
     assertDescriptorShape(listed.tools, { allowOpenWorld: false });
     console.log(
       'OK   every tool descriptor: inputSchema(type=object,max-tokens) + outputSchema + annotations hint',
+    );
+
+    // Per-tool classification CONTENT ratchet (rf2-yi451). Pins WHICH
+    // classifier per tool (the exact readOnly/destructive posture) +
+    // the budget-hint prose — not just that SOME classifier is set. A
+    // gated write tool (register-variant, unregister-variant,
+    // record-as-variant) silently re-classified readOnly turns RED here.
+    assertClassificationRatchet(listed.tools, EXPECTED_CLASSIFICATIONS);
+    console.log(
+      'OK   per-tool classification ratchet: readOnly/destructive posture + ' +
+        'budget-hint prose pinned (rf2-yi451)',
     );
 
     // 2e. Closed-world read-path SUCCESS-envelope conformance

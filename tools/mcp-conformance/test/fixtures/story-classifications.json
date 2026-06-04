@@ -1,0 +1,26 @@
+{
+  "_doc": "Per-tool annotation-CLASSIFICATION ratchet for story-mcp (rf2-yi451). See the sibling re-frame2-pair-classifications.json _doc for the full rationale. POSTURES: `read-only` = readOnlyHint:true MUST be set + destructiveHint MUST NOT be true; `destructive` = destructiveHint:true MUST be set + readOnlyHint MUST NOT be true (the safety-load-bearing write surface — register-variant / unregister-variant / record-as-variant are the gated `--allow-writes` writers; preview-variant / run-variant execute a variant lifecycle so they carry destructiveHint). story-mcp is CLOSED-WORLD overall (reads + fixture writes, no live runtime), but every tool's descriptor still carries openWorldHint:true in the generated manifest — so this ratchet does NOT pin openWorldHint posture (that is the per-server `allowOpenWorld` axis the existing assertDescriptorShape already handles); it pins ONLY the readOnly/destructive trust-classification, which is the dimension a flipped-hint regression would silently break. Sourced from tools/story-mcp/tool-descriptors.edn — keep in lockstep; one row per tool.",
+  "classifications": {
+    "explain-variant": "read-only",
+    "get-docs-markdown": "read-only",
+    "get-story": "read-only",
+    "get-story-instructions": "read-only",
+    "get-variant": "read-only",
+    "list-assertions": "read-only",
+    "list-decorators": "read-only",
+    "list-modes": "read-only",
+    "list-stories": "read-only",
+    "list-substrates": "read-only",
+    "list-tags": "read-only",
+    "preview-variant": "destructive",
+    "read-failures": "read-only",
+    "record-as-variant": "destructive",
+    "register-variant": "destructive",
+    "run-a11y": "read-only",
+    "run-variant": "destructive",
+    "snapshot-identity": "read-only",
+    "unregister-variant": "destructive",
+    "variant->edn": "read-only"
+  },
+  "closed-world": []
+}
