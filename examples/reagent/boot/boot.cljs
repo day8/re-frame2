@@ -78,7 +78,7 @@
             ;; the ns registers the fx; without it, the child loaders
             ;; can't issue requests.
             [re-frame.http-managed]
-            [boot.schema]))
+            [boot.schema :as schema]))
 
 ;; ============================================================================
 ;; STAGING-SLOT WRITER
@@ -113,6 +113,15 @@
 
 (rf/reg-machine :boot/loader
   {:initial :idle
+   ;; Validates each spawned loader's initial `:data` at spawn time,
+   ;; before the snapshot installs (Spec 005 §Schema validation
+   ;; §Spawn-time validation). The loader is only ever spawned (one
+   ;; instance per asset, gensym'd id e.g. `:boot/loader#0`), so its
+   ;; snapshot lives at a per-instance path no fixed `reg-app-schema`
+   ;; can reach — the machine `:schema` slot is the mechanism that
+   ;; boundary-checks the spawn. The per-child `:data` fn (see :app/boot
+   ;; below) replaces this base map with the planted identity at spawn.
+   :schema  schema/LoaderData
    :data    {:parent-id   nil
              :child-id    nil
              :staging-key nil
