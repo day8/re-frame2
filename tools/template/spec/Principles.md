@@ -174,16 +174,11 @@ Helix) is exercised end-to-end across the layers:
    Gated behind `RF2_TEMPLATE_RUN_EMITTED_TESTS=1` (CI sets it; off
    locally for fast loop).
 
-A `clojure -P` deps-parse smoke also runs in `template_test.clj`,
-gated behind `RF2_TEMPLATE_DEPS_RESOLVE=1` (CI sets it). It is
-default-off locally until the alpha artefacts land on Clojars —
-until publication every `clojure -P` fails with a "couldn't find
-artifact" error that is a known skip, not a real signal.
-
-CI sets both env vars; a change that breaks file-tree shape, drifts
-the framework surface, breaks the pin lockstep, or breaks the
-emitted test compile fails the build. The git-coord release
-workflow (`.github/workflows/template-release.yml`) runs the same
+CI sets `RF2_TEMPLATE_RUN_EMITTED_TESTS=1`; a change that breaks
+file-tree shape, drifts the framework surface, breaks the pin
+lockstep, or breaks the emitted test compile fails the build. The
+git-coord release workflow
+(`.github/workflows/template-release.yml`) runs the same
 `clojure -M:test` suite as a pre-release gate, so a `template-v…`
 tag push that would publish a drifted template fails before the
 GitHub Release is cut.

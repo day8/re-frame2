@@ -128,7 +128,6 @@ jobs:
 
       - name: Run template emitted-app smoke
         env:
-          RF2_TEMPLATE_DEPS_RESOLVE: "1"
           RF2_TEMPLATE_RUN_EMITTED_TESTS: "1"
         run: clojure -M:test
 
