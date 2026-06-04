@@ -4,7 +4,7 @@
 
 ## What it does
 
-The `re-frame2-implementor` skill is for engineers **building re-frame2 itself**, not building applications with it. It drives a two-phase workflow that takes an engineer from "I want to port re-frame2 to TypeScript / F# / Rust / native UI / a terminal substrate" to "my port passes the claimed-applicable subset of the conformance corpus."
+The `re-frame2-implementor` skill is for engineers **building re-frame2 itself**, not building applications with it. It drives a two-phase workflow that takes an engineer from "I want to port re-frame2 to TypeScript / F# (Fable) / one of the other in-scope JS-cross-compile hosts" to "my port passes the claimed-applicable subset of the conformance corpus." The in-scope targets are exactly the eight JS-cross-compile-to-React+VDOM host languages — ClojureScript (the reference), TypeScript, Melange / ReScript / Reason, F# (Fable), Squint, Scala.js, PureScript, Kotlin/JS — per the [spec/000-Vision.md](../../spec/000-Vision.md) scope footnote.
 
 **Phase 1 — Lock the decisions.** Before any code is written: target host language; substrate / view layer; scope (which optional EPs ship); identity primitive, persistent data structures, reactive substrate, concurrency model, hot-reload, schema mechanism, integration story; the conformance capability tag set the port claims. Captured in a written decision record the engineer commits to the port's repo.
 
@@ -16,8 +16,7 @@ The authoritative contract is the [spec corpus](../../spec/000-Vision.md), with 
 
 Load this skill when **any** of these are true:
 
-- The engineer is starting a port of re-frame2 to a new host language (TypeScript, Fable F#, Kotlin/JS, Squint, Scala.js, PureScript, Reason / ReScript / Melange, or one of the broader hosts in the Implementor Checklist).
-- The engineer is implementing re-frame2 against a non-React substrate, a native UI toolkit, a terminal UI, or any rendering surface that isn't React-on-the-browser.
+- The engineer is starting a port of re-frame2 to one of the eight in-scope host languages (TypeScript, Fable F#, Kotlin/JS, Squint, Scala.js, PureScript, Reason / ReScript / Melange — plus ClojureScript, the reference).
 - The engineer wants to claim "this is a re-frame2 implementation" and needs to know what the claim requires.
 - The engineer is consuming the [Implementor Checklist](../../spec/Implementor-Checklist.md) and the [conformance corpus](../../spec/conformance/README.md) to verify their work.
 
@@ -27,6 +26,7 @@ Do **not** use this skill for:
 - Bootstrapping a greenfield app on the CLJS reference → use [re-frame2-setup](re-frame2-setup.md).
 - Migrating a v1 codebase → use [re-frame-migration](re-frame-migration.md).
 - Inspecting / debugging a running v2 app → use [re-frame2-pair](re-frame2-pair.md).
+- Implementing re-frame2 against a **non-React substrate** (Vue, Solid, Svelte, vanilla DOM, native UI, a terminal UI) or a **non-cross-compile-to-JS host** (Python, Ruby, native Rust, Go, server-side Kotlin / Java) → these are **out of scope** by deliberate spec choice ([spec/000-Vision.md](../../spec/000-Vision.md) scope footnote), not an oversight. There is no implementation track to sequence; the skill surfaces the scope footnote and stops.
 
 ## Kickoff
 
