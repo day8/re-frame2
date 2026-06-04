@@ -10,7 +10,8 @@
   it — the fns walk up to the chart root). `MachineChart` stashes a
   share-relevant `chart-state` on that root node as the JS property
   `._rfMvChartState` (set via the component's root `:ref`): topology +
-  the active-state NAME + summary counts. The export fns read that seam
+  the active-state CONFIGURATION (its name/address) + summary counts.
+  The export fns read that seam
   rather than scraping the SVG for structure — so the share-URL +
   alt-text summaries are derived from the SAME definition the chart
   rendered, with no runtime `:data` ever in scope (per
@@ -81,15 +82,36 @@
                        :element     chart-element})))
     seam))
 
+(defn- state-label
+  "Render a `:current-state` value — any of the three Spec 005
+  §Snapshot-shape arms — to a human-readable label for alt-text:
+
+  - flat keyword `:loading`           → `\"loading\"`
+  - compound path `[:auth :authing]`  → `\"auth.authing\"`
+  - parallel region-map               → `\"data=loading, form=neutral\"`
+
+  Guards against `(name …)` blowing up on the vector/map arms (the seam
+  now legitimately carries compound + parallel configurations)."
+  [state]
+  (cond
+    (keyword? state) (name state)
+    (vector? state)  (str/join "." (map #(if (keyword? %) (name %) (str %)) state))
+    (map? state)     (str/join ", "
+                               (map (fn [[region region-state]]
+                                      (str (name region) "=" (state-label region-state)))
+                                    state))
+    :else            (str state)))
+
 (defn- alt-text
   "A one-line machine summary used as the SVG `<desc>`, the PNG
   clipboard alt-text sidecar, and the share preview. Same content
   across PNG + SVG so the accessible overview matches (per
-  `API.md` §Accessibility)."
+  `API.md` §Accessibility). `:current-state` may be any of the three
+  Spec 005 §Snapshot-shape arms — `state-label` renders all three."
   [{:keys [machine-id current-state node-count edge-count region-count]}]
   (str "State machine"
        (when machine-id (str " " (name machine-id)))
-       (when current-state (str " — currently " (name current-state)))
+       (when current-state (str " — currently " (state-label current-state)))
        ": " node-count " " (if (= 1 node-count) "state" "states")
        ", " edge-count " " (if (= 1 edge-count) "transition" "transitions")
        (when (and region-count (pos? region-count))
@@ -261,11 +283,17 @@
 (defn- element->chart-state
   "Project the DOM seam into the `ChartState` shape `share/encode-share-url`
   accepts. The `:frame-id` is not on the seam (the chart is
-  presentation-only and doesn't know its frame); when absent we omit
-  `:snapshot`'s data entirely and pass `:frame-id` as the machine-id's
-  namespace-less marker so the encoder's schema is satisfied. Hosts
-  that know the frame should call `share/encode-share-url` directly with
-  the full ChartState."
+  presentation-only and doesn't know its frame); when absent we pass
+  `:frame-id` as the machine-id so the encoder's schema is satisfied.
+  Hosts that know the frame should call `share/encode-share-url` directly
+  with the full ChartState.
+
+  `:current-state` off the seam is the chart's whole `:state` value — a
+  flat keyword, a compound vector-path, or a parallel region-map (the
+  three Spec 005 §Snapshot-shape arms). It is threaded verbatim into
+  `:snapshot {:state …}`; the share schema accepts all three arms (they
+  are state names/addresses, not runtime data), so a compound or
+  parallel chart shares + round-trips cleanly."
   [chart-element {:keys [frame-id]}]
   (let [{:keys [machine-id definition current-state]} (chart-state-of chart-element)]
     (cond-> {:machine-id machine-id
@@ -275,8 +303,8 @@
 
 (defn share-url
   "Derive a share-URL from the rendered `chart-element`. Reads the
-  topology + active-state name off the DOM seam, projects them into a
-  `ChartState`, and delegates to `share/encode-share-url`.
+  topology + active-state configuration off the DOM seam, projects them
+  into a `ChartState`, and delegates to `share/encode-share-url`.
 
   `opts` is passed to `share/encode-share-url` (`{:host ...}`), and may
   also carry `:frame-id` (the chart element doesn't know its frame; a

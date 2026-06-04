@@ -1301,9 +1301,10 @@ https://acme.example.com/path/to/viewer.html#machine=<base64-edn>
   - `:machine-id` from the payload's `:chart-state` (per
     [§Share-URL payload schema](#share-url-payload-schema)).
   - `:definition` from the payload's `:definition`.
-  - `:current-state` set to the payload snapshot's `:state` keyword
-    (the share schema carries the state name only; there is no
-    runtime `:data` to render).
+  - `:current-state` set to the payload snapshot's `:state`
+    configuration — a flat keyword, a compound vector-path, or a
+    parallel region-map (the share schema carries the state
+    configuration only; there is no runtime `:data` to render).
   - `:read-only?` set to `true`, which no-op's `:on-state-click`.
   - The `:overlays` slot left unset (`nil`) — a static share has no
     live trace bus to project the host-fed overlay descriptors from.
@@ -1358,10 +1359,15 @@ Source: lifted from
 [§Share-URL payload schema](#share-url-payload-schema) below. The
 encoder:
 
-1. Validates `chart-state` against the schema. Anything outside the
-   allowlist is silently dropped — including runtime `:data` on
-   `:snapshot` and any `:source-coords` the caller passes (per
-   [Principles §No session data in shares](./Principles.md)).
+1. Allowlists `chart-state` (anything outside the allowlist is
+   silently dropped — including runtime `:data` on `:snapshot` and any
+   `:source-coords` the caller passes, per
+   [Principles §No session data in shares](./Principles.md)), then
+   validates the allowlisted result against the schema with the **same**
+   predicate the decoder uses. Encode and decode are therefore symmetric:
+   the encoder rejects (with `:invalid-chart-state`) anything the decoder
+   could not accept — e.g. a `:snapshot` `:state` that is none of the
+   three configuration arms — rather than emitting an undecodable URL.
 2. Strips metadata off `:definition` (registered definitions carry
    source-coord meta per Spec 001; that meta must not propagate
    into the share payload).
@@ -1405,8 +1411,8 @@ Per [DESIGN-RATIONALE Lock #3](./DESIGN-RATIONALE.md).
 Share URLs are **viewer-side artefacts** — they exist solely to let
 a remote recipient render the chart. The schema is deliberately
 narrow: it carries the machine topology and the active-state
-**name** for visual continuity, and nothing else. Two classes of
-data are structurally excluded:
+**configuration** (its name/address) for visual continuity, and
+nothing else. Two classes of data are structurally excluded:
 
 - **Runtime `:data`** — the machine's per-snapshot data value is
   not part of the share payload. A well-intentioned operator
@@ -1429,23 +1435,46 @@ data are structurally excluded:
    [:rf.machines-viz.share/chart  ChartState]
    [:rf.machines-viz.share/created :int]])   ;; wall-clock ms at encode time
 
+;; A snapshot `:state` is a STATE CONFIGURATION — one of the three
+;; Spec 005 §Snapshot-shape arms (the same arms `MachineChart`
+;; `:current-state` accepts). Vector paths + region-maps are state
+;; names/addresses, NOT runtime data.
+(def SnapshotState
+  [:or
+   keyword?                              ;; flat machine        — :idle
+   [:and vector? [:sequential {:min 1} keyword?]] ;; compound machine    — [:auth :authing]
+   [:map-of keyword?                     ;; parallel machine    — {:data :loading
+    [:or keyword?                        ;;                         :form [:edit :dirty]}
+     [:and vector? [:sequential {:min 1} keyword?]]]]])
+
 (def ChartState
   [:map
    [:machine-id  keyword?]              ;; the registered machine's id
    [:frame-id    keyword?]              ;; the registered machine's frame
    [:definition  MachineDefinition]     ;; the topology (states, transitions, guards, actions, :spawn, :spawn-all, :after)
-   [:snapshot   {:optional true}        ;; the current-state name at share time — name ONLY, no :data
+   [:snapshot   {:optional true}        ;; the current-state configuration at share time — state CONFIGURATION only; no runtime data
     [:map {:closed true}
-     [:state    keyword?]]]])           ;; the registered state-id; nothing else permitted in :snapshot
+     [:state    SnapshotState]]]])      ;; the active state name/address; nothing else permitted in :snapshot
 ```
 
 The `:snapshot` map is `{:closed true}` and carries `:state` only.
-Runtime `:data` is structurally absent from the share payload; the
-encoder neither reads nor serialises it. The decoder rejects any
-`:snapshot` carrying additional keys with `:invalid-chart-state`.
-The viewer page mounts `MachineChart` with `:current-state` set to the
-snapshot's `:state` keyword (there is no runtime `:data` to render);
-the chart highlights the state node without any data-driven affordance.
+Its `:state` value is a **state configuration** — a flat keyword, a
+compound vector-path, or a parallel region-map (the three Spec 005
+§Snapshot-shape arms) — so a compound or parallel machine's active
+configuration shares + round-trips intact. Vector paths and region-maps
+are state names/addresses, **not** runtime data. Runtime `:data` is
+structurally absent from the share payload; the encoder neither reads
+nor serialises it. **Encode and decode validate the same schema** (the
+encoder validates the allowlisted chart state — including the snapshot
+shape — *before* serialising), so the two stay symmetric: the encoder
+never emits a payload the decoder would reject, and a malformed `:state`
+(none of the three configuration arms) is rejected at encode rather than
+producing an undecodable URL. The decoder rejects any `:snapshot`
+carrying additional keys, or a `:state` outside the three arms, with
+`:invalid-chart-state`. The viewer page mounts `MachineChart` with
+`:current-state` set to the snapshot's `:state` configuration (there is
+no runtime `:data` to render); the chart highlights every active leaf
+without any data-driven affordance.
 (`:frame-id` is a payload provenance field — the registered machine's
 frame at share time — not a `MachineChart` prop: the viewer hands the
 chart the `:definition` directly rather than resolving a frame.)

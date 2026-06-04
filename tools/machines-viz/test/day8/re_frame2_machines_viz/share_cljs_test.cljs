@@ -4,6 +4,11 @@
   Coverage:
   - `encode-share-url` → `decode-share-url` round-trip preserves the
     ChartState (machine-id, frame-id, definition, snapshot state).
+  - Snapshot `:state` configuration arms (rf2-9l8h8): flat keyword,
+    compound vector-path, and parallel region-map all round-trip; a
+    malformed `:state` is rejected at ENCODE (encode/decode symmetric —
+    no undecodable URL), and the closed-map rule still rejects extra
+    `:snapshot` keys for every arm.
   - Canonicalisation: the same ChartState encodes byte-for-byte
     identically regardless of input map/set ordering (Principles
     §Reproducible from the registry alone).
@@ -56,6 +61,17 @@
                 :regions {:data {:initial :clean :states {:clean {} :dirty {}}}
                           :form {:initial :idle  :states {:idle {} :busy {}}}}}})
 
+(def compound-definition
+  "A compound (hierarchical) machine — its snapshot `:state` is a vector
+  path from the root to the active leaf."
+  {:initial :authenticated
+   :states  {:authenticated
+             {:initial :cart
+              :states  {:cart    {:initial :browsing
+                                  :states  {:browsing {} :checkout {}}}
+                        :account {}}}
+             :anonymous {}}})
+
 ;; ---------------------------------------------------------------------------
 ;; Round-trip
 
@@ -85,6 +101,78 @@
                  (share/decode-share-url (share/encode-share-url cs)))]
       (is (not (contains? back :snapshot)))
       (is (= idle-loading-success (:definition back))))))
+
+;; ---------------------------------------------------------------------------
+;; Snapshot :state CONFIGURATION — the three Spec 005 §Snapshot-shape arms
+;; (rf2-9l8h8). The bug: encode accepted compound/parallel snapshots but a
+;; keyword-only decoder rejected them → an undecodable URL. All three arms
+;; must now round-trip cleanly and stay encode/decode symmetric.
+
+(deftest round-trip-flat-snapshot
+  (testing "a FLAT keyword :state round-trips"
+    (let [cs   (assoc chart-state :snapshot {:state :loading})
+          back (:rf.machines-viz.share/chart
+                 (share/decode-share-url (share/encode-share-url cs)))]
+      (is (= {:state :loading} (:snapshot back)))
+      (is (keyword? (get-in back [:snapshot :state]))))))
+
+(deftest round-trip-compound-snapshot
+  (testing "a COMPOUND vector-path :state round-trips (was rejected pre-9l8h8)"
+    (let [cs   {:machine-id :shop/store
+                :frame-id   :app/main
+                :definition compound-definition
+                :snapshot   {:state [:authenticated :cart :browsing]}}
+          back (:rf.machines-viz.share/chart
+                 (share/decode-share-url (share/encode-share-url cs)))]
+      (is (= {:state [:authenticated :cart :browsing]} (:snapshot back)))
+      (is (vector? (get-in back [:snapshot :state]))))))
+
+(deftest round-trip-parallel-snapshot
+  (testing "a PARALLEL region-map :state round-trips (was rejected pre-9l8h8)"
+    (let [cs   (assoc parallel-state :snapshot {:state {:data :dirty :form :busy}})
+          back (:rf.machines-viz.share/chart
+                 (share/decode-share-url (share/encode-share-url cs)))]
+      (is (= {:state {:data :dirty :form :busy}} (:snapshot back)))
+      (is (map? (get-in back [:snapshot :state])))))
+  (testing "a PARALLEL region-map whose region value is itself a compound path"
+    (let [cs   (assoc parallel-state
+                      :snapshot {:state {:data :dirty :form [:edit :touched]}})
+          back (:rf.machines-viz.share/chart
+                 (share/decode-share-url (share/encode-share-url cs)))]
+      (is (= {:state {:data :dirty :form [:edit :touched]}} (:snapshot back))))))
+
+(deftest malformed-state-rejected-at-encode
+  (testing "a :state that is none of the three arms is rejected at ENCODE — symmetric, no undecodable URL"
+    (doseq [bad-state [42
+                       "loading"
+                       []                              ;; empty vector path
+                       [:auth "authing"]               ;; non-keyword in path
+                       {}                              ;; empty region-map
+                       {:data "loading"}               ;; non-keyword/path region value
+                       {"data" :loading}]]             ;; non-keyword region name
+      (let [cs (assoc chart-state :snapshot {:state bad-state})
+            d  (try (share/encode-share-url cs)
+                    (catch :default e (ex-data e)))]
+        (is (= :invalid-chart-state (:reason d))
+            (str "encode must reject malformed :state " (pr-str bad-state)))
+        (is (= :rf.machines-viz.share/encode-failed (:rf.error/id d)))))))
+
+(deftest encode-decode-symmetric-for-all-arms
+  (testing "every arm the encoder accepts, the decoder also accepts (no undecodable URL)"
+    (doseq [state [:loading
+                   [:authenticated :cart :browsing]
+                   {:data :dirty :form :busy}
+                   {:data :dirty :form [:edit :touched]}]]
+      (let [cs  (assoc chart-state
+                       :definition compound-definition
+                       :snapshot {:state state})
+            url (share/encode-share-url cs)
+            ;; decode-share-url-safe never throws — an undecodable URL
+            ;; (the pre-9l8h8 bug) would surface as {:error ...}.
+            r   (share/decode-share-url-safe url)]
+        (is (some? (:ok r)) (str "arm round-trips cleanly: " (pr-str state)))
+        (is (nil? (:error r)))
+        (is (= state (get-in (:ok r) [:rf.machines-viz.share/chart :snapshot :state])))))))
 
 (deftest url-shape
   (testing "encoded URL carries the #machine= fragment + uses base64url alphabet"
@@ -216,6 +304,31 @@
       (is (= :invalid-chart-state (:reason d))
           "the closed :snapshot schema rejects extra keys at decode time"))))
 
+(deftest decoded-snapshot-extra-key-alongside-compound-state-rejected
+  (testing "a closed :snapshot is still closed for compound/parallel arms — extra keys rejected on decode"
+    (let [smuggled (envelope->url
+                     {:rf.machines-viz.share/v       "1"
+                      :rf.machines-viz.share/chart   (assoc chart-state
+                                                            :definition compound-definition
+                                                            :snapshot {:state [:authenticated :cart :browsing]
+                                                                       :data  {:token "leak"}})
+                      :rf.machines-viz.share/created 0})
+          d (try (share/decode-share-url smuggled)
+                 (catch :default e (ex-data e)))]
+      (is (= :invalid-chart-state (:reason d))
+          "widening :state to a configuration does NOT loosen the closed-map rule"))))
+
+(deftest decoded-malformed-state-rejected
+  (testing "a hand-edited URL whose :state is none of the three arms is rejected on decode (symmetric)"
+    (let [smuggled (envelope->url
+                     {:rf.machines-viz.share/v       "1"
+                      :rf.machines-viz.share/chart   (assoc chart-state
+                                                            :snapshot {:state {:data "not-a-keyword-or-path"}})
+                      :rf.machines-viz.share/created 0})
+          d (try (share/decode-share-url smuggled)
+                 (catch :default e (ex-data e)))]
+      (is (= :invalid-chart-state (:reason d))))))
+
 (deftest malformed-fragment-rejected
   (testing "a URL with no #machine= fragment throws :malformed-fragment"
     (is (thrown-with-msg? :default #"malformed-fragment"
@@ -269,4 +382,14 @@
     (let [env   (share/decode-share-url (share/encode-share-url (dissoc chart-state :snapshot)))
           props (share/chart-state->props env)]
       (is (not (contains? props :current-state)))
-      (is (true? (:read-only? props))))))
+      (is (true? (:read-only? props)))))
+  (testing "compound vector-path snapshot projects :current-state verbatim"
+    (let [cs    {:machine-id :shop/store :frame-id :app/main
+                 :definition compound-definition
+                 :snapshot   {:state [:authenticated :cart :browsing]}}
+          props (share/chart-state->props (share/decode-share-url (share/encode-share-url cs)))]
+      (is (= [:authenticated :cart :browsing] (:current-state props)))))
+  (testing "parallel region-map snapshot projects :current-state verbatim"
+    (let [cs    (assoc parallel-state :snapshot {:state {:data :dirty :form :busy}})
+          props (share/chart-state->props (share/decode-share-url (share/encode-share-url cs)))]
+      (is (= {:data :dirty :form :busy} (:current-state props))))))

@@ -328,17 +328,34 @@ framework ships its `re-frame.machines` public API.
 
 ---
 
-## Lock #5 — Current-state in share-URL: state name only, no `:data`
+## Lock #5 — Current-state in share-URL: state configuration only, no `:data`
 
 **Locked 2026-05-13 (Mike, lifted from Xray 003; tightened
-2026-05-14 per rf2-li3o4).** **The share-URL payload carries the
-topology + the current state's name (`:state` keyword only). No
-runtime `:data`; no transition history; no event vector; no
-app-db slices; no source-coords.**
+2026-05-14 per rf2-li3o4; widened 2026-06-04 per rf2-9l8h8).** **The
+share-URL payload carries the topology + the current state's
+CONFIGURATION (`:state` only — one of the three Spec 005
+§Snapshot-shape arms: a flat keyword, a compound vector-path, or a
+parallel region-map). State configuration only; no runtime data. Vector
+paths and region-maps are state names/addresses, NOT data. No runtime
+`:data`; no transition history; no event vector; no app-db slices; no
+source-coords.**
 
 ### Question
 
 What state-information does the share-URL carry?
+
+> **rf2-9l8h8 (2026-06-04) — widened `:state` to a state CONFIGURATION.**
+> The original wording said "the state name only" and the schema typed
+> `:snapshot {:state keyword?}`. That accepted only a flat keyword — but
+> the encoder happily serialised compound (vector-path) and parallel
+> (region-map) `:current-state` values, which the keyword-only decoder
+> then rejected: an **undecodable URL**. The fix widens `:state` to the
+> three Spec 005 §Snapshot-shape arms `MachineChart` `:current-state`
+> already accepts, and makes encode validate the full allowlisted chart
+> state (incl. the snapshot shape) before serialising so encode/decode
+> are symmetric. The lock's substance is unchanged: state configuration
+> only, no runtime `:data`. Vector paths + region-maps are state
+> names/addresses, not data.
 
 ### Options considered
 
@@ -356,22 +373,28 @@ What state-information does the share-URL carry?
   URL" click would exfiltrate tokens, form contents, and request
   payloads. The accident-class beats the visual-continuity
   marginal benefit.
-- **Topology + the state name only.** The chart highlights the
-  active state node; `:data` is unavailable to the viewer (which
+- **Topology + the state configuration only.** The chart highlights
+  the active state node(s); `:data` is unavailable to the viewer (which
   has no per-data affordance anyway — the chart's data display
   is operator-side, in Xray's inspector chrome). The recipient
-  has a "show idle" toggle to clear the highlight.
+  has a "show idle" toggle to clear the highlight. The configuration
+  is one of the three Spec 005 §Snapshot-shape arms (flat keyword,
+  compound vector-path, parallel region-map) — all state
+  names/addresses, none of them runtime data.
 
 ### Pick
 
-**Topology + the state name only (`:snapshot` is `{:closed true}`
-with `:state` only).**
+**Topology + the state configuration only (`:snapshot` is
+`{:closed true}` with `:state` only — a flat keyword, a compound
+vector-path, or a parallel region-map; no runtime data).**
 
 ### Why
 
-- **Visual continuity holds** — the recipient sees which state the
-  sharer was in; the static active-state affordance needs the
-  state name only.
+- **Visual continuity holds** — the recipient sees which state(s) the
+  sharer was in; the static active-state affordance needs the state
+  configuration only (the address, not the data). A compound or
+  parallel machine's configuration is a vector-path or region-map —
+  still a name/address, not runtime data.
   The chart's data display is operator-side chrome (Xray's
   inspector panel), not a `MachineChart` affordance.
 - **Privacy is structural, not prose** — the encoder cannot emit
@@ -380,8 +403,8 @@ with `:state` only).**
   operator who wants to share a data value pastes it explicitly
   via a different channel.
 - **Reproducible-from-registry-alone** holds for the topology;
-  the state name is the only non-reproducible bit and is purely
-  a visual hint.
+  the state configuration is the only non-reproducible bit and is
+  purely a visual hint.
 - **"Show idle" toggle** — the viewer page offers a one-click
   "clear active state" if the recipient wants to discuss the
   machine in the abstract. Xray 003 §Share-URL §Read-only viewer

@@ -54,6 +54,34 @@
       (is (= {:state :loading} (:snapshot cs))
           "active-state name rides as the snapshot; no :data"))))
 
+(def compound-definition
+  {:initial :authenticated
+   :states  {:authenticated {:initial :cart
+                             :states  {:cart {:initial :browsing
+                                              :states  {:browsing {} :checkout {}}}}}}})
+
+(def parallel-definition
+  {:type :parallel
+   :regions {:data {:initial :clean :states {:clean {} :dirty {}}}
+             :form {:initial :idle  :states {:idle {} :busy {}}}}})
+
+(deftest share-url-compound-current-state-rides-through
+  (testing "a COMPOUND vector-path :current-state on the seam round-trips (rf2-9l8h8)"
+    (let [el  (stub-element (assoc seam
+                                   :definition compound-definition
+                                   :current-state [:authenticated :cart :browsing]))
+          cs  (:rf.machines-viz.share/chart (share/decode-share-url (export/share-url el)))]
+      (is (= {:state [:authenticated :cart :browsing]} (:snapshot cs))))))
+
+(deftest share-url-parallel-current-state-rides-through
+  (testing "a PARALLEL region-map :current-state on the seam round-trips (rf2-9l8h8)"
+    (let [el  (stub-element (assoc seam
+                                   :definition parallel-definition
+                                   :region-count 2
+                                   :current-state {:data :dirty :form :busy}))
+          cs  (:rf.machines-viz.share/chart (share/decode-share-url (export/share-url el)))]
+      (is (= {:state {:data :dirty :form :busy}} (:snapshot cs))))))
+
 (deftest share-url-honours-host-and-frame
   (testing ":host + :frame-id opts thread through"
     (let [el  (stub-element seam)
