@@ -566,14 +566,84 @@
 ;; does the ring mutation and the two public fns are thin wrappers
 ;; pinning the slot.
 
+(defn- redact-appended-delta
+  "Run `redact` over ONLY the newly-appended delta (the new `:trace-events`
+  `event` and the new `slot` `row`), then splice the redacted delta back
+  onto `record` — leaving every already-redacted slot value untouched.
+  Returns the updated record. Per rf2-qhxz6: this honours the Tool-Pair
+  §Redaction hook contract literally — `:redact-fn` sees each appended
+  slot value EXACTLY ONCE across the record's whole lifetime, so a
+  NON-idempotent `:redact-fn` (one that transforms a value rather than
+  substituting an idempotent `:rf/redacted` sentinel — e.g. hash-and-
+  truncate, append an audit marker, increment a counter) never re-runs
+  over a slot it already scrubbed.
+
+  HOW. We hand `redact` a probe record shaped exactly like the assembled
+  record (so an `:redact-fn` that keys on whole-record structure — reads
+  `:db-after` / `:frame` / `:rf.epoch/sensitive?` for its decision — still
+  composes) BUT whose `:trace-events` / `slot` lists carry ONLY the new
+  delta element. The fn redacts that delta in place; we extract the
+  redacted element(s) and `conj` them onto `record`'s real (already-
+  redacted) slots. The leak the rf2-82pcg fix closed STAYS closed — the
+  appended slots still pass through `:redact-fn` before reaching either
+  egress channel — but each slot is now redacted once, not 1+K times.
+
+  Slot extraction. When `redact` returns the probe slot still as a vector
+  (the common per-element-transform / sentinel-substitution shape) we take
+  its element(s) — the redacted delta — and `conj` onto the real slot.
+  When `redact` instead COLLAPSES the whole slot to a non-vector sentinel
+  (e.g. `(assoc r :trace-events :rf/redacted)` — a whole-slot scrub), the
+  fn's intent is to redact the entire slot, so we write that sentinel to
+  the real slot. We only `conj` onto a real slot that is a vector (or
+  absent); a real slot already collapsed to a sentinel by a prior
+  whole-slot scrub is left at the sentinel (the delta is subsumed).
+
+  Pure (record-in, record-out); `redact` is the only injected fn it
+  calls, so it stays retry-safe inside the `swap!`."
+  [record slot event row redact]
+  (let [append?  (contains? record :trace-events)
+        ;; Probe = the real record's context with ONLY the new delta in
+        ;; the redactable list slots. Other slots ride unchanged so a
+        ;; whole-record-keyed `:redact-fn` reads the same context it saw
+        ;; at settle time.
+        delta?   (or append? (some? row))
+        ;; No delta to append (an unmount on a record whose `:trace-events`
+        ;; was already dropped by the keep-window cap) → nothing to redact,
+        ;; return the record untouched (do NOT spuriously re-redact it).
+        probe    (when delta?
+                   (cond-> record
+                     append?     (assoc :trace-events [event])
+                     (some? row) (assoc slot [row])))
+        redacted (when delta? (redact probe))
+        ;; Splice a redacted delta value back onto the real slot. `dv` is
+        ;; the redacted probe-slot value: a vector (per-element / sentinel-
+        ;; substitution) → conj its element(s) onto the real slot; a non-
+        ;; vector (whole-slot collapse) → adopt that sentinel for the slot.
+        splice   (fn [rec real-slot dv]
+                   (cond
+                     (and (vector? dv) (vector? (get rec real-slot)))
+                     (update rec real-slot into dv)
+
+                     (and (vector? dv) (not (contains? rec real-slot)))
+                     (assoc rec real-slot (vec dv))
+
+                     (vector? dv)        ; real slot already a sentinel
+                     rec                 ; delta subsumed by prior collapse
+
+                     :else               ; whole-slot collapse by the fn
+                     (assoc rec real-slot dv)))]
+    (cond-> record
+      append?     (splice :trace-events (:trace-events redacted))
+      (some? row) (splice slot (get redacted slot)))))
+
 (defn- back-fill-event!
   "Append `event` and its projected `row` (into the `slot` projection)
   on the already-committed epoch record identified by `frame-id` +
-  `epoch-id`, then run the appended record through `redact` and write
-  THAT back to the ring. Returns the redacted updated record (so the
-  caller re-notifies listeners with the same shape the ring now holds),
-  or nil when the target epoch is no longer in the ring (evicted, or the
-  event fired before any cascade settled).
+  `epoch-id`, redacting ONLY the newly-appended delta, then write THAT
+  back to the ring. Returns the updated record (so the caller re-notifies
+  listeners with the same shape the ring now holds), or nil when the
+  target epoch is no longer in the ring (evicted, or the event fired
+  before any cascade settled).
 
   `row` is the structured projection entry, or nil — a render op that
   carries no `:renders` row (`:rf.view/rendered`) or a `:sub/skip` that
@@ -591,21 +661,24 @@
       (Xray Views / Reactive panel) — is always present on a built
       record; the projected row is appended when non-nil.
 
-  REDACTION (rf2-82pcg). `redact` is the installed redaction transform
-  (`assembly/maybe-redact`, injected by the caller so this state ns keeps
-  no `assembly` require — `assembly` already requires this ns). It runs
-  INSIDE the swap, AFTER the raw append, so the redacted record is what
-  lands in the ring AND what is returned for the listener re-fan — the
-  same `:redact-fn`-once-between-build-and-fan-out invariant the settle-
-  time primary path holds (Tool-Pair §Time-travel §Redaction hook,
-  Security.md §Epoch privacy posture). Pre-fix the raw appended slots
-  reached both egress channels (ring-read: `epoch-history` / MCP
-  `read-recording` / `restore-epoch`; and the listener fan-out) bypassing
-  the `:redact-fn`. `redact` defaults to `identity` for callers / tests
-  that need the bare raw append. The fn is idempotent for the
-  `:rf/redacted` sentinel pattern, so re-applying it to the record's
-  already-settle-redacted slots is a no-op while the newly-appended slots
-  get scrubbed.
+  REDACTION (rf2-82pcg leak-closure + rf2-qhxz6 once-per-slot fix).
+  `redact` is the installed redaction transform (`assembly/maybe-redact`,
+  injected by the caller so this state ns keeps no `assembly` require —
+  `assembly` already requires this ns). It runs INSIDE the swap, over ONLY
+  the newly-appended delta (via `redact-appended-delta`), so the redacted
+  delta is what lands in the ring AND what is returned for the listener
+  re-fan. Pre-rf2-82pcg the raw appended slots reached both egress
+  channels (ring-read: `epoch-history` / MCP `read-recording` /
+  `restore-epoch`; and the listener fan-out) bypassing the `:redact-fn`
+  (the leak). The rf2-82pcg fix re-ran the fn over the WHOLE record on
+  every back-fill — closing the leak but invoking the fn 1+K times for an
+  epoch accruing K back-fills, which corrupts a NON-idempotent fn's prior
+  output. rf2-qhxz6 narrows the redaction to the appended delta so the
+  Tool-Pair §Redaction hook 'once per assembled record' contract holds
+  literally: each slot value is redacted EXACTLY ONCE and the fn carries
+  no idempotency requirement. The leak stays closed — the appended delta
+  is still scrubbed before egress. `redact` defaults to `identity` for
+  callers / tests that need the bare raw append.
 
   The `swap!` update fn is PURE — it mutates only the history map and
   smuggles nothing out (the prior shape `reset!`'d a local out-param atom
@@ -624,12 +697,7 @@
    (let [idx (epoch-index (history-for frame-id) epoch-id)]
      (when idx
        (let [append (fn [record]
-                      (-> (cond-> record
-                            (contains? record :trace-events)
-                            (update :trace-events (fnil conj []) event)
-                            (some? row)
-                            (update slot (fnil conj []) row))
-                          redact))]
+                      (redact-appended-delta record slot event row redact))]
          (-> (swap! histories update-in [frame-id idx] append)
              (get-in [frame-id idx])))))))
 
@@ -637,8 +705,9 @@
   "Back-fill `render-event` and its projected `:renders` `render-row`
   into the already-committed epoch `epoch-id` for `frame-id` (rf2-qs6dl).
   Thin wrapper over `back-fill-event!` pinning the `:renders` slot.
-  `redact` (rf2-82pcg) is run over the appended record before it lands in
-  the ring / is returned for the listener re-fan; defaults to `identity`."
+  `redact` (rf2-82pcg leak-closure / rf2-qhxz6 once-per-slot) is run over
+  ONLY the appended delta before it lands in the ring / is returned for
+  the listener re-fan; defaults to `identity`."
   ([frame-id epoch-id render-event render-row]
    (back-fill-render! frame-id epoch-id render-event render-row identity))
   ([frame-id epoch-id render-event render-row redact]
@@ -648,8 +717,9 @@
   "Back-fill `sub-event` and its projected `:sub-runs` `sub-run-row` into
   the already-committed epoch `epoch-id` for `frame-id` (rf2-wi900). Thin
   wrapper over `back-fill-event!` pinning the `:sub-runs` slot. Symmetric
-  with `back-fill-render!`. `redact` (rf2-82pcg) is run over the appended
-  record before it lands in the ring / is returned; defaults to `identity`."
+  with `back-fill-render!`. `redact` (rf2-82pcg leak-closure / rf2-qhxz6
+  once-per-slot) is run over ONLY the appended delta before it lands in
+  the ring / is returned; defaults to `identity`."
   ([frame-id epoch-id sub-event sub-run-row]
    (back-fill-sub-run! frame-id epoch-id sub-event sub-run-row identity))
   ([frame-id epoch-id sub-event sub-run-row redact]
@@ -664,9 +734,9 @@
   VIEWS-step `unmounted-views-rows` reads view teardowns. The `:slot`
   argument is irrelevant when `row` is nil; `:renders` is passed for
   documentary parity with the render sibling. Symmetric with
-  `back-fill-render!` / `back-fill-sub-run!`. `redact` (rf2-82pcg) is run
-  over the appended record before it lands in the ring / is returned;
-  defaults to `identity`."
+  `back-fill-render!` / `back-fill-sub-run!`. `redact` (rf2-82pcg leak-
+  closure / rf2-qhxz6 once-per-slot) is run over ONLY the appended delta
+  before it lands in the ring / is returned; defaults to `identity`."
   ([frame-id epoch-id unmount-event]
    (back-fill-unmount! frame-id epoch-id unmount-event identity))
   ([frame-id epoch-id unmount-event redact]

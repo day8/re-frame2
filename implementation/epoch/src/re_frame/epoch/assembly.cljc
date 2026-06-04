@@ -119,13 +119,23 @@
   is not broken.
 
   Per Tool-Pair §Time-travel §Redaction hook + Security.md §Epoch
-  privacy posture (rf2-wp70d): the fn runs ONCE at build-time,
+  privacy posture (rf2-wp70d): the fn runs ONCE per assembled record,
   BETWEEN `build-record` and ring-append / listener fan-out — the
   ring buffer, every `register-epoch-listener!` listener, and any off-box
   projection through `projected-record` all see the SAME redacted
   shape. The `:rf.epoch/sensitive?` rollup is computed inside
   `build-record` (which runs first) so the rollup reflects the RAW
   signal even when the fn erases the leaves it keyed on.
+
+  Per rf2-qhxz6: a post-settle back-fill (render / sub-run / unmount
+  appended to an already-committed, already-redacted record) does NOT
+  re-run the fn over the whole record — `state/back-fill-event!` hands
+  this helper a probe record carrying ONLY the newly-appended delta in
+  the redactable list slots, so the fn redacts each appended slot value
+  EXACTLY ONCE across the record's lifetime. The 'once per assembled
+  record' contract therefore holds with no idempotency requirement on
+  the app's `:redact-fn` — a non-idempotent fn (hash-and-truncate,
+  append-an-audit-marker, increment-a-counter) is safe.
 
   Caller MUST wrap invocations in `(when interop/debug-enabled? ...)`
   — the whole epoch surface shares that gate; this helper carries no

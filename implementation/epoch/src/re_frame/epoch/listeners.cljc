@@ -129,18 +129,20 @@
                        (not= target default-epoch)
                        (state/render-key-already-in-epoch?
                          frame-id target render-key))
-          ;; rf2-82pcg — pass `assembly/maybe-redact` so `back-fill-render!`
-          ;; re-runs the installed `:redact-fn` over the record AFTER it
-          ;; appends the RAW render event into `:trace-events` + the RAW
-          ;; projected row into `:renders`. The redacted record is what
-          ;; lands in the ring AND what we re-fan to listeners — so both
-          ;; the pull egress (`epoch-history` / MCP `read-recording` /
-          ;; `restore-epoch`) and the push egress (this fan-out) see the
-          ;; same redacted shape the settle-time primary path produces.
-          ;; Without it the appended slots reach egress bypassing the
-          ;; `:redact-fn` (the leak). The fn is idempotent for the
-          ;; `:rf/redacted` sentinel pattern, so re-applying it to the
-          ;; already-settle-redacted slots is a no-op.
+          ;; rf2-82pcg leak-closure + rf2-qhxz6 once-per-slot — pass
+          ;; `assembly/maybe-redact` so `back-fill-render!` runs the
+          ;; installed `:redact-fn` over ONLY the newly-appended delta
+          ;; (the RAW render event for `:trace-events` + the RAW projected
+          ;; row for `:renders`) before splicing it onto the already-
+          ;; redacted record. The redacted record is what lands in the
+          ;; ring AND what we re-fan to listeners — so both the pull egress
+          ;; (`epoch-history` / MCP `read-recording` / `restore-epoch`) and
+          ;; the push egress (this fan-out) see the redacted shape. Without
+          ;; redaction the appended slots reach egress bypassing the
+          ;; `:redact-fn` (the leak). Per rf2-qhxz6 only the delta is
+          ;; redacted, so each slot is scrubbed EXACTLY ONCE — the
+          ;; Tool-Pair 'once per assembled record' contract holds with no
+          ;; idempotency requirement on the app's `:redact-fn`.
           (when-let [updated (state/back-fill-render! frame-id target event
                                                       (capture/render-row event)
                                                       assembly/maybe-redact)]
@@ -172,10 +174,12 @@
   [frame-id event]
   (when interop/debug-enabled?
     (when-let [epoch-id (state/last-settled-epoch-id frame-id)]
-      ;; rf2-82pcg — pass `assembly/maybe-redact` so the RAW sub-event
-      ;; appended to `:trace-events` + the RAW `:sub-runs` row are run
+      ;; rf2-82pcg leak-closure + rf2-qhxz6 once-per-slot — pass
+      ;; `assembly/maybe-redact` so the RAW sub-event appended to
+      ;; `:trace-events` + the RAW `:sub-runs` row (the delta) are run
       ;; through the installed `:redact-fn` before they land in the ring
-      ;; / re-fan to listeners (see `record-render!`).
+      ;; / re-fan to listeners. Only the delta is redacted, so each slot
+      ;; is scrubbed exactly once (see `record-render!`).
       (when-let [updated (state/back-fill-sub-run! frame-id epoch-id event
                                                    (capture/sub-run-row event)
                                                    assembly/maybe-redact)]
@@ -231,12 +235,14 @@
   [frame-id event]
   (when interop/debug-enabled?
     (when-let [epoch-id (state/last-settled-epoch-id frame-id)]
-      ;; rf2-82pcg — pass `assembly/maybe-redact` so the RAW unmount event
-      ;; appended to `:trace-events` is run through the installed
+      ;; rf2-82pcg leak-closure + rf2-qhxz6 once-per-slot — pass
+      ;; `assembly/maybe-redact` so the RAW unmount event appended to
+      ;; `:trace-events` (the delta) is run through the installed
       ;; `:redact-fn` before it lands in the ring / re-fans to listeners
       ;; (see `record-render!`). An unmount carries no structured projection
       ;; row, so only `:trace-events` is back-filled — but that slot is
       ;; still egress (Xray's VIEWS-step `unmounted-views-rows` reads it).
+      ;; Only the appended delta is redacted, so the slot is scrubbed once.
       (when-let [updated (state/back-fill-unmount! frame-id epoch-id event
                                                    assembly/maybe-redact)]
         ;; Re-fan the corrected record so snapshot consumers re-read the
