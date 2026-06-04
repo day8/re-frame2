@@ -44,7 +44,6 @@
 'use strict';
 
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
 
 const HERE = __dirname;
 const IMPL_ROOT = path.resolve(HERE, '..');
@@ -56,27 +55,72 @@ const PAIR_MCP = path.join(TOOLS, 're-frame2-pair-mcp');
 const CONFORMANCE = path.join(TOOLS, 'mcp-conformance');
 const WIRE_VOCAB = path.join(CONFORMANCE, 'wire-vocab');
 
-// `clojure` and `npm`/`npx` are resolved via PATH on Windows as `.cmd`
-// shims and on POSIX as plain binaries. `shell: true` lets the OS shell
-// do that resolution for us so the same `command` string works
-// cross-platform without per-platform branching.
+// ---------------------------------------------------------------------
+// Exec-safety: no `shell: true`, no bare-name spawns (rf2-1irs7).
+//
+// The original form spawned every step with
+// `spawnSync(bareCommandString, { shell: true, cwd })`. On Windows that
+// is the rf2-33vvc command-hijack accident class: `shell: true` + a
+// bare exe name (`npm`/`npx`/`clojure`) + a repo-controlled `cwd`
+// resolves against the cwd ahead of PATH, so a checkout that ever
+// carried a `npm.cmd` / `npx.cmd` / `clojure.cmd` in one of these dirs
+// (a fixture dir, anywhere in PATHEXT order) would silently execute it.
+//
+// The mcp-conformance slice already SOLVED this for its inner spawn
+// sites (`tools/mcp-conformance/test/end-to-end-story.cjs`,
+// `scripts/run-live-...-hermetic.cjs`): resolve each tool name to a
+// single trusted absolute path OUTSIDE the workspace via
+// `resolveTrustedExe`, then spawn with an args ARRAY and NO shell. We
+// reuse that exact primitive here rather than hand-roll a second one.
+//
+// `cross-spawn` (the slice's own spawn helper) is the cross-platform
+// piece: given the trusted absolute path `resolveTrustedExe` returns —
+// on Windows that is typically the extensionless `npm`/`npx` shim under
+// the Node install dir, NOT the `.cmd` — Node's built-in `spawnSync`
+// with `shell: false` fails (ENOENT on the shim; EINVAL on a `.cmd`
+// since the CVE-2024-27980 fix). `cross-spawn` reads the shebang /
+// dispatches the `.cmd` correctly without re-introducing the shell, so
+// `resolveTrustedExe` + `cross-spawn` is the only combination that is
+// both hardened and cross-platform (Windows / macOS / Linux).
+const crossSpawn = require('cross-spawn');
+const { resolveTrustedExe } = require(
+  path.join(CONFORMANCE, 'lib', 'exec-safety.cjs'),
+);
+
+// Cache one resolution per tool name; the lookup walks PATH + PATHEXT
+// and is identical for every step that uses the same tool.
+const TRUSTED_EXE_CACHE = new Map();
+function trustedExe(name) {
+  if (TRUSTED_EXE_CACHE.has(name)) return TRUSTED_EXE_CACHE.get(name);
+  const resolved = resolveTrustedExe(name, { workspaceRoot: REPO_ROOT });
+  TRUSTED_EXE_CACHE.set(name, resolved);
+  return resolved;
+}
+
+// `node` steps use `process.execPath` — always an absolute path,
+// always the currently-running Node, always outside the workspace by
+// construction — so they skip the PATH walk entirely (the same posture
+// the slice's `scripts/test-all.cjs` uses for its own node sub-tests).
 const STEPS = [
   // ---- prep ----
   {
     name: 'install tools/re-frame2-pair-mcp deps',
-    command: 'npm install',
+    exe: 'npm',
+    args: ['install'],
     cwd: PAIR_MCP,
     prep: true,
   },
   {
     name: 'compile re-frame2-pair-mcp server bundle (shadow-cljs :server)',
-    command: 'npx shadow-cljs compile server',
+    exe: 'npx',
+    args: ['shadow-cljs', 'compile', 'server'],
     cwd: PAIR_MCP,
     prep: true,
   },
   {
     name: 'install tools/mcp-conformance deps',
-    command: 'npm install',
+    exe: 'npm',
+    args: ['install'],
     cwd: CONFORMANCE,
     prep: true,
   },
@@ -84,22 +128,26 @@ const STEPS = [
   // ---- the six gates ----
   {
     name: '[1/6] JVM tools/story-mcp (clojure -M:test)',
-    command: 'clojure -M:test',
+    exe: 'clojure',
+    args: ['-M:test'],
     cwd: STORY_MCP,
   },
   {
     name: '[2/6] Node tools/story-mcp stdio roundtrip (rf2-h8z5l)',
-    command: 'node test/stdio-roundtrip.js',
+    node: true,
+    args: ['test/stdio-roundtrip.js'],
     cwd: STORY_MCP,
   },
   {
     name: '[3/6] Node tools/re-frame2-pair-mcp (shadow-cljs :server-test)',
-    command: 'npm test',
+    exe: 'npm',
+    args: ['test'],
     cwd: PAIR_MCP,
   },
   {
     name: '[4+5/6] MCP conformance tools/re-frame2-pair-mcp + tools/story-mcp (rf2-cum40)',
-    command: 'node scripts/test-all.cjs',
+    node: true,
+    args: ['scripts/test-all.cjs'],
     cwd: CONFORMANCE,
     // tools/mcp-conformance/npm test == node scripts/test-all.cjs;
     // it covers BOTH gates [4] (re-frame2-pair-mcp end-to-end + live-*
@@ -111,7 +159,8 @@ const STEPS = [
   },
   {
     name: '[6/6] MCP conformance wire-vocab (rf2-j2z7o + rf2-6m8tq + rf2-zvv65)',
-    command: 'clojure -M:test',
+    exe: 'clojure',
+    args: ['-M:test'],
     cwd: WIRE_VOCAB,
   },
 ];
@@ -125,11 +174,25 @@ const results = [];
 let firstFailure = null;
 
 for (const step of STEPS) {
-  banner('▶ ' + step.name + '\n  cwd: ' + step.cwd + '\n  cmd: ' + step.command);
-  const child = spawnSync(step.command, {
+  // Resolve the executable up-front: `node` steps use the absolute
+  // `process.execPath`; native-tool steps resolve their bare name to a
+  // trusted absolute path outside the workspace (rf2-1irs7 / rf2-33vvc).
+  const exe = step.node ? process.execPath : trustedExe(step.exe);
+  banner(
+    '▶ ' + step.name +
+      '\n  cwd: ' + step.cwd +
+      '\n  exe: ' + exe +
+      '\n  args: ' + step.args.join(' '),
+  );
+  // `cross-spawn` + args ARRAY + NO `shell`: the resolved absolute path
+  // is the only thing the OS interprets, so a workspace-local
+  // `npm.cmd` / `npx.cmd` / `clojure.cmd` can no longer hijack the
+  // invocation (rf2-1irs7). cross-spawn handles the Windows `.cmd` /
+  // extensionless-shim dispatch that built-in `spawnSync` can't under
+  // `shell: false`.
+  const child = crossSpawn.sync(exe, step.args, {
     cwd: step.cwd,
     stdio: 'inherit',
-    shell: true,
     env: process.env,
   });
   const status = child.status === null ? 'signal:' + child.signal : child.status;
