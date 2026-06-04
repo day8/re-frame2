@@ -95,7 +95,7 @@
   []
   (swap! mock-server-state assoc :sockets {}))
 
-(defn- ^:private later
+(defn- later
   "Run `f` synchronously in mock-sync mode; via `setTimeout` otherwise.
    This is the only knob that separates headless-test mode (sync) from
    the browser-driven example (async, microtask-delivered)."
@@ -104,10 +104,10 @@
     (f)
     (js/setTimeout f 0)))
 
-(defn- ^:private next-mock-socket-id []
+(defn- next-mock-socket-id []
   (str "mock-socket-" (random-uuid)))
 
-(defn- ^:private deliver-to-actor!
+(defn- deliver-to-actor!
   "Dispatch an inbound transport event into the spawned actor. The
    actor's machine handler translates the event into a parent-bound
    `[:ws/connection [:ws/<kind> ...]]` dispatch."
@@ -115,7 +115,7 @@
   (when actor-id
     (rf/dispatch [actor-id [kind payload]])))
 
-(defn- ^:private mock-encode-auth-reply [token]
+(defn- mock-encode-auth-reply [token]
   ;; A real server would validate the JWT; the mock accepts any
   ;; non-empty token and rejects the rest.
   (if (and (string? token) (pos? (count token)))
@@ -179,7 +179,7 @@
 ;; Exposed seams the views (and the headless tests) use to drive the
 ;; mock without dispatching through the actor.
 
-(defn- ^:private deliver-external!
+(defn- deliver-external!
   "Sync-mode-aware variant of `deliver-to-actor!` for callers OUTSIDE
    a running drain (i.e. test bodies, view click handlers). In sync
    mode it uses `dispatch-sync` so the chain runs to fixed point
