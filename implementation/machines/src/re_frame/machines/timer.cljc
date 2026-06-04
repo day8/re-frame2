@@ -96,12 +96,11 @@
    :spawn (vec invoke-id)
    :delay  delay-key})
 
-(defn- classify-delay-source [delay-key]
-  (cond
-    (number? delay-key)  :literal
-    (vector? delay-key)  :sub
-    (fn? delay-key)      :fn
-    :else                :literal))
+;; `:after` delay-source classification (`{:literal :sub :fn}`) lives once
+;; in `re-frame.machines.transition/classify-delay-source` — the leaf engine
+;; that owns the `:after` grammar and already tags the pure-side
+;; `:rf.machine.timer/scheduled` trace from it. The fx side reuses the same
+;; classifier so the two can never disagree on a delay-key's source.
 
 (defn- resolve-delay-ms
   "Resolve an :after map key to a positive-integer ms delay. For pos-int?
@@ -287,7 +286,7 @@
   empty slot is a no-op cancel)."
   [frame-id parent-id invoke-id state delay-key epoch server? snapshot
    {:keys [emit-scheduled-trace?]}]
-  (let [delay-source (classify-delay-source delay-key)
+  (let [delay-source (transition/classify-delay-source delay-key)
         k            (after-timer-key parent-id invoke-id delay-key)]
     (cancel-after-timer-entry! frame-id k :on-supersede)
     (cond
