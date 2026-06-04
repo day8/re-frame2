@@ -101,14 +101,32 @@ const HTML_SRC = enforcePolicy(
 );
 
 function release() {
-  const isWin = process.platform === 'win32';
-  const cmd = isWin ? 'npx.cmd' : 'npx';
-  const args = ['shadow-cljs', 'release', BUILD_TARGET];
-  console.log(`> ${cmd} ${args.join(' ')}`);
-  const result = spawnSync(cmd, args, {
+  // Spawn shadow-cljs shell-free under THIS node binary (rf2-wn4o1):
+  // resolve shadow-cljs's own JS entry-point and run it via
+  // `process.execPath` with `shell:false` — never `npx`/`npx.cmd` under a
+  // shell. This sidesteps both the Windows command-hijack accident class
+  // (a workspace-local `npx.cmd` resolving ahead of PATH under
+  // `shell:true` + a repo-controlled `cwd` — rf2-33vvc) and the
+  // `.cmd`-under-no-shell `EINVAL` from the CVE-2024-27980 mitigation.
+  // Same posture dev-testbed.cjs uses for `shadow-cljs watch`. Resolution
+  // is rooted at IMPL_ROOT so it finds the implementation's local install
+  // regardless of this script's cwd.
+  let shadowRunner;
+  try {
+    shadowRunner = require.resolve('shadow-cljs/cli/runner.js', {
+      paths: [IMPL_ROOT],
+    });
+  } catch {
+    throw new Error(
+      'story-build: could not resolve shadow-cljs. Run `npm install` in ' +
+        `${IMPL_ROOT} first.`,
+    );
+  }
+  const args = [shadowRunner, 'release', BUILD_TARGET];
+  console.log(`> shadow-cljs release ${BUILD_TARGET}`);
+  const result = spawnSync(process.execPath, args, {
     cwd: IMPL_ROOT,
     stdio: 'inherit',
-    shell: isWin,
   });
   if (result.status !== 0) {
     throw new Error(`shadow-cljs release ${BUILD_TARGET} failed (exit ${result.status})`);
