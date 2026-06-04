@@ -1403,7 +1403,7 @@ If **every region** declines the event (no region matched a transition), the mac
 
 The post-broadcast snapshot's `:state` is the map of region-name → that region's new state value. Regions that didn't transition keep their prior value in place.
 
-### Per-region `:always` / `:after` / `:spawn` scoping (and `:raise` broadcast)
+### Per-region `:always` / `:after` / `:spawn` scoping
 
 Each region's state-node keys (`:always`, `:after`, `:spawn`, `:entry`, `:exit`) operate **scoped to that region**:
 
