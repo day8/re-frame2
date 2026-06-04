@@ -847,8 +847,12 @@
          ;; rf2-o4u18: subscribe to popstate so the back-button restores
          ;; prior URL state, and watch shell-state-atom so user-driven
          ;; selection / viewport / background / tag-filter changes
-         ;; pushState the canonical URL. Cell-override edits are NOT
-         ;; pushed (too chatty) — they ride the share popover.
+         ;; pushState the canonical URL. The focused variant's
+         ;; cell-override edits ARE pushed (rf2-5fyo3 — the share popover
+         ;; that once owned override serialisation was retired by
+         ;; rf2-ymnfx, so the live address bar is the only sharing
+         ;; surface) and restored on popstate via apply-parsed-to-state
+         ;; (rf2-j0hwf — closes the override round-trip on back/forward).
          (url-state/install-popstate-listener!
            state/shell-state-atom
            (url-state-apply-fn))

@@ -174,10 +174,19 @@
   Per rf2-hscut: workspace + variant are mutually exclusive in the
   sidebar (selecting one clears the other). If the URL carries both
   the variant wins (variant is the canonical sharable unit; workspace
-  groupings are derived)."
+  groupings are derived).
+
+  Per rf2-j0hwf: parsed `:cell-overrides` are installed under
+  `[:cell-overrides variant-id]` when a variant is kept, so a shared
+  URL / popstate restores the same effective args — not just the
+  selection. Overrides are variant-scoped (the URL carries only the
+  focused variant's slice), so they apply solely alongside a kept
+  variant. The state-watcher pushes that same slice, so this closes the
+  encode/decode round-trip on back/forward navigation."
   [state parsed validators]
   (let [{:keys [variant-id workspace-id mode-tab active-modes
-                viewport background tag-filter substrate]} parsed
+                viewport background tag-filter cell-overrides
+                substrate]} parsed
         variant-ok? (or (nil? (:variant? validators))
                         ((:variant? validators) variant-id))
         ws-ok?      (or (nil? (:workspace? validators))
@@ -204,6 +213,18 @@
 
       (and keep-variant? mode-tab)
       (assoc-in [:active-mode-tab variant-id] mode-tab)
+
+      ;; rf2-j0hwf: install the focused variant's parsed cell-overrides
+      ;; under [:cell-overrides variant-id] so a popstate / shared-URL
+      ;; hydration restores the same effective args (not just the
+      ;; selection). Overrides are variant-scoped — the URL carries only
+      ;; the focused variant's slice (params-from-state), so they apply
+      ;; solely when the variant is kept. The state-watcher pushes this
+      ;; same slice (url-relevant-slots-changed? + params-from-state), so
+      ;; without this branch the encode/decode round-trip was asymmetric:
+      ;; an override edit pushed to the URL was dropped on back/forward.
+      (and keep-variant? (seq cell-overrides))
+      (assoc-in [:cell-overrides variant-id] cell-overrides)
 
       (seq active-modes)
       (assoc :active-modes (vec active-modes))

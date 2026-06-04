@@ -84,6 +84,37 @@
       (is (= {:label "Hi"} (:cell-overrides out)))
       (is (= :uix (:substrate out))))))
 
+;; ---- rf2-j0hwf: full override round-trip via URLSearchParams ------------
+
+(deftest override-round-trip-through-urlsearchparams
+  (testing "rf2-j0hwf — the focused-variant override round-trip as a single
+            invariant: shell-state → params-from-state → build-params →
+            URLSearchParams encode/decode → parse-params →
+            apply-parsed-to-state restores [:cell-overrides variant-id]
+            equal to the source slice — INCLUDING a string value carrying
+            the list separator (comma), which the old comma-split codec
+            dropped."
+    (let [variant  :foo/bar
+          slice    {:label "Save, continue" :count 3 :items [1 2 3]}
+          shell    {:selected-variant variant
+                    :cell-overrides   {variant slice}}
+          ;; encode: project → build params → real URLSearchParams string
+          proj     (us/params-from-state shell)
+          ps       (share/build-params proj)
+          qs       (str/join "&" ps)
+          usp      (js/URLSearchParams. qs)
+          getter   {"variant"   (.get usp "variant")
+                    "overrides" (.get usp "overrides")}
+          ;; decode: parse-params → apply back into a fresh shell state
+          parsed   (share/parse-params getter)
+          out      (us/apply-parsed-to-state {} parsed {})]
+      (is (= variant (:selected-variant out)))
+      (is (= slice (get-in out [:cell-overrides variant]))
+          "decoded overrides equal the encoded overrides (round-trip)")
+      ;; explicit: the comma-bearing value is intact, not shredded
+      (is (= "Save, continue"
+             (get-in out [:cell-overrides variant :label]))))))
+
 ;; ---- pushState idempotence ----------------------------------------------
 ;;
 ;; Under the node runner `js/window.history` is mocked by jsdom. The

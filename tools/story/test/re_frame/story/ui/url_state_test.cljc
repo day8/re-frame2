@@ -245,6 +245,53 @@
               {} {:substrate :uix} {})]
     (is (= :uix (:substrate out)))))
 
+;; ---- rf2-j0hwf: cell-overrides hydration --------------------------------
+
+(deftest apply-parsed-installs-cell-overrides-under-focused-variant
+  (testing "rf2-j0hwf — parsed :cell-overrides are written under
+            [:cell-overrides variant-id] so a shared URL / popstate
+            restores the same effective args, not just the selection.
+            (Reproduces the bead's verification: previously this
+            destructure dropped :cell-overrides entirely.)"
+    (let [out (us/apply-parsed-to-state
+                {} {:variant-id     :story.foo/bar
+                    :cell-overrides {:label "Hi"}} {})]
+      (is (= :story.foo/bar (:selected-variant out)))
+      (is (= {:label "Hi"} (get-in out [:cell-overrides :story.foo/bar]))
+          "overrides land under the focused variant"))))
+
+(deftest apply-parsed-overrides-dropped-when-variant-invalid
+  (testing "rf2-j0hwf — overrides are variant-scoped: when the variant id
+            is rejected by the validator (stale URL) the overrides are
+            not installed (no orphan slice under an unfocused variant)"
+    (let [out (us/apply-parsed-to-state
+                {} {:variant-id     :ghost/x
+                    :cell-overrides {:label "Hi"}}
+                {:variant? (fn [vid] (= vid :foo/bar))})]
+      (is (nil? (:selected-variant out)))
+      (is (nil? (get-in out [:cell-overrides :ghost/x]))
+          "no overrides installed for a rejected variant"))))
+
+(deftest apply-parsed-overrides-ignored-without-variant
+  (testing "rf2-j0hwf — overrides without a variant id never install
+            (the URL carries only the focused variant's slice)"
+    (let [out (us/apply-parsed-to-state
+                {} {:cell-overrides {:label "Hi"}} {})]
+      (is (nil? (:selected-variant out)))
+      (is (empty? (:cell-overrides out))))))
+
+(deftest apply-parsed-overrides-round-trip-through-state
+  (testing "rf2-j0hwf — state → params-from-state → apply-parsed-to-state
+            restores the focused variant's overrides slice (the URL
+            carries the focused variant only, so the projected
+            :cell-overrides is the bare slice, not the side-table)"
+    (let [shell  {:selected-variant :foo/bar
+                  :cell-overrides   {:foo/bar {:label "Save, continue" :n 3}}}
+          proj   (us/params-from-state shell)
+          out    (us/apply-parsed-to-state {} proj {})]
+      (is (= {:label "Save, continue" :n 3}
+             (get-in out [:cell-overrides :foo/bar]))))))
+
 (deftest apply-parsed-full-round-trip-through-state
   (testing "URL → parsed → state, then state → URL produces equivalent
             params (allowing for set vs vec re-ordering)"
