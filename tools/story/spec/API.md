@@ -246,14 +246,17 @@ The pure runner lives at
 ## Recorder facade
 
 The recorder captures canvas-dispatched events into a play body for
-codegen back into a `reg-variant` snippet. The emitted EDN uses the
-transitional `:play-script` spelling the registrar lowers; `:script` is
-the public phase-4 key authors target (spec/017 §Public vocabulary).
-The facade exposes six entries on `re-frame.story` (per spec/005
-§Recorder + [001-Authoring.md](001-Authoring.md) §Recorder); the richer
-recorder-driven `:play-script` translator (rf2-d5u89 — derives `:click`
-/ `:type` / `:wait` steps from the recorder's `:entries` stream) lives
-under the recorder's sub-namespace.
+codegen back into a `reg-variant` snippet. The emitted snippet uses the
+PUBLIC `:script` authoring slot (spec/017 §Public vocabulary), not the
+transitional `:play-script` spelling — `gen-play-snippet` renders the
+public spelling so pasted code reads the way the docs teach (rf2-7mj4z).
+The facade exposes seven entries on `re-frame.story` (per spec/005
+§Recorder + [001-Authoring.md](001-Authoring.md) §Recorder). Six are the
+recorder-lifecycle + simple-codegen surfaces; the seventh,
+`recording->play-script`, is re-exported from the recorder's
+`play-export` sub-namespace as the runtime counterpart to
+`gen-play-snippet` — the live `{:script … :auto-run?}` body the MCP
+write-back path (`record-as-variant`) registers (rf2-x9zsr / rf2-d5u89).
 
 | Fn | Signature | Purpose |
 |---|---|---|
@@ -262,20 +265,23 @@ under the recorder's sub-namespace.
 | `clear-recording!` | `(clear-recording!)` | Drop the buffer + return the recorder to idle. |
 | `recording?` | `(recording?)` | Predicate — is a recording in flight? |
 | `recorder-state` | `(recorder-state)` | Read-only view of the current recorder state map. |
-| `gen-play-snippet` | `(gen-play-snippet events opts)` | Pure codegen: render a captured `events` vector as a `(reg-variant <id> {... :play-script {:script [...]}})` EDN snippet. Each captured event vector is wrapped as `[:dispatch-sync <event-vec>]` (rf2-0wrud). See [005-SOTA-Features.md](005-SOTA-Features.md) §Recorder for the round-trip contract. |
+| `gen-play-snippet` | `(gen-play-snippet events opts)` | Pure codegen → string: render a captured `events` vector as a `(reg-variant <id> {... :script {:script [...]}})` EDN snippet. Emits the PUBLIC `:script` slot (rf2-7mj4z); each captured event vector is wrapped as `[:dispatch-sync <event-vec>]` (rf2-0wrud). See [005-SOTA-Features.md](005-SOTA-Features.md) §Recorder for the round-trip contract. |
+| `recording->play-script` | `(recording->play-script events)` / `(recording->play-script events opts)` | Pure data → data: translate a recording (bare `events` vector OR the rich `:entries` vector) into the live, replayable `{:script [...] :auto-run? bool :name str?}` body a runner executes. The runtime counterpart to `gen-play-snippet`'s text output; the MCP write-back path calls this to re-register the variant with a live `:script` slot. Re-exported from `re-frame.story.recorder.play-export`. |
 
-### Rich-DSL `:play-script` export — out of facade
+### Rich-DSL `:script` translator — sub-namespace home
 
 The richer DOM-capture-aware translator (tagged `:click` / `:type` /
 `:wait` steps derived from the recorder's `:entries` capture stream —
-rf2-d5u89) is exported by **`re-frame.story.recorder.play-export`**
-(sub-namespace; not re-exported through `re-frame.story`). The entry
+rf2-d5u89) lives in **`re-frame.story.recorder.play-export`**. Its entry
 fns are `recording->play-script` (translate captured `:entries` into a
-normalised `:play-script` body map) and `render-play-script` /
-`render-variant-form` (render the map to EDN). The facade exposes only
-`gen-play-snippet` (the simpler event-vector → `:dispatch-sync` step
-projection) as the canonical entry; consumers wanting the rich
-DOM-derived DSL `:require` the sub-namespace directly.
+normalised `:script` body map) and `render-play-script` /
+`render-variant-form` (render the map to EDN, emitting the public
+`:script` slot per rf2-7mj4z). Of these, only `recording->play-script`
+is re-exported on the facade as `re-frame.story/recording->play-script`
+(the MCP write-back convenience); `render-play-script` /
+`render-variant-form` are sub-namespace-only — consumers wanting the
+render-to-EDN surface `:require` `re-frame.story.recorder.play-export`
+directly.
 
 ## Effects (fx) registered by Story
 
