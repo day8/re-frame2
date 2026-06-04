@@ -50,30 +50,63 @@
 
 (defn- validate-retry!
   "Per Spec 014 §Closed-set `:retry :on` validation (rf2-apwkm): a
-  `:retry :on` set may only contain members of `retryable-categories`.
-  Anything outside (a non-retryable `:rf.http/*` category like
-  `:rf.http/aborted`, `:rf.http/decode-failure`, `:rf.http/accept-failure`
-  — or any keyword outside the `:rf.http/*` namespace) throws an
-  `:rf.error/http-bad-retry-on` ex-info per Spec 009 §Error event
-  catalogue. The throw fires at fx-call time, before `run-attempt!`,
-  so the misuse surfaces at the dispatch site rather than being
-  silently swallowed inside the transport retry loop.
+  `:retry :on` value, when present and non-nil, MUST be a SET drawn
+  exclusively from `retryable-categories`. Two failure shapes both throw
+  `:rf.error/http-bad-retry-on` at fx-call time (before `run-attempt!`),
+  so the misuse surfaces at the dispatch site rather than downstream:
 
-  Absent `:retry`, absent `:on`, or an empty `:on` set: no-op. A
-  caller who supplied `:retry` without `:on` already disables retry
-  (the transport loop's `(contains? on-set kind)` gate is false for
-  every kind), so we don't force `:on` to be non-empty here."
+  - SHAPE (rf2-4zldh): a non-set `:on` (keyword, vector, list, string,
+    map, …). Spec 014:372 types `:on` as a *set* of category keywords
+    and the transport loop's membership gate is `(contains? on-set kind)`.
+    `contains?` on a vector/list/string tests INDEX/range membership, not
+    value membership, so a non-set `:on` would silently DISABLE retry for
+    every category — exactly the useless-policy-rides-for-the-lifetime
+    misuse the dispatch-time guard exists to prevent. A bare keyword `:on`
+    was even worse: it threw a raw `IllegalArgumentException` from the
+    `(remove …)` ISeq coercion instead of the canonical error. We reject
+    every non-set non-nil `:on` here, before any of that can happen.
+
+  - MEMBERSHIP: a set `:on` carrying a non-retryable `:rf.http/*` category
+    (`:rf.http/aborted`, `:rf.http/decode-failure`,
+    `:rf.http/accept-failure`) or any keyword outside the `:rf.http/*`
+    retryable subset.
+
+  Both throw `:rf.error/http-bad-retry-on` per Spec 009 §Error event
+  catalogue, distinguished by ex-data (`:bad-shape` vs `:bad-members`).
+
+  Intentional no-retry shapes that pass untouched: absent `:retry`,
+  absent `:on`, explicit `:on nil`, and the empty set `#{}`. A caller
+  who supplies `:retry` with one of these already disables retry (the
+  transport loop's `(contains? on-set kind)` gate is false for every
+  kind), so we do not force `:on` to be non-empty here."
   [args-map]
-  (when-let [on (some-> args-map :retry :on)]
-    (when (seq on)
-      (let [bad-members (into #{} (remove retryable-categories) on)]
-        (when (seq bad-members)
-          (throw (ex-info ":rf.error/http-bad-retry-on"
-                          {:where         :rf.http/managed
-                           :recovery      :no-recovery
-                           :bad-members   bad-members
-                           :retryable-set retryable-categories
-                           :reason        "`:retry :on` must be drawn exclusively from the closed retryable set #{:rf.http/transport :rf.http/cors :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}; `:rf.http/aborted`, `:rf.http/decode-failure`, and `:rf.http/accept-failure` are non-retryable by construction"})))))))
+  ;; `contains?` separates an explicit `:on nil` (intentional no-retry —
+  ;; pass) from an absent key, so we read `:on` only when the `:retry`
+  ;; map actually carries it and the value is non-nil.
+  (let [retry (:retry args-map)]
+    (when (and (map? retry) (contains? retry :on))
+      (let [on (:on retry)]
+        (when (some? on)
+          ;; SHAPE: `:on` must be a set when present and non-nil.
+          (when-not (set? on)
+            (throw (ex-info ":rf.error/http-bad-retry-on"
+                            {:rf.error/id   :rf.error/http-bad-retry-on
+                             :where         :rf.http/managed
+                             :recovery      :no-recovery
+                             :bad-shape     on
+                             :bad-type      (type on)
+                             :retryable-set retryable-categories
+                             :reason        "`:retry :on` must be a SET of retryable-category keywords per Spec 014 §Closed-set `:retry :on` validation; a non-set value (keyword, vector, list, string, …) is rejected because the transport membership gate `(contains? on-set kind)` tests index membership over a sequential collection and would silently disable retry. Use `#{:rf.http/transport :rf.http/http-5xx :rf.http/timeout}`, `#{}` for no-retry, or omit `:on`"})))
+          ;; MEMBERSHIP: every member must be a retryable category.
+          (let [bad-members (into #{} (remove retryable-categories) on)]
+            (when (seq bad-members)
+              (throw (ex-info ":rf.error/http-bad-retry-on"
+                              {:rf.error/id   :rf.error/http-bad-retry-on
+                               :where         :rf.http/managed
+                               :recovery      :no-recovery
+                               :bad-members   bad-members
+                               :retryable-set retryable-categories
+                               :reason        "`:retry :on` must be drawn exclusively from the closed retryable set #{:rf.http/transport :rf.http/cors :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}; `:rf.http/aborted`, `:rf.http/decode-failure`, and `:rf.http/accept-failure` are non-retryable by construction"})))))))))
 
 (defn- validate-url!
   "Per Spec 014 §Request envelope `:url` is the only REQUIRED key in the

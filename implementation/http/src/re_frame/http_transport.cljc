@@ -108,78 +108,112 @@
                                      (catch :default _ nil)))
                               #js {:once true}))))
            timeout-handle (atom nil)
+           ;; rf2-4zldh — the per-attempt timeout must bound the WHOLE
+           ;; attempt, headers AND body read. A slow-loris upstream can
+           ;; send headers promptly and then stall the body
+           ;; (`.text()` / `.blob()` / `.arrayBuffer()` / `.formData()`)
+           ;; indefinitely (Spec 014 §`:timeout-ms` security defaults
+           ;; :323). The earlier shape cleared the timer the instant the
+           ;; Response (headers) resolved and only THEN began the body
+           ;; read, leaving the body-reader promise pending forever and
+           ;; the in-flight handle live. The fix: race the timer against
+           ;; the FULL fetch→body-read chain and clear the timer only
+           ;; when that chain SETTLES (`.finally`), not when headers
+           ;; arrive. The timeout still aborts `internal-controller`
+           ;; (which also rejects an in-progress body reader) and rejects
+           ;; with the canonical `:rf.error/http-timeout` ex-info — the
+           ;; same shape `classify-cljs-error` maps to `:rf.http/timeout`
+           ;; and routes through `maybe-retry!` → `finalise-failure!`,
+           ;; whose once-only `:finalised?` CAS clears the in-flight
+           ;; registry and respects abort precedence (no double-abort).
+           read-body
+           (fn [resp]
+             (let [ok?     (.-ok resp)
+                   headers (fetch-headers->map (.-headers resp))
+                   base    {:ok?         ok?
+                            :status      (.-status resp)
+                            :status-text (.-statusText resp)
+                            :headers     headers}
+                   ;; rf2-5zj6t — a Fetch Response body may be
+                   ;; consumed only once, so the body-reader is
+                   ;; chosen up front from the resolved `:decode`
+                   ;; mode (mirroring `decode-response-body`).
+                   ;; Binary modes (`:blob` / `:array-buffer` /
+                   ;; `:form-data`) read the native body and ride
+                   ;; under `:body-binary`; everything else (and
+                   ;; every non-2xx response, whose raw text is
+                   ;; what the 4xx/5xx failure paths carry) reads
+                   ;; `.text()` into `:body-text`. Decode runs
+                   ;; only on 2xx, so a non-OK response always
+                   ;; takes the text path regardless of `:decode`.
+                   binary-read-mode (when ok?
+                                      (decode/binary-read-kind decode headers))]
+               (case binary-read-mode
+                 :blob
+                 (-> (.blob resp)
+                     (.then (fn [b] (assoc base :body-binary b))))
+
+                 :array-buffer
+                 (-> (.arrayBuffer resp)
+                     (.then (fn [b] (assoc base :body-binary b))))
+
+                 :form-data
+                 (-> (.formData resp)
+                     (.then (fn [b] (assoc base :body-binary b))))
+
+                 ;; nil / text-based decode → read text.
+                 (-> (.text resp)
+                     (.then (fn [body-text]
+                              (assoc base :body-text body-text)))))))
+           ;; The full attempt: fetch the Response, then read its body.
+           ;; This is the promise the timeout races against — the timer
+           ;; covers the body read, not just the headers.
+           attempt-promise (-> (js/fetch url init)
+                               (.then read-body))
+           timeout-promise
+           (js/Promise. (fn [_ reject]
+                          ;; Per Spec 014 §`:timeout-ms` security
+                          ;; defaults: BOTH `nil` and `0` are
+                          ;; explicit opt-outs (no per-attempt
+                          ;; timeout). `0` is truthy in CLJS, so
+                          ;; `(when timeout-ms …)` would arm a
+                          ;; `setTimeout(…, 0)` that aborts the
+                          ;; request on the next macrotask — the
+                          ;; opposite of "unbounded". The
+                          ;; `(pos? …)` guard collapses
+                          ;; `nil`/`0`/negative to "no timeout".
+                          (when (and timeout-ms
+                                     (pos? timeout-ms)
+                                     internal-controller)
+                            (reset! timeout-handle
+                                    (js/setTimeout
+                                      (fn []
+                                        (try (.abort internal-controller "timeout")
+                                             (catch :default _ nil))
+                                        (reject (ex-info ":rf.error/http-timeout"
+                                                         {:rf.error/id      :rf.error/http-timeout
+                                                          :where            ':rf.http/managed
+                                                          :recovery         :no-recovery
+                                                          :reason           (str "the request exceeded its " timeout-ms "ms timeout and was aborted")
+                                                          ;; co-stamp the registry-hook signal the
+                                                          ;; downstream classifier branches on
+                                                          :rf.http/timeout? true
+                                                          :elapsed-ms       timeout-ms
+                                                          :limit-ms         timeout-ms})))
+                                      timeout-ms)))))
            promise
-           (-> (js/Promise.race
-                 #js [(js/fetch url init)
-                      (js/Promise. (fn [_ reject]
-                                     ;; Per Spec 014 §`:timeout-ms` security
-                                     ;; defaults: BOTH `nil` and `0` are
-                                     ;; explicit opt-outs (no per-attempt
-                                     ;; timeout). `0` is truthy in CLJS, so
-                                     ;; `(when timeout-ms …)` would arm a
-                                     ;; `setTimeout(…, 0)` that aborts the
-                                     ;; request on the next macrotask — the
-                                     ;; opposite of "unbounded". The
-                                     ;; `(pos? …)` guard collapses
-                                     ;; `nil`/`0`/negative to "no timeout".
-                                     (when (and timeout-ms
-                                                (pos? timeout-ms)
-                                                internal-controller)
-                                       (reset! timeout-handle
-                                               (js/setTimeout
-                                                 (fn []
-                                                   (try (.abort internal-controller "timeout")
-                                                        (catch :default _ nil))
-                                                   (reject (ex-info ":rf.error/http-timeout"
-                                                                    {:rf.error/id      :rf.error/http-timeout
-                                                                     :where            ':rf.http/managed
-                                                                     :recovery         :no-recovery
-                                                                     :reason           (str "the request exceeded its " timeout-ms "ms timeout and was aborted")
-                                                                     ;; co-stamp the registry-hook signal the
-                                                                     ;; downstream classifier branches on
-                                                                     :rf.http/timeout? true
-                                                                     :elapsed-ms       timeout-ms
-                                                                     :limit-ms         timeout-ms})))
-                                                 timeout-ms)))))])
-               (.then (fn [resp]
-                        (when-let [h @timeout-handle] (js/clearTimeout h))
-                        (let [ok?     (.-ok resp)
-                              headers (fetch-headers->map (.-headers resp))
-                              base    {:ok?         ok?
-                                       :status      (.-status resp)
-                                       :status-text (.-statusText resp)
-                                       :headers     headers}
-                              ;; rf2-5zj6t — a Fetch Response body may be
-                              ;; consumed only once, so the body-reader is
-                              ;; chosen up front from the resolved `:decode`
-                              ;; mode (mirroring `decode-response-body`).
-                              ;; Binary modes (`:blob` / `:array-buffer` /
-                              ;; `:form-data`) read the native body and ride
-                              ;; under `:body-binary`; everything else (and
-                              ;; every non-2xx response, whose raw text is
-                              ;; what the 4xx/5xx failure paths carry) reads
-                              ;; `.text()` into `:body-text`. Decode runs
-                              ;; only on 2xx, so a non-OK response always
-                              ;; takes the text path regardless of `:decode`.
-                              binary-read-mode (when ok?
-                                                 (decode/binary-read-kind decode headers))]
-                          (case binary-read-mode
-                            :blob
-                            (-> (.blob resp)
-                                (.then (fn [b] (assoc base :body-binary b))))
-
-                            :array-buffer
-                            (-> (.arrayBuffer resp)
-                                (.then (fn [b] (assoc base :body-binary b))))
-
-                            :form-data
-                            (-> (.formData resp)
-                                (.then (fn [b] (assoc base :body-binary b))))
-
-                            ;; nil / text-based decode → read text.
-                            (-> (.text resp)
-                                (.then (fn [body-text]
-                                         (assoc base :body-text body-text)))))))))]
+           (-> (js/Promise.race #js [attempt-promise timeout-promise])
+               ;; rf2-4zldh — clear the timer only once the WHOLE attempt
+               ;; (headers + body read) settles, success or failure.
+               ;; `.finally` runs on both branches and on the timeout
+               ;; rejection itself, so the timer is always disarmed
+               ;; before this promise hands off to `handle-response!` /
+               ;; the `.catch` → `maybe-retry!` sink. Returning `nil`
+               ;; keeps `.finally` value-transparent (it forwards the
+               ;; original settlement, not the handler's return).
+               (.finally (fn []
+                           (when-let [h @timeout-handle] (js/clearTimeout h))
+                           nil)))]
        promise)))
 
 #?(:cljs

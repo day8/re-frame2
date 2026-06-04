@@ -393,7 +393,12 @@ The other `:rf.http/*` categories from [§Failure categories](#failure-categorie
 | `:rf.http/decode-failure` | The next attempt would deterministically reproduce the same schema-validation / parser failure for the same response shape — retrying buys nothing and burns attempts. |
 | `:rf.http/accept-failure` | A `{:failure user-map}` projection from `:accept` is the caller's own classification of a successful transport + decode; retrying the transport will not change the response body. Domain-level retry of this shape belongs to a state machine (see [§Boundary — transport vs semantic retry](#boundary--transport-vs-semantic-retry)), not to `:retry`. |
 
-Implementations **MUST validate `:retry :on` at fx-call time** (when the `:rf.http/managed` fx body is invoked, before any attempt is issued). A non-empty intersection between `:on` and the rejected set throws an `:rf.error/http-bad-retry-on` ex-info, per [Spec 009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue). This catches the misuse at the dispatch site rather than silently letting a useless retry policy ride for the request's lifetime (or, for `:rf.http/aborted`, deferring the rejection to retry-attempt time inside the transport loop). Membership outside the full `:rf.http/*` namespace is also rejected — the set is closed.
+Implementations **MUST validate `:retry :on` at fx-call time** (when the `:rf.http/managed` fx body is invoked, before any attempt is issued). The validation has two parts:
+
+- **Shape.** When present and non-nil, `:on` MUST be a `set`. A non-set value (a bare keyword, a vector, a list, a string, …) is rejected with `:rf.error/http-bad-retry-on` (ex-data `:bad-shape`). This is a hard rejection, not a coercion: the transport membership gate is `(contains? on-set kind)`, and `contains?` over a *sequential* collection tests index/range membership rather than value membership — so a vector `:on` would silently DISABLE retry for every category. An explicit `:on nil` and the empty set `#{}` are intentional no-retry shapes and pass untouched.
+- **Membership.** A non-empty intersection between a set `:on` and the rejected set throws an `:rf.error/http-bad-retry-on` ex-info (ex-data `:bad-members`), per [Spec 009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue). Membership outside the full `:rf.http/*` namespace is also rejected — the set is closed.
+
+Both parts catch the misuse at the dispatch site rather than silently letting a useless retry policy ride for the request's lifetime (or, for `:rf.http/aborted`, deferring the rejection to retry-attempt time inside the transport loop).
 
 Per the spec tighten: implementations MUST NOT accept the old open `:rf.http/*` set. The rejection is hard, not advisory.
 

@@ -408,6 +408,115 @@
                                      "armed a near-instant abort and rejected: " e))
                       (done))))))))
 
+;; ---- rf2-4zldh — `:timeout-ms` bounds the BODY read, not just headers ----
+;;
+;; A slow-loris upstream can resolve the Fetch Response (headers) promptly
+;; and then stall the body reader (`.text()` / `.blob()` / …) indefinitely.
+;; Spec 014 §`:timeout-ms` security defaults (:323) requires the per-attempt
+;; timeout to protect against exactly this. The pre-fix transport cleared
+;; the timer the instant the Response resolved and only THEN began the body
+;; read, so a stalled body left the body-reader promise pending forever and
+;; the in-flight handle live. The fix races the timer against the FULL
+;; fetch→body-read chain and disarms it only when that chain settles.
+
+(defn- fake-response-stalled-body
+  "A Fetch `Response` stand-in whose HEADERS resolve immediately (the
+  outer `js/fetch` Promise) but whose selected body reader returns a
+  Promise that NEVER settles. Models a server that sends headers then
+  stalls the body — the slow-loris the per-attempt timeout must bound.
+  `read-fired` (an atom) is set true the moment the body reader is
+  invoked, so the test can assert the reader was reached before the
+  timeout fired."
+  [{:keys [status content-type read-fired]}]
+  #js {:ok          (and (>= status 200) (< status 300))
+       :status      status
+       :statusText  ""
+       :headers     #js {:forEach (fn [cb]
+                                    (when content-type (cb content-type "content-type")))}
+       :text        (fn [] (reset! read-fired true) (js/Promise. (fn [_ _])))
+       :blob        (fn [] (reset! read-fired true) (js/Promise. (fn [_ _])))
+       :arrayBuffer (fn [] (reset! read-fired true) (js/Promise. (fn [_ _])))
+       :formData    (fn [] (reset! read-fired true) (js/Promise. (fn [_ _])))})
+
+(deftest cljs-timeout-bounds-stalled-body-read
+  (testing "rf2-4zldh — `cljs-fetch` REJECTS with the canonical
+  :rf.error/http-timeout ex-info when the Response resolves (headers) but
+  the selected body reader never settles past `:timeout-ms`. Pre-fix the
+  timer was cleared on header arrival, so this promise hung forever."
+    (async done
+      (let [read-fired (atom false)
+            resp       (fake-response-stalled-body
+                         {:status 200 :content-type "application/json"
+                          :read-fired read-fired})]
+        (-> (with-stub-fetch resp
+              #(cljs-fetch {:method     :get
+                            :url        "/slow-body"
+                            :headers    {}
+                            :decode     :json
+                            :timeout-ms 40
+                            :internal-controller (js/AbortController.)}))
+            (.then (fn [result]
+                     (is false (str "rf2-4zldh regression — a stalled body "
+                                    "read RESOLVED instead of timing out: " (pr-str result)))
+                     (done)))
+            (.catch (fn [err]
+                      (is (true? @read-fired)
+                          "the body reader was reached (headers resolved) before the timeout fired")
+                      (let [data (ex-data err)]
+                        (is (= :rf.error/http-timeout (:rf.error/id data))
+                            "the stalled-body timeout rejects with the canonical :rf.error/http-timeout")
+                        (is (true? (:rf.http/timeout? data))
+                            "the registry-hook timeout signal is co-stamped")
+                        (is (= 40 (:limit-ms data))))
+                      (done))))))))
+
+(deftest cljs-timeout-stalled-body-finalises-as-timeout-and-clears-registry
+  (testing "rf2-4zldh — driven through the full `:rf.http/managed` pipeline,
+  a response whose body reader stalls past `:timeout-ms` finalises as a
+  :rf.http/timeout failure reply AND clears the in-flight registry. This is
+  the end-to-end acceptance: the slow-loris no longer pins an in-flight
+  handle indefinitely."
+    (async done
+      (rf/init! reagent-adapter/adapter)
+      (http-managed/clear-all-in-flight!)
+      (let [replies    (atom [])
+            read-fired (atom false)
+            resp       (fake-response-stalled-body
+                         {:status 200 :content-type "application/json"
+                          :read-fired read-fired})
+            orig       (.-fetch js/globalThis)]
+        (set! (.-fetch js/globalThis) (fn [_url _init] (js/Promise.resolve resp)))
+        (rf/reg-event-fx :reply/recorder
+          (fn [_ [_ payload]] (swap! replies conj payload) {}))
+        (rf/reg-event-fx :issue/slow-body
+          (fn [_ _]
+            {:fx [[:rf.http/managed
+                   {:request    {:url "/slow-body"}
+                    :decode     :json
+                    :timeout-ms 40
+                    :request-id :loris
+                    :on-failure [:reply/recorder]
+                    :on-success [:reply/recorder]}]]}))
+        (rf/dispatch-sync [:issue/slow-body])
+        (-> (test-support/poll-until
+              #(seq @replies)
+              {:timeout-ms 2000 :label "cljs stalled-body timeout reply"})
+            (.then (fn [_]
+                     (is (true? @read-fired)
+                         "the body reader was reached before the timeout fired")
+                     (let [reply (first @replies)]
+                       (is (= :failure (:kind reply)))
+                       (is (= :rf.http/timeout (get-in reply [:failure :kind]))
+                           "a stalled body read finalises as the canonical :rf.http/timeout failure"))
+                     (is (empty? (registry/in-flight-snapshot))
+                         "the in-flight registry is cleared — the slow-loris handle is not pinned")
+                     (set! (.-fetch js/globalThis) orig)
+                     (done)))
+            (.catch (fn [e]
+                      (set! (.-fetch js/globalThis) orig)
+                      (is false (str "rf2-4zldh — unexpected: " e))
+                      (done))))))))
+
 ;; ---- rf2-wj8vv — the retry backoff window is cancellable (CLJS) -----------
 ;;
 ;; The JVM suite (re-frame.http-backoff-cancellation-test) covers all three

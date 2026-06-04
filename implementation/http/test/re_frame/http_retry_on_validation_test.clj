@@ -76,6 +76,22 @@
               (= bad-members               (:bad-members data))
               (string?                     (:reason data))))))
 
+(defn- bad-retry-shape-throw?
+  "rf2-4zldh — a non-set `:on` throws `:rf.error/http-bad-retry-on` with
+  `:bad-shape` (the offending value) rather than `:bad-members`. The
+  ex-data must carry the canonical error id, the offending value, and a
+  string `:reason`."
+  [ex bad-shape]
+  (and (some? ex)
+       (= ":rf.error/http-bad-retry-on" (.getMessage ex))
+       (let [data (ex-data ex)]
+         (and (= :rf.error/http-bad-retry-on (:rf.error/id data))
+              (= :rf.http/managed            (:where data))
+              (= :no-recovery                (:recovery data))
+              (= bad-shape                   (:bad-shape data))
+              (contains? data :bad-type)
+              (string?                       (:reason data))))))
+
 ;; ---- rejection: non-retryable :rf.http/* categories -----------------------
 
 (deftest aborted-rejected
@@ -123,6 +139,44 @@
       (is (bad-retry-on-throw? ex
             #{:rf.http/aborted :rf.http/decode-failure})))))
 
+;; ---- rejection: non-set `:on` shapes (rf2-4zldh) --------------------------
+
+(deftest keyword-on-rejected
+  (testing "rf2-4zldh — a bare keyword `:on` throws
+    :rf.error/http-bad-retry-on with :bad-shape. Previously this threw a
+    raw IllegalArgumentException (\"Don't know how to create ISeq from:
+    clojure.lang.Keyword\") from the `(remove …)` ISeq coercion."
+    (let [ex (call-managed! {:on :rf.http/transport :max-attempts 3})]
+      (is (bad-retry-shape-throw? ex :rf.http/transport))
+      (is (not (instance? IllegalArgumentException ex))
+          "must be the canonical :rf.error/http-bad-retry-on, not a raw IllegalArgumentException"))))
+
+(deftest vector-on-rejected
+  (testing "rf2-4zldh — a vector `:on` (even with retryable members)
+    throws :rf.error/http-bad-retry-on. Previously a vector reached
+    run-attempt! unchanged, where `(contains? on-set kind)` tests INDEX
+    membership not category membership — silently disabling retry."
+    (let [bad [:rf.http/transport]
+          ex  (call-managed! {:on bad :max-attempts 3})]
+      (is (bad-retry-shape-throw? ex bad)))))
+
+(deftest list-on-rejected
+  (testing "rf2-4zldh — a list `:on` is rejected; only a set is valid."
+    (let [bad (list :rf.http/transport :rf.http/http-5xx)
+          ex  (call-managed! {:on bad :max-attempts 3})]
+      (is (bad-retry-shape-throw? ex bad)))))
+
+(deftest string-on-rejected
+  (testing "rf2-4zldh — a string `:on` is rejected; only a set is valid."
+    (let [ex (call-managed! {:on "rf.http/transport" :max-attempts 3})]
+      (is (bad-retry-shape-throw? ex "rf.http/transport")))))
+
+(deftest map-on-rejected
+  (testing "rf2-4zldh — a map `:on` is rejected; only a set is valid."
+    (let [bad {:rf.http/transport true}
+          ex  (call-managed! {:on bad :max-attempts 3})]
+      (is (bad-retry-shape-throw? ex bad)))))
+
 ;; ---- pass-through: closed-set members and absences ------------------------
 
 (deftest all-closed-set-members-pass-through
@@ -168,5 +222,14 @@
     the validator is a no-op. Equivalent to no retry per the
     transport loop's `(or on #{})` defaulting."
     (let [ex (call-managed! {:max-attempts 3})]
+      (is (not (and (some? ex)
+                    (= ":rf.error/http-bad-retry-on" (.getMessage ex))))))))
+
+(deftest explicit-nil-on-passes-through
+  (testing "rf2-4zldh — `:retry {:on nil :max-attempts 3}`: an explicit
+    nil `:on` is an intentional no-retry shape, not a malformed value.
+    It passes the shape check (the `(some? on)` guard) the same as an
+    absent `:on`. Only present, non-nil, non-set values are rejected."
+    (let [ex (call-managed! {:on nil :max-attempts 3})]
       (is (not (and (some? ex)
                     (= ":rf.error/http-bad-retry-on" (.getMessage ex))))))))
