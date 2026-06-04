@@ -98,11 +98,26 @@ no-op the fx so they don't race with the URL-owning frame (per Spec 012
 
 (defn push-url-handler
   "`:rf.nav/push-url` fx handler. Registered by the façade so a `:reload`
-  re-wires it on a fresh registrar."
+  re-wires it on a fresh registrar.
+
+  rf2-cylse.4 (defence-in-depth): the `.pushState` call is wrapped in
+  try/catch. A browser throws `SecurityError` when asked to push an
+  absolute cross-origin URL — left uncaught that crashes the fx drain (a
+  DoS, worse than the redirect it would otherwise be). The
+  `url/external-url?` gate at the nav-event sinks (rf2-cylse.4) already
+  fails such URLs closed before they reach this fx, so this catch is a
+  second line of defence: any residual throw is downgraded to a
+  `:rf.fx/push-url-failed` trace, keeping the drain alive."
   [{:keys [frame]} url]
   (history-mutation-handler
     :rf.nav/push-url frame url
-    #?(:cljs #(.pushState js/window.history nil "" url) :clj nil)))
+    #?(:cljs #(try
+                (.pushState js/window.history nil "" url)
+                (catch :default e
+                  (trace/emit! :rf.fx :rf.fx/push-url-failed
+                               {:fx-id :rf.nav/push-url :url url
+                                :error (.-message e)})))
+       :clj nil)))
 
 (def replace-url-meta
   "Metadata for the `:rf.nav/replace-url` fx registration. Spec 012

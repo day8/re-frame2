@@ -625,6 +625,74 @@
     (is (= "abc" (get-in (routing/match-url "/list?page=abc") [:query :page]))
         "fully non-numeric input stays a string (already symmetric)")))
 
+;; rf2-cylse.1: :int coercion must be HOST-SYMMETRIC and TOTAL on OVERSIZED
+;; integer literals. The predecessor `js/parseInt` produced a LOSSY DOUBLE
+;; for a literal above 2^53 (e.g. 9007199254740993 -> ...92) while the JVM
+;; `Long/parseLong` stayed EXACT — the same URL yielded a DIFFERENT :query
+;; slice server vs client (a Spec 011 hydration mismatch), and a >2^63
+;; literal threw NumberFormatException on the JVM (route-miss) while CLJS
+;; committed a lossy float (page render) — a divergent OUTCOME. The fix
+;; bounds the literal at the cross-host safe-integer ceiling (2^53-1) and
+;; passes through AS A STRING above it on BOTH hosts. This CLJS pin asserts
+;; the EXACT outputs the JVM `int-coercion-oversized-host-parity-jvm` test
+;; expects.
+(deftest int-coercion-oversized-host-parity-cljs
+  (testing "rf2-cylse.1: oversized :int literals pass through as STRINGS on
+            CLJS (was a lossy double under js/parseInt), matching the JVM"
+    (register-routes!)
+    (rf/reg-route :hist/items {:path "/items" :query [:map [:page :int]]})
+    (testing "within the safe-integer range still coerces"
+      (is (= 42 (get-in (routing/match-url "/items?page=42") [:query :page])))
+      (is (= 9007199254740991
+             (get-in (routing/match-url "/items?page=9007199254740991") [:query :page]))
+          "2^53-1 (MAX_SAFE_INTEGER) coerces — inclusive ceiling, exact on both hosts"))
+    (testing "above the ceiling passes through as a string (both hosts agree)"
+      (is (= "9007199254740992"
+             (get-in (routing/match-url "/items?page=9007199254740992") [:query :page]))
+          "2^53 exceeds MAX_SAFE_INTEGER → string (js/parseInt would round)")
+      (is (= "9007199254740993"
+             (get-in (routing/match-url "/items?page=9007199254740993") [:query :page]))
+          "the canonical lossy-double case → string on CLJS too (was ...92)")
+      (is (= "-9007199254740993"
+             (get-in (routing/match-url "/items?page=-9007199254740993") [:query :page]))
+          "negative oversized literal also passes through"))
+    (testing "a literal beyond 2^63 does NOT coerce (parse-long is total, returns nil)"
+      (is (= "99999999999999999999999"
+             (get-in (routing/match-url "/items?page=99999999999999999999999") [:query :page]))
+          "string passthrough, matching the JVM (no throw / no lossy float)"))))
+
+;; rf2-cylse.5: PATH params coerce against the :params schema on CLJS too —
+;; the canonical Spec 012 :uuid route must round-trip a real UUID URL to
+;; {:id #uuid ...} on the browser, identically to the JVM (SSR) side.
+(deftest path-param-coercion-cljs
+  (testing "rf2-cylse.5: :int / :uuid PATH params coerce against the
+            :params schema before validation on CLJS"
+    (register-routes!)
+    (rf/reg-route :hist/page    {:path "/page/:n"      :params [:map [:n :int]]})
+    (rf/reg-route :hist/article {:path "/articles/:id" :params [:map [:id :uuid]]})
+    (is (= 42 (get-in (routing/match-url "/page/42") [:params :n]))
+        ":int path param coerced to a number")
+    (let [uuid-str "550e8400-e29b-41d4-a716-446655440000"
+          m        (routing/match-url (str "/articles/" uuid-str))]
+      (is (= (parse-uuid uuid-str) (get-in m [:params :id]))
+          ":uuid path param coerced to a #uuid object")
+      (is (uuid? (get-in m [:params :id])) "the slice carries a UUID object, not a string"))))
+
+;; rf2-zmcq6 (CODE half): {:fragment ""} normalizes to nil at the navigate
+;; boundary on CLJS so the pushed URL and slice fragment agree with
+;; URL-driven nav.
+(deftest navigate-empty-string-fragment-normalized-cljs
+  (testing "rf2-zmcq6: navigate {:fragment \"\"} writes :fragment nil and
+            pushes a fragment-less URL on CLJS"
+    (register-routes!)
+    (rf/reg-route :hist/docs {:path "/docs/:page"})
+    (rf/dispatch-sync [:rf.route/navigate :hist/docs {:page "guide"} {:fragment ""}])
+    (is (nil? (get-in (rf/app-db-value :rf/default)
+                      [:rf/runtime :routing :current :fragment]))
+        "empty-string fragment normalized to nil in the slice")
+    (is (= "/docs/guide" (current-url *history-state*))
+        "the pushed URL has no trailing # for an empty-string fragment")))
+
 ;; =========================================================================
 ;; 4. replaceState — no new history entry
 ;; =========================================================================

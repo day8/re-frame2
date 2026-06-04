@@ -3325,6 +3325,199 @@
                    " pushes through verbatim")))))))
 
 ;; ============================================================================
+;; rf2-cylse.4 — :rf.route/navigate {:url ...} gates through the SAME
+;; fail-closed open-redirect classifier as :rf/url-requested. Before this
+;; fix the programmatic {:url ...} sink pushed the URL VERBATIM with no
+;; external/safe-url gate — every rf2-3bv8o bypass vector escaped. This is
+;; the rf2-3bv8o matrix re-run through the navigate {:url} sink.
+;; ============================================================================
+
+(deftest navigate-url-target-fails-closed-on-ambiguous-urls-jvm
+  (testing ":rf.route/navigate {:url <hostile>} on the JVM (no browser
+            origin) classes ambiguous / bypass-shaped URLs as EXTERNAL —
+            no :rf.nav/push-url, no slice rewrite — IDENTICALLY to the
+            :rf/url-requested link-click path. rf2-cylse.4."
+    (rf/reg-route :route/home {:path "/"})
+    (rf/reg-route :route/cart {:path "/cart"})
+    (let [pushed (atom [])]
+      (rf/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}}
+                 (fn [_ url] (swap! pushed conj url)))
+      ;; Land on a known route first so we can prove the slice does not move.
+      (rf/dispatch-sync [:rf.route/transitioned "/cart"])
+      (is (= :route/cart (get-in (rf/app-db-value :rf/default)
+                                 [:rf/runtime :routing :current :id]))
+          "preconditon: active route is :route/cart")
+      (testing "every rf2-3bv8o bypass vector fails closed through navigate {:url}"
+        (doseq [hostile ["https://evil.invalid/phish"   ;; absolute cross-origin
+                         "//evil.invalid/phish"          ;; protocol-relative
+                         "/\\evil.invalid"               ;; backslash authority
+                         " /cart"                        ;; leading-space scheme-anchor bypass
+                         "\thttps://evil.invalid"        ;; embedded tab (browser-stripped)
+                         "javascript:alert(1)"           ;; non-http scheme
+                         "https://good.com@evil.com/x"   ;; userinfo confusion
+                         "mailto:a@b.c"
+                         "cart"]]                          ;; bare relative segment (not rooted)
+          (reset! pushed [])
+          (rf/dispatch-sync [:rf.route/navigate {:url hostile}])
+          (is (empty? @pushed)
+              (str "fail-closed: navigate {:url " (pr-str hostile)
+                   "} classed external, not pushed"))
+          (is (= :route/cart (get-in (rf/app-db-value :rf/default)
+                                     [:rf/runtime :routing :current :id]))
+              (str "fail-closed: navigate {:url " (pr-str hostile)
+                   "} did not rewrite the active route"))))
+      (testing "provably same-origin rooted paths DO push through navigate {:url}"
+        ;; Each safe nav is preceded by landing on a DIFFERENT route so the
+        ;; rule-3 identical-nav no-op never masks the push under test. `/`
+        ;; resolves to :route/home, the rest to :route/cart.
+        (doseq [[safe land-elsewhere] [["/cart"      "/"]
+                                       ["/"          "/cart"]
+                                       ["/cart?q=1"  "/"]
+                                       ["/cart#frag" "/"]]]
+          (rf/dispatch-sync [:rf.route/transitioned land-elsewhere])
+          (reset! pushed [])
+          (rf/dispatch-sync [:rf.route/navigate {:url safe}])
+          (is (seq @pushed)
+              (str "safe same-origin reference " (pr-str safe)
+                   " pushes through navigate {:url}")))))))
+
+;; ============================================================================
+;; rf2-cylse.5 — match-url coerces PATH params against the :params schema
+;; (mirror of the query side). The canonical Spec 012 :uuid route must
+;; round-trip a real UUID URL to {:id #uuid ...}, not 404. Exercised with
+;; a real Malli validator (re-frame.schemas is required by this ns's
+;; fixture), so :validation-failed? actually runs.
+;; ============================================================================
+
+(deftest path-param-coercion-against-params-schema
+  (testing "rf2-cylse.5: a typed PATH param coerces against the route's
+            :params schema BEFORE validation — :int / :uuid round-trip,
+            validation passes, and the canonical Spec 012 :uuid route
+            matches a real UUID URL instead of 404ing"
+    (rf/reg-route :route/page    {:path "/page/:n"      :params [:map [:n :int]]})
+    (rf/reg-route :route/article {:path "/articles/:id" :params [:map [:id :uuid]]})
+    (rf/reg-route :route/double  {:path "/d/:x"         :params [:map [:x :double]]})
+    (rf/reg-route :route/str     {:path "/s/:v"         :params [:map [:v :string]]})
+
+    (testing ":int path param coerces to a number; validation passes"
+      (let [m (routing/match-url "/page/42")]
+        (is (= :route/page (:route-id m)))
+        (is (= 42 (get-in m [:params :n])) "string \"42\" coerced to the number 42")
+        (is (false? (:validation-failed? m))
+            "coerced :int conforms to [:n :int] — no validation failure (was true)")))
+
+    (testing ":uuid path param coerces to a #uuid object; canonical route matches"
+      (let [uuid-str "550e8400-e29b-41d4-a716-446655440000"
+            m        (routing/match-url (str "/articles/" uuid-str))]
+        (is (= :route/article (:route-id m)))
+        (is (= (parse-uuid uuid-str) (get-in m [:params :id]))
+            "string coerced to a real #uuid object (Spec 012:269)")
+        (is (uuid? (get-in m [:params :id])) "the slice carries a UUID object, not a string")
+        (is (false? (:validation-failed? m))
+            "coerced :uuid conforms to [:id :uuid] — the canonical route matches (was 404)")))
+
+    (testing ":double path param coerces to a number"
+      (let [m (routing/match-url "/d/3.14")]
+        (is (= 3.14 (get-in m [:params :x])))
+        (is (false? (:validation-failed? m)))))
+
+    (testing ":string path param stays a string (no coercion); a non-UUID
+              for a :uuid route stays a string and fails validation"
+      (is (= "hello" (get-in (routing/match-url "/s/hello") [:params :v])))
+      (let [m (routing/match-url "/articles/not-a-uuid")]
+        ;; not-a-uuid stays a string (parse-uuid → nil → passthrough), so
+        ;; the :uuid schema flags it — fail-closed, not a crash.
+        (is (= "not-a-uuid" (get-in m [:params :id])))
+        (is (true? (:validation-failed? m))
+            "a non-UUID value for a :uuid route fails validation (string passthrough)")))
+
+    (testing "round-trips: route-url rebuilds the URL from the coerced params"
+      (let [uuid-str "550e8400-e29b-41d4-a716-446655440000"
+            m        (routing/match-url (str "/articles/" uuid-str))]
+        (is (= (str "/articles/" uuid-str)
+               (routing/route-url :route/article (:params m)))
+            "URL → coerced params → URL is byte-identical")))))
+
+;; ============================================================================
+;; rf2-cylse.1 — :int coercion is HOST-SYMMETRIC and TOTAL on oversized
+;; integers. The JVM half of the cross-host parity pin; the CLJS half lives
+;; in routing_history_cljs_test.cljs. Both hosts must agree EXACTLY.
+;; ============================================================================
+
+(deftest int-coercion-oversized-host-parity-jvm
+  (testing "rf2-cylse.1: an integer literal above the cross-host
+            safe-integer ceiling (2^53-1) PASSES THROUGH AS A STRING on
+            the JVM (was: exact Long, which CLJS rounds to a lossy double
+            — a Spec 011 hydration mismatch), and a >2^63 literal does NOT
+            throw (was: NumberFormatException escaping match-url)"
+    (rf/reg-route :route/items {:path "/items" :query [:map [:page :int]]})
+
+    (testing "values within the safe-integer range still coerce"
+      (is (= 42 (get-in (routing/match-url "/items?page=42") [:query :page])))
+      (is (= 9007199254740991
+             (get-in (routing/match-url "/items?page=9007199254740991") [:query :page]))
+          "2^53-1 (MAX_SAFE_INTEGER) coerces — the ceiling is inclusive"))
+
+    (testing "values ABOVE the safe-integer ceiling pass through as strings (both hosts agree)"
+      (is (= "9007199254740992"
+             (get-in (routing/match-url "/items?page=9007199254740992") [:query :page]))
+          "2^53 exceeds MAX_SAFE_INTEGER → string passthrough (CLJS would be lossy)")
+      (is (= "9007199254740993"
+             (get-in (routing/match-url "/items?page=9007199254740993") [:query :page]))
+          "the rf2-cylse.1 canonical lossy-double case → string on BOTH hosts")
+      (is (= "-9007199254740993"
+             (get-in (routing/match-url "/items?page=-9007199254740993") [:query :page]))
+          "negative oversized literal also passes through"))
+
+    (testing "a literal beyond 2^63 does NOT throw (parse-long is total)"
+      (is (= "99999999999999999999999"
+             (get-in (routing/match-url "/items?page=99999999999999999999999") [:query :page]))
+          "no NumberFormatException escapes — direct match-url callers see a clean string"))))
+
+;; ============================================================================
+;; rf2-zmcq6 (CODE half) — :rf.route/navigate {:fragment ""} must agree
+;; with URL-driven nav: an empty-string fragment is normalized to nil at
+;; the navigate boundary, so the pushed URL (no trailing #) and the route
+;; slice (:fragment nil) agree, exactly as a URL-driven nav to the same URL.
+;; ============================================================================
+
+(deftest navigate-empty-string-fragment-normalized
+  (testing "rf2-zmcq6: programmatic navigation with {:fragment \"\"} pushes
+            the fragment-less URL AND writes :fragment nil to the slice —
+            agreeing with URL-driven nav (was: slice carried :fragment \"\"
+            while the URL had no #, a slice/URL divergence)"
+    (rf/reg-route :route/docs {:path "/docs/:page"})
+    (let [pushed (atom [])]
+      (rf/reg-fx :rf.nav/push-url
+                 {:platforms #{:server :client}}
+                 (fn [_ url] (swap! pushed conj url)))
+
+      ;; URL-driven baseline: navigate to /docs/routing from the URL.
+      (rf/dispatch-sync [:rf.route/transitioned "/docs/routing"])
+      (let [url-driven-frag (get-in (rf/app-db-value :rf/default)
+                                    [:rf/runtime :routing :current :fragment])]
+        (is (nil? url-driven-frag) "URL-driven nav to /docs/routing yields :fragment nil")
+
+        ;; Now reach the SAME URL programmatically with {:fragment ""}.
+        (reset! pushed [])
+        (rf/dispatch-sync [:rf.route/navigate :route/docs {:page "guide"} {:fragment ""}])
+        (let [slice-frag (get-in (rf/app-db-value :rf/default)
+                                 [:rf/runtime :routing :current :fragment])]
+          (is (= ["/docs/guide"] @pushed)
+              "the pushed URL carries NO trailing # for an empty-string fragment")
+          (is (nil? slice-frag)
+              "the slice :fragment is nil (normalized from \"\"), matching URL-driven nav")))
+
+      (testing "a non-empty programmatic fragment still works (regression guard)"
+        (reset! pushed [])
+        (rf/dispatch-sync [:rf.route/navigate :route/docs {:page "api"} {:fragment "section"}])
+        (is (= ["/docs/api#section"] @pushed) "non-empty fragment appends #section")
+        (is (= "section" (get-in (rf/app-db-value :rf/default)
+                                 [:rf/runtime :routing :current :fragment]))
+            "the slice carries the non-empty fragment")))))
+
+;; ============================================================================
 ;; rf2-5pyyl — :can-leave non-boolean → BLOCK + :rf.error/can-leave-non-boolean
 ;; ============================================================================
 

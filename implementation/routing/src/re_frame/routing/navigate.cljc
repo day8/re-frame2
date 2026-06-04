@@ -17,6 +17,7 @@
             [re-frame.routing.events :as routing-events]
             [re-frame.routing.registry :as registry]
             [re-frame.routing.scroll :as scroll]
+            [re-frame.routing.url :as url]
             [re-frame.trace :as trace]))
 
 ;; Per Spec 012 §Navigation is an event — the arity contract:
@@ -73,12 +74,34 @@
     ;; have a token to thread through stale-suppression.
     (let [opts (or opts {})
           {:keys [route-id path-params query-params matched-fragment unmatched-url
-                  throw-reason requested-url]}
+                  throw-reason requested-url external-url-target?]}
           (cond
             (keyword? target)
             {:route-id     target
              :path-params  (or params {})
              :query-params (:query opts {})}
+
+            ;; rf2-cylse.4 (SECURITY — open-redirect): the `{:url ...}`
+            ;; escape hatch is the untrusted-input sink (Spec 012 §Target
+            ;; form — URL-string: deep-link handlers, server-redirect
+            ;; targets, programmatic redirects from a string). It MUST gate
+            ;; through the SAME fail-closed open-redirect classifier the
+            ;; `:rf/url-requested` link-click path uses — otherwise every
+            ;; rf2-3bv8o bypass vector (`//evil`, `/\evil`, `javascript:`,
+            ;; leading-space, `user@host`) is pushed VERBATIM to
+            ;; `:rf.nav/push-url`. The classifier is hoisted into
+            ;; `re-frame.routing.url` so both sinks share one gate. When the
+            ;; URL classes EXTERNAL we short-circuit BEFORE `match-url` (no
+            ;; match work, no slice rewrite, no push) — the commit body's
+            ;; `external-url-target?` cond arm fails closed identically to
+            ;; `url-requested-handler` (`:rf.route/external-url-requested`
+            ;; trace + `{}`).
+            (and (map? target) (:url target) (url/external-url? (:url target)))
+            {:route-id             :rf.route/not-found
+             :path-params          {}
+             :query-params         {}
+             :requested-url        (:url target)
+             :external-url-target? true}
 
             (and (map? target) (:url target))
             ;; rf2-6t1xb: `match-url` THROWS on the keyword-interning DoS
@@ -122,9 +145,21 @@
                ;; dashboards / SSR projections the DoS cap feeds.
                :throw-reason     throw-reason
                :requested-url    (:url target)}))
-          fragment    (or (:fragment opts)
-                          (and (map? target) (:fragment target))
-                          matched-fragment)
+          ;; rf2-zmcq6: normalize an explicit empty-string fragment to nil
+          ;; at the navigate boundary. `route-url` (the URL builder) treats
+          ;; `:fragment ""` as NO fragment (emits no trailing `#`), but
+          ;; `""` is truthy, so without this normalization
+          ;; `[:rf.route/navigate :route/docs {} {:fragment ""}]` would
+          ;; push `/docs` (no `#`) while writing `:fragment ""` into the
+          ;; route slice — a slice/URL divergence vs URL-driven nav to the
+          ;; same URL (which yields `:fragment nil`). Collapsing `""` → nil
+          ;; here keeps the programmatic and URL-driven paths in agreement:
+          ;; the pushed URL and the slice's `:fragment` match regardless of
+          ;; how the route was reached.
+          fragment    (let [f (or (:fragment opts)
+                                  (and (map? target) (:fragment target))
+                                  matched-fragment)]
+                        (when-not (= "" f) f))
           route-meta  (registrar/lookup :route route-id)
           ;; rf2-1os1c: catch the params/opts positional swap at the
           ;; event boundary. Route-id form only — the `{:url ...}` form
@@ -194,8 +229,15 @@
           ;; (`url-change-fx`), which already keeps the requested URL (it
           ;; changed via link/popstate, so that path emits no push). Per
           ;; Spec 012 §Target form — URL-string.
-          url (if unmatched-url
-                unmatched-url
+          url (cond
+                ;; rf2-cylse.4: an external-classed `{:url ...}` target
+                ;; fails closed below (the `external-url-target?` cond arm)
+                ;; — never built into a push URL, so skip `route-url`
+                ;; entirely (calling it for `:rf.route/not-found` would
+                ;; throw `:no-such-route` when none is registered).
+                external-url-target? nil
+                unmatched-url        unmatched-url
+                :else
                 (try (registry/route-url route-id path-params query-params fragment)
                      (catch #?(:clj Throwable :cljs :default) ex
                        ;; rf2-7d30s — stamp the in-flight cascade's `:frame`
@@ -256,6 +298,22 @@
         ;; Caller-bug schema failure: reject (slice unchanged, no push).
         (= ::reject url)
         {}
+
+        ;; rf2-cylse.4 (SECURITY — open-redirect): the `{:url ...}` target
+        ;; classed EXTERNAL by the shared `url/external-url?` gate. Fail
+        ;; closed IDENTICALLY to `url-requested-handler`: emit
+        ;; `:rf.route/external-url-requested` and return `{}` — no
+        ;; `:rf.nav/push-url`, no slice rewrite, no `:rf.route/transitioned`.
+        ;; The verbatim-push open-redirect sink is closed across all three
+        ;; URL-string nav sinks (the gated `:rf/url-requested`, this
+        ;; `:rf.route/navigate {:url}`, and `:rf.route/continue` re-issuing
+        ;; either).
+        external-url-target?
+        (do
+          (trace/emit! :rf.event :rf.route/external-url-requested
+                       (cond-> {:url requested-url}
+                         frame (assoc :frame frame)))
+          {})
 
         ;; Leave-guard check runs first (mirrors the URL-driven path,
         ;; where `maybe-block-navigation` precedes `url-change-fx`): a
