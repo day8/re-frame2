@@ -48,8 +48,13 @@ counter/
 shadow-cljs watch examples/counter
 ```
 
-Run `npm run test:examples` once first so `out/examples/counter/index.html`
-is staged. Examples are test-free per
+The watch build emits `main.js` into `out/examples/counter/`; copy
+this folder's hand-written [`index.html`](index.html) (and the shared
+assets it references under [`../../_shared/`](../../_shared/))
+alongside it, then serve `out/examples/counter/` over HTTP.
+(`npm run test:examples` does not build this example — it compiles and
+serves only the three adapter testbeds; see
+[`examples/reagent/README.md`](../README.md).) Examples are test-free per
 [`examples/README.md`](../../README.md); real-regression coverage
 lives in `npm run test:cljs` and the framework gates.
 

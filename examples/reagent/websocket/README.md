@@ -53,20 +53,20 @@ The mock has two delivery modes — async via `setTimeout(_, 0)` (default, used 
 
 ## How to run
 
-The example is wired into the canonical examples harness. From `implementation/`:
-
-```bash
-npm run test:examples
-```
-
-That compiles every example (this one builds under shadow-cljs id `examples/websocket`), stages its `index.html` into `out/examples/websocket/`, and serves the lot on `127.0.0.1:8050` (override with `EXAMPLES_PORT`).
-
-To iterate on the source alone, watch the build directly from `implementation/`:
+From `implementation/`, watch the build directly:
 
 ```bash
 shadow-cljs watch examples/websocket
-# then visit http://127.0.0.1:8050/websocket/ once the harness is running
 ```
+
+The watch build emits `main.js` into `out/examples/websocket/`; copy
+this folder's hand-written [`index.html`](index.html) (and the shared
+assets it references under [`../../_shared/`](../../_shared/))
+alongside it, then serve `out/examples/websocket/` over HTTP and open
+it in a browser.
+(`npm run test:examples` does not build this example — it compiles and
+serves only the three adapter testbeds; see
+[`examples/reagent/README.md`](../README.md).)
 
 ## Headless tests
 

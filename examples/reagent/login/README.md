@@ -62,8 +62,13 @@ login/
 shadow-cljs watch examples/login
 ```
 
-Run `npm run test:examples` once first so `out/examples/login/index.html`
-is staged. Examples are test-free per
+The watch build emits `main.js` into `out/examples/login/`; copy this
+folder's hand-written [`index.html`](index.html) (and the shared
+assets it references under [`../../_shared/`](../../_shared/))
+alongside it, then serve `out/examples/login/` over HTTP.
+(`npm run test:examples` does not build this example — it compiles and
+serves only the three adapter testbeds; see
+[`examples/reagent/README.md`](../README.md).) Examples are test-free per
 [`examples/README.md`](../../README.md).
 
 ## Cross-references

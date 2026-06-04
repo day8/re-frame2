@@ -59,8 +59,13 @@ flows/
 shadow-cljs watch examples/flows
 ```
 
-Run `npm run test:examples` once first so `out/examples/flows/index.html`
-is staged. Examples are test-free per
+The watch build emits `main.js` into `out/examples/flows/`; copy this
+folder's hand-written [`index.html`](index.html) (and the shared
+assets it references under [`../../_shared/`](../../_shared/))
+alongside it, then serve `out/examples/flows/` over HTTP.
+(`npm run test:examples` does not build this example — it compiles and
+serves only the three adapter testbeds; see
+[`examples/reagent/README.md`](../README.md).) Examples are test-free per
 [`examples/README.md`](../../README.md); flow contract testing lives
 in `implementation/flows/test/`.
 

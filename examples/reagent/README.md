@@ -33,21 +33,15 @@ Per [`spec/Conventions.md`](../../spec/Conventions.md): all examples register th
 
 ## Running
 
-From `implementation/`:
+The `examples/` tree is **test-free** — real-regression coverage lives in the substrate contract tests (`npm run test:cljs`) and the framework gates, not under `examples/`. `npm run test:examples` compiles and serves only the three adapter testbeds (`implementation/adapters/<name>/testbed/`); it does **not** build the examples in this directory. See [examples/README.md §Testing](../README.md) for the full split.
 
-```bash
-npm run test:examples
-```
-
-That compiles every Reagent build under `out/examples/<name>/`, stages the hand-written `index.html` next to `main.js`, and serves the output on `127.0.0.1:8040` (override with `EXAMPLES_PORT`; the harness scans forward if 8040 is taken) so you can open each example in a browser. Examples are test-free — real-regression coverage lives in the substrate contract tests and framework gates, not under `examples/`. See [examples/README.md §End-to-end verification](../README.md#end-to-end-verification) for orchestrator details.
-
-To iterate on one example interactively, watch its build directly from `implementation/`:
+To view one example in a browser, watch its build directly from `implementation/`:
 
 ```bash
 shadow-cljs watch examples/counter
 ```
 
-(Run `npm run test:examples` once first so `out/examples/counter/index.html` is staged; subsequent watch builds reuse it.)
+The watch build emits `main.js` into `out/examples/counter/`; copy the example's hand-written `index.html` (and the shared assets it references under [`../_shared/`](../_shared/)) next to it, then serve `out/examples/counter/` over HTTP.
 
 ## Cross-references
 

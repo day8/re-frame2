@@ -96,21 +96,19 @@ split per CP-6 conventions (`schema.cljc / machine.cljc / events.cljs
 
 ## How to run
 
-The example is wired into the canonical examples harness. From `implementation/`:
-
-```bash
-npm run test:examples
-```
-
-That compiles every example (this one builds under shadow-cljs id `examples/nine-states`), stages its `index.html` into `out/examples/nine-states/`, and serves the lot.
-
-To iterate on the source alone, watch the build directly from `implementation/`:
+From `implementation/`, watch the build directly:
 
 ```bash
 shadow-cljs watch examples/nine-states
 ```
 
-(Run `npm run test:examples` at least once first so `out/examples/nine-states/index.html` is staged; subsequent watch builds reuse it.)
+The watch build emits `main.js` into `out/examples/nine-states/`; copy
+this folder's hand-written [`index.html`](index.html) (and the shared
+assets it references under [`../../_shared/`](../../_shared/))
+alongside it, then serve `out/examples/nine-states/` over HTTP.
+(`npm run test:examples` does not build this example — it compiles and
+serves only the three adapter testbeds; see
+[`examples/reagent/README.md`](../README.md).)
 
 The per-state headless fixtures live in the integration test at
 [`implementation/adapters/reagent/test/re_frame/nine_states_cljs_test.cljs`](../../../implementation/adapters/reagent/test/re_frame/nine_states_cljs_test.cljs)

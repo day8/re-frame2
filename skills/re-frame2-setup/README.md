@@ -20,6 +20,20 @@ the monorepo today (planned external home
 `github.com/day8/re-frame2-template` — see
 [`tools/template/spec/005-Repo-Split.md`](../../tools/template/spec/005-Repo-Split.md)).
 Invoke as `clojure -Tnew create :template io.github.day8/re-frame2-template :name acme/my-app`.
+
+> **Pre-split / pre-release caveat.** The standalone `day8/re-frame2-template`
+> repo isn't published yet (rf2-7jgkv / [`005-Repo-Split.md`](../../tools/template/spec/005-Repo-Split.md) §4),
+> so the `io.github.day8/…` invocation above can't auto-resolve against a
+> released template today. Until the split lands, scaffold via the working
+> `:local/root` dev route against a checkout of this repo:
+> ```bash
+> clojure -Sdeps '{:deps {day8/re-frame2-template {:local/root "tools/template"}}}' \
+>         -Tnew create :template day8/re-frame2-template :name acme/my-app
+> ```
+> (or just follow this skill's manual seven-step path). The published
+> invocation is forward-correct and will work once the repo split and first
+> release land. See [`tools/template/README.md`](../../tools/template/README.md) for both routes.
+
 The two routes are complementary, not redundant:
 
 | Use the **template** when… | Use this **skill** when… |
