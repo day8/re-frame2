@@ -8,6 +8,7 @@
   surface that survived the migration."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
+            [clojure.string :as str]
             [day8.re-frame2-machines-viz.chart.layout :as layout]))
 
 ;; ---- fixtures ----------------------------------------------------------
@@ -263,6 +264,50 @@
             ":fetch's :loaded→:done edge targets :fetch's scoped :done")
         (is (= (count (set (map :id edges))) (count edges))
             "every edge id is distinct (no cross-region edge-id collision)")))))
+
+(deftest parse-definition-region-top-level-on-no-machine-root-node
+  (testing "rf2-7i7t3 — a parallel region whose def carries a TOP-LEVEL :on
+            fallback must NOT project a malformed region-scoped MACHINE-ROOT
+            node. Pre-fix `parse-flat` minted a `{:path [] :machine-root?
+            true}` node (rf2-vcnvj) for the region's top-level :on; the
+            region-scope then mangled it to the degenerate id
+            `region__fetch__` (trailing `__`, empty path segment) nested
+            INSIDE the region — a stray `root` chip. A region is a compound
+            state, not a machine; its :on is an ordinary region-scoped
+            fallback (XState v5)."
+    (let [ingest {:type :parallel
+                  :regions {:fetch    {:initial :loading
+                                       :on      {:abort :loading}
+                                       :states {:loading {:on {:loaded :done}}
+                                                :done    {:final? true}}}
+                            :validate {:initial :checking
+                                       :states {:checking {:on {:ok :done}}
+                                                :done     {:final? true}}}}}
+          {:keys [nodes edges]} (layout/parse-definition ingest)
+          node-ids (set (map :id nodes))]
+      ;; NO synthetic machine-root node inside any region
+      (is (empty? (filter :machine-root? nodes))
+          "no synthetic machine-root node is minted for a region :on")
+      ;; NO degenerate region-scoped empty-path id
+      (is (not (contains? node-ids (str (layout/region-node-id :fetch) "__")))
+          "no degenerate `region__fetch__` (empty path segment) node")
+      (is (every? #(not (str/ends-with? % "__")) node-ids)
+          "no node id ends in a trailing `__` (the degenerate root marker)")
+      ;; the region-level fallback edge IS still projected, sourced from the
+      ;; REGION CONTAINER (rid) into its in-region target — every edge
+      ;; endpoint is a real projected node (no phantom/empty id).
+      (doseq [e edges]
+        (is (contains? node-ids (:source e))
+            (str "edge source " (:source e) " is a real node"))
+        (is (contains? node-ids (:target e))
+            (str "edge target " (:target e) " is a real node")))
+      (let [fallback (first (filter :machine-level? edges))]
+        (is (some? fallback)
+            "the region's top-level :on fallback edge is still projected")
+        (is (= (layout/region-node-id :fetch) (:source fallback))
+            "the region fallback sources from the region container, not a phantom root")
+        (is (= (layout/region-scoped-id :fetch [:loading]) (:target fallback))
+            "the fallback resolves to the in-region target (:loading)")))))
 
 (deftest highlight-ids-same-name-region-states-attribute-per-region
   (testing "rf2-wnzha (THE HIGHLIGHT FIX) — when two regions are both in a

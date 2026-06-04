@@ -513,9 +513,22 @@ faithfulness gaps; the `:on-done` projection gap was the parity-relevant
 one (the sibling region-id collision rf2-wnzha is a parse-injectivity
 fix, not a parity row).
 
+A 2026-06-04 R2 re-review (rf2-5nb2v) of the F1 three-emitter projection
+surfaced the F2–F4 follow-ons below: a **compound action-only `:on-done`**
+that F1's mermaid path silently dropped (rf2-ay42f — the G9 "faithful
+across all three" claim was overstated for that shape), the **parallel-root
+anchor** that F1 left clickable as a phantom state (rf2-dblqx — the same
+inert-chip class rf2-34ff3 ruled), and the **parallel-root done-state label**
+that diverged between chart + SCXML (rf2-bs3us). With F2–F4 the three-emitter
+`:on-done` projection is faithful across every reachable Spec 005 shape, and
+the parallel-root anchor is inert.
+
 | Step | Bead | New? | Hot-zone | Notes |
 |---|---|---|---|---|
 | F1 | **rf2-41goo** ✅ — `feat(machines-viz): project :on-done (XState onDone) completion transition (chart + mermaid + scxml)` | existing | isolated (`chart/layout.cljc`, `chart/projection.cljc`, `mermaid.cljc`, `scxml.cljc`, + JVM tests + this doc) | **Closes G9.** `:on-done` was never parsed/projected (zero matches across the three emitters). Now: the COMPOUND completion edge resolves to the SIBLING (`✓ done` chip); the PARALLEL-ROOT completion (action/fx-only) renders as a terminal affordance / mermaid note; the SCXML emitter round-trips the W3C `done.state.<id>` transition. Parses + projects faithfully to the engine's `[:rf.machine/done <path>]` raise. |
+| F2 | **rf2-ay42f** ✅ — `fix(machines-viz): render compound action-only :on-done in mermaid` | new | isolated (`mermaid.cljc` + JVM tests + this doc) | **G9 faithfulness completion.** A COMPOUND whose `:on-done` is ACTION-ONLY (no `:target` — the engine runs an action when the sub-flow completes; the machine stays in the all-final config; a documented Spec 005 shape) surfaced in chart + SCXML but was SILENTLY DROPPED in mermaid (`collect-on-done-edges` kept only target-bearing candidates; the note path covered only the parallel-root). Now mermaid renders a `note right of <compound>` carrying `on-done: ✓ done / <action>` — the same affordance the parallel-root action-only `:on-done` uses — so the completion is visible across **all three** emitters. The G9 "faithful across all three emitters" claim is now accurate for the action-only compound shape. (`collect-compound-on-done-notes` walks the state tree incl. region-nested + deeply-nested compounds.) |
+| F3 | **rf2-dblqx** ✅ — `fix(machines-viz): parallel-root :on-done anchor is inert (not a clickable phantom state)` | new | isolated (`chart/projection.cljc` + JVM tests + this doc) | The synthetic parallel-root completion anchor (F1) fell through the node-`:type` cond to `"state"` AND through the `:onClick` guard (which excluded only `:machine-root?` + region), so it projected as a CLICKABLE `parallel` state box — clicking it dispatched on-state-click against the rendering-sentinel path. The SAME inert-synthetic-chip class **rf2-34ff3** ruled for the machine-root chip + region containers. Fix: type the parallel-root anchor `"machine-root"` (the quiet root-context chip) AND exclude `:parallel-root?` from the `:onClick` guard, mirroring 34ff3. The anchor is now INERT. |
+| F4 | **rf2-bs3us** ✅ — `fix(machines-viz): align chart parallel-root done-state label to SCXML` | new | isolated (`chart/layout.cljc`, `chart/projection.cljc`, `scxml.cljc` + JVM tests + this doc) | The chart's parallel-root `:doneState` label was the degenerate `"done.state."` (the root sentinel path `[]` has an EMPTY `node-id`), diverging from the SCXML emitter's `"done.state.rf2_parallel_root"`. Fix: a shared canonical sentinel id (`layout/parallel-root-done-state-id` = `"rf2_parallel_root"`) is the SINGLE SOURCE OF TRUTH both the chart `:doneState` renderer label and the SCXML `<parallel id=...>` / `done.state.<id>` event read from, so the two emitters agree. Pure label fix (not load-bearing for topology / round-trip). |
 
 > **Sibling note (rf2-wnzha — same review pass, NOT a parity row):**
 > parallel regions sharing a state NAME minted COLLIDING node-ids (the

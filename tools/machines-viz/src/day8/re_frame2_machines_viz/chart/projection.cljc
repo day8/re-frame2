@@ -699,6 +699,23 @@
                                    ;; context chip (`chart.nodes/machine-root-
                                    ;; node`), not a state box.
                                    (:machine-root? n) "machine-root"
+                                   ;; rf2-dblqx — the synthetic PARALLEL-ROOT
+                                   ;; node (rf2-41goo) is the anchor the
+                                   ;; whole-parallel `:on-done` completion
+                                   ;; affordance hangs off — NOT a statechart
+                                   ;; state. Route it through the quiet
+                                   ;; root-context chip (`machine-root-node`)
+                                   ;; so it reads as the completion anchor, not
+                                   ;; a clickable state box. Pre-dblqx it fell
+                                   ;; through to `"state"` AND carried an
+                                   ;; `:onClick` (the click guard below excluded
+                                   ;; only machine-root + region), so a user
+                                   ;; could click a phantom `parallel` state and
+                                   ;; fire on-state-click against the rendering
+                                   ;; sentinel path. The SAME inert-synthetic-
+                                   ;; chip class rf2-34ff3 fixed for the
+                                   ;; machine-root + region containers.
+                                   (:parallel-root? n) "machine-root"
                                    region?        "parallel-region"
                                    (:compound? n) "compound"
                                    :else          "state")
@@ -747,13 +764,19 @@
                                    ;; states (clickable TITLE STRIP; body stays
                                    ;; pointer-transparent so child-leaf clicks
                                    ;; pass through). The synthetic machine-root
-                                   ;; chip and parallel-region containers are
-                                   ;; NOT `:on-state-click` targets (no region-
-                                   ;; selection concept yet), so they carry no
-                                   ;; `:onClick` the renderer would never
-                                   ;; consume — the inverse of the original
-                                   ;; half-wired bug.
-                                   (not (or (:machine-root? n) region?))
+                                   ;; chip, parallel-region containers, AND the
+                                   ;; synthetic parallel-root completion anchor
+                                   ;; (rf2-dblqx) are NOT `:on-state-click`
+                                   ;; targets (no region-selection concept yet;
+                                   ;; the parallel-root is a completion
+                                   ;; affordance whose path is a rendering
+                                   ;; sentinel, not a real statechart state), so
+                                   ;; they carry no `:onClick` the renderer
+                                   ;; would never consume — the inverse of the
+                                   ;; original half-wired bug.
+                                   (not (or (:machine-root? n)
+                                            (:parallel-root? n)
+                                            region?))
                                    (assoc :onClick on-state-click)
 
                                    region? (assoc :regionId    (:region n)
@@ -936,10 +959,25 @@
                                        ;; `done.state.<id>` label (the node-id
                                        ;; of the done node's path) so a reader
                                        ;; sees WHICH sub-flow completed.
+                                       ;;
+                                       ;; rf2-bs3us — the PARALLEL-ROOT done-
+                                       ;; path is the engine's root sentinel
+                                       ;; `[]`, whose `node-id` is the EMPTY
+                                       ;; string — so the naive form yielded a
+                                       ;; degenerate `"done.state."` (trailing
+                                       ;; dot, no id) that diverged from the
+                                       ;; SCXML emitter's
+                                       ;; `"done.state.rf2_parallel_root"`. Use
+                                       ;; the shared canonical sentinel id for
+                                       ;; the parallel-root so the chart label
+                                       ;; matches SCXML (single source of truth
+                                       ;; in `layout/parallel-root-done-state-id`).
                                        :onDone      (boolean (:on-done? edge))
                                        :doneState   (when (:on-done? edge)
                                                       (str "done.state."
-                                                           (layout/node-id (:done-path edge))))
+                                                           (if (:parallel-root? edge)
+                                                             layout/parallel-root-done-state-id
+                                                             (layout/node-id (:done-path edge)))))
                                        :eventId     event-id
                                        :fromPath    (:from-path edge)
                                        :toPath      (:to-path edge)
