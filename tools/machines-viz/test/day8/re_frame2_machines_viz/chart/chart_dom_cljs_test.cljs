@@ -917,3 +917,92 @@
             (is (zero? (.-length sibling-attr-els))
                 "no data-sibling-* attr survives the collapse retirement")
             (is (number? (.-length event-nodes)))))))))
+
+;; ---- :on-state-click contract: leaf body + compound title strip --------
+;; rf2-34ff3 — A-PRIME ruling. `:on-state-click` fires for REAL statechart-
+;; state nodes: a LEAF state (its body) and a COMPOUND state (its TITLE
+;; STRIP only — the compound BODY stays `pointer-events:none` so a click
+;; inside it falls through to the nested leaf). The synthetic machine-root
+;; chip + parallel-region containers are NOT click targets (the projector
+;; threads `:onClick` onto leaf + compound `:data` only). These DOM pins
+;; prove (1) the compound title click fires with the COMPOUND's path, and
+;; (2) a child-leaf click still fires (body pass-through preserved).
+
+(defn- dispatch-click!
+  "Dispatch a bubbling native click on `el` inside React's act() env so
+  the synthetic-event delegate (attached at the root) catches it."
+  [el]
+  (let [act-fn (get-act)
+        ev     (js/MouseEvent. "click" #js {:bubbles true :cancelable true})]
+    (act-fn (fn [] (.dispatchEvent el ev)))))
+
+(deftest chart-compound-title-strip-fires-on-state-click-with-compound-path
+  (testing "rf2-34ff3 — clicking a COMPOUND state's TITLE STRIP fires
+            `:on-state-click` with the COMPOUND's own path. The title strip
+            re-enables pointer-events (`pointer-events:auto`) while the
+            compound body stays `pointer-events:none` (leaf pass-through)."
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises this")
+      (let [clicks (atom [])]
+        (with-mounted-chart
+          {:machine-id     :test/compound
+           :definition     compound-machine
+           :on-state-click (fn [path] (swap! clicks conj (js->clj path)))}
+          (fn [_root node]
+            (let [authed-id (layout/node-id [:authenticated])
+                  title-el  (.querySelector
+                              node (str "[data-testid=\"rf-mv-chart-compound-title-"
+                                        authed-id "\"]"))
+                  body-el   (.querySelector
+                              node (str "[data-testid=\"rf-mv-chart-compound-"
+                                        authed-id "\"]"))]
+              (is (some? title-el) "the :authenticated compound title strip mounted")
+              (is (some? body-el) "the :authenticated compound body mounted")
+              ;; Pointer-events split: strip is clickable, body passes through.
+              (is (= "auto" (.. title-el -style -pointerEvents))
+                  "compound TITLE STRIP carries pointer-events:auto (clickable)")
+              (is (= "none" (.. body-el -style -pointerEvents))
+                  "compound BODY stays pointer-events:none (leaf pass-through)")
+              ;; The affordance is wired (cursor + title).
+              (is (= "pointer" (.. title-el -style -cursor))
+                  "the title strip signals the click affordance via cursor")
+              (dispatch-click! title-el)
+              (is (= [["authenticated"]] @clicks)
+                  "compound title click fires :on-state-click with the compound's path"))))))))
+
+(deftest chart-leaf-click-still-fires-on-state-click-body-pass-through
+  (testing "rf2-34ff3 — a LEAF state click still fires `:on-state-click`
+            with the leaf's path. Two leaves are exercised: a TOP-LEVEL
+            leaf (`:unauth`) and a SUBSTATE leaf NESTED inside the compound
+            (`[:authenticated :browsing]`). The nested-leaf click proves the
+            compound body's `pointer-events:none` lets clicks pass through to
+            the child leaf (the body never swallows the click)."
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises this")
+      (let [clicks (atom [])]
+        (with-mounted-chart
+          {:machine-id     :test/compound
+           :definition     compound-machine
+           :on-state-click (fn [path] (swap! clicks conj (js->clj path)))}
+          (fn [_root node]
+            (let [unauth-id   (layout/node-id [:unauth])
+                  browsing-id (layout/node-id [:authenticated :browsing])
+                  unauth-el   (.querySelector
+                                node (str "[data-testid=\"rf-mv-chart-node-"
+                                          unauth-id "\"]"))
+                  browsing-el (.querySelector
+                                node (str "[data-testid=\"rf-mv-chart-node-"
+                                          browsing-id "\"]"))]
+              (is (some? unauth-el) "the :unauth leaf node mounted")
+              (is (some? browsing-el)
+                  "the nested :browsing leaf node mounted inside the compound")
+              ;; Leaf body is itself clickable (pointer-events default/auto).
+              (is (= "pointer" (.. unauth-el -style -cursor))
+                  "the leaf signals its click affordance via cursor")
+              (dispatch-click! unauth-el)
+              (is (= [["unauth"]] @clicks)
+                  "top-level leaf click fires :on-state-click with the leaf path")
+              ;; Nested-leaf click: the compound body must NOT swallow it.
+              (dispatch-click! browsing-el)
+              (is (= [["unauth"] ["authenticated" "browsing"]] @clicks)
+                  "nested-leaf click still fires (compound body pass-through preserved)"))))))))

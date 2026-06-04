@@ -518,8 +518,19 @@
     :to-highlight-id     — node-id of the focused-event lens's
                            landing state.
     :sim?                — flips the highlight palette to amber.
-    :on-state-click      — `(fn [path] ...)` invoked when a state
-                           node is clicked.
+    :on-state-click      — rf2-34ff3. `(fn [path] ...)` invoked when a
+                           REAL statechart-state node is clicked: a LEAF
+                           state (its body) or a COMPOUND state (its TITLE
+                           STRIP only — the compound body stays
+                           `pointer-events:none` so a click in the body
+                           falls through to the nested leaf). Threaded onto
+                           leaf + compound `:data` as `:onClick`. The
+                           synthetic machine-root chip and parallel-region
+                           containers are NOT click targets (no region-
+                           selection concept yet), so the projector does
+                           NOT thread `:onClick` onto their `:data` — no
+                           node carries an `:onClick` its renderer would
+                           never consume.
     :on-edge-click       — rf2-u422r. `(fn [{:keys [event-id from-path
                            to-path]}] ...)` invoked when a transition
                            edge's label is clicked. Threaded onto every
@@ -745,8 +756,22 @@
                                           :entry          (:entry n)
                                           :exit           (:exit n)
                                           :chart          chart
-                                          :palette        ct
-                                          :onClick        on-state-click}
+                                          :palette        ct}
+                                   ;; rf2-34ff3 — `:onClick` (on-state-click)
+                                   ;; rides ONLY real statechart-state nodes:
+                                   ;; LEAF states (clickable body) and COMPOUND
+                                   ;; states (clickable TITLE STRIP; body stays
+                                   ;; pointer-transparent so child-leaf clicks
+                                   ;; pass through). The synthetic machine-root
+                                   ;; chip and parallel-region containers are
+                                   ;; NOT `:on-state-click` targets (no region-
+                                   ;; selection concept yet), so they carry no
+                                   ;; `:onClick` the renderer would never
+                                   ;; consume — the inverse of the original
+                                   ;; half-wired bug.
+                                   (not (or (:machine-root? n) region?))
+                                   (assoc :onClick on-state-click)
+
                                    region? (assoc :regionId    (:region n)
                                                   :regionIndex (:region-index n)))
                        :draggable false

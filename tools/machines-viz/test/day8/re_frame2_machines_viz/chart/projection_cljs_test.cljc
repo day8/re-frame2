@@ -221,6 +221,57 @@
           region (node-by-id graph (layout/region-node-id :audio))]
       (is (= "parallel-region" (:type region))))))
 
+;; ---- xyflow-graph :on-state-click threading (rf2-34ff3) ----------------
+;;
+;; rf2-34ff3 (A-PRIME) — `:on-state-click` is threaded onto the `:data`
+;; `:onClick` of REAL statechart-state nodes only: LEAF states + COMPOUND
+;; states. The synthetic machine-root chip and parallel-region containers
+;; are NOT click targets, so the projector must NOT thread `:onClick` onto
+;; their `:data` — otherwise a node would carry an `:onClick` its renderer
+;; never consumes (the inverse of the original half-wired bug, where the
+;; compound-node ignored a threaded `:onClick`).
+
+(deftest xyflow-graph-threads-on-click-to-leaf-and-compound-only
+  (testing "rf2-34ff3 — `:onClick` rides leaf + compound `:data`; the
+            machine-root chip + region containers carry NO `:onClick`."
+    (let [cb (fn [_path] :clicked)]
+      ;; Compound + leaf machine: both the compound parent and its leaf
+      ;; children carry the callback.
+      (let [parsed (layout/parse-definition compound-machine)
+            graph  (projection/xyflow-graph parsed {} {:on-state-click cb})
+            parent (node-by-id graph (layout/node-id [:authenticated]))
+            child  (node-by-id graph (layout/node-id [:authenticated :browsing]))
+            leaf   (node-by-id graph (layout/node-id [:unauth]))]
+        (is (= "compound" (:type parent)))
+        (is (= cb (:onClick (:data parent)))
+            "compound state carries :onClick (its title strip is clickable)")
+        (is (= cb (:onClick (:data child)))
+            "a nested leaf carries :onClick")
+        (is (= cb (:onClick (:data leaf)))
+            "a top-level leaf carries :onClick"))
+      ;; Parallel machine: region containers must NOT carry :onClick;
+      ;; their leaf children still do.
+      (let [parsed (layout/parse-definition parallel-machine)
+            graph  (projection/xyflow-graph parsed {} {:on-state-click cb})
+            region (node-by-id graph (layout/region-node-id :audio))
+            muted  (node-by-id graph (layout/node-id [:muted]))]
+        (is (= "parallel-region" (:type region)))
+        (is (not (contains? (:data region) :onClick))
+            "a parallel-region container carries NO :onClick (not a click target)")
+        (is (= cb (:onClick (:data muted)))
+            "a leaf inside a region still carries :onClick"))
+      ;; Machine-level :on machine: the synthetic machine-root chip must
+      ;; NOT carry :onClick; the real states still do.
+      (let [parsed (layout/parse-definition machine-level-on-machine)
+            graph  (projection/xyflow-graph parsed {} {:on-state-click cb})
+            root   (first (filter #(= "machine-root" (:type %)) (:nodes graph)))
+            a      (node-by-id graph (layout/node-id [:a]))]
+        (is (some? root) "the machine-level :on fallback projects a machine-root chip")
+        (is (not (contains? (:data root) :onClick))
+            "the synthetic machine-root chip carries NO :onClick (not a click target)")
+        (is (= cb (:onClick (:data a)))
+            "a real leaf state still carries :onClick")))))
+
 ;; ---- xyflow-graph parentId / extent sub-flow wiring (G1) ---------------
 ;;
 ;; rf2-xh1lm — xyflow v12 reads `parentId` (NOT `parentNode`, the pre-v12

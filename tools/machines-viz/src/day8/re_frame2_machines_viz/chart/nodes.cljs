@@ -454,6 +454,12 @@
         ct    (palette-of d)
         label (or (.-label d) "")
         path  (.-path d)
+        ;; rf2-34ff3 — a compound state is a real statechart state, so its
+        ;; TITLE STRIP is a clickable `:on-state-click` target ("this
+        ;; compound state"). The projector threads `:onClick` onto compound
+        ;; `:data` (leaf + compound only); the body stays pointer-transparent
+        ;; so child-leaf clicks still pass through.
+        on-click (.-onClick d)
         ;; rf2-80rm2 (G4) — a compound CONTAINER whose active descendant
         ;; leaf lit it (the projector folds that into `:active` via the
         ;; `:parent-id` chain) gets active chrome: the runtime accent
@@ -486,7 +492,16 @@
                      ;; clicks pass through to nested leaves.
                      :pointer-events   "none"}}
        ;; FULL-WIDTH TITLE STRIP at top — solid neutral header band.
+       ;; rf2-34ff3 — the title strip is the compound state's clickable
+       ;; `:on-state-click` target. It re-enables pointer-events (the body
+       ;; sets them to "none" for leaf pass-through), carries the cursor +
+       ;; title affordance, and fires `(on-click (js->clj path))` with the
+       ;; COMPOUND's own path — exactly mirroring the leaf state-node.
        [:div {:data-testid (str "rf-mv-chart-compound-title-" (.-id props))
+              :title (when on-click "Click for details")
+              :on-click (when on-click
+                          (fn [_ev]
+                            (on-click (js->clj path))))
               :style {:position    "absolute"
                       :top         0
                       :left        0
@@ -510,7 +525,13 @@
                                      (:text-secondary ct))
                       :white-space "nowrap"
                       :overflow    "hidden"
-                      :text-overflow "ellipsis"}}
+                      :text-overflow "ellipsis"
+                      ;; rf2-34ff3 — re-enable pointer-events on the strip
+                      ;; ONLY (the parent body is `pointer-events:none`); the
+                      ;; cursor signals the affordance when wired.
+                      :pointer-events "auto"
+                      :cursor      (if on-click "pointer" "default")
+                      :user-select "none"}}
         label]
        ;; rf2-shv82 — invisible xyflow attachment points.
        (four-cardinal-handles)])))
