@@ -7,7 +7,7 @@
   counter app and in the Story playground.
 
   Per IMPL-SPEC §1.1 + spec/007 §Variants: the variant body is data;
-  it references these event ids in its `:events` slot. The handlers
+  it references these event ids in its `:setup` slot. The handlers
   are owned by the app, not the story.
 
   Domain shape: a single `:count` slot in the default frame's
@@ -17,7 +17,7 @@
 
 ;; -- Events --
 
-;; Initialise the count. The Story playground's `:events` slot dispatches
+;; Initialise the count. The Story playground's `:setup` slot dispatches
 ;; this before any variant-specific events fire, so every variant starts
 ;; from a known shape. We `assoc` rather than replace the whole `:db`
 ;; so the Story runtime's per-frame lifecycle machine slot
@@ -87,7 +87,7 @@
 ;; (Spec 009 §`:sensitive?`): the registrar copies the flag into the
 ;; registry slot's meta, the runtime stamps every trace event emitted
 ;; inside this handler's scope, and the Story recorder emits
-;; `[:rf/redacted]` in place of the password in the generated `:play`
+;; `[:rf/redacted]` in place of the password in the generated `:script`
 ;; snippet while preserving the row position. The handler sees the
 ;; unredacted payload (redaction is a trace-consumer concern, not a
 ;; handler concern); we stash only a redacted placeholder in app-db —

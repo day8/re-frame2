@@ -10,18 +10,34 @@ exercised here):
 - `reg-mode`        — `:Mode.app/dark` + `:Mode.app/light`
 - `reg-decorator`   — `:counter-with-stories/log-decorator`
 - `reg-story-panel` — `:Panel.counter-with-stories/notes`
-- `reg-story`       — `:story.counter`
-- `reg-variant`     — five variants (empty / loaded / clicked-three-times / save-stubbed / events-only-loaded)
-- `reg-workspace`   — `:Workspace.counter/all-states` (`:grid`) + `:Workspace.counter/auto-grid` (`:variants-grid`)
+- `reg-story`       — `:story.counter` (+ three sibling fixture parents)
+- `reg-variant`     — five exemplary `:story.counter` variants (empty / loaded / clicked-three-times / save-stubbed / events-only-loaded), plus the gate fixtures below
+- `reg-workspace`   — `:Workspace.counter/all-states` (`:grid`) + `:Workspace.counter/auto-grid` (`:variants-grid`) + prose / tabs / custom layout fixtures
 
-The four canonical variants exercise four of the seven dispatched
-`:rf.assert/*` events (`path-equals`, `sub-equals`, `dispatched?`,
-`effect-emitted`) plus the built-in `force-fx-stub` decorator for
-the save-flow variant. The fifth variant, `events-only-loaded`, was
-folded in from the retired `xray_rhs_smoke` testbed per rf2-9jfo1.2 —
-it pins the canonical events-only loader-body shape (no `:loaders`,
-no `:loaders-complete-when`, no `:frame-setup` decorators) that takes
-the rf2-043cm `:pre-mount → :ready` lifecycle fast-path.
+## Two layers in one namespace
+
+`stories.cljs` stacks two surfaces, banner-demarcated in the source:
+
+- **Exemplary block** — the `:story.counter` parent, its five teaching
+  variants, and the all-states / auto-grid workspaces. This is the
+  small, copyable reference a consumer reads to learn the authoring
+  shapes. The four canonical variants author the documented assertion
+  surface — the `:assert-db` checkpoint sugar for app-db equality plus
+  the explicit `[:assert [:rf.assert/…]]` form for the assertions the
+  sugar does not cover (`sub-equals`, `dispatched?`, `effect-emitted`)
+  — alongside the built-in `force-fx-stub` decorator for the save-flow
+  variant. The fifth variant, `events-only-loaded`, was folded in from
+  the retired `xray_rhs_smoke` testbed per rf2-9jfo1.2 — it pins the
+  canonical events-only loader-body shape (no `:loaders`, no
+  `:loaders-complete-when`, no `:frame-setup` decorators) that takes
+  the rf2-043cm `:pre-mount → :ready` lifecycle fast-path.
+- **Gate-fixture block** — the `:story.counter-diagnostics`,
+  `:story.counter-matrix`, and `:story.counter-play-script` sibling
+  parents and their roughly thirty variants: deliberate failure / matrix
+  / CI fixtures that keep Story's diagnostics, feature-load gate,
+  schema / a11y / recorder / isolation surfaces, and the CI-as-test
+  runner under continuous coverage. These are NOT teaching variants.
+  (Splitting them into a sibling fixtures file is tracked separately.)
 
 ## File layout
 
@@ -114,7 +130,7 @@ npm run test:cljs
 `shadow-cljs.edn`'s `node-test` build picks up
 `counter_with_stories.stories-cljs-test`. The tests assert every
 `reg-*` artefact registered, every variant runs through the
-four-phase lifecycle, and every play sequence's assertions pass.
+four-phase lifecycle, and every `:script`'s assertions pass.
 
 ### Single-example interactive loop
 

@@ -16,7 +16,7 @@
   The events module is *plain re-frame2* — no Story-specific code
   lives here. The same handlers run when the live app boots and when
   any Story variant frame allocates. Per IMPL-SPEC §1.1, variant
-  bodies are data; they reference these event-ids in their `:events`
+  bodies are data; they reference these event-ids in their `:setup`
   slot. Story's per-variant frame isolation (Spec 002) means each
   variant gets its own fresh `[:rf/runtime :machines :snapshots :login/flow]` slot.
 
@@ -109,7 +109,7 @@
 
      :states
      {;; :idle — empty form, ready for input. This is the entry
-      ;; state and also the state the variant body's `:events` slot
+      ;; state and also the state the variant body's `:setup` slot
       ;; lands in for the *first* of the five Story variants.
       :idle
       {:on {:login/submit [{:target :submitting
@@ -153,7 +153,7 @@
       ;; the form. Not strictly terminal — :sign-out routes back to
       ;; :idle so the live testbed page can demonstrate the full
       ;; round-trip; Story variants pin the state via their own
-      ;; `:events` slot regardless.
+      ;; `:setup` slot regardless.
       :authenticated
       {:tags #{:auth/authenticated}
        :on   {:login/sign-out {:target :idle
