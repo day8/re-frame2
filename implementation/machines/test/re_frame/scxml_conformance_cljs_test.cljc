@@ -737,9 +737,16 @@
     (let [m {:initial :a :data {:n 0}
              :guards  {:more? (fn [{d :data}] (< (:n d) 3))}
              :actions {:bump  (fn [{d :data}] {:data (update d :n inc)})}
-             :states  {:a {:always [{:guard :more? :target :a :action :bump}]}}}
-          ;; One external event kicks the macrostep; the eventless loop then
-          ;; drains :a→:a (bumping :n) until :more? is false at :n=3.
+             ;; CANONICAL fixed-point loop: a TARGETLESS guarded :always with
+             ;; an :action (Spec 005 §Self-loop forbidden at registration). The
+             ;; action flips the guard false and the microstep loop settles —
+             ;; no exit/entry churn. A self-:target :always (guarded or not) is
+             ;; rejected at registration (acdlp), so the corpus must NOT model
+             ;; one; the targetless form is observationally identical here
+             ;; (:a has no :entry/:exit) and is the form a real machine uses.
+             :states  {:a {:always [{:guard :more? :action :bump}]}}}
+          ;; One external event kicks the macrostep; the internal eventless loop
+          ;; then bumps :n in place at :a until :more? is false at :n=3.
           r (step m {:state :a :data {:n 0}} [:kick])]
       (is (= :a (:state r)) "the machine settles at :a (the eventless loop reached a fixed point)")
       (is (= 3 (get-in r [:data :n]))
