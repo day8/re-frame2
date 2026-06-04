@@ -251,40 +251,138 @@
                       :hint     "Add `{:large? true}` to the schema slot for this path."
                       :recovery :no-recovery})))))
 
+;; ---- collection-coordinate declaration matching (rf2-wm9kp) ---------------
+;;
+;; Schema-derived declarations are INDEX-FREE: the schema walker descends
+;; positional/keyed containers (`:vector` / `:sequential` / `:set` /
+;; `:map-of`) at the SAME base-path (walker.cljc ~L145), because a vector
+;; index or a `:map-of` key is not a declarable app-db slot. So a schema
+;; `[:items] [:vector [:map [:token {:sensitive? true} :string]]]` declares
+;; the index-free path `[:items :token]`, while the runtime value lives at
+;; the INDEXED path `[:items 0 :token]` (and a `:map-of` value lives at the
+;; KEYED path `[:by-id "a" :secret]` against decl `[:by-id :secret]`).
+;;
+;; The wire-elision walker walks a RUNTIME value, so it sees the indexed /
+;; keyed paths. To match the index-free declarations without re-walking the
+;; schema (the walker doesn't carry it), we thread a SET of candidate
+;; declaration-coordinate paths alongside the concrete runtime path:
+;;
+;;   - Descending a VECTOR / SEQ / SET element: the index/element is a
+;;     collection coordinate, NOT a declarable segment ⇒ candidate decl-
+;;     paths pass through UNCHANGED.
+;;   - Descending a MAP key `k`: a runtime map is structurally ambiguous —
+;;     `k` may be a NAMED `:map` slot (a real segment ⇒ `(conj c k)`) OR a
+;;     `:map-of` key (a collection coordinate ⇒ `c` unchanged). We can't tell
+;;     which from the value alone, so we fork each candidate into BOTH
+;;     interpretations and let the declaration table disambiguate at the leaf
+;;     (only the interpretation that actually matches a declared path fires).
+;;
+;; The fork would grow combinatorially with map depth, so we PRUNE: a
+;; candidate that is not a prefix of ANY declared path can never match and is
+;; dropped. `decl-prefixes` (all prefixes of every sensitive ∪ large decl
+;; path) bounds the live candidate set to the declaration cardinality — tiny
+;; in practice, and empty (so zero overhead) when nothing is declared.
+;;
+;; Precision: the runtime path `[:by-id "a" :secret]` matches decl
+;; `[:by-id :secret]` only because `:secret` is a real map slot under the
+;; `:map-of` value; a sibling NON-sensitive leaf `[:by-id "a" :other]` never
+;; matches (its decl-coordinate candidates `[:by-id :other]` / `[:by-id "a"
+;; :other]` aren't declared). The concrete runtime `path` still drives marker
+;; `:path` / `:handle` and the unschema'd-large warning, so an agent's
+;; follow-up `get-path` lands on the exact indexed location.
+
 (declare walk marker?)
 
+(defn- prefixes
+  "All non-empty prefixes (including the full path) of `path`, as a set.
+  Used to seed `decl-prefixes` so the candidate decl-path fork can be
+  pruned to paths that could still reach a declaration."
+  [path]
+  (into #{} (map #(subvec path 0 %)) (range 1 (inc (count path)))))
+
+(defn- decl-prefix-set
+  "Build the set of every prefix of every declared path (sensitive ∪
+  large). A candidate declaration-coordinate path is kept alive during the
+  walk only while it is a member of this set — anything outside it can
+  never reach a declaration, so dropping it is matching-safe and keeps the
+  forked candidate set bounded by the declaration cardinality."
+  [ctx]
+  (into #{}
+        (mapcat prefixes)
+        (concat (keys (:sensitive ctx)) (keys (:large ctx)))))
+
+(defn- fork-decl-paths
+  "Descend the candidate declaration-coordinate set through a MAP key `k`.
+  Each candidate forks into the NAMED-slot interpretation `(conj c k)` and
+  the `:map-of`-key interpretation `c` (key is a collection coordinate, no
+  segment). Both are retained only when they remain a prefix of some
+  declared path (`decl-prefixes`), bounding the set."
+  [decl-paths k decl-prefixes]
+  (persistent!
+    (reduce (fn [acc c]
+              (let [named (conj c k)
+                    acc   (if (contains? decl-prefixes named) (conj! acc named) acc)]
+                ;; `:map-of`-key interpretation: `c` itself stays a live
+                ;; candidate so a LATER real `:map` segment can extend it
+                ;; (e.g. `[:by-id]` survives the map-of key `"a"` so the
+                ;; subsequent `:secret` can form `[:by-id :secret]`). `c` is
+                ;; already a known decl-prefix (it survived the round that
+                ;; produced it), except the seed `[]` which never matches a
+                ;; declaration (decls have ≥1 segment) so retaining it is
+                ;; harmless. The set thus stays bounded by `decl-prefixes`.
+                (conj! acc c)))
+            (transient #{})
+            decl-paths)))
+
+(defn- decl-match
+  "Test the candidate declaration-coordinate set against a declaration
+  table `tbl` (`:sensitive` or `:large`). Returns the matched declaration
+  value (truthy) for the FIRST candidate present in `tbl`, or nil. For the
+  sensitive table any present entry suffices (membership); for the large
+  table the entry is the marker-hint declaration map."
+  [decl-paths tbl]
+  (some #(get tbl %) decl-paths))
+
+(defn- decl-sensitive?
+  [decl-paths sensitive-tbl]
+  (boolean (some #(contains? sensitive-tbl %) decl-paths)))
+
 (defn- walk-map
-  [m path ctx]
-  (reduce-kv
-    (fn [acc k v]
-      (assoc acc k (walk v (conj path k) ctx)))
-    (empty m)
-    m))
+  [m path decl-paths ctx]
+  (let [decl-prefixes (:decl-prefixes ctx)]
+    (reduce-kv
+      (fn [acc k v]
+        (assoc acc k (walk v
+                           (conj path k)
+                           (fork-decl-paths decl-paths k decl-prefixes)
+                           ctx)))
+      (empty m)
+      m)))
 
 (defn- walk-indexed
-  [v path ctx]
+  [v path decl-paths ctx]
   (let [n (count v)]
     (loop [i 0 acc (transient [])]
       (if (< i n)
         (recur (inc i)
-               (conj! acc (walk (nth v i) (conj path i) ctx)))
+               (conj! acc (walk (nth v i) (conj path i) decl-paths ctx)))
         (persistent! acc)))))
 
 (defn- walk-seq
-  [xs path ctx]
+  [xs path decl-paths ctx]
   (let [idx (volatile! -1)]
     (persistent!
       (reduce (fn [acc v]
                 (vswap! idx inc)
-                (conj! acc (walk v (conj path @idx) ctx)))
+                (conj! acc (walk v (conj path @idx) decl-paths ctx)))
               (transient [])
               xs))))
 
 (defn- walk
-  [v path ctx]
+  [v path decl-paths ctx]
   (let [path        (vec path)
-        large-decl  (get-in ctx [:large path])
-        sensitive?  (contains? (:sensitive ctx) path)
+        large-decl  (decl-match decl-paths (:large ctx))
+        sensitive?  (decl-sensitive? decl-paths (:sensitive ctx))
         include-lg? (:include-large? ctx)
         include-s?  (:include-sensitive? ctx)]
     (cond
@@ -309,16 +407,19 @@
                           :include-digests? (:include-digests? ctx)}))
 
       (map? v)
-      (walk-map v path ctx)
+      (walk-map v path decl-paths ctx)
 
       (vector? v)
-      (walk-indexed v path ctx)
+      (walk-indexed v path decl-paths ctx)
 
       (set? v)
-      (into #{} (map #(walk % path ctx)) v)
+      ;; Set elements are nameless collection coordinates — the runtime
+      ;; `path` and the candidate decl-paths both pass through unchanged
+      ;; (mirrors `:vector`/`:sequential`: the element is not a segment).
+      (into #{} (map #(walk % path decl-paths ctx)) v)
 
       (seq? v)
-      (walk-seq v path ctx)
+      (walk-seq v path decl-paths ctx)
 
       :else
       (do
@@ -345,15 +446,26 @@
          ;; Precedence (API.md L507): explicit opt > configured > default.
          threshold (let [opt (:rf.size/threshold-bytes opts)]
                      (if (some? opt) opt (configured-threshold-bytes)))
+         large     (or (:declarations reg) {})
+         sensitive (or (:sensitive-declarations reg) {})
          ctx       {:frame-id           frame-id
-                    :large              (or (:declarations reg) {})
-                    :sensitive          (or (:sensitive-declarations reg) {})
+                    :large              large
+                    :sensitive          sensitive
+                    ;; Prefix set of every declared path — bounds the forked
+                    ;; candidate decl-path set as the walker descends maps
+                    ;; (rf2-wm9kp). Empty when nothing is declared ⇒ the fork
+                    ;; prunes to {} immediately and the walker is identity.
+                    :decl-prefixes      (decl-prefix-set {:large large :sensitive sensitive})
                     :include-large?     (true? (:rf.size/include-large? opts))
                     :include-sensitive? (true? (:rf.size/include-sensitive? opts))
                     :include-digests?   (true? (:rf.size/include-digests? opts))
                     :threshold-bytes    threshold
-                    :as-of-epoch        (:as-of-epoch opts)}]
-     (walk v (vec (:path opts)) ctx))))
+                    :as-of-epoch        (:as-of-epoch opts)}
+         seed-path (vec (:path opts))]
+     ;; Seed the candidate declaration-coordinate set with the offset path
+     ;; (`#{[]}` for the common no-offset call). The walk forks/prunes it
+     ;; against `:decl-prefixes` on every map-key descent.
+     (walk v seed-path #{seed-path} ctx))))
 
 (defn marker?
   [v]
