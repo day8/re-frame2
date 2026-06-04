@@ -51,6 +51,12 @@
 ;;                        (`:dropped-sensitive` / `:elided-large`
 ;;                        omit-when-zero MUST) + wire-bounded
 ;;                        `:rf.mcp/*` marker detection (rf2-ee38b.19).
+;;   - `descriptor_manifest.cljc` — shared tool-descriptor manifest
+;;                        generator + drift-check (rf2-sofwv). Projects
+;;                        each server's tool registry to a byte-stable
+;;                        `tool-descriptors.edn` catalogue and
+;;                        regenerate-and-compare `check` so an
+;;                        added/removed/renamed tool trips a CI gate.
 ;;
 ;; What deliberately does NOT live here:
 ;;   - Wire-transport code (cheshire JSON for story-mcp's JVM-side;

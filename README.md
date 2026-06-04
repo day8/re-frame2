@@ -207,6 +207,9 @@ testbeds/                      Shared framework-behavior testbed surfaces (consu
   drain_depth_trigger/         Recursive dispatch hitting the drain-depth ceiling
   non_trivial_app_db/          ~5-level nested app-db for diffing visualisation
   large_dispatcher/            Payloads above :rf.size/large-elided threshold
+  ssr_basic/                   SSR hydration baseline — payload → :rf/hydrate → verify-hydration!
+  ssr_hydration_mismatch/      Deliberate hash mismatch — emits :rf.ssr/hydration-mismatch
+  ssr_multi_frame/             Per-frame hydration — three frames, one payload slice each
 implementation/                CLJS reference implementation — per-artefact subdirs
                                (per Conventions §Packaging conventions). Each subdir is its own
                                jar with its own deps.edn, on the top-level shadow-cljs classpath.
