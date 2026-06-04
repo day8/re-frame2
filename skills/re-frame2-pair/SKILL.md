@@ -171,15 +171,7 @@ If any precondition fails, the script returns a structured edn error like `{:ok?
 
 > **Example (illustrative — this repo only; do NOT transcribe these values into a session against another app).** A `shadow-cljs.edn` with a top-level `:dev-http {8033 ["out/examples/machine-epochs"]}` entry serves port `8033` from `out/examples/machine-epochs`, which is the `:output-dir` of the `:examples/machine-epochs` build — so a tab at `http://localhost:8033` is the `:examples/machine-epochs` build, and you'd pass `build :examples/machine-epochs`. Every app's ports, roots, and build ids differ — read *its* config, never reuse these.
 
-**Port discovery (canonical MCP transport).** On the first tool call the MCP server discovers the live shadow-cljs nREPL via a five-step cascade — `--port-file <abs>` flag, then `$SHADOW_CLJS_NREPL_PORT` env var, then **MCP `roots/list`** asking the agent host for its open workspace roots and walking each for `shadow-cljs.edn` + `.shadow-cljs/nrepl.port` (rf2-3grub — the zero-config primary path), then shadow's HTTP probe at `:9630/api/project-info` (rf2-umoz2), then a CWD-relative scan. Multiple running shadow builds in the workspace trigger an `elicitation/create` prompt so the user picks the project to attach to. Shadow restarts are absorbed transparently — every subsequent tool call re-reads the cached port file and reconnects if it changed.
-
-If discovery still misses (no running shadow, non-default `:http :port`, exotic setup), pass `--port-file <abs>` in the MCP config or set `SHADOW_CLJS_NREPL_PORT` — both are explicit operator overrides that win the cascade.
-
-**Bash-shim transport (back-compat appendix).** The shim finds the nREPL port by scanning shadow-cljs's standard port-file locations (`target/shadow-cljs/nrepl.port`, `.shadow-cljs/nrepl.port`, `.nrepl-port`) at both the shell CWD *and* under `implementation/`, then picks the **most-recently-modified** file — so a freshly (re)started dev build always wins over a stale leftover port file. Override with `SHADOW_CLJS_NREPL_PORT`:
-
-```
-SHADOW_CLJS_NREPL_PORT=51708 scripts/discover-app.sh
-```
+**Port discovery is automatic — you don't configure it.** On the first tool call the MCP server discovers the live shadow-cljs nREPL on its own (a cascade ending in shadow's `roots/list` / HTTP probe; multiple running builds trigger a host prompt so you pick one), and absorbs shadow restarts transparently. When discovery misses (no running shadow, non-default port, exotic setup), the operator passes `--port-file <abs>` or sets `SHADOW_CLJS_NREPL_PORT`. The full cascade, the overrides, and the retired bash-shim's port-scanning are in [references/mcp-transport.md §Install / configure](references/mcp-transport.md#install--configure-one-time) — you rarely need any of it.
 
 Between user turns, the nREPL session persists. A full page refresh in the browser drops the runtime, but the preload re-installs it on the next bundle load — no manual reconnect step is needed. Every op checks the load-time marker (`js/globalThis.__re_frame2_pair_runtime`) before proceeding; if it's missing the op refuses with the structured `:runtime-not-preloaded` hint above.
 
