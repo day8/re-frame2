@@ -6,11 +6,11 @@ One-line signatures for the public `re-frame.core` surface. **For full docstring
 
 | Surface | Shape |
 |---|---|
-| `rf/reg-event-db` | `(id [intercept?] (fn [db ev] new-db))` |
-| `rf/reg-event-fx` | `(id [intercept?] (fn [cofx ev] fx-map))` |
-| `rf/reg-event-ctx` | `(id [intercept?] (fn [ctx] ctx'))` |
+| `rf/reg-event-db` | `(id [meta?\|intercept?] (fn [db ev] new-db))` |
+| `rf/reg-event-fx` | `(id [meta?\|intercept?] (fn [cofx ev] fx-map))` |
+| `rf/reg-event-ctx` | `(id [meta?\|intercept?] (fn [ctx] ctx'))` |
 | `rf/reg-fx` | `(id [metadata?] (fn [ctx args] ...))` — `ctx` is `{:frame :event}`; `args` is the `:fx` entry's 2nd slot |
-| `rf/reg-cofx` | `(id (fn [cofx & args] cofx'))` |
+| `rf/reg-cofx` | `(id [metadata?] (fn [ctx] ctx') \| (fn [ctx value] ctx'))` — `ctx` is the interceptor ctx; assoc into `(:coeffects ctx)`. `value` is the `inject-cofx` per-call arg |
 | `rf/reg-sub` | `(id [signals?] (fn [db\|inputs query-v] value))` |
 | `rf/reg-view` | `(sym [args] body)` — defn-shape, auto-injects `dispatch`/`subscribe` |
 | `rf/reg-view*` | `(id metadata? render-fn)` — runtime form |
@@ -21,6 +21,8 @@ One-line signatures for the public `re-frame.core` surface. **For full docstring
 | `rf/reg-route` | `(id metadata-map)` — needs `day8/re-frame2-routing` |
 | `rf/reg-error-projector` | `(id metadata? (fn [trace-event] public-error))` — needs `day8/re-frame2-ssr` |
 | `rf/reg-http-interceptor` | `(id interceptor-map)` — `interceptor-map` carries `:before` / `:after` / `:frame` / metadata; needs `day8/re-frame2-http` |
+
+The `reg-event-*` `[meta?|intercept?]` slot is positional: a metadata-map (`{:doc ... :schema ...}`) **or** an interceptor-vector, not both (Conventions §`:interceptors` is positional). `reg-fx`/`reg-cofx`/`reg-error-projector` take a metadata-map only in that slot.
 
 ## Dispatch, subscribe, frames
 
@@ -130,7 +132,7 @@ The view-tree assertion axis (commonly aliased `:as h`). Walk hiccup by `:data-t
 |---|---|
 | `rf/->interceptor` | `({:id :before :after})` → interceptor |
 | `rf/get-coeffect` / `rf/assoc-coeffect` / `rf/get-effect` / `rf/assoc-effect` | inside an interceptor |
-| `rf/inject-cofx` | `(id & args)` — cofx injector |
+| `rf/inject-cofx` | `(id)` / `(id value)` — cofx injector; `value` is the per-call arg passed to the cofx handler's 2-arity form |
 | `rf/path` / `rf/unwrap-interceptor` | std interceptors |
 | `rf/init!` | `(adapter-map)` — install adapter + ensure `:rf/default`. No registry. |
 | `rf/install-adapter!` / `rf/destroy-adapter!` / `rf/current-adapter` / `rf/current-adapter-spec` | low-level adapter ops; `current-adapter` → discriminator keyword, `current-adapter-spec` → spec map |
