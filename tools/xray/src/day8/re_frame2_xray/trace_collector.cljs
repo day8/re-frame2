@@ -216,7 +216,8 @@
         ;; cross-frame oldest-first invariant the projection code +
         ;; the L2 event list both assume. Frameless events carry no
         ;; :id only in pathological cases (host produced an envelope
-        ;; without one); fall back to ##Inf so they sort to the tail.
+        ;; without one); fall back to js/Number.MAX_SAFE_INTEGER so they
+        ;; sort to the tail.
         all         (into per-frame frameless)]
     (into []
           ;; Privacy gate (rf2-0ax6f): scrub retained-but-sensitive
