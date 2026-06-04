@@ -733,17 +733,34 @@
             within one microstep cycle until quiescence (W3C test 372/388
             eventless-loop family). re-frame2: the `:always` microstep loop
             settles when no guard passes. Spec 005 §Eventless transitions —
-            macrostep semantics."
+            macrostep semantics.
+
+            rf2-acdlp: this fixture uses a GUARDED self-targeting `:always`
+            (`{:guard :more? :target :a :action :bump}`). Per Mike's ruling
+            (ALIGN TO XSTATE) the registration validator PERMITS guarded
+            self-targets (the guard bounds the loop) and rejects only the
+            UNGUARDED self-target. So the fixture now passes the real
+            `validate-machine!` gate honestly — it is no longer a shape that
+            only survives because the pure `step` path bypasses registration.
+            We assert that explicitly here; the registration→dispatch→
+            fixed-point termination counterpart lives in
+            `machines-always-cljs-test` (`:drain/flow`)."
     (let [m {:initial :a :data {:n 0}
              :guards  {:more? (fn [{d :data}] (< (:n d) 3))}
              :actions {:bump  (fn [{d :data}] {:data (update d :n inc)})}
-             :states  {:a {:always [{:guard :more? :target :a :action :bump}]}}}
-          ;; One external event kicks the macrostep; the eventless loop then
-          ;; drains :a→:a (bumping :n) until :more? is false at :n=3.
-          r (step m {:state :a :data {:n 0}} [:kick])]
-      (is (= :a (:state r)) "the machine settles at :a (the eventless loop reached a fixed point)")
-      (is (= 3 (get-in r [:data :n]))
-          "the eventless transition fired exactly until its condition became false (n: 0→1→2→3)"))))
+             :states  {:a {:always [{:guard :more? :target :a :action :bump}]}}}]
+      ;; Registration honesty: the real validator MUST accept this guarded
+      ;; self-loop (returns non-throwing). Before rf2-acdlp this threw
+      ;; `:rf.error/machine-always-self-loop` and the corpus only worked
+      ;; because pure `step` never runs the validator.
+      (is (nil? (machines/validate-machine! m))
+          "guarded self-`:always` passes the registration validator (rf2-acdlp)")
+      ;; One external event kicks the macrostep; the eventless loop then
+      ;; drains :a→:a (bumping :n) until :more? is false at :n=3.
+      (let [r (step m {:state :a :data {:n 0}} [:kick])]
+        (is (= :a (:state r)) "the machine settles at :a (the eventless loop reached a fixed point)")
+        (is (= 3 (get-in r [:data :n]))
+            "the eventless transition fired exactly until its condition became false (n: 0→1→2→3)")))))
 
 (deftest scxml-eventless-redirect-after-event-transition
   (testing "SCXML §3.13: an eventless transition can REDIRECT immediately

@@ -72,6 +72,34 @@
         (is (= 6 (get-in s [:data :correct-count]))
             "action ran; data updated; state unchanged"))))
 
+  (testing "GUARDED self-targeting :always registers + drains to a fixed point
+            (rf2-acdlp — does NOT infinite-loop)"
+    ;; rf2-acdlp: a guarded self-`:always` is permitted at registration
+    ;; (the validator only rejects the UNGUARDED self-target). This is the
+    ;; canonical SCXML §3.13 / W3C test-372 eventless fixed-point pattern:
+    ;; the self-loop's :action drives the guard false, so the `:always`
+    ;; microstep loop settles. The assertion that the snapshot commits at
+    ;; all is itself the TERMINATION proof — an infinite loop would never
+    ;; return from `dispatch-sync`. The depth-limit backstop is left at its
+    ;; default; the loop must settle well before it.
+    (let [machine
+          {:initial :a
+           :data    {:n 0}
+           :guards  {:more? (fn [{d :data}] (< (:n d) 3))}
+           :actions {:bump  (fn [{d :data}] {:data (update d :n inc)})}
+           :states
+           {:a {:always [{:guard :more? :target :a :action :bump}]}}}]
+      ;; Registration MUST succeed (guarded self-target is permitted).
+      (rf/reg-machine :drain/flow machine)
+      ;; One external kick starts the macrostep; the eventless self-loop
+      ;; then drains :a→:a (bumping :n) until :more? is false at :n=3.
+      (rf/dispatch-sync [:drain/flow [:kick]])
+      (let [s (snapshot :drain/flow)]
+        (is (= :a (:state s))
+            "the guarded self-loop settled at its fixed point — :a (no infinite loop)")
+        (is (= 3 (get-in s [:data :n]))
+            "the self-loop fired exactly until its guard flipped false (n: 0→1→2→3)"))))
+
   (testing ":always cycle hits depth limit — snapshot rolls back atomically"
     ;; Two states ping-pong via :always with always-true guards. The
     ;; microstep loop trips the depth limit; per Spec 005 §Bounded depth

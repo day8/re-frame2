@@ -664,25 +664,41 @@
 
 (defn- validate-always-self-loop!
   "Per Spec 005 §Self-loop forbidden at registration: a state whose
-  `:always` targets itself is rejected at construction time. The loop
-  either fires repeatedly to depth-exceeded (guard stays true) or is a
-  no-op (guard flips on first hit) — in both cases the author intended
-  something else. Catch the topology bug at registration rather than
-  late at runtime via the depth-exceeded backstop.
+  `:always` targets itself **with no `:guard`** is rejected at
+  construction time. An UNGUARDED self-`:always` fires every microstep
+  unconditionally — it runs straight to depth-exceeded (the genuine
+  infinite-loop topology bug). Catch it at registration rather than late
+  at runtime via the depth-exceeded backstop.
+
+  A GUARDED self-targeting `:always` is PERMITTED (rf2-acdlp): the guard
+  bounds the loop, and the `:always` microstep fixed-point drain settles
+  it at runtime once the guard's action flips the condition false (e.g.
+  `{:guard :more? :target :a :action :bump}` — the canonical SCXML §3.13
+  eventless-loop / W3C test-372 fixed-point pattern). This matches
+  XState v5 / SCXML, which permit guarded self-transitions and do not
+  statically prove termination either, and Spec 005 §Self-loop forbidden
+  at registration / §Eventless transitions. Registration cannot decide
+  whether a guard's truth changes between re-entries, so a present guard
+  is taken at face value; the depth-16 microstep backstop
+  (`:rf.error/machine-always-depth-exceeded`) catches a guard that never
+  settles at runtime.
 
   `path` is the declaring state's absolute path; `state-key` is its leaf
   key (the trace-tag the spec catalogue pins). Emits
   `:rf.error/machine-always-self-loop`."
   [path state-key state-node]
   (doseq [entry (always-entries state-node)]
-    (when (always-self-loop? path entry)
+    (when (and (always-self-loop? path entry)
+               (not (contains? entry :guard)))
       (throw (validation-error
                :rf.error/machine-always-self-loop
                (str "state " state-key
-                    " declares an :always transition that targets itself — "
-                    "an eventless self-loop either runs to depth-exceeded or "
-                    "is a no-op. Use :after for a re-arming timer, or target a "
-                    "distinct state.")
+                    " declares an unguarded :always transition that targets "
+                    "itself — an eventless self-loop with no guard fires every "
+                    "microstep and runs straight to depth-exceeded. Add a "
+                    ":guard that the transition's :action drives false (so the "
+                    "loop settles at a fixed point), use :after for a re-arming "
+                    "timer, or target a distinct state.")
                {:state state-key})))))
 
 (defn- walk-state-nodes-with-path
