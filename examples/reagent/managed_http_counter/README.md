@@ -21,7 +21,7 @@ The compact worked example for [Spec 014
   needing a stub HTTP server.
 - **`:rf.http/managed-abort`** — cancelling an in-flight request by
   `:request-id`.
-- **Substrate** — reagent-slim (the catalogue default).
+- **Substrate** — stock Reagent (`re-frame.adapter.reagent`), like the rest of the `examples/reagent/` catalogue.
 
 ## Why this shape
 

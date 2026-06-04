@@ -17,10 +17,10 @@
    framework-shipped `:rf.http/managed-canned-success` per Spec 014
    §Testing, so the canonical reply shape is preserved."
   (:require [clojure.string :as str]
-            [reagent2.dom.client :as rdc]
+            [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             ;; Required for `rf/init!`.
-            [re-frame.adapter.reagent-slim :as reagent-slim-adapter]
+            [re-frame.adapter.reagent :as reagent-adapter]
             ;; Managed-HTTP ships in day8/re-frame2-http. The require
             ;; triggers its fx registrations (:rf.http/managed and
             ;; family) at app boot; without it, the child loaders'
@@ -138,7 +138,7 @@
 
 (defn run []
   ;; Pass the adapter spec map directly — no registry.
-  (rf/init! reagent-slim-adapter/adapter)
+  (rf/init! reagent-adapter/adapter)
 
   ;; Override `:rf.http/managed` on the default frame so every child
   ;; loader's GET routes to the per-URL canned stub above. The

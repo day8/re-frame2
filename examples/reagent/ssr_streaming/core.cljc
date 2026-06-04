@@ -25,8 +25,8 @@
   (:require [re-frame.core :as rf]
             [re-frame.schemas]
             [re-frame.ssr :as ssr]
-            #?(:cljs [reagent2.dom.client :as rdc])
-            #?(:cljs [re-frame.adapter.reagent-slim :as reagent-slim-adapter])))
+            #?(:cljs [reagent.dom.client :as rdc])
+            #?(:cljs [re-frame.adapter.reagent :as reagent-adapter])))
 
 ;; ============================================================================
 ;; SCHEMA
@@ -209,7 +209,7 @@
 
 #?(:cljs
    (defn run []
-     (rf/init! reagent-slim-adapter/adapter)
+     (rf/init! reagent-adapter/adapter)
      ;; Install the client-side streaming runtime BEFORE the first render
      ;; so it catches resolved-subtree chunks as they arrive (and sweeps
      ;; any already present). It swaps fallbacks + merges per-subtree

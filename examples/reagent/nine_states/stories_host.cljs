@@ -30,9 +30,9 @@
 
    The host installs the FULL Reagent adapter (`re-frame.adapter.
    reagent`) — the substrate the Story shell itself renders on. The
-   example's own `core.cljs` uses `reagent-slim` for its standalone
-   `:examples/nine-states` build; this showcase host is a separate
-   entry point and runs everything (live app + shell + variant
+   example's own `core.cljs` also mounts on the stock Reagent adapter for
+   its standalone `:examples/nine-states` build; this showcase host is a
+   separate entry point and runs everything (live app + shell + variant
    canvases) on one adapter. `nine-states.core/root-view` is a
    substrate-agnostic `reg-view`, so it renders identically under
    either.
@@ -65,7 +65,7 @@
 ;; `:nine-states.http/managed-demo` stub (no backend). This mirrors what
 ;; `nine-states.core/run` installs on `:rf/default`; we register it here
 ;; so the host owns the full boot (the host does not call
-;; `core/run`, which hardcodes its own reagent-slim mount lifecycle).
+;; `core/run`, which hardcodes its own stock-Reagent mount lifecycle).
 
 (defn- install-live-frame! []
   (rf/reg-frame :rf/default

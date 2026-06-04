@@ -31,7 +31,7 @@
    `implementation/adapters/reagent/test/re_frame/realworld_cljs_test.cljs`;
    the example tree is test-free, rf2-8cevm) run without a network."
   (:require [clojure.string :as str]
-            [reagent2.dom.client :as rdc]
+            [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.registrar :as registrar]
             ;; Managed-HTTP ships in day8/re-frame2-http.
@@ -57,7 +57,7 @@
             ;; `:rf/hydrate`. Without the require those calls raise
             ;; :rf.error/ssr-artefact-missing.
             [re-frame.ssr]
-            [re-frame.adapter.reagent-slim :as reagent-slim-adapter]
+            [re-frame.adapter.reagent :as reagent-adapter]
             [realworld.schema]
             [realworld.http]
             [realworld.routing :as routing]
@@ -394,7 +394,7 @@
 
 (defn run []
   ;; Pass the adapter spec map directly — no registry.
-  (rf/init! reagent-slim-adapter/adapter)
+  (rf/init! reagent-adapter/adapter)
   ;; Override :rf.http/managed on the default frame so all the realworld
   ;; feature HTTP calls land on the demo stub (no real backend required).
   ;; The auth-guard interceptor (routing.cljs) is prepended to every event

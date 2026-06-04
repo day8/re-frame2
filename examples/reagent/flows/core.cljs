@@ -43,7 +43,7 @@
    - `:rf.fx/reg-flow` / `:rf.fx/clear-flow`        (Spec 013 §Dynamic toggle via fx)
    - reading a flow's output inside an event handler (Spec 013 §Sub integration (a))
    - reading a flow's output via a plain sub over its `:path`  (Spec 013 §Sub integration (b))"
-  (:require [reagent2.dom.client :as rdc]
+  (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             ;; Flows ship in day8/re-frame2-flows. Requiring re-frame.flows
             ;; here is what publishes the artefact's late-bind hooks
@@ -53,7 +53,7 @@
             ;; convention the schemas / machines / routing examples use.)
             [re-frame.flows]
             [re-frame.views]
-            [re-frame.adapter.reagent-slim :as reagent-slim-adapter])
+            [re-frame.adapter.reagent :as reagent-adapter])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; ============================================================================
@@ -291,7 +291,7 @@
 
 (defn run []
   ;; Pass the adapter spec map directly — no registry.
-  (rf/init! reagent-slim-adapter/adapter)
+  (rf/init! reagent-adapter/adapter)
   (rf/dispatch-sync [:cart/initialise])
   (when (exists? js/document)
     (when-not @react-root
