@@ -1,12 +1,12 @@
-# Story Test Codegen — record-as-`:play-script`
+# Story Test Codegen — record-as-`:script`
 
-> Recording canvas interactions and pasting the captured trace into a `:play-script` body. Assumes you already know what record-and-save UX is (Storybook 9's marquee feature) — this leaf covers re-frame2's specific recorder surface and the canvas-as-fixture pattern that makes it work.
+> Recording canvas interactions and pasting the captured trace into a `:script` body. Assumes you already know what record-and-save UX is (Storybook 9's marquee feature) — this leaf covers re-frame2's specific recorder surface and the canvas-as-fixture pattern that makes it work.
 
-> **Mental model: think in Storybook, map onto Story.** The recorder is Story's answer to Storybook 9's "record canvas interactions → CSF" feature. The difference is the output shape: Storybook emits a Testing-Library code translation; Story emits a pure-EDN `:play-script` step sequence with no DOM-event capture and no page-object layer. Picture the Storybook record-and-save flow, then map: `REC` toggle → `start-recording!` / `stop-recording!`; the generated CSF story → a `(reg-variant …)` form with an `:extends` link and a `:play-script` body. Full concept table in `stories.md` §Mental model.
+> **Mental model: think in Storybook, map onto Story.** The recorder is Story's answer to Storybook 9's "record canvas interactions → CSF" feature. The difference is the output shape: Storybook emits a Testing-Library code translation; Story emits a pure-EDN `:script` step sequence with no DOM-event capture and no page-object layer. Picture the Storybook record-and-save flow, then map: `REC` toggle → `start-recording!` / `stop-recording!`; the generated CSF story → a `(reg-variant …)` form with an `:extends` link and a `:script` body. Full concept table in `stories.md` §Mental model.
 
 ## When to load
 
-- A variant's `:play-script` body needs to grow but you'd rather drive the canvas than hand-author the event vectors.
+- A variant's `:script` body needs to grow but you'd rather drive the canvas than hand-author the event vectors.
 - You're scripting an MCP agent that calls `start-recording!` / `stop-recording!` on the variant frame.
 - You're explaining why this is one screenful of code in re-frame2 vs Storybook's Testing-Library translation layer.
 
@@ -16,7 +16,7 @@ Do **not** load this leaf to learn what a story is, or to author a variant body 
 
 A variant's frame is already a self-contained fixture: phase-1 loaders seed remote-data, phase-2 `:setup` reaches the pre-render state, the canvas renders against that frame's app-db. Every interaction (click, type, route) lands as a `dispatch` on the variant's router; the trace bus already projects those dispatches with `:event/dispatched` emissions per Spec 009 §Listener contract.
 
-So the recorder is one filter on the existing emit stream, scoped to the recording's target frame, and the output shape is the exact tagged-step sequence the runtime will replay as the variant's phase-4 `:script` (spec/017 §Public vocabulary). The recorder still EMITS the transitional `:play-script` spelling, which the registrar lowers to `:script` — note that honestly; the authored/public target is `:script`. No DOM-event capture, no Testing-Library translation, no page-object layer.
+So the recorder is one filter on the existing emit stream, scoped to the recording's target frame, and the output shape is the exact tagged-step sequence the runtime will replay as the variant's phase-4 `:script` (spec/017 §Public vocabulary). The codegen emits the PUBLIC `:script` authoring slot directly — the recorder no longer emits the transitional `:play-script` spelling (the registrar still accepts and lowers `:play-script` if you hand-write it, but the authored/public target is `:script`). No DOM-event capture, no Testing-Library translation, no page-object layer.
 
 ## Public surface
 
@@ -38,8 +38,8 @@ The trace-bus callback short-circuits unless a recording is in flight, so it's f
 
 1. **Op-type** — only `:event/dispatched` emissions qualify (`:fx`, `:sub`, `:view`, `:cofx` traffic is dropped).
 2. **Frame scope** — emission `:frame` must match the recording's target variant. Typing in another canvas while a recording is active is dropped.
-3. **Event vocabulary** — `:rf.assert/*` events and Story-internal helpers (`:rf.story/*`, `:re-frame.story.*`) are filtered. Recorded `:play-script` bodies capture user intent; assertions get added by hand afterwards.
-4. **Sensitivity** — events whose handler is registered `:sensitive? true` (auth, 2FA, password change, API-key rotation) replace the event vector with the placeholder `[:rf/redacted]` instead of riding the raw payload into the snippet. The temporal position survives; the secret never lands in `:play-script` source. See the next section for details and the authoring rule.
+3. **Event vocabulary** — `:rf.assert/*` events and Story-internal helpers (`:rf.story/*`, `:re-frame.story.*`) are filtered. Recorded `:script` bodies capture user intent; assertions get added by hand afterwards.
+4. **Sensitivity** — events whose handler is registered `:sensitive? true` (auth, 2FA, password change, API-key rotation) replace the event vector with the placeholder `[:rf/redacted]` instead of riding the raw payload into the snippet. The temporal position survives; the secret never lands in `:script` source. See the next section for details and the authoring rule.
 
 ## Sensitive events — record-but-redact
 
@@ -58,35 +58,37 @@ Properties:
 - **The redaction counter still bumps.** The recording overlay's REDACTED indicator shows "N rows redacted" alongside the placeholders themselves, so the dev knows how many slots are pasteholders even before scrolling.
 - **`:rf.privacy/show-sensitive? true` keeps the verbatim event.** In-box debug only; never enable for snippets that ride into source control. Set via `(story/configure! {:rf.privacy/show-sensitive? true})` early in dev boot.
 
-Authoring rule: do NOT publish a `:play-script` body containing `[:rf/redacted]` slots into committed source — they're recordings of credential flows, not reproducible tests. Either hand-author the equivalent dispatch with a synthetic credential, or scope the recording away from the sensitive step.
+Authoring rule: do NOT publish a `:script` body containing `[:rf/redacted]` slots into committed source — they're recordings of credential flows, not reproducible tests. Either hand-author the equivalent dispatch with a synthetic credential, or scope the recording away from the sensitive step.
 
-## Worked example — recorded `:play-script` body
+## Worked example — recorded `:script` body
 
-The author starts with a `happy-path` variant. They want a new variant that exercises three increments and a `:by 7`. They click `REC` in the toolbar (right of the strip, just before `[reset]`), drive the canvas, click `REC` again. The save-as-variant modal shows the generated form:
+The author starts with a `happy-path` variant. They want a new variant that exercises three increments and a `:by 7`. They click `REC` in the toolbar (right of the strip, just before `[reset]`), drive the canvas, click `REC` again. The save-as-variant modal shows the generated form — the codegen emits the PUBLIC `:script` slot (an inner `{:auto-run? true :script [...]}` PlaySpec map), each captured event wrapped as a `[:dispatch-sync <ev>]` step:
 
 ```clojure
 (story/reg-variant :story.counter/recorded-739221
-  {:extends     :story.counter/happy-path
-   :play-script [[:dispatch-sync [:counter/inc]]
-                 [:dispatch-sync [:counter/inc]]
-                 [:dispatch-sync [:counter/inc]]
-                 [:dispatch-sync [:counter/by 7]]]})
+  {:extends :story.counter/happy-path
+   :script  {:auto-run? true
+             :script    [[:dispatch-sync [:counter/inc]]
+                         [:dispatch-sync [:counter/inc]]
+                         [:dispatch-sync [:counter/inc]]
+                         [:dispatch-sync [:counter/by 7]]]}})
 ```
 
 The author edits the id (`recorded-739221` → `triple-inc-then-seven`), adds a `:doc`, adds the assertions they want by hand:
 
 ```clojure
 (story/reg-variant :story.counter/triple-inc-then-seven
-  {:doc         "Three increments then by-7 lands on ten."
-   :extends     :story.counter/happy-path
-   :play-script [[:dispatch-sync [:counter/inc]]
-                 [:dispatch-sync [:counter/inc]]
-                 [:dispatch-sync [:counter/inc]]
-                 [:dispatch-sync [:counter/by 7]]
-                 [:dispatch-sync [:rf.assert/path-equals [:count] 10]]]})
+  {:doc     "Three increments then by-7 lands on ten."
+   :extends :story.counter/happy-path
+   :script  {:auto-run? true
+             :script    [[:dispatch-sync [:counter/inc]]
+                         [:dispatch-sync [:counter/inc]]
+                         [:dispatch-sync [:counter/inc]]
+                         [:dispatch-sync [:counter/by 7]]
+                         [:dispatch-sync [:rf.assert/path-equals [:count] 10]]]}})
 ```
 
-Paste into the stories namespace. Done.
+Paste into the stories namespace. Done. (The bare-vector shorthand `:script [[:dispatch-sync …] …]` desugars to `{:script <vector> :auto-run? true}` — the recorder emits the explicit map so the `:auto-run?` flag is visible at the paste site.)
 
 ## Common gotchas — recorder-specific
 
@@ -100,15 +102,15 @@ Paste into the stories namespace. Done.
 
 The story-mcp `record-as-variant` tool calls the same public surface through the Tool-Pair bridge: `start-recording!` → drive interactions (programmatic dispatches or human-in-canvas) → `stop-recording!` → `gen-play-snippet` → snippet returned as the tool's structured output. See `story-mcp-loop.md` for the agent self-healing loop that uses this.
 
-**The MCP path inherits the same four-filter pipeline, including layer 4 (sensitivity).** `record-as-variant` does not — and must not — bypass `:sensitive?` redaction: the tool's structured output is shipped over an MCP transport to an agent process, which is a wire boundary, so sensitive payloads must never appear in the returned `:play-script` body. The tool also never accepts a `:rf.privacy/show-sensitive? true` override at call time. If a recording session captured any sensitive events, the response carries the same `[:rf/redacted]` placeholders the in-canvas overlay shows, plus a metadata count of redactions for the agent to surface to the human.
+**The MCP path inherits the same four-filter pipeline, including layer 4 (sensitivity).** `record-as-variant` does not — and must not — bypass `:sensitive?` redaction: the tool's structured output is shipped over an MCP transport to an agent process, which is a wire boundary, so sensitive payloads must never appear in the returned `:script` body. The tool also never accepts a `:rf.privacy/show-sensitive? true` override at call time. If a recording session captured any sensitive events, the response carries the same `[:rf/redacted]` placeholders the in-canvas overlay shows, plus a metadata count of redactions for the agent to surface to the human.
 
-Authoring rule for tools that consume `gen-play-snippet` output (or call `record-as-variant` directly): treat any `[:rf/redacted]` slot as a non-reproducible step. Do not auto-commit a `:play-script` body containing `[:rf/redacted]` into source control; either ask the human to hand-author the equivalent dispatch with a synthetic credential, or rescope the recording to avoid the sensitive step. See [`../cross-cutting/privacy-and-elision.md`](../cross-cutting/privacy-and-elision.md) §Story recorder for the normative contract.
+Authoring rule for tools that consume `gen-play-snippet` output (or call `record-as-variant` directly): treat any `[:rf/redacted]` slot as a non-reproducible step. Do not auto-commit a `:script` body containing `[:rf/redacted]` into source control; either ask the human to hand-author the equivalent dispatch with a synthetic credential, or rescope the recording to avoid the sensitive step. See [`../cross-cutting/privacy-and-elision.md`](../cross-cutting/privacy-and-elision.md) §Story recorder for the normative contract.
 
 ## Deeper material
 
 - Capture boundary, public API, MCP wiring rationale → `tools/story/spec/005-SOTA-Features.md` §Test Codegen.
 - Trace-bus listener primitive → `tools/story/spec/003-Render-Shell.md` §Trace bus, and Spec 009 §Listener contract.
-- Variant body shape (where the recorded `:play-script` lands) → `stories.md` (sibling leaf).
+- Variant body shape (where the recorded `:script` lands) → `stories.md` (sibling leaf).
 - MCP self-healing loop → `story-mcp-loop.md` (sibling leaf).
 
 ---
