@@ -104,17 +104,49 @@
        :port           <int | nil>         ;; the port last seen
        :conn           <atom | nil>        ;; the persistent nREPL conn
        :discovered?    <bool>              ;; have we run discovery yet?
-       :discovery-error <ex-info | nil>}   ;; sticky error from prior attempt
+       :discovery-error <ex-info | nil>}   ;; LAST failure, diagnostic only
 
   Resetting `:discovered? false` triggers a full re-discovery on the
   next tool call — used by the operator-initiated re-attach branch
-  (deferred to a follow-up bead)."
+  (deferred to a follow-up bead).
+
+  `:discovery-error` records the most recent failed-discovery rejection
+  for diagnostics; it does NOT gate (rf2-r6yly). While `:discovered?` is
+  false, every tool call re-runs the cascade, so a recoverable failure
+  (shadow not up at the first call) self-heals on a later call once the
+  operator starts the build."
   (atom {:project-home    nil
          :port-file       nil
          :port            nil
          :conn            nil
          :discovered?     false
          :discovery-error nil}))
+
+(defn session-state-snapshot
+  "Deref the private `session-state` for tests — read-only window onto
+  the resolved-endpoint cache (rf2-r6yly retry regression)."
+  []
+  @session-state)
+
+(defn reset-session-state-for-tests!
+  "Reset `session-state` to the pristine pre-discovery shape. Exposed for
+  tests so the lazy-discovery retry contract can be exercised from a
+  known slate (rf2-r6yly)."
+  []
+  (reset! session-state {:project-home    nil
+                         :port-file       nil
+                         :port            nil
+                         :conn            nil
+                         :discovered?     false
+                         :discovery-error nil}))
+
+(defn mark-discovered-for-tests!
+  "Stand in for `discover-and-cache!`'s success side effect — record a
+  resolved conn (no port-file, so the per-call re-read fast-path returns
+  it verbatim) and flip `:discovered?`. Exposed so a stub discovery thunk
+  can mimic a successful attach without the npm SDK (rf2-r6yly)."
+  [conn]
+  (swap! session-state assoc :conn conn :discovered? true :discovery-error nil))
 
 ;; The Server instance is captured here when `build-server` returns it,
 ;; so the discovery flow can reach `listRoots()` and `elicitInput()`
@@ -266,7 +298,7 @@
                                :reason   port-not-found-hint
                                :hint     port-not-found-hint}))))))))
 
-(defn- ensure-connection!
+(defn ensure-connection!
   "Lazy-discovery entry: called before every tool dispatch. Three paths:
 
   1. First call (or after invalidation) — runs `discover-and-cache!`.
@@ -286,18 +318,41 @@
   a transient socket hiccup — so this layer (which actually observes the
   port change) owns the invalidation, alongside operator `close!`.
 
-  Returns a Promise resolving to the live conn atom, or rejecting with
-  the cached/structured discovery error."
-  [launch-flags]
-  (let [{:keys [discovered? discovery-error port-file port conn]} @session-state]
-    (cond
-      (and (not discovered?) (some? discovery-error))
-      (js/Promise.reject discovery-error)
+  ## Discovery failure is RETRIED, never sticky (rf2-r6yly)
 
+  A failed discovery (`discover-and-cache!` rejected: no nREPL port yet,
+  shadow not started, ambiguous-and-declined) leaves `:discovered? false`
+  and records `:discovery-error` for diagnostics — but it does NOT wedge
+  the session. Each subsequent tool call RE-RUNS the cascade. The earlier
+  shape short-circuited on a cached `:discovery-error`, so once discovery
+  failed once (e.g. a tool call landed before `shadow-cljs watch` was up)
+  EVERY later call replayed the stale rejection forever — the operator
+  had to restart the whole MCP server even after starting shadow, because
+  nothing ever re-attempted. The cascade is bounded (sync env/flag steps;
+  the async roots/HTTP probes cap at `shadow-discovery/probe-timeout-ms`),
+  so re-running it per call on the failure path is cheap and is the only
+  thing that lets a session self-heal when the operator fixes the
+  underlying cause. `:discovery-error` is kept purely as a diagnostic
+  breadcrumb of the LAST failure; it no longer gates.
+
+  Returns a Promise resolving to the live conn atom, or rejecting with a
+  fresh structured discovery error when the cascade still can't resolve.
+
+  The 2-arity injects the discovery thunk so the retry contract can be
+  unit-tested without the npm SDK / a live shadow (rf2-r6yly); production
+  uses the 1-arity, which threads in `discover-and-cache!`."
+  ([launch-flags] (ensure-connection! launch-flags discover-and-cache!))
+  ([launch-flags discover-fn]
+  (let [{:keys [discovered? port-file port conn]} @session-state]
+    (cond
       (not discovered?)
-      (-> (discover-and-cache! launch-flags)
+      (-> (discover-fn launch-flags)
           (.then (fn [_] (:conn @session-state)))
           (.catch (fn [e]
+                    ;; Record the last failure for diagnostics only — the
+                    ;; next tool call re-runs discovery (rf2-r6yly); a
+                    ;; recoverable failure (shadow not up yet) must not
+                    ;; permanently wedge the session.
                     (swap! session-state assoc :discovery-error e)
                     (js/Promise.reject e))))
 
@@ -310,7 +365,7 @@
               (nrepl/close! conn)
               (swap! session-state assoc :discovered? false :conn nil
                      :discovery-error nil)
-              (ensure-connection! launch-flags))
+              (ensure-connection! launch-flags discover-fn))
 
           ;; Port changed — shadow restarted on a new ephemeral port.
           (and current-port (not= current-port port))
@@ -322,7 +377,7 @@
 
           ;; Same port (or env/cwd path without project-home) — fast path.
           :else
-          (js/Promise.resolve conn))))))
+          (js/Promise.resolve conn)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; MCP request handlers.
