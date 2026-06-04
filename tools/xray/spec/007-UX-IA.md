@@ -1734,7 +1734,7 @@ history + spine focus:
 | Panel | Reads (subs) | Writes (dispatches) |
 |---|---|---|
 | **epoch-panel**    | `:rf.xray/focus` · `:rf.xray/epoch-history` (via `panels.shared.focus-resolver`) | `:rf.xray.epoch/toggle-row-expand` · `:rf.xray.epoch/set-subs-filter-mode` · `:rf.xray.epoch/set-db-diff-mode` |
-| **app-db-diff**    | `:rf.xray/app-db-diff` (composite) | `:rf.xray/focus-slice-path` · `:rf.xray/open-segment-inspector` |
+| **app-db-diff**    | `:rf.xray/app-db-state` (← `:rf.xray/app-db-current+diff`; rf2-p53m2 — the `:rf.xray/app-db-diff` composite was pruned) | `:rf.xray/focus-slice-path` · `:rf.xray/open-segment-inspector` |
 | **views**          | `:rf.xray/views-focused-cascade-pair` · `:rf.xray/views-sub-diff` | view-row toggles · sub-diff selection |
 | **trace**          | `:rf.xray/trace-feed` (incremental projection) | `:rf.xray/select-dispatch-id` · `:rf.xray/open-in-editor` |
 | **machine-inspector** | `:rf.xray/machine-chart-data` · `:rf.xray/active-timers-for-focused-machine` · `:rf.xray/machine-scrubber-position` | scrubber events · `:rf.xray/focus-cascade` |

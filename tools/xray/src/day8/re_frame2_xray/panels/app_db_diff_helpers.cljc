@@ -718,16 +718,21 @@
 ;; on the epoch record (rf2-dl3gx) — an exact integer computed inside
 ;; `re-frame.epoch.assembly/build-record` from raw db-before /
 ;; db-after BEFORE the `:redact-fn` runs (per
-;; `spec/Spec-Schemas.md §:rf/epoch-record`). The Xray sub
-;; `:rf.xray/selected-epoch-redacted-modified-count` reads that
-;; slot when present.
+;; `spec/Spec-Schemas.md §:rf/epoch-record`).
 ;;
-;; This helper survives as the **absent-slot fallback** for records
-;; without the egress slot — legacy snapshots, hand-rolled test
-;; fixtures, hosts without a runtime schema layer that produces no
-;; sensitive-declarations registry. The heuristic upper-bound
-;; properties documented above still apply on that path; callers
-;; using the framework's exact count get a precise figure.
+;; rf2-p53m2 — the `:rf.xray/selected-epoch-redacted-modified-count`
+;; sub that read this helper (preferring the egress slot, falling back
+;; to this heuristic) was PRUNED along with the dead `:rf.xray/app-db-
+;; diff` composite (no production view consumer). This helper is now
+;; UNCALLED in production src; it is retained for its own test coverage
+;; pending a follow-up dead-helper sweep (rf2-p53m2 follow-up bead).
+;;
+;; The heuristic was the **absent-slot fallback** for records without
+;; the egress slot — legacy snapshots, hand-rolled test fixtures, hosts
+;; without a runtime schema layer that produces no sensitive-
+;; declarations registry. The heuristic upper-bound properties
+;; documented above still apply on that path; callers using the
+;; framework's exact count get a precise figure.
 
 (def redacted-sentinel
   "The framework's privacy sentinel keyword. Mirrors

@@ -113,10 +113,13 @@
    :rf.xray/active-filters
    ;; rf2-7hwwe — Machine Inspector `:after` countdown rings.
    :rf.xray/active-timers-for-focused-machine
-   :rf.xray/app-db-diff
    ;; rf2-yng0y — atomic current-state + focused-epoch before-image
    ;; (collapses the former 5-deep focus chain so `:before` / `:epoch-id`
    ;; move together — no stale-`before` frame on zoom navigation).
+   ;; rf2-p53m2 — the former `:rf.xray/app-db-diff` composite + its
+   ;; `:rf.xray/selected-epoch-diff` / `-flow-writes` / `-redacted-
+   ;; modified-count` inputs were PRUNED (no production view consumer);
+   ;; this atomic sub is the app-db tab's primary read-model.
    :rf.xray/app-db-current+diff
    ;; rf2-okvit — app-db tab current-state inspector section model
    ;; (derived from the atomic sub above).
@@ -294,12 +297,13 @@
    ;; rf2-hga49 — tab-ribbon Reset rewind affordance: the transient
    ;; inline failure-flash slot the ribbon reads.
    :rf.xray/reset-flash
-   :rf.xray/selected-epoch-diff
-   ;; rf2-39n8h discovered — selected-epoch composites: per-flow writes
-   ;; lens + redacted-modified-count surface for the App-DB diff panel.
-   :rf.xray/selected-epoch-flow-writes
+   ;; rf2-p53m2 — `:rf.xray/selected-epoch-diff`,
+   ;; `:rf.xray/selected-epoch-flow-writes`, and
+   ;; `:rf.xray/selected-epoch-redacted-modified-count` were PRUNED with
+   ;; the dead `:rf.xray/app-db-diff` composite. Only
+   ;; `:rf.xray/selected-epoch-record` (the Epoch panel's `:db` diff
+   ;; source) survives in this family.
    :rf.xray/selected-epoch-record
-   :rf.xray/selected-epoch-redacted-modified-count
    :rf.xray/selected-machine-id
    ;; rf2-om6fa — Story-aware modal positioning opt.
    :rf.xray/modal-positioning
@@ -1224,20 +1228,11 @@
         (is (nil? (:selected-dispatch-id data)))
         (is (nil? (:selected-cascade data)))))))
 
-(deftest sub-app-db-diff-shape-on-empty-history
-  (testing ":rf.xray/app-db-diff returns history-empty? true with no epochs.
-            rf2-e9tb0 — :pinned-slices was dropped from the composite
-            (pinned-watches strip removed)."
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (let [data @(rf/subscribe [:rf.xray/app-db-diff])]
-        (is (true? (:history-empty? data)))
-        (is (= :rf/default (:target-frame data)))
-        (is (contains? data :changed-non-reserved))
-        (is (contains? data :changed-reserved))
-        (is (not (contains? data :pinned-slices)))
-        (is (nil? (:focused-path data)))
-        (is (= [] (:focused-hits data)))))))
+;; rf2-p53m2 — `sub-app-db-diff-shape-on-empty-history` was removed: the
+;; `:rf.xray/app-db-diff` composite it exercised had no production view
+;; consumer and was pruned. The app-db tab's empty-history shape is
+;; pinned via `:rf.xray/app-db-current+diff` / `:rf.xray/app-db-state`
+;; in app_db_diff_cljs_test.
 
 (deftest sub-issues-ribbon-shape-on-empty-buffer
   (testing ":rf.xray/issues-ribbon returns :no-focus empty-kind when
@@ -1523,7 +1518,10 @@
       ;; The contract is that the registry's composites tolerate empty
       ;; inputs; per-panel tests cover the populated cases.
       (doseq [sub-id [:rf.xray/event-detail
-                      :rf.xray/app-db-diff
+                      ;; rf2-p53m2 — `:rf.xray/app-db-diff` pruned (dead
+                      ;; surface); the app-db tab's composite is now
+                      ;; `:rf.xray/app-db-current+diff` → `:rf.xray/app-db-state`.
+                      :rf.xray/app-db-current+diff
                       ;; rf2-okvit — current-state inspector section model.
                       :rf.xray/app-db-state
                       :rf.xray/issues-ribbon

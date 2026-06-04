@@ -12,10 +12,14 @@
   ## Wiring
 
   `:rf.xray/segment-inspector-value` chains off
-  `:rf.xray/target-frame-db`, which derives the *observed* frame
-  (default `:rf/default`) and reads `get-frame-db` on it. So seeding
-  the host `:rf/default` frame's db drives the projection through the
-  exact production sub-chain — no stubbed seam."
+  `:rf.xray/app-db-current+diff` (rf2-jmucu), which resolves the
+  FOCUSED epoch's `:db-after` (its own post-state) — the SAME image the
+  App-DB panel body renders. With no epoch focused (the path-prefix
+  tests below) it falls back to the live observed-frame db, so seeding
+  the host `:rf/default` frame's db still drives the projection through
+  the exact production sub-chain — no stubbed seam. The off-head
+  consistency test additionally seeds an epoch history + focuses a
+  non-head epoch to pin the popup==panel-body invariant."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
@@ -184,3 +188,112 @@
     (setup!)
     (is (nil? (rf/with-frame :rf/xray (segment-inspector/Popup)))
         "closed segment inspector did not render nil")))
+
+;; ---- rf2-jmucu: off-head popup==panel-body consistency ------------------
+;;
+;; Post-rf2-02j4r the App-DB panel BODY shows the FOCUSED epoch's own
+;; `:db-after` (via `:rf.xray/app-db-current+diff`'s `:value`), NOT the
+;; live db — so selecting epoch N shows N's own state with no later-event
+;; bleed. The breadcrumb segment-inspector popup pops OUT OF that body, so
+;; it must agree with it. Before rf2-jmucu the popup read
+;; `:rf.xray/target-frame-db` (the LIVE deref), so off-head the popup
+;; showed live state while the body showed epoch N — the same later-event
+;; bleed rf2-02j4r killed in the body, surviving in the popup. This test
+;; pins the invariant: at a non-head focus, the popup value == the panel
+;; body's focused-epoch value, and is NOT the live value.
+
+(defn- mk-record
+  "Minimal `:rf/epoch-record` for the history seed (mirrors the
+  app-db-diff test's builder)."
+  [epoch-id event db-before db-after]
+  {:epoch-id      epoch-id
+   :frame         :rf/default
+   :committed-at  0
+   :event-id      (first event)
+   :trigger-event event
+   :db-before     db-before
+   :db-after      db-after
+   :trace-events  []})
+
+(defn- setup-history!
+  "Register Xray's handler graph + the `:rf/xray` and host `:rf/default`
+  frames, seed the host `:rf/default` frame's LIVE db, and seed the
+  `:rf/xray` frame's `:epoch-history`. Drives the focused-epoch sub
+  chain through the production wiring (`:rf.xray/select-epoch` → the
+  `:rf.xray/focus` spine sub → `:rf.xray/app-db-current+diff`)."
+  [live-db history]
+  (registry/register-xray-handlers!)
+  (frame/reg-frame :rf/xray {})
+  (frame/reg-frame :rf/default {})
+  (rf/reset-frame-db! :rf/default live-db)
+  (rf/reg-event-db :rf.xray-test/seed-history
+    (fn [db [_ records]]
+      (assoc db :epoch-history (vec records))))
+  (rf/with-frame :rf/xray
+    (rf/dispatch-sync [:rf.xray-test/seed-history history])))
+
+(deftest popup-value-matches-focused-epoch-not-live-off-head
+  (testing "rf2-jmucu — off-head, the segment-inspector popup value at a
+            path equals the FOCUSED epoch's `:db-after` value at that path
+            (the same image the panel body renders), NOT the live db."
+    ;; History: counter 5 → 6 → 7. LIVE db is at the head (counter 7).
+    ;; Focus the MIDDLE epoch (:e-2, counter 6) — a non-head selection.
+    (let [live    {:counter 7 :user {:name "ada"}}
+          history [(mk-record :e-1 [:counter/inc] {:counter 5} {:counter 6 :user {:name "ada"}})
+                   (mk-record :e-2 [:counter/inc]
+                              {:counter 6 :user {:name "ada"}}
+                              {:counter 6 :user {:name "ada"} :flash {:text "saved"}})
+                   (mk-record :e-3 [:counter/inc]
+                              {:counter 6 :user {:name "ada"} :flash {:text "saved"}}
+                              live)]]
+      (setup-history! live history)
+      (rf/with-frame :rf/xray
+        ;; Focus the non-head epoch via the production spine shim.
+        (rf/dispatch-sync [:rf.xray/select-epoch :e-2]))
+      ;; Sanity: the panel body's source (`:value`) is :e-2's :db-after,
+      ;; not live — establishes what "agree with the body" means here.
+      (let [panel-value (rf/with-frame :rf/xray
+                          (:value @(rf/subscribe [:rf.xray/app-db-current+diff])))]
+        (is (= (:db-after (nth history 1)) panel-value)
+            "precondition: the panel body shows :e-2's :db-after off-head")
+        (is (not= live panel-value)
+            "precondition: the panel body is NOT showing the live db off-head")
+        ;; Now open the popup at a path present in BOTH the focused epoch
+        ;; and live, but VALUED DIFFERENTLY (the bleed-prone case): the
+        ;; focused epoch has no :flash before :e-2; counter differs
+        ;; between :e-2 (6) and live (7).
+        (rf/with-frame :rf/xray
+          (rf/dispatch-sync [:rf.xray/open-segment-inspector [:counter]]))
+        (is (= 6 (read-value-sub))
+            "popup at [:counter] must show :e-2's value (6), not the live head (7)")
+        (is (not= (:counter live) (read-value-sub))
+            "popup at [:counter] must NOT bleed the live head value")
+        ;; The popup at the focused epoch's [:flash] subtree must match
+        ;; the panel-body image exactly.
+        (rf/with-frame :rf/xray
+          (rf/dispatch-sync [:rf.xray/open-segment-inspector [:flash]]))
+        (is (= (get-in (:db-after (nth history 1)) [:flash]) (read-value-sub))
+            "popup [:flash] slice must equal the focused epoch's slice")
+        ;; Whole-db (root) popup must equal the focused epoch's :db-after,
+        ;; not live — the strongest form of popup==panel-body agreement.
+        (rf/with-frame :rf/xray
+          (rf/dispatch-sync [:rf.xray/open-segment-inspector []]))
+        (is (= (:db-after (nth history 1)) (read-value-sub))
+            "root popup must equal the focused epoch's whole :db-after")
+        (is (not= live (read-value-sub))
+            "root popup must NOT equal the live db off-head")))))
+
+(deftest popup-value-equals-live-on-head
+  (testing "rf2-jmucu — on-head (focus the newest epoch), the popup value
+            equals the live db, because the head epoch's :db-after IS the
+            live db. Consistency holds at every scrub position, including
+            head."
+    (let [live    {:counter 7 :user {:name "ada"}}
+          history [(mk-record :e-1 [:counter/inc] {:counter 6 :user {:name "ada"}} live)]]
+      (setup-history! live history)
+      (rf/with-frame :rf/xray
+        (rf/dispatch-sync [:rf.xray/select-epoch :e-1]))
+      (rf/with-frame :rf/xray
+        (rf/dispatch-sync [:rf.xray/open-segment-inspector [:counter]]))
+      (is (= 7 (read-value-sub))
+          "on-head, popup at [:counter] equals the live head value (7)"))))

@@ -389,15 +389,40 @@ emission and Xray renders the tag.
 For each diff path like `[:cart :items 0 :price]`, each segment is
 independently clickable:
 
-- Click `:cart` → popup shows app-db at `[:cart]`
-- Click `:items` → popup shows app-db at `[:cart :items]`
-- Click `0` → popup shows app-db at `[:cart :items 0]`
-- Click `:price` → popup shows app-db at `[:cart :items 0 :price]`
+- Click `:cart` → popup shows the value at `[:cart]`
+- Click `:items` → popup shows the value at `[:cart :items]`
+- Click `0` → popup shows the value at `[:cart :items 0]`
+- Click `:price` → popup shows the value at `[:cart :items 0 :price]`
   (the leaf)
 
 The popup renders the value at the inspected path via Xray's
 existing data-inspector primitive — the same cljs-devtools-shaped
 expandable tree every L4 detail panel uses.
+
+### Popup reads the FOCUSED epoch, consistent with the panel body (rf2-jmucu)
+
+The value the popup renders is resolved against the **focused epoch's
+`:db-after`** — the *same image the panel body shows* (the
+`:rf.xray/app-db-current+diff` `:value`, per §Diff semantics above),
+**not** the live `target-frame-db`. The segment-inspector pops out of
+the panel body, so the two must agree at every scrub position:
+
+- **On-head** the focused epoch's `:db-after` *is* the live db, so the
+  popup shows current state — unchanged from the user's expectation.
+- **Off-head** (scrubbed back to an earlier epoch N) the popup shows
+  the value at the inspected path **in epoch N's own post-state**, the
+  same value the body is showing — with no later-event bleed.
+- **Cold boot / no focus** (no cascades yet) the `:value` falls back to
+  the live db, so the popup renders plain current-state — same as the
+  body's empty-state.
+
+Reading the popup against the *live* db instead (the pre-rf2-jmucu
+wiring) made the popup disagree with the body off-head: it surfaced
+everything later events did, the exact later-event-bleed class
+[rf2-02j4r](#diff-semantics-per-epoch-delta-rf2-02j4r) killed in the
+body. Routing the popup through `:rf.xray/app-db-current+diff`'s
+`:value` (rather than `:rf.xray/target-frame-db`) is the single seam
+that keeps the two surfaces identical.
 
 Discoverability: segments carry a dotted underline + pointer cursor
 on hover, and a `Inspect app-db at <prefix>` tooltip on hover. The

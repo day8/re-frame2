@@ -74,19 +74,31 @@
     (fn [slot _]
       (:path slot)))
 
-  ;; Resolve the value at the inspected path against the host frame's
-  ;; current db. `:rf.xray/target-frame-db` (installed by app-db-diff-
-  ;; subs) is the live deref against the picker-selected frame; we read
-  ;; through the same seam so the popup follows the picker without any
-  ;; bespoke wiring. Empty path returns the whole db (the inspector
-  ;; renders the root map).
+  ;; Resolve the value at the inspected path against the FOCUSED epoch's
+  ;; state — the SAME image the App-DB panel body renders.
+  ;;
+  ;; rf2-jmucu — the popup must agree with the panel body it pops out of.
+  ;; The body renders `:rf.xray/app-db-current+diff`'s `:value`, which
+  ;; (post-rf2-02j4r) is the FOCUSED epoch's `:db-after` — the epoch's
+  ;; own post-state, moving per epoch as the user scrubs. Reading the
+  ;; popup through `:rf.xray/target-frame-db` (the LIVE deref) instead
+  ;; made the popup disagree with the body off-head: scrub back to an
+  ;; earlier epoch and the body showed THAT epoch's value while the
+  ;; popup showed live state (everything later events did) — the same
+  ;; later-event-bleed class rf2-02j4r killed in the body, surviving in
+  ;; the popup. Reading through `app-db-current+diff`'s `:value` is the
+  ;; single seam that keeps popup + body identical at every scrub
+  ;; position: on-head `:value` == live; off-head it follows the focused
+  ;; epoch; cold boot (no focus) it falls back to the live db (same as
+  ;; the body's empty-state). Empty path returns the whole value (the
+  ;; inspector renders the root map).
   (rf/reg-sub :rf.xray/segment-inspector-value
     :<- [:rf.xray/segment-inspector-path]
-    :<- [:rf.xray/target-frame-db]
-    (fn [[path db] _]
+    :<- [:rf.xray/app-db-current+diff]
+    (fn [[path {:keys [value]}] _]
       (if (seq path)
-        (get-in db path)
-        db))))
+        (get-in value path)
+        value))))
 
 ;; ---- events --------------------------------------------------------------
 

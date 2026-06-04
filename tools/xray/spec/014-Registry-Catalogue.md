@@ -184,21 +184,32 @@ Spec: [`002-Time-Travel.md`](./002-Time-Travel.md).
 
 Spec: [`004-App-DB-Diff.md`](./004-App-DB-Diff.md).
 
-Slice-centric `app-db` inspector. Reads the host frame's `app-db` via
-`rf/app-db-value` + the target-frame's epoch-history; produces the
-`[op path before after]` diff triples the view consumes.
+Current-state `app-db` inspector (rf2-okvit). Reads the observed
+frame's `app-db` via `rf/app-db-value` + the target-frame's
+epoch-history; the body shows the focused epoch's `:db-after`
+(per-epoch delta, rf2-02j4r) sectioned by reserved `:rf/*` area.
+
+> **rf2-p53m2 — dead diff-sub family pruned.** The `:rf.xray/selected-
+> epoch-diff` → `:rf.xray/app-db-diff` composite (plus its
+> `:rf.xray/selected-epoch-flow-writes` /
+> `:rf.xray/selected-epoch-redacted-modified-count` inputs) had no
+> production view consumer and was removed. The Epoch panel's `:db`
+> diff reads `:rf.xray/selected-epoch-record`; the MCP `get-app-db-diff`
+> tool projects directly through `diff.engine/project`. The catalogue
+> rows are gone; this note is the audit trail.
 
 ### Subscriptions
 
 | Sub | Returns |
 |---|---|
-| `:rf.xray/selected-epoch-diff` | Diff triples for the selected (or newest) epoch. Composite over history + selection. |
+| `:rf.xray/selected-epoch-record` | The focused epoch's `:rf/epoch-record` (the Epoch panel's `:db` diff source), or `nil`. |
 | `:rf.xray/focused-slice-path` | The "Show me when this changed" focused path, or `nil`. |
 | `:rf.xray/show-me-when-this-changed-result` | Vector of epoch hit-maps for epochs touching the focused path. `[]` when no focus. |
-| `:rf.xray/app-db-diff` | Composite — `{:target-frame :history-empty? :changed-non-reserved :changed-reserved :focused-path :focused-hits :redacted-modified-count}`. The `[runtime]` group always renders current `:rf/*` slot contents per spec §Reserved-keys group. |
+| `:rf.xray/app-db-current+diff` | Atomic `{:value :before :epoch-id}` — the focused epoch's `:db-after` / `:db-before` / id (cold boot → `:value` falls back to the live db, `:before`/`:epoch-id` nil). The app-db tab's primary read-model (rf2-yng0y / rf2-02j4r). |
+| `:rf.xray/app-db-state` | Current-state section model derived from `:rf.xray/app-db-current+diff` — TOP user-domain section + one section per reserved `:rf/*` area, with the focused epoch's `:db-before` threaded as the inline diff pre-image. |
 | `:rf.xray/segment-inspector-open?` | rf2-e9tb0 — true iff the segment-inspector popup is open. |
 | `:rf.xray/segment-inspector-path` | rf2-e9tb0 — the inspected path (vector), or `nil` when closed. |
-| `:rf.xray/segment-inspector-value` | rf2-e9tb0 — the current value at the inspected path against the target-frame db. |
+| `:rf.xray/segment-inspector-value` | rf2-e9tb0 — the value at the inspected path. rf2-jmucu — resolved against the FOCUSED epoch's `:db-after` (via `:rf.xray/app-db-current+diff`'s `:value`), the same image the panel body shows, so the popup agrees with the body it pops out of at every scrub position (on-head that image *is* the live db; off-head it follows the focused epoch — no later-event bleed). |
 
 ### Events
 

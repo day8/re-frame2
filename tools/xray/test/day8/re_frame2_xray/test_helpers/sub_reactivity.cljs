@@ -54,11 +54,11 @@
           ;; First focus: epoch :e1.
           (rf/with-frame :rf/xray
             (rf/dispatch-sync [:rf.xray/focus-cascade :c1 :rf/default]))
-          (let [sig-1 (read-sub :rf.xray/selected-epoch-diff)]
+          (let [sig-1 (read-sub :rf.xray/app-db-current+diff)]
             ;; Mutate focus to :e2.
             (rf/with-frame :rf/xray
               (rf/dispatch-sync [:rf.xray/focus-cascade :c2 :rf/default]))
-            (let [sig-2 (read-sub :rf.xray/selected-epoch-diff)]
+            (let [sig-2 (read-sub :rf.xray/app-db-current+diff)]
               (is (not= sig-1 sig-2)
                   \"App-db sub did not track focused-event flip\")))))
 

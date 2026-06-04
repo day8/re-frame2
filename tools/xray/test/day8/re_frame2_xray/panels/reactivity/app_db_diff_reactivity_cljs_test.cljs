@@ -8,16 +8,21 @@
   panel pivoted on; the fix re-pivoted the sub chain on `:rf.xray/
   focus-epoch-id` (a thin projection of the spine sub's `:epoch-id`
   axis). This test asserts the post-fix contract: the panel's primary
-  `:rf.xray/app-db-diff` sub re-fires with a NEW value when focus
-  flips between two epochs.
+  `:rf.xray/app-db-current+diff` sub re-fires with a NEW value when
+  focus flips between two epochs.
+
+  rf2-p53m2 — the panel's primary sub is `:rf.xray/app-db-current+diff`
+  (→ `:rf.xray/app-db-state`); the former `:rf.xray/app-db-diff` /
+  `:rf.xray/selected-epoch-diff` composite family had no production view
+  consumer and was pruned. The reactivity guards below pivot on the
+  live surface.
 
   ## What this guards against
 
   Any future regression in the reactivity chain
-  `:rf.xray/focus → :rf.xray/focus-epoch-id → :rf.xray/selected-
-  epoch-record → :rf.xray/app-db-diff` will surface as a test
-  failure here, in millis, rather than as a frozen panel in
-  Playwright (10 s + browser).
+  `:rf.xray/focus → :rf.xray/focus-epoch-id → :rf.xray/app-db-current+
+  diff` will surface as a test failure here, in millis, rather than as
+  a frozen panel in Playwright (10 s + browser).
 
   Companion file to rf2-70tkv's `focus-sub-live-auto-follows-epoch-id-
   rf2-70tkv` integration test (which guards the spine slot's
@@ -40,79 +45,52 @@
 
 ;; ---- tests --------------------------------------------------------------
 
-(deftest app-db-diff-sub-re-fires-on-focus-flip
-  (testing "rf2-dhoc9 — the App-db Diff composite produces a different
-            map for two distinct focus-epoch selections. The first
-            cascade's diff differs from the second cascade's diff
-            (`{} → {:counter 1}` vs `{:counter 1} → {:counter 2}`); if
-            the sub chain doesn't track the focus flip both reads
-            return the same map and the inequality fails."
+(deftest app-db-current+diff-sub-re-fires-on-focus-flip
+  (testing "rf2-dhoc9 / rf2-p53m2 — the panel's primary
+            `:rf.xray/app-db-current+diff` sub produces a different map
+            for two distinct focus-epoch selections (`{} → {:counter 1}`
+            vs `{:counter 1} → {:counter 2}`); if the sub chain doesn't
+            track the focus flip both reads return the same map and the
+            inequality fails."
     (h/setup-xray-frame!)
     (h/seed-cascades! cascades)
     (h/seed-epoch-history! epoch-history)
     (h/focus-cascade! :c1)
-    (let [sig-1 (h/read-sub :rf.xray/app-db-diff)]
-      ;; Sanity — the first focus produces the :e1 epoch's diff.
-      (is (= :rf/default (:target-frame sig-1)))
-      (is (false? (:history-empty? sig-1))
-          "history is present → composite renders the diff body")
+    (let [sig-1 (h/read-sub :rf.xray/app-db-current+diff)]
+      ;; Sanity — the first focus resolves the :e1 epoch.
+      (is (= :e1 (:epoch-id sig-1)))
+      (is (= {:counter 1} (:value sig-1))
+          "history is present → :value is :e1's db-after")
       (h/focus-cascade! :c2)
-      (let [sig-2 (h/read-sub :rf.xray/app-db-diff)]
-        ;; The whole composite must change — different focused epoch,
-        ;; different diff payload.
+      (let [sig-2 (h/read-sub :rf.xray/app-db-current+diff)]
+        ;; The whole map must change — different focused epoch,
+        ;; different value/before/epoch-id.
         (is (not= sig-1 sig-2)
-            "App-db Diff sub did not track focus flip — sub-chain
-             reactivity broken (rf2-70tkv regression class)")))))
-
-(deftest selected-epoch-diff-tracks-focus-flip
-  (testing "rf2-dhoc9 — the inner `:rf.xray/selected-epoch-diff` sub
-            (the per-cascade triples App-db Diff renders) returns
-            different triple vectors for the two epochs. This is the
-            tightest assertion of the reactive contract — the
-            composite test above guards the panel surface; this guards
-            the load-bearing inner sub."
-    (h/setup-xray-frame!)
-    (h/seed-cascades! cascades)
-    (h/seed-epoch-history! epoch-history)
-    (h/focus-cascade! :c1)
-    (let [diff-1 (h/read-sub :rf.xray/selected-epoch-diff)]
-      ;; rf2-5j7ch — the App-DB `:diff` sub post-processes the
-      ;; wholesale root-replacement that Editscript emits for
-      ;; `{} → {populated}` into per-key adds. Operator UX wants the
-      ;; per-key view for cold-boot epochs ("what landed?") rather
-      ;; than the engine-stable single-row root replacement. Non-
-      ;; empty-side replacements still surface wholesale.
-      (is (= [[[:counter] nil 1 :added]]
-             diff-1)
-          ":e1's diff — empty-to-populated expands to per-key adds")
-      (h/focus-cascade! :c2)
-      (let [diff-2 (h/read-sub :rf.xray/selected-epoch-diff)]
-        (is (= [[[:counter] 1 2 :modified]]
-               diff-2)
-            ":e2's diff — counter went 1 → 2")
-        (is (not= diff-1 diff-2)
-            ":selected-epoch-diff sub re-fired with new triples")))))
+            "app-db-current+diff sub did not track focus flip — sub-chain
+             reactivity broken (rf2-70tkv regression class)")
+        (is (= :e2 (:epoch-id sig-2)))))))
 
 (deftest live-mode-auto-follows-new-cascade-rf2-70tkv
   (testing "rf2-dhoc9 + rf2-70tkv — Mike's exact repro: user is in LIVE
             on epoch :e1; a new cascade :c2 arrives with epoch :e2; the
-            panel auto-advances to :e2's diff without an explicit click.
+            panel auto-advances to :e2 without an explicit click.
             Pre-rf2-70tkv the legacy `:selected-epoch-id` slot stayed
             pinned to :e1 and the panel froze."
     (h/setup-xray-frame!)
     (h/seed-cascades! [(first cascades)])
     (h/seed-epoch-history! [(first epoch-history)])
     ;; First read at LIVE on :e1.
-    (let [sig-1 (h/read-sub :rf.xray/app-db-diff)]
-      (is (false? (:history-empty? sig-1))
+    (let [sig-1 (h/read-sub :rf.xray/app-db-current+diff)]
+      (is (= :e1 (:epoch-id sig-1))
           "head epoch :e1 is the focus in LIVE mode")
       ;; Cascade :c2 arrives — both trace buffer and epoch history grow.
       (h/seed-cascades! cascades)
       (h/seed-epoch-history! epoch-history)
-      (let [sig-2 (h/read-sub :rf.xray/app-db-diff)]
+      (let [sig-2 (h/read-sub :rf.xray/app-db-current+diff)]
         (is (not= sig-1 sig-2)
             "rf2-70tkv — LIVE mode auto-follows the head cascade; the
-             App-db Diff panel rebinds to the new head's diff")))))
+             App-db panel rebinds to the new head")
+        (is (= :e2 (:epoch-id sig-2)))))))
 
 ;; ---- rf2-02j4r / rf2-yng0y — atomic per-epoch-delta before+after --------
 ;;

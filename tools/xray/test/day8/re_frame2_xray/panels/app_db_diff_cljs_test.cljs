@@ -9,26 +9,36 @@
   section, per-instance machine fan-out, singleton route; rf2-jcdvo
   — empty / absent reserved areas are filtered at projection time so
   no placeholder cards reach the renderer) via
-  `app-db-diff-state/state-body` through the Panel. The diff data subs (`:rf.xray/selected-epoch-diff` and the
-  composite `:rf.xray/app-db-diff`) survive for the Event tab diff
-  surface + the redacted-modified count; their sub-level contracts are
-  still pinned here.
+  `app-db-diff-state/state-body` through the Panel.
+
+  ## rf2-p53m2 — dead diff-sub family pruned
+
+  The `:rf.xray/selected-epoch-diff` → `:rf.xray/app-db-diff` composite
+  family (plus `:rf.xray/selected-epoch-redacted-modified-count` /
+  `:rf.xray/selected-epoch-flow-writes` and their `[frame-id epoch-id]`
+  caches) had NO production view consumer and was removed — the Epoch
+  panel's `:db` diff reads `:rf.xray/selected-epoch-record` + runs its
+  own `db-diff-paths`, and the MCP `get-app-db-diff` tool projects
+  directly through `diff.engine/project`. The diff-projection
+  correctness those subs exercised lives in the engine's own tests.
+  This file's remaining tests pin the LIVE app-db-tab surface.
 
   ## Contracts under test (beyond the pure-data tests in
   `app_db_diff_helpers_cljs_test.cljc` / the view-shape tests in
   `app_db_diff_state_cljs_test.cljs`)
 
   1. **Registry wires the subs / events** under the `:rf.xray/*`
-     namespace, including the new `:rf.xray/app-db-state` sub.
+     namespace, including the `:rf.xray/app-db-state` +
+     `:rf.xray/app-db-current+diff` subs (and the dead family stays
+     gone).
 
   2. **Focus events update Xray's frame.** `:rf.xray/focus-slice-path`
-     remains wired (the Event tab diff renderer dispatches it).
+     remains wired (the 'show me when this changed' walker dispatches it).
 
-  3. **Diff data subs** still produce correct triples / reserved-key
-     segregation / redacted-modified counts (sub-level).
-
-  4. **Current-state inspector view** renders the section model and
+  3. **Current-state inspector view** renders the section model and
      follows the picker-selected frame.
+
+  4. **Segment-inspector** events / state contract.
 
   ## Pure hiccup
 
@@ -45,27 +55,13 @@
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.trace-collector :as trace-collector]
             [day8.re-frame2-xray.panels.app-db-diff :as app-db-diff]
-            [day8.re-frame2-xray.panels.app-db-diff-state :as state]
-            [day8.re-frame2-xray.panels.app-db-diff-subs
-             :as app-db-diff-subs]))
+            [day8.re-frame2-xray.panels.app-db-diff-state :as state]))
 
 ;; ---- fixtures -----------------------------------------------------------
 
 (defn- xray-init! []
   (xray-test-support/reset-all!)
-  (trace-collector/reset-for-test!)
-  ;; The `:rf.xray/selected-epoch-diff` cache is a top-level
-  ;; `defonce` (lifted from let-local for rf2-o94sp testability).
-  ;; Reset between tests so
-  ;; cache-size assertions are reproducible across the corpus.
-  (reset! app-db-diff-subs/diff-cache {})
-  ;; rf2-bz1cl — redacted-paths-modified cache mirrors the same
-  ;; per-`:epoch-id` caching contract; reset between tests for
-  ;; reproducibility.
-  (reset! app-db-diff-subs/redacted-modified-cache {})
-  ;; rf2-s8r6c — flow-writes cache for the per-section origin-tag
-  ;; chip projection. Reset between tests for the same reason.
-  (reset! app-db-diff-subs/flow-writes-cache {}))
+  (trace-collector/reset-for-test!))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
@@ -191,16 +187,23 @@
     (registry/register-xray-handlers!)
     (is (some? (registrar/handler :sub :rf.xray/target-frame-db)))
     (is (some? (registrar/handler :sub :rf.xray/selected-epoch-record)))
-    (is (some? (registrar/handler :sub :rf.xray/selected-epoch-diff)))
     (is (some? (registrar/handler :sub :rf.xray/focused-slice-path)))
     (is (some? (registrar/handler :sub :rf.xray/show-me-when-this-changed-result)))
-    (is (some? (registrar/handler :sub :rf.xray/app-db-diff)))
     ;; rf2-okvit — the current-state inspector's section-model sub.
     (is (some? (registrar/handler :sub :rf.xray/app-db-state)))
+    ;; rf2-yng0y — the atomic current-state + before-image sub the panel
+    ;; pivots on (and the segment-inspector reads through, rf2-jmucu).
+    (is (some? (registrar/handler :sub :rf.xray/app-db-current+diff)))
     ;; rf2-e9tb0 — segment-inspector subs registered alongside.
     (is (some? (registrar/handler :sub :rf.xray/segment-inspector-open?)))
     (is (some? (registrar/handler :sub :rf.xray/segment-inspector-path)))
     (is (some? (registrar/handler :sub :rf.xray/segment-inspector-value)))
+    ;; rf2-p53m2 — the dead composite diff family was pruned (no
+    ;; production view consumer); guard against re-introduction.
+    (is (nil? (registrar/handler :sub :rf.xray/selected-epoch-diff)))
+    (is (nil? (registrar/handler :sub :rf.xray/app-db-diff)))
+    (is (nil? (registrar/handler :sub :rf.xray/selected-epoch-redacted-modified-count)))
+    (is (nil? (registrar/handler :sub :rf.xray/selected-epoch-flow-writes)))
     ;; Pinned-slices subs are gone.
     (is (nil? (registrar/handler :sub :rf.xray/pinned-slices-store)))
     (is (nil? (registrar/handler :sub :rf.xray/pinned-slices)))))
@@ -228,233 +231,6 @@
             clipboard effect"
     (registry/register-xray-handlers!)
     (is (some? (registrar/handler :fx :rf.xray.fx/copy-to-clipboard)))))
-
-;; ---- (2) composite sub returns sane defaults ----------------------------
-
-(deftest app-db-diff-sub-defaults
-  (testing ":rf.xray/app-db-diff returns sane defaults on a fresh frame.
-            rf2-e9tb0 — `:pinned-slices` was dropped from the composite
-            when the pinned-watches strip was replaced by the segment-
-            inspector popup."
-    (registry/register-xray-handlers!)
-    (frame/reg-frame :rf/xray {})
-    (frame/reg-frame :rf/default {})
-    (rf/with-frame :rf/xray
-      (let [data @(rf/subscribe [:rf.xray/app-db-diff])]
-        (is (= :rf/default (:target-frame data)))
-        (is (true? (:history-empty? data)))
-        (is (nil? (:focused-path data)))
-        (is (= [] (:focused-hits data)))
-        (is (not (contains? data :pinned-slices))
-            "the composite no longer carries :pinned-slices")
-        ;; rf2-bz1cl — chip count defaults to 0 (no history → no
-        ;; redacted-modified paths anywhere).
-        (is (= 0 (:redacted-modified-count data)))))))
-
-;; ---- (3) selected-epoch-diff produces correct triples -------------------
-
-(deftest selected-epoch-diff-produces-triples
-  (testing "with history populated, :rf.xray/selected-epoch-diff
-            produces the universal `[path before after op]` 4-tuples
-            (rf2-xuyac — routed through `diff/engine.cljc`'s
-            `:flat-rows`; the same shape Machine Inspector + HANDLER
-            `:db` `:diff` lenses consume).
-
-            rf2-yucxn — `{:cart {:items []}} → {:cart {:items [{:id 7}]}}`
-            is the VECTOR populated-from-empty edge: the engine now expands
-            it member-level (the element added at index 0), matching the
-            set/map empty edges, instead of a whole-key `[:cart :items]
-            :modified`. The new tuple anchors at the added leaf
-            `[:cart :items 0 :id]`."
-    (seed-xray! {:cart {:items [{:id 7}]}}
-                 [(mk-record :e-1 [:cart/add-item]
-                             {:cart {:items []}}
-                             {:cart {:items [{:id 7}]}})])
-    (rf/with-frame :rf/xray
-      (let [diff @(rf/subscribe [:rf.xray/selected-epoch-diff])]
-        (is (= 1 (count diff)))
-        (is (= [[:cart :items 0 :id] nil 7 :added]
-               (first diff)))))))
-
-(deftest selected-epoch-diff-tracks-selected-epoch
-  (testing "when an epoch is selected, the diff is for THAT epoch — not
-            the newest one"
-    (let [hist [(mk-record :e-1 [:app/boot] {} {:counter 0})
-                (mk-record :e-2 [:counter/inc]
-                           {:counter 0} {:counter 1})
-                (mk-record :e-3 [:counter/inc]
-                           {:counter 1} {:counter 2})]]
-      (seed-xray! {:counter 2} hist)
-      (rf/with-frame :rf/xray
-        (rf/dispatch-sync [:rf.xray/select-epoch :e-2])
-        (let [diff @(rf/subscribe [:rf.xray/selected-epoch-diff])]
-          (is (= [[[:counter] 0 1 :modified]]
-                 diff)
-              ":e-2's diff selected, not :e-3's"))))))
-
-(deftest selected-epoch-diff-falls-back-to-latest-when-selection-stale
-  (testing "rf2-drf32 — a stale `:selected-epoch-id` (no record in
-            current history) falls back to (peek history) so the diff
-            panel never gets stranded on an aged-out selection. This
-            is the actual bug Mike's testbed UX hunt surfaced: clicking
-            a mutate button produced no visible diff because a prior
-            time-travel selection was no longer in history and the sub
-            returned nil instead of the latest record's diff."
-    (let [hist [(mk-record :e-99 [:counter/inc]
-                           {:counter 41} {:counter 42})]]
-      (seed-xray! {:counter 42} hist)
-      (rf/with-frame :rf/xray
-        ;; Set a selection that DOESN'T exist in history.
-        (rf/dispatch-sync [:rf.xray/select-epoch :stale-id-that-aged-out])
-        (let [diff @(rf/subscribe [:rf.xray/selected-epoch-diff])]
-          (is (= [[[:counter] 41 42 :modified]]
-                 diff)
-              "stale selection falls through to (peek history) — the
-               newest record's diff is shown rather than nil"))))))
-
-;; ---- (3b) per-:epoch-id diff cache (rf2-qvaa0) --------------------------
-
-(deftest selected-epoch-diff-cache-hits-on-repeat-deref
-  (testing "the diff is computed once per :epoch-id — second deref of
-            the same selection returns identical?-equal triples (the
-            cache short-circuit, not just =-equal)"
-    (let [hist [(mk-record :e-1 [:counter/inc]
-                           {:counter 0} {:counter 1})]]
-      (seed-xray! {:counter 1} hist)
-      (rf/with-frame :rf/xray
-        (let [first-call  @(rf/subscribe [:rf.xray/selected-epoch-diff])
-              second-call @(rf/subscribe [:rf.xray/selected-epoch-diff])]
-          (is (= first-call second-call))
-          (is (identical? first-call second-call)
-              "second deref returns the cached object — no recompute"))))))
-
-(deftest selected-epoch-diff-cache-evicts-aged-out-epochs
-  (testing "epoch-ids no longer in the history get pruned from the
-            cache — the cache cannot grow past the history depth"
-    (let [hist-a [(mk-record :e-1 [:a] {} {:n 1})]
-          hist-b [(mk-record :e-2 [:b] {} {:n 2})
-                  (mk-record :e-3 [:c] {:n 2} {:n 3})]]
-      (seed-xray! {:n 1} hist-a)
-      (rf/with-frame :rf/xray
-        ;; Warm the cache with :e-1's diff.
-        @(rf/subscribe [:rf.xray/selected-epoch-diff])
-        ;; Rotate the history — :e-1 ages out, :e-2/:e-3 take its place.
-        (rf/dispatch-sync [:rf.xray-test/seed-history hist-b])
-        ;; Read the new newest-epoch diff. The cache must prune :e-1
-        ;; (no longer in history) on this read.
-        (let [diff @(rf/subscribe [:rf.xray/selected-epoch-diff])]
-          (is (= [[[:n] 2 3 :modified]]
-                 diff)
-              "newest-epoch (:e-3) diff is fresh; :e-1's entry is gone"))))))
-
-(deftest selected-epoch-diff-cache-size-tracks-live-history-length
-  (testing "audit rf2-i0veg §4c — cache size never exceeds the live
-            history depth; aged-out epoch-ids are pruned on the very
-            next read, not on a deferred sweep"
-    ;; Seed 4 epochs, warm the cache by selecting each in turn so the
-    ;; cache holds all 4 entries.
-    (let [hist-a [(mk-record :e-1 [:a] {}     {:n 1})
-                  (mk-record :e-2 [:b] {:n 1} {:n 2})
-                  (mk-record :e-3 [:c] {:n 2} {:n 3})
-                  (mk-record :e-4 [:d] {:n 3} {:n 4})]]
-      (seed-xray! {:n 4} hist-a)
-      (rf/with-frame :rf/xray
-        (doseq [eid [:e-1 :e-2 :e-3 :e-4]]
-          (rf/dispatch-sync [:rf.xray/select-epoch eid])
-          @(rf/subscribe [:rf.xray/selected-epoch-diff]))
-        (is (= 4 (count @app-db-diff-subs/diff-cache))
-            "after warming all four selections, cache holds four entries")
-        ;; rf2-nfgps — keys are the COMPOUND [frame-id epoch-id]; the
-        ;; observed frame here is the default :rf/default.
-        (is (= #{[:rf/default :e-1] [:rf/default :e-2]
-                 [:rf/default :e-3] [:rf/default :e-4]}
-               (set (keys @app-db-diff-subs/diff-cache)))
-            "cache keys match the live history's [frame-id epoch-id] exactly"))
-      ;; Rotate to a 2-epoch history; :e-1/:e-2 age out.
-      (let [hist-b [(mk-record :e-5 [:e] {:n 4} {:n 5})
-                    (mk-record :e-6 [:f] {:n 5} {:n 6})]]
-        (rf/with-frame :rf/xray
-          (rf/dispatch-sync [:rf.xray-test/seed-history hist-b])
-          ;; Read newest diff — triggers the prune-on-read step.
-          (rf/dispatch-sync [:rf.xray/select-epoch nil])
-          @(rf/subscribe [:rf.xray/selected-epoch-diff])
-          (is (<= (count @app-db-diff-subs/diff-cache) 2)
-              "after rotation + one read, cache size ≤ live history depth")
-          ;; rf2-nfgps — keys are [frame-id epoch-id]; observed frame is
-          ;; :rf/default throughout this single-frame scenario.
-          (is (not (contains? @app-db-diff-subs/diff-cache [:rf/default :e-1]))
-              ":e-1 (aged out) is no longer in the cache")
-          (is (not (contains? @app-db-diff-subs/diff-cache [:rf/default :e-2]))
-              ":e-2 (aged out) is no longer in the cache")
-          (is (not (contains? @app-db-diff-subs/diff-cache [:rf/default :e-3]))
-              ":e-3 (aged out) is no longer in the cache")
-          (is (not (contains? @app-db-diff-subs/diff-cache [:rf/default :e-4]))
-              ":e-4 (aged out) is no longer in the cache")
-          (is (contains? @app-db-diff-subs/diff-cache [:rf/default :e-6])
-              ":e-6 (just read) is in the cache"))))))
-
-(deftest selected-epoch-diff-cache-distinguishes-distinct-epochs
-  (testing "different :epoch-id selections each get their own cached diff"
-    (let [hist [(mk-record :e-1 [:a] {} {:counter 0})
-                (mk-record :e-2 [:counter/inc]
-                           {:counter 0} {:counter 1})
-                (mk-record :e-3 [:counter/inc]
-                           {:counter 1} {:counter 2})]]
-      (seed-xray! {:counter 2} hist)
-      (rf/with-frame :rf/xray
-        (rf/dispatch-sync [:rf.xray/select-epoch :e-2])
-        (let [diff-e2 @(rf/subscribe [:rf.xray/selected-epoch-diff])]
-          (rf/dispatch-sync [:rf.xray/select-epoch :e-3])
-          (let [diff-e3 @(rf/subscribe [:rf.xray/selected-epoch-diff])]
-            (is (not= diff-e2 diff-e3)
-                "different selections produce different diffs")
-            (is (= [[[:counter] 0 1 :modified]]
-                   diff-e2))
-            (is (= [[[:counter] 1 2 :modified]]
-                   diff-e3))))
-        ;; Returning to :e-2 still gets its cached triples (identical?
-        ;; to the first read — proves the cache survives the cross-
-        ;; selection roundtrip).
-        (rf/dispatch-sync [:rf.xray/select-epoch :e-2])
-        (let [diff-e2-second @(rf/subscribe [:rf.xray/selected-epoch-diff])
-              diff-e2-third  @(rf/subscribe [:rf.xray/selected-epoch-diff])]
-          (is (identical? diff-e2-second diff-e2-third)
-              "the cache survives selection changes"))))))
-
-;; ---- (4) reserved-keys segregation at the composite level ---------------
-
-(deftest app-db-diff-segregates-reserved-keys
-  (testing "the composite splits triples whose path roots in :rf/runtime
-            from the rest; reserved triples go to :changed-reserved as
-            the current snapshot (informational group per spec
-            §Reserved-keys group), non-reserved go to :changed-non-reserved.
-            Post rf2-eguy4 phase-A every runtime subsystem lives under
-            the single :rf/runtime container."
-    (seed-xray! {:cart {:items [{:id 7}]}
-                  :rf/runtime {:routing  {:current {:id :app/cart}}
-                               :machines {:snapshots {:auth {:state :idle}}}}}
-                 [(mk-record :e-1 [:nav/cart]
-                             {:cart {:items []}}
-                             {:cart {:items [{:id 7}]}
-                              :rf/runtime {:routing {:current {:id :app/cart}}}})])
-    (rf/with-frame :rf/xray
-      (let [data @(rf/subscribe [:rf.xray/app-db-diff])
-            ;; rf2-xuyac — `:changed-non-reserved` now carries 4-tuple
-            ;; rows `[path before after op]` (the universal `:diff`
-            ;; lens shape); path lives at index 0.
-            non-reserved-paths (set (map first (:changed-non-reserved data)))
-            reserved-keys-shown (set (map first (:changed-reserved data)))]
-        ;; rf2-yucxn — the populated-from-empty vector edge now diffs
-        ;; member-level, so the non-reserved path is `[:cart :items 0 :id]`
-        ;; rather than the whole-key `[:cart :items]`. The segregation
-        ;; contract is what matters: SOME non-reserved path rooted at
-        ;; `:cart` lands here, and no `:rf/runtime` path leaks in.
-        (is (some (fn [p] (= :cart (first p))) non-reserved-paths)
-            "non-reserved :cart-rooted path lands in :changed-non-reserved")
-        (is (not (some #(= :rf/runtime (first %)) non-reserved-paths))
-            "any :rf/runtime-rooted path filtered out of :changed-non-reserved")
-        (is (contains? reserved-keys-shown :rf/route))
-        (is (contains? reserved-keys-shown :rf/machines))))))
 
 ;; ---- (5) rf2-e9tb0 — segment-inspector events + state ------------------
 
@@ -495,12 +271,15 @@
       (rf/dispatch-sync [:rf.xray/close-segment-inspector])
       (is (false? @(rf/subscribe [:rf.xray/segment-inspector-open?]))))))
 
-(deftest segment-inspector-value-resolves-against-target-frame-db
-  (testing "rf2-e9tb0 — :rf.xray/segment-inspector-value reads through
-            :rf.xray/target-frame-db with `get-in` so the popup always
-            shows the picker-selected frame's current value at the
-            inspected path. Empty path yields the whole db (root
-            inspection)."
+(deftest segment-inspector-value-resolves-against-focused-epoch-value
+  (testing "rf2-e9tb0 / rf2-jmucu — :rf.xray/segment-inspector-value reads
+            through :rf.xray/app-db-current+diff's `:value` (the focused
+            epoch's `:db-after`, the same image the panel body shows) with
+            `get-in`, so the popup agrees with the body. With no epoch
+            history (this case) `:value` falls back to the live observed-
+            frame db, so the popup shows current state. Empty path yields
+            the whole value (root inspection). The OFF-HEAD consistency
+            invariant is pinned in app_db_segment_inspector_cljs_test."
     (seed-xray! {:cart {:items [{:id 7 :qty 1}]
                          :gross 42}
                   :user "ada"}
@@ -676,8 +455,7 @@
 (deftest observed-frame-follows-rf-xray-set-frame
   (testing "rf2-fvplw — the frame-picker dispatches `:rf.xray/set-frame`
             which writes `[:focus :frame]`. The App-db panel's
-            `:rf.xray/observed-frame` sub picks the focused frame up,
-            and the composite's `:target-frame` surface reflects it.
+            `:rf.xray/observed-frame` sub picks the focused frame up.
             Pre-fix the panel read the legacy `:rf.xray/target-frame`
             slot (which `:rf.xray/set-frame` does NOT touch) and stayed
             stuck on `:rf/default` regardless of picker selection."
@@ -689,13 +467,10 @@
       ;; Cold-start sanity — observed frame is the default before any
       ;; picker selection lands.
       (is (= :rf/default @(rf/subscribe [:rf.xray/observed-frame])))
-      (is (= :rf/default (:target-frame @(rf/subscribe [:rf.xray/app-db-diff]))))
       ;; User picks :checkout-frame in the ribbon dropdown.
       (rf/dispatch-sync [:rf.xray/set-frame :checkout-frame])
-      (is (= :checkout-frame @(rf/subscribe [:rf.xray/observed-frame])))
-      (is (= :checkout-frame
-             (:target-frame @(rf/subscribe [:rf.xray/app-db-diff])))
-          "composite's :target-frame surface follows the picker"))))
+      (is (= :checkout-frame @(rf/subscribe [:rf.xray/observed-frame]))
+          "observed-frame sub follows the picker"))))
 
 (deftest current-state-view-follows-picker-selected-frame
   (testing "rf2-okvit / rf2-fvplw — the current-state inspector reads the
@@ -770,10 +545,13 @@
 
 (deftest app-db-diff-renders-cart-frame-diff-after-picker-and-seed
   (testing "rf2-ug1r6 — post-picker-change + post-history-reseed, the
-            App-DB Diff composite reports the cart-frame's diff (not
+            App-DB panel resolves the cart-frame's focused epoch (not
             the boot empty-state). This is the structural inverse of
             Mike's bug report: with the alignment in place, focused
-            cascades in the picked frame produce a real diff."
+            cascades in the picked frame produce a real focused-epoch
+            read-model. rf2-p53m2 — re-pointed off the pruned
+            `:rf.xray/app-db-diff` composite onto the panel's live
+            primary sub `:rf.xray/app-db-current+diff`."
     (registry/register-xray-handlers!)
     (frame/reg-frame :rf/xray {})
     (frame/reg-frame :rf/default {})
@@ -787,175 +565,19 @@
                                {:cart {:items []}}
                                {:cart {:items [{:id 7}]}})
                     (assoc :frame :cart-frame))]
-        (rf/dispatch-sync [:rf.xray/sync-epoch-history [rec]]))
-      (let [data @(rf/subscribe [:rf.xray/app-db-diff])]
-        (is (false? (:history-empty? data))
-            "history present for the picked frame → composite's
-             :history-empty? is false → panel renders the diff body
-             rather than the boot empty-state (rf2-ug1r6)")
-        (is (= :cart-frame (:target-frame data))
-            "composite's :target-frame surface reflects the picker
-             selection (rf2-fvplw — preserved post-rf2-ug1r6)")))))
-
-;; ---- rf2-bz1cl — redacted-paths-modified hint chip ----------------------
-;;
-;; Per spec/015-Data-Classification.md the elision contract substitutes
-;; the `:rf/redacted` sentinel at sensitive paths. An app-supplied
-;; epoch `:redact-fn` (per spec/Security.md §Epoch privacy posture) can
-;; substitute the sentinel into `:db-before` / `:db-after` directly.
-;; When that happens the structural diff sees `:rf/redacted` on both
-;; sides → no row → empty diff body → developer can't tell anything
-;; changed.
-;;
-;; The chip closes that gap. These tests pin the surface end-to-end:
-;; composite count slot + view render.
-
-(deftest redacted-modified-count-zero-when-no-redacted-history
-  (testing "the composite's `:redacted-modified-count` is 0 when no
-            cascade involved a redacted leaf"
-    (seed-xray! {:counter 1}
-                 [(mk-record :e-1 [:counter/inc] {:counter 0} {:counter 1})])
-    (rf/with-frame :rf/xray
-      (let [data @(rf/subscribe [:rf.xray/app-db-diff])]
-        (is (= 0 (:redacted-modified-count data)))))))
-
-(deftest redacted-modified-count-non-zero-when-redact-fn-substituted
-  (testing "when a `:redact-fn` substituted `:rf/redacted` into both
-            `:db-before` and `:db-after` at the same path inside a
-            mutated subtree, the count is non-zero — the chip will
-            surface on the view"
-    (let [before {:auth {:token :rf/redacted :method :jwt}}
-          after  {:auth {:token :rf/redacted :method :session}}]
-      (seed-xray! after [(mk-record :e-1 [:auth/rotate] before after)])
-      (rf/with-frame :rf/xray
-        (let [data @(rf/subscribe [:rf.xray/app-db-diff])]
-          (is (= 1 (:redacted-modified-count data))
-              "the :auth :token leaf is redacted both sides; the parent
-               subtree mutated (sibling :method changed); chip count = 1"))))))
-
-(deftest redacted-modified-count-cache-hits-on-repeat-deref
-  (testing "the count is cached per `:epoch-id`; second deref returns
-            the same integer (the cache short-circuit pattern mirrors
-            `:selected-epoch-diff`)"
-    (let [before {:auth {:token :rf/redacted}}
-          after  {:auth {:token :rf/redacted :method :session}}]
-      (seed-xray! after [(mk-record :e-1 [:auth/rotate] before after)])
-      (rf/with-frame :rf/xray
-        (let [first-call  @(rf/subscribe
-                             [:rf.xray/selected-epoch-redacted-modified-count])
-              second-call @(rf/subscribe
-                             [:rf.xray/selected-epoch-redacted-modified-count])]
-          (is (= 1 first-call))
-          (is (= first-call second-call))
-          (is (= 1 (count @app-db-diff-subs/redacted-modified-cache))
-              "cache holds exactly one entry for the one live epoch"))))))
-
-;; rf2-okvit — the redacted-modified-chip was a DIFF-view affordance and
-;; was dropped from the current-state inspector. The redacted-modified
-;; COUNT sub survives (exercised above + in the Event tab diff surface);
-;; the chip's view-render tests went with the chip.
-
-;; ============================================================================
-;;  rf2-dl3gx — egress slot wins; heuristic is the absent-slot fallback
-;; ============================================================================
-;;
-;; Per `tools/xray/spec/004-App-DB-Diff.md` §Count semantics: the
-;; framework's `:rf.epoch/redacted-modified-paths-count` slot is the
-;; preferred source. The Xray-side heuristic only fires when the
-;; record lacks the slot (legacy snapshots, hand-rolled fixtures, hosts
-;; with no schema layer).
-
-(defn- mk-record-with-egress
-  "`mk-record` plus the `:rf.epoch/redacted-modified-paths-count`
-  egress slot — exercises the rf2-dl3gx preferred read path."
-  [epoch-id event db-before db-after egress-count]
-  (assoc (mk-record epoch-id event db-before db-after)
-         :rf.epoch/redacted-modified-paths-count egress-count))
-
-(deftest egress-slot-wins-over-heuristic
-  (testing "when a record carries :rf.epoch/redacted-modified-paths-count,
-            the sub reads that integer directly — the heuristic does not
-            run. Pin this with a record whose egress count DISAGREES with
-            what the heuristic would compute, so the test would fail if
-            the sub picked the wrong source."
-    ;; This record's :db-before / :db-after carry no :rf/redacted
-    ;; sentinels at all — the heuristic would compute 0. The egress
-    ;; slot reports 3 (e.g. the framework saw three schema-declared
-    ;; sensitive paths mutate, the redact-fn replaced them with
-    ;; non-sentinel app-supplied shapes, or the records here are a
-    ;; pre-redact snapshot). The egress integer wins.
-    (let [before {:counter 0}
-          after  {:counter 1}
-          record (mk-record-with-egress :e-1 [:counter/inc] before after 3)]
-      (seed-xray! after [record])
-      (rf/with-frame :rf/xray
-        (let [n @(rf/subscribe
-                   [:rf.xray/selected-epoch-redacted-modified-count])
-              data @(rf/subscribe [:rf.xray/app-db-diff])]
-          (is (= 3 n)
-              "sub reads the egress slot verbatim — the heuristic would
-               have produced 0 because no :rf/redacted sentinel is in
-               the dbs")
-          (is (= 3 (:redacted-modified-count data))
-              "composite carries the egress figure too"))))))
-
-(deftest egress-slot-zero-overrides-heuristic-positive
-  (testing "the egress slot landing as 0 means the framework computed
-            'no schema-declared sensitive path actually changed' —
-            this overrides a heuristic that would otherwise count
-            sentinels in the dbs (e.g. the redact-fn replaced an
-            unchanged sensitive path with the sentinel anyway)."
-    ;; Heuristic on these dbs would count 1 (:auth :token, both
-    ;; sides sentinel, parent subtree differs). The framework's
-    ;; exact count says 0 — :auth :token didn't actually change;
-    ;; the sibling :method did. Egress wins.
-    (let [before  {:auth {:token :rf/redacted :method :jwt}}
-          after   {:auth {:token :rf/redacted :method :session}}
-          record  (mk-record-with-egress :e-1 [:auth/rotate] before after 0)]
-      (seed-xray! after [record])
-      (rf/with-frame :rf/xray
-        (let [n @(rf/subscribe
-                   [:rf.xray/selected-epoch-redacted-modified-count])]
-          (is (= 0 n)
-              "sub reads the 0 — the egress slot is the source of truth
-               when present, even when 0"))))))
-
-(deftest heuristic-fires-when-egress-slot-absent
-  (testing "records WITHOUT :rf.epoch/redacted-modified-paths-count
-            fall back to the Xray-side heuristic. Pin the existing
-            legacy-snapshot path with an mk-record (no egress slot)
-            that the heuristic counts to 1."
-    (let [before {:auth {:token :rf/redacted}}
-          after  {:auth {:token :rf/redacted :method :session}}
-          record (mk-record :e-1 [:auth/rotate] before after)]
-      ;; Pre-condition: the test fixture record does NOT carry the
-      ;; rf2-dl3gx slot — this exercises the fallback intentionally.
-      (is (not (contains? record :rf.epoch/redacted-modified-paths-count))
-          "mk-record produces records without the egress slot — covers
-           the legacy-snapshot fallback path")
-      (seed-xray! after [record])
-      (rf/with-frame :rf/xray
-        (let [n @(rf/subscribe
-                   [:rf.xray/selected-epoch-redacted-modified-count])]
-          (is (= 1 n)
-              "heuristic kicked in — counts the :auth :token sentinel
-               in a mutated subtree (sibling :method changed)"))))))
-
-(deftest egress-slot-cached-by-epoch-id-like-heuristic
-  (testing "the per-`:epoch-id` cache covers both sources — second
-            deref of the same epoch returns the same integer without
-            re-reading the slot (same short-circuit pattern the
-            heuristic uses)."
-    (let [record (mk-record-with-egress :e-1 [:auth/rotate]
-                                        {:counter 0} {:counter 1} 5)]
-      (seed-xray! {:counter 1} [record])
-      (rf/with-frame :rf/xray
-        (let [first-call  @(rf/subscribe
-                             [:rf.xray/selected-epoch-redacted-modified-count])
-              second-call @(rf/subscribe
-                             [:rf.xray/selected-epoch-redacted-modified-count])]
-          (is (= 5 first-call))
-          (is (= first-call second-call))
-          (is (= 1 (count @app-db-diff-subs/redacted-modified-cache))
-              "cache holds exactly one entry — same shape as the
-               heuristic path"))))))
+        (rf/dispatch-sync [:rf.xray/sync-epoch-history [rec]])
+        ;; Focus the picked frame's epoch so the panel's primary sub
+        ;; resolves a real focused-epoch read-model.
+        (rf/dispatch-sync [:rf.xray/select-epoch :cart-e]))
+      (is (= 1 (count @(rf/subscribe [:rf.xray/epoch-history])))
+          "sanity: the re-seeded cart-frame epoch is in the slot")
+      (let [data @(rf/subscribe [:rf.xray/app-db-current+diff])]
+        (is (= :cart-e (:epoch-id data))
+            "panel resolves the picked frame's focused epoch → renders
+             the focused-epoch read-model rather than the boot empty-
+             state (rf2-ug1r6)")
+        (is (= {:cart {:items [{:id 7}]}} (:value data))
+            ":value is the focused epoch's :db-after")
+        (is (= :cart-frame @(rf/subscribe [:rf.xray/observed-frame]))
+            "observed-frame reflects the picker selection (rf2-fvplw —
+             preserved post-rf2-ug1r6)")))))
