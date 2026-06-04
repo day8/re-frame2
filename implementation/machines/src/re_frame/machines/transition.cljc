@@ -670,50 +670,85 @@
                   :scheduled-epoch carried-epoch
                   :current-epoch   nil})))))
 
+(defn ns-wildcard-key
+  "Per Spec 005 §Wildcard transitions §Namespaced (partial) event
+  descriptors (rf2-z4t2v). The namespace-wildcard descriptor for an
+  event-id is its KEYWORD NAMESPACE paired with the `*` name — `:foo/bar`
+  → `:foo/*`, `:mouse/down` → `:mouse/*`. This is re-frame2's spelling of
+  XState v5's partial (prefix) event descriptor `mouse.*` (SCXML §3.12.1
+  dot-prefix tokens); re-frame2 events are namespaced keywords, so the
+  keyword namespace is the natural prefix tier.
+
+  Returns the `:ns/*` keyword for a namespaced `event-id`, or nil when the
+  event-id is not a keyword or carries no namespace (a bare `:go` has no
+  namespace tier — only the total `:*` can catch it). `(keyword ns \"*\")`
+  is a valid keyword: `(name :mouse/*)` is `\"*\"` and `(namespace
+  :mouse/*)` is `\"mouse\"`, so the namespace-wildcard form is detectable
+  and distinct from the total `:*` (whose `namespace` is nil)."
+  [event-id]
+  (when (keyword? event-id)
+    (when-let [ns (namespace event-id)]
+      (keyword ns "*"))))
+
 (defn- match-on-clause
   "Given a node-or-machine map carrying an `:on` table, return the first
-  candidate transition for `event-id` (explicit candidates, then the `:*`
-  wildcard) whose guard passes, or nil. Per Spec 005 §Transition
-  resolution — the per-level matching rule applied identically at every
-  state-node and at the machine root.
+  candidate transition for `event-id` whose guard passes — resolving the
+  three event-descriptor tiers most-specific-first (exact, the `:ns/*`
+  namespace-wildcard, then the total `:*` wildcard) — or nil. Per Spec 005
+  §Transition resolution / §Wildcard transitions — the per-level matching
+  rule applied identically at every state-node and at the machine root.
 
-  rf2-icj9t — `:*` is the LEAST-PRIORITY ENABLED transition at its level,
-  NOT a 'no explicit KEY exists' fallback. Resolution within a level:
-    1. try the explicit `event-id` candidates (a guarded candidate-VECTOR
-       falls through its own entries via `select-passing-candidate`);
-    2. if NO explicit candidate is enabled — the key is absent, OR every
-       guarded candidate's guard returned false (or threw) — fall through
-       to the same-level `:*` wildcard and select over ITS candidates.
-  Returning nil only when neither the explicit candidates nor the wildcard
-  yield an enabled transition lets `pick-transition`'s leaf→root walk
-  descend to the parent (whose own explicit→`:*` resolution then repeats),
-  so a guard-blocked explicit key correctly falls through to same-level
-  `:*` and then to ancestors — matching XState v5's transition-selection
-  order (descend priority within a state before walking to its ancestor).
+  rf2-z4t2v — three descriptor tiers, in PRIORITY order at each level:
+    1. EXACT `event-id` candidates;
+    2. the NAMESPACE-WILDCARD `:ns/*` (`ns-wildcard-key` — `:mouse/*`
+       catches any `:mouse/...` event; re-frame2's spelling of XState v5's
+       partial descriptor `mouse.*`). Absent for a non-namespaced event-id;
+    3. the TOTAL `:*` wildcard.
+  Most-specific wins: exact > namespace-wildcard > total.
 
-  rf2-e7yhv — when the returned match came from the `:*` WILDCARD branch
-  (the explicit candidates were absent or all guard-blocked, and the
-  wildcard's candidate fired), the transition is stamped
-  `:rf/via-wildcard? true`. This rides the `:transition` slot through
-  `apply-transition-once` into a `:rf.error/machine-action-exception`
-  trace (when the wildcard's action throws — the xstate-v5 'fail loudly on
-  unknown' idiom) so a consumer can attribute the throw to a `:*` wildcard
-  action rather than a named transition."
+  rf2-icj9t — each tier is the LEAST-PRIORITY ENABLED transition relative
+  to the tiers above it, NOT a 'no more specific KEY exists' fallback. A
+  tier is consulted whenever NO higher tier yielded an ENABLED candidate —
+  the higher key is absent, OR every one of its guarded candidates returned
+  false (or threw). So a guard-blocked exact `event-id` falls through to
+  `:ns/*`, a guard-blocked `:ns/*` falls through to `:*`, and only when no
+  tier at this level is enabled does `match-on-clause` return nil — letting
+  `pick-transition`'s leaf→root walk descend to the parent (whose own
+  three-tier resolution then repeats). This matches XState v5's
+  transition-selection order (descend the priority ladder within a state —
+  exact, partial-descriptor, catch-all — before walking to its ancestor;
+  a guard-failed transition is simply not selected, leaving lower-priority
+  ones eligible).
+
+  rf2-e7yhv — when the returned match came from EITHER wildcard tier (the
+  more specific tiers were absent or all guard-blocked, and a wildcard's
+  candidate fired) the transition is stamped `:rf/via-wildcard? true`.
+  This rides the `:transition` slot through `apply-transition-once` into a
+  `:rf.error/machine-action-exception` trace (when the wildcard's action
+  throws — the xstate-v5 'fail loudly on unknown' idiom) so a consumer can
+  attribute the throw to a wildcard action rather than a named transition.
+  The namespace-wildcard is a wildcard for this purpose, exactly as `:*`."
   [machine node event-id event snapshot]
-  (let [explicit-cands (normalise-candidates
-                         (get-in node [:on event-id])
-                         :rf.error/machine-bad-on-clause)
-        explicit-hit   (select-passing-candidate machine explicit-cands snapshot event)]
-    (if explicit-hit
-      explicit-hit
-      ;; No explicit candidate was enabled (absent key OR every guarded
-      ;; candidate's guard failed) — fall through to the same-level `:*`.
-      (let [wildcard-cands (normalise-candidates
-                             (get-in node [:on :*])
-                             :rf.error/machine-bad-on-clause)
-            wildcard-hit   (select-passing-candidate machine wildcard-cands snapshot event)]
-        (when wildcard-hit
-          (assoc wildcard-hit :rf/via-wildcard? true))))))
+  (let [on            (:on node)
+        select        (fn [k]
+                        (select-passing-candidate
+                          machine
+                          (normalise-candidates
+                            (get on k)
+                            :rf.error/machine-bad-on-clause)
+                          snapshot event))
+        ;; Tier 1 — exact event-id. Tier 2 — `:ns/*` (skipped for a
+        ;; non-namespaced event-id; `ns-key` is nil and `select` is never
+        ;; called). Tier 3 — total `:*`. Most-specific wins; each tier is
+        ;; consulted only when the tiers above yielded no ENABLED candidate
+        ;; (absent key OR every guarded candidate guard-blocked) — rf2-icj9t.
+        ns-key        (ns-wildcard-key event-id)]
+    (if-let [exact-hit (select event-id)]
+      exact-hit
+      (if-let [ns-hit (when ns-key (select ns-key))]
+        (assoc ns-hit :rf/via-wildcard? true)
+        (when-let [star-hit (select :*)]
+          (assoc star-hit :rf/via-wildcard? true))))))
 
 (defn- pick-done-transition
   "Per Spec 005 §Final states §The done-state signal (rf2-bnjb3 / rf2-zlmz7):
