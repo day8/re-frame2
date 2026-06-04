@@ -109,24 +109,33 @@
        "</body>"
        "</html>"))
 
-;; ---- chunk writer --------------------------------------------------------
+;; ---- shell phase (request thread, BEFORE the head commits) --------------
 ;;
-;; The Ring response body is a `PipedInputStream` paired with a writer
-;; thread that pushes chunks onto a `PipedOutputStream`. The writer
-;; thread holds the per-request frame open across continuations and is
-;; the place where exceptions are caught — anything that throws there
-;; gracefully closes the pipe so the client sees a clean EOF rather
-;; than a half-streamed response.
+;; rf2-r06pc — the shell render runs on the REQUEST thread, BEFORE the
+;; Ring response head is committed and BEFORE the writer thread is
+;; spawned. This is the streaming counterpart to the non-streaming
+;; handler's post-render re-flush (rf2-c0bq1, `pipeline.clj`):
 ;;
-;; Per Spec 011 §Failure semantics — inline fallback — exceptions
-;; INSIDE a continuation render are caught by streaming/render-continuation
-;; (which returns {:failed? true :html <fallback-html> :delta nil}); the
-;; writer thread proceeds with the next boundary. Exceptions OUTSIDE a
-;; continuation (e.g. an error projecting the response, or a final-
-;; payload build throw) close the pipe with the partial response that
-;; was already flushed — the client sees a truncated but valid HTML
-;; structure (open tags balanced by what was emitted) and the server
-;; logs the trace via the standard error-projection path.
+;;   - A root-view throw / shell-walk throw escalates to
+;;     `:rf.error/ssr-render-failed` via the projector and FAILS CLOSED
+;;     to a non-200 projected error page (Spec 011 §744/§748/§954) —
+;;     handled by the handler's outer try/catch on the request thread.
+;;   - A production reactive-sub throw during the shell render recovers
+;;     to nil (the walk does NOT throw) but BUFFERS a fail-closed 500 on
+;;     the always-on error-emit substrate (rf2-vvwmi). The handler
+;;     re-reads the response accumulator (`ssr/get-response`) AFTER the
+;;     shell render to pick that status up, exactly as `build-full-
+;;     response*` does — and a non-200 there fails closed to the
+;;     projected error page rather than streaming the broken HTML.
+;;
+;; Only once the shell is KNOWN-RENDERABLE (clean render AND a success
+;; status) does the handler commit the chunked response head and hand
+;; the already-rendered shell + continuations to the daemon writer. The
+;; writer's only remaining failure surface is continuation drains (which
+;; the inline-fallback contract already covers, Spec 011 §942-954) and
+;; the final-payload / suffix writes — and those happen AFTER the first
+;; chunk has committed, so they correctly degrade to a truncate-and-close
+;; rather than re-stamping a status the wire has already sent.
 
 (defn- ->utf8 ^bytes [^String s]
   (.getBytes s StandardCharsets/UTF_8))
@@ -135,23 +144,75 @@
   (.write out (->utf8 s))
   (.flush out))
 
-(defn- run-streaming-writer!
-  "Run the streaming writer on the calling thread. The caller supplies
-  an open `OutputStream` (the pipe sink). On any throw, the catch arm
-  emits a `:rf.error/ssr-streaming-writer-failed` trace and closes the
-  stream cleanly so the Ring server can EOF the response."
-  [^OutputStream out frame-id resp opts]
-  (try
-    (let [{:keys [root-view emit-hash? version schema-digest payload
-                  content-type]} opts
-          hiccup     (rf/with-frame frame-id
-                       (lifecycle/resolve-root-view root-view))
+(defn render-streaming-shell!
+  "Resolve + render the streaming shell on the CALLING (request) thread.
+  Returns the pre-rendered pieces the daemon writer needs to drain the
+  chunk stream:
+
+    {:hiccup        <resolved root hiccup>     ;; for the final-hash
+     :head-html     \"…\"                        ;; resolved <head> fragment
+     :html-attrs    {…} or nil                  ;; stamped on <html>
+     :body-attrs    {…} or nil                  ;; stamped on <body>
+     :shell-html    \"…\"                        ;; chunk 1 body
+     :continuations [{:id … :subtree …} …]}     ;; drain queue (FIFO)
+
+  Throws propagate to the caller (the handler's outer try/catch routes
+  them through the projector → fail-closed non-200, rf2-r06pc). The
+  recovered-to-nil sub case does NOT throw here — its buffered fail-
+  closed status is picked up by the handler's post-shell `get-response`
+  re-read."
+  [frame-id {:keys [root-view] :as opts}]
+  (rf/with-frame frame-id
+    (let [hiccup     (lifecycle/resolve-root-view root-view)
           {:keys [head-html html-attrs body-attrs]}
           (if (:head opts)
             {:head-html (:head opts) :html-attrs nil :body-attrs nil}
             (lifecycle/resolve-head frame-id))
-          {:keys [shell-html continuations]}
-          (rf/with-frame frame-id (streaming/render-shell hiccup))
+          {:keys [shell-html continuations]} (streaming/render-shell hiccup)]
+      {:hiccup        hiccup
+       :head-html     head-html
+       :html-attrs    html-attrs
+       :body-attrs    body-attrs
+       :shell-html    shell-html
+       :continuations continuations})))
+
+;; ---- chunk writer (daemon thread, AFTER the head commits) ---------------
+;;
+;; The Ring response body is a `PipedInputStream` paired with a writer
+;; thread that pushes chunks onto a `PipedOutputStream`. The writer
+;; thread receives the ALREADY-RENDERED shell + continuations from the
+;; request thread (rf2-r06pc) — it no longer resolves/renders the shell
+;; itself, so a shell failure can never reach this thread. It holds the
+;; per-request frame open across continuation drains and is the place
+;; where post-commit exceptions are caught — anything that throws there
+;; gracefully closes the pipe so the client sees a clean EOF rather than
+;; a half-streamed response.
+;;
+;; Per Spec 011 §Failure semantics — inline fallback — exceptions
+;; INSIDE a continuation render are caught by streaming/render-continuation
+;; (which returns {:failed? true :html <fallback-html> :delta nil}); the
+;; writer thread proceeds with the next boundary. Exceptions OUTSIDE a
+;; continuation (e.g. a final-payload build throw, or a downstream pipe
+;; broken-write) close the pipe with the partial response that was
+;; already flushed — the first chunk has already committed the success
+;; status to the wire, so a truncate-and-close is the only safe outcome
+;; (the status can no longer change). The server logs the trace via
+;; `:rf.error/ssr-streaming-writer-failed`.
+
+(defn- run-streaming-writer!
+  "Run the streaming writer on the calling (daemon) thread. The caller
+  supplies an open `OutputStream` (the pipe sink) and the pre-rendered
+  shell pieces from `render-streaming-shell!` (rf2-r06pc — the shell is
+  resolved/rendered on the request thread BEFORE the head commits, so
+  shell failures fail closed there; this thread only drains the chunk
+  stream). On any throw, the catch arm emits a
+  `:rf.error/ssr-streaming-writer-failed` trace and closes the stream
+  cleanly so the Ring server can EOF the response."
+  [^OutputStream out frame-id rendered opts]
+  (try
+    (let [{:keys [emit-hash? version schema-digest payload]} opts
+          {:keys [hiccup head-html html-attrs body-attrs
+                  shell-html continuations]} rendered
           shell-opts (merge opts
                             {:html-attrs html-attrs
                              :body-attrs body-attrs})]
@@ -209,15 +270,30 @@
       circuits to a non-streamed Location response (Spec 011 §Redirect
       precedence) AND destroys the per-request frame inline (the writer
       thread is never spawned on this branch),
-    - otherwise materialises the response head (status / headers /
-      cookies) FIRST — so a header/cookie serialisation throw on a
-      value that escaped the fx boundary's partial validation
-      short-circuits to `:on-error` with no pipe + no thread to orphan
-      (rf2-z5azc) — and only then spawns a streaming writer on a daemon
-      thread that flushes shell → continuations → final payload →
-      close, destroying the frame in that thread's finally so the
-      per-frame side-channels clear (Spec 011 §Per-request frame
-      teardown contract) without blocking the response close.
+    - otherwise RENDERS THE SHELL on the request thread BEFORE committing
+      the chunked response head (rf2-r06pc — the streaming counterpart
+      of the non-streaming post-render re-flush, rf2-c0bq1). A root-view
+      / shell-walk throw escalates to `:rf.error/ssr-render-failed` via
+      the projector and a production reactive-sub throw during the shell
+      render buffers a fail-closed status the post-shell `get-response`
+      re-read picks up — BOTH fail closed to a non-200 projected error
+      page (Spec 011 §744/§748/§954) on the request thread, with NO pipe
+      and NO writer thread spawned. The chunked response is committed
+      ONLY once the shell is known-renderable (clean render AND a success
+      status),
+    - then materialises the response head (status / headers / cookies)
+      — so a header/cookie serialisation throw on a value that escaped
+      the fx boundary's partial validation short-circuits to `:on-error`
+      with no pipe + no thread to orphan (rf2-z5azc) — and only then
+      spawns a streaming writer on a daemon thread that flushes the
+      PRE-RENDERED shell → continuations → final payload → close,
+      destroying the frame in that thread's finally so the per-frame
+      side-channels clear (Spec 011 §Per-request frame teardown contract)
+      without blocking the response close. The writer thread's only
+      remaining failure surface is continuation drains (inline-fallback,
+      Spec 011 §942-954) and the post-first-chunk final-payload / suffix
+      writes — never the shell, which already committed its status on
+      the request thread.
 
   The response body is a `PipedInputStream` Ring accepts directly; the
   pipe's writer side runs on a daemon thread so Jetty/http-kit/Aleph
@@ -291,60 +367,133 @@
                   (pipeline/ssr-response->ring-response resp nil)
                   (finally
                     (lifecycle/destroy-frame-quietly! frame-id)))
-                ;; Streaming path. rf2-z5azc — MATERIALISE the response
-                ;; head (status / headers / cookies) BEFORE constructing
-                ;; the pipe or spawning the writer thread. Cookie / header
-                ;; serialisation CAN throw at materialise time on a value
-                ;; that escaped the fx boundary's partial validation —
-                ;; e.g. a `:max-age` carrying CR/LF or a non-integer
-                ;; `:expires`, which `cookie->set-cookie-header` rejects
-                ;; but the runtime `validate-cookie!` (name/value/path/
-                ;; domain only) does not. If we spawned the writer first
-                ;; (the old order), that throw would orphan the pipe: the
-                ;; daemon writer keeps pumping the full body into a pipe
-                ;; whose reader is never handed out, blocks forever once
-                ;; the 16 KiB buffer fills, and leaks one live thread per
-                ;; such request — a resource-exhaustion vector. By
-                ;; building `resp-map` first, a head-materialisation
-                ;; failure short-circuits to the outer catch BEFORE any
-                ;; thread or pipe exists → on-error, no detached writer,
-                ;; no orphaned pipe. "We committed to streaming" is now
-                ;; atomic with "the response envelope is materialisable".
+                ;; Streaming path. rf2-r06pc — RENDER THE SHELL on THIS
+                ;; (request) thread BEFORE committing the chunked response
+                ;; head, the streaming counterpart of the non-streaming
+                ;; post-render re-flush (rf2-c0bq1). The shell render is
+                ;; the request's structural foundation; its failure modes
+                ;; MUST fail closed to a non-200 (Spec 011 §744/§748/§954),
+                ;; NOT a silent 200/truncated chunked body from a detached
+                ;; daemon thread that can no longer stamp the status.
                 ;;
-                ;; No body default-stamp here (we pass our own
-                ;; InputStream); `:body` is assoc'd after the writer is
-                ;; wired below.
-                (let [resp-map (pipeline/ssr-response->ring-response
-                                 resp "" content-type)
-                      ;; 16 KiB pipe buffer — large enough to absorb the
-                      ;; shell chunk in one write so the writer thread
-                      ;; rarely blocks on a slow consumer, small enough
-                      ;; that one stuck client doesn't pin a non-trivial
-                      ;; chunk of heap per request.
-                      pipe-in  (PipedInputStream. (* 16 1024))
-                      pipe-out (PipedOutputStream. pipe-in)]
-                  ;; Daemon thread (rf2-ekwda): a writer blocked on
-                  ;; `.write` to the bounded 16 KiB pipe of a slow-loris
-                  ;; client must NOT keep the JVM alive at shutdown. The
-                  ;; ns + handler docstrings and both test namespaces
-                  ;; assert daemon semantics; this is what makes that
-                  ;; contract real.
-                  (doto
-                    (Thread.
-                      ^Runnable
-                      (fn writer-thread []
-                        (try
-                          (run-streaming-writer! pipe-out frame-id resp opts)
-                          (finally
-                            ;; The writer's own finally closes the
-                            ;; pipe; the frame teardown happens here so
-                            ;; it does NOT block the response close on
-                            ;; the slower destroy path.
-                            (lifecycle/destroy-frame-quietly! frame-id))))
-                      ^String (str "rf2-ssr-streaming-" (name frame-id)))
-                    (.setDaemon true)
-                    (.start))
-                  (assoc resp-map :body pipe-in))))
+                ;;   - A root-view / shell-walk throw propagates here and
+                ;;     is routed through `project-render-throw->ring-
+                ;;     response` (→ `:rf.error/ssr-render-failed`, projector,
+                ;;     non-200 projected error page) — same wire-body
+                ;;     contract as the non-streaming `build-full-response`
+                ;;     catch arm.
+                ;;   - A production reactive-sub throw during the shell
+                ;;     render recovers to nil (the walk does NOT throw) but
+                ;;     buffers a fail-closed 500 on the always-on error-emit
+                ;;     substrate (rf2-vvwmi). The post-shell `ssr/get-
+                ;;     response` re-read drains that buffer and stamps the
+                ;;     500 onto the response accumulator BEFORE the chunked
+                ;;     head is materialised — so the committed wire status
+                ;;     is the fail-closed 500, never the stale pre-render
+                ;;     200 (the rendered shell still streams as the body,
+                ;;     exactly as the non-streaming handler ships the
+                ;;     recovered body with the 500 — the status is the
+                ;;     fail-closed signal).
+                ;;
+                ;; NO pipe and NO writer thread is constructed until the
+                ;; shell is known-renderable (clean render AND a success
+                ;; status). A shell-render throw is caught by the dedicated
+                ;; inner try below and converted to the PROJECTED error
+                ;; response (NOT the `:on-error` transport net) — matching
+                ;; the non-streaming `build-full-response` catch arm, where
+                ;; a render-time throw projects rather than escaping to
+                ;; `:on-error`. The handler's OUTER try/catch remains the
+                ;; net for the OTHER throws (head materialise, redirect
+                ;; materialise) → `:on-error`.
+                (let [rendered  (try
+                                  (render-streaming-shell! frame-id opts)
+                                  (catch Throwable t
+                                    ;; Shell render threw — fail closed to
+                                    ;; the projected non-200 error page on
+                                    ;; THIS thread, tear the frame down
+                                    ;; inline (no writer was spawned), and
+                                    ;; return. The deref below never runs.
+                                    (let [err-resp (pipeline/project-render-throw->ring-response
+                                                     frame-id t opts)]
+                                      (lifecycle/destroy-frame-quietly! frame-id)
+                                      (reduced err-resp))))]
+                  (if (reduced? rendered)
+                    @rendered
+                    ;; Shell rendered without throwing. Re-read the
+                    ;; response accumulator to surface any fail-closed
+                    ;; status a recovered-to-nil reactive sub buffered
+                    ;; during the shell render (rf2-vvwmi / rf2-r06pc) —
+                    ;; the streaming analogue of `build-full-response*`'s
+                    ;; post-render `ssr/flush-response!` re-read (rf2-c0bq1).
+                    ;; A production reactive sub that throws mid-render
+                    ;; recovers to nil and BUFFERS a fail-closed 500 on the
+                    ;; always-on error-emit substrate; `ssr/get-response`
+                    ;; drains that buffer and stamps the 500 onto `resp2`.
+                    ;; We MATERIALISE the chunked response head from
+                    ;; `resp2`, so the wire status is the fail-closed 500
+                    ;; — never the stale pre-render 200 the OLD writer-
+                    ;; thread order shipped (Spec 011 §744/§750). A redirect
+                    ;; or a deliberate app-set non-200 (`:rf.server/set-
+                    ;; status`) surfaces here too and rides the wire
+                    ;; unchanged — identical to the non-streaming handler,
+                    ;; which streams the rendered body with whatever post-
+                    ;; flush status the accumulator carries (the status is
+                    ;; the fail-closed signal; the body is moot under a
+                    ;; non-200).
+                    (let [resp2 (ssr/get-response frame-id)
+                          ;; rf2-z5azc — MATERIALISE the response head
+                          ;; (status / headers / cookies) from the re-read
+                          ;; `resp2` BEFORE constructing the pipe or
+                          ;; spawning the writer. Cookie / header
+                          ;; serialisation CAN throw at materialise time on
+                          ;; a value that escaped the fx boundary's partial
+                          ;; validation — e.g. a `:max-age` carrying CR/LF,
+                          ;; which `cookie->set-cookie-header` rejects but
+                          ;; the runtime `validate-cookie!` does not. If we
+                          ;; spawned the writer first, that throw would
+                          ;; orphan the pipe (the daemon writer pumps the
+                          ;; full body into a reader-less pipe, blocks once
+                          ;; the 16 KiB buffer fills, and leaks one live
+                          ;; thread per request). By building `resp-map`
+                          ;; first, a head-materialisation failure short-
+                          ;; circuits to the outer catch BEFORE any thread
+                          ;; or pipe exists → on-error, no detached writer,
+                          ;; no orphaned pipe.
+                          ;;
+                          ;; No body default-stamp here (we pass our own
+                          ;; InputStream); `:body` is assoc'd after the
+                          ;; writer is wired below.
+                          resp-map (pipeline/ssr-response->ring-response
+                                     resp2 "" content-type)
+                          ;; 16 KiB pipe buffer — large enough to absorb the
+                          ;; shell chunk in one write so the writer thread
+                          ;; rarely blocks on a slow consumer, small enough
+                          ;; that one stuck client doesn't pin a non-trivial
+                          ;; chunk of heap per request.
+                          pipe-in  (PipedInputStream. (* 16 1024))
+                          pipe-out (PipedOutputStream. pipe-in)]
+                      ;; Daemon thread (rf2-ekwda): a writer blocked on
+                      ;; `.write` to the bounded 16 KiB pipe of a slow-loris
+                      ;; client must NOT keep the JVM alive at shutdown. The
+                      ;; ns + handler docstrings and both test namespaces
+                      ;; assert daemon semantics; this is what makes that
+                      ;; contract real.
+                      (doto
+                        (Thread.
+                          ^Runnable
+                          (fn writer-thread []
+                            (try
+                              (run-streaming-writer! pipe-out frame-id rendered opts)
+                              (finally
+                                ;; The writer's own finally closes the
+                                ;; pipe; the frame teardown happens here so
+                                ;; it does NOT block the response close on
+                                ;; the slower destroy path.
+                                (lifecycle/destroy-frame-quietly! frame-id))))
+                          ^String (str "rf2-ssr-streaming-" (name frame-id)))
+                        (.setDaemon true)
+                        (.start))
+                      (assoc resp-map :body pipe-in))))))
             (catch Throwable t
               ;; get-response throw, redirect-materialise throw, OR (per
               ;; rf2-z5azc) a head-materialisation throw raised BEFORE the

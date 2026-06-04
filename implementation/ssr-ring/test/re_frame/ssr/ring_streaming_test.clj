@@ -13,6 +13,7 @@
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.ring :as ssr-ring]
             [re-frame.ssr.test-fixture :as tf])
@@ -247,3 +248,164 @@
                            (get (:headers ns-resp) "content-type"))]
         (is (= ct ns-ct)
             "streaming + non-streaming redirect paths agree on Content-Type")))))
+
+;; ===========================================================================
+;; rf2-r06pc — STREAMING SHELL FAILURES FAIL CLOSED to a non-200
+;; ===========================================================================
+;;
+;; The bug: streaming materialised the Ring response head (status 200) and
+;; spawned the daemon writer BEFORE the writer resolved/rendered the shell.
+;; So a root-view throw, a shell-walk throw, and a production-mode reactive
+;; sub throw during the shell render could NOT stamp the HTTP status or
+;; render the projected error page — the wire shipped a silent 200 /
+;; truncated body. The non-streaming handler already fixed the recovered-
+;; sub variant with a post-render re-flush (rf2-c0bq1, `pipeline.clj`).
+;;
+;; The fix (rf2-r06pc): render the shell on the REQUEST thread before the
+;; head commits. A throw escalates to `:rf.error/ssr-render-failed` (→
+;; projected non-200 error page); a recovered-to-nil sub buffers a fail-
+;; closed status the post-shell `get-response` re-read picks up onto the
+;; committed Ring head. Only a known-renderable shell + success status
+;; commits the chunked response. These direct-handler tests pin the
+;; contract in-process; the bytes-on-wire counterparts (root-view throw +
+;; production-sub throw through Jetty) live in `streaming_robustness_test`.
+;; ===========================================================================
+
+(defn- streamed-body
+  "Drain a Ring response body to a string when it is an InputStream
+  (the streamed-chunk path), else return it verbatim (a projected error
+  page is an ordinary non-chunked String body)."
+  [body]
+  (if (instance? InputStream body)
+    (drain-stream body)
+    body))
+
+(deftest stream-handler-root-view-throw-fails-closed
+  (testing "rf2-r06pc: a root-view fn that throws on resolution fails
+            closed to a non-200 PROJECTED error response on the request
+            thread — NOT a streamed 200. No InputStream body is handed
+            out (the chunked response was never committed)."
+    (rf/reg-event-fx :rf.test.server/init-min
+      {:platforms #{:server}}
+      (fn [_ _] {:db {}}))
+    (let [throwing-root (fn root-view-fn []
+                          (throw (ex-info ":rf.test/root-view-throw"
+                                          {:reason "shell-render fail-closed probe"})))
+          handler       (ssr-ring/stream-handler
+                          {:on-create [:rf.test.server/init-min]
+                           :root-view throwing-root
+                           :payload :rf.ssr.payload/whole-app-db})
+          response      (handler {:uri "/" :request-method :get})]
+      (is (= 500 (:status response))
+          "root-view throw → `:rf.error/ssr-render-failed` projection →
+           non-200 (default projector maps to 500) on the request thread,
+           not a streamed 200 (Spec 011 §744/§748/§954)")
+      (is (not (instance? InputStream (:body response)))
+          "the body is a projected error page (ordinary String), NOT a
+           PipedInputStream — the chunked response was never committed")
+      (is (not (str/includes? (str (:body response)) "root-view-throw"))
+          "the projected body carries no internal exception detail"))))
+
+(deftest stream-handler-shell-walk-throw-fails-closed
+  (testing "rf2-r06pc: a view INSIDE the shell walk (NOT inside a
+            `:rf/suspense-boundary`) that throws fails closed to a
+            non-200 — the shell-walk throw is a structural failure that
+            escalates per Spec 011 §954 (the inline-fallback boundary
+            stops at continuations)."
+    (rf/reg-event-fx :rf.test.server/init-min
+      {:platforms #{:server}}
+      (fn [_ _] {:db {}}))
+    ;; A view that throws during the shell walk — it is NOT wrapped in a
+    ;; `:rf/suspense-boundary`, so the inline-fallback path does NOT apply.
+    (rf/reg-view ^{:rf/id :test/shell-throwing-section} shell-throwing-section []
+      (throw (ex-info ":rf.test/shell-walk-throw" {})))
+    (rf/reg-view ^{:rf/id :test/shell-throwing-root} shell-throwing-root []
+      [:main
+       [:h1 "Header"]
+       [:test/shell-throwing-section]
+       [:footer "End"]])
+    (let [handler  (ssr-ring/stream-handler
+                     {:on-create [:rf.test.server/init-min]
+                      :root-view [:test/shell-throwing-root]
+                      :payload :rf.ssr.payload/whole-app-db})
+          response (handler {:uri "/" :request-method :get})]
+      (is (= 500 (:status response))
+          "shell-walk throw escalates to `:rf.error/ssr-render-failed` →
+           non-200; the inline-fallback boundary stops at continuations
+           (Spec 011 §954)")
+      (is (not (instance? InputStream (:body response)))
+          "shell-walk throw fails closed to a projected error page, not a
+           streamed chunked body"))))
+
+(deftest stream-handler-rendertime-sub-throw-fails-closed
+  (testing "rf2-r06pc / rf2-vvwmi: a production-mode reactive sub that
+            THROWS during the streaming shell render recovers to nil (the
+            walk does NOT throw) but buffers a fail-closed 500 on the
+            always-on error-emit substrate; the post-shell `get-response`
+            re-read stamps the 500 onto the committed Ring head — NOT the
+            stale pre-render 200 the old daemon-writer-first order shipped
+            (Spec 011 §744/§750)."
+    (rf/reg-sub :throwing-sub (fn [_db _] (throw (ex-info "sub-boom" {}))))
+    (rf/reg-view ^{:rf/id :test/uses-throwing-sub} uses-throwing-sub []
+      (let [v @(rf/subscribe [:throwing-sub])]
+        [:main.broken
+         [:h1 "header that renders"]
+         [:p (str "value: " v)]]))
+    (rf/reg-event-fx :rf.test.server/init-min
+      {:platforms #{:server}}
+      (fn [_ _] {:db {}}))
+    (let [handler (ssr-ring/stream-handler
+                    {:on-create [:rf.test.server/init-min]
+                     :root-view [:test/uses-throwing-sub]
+                     :ssr       {:public-error-id   :rf.ssr/default-error-projector
+                                 :dev-error-detail? false}
+                     :payload :rf.ssr.payload/whole-app-db})]
+      ;; Production hardening — the dev-only trace listener elides; the
+      ;; always-on error-emit substrate is the status source of truth.
+      (with-redefs [interop/debug-enabled? false]
+        (let [response (handler {:uri "/" :request-method :get})]
+          (is (= 500 (:status response))
+              "render-time sub-throw under production hardening →
+               buffered fail-closed 500 re-read AFTER the shell render →
+               committed Ring status 500. Before rf2-r06pc this was a
+               silent 200 (the stale pre-render status committed onto the
+               chunked head before the daemon writer ran the render).")
+          ;; The shell recovered-to-nil and rendered, so the streamed body
+          ;; (carried under the 500 status) is still well-formed HTML —
+          ;; the status is the fail-closed signal, mirroring the non-
+          ;; streaming handler (rf2-c0bq1).
+          (let [body (streamed-body (:body response))]
+            (is (str/includes? body "header that renders")
+                "the recovered shell still streamed (the 500 status is the
+                 fail-closed signal; the body is moot under a non-200)")))))))
+
+(deftest stream-handler-clean-render-stays-200
+  (testing "rf2-r06pc: the request-thread shell render + post-shell
+            re-read is benign for the happy path — a clean shell render
+            with no buffered error keeps the default 200 and streams
+            normally. Confirms the fix is fail-closed-on-error, not a
+            blanket divert."
+    (rf/reg-sub :clean-sub (fn [_db _] :ok))
+    (rf/reg-view ^{:rf/id :test/uses-clean-sub} uses-clean-sub []
+      (let [v @(rf/subscribe [:clean-sub])]
+        [:main [:h1 "clean"] [:p (str "value: " v)]]))
+    (rf/reg-event-fx :rf.test.server/init-min
+      {:platforms #{:server}}
+      (fn [_ _] {:db {}}))
+    (let [handler  (ssr-ring/stream-handler
+                     {:on-create [:rf.test.server/init-min]
+                      :root-view [:test/uses-clean-sub]
+                      :ssr       {:public-error-id   :rf.ssr/default-error-projector
+                                  :dev-error-detail? false}
+                      :payload :rf.ssr.payload/whole-app-db})]
+      (with-redefs [interop/debug-enabled? false]
+        (let [response (handler {:uri "/" :request-method :get})
+              body     (streamed-body (:body response))]
+          (is (= 200 (:status response))
+              "clean shell render → empty error buffer → re-read no-op → 200")
+          (is (instance? InputStream (:body response))
+              "happy path streams a chunked InputStream body")
+          (is (str/includes? body "value: :ok")
+              "the clean sub's value rendered into the streamed HTML")
+          (is (str/includes? body "__rf_payload")
+              "the final payload chunk streamed"))))))

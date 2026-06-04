@@ -10,7 +10,9 @@
 
     1. broken-pipe absorbed, OutputStream closed by `finally`,
     2. real-network disconnect cleans up,
-    3. root-view throw absorbed, daemon terminates,
+    3. root-view throw fails closed to a non-200 on the request thread
+       (rf2-r06pc — the shell render moved off the writer; a root-view
+       throw never reaches the daemon writer now),
     4. daemon thread name carries the frame-id.
 
   What it does NOT cover — and what `re-frame.ssr.ring.streaming/run-
@@ -30,14 +32,14 @@
   absence-of-escape and pipe-close), the gap re-opens silently and
   ops loses the signal.
 
-  Second gap covered here: the writer thread's `finally` arm wraps
-  the per-request frame destroy (`lifecycle/destroy-frame-quietly!`
-  in `stream-handler`'s spawn body — `streaming.clj` line 273). The
-  contract is that EVEN WHEN the writer body throws, the destroy
-  still runs in the spawned-thread `finally`. The existing tests
-  cover writer-body throws AND daemon thread cleanup, but not the
-  composition: a writer-body throw co-occurs with a frame whose
-  side-channel atoms become observable via the destroy hook."
+  Second gap covered here: the per-request frame destroy on a render
+  failure. Post rf2-r06pc a shell-render throw (root-view throw) fails
+  closed on the REQUEST thread and tears the frame down INLINE (the
+  shell-render catch arm in `stream-handler`), before any writer thread
+  is spawned. The continuation/final-payload writer-body throws that
+  DO still reach the daemon thread tear the frame down in the spawned-
+  thread `finally`. Either way the destroy MUST run; this ns pins the
+  composition the existing tests test independently."
   (:require [clojure.set]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
@@ -45,7 +47,6 @@
             [re-frame.ssr.ring :as ssr-ring]
             [re-frame.ssr.ring.streaming :as streaming]
             [re-frame.ssr.test-fixture :as tf]
-            [re-frame.test-support :as test-support]
             [re-frame.trace :as trace])
   (:import [java.io InputStream PipedInputStream PipedOutputStream]))
 
@@ -74,13 +75,18 @@
           pipe-out (PipedOutputStream. pipe-in)
           _        (.close pipe-in) ;; pre-broken pipe — every write throws
           captured (atom [])]
-      ;; Drive the writer body directly against the pre-broken pipe;
-      ;; the writer's outer try fires on the first internal
-      ;; with-frame deref (no such frame) AND on every subsequent
-      ;; pipe write. Either way the catch arm runs.
+      ;; Drive the writer body directly against the pre-broken pipe.
+      ;; rf2-r06pc — the writer no longer resolves/renders the shell
+      ;; (that moved to the request thread); we hand it a PRE-RENDERED
+      ;; shell. The first chunk write of the shell prefix hits the
+      ;; pre-broken pipe → IOException → the catch arm runs and emits
+      ;; the trace.
       (with-trace-capture captured
         #(@#'streaming/run-streaming-writer!
-           pipe-out :no-such-frame {} {:root-view [:div]}))
+           pipe-out :no-such-frame
+           {:hiccup [:div] :head-html "" :html-attrs nil :body-attrs nil
+            :shell-html "<div></div>" :continuations []}
+           {:root-view [:div]}))
       (let [hits (filterv #(= :rf.error/ssr-streaming-writer-failed (:operation %))
                           @captured)]
         (is (= 1 (count hits))
@@ -106,23 +112,32 @@
                  specific requests in JFR / log streams")))))))
 
 ;; ===========================================================================
-;; Writer-throw composition with frame destroy — even when the writer
-;; body throws, the spawned-thread `finally` MUST run destroy-frame-
-;; quietly! so the per-request frame's app-db + side-channel slots are
-;; released. Pin the composition the existing tests test independently.
+;; Shell-render-throw composition with frame destroy — when the shell
+;; render throws (root-view throw), the per-request frame MUST still be
+;; destroyed so its app-db + side-channel slots are released. Pin the
+;; composition the existing tests test independently.
+;;
+;; rf2-r06pc — a root-view / shell-walk throw now fails closed on the
+;; REQUEST thread (before the head commits + before any writer is
+;; spawned): the shell-render catch arm projects a non-200 error page AND
+;; tears the frame down inline. So this is now a SYNCHRONOUS teardown on
+;; the request thread (no spawned-thread `finally` to wait on, no
+;; InputStream body to drain). The frame-no-leak contract is unchanged —
+;; only the mechanism moved earlier.
 ;; ===========================================================================
 
-(deftest stream-handler-destroys-frame-when-writer-body-throws
-  (testing "rf2-u91hb: when the streaming writer body throws (root-view
-            throw), the spawned thread's finally MUST still invoke
-            destroy-frame-quietly! so the per-request frame's app-db
-            / sub-cache / side-channel slots are released. Without this
-            composition every aborted/failed streaming request would
-            leak a frame record. Per stream-handler line ~268-273."
+(deftest stream-handler-destroys-frame-when-shell-render-throws
+  (testing "rf2-u91hb / rf2-r06pc: when the shell render throws (root-view
+            throw), the per-request frame's app-db / sub-cache / side-
+            channel slots MUST still be released. Post rf2-r06pc the
+            teardown happens INLINE on the request thread (the shell-
+            render fail-closed catch arm), not in a spawned-thread
+            finally — the throw never reaches a writer thread. Without
+            this every failed streaming request would leak a frame record."
     (rf/reg-event-fx :rf.test.writer/init
       {:platforms #{:server}}
       (fn [_ _] {:db {}}))
-    (let [throwing-root (fn [] (throw (ex-info "writer-thread teardown probe"
+    (let [throwing-root (fn [] (throw (ex-info "shell-render teardown probe"
                                                {:reason :rf2-u91hb})))
           handler  (ssr-ring/stream-handler
                      {:on-create [:rf.test.writer/init]
@@ -130,22 +145,20 @@
                       :payload :rf.ssr.payload/whole-app-db})
           ;; Frame ids BEFORE the request — baseline.
           baseline-fids (disj (frame/frame-ids) :rf/default)
-          response (handler {:uri "/" :request-method :get})
-          ;; Drain the body so the writer thread runs to completion +
-          ;; the spawned-thread `finally` fires.
-          _drain   (slurp ^InputStream (:body response))]
-      ;; Poll until the spawned thread's `finally` has run the destroy
-      ;; (rf2-fun38). The frame-set returning to baseline IS the
-      ;; observable signal; no need for a fixed wait.
-      (test-support/poll-until
-        (fn []
-          (let [end-fids (disj (frame/frame-ids) :rf/default)]
-            (empty? (clojure.set/difference end-fids baseline-fids))))
-        {:timeout-ms 2000
-         :label "per-request frame destroyed after writer-throw"})
+          response (handler {:uri "/" :request-method :get})]
+      ;; rf2-r06pc — the shell render threw on the request thread, so the
+      ;; response is the projected non-200 error page (an ordinary String
+      ;; body), NOT a streamed InputStream. The frame teardown already ran
+      ;; inline by the time the handler returned.
+      (is (= 500 (:status response))
+          "root-view throw fails closed to a non-200 projected error page
+           on the request thread (rf2-r06pc)")
+      (is (not (instance? InputStream (:body response)))
+          "no streamed InputStream body — the chunked response was never
+           committed (the shell render failed before the head commit)")
       (let [end-fids (disj (frame/frame-ids) :rf/default)
             leaked   (clojure.set/difference end-fids baseline-fids)]
         (is (empty? leaked)
             (str "the per-request frame MUST be destroyed even though
-                 the writer body threw — found leaked frame-ids: "
+                 the shell render threw — found leaked frame-ids: "
                  (vec leaked)))))))
