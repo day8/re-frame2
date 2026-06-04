@@ -2415,15 +2415,19 @@
     (rf/reg-route :route/search {:path "/search"})
     (rf/reg-route :rf.route/not-found {:path "/404"})
     (let [pushed (atom [])
+          traces (atom [])
           url    (over-cap-url)]
       (rf/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ u] (swap! pushed conj u)))
+      (rf/register-listener! ::navigate-over-cap-trace
+                             (fn [ev] (swap! traces conj ev)))
       (is (= ::ok
              (try (rf/dispatch-sync [:rf.route/navigate {:url url}]) ::ok
                   (catch Throwable _ ::threw)))
           "the over-cap {:url ...} target drains cleanly — no throw escapes
            (pre-fix this propagated :rf.error/route-too-many-keys)")
+      (rf/unregister-listener! ::navigate-over-cap-trace)
       (let [slice (get-in (rf/app-db-value :rf/default) [:rf/runtime :routing :current])]
         (is (= :rf.route/not-found (:id slice))
             "over-cap URL-string target fails closed to :rf.route/not-found")
@@ -2435,7 +2439,22 @@
             "a fresh nav-token is allocated for the not-found navigation"))
       (is (= [url] @pushed)
           ":rf.nav/push-url pushed the REQUESTED (over-cap) url VERBATIM —
-           NOT the not-found route's /404 (rf2-0zr2o address-bar parity)"))))
+           NOT the not-found route's /404 (rf2-0zr2o address-bar parity)")
+      ;; rf2-2zyvj: the SAME hostile-URL signal the URL-driven path emits
+      ;; (url-changed-over-cap → :rf.warning/malformed-url) MUST also fire on
+      ;; the programmatic `{:url ...}` fail-closed path, or the over-cap
+      ;; navigate attack is invisible to the security dashboards / SSR
+      ;; error-projections the DoS cap feeds (spec/012 §Keyword-interning
+      ;; cap). Assert the TRACE — not just the slice `:reason` — so the
+      ;; telemetry-symmetry gap with url_change regression-trips.
+      (is (some (fn [ev]
+                  (and (= :rf.warning/malformed-url (:operation ev))
+                       (= url (-> ev :tags :url))
+                       (= :too-many-keys (-> ev :tags :reason))))
+                @traces)
+          ":rf.warning/malformed-url trace fires on the navigate fail-closed
+           over-cap path, carrying the requested URL + :reason :too-many-keys
+           — symmetric with the URL-driven path (url_change.cljc:190-193)"))))
 
 ;; ---- rf2-5ifai: no :query vocabulary -> all string keys ------------------
 ;;
