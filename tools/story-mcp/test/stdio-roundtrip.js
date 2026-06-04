@@ -6,7 +6,7 @@
 //   - initialize                  (negotiate protocolVersion 2025-06-18)
 //   - notifications/initialized   (notification, no response)
 //   - tools/list                  (expect all 20 tools per spec/002)
-//   - tools/call list-tags        (read-side smoke; canonical seven present)
+//   - tools/call list-tags        (read-side smoke; seven inclusion tags present in canonical set)
 //   - tools/call list-substrates  (returns a vector, possibly empty on JVM)
 //   - tools/call get-story-instructions (text content)
 //   - tools/call preview-variant on an unregistered variant
@@ -179,9 +179,10 @@ function run() {
       }
       console.log('OK   record-as-variant descriptor -> variant-id (required) + duration-ms/new-variant-id/doc/extends/alias/write-back');
 
-      // 3. tools/call list-tags — read-side smoke; the canonical seven
-      // tags must be present (loaded by `install-canonical-vocabulary!` in
-      // server `boot!`).
+      // 3. tools/call list-tags — read-side smoke; the seven inclusion
+      // tags must be present among the 12-entry canonical set (7 inclusion
+      // + 5 :state/* magnitude tags), loaded by
+      // `install-canonical-vocabulary!` in server `boot!`.
       const tagsResp = await call('tools/call', { name: 'list-tags', arguments: {} });
       if (tagsResp.result?.isError) {
         throw new Error('list-tags returned isError: ' + JSON.stringify(tagsResp));
@@ -195,7 +196,7 @@ function run() {
           throw new Error('list-tags missing canonical tag ' + tag + '; got ' + JSON.stringify(canonical));
         }
       }
-      console.log('OK   tools/call list-tags -> canonical seven present:', canonical.join(', '));
+      console.log('OK   tools/call list-tags -> seven inclusion tags present in canonical set:', canonical.join(', '));
 
       // 3b. tools/call list-substrates — JVM-standalone deploy returns an
       // empty substrate set; the contract is the result-shape (a vector,
