@@ -16,6 +16,7 @@
             [day8.re-frame2-xray.test-support :as xray-test-support]
             [day8.re-frame2-xray.theme.tokens :as tokens]
             [day8.re-frame2-xray.panels.epoch.badge :as badge]
+            [day8.re-frame2-xray.panels.epoch.projection :as proj]
             [day8.re-frame2-xray.panels.epoch.view :as view]
             [day8.re-frame2-xray.panels.epoch-panel :as epoch-orchestrator]))
 
@@ -2770,63 +2771,32 @@
             attribution)")))))
 
 ;; ---- rf2-zn6u5 — schema-violation Malli expected/got decomposition -------
-
-(deftest decode-malli-explain-returns-expected-got-test
-  (testing "rf2-zn6u5 — `decode-malli-explain` lifts the first error's
-            :schema + :value into a programmer-friendly summary map.
-            Pure data fn; JVM-testable."
-    (is (= {:expected :int :got "bad" :more-errors 0}
-           (view/decode-malli-explain
-             {:schema :int
-              :value "bad"
-              :errors [{:path [] :in [] :schema :int :value "bad"}]})))))
-
-(deftest decode-malli-explain-falls-back-to-root-value-test
-  (testing "rf2-zn6u5 — when the first error does NOT carry :value
-            (the value rides on the explain map's root), :got reads
-            from `explain`'s `:value` slot."
-    (is (= {:expected :int :got 42 :more-errors 0}
-           (view/decode-malli-explain
-             {:schema :int :value 42
-              :errors [{:path [] :schema :int}]})))))
-
-(deftest decode-malli-explain-counts-additional-errors-test
-  (testing "rf2-zn6u5 — multi-error explain maps surface
-            `:more-errors (- N 1)` so the call-site can paint a
-            `(+N more)` chip beneath the first-error summary."
-    (let [exp {:schema [:map [:a :int] [:b :int]]
-               :value {:a "x" :b "y"}
-               :errors [{:path [:a] :schema :int :value "x"}
-                        {:path [:b] :schema :int :value "y"}
-                        {:path [:c] :schema :int :value :extra}]}]
-      (is (= 2 (:more-errors (view/decode-malli-explain exp)))
-          "explain with 3 errors → :more-errors 2"))))
-
-(deftest decode-malli-explain-non-malli-returns-nil-test
-  (testing "rf2-zn6u5 — non-Malli validators / pre-rf2-2ek7t framework
-            produce explain maps without the canonical {:errors [...]}
-            shape; the decoder degrades to nil so the view drops the
-            decomposition row cleanly."
-    (is (nil? (view/decode-malli-explain nil)))
-    (is (nil? (view/decode-malli-explain {})))
-    (is (nil? (view/decode-malli-explain {:errors []})))
-    (is (nil? (view/decode-malli-explain {:errors :not-a-vec})))
-    (is (nil? (view/decode-malli-explain "not a map")))))
+;;
+;; rf2-plev0 — the pure `decode-malli-explain` transform + its unit tests
+;; moved to the projection layer (`projection.cljc` /
+;; `projection_cljs_test.cljc`). The projection's `schema-violation-row`
+;; now stamps the decoded summary onto each row's `:decoded` slot. The
+;; view-render tests below exercise `violation-block` against PROJECTED
+;; rows — they stamp `:decoded` via `proj/decode-malli-explain` so the
+;; fixture mirrors the real projected shape the view consumes.
 
 (deftest violation-block-renders-expected-got-summary-test
-  (testing "rf2-zn6u5 — when a violation's :explain carries Malli's
-            canonical shape, the sub-block paints `expected:` + `got:`
+  (testing "rf2-zn6u5 / rf2-plev0 — when a violation's row carries the
+            projected `:decoded` summary (from a canonical Malli
+            `:explain`), the sub-block paints `expected:` + `got:`
             summary lines via `ei/mini` ABOVE the full humanized
             explain map render."
-    (let [row {:kind :rf.error/schema-validation-failure
+    (let [explain {:schema :int
+                   :value "not-an-int"
+                   :errors [{:path [:count] :schema :int
+                             :value "not-an-int"}]}
+          row {:kind :rf.error/schema-validation-failure
                :where :app-db
                :failing-id :counter/inc
                :path [:count]
                :value "not-an-int"
-               :explain {:schema :int
-                         :value "not-an-int"
-                         :errors [{:path [:count] :schema :int
-                                   :value "not-an-int"}]}
+               :explain explain
+               :decoded (proj/decode-malli-explain explain)
                :explain-humanized {:errors ["must be int"]}
                :rollback? true
                :sensitive? false}
@@ -2842,15 +2812,18 @@
             "got line renders the failing value via ei/mini")))))
 
 (deftest violation-block-multi-error-paints-more-chip-test
-  (testing "rf2-zn6u5 — multi-error explain maps surface a
-            `(+N more)` chip below the first-error summary."
-    (let [row {:where :app-db
+  (testing "rf2-zn6u5 / rf2-plev0 — multi-error explain maps surface a
+            `(+N more)` chip below the first-error summary (read off the
+            projected `:decoded` summary)."
+    (let [explain {:schema [:map [:a :int] [:b :int]]
+                   :value {:a "x" :b "y"}
+                   :errors [{:path [:a] :schema :int :value "x"}
+                            {:path [:b] :schema :int :value "y"}]}
+          row {:where :app-db
                :failing-id :user/profile
                :path [:user]
-               :explain {:schema [:map [:a :int] [:b :int]]
-                         :value {:a "x" :b "y"}
-                         :errors [{:path [:a] :schema :int :value "x"}
-                                  {:path [:b] :schema :int :value "y"}]}}
+               :explain explain
+               :decoded (proj/decode-malli-explain explain)}
           tree (view/violation-block :handler 0 row)
           chip-text (text-of tree "rf-xray-epoch-violation-handler-0-more-errors")]
       (is (some? chip-text))

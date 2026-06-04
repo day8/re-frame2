@@ -2768,6 +2768,81 @@
         (is (= "not-an-int"         (:value r)))
         (is (= :logged-and-skipped  (:recovery r)))))))
 
+;; ---- rf2-zn6u5 / rf2-plev0 — Malli explain expected/got decomposition ----
+;;
+;; rf2-plev0 relocated `decode-malli-explain` (and these unit tests) from
+;; the epoch VIEW into the projection layer. The pure transform is data-in
+;; / data-out (no view/DOM deps), so it belongs beside its sibling
+;; `schema-violation-row` and now runs on the JVM `clojure -M:test` gate
+;; via this `.cljc` test ns rather than the node-runtime view-test ns.
+
+(deftest decode-malli-explain-returns-expected-got-test
+  (testing "rf2-zn6u5 — `decode-malli-explain` lifts the first error's
+            :schema + :value into a programmer-friendly summary map.
+            Pure data fn; JVM-testable."
+    (is (= {:expected :int :got "bad" :more-errors 0}
+           (proj/decode-malli-explain
+             {:schema :int
+              :value "bad"
+              :errors [{:path [] :in [] :schema :int :value "bad"}]})))))
+
+(deftest decode-malli-explain-falls-back-to-root-value-test
+  (testing "rf2-zn6u5 — when the first error does NOT carry :value
+            (the value rides on the explain map's root), :got reads
+            from `explain`'s `:value` slot."
+    (is (= {:expected :int :got 42 :more-errors 0}
+           (proj/decode-malli-explain
+             {:schema :int :value 42
+              :errors [{:path [] :schema :int}]})))))
+
+(deftest decode-malli-explain-counts-additional-errors-test
+  (testing "rf2-zn6u5 — multi-error explain maps surface
+            `:more-errors (- N 1)` so the call-site can paint a
+            `(+N more)` chip beneath the first-error summary."
+    (let [exp {:schema [:map [:a :int] [:b :int]]
+               :value {:a "x" :b "y"}
+               :errors [{:path [:a] :schema :int :value "x"}
+                        {:path [:b] :schema :int :value "y"}
+                        {:path [:c] :schema :int :value :extra}]}]
+      (is (= 2 (:more-errors (proj/decode-malli-explain exp)))
+          "explain with 3 errors → :more-errors 2"))))
+
+(deftest decode-malli-explain-non-malli-returns-nil-test
+  (testing "rf2-zn6u5 — non-Malli validators / pre-rf2-2ek7t framework
+            produce explain maps without the canonical {:errors [...]}
+            shape; the decoder degrades to nil so the view drops the
+            decomposition row cleanly."
+    (is (nil? (proj/decode-malli-explain nil)))
+    (is (nil? (proj/decode-malli-explain {})))
+    (is (nil? (proj/decode-malli-explain {:errors []})))
+    (is (nil? (proj/decode-malli-explain {:errors :not-a-vec})))
+    (is (nil? (proj/decode-malli-explain "not a map")))))
+
+(deftest schema-violation-row-stamps-decoded-test
+  (testing "rf2-plev0 — `schema-violation-rows` stamps the projected
+            `:decoded {:expected :got :more-errors}` summary onto a row
+            whose `:explain` is a canonical Malli map, and omits the
+            slot when the explain is non-Malli / absent (so the view's
+            decomposition block drops cleanly)."
+    (let [malli-row (first
+                      (proj/schema-violation-rows
+                        [(schema-violation-ev :app-db :counter/inc [:count]
+                                              "not-an-int" true
+                                              {:schema :int
+                                               :value "not-an-int"
+                                               :errors [{:path [:count]
+                                                         :schema :int
+                                                         :value "not-an-int"}]})]))
+          plain-row (first
+                      (proj/schema-violation-rows
+                        [(schema-violation-ev :app-db :counter/inc [:count]
+                                              "not-an-int" true)]))]
+      (is (= {:expected :int :got "not-an-int" :more-errors 0}
+             (:decoded malli-row))
+          "canonical Malli explain → :decoded summary stamped on the row")
+      (is (not (contains? plain-row :decoded))
+          "no explain → :decoded slot omitted (view drops the block)"))))
+
 ;; `hot-reload-step-conditional-test` retired in rf2-7gf7v
 ;; (commit 9b96f9f6a — `refactor(xray/epoch): retire SCHEMA HOT-RELOAD
 ;; pipeline step + rollback chip wording`). Hot-reload drift is a

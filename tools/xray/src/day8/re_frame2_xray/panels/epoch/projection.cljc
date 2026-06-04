@@ -2270,13 +2270,55 @@
   #{:rf.error/schema-validation-failure
     :rf.schema/violation})
 
+(defn decode-malli-explain
+  "Decompose a Malli `explain` map into the at-a-glance summary the
+  bead body's §SCHEMA VIOLATION section asks for (rf2-zn6u5).
+
+  Returns `{:expected <schema-form> :got <value> :more-errors <int>}`
+  when `explain` carries the canonical Malli shape — `{:errors [{...}
+  ...] :value <root>}`. Returns `nil` otherwise (non-Malli validators,
+  pre-rf2-2ek7t framework, malformed input) so the caller can drop
+  the decomposition row cleanly.
+
+  - `:expected` reads the FIRST error's `:schema` slot (the schema
+    form that failed at the deepest path Malli reached).
+  - `:got` reads the first error's `:value` when present; falls back
+    to the explain map's root `:value`.
+  - `:more-errors` is `(count errors) - 1` so the call-site can paint
+    a `(+N more)` chip when more than one error rode in.
+
+  Pure data; JVM-testable. rf2-plev0 relocated this from the epoch
+  view (`view.cljs`) into the projection layer beside its sibling
+  `schema-violation-row` — `schema-violation-row` now stamps the
+  decoded summary onto each row's `:decoded` slot so the view
+  consumes projected data rather than computing the transform."
+  [explain]
+  (when (map? explain)
+    (let [errors (:errors explain)]
+      (when (and (sequential? errors) (seq errors))
+        (let [first-err (first errors)]
+          {:expected    (:schema first-err)
+           :got         (if (contains? first-err :value)
+                          (:value first-err)
+                          (:value explain))
+           :more-errors (max 0 (dec (count errors)))})))))
+
 (defn- schema-violation-row
   "Project one schema-violation trace event into the per-row data
   shape (rf2-17vxj). Empty / nil values are kept absent so the view
-  can elide slots cleanly."
+  can elide slots cleanly.
+
+  rf2-plev0 — the row carries a `:decoded` slot when the violation's
+  `:explain` is a canonical Malli explain map (`decode-malli-explain`
+  returns a summary). The view renders the `expected:` / `got:` /
+  `(+N more)` decomposition off this projected field; non-Malli /
+  malformed explains leave `:decoded` absent so the view drops the
+  block cleanly (the same nil-gate it used when it computed the
+  decode itself)."
   [ev]
-  (let [op-kw (op ev)
-        tags  (:tags ev)]
+  (let [op-kw   (op ev)
+        tags    (:tags ev)
+        decoded (decode-malli-explain (:explain tags))]
     (cond-> {:kind               op-kw
              :where              (or (:where tags)
                                      (when (= :rf.schema/violation op-kw) :hot-reload))
@@ -2297,6 +2339,11 @@
              :rollback?          (boolean (:rollback? tags))
              :recovery           (:recovery tags)
              :sensitive?         (boolean (:sensitive? tags))}
+      ;; rf2-plev0 / rf2-zn6u5 — the at-a-glance expected/got/+N-more
+      ;; decomposition, computed here so the view reads it off the row.
+      ;; Absent when the explain isn't a canonical Malli map.
+      (some? decoded)
+      (assoc :decoded decoded)
       (= :rf.schema/violation op-kw)
       (assoc :pre-reload-schema  (:pre-reload-schema tags)
              :post-reload-schema (:post-reload-schema tags)
