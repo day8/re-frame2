@@ -108,16 +108,23 @@
                     ":sensitive? stamp dropped (fail-closed) — "
                     "value=" (pr-str stamp))))))
 
-(defn- sensitive-stamp?
-  "Classify a `:sensitive?` slot value. Fail-closed posture (rf2-ih7g4):
+(defn sensitive-stamp?
+  "Classify a sensitive-rollup slot value. Fail-closed posture (rf2-ih7g4):
 
     - boolean `true`           ⇒ drop (the documented spec/009 path).
-    - boolean `false` / nil    ⇒ pass (non-sensitive event).
+    - boolean `false` / nil    ⇒ pass (non-sensitive).
     - any other truthy value   ⇒ drop AND log (malformed; contract
                                   drift surfaced rather than silently
-                                  leaked).
+                                  leaked, AND `malformed-count` bumped).
 
-  The classification is internal — callers reach `sensitive-event?`."
+  Public so consumers that read a DIFFERENT rollup key than the
+  trace-event `:sensitive?` stamp — e.g. re-frame2-pair-mcp's epoch-record
+  rollup `:rf.epoch/sensitive?` (rf2-5613h) — can route their stamp
+  through the SAME fail-closed classifier rather than re-deriving a
+  divergent `(true? ...)` check that fails OPEN on contract drift.
+  `sensitive-event?` is the convenience wrapper that reads the
+  trace-event `:sensitive?` slot off a map; this is the raw value
+  classifier."
   [stamp]
   (cond
     (true? stamp)  true
