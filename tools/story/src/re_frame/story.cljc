@@ -1592,9 +1592,16 @@
      ;; does not see a key it does not own.
      (let [run-opts (not-empty (dissoc opts :timeout-ms))
            p        (run target run-opts)]
+       ;; rf2-ngwdf — both branches pass `(:variant/id result)`, matching
+       ;; the already-resolved sync branch above. `emit-reports!` ignores
+       ;; its first arg TODAY, so this is behaviour-preserving; it removes
+       ;; the latent trap of three call sites supplying three different
+       ;; shapes (a `:variant/id` value vs. the RAW `target` keyword/map)
+       ;; for the same parameter, should a future change make the arg load-
+       ;; bearing (e.g. stamping the variant id onto each report's message).
        #?(:clj
           (let [result (async/deref-blocking p (get opts :timeout-ms 30000))]
-            (emit-reports! target (result/result->reports result))
+            (emit-reports! (:variant/id result) (result/result->reports result))
             result)
           :cljs
           ;; CLJS run is async; report when it resolves and hand the
@@ -1602,7 +1609,7 @@
           ;; `:timeout-ms` is inert here — the caller's own async deadline
           ;; governs (the JVM is the only path that blocks).
           (async/then p (fn [result]
-                          (emit-reports! target (result/result->reports result))
+                          (emit-reports! (:variant/id result) (result/result->reports result))
                           result)))))))
 
 (defn report-result!
