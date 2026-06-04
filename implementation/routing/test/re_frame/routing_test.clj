@@ -768,16 +768,21 @@
       (is (= ":rf.error/missing-route-param" (ex-message ex))
           "splat absence uses the same structured error id"))))
 
-;; ---- rf2-6iam6: falsy path params (false / 0 / "") are legitimate values
+;; ---- rf2-6iam6 + rf2-ede1h.2: falsy path params (false / 0) round-trip;
+;; the empty string is rejected
 ;;
 ;; Per Spec 012 §Bidirectional URL ↔ params an absent or nil path param
-;; raises :rf.error/missing-route-param; a present-but-falsy value is a
-;; legitimate segment that must round-trip through url-encode. The pre-fix
-;; `(or v throw)` form mis-classified false / 0 / "" as missing.
+;; raises :rf.error/missing-route-param; a present-but-falsy NON-EMPTY
+;; value (`false` / `0`) is a legitimate segment that round-trips through
+;; url-encode (the pre-rf2-6iam6 `(or v throw)` form mis-classified them
+;; as missing). The EMPTY STRING is the exception (rf2-ede1h.2): it would
+;; emit a zero-length segment (`/articles/`) which match-url's
+;; trailing-slash normalisation erases before matching, so it cannot
+;; round-trip — the path side rejects it on emission, like nil/absent.
 
 (deftest route-url-accepts-falsy-path-params
-  (testing "route-url accepts false, 0, and empty-string path params —
-            present-but-falsy is NOT the same as absent"
+  (testing "route-url accepts false and 0 path params —
+            present-but-falsy (non-empty) is NOT the same as absent"
     (rf/reg-route :route/page {:path "/page/:flag"})
     (is (= "/page/false"
            (routing/route-url :route/page {:flag false}))
@@ -786,14 +791,28 @@
            (routing/route-url :route/page {:flag 0}))
         "0 renders as the literal segment \"0\""))
 
-  (testing "empty-string path params encode to an empty segment (no throw)"
+  (testing "false and 0 path params round-trip through match-url"
+    (rf/reg-route :route/page2 {:path "/page/:flag"})
+    (is (= {:flag "false"}
+           (:params (routing/match-url (routing/route-url :route/page2 {:flag false}))))
+        "false → \"/page/false\" → {:flag \"false\"}")
+    (is (= {:flag "0"}
+           (:params (routing/match-url (routing/route-url :route/page2 {:flag 0}))))
+        "0 → \"/page/0\" → {:flag \"0\"}"))
+
+  (testing "rf2-ede1h.2: an empty-string required path param is REJECTED on
+            emission — a zero-length segment cannot round-trip"
     (rf/reg-route :route/slug {:path "/articles/:slug"})
-    ;; The encoded form of "" is "" — round-trippable, but renders as
-    ;; "/articles/" which the caller is free to detect; the routing
-    ;; helper does not pre-empt that decision.
-    (is (= "/articles/"
-           (routing/route-url :route/slug {:slug ""}))
-        "\"\" path param renders as an empty segment, not a thrown error")))
+    (let [ex (try
+               (routing/route-url :route/slug {:slug ""})
+               nil
+               (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? ex)
+          "\"\" path param throws (it would emit \"/articles/\", which match-url normalises to \"/articles\" and fails to match)")
+      (is (= ":rf.error/missing-route-param" (ex-message ex))
+          "the empty-string rejection reuses the missing-required-param error id")
+      (is (= "" (:value (ex-data ex)))
+          "the ex-data carries the offending empty-string value"))))
 
 (deftest route-url-no-such-route-throws
   (testing "route-url against an unregistered route id raises
@@ -1139,6 +1158,46 @@
       (is (= "scroll-restoration" (:fragment parsed)))
       (is (= original rebuilt)
           "the rebuilt URL equals the original — fragment round-trips"))))
+
+;; ---- rf2-ede1h.1: route-url percent-encodes the fragment ------------------
+;;
+;; Per Spec 012 §Bidirectional URL ↔ params / §Fragments. `match-url`
+;; decodes the `#fragment` portion through decodeURIComponent semantics
+;; (`split-fragment` → `safe-url-decode`), so `route-url` MUST encode it
+;; symmetrically. Appending the raw value produced a `#fragment` that
+;; `match-url` rejected as malformed the moment the value carried a literal
+;; `%` (the bare `%` fails to decode → whole-URL route-miss), breaking the
+;; bidirectional contract for programmatic fragments.
+
+(deftest route-url-percent-encodes-fragment
+  (testing "a fragment with a literal `%` is percent-encoded on emission
+            and round-trips through match-url (rf2-ede1h.1)"
+    (rf/reg-route :route/docs {:path "/docs/:page"})
+    (let [built (routing/route-url :route/docs {:page "routing"} {} "50% done")]
+      (is (not (clojure.string/includes? built "% "))
+          "the bare `% ` is not emitted raw — it was percent-encoded")
+      (is (= "/docs/routing#50%25%20done" built)
+          "the `%` encodes to %25 and the space to %20 (encodeURIComponent)")
+      (let [parsed (routing/match-url built)]
+        (is (some? parsed)
+            "the built URL is NOT a malformed-URL route-miss")
+        (is (= "50% done" (:fragment parsed))
+            "the fragment decodes back to the original literal-`%` value"))))
+
+  (testing "a fragment with reserved characters (`/`, `:`) round-trips"
+    (rf/reg-route :route/docs2 {:path "/docs/:page"})
+    (let [frag   "section/sub:1"
+          built  (routing/route-url :route/docs2 {:page "x"} {} frag)
+          parsed (routing/match-url built)]
+      (is (some? parsed) "the encoded fragment matches")
+      (is (= frag (:fragment parsed))
+          "the reserved-character fragment round-trips byte-exact")))
+
+  (testing "a plain fragment is unchanged (no over-encoding of safe chars)"
+    (rf/reg-route :route/docs3 {:path "/docs/:page"})
+    (is (= "/docs/x#scroll-restoration"
+           (routing/route-url :route/docs3 {:page "x"} {} "scroll-restoration"))
+        "safe characters (letters, digits, `-`) are not percent-encoded")))
 
 (deftest navigate-pushes-url-with-fragment
   (testing ":rf.route/navigate with :fragment opt pushes the URL with #fragment appended"

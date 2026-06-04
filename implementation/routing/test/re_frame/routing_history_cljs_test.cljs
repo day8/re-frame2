@@ -480,6 +480,107 @@
 
     (rf/remove-history-listener!)))
 
+;; ---- rf2-ede1h.3: blocked popstate restores the browser URL -------------
+;;
+;; Per Spec 012 §Navigation blocking §Default flow step 4c — "the URL
+;; does not change" on a block. A FORWARD nav never moved the URL, so
+;; declining to push is enough. A POPSTATE block (Back/Forward dispatches
+;; :rf.route/handle-url-change) is different: the browser has ALREADY
+;; moved the address bar to the rejected URL. Without a restore the
+;; address bar and the :rf/route slice diverge — the slice stays on the
+;; rejecting route, the URL shows the destination. The runtime emits a
+;; :rf.nav/replace-url (history replace, no new entry) that restores the
+;; address bar to the current slice's URL so the two agree again.
+
+(deftest blocked-popstate-restores-url-cljs
+  (testing "rf2-ede1h.3: a :can-leave guard blocking a Back/Forward popstate
+            restores the browser URL to the slice's route; the slice stays put"
+    (rf/reg-route :hist/cart   {:path "/cart"})
+    (rf/reg-route :hist/editor {:path      "/editor/articles/:id"
+                                :params    [:map [:id :string]]
+                                :can-leave :hist/can-leave?})
+    (rf/reg-event-db :hist/dirty (fn [db [_ v]] (assoc-in db [:editor :dirty?] v)))
+    (rf/reg-sub :hist/can-leave?
+                (fn [db _]
+                  ;; closed contract: explicit boolean. OK to leave = NOT dirty.
+                  (not (boolean (get-in db [:editor :dirty?])))))
+
+    ;; A → B: land on /cart, then push the guarded editor route.
+    (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
+    (rf/dispatch-sync [:rf/url-requested {:url "/editor/articles/X"}])
+    (is (= ["/" "/cart" "/editor/articles/X"] (:entries @*history-state*))
+        "two forward pushes stacked the history entries")
+    (is (= :hist/editor
+           (:id (get-in (rf/app-db-value :rf/default) [:rf/runtime :routing :current])))
+        "the slice is on the editor route before Back")
+
+    ;; Mark the editor route dirty so its :can-leave guard returns false.
+    (rf/dispatch-sync [:hist/dirty true])
+
+    ;; Browser Back: the address bar moves to /cart (no NEW entry; only
+    ;; the index moves), then the app dispatches the popstate-style
+    ;; handle-url-change for the URL the browser landed on.
+    (.back (.-history js/globalThis.window))
+    (is (= "/cart" (current-url *history-state*))
+        "back() moved the address bar to /cart")
+    (rf/dispatch-sync [:rf.route/handle-url-change (current-url *history-state*)])
+
+    ;; The guard blocked: pending-nav is set, slice unchanged.
+    (let [pending (get-in (rf/app-db-value :rf/default) [:rf/runtime :routing :pending-navigation])]
+      (is (some? pending)
+          ":rf/pending-navigation is populated on the blocked popstate")
+      (is (= "/cart" (:requested-url pending))
+          "the rejected (Back) URL is captured for resume"))
+    (is (= :hist/editor
+           (:id (get-in (rf/app-db-value :rf/default) [:rf/runtime :routing :current])))
+        "the :rf/route slice STAYS on the editor route (the block did not commit /cart)")
+
+    ;; THE FIX: the browser address bar was restored to the slice's URL
+    ;; via replaceState — URL and slice agree again. The entry count is
+    ;; unchanged (a replace, not a push).
+    (is (= "/editor/articles/X" (current-url *history-state*))
+        "the address bar was restored to the editor route's URL (replaceState)")
+    (is (= 3 (count (:entries @*history-state*)))
+        "the restore was a replace, not a push — no new history entry")
+
+    ;; CANCEL leaves nothing else changed: slot clears, slice + URL stay.
+    (let [pn-id (get-in (rf/app-db-value :rf/default)
+                        [:rf/runtime :routing :pending-navigation :id])]
+      (rf/dispatch-sync [:rf.route/cancel pn-id]))
+    (is (nil? (get-in (rf/app-db-value :rf/default) [:rf/runtime :routing :pending-navigation]))
+        "cancel clears the pending slot")
+    (is (= :hist/editor
+           (:id (get-in (rf/app-db-value :rf/default) [:rf/runtime :routing :current])))
+        "cancel leaves the slice on the editor route")
+    (is (= "/editor/articles/X" (current-url *history-state*))
+        "cancel leaves the restored URL in place")))
+
+(deftest forward-nav-block-does-not-restore-url-cljs
+  (testing "rf2-ede1h.3: a FORWARD-nav block emits NO :rf.nav/replace-url —
+            the URL never moved, so there is nothing to restore"
+    (rf/reg-route :hist/cart   {:path "/cart"})
+    (rf/reg-route :hist/editor {:path      "/editor/articles/:id"
+                                :params    [:map [:id :string]]
+                                :can-leave :hist/can-leave?})
+    (rf/reg-event-db :hist/dirty (fn [db [_ v]] (assoc-in db [:editor :dirty?] v)))
+    (rf/reg-sub :hist/can-leave?
+                (fn [db _] (not (boolean (get-in db [:editor :dirty?])))))
+
+    (rf/dispatch-sync [:rf/url-requested {:url "/editor/articles/X"}])
+    (rf/dispatch-sync [:hist/dirty true])
+
+    (let [entries-before (:entries @*history-state*)]
+      ;; Forward nav attempt (link click / programmatic) — the browser URL
+      ;; has NOT moved; the block declines to push.
+      (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
+      (is (some? (get-in (rf/app-db-value :rf/default)
+                         [:rf/runtime :routing :pending-navigation]))
+          "the forward nav was blocked (pending slot set)")
+      (is (= entries-before (:entries @*history-state*))
+          "no push AND no replace — the history stack is byte-identical")
+      (is (= "/editor/articles/X" (current-url *history-state*))
+          "the address bar still shows the editor route (it never moved)"))))
+
 ;; =========================================================================
 ;; 3. hashchange — fragment-only round-trip
 ;; =========================================================================

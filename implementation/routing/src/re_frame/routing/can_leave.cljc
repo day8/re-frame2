@@ -26,6 +26,7 @@
   (:require [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
             [re-frame.routing.events :as routing-events]
+            [re-frame.routing.registry :as registry]
             [re-frame.routing.url :as url]
             [re-frame.trace :as trace]))
 
@@ -95,6 +96,26 @@
           true))
     true))
 
+(defn- current-slice->url
+  "Rebuild the URL the current route slice represents, for restoring the
+  browser address bar on a blocked popstate (rf2-ede1h.3). Returns the
+  URL string, or nil when the slice cannot be rebuilt (no current route,
+  a `:rf.route/not-found` slice with no registered pattern, or a
+  `route-url` throw). Best-effort: a nil result simply omits the restore
+  fx — the slice + blocked-state are already correct; only the URL sync
+  is skipped in the rare unbuildable case.
+
+  Built from the slice's `:id` / `:params` / `:query` / `:fragment` via
+  the pure `route-url` builder — the exact inverse `match-url` used to
+  populate the slice in the first place, so the restored URL matches the
+  one the browser showed before the (rejected) Back/Forward."
+  [current-route]
+  (let [{:keys [id params query fragment]} current-route]
+    (when (and id (keyword? id) (registrar/lookup :route id))
+      (try
+        (registry/route-url id (or params {}) (or query {}) fragment)
+        (catch #?(:clj Throwable :cljs :default) _ nil)))))
+
 (defn maybe-block-navigation
   "Run the active route's `:can-leave` guard before allowing a transition
   to `requested-url`. Returns nil when the navigation should proceed (no
@@ -107,7 +128,20 @@
   `:rf.route/transitioned`, `:rf.route/handle-url-change`,
   `:rf/url-requested`) share one gate; the per-event handler `or`s the
   block result with its happy-path cofx so a single failure path
-  collapses cleanly."
+  collapses cleanly.
+
+  Per Spec 012 §Navigation blocking §Default flow step 4c — *the URL
+  does not change* on a block. For a FORWARD nav (`:rf/url-requested`,
+  `:rf.route/navigate`, `:rf.route/transitioned`) the browser URL has
+  not moved yet, so blocking simply declines to push. But a POPSTATE
+  block (the triggering event is `:rf.route/handle-url-change` — Back /
+  Forward) has ALREADY moved the browser address bar to the rejected
+  URL; without a restore the address bar and the `:rf/route` slice
+  diverge (the slice stays on the rejecting route, the URL shows the
+  destination). On such a block this emits a `:rf.nav/replace-url` that
+  restores the address bar to the current route slice's URL — no new
+  history entry, URL and slice agree again (rf2-ede1h.3). `:rf.route/
+  cancel` / `:rf.route/continue` then operate from a consistent state."
   [db frame-id event-vec requested-url bypass-leave-guard?]
   (let [current-route (get-in db [:rf/runtime :routing :current])
         current-meta  (registrar/lookup :route (:id current-route))
@@ -121,7 +155,14 @@
                                  :requested-url      requested-url
                                  :reason             :can-leave
                                  :rejecting-route    (:id current-route)}
-                          guard-id (assoc :rejecting-guard guard-id))]
+                          guard-id (assoc :rejecting-guard guard-id))
+            ;; rf2-ede1h.3: a blocked popstate (Back/Forward) has already
+            ;; moved the address bar; restore it to the slice's URL so URL
+            ;; and slice agree. Only `:rf.route/handle-url-change` carries
+            ;; that already-moved-URL semantics; the forward-nav entry
+            ;; points never moved the URL, so they emit no restore.
+            popstate?   (= :rf.route/handle-url-change (first event-vec))
+            restore-url (when popstate? (current-slice->url current-route))]
         ;; Per Spec 012 §Navigation blocking §Default flow step 4e: the
         ;; trace marks the blocked transition for tools.
         (trace/emit! :rf.event :rf.route/navigation-blocked
@@ -139,7 +180,13 @@
         ;; subscription. A default no-op handler (registered below) keeps
         ;; the dispatch resolving cleanly when the app declares none.
         {:db (assoc-in db' [:rf/runtime :routing :pending-navigation] pending-nav)
-         :fx [[:dispatch [:rf.route/navigation-blocked pending-nav]]]}))))
+         :fx (cond-> []
+               ;; Restore the address bar FIRST (before the user event)
+               ;; so a confirm-dialog handler that reads `current-url`
+               ;; sees the restored value. No-op on JVM/SSR
+               ;; (`:rf.nav/replace-url` is `:platforms #{:client}`).
+               restore-url (conj [:rf.nav/replace-url restore-url])
+               :always     (conj [:dispatch [:rf.route/navigation-blocked pending-nav]]))}))))
 
 ;; Per Spec 012 §Navigation blocking §Default flow step 4d: the runtime
 ;; dispatches `[:rf.route/navigation-blocked pending-nav]` on every block.
