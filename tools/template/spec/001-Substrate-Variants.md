@@ -91,13 +91,16 @@ choice swaps:
   is added. The `:app` build's `:devtools {:preloads …}` carries
   `day8.re-frame2-xray.preload` identically across variants.
 
-The substrate-agnostic shell — `events.cljs`, `subs.cljs`,
-`schema.cljs`, `README.md`, `.gitignore`,
-`resources/public/index.html` — lives under the `_shared/` resource
-sub-tree and is emitted identically across all three variants.
-`schema.cljs` is substrate-agnostic: the whole-app-db Malli schema
-and `reg-app-schema` registration are the same regardless of view
-library.
+The substrate-agnostic shell is emitted identically across all three
+variants. It splits across two resource sub-trees (see
+[002-Generated-Shape.md §Resource tree](002-Generated-Shape.md#resource-tree-template-side)):
+the renamed-at-emit sources — `events.cljs`, `subs.cljs`,
+`schema.cljs`, and the dotfiles (`.gitignore` etc.) — live under
+`_shared/`; the default-placement files (`README.md`,
+`resources/public/index.html`, `resources/public/css/app.css`,
+`dev/*`) are bulk-copied from `root/`. `schema.cljs` is
+substrate-agnostic: the whole-app-db Malli schema and `reg-app-schema`
+registration are the same regardless of view library.
 
 ## The counter throughline
 

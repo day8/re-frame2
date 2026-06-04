@@ -53,9 +53,13 @@ causality graph, time-travel scrubber.
 Release builds drop the preload automatically (shadow only runs
 preloads under `watch` / `compile`, never `release`).
 
-Stack traces in dev also get click-to-source via the
-`:rf.trace/trigger-handler` preload — clicking a frame in the dev
-console jumps straight to the offending form.
+Xray's panel also offers click-to-source: each trace row that carries
+a source coordinate (the `:rf.trace/trigger-handler` that re-frame2
+tags onto view-render trace events, plus the `:source-coord` on event
+/ fx / interceptor rows) renders a jump-to-source link, so you can
+click straight from a dispatch in the log to the form that defined the
+handler. No extra preload or wiring — it ships with the Xray preload
+above.
 
 ## Story playground (if scaffolded with `:include-story? true`)
 
