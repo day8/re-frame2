@@ -3,7 +3,7 @@
 > **Type:** Reference (`tools/mcp-base/spec/`)
 > Owns the SHAPE of the indicator-field splice (`with-indicators`) enforcing the MUST-level "omit when zero" rule, plus the wire-bounded `:rf.mcp/*` marker detection used by the cache + cap boundary steps. The indicator KEYS themselves live in [`vocab.md`](vocab.md); this ns owns the splice + detection logic.
 
-This doc is one of ten per-namespace contracts indexed from [`README.md`](README.md). See also: [`vocab.md`](vocab.md), [`sensitive.md`](sensitive.md), [`elision.md`](elision.md), [`args.md`](args.md), [`diff-encode.md`](diff-encode.md), [`section-grouping.md`](section-grouping.md), [`overflow.md`](overflow.md), [`cap.md`](cap.md), [`cursor.md`](cursor.md).
+This doc is one of eleven per-namespace contracts indexed from [`README.md`](README.md). See also: [`vocab.md`](vocab.md), [`sensitive.md`](sensitive.md), [`elision.md`](elision.md), [`args.md`](args.md), [`diff-encode.md`](diff-encode.md), [`section-grouping.md`](section-grouping.md), [`overflow.md`](overflow.md), [`cap.md`](cap.md), [`cursor.md`](cursor.md), [`descriptor-manifest.md`](descriptor-manifest.md).
 
 ## Scope
 
