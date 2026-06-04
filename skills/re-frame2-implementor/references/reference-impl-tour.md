@@ -31,7 +31,7 @@ implementation/
 │       ├── emit.cljc        EP 009 — trace emit sites
 │       ├── error.cljc       EP 009 — structured error contract
 │       ├── substrate/       EP 006 — substrate contract + reference substrate
-│       │   ├── adapter.cljc   the nine-entry substrate contract (6 req + 2 opt + dispose)
+│       │   ├── adapter.cljc   the ten-entry substrate contract (6 req + 3 opt + dispose)
 │       │   └── plain_atom.cljc plain-atom reference substrate (JVM / SSR / headless)
 │       └── test_support.cljc EP 008 — test fixtures + helpers
 ├── adapters/                EP 006 — React-binding substrate adapters
@@ -78,14 +78,14 @@ The per-feature directories ship as **separate artefacts** in the published libr
 
 ### EP 006 — Reactive substrate (`core/src/re_frame/substrate/` + `adapters/`)
 
-**What you'll find.** The substrate contract is defined in-core at `core/src/re_frame/substrate/adapter.cljc`, with a dependency-free reference substrate alongside it at `core/src/re_frame/substrate/plain_atom.cljc` — `clojure.core/atom`, hand-rolled signal graph, no render trigger (JVM / SSR / headless). The React-binding adapters then ship as sibling artefacts under `adapters/` — `reagent`, `reagent-slim`, `uix`, `helix` (plus `test-react` for the test harness). The Reagent-family adapters are browser-facing — `r/atom` as the container, Reagent `r/reaction` for subs, React for the render trigger. The in-core plain-atom substrate and every adapter implement the same nine-entry contract (boot wiring is the core's `install-adapter!` / `dispose-adapter!`).
+**What you'll find.** The substrate contract is defined in-core at `core/src/re_frame/substrate/adapter.cljc`, with a dependency-free reference substrate alongside it at `core/src/re_frame/substrate/plain_atom.cljc` — `clojure.core/atom`, hand-rolled signal graph, no render trigger (JVM / SSR / headless). The React-binding adapters then ship as sibling artefacts under `adapters/` — `reagent`, `reagent-slim`, `uix`, `helix` (plus `test-react` for the test harness). The Reagent-family adapters are browser-facing — `r/atom` as the container, Reagent `r/reaction` for subs, React for the render trigger. The in-core plain-atom substrate and every adapter implement the same ten-entry contract (boot wiring is the core's `install-adapter!` / `dispose-adapter!`).
 
 **What's CLJS-specific.**
 
 - Reagent's auto-tracked deref-during-render dependency capture. Your host's React binding supplies the equivalent over its `useSyncExternalStore` (UIx / Helix: a `use-subscribe` hook; TS-React / Fable.React / Feliz / ReasonReact / Halogen-React / Kotlin-React: the same pattern).
 - The component-lifecycle integration uses Reagent's lifecycle methods. Other substrates plug into their own.
 
-**What's pattern-required.** The six required functions (`make-state-container`, `read-container`, `replace-container!`, `make-derived-value`, `render`, `render-to-string` — note `render-to-string` is required, JVM-runnable, even for no-SSR ports) + two optional (`subscribe-container`, `register-context-provider`) + one lifecycle (`dispose-adapter!`); install via the core's `install-adapter!`. Single-adapter-per-process. Adapter-internal state derivable from the frame value (revertibility constraint).
+**What's pattern-required.** The six required functions (`make-state-container`, `read-container`, `replace-container!`, `make-derived-value`, `render`, `render-to-string` — note `render-to-string` is required, JVM-runnable, even for no-SSR ports) + three optional (`subscribe-container`, `register-context-provider`, `flush-render!`) + one lifecycle (`dispose-adapter!`); install via the core's `install-adapter!`. Single-adapter-per-process. Adapter-internal state derivable from the frame value (revertibility constraint).
 
 ### EP 004 — Views (`core/src/re_frame/views.cljs`)
 

@@ -82,7 +82,7 @@ Each EP is multi-day work. Plan one focused session per EP; don't try to land tw
 
 **Read first.** [`spec/006-ReactiveSubstrate.md`](https://day8.github.io/re-frame2/spec/006-ReactiveSubstrate/). All ~990 lines — this EP is the load-bearing contract between the runtime and the view layer.
 
-**The contract.** Nine entries total — verbatim from [`spec/006-ReactiveSubstrate.md` §The adapter API contract](https://day8.github.io/re-frame2/spec/006-ReactiveSubstrate/#the-adapter-api-contract). The function set is **closed for v1**.
+**The contract.** Ten entries total — verbatim from [`spec/006-ReactiveSubstrate.md` §The adapter API contract](https://day8.github.io/re-frame2/spec/006-ReactiveSubstrate/#the-adapter-api-contract). The function set is **closed for v1**.
 
 - **Six required functions** the adapter must provide:
   - `make-state-container` — create a reactive container holding an `app-db` value.
@@ -91,9 +91,10 @@ Each EP is multi-day work. Plan one focused session per EP; don't try to land tw
   - `make-derived-value` — construct a derived (memoised) container from one or more sources.
   - `render` — render a render-tree onto the substrate's surface; return an unmount fn.
   - `render-to-string` — pure render to an HTML string. **JVM-runnable and required even for Q3=no (no-SSR) ports** — do not treat it as optional.
-- **Two optional functions** (the core falls back when absent):
+- **Three optional functions** (the core falls back, or no-ops, when absent):
   - `subscribe-container` — register a change-listener for invalidation. Fallback: core runs invalidation inline within `replace-container!`.
   - `register-context-provider` — return a context-provider component that scopes a frame to a subtree. Fallback: explicit-frame-as-argument threaded by the user's view code.
+  - `flush-render!` — synchronously commit the substrate's pending renders to the surface (NOT a `requestAnimationFrame`-style tick), so headless tooling can drive a `dispatch → flush-render! → observe-settled-DOM` loop deterministically. Fallback: core no-ops (an adapter that renders without a live commit — plain-atom / SSR — has nothing to flush).
 - **One lifecycle function:** `dispose-adapter!` — tear down: release listeners, caches, host resources. (Boot wiring is `install-adapter!`, a core entry point — not part of the adapter's own surface; there is no "start" function.)
 - **Single-adapter-per-process.** A process binds one adapter at boot via `install-adapter!`; multi-adapter coexistence is post-v1.
 - **Revertibility constraint on adapters.** Adapter-internal state must be derivable from the frame value. No "shadow state" inside the adapter that the frame value can't reproduce on revert. Per [`spec/006-ReactiveSubstrate.md` §Revertibility constraints on adapters](https://day8.github.io/re-frame2/spec/006-ReactiveSubstrate/#revertibility-constraints-on-adapters).
@@ -200,7 +201,7 @@ For each capability the port declared `yes` for in D3, walk the matching EP. Sug
 
 **Read.** [`spec/012-Routing.md`](https://day8.github.io/re-frame2/spec/012-Routing/).
 
-**Contract.** `reg-route`, `match-url`, `route-link`, `:rf.nav/push-url` fx, `[:rf/runtime :routing :current]` + `[:rf/runtime :routing :pending-navigation]` reserved app-db storage, navigation tokens, fragment handling, `:can-leave?` guard.
+**Contract.** `reg-route`, `match-url`, `route-link`, `:rf.nav/push-url` fx, `[:rf/runtime :routing :current]` + `[:rf/runtime :routing :pending-navigation]` reserved app-db storage, navigation tokens, fragment handling, `:can-leave` guard (a sub-id whose boolean value gates navigation away).
 
 ### EP 011 — SSR (if D3 Q3 = yes)
 
