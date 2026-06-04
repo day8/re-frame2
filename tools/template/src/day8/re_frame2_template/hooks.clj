@@ -173,6 +173,12 @@
                         substrate-invariant shadow-cljs.edn header comment
                         and the package.json `description`, both emitted
                         once from `_shared/`.
+     {{story-tag}}    — the package.json `description` suffix that varies
+                        by `:include-story?`: `\"\"` on the default path,
+                        `\", with Story playground\"` under
+                        `:include-story? true`. Lets the single
+                        `_shared/package.json` source carry both variants
+                        (the only per-flag delta was this one parenthetical).
      {{substrate-badge-url}} — shields.io badge URL keyed by substrate.
      {{rf2-version}}  — runtime coord version (kept in lockstep with
                         the repo-root VERSION file via the §3 release
@@ -212,6 +218,11 @@
        :substrate-kw        substrate
        :substrate-label     label
        :include-story?      include-story?
+       ;; package.json `description` suffix — the single per-flag delta
+       ;; between the default and with-Story descriptions. Emitting it as
+       ;; a subst var lets one `_shared/package.json` source serve both
+       ;; paths (rf2-sqqxj — collapsed the byte-identical second file).
+       :story-tag           (if include-story? ", with Story playground" "")
        :namespace           (str top-ns "." main-ns)
        :nested-dirs         (str top-file "/" main-file)
        :substrate-badge-url badge-url
@@ -259,9 +270,11 @@
 ;;     │                  or a flag switch (dotfile rename + namespace-
 ;;     │                   path rename for src/test files; the
 ;;     │                   substrate-invariant build configs
-;;     │                   shadow-cljs.edn + package.json /
-;;     │                   package_with_story.json; stories.cljs, which
-;;     │                   only emits under :include-story? true)
+;;     │                   shadow-cljs.edn + package.json [the latter's
+;;     │                   with-Story `description` delta rides the
+;;     │                   {{story-tag}} subst var, not a second file];
+;;     │                   stories.cljs, which only emits under
+;;     │                   :include-story? true)
 ;;     ├── _reagent/    — Reagent-specific content (core.cljs / views.cljs
 ;;     │                  / deps.edn); includes the with-story core +
 ;;     │                  deps variants
@@ -290,9 +303,10 @@
        module `views.cljs`, and `deps.edn` (adapter coord + npm libs).
      - Story scaffolding (Reagent-only, under `:include-story? true`):
        picks `core_with_stories.cljs` instead of `core.cljs`, picks
-       `deps_with_story.edn` instead of the default `deps.edn`, swaps
-       the shared `package.json` source for `package_with_story.json`,
-       and emits `stories.cljs` from `_shared/`.
+       `deps_with_story.edn` instead of the default `deps.edn`, and emits
+       `stories.cljs` from `_shared/`. (The shared `package.json` source
+       is unchanged — its with-Story `description` delta rides the
+       `{{story-tag}}` subst var, not a second file.)
 
    All groups use `:only` so only files explicitly listed in the
    file-map emit (the implicit bulk-copy of `<src-dir>/*` is skipped).
@@ -309,12 +323,11 @@
         include-story? (:include-story? data)
         ;; The build configs are substrate-invariant — the React
         ;; substrate is chosen in deps.edn + core.cljs, never here — so
-        ;; they live in `_shared/` and emit once. The only per-flag
-        ;; variation is package.json's `description`, so the with-story
-        ;; path swaps the source (same `_shared/` dir, same output name).
-        package-src    (if include-story?
-                         "package_with_story.json"
-                         "package.json")
+        ;; they live in `_shared/` and emit once. package.json's only
+        ;; per-flag variation is its `description` parenthetical, carried
+        ;; by the `{{story-tag}}` subst var (see data-fn), so a single
+        ;; `_shared/package.json` source serves both the default and the
+        ;; with-Story path (rf2-sqqxj).
         ;; Shared transforms — renames only. `:only` skips the bulk
         ;; copy of `_shared/*`, so source files that don't appear in
         ;; the file-map below DO NOT emit. Add explicit entries if
@@ -325,7 +338,7 @@
                                 "clj-kondo/config.edn" ".clj-kondo/config.edn"
                                 ;; Substrate-invariant build configs.
                                 "shadow-cljs.edn"      "shadow-cljs.edn"
-                                package-src            "package.json"
+                                "package.json"         "package.json"
                                 ;; src/test renames — re-home into the user's namespace
                                 ;; path.
                                 "events.cljs"          (str "src/" nested "/events.cljs")

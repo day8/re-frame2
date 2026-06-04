@@ -22,6 +22,7 @@
    §2.5 along with the clj-new template body)."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.java.io :as io]
+            [clojure.string :as string]
             [day8.re-frame2-template.test-support
              :refer [tmp-dir delete-recursively run-template!
                      read-edn file-exists?]]))
@@ -531,6 +532,102 @@
                  id (Story renders by id, not by symbol)")))
         (finally
           (delete-recursively tmp))))))
+
+;; --- package.json byte-identical regression (rf2-sqqxj) ------------------
+;;
+;; The default and with-Story package.json sources were collapsed from
+;; two near-identical files into one `_shared/package.json` whose
+;; `description` parenthetical rides the `{{story-tag}}` subst var
+;; (`""` default / `", with Story playground"` under :include-story?).
+;; This test is the generate-both-and-diff proof: both emitted variants
+;; must be BYTE-IDENTICAL to the pre-refactor two-file output. The
+;; expected strings below are verbatim copies of the (now-deleted)
+;; pre-refactor `package_with_story.json` / `package.json` content, with
+;; the template's three subst vars resolved for the `acme/my-app`
+;; Reagent emission. If a future edit to the shared package.json or the
+;; story-tag derivation drifts the output, this fires.
+
+(def ^:private expected-package-json-default
+  "Verbatim pre-refactor `_shared/package.json` emission for
+  `acme/my-app` on the Reagent default path (subst vars resolved)."
+  (str "{\n"
+       "  \"name\": \"acme/my-app\",\n"
+       "  \"version\": \"0.1.0\",\n"
+       "  \"private\": true,\n"
+       "  \"description\": \"re-frame2 application (Reagent substrate).\",\n"
+       "  \"scripts\": {\n"
+       "    \"watch\":   \"shadow-cljs watch app\",\n"
+       "    \"release\": \"shadow-cljs release app\",\n"
+       "    \"test\":    \"shadow-cljs compile test && node out/node-test.js\"\n"
+       "  },\n"
+       "  \"devDependencies\": {\n"
+       "    \"shadow-cljs\": \"3.4.10\"\n"
+       "  },\n"
+       "  \"dependencies\": {\n"
+       "    \"react\":     \"19.2.0\",\n"
+       "    \"react-dom\": \"19.2.0\"\n"
+       "  }\n"
+       "}\n"))
+
+(def ^:private expected-package-json-with-story
+  "Verbatim pre-refactor `_shared/package_with_story.json` emission for
+  `acme/my-app` on the Reagent :include-story? true path — identical to
+  the default save for the `description` parenthetical."
+  (str "{\n"
+       "  \"name\": \"acme/my-app\",\n"
+       "  \"version\": \"0.1.0\",\n"
+       "  \"private\": true,\n"
+       "  \"description\": \"re-frame2 application (Reagent substrate, with Story playground).\",\n"
+       "  \"scripts\": {\n"
+       "    \"watch\":   \"shadow-cljs watch app\",\n"
+       "    \"release\": \"shadow-cljs release app\",\n"
+       "    \"test\":    \"shadow-cljs compile test && node out/node-test.js\"\n"
+       "  },\n"
+       "  \"devDependencies\": {\n"
+       "    \"shadow-cljs\": \"3.4.10\"\n"
+       "  },\n"
+       "  \"dependencies\": {\n"
+       "    \"react\":     \"19.2.0\",\n"
+       "    \"react-dom\": \"19.2.0\"\n"
+       "  }\n"
+       "}\n"))
+
+(defn- normalise-eol
+  "Strip CR so the byte-identical comparison is line-ending agnostic.
+  The source `package.json` may be checked out with CRLF on Windows
+  (git `autocrlf`); the expected literals below are written with LF.
+  Normalising both sides keeps the content-identity assertion portable
+  across the Windows dev box and the Linux CI runner."
+  [s]
+  (string/replace s "\r" ""))
+
+(deftest package-json-story-tag-byte-identical-test
+  (testing "the {{story-tag}}-driven single package.json emits the same
+            content as the pre-refactor two-file split, on both the
+            default and :include-story? true paths (rf2-sqqxj DRY proof —
+            EOL-normalised so it is portable Windows↔CI)"
+    (let [tmp (tmp-dir "rf2-template-pkg-story-tag-")]
+      (try
+        (let [default-root (run-template! tmp "acme/my-app" :reagent false)
+              default-txt  (slurp (io/file default-root "package.json"))]
+          (is (= (normalise-eol expected-package-json-default)
+                 (normalise-eol default-txt))
+              "default-path package.json content matches the
+               pre-refactor _shared/package.json emission"))
+        (finally
+          (delete-recursively tmp)))
+      ;; Fresh tmp for the with-Story path so the two emissions don't
+      ;; collide on the same output dir.
+      (let [tmp2 (tmp-dir "rf2-template-pkg-story-tag-on-")]
+        (try
+          (let [story-root (run-template! tmp2 "acme/my-app" :reagent true)
+                story-txt  (slurp (io/file story-root "package.json"))]
+            (is (= (normalise-eol expected-package-json-with-story)
+                   (normalise-eol story-txt))
+                "with-Story package.json content matches the
+                 pre-refactor _shared/package_with_story.json emission"))
+          (finally
+            (delete-recursively tmp2)))))))
 
 (deftest include-story-non-reagent-rejected-test
   (testing ":include-story? true is rejected for non-Reagent substrates
