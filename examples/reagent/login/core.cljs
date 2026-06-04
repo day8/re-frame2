@@ -22,16 +22,24 @@
    - Open-map idiom                        — every shape on the wire is an open map
 
    Test-free per the examples policy (no inline test fn, no sibling
-   `test/` tree): the login flow this file wires is the same
+   `test/` tree): the login flow this file wires is a near-twin of the
    `:auth.login/flow` machine the sibling `state_machine_walkthrough`
    example exercises headlessly — its `test/state_machine_walkthrough/
    core_test.cljc` drives the happy-path / retry-then-lockout / pure
    machine-transition scenarios, gated by the
    `state-machine-walkthrough-runs-headless` deftest in
-   `implementation/core/test/re_frame/examples_test.clj`. Broader login
-   contract coverage lives in the substrate contract suite
-   (`npm run test:cljs`) and the framework gates (see
-   `examples/README.md`).
+   `implementation/core/test/re_frame/examples_test.clj`. The walkthrough
+   registers its OWN parallel `:auth.login/flow` variant (same states,
+   guards, actions; it adds an `:auth/locked` tag on `:locked-out`
+   because its root-view renders a dedicated lockout panel — this file
+   omits that tag since its view never branches on lockout). That is a
+   deliberate pedagogical variant, not the literal same registration:
+   a machine id is a per-frame registry key, never a global handle, so
+   two examples may name-share without colliding (and they never co-load
+   — the walkthrough runs JVM-headless with `remove-ns` between runs;
+   login builds standalone). Broader login contract coverage lives in
+   the substrate contract suite (`npm run test:cljs`) and the framework
+   gates (see `examples/README.md`).
 
    In a real codebase, this single file would be split per CP-6 conventions:
      login/schema.cljc | events.cljs | subs.cljs | views.cljs |
