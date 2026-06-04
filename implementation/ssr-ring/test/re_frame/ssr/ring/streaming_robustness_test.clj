@@ -522,12 +522,20 @@
 ;; `ssr-response->ring-response` folds the response accumulator's
 ;; cookies/headers into the Ring head, and cookie/header serialisation
 ;; CAN throw at materialise time on a value that escaped the fx
-;; boundary's PARTIAL validation: the runtime `validate-cookie!` checks
-;; only :name / :value / :path / :domain, but `cookie->set-cookie-header`
-;; additionally rejects a CR/LF-bearing :max-age and a non-integer
-;; :expires. So a cookie like {:name "s" :value "v" :max-age "1\r\n2"}
-;; PASSES the fx gate, is stored on the accumulator, and THEN throws when
-;; the host adapter materialises the head.
+;; boundary's PARTIAL validation. The fx-boundary `validate-cookie!`
+;; gate is a CR/LF/NUL injection check (it str-coerces every attribute
+;; and bans header-splitting chars), but `cookie->set-cookie-header`
+;; carries an ADDITIONAL type contract the fx gate does not replicate:
+;; `:expires` must be `integer?` (it is fed to `Instant/ofEpochMilli`
+;; as a primitive long). So a cookie like
+;; {:name "s" :value "v" :expires "not-an-int"} — a non-integer
+;; :expires with no CR/LF — PASSES the fx gate (no injection char), is
+;; stored on the accumulator, and THEN throws
+;; `:rf.error/cookie-invalid-expires` when the host adapter materialises
+;; the head. (Before rf2-kjf3m.1 this test used a CR/LF-bearing
+;; :max-age; that attribute is now CRLF-gated at the fx boundary too, so
+;; it no longer reaches head materialisation — the non-integer :expires
+;; type-contract divergence is the genuine remaining escape path.)
 ;;
 ;; The bug (rf2-z5azc): the old streaming branch spawned + started the
 ;; daemon writer thread BEFORE materialising the head. When the head
@@ -554,16 +562,19 @@
   (testing "rf2-z5azc — a cookie that throws at head materialisation
             (escaped the fx boundary) short-circuits to :on-error with
             NO writer thread spawned + NO orphaned pipe"
-    ;; :on-create sets a cookie whose :max-age carries CR/LF. The fx
-    ;; boundary (`validate-cookie!`) gates only :name/:value/:path/
-    ;; :domain, so this passes the gate and is stored on the response
-    ;; accumulator. The host materialiser's `cookie->set-cookie-header`
-    ;; then throws `:rf.error/cookie-invalid-attribute` on :max-age.
+    ;; :on-create sets a cookie whose :expires is a non-integer string.
+    ;; The fx boundary (`validate-cookie!`) is a CR/LF/NUL injection gate
+    ;; — it str-coerces every attribute and bans header-splitting chars,
+    ;; but does NOT type-check :expires — so this cookie (no injection
+    ;; char) passes the gate and is stored on the response accumulator.
+    ;; The host materialiser's `cookie->set-cookie-header` carries the
+    ;; primitive-long type contract (:expires → `Instant/ofEpochMilli`)
+    ;; and throws `:rf.error/cookie-invalid-expires` at head materialise.
     (rf/reg-event-fx :rf.test.server/init-bad-cookie
       {:platforms #{:server}}
       (fn [_ _]
         {:db {}
-         :fx [[:rf.server/set-cookie {:name "s" :value "v" :max-age "1\r\n2"}]]}))
+         :fx [[:rf.server/set-cookie {:name "s" :value "v" :expires "not-an-int"}]]}))
     ;; A root-view emitting a body well past the 16 KiB pipe buffer, so
     ;; that under the OLD (buggy) ordering the orphaned writer would
     ;; block forever on `.write` — making the leak deterministic. Under

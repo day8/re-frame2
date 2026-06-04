@@ -2293,20 +2293,27 @@
 (deftest ssr-handler-throwing-on-error-on-success-path-is-contained
   (testing "rf2-ljjh0 — symmetric: a caller :on-error that throws on the
             SUCCESS path is also contained. Driven by a cookie whose
-            :max-age carries CR/LF — it passes the fx boundary
-            (`validate-cookie!` gates only :name/:value/:path/:domain)
-            but throws at head materialisation. That throw escapes
-            `build-full-response`'s own catch (its error-path materialise
-            re-folds the SAME bad cookie and throws again), reaching the
-            handler body's :on-error catch — the success-path call site."
+            :expires is a non-integer string — it passes the fx boundary
+            (`validate-cookie!` is a CR/LF/NUL injection gate, it does
+            NOT type-check :expires) but throws
+            `:rf.error/cookie-invalid-expires` at head materialisation
+            (`cookie->set-cookie-header`'s primitive-long :expires type
+            contract). That throw escapes `build-full-response`'s own
+            catch (its error-path materialise re-folds the SAME bad
+            cookie and throws again), reaching the handler body's
+            :on-error catch — the success-path call site."
     (rf/reg-event-fx :rf.test/init-bad-cookie
       {:platforms #{:server}}
       (fn [_ _]
-        ;; CR/LF in :max-age escapes the fx boundary (`validate-cookie!`
-        ;; gates only :name/:value/:path/:domain) and throws at host
-        ;; materialise time in `cookie->set-cookie-header`.
+        ;; A non-integer :expires escapes the fx boundary
+        ;; (`validate-cookie!` is a CR/LF/NUL injection gate — it does
+        ;; not type-check :expires) and throws at host materialise time
+        ;; in `cookie->set-cookie-header` (the primitive-long :expires
+        ;; type contract). Before rf2-kjf3m.1 this used a CR/LF-bearing
+        ;; :max-age; that is now CRLF-gated at the fx boundary, so the
+        ;; non-integer :expires divergence is the genuine escape path.
         {:db {}
-         :fx [[:rf.server/set-cookie {:name "s" :value "v" :max-age "1\r\n2"}]]}))
+         :fx [[:rf.server/set-cookie {:name "s" :value "v" :expires "not-an-int"}]]}))
     (let [throwing-on-error
           (fn [_req _t]
             (throw (ex-info "boom in the caller's on-error" {:internal :topology})))
