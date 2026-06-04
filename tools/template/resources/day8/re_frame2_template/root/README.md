@@ -71,8 +71,8 @@ routing on the same `:app` build:
 
 - **`#/`** — the live counter app.
 - **`#/stories`** — the Story shell: every registered story / variant /
-  workspace, with the `:rf.assert/*` play steps and the canonical
-  tag set.
+  workspace, with the `:script` play steps and their `:rf.assert/*`
+  checkpoints and the canonical tag set.
 
 `npx shadow-cljs watch app` serves both — no second build. Visit
 <http://localhost:8280/#/stories> for the playground and

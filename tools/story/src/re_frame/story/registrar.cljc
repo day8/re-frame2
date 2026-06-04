@@ -68,7 +68,9 @@
   - Loader four-phase lifecycle
   - Play execution
   - Snapshot identity computation"
-  (:require [re-frame.story.late-bind :as late-bind]
+  (:require [clojure.string           :as str]
+            [malli.core               :as m]
+            [re-frame.story.late-bind :as late-bind]
             [re-frame.story.schemas   :as schemas]))
 
 ;; ---- source-coord plumbing ------------------------------------------------
@@ -204,18 +206,102 @@
 
 ;; ---- shape validation -----------------------------------------------------
 
+;; rf2-mantt — the Story authoring-body schemas are now `{:closed true}`
+;; (re-frame.story.schemas), so a removed / typo'd slot fails validation
+;; with a `:malli.core/extra-key` error rather than being silently
+;; swallowed. The helpers below turn that structural error into an
+;; actionable `:reason` that NAMES the unknown key(s) and the nearest
+;; declared slot ('did you mean :plays?') — the swallow-class fix's
+;; trust-boundary payoff: an author who typos or carries a removed slot
+;; gets told exactly what to fix, at the `reg-*` call site.
+
+(defn- edit-distance
+  "Levenshtein edit distance between keyword/string names. Clean,
+  allocation-light DP over two rolling rows."
+  [a b]
+  (let [a (name a) b (name b)
+        m (count a) n (count b)]
+    (cond
+      (zero? m) n
+      (zero? n) m
+      :else
+      (loop [i 1
+             prev (vec (range (inc n)))]
+        (if (> i m)
+          (nth prev n)
+          (let [ai (nth a (dec i))
+                cur (reduce
+                     (fn [row j]
+                       (let [cost (if (= ai (nth b (dec j))) 0 1)]
+                         (conj row (min (inc (nth prev j))     ; deletion
+                                        (inc (peek row))       ; insertion
+                                        (+ cost (nth prev (dec j))))))) ; substitution
+                     [i]
+                     (range 1 (inc n)))]
+            (recur (inc i) cur)))))))
+
+(defn- nearest-key
+  "The declared key closest to `unknown` by edit distance, or nil when
+  the closest is too far to be a plausible typo (distance > half the
+  unknown's length, min 2)."
+  [unknown declared]
+  (when (seq declared)
+    (let [[k d] (apply min-key second
+                       (map (fn [k] [k (edit-distance unknown k)]) declared))
+          threshold (max 2 (quot (count (name unknown)) 2))]
+      (when (<= d threshold) k))))
+
+(defn- extra-key-errors
+  "Pull the `:malli.core/extra-key` errors out of a malli `explain`.
+  Each carries the offending key in `:in` and the offending `:map`
+  subschema in `:schema` (from which the declared key set is read).
+  Dedups by unknown key (an `:or` schema reports one per branch)."
+  [explain]
+  (->> (:errors explain)
+       (filter #(= :malli.core/extra-key (:type %)))
+       (reduce (fn [acc {:keys [in schema]}]
+                 (let [k (first in)]
+                   (if (contains? acc k) acc (assoc acc k schema))))
+               {})))
+
+(defn- unknown-key-reason
+  "Build the actionable unknown-key clause for the error `:reason`, or
+  nil when the explain carries no `:malli.core/extra-key` errors (a
+  different shape failure — :reason falls back to the generic message)."
+  [kind explain]
+  (let [extras (extra-key-errors explain)]
+    (when (seq extras)
+      (let [declared (sort (m/explicit-keys (val (first extras))))
+            clauses  (for [k (sort (keys extras))
+                           :let [hint (nearest-key k declared)]]
+                       (str k
+                            (when hint (str " (did you mean " hint "?)"))))]
+        (str "re-frame2-story: unknown " (name kind) " slot(s) "
+             (str/join ", " clauses)
+             " — the " (name kind) " authoring body is closed (rf2-mantt). "
+             "Allowed keys: " (pr-str (vec declared)) ". "
+             "Remove the slot, or fix the typo.")))))
+
 (defn- validate-shape!
   "Validate `body` against the schema for `kind`. Throws `:rf.error/<kind>-shape`
-  on a miss. Returns the body unchanged on success."
+  on a miss. Returns the body unchanged on success.
+
+  rf2-mantt — when the failure is an unknown / removed slot (the closed-
+  schema `:malli.core/extra-key` error) the `:reason` names the offending
+  key(s) and the nearest declared slot; otherwise it falls back to the
+  generic schema-mismatch message. The full malli `:explain` rides
+  `ex-data` either way."
   [kind id body]
   (when-let [explain (schemas/validate kind body)]
-    (let [error-kw (keyword "rf.error" (str (name kind) "-shape"))]
+    (let [error-kw (keyword "rf.error" (str (name kind) "-shape"))
+          unknown  (unknown-key-reason kind explain)]
       (throw (ex-info (str error-kw)
                       {:rf.error/id error-kw
                        :where    'rf.story/reg-story
                        :recovery :fix-registration
-                       :reason   (str "re-frame2-story: " (name kind) " body for "
-                                      id " does not match " (name kind) " schema")
+                       :reason   (or unknown
+                                     (str "re-frame2-story: " (name kind) " body for "
+                                          id " does not match " (name kind) " schema"))
                        :kind     kind
                        :id       id
                        :explain  explain}))))

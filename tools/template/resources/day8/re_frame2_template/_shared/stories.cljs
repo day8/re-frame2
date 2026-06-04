@@ -14,8 +14,10 @@
    - `reg-tag`         — `:{{main}}/canonical` (project-scoped tag).
    - `reg-workspace`   — `:Workspace.counter/all` (auto-grid layout).
 
-   Per spec/007 §Variants every variant body is plain data — no
-   fn-slots. The view at the centre of each variant is referenced by
+   Per spec/017-Testing-Story.md §Public vocabulary every variant body
+   is plain data — no fn-slots; the public authoring keys are `:setup`
+   (preconditions) + `:script` (behaviour-under-test). The view at the
+   centre of each variant is referenced by
    id (`:{{namespace}}.views/counter-app`); the events the variant
    dispatches reference event-ids. Add more `reg-variant` / `reg-tag`
    / `reg-decorator` / `reg-mode` calls below as your app grows."
@@ -50,23 +52,33 @@
      :substrates #{:reagent}})
 
   ;; -- reg-variant — empty (zero) + incremented (three clicks) -------------
+  ;;
+  ;; The authoring surface is `:setup` (preconditions, dispatched before
+  ;; the play runs) + `:script` (the ordered behaviour-under-test). Per
+  ;; spec/017-Testing-Story.md §Public vocabulary `:setup` / `:script`
+  ;; are the public keys. A `:script` step is a tagged vector; an
+  ;; `:rf.assert/*` checkpoint rides the `[:assert [...]]` step tag, and a
+  ;; bare event vector lifts to `[:dispatch ...]`. This is what makes a
+  ;; Story double as a test — the `:rf.assert/*` checkpoints are the
+  ;; assertions, run by the CI play-runner.
   (story/reg-variant :story.counter/empty
     {:doc    "Fresh counter at zero."
-     :events [[:counter/initialise]]
-     :play   [[:rf.assert/path-equals [:counter/value] 0]]
+     :setup  [[:counter/initialise]]
+     :script [[:assert [:rf.assert/path-equals [:counter/value] 0]]]
      :tags   #{:dev :docs :test :{{main}}/canonical}
      :substrates #{:reagent}})
 
   (story/reg-variant :story.counter/incremented
-    {:doc    "Counter after three increments. Dispatched from :play so
-             :rf.assert/dispatched? observes them."
-     :events [[:counter/initialise]]
-     :play   [[:counter/increment]
-              [:counter/increment]
-              [:counter/increment]
-              [:rf.assert/path-equals [:counter/value] 3]
-              [:rf.assert/sub-equals  [:counter/value] 3]
-              [:rf.assert/dispatched? [:counter/increment]]]
+    {:doc    "Counter after three increments. The increments are
+             dispatch-sync'd FROM the :script (not seeded in :setup) so
+             :rf.assert/dispatched? observes them on the trace bus."
+     :setup  [[:counter/initialise]]
+     :script [[:dispatch-sync [:counter/increment]]
+              [:dispatch-sync [:counter/increment]]
+              [:dispatch-sync [:counter/increment]]
+              [:assert [:rf.assert/path-equals [:counter/value] 3]]
+              [:assert [:rf.assert/sub-equals  [:counter/value] 3]]
+              [:assert [:rf.assert/dispatched? [:counter/increment]]]]
      :tags   #{:dev :docs :test}
      :substrates #{:reagent}})
 
