@@ -89,6 +89,38 @@
     (= 1 total) (str "1 " noun)
     :else       (str total " " noun "s")))
 
+;; ---- catalogue empty states (Cluster 3) ---------------------------------
+
+(def ^:private empty-state-style
+  "Shared italic-prose style for the catalogue empty / no-match surfaces."
+  {:padding     "16px"
+   :color       (:text-tertiary tokens)
+   :font-family sans-stack
+   :font-size   "11px"
+   :font-style  "italic"})
+
+(defn empty-state
+  "The cold-start empty surface for a flat-catalogue tab: `\"No flows
+  registered.\"` `noun` is the singular form (`\"flow\"` / `\"route\"`
+  / …); the plural appends `\"s\"` — the same convention `count-text`
+  uses (every Static noun pluralises regularly). `testid-prefix` is the
+  tab's `data-testid` stem (e.g. `\"rf-xray-static-flows\"`); the surface
+  suffixes `-empty`. Pure hiccup — no Reagent / UIx / Helix refs."
+  [testid-prefix noun]
+  [:div {:data-testid (str testid-prefix "-empty")
+         :style       empty-state-style}
+   (str "No " noun "s registered.")])
+
+(defn empty-filtered
+  "The no-match surface for a flat-catalogue tab when a query filters
+  every row out: `\"No flows match \\\"foo\\\".\"`. `noun` / `testid-
+  prefix` as in `empty-state` (the surface suffixes `-empty-filtered`).
+  Pure hiccup — no Reagent / UIx / Helix refs."
+  [testid-prefix noun query]
+  [:div {:data-testid (str testid-prefix "-empty-filtered")
+         :style       empty-state-style}
+   (str "No " noun "s match " (pr-str query) ".")])
+
 ;; ---- per-variant style maps ---------------------------------------------
 
 (def ^:private catalogue-container-style
