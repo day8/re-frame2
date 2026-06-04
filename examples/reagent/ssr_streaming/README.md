@@ -24,9 +24,14 @@ SSR](../../../spec/011-SSR.md#streaming-ssr).
   continues.
 - **Hydration interleaved per subtree** — each chunk's
   `<script data-rf2-suspense-hydrate>` carries the per-card app-db
-  delta; the client hydrates incrementally as chunks arrive.
+  delta; the **client-side streaming runtime** (`ssr/streaming-install!`,
+  wired up in `run`) swaps each fallback for its resolved content and
+  merges the delta into `app-db` progressively, as chunks arrive,
+  before the final payload.
 - **Final `__rf_payload`** — arrives last with the canonical full
-  state, so a client that missed inline chunks (e.g. JS disabled
+  state; `ssr/hydrate!` dispatches `:rf/hydrate` (`:replace-app-db`)
+  against it, the correctness lock that supersedes the speculative
+  per-card deltas. A client that missed inline chunks (e.g. JS disabled
   during streaming) still gets a coherent final app-db.
 
 ## Why this shape

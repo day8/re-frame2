@@ -38,9 +38,13 @@
     destroy-frame! in finally
 
   Per the bundle-isolation contract, this ns is JVM-only (`.clj`) —
-  shadow-cljs only picks up `.cljc` / `.cljs`. Streaming bootstrap on
-  the client lives in `re-frame.ssr.streaming.client` (a .cljs shim,
-  forthcoming as host-opt-in)."
+  shadow-cljs only picks up `.cljc` / `.cljs`. The client-side consumer
+  of this wire shape is `re-frame.ssr.streaming.client/install!` (a
+  CLJS-only, host-opt-in runtime; re-exported as `ssr/streaming-install!`,
+  rf2-3hhv5): it swaps each `<template>` fallback for its resolved subtree
+  in-place and merges the per-subtree `data-rf2-suspense-hydrate` delta as
+  chunks arrive, reconciling against the final `__rf_payload`
+  (`:replace-app-db`) when it lands."
   (:require [re-frame.core :as rf]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.html-helpers :as html]

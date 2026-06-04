@@ -71,6 +71,13 @@
             ;; :ssr.streaming/build-final-payload) land at ns-load time
             ;; before any host adapter calls them.
             re-frame.ssr.streaming
+            ;; rf2-3hhv5 — CLIENT-side streaming-SSR runtime
+            ;; (`install!`). CLJS-only (it installs a MutationObserver +
+            ;; swaps DOM); re-exported as `ssr/streaming-install!` so a
+            ;; streaming-aware bootstrap calls one façade fn. NOT eagerly
+            ;; needed server-side; required CLJS-only so a JVM lint of
+            ;; this `.cljc` does not pull a `.cljs`-only ns.
+            #?(:cljs [re-frame.ssr.streaming.client :as streaming-client])
             ;; Per rf2-qwm0a SSR's error-projection trace listener
             ;; targets the tooling sibling directly. The framework's
             ;; `re-frame.trace` no longer re-exports the listener
@@ -152,6 +159,14 @@
 (def streaming-resolved-template    re-frame.ssr.streaming/resolved-template)
 (def streaming-failed-template      re-frame.ssr.streaming/failed-template)
 (def streaming-hydrate-delta-script re-frame.ssr.streaming/hydrate-delta-script)
+;; rf2-3hhv5 — CLIENT-side streaming runtime. CLJS-only (DOM consumer):
+;; `(ssr/streaming-install! {:frame …})` installs the MutationObserver
+;; that swaps `<template>` fallbacks for resolved subtrees + merges the
+;; per-subtree hydration deltas as chunks stream in, reconciling against
+;; the final `__rf_payload` `:rf/hydrate` (which `ssr/hydrate!` applies).
+;; Host opt-in — a streaming-aware bootstrap calls it; non-streaming
+;; pages skip it.
+#?(:cljs (def streaming-install!    streaming-client/install!))
 
 ;; ---- :rf/hydrate event + :rf.ssr/check-* fxs ------------------------------
 ;;
