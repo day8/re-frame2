@@ -38,9 +38,27 @@
    slot in here once their upstream gates clear (rf2-gthro, rf2-0m5ea)."
   (:require [clojure.string :as string]))
 
+;; -- substrate registry -----------------------------------------------------
+;;
+;; Single source of truth for the per-substrate facts. Each substrate's
+;; display label and shields.io badge URL live in one row, so adding a
+;; substrate is a one-row edit (the valid-set, the data-fn label/badge
+;; lookups, and `template-fn`'s `case` all key off this same set). Keeping
+;; these as one data table — rather than three parallel `case` forms keyed
+;; on the same `:reagent/:uix/:helix` set — is the data-driven idiom and
+;; removes the drift risk of the keys diverging across sites.
+
+(def ^:private substrate-registry
+  {:reagent {:label "Reagent"
+             :badge-url "https://img.shields.io/badge/substrate-Reagent-1abc9c.svg"}
+   :uix     {:label "UIx"
+             :badge-url "https://img.shields.io/badge/substrate-UIx-3498db.svg"}
+   :helix   {:label "Helix"
+             :badge-url "https://img.shields.io/badge/substrate-Helix-9b59b6.svg"}})
+
 ;; -- :substrate coercion ----------------------------------------------------
 
-(def ^:private valid-substrates #{:reagent :uix :helix})
+(def ^:private valid-substrates (set (keys substrate-registry)))
 
 (defn- coerce-substrate
   "Validate the `:substrate` arg. Accepts only a keyword (one of
@@ -183,26 +201,20 @@
                                 "Reagent's.")
                 :substrate substrate
                 :include-story? include-story?})))
-    (let [substrate-name  (name substrate)
+    (let [{:keys [label badge-url]} (substrate-registry substrate)
           top             (:top data)
           main            (:main data)
           top-file        (->file-path top)
           main-file       (->file-path main)
           top-ns          (->ns-form top)
           main-ns         (->ns-form main)]
-      {:substrate           substrate-name
+      {:substrate           (name substrate)
        :substrate-kw        substrate
-       :substrate-label     (case substrate
-                              :reagent "Reagent"
-                              :uix     "UIx"
-                              :helix   "Helix")
+       :substrate-label     label
        :include-story?      include-story?
        :namespace           (str top-ns "." main-ns)
        :nested-dirs         (str top-file "/" main-file)
-       :substrate-badge-url (case substrate
-                              :reagent "https://img.shields.io/badge/substrate-Reagent-1abc9c.svg"
-                              :uix     "https://img.shields.io/badge/substrate-UIx-3498db.svg"
-                              :helix   "https://img.shields.io/badge/substrate-Helix-9b59b6.svg")
+       :substrate-badge-url badge-url
        ;; -- DO NOT EDIT — managed by version_lockstep_test --
        ;; The three version pins below are checked against the repo-root
        ;; sources of truth (the VERSION file, implementation/package.json's
