@@ -15,7 +15,8 @@
             [re-frame.core :as rf]
             [re-frame.schemas :as schemas]
             [re-frame.schemas.storage :as storage]
-            [re-frame.schemas.test-fixture :as tf]))
+            [re-frame.schemas.test-fixture :as tf]
+            [re-frame.schemas.validate :as validate]))
 
 (use-fixtures :each tf/reset-runtime)
 
@@ -201,6 +202,130 @@
                       (catch clojure.lang.ExceptionInfo e e))]
       (is (instance? clojure.lang.ExceptionInfo thrown))
       (is (= ":rf.error/bad-app-schemas-arg" (.getMessage ^Exception thrown))))))
+
+;; ---- path-shape validation (rf2-sk0ql) -----------------------------------
+;;
+;; A `reg-app-schema` `path` is a `get-in`/`assoc-in`-shaped path: a
+;; sequential collection of keys, or `[]` for the whole-app-db root
+;; (Spec 010 §`app-db` schemas — path-based / §A schema for the whole
+;; `app-db` / §Digest "path is a vector of keywords (or the empty vector
+;; for the root)").
+;;
+;; Before rf2-sk0ql a non-sequential scalar path (a bare keyword `:n`,
+;; string, number, nil) registered successfully but made
+;; `validate-app-schema!`'s `(get-in db path)` throw
+;; IllegalArgumentException ("Don't know how to create ISeq from: …").
+;; The live router's `run-post-commit-validation!` wraps that call in a
+;; defensive try/catch and treats the throw as a validation PASS — so an
+;; invalid `:db` commit was installed permanently with no
+;; `:rf.error/schema-validation-failure` and no rollback (a correctness-
+;; and privacy-relevant bypass — the redaction-bearing failure traces
+;; never fired). Worse, the poisoned entry persisted and made EVERY
+;; subsequent commit's validation throw, silently disabling post-commit
+;; validation for the whole frame.
+;;
+;; Fix: fail loud at registration time with `:rf.error/bad-app-schema-path`
+;; BEFORE the store mutation, so the malformed shape can never land.
+
+(deftest reg-app-schema-rejects-non-sequential-path-shapes
+  (testing "rf2-sk0ql — a non-sequential scalar `path` (bare keyword,
+            string, number, nil) throws :rf.error/bad-app-schema-path and
+            does NOT mutate schemas-by-frame"
+    (doseq [bad-path [:n "user" 42 nil {:not :a-path} #{:n}]]
+      (let [before (schemas/snapshot-schemas-by-frame)
+            thrown (try (rf/reg-app-schema bad-path :int)
+                        (catch clojure.lang.ExceptionInfo e e))]
+        (is (instance? clojure.lang.ExceptionInfo thrown)
+            (str "bad path " (pr-str bad-path) " throws ex-info"))
+        (when (instance? clojure.lang.ExceptionInfo thrown)
+          (is (= ":rf.error/bad-app-schema-path" (.getMessage ^Exception thrown))
+              "ex-info message names the path-shape error category")
+          (let [data (ex-data thrown)]
+            (is (= bad-path (:received data))
+                ":received slot carries the bad path verbatim")
+            (is (= :rf.error/bad-app-schema-path (:rf.error/id data))
+                ":rf.error/id slot carries the framework error id")))
+        (is (= before (schemas/snapshot-schemas-by-frame))
+            (str "store is unchanged after rejecting " (pr-str bad-path)
+                 " — the malformed entry never lands"))))))
+
+(deftest reg-app-schema-accepts-vector-and-root-and-seq-paths
+  (testing "rf2-sk0ql — valid sequential paths register fine: a vector
+            key-path, the root `[]`, and a non-vector seq path"
+    (rf/reg-app-schema [:n] :int)
+    (is (= :int (rf/app-schema-at [:n])) "vector key-path registers")
+    (rf/reg-app-schema [] [:map [:n :int]])
+    (is (= [:map [:n :int]] (rf/app-schema-at [])) "root [] registers")
+    ;; A non-vector seq is still a valid get-in path shape.
+    (rf/reg-app-schema (list :a :b) :string)
+    (is (= :string (rf/app-schema-at (list :a :b)))
+        "non-vector seq path registers (get-in accepts any sequential ks)")))
+
+(deftest reg-app-schemas-rejects-batch-with-bad-path-atomically
+  (testing "rf2-sk0ql — a bulk batch containing a non-sequential path key
+            is rejected ATOMICALLY: the whole call throws and NO entry
+            lands (not even the well-formed siblings iterated first)"
+    (let [before (schemas/snapshot-schemas-by-frame)
+          thrown (try (rf/reg-app-schemas {[:good] :int
+                                           :bad-key :string
+                                           [:also-good] :boolean})
+                      (catch clojure.lang.ExceptionInfo e e))]
+      (is (instance? clojure.lang.ExceptionInfo thrown)
+          "a batch with a bad path key throws")
+      (when (instance? clojure.lang.ExceptionInfo thrown)
+        (is (= ":rf.error/bad-app-schema-path" (.getMessage ^Exception thrown))
+            "names the path-shape error category"))
+      (is (= before (schemas/snapshot-schemas-by-frame))
+          "NO entry from the batch landed — all-or-nothing")
+      (is (nil? (rf/app-schema-at [:good]))
+          "the well-formed sibling did not half-register"))))
+
+(deftest reg-app-schemas-accepts-all-valid-paths
+  (testing "rf2-sk0ql — a batch of valid sequential paths (including the
+            root `[]`) registers every entry"
+    (rf/reg-app-schemas {[:good]      :int
+                         []           [:map]
+                         [:cart :qty] :int})
+    (is (= :int    (rf/app-schema-at [:good])))
+    (is (= [:map]  (rf/app-schema-at [])))
+    (is (= :int    (rf/app-schema-at [:cart :qty])))))
+
+;; ---- end-to-end bypass invariant (rf2-sk0ql) -----------------------------
+;;
+;; The load-bearing regression: BEFORE the fix, registering `:n` then
+;; calling validate-app-schema! against a non-conforming app-db threw
+;; IllegalArgumentException (which the router swallowed as a silent pass).
+;; AFTER the fix, the registration is rejected up front, so the toxic
+;; entry never reaches the validation hot path — and a VALID `[:n]`
+;; registration validates and signals a mismatch (false → router rolls
+;; back) exactly as the contract requires.
+
+(deftest validate-app-schema-no-longer-poisoned-by-bad-path
+  (testing "rf2-sk0ql — the previously-bypassing bare-keyword path can no
+            longer poison validate-app-schema!. Rejected at registration;
+            never reaches the hot path. validate-app-schema! returns true
+            (clean) rather than THROWING the IllegalArgumentException the
+            router silently treated as a pass."
+    ;; The bypass input: a bare-keyword path. Registration now throws.
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                          #":rf.error/bad-app-schema-path"
+                          (rf/reg-app-schema :n :int)))
+    ;; Nothing landed, so validate-app-schema! is a clean pass — it does
+    ;; NOT throw the ISeq IllegalArgumentException any more.
+    (is (true? (validate/validate-app-schema! {:n "bad"} :test))
+        "no registered schema → clean pass, no throw to be swallowed")))
+
+(deftest valid-path-validates-and-signals-mismatch
+  (testing "rf2-sk0ql — the VALID counterpart of the bypass case: the
+            vector path [:n] registers, and validate-app-schema! returns
+            false on a non-conforming value (the signal the router uses to
+            roll the commit back) — proving the validation path the bug
+            had silently disabled is live."
+    (rf/reg-app-schema [:n] :int)
+    (is (false? (validate/validate-app-schema! {:n "bad"} :test))
+        "a non-conforming value at the valid path fails validation")
+    (is (true? (validate/validate-app-schema! {:n 0} :test))
+        "a conforming value at the valid path passes")))
 
 ;; ---- snapshot / restore / clear (test-support seam) ----------------------
 
