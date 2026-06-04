@@ -65,6 +65,13 @@
             [re-frame.trace :as trace]
             [re-frame.conformance :as conformance]
             [re-frame.routing :as routing]
+            ;; rf2-dbiv8 — the test-only `:rf.test/simulate-http-resolution`
+            ;; fixture event moved out of the `re-frame.routing` production
+            ;; façade to this test-support ns. The routing/stale-nav-token-
+            ;; suppression fixture dispatches it; require here so it
+            ;; registers at ns-load (CLJS has no `:reload`, so it must be
+            ;; live before `pretest-registrar` snapshots it).
+            [re-frame.routing.test-support]
             [re-frame.ssr :as ssr]
             [re-frame.machines :as machines]
             ;; Spec 014 — :rf.http/managed registers at ns-load time. The

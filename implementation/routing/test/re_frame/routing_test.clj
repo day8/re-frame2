@@ -42,6 +42,11 @@
             ;; rf/reg-route call below would throw
             ;; :rf.error/routing-artefact-missing.
             [re-frame.routing :as routing]
+            ;; rf2-dbiv8: the test-only `:rf.test/simulate-http-resolution`
+            ;; fixture event lives behind this explicit test-support
+            ;; require (it is NOT registered by the production façade).
+            ;; routing-nav-token-staleness dispatches it below.
+            [re-frame.routing.test-support]
             [re-frame.routing.match :as routing.match]
             [re-frame.routing.registry :as registry]
             [re-frame.schemas :as schemas]
@@ -58,6 +63,10 @@
   ;; ns-load; clear-all! wiped them. Reload to resurrect.
   (require 're-frame.routing :reload)
   (require 're-frame.ssr :reload)
+  ;; rf2-dbiv8: re-seat the test-only `:rf.test/simulate-http-resolution`
+  ;; fixture event after clear-all! (it lives in the test-support ns, not
+  ;; the production façade).
+  (require 're-frame.routing.test-support :reload)
   (routing/reset-counters!)
   (test-fn))
 

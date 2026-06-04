@@ -54,6 +54,11 @@
   ;; routing.cljc; clear-all! wiped them. Re-eval those registrations
   ;; so :rf.route/transitioned, :rf/url-requested, :rf.route/* etc. resurrect.
   (require 're-frame.routing :reload)
+  ;; rf2-dbiv8 — the test-only `:rf.test/simulate-http-resolution` fixture
+  ;; event lives in the routing test-support ns (not the production
+  ;; façade); the :rf.route.nav-token/stale-suppressed trace assertion
+  ;; below dispatches it. Reload so it re-seats after clear-all!.
+  (require 're-frame.routing.test-support :reload)
   (test-fn))
 
 (use-fixtures :each reset-runtime)
