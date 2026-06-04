@@ -203,18 +203,30 @@
   ([snapshot include? strip-fn]
    (if (or include? (not (map? snapshot)))
      [snapshot 0]
-     (let [dropped (volatile! 0)
-           scrub-slice
-           (fn [items]
-             (let [[kept n] (strip-fn (vec items) false)]
-               (vswap! dropped + n)
-               kept))
+     ;; Pure fold: thread BOTH the scrubbed map and the running drop
+     ;; count through the `reduce-kv` accumulator `[frame-map count]`
+     ;; rather than side-channelling the count through a mutable cell.
+     ;; `scrub-frame` returns `[scrubbed-frame dropped]` for one frame;
+     ;; the slice-scrub returns `[kept dropped]` straight from `strip-fn`,
+     ;; so the count rides the value the whole way down — no `volatile!`.
+     ;; Single walk over the snapshot, same cost as before.
+     (let [scrub-slice
+           (fn [frame-map slice-key acc]
+             (if (contains? frame-map slice-key)
+               (let [[kept n] (strip-fn (vec (get frame-map slice-key)) false)]
+                 [(assoc frame-map slice-key kept) (+ acc n)])
+               [frame-map acc]))
            scrub-frame
            (fn [frame-map]
-             (cond-> frame-map
-               (contains? frame-map :traces) (update :traces scrub-slice)
-               (contains? frame-map :epochs) (update :epochs scrub-slice)))
-           scrubbed (reduce-kv (fn [m k v]
-                                 (assoc m k (if (map? v) (scrub-frame v) v)))
-                               {} snapshot)]
-       [scrubbed @dropped]))))
+             (let [[fm1 d1] (scrub-slice frame-map :traces 0)]
+               (scrub-slice fm1 :epochs d1)))
+           [scrubbed dropped]
+           (reduce-kv
+             (fn [[m total] k v]
+               (if (map? v)
+                 (let [[scrubbed-frame n] (scrub-frame v)]
+                   [(assoc m k scrubbed-frame) (+ total n)])
+                 [(assoc m k v) total]))
+             [{} 0]
+             snapshot)]
+       [scrubbed dropped]))))
