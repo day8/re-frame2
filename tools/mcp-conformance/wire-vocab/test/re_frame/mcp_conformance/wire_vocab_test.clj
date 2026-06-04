@@ -1175,10 +1175,22 @@
   ;; rf2-koq5m: story-mcp adopted the envelope-indicator parity. The
   ;; centralised emit-path is `egress/with-indicators` (delegating to
   ;; the shared mcp-base helper) + `egress/count-elided` (delegating to
-  ;; `count-elided-markers`). This pin asserts the helper exists AND
-  ;; that the three tree-walking tools route their payload through it —
-  ;; the structural guarantee that the omit-when-zero MUST lives in one
-  ;; place, mirroring `indicator_field_test.clj`'s pair-mcp routing pin.
+  ;; `count-elided-markers`). This pin asserts those helpers exist AND
+  ;; that the tree-walking tools route their payload through the
+  ;; centralised egress epilogue — the structural guarantee that the
+  ;; omit-when-zero MUST lives in one place, mirroring
+  ;; `indicator_field_test.clj`'s pair-mcp routing pin.
+  ;;
+  ;; rf2-c2wbp folded the dual-coded `(edn-result (with-indicators
+  ;; payload {:dropped d :elided (count-elided payload)}))` epilogue —
+  ;; previously inlined verbatim at the three live-state read sites
+  ;; (dev/preview-variant, testing/run-variant, testing/read-failures) —
+  ;; into a single `egress/result-with-indicators` helper, alongside
+  ;; `with-indicators` + `count-elided` in `egress.cljc`. The tools now
+  ;; route through `egress/result-with-indicators`, which itself routes
+  ;; through `egress/with-indicators`: the emit-path is MORE centralised,
+  ;; not less. This pin follows the routing into that helper rather than
+  ;; greping each tool body for the now-folded `with-indicators` literal.
   (let [egress-rel "tools/story-mcp/src/re_frame/story_mcp/tools/egress.cljc"
         egress-src (fx/read-source egress-rel)]
     (testing "egress.cljc defines the centralised with-indicators helper"
@@ -1193,14 +1205,26 @@
       (is (str/includes? egress-src "base-elision/count-elided-markers")
           (str egress-rel " must reuse "
                "`re-frame.mcp-base.elision/count-elided-markers` for the "
-               ":elided-large count (rf2-koq5m)."))))
+               ":elided-large count (rf2-koq5m).")))
+    (testing "egress.cljc defines the result-with-indicators epilogue helper"
+      (is (str/includes? egress-src "(defn result-with-indicators")
+          (str "`result-with-indicators` helper missing from " egress-rel
+               " — the live-state read tools route their payload through it "
+               "(rf2-c2wbp).")))
+    (testing "result-with-indicators routes through the centralised with-indicators emit-path"
+      (is (str/includes? egress-src "(with-indicators payload")
+          (str egress-rel "'s `result-with-indicators` must thread its payload "
+               "through `with-indicators` — the omit-when-zero MUST stays on "
+               "the single centralised emit-path (rf2-koq5m / rf2-c2wbp)."))))
   (doseq [rel ["tools/story-mcp/src/re_frame/story_mcp/tools/testing.cljc"
                "tools/story-mcp/src/re_frame/story_mcp/tools/dev.cljc"]]
-    (testing (str rel " — routes payload through egress/with-indicators")
-      (is (str/includes? (fx/read-source rel) "egress/with-indicators")
+    (testing (str rel " — routes payload through egress/result-with-indicators")
+      (is (str/includes? (fx/read-source rel) "egress/result-with-indicators")
           (str rel " does not route its payload through "
-               "`egress/with-indicators` — the centralised emit-path is the "
-               "structural contract for the omit-when-zero MUST (rf2-koq5m).")))))
+               "`egress/result-with-indicators` — the centralised egress "
+               "epilogue (which threads through `egress/with-indicators`) is "
+               "the structural contract for the omit-when-zero MUST "
+               "(rf2-koq5m / rf2-c2wbp).")))))
 
 ;; ---------------------------------------------------------------------------
 ;; `:rf.mcp/cursor-stale` reason-value gate (rf2-i3ffz F-GAP-5).
