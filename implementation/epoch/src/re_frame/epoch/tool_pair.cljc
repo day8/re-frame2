@@ -348,18 +348,65 @@
 
                   {:outcome :ok :epoch epoch})))))))))
 
+;; ---- write-boundary liveness guard (rf2-7i872) ----------------------------
+;;
+;; Precondition validation (`check-restore-preconditions!` /
+;; `check-reset-frame-db-preconditions!`) resolves the frame, but a frame
+;; can be destroyed in the window BETWEEN the precondition pass and the
+;; actual container write (the validate-then-destroy race — most often a
+;; tool gesture interleaving with the owning component's teardown). Once
+;; destroyed, `frame/app-db-container` returns nil and the choke-point
+;; `adapter/replace-container!` no-ops the write with a
+;; `:rf.warning/write-after-destroy` trace (`adapter.cljc`). Per Tool-Pair
+;; §Surface behaviour against destroyed frames the mutating surfaces must
+;; report this as the SAME structural failure a frame-miss caught at
+;; validate-time produces (`:rf.error/no-such-handler`, kind `:frame`,
+;; returns `false`) — NOT a synthetic success. This helper resolves the
+;; container at the write boundary and yields the canonical no-such-handler
+;; failure when it has disappeared, so `perform-restore!` /
+;; `perform-reset-frame-db!` can bail BEFORE emitting success, recording a
+;; synthetic epoch, or fanning out to listeners.
+
+(defn live-container-or-fail
+  "Resolve `frame-id`'s app-db container at the write boundary. Returns
+  `{:outcome :ok :container <container>}` when the frame is still live, or
+  the canonical no-such-handler precondition-failure result
+  (`{:outcome :fail :op :rf.error/no-such-handler :tags {:kind :frame
+  :frame frame-id}}`) when the frame was destroyed between precondition
+  validation and now (the validate-then-destroy race, rf2-7i872). Mirrors
+  `frame-exists-or-fail`'s failure shape so the destroyed-frame write race
+  surfaces identically to a frame-miss caught at validate-time."
+  [frame-id]
+  (if-let [container (frame/app-db-container frame-id)]
+    {:outcome :ok :container container}
+    {:outcome :fail
+     :op      :rf.error/no-such-handler
+     :tags    {:kind  :frame
+               :frame frame-id}}))
+
 (defn perform-restore!
   "Carry out the actual `app-db` rewind once preconditions have passed.
   Replaces the frame's container with `epoch`'s `:db-after` and emits
-  `:rf.epoch/restored`. Returns `true`."
+  `:rf.epoch/restored`. Returns `true` on a real write.
+
+  Per rf2-7i872 (validate-then-destroy race): re-resolves the container at
+  the write boundary via `live-container-or-fail`. If the frame was
+  destroyed between the precondition pass and now, the container is nil and
+  `replace-container!` would silently no-op — so instead of emitting
+  `:rf.epoch/restored` and returning `true` (a FALSE success), this emits
+  the canonical `:rf.error/no-such-handler` (kind `:frame`) failure trace
+  and returns `false`, matching the destroyed-frame contract."
   [frame-id epoch]
-  (let [container (frame/app-db-container frame-id)
-        db-target (:db-after epoch)]
-    (adapter/replace-container! container db-target)
-    (trace/emit! :rf.epoch :rf.epoch/restored
-                 {:frame    frame-id
-                  :epoch-id (:epoch-id epoch)})
-    true))
+  (let [{:keys [outcome op tags container]} (live-container-or-fail frame-id)]
+    (if (= :fail outcome)
+      (do (emit-precondition-failure! op tags)
+          false)
+      (let [db-target (:db-after epoch)]
+        (adapter/replace-container! container db-target)
+        (trace/emit! :rf.epoch :rf.epoch/restored
+                     {:frame    frame-id
+                      :epoch-id (:epoch-id epoch)})
+        true))))
 
 ;; ---- reset-frame-db! preconditions ----------------------------------------
 

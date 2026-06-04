@@ -41,6 +41,7 @@
             [re-frame.epoch.capture :as capture]
             [re-frame.epoch.listeners :as epoch.listeners]
             [re-frame.epoch.state :as state]
+            [re-frame.epoch.tool-pair :as tool-pair]
             ;; rf2-v6z0: machines is a separate artefact whose late-bind
             ;; hook publishes `rf/reg-machine` only when the namespace is
             ;; loaded. Several restore-* tests register machines via
@@ -3225,4 +3226,248 @@
             :trace-events-keep 5; the older absent-default behaviour
             (unbounded) is gone (pre-alpha — no back-compat)"
     (is (= 5 (:trace-events-keep (epoch/current-config))))))
+
+;; ============================================================================
+;;  rf2-7i872 — write-boundary liveness race (validate-then-destroy)
+;; ============================================================================
+;;
+;; restore-epoch / reset-frame-db! validate preconditions against a LIVE
+;; frame, then write the frame's container. A frame destroyed in the window
+;; BETWEEN validation and the write (a tool gesture interleaving with the
+;; owning component's teardown) leaves `frame/app-db-container` returning
+;; nil, so the choke-point `adapter/replace-container!` silently no-ops the
+;; write. Pre-rf2-7i872 the epoch surfaces still emitted success and
+;; returned `true` (and `reset-frame-db!` recorded + fanned out a SYNTHETIC
+;; epoch for the destroyed frame). Per Tool-Pair §Surface behaviour against
+;; destroyed frames a destroyed-frame write is a STRUCTURAL FAILURE
+;; (:rf.error/no-such-handler, kind :frame, returns false).
+;;
+;; The race window is reproduced two ways:
+;;   (a) the SEAM — validate (live) → destroy → perform!, exactly the two
+;;       steps the public fn sequences, with the destroy injected between.
+;;   (b) the PUBLIC surface — with-redefs the precondition check to destroy
+;;       the frame after a real (live) validation, proving the public
+;;       restore-epoch / reset-frame-db! honour the write-boundary guard.
+
+(deftest restore-epoch-validate-then-destroy-reports-honest-failure-seam
+  (testing "rf2-7i872 — perform-restore! against a frame destroyed AFTER a
+            live precondition pass returns false, emits
+            :rf.error/no-such-handler (kind :frame), and does NOT emit
+            :rf.epoch/restored. The drop is the no-op write
+            adapter/replace-container! makes against the now-nil container."
+    (rf/reg-frame :test/short-lived {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+    (rf/dispatch-sync [:seed] {:frame :test/short-lived})
+    (rf/dispatch-sync [:inc]  {:frame :test/short-lived})
+
+    (let [target-id (-> (rf/epoch-history :test/short-lived) first :epoch-id)
+          ;; (1) Validate against the LIVE frame — passes, yields the epoch.
+          {:keys [outcome epoch]} (tool-pair/check-restore-preconditions!
+                                    :test/short-lived target-id)]
+      (is (= :ok outcome) "precondition validation passed against the live frame")
+
+      ;; (2) The race: the frame is destroyed in the validate→write window.
+      (rf/destroy-frame! :test/short-lived)
+
+      ;; (3) Perform the write at the boundary — the container is now nil.
+      (let [recorded (record-trace!)
+            result   (tool-pair/perform-restore! :test/short-lived epoch)]
+        (is (false? result)
+            "perform-restore! reports HONEST failure (false) — NOT a synthetic
+             success — when the frame disappeared between validate and write")
+        (is (has-error-op? @recorded :rf.error/no-such-handler)
+            ":rf.error/no-such-handler fired at the write boundary")
+        (let [ev (some #(when (= :rf.error/no-such-handler (:operation %)) %)
+                       @recorded)]
+          (is (= :frame (:kind (:tags ev))) "tags carry :kind :frame")
+          (is (= :test/short-lived (:frame (:tags ev))) "tags carry :frame"))
+        (is (not-any? #(= :rf.epoch/restored (:operation %)) @recorded)
+            "no :rf.epoch/restored success trace for the destroyed frame")))))
+
+(deftest restore-epoch-public-validate-then-destroy-returns-false
+  (testing "rf2-7i872 — the PUBLIC restore-epoch returns false (not a false
+            success) when the frame is destroyed AFTER a live precondition
+            pass but BEFORE the container write. The precondition check is
+            real; the destroy is injected into the validate→write window."
+    (rf/reg-frame :test/short-lived {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/dispatch-sync [:seed] {:frame :test/short-lived})
+
+    (let [target-id (-> (rf/epoch-history :test/short-lived) first :epoch-id)
+          real-check tool-pair/check-restore-preconditions!
+          recorded   (record-trace!)]
+      ;; Inject the destroy into the validate→write window: run the REAL
+      ;; (live) precondition check, then destroy the frame before the
+      ;; orchestrator reaches perform-restore!.
+      (with-redefs [tool-pair/check-restore-preconditions!
+                    (fn [frame-id epoch-id]
+                      (let [r (real-check frame-id epoch-id)]
+                        (rf/destroy-frame! frame-id)
+                        r))]
+        (let [result (rf/restore-epoch :test/short-lived target-id)]
+          (is (false? result)
+              "public restore-epoch returns false for the validate-then-destroy
+               race — the write-boundary guard caught the no-op write")
+          (is (has-error-op? @recorded :rf.error/no-such-handler)
+              ":rf.error/no-such-handler fired")
+          (is (not-any? #(= :rf.epoch/restored (:operation %)) @recorded)
+              "no :rf.epoch/restored success trace"))))))
+
+(deftest reset-frame-db-validate-then-destroy-reports-honest-failure-seam
+  (testing "rf2-7i872 — perform-reset-frame-db! against a frame destroyed
+            AFTER a live precondition pass returns false, emits
+            :rf.error/no-such-handler (kind :frame), and does NOT record a
+            synthetic epoch, emit :rf.epoch/db-replaced, or fan a record to
+            listeners for the destroyed frame."
+    (rf/reg-frame :test/short-lived {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/dispatch-sync [:seed] {:frame :test/short-lived})
+
+    ;; (1) Validate against the LIVE frame — passes.
+    (let [{:keys [outcome]} (tool-pair/check-reset-frame-db-preconditions!
+                              :test/short-lived {:n 999})]
+      (is (= :ok outcome) "precondition validation passed against the live frame")
+
+      ;; A listener that records every fanned record — it must NOT see a
+      ;; record for the destroyed frame.
+      (let [fanned   (atom [])]
+        (rf/register-epoch-listener! ::fan-watcher (fn [r] (swap! fanned conj r)))
+        ;; Let the listener observe the live frame once so it has an
+        ;; observation entry (mirrors a real tool); reset the ledger after.
+        (rf/dispatch-sync [:seed] {:frame :test/short-lived})
+        (reset! fanned [])
+
+        ;; (2) The race: destroy in the validate→write window.
+        (rf/destroy-frame! :test/short-lived)
+
+        ;; (3) Perform the reset at the boundary — container is now nil.
+        (let [recorded (record-trace!)
+              result   (#'epoch/perform-reset-frame-db! :test/short-lived {:n 999})]
+          (is (false? result)
+              "perform-reset-frame-db! reports HONEST failure (false) — NOT a
+               synthetic success — for the validate-then-destroy race")
+          (is (has-error-op? @recorded :rf.error/no-such-handler)
+              ":rf.error/no-such-handler fired at the write boundary")
+          (let [ev (some #(when (= :rf.error/no-such-handler (:operation %)) %)
+                         @recorded)]
+            (is (= :frame (:kind (:tags ev))) "tags carry :kind :frame")
+            (is (= :test/short-lived (:frame (:tags ev))) "tags carry :frame"))
+          (is (not-any? #(= :rf.epoch/db-replaced (:operation %)) @recorded)
+              "no :rf.epoch/db-replaced success trace for the destroyed frame")
+          (is (empty? @fanned)
+              "no synthetic epoch fanned out to listeners for the destroyed frame")
+          (is (= [] (rf/epoch-history :test/short-lived))
+              "no synthetic epoch recorded into the (dropped) ring for the
+               destroyed frame"))))))
+
+(deftest reset-frame-db-public-validate-then-destroy-returns-false
+  (testing "rf2-7i872 — the PUBLIC reset-frame-db! returns false when the
+            frame is destroyed AFTER a live precondition pass but BEFORE the
+            container write."
+    (rf/reg-frame :test/short-lived {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/dispatch-sync [:seed] {:frame :test/short-lived})
+
+    (let [real-check tool-pair/check-reset-frame-db-preconditions!
+          recorded   (record-trace!)]
+      (with-redefs [tool-pair/check-reset-frame-db-preconditions!
+                    (fn [frame-id new-db]
+                      (let [r (real-check frame-id new-db)]
+                        (rf/destroy-frame! frame-id)
+                        r))]
+        (let [result (rf/reset-frame-db! :test/short-lived {:n 999})]
+          (is (false? result)
+              "public reset-frame-db! returns false for the validate-then-destroy
+               race")
+          (is (has-error-op? @recorded :rf.error/no-such-handler)
+              ":rf.error/no-such-handler fired")
+          (is (not-any? #(= :rf.epoch/db-replaced (:operation %)) @recorded)
+              "no :rf.epoch/db-replaced success trace"))))))
+
+;; ============================================================================
+;;  rf2-7i872 — listener observation bookkeeping race (unregister mid-fan-out)
+;; ============================================================================
+;;
+;; notify-listeners! iterates a listener SNAPSHOT, then per cb-id calls
+;; record-observation! (writing the separate observed-frames-by-cb atom)
+;; BEFORE invoking the callback. If unregister-epoch-listener! removes a cb
+;; between the snapshot and the record-observation! call, the stale cb-id
+;; would (pre-rf2-7i872) be RE-INTRODUCED into observed-frames-by-cb and
+;; later receive a bogus :rf.epoch.cb/silenced-on-frame-destroy trace on
+;; frame destroy. The fix gates record-observation! on the cb-id still being
+;; a live listener at record time.
+
+(deftest record-observation-skips-unregistered-cb-no-stale-bookkeeping
+  (testing "rf2-7i872 — record-observation! against a cb that has been
+            unregistered does NOT re-introduce an observed-frames-by-cb
+            entry. (The exact ordering notify-listeners! exposes: snapshot
+            taken, cb dropped, then record-observation! fires for the stale
+            id.)"
+    (rf/reg-frame :test/main {})
+    ;; Register then unregister a cb — it is GONE from the listener registry.
+    (rf/register-epoch-listener! ::ghost (fn [_] nil))
+    (rf/unregister-epoch-listener! ::ghost)
+    (is (not (contains? (state/listeners-snapshot) ::ghost))
+        "::ghost is no longer a registered listener")
+
+    ;; Simulate the racing fan-out: record-observation! is called for the
+    ;; now-stale ::ghost id (as notify-listeners! would for a snapshot taken
+    ;; before the unregister).
+    (state/record-observation! ::ghost :test/main)
+
+    (is (not (contains? (state/observations-snapshot) ::ghost))
+        "no stale observed-frames-by-cb entry for the unregistered cb —
+         record-observation! refused to re-introduce bookkeeping for a dead cb")))
+
+(deftest unregister-mid-fanout-no-bogus-silencing-trace
+  (testing "rf2-7i872 — the precise unregister-mid-fan-out interleaving
+            notify-listeners! exposes: a listener snapshot is taken (carrying
+            ::victim), ::victim is unregistered, THEN record-observation! is
+            invoked for the stale ::victim id from the snapshot. The stale id
+            must NOT be re-introduced into observed-frames-by-cb, so when the
+            frame is later destroyed ::victim receives NO bogus
+            :rf.epoch.cb/silenced-on-frame-destroy trace.
+
+            Modelled by replaying notify-listeners!'s loop body manually
+            against a hand-built snapshot — the synchronous JVM path can't
+            otherwise pin the snapshot-then-unregister-then-record ordering
+            deterministically (map iteration order is unspecified)."
+    (rf/reg-frame :test/main {})
+
+    (let [recorded (record-trace!)]
+      ;; ::victim is a freshly-registered listener that has NOT yet observed
+      ;; any frame (put-listener! clears its observation ledger). It is live
+      ;; in the registry when the fan-out snapshot is taken.
+      (rf/register-epoch-listener! ::victim (fn [_] nil))
+      (let [;; (1) notify-listeners! takes the snapshot (includes ::victim).
+            snapshot (state/listeners-snapshot)]
+        (is (contains? snapshot ::victim)
+            "::victim is in the fan-out snapshot")
+
+        ;; (2) ::victim is unregistered AFTER the snapshot — the exact race.
+        (rf/unregister-epoch-listener! ::victim)
+
+        ;; (3) notify-listeners! reaches the snapshot's ::victim entry and
+        ;; calls record-observation! for it (the loop iterates the stale
+        ;; snapshot). Replay that single step.
+        (doseq [[id _f] snapshot]
+          (state/record-observation! id :test/main)))
+
+      (is (not (contains? (state/listeners-snapshot) ::victim))
+          "::victim was unregistered during fan-out")
+      (is (not (contains? (state/observations-snapshot) ::victim))
+          "::victim carries NO stale observed-frames-by-cb entry after the
+           snapshot-then-unregister-then-record interleaving")
+
+      ;; Destroy the frame — the silencing pass reads observations-snapshot.
+      ;; ::victim must NOT receive a silencing trace.
+      (rf/destroy-frame! :test/main)
+      (let [victim-silenced (filter #(and (= :rf.epoch.cb/silenced-on-frame-destroy
+                                             (:operation %))
+                                          (= ::victim (:cb-id (:tags %))))
+                                    @recorded)]
+        (is (empty? victim-silenced)
+            "no bogus :rf.epoch.cb/silenced-on-frame-destroy trace for the
+             unregistered ::victim cb")))))
 

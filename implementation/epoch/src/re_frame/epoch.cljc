@@ -506,31 +506,44 @@
   Records a synthetic `:rf/epoch-record` (so `restore-epoch` can rewind
   the prior state), emits `:rf.epoch/db-replaced`, replaces the
   container, and fans the record out to registered listeners. Returns
-  `true`."
+  `true` on a real write.
+
+  Per rf2-7i872 (validate-then-destroy race): re-resolves the container
+  at the write boundary via `tool-pair/live-container-or-fail`. If the
+  frame was destroyed between the precondition pass and now, the container
+  is nil and `replace-container!` would silently no-op — so instead of
+  recording a synthetic epoch for a destroyed frame, fanning it out to
+  listeners, emitting `:rf.epoch/db-replaced`, and returning `true` (a
+  FALSE success against a frame that no longer exists), this emits the
+  canonical `:rf.error/no-such-handler` (kind `:frame`) failure trace and
+  returns `false`, matching the destroyed-frame contract."
   [frame-id new-db]
-  (let [container (frame/app-db-container frame-id)
-        db-before (when container (adapter/read-container container))]
-    (adapter/replace-container! container new-db)
-    ;; Record a synthetic epoch so `restore-epoch` can rewind the
-    ;; previous state. The record's :trigger-event is the
-    ;; pair-tool injection sentinel (no application event ran).
-    ;; Per rf2-wp70d: `maybe-redact` runs once between assembly and
-    ;; the record!/notify-listeners! split so ring + listeners see
-    ;; the SAME redacted shape on this synthetic record too.
-    (let [record (assembly/maybe-redact
-                   (assoc (assembly/build-record frame-id db-before new-db [])
-                          :event-id      :rf.epoch/db-replaced
-                          :trigger-event [:rf.epoch/db-replaced]))]
-      (state/record! record)
-      ;; Per rf2-qs6dl: a `reset-frame-db!` re-renders the views that read
-      ;; the replaced state; attribute those post-settle renders back to
-      ;; this synthetic epoch rather than the next real cascade.
-      (state/set-last-settled-epoch! frame-id (:epoch-id record))
-      (trace/emit! :rf.epoch :rf.epoch/db-replaced
-                   {:frame       frame-id
-                    :rf.epoch/id (:epoch-id record)})
-      (listeners/notify-listeners! record))
-    true))
+  (let [{:keys [outcome op tags container]} (tool-pair/live-container-or-fail frame-id)]
+    (if (= :fail outcome)
+      (do (tool-pair/emit-precondition-failure! op tags)
+          false)
+      (let [db-before (adapter/read-container container)]
+        (adapter/replace-container! container new-db)
+        ;; Record a synthetic epoch so `restore-epoch` can rewind the
+        ;; previous state. The record's :trigger-event is the
+        ;; pair-tool injection sentinel (no application event ran).
+        ;; Per rf2-wp70d: `maybe-redact` runs once between assembly and
+        ;; the record!/notify-listeners! split so ring + listeners see
+        ;; the SAME redacted shape on this synthetic record too.
+        (let [record (assembly/maybe-redact
+                       (assoc (assembly/build-record frame-id db-before new-db [])
+                              :event-id      :rf.epoch/db-replaced
+                              :trigger-event [:rf.epoch/db-replaced]))]
+          (state/record! record)
+          ;; Per rf2-qs6dl: a `reset-frame-db!` re-renders the views that read
+          ;; the replaced state; attribute those post-settle renders back to
+          ;; this synthetic epoch rather than the next real cascade.
+          (state/set-last-settled-epoch! frame-id (:epoch-id record))
+          (trace/emit! :rf.epoch :rf.epoch/db-replaced
+                       {:frame       frame-id
+                        :rf.epoch/id (:epoch-id record)})
+          (listeners/notify-listeners! record))
+        true))))
 
 (defn reset-frame-db!
   "Replace `frame-id`'s `app-db` with `new-db`, bypassing the dispatch
