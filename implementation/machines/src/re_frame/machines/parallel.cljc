@@ -25,11 +25,19 @@
 
   This namespace also exposes the public `machine-transition` dispatch
   (single vs parallel) so the transition engine doesn't need to know
-  the parallel layer exists. `re-frame.machines.transition`'s
-  `drain-raises` reaches the single-machine engine directly via
-  `machine-transition-single` — `:raise` always runs against an already-
-  resolved single (or region) machine context, so the parallel layer
-  is bypassed for the recursive macrostep call."
+  the parallel layer exists.
+
+  `:raise` semantics (rf2-yi7ts / rf2-nr434 — XState v5 / SCXML gold
+  standard). A flat / compound machine drains its own `:raise` queue FIFO
+  inside `re-frame.machines.transition`. A PARALLEL machine owns the
+  macrostep's single internal-event queue HERE: each region DEFERS its
+  raises (its `machine-transition-single` leaves `:raise` fx un-drained —
+  `transition/drain-or-defer-raises`), and `parallel-machine-transition`
+  re-broadcasts each surfaced raise across EVERY region against the full
+  evolving snapshot, FIFO, until the queue settles — then commits once.
+  A region's `:raise` is therefore NOT region-local; it re-enters the
+  parent macrostep, matching what a self-`[:dispatch [<self-id> …]]` would
+  broadcast (pre-commit, in one macrostep)."
   (:require [clojure.set :as set]
             [re-frame.machines.result :as result
              #?@(:cljs [:include-macros true])]
@@ -371,50 +379,172 @@
 
 (declare machine-transition)
 
+;; ---- parallel macrostep internal-event queue (rf2-yi7ts) ------------------
+;;
+;; XState v5 / SCXML gold standard: `raise` enqueues on the machine's ONE
+;; internal event queue; the macrostep pops the front and broadcasts that
+;; internal event to every active region, FIFO, until the queue drains —
+;; then commits once. A parallel-region `:raise` is therefore NOT
+;; region-local: a region that raises an event re-enters the PARENT
+;; macrostep, which re-broadcasts the raised event across ALL sibling
+;; regions against the FULL EVOLVING snapshot (so a sibling region's guard
+;; sees the raise; the originating region also re-sees it).
+;;
+;; Mechanism: each per-region step DEFERS its raises (the region's
+;; `machine-transition-single` leaves `:raise` fx un-drained — see
+;; `transition/drain-or-defer-raises`). `parallel-machine-transition`
+;; harvests those surfaced raises off the merged broadcast result, splits
+;; them from the real (do-fx-bound) fx, and feeds them — FIFO — back through
+;; another full broadcast. The loop terminates at the parent
+;; `:raise-depth-limit` (default 16, same constant as the flat drain), and
+;; on exceed rolls the WHOLE macrostep back atomically (original snapshot,
+;; no fx) exactly like the single-machine drain.
+
+(defn- split-raises
+  "Partition a merged broadcast's `fx` into `[raised-events real-fx]`.
+  `raised-events` is the vector of raised event-vectors (the `args` of each
+  `[:raise <event-vec>]`), in broadcast order — region-declaration order
+  within one broadcast, which is the order regions surfaced them. `real-fx`
+  is every non-`:raise` fx entry, preserved in order, to flow on to `do-fx`.
+  `:raise` entries are never region-prefixed (`prefix-region-spawn-id` only
+  touches `:rf/spawn-id`), so they arrive here verbatim."
+  [fx]
+  (reduce (fn [[raises real] [fx-id args :as entry]]
+            (if (= :raise fx-id)
+              [(conj raises args) real]
+              [raises (conj real entry)]))
+          [[] []]
+          fx))
+
+(defn- broadcast-once
+  "One full broadcast of `event` across every region of `machine` against
+  `snapshot`, via the `reduce-regions` invariant. Regions DEFER their
+  raises, so the returned Result's `fx` may carry surfaced `[:raise …]`
+  entries for the parent loop to harvest. Returns the merged `result/ok`
+  (carrying `::handled?` / `::microsteps` / `::cascade`) or the first
+  region's `result/fail`."
+  [machine snapshot event]
+  (reduce-regions machine snapshot
+                  (fn [region-spec region-snap]
+                    (machine-transition region-spec region-snap event))))
+
 (defn- parallel-machine-transition
   "Pure function. Given a parallel-region machine, current snapshot, and
-  event, broadcast the event to each region and merge the results.
-  Returns a `result/ok` Result on success or a `result/fail` Result if
-  any region's action threw.
+  event, run the parallel MACROSTEP — broadcast the event to every region,
+  then drain the parent's single internal-event queue (region-surfaced
+  `:raise`s, re-broadcast FIFO across all regions) to a fixed point, and
+  return the merged result. Returns a `result/ok` Result on success or a
+  `result/fail` Result if any region's action threw.
 
   Per Spec 005 §Transition broadcast: each region resolves the event
   through its own active state's deepest-wins lookup; resolved regions
   transition, undeclined regions stay put. The `:data` slot is shared —
   each region's actions see the prior region's `:data` writes in
   declaration order. Per rf2-vqubp the broadcast invariant lives in
-  `reduce-regions`; this function closes over `event` to produce a
-  unary step-fn the helper can apply per region.
+  `reduce-regions`.
+
+  Per Spec 005 §Parallel-region `:raise` broadcast (rf2-yi7ts — XState v5
+  parity): a `:raise` emitted by ANY region is NOT region-local. It enters
+  this macrostep's internal-event queue and is re-broadcast across EVERY
+  region against the full evolving snapshot — exactly what an equivalent
+  self-`[:dispatch [<self-id> …]]` would broadcast, but pre-commit and
+  inside the one macrostep. Raises are drained FIFO (rf2-nr434): a raise
+  surfaced earlier is re-broadcast before one surfaced later, and a raise
+  emitted *while handling* a re-broadcast goes to the BACK of the queue.
+  The whole macrostep — external event + every re-broadcast internal event
+  + every region's `:always` microsteps — commits ONCE, atomically.
+  Bounded by the parent `:raise-depth-limit` (default 16); on exceed the
+  macrostep rolls back wholesale (original snapshot, no fx) and emits
+  `:rf.error/machine-raise-depth-exceeded`, matching the single-machine
+  drain.
 
   For the synthetic `[:rf.machine.timer/after-elapsed ...]` event,
   delivery is region-scoped — the broadcast routes to the bearing region
   only, identified by the region-name prefix on the in-flight timer's
   `:rf/spawn-id`."
   [machine snapshot event]
-  (let [result (reduce-regions machine snapshot
-                               (fn [region-spec region-snap]
-                                 (machine-transition region-spec region-snap event)))]
-    ;; Per Spec 005 §Transition broadcast: when EVERY region declines the
-    ;; event the machine as a whole emits a SINGLE benign
-    ;; `:rf.machine.event/unhandled-no-op` (op-type `:rf.machine`, info-grade,
-    ;; NOT an error — xstate-v5 parity; canonical id / op-type / tags per
-    ;; Spec 009 §`:op-type` vocabulary). If any region handled the event no
-    ;; trace fires. Mirrors the flat-machine emission in
-    ;; `transition/machine-transition-single` so the single- and parallel-
-    ;; machine paths stay in lockstep. (rf2-ugdas — benign no-op, no error /
-    ;; warning; rf2-t4582 — gated by `transition/unhandled-event-no-op?` so
-    ;; reserved-`:rf/*` framework lifecycle traffic — the synthetic bootstrap,
-    ;; the spawn kick-off, the stories-runtime pings — is NOT classified as an
-    ;; unknown-user-event no-op. Severity is unchanged; the semantic carve-out
-    ;; is restored, matching xstate's `xstate.init`.)
-    (when (and (result/ok? result)
-               (not (result/handled? result))
-               (transition/unhandled-event-no-op? event))
-      (trace/emit! :rf.machine :rf.machine.event/unhandled-no-op
-                   {:machine-id (or (:rf/parent-id machine) (:id machine))
-                    :event      event
-                    :state      (:state snapshot)
-                    :frame      (:rf/frame machine)}))
-    result))
+  (let [raise-limit (get machine :raise-depth-limit
+                         transition/raise-depth-limit-default)
+        first-r     (broadcast-once machine snapshot event)]
+    (if (result/fail? first-r)
+      first-r
+      ;; Drain the parent internal-event queue. `acc-fx` accumulates only
+      ;; the real (non-:raise) fx; `acc-micro` / `acc-cascade` roll up the
+      ;; macrostep totals across every (re-)broadcast. `handled?` reflects
+      ;; the EXTERNAL event alone — re-broadcast internal events are
+      ;; continuation and never re-arm the all-regions-declined no-op
+      ;; (which keys off the inbound `event` below).
+      (result/with-ok [snap0 fx0] first-r
+        (let [[raises0 real0] (split-raises fx0)
+              external-handled? (result/handled? first-r)]
+          (loop [cur-snap   snap0
+                 pending    (vec raises0)
+                 acc-fx     real0
+                 ;; `depth` counts internal events re-broadcast off the
+                 ;; queue — symmetric with the flat drain's per-raise count
+                 ;; and bounded by the SAME limit / `>=` boundary.
+                 depth      0
+                 acc-micro  (result/microsteps first-r)
+                 acc-casc   (result/cascade first-r)]
+            (cond
+              (empty? pending)
+              (let [result (-> (result/ok cur-snap acc-fx)
+                               (result/with-handled external-handled?)
+                               (result/with-microsteps acc-micro)
+                               (result/with-cascade acc-casc))]
+                ;; Per Spec 005 §Transition broadcast: when EVERY region
+                ;; declines the EXTERNAL event the machine emits a SINGLE
+                ;; benign `:rf.machine.event/unhandled-no-op` (op-type
+                ;; `:rf.machine`, info-grade, NOT an error — xstate-v5
+                ;; parity; canonical id / op-type / tags per Spec 009
+                ;; §`:op-type` vocabulary). Gated on the inbound `event`
+                ;; (not any re-broadcast raise) and on
+                ;; `transition/unhandled-event-no-op?` so reserved-`:rf/*`
+                ;; framework lifecycle traffic — the synthetic bootstrap,
+                ;; the spawn kick-off, the stories-runtime pings — is NOT
+                ;; classified as an unknown-user-event no-op (rf2-ugdas /
+                ;; rf2-t4582). Mirrors the flat-machine emission in
+                ;; `transition/machine-transition-single`.
+                (when (and (not external-handled?)
+                           (transition/unhandled-event-no-op? event))
+                  (trace/emit! :rf.machine :rf.machine.event/unhandled-no-op
+                               {:machine-id (or (:rf/parent-id machine) (:id machine))
+                                :event      event
+                                :state      (:state snapshot)
+                                :frame      (:rf/frame machine)}))
+                result)
+
+              ;; `>=` boundary parity with the flat drain (rf2-r26e2): the
+              ;; loop re-broadcasts internal events at depths 0..limit-1
+              ;; then aborts at `depth == limit`. Atomic rollback — the
+              ;; WHOLE macrostep is discarded; no partial snapshot / fx
+              ;; survives (Spec 005 §Drain semantics: bounded depth halts
+              ;; with the snapshot uncommitted, `:no-recovery`).
+              (>= depth raise-limit)
+              (do (trace/emit-error! :rf.error/machine-raise-depth-exceeded
+                                     {:machine-id (or (:rf/parent-id machine)
+                                                      (:id machine))
+                                      :depth      depth
+                                      :frame      (:rf/frame machine)
+                                      :recovery   :no-recovery})
+                  (result/ok snapshot []))
+
+              :else
+              (let [ev   (first pending)
+                    step (broadcast-once machine cur-snap ev)]
+                (if (result/fail? step)
+                  step
+                  (result/with-ok [snap2 fx2] step
+                    (let [[new-raises real-fx] (split-raises fx2)]
+                      (recur snap2
+                             ;; FIFO (rf2-nr434): drop the just-processed
+                             ;; front, APPEND this broadcast's own raises to
+                             ;; the BACK — behind the still-pending queue.
+                             (into (vec (rest pending)) new-raises)
+                             (into acc-fx real-fx)
+                             (inc depth)
+                             (+ acc-micro (result/microsteps step))
+                             (into acc-casc (result/cascade step))))))))))))))
 
 (defn machine-transition
   "Pure function. Given a machine definition, current snapshot, and event,
@@ -431,7 +561,7 @@
    1. Pick the matching transition for the event using deepest-wins
       resolution along the state path.
    2. Run the exit cascade → transition's action → entry cascade.
-   3. Drain the local :raise queue depth-first.
+   3. Drain the local :raise queue FIFO (rf2-nr434 — XState/SCXML parity).
    4. :always microstep loop — walk path leaf→root for any matching
       :always; apply, drain raises, loop.
    5. Commit (return) the snapshot once :always reaches fixed point.
@@ -439,9 +569,10 @@
   Bounded by :raise-depth-limit and :always-depth-limit (both default 16).
   Parallel-region machines (`:type :parallel`) are dispatched into
   `parallel-machine-transition`, where the event is broadcast across
-  regions per Spec 005 §Parallel regions (rf2-l67o). Flat / compound
-  machines drop straight into the single-machine engine in
-  `re-frame.machines.transition`."
+  regions per Spec 005 §Parallel regions (rf2-l67o) and region-emitted
+  raises re-broadcast through the parent macrostep's internal-event queue
+  (rf2-yi7ts). Flat / compound machines drop straight into the
+  single-machine engine in `re-frame.machines.transition`."
   [machine snapshot event]
   (if (parallel? machine)
     (parallel-machine-transition machine snapshot event)
