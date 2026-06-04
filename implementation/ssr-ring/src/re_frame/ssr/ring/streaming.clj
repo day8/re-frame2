@@ -220,15 +220,30 @@
       (write-chunk! out (default-streaming-prefix head-html shell-opts))
       (write-chunk! out shell-html)
       ;; Chunks 2..N+1 — one per continuation, FIFO over registration.
-      (doseq [entry continuations]
-        (let [{:keys [id html delta failed?]}
-              (rf/with-frame frame-id (streaming/render-continuation frame-id entry))
-              tmpl-fn (if failed?
-                        streaming/failed-template
-                        streaming/resolved-template)]
-          (write-chunk! out (tmpl-fn id html))
-          (when (and (not failed?) (some? delta))
-            (write-chunk! out (streaming/hydrate-delta-script id (pr-str delta))))))
+      ;;
+      ;; rf2-sgvn6 / rf2-b1v8v — drain a GROWABLE FIFO worklist, not a
+      ;; fixed (doseq) over the shell's initial vector. A nested
+      ;; `:rf/suspense-boundary` inside a continuation's subtree registers
+      ;; a NEW continuation when that continuation renders (Spec 011
+      ;; §922-924/§966/§983); `streaming/render-continuation` returns those
+      ;; newly-discovered entries on `:continuations`. We append them at
+      ;; the TAIL of the queue (`into` over a PersistentQueue preserves
+      ;; FIFO) and keep draining until the queue empties — so the inner
+      ;; boundary's resolved chunk streams AFTER all originally-registered
+      ;; continuations, exactly as the document-order contract requires.
+      (loop [queue (into clojure.lang.PersistentQueue/EMPTY continuations)]
+        (when-let [entry (peek queue)]
+          (let [{:keys [id html delta failed? continuations]}
+                (rf/with-frame frame-id (streaming/render-continuation frame-id entry))
+                tmpl-fn (if failed?
+                          streaming/failed-template
+                          streaming/resolved-template)]
+            (write-chunk! out (tmpl-fn id html))
+            (when (and (not failed?) (some? delta))
+              (write-chunk! out (streaming/hydrate-delta-script id (pr-str delta))))
+            ;; Pop the drained entry, append any nested continuations at
+            ;; the tail (FIFO), continue until empty.
+            (recur (into (pop queue) continuations)))))
       ;; Chunk N+2 — final canonical __rf_payload.
       (let [final-hash    (rf/with-frame frame-id (ssr/render-tree-hash hiccup))
             final-payload (rf/with-frame frame-id

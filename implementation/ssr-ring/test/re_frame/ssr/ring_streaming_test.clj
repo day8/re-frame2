@@ -145,6 +145,88 @@
       (is (str/includes? body "Still loading") "fallback materialised in failed chunk")
       (is (str/includes? body "__rf_payload") "final payload still emitted"))))
 
+(deftest stream-handler-nested-boundary-drains-inner-FIFO
+  (testing "rf2-sgvn6 / rf2-b1v8v: an OUTER :rf/suspense-boundary whose
+            subtree contains an INNER :rf/suspense-boundary streams
+            end-to-end. The writer drains a GROWABLE FIFO: the inner
+            boundary registers DURING the outer continuation's render and
+            its resolved chunk streams at the TAIL — AFTER the outer's
+            resolved chunk (Spec 011 §922-924/§966/§983). The outer must
+            NOT be marked failed; the inner must resolve its own body."
+    (rf/reg-view ^{:rf/id :test/inner-section} inner-section []
+      [:div.inner-body "INNER BODY CONTENT"])
+    (rf/reg-view ^{:rf/id :test/outer-section} outer-section []
+      [:section.outer
+       [:p "outer content above inner"]
+       [:rf/suspense-boundary
+        {:id :test/inner :fallback [:p.inner-fallback "inner loading"]}
+        [:test/inner-section]]])
+    (rf/reg-view ^{:rf/id :test/nested-root} nested-root []
+      [:main
+       [:h1 "Nested"]
+       [:rf/suspense-boundary
+        {:id :test/outer :fallback [:p.outer-fallback "outer loading"]}
+        [:test/outer-section]]
+       [:footer "End"]])
+    (let [handler  (ssr-ring/stream-handler
+                     {:on-create [:rf.test.server/init]
+                      :root-view [:test/nested-root]
+                      :payload :rf.ssr.payload/whole-app-db})
+          response (handler {:uri "/" :request-method :get})
+          body     (drain-stream (:body response))
+          ;; Wire offsets pinning the FIFO drain order.
+          idx-outer-fallback (str/index-of body "data-rf2-suspense-id=\":test/outer\" data-rf2-suspense-fallback=\"1\"")
+          idx-outer-resolved (str/index-of body "data-rf2-suspense-id=\":test/outer\" data-rf2-suspense-resolved=\"1\"")
+          idx-inner-fallback (str/index-of body "data-rf2-suspense-id=\":test/inner\" data-rf2-suspense-fallback=\"1\"")
+          idx-inner-resolved (str/index-of body "data-rf2-suspense-id=\":test/inner\" data-rf2-suspense-resolved=\"1\"")
+          idx-inner-body     (str/index-of body "INNER BODY CONTENT")
+          idx-payload        (str/index-of body "__rf_payload")
+          idx-close          (str/index-of body "</body></html>")]
+      (is (= 200 (:status response)) "nested stream still 200")
+      ;; Shell carries the OUTER fallback only — the inner is buried in
+      ;; the unresolved outer subtree.
+      (is (some? idx-outer-fallback) "outer fallback placeholder in the shell")
+      (is (str/includes? body "outer loading") "outer fallback text in the shell")
+      (is (< idx-outer-fallback (or idx-inner-fallback Long/MAX_VALUE))
+          "the inner fallback is NOT in the shell — it appears only inside
+           the outer's resolved chunk, which streams after the shell")
+      ;; CRITICAL — the outer continuation resolved CLEANLY (no failed
+      ;; marker on the outer). Pre-fix the outer was marked failed because
+      ;; the buried inner boundary threw through the non-streaming emitter.
+      (is (some? idx-outer-resolved)
+          "outer resolved chunk emitted (NOT a failed re-emit of its fallback)")
+      (is (not (str/includes? body "data-rf2-suspense-id=\":test/outer\" data-rf2-suspense-resolved=\"1\" data-rf2-suspense-failed=\"1\""))
+          "the OUTER boundary is NOT marked failed — it resolved through
+           the streaming walker (rf2-sgvn6)")
+      (is (str/includes? body "outer content above inner")
+          "the outer subtree's static content resolved")
+      ;; The inner boundary's FALLBACK template appears INSIDE the outer's
+      ;; resolved chunk (the inner is deferred at outer-drain time).
+      (is (some? idx-inner-fallback)
+          "the inner boundary's fallback placeholder appears (inside the
+           outer resolved chunk) — the inner registered during the outer
+           drain")
+      ;; The inner's OWN resolved chunk + body stream LAST (FIFO tail).
+      (is (some? idx-inner-resolved)
+          "the inner boundary's resolved chunk streamed — the nested
+           continuation was appended to the FIFO and drained")
+      (is (some? idx-inner-body)
+          "the inner resolved chunk carries the inner body content")
+      (is (some? idx-payload) "final __rf_payload still emitted")
+      (is (some? idx-close) "body close emitted")
+      ;; FIFO drain-order contract: outer fallback (shell) → outer resolved
+      ;; → inner resolved → final payload → close. The inner resolved chunk
+      ;; lands AFTER the outer resolved chunk (registered at the tail).
+      (is (< idx-outer-fallback idx-outer-resolved)
+          "outer fallback (shell) before outer resolved chunk")
+      (is (< idx-outer-resolved idx-inner-resolved)
+          "inner resolved chunk streams AFTER the outer resolved chunk —
+           FIFO tail registration (Spec 011 §966/§983)")
+      (is (< idx-inner-resolved idx-payload)
+          "inner resolved chunk before the final payload")
+      (is (< idx-payload idx-close)
+          "final payload before body close"))))
+
 (deftest stream-handler-no-boundary-zero-continuations
   (testing "A tree with NO :rf/suspense-boundary still streams cleanly (degenerate case)"
     (rf/reg-view ^{:rf/id :test/static-root} static-root []

@@ -1,0 +1,164 @@
+;; Conformance fixture: ssr/streaming-nested
+;;
+;; Pins the NESTED-boundary chunk-ordering contract for
+;; `:rf/suspense-boundary` streaming SSR. Per Spec 011 §Streaming SSR
+;; §Boundary nesting and recursion (rf2-sgvn6 / rf2-b1v8v —
+;; the deferred rf2-v3eg3 finding-2).
+;;
+;; Specs that meet:
+;; [011-SSR §Boundary nesting and recursion](../../011-SSR.md#boundary-nesting-and-recursion),
+;; [011-SSR §Hydration interleaving](../../011-SSR.md#hydration-interleaving--per-subtree-deltas).
+;;
+;; Scenario: a server-side render of a tree carrying ONE outer
+;; `:rf/suspense-boundary` whose subtree contains an INNER
+;; `:rf/suspense-boundary`. The shell walk sees ONLY the outer boundary
+;; (the inner is buried in the unresolved outer subtree). When the outer
+;; continuation drains, the streaming walker recognises the buried inner
+;; boundary: it materialises the inner's FALLBACK `<template>` inline and
+;; registers a NEW continuation. The host appends that inner continuation
+;; at the TAIL of its FIFO drain queue; the inner's resolved chunk
+;; therefore streams AFTER the outer's resolved chunk.
+;;
+;; Pin: (a) the shell registers exactly the outer continuation,
+;; (b) draining the outer resolves cleanly (NOT failed), carries the
+;; inner's fallback template, and returns the inner continuation on
+;; `:continuations`, (c) draining the inner resolves the inner body,
+;; (d) the wire-chunk ordering: shell (outer fallback) → outer resolved
+;; (carrying inner fallback) → inner resolved (inner body) →
+;; final __rf_payload → close.
+
+{:fixture/id           :ssr/streaming-nested
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:ssr/render-to-string
+                         :ssr/suspense-boundary
+                         :ssr/hydration-payload
+                         :ssr/chunked-response}
+ :fixture/doc          "Pins NESTED :rf/suspense-boundary streaming wire shape: the inner boundary registers DURING the outer continuation render (not at shell-walk time) and its resolved chunk streams at the FIFO tail, AFTER the outer resolved chunk. The outer resolves cleanly (NOT failed) — the streaming walker recognises the buried inner marker instead of throwing through the non-streaming emitter. Per Spec 011 §Boundary nesting and recursion (rf2-sgvn6 / rf2-b1v8v)."
+
+ :fixture/registry
+ {:view {:streaming-nested.test/inner-section
+         {:doc "Resolved-via-inner-boundary subtree — the inner body."}
+         :streaming-nested.test/outer-section
+         {:doc "Resolved-via-outer-boundary subtree — wraps the inner boundary."}
+         :streaming-nested.test/root
+         {:doc "Page root with one outer boundary nesting one inner boundary."}}}
+
+ :fixture/handlers
+ {:view {:streaming-nested.test/inner-section
+         [[:hiccup [:div.inner-body "inner body content"]]]
+
+         :streaming-nested.test/outer-section
+         [[:hiccup
+           [:section.outer
+            [:p "outer content above inner"]
+            [:rf/suspense-boundary
+             {:id :streaming-nested.test/inner
+              :fallback [:p.fallback "Loading inner…"]}
+             [:streaming-nested.test/inner-section]]]]]
+
+         :streaming-nested.test/root
+         [[:hiccup
+           [:main
+            [:h1 "Nested"]
+            [:rf/suspense-boundary
+             {:id :streaming-nested.test/outer
+              :fallback [:p.fallback "Loading outer…"]}
+             [:streaming-nested.test/outer-section]]
+            [:footer "End"]]]]}}
+
+ :fixture/frame-config {:platform :server}
+
+ :fixture/calls
+ [;; Step 1 — shell walk. The shell sees ONLY the outer boundary; the
+  ;; inner is buried in the unresolved outer subtree. The shell carries
+  ;; the OUTER fallback placeholder, NOT the inner.
+  {:call   :ssr.streaming/render-shell
+   :input  [:streaming-nested.test/root]
+   :expect
+   {:shell-html-includes
+    ["<main"
+     "<h1>Nested</h1>"
+     "<template data-rf2-suspense-id=\":streaming-nested.test/outer\" data-rf2-suspense-fallback=\"1\">"
+     "<p class=\"fallback\">Loading outer…</p>"
+     "</template>"
+     "<footer>End</footer>"
+     "</main>"]
+    ;; the inner fallback is NOT in the shell — it is still buried.
+    :shell-html-excludes
+    ["Loading inner…"
+     "data-rf2-suspense-id=\":streaming-nested.test/inner\""]
+    :continuations
+    [{:id :streaming-nested.test/outer}]}}
+
+  ;; Step 2 — drain the OUTER continuation. It resolves CLEANLY (NOT
+  ;; failed): the streaming walker recognises the buried inner boundary,
+  ;; materialises the inner FALLBACK template inline, and registers a NEW
+  ;; inner continuation returned on :continuations (FIFO tail). The inner
+  ;; BODY is NOT in the outer chunk — it is deferred.
+  {:call   :ssr.streaming/render-continuation
+   :input  {:id :streaming-nested.test/outer
+            :subtree [:streaming-nested.test/outer-section]}
+   :expect
+   {:html-includes ["<section"
+                    "outer content above inner"
+                    ;; the inner boundary's FALLBACK template, deferred:
+                    "<template data-rf2-suspense-id=\":streaming-nested.test/inner\" data-rf2-suspense-fallback=\"1\">"
+                    "Loading inner…"]
+    :html-excludes ["inner body content"]
+    :failed? false
+    :continuations [{:id :streaming-nested.test/inner}]}}
+
+  ;; Step 3 — drain the INNER continuation (registered at the FIFO tail
+  ;; during step 2). It resolves the inner body and registers no further
+  ;; nested boundaries.
+  {:call   :ssr.streaming/render-continuation
+   :input  {:id :streaming-nested.test/inner
+            :subtree [:streaming-nested.test/inner-section]}
+   :expect
+   {:html-includes ["<div class=\"inner-body\""
+                    "inner body content"]
+    :failed? false
+    :continuations []}}
+
+  ;; Step 4 — final canonical __rf_payload.
+  {:call   :ssr.streaming/build-final-payload
+   :input  {:render-hash "00000000"
+            :version     1
+            :payload     :rf.ssr.payload/whole-app-db}
+   :expect {:payload-keys #{:rf/version :rf/frame-id :rf/app-db :rf/render-hash}
+            :rf/version   1}}]
+
+ ;; Wire-order invariant. The host adapter drains a GROWABLE FIFO: the
+ ;; inner continuation, registered during the outer drain, is appended at
+ ;; the TAIL, so the inner resolved chunk streams AFTER the outer's.
+ :fixture/wire-order
+ [;; chunk 1 — shell prefix + shell-html (outer fallback only)
+  {:kind :shell
+   :must-include ["<!DOCTYPE html>"
+                  "<html"
+                  "<body"
+                  "<div id=\"app\">"
+                  "data-rf2-suspense-id=\":streaming-nested.test/outer\" data-rf2-suspense-fallback=\"1\""]}
+  ;; chunk 2 — outer resolved (carries the inner fallback template)
+  {:kind  :resolved
+   :ord   1
+   :id    :streaming-nested.test/outer
+   :must-include ["data-rf2-suspense-id=\":streaming-nested.test/outer\" data-rf2-suspense-resolved=\"1\""
+                  "outer content above inner"
+                  "data-rf2-suspense-id=\":streaming-nested.test/inner\" data-rf2-suspense-fallback=\"1\""]}
+  ;; chunk 3 — inner resolved (FIFO tail — AFTER the outer resolved chunk)
+  {:kind  :resolved
+   :ord   2
+   :id    :streaming-nested.test/inner
+   :must-include ["data-rf2-suspense-id=\":streaming-nested.test/inner\" data-rf2-suspense-resolved=\"1\""
+                  "inner body content"]}
+  ;; chunk 4 — final canonical __rf_payload
+  {:kind :final-payload
+   :must-include ["<script id=\"__rf_payload\""
+                  "type=\"application/edn\""
+                  ":rf/version"
+                  ":rf/render-hash"]}
+  ;; chunk 5 — shell suffix close
+  {:kind :close
+   :must-include ["</body>"
+                  "</html>"]}]}

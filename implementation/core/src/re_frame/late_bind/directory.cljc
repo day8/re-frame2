@@ -481,7 +481,7 @@
    {:key         :ssr.streaming/render-continuation!
     :producer-ns 're-frame.ssr.streaming
     :design-bead "rf2-ojakd"
-    :description "Render a continuation chunk (resolved-suspense fragment) for an in-flight streaming render."}
+    :description "Render a continuation chunk (resolved-suspense fragment) for an in-flight streaming render. Returns {:id :html :delta :failed? :continuations} — :continuations are nested boundaries discovered during this render that the host appends at the tail of its FIFO drain queue (rf2-sgvn6)."}
    {:key         :ssr.streaming/build-final-payload
     :producer-ns 're-frame.ssr.streaming
     :design-bead "rf2-ojakd"
