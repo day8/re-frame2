@@ -48,7 +48,8 @@
             [re-frame.late-bind :as late-bind]
             [re-frame.mcp-base.elision :as base-elision]
             [re-frame.mcp-base.envelope :as base-envelope]
-            [re-frame.mcp-base.sensitive :as sensitive]))
+            [re-frame.mcp-base.sensitive :as sensitive]
+            [re-frame.story-mcp.tools.result :as result]))
 
 ;; ---------------------------------------------------------------------------
 ;; Path-based redaction
@@ -238,3 +239,25 @@
   its slot, so a clean read returns the payload unchanged."
   [payload counts]
   (base-envelope/with-indicators payload counts))
+
+(defn result-with-indicators
+  "Build the final `edn-result` for a live-state read, splicing on the
+  MUST-level egress indicator counts (rf2-koq5m). The
+  `:dropped`-sensitive count is supplied by the caller (from
+  `scrub-assertions+count`); the `:elided`-large count is derived here
+  by walking the FINAL payload for `:rf.size/large-elided` markers via
+  `count-elided`.
+
+  This is the dual-coded epilogue the three live-state handlers shared
+  verbatim — `preview-variant` / `run-variant` / `read-failures` each
+  closed with `(result/edn-result (with-indicators payload {:dropped d
+  :elided (count-elided payload)}))`. Named once so each handler reads
+  as 'return this payload with its egress indicators' rather than
+  re-spelling the count-derive-and-splice dance. Counts omit their slot
+  when zero (Conventions §Cross-MCP indicator-field vocabulary), so a
+  clean read returns the bare payload."
+  [payload dropped]
+  (result/edn-result
+    (with-indicators payload
+                     {:dropped dropped
+                      :elided  (count-elided payload)})))

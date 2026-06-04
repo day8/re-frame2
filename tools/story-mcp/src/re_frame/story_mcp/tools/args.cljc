@@ -15,6 +15,9 @@
     prelude shared by ten handlers (see rf2-f0zxa), routing the agent-
     supplied id through the bounded variant-registry allowlist before
     coercing to a keyword (rf2-lqjbk).
+  - `with-story-id` — the story-side peer of `with-variant-id`,
+    resolving `:story-id` through the bounded story-registry allowlist
+    (shared by `get-story` / `get-docs-markdown`).
   - `read-run-opts` — the `:substrate` / `:active-modes` /
     `:cell-overrides` reader for `run-variant` / `preview-variant` /
     `snapshot-identity`, with each kw-typed slot routed through
@@ -155,6 +158,31 @@
             (result/error-result (str "Variant not found: " (pr-str vk)))
             (f vk body)))
         (result/error-result (str "Variant not found: " (pr-str vid)))))))
+
+(defn with-story-id
+  "Resolve `:story-id` from `arguments` (required), resolve it against
+  the registered-stories set (rf2-lqjbk — no JVM intern outside the
+  allowlist), and call `(f sk)` when it resolves. Otherwise short-
+  circuits with an error result:
+
+    - Missing/blank `:story-id` ⇒ `Missing required argument: …`
+      (the shape `required-arg` emits).
+    - Unregistered story ⇒ `Story not found: <sid>` (the raw caller-
+      supplied string is echoed; the safe-keyword gate refused to
+      intern a keyword form).
+
+  The story-side peer of `with-variant-id`. Crystallises the prelude
+  shared by the two docs handlers that resolve a story id directly
+  (`get-story`, `get-docs-markdown`) — both probe
+  `(args/safe-keyword sid (story/ids :story))` and emit the same
+  `Story not found` error on a miss."
+  [arguments f]
+  (let [[sid err] (required-arg arguments :story-id)]
+    (if err
+      err
+      (if-let [sk (args/safe-keyword sid (story/ids :story))]
+        (f sk)
+        (result/error-result (str "Story not found: " (pr-str sid)))))))
 
 (defn with-variant-id
   "Resolve `:variant-id` from `arguments` (required) against the

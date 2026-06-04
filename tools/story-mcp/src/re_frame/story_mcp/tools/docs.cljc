@@ -75,15 +75,14 @@
 
   rf2-lqjbk: `:story-id` is resolved through `args/safe-keyword`
   against the registered-stories set — an unknown id returns the
-  documented `Story not found` error without interning."
+  documented `Story not found` error without interning (via the shared
+  `targs/with-story-id` prelude)."
   [args]
-  (let [[sid err] (targs/required-arg args :story-id)]
-    (if err err
-      (if-let [sk (args/safe-keyword sid (story/ids :story))]
-        (let [body (story/handler-meta :story sk)
-              payload {:id sk :body body :variants (sort (story/variants-of sk))}]
-          (result/edn-result payload))
-        (result/error-result (str "Story not found: " (pr-str sid)))))))
+  (targs/with-story-id args
+    (fn [sk]
+      (result/edn-result {:id       sk
+                          :body     (story/handler-meta :story sk)
+                          :variants (sort (story/variants-of sk))}))))
 
 (defn tool-get-variant
   "Docs: one variant's full body (`handler-meta :variant id`)."
@@ -353,17 +352,15 @@
   slot and as a `:markdown` structuredContent slot (paste-target for
   agent hosts that surface structured content)."
   [args]
-  (let [[sid err] (targs/required-arg args :story-id)]
-    (if err err
-      (if-let [sk (args/safe-keyword sid (story/ids :story))]
-        (let [body     (story/handler-meta :story sk)
-              variants (sort (story/variants-of sk))
-              md       (render-story-markdown sk body variants)
-              payload  {:story-id sk
-                        :markdown md
-                        :variants (vec variants)}]
-          (result/text-result md payload))
-        (result/error-result (str "Story not found: " (pr-str sid)))))))
+  (targs/with-story-id args
+    (fn [sk]
+      (let [body     (story/handler-meta :story sk)
+            variants (sort (story/variants-of sk))
+            md       (render-story-markdown sk body variants)
+            payload  {:story-id sk
+                      :markdown md
+                      :variants (vec variants)}]
+        (result/text-result md payload)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Registry descriptors (assembled in `tools.registry/tool-registry`)

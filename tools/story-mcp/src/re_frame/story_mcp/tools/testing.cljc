@@ -179,10 +179,7 @@
         ;; dropped sensitive assertion records + elided over-threshold
         ;; leaves across every value-bearing slot. Omitted when zero
         ;; (Conventions §Cross-MCP indicator-field vocabulary).
-        (result/edn-result
-          (egress/with-indicators payload
-                                  {:dropped dropped
-                                   :elided  (egress/count-elided payload)}))))))
+        (egress/result-with-indicators payload dropped)))))
 
 (defn tool-snapshot-identity
   "Testing: content-hash of the canonicalised variant (for external
@@ -284,10 +281,7 @@
         ;; how many sensitive assertion records were dropped at egress
         ;; (+ any elided leaves). Omitted when zero (Conventions
         ;; §Cross-MCP indicator-field vocabulary).
-        (result/edn-result
-          (egress/with-indicators payload
-                                  {:dropped dropped
-                                   :elided  (egress/count-elided payload)}))))))
+        (egress/result-with-indicators payload dropped)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Registry descriptors (assembled in `tools.registry/tool-registry`)

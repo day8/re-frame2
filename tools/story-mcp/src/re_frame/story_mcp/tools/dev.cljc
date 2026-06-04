@@ -154,10 +154,7 @@
         ;; how many sensitive assertion records were dropped + how many
         ;; over-threshold leaves were elided across the payload. Omitted
         ;; when zero (Conventions §Cross-MCP indicator-field vocabulary).
-        (result/edn-result
-          (egress/with-indicators payload
-                                  {:dropped dropped
-                                   :elided  (egress/count-elided payload)}))))))
+        (egress/result-with-indicators payload dropped)))))
 
 (defn tool-list-substrates
   "Dev: what substrates can be used. Reads the registered substrate set
