@@ -612,7 +612,13 @@
               fx-ok?       (if (and validate-fx!
                                     (:schema meta))
                              (try
-                               (validate-fx! fx-id origin-event-id args meta)
+                               ;; rf2-9cm27 — pass the in-flight cascade's
+                               ;; frame so the `:where :fx-args` failure trace
+                               ;; carries `:frame` and lands in the per-frame
+                               ;; epoch `:trace-events` (epoch capture buffers
+                               ;; only frame-tagged traces). Mirrors the
+                               ;; `:where :app-db` / `:where :event` traces.
+                               (validate-fx! fx-id origin-event-id args meta frame-id)
                                (catch #?(:clj Throwable :cljs :default) _ true))
                              true)]
         (if-not fx-ok?

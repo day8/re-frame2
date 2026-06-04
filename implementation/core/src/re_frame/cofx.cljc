@@ -92,7 +92,13 @@
           ;; declared, so users opt in by registering against the same
           ;; key they inject under.
           value    (get (:coeffects ctx) cofx-id)
-          ok?      (try (validate cofx-id event-id value cofx-meta)
+          ;; rf2-9cm27 — pass the in-flight cascade's frame (seeded as the
+          ;; `:frame` coeffect) so the `:where :cofx` failure trace carries
+          ;; `:frame` and lands in the per-frame epoch `:trace-events`
+          ;; (epoch capture buffers only frame-tagged traces). Mirrors the
+          ;; `:where :app-db` / `:where :event` traces.
+          frame    (interceptor/get-coeffect ctx :frame)
+          ok?      (try (validate cofx-id event-id value cofx-meta frame)
                         (catch #?(:clj Throwable :cljs :default) _ true))]
       (if ok?
         ctx
