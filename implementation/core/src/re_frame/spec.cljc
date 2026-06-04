@@ -143,8 +143,8 @@
         ;; Production path. Reach validation through the late-bind
         ;; seam so this namespace stays decoupled from the optional
         ;; schemas artefact.
-        (let [validate-fn (late-bind/get-fn :schemas/validate-with-registered-fn)
-              explain-fn  (late-bind/get-fn :schemas/explain-with-registered-fn)]
+        (let [validate-fn (late-bind/get-fn-cached :schemas/validate-with-registered-fn)
+              explain-fn  (late-bind/get-fn-cached :schemas/explain-with-registered-fn)]
           (if (nil? validate-fn)
             ;; Schemas artefact not on the classpath, or no validator
             ;; registered. Per Spec 010 §Non-Malli validators / nil

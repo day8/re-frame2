@@ -502,12 +502,12 @@
   (let [schema (get route-meta slot)]
     (if-not schema
       [false nil]
-      (let [validate (late-bind/get-fn :schemas/validate-with-registered-fn)]
+      (let [validate (late-bind/get-fn-cached :schemas/validate-with-registered-fn)]
         (if-not validate
           [false nil]
           (if (validate schema value)
             [false nil]
-            (let [explain  (late-bind/get-fn :schemas/explain-with-registered-fn)
+            (let [explain  (late-bind/get-fn-cached :schemas/explain-with-registered-fn)
                   details  (when explain (explain schema value))]
               [true details])))))))
 
