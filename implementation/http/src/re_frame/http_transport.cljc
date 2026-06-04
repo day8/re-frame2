@@ -1172,6 +1172,19 @@
         ;; one-cell atom that the JVM body fills after construction; the
         ;; abort-fn reads it lazily through `@cf-holder`.
         #?@(:clj  [cf-holder (atom nil)])
+        ;; rf2-lz7se — forward-reference cell for the stamped handle.
+        ;; The abort-fn's registry cleanup must pass the handle to the
+        ;; 2-arg `clear-in-flight!` so the actor-in-flight slot is cleared
+        ;; by identity regardless of whether `request-id` is non-nil
+        ;; (anonymous-from-actor requests carry a nil id and are indexed
+        ;; ONLY in actor-in-flight). But the handle is the value being
+        ;; computed by `record-in-flight!` below, so it cannot be a
+        ;; lexical reference inside the closure. Forward it through this
+        ;; one-cell atom — same idiom as `cf-holder` — filled immediately
+        ;; after `record-in-flight!` returns the stamped handle; the
+        ;; abort-fn reads it lazily via `@handle-holder` at fire time
+        ;; (always after registration completes).
+        handle-holder (atom nil)
         ;; Register the abort handle. The handle ref is stamped into ctx
         ;; so finalise-* can clear it from both indexes without needing
         ;; the request-id (handles anonymous-from-actor requests too —
@@ -1223,18 +1236,37 @@
                                      (when-let [^CompletableFuture cf @cf-holder]
                                        (try (.cancel cf true)
                                             (catch Throwable _ nil))))
-                                  ;; Registry cleanup happens here once;
-                                  ;; finalise-failure! is bypassed. The
-                                  ;; 1-arg form resolves the handle by
-                                  ;; request-id and walks both indexes.
-                                  ;; For anonymous (request-id-less)
-                                  ;; requests aborted via actor-destroy,
-                                  ;; the actor-side slot has already
-                                  ;; been cleared atomically by
-                                  ;; `abort-on-actor-destroy` before
-                                  ;; this abort-fn was invoked, so the
-                                  ;; no-op here is correct.
-                                  (registry/clear-in-flight! request-id)
+                                  ;; rf2-lz7se — Registry cleanup happens
+                                  ;; here once; finalise-failure! is
+                                  ;; bypassed. Pass the stamped handle (via
+                                  ;; `@handle-holder`) so the 2-arg form
+                                  ;; walks BOTH indexes by identity,
+                                  ;; independent of whether `request-id`
+                                  ;; is non-nil. This is unconditionally
+                                  ;; correct for every abort trigger
+                                  ;; (managed-abort, supersede,
+                                  ;; actor-destroy) AND for anonymous
+                                  ;; (request-id-less) requests, whose
+                                  ;; handle is indexed ONLY in
+                                  ;; actor-in-flight. The earlier 1-arg
+                                  ;; form resolved by request-id and
+                                  ;; no-op'd on a nil id — correct only
+                                  ;; under the implicit, load-bearing
+                                  ;; invariant that an anonymous request
+                                  ;; can be aborted solely via
+                                  ;; actor-destroy (which pre-clears the
+                                  ;; actor slot). Passing the handle drops
+                                  ;; that fragility: the 2-arg
+                                  ;; remove-from-actor-index! is an
+                                  ;; identity-based vector remove that
+                                  ;; no-ops against an already-cleared
+                                  ;; (or absent) slot, so it is a safe
+                                  ;; idempotent no-op on the actor-destroy
+                                  ;; path (its eager dissoc already emptied
+                                  ;; the vector) while closing the gap for
+                                  ;; any future trigger that does not
+                                  ;; pre-clear.
+                                  (registry/clear-in-flight! request-id @handle-holder)
                                   ;; rf2-on7sj / rf2-wj8vv — the abort-fn
                                   ;; dispatches a synthesised reply directly
                                   ;; (no finalise-failure! re-entry). The
@@ -1260,6 +1292,12 @@
                     ;; trace event without re-resolving registration
                     ;; metadata.
                     :sensitive? (true? (:sensitive? ctx))})
+        ;; rf2-lz7se — publish the stamped handle so the abort-fn closure
+        ;; (defined above, before `handle` was bound) can pass it to the
+        ;; 2-arg `clear-in-flight!` via `@handle-holder`. The reset!
+        ;; happens synchronously here, before any fetch is issued, so the
+        ;; cell is always populated by the time any abort can fire.
+        _        (reset! handle-holder handle)
         ctx'     (assoc ctx-no-handle :handle handle)]
     #?(:cljs
        (-> (cljs-fetch {:method              method
