@@ -1222,10 +1222,28 @@
   "Wire `clear-fn` into the chained `:adapter/clear-warn-once-caches!`
   late-bind hook. The hook is chained — each adapter and re-frame.views
   contribute a clear-step; `make-reset-runtime-fixture` invokes the top of
-  the chain and every contributor's reset runs. Thin wrapper around
-  `late-bind/chain-fn!` so callers don't need to know the chain key."
-  [clear-fn]
-  (late-bind/chain-fn! :adapter/clear-warn-once-caches! clear-fn))
+  the chain and every contributor's reset runs.
+
+  Delegates to the canonical governance chokepoint
+  `late-bind/register-warn-once-clear-fn!` (rf2-z79p8) so the cache is
+  BOTH chained AND enrolled in the warn-once-clear governance registry the
+  governance assertion checks. Callers don't need to know the chain key.
+
+  Two arities:
+    [clear-fn]            — enrol with a default label and no arm/armed?
+                            probes (the empirical arm/fire assertion skips
+                            it; the source-enumeration assertion still
+                            covers it).
+    [clear-fn governance] — pass `{:label :arm :armed?}` so the empirical
+                            governance assertion can arm the cache, fire
+                            the chain, and prove the cache was wiped. The
+                            React-hook spine threads its `warn-cache` atom
+                            in via this arity."
+  ([clear-fn]
+   (install-clear-warn-once-step! clear-fn {:label :adapter/warned-non-dom-roots}))
+  ([clear-fn governance]
+   (late-bind/register-warn-once-clear-fn!
+     (assoc governance :clear-fn clear-fn))))
 
 ;; ---- subscription hook ----------------------------------------------------
 ;;
@@ -1603,8 +1621,15 @@
     ;; Chained warn-once clear (rf2-4edk): chained (NOT routed by installed-
     ;; adapter identity) — every loaded adapter's per-process defonce must
     ;; clear between tests because a bundle can mount different adapters
-    ;; across tests.
-    (install-clear-warn-once-step! (:clear-warned-non-dom-roots! spine-fns))
+    ;; across tests. rf2-z79p8: routed through the governance chokepoint
+    ;; with arm/armed? probes over the spine's `warn-cache` atom so the
+    ;; warn-once-clear governance assertion proves the chain wipes it.
+    (let [warn-cache (:warn-cache spine-fns)]
+      (install-clear-warn-once-step!
+        (:clear-warned-non-dom-roots! spine-fns)
+        {:label  :adapter/warned-non-dom-roots
+         :arm    (fn [] (swap! warn-cache conj ::governance-sentinel))
+         :armed? (fn [] (contains? @warn-cache ::governance-sentinel))}))
     ;; Chained SSR emitter install (rf2-4z7bp): `re-frame.ssr.emit` invokes
     ;; `:reagent/set-hiccup-emitter!` at ns-load; every loaded React-shaped
     ;; adapter contributes its own install step so a single
