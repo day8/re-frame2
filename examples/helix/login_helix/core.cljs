@@ -43,11 +43,22 @@
 ;; see examples/reagent/login for the full rationale. The :submit
 ;; sub-event is validated against `Credentials`; framework-internal
 ;; sub-events (:dismiss, :success, :failure) admit :any.
+;;
+;; The trailing `[:? :any]` admits the managed-HTTP reply payload (Spec
+;; 014 §Reply addressing): the framework appends `{:kind ... :value ...}`
+;; / `{:kind ... :failure ...}` as the LAST arg of the explicit
+;; `:on-success` / `:on-failure` event vector, so the delivered reply is
+;; `[:auth.login/flow [:auth.login/success] <payload>]` — three top-level
+;; elements. Without the optional trailing slot the `:cat` rejects every
+;; reply with `:malli.core/input-remaining`, the boundary validation
+;; fails BEFORE the machine handler runs, and the flow is stranded in
+;; `:submitting` (rf2-1gz14).
 (def AuthLoginEvent
   [:cat [:= :auth.login/flow]
    [:or
     [:cat [:= :auth.login/submit] Credentials]
-    [:vector :any]]])
+    [:vector :any]]
+   [:? :any]])
 
 (def AuthLoginSnapshot
   [:map
