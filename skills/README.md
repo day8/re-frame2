@@ -257,6 +257,34 @@ rather than theoretical attacks.
   affected by this pattern are the retro / improvement-filing skills
   (`re-frame2-pair-retro`, `re-frame2-implementor`).
 
+  **The title is a shell argument too — it has no `--body-file`
+  equivalent.** `gh issue create` reads the title only from the inline
+  `--title "<…>"` argv (there is no `--title-file` flag, and `--editor`
+  is interactive and banned), so the file trick that protects the body
+  cannot protect the title. The title is therefore safe **only because
+  the agent authors it**, not because the shell is bypassed. Two rules,
+  both load-bearing:
+  - **Never copy transcript-/evidence-derived text into `--title`.** A
+    suggested title, a quoted failure string, or a recap line can carry
+    `$(…)`, backticks, `"`, `\`, or a newline that the shell expands
+    *before* `gh` sees argv — user approval to file an issue is not
+    approval to execute session-carried shell syntax. This is the same
+    untrusted-evidence boundary as the body, projected onto `--title`.
+  - **Author the title from a restricted safe alphabet:** letters,
+    digits, spaces, and `- . , / ( ) :` only. Fill the
+    `references/issue-template.md` title patterns
+    (`Improve <workflow> when <condition>`, …) with summarised,
+    agent-written text — no `$`, no backtick, no `"`/`'`, no `\`, no
+    newline, and no other shell metacharacter (`;`, `|`, `&`, `<`, `>`,
+    `*`, `?`, `[`, `]`, `{`, `}`, `` ` ``, `!`, `~`). Re-read the
+    assembled `--title` in the same pre-emission reviewer pass that
+    scans the body; if any metacharacter survived, rewrite the title
+    before running the command.
+
+  Same threat model covers any other user-influenced argv (`--repo`,
+  `--label`): keep them agent-authored / from a fixed set, never
+  interpolated from evidence.
+
 ### Test-fixture discipline — only `re-frame2-pair/` and `shared/` ship tests
 
 Of the skills in this corpus, **only [`re-frame2-pair/`](./re-frame2-pair/)

@@ -70,6 +70,10 @@
 (def ^:private issue-filing-md
   (delay (slurp-rel shared-root "issue-filing.md")))
 
+(def ^:private issue-template-md
+  (delay (slurp-rel skills-root
+                    "re-frame2-pair-retro/references/issue-template.md")))
+
 ;; ---------------------------------------------------------------------------
 ;; Section extraction — like the re-frame2-pair prompt-regression substrate, each
 ;; assertion targets the *section* the lock belongs in, so a sloppy edit
@@ -348,6 +352,64 @@
              "into a shell command' prohibition is missing. This is the "
              "imperative half of the shell-safety lock — the Write-tool + "
              "--body-file recipe is the safe path, this is the banned path."))))
+
+;; ---------------------------------------------------------------------------
+;; Lock 4b — Title-safety on the inline `--title` argument
+;;
+;; `gh issue create` has no `--title-file` flag — the title is always
+;; passed as inline argv (`--title "<…>"`). The body-file trick that
+;; protects the body therefore cannot protect the title; an
+;; evidence-/transcript-derived title can carry `$()`, backticks, `"`,
+;; `\`, or a newline that the shell expands BEFORE `gh` receives argv,
+;; re-opening transcript→shell injection even though the body is safe
+;; (the half rf2-q8qu2/#3121 left uncovered — it hardened the body
+;; only). The title is safe ONLY because the agent authors it from a
+;; restricted safe alphabet and never pastes evidence text into it.
+;; These assertions pin that invariant in the same leaf and frontmatter
+;; that carry the body-safety locks, so a silent weakening of the title
+;; rule fails the suite alongside the body checks.
+;; ---------------------------------------------------------------------------
+
+(deftest issue-filing-carries-title-safety-rule
+  (testing "issue-filing.md states the title is an inline arg with no --title-file"
+    (is (contains-any? @issue-filing-md
+                       ["no `--title-file`" "no --title-file"
+                        "title is an inline argument"])
+        (str "issue-filing.md no longer states that the `--title` is an "
+             "inline shell argument with no `--title-file` equivalent. "
+             "This is the title half of the shell-safety lock — without "
+             "it the body is protected but the title re-opens "
+             "transcript→shell injection (the gap rf2-q8qu2/#3121 left). "
+             "Restore the §Shell-safety title section or update this test."))))
+
+(deftest issue-filing-forbids-evidence-derived-titles
+  (testing "never paste transcript-/evidence-derived text into --title"
+    (is (contains-any? @issue-filing-md
+                       ["into `--title`" "into --title"])
+        (str "The 'never copy transcript-/evidence-derived text into "
+             "`--title`' prohibition is missing from issue-filing.md. "
+             "This is the imperative half of the title-safety lock — the "
+             "agent-authored safe-alphabet title is the safe path, "
+             "pasting evidence into --title is the banned path."))
+    (is (contains-any? @issue-filing-md
+                       ["safe alphabet" "safe-alphabet"
+                        "author it" "author the title"])
+        (str "The 'author the title from a restricted safe alphabet' "
+             "safe-path is missing. Without a named safe construction the "
+             "prohibition has no constructive counterpart and the agent "
+             "has nowhere safe to land."))))
+
+(deftest issue-template-pins-title-safety
+  (testing "references/issue-template.md ties --title to the safe-alphabet rule"
+    (is (contains-any? @issue-template-md
+                       ["Shell-safe titles" "safe alphabet" "safe-alphabet"
+                        "no `--title-file`"])
+        (str "re-frame2-pair-retro/references/issue-template.md no longer "
+             "carries the title-safety rule next to its title patterns "
+             "and worked `gh issue create` examples. The template's "
+             "inline `--title \"<short title>\"` examples are exactly the "
+             "recipe an agent follows; the safe-title rule must live "
+             "beside them, not only in the shared leaf."))))
 
 (deftest issue-filing-gates-create-on-user-approval
   (testing "gh issue create is gated on a fresh in-conversation yes"

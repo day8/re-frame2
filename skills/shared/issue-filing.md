@@ -38,6 +38,18 @@ Transcript-derived bodies can carry shell metacharacters the user never sees but
 
 `--body-file` reads the body verbatim from disk, so no shell expansion ever touches the transcript-derived text, and the only `Bash` call is a bare `gh issue create` — runnable under the restricted `Bash(gh issue *)` permission these skills declare (a `cat > file` here-doc or a `--body "$(cat …)"` subshell is **not**, since neither is a bare `gh issue` invocation). Never interpolate transcript-derived text directly into a shell command.
 
+## Shell-safety: the title is an inline argument — author it, never paste it
+
+`gh issue create` has **no `--title-file`** flag; the title comes only from the inline `--title "<short title>"` argv (`--editor` is interactive and banned). The file trick that protects the body cannot protect the title, so the title is safe **only because the agent authors it** — same untrusted-evidence threat model as the body, projected onto `--title`:
+
+- **Never copy transcript-/evidence-derived text into `--title`.** A suggested title, a quoted failure string, or a recap line can carry `$(…)`, backticks, `"`, `\`, or a newline that the shell expands *before* `gh` receives argv — bypassing the no-interpolation boundary even when the body is safe. User approval to file an issue is **not** approval to execute session-carried shell syntax.
+- **Author the title from a restricted safe alphabet:** letters, digits, spaces, and `- . , / ( ) :` only. Fill the title patterns in [`../re-frame2-pair-retro/references/issue-template.md`](../re-frame2-pair-retro/references/issue-template.md) (`Improve <workflow> when <condition>`, …) with summarised, agent-written text — no `$`, no backtick, no `"`/`'`, no `\`, no newline, and no other shell metacharacter (`;`, `|`, `&`, `<`, `>`, `*`, `?`, `[`, `]`, `{`, `}`, `!`, `~`).
+- **Reviewer pass covers the title.** Re-read the assembled `--title` in the same pre-emission redaction/reviewer pass that scans the body (see §Redaction reminder). If any shell metacharacter survived, rewrite the title before running the command.
+
+Example — a recap suggests filing under the title `` Improve attach $(echo leaked >&2) `` or `Fix "quoted" path C:\Users\x`. Both are evidence-derived and metacharacter-laden: do **not** pass either to `--title`. Author a safe replacement instead, e.g. `Improve attach when the recap suggests a hostile title` / `Fix quoted-path handling in the attach script`.
+
+The same rule covers any other user-influenced argument (labels, `--repo`): keep them agent-authored or from a fixed set, never interpolated from evidence.
+
 ## Redaction reminder
 
 Issue bodies are one consumer of the universal-redaction rule, not a special case. Re-read the drafted body and mask every secret / internal URL / local path / PII with a stable placeholder before filing — see [`retro-protocol.md`](retro-protocol.md) §Redaction (universal).
