@@ -31,8 +31,9 @@
       closes.
     - `initial-marker` — a small glyph node paired with the initial
       state to mark the machine's entry transition. (Final states paint
-      a doubled ring + ✓ glyph inline on `state-node`; there is no
-      separate final-marker node — rf2-ee38b.21 removed the dead one.)
+      a quiet doubled ring inline on `state-node` — no glyph
+      (rf2-az6e2 dropped the ✓); there is no separate final-marker
+      node — rf2-ee38b.21 removed the dead one.)
 
   ## Token integration
 
@@ -646,8 +647,9 @@
 
 ;; rf2-ee38b.21 — the dead `final-marker` component + its node-type
 ;; registration were removed. The projector only ever emits
-;; `initial-marker` nodes; final states paint the doubled ring + ✓
-;; glyph inline on `state-node`. The end-state-as-node `[*]` pattern,
+;; `initial-marker` nodes; final states paint the quiet doubled ring
+;; inline on `state-node` (no glyph — rf2-az6e2 dropped the ✓). The
+;; end-state-as-node `[*]` pattern,
 ;; if it ever lands, files its own bead (same posture the codebase
 ;; took when it removed the dead `spawn-edge` registration).
 

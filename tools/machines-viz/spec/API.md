@@ -705,8 +705,10 @@ For the supplied `:definition`, the chart shows:
 - **Focused-event lens highlights.** `:from-highlight` / `:to-highlight`
   tint the origin + landing nodes of a focused transition; `:sim?`
   flips that palette to amber for the simulator path.
-- **`:final?` states.** Rendered with a doubled border + checkmark
-  glyph (per `chart.nodes/state-node`).
+- **`:final?` states.** Rendered with a quiet doubled border (outer
+  ring proud of the corner) on `chart.nodes/state-node`. **No glyph** —
+  the prior `✓` check glyph was dropped (rf2-az6e2); the doubled border
+  is the unambiguous final-state signal.
 - **State tags render as a visible pill row + hover tooltip
   (rf2-a2b55; rf2-so5b0).** A state's declared `:tags` set (Spec 005
   §State tags) renders as a row of `tag-pill-color`-coloured pills
