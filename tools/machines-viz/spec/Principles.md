@@ -39,11 +39,15 @@ Machine Inspector panel; Story wraps it in a per-variant ribbon;
 the read-only viewer page wraps it in plain HTML. The component's
 contract is the same in every case:
 
-- Inputs: `:machine-id`, `:frame-id`, `:on-state-click`,
-  `:on-transition-click`, plus the read-only/no-op flags the
-  viewer uses.
-- Outputs: rendered SVG + the four callback events fired on user
-  interaction.
+- Inputs: `:machine-id`, the `:definition` + `:current-state` the
+  host pulls and passes in (the chart is presentation-only — it does
+  not know its frame and takes no `:frame-id`), `:on-state-click`,
+  plus the read-only/no-op flags the viewer uses. (Transitions render
+  as event-nodes per rf2-qo5xy — there is no `:on-transition-click`;
+  a clickable event-node label fires `:on-edge-click` on the sim
+  path.)
+- Outputs: an `@xyflow/react` React canvas + the callback events
+  fired on user interaction.
 - No assumptions: the component does **not** assume the host
   surfaces a frame picker, a transition-history ribbon, an editor
   URL handler, or any other Xray-shaped affordance. Hosts add
@@ -184,9 +188,12 @@ to:
 
 - Click a state node → fire `:on-state-click` (host decides what to
   do: Xray jumps to source; the viewer page no-ops).
-- Click an edge → fire `:on-transition-click` (host decides).
-- Hover an edge / state → reveal a tooltip (this is the
-  component's own affordance; no host wiring).
+- Click a clickable event-node label → fire `:on-edge-click`
+  (rf2-u422r — host decides; the on-chart sim wires it to send the
+  event). Transitions render as event-nodes (rf2-qo5xy), so there is
+  no separate `:on-transition-click`.
+- Hover a node → reveal a tooltip (this is the component's own
+  affordance; no host wiring).
 
 Machines-Viz **never** dispatches into the framework runtime. It
 **never** calls `restore-epoch`. It **never** writes to `app-db`.
@@ -203,10 +210,13 @@ machinery — Machines-Viz fires the callback and stops there.
 ## No continuous animation — static affordance + event-driven glints
 
 Charts have **no continuous animation**. The active state is
-signalled **statically**: a cyan tint on the node fill plus a
-bolder stroke than its inactive siblings. The reader's eye lands
-on the current state at-rest, without a heartbeat loop pulling
-attention every two seconds.
+signalled **statically** on the state-box **border** — a runtime
+accent border colour + a soft `box-shadow` glow ring + a faint
+header wash — heavier than its inactive siblings, and **never** a
+whole-fill tint (the structure-first grammar keeps the body neutral
+so the runtime signal rides the border, per rf2-az6e2). The reader's
+eye lands on the current state at-rest, without a heartbeat loop
+pulling attention every two seconds.
 
 This is a deliberate change from the previous lock (rf2-2sez0,
 2026-05-20). The earlier "Charts pulse only the active state"
@@ -242,34 +252,36 @@ principle, applied to charts.
 
 ### How the static active-state affordance is implemented
 
-The chart's `render-node` paints the active state with two
-non-animated emphases:
+The chart's `state-node` (a `@xyflow/react` div-node, not hand-rolled
+SVG) paints the active state with three non-animated emphases — all on
+the **border / header / glow**, never the body fill (rf2-az6e2):
 
-1. **Cyan fill tint** — via `node-fill` returning the
-   `:cyan @ 0.18` tint when `:highlight?` is true.
-2. **Bolder stroke** — the active node's stroke-width is
-   `:stroke-width-emphasis + 0.75px`; an inactive sibling sits at
-   the baseline `:stroke-width`. The visible delta (~1.75px) reads
-   as "this node is emphasised" without the eye having to track a
-   loop.
+1. **Accent border** — the active node's border colour shifts to the
+   runtime accent (`node-border` resolved against the active theme's
+   `chart-tokens`) and its stroke-width is `:stroke-width-emphasis +
+   0.75px`; an inactive sibling sits at the baseline `:stroke-width`.
+2. **Glow ring** — a soft outer `box-shadow` ring (`0 0 0 2px` in the
+   `:glow` token) replaces the resting drop-shadow.
+3. **Header wash** — the title-strip background carries a faint active
+   wash (`header-bg`) so the emphasis reads top-down.
 
-Both are static — they shift when the highlight shifts, but they
-do not animate while the highlight is held. The state-node label
-also flips to `font-weight 600 + text-primary` while emphasised
-(it sits at `400 + text-secondary` for inactive siblings) so the
-typography reinforces the visual emphasis. The
-`data-active-affordance` attribute on the node `<g>` lets tests
-and hosts read the emphasis state without inspecting CSS.
+All three are static — they shift when the highlight shifts, but they
+do not animate while the highlight is held. The `data-active` /
+`data-active-affordance` attributes on the node's `<div>` let tests
+and hosts read the emphasis state without inspecting CSS. Compound and
+region containers light the same way when any descendant leaf is
+active (G4 / rf2-80rm2; see [`API.md` §Active state on box border](API.md#active-state-on-box-border)).
 
 ## Colour is never alone
 
 Every coloured marker pairs with a shape, icon, or text:
 
-- Active state: green fill + a filled-glyph badge + the state-name
-  label.
+- Active state: accent border + a heavier stroke + a glow ring + the
+  state-name label (the weight + ring read without hue).
 - `:after` countdown ring: amber arc + the countdown-clock icon +
   the remaining-ms text.
-- `:final?` state: doubled border + a "✓" glyph.
+- `:final?` state: a quiet doubled border (the geometry reads without
+  hue; the `✓` glyph was dropped per rf2-az6e2).
 - `:spawn-all` failed child: red fill + an "!" badge + "failed"
   label.
 - Stale microstep node: grey + dashed border + "(microstep)" text.
