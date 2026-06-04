@@ -49,12 +49,94 @@
 // The runner returns nothing; it always terminates the process via
 // `process.exit`. Callers that pre-flight skip MUST exit themselves
 // (via `runWithWatchdog.skip`).
+//
+// ## Bare spawn (no watchdog / no exit) — `connectServer` + `closeQuietly`
+//
+// `runWithWatchdog` is the single-boot-per-process form. Two gates need
+// a SECOND in-process server boot it can't serve (it `process.exit`s on
+// every path): `end-to-end-flag-gates.cjs` (three fresh JVMs, one per
+// gate-posture probe) and `live-re-frame2-pair-redaction.cjs` (a second
+// server with `--allow-sensitive-reads` for the gate-ON arm). Both call
+// the shared `connectServer({ transportSpec, clientName, stderrPrefix })`
+// primitive — the exact spawn+stderr-pipe+Client+connect ceremony this
+// header describes — and tear down with `closeQuietly(client)`.
+// `runWithWatchdog` is itself just `connectServer` wrapped in the
+// watchdog + exit-code framing, so the framing has one home (rf2-0ogn7).
 
 const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
 const { StdioClientTransport } = require('@modelcontextprotocol/sdk/client/stdio.js');
 const { ErrorCode, McpError } = require('@modelcontextprotocol/sdk/types.js');
 
 const CLIENT_VERSION = '0.1.0';
+
+// ---------------------------------------------------------------------
+// Shared SDK-spawn primitive (rf2-0ogn7 dedup).
+//
+// Spawn one MCP server over a `StdioClientTransport`, pipe its stderr
+// to ours, construct an SDK `Client` with the pinned conformance
+// identity, and run the `initialize` handshake. Returns the connected
+// `{ client, transport }` for the caller to drive + tear down.
+//
+// `runWithWatchdog` below is the watchdog-wrapped, single-boot-per-
+// process form (it `process.exit`s on every path). But two gates need
+// a SECOND, in-process server boot the watchdog form can't provide:
+//
+//   - `end-to-end-flag-gates.cjs` boots three fresh JVMs in one process
+//     (the gate is a boot-time atom — flipping it needs a new server).
+//   - `live-re-frame2-pair-redaction.cjs` boots a second server with
+//     `--allow-sensitive-reads` to pin the gate-ON direction.
+//
+// Both previously hand-rolled this exact transport+client+stderr-pipe+
+// connect ceremony. Centralising it here means the framing the runner's
+// header documents has ONE home; a caller that needs a bare boot calls
+// `connectServer` + `closeQuietly`, and `runWithWatchdog` itself is just
+// `connectServer` wrapped in the watchdog + exit-code framing.
+//
+//   - `transportSpec`  — `{ command, args, cwd, env }` forwarded to
+//                        `StdioClientTransport` (`stderr: 'pipe'` is
+//                        spliced in here — non-negotiable so CI logs
+//                        surface server stderr on a failing step).
+//   - `clientName`     — the SDK `Client` `name` slot.
+//   - `stderrPrefix`   — bracketed tag prepended to each piped stderr
+//                        line. Defaults to `[server]`; the redaction
+//                        gate-ON arm passes `[server:gate-on]` to keep
+//                        the two concurrent servers' logs distinguishable.
+// ---------------------------------------------------------------------
+async function connectServer({ transportSpec, clientName, stderrPrefix = '[server]' }) {
+  const transport = new StdioClientTransport({ ...transportSpec, stderr: 'pipe' });
+  const client = new Client({ name: clientName, version: CLIENT_VERSION }, { capabilities: {} });
+  // Pipe the child's stderr to ours with the (prefixed) tag. Same shape
+  // every historical caller used; the closure captures the transport
+  // reference cleanly.
+  transport.stderr?.on('data', (d) => process.stderr.write(stderrPrefix + ' ' + d.toString()));
+  // Initialize handshake. SDK validates the result against
+  // InitializeResultSchema; a malformed envelope throws here. On a
+  // connect-throw, tear the half-open transport down before re-throwing
+  // so the spawned child can't leak — the historical inline form reached
+  // the caller's `finally { client.close() }` on this path, and
+  // `client.close()` closes its transport. Mirror that here so callers
+  // need no transport handle to clean up a failed boot.
+  try {
+    await client.connect(transport);
+  } catch (connectErr) {
+    await closeQuietly(client);
+    throw connectErr;
+  }
+  return { client, transport };
+}
+
+// Best-effort `client.close()` that never throws. A close-error is
+// purely cosmetic — it's independent of whatever outcome the caller
+// already recorded — so we log it and swallow it. Shared by every
+// teardown path (the runner's `finally`, the flag-gate per-boot
+// `finally`, the redaction gate-ON arm's `finally`). rf2-0ogn7.
+async function closeQuietly(client) {
+  try {
+    await client.close();
+  } catch (closeErr) {
+    console.error('NOTE: client.close() raised during teardown:', closeErr.message);
+  }
+}
 
 async function runWithWatchdog({ watchdogMs, transportSpec, clientName }, body) {
   // Install the watchdog FIRST so even a hang inside transport
@@ -69,30 +151,15 @@ async function runWithWatchdog({ watchdogMs, transportSpec, clientName }, body) 
     process.exit(2);
   }, watchdogMs);
 
-  // `stderr: 'pipe'` is non-negotiable — every conformance test pipes
-  // the server's stderr so CI logs surface the server-side debug
-  // output when a step fails. Splice it in here rather than asking
-  // the caller to remember it.
-  const transport = new StdioClientTransport({ ...transportSpec, stderr: 'pipe' });
-
-  const client = new Client({ name: clientName, version: CLIENT_VERSION }, { capabilities: {} });
-
-  // Pipe the child's stderr to ours with a `[server]` prefix. Same
-  // shape every historical caller used; the closure captures the
-  // transport reference cleanly.
-  transport.stderr?.on('data', (d) => process.stderr.write('[server] ' + d.toString()));
-
-  // Drive `body` to completion, recording its outcome in `exitCode`.
-  // Teardown lives in `finally` so a throw from `client.close()` can't
-  // re-enter the catch and mask the body's success state. Three exit
-  // codes: 0 = body green, 1 = body or initialize threw, 2 = watchdog
-  // (process.exit happens inside the timer callback, never here).
+  // Spawn + connect via the shared primitive. A throw here (bad cwd, a
+  // malformed initialize envelope) is caught below and surfaces as
+  // exit 1, exactly as the historical inline form did.
+  let client;
   let exitCode;
   let bodyError;
   try {
-    // Initialize handshake. SDK validates the result against
-    // InitializeResultSchema; a malformed envelope throws here.
-    await client.connect(transport);
+    let transport;
+    ({ client, transport } = await connectServer({ transportSpec, clientName }));
     await body(client, transport);
     exitCode = 0;
   } catch (err) {
@@ -103,12 +170,9 @@ async function runWithWatchdog({ watchdogMs, transportSpec, clientName }, body) 
     // outcome: if `client.close()` raises on a green body, we still
     // exit 0 (the conformance assertions passed). If it raises on a
     // failed body, the original `bodyError` is still the load-bearing
-    // signal and the close-error is purely cosmetic.
-    try {
-      await client.close();
-    } catch (closeErr) {
-      console.error('NOTE: client.close() raised during teardown:', closeErr.message);
-    }
+    // signal and the close-error is purely cosmetic. `client` may be
+    // undefined if `connectServer` threw before constructing it.
+    if (client) await closeQuietly(client);
     clearTimeout(watchdog);
     if (bodyError) {
       console.error('FAIL:', bodyError.message);
@@ -323,4 +387,10 @@ function assertDescriptorShape(tools, { allowOpenWorld } = {}) {
   }
 }
 
-module.exports = { runWithWatchdog, assertJsonRpcErrorCodes, assertDescriptorShape };
+module.exports = {
+  runWithWatchdog,
+  connectServer,
+  closeQuietly,
+  assertJsonRpcErrorCodes,
+  assertDescriptorShape,
+};
