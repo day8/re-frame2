@@ -52,6 +52,18 @@ initialisation graph. The boot sequence is:
    The four instances are distinguished by their `:data` slot, set
    via the spawn-spec `:data` fn (Pattern-AsyncEffect mechanism 2).
 
+6. **Host config threaded mechanism 3 → mechanism 2.** The
+   `:configuring` load returns an `:api-base`; the boot machine's
+   `:promote-staged` action records it into the boot machine's own
+   `:data` on the `:configuring → :loading-deps` transition; the
+   three `:loading-deps` children then read that promoted `:api-base`
+   off the parent's post-action snapshot (mechanism 2) and thread it
+   into their own URLs. This is the canonical Pattern-Boot parameter
+   shape (see [`spec/Pattern-Boot.md` §Parameters](../../../spec/Pattern-Boot.md)):
+   the boot machine is the only place that reads host config;
+   everything downstream threads it via a snapshot `:data` fn — no
+   action body reaches into a host global.
+
 4. **Staging slot for child-to-parent data flow.** Per Spec 005,
    the runtime intercepts `:on-child-done` / `:on-child-error` for
    `:spawn-all` join bookkeeping — these events are NOT fed into

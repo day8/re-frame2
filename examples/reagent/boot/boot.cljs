@@ -26,19 +26,29 @@
    with different `:data`. Each instance's identity (parent-id,
    child-id, staging-key, URL) is planted via the `:data` fn-form on
    the per-child invoke-spec — Pattern-AsyncEffect mechanism 2 (the
-   spawn-spec `:data` fn closes over the parent's snapshot).
+   spawn-spec `:data` fn reads the parent's post-action snapshot).
+
+   The boot also demonstrates mechanism 3 → mechanism 2 end-to-end:
+   the `:configuring` config load returns an `:api-base`; the
+   `:promote-staged` action records it into the boot machine's own
+   `:data` on the `:configuring → :loading-deps` transition; the
+   three `:loading-deps` children then read that promoted `:api-base`
+   off the parent's snapshot (mechanism 2) and thread it into their
+   own URLs. This is the canonical Pattern-Boot parameter shape (see
+   Pattern-Boot §Parameters): the boot machine is the only place that
+   reads host config; everything downstream threads it via a snapshot
+   `:data` fn — nothing reaches into a host global from an action body.
 
    Each child fetches via `:rf.http/managed` and, on success, writes
    its payload into the boot machine's staging slot at
-   `[:boot/staging <staging-key>]` before dispatching the canonical
-   `:spawn-all` child-completion event back to the parent's
-   `:on-child-done` slot.
+   `[:boot/staging <staging-key>]` before dispatching its
+   child-completion event back to the parent.
 
-   Why a staging slot rather than threading payloads through the
-   join-event: per Spec 005, the runtime intercepts the parent's
-   `:on-child-done` / `:on-child-error` events for join bookkeeping
-   ONLY — they are not fed into the parent's `:on` lookup. The
-   join-resolution event the runtime synthesises
+   Why a staging slot rather than threading the `:spawn-all` payloads
+   through the join-event: per Spec 005, the runtime intercepts the
+   parent's `:on-child-done` / `:on-child-error` events for join
+   bookkeeping ONLY — they are NOT fed into the parent's `:on` lookup.
+   The join-resolution event the runtime synthesises
    (`:on-all-complete [:boot/deps-ready]`) carries no per-child
    payload. So the canonical Pattern-Boot shape for a `:spawn-all`
    that needs to thread loaded data into the parent is: each child
@@ -46,6 +56,13 @@
    that slice on the join-resolved transition. This keeps the
    loaded data in app-db throughout — inspectable in pair-tools
    and snapshottable for SSR hydration.
+
+   The single `:spawn` in `:configuring` is different: its
+   child-completion event IS fed into the parent's `:on` lookup (only
+   `:spawn-all` join events are intercepted). The config child
+   therefore carries its loaded payload on the completion event, and
+   the `:promote-staged` action reads it from there to thread the
+   `:api-base` into the next phase (mechanism 3 → mechanism 2 above).
 
    Trigger boot once at app start via `[:app/boot [:rf/start]]`. The
    machine self-initialises (per Spec 005 §Restore semantics): the
@@ -121,14 +138,22 @@
 
     :dispatch-done
     ;; Terminal-state entry. First write the loaded payload into
-    ;; [:boot/staging <staging-key>], then fire the canonical
-    ;; `:spawn-all` child-completion event back to the parent's
-    ;; :on-child-done slot. The runtime intercepts the second
-    ;; dispatch for join bookkeeping.
+    ;; [:boot/staging <staging-key>], then fire the child-completion
+    ;; event back to the parent. The completion event carries both the
+    ;; child-id AND the loaded payload:
+    ;;   - In :configuring (a single :spawn), this event lands in the
+    ;;     parent's :on lookup, where the :promote-staged action reads
+    ;;     the payload off the event to thread `:api-base` into the
+    ;;     next phase (mechanism 3 → mechanism 2).
+    ;;   - In :loading-deps (a :spawn-all), the runtime intercepts this
+    ;;     event for join bookkeeping ONLY — it is NOT fed into the
+    ;;     parent's :on lookup (per Spec 005). Those payloads reach the
+    ;;     parent via the staging slot the parent reads in
+    ;;     :enter-hydrating. The event payload is harmless there.
     (fn [{data :data}]
       {:fx [[:dispatch [:boot/stage-payload (:staging-key data) (:payload data)]]
             [:dispatch [(:parent-id data)
-                        [:boot/asset-loaded (:child-id data)]]]]})
+                        [:boot/asset-loaded (:child-id data) (:payload data)]]]]})
 
     :dispatch-error
     ;; Terminal failure-state entry. Forwards the failure to the
@@ -183,6 +208,24 @@
     (fn [{data :data [_ _child-id failure] :event}]
       {:data (assoc data :error failure)})
 
+    :promote-staged
+    ;; Runs on the :configuring → :loading-deps transition. The single
+    ;; config child carried its loaded payload on the
+    ;; `:boot/asset-loaded` completion event (a single :spawn's
+    ;; completion event IS fed into the parent's :on lookup — only
+    ;; :spawn-all join events are intercepted), so this action reads
+    ;; the config straight off the event and records it into the boot
+    ;; machine's own :data slot. The next phase's spawn-spec `:data`
+    ;; fns then thread host config (here, the loaded `:api-base`) into
+    ;; each child's URL. This is the canonical Pattern-Boot parameter
+    ;; shape: mechanism 3 (boot reads host config) → mechanism 2 (the
+    ;; spawn-spec `:data` fn reads the parent's post-action snapshot).
+    ;; The :data fn-form sees the value because the transition's
+    ;; `:action` runs before the spawn-spec `:data` fn materialises
+    ;; (Spec 005 §Spec-spec keys — the snapshot is post-action).
+    (fn [{data :data [_ _child-id config] :event}]
+      {:data (assoc data :config config)})
+
     :enter-hydrating
     ;; Read all the staged payloads out of [:boot/staging ...] and
     ;; write them into the canonical top-level slices the running
@@ -206,18 +249,21 @@
     :configuring
     {:spawn {:machine-id :boot/loader
               ;; Per Spec 005 §Spec-spec keys, `:data` admits a
-              ;; function form `(fn [snap ev] data)` so the child's
-              ;; initial :data can depend on the parent's snapshot at
-              ;; the moment of entry. We plant the identity (parent
-              ;; / child / staging-key / URL) here — the canonical
-              ;; Pattern-AsyncEffect mechanism 2 (parameter passing
-              ;; via the spawn-spec :data fn).
-              :data       (fn boot-config-data [_snap _ev]
+              ;; function form `(fn [{:keys [snapshot event]}] data)`
+              ;; so the child's initial :data can depend on the
+              ;; parent's snapshot at the moment of entry. We plant the
+              ;; identity (parent / child / staging-key / URL) here —
+              ;; mechanism 2 (parameter passing via the spawn-spec
+              ;; :data fn). This first URL is the host-fixed config
+              ;; endpoint — the mechanism-3 SOURCE the rest of the boot
+              ;; threads from, so it is a literal, not derived.
+              :data       (fn boot-config-data [_]
                             {:parent-id   :app/boot
                              :child-id    :config
                              :staging-key :config
                              :url         "/api/config.json"})}
-     :on     {:boot/asset-loaded {:target :loading-deps}
+     :on     {:boot/asset-loaded {:target :loading-deps
+                                  :action :promote-staged}
               :boot/asset-failed {:target :failed
                                   :action :record-failure}}}
 
@@ -227,39 +273,39 @@
      {:children
       ;; Each child is the same :boot/loader machine, distinguished
       ;; only by its :data slot. The :data fn-form reads the
-      ;; previously-staged `[:boot/staging :config]` to thread the
-      ;; loaded `:api-base` into each child's URL (Pattern-Boot
-      ;; mechanism 3 — boot reads host config; threads via
-      ;; mechanism 2).
+      ;; parent's promoted `:api-base` (recorded into the parent's
+      ;; :data by the :promote-staged action on the
+      ;; :configuring → :loading-deps transition) and threads it into
+      ;; each child's URL. This demonstrates the canonical
+      ;; Pattern-Boot parameter shape end-to-end: mechanism 3 (boot
+      ;; reads host config) → mechanism 2 (the spawn-spec :data fn
+      ;; reads the parent's post-action snapshot).
       [{:id         :routes
         :machine-id :boot/loader
-        :data       (fn boot-routes-data [_snap _ev]
-                      ;; The :data fn receives the PARENT's snapshot
-                      ;; — not app-db. The parent records the staged
-                      ;; config into its own :data slot on the
-                      ;; :configuring → :loading-deps transition (see
-                      ;; the :promote-staged action below). At spawn
-                      ;; time, that value is visible via _snap, but
-                      ;; for the boot example the api-base is empty
-                      ;; (the demo stubs match by suffix).
+        :data       (fn boot-routes-data [{snap :snapshot}]
+                      ;; The :data fn receives the unified
+                      ;; context-map `{:snapshot :event}` — the
+                      ;; snapshot is the PARENT's post-action value,
+                      ;; not app-db. `:promote-staged` already ran, so
+                      ;; the loaded `:api-base` is visible here.
                       {:parent-id   :app/boot
                        :child-id    :routes
                        :staging-key :routes
-                       :url         "/api/routes.json"})}
+                       :url         (str (-> snap :data :config :api-base) "/routes.json")})}
        {:id         :flags
         :machine-id :boot/loader
-        :data       (fn boot-flags-data [_snap _ev]
+        :data       (fn boot-flags-data [{snap :snapshot}]
                       {:parent-id   :app/boot
                        :child-id    :flags
                        :staging-key :flags
-                       :url         "/api/flags.json"})}
+                       :url         (str (-> snap :data :config :api-base) "/flags.json")})}
        {:id         :user
         :machine-id :boot/loader
-        :data       (fn boot-user-data [_snap _ev]
+        :data       (fn boot-user-data [{snap :snapshot}]
                       {:parent-id   :app/boot
                        :child-id    :user
                        :staging-key :user
-                       :url         "/api/user.json"})}]
+                       :url         (str (-> snap :data :config :api-base) "/user.json")})}]
       :join             :all
       :on-child-done    :boot/asset-loaded
       :on-child-error   :boot/asset-failed
