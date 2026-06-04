@@ -209,11 +209,32 @@ it.
 - **Sharing state with a teammate.** The Share-URL affordance (button +
  modal + `share.cljs` infra) and the per-cascade EDN export were
  **removed** (rf2-nugvv, 2026-06-04 — `share.cljs` and `export/cascade.cljc`
- are deleted). The surviving share unit is the **Snapshot app-db** command
- palette verb (`Cmd/Ctrl+K` → "Snapshot app-db"): it drops the focused
- frame's `app-db` onto the JS console + clipboard for paste-to-a-teammate.
- Source [`palette/sources.cljc`](../../tools/xray/src/day8/re_frame2_xray/palette/sources.cljc)
+ are deleted). The surviving on-box helper is the **Snapshot app-db**
+ command palette verb (`Cmd/Ctrl+K` → "Snapshot app-db"): it puts the
+ focused frame's `app-db` on the JS console + clipboard so a developer can
+ capture the state they're looking at. **The console and the clipboard are
+ off-box egress sinks** — the same trust boundary the rest of the Xray /
+ tool egress story treats as sensitive — so the payload goes through the
+ runtime's safe-egress projection (`runtime/egress-value`), the same
+ fail-closed, default-redaction path `get-app-db` uses: `include-sensitive?`
+ and `include-large?` both default **`false`**, so sensitive slots ship as
+ `:rf/redacted` and large slots as `:rf.size/large-elided` (per
+ [`runtime.cljs`](../../tools/xray/src/day8/re_frame2_xray/runtime.cljs)
+ `egress-value` / `get-app-db`, hardened in rf2-a96xq). Do **not** tell a
+ user this command drops the *raw* `app-db`, and do not present it as a way
+ to copy a secret-bearing value off-box: a focused frame holding
+ `{:auth {:token "secret"}}` (or any schema-/path-declared sensitive value)
+ is redacted in the snapshot by default. Raw capture is only available
+ through an explicit opt-in consistent with the privacy vocabulary — the
+ same `--allow-sensitive-reads` (default **OFF**) plus per-call
+ `:include-sensitive true` posture the AI/MCP read surfaces use (the
+ re-frame2-pair-mcp boundary; see `tools/re-frame2-pair-mcp/`), never the
+ command's default. Source
+ [`palette/sources.cljc`](../../tools/xray/src/day8/re_frame2_xray/palette/sources.cljc)
  (`:snapshot-app-db` command).
+ *(Status: per rf2-6fgob the palette command is being routed through this
+ safe projection; this skill describes the contract the share path MUST
+ honour, so it never teaches a raw off-box share even mid-fix.)*
 
 ---
 
