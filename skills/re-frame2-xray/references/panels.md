@@ -508,12 +508,10 @@ cross-panel-arrow glyph reference live in
 Per §021 §15 (Dynamic mode) + §007 §Static mode:
 
 - **No Issues tab.** Removed (rf2-gbz39 #2540, Mike Option (c),
- 2026-05-31 — `panels/issues_ribbon.cljs` deleted). Issues are NOT a
- Dynamic tab; they surface inline in the **Epoch** cascade (per-step
- ✓/✗ + the shared "Exception Thrown" card), via the **L2 pink-wash**
- (rf2-b8guz), and via the always-on **`:rf.xray/issues-ribbon`** signal
- (auto-open-on-error). The session-wide aggregate / triage list was
- consciously dropped.
+ 2026-05-31 — `panels/issues_ribbon.cljs` deleted); the session-wide
+ aggregate / triage list was consciously dropped. The three inline
+ channels issues surface through instead are detailed in §Issues — no
+ longer a Dynamic tab above.
 - **No Event tab.** Retired (rf2-5gl5r, 2026-05-27 —
  `panels/event_detail.cljs` deleted). The **Epoch** panel (numbered
  cascade, `:order -1`) is the canonical "what happened" surface.
