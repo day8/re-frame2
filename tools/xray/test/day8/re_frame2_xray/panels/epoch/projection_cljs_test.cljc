@@ -447,21 +447,29 @@
       (is (= #{:db :navigate} (into #{} (map :fx-id (:fx r))))))))
 
 (deftest handler-row-reg-machine-test
-  (testing "action-ran present → reg-machine flavour; machine block populated"
+  (testing "rf2-bhxtr — action-ran present → reg-machine flavour; the
+            `:machine` block carries the SINGLE `:cascade` row vector (the
+            legacy category slots :transition / :guards / :lifecycle /
+            :timers were dropped — the cascade carries the same per-row data
+            keyed by `:kind`)."
     (let [evs [(machine-transition-ev :ws/conn [:idle] [:connecting])
                (machine-guard-ev :ready? :pass)
                (machine-action-ev :open-socket :entry :ok)
                (machine-action-ev :close-socket :exit :ok)
                (machine-timer-cancel-ev :ws/conn [:idle] 250 :on-exit)]
           r (proj/handler-row evs :ws/start)
-          m (:machine r)]
+          m (:machine r)
+          cascade (:cascade m)
+          by-kind (group-by :kind cascade)]
       (is (= :reg-machine (:flavour r)))
       (is (some? m))
-      (is (= :ws/conn (-> m :transition :machine-id)))
-      (is (= 1 (count (:guards m))))
-      (is (= 2 (count (:lifecycle m))))
-      (is (= 1 (count (:timers m))))
-      (is (= :on-exit (-> m :timers first :reason))))))
+      (is (= [:cascade] (keys m))
+          "the machine block carries ONLY :cascade post-rf2-bhxtr")
+      (is (= :ws/conn (-> (:transition by-kind) first :machine-id)))
+      (is (= 1 (count (:guard by-kind))))
+      (is (= 2 (count (:action by-kind))))
+      (is (= 1 (count (:timer by-kind))))
+      (is (= :on-exit (-> (:timer by-kind) first :reason))))))
 
 (deftest handler-row-machine-transition-no-action-test
   (testing "rf2-eue07 — a real macrostep that fires NO `:rf.machine/action-ran`
@@ -486,13 +494,14 @@
                                        [:hvac/power-cycle] 2)
                (db-changed-ev [[[:hvac/controller] {} {} :modified]])]
           r   (proj/handler-row evs :hvac/power-cycle)
-          m   (:machine r)]
+          m   (:machine r)
+          tx  (first (filterv #(= :transition (:kind %)) (:cascade m)))]
       (is (= :reg-machine (:flavour r))
           "a transition with NO action-ran still classifies :reg-machine")
       (is (some? m)
           "the machine section is populated, not the raw :db diff")
-      (is (= :hvac/controller (-> m :transition :machine-id))
-          "the transition row threads through into the machine block"))))
+      (is (= :hvac/controller (:machine-id tx))
+          "the transition row threads through into the machine cascade"))))
 
 (deftest handler-row-bootstrap-initial-entry-transition-test
   (testing "rf2-eue07 — the post-carve-out bootstrap macrostep (rf2-t4582:
@@ -532,10 +541,11 @@
           "no fx, no machine trace → reg-event-db, unchanged")
       (is (nil? (:machine r))))))
 
-(deftest machine-transition-row-hoists-data-snapshots-test
-  (testing "rf2-9c27r — `machine-transition-row` exposes `:data-before /
-            :data-after` from the `:before / :after` snapshots, plus the
-            `:event` + `:microsteps` slots for the design's TRANSITION sub"
+(deftest machine-transition-cascade-row-hoists-data-snapshots-test
+  (testing "rf2-9c27r / rf2-bhxtr — the `:transition` CASCADE row exposes
+            `:data-before / :data-after` from the `:before / :after`
+            snapshots, plus the `:event` + `:microsteps` slots (formerly
+            asserted via the dropped `:machine :transition` slot)"
     (let [snap-before {:state [:idle]      :data {:count 0}}
           snap-after  {:state [:connected] :data {:count 1}}
           evs [(machine-transition-ev :ws/conn snap-before snap-after
@@ -546,7 +556,7 @@
                ;; when the flavour is :reg-machine).
                (machine-action-ev :open-socket :entry :ok)]
           r   (proj/handler-row evs :ws/start)
-          mt  (-> r :machine :transition)]
+          mt  (first (filterv #(= :transition (:kind %)) (-> r :machine :cascade)))]
       (is (= [:ws/start]    (:event mt)))
       (is (= 2              (:microsteps mt)))
       (is (= snap-before    (:before mt)))
@@ -557,8 +567,9 @@
           ":data-after hoisted off the after snapshot"))))
 
 (deftest machine-action-fx-attribution-test
-  (testing "rf2-9c27r — when a lifecycle action returns a map carrying
-            `:fx`, the row exposes the per-action fx attribution"
+  (testing "rf2-9c27r / rf2-bhxtr — when an action returns a map carrying
+            `:fx`, the `:action` CASCADE row exposes the per-action fx
+            attribution (formerly asserted via the dropped `:lifecycle` slot)"
     (let [outcome {:fx [[:http/get {:url "/x"}]
                         [:dispatch [:other]]]
                    :data {:n 1}}
@@ -568,31 +579,22 @@
                     :outcome   outcome
                     :input     {:data {} :event nil}})]
           r   (proj/handler-row evs :ws/start)
-          row (-> r :machine :lifecycle first)]
+          row (first (filterv #(= :action (:kind %)) (-> r :machine :cascade)))]
       (is (= 2 (count (:fx row)))
-          "per-action fx tuple list rides on the lifecycle row")
+          "per-action fx tuple list rides on the action cascade row")
       (is (= :http/get (-> row :fx (nth 0) first))
           "first fx-id is :http/get")
       (is (= {:n 1} (:data-write row))
           "the action's :data write is also surfaced for attribution"))))
 
 (deftest machine-action-without-fx-omits-slot-test
-  (testing "rf2-9c27r — actions whose outcome carries no :fx leave the
-            `:fx` slot ABSENT (not nil) so the row stays minimal"
+  (testing "rf2-9c27r / rf2-bhxtr — actions whose outcome carries no :fx
+            leave the `:fx` slot ABSENT (not nil) on the `:action` cascade row"
     (let [evs [(machine-action-ev :open-socket :entry :ok)]
           r   (proj/handler-row evs :ws/start)
-          row (-> r :machine :lifecycle first)]
+          row (first (filterv #(= :action (:kind %)) (-> r :machine :cascade)))]
       (is (not (contains? row :fx))
           ":fx slot absent on actions without per-action fx"))))
-
-(deftest machine-lifecycle-grouped-by-phase-test
-  (testing "group-lifecycle-by-phase produces phase → rows map"
-    (let [rows [{:action-id :a1 :phase :exit}
-                {:action-id :a2 :phase :entry}
-                {:action-id :a3 :phase :exit}]
-          grouped (proj/group-lifecycle-by-phase rows)]
-      (is (= 2 (count (:exit grouped))))
-      (is (= 1 (count (:entry grouped)))))))
 
 ;; ---- rf2-u69j7 — machine cascade (time-ordered) -----------------------
 
@@ -1131,22 +1133,17 @@
             {:kind :action :state [:asking] :region nil :action :win  :data-delta {:won true}}
             {:kind :entry  :state [:winner] :region nil :action nil  :data-delta {}}]}])
 
-(deftest machine-transition-row-threads-structured-cascade-test
-  (testing "rf2-52u5n — `machine-transition-row` threads the structured
-            `:cascade` step vector off the `:rf.machine/transition` trace
-            so the view can render the step-by-step entry/exit cascade.
-            RED before this bead: the row had only `{:before :after
-            :microsteps :event}` — no `:cascade`."
+(deftest transition-cascade-row-threads-structured-cascade-test
+  (testing "rf2-52u5n / rf2-bhxtr — the `:transition` CASCADE row threads the
+            structured `:cascade` step vector off the `:rf.machine/transition`
+            trace so the view can render the step-by-step entry/exit cascade."
     (let [snap-before {:state {:climate :idle :fan :off} :data {}}
           snap-after  {:state {:climate [:running :conditioning :heating] :fan :on} :data {}}
           evs [(machine-transition-ev :hvac/controller snap-before snap-after
                                        [:hvac/power-cycle] 0 hvac-power-cycle-cascade)
                (machine-action-ev :enter-heating :entry :ok)]
           r   (proj/handler-row evs :hvac/controller)
-          mt  (-> r :machine :transition)
           tx  (first (filterv #(= :transition (:kind %)) (-> r :machine :cascade)))]
-      (is (= hvac-power-cycle-cascade (:cascade mt))
-          "the summary transition row carries the structured cascade")
       (is (= hvac-power-cycle-cascade (:cascade tx))
           "the transition CASCADE row threads the structured cascade for the view"))))
 
@@ -1227,10 +1224,7 @@
                                        [:ws/start] 1) ;; 5-arg: NO :cascade
                (machine-action-ev :open-socket :entry :ok)]
           r   (proj/handler-row evs :ws/start)
-          mt  (-> r :machine :transition)
           tx  (first (filterv #(= :transition (:kind %)) (-> r :machine :cascade)))]
-      (is (nil? (:cascade mt))
-          "no structured cascade on the summary row → fall back to summary")
       (is (nil? (:cascade tx))
           "no structured cascade on the transition cascade row")
       (is (= [] (proj/cascade-regions nil)))
@@ -2541,9 +2535,10 @@
                          (machine-transition-ev :ws/conn [:idle] [:connecting])
                          (machine-action-ev :open-socket :entry :ok)])
           steps (proj/project rec)
-          h     (some #(when (= :handler (:step %)) %) steps)]
+          h     (some #(when (= :handler (:step %)) %) steps)
+          tx    (first (filterv #(= :transition (:kind %)) (-> h :machine :cascade)))]
       (is (= :reg-machine (:flavour h)))
-      (is (= :ws/conn (-> h :machine :transition :machine-id))))))
+      (is (= :ws/conn (:machine-id tx))))))
 
 (deftest project-empty-test
   (testing "empty trace events → empty step vector"
@@ -3111,14 +3106,14 @@
                    (handler-exception-ev :standard-epochs/throw-handler "boom" nil)
                    (run-end-ev 1)]
                   :standard-epochs/throw-handler
-                  {:n 1} {:n 1})]
+                  {:n 1})]
       (is (false? (:db-write? threw))
           "handler that threw before returning a :db → db-write? false"))
     (let [wrote (proj/handler-row
                   [(db-pending-ev {:count 1})
                    (db-changed-ev [[[:count] 0 1 :modified]])
                    (run-end-ev 1)]
-                  :counter/inc {:count 0} {:count 1})]
+                  :counter/inc {:count 0})]
       (is (true? (:db-write? wrote))
           "handler that wrote a :db → db-write? true"))))
 
