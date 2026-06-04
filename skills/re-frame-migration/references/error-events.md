@@ -107,7 +107,8 @@ When auditing a v1 codebase, **assume any error-category name not present in the
 
 Specific drift to watch:
 
-- v1 `:rf.warning/machine-unhandled-event` / `:rf.warning/machine-state-not-in-definition` / `:rf.warning/machine-snapshot-version-mismatch` were renamed to `:rf.error/*` form (per the catalogue's "Older drafts spelled this…" notes). User code matching the old `:rf.warning/*` spelling needs updating.
+- v1 `:rf.warning/machine-state-not-in-definition` / `:rf.warning/machine-snapshot-version-mismatch` were renamed to `:rf.error/*` form (per the catalogue's "Older drafts spelled this…" notes). User code matching the old `:rf.warning/*` spelling needs updating.
+- v1 `:rf.warning/machine-unhandled-event` is a **different** case — it was **retired entirely**, not re-keyed. Per rf2-ugdas there is no `:rf.error/machine-unhandled-event` and no warning either: an event a machine declines is now a **benign no-op**, surfaced as the `:rf.machine.event/unhandled-no-op` trace (op-type `:rf.machine`, the machine-activity family — NOT `:error`, NOT `:warning`; xstate-v5 parity, see [`spec/005-StateMachines.md` §Transition resolution](../../../spec/005-StateMachines.md#transition-resolution--deepest-wins-with-parent-fallthrough) + the [Spec 009 §`:op-type` vocabulary](../../../spec/009-Instrumentation.md#op-type-vocabulary) machine-activity entries). User code matching the old `:rf.warning/machine-unhandled-event` (or `:rf.error/machine-unhandled-event`) spelling should **drop** the handling — there is no replacement category to re-key to. To fail loudly on an unknown event, declare a `:*` wildcard whose action throws (a real `:rf.error/machine-action-exception`).
 - v1 prose sometimes named ad-hoc keys like `:rf/error` or `:re-frame/error`. The contract surface is `:rf.error/<category>` — closed set only.
 
 ## When to point an author at this leaf
