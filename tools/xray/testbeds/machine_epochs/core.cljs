@@ -1,12 +1,11 @@
 (ns machine-epochs.core
-  "MACHINE-EPOCHS testbed (rf2-w06op + rf2-g27vv + rf2-mle6e, runner-shaped
-  rf2-kipb5) — the STATE-MACHINE consumer of the shared queued-step RUNNER
-  (`runner.core`, the rf2-8pbjr pilot). It drives a COMPREHENSIVE,
+  "MACHINE-EPOCHS testbed — the STATE-MACHINE consumer of the shared
+  queued-step RUNNER (`runner.core`). It drives a COMPREHENSIVE,
   ASSERTION-BACKED machine × Xray-cascade-render REGRESSION SURFACE aimed
   squarely at the **Epoch panel's EVENT HANDLER machine cascade** + the
   **Machine Inspector** (`rf-xray-machine-inspector`).
 
-  ## Shape (rf2-kipb5 — adopt the shared queued-step RUNNER)
+  ## Shape
 
   ONE purple Step button (`machine-epochs-step`) advances the machine ×
   render-surface matrix one step at a time while the operator watches how
@@ -16,15 +15,10 @@
   harness; this deck supplies a `steps` vector (CODE DATA) + the testid
   prefix `machine-epochs`. Each step DISPATCHES one event that exercises
   exactly ONE machine FEATURE × the Xray cascade-render SURFACE it lights
-  up. Title: `Xray Testbed: Machine Epochs`.
+  up. Title: `Xray Testbed: Machine Epochs`. A Step / per-step click is
+  manual (operator-driven focus — the runner does not pin focus).
 
-  Replaces the bespoke numbered-button ladder: same events, same machine
-  features, same coverage — but driven by the shared runner so the operator
-  presses Step (or a numbered RUN-THIS-STEP button) and reads each step's
-  per-occurrence `:watch` note while the panels render. A Step / per-step
-  click is manual (operator-driven focus — the runner does not pin focus).
-
-  ## The FEATURE × RENDER-SURFACE matrix (rf2-g27vv)
+  ## The FEATURE × RENDER-SURFACE matrix
 
   Each step maps (machine feature) × (the Xray cascade-render surface it
   lights up), and EACH is backed by a CLJS-UNIT ASSERTION in the harness
@@ -33,11 +27,9 @@
   just a visual deck. The harness drives the IDENTICAL machine specs
   (shared via `machine-epochs.machines`) through the LIVE substrate and
   asserts BOTH machine outcome AND the Xray cascade-render projection —
-  it is decoupled from THIS view (it drives `dispatch-sync` directly), so
-  the runner conversion is additive: it neither drops nor relies on the
-  harness's assertions.
+  it is decoupled from THIS view (it drives `dispatch-sync` directly).
 
-  ## Cascade order is read off the structured `:cascade` (rf2-g27vv)
+  ## Cascade order is read off the structured `:cascade`
 
   Cascade ORDER (exit-deepest-first → action @ LCA → entry-shallowest-first,
   microsteps, the per-region walk) is exposed by the engine's structured
@@ -70,9 +62,9 @@
                                    :history` pseudo-state; shallow + deep
                                    eject/restore drive the
                                    `:rf.machine.history/restored` banner + the
-                                   per-`:entry`-step `:source` chip (rf2-mle6e).
+                                   per-`:entry`-step `:source` chip.
 
-  ## HISTORY steps (gap 8 — LIVE, rf2-mle6e.5)
+  ## HISTORY steps (gap 8)
 
     - the PLACEMENT rejection step: a ROOT `:type :history` machine is still
       rejected (`:rf.error/machine-history-misplaced`) — a pseudo-state must
@@ -85,18 +77,14 @@
       the FULL nested LEAF path. The banner reads DEEP.
 
   The `:rf/history` snapshot slot is inspectable in the App-db panel (inside
-  `[:rf/runtime :machines :snapshots <id> :rf/history]`). rf2-mle6e.5.
+  `[:rf/runtime :machines :snapshots <id> :rf/history]`).
 
-  ## Per-step delta (rf2-5sjbg — app-db `:step`)
+  ## Per-step delta + runner cursor = app-db `:step`
 
   The runner sets app-db `:step = n` on the run-step epoch; that churn is
-  the per-step App-db / Epoch delta the panels show (it REPLACES the old
-  `:baseline` counter). The per-step machine feature is the child event the
-  run-step epoch dispatches into the host-frame.
-
-  ## Runner cursor = app-db `:step` (rf2-5sjbg)
-
-  The runner cursor lives in app-db's `:step` slot, written by
+  the per-step App-db / Epoch delta the panels show. The per-step machine
+  feature is the child event the run-step epoch dispatches into the
+  host-frame. The cursor lives in app-db's `:step` slot, written by
   `runner.core`'s run-step event — NOT a Reagent atom. The deck reads as an
   ordinary re-frame2 app: app-db + events + subs.
 
@@ -107,12 +95,12 @@
   build, port 8033); the preload auto-mounts the inline shell into
   `[data-rf-xray-host]` so every lens reads the single `:rf/default` frame.
 
-  ## Test surface, not tutorial (feedback_testbeds_are_test_surfaces)
+  ## Test surface, not tutorial
 
   No deliberate bugs, no teaching layers. Every transition is a clean feature
   being driven. The `:watch` notes are guidance, not lessons.
 
-  ## Test-free + self-contained (rf2-8cevm)
+  ## Test-free + self-contained
 
   No `spec.cjs` lives here. Regression coverage lives in the Xray test
   surface: the CLJS unit test
@@ -128,6 +116,14 @@
             ;; the `:rf/machine` framework subs, and machine-event routing
             ;; resolve.
             [re-frame.machines]
+            ;; Path constructors for the runtime-owned machines slots — the
+            ;; machines artefact's single source of truth for the
+            ;; `[:rf/runtime :machines …]` spelling. `:machine-epochs/finish-login`
+            ;; resolves the spawned child id through `machine-paths/spawned-path`
+            ;; (parent-id + invoke-id) rather than a literal four-deep vector, so
+            ;; a spawn-registry reshape surfaces at THIS call site (the path
+            ;; constructor moves with it) and the miss-case fails loud.
+            [re-frame.machines.paths :as machine-paths]
             [re-frame.views]
             [re-frame.adapter.reagent :as reagent-adapter]
             [day8.re-frame2-xray.config :as xray-config]
@@ -215,19 +211,37 @@
           [:dispatch [:brew/machine [:brew/abort]]]]}))
 
 ;; drive the spawned :session/login child to its :final? state. The child's
-;; deterministic spawn-id is read off the runtime spawn-registry slot the
-;; parent's :spawn wrote on entry to :authenticating.
+;; deterministic spawn-id is resolved through `machine-paths/spawned-path`
+;; — the machines artefact's path constructor for the runtime-owned
+;; `[:rf/runtime :machines :spawned <parent> <invoke-id>]` slot the parent's
+;; `:spawn` wrote on entry to :authenticating. The invoke-id is the spawning
+;; state's prefix `[:authenticating]` (no explicit `:spawn-id` on the spec, so
+;; the per-state singleton keys off the state path); the leaf holds the
+;; single-spawn child id directly.
+;;
+;; FAIL LOUD ON A MISS (rf2-4i0ac): the prior literal-vector reach paired with
+;; a `cond->` guard turned a missing slot into a silent no-op — a spawn-registry
+;; reshape (or a deck-ordering regression that runs this step before the spawn)
+;; would no-op the dispatch with no error, and neither the runner nor the
+;; substrate harness would catch the breakage. An `assert` surfaces the miss as
+;; a loud failure at the call site instead.
 (rf/reg-event-fx :machine-epochs/finish-login
-  {:doc "Resolve the spawned child by reading the parent's spawn-registry
-         slot, then dispatch [:succeed <token>] to drive it to its :final?
-         state. The child fires :on-done (reporting the token to the parent)
-         and auto-destroys."}
+  {:doc "Resolve the spawned :session/login child via the machines artefact's
+         spawned-path constructor, then dispatch [:succeed <token>] to drive it
+         to its :final? state. The child fires :on-done (reporting the token to
+         the parent) and auto-destroys. Asserts the child id is present — a
+         missing spawn slot fails loud rather than silently no-opping."}
   (fn handler-finish-login [{:keys [db]} _ev]
-    (let [child-id (get-in db [:rf/runtime :machines :spawned
-                               :session/flow [:authenticating]])]
-      (cond-> {:db db}
-        child-id
-        (assoc :fx [[:dispatch [child-id [:succeed :session/token-abc]]]])))))
+    (let [child-id (get-in db (machine-paths/spawned-path :session/flow [:authenticating]))]
+      (assert child-id
+              (str "machine-epochs/finish-login: no spawned :session/login child at "
+                   (machine-paths/spawned-path :session/flow [:authenticating])
+                   " — the :session/flow parent must be in :authenticating "
+                   "(run the Session: open step first). A nil here once meant a "
+                   "silent no-op; failing loud instead surfaces a spawn-registry "
+                   "reshape or a deck-ordering regression."))
+      {:db db
+       :fx [[:dispatch [child-id [:succeed :session/token-abc]]]]})))
 
 ;; answer twice more so the running score reaches the `:enough?` pass mark (3)
 ;; and the guarded `:always` chain settles `:asking` ──► `:passed` in N>0
