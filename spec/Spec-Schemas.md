@@ -1678,7 +1678,9 @@ The schema below covers the flat FSM grammar, the **hierarchical compound** exte
 ;; machine's local :guards map. No compound data form ({:and ...} / {:or ...}
 ;; / {:not ...}) — compound logic is fn composition or a named entry in the
 ;; machine's :guards map (whose name carries semantic content visualisers and
-;; AIs read).
+;; AIs read). This is a deliberate divergence from XState's and/or/not guard
+;; combinators; the rationale is normative in 005 §Guards
+;; (005-StateMachines.md#guards "No combinator data form").
 (def GuardRef
   [:or :keyword fn?])
 
