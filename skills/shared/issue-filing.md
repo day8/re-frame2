@@ -22,23 +22,21 @@ gh issue list --repo <owner/repo> --search "<keywords>"
 
 Prefer one issue per materially distinct improvement. When both a tool-side workaround and an upstream fix are warranted, file both and cross-link them.
 
-## Shell-safety: pass the body via a file, never inline
+## Shell-safety: write the body with the `Write` tool, pass it with `--body-file`
 
-Transcript-derived bodies can carry shell metacharacters the user never sees but the shell would expand. Always write the body to a file with a **single-quoted** here-doc delimiter (so `$`, `` ` ``, and `\` stay literal), then pass it with `--body "$(cat …)"`:
+Transcript-derived bodies can carry shell metacharacters the user never sees but the shell would expand. Never interpolate that text inline into the shell command (where `$`, `` ` ``, and `\` would expand). Instead, **write the body to a file with the `Write` tool**, then pass it with `gh`'s native `--body-file` flag:
 
-```bash
-# Single-quoted here-doc — keeps $, `, and \ literal:
-cat > /tmp/issue-body.md <<'EOF'
-…body drawn from the finding…
-EOF
+1. Use the `Write` tool to compose `/tmp/issue-body.md` (the finding body as plain markdown — no shell escaping needed; nothing expands it).
+2. File it with one `gh issue create` command:
 
-gh issue create \
-  --repo <owner/repo> \
-  --title "<short title>" \
-  --body "$(cat /tmp/issue-body.md)"
-```
+   ```bash
+   gh issue create \
+     --repo <owner/repo> \
+     --title "<short title>" \
+     --body-file /tmp/issue-body.md
+   ```
 
-Never interpolate transcript-derived text directly into a shell command.
+`--body-file` reads the body verbatim from disk, so no shell expansion ever touches the transcript-derived text, and the only `Bash` call is a bare `gh issue create` — runnable under the restricted `Bash(gh issue *)` permission these skills declare (a `cat > file` here-doc or a `--body "$(cat …)"` subshell is **not**, since neither is a bare `gh issue` invocation). Never interpolate transcript-derived text directly into a shell command.
 
 ## Redaction reminder
 

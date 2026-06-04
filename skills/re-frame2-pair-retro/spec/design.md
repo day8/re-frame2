@@ -29,7 +29,7 @@ Per the parent `re-frame2-pair` skill's L2: re-frame2's pair tooling does not de
 
 The skill drafts issue text on request; it does not file issues autonomously. After presenting the retrospective, the skill offers to file *only if asked*. Filing is opt-in, not opt-out. This is a cardinal guard-rail.
 
-**Tracker boundary.** Filings target the **target repo's GitHub issues** (`day8/re-frame2-pair` for tool-side friction; `day8/re-frame2` for upstream framework friction). `bd` (beads) is the re-frame2 monorepo's internal tracker and is never invoked from a published skill. Bodies pass via stdin / here-doc — `gh issue create --body "$(cat /tmp/issue-body.md)"` — never inline interpolation of transcript-derived text. See `skills/README.md` §Published-skill `allowed-tools` baseline for the canonical shape.
+**Tracker boundary.** Filings target the **target repo's GitHub issues** (`day8/re-frame2-pair` for tool-side friction; `day8/re-frame2` for upstream framework friction). `bd` (beads) is the re-frame2 monorepo's internal tracker and is never invoked from a published skill. The body is composed to a file with the `Write` tool and passed via `gh`'s native `--body-file` flag — `gh issue create --body-file /tmp/issue-body.md` — never inline interpolation of transcript-derived text. See `skills/README.md` §Published-skill `allowed-tools` baseline for the canonical shape.
 
 ### L3 — Route the fix to the right repo
 

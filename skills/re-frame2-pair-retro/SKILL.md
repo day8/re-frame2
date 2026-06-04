@@ -22,6 +22,7 @@ allowed-tools:
  - Read
  - Grep
  - Glob
+ - Write
  - Bash(gh issue list *)
  - Bash(gh issue view *)
  - Bash(gh issue create *)
@@ -45,10 +46,10 @@ Deliver:
 - **Always start with session analysis.** Do not jump to fixes.
 - **Friction points before root causes.** Let the user pick which ones to dig into.
 - **Default to diagnosis, not contribution.** Do not assume the user wants to file a GitHub issue or propose a patch. The default tool grant is read-only — `Read`, `Grep`, `Glob`, plus `gh issue list` / `gh issue view` for searching existing issues. Mutation (`gh issue create`) is granted but gated by the approval rule below.
-- **Never file a GitHub issue without explicit user approval.** Drafting issue text is fine; running `gh issue create` is not, until the user has seen the draft and said go. The skill does NOT carry `Edit` or `Write` in its tool grant — proposing source rewrites in another repo is out of scope; route those as issue suggestions, not edits.
+- **Never file a GitHub issue without explicit user approval.** Drafting issue text is fine; running `gh issue create` is not, until the user has seen the draft and said go. The skill does NOT carry `Edit` in its tool grant, and its only `Write` use is composing the issue body to a temp file (`/tmp/issue-body.md`) for `gh issue create --body-file` — proposing source rewrites in another repo is out of scope; route those as issue suggestions, not edits.
 - **Live-runtime probes are opt-in.** The skill operates on a session transcript or a user-supplied recap — it does not probe the live re-frame2 runtime by default. `mcp__re-frame2-pair__discover-app` and other re-frame2-pair MCP tools are NOT in the default tool grant; reach for them only when the retro is explicitly tied to an in-conversation live re-frame2-pair session whose runtime is already attached and the user has confirmed a runtime probe is wanted. Recap-only and offline retros never probe.
 - **Stay focused on improving `re-frame2-pair`.** If the right fix is upstream in `re-frame2` — a gap in one of the Tool-Pair surfaces enumerated in [`../shared/tool-pair-surfaces.md`](../shared/tool-pair-surfaces.md) (trace stream, registrar query API, epoch-history / restore, schema reflection, source-coord annotation) — say so and route the proposal to a GitHub issue against the `re-frame2` repo, not `re-frame2-pair`. Name the specific surface from that leaf rather than gesturing at "the contract."
-- **Tracker boundary — file GitHub issues, never `bd` beads.** `bd` is the re-frame2 monorepo's internal tracker; skills consumed downstream file against the target repo's GitHub issues via `gh issue create`. The full filing recipe (tracker boundary, file-after-approval, search-before-file, shell-safe here-doc, redaction reminder, body shape) lives in [`../shared/issue-filing.md`](../shared/issue-filing.md); §Filing improvements below is the re-frame2-pair-retro specialisation of it.
+- **Tracker boundary — file GitHub issues, never `bd` beads.** `bd` is the re-frame2 monorepo's internal tracker; skills consumed downstream file against the target repo's GitHub issues via `gh issue create`. The full filing recipe (tracker boundary, file-after-approval, search-before-file, shell-safe `--body-file`, redaction reminder, body shape) lives in [`../shared/issue-filing.md`](../shared/issue-filing.md); §Filing improvements below is the re-frame2-pair-retro specialisation of it.
 - **Do not propose fixes via `re-frame-10x`.** v2's pair tooling does not depend on it. Time-travel and trace-stream consumption ride directly on `re-frame2`'s Tool-Pair surfaces — the canonical surface enumeration and the "supersedes re-frame-10x" claim live in [`../shared/tool-pair-surfaces.md`](../shared/tool-pair-surfaces.md).
 
 ## When NOT to use this skill
@@ -105,7 +106,7 @@ After presenting the retrospective, offer filing work only if useful: draft issu
 
 **Routing.** `re-frame2-pair` — friction in the pair tool (SKILL.md, scripts, recipes, structured results, attach/discovery, cross-platform). `re-frame2` — friction caused by the framework's Tool-Pair contract; name the specific surface from [`../shared/tool-pair-surfaces.md`](../shared/tool-pair-surfaces.md) (trace stream, registrar query API, epoch-history / restore, schema reflection, source-coord annotation) rather than re-spelling the list here.
 
-**Filing mechanics — shared recipe.** The procedural rules (redact secrets / tokens / internal URLs / unnecessary local paths, don't dump the raw transcript, search for an existing issue before filing, one issue per materially distinct improvement, and the shell-safe single-quoted here-doc + `--body "$(cat …)"` pattern) live once in [`../shared/issue-filing.md`](../shared/issue-filing.md). Follow it; this skill adds the routing above and the body skeleton in [`references/issue-template.md`](references/issue-template.md) (the worked `gh issue create` example with re-frame2-pair-retro's label scheme).
+**Filing mechanics — shared recipe.** The procedural rules (redact secrets / tokens / internal URLs / unnecessary local paths, don't dump the raw transcript, search for an existing issue before filing, one issue per materially distinct improvement, and the shell-safe `Write`-tool + `--body-file` pattern) live once in [`../shared/issue-filing.md`](../shared/issue-filing.md). Follow it; this skill adds the routing above and the body skeleton in [`references/issue-template.md`](references/issue-template.md) (the worked `gh issue create` example with re-frame2-pair-retro's label scheme).
 
 ## Anti-patterns
 
@@ -118,7 +119,7 @@ After presenting the retrospective, offer filing work only if useful: draft issu
 ## Reference files
 
 - [`../shared/retro-protocol.md`](../shared/retro-protocol.md) — shared retro protocol (seven-step diagnosis-first workflow, evidence-citation discipline, layer-routing rules, opt-in issue-filing protocol). Extracted from this skill's locked design into a shared leaf; consumed by both this skill and `re-frame2-improver` so the two retro-style skills stay in lockstep.
-- [`../shared/issue-filing.md`](../shared/issue-filing.md) — shared issue-filing recipe (file-after-approval, tracker boundary, search-before-file, shell-safe here-doc, redaction reminder, body shape). The single home for the filing mechanics §Filing improvements points at.
+- [`../shared/issue-filing.md`](../shared/issue-filing.md) — shared issue-filing recipe (file-after-approval, tracker boundary, search-before-file, shell-safe `--body-file`, redaction reminder, body shape). The single home for the filing mechanics §Filing improvements points at.
 - [`../shared/tool-pair-surfaces.md`](../shared/tool-pair-surfaces.md) — canonical enumeration of the Tool-Pair surfaces an upstream finding routes to, and the "supersedes re-frame-10x" claim.
 - [`references/analysis-lenses.md`](references/analysis-lenses.md) — friction signals (generic + re-frame2-specific), root-cause categories, improvement patterns, routing decisions, prioritization.
 - [`references/known-frictions.md`](references/known-frictions.md) — recurring classes of `re-frame2-pair` pain; sanity-check one-off vs pattern.

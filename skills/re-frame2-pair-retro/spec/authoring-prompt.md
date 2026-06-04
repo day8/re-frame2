@@ -75,7 +75,7 @@ A self-contained prompt that re-authors the `re-frame2-pair-retro` skill from th
 > *- **L3 — Route the fix to the right repo.** `re-frame2-pair` for tool changes; `re-frame2` for upstream contract changes. Skills file GitHub issues against the target repo — `bd` (beads) is the re-frame2 monorepo's internal tracker and is never invoked from a published skill.*
 > *- **L10 — No internal `bd`/`rf2-XXXX` ids in user-facing skill content.***
 > *- **L11 — Findings stay local.** Don't commit `ai/` or `findings/`.*
-> *- **L12 — Redact secrets before filing.** GitHub-issue drafts strip secrets, tokens, internal URLs, unnecessary local paths. Bodies pass via stdin/here-doc (`gh issue create --body "$(cat /tmp/file)"`), never inline interpolation of transcript-derived text.*
+> *- **L12 — Redact secrets before filing.** GitHub-issue drafts strip secrets, tokens, internal URLs, unnecessary local paths. The body is composed to a file with the `Write` tool and passed via `--body-file` (`gh issue create --body-file /tmp/issue-body.md`), never inline interpolation of transcript-derived text.*
 >
 > *Frontmatter — the `description` is "pushy" but conversational. Trigger phrases: "how could re-frame2-pair better support my workflow", "retrospective on a debugging session", "concrete improvement ideas for re-frame2-pair", "draft an issue for re-frame2-pair". The description discriminates against the live-app `re-frame2-pair` skill and the authoring `re-frame2` skill.*
 >
