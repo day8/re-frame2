@@ -302,14 +302,40 @@
                            :head        head-html
                            :html-attrs  html-attrs
                            :body-attrs  body-attrs)
-        html        (html-shell body-html payload-edn shell-opts)]
+        html        (html-shell body-html payload-edn shell-opts)
+        ;; rf2-c0bq1 — RE-FLUSH after the render walk. The `resp` arg was
+        ;; read at `ring.clj:343` (the single `get-response`) BEFORE the
+        ;; render ran, so it carries the pre-render status. A reactive
+        ;; sub that THROWS during `render-to-string` under production
+        ;; hardening (`interop/debug-enabled? = false`) recovers to nil —
+        ;; `render-to-string` does NOT throw, so the outer
+        ;; `build-full-response` catch never fires — but the always-on
+        ;; error-emit substrate (rf2-vvwmi) BUFFERS a fail-closed 500 onto
+        ;; pending-error-traces during the walk. Without this re-flush
+        ;; that buffered 500 sits unread until frame-destroy drops it, and
+        ;; the wire ships a silent 200 with the recovered-to-nil broken
+        ;; HTML — defeating the rf2-vvwmi fix end-to-end and breaking the
+        ;; Spec 011 §744/§750 "fail-closed, never a silent 200" contract.
+        ;;
+        ;; `flush-response!` drains the (post-render) buffer through the
+        ;; default projector and stamps the projector's :status onto the
+        ;; response accumulator (last-write-wins, redirect-guarded — see
+        ;; `apply-error-projection!` error_listener.cljc:139). The happy
+        ;; path is unaffected: no error buffered during render → empty
+        ;; buffer → the drain is a no-op → :status stays whatever the
+        ;; pre-render `resp` carried (default 200). A redirect set during
+        ;; render still wins (the projector refuses to overwrite a
+        ;; redirect response). We re-read the FULL response (not just
+        ;; merge :status) so any header / cookie the render walk
+        ;; accumulated also rides the wire.
+        post-render-resp (ssr/flush-response! frame-id)]
     ;; Content-Type defaulting (rf2-uj9z8): the 3-arg form folds the
     ;; header pairs into the Ring map AND defaults Content-Type in one
     ;; walk. The SSR runtime defaults [:rf/response :headers] to include
     ;; content-type so the default is usually a no-op, but we still pass
     ;; `content-type` through so an opts override and absence-of-default
     ;; both work.
-    (ssr-response->ring-response resp html content-type)))
+    (ssr-response->ring-response post-render-resp html content-type)))
 
 (defn build-full-response
   "Render the caller's `:root-view` against `frame-id`, build the
