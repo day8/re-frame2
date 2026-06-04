@@ -741,11 +741,89 @@
       (when (seq projected)
         projected))))
 
+;; ---- per-entry :fx-shape policing (rf2-n6d3m) -----------------------------
+;;
+;; `events.cljc/fx-value-ok?` (rf2-24zly) polices the whole `:fx` VALUE at
+;; commit time: a non-`nil`, non-sequential value (`{:fx :oops}`) is dropped
+;; with :rf.error/effect-map-shape before it ever reaches `do-fx`. This is the
+;; level DOWN: an individual ENTRY inside an otherwise-well-shaped `:fx` vector.
+;;
+;; Per `:rf/effect-map` (Spec-Schemas §:rf/effect-map) each entry is a
+;; `[:tuple :keyword :any]` — a `[fx-id args]` vector. The do-fx walk used to
+;; guard with `(when (and (vector? pair) (seq pair)) …)`, which silently
+;; dropped EVERY non-vector entry with no diagnostic — including the clear
+;; typo `{:fx [[:good a] :oops]}` (a bare keyword where a `[fx-id args]` pair
+;; was meant). The handler appears to fire its effects but the typo'd entry
+;; vanishes without trace — the same debuggability gap class the framework
+;; polices loudly elsewhere (interceptors-in-metadata, M-8 effect keys, the
+;; `:fx` value shape).
+;;
+;; We tolerate the legitimately-empty idiom and police the clear typo:
+;;
+;;   nil / [] (empty)        → silent no-op. The documented conditional-fx
+;;                             idiom `[(when cond? [:fx-id args])]` nil-pads
+;;                             entries on purpose; a `[]` is likewise a
+;;                             deliberate no-op. NO trace.
+;;   non-empty vector        → walked normally. An unregistered fx-id head is
+;;                             still policed downstream by `handle-one-fx`'s
+;;                             :rf.error/no-such-fx path — not our concern here.
+;;   non-`nil`, non-empty,   → the clear typo (a keyword / map / string / number
+;;   NON-vector entry          / list where a `[fx-id args]` vector was meant).
+;;                             Emit :rf.error/effect-map-shape naming the entry +
+;;                             handler (recovery :logged-and-skipped, symmetric
+;;                             with rf2-24zly) and DROP just that entry — sibling
+;;                             entries still run, the cascade is not aborted.
+
+(defn- fx-entry-ok?
+  "True iff an individual `:fx` entry `pair` is shaped well enough to walk —
+  i.e. `nil`, an empty collection (both the legal conditional-fx no-op), or a
+  non-empty vector (the documented `[fx-id args]` pair). A non-`nil`, non-empty,
+  NON-vector entry is the forgot-the-inner-vector typo: emit
+  :rf.error/effect-map-shape naming the offending entry + handler and return
+  false so the walk drops just that entry. `event` (the originating event
+  vector, when supplied) names the offending handler; absent ⇒ the trace
+  degrades gracefully (nil event-id)."
+  [pair frame-id event]
+  (cond
+    ;; Legal no-op: nil or empty — the conditional-fx idiom. Skip, no trace.
+    (nil? pair)               false
+    (and (vector? pair)
+         (seq pair))          true        ;; well-shaped, non-empty — walk it
+    (and (coll? pair)
+         (empty? pair))       false        ;; empty [] / () — legal no-op, no trace
+    :else
+    ;; Non-nil, non-empty, non-vector — the clear typo. Police + drop.
+    (let [event-id (when (vector? event) (first event))
+          reason   (str "Effect-map for `" event-id "` returned an `:fx` entry of type `"
+                        (pr-str (type pair))
+                        "` (value `" (pr-str pair) "`); each `:fx` entry must be a "
+                        "`[fx-id args]` vector (e.g. `[:dispatch [:saved]]`)"
+                        " — did you forget the inner vector?")]
+      (trace/emit-error! :rf.error/effect-map-shape
+                         {:failing-id        event-id
+                          :rf.trace/event-id event-id
+                          :rf.event/v        event
+                          :frame             frame-id
+                          :offending-key     :fx
+                          :value             pair
+                          :reason            reason
+                          :recovery          :logged-and-skipped})
+      false)))
+
 (defn do-fx
   "Walk the :fx vector in source order. Per Spec 002 §`:fx` ordering rule 3:
   each entry's handler returns synchronously before the next begins.
   Errors trace independently and the walk continues (rule 4: one bad
   fx does not halt the rest).
+
+  Per-entry shape policing (rf2-n6d3m): each entry passes through
+  `fx-entry-ok?` before dispatch. A `nil` / empty entry is the legal
+  conditional-fx no-op (skipped, no trace); a non-`nil`, non-empty
+  NON-vector entry (the forgot-the-inner-vector typo) emits
+  :rf.error/effect-map-shape and is dropped while sibling entries still
+  run. This composes one level down from rf2-24zly's whole-`:fx`-value
+  check (events.cljc/`fx-value-ok?`), which already rejected a
+  non-sequential `:fx` value before it reached this walk.
 
   Per Spec 002 §Per-frame and per-call overrides: an fx-id override map
   may be provided via `opts`. Each [fx-id args] is rewritten through that
@@ -795,7 +873,12 @@
   ([frame-id fx-vec active-platform
     {:keys [overrides origin-event parent-envelope effects]}]
    (doseq [pair fx-vec]
-     (when (and (vector? pair) (seq pair))
+     ;; Per-entry shape policing (rf2-n6d3m): a non-nil/non-empty NON-vector
+     ;; entry (the forgot-the-inner-vector typo) emits
+     ;; :rf.error/effect-map-shape and is dropped; nil/empty stays the legal
+     ;; conditional-fx no-op; a well-shaped entry walks normally. Composes
+     ;; with rf2-24zly's whole-:fx-value check one level up (events.cljc).
+     (when (fx-entry-ok? pair frame-id origin-event)
        (handle-one-fx frame-id pair active-platform (or overrides {})
                       origin-event parent-envelope)))
    ;; Per rf2-twt7m Change 2: stamp `:fx` + `:db-present?` onto the
