@@ -58,6 +58,7 @@
 
   Per the rf2-gxgo7 split of re-frame.ssr."
   (:require [clojure.string]
+            [re-frame.ssr.http-validation :as http-validation]
             [re-frame.trace :as trace])
   #?(:clj (:import [java.net URI URISyntaxException])))
 
@@ -86,8 +87,12 @@
 ;; value with CR/LF has no safe interpretation — strip-and-warn would
 ;; silently mutate the wire shape and leave a CRLF-shaped string-equal
 ;; comparison failing later in tests.
-(def ^:private header-injection-chars-re
-  #"[\r\n\x00]")
+;;
+;; The injection-char grammar is single-sourced in
+;; `re-frame.ssr.http-validation/contains-injection-char?` — the SAME
+;; predicate the Ring materialiser (`re-frame.ssr.ring.cookie`) enforces,
+;; so the two boundaries can't drift on what counts as a header-splitting
+;; char.
 
 (defn- validate-header-value!
   "Throw `:rf.error/header-invalid-value` if the header value `v`
@@ -96,7 +101,7 @@
   deprecated; no CTLs allowed in `field-content`."
   [header-name v]
   (let [s (str v)]
-    (when (re-find header-injection-chars-re s)
+    (when (http-validation/contains-injection-char? s)
       (throw (ex-info ":rf.error/header-invalid-value"
                       {:rf.error/id :rf.error/header-invalid-value
                        :where    'rf.ssr/response
@@ -117,7 +122,7 @@
   into literal CRLF and would split the header on the wire."
   [loc]
   (let [s (str loc)]
-    (when (re-find header-injection-chars-re s)
+    (when (http-validation/contains-injection-char? s)
       (throw (ex-info ":rf.error/redirect-invalid-location"
                       {:rf.error/id :rf.error/redirect-invalid-location
                        :where    'rf.ssr/response
@@ -141,12 +146,10 @@
 ;; RFC 7230 §3.2.6 token grammar (header names + RFC 6265 §4.1.1
 ;; cookie-name): `1*tchar` where `tchar` ∈ the visible US-ASCII set
 ;; MINUS the separators `( ) < > @ , ; : \ " / [ ] ? = { }` and
-;; whitespace. The regex below encodes that set explicitly so the
-;; grammar is auditable in place; empty names are rejected by the `+`
-;; quantifier.
-
-(def ^:private token-grammar-re
-  #"[!#$%&'*+\-.0-9A-Z\^_`a-z|~]+")
+;; whitespace. The grammar is single-sourced in
+;; `re-frame.ssr.http-validation/valid-token-name?` — the SAME predicate
+;; the Ring materialiser (`re-frame.ssr.ring.cookie`) enforces on cookie
+;; names, so the two boundaries can't drift on the token grammar.
 
 (defn- validate-header-name!
   "Throw `:rf.error/header-invalid-name` if the header name violates the
@@ -155,7 +158,7 @@
   Per rf2-z7gor §security-audit-2026-05-14."
   [n]
   (let [s (str n)]
-    (when-not (re-matches token-grammar-re s)
+    (when-not (http-validation/valid-token-name? s)
       (throw (ex-info ":rf.error/header-invalid-name"
                       {:rf.error/id :rf.error/header-invalid-name
                        :where    'rf.ssr/response
@@ -181,7 +184,7 @@
                      :name     n
                      :recovery :no-recovery})))
   (let [s (#?(:clj clojure.core/name :cljs cljs.core/name) n)]
-    (when-not (re-matches token-grammar-re s)
+    (when-not (http-validation/valid-token-name? s)
       (throw (ex-info ":rf.error/cookie-invalid-name"
                       {:rf.error/id :rf.error/cookie-invalid-name
                        :where    'rf.ssr/response
@@ -200,7 +203,7 @@
   Set-Cookie wire form by host adapters. Per rf2-z7gor."
   [field-key v]
   (let [s (str v)]
-    (when (re-find header-injection-chars-re s)
+    (when (http-validation/contains-injection-char? s)
       (let [error-kw (keyword "rf.error" (str "cookie-invalid-" (name field-key)))]
         (throw (ex-info (str error-kw)
                         {:rf.error/id error-kw
