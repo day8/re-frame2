@@ -30,11 +30,35 @@
   (no-such-frame, reset-during-drain, schema-mismatch — see
   spec/Tool-Pair.md §Pair-tool write failure modes). The runtime's
   `app-db-reset!` already returns a structured `{:ok? false :reason
-  :reset-rejected ...}` on those soft failures; we pass it through."
-  (:require [re-frame2-pair-mcp.tools.args :as args]
+  :reset-rejected ...}` on those soft failures; we pass it through.
+
+  ## Raw-state tap signal MUST precede app-db-reset! (rf2-z7roa)
+
+  The preload's `app-db-reset!` taps BOTH the previous and the next
+  app-db value through `tap>` so the human sees what the agent
+  changed. Those tap payloads default to RAW until the server signals
+  its boot-gate posture to the runtime via `configure-raw-state!`. A
+  session launched with `--allow-writes` but the default sensitive-read
+  posture (`--allow-sensitive-reads` OFF) could therefore emit raw
+  app-db through tap consumers (10x, dev panels, the user's own
+  `add-tap`) on the FIRST `reset-frame-db` call — before any read
+  surface had a chance to signal the runtime.
+
+  So this tool — like the direct-read surfaces (snapshot / get-path /
+  subscribe, rf2-c2dtu) — issues `raw-state/signal-runtime!` AFTER
+  `ensure-runtime!` and BEFORE the `app-db-reset!` eval. The signal is
+  idempotent + build-keyed; `signal-runtime!` only marks the cache
+  successful once the `configure-raw-state!` eval has been issued, so a
+  first reset can never tap raw values ahead of the posture landing.
+  This is why `reset-frame-db` does NOT use the plain
+  `probe/eval-after-runtime!` prelude (which skips the signal step) —
+  it threads `signal-runtime!` between the probe and the eval."
+  (:require [re-frame2-pair-mcp.nrepl :as nrepl]
+            [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.eval-form :as ef]
             [re-frame2-pair-mcp.tools.wire :as wire]
             [re-frame2-pair-mcp.tools.probe :as probe]
+            [re-frame2-pair-mcp.tools.raw-state :as raw-state]
             [re-frame2-pair-mcp.tools.writes :as writes]))
 
 ;; The `db` arg has NO shape constraint — a frame's app-db is
@@ -68,15 +92,23 @@
                      (ef/rt-call 'app-db-reset! new-db frame)
                      (ef/rt-call 'app-db-reset! new-db))
               form (ef/emit call)]
-          (probe/eval-after-runtime!
-            conn build-id form :reset-frame-db-failed
-            (fn [v]
-              ;; app-db-reset! returns a structured envelope
-              ;; ({:ok? true :frame ...} / {:ok? false :reason
-              ;; :reset-rejected ...}). Pass it through; default to a
-              ;; generic shape if the runtime returned a non-map
-              ;; (degraded / pre-rf2-c2dtu runtime).
-              (wire/ok-text
-                (if (map? v)
-                  v
-                  {:ok? false :reason :unexpected-shape :value v :frame frame})))))))))
+          ;; rf2-z7roa — `signal-runtime!` lands between `ensure-runtime!`
+          ;; and the `app-db-reset!` eval so the runtime's tap-emitting
+          ;; surface is in its gated (default-elided) posture BEFORE the
+          ;; reset taps the pre-/post-reset app-db. This mirrors the
+          ;; direct-read surfaces' prelude (rf2-c2dtu) rather than the
+          ;; plain `probe/eval-after-runtime!` (which has no signal step).
+          (-> (probe/ensure-runtime! conn build-id)
+              (.then (fn [_] (raw-state/signal-runtime! conn build-id)))
+              (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
+              (.then (fn [v]
+                       ;; app-db-reset! returns a structured envelope
+                       ;; ({:ok? true :frame ...} / {:ok? false :reason
+                       ;; :reset-rejected ...}). Pass it through; default
+                       ;; to a generic shape if the runtime returned a
+                       ;; non-map (degraded / pre-rf2-c2dtu runtime).
+                       (wire/ok-text
+                         (if (map? v)
+                           v
+                           {:ok? false :reason :unexpected-shape :value v :frame frame}))))
+              (.catch (fn [err] (probe/err->result :reset-frame-db-failed err)))))))))

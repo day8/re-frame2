@@ -12,8 +12,10 @@
       structured `{:ok? ...}` map)."
   (:require [cljs.test :refer-macros [deftest is async]]
             [cljs.reader]
+            [clojure.string :as str]
             [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.nrepl :as nrepl]
+            [re-frame2-pair-mcp.tools.raw-state :as raw-state]
             [re-frame2-pair-mcp.tools.writes :as writes]
             [re-frame2-pair-mcp.tools.reset-frame-db :as reset-frame-db]))
 
@@ -22,20 +24,34 @@
     (swap! conn assoc :probed-builds #{:app})
     conn))
 
+;; rf2-z7roa — reset now issues `configure-raw-state!` (the raw-state
+;; tap signal) BEFORE `app-db-reset!`. The stub records EVERY form so a
+;; test can assert that ordering. `captured*` holds the LAST recorded
+;; form (the app-db-reset! form, since it runs after the signal) — the
+;; legacy single-form assertions still read it. The `configure-raw-
+;; state!` eval resolves to the same canned value (harmless — its
+;; result is swallowed). The signal cache is reset per test so the
+;; signal fires freshly.
 (defn- with-captured-eval!
-  [captured* canned-value body-fn]
-  (let [orig nrepl/cljs-eval-value
-        stub (fn
-               ([_conn _build-id form-str]
+  ([captured* canned-value body-fn]
+   (with-captured-eval! captured* (atom []) canned-value body-fn))
+  ([captured* forms* canned-value body-fn]
+   (let [orig nrepl/cljs-eval-value
+         run  (fn [form-str]
+                (swap! forms* conj form-str)
+                ;; `captured*` mirrors the LAST app-db-reset! form for
+                ;; the legacy assertions (it overwrites on the signal
+                ;; form first, then the reset form).
                 (reset! captured* form-str)
                 (js/Promise.resolve canned-value))
-               ([_conn _build-id form-str _opts]
-                (reset! captured* form-str)
-                (js/Promise.resolve canned-value)))]
-    (set! nrepl/cljs-eval-value stub)
-    (-> (js/Promise.resolve nil)
-        (.then (fn [_] (body-fn)))
-        (.finally (fn [] (set! nrepl/cljs-eval-value orig))))))
+         stub (fn
+                ([_conn _build-id form-str] (run form-str))
+                ([_conn _build-id form-str _opts] (run form-str)))]
+     (set! nrepl/cljs-eval-value stub)
+     (raw-state/reset-runtime-signal-cache!)
+     (-> (js/Promise.resolve nil)
+         (.then (fn [_] (body-fn)))
+         (.finally (fn [] (set! nrepl/cljs-eval-value orig)))))))
 
 (defn- with-writes-on! [body-fn]
   (let [prev (writes/allow-writes-enabled?)]
@@ -64,6 +80,41 @@
                    (is (= :rf.error/writes-disabled (:reason (read-result-text r))))
                    (is (= :untouched @captured) "runtime must NOT be contacted when gated")))
           (.finally (fn [] (writes/set-allow-writes! prev) (done)))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-z7roa — raw-state tap signal ordering. `configure-raw-state!` MUST
+;; be evaluated BEFORE `app-db-reset!`, so the runtime's tap-emitting
+;; surface is in its gated (default-elided) posture before the reset taps
+;; the pre-/post-reset app-db. A write-path test FAILS if app-db-reset!
+;; can run first.
+;; ---------------------------------------------------------------------------
+
+(deftest signals-configure-raw-state-before-app-db-reset
+  (async done
+    (let [captured (atom nil)
+          forms    (atom [])]
+      (-> (with-writes-on!
+            (fn []
+              ;; gate OFF (default published posture) — the signal pushes
+              ;; :allow-raw-state? false to the runtime before the reset.
+              (let [prev (raw-state/allow-raw-state-enabled?)]
+                (raw-state/set-allow-raw-state! false)
+                (-> (with-captured-eval! captured forms {:ok? true :frame :rf/default}
+                      (fn []
+                        (reset-frame-db/reset-frame-db-tool (fresh-conn)
+                                                            #js {:db "{:counter 0}"})))
+                    (.finally (fn [] (raw-state/set-allow-raw-state! prev)))))))
+          (.then (fn [_]
+                   (let [all      @forms
+                         cfg-idx  (first (keep-indexed (fn [i f] (when (str/includes? f "configure-raw-state!") i)) all))
+                         reset-idx (first (keep-indexed (fn [i f] (when (str/includes? f "app-db-reset!") i)) all))]
+                     (is (some? cfg-idx) "configure-raw-state! IS signalled before the reset")
+                     (is (some? reset-idx) "app-db-reset! is evaluated")
+                     (is (< cfg-idx reset-idx)
+                         "configure-raw-state! MUST be evaluated BEFORE app-db-reset!")
+                     (is (str/includes? (nth all cfg-idx) ":allow-raw-state? false")
+                         "the gate-OFF posture is pushed to the runtime ahead of the reset tap"))
+                   (done)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; db as EDN data, not host source.
