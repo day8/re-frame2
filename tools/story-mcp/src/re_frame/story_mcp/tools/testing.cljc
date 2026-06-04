@@ -217,14 +217,14 @@
   [arguments]
   (targs/with-variant-id arguments
     (fn [vk]
-      (let [atomv (try
-                    (when violations-by-frame-var
-                      (deref @violations-by-frame-var))
-                    (catch Throwable _ nil))
-            violations (when atomv (get atomv vk))
+      (let [by-frame (try
+                       (when violations-by-frame-var
+                         (deref @violations-by-frame-var))
+                       (catch Throwable _ nil))
+            violations (when by-frame (get by-frame vk))
             payload {:variant-id vk
                      :violations (vec (or violations []))
-                     :note       (when (nil? atomv)
+                     :note       (when (nil? by-frame)
                                    "a11y is CLJS-only; this JVM-standalone deploy can't run axe-core. Run the panel in-browser; the violations atom is read by this tool.")}]
         (result/edn-result payload)))))
 
