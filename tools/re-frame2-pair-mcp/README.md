@@ -11,8 +11,8 @@ back-compat, but new sessions should prefer the MCP server.
 ## What it is
 
 A Node-based stdio JSON-RPC server (written in ClojureScript, compiled
-via shadow-cljs to a single `.js` file) that exposes the twenty-five
-re-frame2-pair ops as MCP tools (twenty-three read/inspect/action ops —
+via shadow-cljs to a single `.js` file) that exposes the twenty-eight
+re-frame2-pair ops as MCP tools (twenty-six read/inspect/action ops —
 including the operating-frame trio `set-operating-frame` /
 `reset-operating-frame` / `get-operating-frame` (rf2-zomfq) — plus the
 two write tools `restore-epoch` / `reset-frame-db`, which are gated behind
@@ -34,6 +34,7 @@ cljs-eval compile.
 | MCP tool       | Bash-shim equivalent      | What it does |
 |----------------|---------------------------|--------------|
 | `discover-app` | `discover-app.sh`         | Verify shadow-cljs nREPL is reachable, probe the preloaded re-frame2-pair runtime marker, return a health summary. Run first every session. |
+| `orient`       | _(new — no bash equivalent)_ | App-shape orientation summary in one round-trip (rf2-3bu3d.8) — "what is this app and what can I drive?". Composes liveness + frames + per-app-frame app-db top-keys + registrar counts/ids + machines from the existing introspection surfaces. Compact + summarized by design; drill via `list-handlers` / `snapshot` / `get-path` / `read-sub`. |
 | `eval-cljs`    | `eval-cljs.sh`            | Evaluate a CLJS form via shadow-cljs's `cljs-eval`. Returns the EDN value. |
 | `dispatch`     | `dispatch.sh`             | Fire a re-frame2 event with `:origin :pair`. Modes: queued, sync, trace. Frame and fx-overrides supported. |
 | `dispatch-dry-run` | _(new — no bash equivalent)_ | Simulate a cascade WITHOUT committing it (rf2-17hvp): the full reducer + interceptor chain runs and schema validation fires, but every fx is redirected to a recording stub and the app-db is rolled back via `restore-epoch`. Every fx the cascade *would* have fired is enumerated in `:would-fire-effects`. NOT `--allow-writes`-gated — its contract is "no observable effect". |
@@ -44,7 +45,9 @@ cljs-eval compile.
 | `tail-build`   | `tail-build.sh`           | Wait for a hot-reload to land by polling a probe form until its value changes. |
 | `snapshot`     | _(new — no bash equivalent)_ | Coarse-grained per-frame state read in one round-trip. Returns a map keyed by frame-id with `:app-db`, `:sub-cache`, `:machines`, `:epochs`, `:traces` slices. Prefer for investigate-X workflows over chaining 5-10 individual reads. The `:app-db` slice defaults to a tree-summary marker (rf2-tygdv); drill down with `path`. |
 | `get-path`     | _(new — no bash equivalent)_ | Read a single value at `path` from a frame's app-db (rf2-tygdv). Minimal targeted-read primitive; server-side `get-in` so only the addressed subtree crosses the wire. Distinguishes a path that points at `nil` from a path that doesn't resolve, and attaches `deepest-valid-prefix` on misses so the agent can re-aim. |
+| `read-sub`     | _(new — no bash equivalent)_ | Validated one-shot subscription read (rf2-3bu3d.7) — the #1 read on any re-frame2 app. Prefer over raw `eval-cljs @(subscribe …)`: the `sub` arg is EDN-parsed and the sub-id validated against the live `:sub` registrar (unknown id → `:reason :unknown-id` with `:nearest`, never a silent nil), and the value is elided / privacy-gated server-side. |
 | `read-dom`     | _(new — no bash equivalent)_ | View-plane read (rf2-nfjil): query the **rendered DOM** by CSS selector and return matched count + per-node `{:tag :text :attrs}`. Answers "did the UI update?" / "what's on screen now?" — the read-plane counterpart to the data-plane reads. Pairs with `dispatch {:await-render true}` for a deterministic dispatch → settle → read-dom observe. |
+| `read-ui`      | _(new — no bash equivalent)_ | The typed `ui/read` op (rf2-3bu3d.1) — given a view-id / point / CSS selector, return the **rendered subtree** plus the re-frame2 **entity** that produced it (source-coord + `:subs-read`), in one round-trip. Rides the view↔DOM map (`data-rf-view`) so it answers "what does this show, and what produced it?" with zero testids. Read-only. |
 | `record`       | _(new — no bash equivalent)_ | First-class **signal recorder** (rf2-zo4b9): install a read-only rAF observer over a heterogeneous signal-set (`:app-db` path, `:sub`, `:dom`, `:focus`), return immediately with a `:recording-id`, and let a human interact. Records each *change* (deduped) until a `stop` condition (`:ms` / `:changes` / `:pred`) trips. The canonical move for intermittent / human-in-the-loop bugs. Read-only by construction. |
 | `read-recording`| _(new — no bash equivalent)_ | Read back a recording's change-log (rf2-zo4b9), paired with `record`. `drain` returns-and-clears the buffer (poll→consume→repeat live-watch); `stop` tears the recording down after reading. |
 | `watch-until`  | _(new — no bash equivalent)_ | Block until a data **predicate** over a signal-set holds (rf2-zo4b9) — the blocking counterpart to `record` ("wait until focus lands on the modal" / "wait until `[:upload :status]` flips to `:done`"). Server-polls a cheap runtime read on a ~100ms cadence until the condition trips or `timeout-ms` (default 30000) elapses. |
@@ -530,7 +533,7 @@ tools/re-frame2-pair-mcp/
 │   └── probe-mcp-path.cjs                    ; read-only ~/.claude.json drift probe (rf2-vsxgz)
 └── src/re_frame2_pair_mcp/
     ├── nrepl.cljs                            ; persistent socket + bencode
-    ├── tools/registry.cljs                   ; the authoritative ordered catalogue of the twenty-five MCP tools (single source of truth: tools/list descriptors + tools/call dispatch + cache opt-in)
+    ├── tools/registry.cljs                   ; the authoritative ordered catalogue of the twenty-eight MCP tools (single source of truth: tools/list descriptors + tools/call dispatch + cache opt-in)
     ├── tools.cljs                            ; tools/call dispatcher (resolves handlers from registry)
     └── server.cljs                           ; stdio JSON-RPC entry point
 └── test/

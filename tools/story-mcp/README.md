@@ -65,9 +65,9 @@ this jar is decomposed into [`spec/`](./spec/):
 The four categories, at a glance:
 
 - **Dev** (3) — `get-story-instructions`, `preview-variant`, `list-substrates`.
-- **Docs** (9) — `list-stories`, `get-story`, `get-variant`, `list-tags`,
+- **Docs** (10) — `list-stories`, `get-story`, `get-variant`, `list-tags`,
   `list-modes`, `list-decorators`, `list-assertions`, `variant->edn`,
-  `get-docs-markdown`.
+  `explain-variant`, `get-docs-markdown`.
 - **Testing** (4) — `run-variant`, `snapshot-identity`, `run-a11y`,
   `read-failures`.
 - **Write** (3, gated) — `register-variant`, `unregister-variant`,
