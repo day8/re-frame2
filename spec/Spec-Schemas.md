@@ -697,10 +697,20 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:exception-message :string]])
 
 (def NoSuchSubTags
+  ;; Per Spec 009 §Error catalogue (`:rf.error/no-such-sub`) + the emit
+  ;; site in `re-frame.subs/build-and-cache-sub` (rf2-agpv2.3): the tags
+  ;; are `:rf.sub/id` (the unregistered sub being subscribed),
+  ;; `:unresolved-input` (the full query-vector that failed to resolve),
+  ;; and `:resolved-inputs` (the `:<-` inputs resolved before the miss —
+  ;; empty, since the miss is detected on the `sub-meta` lookup before any
+  ;; input is resolved). Re-synced from the pre-agpv2.3 `:rf.sub/query-v`
+  ;; shape (rf2-qn9ss).
   [:map
-   [:category      :keyword]            ;; [:= :rf.error/no-such-sub] in a closed schema
-   [:rf.sub/query-v [:vector :any]]
-   [:frame         {:optional true} :keyword]])
+   [:category         :keyword]         ;; [:= :rf.error/no-such-sub] in a closed schema
+   [:rf.sub/id        :keyword]
+   [:unresolved-input [:vector :any]]
+   [:resolved-inputs  [:vector :any]]
+   [:frame            {:optional true} :keyword]])
 
 (def NoSuchHandlerTags
   [:map

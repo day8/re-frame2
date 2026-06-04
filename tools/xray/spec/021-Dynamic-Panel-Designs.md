@@ -1307,6 +1307,14 @@ Silent-by-default — a clean epoch shows a calm positive state, not an error lo
 Each error carries the responsible handler's source coord (`:rf.trace/trigger-handler`) for
 jump-to-source, and rides the cascade's `:dispatch-id` so the row → Epoch pivot works.
 
+The **short description** lifts a terse per-category detail from the trace event's `:tags`
+(`issues-ribbon-helpers/short-description`, priority order): `:reason` → `:exception-message`
+→ `:rf.event/v` → `:unresolved-input` → `:failing-id` → `:path` → bare-op fallback. The
+`:unresolved-input` slot is the `:rf.error/no-such-sub` row's failing query-vector — re-synced
+(rf2-qn9ss) from the legacy `:rf.sub/query-v` to spec/009's
+`{:rf.sub/id :unresolved-input :resolved-inputs}` catalogue shape after agpv2.3 (#3107) re-shaped
+the `re-frame.subs` emit; the legacy slot is no longer read.
+
 ### §8.4 Cross-panel navigation
 
 | Click | Navigates to |

@@ -497,6 +497,42 @@
            (h/short-description
              (error-ev 1 :rf.error/handler-exception {:tags {}}))))))
 
+(deftest short-description-surfaces-no-such-sub-under-spec-009-shape
+  ;; rf2-qn9ss — agpv2.3 (#3107) re-shaped the `:rf.error/no-such-sub`
+  ;; emit tags from the legacy `{:rf.sub/query-v _}` to spec/009's
+  ;; `{:rf.sub/id _ :unresolved-input _ :resolved-inputs _ :frame _}`
+  ;; (verified against the `re-frame.subs` emit site). The ribbon's
+  ;; description reader now reads `:unresolved-input` so the row surfaces
+  ;; WHICH sub failed to resolve, rather than the bare op keyword.
+  (testing "the failing sub's query-vector is lifted from :unresolved-input"
+    (let [ev   (error-ev 1 :rf.error/no-such-sub
+                         {:tags {:rf.sub/id        :cart/total
+                                 :unresolved-input [:cart/total]
+                                 :resolved-inputs  []
+                                 :frame            :rf/default}})
+          desc (h/short-description ev)]
+      (is (re-find #":cart/total" desc)
+          "the unresolved sub query-vector reads into the description")
+      (is (re-find #":rf.error/no-such-sub" desc)
+          "the operation keyword still leads the line")))
+  (testing "the legacy :rf.sub/query-v slot is NOT read — it is no longer
+            emitted post-agpv2.3, so a description carrying ONLY the legacy
+            slot falls through to the bare-op fallback (regression guard)"
+    (is (= ":rf.error/no-such-sub"
+           (h/short-description
+             (error-ev 1 :rf.error/no-such-sub
+                       {:tags {:rf.sub/query-v [:cart/total]}})))))
+  (testing "project-issue round-trips a no-such-sub error into a row whose
+            description names the unresolved sub"
+    (let [row (h/project-issue
+                (error-ev 7 :rf.error/no-such-sub
+                          {:tags {:rf.sub/id        :cart/items
+                                  :unresolved-input [:cart/items]
+                                  :resolved-inputs  []}}))]
+      (is (= :error (:severity row)))
+      (is (= "no-such-sub" (:category row)))
+      (is (re-find #":cart/items" (:description row))))))
+
 ;; ---- (13) source-coord ------------------------------------------
 
 (deftest source-coord-projection
