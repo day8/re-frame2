@@ -110,6 +110,12 @@
   Reads only `:operation` + `:tags`; emits no traces; pure JVM/CLJS.
   Caller is responsible for the focus gate — this fn always walks."
   [events]
+  ;; The transient accumulator keys mirror the public result-map keys
+  ;; (`:subs-recomputed`, `:subs-skipped`, …) so the reduce body and the
+  ;; final `persistent!` projection read against one vocabulary — no
+  ;; abbreviated-alias translation layer to keep in your head. The two
+  ;; truncation flags use the public `:sub-cap-truncated?` /
+  ;; `:view-cap-truncated?` names for the same reason.
   (let [acc (reduce
               (fn [acc ev]
                 (let [op (:operation ev)
@@ -123,88 +129,91 @@
                         ;; projection carries the same fields as the epoch
                         ;; record's `:sub-runs`. Slots are nil for the
                         ;; `compute-sub` base-shape emit (which omits them).
-                        (assoc! :sr (conj-bounded (get acc :sr)
-                                                  {:sub-id         (:rf.sub/id t)
-                                                   :query-v        (:rf.sub/query-v t)
-                                                   :value-changed? (:rf.sub/value-changed? t)
-                                                   :prev-value     (:rf.sub/prev-value t)
-                                                   :value          (:rf.sub/value t)
-                                                   :cascade?       (:rf.sub/cascade? t)
-                                                   :cause-sub      (:rf.sub/cause-sub t)
-                                                   ;; rf2-okz1u — `:cause-event-id` names
-                                                   ;; the dispatching cascade's event-id
-                                                   ;; (the head of the event vector that
-                                                   ;; kicked off the in-flight drain).
-                                                   ;; Threaded from `:rf.sub/cause-event-id`
-                                                   ;; on the recompute trace tag (sourced
-                                                   ;; via the `:epoch/cascade-cause` late-
-                                                   ;; bind hook at emit time). nil when the
-                                                   ;; sub ran outside any cascade or the
-                                                   ;; epoch artefact is absent — consumers
-                                                   ;; (Xray's Epoch panel SUBSCRIPTIONS
-                                                   ;; section) read it to credit each
-                                                   ;; sub-run to the right epoch row even
-                                                   ;; when the physical reactive flush
-                                                   ;; deferred into a chained sibling
-                                                   ;; event's drain.
-                                                   :cause-event-id (:rf.sub/cause-event-id t)}
-                                                  sub-cap))
+                        (assoc! :subs-recomputed
+                                (conj-bounded (get acc :subs-recomputed)
+                                              {:sub-id         (:rf.sub/id t)
+                                               :query-v        (:rf.sub/query-v t)
+                                               :value-changed? (:rf.sub/value-changed? t)
+                                               :prev-value     (:rf.sub/prev-value t)
+                                               :value          (:rf.sub/value t)
+                                               :cascade?       (:rf.sub/cascade? t)
+                                               :cause-sub      (:rf.sub/cause-sub t)
+                                               ;; rf2-okz1u — `:cause-event-id` names
+                                               ;; the dispatching cascade's event-id
+                                               ;; (the head of the event vector that
+                                               ;; kicked off the in-flight drain).
+                                               ;; Threaded from `:rf.sub/cause-event-id`
+                                               ;; on the recompute trace tag (sourced
+                                               ;; via the `:epoch/cascade-cause` late-
+                                               ;; bind hook at emit time). nil when the
+                                               ;; sub ran outside any cascade or the
+                                               ;; epoch artefact is absent — consumers
+                                               ;; (Xray's Epoch panel SUBSCRIPTIONS
+                                               ;; section) read it to credit each
+                                               ;; sub-run to the right epoch row even
+                                               ;; when the physical reactive flush
+                                               ;; deferred into a chained sibling
+                                               ;; event's drain.
+                                               :cause-event-id (:rf.sub/cause-event-id t)}
+                                              sub-cap))
                         (cond->
-                          (>= (count (get acc :sr)) sub-cap)
-                          (assoc! :st? true)))
+                          (>= (count (get acc :subs-recomputed)) sub-cap)
+                          (assoc! :sub-cap-truncated? true)))
 
                     (= :rf.sub/skip op)
                     (-> acc
-                        (assoc! :ss (conj-bounded (get acc :ss)
-                                                  {:sub-id  (:rf.sub/id t)
-                                                   :query-v (:rf.sub/query-v t)
-                                                   :reason  (:rf.sub/reason t)
-                                                   :input-paths-unchanged
-                                                   (:rf.sub/input-paths-unchanged t)}
-                                                  sub-cap))
+                        (assoc! :subs-skipped
+                                (conj-bounded (get acc :subs-skipped)
+                                              {:sub-id  (:rf.sub/id t)
+                                               :query-v (:rf.sub/query-v t)
+                                               :reason  (:rf.sub/reason t)
+                                               :input-paths-unchanged
+                                               (:rf.sub/input-paths-unchanged t)}
+                                              sub-cap))
                         (cond->
-                          (>= (count (get acc :ss)) sub-cap)
-                          (assoc! :st? true)))
+                          (>= (count (get acc :subs-skipped)) sub-cap)
+                          (assoc! :sub-cap-truncated? true)))
 
                     (= :rf.flow/computed op)
-                    (assoc! acc :fc
-                            (conj! (get acc :fc)
+                    (assoc! acc :flows-computed
+                            (conj! (get acc :flows-computed)
                                    {:flow-id (:flow-id t)
                                     :path    (:path t)}))
 
                     (= :rf.flow/skip op)
-                    (assoc! acc :fs
-                            (conj! (get acc :fs)
+                    (assoc! acc :flows-skipped
+                            (conj! (get acc :flows-skipped)
                                    {:flow-id (:flow-id t)
                                     :input-paths-unchanged
                                     (:input-paths-unchanged t)}))
 
                     (= :rf.view/render op)
                     (-> acc
-                        (assoc! :vr (conj-bounded (get acc :vr)
-                                                  {:render-key   (:rf.view/render-key t)
-                                                   :triggered-by (:triggered-by t)}
-                                                  view-cap))
+                        (assoc! :views-rendered
+                                (conj-bounded (get acc :views-rendered)
+                                              {:render-key   (:rf.view/render-key t)
+                                               :triggered-by (:triggered-by t)}
+                                              view-cap))
                         (cond->
-                          (>= (count (get acc :vr)) view-cap)
-                          (assoc! :vt? true)))
+                          (>= (count (get acc :views-rendered)) view-cap)
+                          (assoc! :view-cap-truncated? true)))
 
                     :else acc)))
-              (transient {:sr  (transient [])
-                          :ss  (transient [])
-                          :fc  (transient [])
-                          :fs  (transient [])
-                          :vr  (transient [])
-                          :st? false
-                          :vt? false})
+              (transient {:subs-recomputed     (transient [])
+                          :subs-skipped        (transient [])
+                          :flows-computed      (transient [])
+                          :flows-skipped       (transient [])
+                          :views-rendered      (transient [])
+                          :sub-cap-truncated?  false
+                          :view-cap-truncated? false})
               events)]
-    {:subs-recomputed     (persistent! (get acc :sr))
-     :subs-skipped        (persistent! (get acc :ss))
-     :flows-computed      (persistent! (get acc :fc))
-     :flows-skipped       (persistent! (get acc :fs))
-     :views-rendered      (persistent! (get acc :vr))
-     :sub-cap-truncated?  (get acc :st?)
-     :view-cap-truncated? (get acc :vt?)}))
+    {:subs-recomputed     (persistent! (get acc :subs-recomputed))
+     :subs-skipped        (persistent! (get acc :subs-skipped))
+     :flows-computed      (persistent! (get acc :flows-computed))
+     :flows-skipped       (persistent! (get acc :flows-skipped))
+     :views-rendered      (persistent! (get acc :views-rendered))
+     :sub-cap-truncated?  (get acc :sub-cap-truncated?)
+     :view-cap-truncated? (get acc :view-cap-truncated?)}))
 
 (defn capture-for-epoch!
   "If the installed focus predicate returns truthy for the given
