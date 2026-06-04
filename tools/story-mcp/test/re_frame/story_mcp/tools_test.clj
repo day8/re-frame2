@@ -2152,6 +2152,87 @@
           (is (identical? hiccup out)
               "no secrets ⇒ no walk, input ref returned"))))))
 
+;; ---------------------------------------------------------------------------
+;; rf2-g7cd1 — value-redaction over-scrub guard.
+;;
+;; The value-based walk substitutes EVERY derived-tree leaf `=` a
+;; declared-sensitive value. When a sensitive path holds a short/common
+;; scalar (`0`, `200`, `:ok`), naive matching scrubs every benign leaf that
+;; merely equals it — degrading the agent's view AND leaking the secret's
+;; value-CLASS. `sensitive-values` guards that: a candidate value that ALSO
+;; sits at a NON-sensitive app-db path is dropped from the secret set, because
+;; the path-based `:app-db` egress already ships that value verbatim (it is
+;; provably already disclosed, so excluding it leaks nothing new). These tests
+;; pin BOTH the precision win AND the fail-SAFE invariant (a value that is
+;; UNIQUELY secret — only under sensitive paths — stays redacted).
+;; ---------------------------------------------------------------------------
+
+(deftest scrub-rendered-short-scalar-aliased-to-public-path-is-not-over-scrubbed
+  (testing "a short sensitive scalar that ALSO sits at a non-sensitive app-db path is provably public — benign leaves equal to it survive"
+    (with-clean-frame [vid :story.button/primary]
+      ;; :http-status is sensitive and holds 0; :retry-count holds the SAME
+      ;; scalar 0 at a NON-sensitive path, so 0 is already shipped verbatim
+      ;; by the path-based :app-db egress — it is not a protectable secret.
+      (let [db     {:http-status 0          ; sensitive path
+                    :retry-count 0           ; benign path, same scalar
+                    :public      "ok"}
+            ;; Derived tree with many benign leaves equal to 0 (a tab-index,
+            ;; an aria level, a count) that the naive walk would have scrubbed.
+            hiccup [:ul {:tabindex 0}
+                    [:li {:data-level 0} "first"]
+                    [:li {:data-level 0} "second"]]]
+        (seed-app-db! vid db)
+        (declare-sensitive! vid [:http-status])
+        (let [scrub-rendered (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-rendered)
+              out            (scrub-rendered hiccup db vid false)]
+          (is (not (tree-contains? out :rf/redacted))
+              "0 appears at a non-sensitive app-db path, so it is dropped from the secret set — no benign 0 leaf is over-scrubbed")
+          (is (= 0 (get-in out [1 :tabindex]))
+              "benign 0 attribute values survive untouched")
+          (is (= 0 (get-in out [2 1 :data-level]))
+              "benign 0 leaves deep in the tree survive")
+          (is (identical? hiccup out)
+              "with no remaining secrets the tree is returned unwalked"))))))
+
+(deftest scrub-rendered-uniquely-secret-short-scalar-stays-redacted
+  (testing "FAIL-SAFE: a short scalar that sits ONLY at the sensitive path (no benign alias) is still redacted — no under-scrub"
+    (with-clean-frame [vid :story.button/primary]
+      ;; The sensitive scalar 7 is UNIQUE to the sensitive path — it does NOT
+      ;; appear at any non-sensitive app-db path, so the guard must keep it in
+      ;; the secret set. (Over-scrub of any benign 7 elsewhere is the
+      ;; irreducible value-aliasing residual and is fail-SAFE.)
+      (let [db     {:pin    7
+                    :public "ok"}
+            hiccup [:input {:type "password" :value 7}]]
+        (seed-app-db! vid db)
+        (declare-sensitive! vid [:pin])
+        (let [scrub-rendered (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-rendered)
+              out            (scrub-rendered hiccup db vid false)]
+          (is (not (tree-contains? out 7))
+              "the uniquely-secret scalar 7 MUST NOT survive on the wire (no under-scrub)")
+          (is (= :rf/redacted (get-in out [1 :value]))
+              "the sensitive leaf is replaced with the :rf/redacted sentinel"))))))
+
+(deftest scrub-rendered-genuine-long-secret-still-redacted
+  (testing "FAIL-SAFE regression: a genuinely-sensitive long secret on its path is still fully redacted (the guard does not weaken distinctive-secret redaction)"
+    (with-clean-frame [vid :story.button/primary]
+      (let [db     {:public "ok"
+                    :token  "sk-live-9f8a7b6c5d4e3f2a1b0c-TOPSECRET"}
+            hiccup [:div {:class "card"}
+                    [:input {:type "password"
+                             :value "sk-live-9f8a7b6c5d4e3f2a1b0c-TOPSECRET"}]
+                    [:span "token: " "sk-live-9f8a7b6c5d4e3f2a1b0c-TOPSECRET"]]]
+        (seed-app-db! vid db)
+        (declare-sensitive! vid [:token])
+        (let [scrub-rendered (requiring-resolve 're-frame.story-mcp.tools.egress/scrub-rendered)
+              out            (scrub-rendered hiccup db vid false)]
+          (is (not (tree-contains? out "sk-live-9f8a7b6c5d4e3f2a1b0c-TOPSECRET"))
+              "the distinctive long secret MUST NOT survive anywhere in the derived tree")
+          (is (tree-contains? out :rf/redacted)
+              "matching leaves are replaced with the :rf/redacted sentinel")
+          (is (= "card" (get-in out [1 :class]))
+              "benign attribute values survive untouched"))))))
+
 ;; The two integration tests below pin the WIRING — that `preview-variant`
 ;; and `run-variant` route `:rendered-hiccup` / `:effective-args` / `:snapshot`
 ;; through `scrub-rendered`. They `with-redefs` `story/run-variant` to a
