@@ -139,6 +139,5 @@
   travel), and pair-tool drift detection."
   ([] (app-schemas-digest {}))
   ([opts-or-frame-id]
-   (let [opts     (storage/coerce-opts opts-or-frame-id)
-         frame-id (storage/resolve-frame opts)]
+   (let [frame-id (storage/coerce->frame-id opts-or-frame-id)]
      (compute-digest (storage/app-schemas {:frame frame-id})))))

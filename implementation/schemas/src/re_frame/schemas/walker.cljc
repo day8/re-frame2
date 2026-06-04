@@ -76,7 +76,8 @@
   positional combinators descend at the same base-path) so a single
   traversal serves every per-slot annotation under
   `:rf/app-schema-meta`. Future per-slot annotations (Spec-Schemas
-  reserves additional slots) compose as one-line registrations.")
+  reserves additional slots) compose as one-line registrations."
+  (:require [re-frame.schemas.cache :as cache]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -229,68 +230,54 @@
   [schema base-path]
   (walk-flagged-schema :large? schema base-path {}))
 
-;; Atom-backed memo cache for `extract-sensitive-paths-from-schema`
-;; (rf2-17sqc). Replaces the opaque `(memoize ...)` so the cache is
-;; *clearable* for test isolation — `clojure.core/memoize` exposes no
-;; clear hook, so a test that registers many distinct fresh schemas (the
-;; concurrency stress test) could never reset the process-lifetime
-;; cache. The cache key is `[schema base-path]` (both immutable);
-;; behaviour for callers is byte-identical to the prior `memoize` form.
-;;
-;; ## Boot-once invariant (Mike ruled rf2-17sqc, option B)
-;;
-;; App schemas are registered ONCE at boot. The walker memo is therefore
-;; bounded by the (registered-schema, base-path) cardinality, and the
-;; cache is process-lifetime and intentionally NOT evicted — no bounded
-;; LRU. The only scenario that violates boot-once is a test that
-;; deliberately registers many distinct fresh schemas; such tests call
-;; `clear-sensitive-paths-cache!` in fixture teardown so the cache
-;; doesn't grow unbounded across the suite. See [010 §Schema digest].
-(def ^:private sensitive-paths-cache (atom {}))
+;; `extract-sensitive-paths-from-schema` is the clearable-memo wrapper
+;; over the `:sensitive?` walk (rf2-17sqc shape; the factory lives in
+;; `re-frame.schemas.cache`, consolidated rf2-mse54). The cache is
+;; *clearable* (`clojure.core/memoize` exposes no clear hook) so a test
+;; that registers many distinct fresh schemas (the concurrency-stress
+;; harness) can reset the process-lifetime cache in fixture teardown.
+;; Behaviour for callers is byte-identical to the prior `memoize` form.
+;; See `re-frame.schemas.cache` for the boot-once invariant.
+(let [[memo clear!]
+      (cache/clearable-memo
+        (fn [schema base-path]
+          (walk-flagged-schema :sensitive? schema base-path {})))]
 
-(defn clear-sensitive-paths-cache!
-  "Reset the `extract-sensitive-paths-from-schema` memo cache
-  (rf2-17sqc). Test-support hook: the walker memo is process-lifetime
-  and bounded by the (registered-schema, base-path) cardinality in real
-  apps (schemas register once at boot), so production never needs this —
-  but a test that registers many distinct fresh schemas
-  (`schemas_concurrency_stress_test`) calls it in fixture teardown so
-  the cache doesn't grow unbounded across the suite. Returns nil."
-  []
-  (reset! sensitive-paths-cache {})
-  nil)
+  (def
+    ^{:doc "Walk a registered Malli schema form at `base-path` and return
+            a `{path {:sensitive? true ...}}` map for every `:sensitive?
+            true` slot found. Per Spec 010 §`:sensitive?` — privacy in
+            schema-validation error traces.
 
-(defn extract-sensitive-paths-from-schema
-  "Walk a registered Malli schema form at `base-path` and return a
-  `{path {:sensitive? true ...}}` map for every `:sensitive? true` slot
-  found. Per Spec 010 §`:sensitive?` — privacy in schema-validation
-  error traces.
+            Used by the validation emit-sites (`validate-app-schema!` and
+            the per-step `validate-event!` / `validate-cofx!` /
+            `validate-sub!` helpers) to decide whether the failing slot's
+            value MUST be redacted before the trace event ships.
 
-  Used by the validation emit-sites (`validate-app-schema!` and the
-  per-step `validate-event!` / `validate-cofx!` / `validate-sub!`
-  helpers) to decide whether the failing slot's value MUST be redacted
-  before the trace event ships.
+            Memoised by `(schema, base-path)` (rf2-y29nf): the failure-
+            branch call site (`schema-sensitive-at?`) re-walks the same
+            registered schema on every consecutive failure, and the walk
+            is pure over immutable schema values. The cache is bounded by
+            the (registered-schema, base-path) cardinality — schemas are
+            registered once at app-boot, so steady-state cache size equals
+            the registry size.
 
-  Memoised by `(schema, base-path)` (rf2-y29nf): the failure-branch
-  call site (`schema-sensitive-at?`) re-walks the same registered
-  schema on every consecutive failure, and the walk is pure over
-  immutable schema values. The cache is bounded by the (registered-
-  schema, base-path) cardinality — schemas are registered once at
-  app-boot, so steady-state cache size equals the registry size.
+            The memo is **clearable** for test isolation via
+            `clear-sensitive-paths-cache!` (rf2-17sqc)."
+      :arglists '([schema base-path])}
+    extract-sensitive-paths-from-schema memo)
 
-  The memo is **clearable** for test isolation via
-  `clear-sensitive-paths-cache!` (rf2-17sqc): schemas register once at
-  boot, so the cache is process-lifetime and intentionally not evicted
-  in production — but tests that register many distinct fresh schemas
-  reset it in fixture teardown. Behaviour for callers is byte-identical
-  to the prior `clojure.core/memoize` form."
-  [schema base-path]
-  (let [k [schema base-path]]
-    (if-let [e (find @sensitive-paths-cache k)]
-      (val e)
-      (let [v (walk-flagged-schema :sensitive? schema base-path {})]
-        (swap! sensitive-paths-cache assoc k v)
-        v))))
+  (def
+    ^{:doc "Reset the `extract-sensitive-paths-from-schema` memo cache
+            (rf2-17sqc). Test-support hook: the walker memo is process-
+            lifetime and bounded by the (registered-schema, base-path)
+            cardinality in real apps (schemas register once at boot), so
+            production never needs this — but a test that registers many
+            distinct fresh schemas (`schemas_concurrency_stress_test`)
+            calls it in fixture teardown so the cache doesn't grow
+            unbounded across the suite. Returns nil."
+      :arglists '([])}
+    clear-sensitive-paths-cache! clear!))
 
 (defn schema-has-sensitive?
   "True when the registered schema declares ANY slot sensitive —
