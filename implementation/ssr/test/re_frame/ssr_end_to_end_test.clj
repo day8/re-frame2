@@ -878,21 +878,28 @@
                  (pr-str (mapv :operation @traces))))))))
 
 ;; ===========================================================================
-;; ssr-head-hash-mismatch — head-vs-body discriminator on the unified hash
+;; host-supplied :failing-id is surfaced on the unified render-hash channel
 ;; ===========================================================================
 ;;
-;; Per Spec 011 §Mismatch detection — head: head-mismatch and body-mismatch
-;; share the unified :rf/render-hash channel in v1; the discriminator is
-;; :failing-id. A dedicated head-hash payload key + wire attribute is
-;; reserved for the post-v1 reg-head extension. The runtime routes both
-;; through verify-hydration! and surfaces head-vs-body via :failing-id.
+;; Per Spec 011 §Mismatch detection — head + §Hydration-mismatch detection:
+;; head and body share the unified :rf/render-hash channel in v1, so the
+;; bundled runtime cannot tell head-only from body-only divergence and
+;; emits a single :failing-id :rf/hydrate on any mismatch. :failing-id is a
+;; GENERIC host-supplied attribution seam on verify-hydration!, NOT a value
+;; the runtime toggles. This test exercises that SEAM: a host supplying its
+;; own attribution value (here :rf.ssr/head-mismatch — host-suppliable now,
+;; not v1-runtime-emitted) has it flow through to the trace. It proves the
+;; seam + host attribution, NOT runtime head-detection. A dedicated
+;; head-hash payload key + wire attribute that would let the runtime itself
+;; emit :rf.ssr/head-mismatch is reserved for the post-v1 reg-head extension.
 
-(deftest ssr-head-hash-mismatch
-  (testing "verify-hydration! surfaces a head-mismatch via :failing-id on the unified render-hash channel"
+(deftest host-supplied-failing-id-surfaced-on-unified-channel
+  (testing "a host-supplied :failing-id override flows through verify-hydration! to the trace on the unified render-hash channel"
     (let [verify-fn ssr/verify-hydration!
           ;; Hydration payload carries the SERVER's render-hash. v1's
-          ;; unified channel covers head + body; the head-vs-body
-          ;; distinction lives entirely in :failing-id below.
+          ;; unified channel covers head + body; the bundled runtime emits
+          ;; only :failing-id :rf/hydrate. Here the HOST supplies its own
+          ;; attribution value through the seam (see verify-fn call below).
           payload   {:rf/version     1
                      :rf/app-db      {:rf/runtime {:routing {:current {:id :route/article :params {:id "123"}}}}}
                      :rf/render-hash "head-hash-server-A"}
@@ -904,7 +911,9 @@
           ":rf/hydrate stashed the server's head-hash")
 
       (rf/register-listener! ::head (fn [ev] (swap! traces conj ev)))
-      ;; Client recomputes the head — yields a different hash.
+      ;; Client hash differs; the HOST supplies a :failing-id override
+      ;; (:rf.ssr/head-mismatch — host-suppliable now, not v1-runtime-emitted)
+      ;; and we assert the seam carries it through to the trace verbatim.
       (verify-fn f
                  "head-hash-client-B"
                  {:failing-id :rf.ssr/head-mismatch
