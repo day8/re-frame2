@@ -35,9 +35,9 @@ The author picks the VERSION once; every `day8/re-frame2-*` dep (including `-xra
 
 The day-one deps match the deps-new template: core (`day8/re-frame2`), the Reagent adapter (`day8/re-frame2-reagent`), `-schemas` (the starter app attaches a whole-app-db schema), and `-xray` (the in-app devtools panel, Xray-priority by default), plus an explicit `reagent/reagent` pin. The remaining per-feature artefacts (`-machines`, `-routing`, `-flows`, `-http`, `-ssr`, `-epoch`) come in **only when the author starts using the feature**. The skill resists "add them all defensively" — pay-as-you-go is the contract for everything past the day-one shape.
 
-### L4 — The Reagent adapter is the default reference substrate
+### L4 — The Reagent adapter is the default reference substrate; UIx/Helix get the two-substitution recipe
 
-Unless the author explicitly says UIx or Helix, scaffold against Reagent. The skill does not branch into multi-substrate decision trees at greenfield — Reagent v2 is the canonical default.
+Unless the author explicitly says UIx or Helix, scaffold against Reagent — Reagent v2 is the canonical default. The skill does not branch into a full multi-substrate decision tree at greenfield, but it **does** cover UIx/Helix greenfield: `references/entry-namespace.md` §UIx / Helix greenfield gives the two adapter substitutions (deps swap + entry-ns root API) plus a worked UIx `core.cljs`, and points at the generator template's complete `_uix/` / `_helix/` variants. SKILL.md cardinal rule 4 and README.md §"What it deliberately does NOT cover" carry the same pointer. (Shipped — this updates the earlier "Reagent-only at greenfield" framing; see OQ1.)
 
 ### L5 — Don't write tests for the author
 
@@ -78,7 +78,7 @@ SKILL.md ends with an explicit "When the author asks anything beyond setup" rout
 - Authoring application code beyond the first counter → `skills/re-frame2/`.
 - Live-runtime debugging → `skills/re-frame2-pair/`.
 - Building re-frame2 in a different host language → `skills/re-frame2-implementor/`.
-- Non-Reagent substrates (UIx, Helix) at greenfield — the skill scaffolds against Reagent; substrate-switch is a separate conversation.
+- Full multi-substrate decision trees at greenfield — Reagent is the default. UIx/Helix greenfield is **in scope** at the recipe level: `references/entry-namespace.md` §UIx / Helix greenfield gives the two adapter substitutions plus the generator-template pointer (see L4).
 - Writing tests, registering events, subs, machines, schemas — all the main `re-frame2` skill's job.
 
 ## 5. File structure (locked)
@@ -127,9 +127,9 @@ The `description` is "pushy" and lists every greenfield-trigger phrase: *"start 
 
 ## 9. Open questions (deferred to Mike)
 
-### OQ1 — Should the skill cover UIx / Helix greenfield?
+### OQ1 — Should the skill cover UIx / Helix greenfield? — RESOLVED (done)
 
-Currently L4 makes Reagent the only greenfield path. A future v0.2 could add `references/entry-namespace-uix.md` and `references/entry-namespace-helix.md` once those substrates have a steady greenfield user-base. Status: deferred until there's evidence of demand.
+**Resolved: yes, at the recipe level.** Rather than separate `entry-namespace-uix.md` / `-helix.md` leaves, the shipped skill folds UIx/Helix greenfield into `references/entry-namespace.md` §UIx / Helix greenfield — the two adapter substitutions (deps swap + entry-ns root API), a worked UIx `core.cljs`, and a pointer to the generator template's complete `_uix/` / `_helix/` variants. Reagent stays the default; UIx/Helix are a documented two-substitution delta, not a full decision tree. See L4.
 
 ### OQ2 — Should the skill ship a runnable `setup.bb` script?
 

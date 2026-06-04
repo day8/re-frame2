@@ -127,7 +127,7 @@ This skill scaffolds against **Reagent** (the default reference substrate). For 
   (Helix uses `(.render react-root ($ views/counter-app))` against a `react-dom/client` root, with `$` from `helix.core` — see the template's `_helix/core.cljs`.)
 - everything else (events, subs, schemas, Xray wiring, `dispatch-sync` seed, `:init-fn ...core/init`) is identical across substrates.
 
-The fastest path for a non-Reagent greenfield is the **generator template**, which ships complete `_uix/` and `_helix/` variants — invoke `clojure -Tnew create :template io.github.day8/re-frame2-template :name acme/my-app :substrate :uix` (or `:helix`) and you get a working UIx/Helix counter without hand-wiring the substitutions above. See [the generator-template section](../README.md#relationship-to-the-generator-template).
+The fastest path for a non-Reagent greenfield is the **generator template**, which ships complete `_uix/` and `_helix/` variants — invoke `clojure -Tnew create :template io.github.day8/re-frame2-template :name acme/my-app :substrate :uix` (or `:helix`) and you get a working UIx/Helix counter without hand-wiring the substitutions above. **Pre-split:** the standalone `day8/re-frame2-template` repo isn't published yet (rf2-7jgkv), so that `io.github.day8/…` invocation can't auto-resolve today; pre-release, use the `:local/root` dev route against a checkout of this repo (`clojure -Sdeps '{:deps {day8/re-frame2-template {:local/root "tools/template"}}}' -Tnew create :template day8/re-frame2-template :name acme/my-app :substrate :uix`) or hand-wire the two substitutions above. See [the generator-template section](../README.md#relationship-to-the-generator-template).
 
 ## Differences from re-frame v1
 

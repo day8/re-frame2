@@ -52,8 +52,13 @@ counter_helix/
 shadow-cljs watch examples/counter-helix
 ```
 
-Run `npm run test:examples` once first so
-`out/examples/counter-helix/index.html` is staged. Examples are
+The watch build emits `main.js` into `out/examples/counter-helix/`;
+copy this folder's hand-written [`index.html`](index.html) (and the
+shared assets it references under [`../../_shared/`](../../_shared/))
+alongside it, then serve `out/examples/counter-helix/` over HTTP.
+(`npm run test:examples` does not build this example — it compiles and
+serves only the three adapter testbeds; see
+[`examples/helix/README.md`](../README.md).) Examples are
 test-free per [`examples/README.md`](../../README.md); the Helix
 adapter smoke lives at
 [`implementation/adapters/helix/testbed/spec.cjs`](../../../implementation/adapters/helix/testbed/spec.cjs).

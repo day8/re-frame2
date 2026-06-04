@@ -50,8 +50,13 @@ login_uix/
 shadow-cljs watch examples/login-uix
 ```
 
-Run `npm run test:examples` once first so
-`out/examples/login-uix/index.html` is staged. Examples are test-free
+The watch build emits `main.js` into `out/examples/login-uix/`; copy
+this folder's hand-written [`index.html`](index.html) (and the shared
+assets it references under [`../../_shared/`](../../_shared/))
+alongside it, then serve `out/examples/login-uix/` over HTTP.
+(`npm run test:examples` does not build this example — it compiles and
+serves only the three adapter testbeds; see
+[`examples/uix/README.md`](../README.md).) Examples are test-free
 per [`examples/README.md`](../../README.md).
 
 ## Cross-references

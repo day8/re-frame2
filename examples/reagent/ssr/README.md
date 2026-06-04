@@ -66,8 +66,13 @@ ssr/
 shadow-cljs watch examples/ssr
 ```
 
-Run `npm run test:examples` once first so
-`out/examples/ssr/index.html` is staged. Examples are test-free per
+The watch build emits `main.js` into `out/examples/ssr/`; copy this
+folder's hand-written [`index.html`](index.html) (and the shared
+assets it references under [`../../_shared/`](../../_shared/))
+alongside it, then serve `out/examples/ssr/` over HTTP.
+(`npm run test:examples` does not build this example — it compiles and
+serves only the three adapter testbeds; see
+[`examples/reagent/README.md`](../README.md).) Examples are test-free per
 [`examples/README.md`](../../README.md); this example's JVM smoke
 (per-request frame → server flow → render-to-string + render-hash) was
 folded into [`implementation/core/test/re_frame/examples_test.clj`](../../../implementation/core/test/re_frame/examples_test.clj)

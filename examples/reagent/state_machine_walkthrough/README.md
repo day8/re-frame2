@@ -61,8 +61,15 @@ state_machine_walkthrough/
 shadow-cljs watch examples/state-machine-walkthrough
 ```
 
-Run `npm run test:examples` once first so the example's `index.html`
-is staged. The four headless scenarios (pure happy-path, pure lockout,
+The watch build emits `main.js` into
+`out/examples/state-machine-walkthrough/`; copy this folder's
+hand-written [`index.html`](index.html) (and the shared assets it
+references under [`../../_shared/`](../../_shared/)) alongside it, then
+serve `out/examples/state-machine-walkthrough/` over HTTP.
+(`npm run test:examples` does not build this example — it compiles and
+serves only the three adapter testbeds; see
+[`examples/reagent/README.md`](../README.md).)
+The four headless scenarios (pure happy-path, pure lockout,
 drain happy-path, drain retry-then-lockout) were folded into the
 framework JVM test at
 [`implementation/core/test/re_frame/examples_test.clj`](../../../implementation/core/test/re_frame/examples_test.clj)

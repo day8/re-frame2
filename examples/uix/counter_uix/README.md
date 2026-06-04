@@ -52,8 +52,13 @@ counter_uix/
 shadow-cljs watch examples/counter-uix
 ```
 
-Run `npm run test:examples` once first so
-`out/examples/counter-uix/index.html` is staged. Examples are
+The watch build emits `main.js` into `out/examples/counter-uix/`;
+copy this folder's hand-written [`index.html`](index.html) (and the
+shared assets it references under [`../../_shared/`](../../_shared/))
+alongside it, then serve `out/examples/counter-uix/` over HTTP.
+(`npm run test:examples` does not build this example — it compiles and
+serves only the three adapter testbeds; see
+[`examples/uix/README.md`](../README.md).) Examples are
 test-free per [`examples/README.md`](../../README.md); the UIx adapter
 smoke lives at
 [`implementation/adapters/uix/testbed/spec.cjs`](../../../implementation/adapters/uix/testbed/spec.cjs).

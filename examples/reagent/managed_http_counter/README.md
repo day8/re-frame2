@@ -51,8 +51,14 @@ managed_http_counter/
 shadow-cljs watch examples/managed-http-counter
 ```
 
-Run `npm run test:examples` once first so
-`out/examples/managed-http-counter/index.html` is staged. Examples are
+The watch build emits `main.js` into
+`out/examples/managed-http-counter/`; copy this folder's hand-written
+[`index.html`](index.html) (and the shared assets it references under
+[`../../_shared/`](../../_shared/)) alongside it, then serve
+`out/examples/managed-http-counter/` over HTTP.
+(`npm run test:examples` does not build this example — it compiles and
+serves only the three adapter testbeds; see
+[`examples/reagent/README.md`](../README.md).) Examples are
 test-free per [`examples/README.md`](../../README.md); managed-HTTP
 contract coverage lives in `implementation/http/test/` and
 `spec/conformance/fixtures/http-managed-*.edn`.
