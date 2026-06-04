@@ -40,6 +40,7 @@
   for the same source of truth (no parallel re-export here)."
   (:require [cheshire.core :as json]
             [clojure.string :as str]
+            [re-frame.mcp-base.args :as args]
             [re-frame.mcp-base.vocab :as vocab]))
 
 ;; ---- sentinels -----------------------------------------------------------
@@ -91,8 +92,9 @@
 
 (defn notification?
   "Per JSON-RPC 2.0 §4.1, a notification is a request without an `id`.
-  Notifications get no response. Assumes keys have been keywordised
-  (parse-json does this). This predicate is the single home for the
+  Notifications get no response. Assumes the envelope keys have been
+  keywordised (`normalize-frame` does this — `read-frame` runs it after
+  `parse-json`). This predicate is the single home for the
   request-vs-notification rule — `server/dispatch` calls it rather than
   re-spelling the `(not (contains? message :id))` check inline
   (rf2-ee38b.17)."
@@ -113,20 +115,35 @@
 ;; ---- JSON I/O ------------------------------------------------------------
 
 (defn parse-json
-  "Parse a JSON string into a Clojure map. Returns the parsed value, or
-  throws `ex-info` with `:rf.error/id :rf.error/story-mcp-json-parse-failure`
-  on a malformed payload (the run-loop catches it and writes a `-32700`
-  parse-error response).
+  "Parse a JSON string into a Clojure map with STRING keys (no recursive
+  keywordisation). Returns the parsed value, or throws `ex-info` with
+  `:rf.error/id :rf.error/story-mcp-json-parse-failure` on a malformed
+  payload (the run-loop catches it and writes a `-32700` parse-error
+  response).
 
-  Keys are converted to keywords for ergonomic dispatch — this matches
-  what the rest of the namespace expects (`(:method m)`, `(:jsonrpc m)`,
-  `(:id m)`). String keys inside `params` are NOT converted: tool
-  argument maps are typically keyword-keyed at the tools layer, but
-  user-supplied JSON-keys may be arbitrary strings; the tool dispatcher
-  re-keywordises the top level when it parses arguments."
+  ## No-intern ingress (rf2-3luf3)
+
+  Cheshire's `keywordize-keys` mode (`json/parse-string s true`)
+  recursively interns EVERY object key — including arbitrary attacker-/
+  AI-supplied nested keys under `params.arguments`, `cell-overrides`,
+  write bodies, or any extra args — into the JVM's never-shrinking
+  keyword table, BEFORE any bounded allowlist (`tools.args/safe-keyword`)
+  runs. That both grows the keyword table without bound (a slow-burn DoS
+  mirroring the `:rf.http/max-decoded-keys` threat — see
+  `spec/014-HTTPRequests.md` §Keyword-interning cap) and lets an unknown
+  string key intern into a keyword that a downstream `find-keyword`-based
+  allowlist would then resolve.
+
+  This fn therefore parses with STRING keys. The finite JSON-RPC
+  envelope keys and the known tool-argument keys are converted to
+  keywords downstream by `normalize-frame` (no-intern: unknown keys are
+  dropped, never interned). Genuinely data-bearing nested maps
+  (`:cell-overrides`, the object-form `:body`) stay string-keyed and are
+  routed to the tool layer, which applies its own bounded keyword policy
+  where a value-bearing keyword is required."
   [^String s]
   (try
-    (json/parse-string s true)
+    (json/parse-string s false)
     (catch Throwable e
       (throw (ex-info ":rf.error/story-mcp-json-parse-failure"
                       {:rf.error/id :rf.error/story-mcp-json-parse-failure
@@ -135,6 +152,108 @@
                        :reason   "re-frame2-story-mcp: JSON parse failure"
                        :raw      (when s (subs s 0 (min 200 (count s))))}
                       e)))))
+
+;; ---- no-intern frame normalisation (rf2-3luf3) ---------------------------
+
+(def envelope-keys
+  "The finite JSON-RPC 2.0 / MCP envelope keys `normalize-frame`
+  keywordises at the top level of a frame. Every one is a literal
+  keyword interned at compile time, so resolving the wire string to it
+  via `find-keyword` never mints a fresh keyword. Any other top-level
+  key (a stray field a hostile producer slips into the envelope) is
+  DROPPED — it never interns and the dispatcher never sees it.
+
+  `:result` / `:error` are response-envelope keys: the server only ever
+  *reads* request / notification frames (which carry `:method` +
+  `:params`, never `:result` / `:error`), so they cannot appear on a
+  real inbound frame. They are listed here purely so `normalize-frame`
+  is a faithful round-trip for ANY JSON-RPC envelope — tests write a
+  response then read it back through `read-frame`. Both are compile-time
+  interned, so admitting them carries no intern risk."
+  #{:jsonrpc :id :method :params :result :error})
+
+(def params-keys
+  "The finite `params` keys for the MCP methods we dispatch on. `:name`
+  + `:arguments` are the `tools/call` shape; `initialize` /
+  `notifications/initialized` carry `:protocolVersion` /
+  `:capabilities` / `:clientInfo` which we never read (`handle-initialize`
+  ignores its `_params`), so we keywordise only the slots a handler
+  actually consults. As with `envelope-keys`, each is compile-time
+  interned — resolving to it never mints a fresh keyword."
+  #{:name :arguments})
+
+(def arg-keys
+  "Bounded allowlist of the TOP-LEVEL `tools/call` argument keys any
+  registered handler reads. `normalize-frame` keywordises only these
+  (via `find-keyword` — no intern of anything outside the set); any
+  other agent-supplied argument key is DROPPED before it reaches a
+  handler, so an attacker can neither intern a fresh keyword nor smuggle
+  an unrecognised key into the arguments map.
+
+  This is the single source of truth for the read-side argument
+  vocabulary; it MUST list every key a `tool-*` handler pulls off its
+  `arguments` map. The values these keys point at (variant ids, mode
+  strings, EDN bodies, cell-override maps) are NOT walked here — they
+  ride through to the tool layer as-is (string-keyed where they are
+  JSON objects), where each is routed through its own bounded keyword
+  policy (`safe-keyword` against a live registry, the hardened EDN
+  `read-edn-body`, etc.). Per `spec/001-Wire-Protocol.md` +
+  `tools/mcp-base/spec/args.md` §Keyword-interning safety."
+  #{:variant-id :story-id :new-variant-id :extends           ; ids
+    :substrate :active-modes :cell-overrides :base-url        ; run opts
+    :body :doc :alias                                         ; write payload slots
+    :tags :kind :limit :cursor                                ; filters / pagination
+    :write-back :duration-ms :timeout-ms                      ; behaviour knobs
+    :include-sensitive :max-tokens :dedup})                   ; egress / budget knobs
+
+(defn- rename-allowed-keys
+  "Return `m` (a possibly-string-keyed map) with every key that the
+  bounded `allowed` keyword-set recognises converted to its keyword
+  form, and every other key DROPPED. No-intern: a string key is
+  resolved via `args/safe-keyword` against `allowed`, which routes
+  through `find-keyword` on the JVM and never mints a fresh keyword for
+  an unrecognised input. Non-map input passes through untouched."
+  [m allowed]
+  (if (map? m)
+    (persistent!
+     (reduce-kv
+      (fn [acc k v]
+        (if-let [kw (args/safe-keyword k allowed)]
+          (assoc! acc kw v)
+          acc))
+      (transient {})
+      m))
+    m))
+
+(defn normalize-frame
+  "Normalise a string-keyed parsed JSON frame into the keyword-keyed
+  shape the dispatcher + tool layer expect, WITHOUT interning any
+  attacker-controlled key (rf2-3luf3).
+
+  Only the finite JSON-RPC envelope keys (`envelope-keys`), the finite
+  `params` keys (`params-keys`), and the bounded top-level
+  argument-key allowlist (`arg-keys`) are converted to keywords — each
+  resolved through `find-keyword` (via `args/safe-keyword`) so an
+  unrecognised wire string never mints a fresh JVM keyword. Keys outside
+  these sets are dropped at their level; they neither intern nor reach a
+  handler. Nested data-bearing VALUES (a `:cell-overrides` map, an
+  object-form `:body`) are passed through verbatim — string-keyed —
+  for the tool layer to apply its own bounded keyword policy.
+
+  Non-map input (a bare JSON scalar / array on the wire) passes through
+  untouched; the dispatcher's `valid-envelope?` check then rejects it."
+  [parsed]
+  (if-not (map? parsed)
+    parsed
+    (let [envelope (rename-allowed-keys parsed envelope-keys)]
+      (cond-> envelope
+        (map? (:params envelope))
+        (update :params
+                (fn [params]
+                  (let [p (rename-allowed-keys params params-keys)]
+                    (cond-> p
+                      (map? (:arguments p))
+                      (update :arguments rename-allowed-keys arg-keys)))))))))
 
 (defn write-json
   "Serialise `message` to JSON. Returns the string (no trailing newline —
@@ -213,7 +332,7 @@
                                                 :reason    "re-frame2-story-mcp: frame exceeds cap"
                                                 :max-bytes max-frame-bytes}))
         (str/blank? line)             (recur)
-        :else                         (parse-json line)))))
+        :else                         (normalize-frame (parse-json line))))))
 
 (defn write-frame!
   "Write one newline-delimited JSON frame to `^java.io.Writer writer`,

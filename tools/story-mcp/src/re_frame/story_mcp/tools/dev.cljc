@@ -113,7 +113,7 @@
   [arguments]
   (targs/with-variant arguments
     (fn [vk _body]
-      (let [opts       (targs/read-run-opts arguments)
+      (let [opts       (targs/read-run-opts vk arguments)
             base-url   (or (:base-url arguments) "")
             share-url  (story/variant-share-url vk base-url opts)
             outcome    (try
