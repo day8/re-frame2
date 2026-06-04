@@ -52,6 +52,14 @@
 (deftest after-render-fires-on-native-mount-uix
   (suite/assert-after-render-fires-on-native-mount cfg))
 
+;; rf2-he7se finding 3 — the native after-render driver-root setter is
+;; installed from a LAYOUT effect (flushSync always flushes layout effects
+;; synchronously), so the first native after-render observes the committed
+;; app state synchronously via the post-commit layout-effect drain rather
+;; than the (version-dependent) queueMicrotask fallback.
+(deftest after-render-observes-commit-synchronously-on-native-first-call-uix
+  (suite/assert-after-render-observes-commit-synchronously-on-native-first-call cfg))
+
 ;; rf2-b6nm5 — flush-views! is surfaced from the adapter ns with the
 ;; canonical nil-return shape (Decision 6), converged across all four
 ;; substrates. Node-safe shape pin.

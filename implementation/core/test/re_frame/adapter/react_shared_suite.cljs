@@ -1545,6 +1545,61 @@
       (unsub))))
 
 ;; ===========================================================================
+;; derived-value duplicate-source disposal regression (rf2-he7se finding 2)
+;; ===========================================================================
+
+(defn- source-watch-count
+  "Number of live watches currently installed on a state-container source.
+  `make-state-container` returns a plain CLJS atom whose `.-watches` field
+  is the live `key→fn` map, so its `count` is the physical watch tally —
+  the ground truth the leak this regression pins is measured against."
+  [src]
+  (count (.-watches ^cljs.core/Atom src)))
+
+(defn assert-derived-dispose-releases-duplicate-source-watches
+  "rf2-he7se finding 2: `make-derived-value` adds ONE watch per source
+  OCCURRENCE, but the disposal bookkeeping used to be a `source→key` map —
+  so when the SAME source object appeared more than once in
+  `source-containers` (spec/006-ReactiveSubstrate.md:154-170 types it as a
+  vector with NO uniqueness precondition), each occurrence's gensym key
+  overwrote the prior, and dispose (spec/006:600-613 — release ALL held
+  inputs) removed only the LAST watch, leaking the earlier one(s) forever.
+
+  This pins disposal-releases-everything two ways:
+
+    1. PHYSICAL — after `[src src]` derive then dispose, ZERO watches
+       remain on `src` (the leaked-watch ground truth).
+    2. BEHAVIOURAL — a recompute counter in `compute-fn` proves the
+       disposed derived value does NOT recompute when `src` later mutates;
+       a leaked watch would still `mark-dirty!` → flush → recompute."
+  [{:keys [adapter name]}]
+  (testing (str name " — make-derived-value dispose releases ALL duplicate-source watches (rf2-he7se)")
+    (let [src        (mk-source adapter 1)
+          recomputes (atom 0)
+          ;; SAME source object twice — the duplicate the bead names.
+          derived    (mk-derive adapter [src src]
+                                (fn [a b] (swap! recomputes inc) (+ a b)))]
+      (is (zero? @recomputes)
+          "derived is lazy: compute-fn not yet run at construction (rf2-ee38b.1)")
+      ;; Establish the baseline (first deref recomputes once) and confirm
+      ;; BOTH occurrences installed a watch — the duplicate is real, not
+      ;; coalesced away.
+      (is (= 2 @derived) "baseline derived = src + src")
+      (is (= 1 @recomputes) "first deref recomputed exactly once")
+      (is (= 2 (source-watch-count src))
+          "both [src src] occurrences each installed a distinct watch")
+      ;; Dispose. Pre-fix, only the LAST watch was tracked → one watch leaks.
+      (rf-disposable/-dispose derived)
+      (is (zero? (source-watch-count src))
+          "dispose released EVERY watch the duplicate source held — zero remain")
+      ;; Behavioural proof: mutate src; the disposed derived must not recompute.
+      (reset! recomputes 0)
+      (mk-write! adapter src 99)
+      (is (zero? @recomputes)
+          "a disposed derived value does NOT recompute on source change —
+           no leaked watch survived to mark it dirty"))))
+
+;; ===========================================================================
 ;; managed HTTP (Spec 014) — port of `*_http_managed`
 ;;
 ;; The http-managed suite requires the entry-file fixture to call
@@ -2368,6 +2423,88 @@
           (is (= 2 @fired)
               "subsequent after-render also fires via the driver root")
           (finally
+            (try (act-fn (fn [] (.unmount root))) (catch :default _ nil)))))))))
+
+(defn assert-after-render-observes-commit-synchronously-on-native-first-call
+  "rf2-he7se finding 3 — the GUARANTEE: on the FIRST native-mount
+  after-render call (fresh per-adapter driver root — the `:each` reset
+  fixture disposed any prior one), the callback fires SYNCHRONOUSLY inside
+  the `react-dom/flushSync` that `ensure-after-render-driver-root!` runs,
+  and observes the COMMITTED app state — NOT a deferred microtask drain.
+
+  How the fix secures this. The driver-root sentinel installs its
+  `set-tick` setter from a LAYOUT effect (not a passive `useEffect`).
+  `flushSync` ALWAYS flushes layout effects synchronously during the
+  commit, so the setter is armed on flushSync's return and the hook takes
+  the post-commit `set-tick` path rather than the `queueMicrotask`
+  fallback — a version-INDEPENDENT guarantee. (The fallback is itself only
+  reachable with no `document`; with the layout-effect install it is never
+  taken on the native-mount path when a DOM is present.)
+
+  Why layout, not passive (rf2-he7se finding 3). The original install was
+  a PASSIVE `useEffect`. `flushSync` flushing passive effects is a
+  React-19 implementation detail (React ≤18 / future configs do NOT
+  guarantee it), so the setter-availability-after-flushSync assumption the
+  setup path relied on was not robust: where passives are deferred, the
+  slot stays nil on return and the hook falls to `queueMicrotask`, which
+  can drain BEFORE the app commit it must observe. The layout-effect
+  install removes that version dependency entirely.
+
+  The call is made OUTSIDE `act` with `IS_REACT_ACT_ENVIRONMENT` off so
+  the real `flushSync` commit path runs (act's boundary effect-flush does
+  not stand in for it) — per the bead's `outside act/rAF` direction. The
+  native probe is mounted under `act` first so it commits cleanly.
+
+  Assertions (deterministic — no rAF / timer):
+
+    1. SYNCHRONOUS OBSERVATION — the moment the after-render call returns,
+       the callback has already run (the flushSync-driven commit drained
+       the layout effect) and observed the committed app state.
+    2. NO MICROTASK FALLBACK — `queueMicrotask` is not used on this path
+       when a DOM is present; the driver root drives the drain.
+
+  cfg keys:
+    :probe-element  reused native probe ELEMENT thunk."
+  [{:keys [name probe-element]}]
+  (testing (str name " — native first-call after-render observes the commit synchronously (rf2-he7se)")
+    (with-browser-act
+     (fn [act-fn]
+      (let [observed       (atom ::unobserved)
+            app-state      (atom :pre-commit)
+            callback       (fn cb [] (reset! observed @app-state))
+            mount-node     (make-mount-node!)
+            root           (react-dom-client/createRoot mount-node)
+            orig-qm        (when (exists? js/queueMicrotask) js/queueMicrotask)
+            qm-calls       (atom 0)]
+        (try
+          ;; NATIVE mount (raw createRoot + .render) — no app-tree sentinel,
+          ;; so the after-render hook must arm the singleton driver root.
+          (act-fn (fn [] (.render root (probe-element))))
+          ;; Spy on queueMicrotask to detect the (DOM-absent-only) fallback.
+          (when orig-qm
+            (set! js/queueMicrotask
+                  (fn [f] (swap! qm-calls inc) (orig-qm f))))
+          ;; Commit the app state, THEN call after-render — OUTSIDE act,
+          ;; with the act-env flag off so the real `flushSync` commit path
+          ;; inside `ensure-after-render-driver-root!` runs (not act's
+          ;; effect-flush). The layout-effect setter install guarantees the
+          ;; drain runs synchronously here regardless of React version.
+          (reset! app-state :committed)
+          (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
+          (try
+            (interop/after-render callback)
+            (finally
+              (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)))
+          (is (= :committed @observed)
+              "the callback fired SYNCHRONOUSLY (the flushSync-driven
+               driver-root commit drained the layout effect) and observed
+               the committed app state — not a deferred pre-commit drain")
+          (is (zero? @qm-calls)
+              "with a DOM present the driver root drove the drain; the
+               queueMicrotask fallback was not taken")
+          (finally
+            (when orig-qm (set! js/queueMicrotask orig-qm))
+            (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
             (try (act-fn (fn [] (.unmount root))) (catch :default _ nil)))))))))
 
 ;; ---- hydrate render branch (rf2-ee38b.1 — closes the React-hook spine

@@ -205,6 +205,10 @@
    {:test 'derived-baseline-multi-source
     :fn   'assert-derived-baseline-multi-source}
 
+   {:section "derived-value duplicate-source disposal (rf2-he7se finding 2)"}
+   {:test 'derived-dispose-releases-duplicate-source-watches
+    :fn   'assert-derived-dispose-releases-duplicate-source-watches}
+
    {:section "managed HTTP (Spec 014 / *_http_managed)"}
    {:test 'http-canned-success-default-reply
     :fn   'assert-http-canned-success-default-reply}

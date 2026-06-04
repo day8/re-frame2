@@ -302,7 +302,16 @@
           watchers       (atom {})           ;; user-key → wrapper-fn
           on-dispose-fns (atom [])
           ;; Per-source wrapper keys we own so dispose can unwire them.
-          own-keys       (atom {})           ;; source → key
+          ;; A VECTOR of `[source key]` pairs, NOT a `source→key` map
+          ;; (rf2-he7se finding 2): `source-containers` is a vector with
+          ;; no uniqueness precondition (spec/006 §154-170), so the SAME
+          ;; source object may appear more than once. Each occurrence
+          ;; installs its own gensym-keyed watch; a `source→key` map would
+          ;; overwrite earlier keys, so dispose would release only the
+          ;; LAST watch per source and leak the rest. Tracking every
+          ;; `[source key]` pair lets dispose release ALL held inputs
+          ;; (spec/006 §600-613).
+          own-keys       (atom [])           ;; vector of [source key]
           ;; Iterate via `run!` over `vals` rather than `doseq` over
           ;; map-entries — skips one map-entry seq allocation per
           ;; source-change notification.
@@ -362,7 +371,7 @@
       ;; against settled inputs (glitch-free, single notification).
       (doseq [s source-containers]
         (let [k (gensym gensym-prefix)]
-          (swap! own-keys assoc s k)
+          (swap! own-keys conj [s k])
           (add-watch s k (fn [_ _ _ _] (mark-dirty!)))))
       (reify
         IDeref
@@ -390,7 +399,7 @@
         rf-disposable/IDisposable
         (-dispose [_]
           (doseq [[s k] @own-keys] (remove-watch s k))
-          (reset! own-keys {})
+          (reset! own-keys [])
           (reset! watchers {})
           (doseq [f @on-dispose-fns] (f))
           (reset! on-dispose-fns []))
@@ -481,7 +490,7 @@
 ;; first time `after-render` is called with no app-tree sentinel
 ;; present. The hook mounts the sentinel component into a detached
 ;; (never-attached-to-the-document) React root via `createRoot`; the
-;; sentinel's `useEffect` stashes its `set-tick` setter into
+;; sentinel's mount LAYOUT effect stashes its `set-tick` setter into
 ;; `set-tick-ref` exactly as the Fragment-wrap sentinel does, so the
 ;; same `set-tick` → commit → `useLayoutEffect`-drain machinery now
 ;; drives post-commit timing on the native-mount path too. The driver
@@ -539,14 +548,21 @@
 
     1. On mount, stashes its `setState` setter in `set-tick-ref` so
        `:adapter/after-render` can trigger a commit. Cleared on unmount.
+       Installed from a LAYOUT effect (rf2-he7se finding 3) so the
+       singleton-driver-root setup's `flushSync` arms the slot
+       synchronously before it decides setter-present vs. microtask
+       fallback. `flushSync` ALWAYS flushes layout effects synchronously
+       (a documented guarantee); its flushing of PASSIVE `useEffect`s is a
+       React-19 implementation detail, not a contract — so the prior
+       passive install was not robust across React versions/configs.
     2. On every commit, fires `React.useLayoutEffect` to drain
        `queue-cell` — same timing as `r/after-render`'s post-commit
        run.
 
   The sentinel uses raw React hooks (`React/useState`,
-  `React/useEffect`, `React/useLayoutEffect`) rather than the
-  substrate's hook ns so the same impl works for UIx, Helix, and any
-  future React-shaped substrate using this spine.
+  `React/useLayoutEffect`) rather than the substrate's hook ns so the
+  same impl works for UIx, Helix, and any future React-shaped substrate
+  using this spine.
 
   Returned value is the bare function component, suitable for
   `(React/createElement sentinel-cmp nil)`."
@@ -554,7 +570,21 @@
   (fn after-render-sentinel [_props]
     (let [tick+setter (React/useState 0)
           set-tick    (aget tick+setter 1)]
-      (React/useEffect
+      ;; Install the setter from a LAYOUT effect, not a passive useEffect
+      ;; (rf2-he7se finding 3). `ensure-after-render-driver-root!` renders
+      ;; this sentinel inside `react-dom/flushSync` and EXPECTS the setter
+      ;; present in `set-tick-ref` the instant flushSync returns, so it can
+      ;; bump the tick rather than falling through to the microtask drain.
+      ;; `flushSync` ALWAYS flushes layout effects synchronously during the
+      ;; commit; whether it flushes passive (`useEffect`) effects is a
+      ;; React-19 implementation detail, NOT a documented guarantee. Where
+      ;; passives are deferred (older React / future configs) a passive
+      ;; setter-install would leave the slot nil on flushSync's return, so
+      ;; the hook would take the `queueMicrotask` fallback and the queue
+      ;; could drain BEFORE the app commit after-render is meant to
+      ;; observe. A layout mount effect makes the arm-before-decide
+      ;; ordering version-INDEPENDENT.
+      (React/useLayoutEffect
         (fn mount-effect []
           (reset! set-tick-ref set-tick)
           (fn cleanup []
@@ -584,7 +614,7 @@
   "Lazily mount the per-adapter SINGLETON DRIVER ROOT (rf2-t0x90). If
   `driver-root-cell` is empty, create a detached host node + React root,
   render `sentinel-cmp` into it inside `react-dom/flushSync` so the
-  sentinel's mount `useEffect` runs SYNCHRONOUSLY and stashes its
+  sentinel's mount LAYOUT effect runs SYNCHRONOUSLY and stashes its
   `set-tick` setter into `set-tick-ref` before this fn returns. The host
   node is never attached to the document — the sentinel renders nil, so
   no DOM is produced. Idempotent: a populated cell is left untouched.
@@ -594,9 +624,15 @@
     (let [host (.createElement js/document "div")
           root (react-dom-client/createRoot host)]
       (reset! driver-root-cell root)
-      ;; flushSync so the sentinel's mount effect (which stashes
+      ;; flushSync so the sentinel's mount LAYOUT effect (which stashes
       ;; set-tick into set-tick-ref) runs synchronously — the caller
       ;; bumps the tick immediately after, expecting the setter present.
+      ;; flushSync ALWAYS runs layout effects synchronously; passive
+      ;; `useEffect`s are not contractually flushed by it (React-19 detail
+      ;; only), so the layout-effect install keeps the slot armed on return
+      ;; regardless of React version — without it the slot could be nil and
+      ;; force the microtask fallback that drains before the pending app
+      ;; commit (rf2-he7se finding 3).
       (react-dom/flushSync
         (fn [] (.render root (React/createElement sentinel-cmp nil))))))
   nil)
