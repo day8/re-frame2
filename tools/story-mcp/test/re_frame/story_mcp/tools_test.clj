@@ -21,6 +21,7 @@
             [re-frame.story-mcp.config :as config]
             [re-frame.story-mcp.protocol :as proto]
             [re-frame.story-mcp.server :as server]
+            [re-frame.story-mcp.tools.args :as targs]
             [re-frame.story-mcp.tools.wire-pipeline :as wire-pipeline]
             [re-frame.story-mcp.tools.dev :as dev]
             [re-frame.story-mcp.tools.egress :as egress]
@@ -3287,6 +3288,188 @@
         (is (= vocab/code-parse-error (-> (nth frames 0) :error :code))
             "oversize frame routes through the parse-error response shape")
         (is (= 11 (:id (nth frames 1))) "the loop continued to the next frame")))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-3luf3 — MCP JSON ingress must NOT intern attacker-controlled nested
+;; keys before the bounded allowlists run.
+;;
+;; The pre-fix `protocol/parse-json` called `(json/parse-string s true)`,
+;; recursively keywordising EVERY object key in the frame — including
+;; arbitrary keys under `params.arguments`, `cell-overrides`, and write
+;; bodies — and interning them into the never-shrinking JVM keyword table
+;; BEFORE `tools.args/safe-keyword` could reject them. That both grows the
+;; keyword table without bound (a slow-burn DoS) and can let an unknown
+;; string key intern into a keyword a downstream allowlist then resolves.
+;;
+;; The fix parses the frame string-keyed and keywordises ONLY the finite
+;; JSON-RPC envelope keys + the bounded top-level argument-key allowlist
+;; (no-intern via `find-keyword`); nested data-bearing maps keep string
+;; keys and are routed through each surface's own bounded keyword policy.
+;;
+;; These tests drive the FULL stdio path (`server/run-loop!` /
+;; `proto/read-frame` over a real JSON frame) — the gap the existing
+;; direct-`invoke` no-intern tests (rf2-lqjbk) leave open, since those
+;; bypass `parse-json` / `read-frame`.
+;; ---------------------------------------------------------------------------
+
+(defn- run-frames!
+  "Drive `server/run-loop!` over `in-text` (one JSON frame per line) and
+  return the parsed response frames (keywordised for assertion
+  ergonomics). stderr is captured so the test output stays clean."
+  [in-text]
+  (let [reader (java.io.BufferedReader. (java.io.StringReader. in-text))
+        sw     (java.io.StringWriter.)
+        err    (java.io.StringWriter.)]
+    (binding [*err* err]
+      (server/run-loop! reader sw))
+    (->> (clojure.string/split-lines (.toString sw))
+         (filter seq)
+         (mapv #(cheshire.core/parse-string % true)))))
+
+(deftest ingress-does-not-intern-unknown-nested-arguments-key
+  (testing "a fresh unknown nested :arguments key is NOT interned over the wire (rf2-3luf3)"
+    (let [probe-name (str "rf2-3luf3-nested-probe-" (System/nanoTime))
+          ;; The attacker slips an unknown key into the arguments map of a
+          ;; tools/call. Pre-fix, parse-json interned it immediately.
+          frame      (str "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\","
+                          "\"params\":{\"name\":\"get-variant\","
+                          "\"arguments\":{\"" probe-name "\":1,"
+                          "\"variant-id\":\"story.button/primary\"}}}\n")]
+      (is (nil? (find-keyword probe-name))
+          "precondition: the probe keyword has not been interned yet")
+      (let [frames (run-frames! frame)]
+        (is (= 1 (count frames)) "one tools/call response")
+        (is (= 1 (:id (first frames))) "the legitimate call still dispatched"))
+      (is (nil? (find-keyword probe-name))
+          "rf2-3luf3: the attacker-supplied nested arguments key MUST NOT have been interned"))))
+
+(deftest ingress-does-not-intern-unknown-envelope-key
+  (testing "a stray unknown top-level envelope key is NOT interned over the wire (rf2-3luf3)"
+    (let [probe-name (str "rf2-3luf3-envelope-probe-" (System/nanoTime))
+          frame      (str "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"ping\",\"" probe-name "\":99}\n")]
+      (is (nil? (find-keyword probe-name)) "precondition")
+      (run-frames! frame)
+      (is (nil? (find-keyword probe-name))
+          "rf2-3luf3: a stray envelope key MUST NOT intern"))))
+
+(deftest ingress-does-not-intern-cell-overrides-key
+  (testing "an unknown :cell-overrides KEY is NOT interned over the wire (rf2-3luf3)"
+    (let [probe-name (str "rf2-3luf3-cell-probe-" (System/nanoTime))
+          frame      (str "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\","
+                          "\"params\":{\"name\":\"preview-variant\","
+                          "\"arguments\":{\"variant-id\":\"story.button/primary\","
+                          "\"cell-overrides\":{\"" probe-name "\":\"x\"}}}}\n")]
+      (is (nil? (find-keyword probe-name)) "precondition")
+      (run-frames! frame)
+      (is (nil? (find-keyword probe-name))
+          "rf2-3luf3: an unknown cell-override key (outside the variant's declared args) MUST NOT intern"))))
+
+(deftest read-run-opts-keeps-known-cell-override-key-drops-unknown
+  (testing "a declared arg key is kept (keywordised) and an unknown one dropped (rf2-3luf3)"
+    ;; story.button/primary declares :args {:label "Save"} — so :label is
+    ;; in its bounded arg-key set; a random key is not. Simulate the
+    ;; post-parse-json string-keyed cell-overrides shape.
+    (let [probe (str "rf2-3luf3-co-" (System/nanoTime))
+          opts  (targs/read-run-opts :story.button/primary
+                                     {:cell-overrides {"label" "Override"
+                                                       probe   "x"}})
+          co    (:cell-overrides opts)]
+      (is (= "Override" (:label co)) "the declared :label override keywordised + kept")
+      (is (= #{:label} (set (keys co))) "the unknown override key was dropped")
+      (is (nil? (find-keyword probe)) "and never interned"))))
+
+(deftest ingress-unknown-variant-id-over-wire-does-not-intern
+  (testing "an unknown :variant-id sent over JSON is rejected WITHOUT interning (rf2-3luf3)"
+    ;; This is the wire-level peer of the rf2-lqjbk direct-invoke test —
+    ;; it proves the allowlist still gates correctly once parse-json no
+    ;; longer pre-interns the value.
+    (let [ns-str   "story.rf2-3luf3-wire"
+          name-str (str "unknown-" (System/nanoTime))
+          frame    (str "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\","
+                        "\"params\":{\"name\":\"get-variant\","
+                        "\"arguments\":{\"variant-id\":\"" ns-str "/" name-str "\"}}}\n")]
+      (is (nil? (find-keyword ns-str name-str)) "precondition")
+      (let [frames (run-frames! frame)
+            result (-> frames first :result)]
+        (is (true? (:isError result)) "unknown variant id errors as a tool result")
+        (is (re-find #"(?i)variant not found" (-> result :content first :text))))
+      (is (nil? (find-keyword ns-str name-str))
+          "rf2-3luf3: the unknown variant id MUST NOT have been interned over the wire"))))
+
+(deftest ingress-legitimate-wire-keys-still-dispatch
+  (testing "known JSON wire arg keys still normalise + dispatch correctly (rf2-3luf3)"
+    ;; variant-id + max-tokens + include-sensitive are read by get-variant /
+    ;; the wire-pipeline; all must survive the no-intern normalisation.
+    (let [frame  (str "{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"tools/call\","
+                      "\"params\":{\"name\":\"get-variant\","
+                      "\"arguments\":{\"variant-id\":\"story.button/primary\","
+                      "\"max-tokens\":4000,\"include-sensitive\":false}}}\n")
+          frames (run-frames! frame)
+          result (-> frames first :result)]
+      (is (= 5 (:id (first frames))))
+      (is (not (true? (:isError result))) "the legitimate call succeeds")
+      ;; get-variant's structuredContent carries the resolved variant under
+      ;; `:id`; over JSON the keyword serialises to a bare string. Its
+      ;; presence proves `variant-id` keywordised + resolved through the
+      ;; allowlist (an unresolved id would have produced an :isError result).
+      (is (= "story.button/primary" (-> result :structuredContent :id))
+          "the variant-id arg keywordised + resolved through the allowlist")
+      (is (= "Primary button." (-> result :structuredContent :body :doc))
+          "the variant body came back, confirming a real dispatch"))))
+
+(deftest register-variant-object-body-over-wire-keywordises-under-gate
+  (testing "an object-form :body sent as JSON registers with keyword slots (rf2-3luf3 write-path)"
+    ;; Post no-intern ingress the object-form body arrives string-keyed;
+    ;; `coerce-body` re-keywordises it under the (operator-gated) write
+    ;; path. This proves the spec's documented "object body (preferred)"
+    ;; form keeps working over the real wire — its keys become keywords.
+    (config/set-allow-writes! true)
+    (let [r (invoke "register-variant"
+                    {:variant-id "story.button/wire-obj"
+                     ;; Simulate the post-parse-json wire shape: a
+                     ;; STRING-keyed object body.
+                     :body {"doc"  "Object body over wire."
+                            "args" {"label" "OK"}}})]
+      (is (success? r) "object-form body registers under the write gate")
+      (let [edn (story/variant->edn :story.button/wire-obj)]
+        (is (= "Object body over wire." (:doc edn))
+            "the body's top-level string keys were keywordised")
+        (is (= "OK" (-> edn :args :label))
+            "nested object-body keys were keywordised recursively")))))
+
+(deftest register-variant-object-body-rejects-overdeep
+  (testing "an object-form :body past the depth cap is rejected, not interned (rf2-3luf3 / rf2-g9fje)"
+    (config/set-allow-writes! true)
+    ;; Build a string-keyed map nested far past max-edn-depth (64). The
+    ;; depth check in coerce-body must reject it BEFORE keywordize-body-keys
+    ;; walks (and interns) any of the pathological keys.
+    (let [probe (str "rf2-3luf3-deep-" (System/nanoTime))
+          deep  (reduce (fn [acc i] {(str probe "-" i) acc})
+                        {(str probe "-leaf") 1}
+                        (range 70))
+          r     (invoke "register-variant"
+                        {:variant-id "story.button/wire-deep" :body deep})]
+      (is (error? r) "an over-deep object body is rejected")
+      (is (nil? (find-keyword (str probe "-leaf")))
+          "rf2-3luf3: a rejected over-deep body MUST NOT have interned its keys"))))
+
+(deftest normalize-frame-drops-unknown-arg-keys-but-keeps-known
+  (testing "normalize-frame keeps allowlisted arg keys (keyword) and drops the rest (rf2-3luf3)"
+    (let [probe   (str "rf2-3luf3-drop-" (System/nanoTime))
+          parsed  (proto/parse-json
+                   (str "{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"tools/call\","
+                        "\"params\":{\"name\":\"run-variant\","
+                        "\"arguments\":{\"variant-id\":\"story.button/primary\","
+                        "\"" probe "\":1,\"substrate\":\"reagent\"}}}"))
+          norm    (proto/normalize-frame parsed)
+          arg-map (-> norm :params :arguments)]
+      (is (= "story.button/primary" (:variant-id arg-map)) "known key keywordised + kept")
+      (is (= "reagent" (:substrate arg-map)) "known key keywordised + kept")
+      (is (= #{:variant-id :substrate} (set (keys arg-map)))
+          "ONLY the two allowlisted keys survive; the unknown key is dropped at both string + keyword form")
+      ;; NB: do not call `(keyword probe)` here — that would itself intern
+      ;; the probe and defeat the assertion below.
+      (is (nil? (find-keyword probe)) "and the unknown key never interned"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Cap accounting includes :structuredContent size (rf2-mzndx)

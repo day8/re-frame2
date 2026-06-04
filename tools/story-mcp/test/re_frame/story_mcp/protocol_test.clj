@@ -13,6 +13,7 @@
   Story's registrar — the dispatcher and tool implementations are
   separate (tools_test.clj covers those)."
   (:require [cheshire.core :as json]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [re-frame.mcp-base.vocab :as vocab]
             [re-frame.story-mcp.protocol :as proto]))
@@ -65,9 +66,21 @@
 
 ;; ---- JSON parse / encode --------------------------------------------------
 
-(deftest json-parse-keywordises-keys
-  (testing "parsed map has keyword keys"
+(deftest json-parse-keeps-string-keys
+  ;; rf2-3luf3: `parse-json` now parses with STRING keys (no recursive
+  ;; keywordisation). Envelope + known-arg keywordisation happens
+  ;; downstream in `normalize-frame` (exercised via `read-frame`). This
+  ;; closes the attacker-controlled-nested-key intern surface.
+  (testing "parsed map has STRING keys (no recursive keywordise)"
     (let [m (proto/parse-json "{\"method\":\"tools/list\",\"id\":1}")]
+      (is (= "tools/list" (get m "method")))
+      (is (= 1 (get m "id")))
+      (is (nil? (:method m)) "no keyword key — parse-json is string-keyed now"))))
+
+(deftest normalize-frame-keywordises-envelope
+  (testing "normalize-frame converts the JSON-RPC envelope keys to keywords"
+    (let [m (proto/normalize-frame (proto/parse-json "{\"jsonrpc\":\"2.0\",\"method\":\"tools/list\",\"id\":1}"))]
+      (is (= "2.0" (:jsonrpc m)))
       (is (= "tools/list" (:method m)))
       (is (= 1 (:id m))))))
 
@@ -120,6 +133,22 @@
         (catch clojure.lang.ExceptionInfo e
           (is (= :rf.error/story-mcp-json-parse-failure (:rf.error/id (ex-data e)))))))))
 
+;; NB (rf2-3luf3): `read-frame` is the INBOUND-frame reader — it
+;; normalises a request/notification frame and deliberately keywordises
+;; ONLY the envelope + the bounded arg-key allowlist (nested `:result`
+;; payload keys are NOT walked, since the server never reads its own
+;; responses). These write-frame tests therefore deserialise the written
+;; RESPONSE with a plain keywordising `json/parse-string` — that is the
+;; correct way to read back the server's own output, and it keeps the
+;; tests focused on `write-frame!`'s contract (newline + no embedded
+;; newlines + faithful serialisation).
+(defn- parse-line
+  "Read back one written JSON line as a fully-keywordised Clojure map —
+  the appropriate deserialiser for the server's OWN response output (not
+  the no-intern ingress reader)."
+  [^String s]
+  (json/parse-string (str/trim s) true))
+
 (deftest write-frame-roundtrips
   (testing "write-frame appends a newline; round-trip via reader"
     (let [sw (java.io.StringWriter.)
@@ -128,19 +157,19 @@
       (is (.endsWith out "\n"))
       (is (not (.contains (subs out 0 (dec (count out))) "\n"))
           "no embedded newlines per MCP stdio transport rules")
-      (let [r (reader-of out)]
-        (is (= {:jsonrpc "2.0" :id 1 :result {:ok true}}
-               (proto/read-frame r)))))))
+      (is (= {:jsonrpc "2.0" :id 1 :result {:ok true}}
+             (parse-line out))))))
 
 (deftest write-frame-multiple-frames-on-one-stream
   (testing "two frames produce two readable lines"
     (let [sw (java.io.StringWriter.)]
       (proto/write-frame! sw {:jsonrpc "2.0" :id 1 :result {}})
       (proto/write-frame! sw {:jsonrpc "2.0" :id 2 :result {:n 7}})
-      (let [r (reader-of (.toString sw))]
-        (is (= {:jsonrpc "2.0" :id 1 :result {}}     (proto/read-frame r)))
-        (is (= {:jsonrpc "2.0" :id 2 :result {:n 7}} (proto/read-frame r)))
-        (is (= proto/eof-sentinel                    (proto/read-frame r)))))))
+      (let [lines (->> (str/split-lines (.toString sw))
+                       (filter seq))]
+        (is (= 2 (count lines)) "two newline-delimited frames")
+        (is (= {:jsonrpc "2.0" :id 1 :result {}}     (parse-line (nth lines 0))))
+        (is (= {:jsonrpc "2.0" :id 2 :result {:n 7}} (parse-line (nth lines 1))))))))
 
 ;; ---- error-helpers --------------------------------------------------------
 

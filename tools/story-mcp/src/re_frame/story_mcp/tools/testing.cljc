@@ -116,7 +116,7 @@
   [arguments]
   (targs/with-variant arguments
     (fn [vk _body]
-      (let [opts     (targs/read-run-opts arguments)
+      (let [opts     (targs/read-run-opts vk arguments)
             timeout  (min max-timeout-ms
                           (args/parse-positive-int (:timeout-ms arguments) default-timeout-ms))
             outcome  (try
@@ -188,7 +188,7 @@
   [arguments]
   (targs/with-variant arguments
     (fn [vk _body]
-      (result/edn-result (story/snapshot-identity vk (targs/read-run-opts arguments))))))
+      (result/edn-result (story/snapshot-identity vk (targs/read-run-opts vk arguments))))))
 
 ;; `re-frame.story.ui.a11y/violations-by-frame` is the CLJS-side panel
 ;; atom — resolved once at ns-load via `cljs-resolve/resolve-cljs-var`. JVM-

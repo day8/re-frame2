@@ -136,17 +136,71 @@
             parsed))))
     (catch Throwable _ ::edn-error)))
 
+(defn- keywordize-body-keys
+  "Recursively convert the STRING keys of an object-form `:body` (and
+  its nested maps) into keywords, INTERNING as it goes. This is the
+  operator-gated write-path counterpart to the rf2-3luf3 no-intern
+  ingress: `protocol/parse-json` now parses the whole frame with string
+  keys, so the JSON object-form body arrives string-keyed. The
+  registrar's variant schema demands keyword slots (`:doc` / `:args` /
+  `:tags` / …), so this path re-keywordises the body — but the intern is
+  BOUNDED:
+
+    - the handler reaches here only after the `--allow-writes`
+      operator gate (`assert-writes-allowed`), and
+    - the body was already depth-capped at `max-edn-depth` by the
+      caller (`coerce-body` runs `value-depth` before this), and
+      size-capped on the EDN-string arm,
+
+  so a hostile caller cannot mint unbounded keywords through it. Mirrors
+  the `fresh-keyword` policy (`tools/mcp-base/spec/args.md` §Keyword-
+  interning safety): interning is permitted only behind a gate that
+  bounds the allocation cost. Non-string keys (already-keyword keys from
+  the direct-invoke test path) pass through unchanged; non-collection
+  values are returned as-is."
+  [v]
+  (cond
+    (map? v)
+    (persistent!
+     (reduce-kv
+      (fn [acc k val]
+        (let [k' (cond-> k (string? k) keyword)]
+          (assoc! acc k' (keywordize-body-keys val))))
+      (transient {})
+      v))
+
+    (vector? v) (mapv keywordize-body-keys v)
+    (set? v)    (into #{} (map keywordize-body-keys) v)
+    (seq? v)    (map keywordize-body-keys v)
+    :else       v))
+
 (defn- coerce-body
-  "Normalise the `:body` arg to a Clojure map, or return one of two
-  sentinel keywords on parse / shape failure:
+  "Normalise the `:body` arg to a keyword-keyed Clojure map, or return
+  one of two sentinel keywords on parse / shape failure:
 
     `::edn-error` — `:body` was a string but `read-edn-body` threw or
                     the parsed value violated the size / depth /
                     tagged-literal hardening (rf2-g9fje).
-    `::not-a-map` — `:body` parsed (or was passed) but is not a map."
+    `::not-a-map` — `:body` parsed (or was passed) but is not a map.
+
+  Two input arms:
+
+    - **Object-form body** (a JSON object) arrives STRING-keyed from
+      `protocol/parse-json` (rf2-3luf3 no-intern ingress). Its depth is
+      checked against `max-edn-depth`, then its keys are recursively
+      keywordised via `keywordize-body-keys` — a bounded intern gated by
+      `--allow-writes` (the handler reached this fn only past the
+      write gate). A direct-invoke caller passing an already keyword-
+      keyed map is a no-op on the keys (`keywordize-body-keys` leaves
+      keyword keys alone).
+    - **EDN-string body** is parsed by the hardened `read-edn-body`
+      (no custom readers, tagged-literal reject, size/depth caps),
+      which yields keyword-keyed data directly."
   [body]
   (cond
-    (map? body)    body
+    (map? body)    (if (> (value-depth body) max-edn-depth)
+                     ::edn-error
+                     (keywordize-body-keys body))
     (string? body) (let [v (read-edn-body body)]
                      (cond
                        (= v ::edn-error) ::edn-error

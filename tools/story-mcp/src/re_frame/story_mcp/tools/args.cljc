@@ -97,16 +97,52 @@
   []
   (story/ids :variant))
 
+(defn- cell-override-key-set
+  "Bounded allowlist for `:cell-overrides` KEYS: the keys of the
+  variant's resolved effective-args map (`story/resolve-args`, no
+  overrides). Cell-overrides exist to override an arg the variant
+  already declares, so the legitimate key universe is exactly that
+  variant's declared arg keys — a finite, registry-derived set. Used by
+  `read-run-opts` to route each caller-supplied override key through
+  `args/safe-keyword` (no JVM intern outside the set; rf2-3luf3).
+  Returns `#{}` for an unresolvable variant — every override key then
+  rejects, which is the honest answer (nothing to override)."
+  [vk]
+  (set (keys (story/resolve-args vk))))
+
+(defn- safe-cell-overrides
+  "Coerce a caller-supplied `:cell-overrides` map (string-keyed off the
+  JSON wire after the rf2-3luf3 no-intern ingress, or keyword-keyed from
+  a direct-invoke caller) into a keyword-keyed override map, routing
+  every KEY through `args/safe-keyword` against `allowed` — the
+  variant's declared arg-key set. A key outside the set is DROPPED (no
+  intern), so an attacker cannot mint fresh keywords by streaming unique
+  override keys, and a typo'd override simply doesn't apply rather than
+  poisoning the keyword table. Values pass through verbatim — they are
+  data, not identifiers. Non-map input yields `nil` (no overrides)."
+  [overrides allowed]
+  (when (map? overrides)
+    (persistent!
+     (reduce-kv
+      (fn [acc k v]
+        (if-let [kw (args/safe-keyword k allowed)]
+          (assoc! acc kw v)
+          acc))
+      (transient {})
+      overrides))))
+
 (defn read-run-opts
   "Build the `re-frame.story/run-variant` opts map from the standard MCP
-  arg slots (`:substrate`, `:active-modes`, `:cell-overrides`). Each
-  slot lands only when present, so the resulting map is the minimal
-  shape `run-variant` / `snapshot-identity` / `variant-share-url`
-  expect.
+  arg slots (`:substrate`, `:active-modes`, `:cell-overrides`) for the
+  resolved variant `vk`. Each slot lands only when present, so the
+  resulting map is the minimal shape `run-variant` / `snapshot-identity`
+  / `variant-share-url` expect.
 
   Shared by `tool-preview-variant`, `tool-run-variant`, and
   `tool-snapshot-identity` (the latter omits `:cell-overrides`, but
-  the absent-slot-not-present rule keeps the helper general).
+  the absent-slot-not-present rule keeps the helper general). All three
+  call sites resolve `vk` via `with-variant` / `with-variant-id` before
+  calling this, so the variant is always known here.
 
   rf2-lqjbk: `:substrate` and each entry in `:active-modes` are
   coerced through `args/safe-keyword` against the live registry's
@@ -114,8 +150,16 @@
   `run-variant`'s opts contract already tolerates as 'no override')
   rather than as a freshly-interned keyword. The substrates set is
   CLJS-only (the JVM-standalone deploy reads `nil`); the modes set
-  is the registered-mode id set."
-  [arguments]
+  is the registered-mode id set.
+
+  rf2-3luf3: `:cell-overrides` arrives string-keyed off the JSON wire
+  (the no-intern ingress no longer keywordises nested arg keys). Its
+  KEYS are routed through `args/safe-keyword` against the variant's
+  declared arg-key set (`cell-override-key-set`) — a bounded, registry-
+  derived allowlist — so an override key outside that set is dropped
+  rather than interned. This is the read-side counterpart to the
+  operator-gated write-body keywordisation in `tools.write`."
+  [vk arguments]
   (let [substrate-set (cljs-resolve/registered-substrates-set)
         mode-set      (story/list-modes)]
     (cond-> {}
@@ -128,7 +172,9 @@
                    (keep #(args/safe-keyword % mode-set))
                    (:active-modes arguments)))
 
-      (some? (:cell-overrides arguments)) (assoc :cell-overrides (:cell-overrides arguments)))))
+      (some? (:cell-overrides arguments))
+      (assoc :cell-overrides (safe-cell-overrides (:cell-overrides arguments)
+                                                  (cell-override-key-set vk))))))
 
 (defn with-variant
   "Resolve `:variant-id` from `arguments` (required), resolve it against

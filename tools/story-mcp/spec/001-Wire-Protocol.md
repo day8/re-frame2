@@ -19,6 +19,53 @@
   response; the loop continues. The cap exists so a hostile or
   runaway producer can't OOM the server with an unterminated frame.
 
+## No-intern argument ingress (rf2-3luf3)
+
+JVM keywords are interned in a global table that **never shrinks**. The
+stdio server is a long-running JVM process, so any code path that mints a
+fresh keyword from an attacker-/AI-supplied string is a slow-burn DoS:
+a hostile or careless agent that streams unique JSON object keys
+permanently burns one keyword-table slot per unique key. This is the
+same threat model the framework's `:rf.http/max-decoded-keys` cap
+defends (see [`../../../spec/014-HTTPRequests.md` §Keyword-interning
+cap](../../../spec/014-HTTPRequests.md)) and the cross-MCP rule in
+[`../../mcp-base/spec/args.md` §Keyword-interning safety](../../mcp-base/spec/args.md).
+
+The ingress invariant: **untrusted nested wire keys are NEVER keywordised
+before the bounded allowlists run.** Concretely:
+
+- `re-frame.story-mcp.protocol/parse-json` parses each frame with
+  **string keys** (`json/parse-string s false`) — no recursive
+  keywordisation. A nested key under `params.arguments`,
+  `cell-overrides`, or a write `body` therefore never interns at parse
+  time.
+- `protocol/normalize-frame` (run by `read-frame` immediately after the
+  parse) keywordises ONLY:
+  - the finite JSON-RPC envelope keys (`protocol/envelope-keys`),
+  - the finite `params` keys (`protocol/params-keys`), and
+  - the bounded top-level **argument-key allowlist**
+    (`protocol/arg-keys`) — the single source of truth for every
+    top-level key a `tool-*` handler reads.
+
+  Each is resolved through `find-keyword` (via
+  `mcp-base.args/safe-keyword`), so a wire string outside the set never
+  mints a fresh keyword. **Keys outside these sets are dropped** at their
+  level — they neither intern nor reach a handler.
+- Genuinely data-bearing nested maps keep string keys at ingress and are
+  routed through each surface's own **bounded** keyword policy:
+  - `:cell-overrides` KEYS are resolved through `safe-keyword` against
+    the variant's declared arg-key set (`read-run-opts`) — a finite,
+    registry-derived allowlist; an override key outside it is dropped.
+  - the object-form `register-variant` `:body` is keywordised by
+    `coerce-body` only **behind the `--allow-writes` operator gate** and
+    only **after** the rf2-g9fje depth cap, so the intern is bounded by
+    both an operator gate and a depth ceiling (the `fresh-keyword`
+    policy). The EDN-string body path is unchanged (the hardened
+    `clojure.edn` reader yields keyword data directly).
+
+This closes the input-side vector. The output-side egress scrubbing
+(rf2-12f2q) is a separate concern documented with the result envelope.
+
 ## Protocol version pin
 
 The MCP protocol revision string is pinned at `2025-06-18` (see
