@@ -548,6 +548,11 @@
     (clear-stub-call-log! frame-id)
     (when-let [drop (late-bind/get-fn :drop-assertion-accumulators)]
       (try (drop frame-id) (catch #?(:clj Throwable :cljs :default) _ nil)))
+    ;; rf2-booyu — evict the play-runner's per-frame run-state on teardown
+    ;; (symmetric with `destroy!`); an inline frame that drove a script
+    ;; leaves no stale run-state behind once it is torn down.
+    (when-let [drop (late-bind/get-fn :drop-run-state)]
+      (try (drop frame-id) (catch #?(:clj Throwable :cljs :default) _ nil)))
     (when (seq loaders-teardown)
       (try (apply-loaders-teardown! frame-id loaders-teardown)
         (catch #?(:clj Throwable :cljs :default) _ nil)))
@@ -592,6 +597,13 @@
     (loaders/clear-watchers! variant-id)
     (clear-stub-call-log! variant-id)
     (when-let [drop (late-bind/get-fn :drop-assertion-accumulators)]
+      (try (drop variant-id) (catch #?(:clj Throwable :cljs :default) _ nil)))
+    ;; rf2-booyu — evict the play-runner's per-frame run-state on teardown
+    ;; (run-state / runs-by-play / active-play / step-boundaries) so a
+    ;; destroyed frame leaves no stale terminal play status behind. Routed
+    ;; through the `:drop-run-state` late-bind hook (frames cannot :require
+    ;; runner-events — cycle).
+    (when-let [drop (late-bind/get-fn :drop-run-state)]
       (try (drop variant-id) (catch #?(:clj Throwable :cljs :default) _ nil)))
     ;; Step 3 (rf2-lqs0b) — variant body :loaders-teardown. Runs BEFORE
     ;; decorator teardown so loader-installed narrower state is cleaned

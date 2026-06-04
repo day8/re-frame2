@@ -34,6 +34,24 @@
                                      evicts its entry. Signature:
                                      `(f frame-id) → nil`.
 
+  - `:drop-run-state`              — runner-events → frames. Called on
+                                     frame teardown so the play-runner's
+                                     per-frame run-state evicts its entry
+                                     across the four process-global atoms
+                                     (`run-state` / `runs-by-play` /
+                                     `active-play` / `step-boundaries`).
+                                     Without it a destroyed variant frame
+                                     leaks its terminal play status + the
+                                     toolbar's focused-play slot, and a
+                                     re-allocated frame of the same id can
+                                     observe the prior incarnation's
+                                     run-state before its first fresh run
+                                     overwrites it. `frames` cannot
+                                     `:require` `runner-events` (cycle:
+                                     runner-events → play → frames), so the
+                                     teardown call routes through this hook.
+                                     Signature: `(f frame-id) → nil`.
+
   - `:render-host`                 — story (via the canonical
                                      `install-render-host!`) → render. The
                                      CLJS host's view-render seam, consumed
