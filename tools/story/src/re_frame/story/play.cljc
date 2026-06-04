@@ -433,15 +433,21 @@
   No-op when no step has run. rf2-ee38b.3."
   [frame-id]
   (when config/enabled?
-    (swap! stepper-state update frame-id
-           (fn [s]
-             (if (seq (:ran s))
-               (let [last-step (peek (:ran s))]
-                 (-> s
-                     (update :ran pop)
-                     (update :results (fn [r] (if (seq r) (pop r) r)))
-                     (update :remaining (fn [rem] (into [last-step] rem)))))
-               s))))
+    ;; rf2-booyu — guard against a missing entry: `update` on a missing key
+    ;; would associate the fn's nil/`s` return (a `{frame-id nil}` entry),
+    ;; which flips `play-stepper-active?` (a `contains?` check) to true for a
+    ;; frame whose stepper was never begun. Only touch an existing,
+    ;; non-nil slot.
+    (when (some? (get @stepper-state frame-id))
+      (swap! stepper-state update frame-id
+             (fn [s]
+               (if (seq (:ran s))
+                 (let [last-step (peek (:ran s))]
+                   (-> s
+                       (update :ran pop)
+                       (update :results (fn [r] (if (seq r) (pop r) r)))
+                       (update :remaining (fn [rem] (into [last-step] rem)))))
+                 s)))))
   nil)
 
 (defn stepper-rewind!
@@ -451,11 +457,17 @@
   rf2-ee38b.3."
   [frame-id]
   (when config/enabled?
-    (swap! stepper-state update frame-id
-           (fn [s]
-             (when s
-               (let [full (into (vec (:ran s)) (:remaining s))]
-                 (assoc s :remaining full :ran [] :results []))))))
+    ;; rf2-booyu — guard against a missing entry: the prior `(when s …)`
+    ;; returned nil for a missing key, and `update` then associated that nil
+    ;; (a `{frame-id nil}` entry), making `play-stepper-active?` report true
+    ;; for a frame whose stepper was never begun. Only rewind an existing,
+    ;; non-nil slot.
+    (when (some? (get @stepper-state frame-id))
+      (swap! stepper-state update frame-id
+             (fn [s]
+               (when s
+                 (let [full (into (vec (:ran s)) (:remaining s))]
+                   (assoc s :remaining full :ran [] :results [])))))))
   nil)
 
 (defn end-stepper!

@@ -27,6 +27,7 @@
             [re-frame.story.layout-debug :as layout-debug]
             [re-frame.story.loaders      :as loaders]
             [re-frame.story.play         :as play]
+            [re-frame.story.play.runner-events :as runner-events]
             [re-frame.story.registrar    :as registrar]
             [re-frame.story.render       :as render]
             [re-frame.story.runtime      :as runtime]
@@ -52,7 +53,19 @@
   ;; per-frame `pending-exceptions` slot needs frame-teardown eviction.
   (late-bind/set-fn! :drop-assertion-accumulators
     (fn [frame-id]
-      (play/drop-pending-exceptions! frame-id))))
+      (play/drop-pending-exceptions! frame-id)))
+  ;; rf2-booyu — the play-runner's per-frame run-state (`run-state` /
+  ;; `runs-by-play` / `active-play` / `step-boundaries`) must be evicted on
+  ;; frame teardown too. `clear-state!` documented itself as "called from
+  ;; frame teardown" but was never wired, so a destroyed variant frame leaked
+  ;; its terminal play status + the toolbar's focused-play slot, and a
+  ;; re-allocated frame of the same id could observe the prior incarnation's
+  ;; run-state. `frames` cannot `:require` `runner-events` (cycle), so the
+  ;; eviction routes through this late-bind hook the same way the
+  ;; pending-exceptions eviction does.
+  (late-bind/set-fn! :drop-run-state
+    (fn [frame-id]
+      (runner-events/clear-state! frame-id))))
 
 #?(:cljs
    (defn- render-host-scope

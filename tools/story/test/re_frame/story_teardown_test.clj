@@ -40,6 +40,7 @@
             [re-frame.story.config     :as config]
             [re-frame.story.frames     :as frames]
             [re-frame.story.loaders    :as loaders]
+            [re-frame.story.play.runner-events :as runner-events]
             [re-frame.story.schemas    :as schemas]
             [malli.core                :as m]))
 
@@ -56,6 +57,7 @@
   (loaders/clear-watchers!)
   (config/set-global-args! {})
   (reset! frames/stub-call-log {})
+  (runner-events/clear-all-runs!)
   (story/install-canonical-vocabulary!)
   (frame/ensure-default-frame!)
   (test-fn))
@@ -302,3 +304,54 @@
         "destroy returns nil — no-op teardown walk completes cleanly")
     (is (not (contains? (story/variant-frames) :story.teardown.none/v))
         "frame still destroyed")))
+
+;; ===========================================================================
+;; RUN-STATE EVICTION — destroy-variant! clears the play-runner run-state
+;;
+;; rf2-booyu CORRECTNESS: `runner-events/clear-state!` documented itself as
+;; "called from frame teardown" but was never wired into `frames/destroy!`,
+;; so a destroyed variant frame leaked its per-frame run-state across the four
+;; process-global atoms (run-state / runs-by-play / active-play /
+;; step-boundaries). Over a long Story session (every hot-reload reset tears a
+;; frame down) these accumulate; a re-allocated frame of the same id could
+;; also observe the prior incarnation's terminal play status before its first
+;; fresh run overwrote it. The teardown now routes through the
+;; `:drop-run-state` late-bind hook.
+;; ===========================================================================
+
+(deftest destroy-variant-evicts-play-runner-run-state
+  (testing "after a play runs and the variant is destroyed, the play-runner's
+            per-frame run-state is gone from every process-global atom — no
+            leak (rf2-booyu)"
+    (rf/reg-event-db :rs/noop (fn [db _] db))
+    (story/reg-variant :story.runstate/v
+      {:events      []
+       :play-script [[:dispatch-sync [:rs/noop]]]})
+    (let [decorator-stack (story/resolve-decorators :story.runstate/v)]
+      ;; Drive the live-shell path: allocate the frame, then run the play via
+      ;; the runner (the toolbar Re-run / auto-run path that populates
+      ;; run-state).
+      (frames/allocate! :story.runstate/v decorator-stack)
+      (loaders/start-loaders! :story.runstate/v)
+      (loaders/finish-loaders! :story.runstate/v)
+      (let [done (promise)]
+        (runner-events/run! :story.runstate/v (fn [_] (deliver done :ok)))
+        (deref done 5000 :timeout))
+      (is (contains? @runner-events/run-state :story.runstate/v)
+          "run-state populated by the run")
+      (is (contains? @runner-events/runs-by-play [:story.runstate/v nil])
+          "runs-by-play populated by the run")
+      ;; A single :play-script variant's active-play key is legitimately nil
+      ;; (no :plays :name), so assert the ENTRY exists, not that the value is
+      ;; non-nil.
+      (is (contains? @runner-events/active-play :story.runstate/v)
+          "active-play populated by the run")
+      (story/destroy-variant! :story.runstate/v)
+      (is (not (contains? @runner-events/run-state :story.runstate/v))
+          "run-state evicted on destroy — no leak")
+      (is (not (contains? @runner-events/runs-by-play [:story.runstate/v nil]))
+          "runs-by-play evicted on destroy — no leak")
+      (is (not (contains? @runner-events/active-play :story.runstate/v))
+          "active-play evicted on destroy — no leak")
+      (is (nil? (runner-events/settle-boundaries :story.runstate/v))
+          "step-boundaries evicted on destroy — no leak"))))

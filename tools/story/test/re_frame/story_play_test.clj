@@ -266,6 +266,61 @@
       (story/destroy-variant! :story.stepper/full))))
 
 ;; ===========================================================================
+;; Stepper guards on a never-begun frame — rf2-booyu CORRECTNESS
+;;
+;; `stepper-rewind!` / `stepper-step-back!` used `swap! stepper-state update
+;; frame-id (fn [s] (when s …))`. On a MISSING key `update` still associates
+;; the fn's nil return, leaving a `{frame-id nil}` entry. Because
+;; `play-stepper-active?` is a `contains?` check, that nil entry flipped the
+;; stepper to "active" for a frame whose stepper was never begun — a false
+;; activation the UI would render as a live stepper widget. The guard now
+;; only touches an existing, non-nil slot.
+;; ===========================================================================
+
+(deftest stepper-rewind-on-never-begun-frame-does-not-activate
+  (testing "stepper-rewind! against a frame with no stepper session is a
+            no-op — it does NOT insert a nil entry that would flip
+            play-stepper-active? to true (rf2-booyu)"
+    (is (not (play/play-stepper-active? :story.stepper/never)))
+    (play/stepper-rewind! :story.stepper/never)
+    (is (not (play/play-stepper-active? :story.stepper/never))
+        "rewind on a never-begun frame leaves the stepper inactive")
+    (is (not (contains? @play/stepper-state :story.stepper/never))
+        "no {frame-id nil} entry was inserted into stepper-state")))
+
+(deftest stepper-step-back-on-never-begun-frame-does-not-activate
+  (testing "stepper-step-back! against a frame with no stepper session is a
+            no-op — same nil-entry pollution guard as rewind (rf2-booyu)"
+    (is (not (play/play-stepper-active? :story.stepper/never2)))
+    (play/stepper-step-back! :story.stepper/never2)
+    (is (not (play/play-stepper-active? :story.stepper/never2))
+        "step-back on a never-begun frame leaves the stepper inactive")
+    (is (not (contains? @play/stepper-state :story.stepper/never2))
+        "no {frame-id nil} entry was inserted into stepper-state")))
+
+(deftest stepper-rewind-still-rewinds-an-active-session
+  (testing "the guard does not break the real path — rewind on an ACTIVE
+            session still resets the cursor (every step back to :remaining)"
+    (rf/reg-event-db :rw/one (fn [db _] (assoc db :one? true)))
+    (story/reg-variant :story.stepper/rw
+      {:events []
+       :play-script [[:dispatch-sync [:rw/one]]
+                     [:dispatch-sync [:rw/one]]]})
+    (let [decorator-stack (story/resolve-decorators :story.stepper/rw)]
+      (re-frame.story.frames/allocate! :story.stepper/rw decorator-stack)
+      (loaders/start-loaders! :story.stepper/rw)
+      (loaders/finish-loaders! :story.stepper/rw)
+      (play/begin-stepper! :story.stepper/rw)
+      (play/step-once! :story.stepper/rw)
+      (is (= 1 (count (:ran (get @play/stepper-state :story.stepper/rw)))))
+      (play/stepper-rewind! :story.stepper/rw)
+      (let [s (get @play/stepper-state :story.stepper/rw)]
+        (is (= [] (:ran s))      "rewind emptied :ran")
+        (is (= 2 (count (:remaining s))) "every step back to :remaining"))
+      (play/end-stepper! :story.stepper/rw)
+      (story/destroy-variant! :story.stepper/rw))))
+
+;; ===========================================================================
 ;; :loaders-complete-when non-default forms — Stage 5 (rf2-h8et)
 ;; ===========================================================================
 

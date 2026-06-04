@@ -171,8 +171,11 @@
   nil)
 
 (defn clear-state!
-  "Wipe the run-state for `frame-id`. Called from frame teardown +
-  before each fresh run."
+  "Wipe the run-state for `frame-id` across all four process-global atoms
+  (`run-state` / `runs-by-play` / `active-play` / `step-boundaries`).
+  Wired into frame teardown via the `:drop-run-state` late-bind hook
+  (`frames/destroy!` + `destroy-inline!`, rf2-booyu) so a destroyed variant
+  frame leaves no stale terminal play status behind."
   [frame-id]
   (swap! run-state dissoc frame-id)
   (swap! runs-by-play (fn [m]
