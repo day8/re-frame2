@@ -56,14 +56,15 @@
      transitions use inline fns.
    - **Headless tests** — every state has a fixture that drives `app-db`
      into that state and asserts against tags + `:ui/render`. Browserless
-     via `compute-sub` / `dispatch-sync`. The fixtures live in a sibling
-     `test/nine_states/core_test.cljs` (ns `nine-states.core-test`) so
-     this source file stays test-free.
+     via `compute-sub` / `dispatch-sync`. The example tree is test-free
+     (rf2-8cevm); the fixtures live in the framework test tree at
+     `implementation/adapters/reagent/test/re_frame/nine_states_cljs_test.cljs`
+     (ns `re-frame.nine-states-cljs-test`).
 
    Layout follows the single-file style of `examples/reagent/login/core.cljs`
    and `examples/reagent/seven_guis/circle_drawer/core.cljs`. In a real
    codebase this would split per CP-6 conventions across schema / events /
-   subs / views / machines / tests files."
+   subs / views / machines files."
   (:require [reagent2.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.registrar :as registrar]

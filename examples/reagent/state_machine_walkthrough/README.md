@@ -11,8 +11,7 @@ chapter describes.
 - **The same login machine as [`examples/reagent/login/`](../login/)** —
   same states, same guards, same actions. The two examples differ in
   what they teach AROUND the machine: `login` wires it into a live
-  Reagent view; this walkthrough drives it HEADLESSLY (via the
-  sibling `core-test` ns) to show the pure
+  Reagent view; this walkthrough drives it HEADLESSLY to show the pure
   machine-transition + drain testing story.
 - **Pure transition table** — `:guards` and `:actions` live *with*
   the spec, not in a global registry. References inside `:states`
@@ -20,10 +19,12 @@ chapter describes.
   Vars (define a fn, name it locally in each machine's `:guards` /
   `:actions`).
 - **The chapter's headless test progression** — each scenario in the
-  chapter has a matching `core-test` fn that drives the machine
-  through it and asserts against the resulting snapshot. The chapter
-  promises "runs in microseconds on the JVM, no browser, no network";
-  this example honours that.
+  chapter has a matching headless test that drives the machine through
+  it and asserts against the resulting snapshot. The chapter promises
+  "runs in microseconds on the JVM, no browser, no network"; this
+  example honours that. The example tree is test-free (rf2-8cevm) — the
+  scenarios were folded into the framework JVM test (see
+  [How to run](#how-to-run)).
 - **HTTP via canned stubs** — the `:issue-request` action dispatches
   `:rf.http/managed`, overridden in tests via `:fx-overrides` to the
   framework-shipped `:rf.http/managed-canned-success` /
@@ -51,7 +52,6 @@ state_machine_walkthrough/
   core.cljc                                            — login flow transition table + supporting fns.
   views.cljs                                           — view layer for the runnable demo.
   index.html                                           — minimal host page.
-  test/state_machine_walkthrough/core_test.cljc        — the per-scenario smoke tests.
 ```
 
 ## How to run
@@ -62,19 +62,12 @@ shadow-cljs watch examples/state-machine-walkthrough
 ```
 
 Run `npm run test:examples` once first so the example's `index.html`
-is staged. The headless tests run as part of the framework's CLJS
-test suite. To run them ad-hoc from a CLJS or JVM REPL:
-
-```clojure
-(require '[state-machine-walkthrough.core])      ;; load the machine
-(require '[state-machine-walkthrough.core-test :as t])
-(t/smoke-tests)                                  ;; runs all four scenarios
-;; or one at a time:
-(t/pure-happy-path-test)
-(t/pure-lockout-test)
-(t/drain-happy-path-test)
-(t/drain-retry-then-lockout-test)
-```
+is staged. The four headless scenarios (pure happy-path, pure lockout,
+drain happy-path, drain retry-then-lockout) were folded into the
+framework JVM test at
+[`implementation/core/test/re_frame/examples_test.clj`](../../../implementation/core/test/re_frame/examples_test.clj)
+(the `state-machine-walkthrough-runs-headless` deftest, rf2-cd2zo) so
+the example source stays test-free. They run under the JVM test suite.
 
 ## Cross-references
 

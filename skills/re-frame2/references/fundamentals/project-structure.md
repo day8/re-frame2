@@ -55,16 +55,20 @@ own feature file before the per-feature file grows past ~400 lines.
 
 ## Tests — sibling `test/` tree, mirroring source
 
-Tests live in a sibling `test/` directory rooted at the same namespace.
-Each source file `src/myapp/foo.cljs` has a peer test
-`test/myapp/foo_test.cljs` (`examples/reagent/realworld/test/realworld/`).
-The `_test` suffix is the convention; the test ns matches —
-`(ns realworld.auth-test ...)` (`auth_test.cljs:1`).
+In a consumer app, tests live in a sibling `test/` directory rooted at
+the same namespace. Each source file `src/myapp/foo.cljs` has a peer
+test `test/myapp/foo_test.cljs`. The `_test` suffix is the convention;
+the test ns matches — `(ns myapp.foo-test ...)`.
 
 A `test_helpers.cljs` at the root of the test tree owns shared fixture
 helpers (canned-stub registration wrappers, frame builders); per-test
-files require it as `[realworld.test-helpers :as th]`
-(`examples/reagent/realworld/test/realworld/test_helpers.cljs:1-51`).
+files require it as `[myapp.test-helpers :as th]`.
+
+(Note: this dev repo's own `examples/` tree is deliberately *test-free*
+per the locked test-free-examples policy — the examples' headless
+fixtures live in the framework test tree, not under `examples/`. That is
+a repo-internal convention; a normal consumer app keeps the sibling
+`test/` tree described above.)
 
 ## Stories — co-located with the feature
 

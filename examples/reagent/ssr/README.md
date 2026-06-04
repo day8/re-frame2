@@ -57,7 +57,6 @@ dispatches `:rf/hydrate`, and renders against the now-seeded app-db.
 ssr/
   core.cljc                    — server + client, one artefact.
   index.html                   — pre-rendered shell + payload (mocks a real server emission).
-  test/ssr/core_test.clj       — JVM smoke (handle-request returns HTML + payload).
 ```
 
 ## How to run
@@ -69,9 +68,11 @@ shadow-cljs watch examples/ssr
 
 Run `npm run test:examples` once first so
 `out/examples/ssr/index.html` is staged. Examples are test-free per
-[`examples/README.md`](../../README.md); SSR contract testing lives
-in [`test/ssr/core_test.clj`](test/ssr/core_test.clj) and the
-`implementation/ssr/test/` suite, plus
+[`examples/README.md`](../../README.md); this example's JVM smoke
+(per-request frame → server flow → render-to-string + render-hash) was
+folded into [`implementation/core/test/re_frame/examples_test.clj`](../../../implementation/core/test/re_frame/examples_test.clj)
+(the `ssr-example-runs-end-to-end` deftest, rf2-cd2zo). Broader SSR
+contract testing lives in the `implementation/ssr/test/` suite plus
 `spec/conformance/fixtures/ssr-*.edn`.
 
 ## Cross-references

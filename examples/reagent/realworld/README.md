@@ -90,31 +90,34 @@ shadow-cljs watch examples/realworld
 
 ## Headless tests
 
-The headless tests are browserless sketches. They live alongside the
-sources at `test/realworld/<feature>_test.cljs`, mirroring the source
-namespaces. Each test stubs `:rf.http/managed` via `:fx-overrides`,
-delegating to the framework-shipped canned-stub fxs
+The headless tests are browserless sketches. The example tree is
+test-free (rf2-8cevm), so the per-feature fixtures + the canned-stub
+helpers live in the integration test at
+[`implementation/adapters/reagent/test/re_frame/realworld_cljs_test.cljs`](../../../implementation/adapters/reagent/test/re_frame/realworld_cljs_test.cljs)
+— folded inline by rf2-cd2zo. Each helper stubs `:rf.http/managed` via
+`:fx-overrides`, delegating to the framework-shipped canned-stub fxs
 (`:rf.http/managed-canned-success` / `:rf.http/managed-canned-failure`)
-through small wrappers in `test/realworld/test_helpers.cljs`.
+through small `reg-canned-*` wrappers in that ns.
 
-| Source ns | Test ns |
+Each example source ns has a matching `deftest`:
+
+| Source ns | deftest |
 |---|---|
-| `realworld.auth` | `realworld.auth-test` |
-| `realworld.articles` | `realworld.articles-test` |
-| `realworld.article-editor` | `realworld.article-editor-test` |
-| `realworld.comments` | `realworld.comments-test` |
-| `realworld.favorites` | `realworld.favorites-test` |
-| `realworld.profile` | `realworld.profile-test` |
-| `realworld.settings` | `realworld.settings-test` |
-| `realworld.tags` | `realworld.tags-test` |
-| `realworld.routing` | `realworld.routing-test` |
-| `realworld.ssr` | `realworld.ssr-test` |
-| `realworld.core` | `realworld.core-test` |
+| `realworld.auth` | `realworld-auth-flow` |
+| `realworld.articles` | `realworld-articles-feed` |
+| `realworld.article-editor` | `realworld-article-editor` |
+| `realworld.comments` | `realworld-comments` |
+| `realworld.favorites` | `realworld-favorites` |
+| `realworld.profile` | `realworld-profile` |
+| `realworld.settings` | `realworld-settings` |
+| `realworld.tags` | `realworld-tags` |
+| `realworld.routing` | `realworld-routing` |
+| `realworld.ssr` | `realworld-ssr` |
+| `realworld.core` | `realworld-core-smoke` |
 
-Each test fn is a plain zero-arg `defn`; failures throw via `assert`. The
-shadow-cljs `node-test` build picks them up via the integration wrapper
-at `implementation/adapters/reagent/test/re_frame/realworld_cljs_test.cljs`
-(run with `npm run test:cljs` from the `implementation/` directory).
+The shadow-cljs `node-test` build picks the integration test up
+(`re-frame.realworld-cljs-test`); run with `npm run test:cljs` from the
+`implementation/` directory.
 
 Together the fixtures exercise the user-visible flow against the
 `:realworld.demo/http-stub` override: the initial-load shell

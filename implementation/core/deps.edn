@@ -81,22 +81,19 @@
   ;; implementation/http/deps.edn, implementation/ssr/deps.edn, and
   ;; implementation/epoch/deps.edn.
   :test {:extra-paths ["test" "../../examples/reagent"
-                       ;; rf2-ee38b.25 — the ssr / ssr_streaming /
-                       ;; state_machine_walkthrough examples moved their
-                       ;; headless test fns out of the example source into
-                       ;; sibling `test/` namespaces (`ssr.core-test`,
-                       ;; `ssr-streaming.core-test`,
-                       ;; `state-machine-walkthrough.core-test`) so the
-                       ;; example source stays test-free (matching
-                       ;; realworld / nine_states). examples_test.clj
-                       ;; requires those test namespaces, so their test
-                       ;; trees must be on the core test classpath. The
-                       ;; bare `../../examples/reagent` root above only
-                       ;; carries the example *source*; the sibling
-                       ;; `test/` dirs need explicit roots.
-                       "../../examples/reagent/ssr/test"
-                       "../../examples/reagent/ssr_streaming/test"
-                       "../../examples/reagent/state_machine_walkthrough/test"]
+                       ;; rf2-cd2zo — the ssr / ssr_streaming /
+                       ;; state_machine_walkthrough examples' headless test
+                       ;; fns were folded INTO re-frame.examples-test (this
+                       ;; artefact's test/ tree) as inline deftest bodies,
+                       ;; retiring the sibling examples/.../test/ source
+                       ;; dirs. examples_test.clj now requires only the
+                       ;; example *source* nses (`ssr.core`,
+                       ;; `ssr-streaming.core`, `state-machine-walkthrough.core`),
+                       ;; which the bare `../../examples/reagent` root above
+                       ;; carries — so no examples/.../test source path is
+                       ;; needed and the example tree is test-free
+                       ;; (rf2-8cevm).
+                       ]
          :extra-deps  {day8/re-frame2-schemas    {:local/root "../schemas"}
                        day8/re-frame2-machines   {:local/root "../machines"}
                        day8/re-frame2-routing    {:local/root "../routing"}
