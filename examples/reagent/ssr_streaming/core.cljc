@@ -56,11 +56,11 @@
 ;; SUBSCRIPTIONS / VIEWS
 ;; ============================================================================
 
-(rf/reg-sub :cards (fn [db _] (:cards db)))
-(rf/reg-sub :card  (fn [db [_ id]] (get-in db [:cards id])))
+(rf/reg-sub :cards/slice (fn [db _] (:cards db)))
+(rf/reg-sub :card/by-id   (fn [db [_ id]] (get-in db [:cards id])))
 
 (rf/reg-view ^{:rf/id :dashboard/card} card-view [card-id]
-  (let [card @(subscribe [:card card-id])]
+  (let [card @(subscribe [:card/by-id card-id])]
     [:div.card
      [:h3 (:title card)]
      [:p.value (str (:value card))]]))

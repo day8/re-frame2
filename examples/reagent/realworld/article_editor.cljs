@@ -364,19 +364,19 @@
 ;; SUBSCRIPTIONS
 ;; ============================================================================
 
-(rf/reg-sub :editor
+(rf/reg-sub :editor/slice
   (fn [db _] (:editor db)))
 
-(rf/reg-sub :editor/draft :<- [:editor] (fn [editor _] (:draft editor)))
-(rf/reg-sub :editor/errors :<- [:editor] (fn [editor _] (:errors editor)))
-(rf/reg-sub :editor/submit-error :<- [:editor]
+(rf/reg-sub :editor/draft :<- [:editor/slice] (fn [editor _] (:draft editor)))
+(rf/reg-sub :editor/errors :<- [:editor/slice] (fn [editor _] (:errors editor)))
+(rf/reg-sub :editor/submit-error :<- [:editor/slice]
   (fn [editor _] (:submit-error editor)))
 
 (rf/reg-sub :editor/field-error
   {:doc "Per-field validation error. Per Pattern-Forms §Error
          visibility: reveal every error after the first submit click,
          OR once the field is :touched."}
-  :<- [:editor]
+  :<- [:editor/slice]
   (fn [editor [_ field]]
     (when (or (:submit-attempted? editor)
               (contains? (:touched editor) field))
@@ -385,12 +385,12 @@
 (rf/reg-sub :editor/form-error
   {:doc "Whole-form prompt (the :_form key under :errors) — populated
          when a submit attempt failed client-side validation."}
-  :<- [:editor]
+  :<- [:editor/slice]
   (fn [editor _]
     (when (:submit-attempted? editor)
       (get-in editor [:errors :_form]))))
 (rf/reg-sub :editor/dirty?
-  :<- [:editor]
+  :<- [:editor/slice]
   (fn [editor _]
     (not= (:draft editor) (:baseline editor))))
 

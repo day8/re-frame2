@@ -256,15 +256,15 @@
 ;; SUBSCRIPTIONS
 ;; ============================================================================
 
-(rf/reg-sub :article (fn [db _] (:article db)))
-(rf/reg-sub :article/data :<- [:article] (fn [slice _] (:data slice)))
-(rf/reg-sub :article/status :<- [:article] (fn [slice _] (:status slice)))
-(rf/reg-sub :article/error :<- [:article] (fn [slice _] (:error slice)))
+(rf/reg-sub :article/slice (fn [db _] (:article db)))
+(rf/reg-sub :article/data :<- [:article/slice] (fn [slice _] (:data slice)))
+(rf/reg-sub :article/status :<- [:article/slice] (fn [slice _] (:status slice)))
+(rf/reg-sub :article/error :<- [:article/slice] (fn [slice _] (:error slice)))
 
-(rf/reg-sub :comments (fn [db _] (:comments db)))
-(rf/reg-sub :comments/data :<- [:comments] (fn [slice _] (:data slice)))
-(rf/reg-sub :comments/status :<- [:comments] (fn [slice _] (:status slice)))
-(rf/reg-sub :comments/error :<- [:comments] (fn [slice _] (:error slice)))
+(rf/reg-sub :comments/slice (fn [db _] (:comments db)))
+(rf/reg-sub :comments/data :<- [:comments/slice] (fn [slice _] (:data slice)))
+(rf/reg-sub :comments/status :<- [:comments/slice] (fn [slice _] (:status slice)))
+(rf/reg-sub :comments/error :<- [:comments/slice] (fn [slice _] (:error slice)))
 
 (rf/reg-sub :comment-form/draft
   (fn [db _] (get-in db [:comment-form :draft])))
@@ -275,14 +275,14 @@
 (rf/reg-sub :comment-form/submit-error
   (fn [db _] (get-in db [:comment-form :submit-error])))
 
-(rf/reg-sub :comment-form
+(rf/reg-sub :comment-form/slice
   (fn [db _] (:comment-form db)))
 
 (rf/reg-sub :comment-form/field-error
   {:doc "Per-field validation error for the comment form. Per
          Pattern-Forms §Error visibility: reveal every error after the
          first submit click, OR once the field is :touched."}
-  :<- [:comment-form]
+  :<- [:comment-form/slice]
   (fn [form [_ field]]
     (when (or (:submit-attempted? form)
               (contains? (:touched form) field))

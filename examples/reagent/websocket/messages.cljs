@@ -394,17 +394,17 @@
     {:db (assoc db :messages {:draft "" :received [] :last-reply nil :rx-count 0})}))
 
 ;; --- subs -------------------------------------------------------------
-(rf/reg-sub :messages
+(rf/reg-sub :messages/slice
   (fn [db _] (:messages db)))
 
 (rf/reg-sub :messages/draft
-  :<- [:messages]
+  :<- [:messages/slice]
   (fn [m _] (:draft m)))
 
 (rf/reg-sub :messages/received
-  :<- [:messages]
+  :<- [:messages/slice]
   (fn [m _] (:received m)))
 
 (rf/reg-sub :messages/last-reply
-  :<- [:messages]
+  :<- [:messages/slice]
   (fn [m _] (:last-reply m)))
