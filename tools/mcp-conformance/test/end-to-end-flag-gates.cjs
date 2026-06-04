@@ -202,10 +202,19 @@ async function assertWriteGateOpensWithFlag() {
       );
     }
     const struct = resp.structuredContent || {};
-    if (struct.registered !== true && struct['registered?'] !== true) {
+    // Pin the SINGLE canonical key story-mcp emits: `:registered?`
+    // (Cheshire keeps the `?` → JSON key `registered?`; pinned JVM-side
+    // by tools_test.clj and by the sibling end-to-end-story.cjs). The
+    // earlier `registered || registered?` alternation tolerated two
+    // spellings — masking exactly the envelope-key drift this harness
+    // family pins single-spelling (rf2-ee38b.20). A drift to bare
+    // `registered` would slip past here while end-to-end-story.cjs caught
+    // it RED; tighten to the one canonical spelling so this code path
+    // agrees with its sibling.
+    if (struct['registered?'] !== true) {
       throw new Error(
         'story-mcp register-variant with --allow-writes MUST report ' +
-          'registered; got: ' + JSON.stringify(resp),
+          ':registered? true; got: ' + JSON.stringify(resp),
       );
     }
     console.log(
