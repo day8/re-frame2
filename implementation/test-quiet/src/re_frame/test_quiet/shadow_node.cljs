@@ -22,10 +22,10 @@
   {:dev/always true}
   (:require
     [re-frame.test-quiet]
+    [re-frame.test-quiet.shadow-node-cli :as cli]
     [shadow.test.env :as env]
     [shadow.test :as st]
-    [cljs.test :as ct]
-    [clojure.string :as str]))
+    [cljs.test :as ct]))
 
 ;; Silence stray runtime warnings on green. See ns docstring for the
 ;; capture-compatibility rationale.  Installed at ns-load time so it's
@@ -55,31 +55,9 @@
       (env/reset-test-data!)))
 
 ;; ----------------------------------------------------------------------
-;; CLI arg parsing — same shape shadow.test.node ships so the existing
-;; `npm run test:cljs -- --test=foo` form keeps working.
-
-(defn parse-args [args]
-  (reduce
-    (fn [opts arg]
-      (cond
-        (= "--help" arg)
-        (assoc opts :help true)
-
-        (= "--list" arg)
-        (assoc opts :list true)
-
-        (str/starts-with? arg "--test=")
-        (let [test-arg (subs arg 7)
-              test-syms
-              (->> (str/split test-arg ",")
-                   (map symbol))]
-          (update opts :test-syms into test-syms))
-
-        :else
-        (do (println (str "Unknown arg: " arg))
-            opts)))
-    {:test-syms []}
-    args))
+;; CLI arg parsing lives in `re-frame.test-quiet.shadow-node-cli` so it
+;; can be unit-pinned without a compile cycle (this ns is `:dev/always`
+;; + expands the `env/get-test-data` test-ns-enumeration macro).
 
 (defn find-matching-test-vars [test-syms]
   (let [test-namespaces (->> test-syms (filter simple-symbol?) (set))
@@ -117,5 +95,5 @@
   (reset-test-data!)
   (if env/UI-DRIVEN
     (js/console.log "Waiting for UI ...")
-    (let [opts (parse-args args)]
+    (let [opts (cli/parse-args args)]
       (execute-cli opts))))

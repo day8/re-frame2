@@ -27,6 +27,12 @@
                 ;; defmethod overrides) and re-frame.test-quiet.shadow-node
                 ;; (the :node-test runner wired via :main above).
                 "test-quiet/src"
+                ;; rf2-vespg — the shadow-node runner's own CLJS contract
+                ;; pin (re-frame.test-quiet-shadow-node-cljs-test) lives
+                ;; under test-quiet/test; listing it here puts the pin on
+                ;; the consolidated :node-test classpath so `npm run
+                ;; test:cljs` runs it (the `cljs-test$` ns-regexp matches).
+                "test-quiet/test"
                 "core/src"
                 "core/test"
                 ;; rf2-2mtte — CLJS-side public-API manifest enumeration
