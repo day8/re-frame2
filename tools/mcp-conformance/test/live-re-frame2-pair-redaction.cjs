@@ -68,9 +68,7 @@
 
 const path = require('node:path');
 const os = require('node:os');
-const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
-const { StdioClientTransport } = require('@modelcontextprotocol/sdk/client/stdio.js');
-const { runWithWatchdog } = require('./_runner.cjs');
+const { runWithWatchdog, connectServer, closeQuietly } = require('./_runner.cjs');
 
 const SERVER = path.resolve(__dirname, '..', '..', 're-frame2-pair-mcp', 'out', 'server.js');
 
@@ -311,21 +309,21 @@ if (!process.env.SHADOW_CLJS_NREPL_PORT) {
 // would pass a gate-OFF-only test but break the operator's deliberate
 // raw-state read.
 async function runGateOnArm() {
-  const transport = new StdioClientTransport({
-    command: process.execPath,
-    args: [SERVER, '--allow-sensitive-reads'],
-    cwd: os.tmpdir(),
-    env: { ...process.env },
-    stderr: 'pipe',
+  // Stand up the second server via the shared spawn+connect primitive
+  // (rf2-0ogn7). The `[server:gate-on]` stderr prefix keeps this
+  // concurrent boot's logs distinguishable from the runner-managed
+  // gate-OFF server's `[server]` lines.
+  const { client } = await connectServer({
+    clientName: 'mcp-conformance-re-frame2-pair-redaction-gate-on',
+    stderrPrefix: '[server:gate-on]',
+    transportSpec: {
+      command: process.execPath,
+      args: [SERVER, '--allow-sensitive-reads'],
+      cwd: os.tmpdir(),
+      env: { ...process.env },
+    },
   });
-  const client = new Client(
-    { name: 'mcp-conformance-re-frame2-pair-redaction-gate-on', version: '0.1.0' },
-    { capabilities: {} },
-  );
-  transport.stderr?.on('data', (d) => process.stderr.write('[server:gate-on] ' + d.toString()));
   try {
-    await client.connect(transport);
-
     // Same seed: enable epoch recording, declare the sensitive slot, and
     // write the sentinel into app-db on this server's runtime.
     await seedRuntime(client, 'gate-on');
@@ -362,7 +360,7 @@ async function runGateOnArm() {
     }
     console.log('OK   gate-ON watch-epochs (+:include-sensitive) -> sentinel SHIPS (opt-in honoured)');
   } finally {
-    try { await client.close(); } catch (_e) { /* best-effort */ }
+    await closeQuietly(client);
   }
 }
 

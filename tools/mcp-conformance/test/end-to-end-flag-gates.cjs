@@ -71,12 +71,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const {
-  Client,
-} = require('@modelcontextprotocol/sdk/client/index.js');
-const {
-  StdioClientTransport,
-} = require('@modelcontextprotocol/sdk/client/stdio.js');
+const { connectServer, closeQuietly } = require('./_runner.cjs');
 const { resolveTrustedExe } = require('../lib/exec-safety.cjs');
 
 const STORY_MCP_CWD = path.resolve(__dirname, '..', '..', 'story-mcp');
@@ -102,7 +97,6 @@ const FIXTURE_BODY_EDN = '{:doc "flag-gate conformance probe." :tags #{:dev}}';
 // MCP surface, which is exactly the point). Three sequential boots fit
 // comfortably under the watchdog with margin.
 const WATCHDOG_MS = 180000;
-const CLIENT_VERSION = '0.1.0';
 
 // ---------------------------------------------------------------------------
 // Boot one story-mcp server with the given extra CLI args, run `body`
@@ -111,35 +105,25 @@ const CLIENT_VERSION = '0.1.0';
 //
 // Each call spawns a fresh JVM so the boot-time gate atom reflects ONLY
 // the args passed here — no cross-contamination between the default-OFF,
-// opt-in, and rename-rejection probes.
+// opt-in, and rename-rejection probes. The spawn+connect+teardown
+// ceremony is the shared `connectServer` / `closeQuietly` primitive
+// (rf2-0ogn7) — `runWithWatchdog`'s single-boot-per-process form can't
+// serve this gate, which needs three fresh in-process JVM boots.
 // ---------------------------------------------------------------------------
 async function withStoryServer(extraArgs, body) {
-  const transport = new StdioClientTransport({
-    command: CLOJURE,
-    args: ['-M', '-m', 're-frame.story-mcp.server', ...extraArgs],
-    cwd: STORY_MCP_CWD,
-    env: { ...process.env },
-    stderr: 'pipe',
+  const { client } = await connectServer({
+    clientName: 'mcp-conformance-flag-gates',
+    transportSpec: {
+      command: CLOJURE,
+      args: ['-M', '-m', 're-frame.story-mcp.server', ...extraArgs],
+      cwd: STORY_MCP_CWD,
+      env: { ...process.env },
+    },
   });
-  const client = new Client(
-    { name: 'mcp-conformance-flag-gates', version: CLIENT_VERSION },
-    { capabilities: {} },
-  );
-  transport.stderr?.on('data', (d) =>
-    process.stderr.write('[server] ' + d.toString()),
-  );
-  await client.connect(transport);
   try {
     return await body(client);
   } finally {
-    try {
-      await client.close();
-    } catch (closeErr) {
-      console.error(
-        'NOTE: client.close() raised during teardown:',
-        closeErr.message,
-      );
-    }
+    await closeQuietly(client);
   }
 }
 

@@ -58,15 +58,22 @@
 // (`scripts/run-live-re-frame2-pair-overflow-hermetic.cjs`) wires the env when
 // run as part of the hermetic suite.
 
-// ## DRY-on-3 trigger (rf2-1bwph)
+// ## DRY-on-3 resolution (rf2-1bwph → rf2-0ogn7)
 //
-// This file and its sibling `live-re-frame2-pair-overflow.cjs` share
-// LIVE-specific fixture setup (nREPL gating via $SHADOW_CLJS_NREPL_PORT,
-// SDK Client construction against the spawned server, watchdog ceremony).
-// The shared `_runner.cjs` already covers the common SDK-spawn ceremony.
-// We deliberately do NOT factor the LIVE-specific setup at 2 files —
-// factoring at 2 is premature; the right shape only emerges at 3. When a
-// 3rd `live-*` script lands, lift the shared bits per rf2-1bwph.
+// This file and its `live-re-frame2-pair-*.cjs` siblings (overflow,
+// redaction) share the nREPL SKIP-gate (via $SHADOW_CLJS_NREPL_PORT) and
+// the SDK-spawn ceremony. Both are now factored: the SKIP gate routes
+// through `runWithWatchdog.skip`, and the spawn+connect+teardown ceremony
+// is `_runner.cjs`'s `connectServer` / `closeQuietly` (the redaction arm's
+// second-server boot uses it directly). What is NOT shared — by design —
+// is each variant's data-driven field validator (`REQUIRED_PARAMS` /
+// `REQUIRED_DATA` + `assertProgressParams` here; `REQUIRED_FIELDS` +
+// `assertOverflowBody` in overflow). Each pins a DISTINCT Malli schema
+// (`ReFrame2PairProgressNotificationParams` vs `ReFrame2PairOverflowBody`)
+// and the JVM cross-encoding gate in `wire_vocab_test.clj` greps each
+// function's literal source rows by name — collapsing them into one
+// generic helper would dissolve that per-schema attribution and weaken
+// the conformance contract.
 
 const path = require('node:path');
 const os = require('node:os');
