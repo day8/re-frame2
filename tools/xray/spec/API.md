@@ -699,13 +699,22 @@ half of MUST-inventory rows #2 / #15 / #17 / #19; callers pass plain
 `:include-sensitive?` / `:include-large?` opts, the fns translate to the
 framework's `:rf.size/*` namespaced opt keys.
 
+`egress-value` also takes an optional `:path` — the **absolute** app-db
+path the value sits at. The framework's schema-declared sensitive / large
+declarations are keyed by absolute path, so a slice egress'd in isolation
+(a `:path`-scoped `get-app-db` read, or one changed-path slice from
+`get-app-db-diff`) MUST tell the walker where the slice lives or the
+declaration won't match and the raw leaf would cross the boundary
+(rf2-a96xq). A whole-db read passes no `:path` (the value IS the walked
+root, `[]`).
+
 ### Inspection band (9 accessors — read-only)
 
 | Accessor (fn) | Tool name | Returns | Reads |
 |---|---|---|---|
 | `get-trace-buffer` | `get-trace-buffer` | `{:ok? true :events <vec> :count <n>}` | `trace-tooling/trace-buffer` — filtered slice of the trace stream. Filter keys are the canonical Spec 009 vocabulary (`:operation` / `:op-type` / `:since` / `:frame` / `:severity` / `:event-id` / `:handler-id` / `:source` / `:origin` / `:dispatch-id` / `:since-ms` / `:between` / `:pred`). |
 | `get-epoch-history` | `get-epoch-history` | `{:ok? true :frame <id> :epochs <vec> :count <n>}` | `rf/epoch-history` per-frame vector of `:rf/epoch-record`. |
-| `get-app-db` | `get-app-db` | `{:ok? true :frame <id> :path <vec> :value <edn>}` | `rf/app-db-value` (optionally scoped by `:path`). |
+| `get-app-db` | `get-app-db` | `{:ok? true :frame <id> :path <vec> :value <edn>}` | `rf/app-db-value` (optionally scoped by `:path`). The `:value` routes through `egress-value`; when `:path` is supplied the absolute path is threaded into the walker so a scoped slice elides against schema-declared sensitive / large paths — fail-closed, symmetric with the whole-db read and the `get-app-db-diff` slices (rf2-a96xq). |
 | `get-app-db-diff` | `get-app-db-diff` | `{:ok? true :frame <id> :epoch-id <uuid> :diff {:added [{:path :value}] :removed [{:path :value}] :changed [{:path :before :after}]}}` | Projects the changed-paths slice diff between a named epoch's `:db-before` + `:db-after` via the canonical Editscript-A* engine (`diff.engine/project`). Only the changed paths' slices egress — each `:value` / `:before` / `:after` routed through `egress-value`, never two whole app-db snapshots (rf2-uv2q2). Heavier nested-diff projection lives MCP-side. |
 | `get-machine-state` | `get-machine-state` | `{:ok? true :frame <id> :machine-id <kw> :state <edn>}` | `rf/machine-meta` for the registered machine spec. |
 | `get-machine-list` | `get-machine-list` | `{:ok? true :machines <map> :count <n>}` | `rf/machines` — map keyed by machine-id. |
