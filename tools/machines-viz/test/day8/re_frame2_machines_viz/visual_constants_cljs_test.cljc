@@ -64,8 +64,11 @@
     :state-label-px
     :edge-label-px
     :edge-label-backplate-opacity
-    :final-glyph-px
     :compound-title-px
+    ;; rf2-6d4y3 — :final-glyph-px removed: the final-state ✓ glyph was
+    ;; dropped (rf2-az6e2 — the quiet doubled border is the unambiguous
+    ;; final-state signal) and no renderer ever read the constant; it
+    ;; was carried only to satisfy this parity test.
     ;; rf2-ee38b.21 — :caption-strip-px / :caption-text-px removed:
     ;; no renderer ever read them (there is no caption strip in the
     ;; chart). They were carried only to satisfy this parity test.

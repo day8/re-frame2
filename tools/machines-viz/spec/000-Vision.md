@@ -694,8 +694,9 @@ implementation-state list.
   [`tools/xray/spec/003-Machine-Inspector.md`](../../xray/spec/003-Machine-Inspector.md)
   §What the panel shows + §`:spawn-all` viz + §Performance.
 - Source-coord chips on every clickable element (the host wires
-  the editor URL handler via `:on-state-click` /
-  `:on-transition-click`).
+  the editor URL handler via `:on-state-click`; transitions render
+  as event-nodes per rf2-qo5xy, so a clickable event-node label
+  fires `:on-edge-click` — there is no `:on-transition-click`).
 - Accessibility: SVG `<title>` / `<desc>` + machine summary text
   alternative. **Full chart alt-view defers to v1.1** (same
   posture Xray 003 §Accessibility takes — the transition-history

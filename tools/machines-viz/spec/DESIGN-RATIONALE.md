@@ -83,7 +83,11 @@ What surface does Machines-Viz ship at v1.0?
 
 **Locked 2026-05-13 (Mike, lifted from Xray 003).**
 **Props: `:machine-id`, `:frame-id`, `:on-state-click`,
-`:on-transition-click` (plus read-only flags).**
+`:on-edge-click` (plus read-only flags).** (The original lock named
+`:on-transition-click`; rf2-qo5xy's events-as-nodes paradigm retired
+it — transitions render as event-nodes and a clickable event-node
+label fires `:on-edge-click`. The names below are reconciled to the
+shipped contract.)
 
 ### Question
 
@@ -114,8 +118,8 @@ What does the host pass to `MachineChart` to render a chart?
 ```clojure
 [viz/MachineChart {:machine-id          :auth/login-flow
                    :frame-id            :app/main
-                   :on-state-click      (fn [state-id state-meta] ...)
-                   :on-transition-click (fn [from event-id to] ...)
+                   :on-state-click      (fn [path] ...)
+                   :on-edge-click       (fn [{:keys [event-id from-path to-path]}] ...)
                    :read-only?          false      ;; viewer page sets true
                    :show-microsteps?    true       ;; per-chart preference
                    :show-after-rings?   true
