@@ -679,6 +679,44 @@
           ":work's compound :flow reached final, its :on-done advanced the
            region to :work-done; :status stayed :idle"))))
 
+(deftest scxml-parallel-region-done-not-caught-by-sibling-unguarded-on
+  (testing "rf2-m3arq: a region-local done.state is region-SCOPED — a SIBLING
+            region's UNGUARDED `:on {:rf.machine/done …}` escape hatch must NOT
+            catch another region's done signal, even though the parent
+            internal-event queue re-broadcasts the raise across every region
+            (the correct XState v5 / SCXML `:raise` rule). XState v5 / SCXML
+            scope `done.state.<id>` to the region that raised it. Spec 005
+            §Final states §The done-state signal × §Parallel regions; the
+            arm-2 escape-hatch region scoping in `pick-done-transition`."
+    (let [m {:type :parallel :data {}
+             :regions
+             ;; :work owns a compound :flow that goes done on :finish. It uses
+             ;; the lower-level explicit `:on {:rf.machine/done …}` escape hatch
+             ;; (NOT `:on-done`) so the resolution exercises arm 2.
+             {:work {:initial :flow
+                     :on {:rf.machine/done :work-done}
+                     :states {:flow {:initial :step
+                                     :states {:step {:on {:finish :inner-done}}
+                                              :inner-done {:final? true}}}
+                              :work-done {}}}
+              ;; :other carries an UNGUARDED escape hatch on the SAME reserved
+              ;; event-id. Before rf2-m3arq the re-broadcast of :work's
+              ;; region-local done would be CAUGHT here, leaking :other →
+              ;; :hijacked. It must stay put: :work's done is not :other's done.
+              :other {:initial :idle
+                      :on {:rf.machine/done :hijacked}
+                      :states {:idle {} :hijacked {}}}}}
+          ;; :finish lands :work at [:flow :inner-done]; :flow is done →
+          ;; region-local [:rf.machine/done [:flow]] raise → re-broadcast across
+          ;; BOTH regions. :work catches its own done (region-owned) → :work-done.
+          ;; :other declines (the done-path is not on :other's active path).
+          r (step m {:state {:work [:flow :step] :other :idle} :data {}} [:finish])]
+      (is (= {:work :work-done :other :idle} (:state r))
+          ":work caught its own region-local done via its explicit `:on`
+           escape hatch → :work-done; :other's UNGUARDED `:on {:rf.machine/done}`
+           did NOT catch :work's done (no cross-region leak) → :other stayed
+           :idle"))))
+
 ;; ===========================================================================
 ;; §6. Eventless / :always microstep settle (transient transitions)
 ;;
