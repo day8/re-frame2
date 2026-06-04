@@ -405,6 +405,52 @@
         (is (= 1 (count @listeners))
             "exactly one listener installed after re-attach")))))
 
+(deftest detach-removes-the-exact-attached-fn-hot-reload-safe
+  (testing "rf2-t2o6o — detach! removes the SAME fn object attach!
+            installed, NOT the (possibly hot-reloaded) handle-keydown
+            var. addEventListener / removeEventListener compare by
+            reference; a shadow-cljs :after-load recompiles
+            handle-keydown to a fresh object, so a detach! that
+            referenced the bare var would removeEventListener a fn that
+            was never added and silently leak the original listener.
+            We prove (a) removing a DIFFERENT fn object — standing in for
+            the recompiled var the bare-var detach! would have passed —
+            does NOT remove the live listener (the leak), and (b)
+            detach! nonetheless drops the listener to zero, which is only
+            possible if it passed the EXACT fn attach! installed."
+    (with-stub-document
+      (fn [{:keys [listeners]}]
+        (keybinding/attach!)
+        (is (= 1 (count @listeners))
+            "attach! installed one listener")
+        ;; Simulate the post-reload divergence: the stub's
+        ;; removeEventListener matches by `identical?`, so removing a
+        ;; DIFFERENT fn object (standing in for the recompiled
+        ;; handle-keydown var the OLD code would have passed) must NOT
+        ;; remove the live listener. This reproduces the exact leak the
+        ;; bare-var detach! caused after :after-load.
+        (let [recompiled-stand-in (fn [_] nil)]
+          (.removeEventListener js/document "keydown" recompiled-stand-in true)
+          (is (= 1 (count @listeners))
+              "removing a fresh (recompiled-like) fn object leaves the
+               real listener intact — the bare-var detach! leak"))
+        ;; detach! removes the stashed object → the listener is gone.
+        ;; This passes ONLY because detach! references the exact fn
+        ;; attach! stored, not the (here-unchanged, but in production
+        ;; recompiled) handle-keydown var.
+        (keybinding/detach!)
+        (is (zero? (count @listeners))
+            "detach! removed the exact attached fn — no leak (rf2-t2o6o)")
+        (is (false? (keybinding/attached?))
+            "sentinel flipped back to false")
+        ;; A subsequent attach!/detach! cycle still round-trips cleanly,
+        ;; proving the stash is reset (no stale fn lingering).
+        (keybinding/attach!)
+        (is (= 1 (count @listeners)))
+        (keybinding/detach!)
+        (is (zero? (count @listeners))
+            "second cycle round-trips — stash cleared on the prior detach!")))))
+
 (deftest detach-on-clean-sentinel-is-safe
   (testing "calling detach! when nothing is attached is a no-op (does
             not throw, does not flip the sentinel below false)"

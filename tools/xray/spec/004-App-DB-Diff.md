@@ -91,8 +91,21 @@ derives a changed-paths set via the canonical Editscript-A* engine
 
 The framework's `:rf/epoch-record` does **not** pre-compute changed
 paths (the runtime stays cheap); Xray runs the diff on the panel's
-first mount per epoch, caches per `:epoch-id`, and discards on epoch
-age-out.
+first mount per epoch, caches per `[frame-id epoch-id]`, and discards
+on epoch age-out.
+
+> **rf2-nfgps — frame-scoped cache key.** The per-epoch caches key on
+> the COMPOUND `[frame-id epoch-id]`, never `:epoch-id` alone. The
+> framework's epoch contract guarantees `:epoch-id` is unique only
+> WITHIN a frame's history (the global-counter scheme that makes ids
+> incidentally process-unique today is an implementation detail, not a
+> spec promise). In a multi-frame app two frames can carry the same
+> `:epoch-id`; an id-only key would let one frame read another frame's
+> cached diff, and a frame-switch prune would evict a sibling frame's
+> live entries. Compounding `frame-id` keeps each frame's cache
+> isolated (no read-bleed, no cross-frame eviction), and the prune ages
+> out only the observed frame's stale keys — upholding the
+> frame-isolation invariant (frames are isolated contexts).
 
 > **rf2-xuyac migration** (2026-05-27): the App-DB panel + Epoch
 > HANDLER `:db` `:diff` lenses previously routed through the
@@ -560,8 +573,9 @@ faster than re-reading the source.
 
 ## Performance
 
-- **Diff caching** per `:epoch-id`. A second render of the same epoch
-  is O(1).
+- **Diff caching** per `[frame-id epoch-id]` (rf2-nfgps — frame-scoped
+  so two frames with overlapping epoch-ids never collide; see §Diff
+  engine). A second render of the same epoch is O(1).
 - **Slice virtualisation** for slices whose `after` value is large
   (e.g., a 10k-entry vector). The slice mini-panel renders the head
   and tail, with a `… 9970 entries …` ellipsis; click expands.

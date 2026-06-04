@@ -364,9 +364,12 @@
           @(rf/subscribe [:rf.xray/selected-epoch-diff]))
         (is (= 4 (count @app-db-diff-subs/diff-cache))
             "after warming all four selections, cache holds four entries")
-        (is (= #{:e-1 :e-2 :e-3 :e-4}
+        ;; rf2-nfgps — keys are the COMPOUND [frame-id epoch-id]; the
+        ;; observed frame here is the default :rf/default.
+        (is (= #{[:rf/default :e-1] [:rf/default :e-2]
+                 [:rf/default :e-3] [:rf/default :e-4]}
                (set (keys @app-db-diff-subs/diff-cache)))
-            "cache keys match the live history's epoch-ids exactly"))
+            "cache keys match the live history's [frame-id epoch-id] exactly"))
       ;; Rotate to a 2-epoch history; :e-1/:e-2 age out.
       (let [hist-b [(mk-record :e-5 [:e] {:n 4} {:n 5})
                     (mk-record :e-6 [:f] {:n 5} {:n 6})]]
@@ -377,15 +380,17 @@
           @(rf/subscribe [:rf.xray/selected-epoch-diff])
           (is (<= (count @app-db-diff-subs/diff-cache) 2)
               "after rotation + one read, cache size ≤ live history depth")
-          (is (not (contains? @app-db-diff-subs/diff-cache :e-1))
+          ;; rf2-nfgps — keys are [frame-id epoch-id]; observed frame is
+          ;; :rf/default throughout this single-frame scenario.
+          (is (not (contains? @app-db-diff-subs/diff-cache [:rf/default :e-1]))
               ":e-1 (aged out) is no longer in the cache")
-          (is (not (contains? @app-db-diff-subs/diff-cache :e-2))
+          (is (not (contains? @app-db-diff-subs/diff-cache [:rf/default :e-2]))
               ":e-2 (aged out) is no longer in the cache")
-          (is (not (contains? @app-db-diff-subs/diff-cache :e-3))
+          (is (not (contains? @app-db-diff-subs/diff-cache [:rf/default :e-3]))
               ":e-3 (aged out) is no longer in the cache")
-          (is (not (contains? @app-db-diff-subs/diff-cache :e-4))
+          (is (not (contains? @app-db-diff-subs/diff-cache [:rf/default :e-4]))
               ":e-4 (aged out) is no longer in the cache")
-          (is (contains? @app-db-diff-subs/diff-cache :e-6)
+          (is (contains? @app-db-diff-subs/diff-cache [:rf/default :e-6])
               ":e-6 (just read) is in the cache"))))))
 
 (deftest selected-epoch-diff-cache-distinguishes-distinct-epochs

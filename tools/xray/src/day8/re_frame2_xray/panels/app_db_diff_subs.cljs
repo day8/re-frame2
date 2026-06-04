@@ -46,29 +46,82 @@
     (some (fn [r] (when (= epoch-id (:epoch-id r)) r))
           history)))
 
+;; ---- rf2-nfgps — frame-scoped cache keying --------------------------------
+;;
+;; The three per-epoch caches below are keyed by `[frame-id epoch-id]`,
+;; NOT by `:epoch-id` alone. The framework's epoch contract
+;; (`re-frame.epoch/:epoch-id`) guarantees epoch-ids are unique only
+;; WITHIN a frame's history — the global-counter scheme that makes them
+;; incidentally process-unique today is an implementation detail the
+;; spec does not promise. A future per-frame-reset or per-frame-UUID
+;; scheme would let frame A's epoch 5 collide with frame B's epoch 5 in
+;; these global atoms (one frame reading the other's cached diff during
+;; the window before the per-frame prune runs), and a frame-switch prune
+;; keyed on `:epoch-id` alone would evict the other frame's live entries.
+;; Compounding `frame-id` into the key keeps every frame's cache
+;; isolated — no cross-frame read-bleed, no cross-frame eviction —
+;; upholding the frame-isolation invariant (frames are isolated
+;; contexts). The prune (`prune-cache` below) ages out only THIS frame's
+;; stale `[frame-id epoch-id]` entries while leaving every OTHER frame's
+;; entries untouched — a frame switch must never evict a sibling frame's
+;; live cache (the cross-frame-eviction half of the rf2-nfgps bug).
+(defn- cache-key
+  "Compound cache key `[frame-id epoch-id]` for the per-epoch caches.
+  Frame-scoping is what keeps two frames with overlapping epoch-ids from
+  colliding in the process-global cache atoms (rf2-nfgps)."
+  [frame-id epoch-id]
+  [frame-id epoch-id])
+
+(defn- live-cache-keys
+  "The set of `[frame-id epoch-id]` keys still live in the OBSERVED
+  frame's history — the live keyspace for that frame. Computed against
+  the observed frame's own ring (rf2-nfgps)."
+  [frame-id history]
+  (into #{} (map (fn [r] (cache-key frame-id (:epoch-id r)))) history))
+
+(defn- prune-cache
+  "Return `cache` with stale entries of the OBSERVED `frame-id` aged out,
+  every other frame's entries preserved, and `[frame-id epoch-id]`
+  associated to `value` (rf2-nfgps). An entry survives iff it belongs to
+  a DIFFERENT frame (cross-frame isolation — never evict a sibling
+  frame's cache on a frame switch) OR is still live in THIS frame's
+  history (the `live` set). The freshly computed entry is always kept."
+  [cache frame-id history k value]
+  (let [live (live-cache-keys frame-id history)
+        kept (reduce-kv
+               (fn [m [kf _ke :as ck] v]
+                 (if (or (not= kf frame-id) (contains? live ck))
+                   (assoc m ck v)
+                   m))
+               {}
+               cache)]
+    (assoc kept k value)))
+
 (defonce diff-cache
-  ;; Per-`:epoch-id` cache for the diff triples computed by the
-  ;; `:rf.xray/selected-epoch-diff` sub. Tests reset this atom
-  ;; between cases; production callers should only write via the sub.
+  ;; Per-`[frame-id epoch-id]` cache for the diff triples computed by the
+  ;; `:rf.xray/selected-epoch-diff` sub (frame-scoped per rf2-nfgps —
+  ;; see the keying note above). Tests reset this atom between cases;
+  ;; production callers should only write via the sub.
   (atom {}))
 
 (defonce redacted-modified-cache
-  ;; Per-`:epoch-id` cache for the redacted-paths-modified count
-  ;; computed by `:rf.xray/selected-epoch-redacted-modified-count`
-  ;; (rf2-bz1cl). Same caching contract as `diff-cache` above — the
-  ;; walk is bounded by `count-redacted-modified-paths`' structural-
-  ;; sharing short-circuit but cascades replay the same db-before /
-  ;; db-after pair across the inspector's life, so caching the
-  ;; final integer is still cheap insurance. Tests reset this atom
-  ;; between cases.
+  ;; Per-`[frame-id epoch-id]` cache for the redacted-paths-modified
+  ;; count computed by `:rf.xray/selected-epoch-redacted-modified-count`
+  ;; (rf2-bz1cl; frame-scoped per rf2-nfgps). Same caching contract as
+  ;; `diff-cache` above — the walk is bounded by
+  ;; `count-redacted-modified-paths`' structural-sharing short-circuit
+  ;; but cascades replay the same db-before / db-after pair across the
+  ;; inspector's life, so caching the final integer is still cheap
+  ;; insurance. Tests reset this atom between cases.
   (atom {}))
 
 (defonce flow-writes-cache
-  ;; Per-`:epoch-id` cache for the flow-writes projection computed by
-  ;; `:rf.xray/selected-epoch-flow-writes` (rf2-s8r6c). Mirrors
-  ;; `diff-cache`'s contract — the walk over `:trace-events` is O(N)
-  ;; in trace count, and cascades replay the same record across the
-  ;; inspector's life. Tests reset this atom between cases.
+  ;; Per-`[frame-id epoch-id]` cache for the flow-writes projection
+  ;; computed by `:rf.xray/selected-epoch-flow-writes` (rf2-s8r6c;
+  ;; frame-scoped per rf2-nfgps). Mirrors `diff-cache`'s contract — the
+  ;; walk over `:trace-events` is O(N) in trace count, and cascades
+  ;; replay the same record across the inspector's life. Tests reset
+  ;; this atom between cases.
   (atom {}))
 
 (defn install!
@@ -145,13 +198,17 @@
   (rf/reg-sub :rf.xray/selected-epoch-diff
     :<- [:rf.xray/epoch-history]
     :<- [:rf.xray/focus-epoch-id]
-    (fn [[history selected-id] _query]
+    :<- [:rf.xray/observed-frame]
+    (fn [[history selected-id frame-id] _query]
       (let [record (or (when selected-id
                          (find-epoch-in-history history selected-id))
                        (peek history))]
         (when record
           (let [epoch-id (:epoch-id record)
-                cached   (get @diff-cache epoch-id ::miss)]
+                ;; rf2-nfgps — frame-scoped key so two frames whose
+                ;; epoch-ids overlap can never read each other's diff.
+                k        (cache-key frame-id epoch-id)
+                cached   (get @diff-cache k ::miss)]
             (if (not= ::miss cached)
               cached
               (let [proj (diff-engine/project (:db-before record)
@@ -162,13 +219,10 @@
                     ;; epochs read with per-key granularity at every
                     ;; lens (`:diff`, `:full-with-diff`, container
                     ;; ops). No post-processor needed here.
-                    diff (flat-rows->triples (:flat-rows proj))
-                    live (into #{} (map :epoch-id) history)]
-                (swap! diff-cache
-                       (fn [m]
-                         (-> m
-                             (select-keys live)
-                             (assoc epoch-id diff))))
+                    diff (flat-rows->triples (:flat-rows proj))]
+                ;; rf2-nfgps — prune only THIS frame's stale keys; every
+                ;; other frame's cache survives the swap.
+                (swap! diff-cache prune-cache frame-id history k diff)
                 diff)))))))
 
   ;; ---- rf2-bz1cl / rf2-dl3gx — redacted-paths-modified count ----------
@@ -214,13 +268,16 @@
   (rf/reg-sub :rf.xray/selected-epoch-redacted-modified-count
     :<- [:rf.xray/epoch-history]
     :<- [:rf.xray/focus-epoch-id]
-    (fn [[history selected-id] _query]
+    :<- [:rf.xray/observed-frame]
+    (fn [[history selected-id frame-id] _query]
       (let [record (or (when selected-id
                          (find-epoch-in-history history selected-id))
                        (peek history))]
         (if record
           (let [epoch-id (:epoch-id record)
-                cached   (get @redacted-modified-cache epoch-id ::miss)]
+                ;; rf2-nfgps — frame-scoped key (see the keying note above).
+                k        (cache-key frame-id epoch-id)
+                cached   (get @redacted-modified-cache k ::miss)]
             (if (not= ::miss cached)
               cached
               ;; Egress slot wins when present — exact count from the
@@ -231,13 +288,8 @@
                              egress
                              (h/count-redacted-modified-paths
                                (:db-before record)
-                               (:db-after  record)))
-                    live   (into #{} (map :epoch-id) history)]
-                (swap! redacted-modified-cache
-                       (fn [m]
-                         (-> m
-                             (select-keys live)
-                             (assoc epoch-id n))))
+                               (:db-after  record)))]
+                (swap! redacted-modified-cache prune-cache frame-id history k n)
                 n)))
           0))))
 
@@ -255,23 +307,21 @@
   (rf/reg-sub :rf.xray/selected-epoch-flow-writes
     :<- [:rf.xray/epoch-history]
     :<- [:rf.xray/focus-epoch-id]
-    (fn [[history selected-id] _query]
+    :<- [:rf.xray/observed-frame]
+    (fn [[history selected-id frame-id] _query]
       (let [record (or (when selected-id
                          (find-epoch-in-history history selected-id))
                        (peek history))]
         (when record
           (let [epoch-id (:epoch-id record)
-                cached   (get @flow-writes-cache epoch-id ::miss)]
+                ;; rf2-nfgps — frame-scoped key (see the keying note above).
+                k        (cache-key frame-id epoch-id)
+                cached   (get @flow-writes-cache k ::miss)]
             (if (not= ::miss cached)
               cached
               (let [writes (h/flow-writes-from-trace-events
-                             (:trace-events record))
-                    live   (into #{} (map :epoch-id) history)]
-                (swap! flow-writes-cache
-                       (fn [m]
-                         (-> m
-                             (select-keys live)
-                             (assoc epoch-id writes))))
+                             (:trace-events record))]
+                (swap! flow-writes-cache prune-cache frame-id history k writes)
                 writes)))))))
 
   (rf/reg-sub :rf.xray/focused-slice-path

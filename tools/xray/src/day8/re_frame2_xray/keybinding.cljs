@@ -9,6 +9,19 @@
   twice per key press. We hold the attached fn under a `defonce`
   sentinel and skip re-attach when the sentinel is already set.
 
+  ## Hot-reload-safe detach (rf2-t2o6o)
+
+  `add`/`removeEventListener` compare listeners by reference, and
+  `handle-keydown` is a `defn` — shadow-cljs `:after-load` recompiles
+  it to a fresh fn object. So `attach!` stashes the EXACT fn it hands
+  to `addEventListener` under a `defonce` atom (`attached-fn`), and
+  `detach!` removes that stored reference. Without the stash, a
+  `detach!` referencing the bare `handle-keydown` var after a reload
+  would `removeEventListener` a fn that was never added — silently
+  leaking the original listener (the embed-host detach-after-reload
+  hazard rf2-4eyik / rf2-q7who set out to close). Mirrors the
+  `mount.cljs` unmount-fn stash.
+
   ## OS conventions
 
   Ctrl+Shift+C is the agreed shortcut on every host OS. macOS users
@@ -65,6 +78,27 @@
   ;; predicate can keep the user-facing `attached?` name without
   ;; shadowing.
   (atom false))
+
+(defonce ^:private attached-fn
+  ;; rf2-t2o6o — the EXACT fn object handed to `addEventListener`, stashed
+  ;; under a `defonce` atom so `detach!` removes the same reference that
+  ;; `attach!` added.
+  ;;
+  ;; `add`/`removeEventListener` compare listeners by reference.
+  ;; `handle-keydown` is a `defn`, so shadow-cljs `:after-load`
+  ;; recompiles it to a NEW fn object. The `defonce attached-state`
+  ;; sentinel correctly keeps `attach!` a no-op across reloads (the
+  ;; ORIGINAL closure stays bound — no double-attach), but a `detach!`
+  ;; that referenced the bare `handle-keydown` var would pass the
+  ;; freshly-recompiled object — never the one actually attached — so
+  ;; `removeEventListener` would silently match nothing and leak the
+  ;; original listener (the embed-host detach-after-reload hazard).
+  ;;
+  ;; Stashing the attached fn here (mirroring mount.cljs's unmount-fn
+  ;; stash) makes attach/detach reference-stable across reloads: detach
+  ;; always removes precisely what attach installed. nil when nothing is
+  ;; attached.
+  (atom nil))
 
 (defn- ctrl-shift-key?
   "True when `event` is a Ctrl+Shift keydown (no Meta, no Alt) whose
@@ -165,8 +199,10 @@
       (or (= tag "INPUT")
           (= tag "TEXTAREA")
           (= tag "SELECT")
-          (and (.-isContentEditable target)
-               (boolean (.-isContentEditable target)))))))
+          ;; rf2-t2o6o tidy — the prior `(and (.-isContentEditable t)
+          ;; (boolean (.-isContentEditable t)))` double-read was dead;
+          ;; one coerced read carries the same truth value.
+          (boolean (.-isContentEditable target))))))
 
 (defn- target-inside-modal?
   "True when `event.target` is a DOM node inside one of Xray's modal
@@ -295,7 +331,12 @@
   (when (and (exists? js/document)
              (config/keybinding-attach-enabled?)
              (compare-and-set! attached-state false true))
-    (.addEventListener js/document "keydown" handle-keydown true))
+    ;; rf2-t2o6o — capture the EXACT fn we hand to addEventListener so
+    ;; detach! can remove this same object even after a hot reload
+    ;; rebinds the `handle-keydown` var to a fresh fn.
+    (let [f handle-keydown]
+      (reset! attached-fn f)
+      (.addEventListener js/document "keydown" f true)))
   nil)
 
 (defn detach!
@@ -315,7 +356,14 @@
   []
   (when (and (exists? js/document)
              (compare-and-set! attached-state true false))
-    (.removeEventListener js/document "keydown" handle-keydown true))
+    ;; rf2-t2o6o — remove the EXACT fn attach! stored, not the (possibly
+    ;; hot-reloaded) `handle-keydown` var. Falling back to the var keeps
+    ;; the call safe if the stash is somehow empty while the sentinel is
+    ;; true (defensive; the CAS above guarantees we only reach here when
+    ;; attach! ran and set the stash).
+    (let [f (or @attached-fn handle-keydown)]
+      (.removeEventListener js/document "keydown" f true)
+      (reset! attached-fn nil)))
   nil)
 
 (defn attached?
