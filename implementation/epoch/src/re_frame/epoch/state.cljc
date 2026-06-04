@@ -555,9 +555,11 @@
 (defn- back-fill-event!
   "Append `event` and its projected `row` (into the `slot` projection)
   on the already-committed epoch record identified by `frame-id` +
-  `epoch-id`. Returns the updated record (so the caller can re-notify
-  listeners), or nil when the target epoch is no longer in the ring
-  (evicted, or the event fired before any cascade settled).
+  `epoch-id`, then run the appended record through `redact` and write
+  THAT back to the ring. Returns the redacted updated record (so the
+  caller re-notifies listeners with the same shape the ring now holds),
+  or nil when the target epoch is no longer in the ring (evicted, or the
+  event fired before any cascade settled).
 
   `row` is the structured projection entry, or nil — a render op that
   carries no `:renders` row (`:rf.view/rendered`) or a `:sub/skip` that
@@ -575,40 +577,69 @@
       (Xray Views / Reactive panel) — is always present on a built
       record; the projected row is appended when non-nil.
 
+  REDACTION (rf2-82pcg). `redact` is the installed redaction transform
+  (`assembly/maybe-redact`, injected by the caller so this state ns keeps
+  no `assembly` require — `assembly` already requires this ns). It runs
+  INSIDE the swap, AFTER the raw append, so the redacted record is what
+  lands in the ring AND what is returned for the listener re-fan — the
+  same `:redact-fn`-once-between-build-and-fan-out invariant the settle-
+  time primary path holds (Tool-Pair §Time-travel §Redaction hook,
+  Security.md §Epoch privacy posture). Pre-fix the raw appended slots
+  reached both egress channels (ring-read: `epoch-history` / MCP
+  `read-recording` / `restore-epoch`; and the listener fan-out) bypassing
+  the `:redact-fn`. `redact` defaults to `identity` for callers / tests
+  that need the bare raw append. The fn is idempotent for the
+  `:rf/redacted` sentinel pattern, so re-applying it to the record's
+  already-settle-redacted slots is a no-op while the newly-appended slots
+  get scrubbed.
+
   The `swap!` update fn is PURE — it mutates only the history map and
   smuggles nothing out (the prior shape `reset!`'d a local out-param atom
   from inside the swap fn, a side-effecting-swap-fn that is unsound under
-  CAS retry). The record index is resolved once up-front (within-frame
-  drain is single-threaded — Spec 002 §Run-to-completion — so no append
-  can shift it between this deref and the swap), reused by both the pure
-  swap and the post-swap read. nil when the epoch is absent from the ring
-  (evicted, or fired before any cascade settled)."
-  [frame-id epoch-id slot event row]
-  (let [idx (epoch-index (history-for frame-id) epoch-id)]
-    (when idx
-      (let [append (fn [record]
-                     (cond-> record
-                       (contains? record :trace-events)
-                       (update :trace-events (fnil conj []) event)
-                       (some? row)
-                       (update slot (fnil conj []) row)))]
-        (-> (swap! histories update-in [frame-id idx] append)
-            (get-in [frame-id idx]))))))
+  CAS retry). `redact` is the only injected fn it calls; `maybe-redact`
+  is itself pure (record-in, record-out; a throwing `:redact-fn` is
+  caught there and falls back to the unredacted record), so the swap fn
+  stays retry-safe. The record index is resolved once up-front (within-
+  frame drain is single-threaded — Spec 002 §Run-to-completion — so no
+  append can shift it between this deref and the swap), reused by both the
+  pure swap and the post-swap read. nil when the epoch is absent from the
+  ring (evicted, or fired before any cascade settled)."
+  ([frame-id epoch-id slot event row]
+   (back-fill-event! frame-id epoch-id slot event row identity))
+  ([frame-id epoch-id slot event row redact]
+   (let [idx (epoch-index (history-for frame-id) epoch-id)]
+     (when idx
+       (let [append (fn [record]
+                      (-> (cond-> record
+                            (contains? record :trace-events)
+                            (update :trace-events (fnil conj []) event)
+                            (some? row)
+                            (update slot (fnil conj []) row))
+                          redact))]
+         (-> (swap! histories update-in [frame-id idx] append)
+             (get-in [frame-id idx])))))))
 
 (defn back-fill-render!
   "Back-fill `render-event` and its projected `:renders` `render-row`
   into the already-committed epoch `epoch-id` for `frame-id` (rf2-qs6dl).
-  Thin wrapper over `back-fill-event!` pinning the `:renders` slot."
-  [frame-id epoch-id render-event render-row]
-  (back-fill-event! frame-id epoch-id :renders render-event render-row))
+  Thin wrapper over `back-fill-event!` pinning the `:renders` slot.
+  `redact` (rf2-82pcg) is run over the appended record before it lands in
+  the ring / is returned for the listener re-fan; defaults to `identity`."
+  ([frame-id epoch-id render-event render-row]
+   (back-fill-render! frame-id epoch-id render-event render-row identity))
+  ([frame-id epoch-id render-event render-row redact]
+   (back-fill-event! frame-id epoch-id :renders render-event render-row redact)))
 
 (defn back-fill-sub-run!
   "Back-fill `sub-event` and its projected `:sub-runs` `sub-run-row` into
   the already-committed epoch `epoch-id` for `frame-id` (rf2-wi900). Thin
   wrapper over `back-fill-event!` pinning the `:sub-runs` slot. Symmetric
-  with `back-fill-render!`."
-  [frame-id epoch-id sub-event sub-run-row]
-  (back-fill-event! frame-id epoch-id :sub-runs sub-event sub-run-row))
+  with `back-fill-render!`. `redact` (rf2-82pcg) is run over the appended
+  record before it lands in the ring / is returned; defaults to `identity`."
+  ([frame-id epoch-id sub-event sub-run-row]
+   (back-fill-sub-run! frame-id epoch-id sub-event sub-run-row identity))
+  ([frame-id epoch-id sub-event sub-run-row redact]
+   (back-fill-event! frame-id epoch-id :sub-runs sub-event sub-run-row redact)))
 
 (defn back-fill-unmount!
   "Back-fill a `:rf.view/unmounted` `unmount-event` into the already-
@@ -619,9 +650,13 @@
   VIEWS-step `unmounted-views-rows` reads view teardowns. The `:slot`
   argument is irrelevant when `row` is nil; `:renders` is passed for
   documentary parity with the render sibling. Symmetric with
-  `back-fill-render!` / `back-fill-sub-run!`."
-  [frame-id epoch-id unmount-event]
-  (back-fill-event! frame-id epoch-id :renders unmount-event nil))
+  `back-fill-render!` / `back-fill-sub-run!`. `redact` (rf2-82pcg) is run
+  over the appended record before it lands in the ring / is returned;
+  defaults to `identity`."
+  ([frame-id epoch-id unmount-event]
+   (back-fill-unmount! frame-id epoch-id unmount-event identity))
+  ([frame-id epoch-id unmount-event redact]
+   (back-fill-event! frame-id epoch-id :renders unmount-event nil redact)))
 
 ;; ---- per-cascade capture buffer -------------------------------------------
 ;;

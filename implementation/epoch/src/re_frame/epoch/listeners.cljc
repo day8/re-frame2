@@ -129,8 +129,21 @@
                        (not= target default-epoch)
                        (state/render-key-already-in-epoch?
                          frame-id target render-key))
-          (when-let [updated (state/back-fill-render! frame-id target
-                                                      event (capture/render-row event))]
+          ;; rf2-82pcg — pass `assembly/maybe-redact` so `back-fill-render!`
+          ;; re-runs the installed `:redact-fn` over the record AFTER it
+          ;; appends the RAW render event into `:trace-events` + the RAW
+          ;; projected row into `:renders`. The redacted record is what
+          ;; lands in the ring AND what we re-fan to listeners — so both
+          ;; the pull egress (`epoch-history` / MCP `read-recording` /
+          ;; `restore-epoch`) and the push egress (this fan-out) see the
+          ;; same redacted shape the settle-time primary path produces.
+          ;; Without it the appended slots reach egress bypassing the
+          ;; `:redact-fn` (the leak). The fn is idempotent for the
+          ;; `:rf/redacted` sentinel pattern, so re-applying it to the
+          ;; already-settle-redacted slots is a no-op.
+          (when-let [updated (state/back-fill-render! frame-id target event
+                                                      (capture/render-row event)
+                                                      assembly/maybe-redact)]
             ;; Re-fan the corrected record so snapshot consumers re-read
             ;; the ring. The fan-out is failure-isolated per listener
             ;; (same contract as the settle-time fan-out); a render-driven
@@ -159,8 +172,13 @@
   [frame-id event]
   (when interop/debug-enabled?
     (when-let [epoch-id (state/last-settled-epoch-id frame-id)]
-      (when-let [updated (state/back-fill-sub-run! frame-id epoch-id
-                                                   event (capture/sub-run-row event))]
+      ;; rf2-82pcg — pass `assembly/maybe-redact` so the RAW sub-event
+      ;; appended to `:trace-events` + the RAW `:sub-runs` row are run
+      ;; through the installed `:redact-fn` before they land in the ring
+      ;; / re-fan to listeners (see `record-render!`).
+      (when-let [updated (state/back-fill-sub-run! frame-id epoch-id event
+                                                   (capture/sub-run-row event)
+                                                   assembly/maybe-redact)]
         ;; Re-fan the corrected record so snapshot consumers re-read the
         ;; ring. Same failure-isolated fan-out + no-loop contract as the
         ;; render back-fill above.
@@ -213,7 +231,14 @@
   [frame-id event]
   (when interop/debug-enabled?
     (when-let [epoch-id (state/last-settled-epoch-id frame-id)]
-      (when-let [updated (state/back-fill-unmount! frame-id epoch-id event)]
+      ;; rf2-82pcg — pass `assembly/maybe-redact` so the RAW unmount event
+      ;; appended to `:trace-events` is run through the installed
+      ;; `:redact-fn` before it lands in the ring / re-fans to listeners
+      ;; (see `record-render!`). An unmount carries no structured projection
+      ;; row, so only `:trace-events` is back-filled — but that slot is
+      ;; still egress (Xray's VIEWS-step `unmounted-views-rows` reads it).
+      (when-let [updated (state/back-fill-unmount! frame-id epoch-id event
+                                                   assembly/maybe-redact)]
         ;; Re-fan the corrected record so snapshot consumers re-read the
         ;; ring. Same failure-isolated fan-out + no-loop contract as the
         ;; render / sub-run back-fill above.

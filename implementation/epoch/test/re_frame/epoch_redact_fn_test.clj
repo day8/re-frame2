@@ -507,3 +507,259 @@
     (rf/dispatch-sync [:seed] {:frame :test/main})
     (let [r (last-record :test/main)]
       (is (= {:n 0} (:db-after r))))))
+
+;; ============================================================================
+;;  Invariant 6 — post-settle back-fill re-notify honours :redact-fn (rf2-82pcg)
+;; ============================================================================
+;;
+;; THE LEAK (rf2-82pcg). The settle-time primary path runs `maybe-redact`
+;; ONCE between `build-record` and ring-append / listener fan-out, so the
+;; ring + every listener see the SAME redacted shape (invariant 2 above).
+;; But a post-settle render / sub-run / unmount (React commit / deref /
+;; teardown time, AFTER settle already committed + redacted the epoch) is
+;; back-filled into the already-committed record — `back-fill-*!` appended
+;; the RAW trace event into `:trace-events` + the RAW projected row into
+;; `:renders` / `:sub-runs`, then re-notified listeners — pre-fix WITHOUT
+;; re-running the installed `:redact-fn`. So a value an app scrubs via
+;; `:redact-fn` (but does NOT declare via schema marks — marks-declared
+;; data is redacted UPSTREAM at trace build time) reappeared, unredacted,
+;; in the back-filled slots on BOTH egress channels: the listener re-fan
+;; (push) AND the ring read (`epoch-history` / MCP `read-recording` /
+;; `restore-epoch` — pull).
+;;
+;; THE FIX runs `maybe-redact` over the back-filled record before it lands
+;; in the ring / re-fans to listeners, restoring the settle-time invariant
+;; for the post-settle async classes. These tests pin: (a) a sensitive
+;; value in a back-filled trace-event / sub-run row is REDACTED in the
+;; re-notified record AND in the ring; (b) a non-sensitive value passes
+;; through unchanged (no over-redaction regression — the redact-fn is the
+;; AI/MCP-egress boundary; this fix must close the leak without scrubbing
+;; benign data).
+;;
+;; POST-SETTLE-EMIT TECHNIQUE (mirrors epoch_attribution_test): emit the
+;; trace the substrate's way — op carrying its `:frame` tag, fired OUTSIDE
+;; any cascade (empty in-flight buffer, no `*handler-scope*`) — so the
+;; runtime's back-fill (`record-render!` / `record-sub-run!` /
+;; `record-unmount!`) routes it into the causing cascade's committed record.
+
+(defn- emit-render! [frame-id view-id]
+  (trace/emit! :rf.view :rf.view/rendered
+               {:rf.view/render-key [view-id 0]
+                :frame              frame-id}))
+
+(defn- emit-sub-run! [frame-id sub-id prev-value value]
+  (trace/emit! :rf.sub :rf.sub/run
+               {:rf.sub/id             sub-id
+                :rf.sub/query-v        [sub-id]
+                :frame                 frame-id
+                :rf.sub/value-changed? (not= prev-value value)
+                :rf.sub/prev-value     prev-value
+                :rf.sub/value          value
+                :rf.sub/cascade?       false
+                :rf.sub/cause-sub      nil}))
+
+(defn- emit-unmount! [frame-id view-id]
+  (trace/emit! :rf.view :rf.view/unmounted
+               {:rf.view/id         view-id
+                :rf.view/render-key [view-id 0]
+                :frame              frame-id}))
+
+;; A redact-fn that scrubs a value the app deems sensitive ANYWHERE it
+;; appears in a back-filled slot — the trace-event tags and the sub-run
+;; row both carry the value into the record post-back-fill. This models a
+;; redact-fn-only redaction (NOT schema-mark-declared), which is exactly
+;; the narrow class the leak bit. It walks `:trace-events` (scrubbing the
+;; sentinel tag on each event) and the `:sub-runs` rows (scrubbing the
+;; `:rf.sub/value` slot), and is idempotent: re-applying it to an
+;; already-scrubbed record is a no-op (the marker is already `:rf/redacted`).
+(def ^:private secret "topsecret-not-schema-declared")
+
+(defn- scrub-secret [v]
+  (if (= v secret) :rf/redacted v))
+
+(defn- redact-back-filled-secrets [r]
+  (cond-> r
+    ;; `:trace-events` entries carry the supplied tags under `:tags`
+    ;; (per `re-frame.trace/emit!` envelope assembly). Scrub the two
+    ;; tag slots the post-settle emits route the secret through: the
+    ;; render/unmount `:rf.view/secret` tag and the sub-run
+    ;; `:rf.sub/value` tag.
+    (vector? (:trace-events r))
+    (update :trace-events
+            (fn [evs]
+              (mapv (fn [ev]
+                      (cond-> ev
+                        (contains? (:tags ev) :rf.view/secret)
+                        (update-in [:tags :rf.view/secret] scrub-secret)
+                        (contains? (:tags ev) :rf.sub/value)
+                        (update-in [:tags :rf.sub/value] scrub-secret)))
+                    evs)))
+    ;; The structured `:sub-runs` projection row carries the value at
+    ;; top-level `:value` (per `capture/sub-run-row`).
+    (vector? (:sub-runs r))
+    (update :sub-runs
+            (fn [rows]
+              (mapv #(update % :value scrub-secret) rows)))))
+
+(deftest inv-6-back-fill-sub-run-redacts-appended-value
+  (testing "rf2-82pcg — a post-settle SUB-RUN back-fill carrying a
+            redact-fn-only sensitive value in its appended :sub-runs row is
+            REDACTED in BOTH the re-notified listener record AND the ring
+            (epoch-history / MCP / restore-epoch egress). Pre-fix the raw
+            value leaked on both channels."
+    (rf/reg-frame :test/main {})
+    (rf/configure! :epoch-history {:redact-fn redact-back-filled-secrets})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+
+    (let [seen (atom [])]
+      (rf/register-epoch-listener! ::watch (fn [r] (swap! seen conj r)))
+      (rf/dispatch-sync [:seed] {:frame :test/main})
+      (rf/dispatch-sync [:inc]  {:frame :test/main})
+      (let [settle-fanouts (count @seen)]
+        ;; Post-settle reactive recompute: the :secret sub's value is the
+        ;; app's sensitive payload (NOT a schema-declared mark).
+        (emit-sub-run! :test/main :secret nil secret)
+        (is (= (inc settle-fanouts) (count @seen))
+            "the back-fill re-notified exactly once")
+        (let [renotified  (last @seen)
+              sub-run      (->> (:sub-runs renotified)
+                                (filter #(= :secret (:sub-id %))) first)
+              raw-in-trace (some #(= secret (get-in % [:tags :rf.sub/value]))
+                                 (:trace-events renotified))]
+          ;; PUSH egress (listener re-fan) is redacted.
+          (is (some? sub-run) "the back-filled :secret sub-run is present")
+          (is (= :rf/redacted (:value sub-run))
+              "the re-notified :sub-runs row's value is REDACTED, not the
+               raw secret — the leak is closed on the push channel")
+          (is (not raw-in-trace)
+              "the raw secret does not survive in the re-notified
+               :trace-events either")
+          ;; PULL egress (ring read) is the SAME redacted shape.
+          (let [ring (last-record :test/main)]
+            (is (= renotified ring)
+                "ring and listener hold the SAME redacted shape — the
+                 settle-time invariant is restored for the back-fill path")
+            (is (= :rf/redacted
+                   (:value (->> (:sub-runs ring)
+                                (filter #(= :secret (:sub-id %))) first)))
+                "the ring's back-filled :sub-runs row is REDACTED — no leak
+                 on the epoch-history / MCP / restore-epoch pull egress")))))))
+
+(deftest inv-6-back-fill-render-redacts-appended-trace-event
+  (testing "rf2-82pcg — a post-settle RENDER back-fill carrying a sensitive
+            value in its appended :trace-events tag is REDACTED in the
+            re-notified record + the ring."
+    (rf/reg-frame :test/main {})
+    (rf/configure! :epoch-history {:redact-fn redact-back-filled-secrets})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+
+    (let [seen (atom [])]
+      (rf/register-epoch-listener! ::watch (fn [r] (swap! seen conj r)))
+      (rf/dispatch-sync [:seed] {:frame :test/main})
+      (rf/dispatch-sync [:inc]  {:frame :test/main})
+      ;; Post-settle render whose trace tags carry the sensitive value.
+      (trace/emit! :rf.view :rf.view/rendered
+                   {:rf.view/render-key [:secret-view 0]
+                    :rf.view/secret     secret
+                    :frame              :test/main})
+      (let [renotified (last @seen)
+            secret-evs (->> (:trace-events renotified)
+                            (filter #(contains? (:tags %) :rf.view/secret)))]
+        (is (seq secret-evs)
+            "the back-filled render trace-event is present")
+        (is (every? #(= :rf/redacted (get-in % [:tags :rf.view/secret]))
+                    secret-evs)
+            "the re-notified :trace-events tag is REDACTED, not the raw
+             secret — the leak is closed for the render back-fill")
+        (is (= renotified (last-record :test/main))
+            "ring and listener hold the SAME redacted shape")))))
+
+(deftest inv-6-back-fill-unmount-redacts-appended-trace-event
+  (testing "rf2-82pcg — a post-settle UNMOUNT back-fill (rides ONLY the
+            :trace-events slot, no structured row) carrying a sensitive
+            value is REDACTED in the re-notified record + the ring. Pins
+            the rf2-59hx3 unmount path through the redaction seam."
+    (rf/reg-frame :test/main {})
+    (rf/configure! :epoch-history {:redact-fn redact-back-filled-secrets})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+
+    (let [seen (atom [])]
+      (rf/register-epoch-listener! ::watch (fn [r] (swap! seen conj r)))
+      (rf/dispatch-sync [:seed] {:frame :test/main})
+      (rf/dispatch-sync [:inc]  {:frame :test/main})
+      (let [settle-fanouts (count @seen)]
+        (trace/emit! :rf.view :rf.view/unmounted
+                     {:rf.view/id         :secret-view
+                      :rf.view/render-key [:secret-view 0]
+                      :rf.view/secret     secret
+                      :frame              :test/main})
+        (is (= (inc settle-fanouts) (count @seen))
+            "the unmount back-fill re-notified exactly once")
+        (let [renotified (last @seen)
+              secret-evs (->> (:trace-events renotified)
+                              (filter #(contains? (:tags %) :rf.view/secret)))]
+          (is (seq secret-evs) "the back-filled unmount trace-event is present")
+          (is (every? #(= :rf/redacted (get-in % [:tags :rf.view/secret]))
+                      secret-evs)
+              "the re-notified unmount :trace-events tag is REDACTED")
+          (is (= renotified (last-record :test/main))
+              "ring and listener hold the SAME redacted shape"))))))
+
+(deftest inv-6-back-fill-passes-non-sensitive-value-unchanged
+  (testing "rf2-82pcg — NO over-redaction regression. A back-filled
+            sub-run / render carrying a NON-sensitive value passes through
+            the re-notify redaction UNCHANGED. The redact-fn is the
+            AI/MCP-egress boundary; closing the leak must not start
+            scrubbing benign data."
+    (rf/reg-frame :test/main {})
+    (rf/configure! :epoch-history {:redact-fn redact-back-filled-secrets})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+
+    (let [seen (atom [])]
+      (rf/register-epoch-listener! ::watch (fn [r] (swap! seen conj r)))
+      (rf/dispatch-sync [:seed] {:frame :test/main})
+      (rf/dispatch-sync [:inc]  {:frame :test/main})
+      ;; A benign sub-run value — must survive the re-notify redaction.
+      (emit-sub-run! :test/main :counter 0 42)
+      (let [renotified (last @seen)
+            sub-run    (->> (:sub-runs renotified)
+                            (filter #(= :counter (:sub-id %))) first)]
+        (is (some? sub-run) "the benign back-filled sub-run is present")
+        (is (= 42 (:value sub-run))
+            "the non-sensitive value passes through UNCHANGED — no
+             over-redaction")
+        (is (= true (:value-changed? sub-run))
+            "the benign sub-run's value-change attribution survives intact")
+        (is (= renotified (last-record :test/main))
+            "ring and listener still agree")))))
+
+(deftest inv-6-back-fill-no-redact-fn-is-identity-passthrough
+  (testing "rf2-82pcg — with NO :redact-fn installed, the back-fill
+            re-notify path is an identity pass-through (maybe-redact is a
+            no-op) — the rf2-qs6dl/wi900/59hx3 attribution behaviour is
+            byte-for-byte unchanged by the redaction seam."
+    (rf/reg-frame :test/main {})
+    ;; No redact-fn configured (default nil).
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    (rf/reg-event-db :inc  (fn [db _] (update db :n inc)))
+
+    (let [seen (atom [])]
+      (rf/register-epoch-listener! ::watch (fn [r] (swap! seen conj r)))
+      (rf/dispatch-sync [:seed] {:frame :test/main})
+      (rf/dispatch-sync [:inc]  {:frame :test/main})
+      ;; Even the raw secret rides through untouched — no redact-fn means
+      ;; the framework does not scrub (the app opted out; that is the
+      ;; documented default-nil posture).
+      (emit-sub-run! :test/main :secret nil secret)
+      (let [renotified (last @seen)
+            sub-run    (->> (:sub-runs renotified)
+                            (filter #(= :secret (:sub-id %))) first)]
+        (is (= secret (:value sub-run))
+            "no redact-fn — the back-filled value is the RAW shape (the
+             attribution path is unchanged; redaction is opt-in)")
+        (is (= renotified (last-record :test/main))
+            "ring and listener agree on the raw shape")))))
