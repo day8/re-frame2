@@ -5,16 +5,29 @@
    value or a formula. Formulas reference other cells. Changes propagate.
 
    The 7GUIs page calls this out as a test of *change propagation through
-   a dependency graph*. The classic trap is to recompute everything on every
-   edit (slow) or to invalidate hand-rolled per-cell observers (correctness
-   bugs). The re-frame2 approach: each cell's display value is a registered
-   subscription that derives from `app-db`'s cell map. Reagent's reactive
-   sub graph handles change propagation for free — when A1 updates, only
-   subscriptions that transitively depend on A1 re-run.
+   a dependency graph*. The classic trap is hand-rolled per-cell observers
+   that go stale (correctness bugs). The re-frame2 approach leans on the
+   reaction layer instead: each cell's display value is a registered
+   subscription (`:cells/value`) parameterised by id, derived purely from
+   `app-db`'s cell map.
+
+   How propagation actually works here: every `:cells/value` sub takes the
+   whole cell map (`:cells/all-cells`) as its single input, so committing
+   ANY cell produces a fresh map identity and recomputes EVERY mounted
+   value reaction — dependent or not. This is the recompute-everything
+   shape, but it stays cheap because (a) the evaluator is a pure function
+   and the grid is small (26×100), and (b) the reaction layer `=`-dedups
+   each computed value, so a cell whose result is unchanged does not
+   re-render. The win is correctness for free: there are no hand-maintained
+   per-cell dependency edges to keep in sync. (True per-cell propagation —
+   a signal keyed on each referenced id rather than the whole map — is a
+   larger change and not warranted at this scale.)
 
    Demonstrates:
-   - The subscription graph at full strength
+   - Pure derivation of every cell from a single shared input sub
+   - Reaction-layer `=`-dedup avoiding re-render of unchanged cells
    - Cycles detected via a visited-set walk during evaluation
+   - Typed error markers propagated through arithmetic (never throws)
    - Open-map cell registry (sparse storage)
    - Pure parser + evaluator (no eval, no host I/O)
 
@@ -140,12 +153,18 @@
     (vector? ast)
     (let [[op & args] ast
           vals        (mapv #(evaluate-ast % cells visited) args)]
-      (case (str op)
-        "+" (apply + vals)
-        "-" (apply - vals)
-        "*" (apply * vals)
-        "/" (if (some zero? (rest vals)) :error/div-by-zero (apply / vals))
-        :error/unknown-op))
+      ;; Propagate errors/non-numbers rather than feeding them to the op
+      ;; (which would throw): surface an upstream error marker if one
+      ;; reached us, else :error/type for text-in-arithmetic. `-` and `/`
+      ;; with no args throw an arity error, so guard empty `vals` too.
+      (if (and (seq vals) (every? number? vals))
+        (case (str op)
+          "+" (apply + vals)
+          "-" (apply - vals)
+          "*" (apply * vals)
+          "/" (if (some zero? (rest vals)) :error/div-by-zero (apply / vals))
+          :error/unknown-op)
+        (or (first (filter keyword? vals)) :error/type)))
 
     :else :error/eval))
 
@@ -168,15 +187,17 @@
 
 (rf/reg-event-db :cells/initialise
   {:doc "Seed an empty spreadsheet."}
-  (fn [db _]
+  (fn handler-cells-initialise [db _]
     (assoc db :cells {:cells {} :selected-id "A1" :editing-id nil})))
 
 (rf/reg-event-db :cells/select
-  (fn [db [_ id]]
+  {:doc "User clicked a cell. Marks it selected (without opening the editor)."}
+  (fn handler-cells-select [db [_ id]]
     (assoc-in db [:cells :selected-id] id)))
 
 (rf/reg-event-db :cells/start-editing
-  (fn [db [_ id]]
+  {:doc "Open the inline editor for cell `id` (also selects it)."}
+  (fn handler-cells-start-editing [db [_ id]]
     (-> db
         (assoc-in [:cells :selected-id] id)
         (assoc-in [:cells :editing-id]  id))))
@@ -184,7 +205,7 @@
 (rf/reg-event-db :cells/commit
   {:doc "Commit the user's edit. Parses formulas and stores deps."
    :schema [:cat [:= :cells/commit] :string :string]}
-  (fn [db [_ id raw]]
+  (fn handler-cells-commit [db [_ id raw]]
     (let [formula? (and (string? raw) (str/starts-with? raw "="))
           ast      (when formula? (parse-formula raw))
           deps     (when formula? (collect-deps ast))
@@ -206,25 +227,38 @@
 ;; ============================================================================
 ;;
 ;; The :cells/value sub is parameterised by id — `(subscribe [:cells/value
-;; "A1"])`. Each cell's display value derives from the cells map. Reagent
-;; reactivity ensures only cells transitively depending on a changed cell
-;; re-render.
+;; "A1"])`. Each cell's display value derives from the full cells map, so
+;; every value reaction recomputes on any edit; the reaction layer =-dedups
+;; the result so only cells whose value actually changed re-render.
 
 (rf/reg-sub :cells/all-cells
-  (fn [db _] (get-in db [:cells :cells])))
+  {:doc "The sparse cell map (only edited cells are present). Single input to
+         every cell's value/raw sub."}
+  (fn sub-cells-all-cells [db _] (get-in db [:cells :cells])))
 
 (rf/reg-sub :cells/raw
+  {:doc "Raw text the user typed into cell `id` (empty string if untouched)."}
   :<- [:cells/all-cells]
-  (fn [cells [_ id]] (get-in cells [id :raw] "")))
+  (fn sub-cells-raw [cells [_ id]] (get-in cells [id :raw] "")))
 
 (rf/reg-sub :cells/value
-  {:doc "Display value of cell `id`. Pure derivation against the full cells map."}
+  {:doc "Display value of cell `id`. Pure derivation against the full cells map.
+         The evaluator already turns bad input into typed error markers; the
+         try/catch is a defence-in-depth backstop so a value reaction can never
+         throw out of its compute (which would break render of the whole grid)."}
   :<- [:cells/all-cells]
-  (fn [cells [_ id]]
-    (evaluate-cell id cells #{})))
+  (fn sub-cells-value [cells [_ id]]
+    (try
+      (evaluate-cell id cells #{})
+      (catch :default _ :error/eval))))
 
-(rf/reg-sub :cells/selected-id (fn [db _] (get-in db [:cells :selected-id])))
-(rf/reg-sub :cells/editing-id  (fn [db _] (get-in db [:cells :editing-id])))
+(rf/reg-sub :cells/selected-id
+  {:doc "Id of the currently selected cell, or nil."}
+  (fn sub-cells-selected-id [db _] (get-in db [:cells :selected-id])))
+
+(rf/reg-sub :cells/editing-id
+  {:doc "Id of the cell whose inline editor is open, or nil."}
+  (fn sub-cells-editing-id [db _] (get-in db [:cells :editing-id])))
 
 ;; ============================================================================
 ;; VIEW
@@ -240,15 +274,21 @@
                      (= value :error/parse)    "#PARSE"
                      (= value :error/cycle)    "#CYCLE"
                      (= value :error/eval)     "#EVAL"
+                     (= value :error/type)     "#TYPE"
                      (= value :error/div-by-zero) "#DIV/0"
                      :else                     (str value))]
-    [:td.cell {:data-cell id
-               :on-click #(dispatch [:cells/start-editing id])}
+    ;; `data-cell`/`data-cell-input` carry the grid coordinate as a domain
+    ;; attribute; `data-testid` mirrors the cluster's test-hook scheme so the
+    ;; six examples share one selector convention.
+    [:td.cell {:data-cell   id
+               :data-testid (str "cells-cell-" id)
+               :on-click    #(dispatch [:cells/start-editing id])}
      (if editing?
        [:input {:type      "text"
                 :auto-focus true
                 :default-value raw
                 :data-cell-input id
+                :data-testid     (str "cells-cell-input-" id)
                 :on-blur    #(dispatch [:cells/commit id (.. % -target -value)])
                 :on-key-down #(when (= "Enter" (.-key %))
                                 (dispatch [:cells/commit id (.. % -target -value)]))}]
