@@ -2,10 +2,17 @@
   "Per-leaf smoke test for `app-db-diff-subs` (rf2-nb8if).
 
   Calls the leaf's `install!` directly (NOT the umbrella) and asserts
-  the seven Phase 5 subs are registered. Reads the composite
-  `:rf.xray/app-db-diff` once on a fresh frame and asserts the
-  default-shape map. Pins the per-`:epoch-id` `defonce diff-cache`
-  atom is reachable as a leaf var."
+  the live app-db-tab subs are registered.
+
+  ## rf2-p53m2 — dead diff-sub family pruned
+
+  The `:rf.xray/selected-epoch-diff` → `:rf.xray/app-db-diff` composite
+  (plus the `:rf.xray/selected-epoch-redacted-modified-count` /
+  `:rf.xray/selected-epoch-flow-writes` inputs and the three
+  `[frame-id epoch-id]` caches) had no production view consumer and was
+  removed. The assertions below pin that the family stays gone — a
+  regression guard against re-introducing the hardened-but-unrendered
+  surface."
   (:require [cljs.test :refer-macros [deftest is use-fixtures]]
             [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -14,47 +21,37 @@
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
-     :init-fn (fn []
-                (reset! subs/diff-cache {})
-                (reset! subs/redacted-modified-cache {})
-                (reset! subs/flow-writes-cache {}))}))
+    {:adapter plain-atom/adapter}))
 
 (deftest leaf-install-registers-the-active-subs
   (subs/install!)
   ;; rf2-fvplw — `:rf.xray/observed-frame` is the picker/focus-aware
   ;; seam that replaces the legacy `:rf.xray/target-frame` read inside
-  ;; `:rf.xray/target-frame-db` + the composite.
+  ;; `:rf.xray/target-frame-db`.
   (is (some? (registrar/handler :sub :rf.xray/observed-frame)))
   (is (some? (registrar/handler :sub :rf.xray/target-frame-db)))
   (is (some? (registrar/handler :sub :rf.xray/selected-epoch-record)))
-  (is (some? (registrar/handler :sub :rf.xray/selected-epoch-diff)))
   (is (some? (registrar/handler :sub :rf.xray/focused-slice-path)))
   (is (some? (registrar/handler :sub :rf.xray/show-me-when-this-changed-result)))
-  ;; rf2-bz1cl — redacted-paths-modified hint sub.
-  (is (some? (registrar/handler :sub :rf.xray/selected-epoch-redacted-modified-count)))
-  ;; rf2-s8r6c — flow-writes projection sub for the origin-tag chip.
-  (is (some? (registrar/handler :sub :rf.xray/selected-epoch-flow-writes)))
-  (is (some? (registrar/handler :sub :rf.xray/app-db-diff)))
   ;; rf2-yng0y — the atomic current-state + focused-epoch before-image
   ;; sub the panel pivots on (collapses the former 5-deep focus chain so
   ;; `:before` / `:epoch-id` move together — no stale-`before` frame).
   (is (some? (registrar/handler :sub :rf.xray/app-db-current+diff)))
   ;; rf2-okvit — the current-state inspector's section-model sub (now
   ;; derived from the atomic sub above).
-  (is (some? (registrar/handler :sub :rf.xray/app-db-state)))
-  ;; rf2-e9tb0 — pinned-slices subs are gone.
+  (is (some? (registrar/handler :sub :rf.xray/app-db-state))))
+
+(deftest pruned-diff-sub-family-stays-gone
+  ;; rf2-p53m2 — the dead composite diff family had no production view
+  ;; consumer; the Epoch panel reads `:rf.xray/selected-epoch-record`
+  ;; (not these), and the MCP `get-app-db-diff` tool goes directly
+  ;; through `diff.engine/project`. Guard against re-introduction.
+  (subs/install!)
+  (is (nil? (registrar/handler :sub :rf.xray/selected-epoch-diff)))
+  (is (nil? (registrar/handler :sub :rf.xray/selected-epoch-redacted-modified-count)))
+  (is (nil? (registrar/handler :sub :rf.xray/selected-epoch-flow-writes)))
+  (is (nil? (registrar/handler :sub :rf.xray/app-db-diff)))
+  ;; rf2-e9tb0 — pinned-slices subs are gone (older prune; kept here as
+  ;; part of the dead-surface guard).
   (is (nil? (registrar/handler :sub :rf.xray/pinned-slices-store)))
   (is (nil? (registrar/handler :sub :rf.xray/pinned-slices))))
-
-(deftest diff-caches-are-leaf-level-atoms
-  (is (some? subs/diff-cache))
-  (is (map? @subs/diff-cache))
-  ;; rf2-bz1cl — redacted-modified count cache mirrors the existing
-  ;; per-`:epoch-id` caching contract.
-  (is (some? subs/redacted-modified-cache))
-  (is (map? @subs/redacted-modified-cache))
-  ;; rf2-s8r6c — flow-writes cache mirrors the same per-`:epoch-id`
-  ;; caching contract.
-  (is (some? subs/flow-writes-cache))
-  (is (map? @subs/flow-writes-cache)))

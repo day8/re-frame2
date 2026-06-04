@@ -1332,7 +1332,7 @@ landed as the multi-frame panel-focus fix wave (rf2-fvplw + rf2-y8bik
 |---|---|---|
 | `:focus :frame` | spine | Set to picked frame-id; clears `:dispatch-id` to head of new frame. |
 | `:rf.xray/target-frame` | per-frame projection axis | Re-seeded to picked frame-id. This is the legacy axis the App-db diff + Views composites compose against; pre-fix the picker only wrote the spine's `:focus :frame` and the composites stayed bound to whichever frame was last targeted (commonly `:rf/default`). |
-| `:rf.xray/epoch-history` | cached snapshot | Re-seeded from `(rf/epoch-history <picked-frame>)` so the App-db diff's `:selected-epoch-diff` and Views' `:focused-cascade-pair` / `:views-sub-diff` composites refresh against the new frame's epoch ring in the same dispatch. |
+| `:rf.xray/epoch-history` | cached snapshot | Re-seeded from `(rf/epoch-history <picked-frame>)` so the App-db tab's `:rf.xray/app-db-current+diff` (rf2-p53m2 — was the pruned `:selected-epoch-diff`) and Views' `:focused-cascade-pair` / `:views-sub-diff` composites refresh against the new frame's epoch ring in the same dispatch. |
 
 **Invariant P (Panel follows focus):** every per-frame panel
 composite (App-db diff, Views, Machines, Routing, Trace) MUST refresh

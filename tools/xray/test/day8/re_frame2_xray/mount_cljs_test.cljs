@@ -995,8 +995,8 @@
               (is (= cart-records @(rf/subscribe [:rf.xray/epoch-history]))
                   "`:epoch-history` re-seeds from `(rf/epoch-history
                    :cart-frame)` so the App-DB panel's
-                   `:rf.xray/selected-epoch-diff` returns the picked
-                   frame's diff body rather than `:history-empty? true`."))))))))
+                   `:rf.xray/app-db-current+diff` resolves the picked
+                   frame's focused epoch rather than the empty-state."))))))))
 
 (deftest first-open!-seeds-default-frame-when-no-pre-mount-cascades
   (testing "rf2-boyc2 — cold start: no pre-mount cascades in the trace

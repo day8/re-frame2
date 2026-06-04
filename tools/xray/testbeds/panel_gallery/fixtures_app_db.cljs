@@ -2,16 +2,19 @@
   "Pure fixture builders for the Xray App-db tab gallery
   (rf2-sszlr — rebuild for new 6-tab Xray shape).
 
-  The app-db-diff panel reads three slots from the Xray frame:
+  The app-db-diff panel reads these slots from the Xray frame:
 
     - `:epoch-history`         — vector of `:rf/epoch-record` maps
-    - `:selected-epoch-id`     — optional, drives 'diff this epoch'
+    - `:focus`                 — drives the focused epoch (its `:db-after`
+                                 is what the panel body shows)
     - `:focused-slice-path`    — optional, drives 'Show me when this
                                  changed' result
 
-  The composite `:rf.xray/app-db-diff` projects these into the map the
-  facade view destructures (`:changed-non-reserved`, `:changed-reserved`,
-  `:focused-path`, `:focused-hits`, `:history-empty?`, `:target-frame`).
+  The atomic `:rf.xray/app-db-current+diff` sub resolves the focused
+  epoch's `:value` (`:db-after`) + `:before` (`:db-before`), and
+  `:rf.xray/app-db-state` projects that into the current-state section
+  model the facade view renders. (rf2-p53m2 — the former composite
+  `:rf.xray/app-db-diff` had no production view consumer and was pruned.)
 
   rf2-e9tb0 — `:pinned-slices-store` and `:pinned-slices` were
   dropped when the pinned-watches strip was superseded by the

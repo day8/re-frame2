@@ -39,10 +39,18 @@
 
   - `app-db-diff-state` — the current-state section renderers (this
     panel's body).
-  - `app-db-diff-subs` / `app-db-diff-events` — subs + events. The
-    composite diff sub (`:rf.xray/selected-epoch-diff` and friends)
-    survives there for the Epoch panel's diff surface + the MCP exporter;
-    this panel reads only `:rf.xray/app-db-state`."
+  - `app-db-diff-subs` / `app-db-diff-events` — subs + events. This
+    panel reads only `:rf.xray/app-db-state` (← the atomic
+    `:rf.xray/app-db-current+diff`, which resolves the focused epoch's
+    `:db-after` per rf2-02j4r) + `:rf.xray/app-db-current+diff` for the
+    per-epoch React render key. rf2-p53m2 — the former composite diff
+    family (`:rf.xray/selected-epoch-diff` → `:rf.xray/app-db-diff` and
+    its `-flow-writes` / `-redacted-modified-count` inputs) was PRUNED:
+    it had no production view consumer. The Epoch panel's `:db` diff
+    reads `:rf.xray/selected-epoch-record` and runs its own
+    `db-diff-paths`; the MCP `get-app-db-diff` tool projects directly
+    through `diff.engine/project` (runtime.cljs) — neither consumed the
+    composite."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             [day8.re-frame2-xray.panels.app-db-diff-events :as events]
