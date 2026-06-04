@@ -86,6 +86,7 @@
   authored fixtures to the actual source/spec text."
   (:require [clojure.string  :as str]
             [clojure.test    :refer [deftest is testing]]
+            [de-dupe.core    :as dd]
             [malli.core      :as m]
             [malli.error     :as me]
             [re-frame.mcp-base.cursor :as mcp-cursor]
@@ -173,17 +174,71 @@
   "`{:rf.mcp/summary SummaryBody}` — the wrapper shape."
   [:map [:rf.mcp/summary SummaryBody]])
 
+(def root-cache-id-name
+  "The de-dupe library's canonical root cache-id, as a bare name string
+  (no `:` / symbol-quote prefix). `de-dupe.core/expand` ALWAYS begins
+  reconstruction at `(make-cache-element 0)` = `de-dupe.cache/cache-0`,
+  and `create-cache-internal` ALWAYS assocs that key as the root entry
+  (day8/de-dupe v0.3.0 `core.cljc:253-255` + `:132`). A cache map with no
+  `cache-0` entry is therefore un-expandable — the Node-side decoder
+  (`tools/mcp-conformance/lib/dedup-envelope.cjs` `ROOT_CACHE_ID`) throws
+  on exactly that shape. Pinned here so the JVM schema and the Node
+  decoder agree on the required root (rf2-x0pr0 finding 2)."
+  "de-dupe.cache/cache-0")
+
+(defn- dedup-cache-root-key?
+  "True when `k` names the de-dupe root cache element
+  (`de-dupe.cache/cache-0`). Accepts BOTH wire representations of the
+  same key:
+
+  - the EDN/CLJS form `de-dupe.core/de-dupe-eq` actually emits — a
+    namespaced SYMBOL `de-dupe.cache/cache-0` (`make-cache-element` is
+    `(symbol ...)`); and
+  - the namespaced-KEYWORD form `:de-dupe.cache/cache-0` the JVM
+    wire-vocab fixtures author it as.
+
+  `(name k)`/`(namespace k)` are identical across symbol and keyword,
+  so one predicate covers both. A string key (the JSON-on-the-wire form
+  the Node decoder sees) is matched verbatim — that path is exercised by
+  the live JVM↔Node agreement test below."
+  [k]
+  (or (= root-cache-id-name k)
+      (and (or (keyword? k) (symbol? k))
+           (= "de-dupe.cache" (namespace k))
+           (= "cache-0"       (name k)))))
+
+(defn- has-dedup-root?
+  "True when `cache` is a non-empty map carrying the canonical
+  `de-dupe.cache/cache-0` root entry (in symbol, keyword, or string
+  form). This is the load-bearing structural invariant: an
+  agent/client decoder calls `de-dupe.core/expand`, which starts at the
+  root — a table with no root is un-expandable and the Node decoder
+  rejects it. `{}` and a root-less cache both fail here."
+  [cache]
+  (and (map? cache)
+       (boolean (some dedup-cache-root-key? (keys cache)))))
+
 (def DedupTable
   "`{:rf.mcp/dedup-table <flat-cache>}` — the structural-dedup wrapper.
 
-  The body is the day8/de-dupe cache map: `{:de-dupe.cache/cache-0
-  <root> :de-dupe.cache/cache-N <subtree> ...}`. re-frame2-pair-mcp's actual
-  cache uses the de-dupe library's namespaced-keyword form; integer-
-  keyed examples (`{1 {...} 2 {...}}`) are also permitted — the
-  load-bearing claim is the top-level `:rf.mcp/dedup-table` marker
-  key and that the value is a *map* (the agent host calls
-  `de-dupe.core/expand` on it)."
-  [:map [:rf.mcp/dedup-table :map]])
+  The body is the day8/de-dupe cache map. re-frame2-pair-mcp's and
+  story-mcp's actual caches key it by the de-dupe library's namespaced
+  symbols `de-dupe.cache/cache-N` (the wire-vocab fixtures author the
+  same keys in keyword form). The load-bearing claim is the top-level
+  `:rf.mcp/dedup-table` marker key AND that the value is a cache map
+  the agent host can actually expand — i.e. it MUST carry the canonical
+  `de-dupe.cache/cache-0` ROOT entry. `de-dupe.core/expand` begins
+  reconstruction at that root (day8/de-dupe v0.3.0 `core.cljc:132`); a
+  cache with no root is un-expandable and the Node-side decoder
+  (`lib/dedup-envelope.cjs`) throws on it.
+
+  Pre-rf2-x0pr0 the schema was `[:map [:rf.mcp/dedup-table :map]]`,
+  which accepted `{}` and root-less caches that the Node decoder
+  rejects — the JVM contract was looser than the client-visible one.
+  The `has-dedup-root?` predicate closes that gap so both encodings
+  agree on the accepted cache shape (rf2-x0pr0 finding 2; acceptance
+  criteria 3 + 4)."
+  [:map [:rf.mcp/dedup-table [:and :map [:fn has-dedup-root?]]]])
 
 (def DiffFromBody
   "An epoch's `:db-after` slot, diff-encoded against `:db-before` and
@@ -449,12 +504,18 @@
     :fixtures {:re-frame2-pair-mcp         {:rf.mcp/dedup-table
                                    {:de-dupe.cache/cache-0 [:de-dupe.cache/cache-1 :de-dupe.cache/cache-1]
                                     :de-dupe.cache/cache-1 {:event-id :foo :handler-id :bar}}}
-               ;; Integer-keyed example variant — both forms validate
-               ;; against the schema; pinned to keep the alternate
-               ;; keying schema-validated even without a second server.
-               :re-frame2-pair-mcp-integer {:rf.mcp/dedup-table
-                                   {1 {:event-id :foo :handler-id :bar}
-                                    2 {:event-id :baz}}}
+               ;; rf2-x0pr0 — the integer-keyed fixture
+               ;; (`{1 {...} 2 {...}}`) was REMOVED. It was fiction: the
+               ;; day8/de-dupe library ALWAYS keys the cache by the
+               ;; namespaced symbol `de-dupe.cache/cache-N` (root
+               ;; `cache-0`) — never integers (v0.3.0 `core.cljc`
+               ;; `make-cache-element` / `create-cache-internal`). A
+               ;; root-less integer-keyed table has no `cache-0` entry,
+               ;; so the Node-side decoder (`lib/dedup-envelope.cjs`)
+               ;; THROWS on it — the exact JVM-loose / Node-strict
+               ;; disagreement this gate now closes. The
+               ;; `DedupTable`-rejects-malformed negative tests below
+               ;; pin that the schema refuses it.
                ;; story-mcp emission (rf2-90eft) — the `run-variant`
                ;; payload re-keys the same `:app-db` value into
                ;; `:rendered-hiccup` and `:snapshot`; dedup collapses
@@ -589,6 +650,147 @@
                            :cap-tokens 5000
                            :hint       "..."}}))
         "re-frame2-pair-shape emit missing :token-count must fail")))
+
+;; ---------------------------------------------------------------------------
+;; DedupTable root-cache contract (rf2-x0pr0 finding 2).
+;;
+;; The pre-fix schema was `[:map [:rf.mcp/dedup-table :map]]` — it
+;; accepted ANY map, including `{}` and caches with no `cache-0` root.
+;; But `de-dupe.core/expand` (what an agent host calls) ALWAYS starts at
+;; the `de-dupe.cache/cache-0` root, and the Node-side decoder
+;; (`tools/mcp-conformance/lib/dedup-envelope.cjs`) THROWS on a missing
+;; root. So the canonical JVM contract was strictly LOOSER than the
+;; client-visible / Node decoder contract: a root-less table that no
+;; real client can expand validated JVM-side. These gates pin the
+;; tightened schema's teeth — it now rejects exactly the shapes the Node
+;; decoder rejects.
+;; ---------------------------------------------------------------------------
+
+(deftest dedup-table-rejects-rootless-cache
+  (testing "empty cache `{}` (no root entry) fails validation"
+    (is (not (m/validate DedupTable {:rf.mcp/dedup-table {}}))
+        "DedupTable must reject an empty cache — it has no de-dupe.cache/cache-0 root, so the agent host's `expand` (and the Node decoder) cannot reconstruct it."))
+  (testing "cache with subtrees but NO cache-0 root fails validation"
+    ;; cache-1 / cache-2 present but the load-bearing cache-0 root is
+    ;; absent — `expand` begins at cache-0 and would throw. The Node
+    ;; decoder throws the same way.
+    (is (not (m/validate DedupTable
+                         {:rf.mcp/dedup-table
+                          {:de-dupe.cache/cache-1 {:event-id :foo}
+                           :de-dupe.cache/cache-2 {:event-id :bar}}}))
+        "DedupTable must reject a cache missing the de-dupe.cache/cache-0 root."))
+  (testing "integer-keyed table (de-dupe NEVER emits this) fails validation"
+    ;; The removed fixture's shape — fiction the old schema accepted.
+    ;; day8/de-dupe keys by namespaced symbols only; an integer-keyed
+    ;; table has no cache-0 root and the Node decoder throws on it.
+    (is (not (m/validate DedupTable
+                         {:rf.mcp/dedup-table
+                          {1 {:event-id :foo :handler-id :bar}
+                           2 {:event-id :baz}}}))
+        "DedupTable must reject an integer-keyed table — de-dupe never emits one and it carries no cache-0 root."))
+  (testing "a valid namespaced cache WITH a cache-0 root still validates"
+    ;; Guard against over-tightening — the canonical shape MUST pass.
+    (is (m/validate DedupTable
+                    {:rf.mcp/dedup-table
+                     {:de-dupe.cache/cache-0 [:de-dupe.cache/cache-1 :de-dupe.cache/cache-1]
+                      :de-dupe.cache/cache-1 {:event-id :foo}}})
+        "DedupTable must accept the canonical namespaced cache with a cache-0 root."))
+  (testing "the predicate also accepts the symbol root form de-dupe-eq actually emits"
+    ;; `de-dupe.core/de-dupe-eq` keys by namespaced SYMBOLS, not
+    ;; keywords — assert the schema accepts that representation too.
+    (is (m/validate DedupTable
+                    {:rf.mcp/dedup-table
+                     {'de-dupe.cache/cache-0 {:a 1}}})
+        "DedupTable must accept the symbol-keyed root form the encoder emits.")))
+
+;; ---------------------------------------------------------------------------
+;; LIVE dedup-table emission + JVM↔Node root agreement (rf2-x0pr0).
+;;
+;; Drive the REAL `de-dupe.core/de-dupe-eq` encoder (the same fn both
+;; pair-mcp and story-mcp call at their wire boundary) over a
+;; duplicate-rich value and assert:
+;;
+;;   1. the wrapped marker validates against the tightened DedupTable
+;;      schema (the encoder genuinely emits a cache-0 root — the
+;;      regression the fixture-only layer would miss); and
+;;   2. after a JSON round-trip (the symbol→string coercion every JSON
+;;      transport performs), the table's root key is the byte-for-byte
+;;      string the Node decoder hardcodes as `ROOT_CACHE_ID`. This pins
+;;      the JVM-encoder ⇄ Node-decoder agreement directly — the cross-
+;;      MCP root convention can no longer drift on one side silently
+;;      (acceptance criterion 4).
+;; ---------------------------------------------------------------------------
+
+(def ^:private node-decoder-root-cache-id
+  "The literal `ROOT_CACHE_ID` the Node decoder
+  (`tools/mcp-conformance/lib/dedup-envelope.cjs`) requires as the cache
+  root. Mirrored here so the live test below pins the JVM-encoder's
+  emitted root against the Node-decoder's expectation. A drift on EITHER
+  side trips this gate."
+  "de-dupe.cache/cache-0")
+
+(deftest dedup-table-emitted-live-by-canonical-encoder
+  ;; The load-bearing live-emission gate for `:rf.mcp/dedup-table`. A
+  ;; payload with repeated subtrees so de-dupe actually pools them.
+  (let [payload   [{:event-id :user/sign-in  :handler-id :auth}
+                   {:event-id :user/sign-in  :handler-id :auth}
+                   {:event-id :user/sign-out :handler-id :auth}]
+        cache     (dd/de-dupe-eq payload)
+        wrapped   {:rf.mcp/dedup-table cache}]
+    (testing "the encoder emits a cache carrying the canonical cache-0 root"
+      (is (contains? cache (dd/make-cache-element 0))
+          (str "de-dupe-eq MUST emit a de-dupe.cache/cache-0 root entry. "
+               "If this fails the library's root convention changed and "
+               "the Node decoder's ROOT_CACHE_ID is now wrong. Got keys: "
+               (pr-str (keys cache)))))
+    (testing "the live-emitted marker validates against the tightened DedupTable schema"
+      (is (m/validate DedupTable wrapped)
+          (str "Live-emitted dedup-table failed DedupTable validation:\n"
+               (me/humanize (m/explain DedupTable wrapped)))))
+    (testing "the round-tripped value expands back to the original payload"
+      (is (= payload (dd/expand cache))
+          "live de-dupe-eq → expand round-trips the payload"))
+    (testing "JVM↔Node root agreement: the JSON string form of the root key matches the Node decoder's ROOT_CACHE_ID"
+      ;; The cache keys are namespaced SYMBOLS (`de-dupe.cache/cache-N`).
+      ;; The real story-mcp wire serialises them with Cheshire, whose
+      ;; `generate-string` renders a namespaced symbol key as its FULL
+      ;; `(str sym)` form — namespace preserved — i.e.
+      ;; `"de-dupe.cache/cache-0"`. (`clojure.data.json` is the wrong
+      ;; model here: it DROPS the namespace to `"cache-0"`, which would
+      ;; never round-trip through the Node decoder — so we pin the
+      ;; library-independent `(str key)` form Cheshire and the MCP wire
+      ;; actually emit.) Assert the root key's string form is exactly
+      ;; the literal the Node decoder hardcodes; a drift in the encoder's
+      ;; root convention turns THIS gate red before it breaks real
+      ;; clients.
+      (let [root-key-strs (set (map str (keys cache)))]
+        (is (contains? root-key-strs node-decoder-root-cache-id)
+            (str "The cache's root key, in its on-the-wire string form, "
+                 "MUST be " (pr-str node-decoder-root-cache-id)
+                 " — the literal the Node decoder (lib/dedup-envelope.cjs "
+                 "ROOT_CACHE_ID) requires. Got key string forms: "
+                 (pr-str root-key-strs)))))))
+
+;; ---------------------------------------------------------------------------
+;; Node decoder ROOT_CACHE_ID literal pin (rf2-x0pr0).
+;;
+;; The live test above pins that the JVM encoder's root agrees with the
+;; Node decoder's hardcoded `ROOT_CACHE_ID`. This complementary gate
+;; pins the OTHER direction: the Node decoder source MUST still declare
+;; `ROOT_CACHE_ID = 'de-dupe.cache/cache-0'`. If someone edits the Node
+;; decoder's root constant (or the live JVM root convention shifts),
+;; one of the two gates trips — they cannot drift independently.
+;; ---------------------------------------------------------------------------
+
+(deftest node-decoder-root-cache-id-literal-pinned
+  (let [src (fx/read-source "tools/mcp-conformance/lib/dedup-envelope.cjs")]
+    (is (str/includes? src
+                       (str "ROOT_CACHE_ID = '" node-decoder-root-cache-id "'"))
+        (str "The Node decoder MUST declare ROOT_CACHE_ID = '"
+             node-decoder-root-cache-id
+             "'. If it changed, the JVM DedupTable schema's required-root "
+             "and the live JVM↔Node agreement test are now out of sync — "
+             "update root-cache-id-name + this pin together."))))
 
 ;; ---------------------------------------------------------------------------
 ;; LIVE marker emission (rf2-80y2h).

@@ -21,11 +21,19 @@
 //   2. We `tools/call subscribe` to `:trace` with a short
 //      `max-ms` (1500ms) so the tool returns promptly with a
 //      terminal summary.
-//   3. While subscribe streams, we `tools/call dispatch` a known
-//      event from a concurrent task — the trace bus emission flows
-//      back through subscribe's drain loop and produces at least one
-//      `notifications/progress` tick.
-//   4. We assert the collected progress frames pass the canonical
+//   3. While subscribe streams, we `tools/call dispatch` the fixture's
+//      `[:counter/inc "<NONCE>"]` event — repeatedly, on a short cadence,
+//      until a progress frame carrying that per-run NONCE is observed
+//      (rf2-x0pr0). The trace bus emission for the cascade WE caused flows
+//      back through subscribe's drain loop. Re-dispatching removes the
+//      timing race: the subscription is installed asynchronously
+//      (ensure-runtime! → signal-runtime! → subscribe! eval), so the
+//      FIRST probe to land after registration produces the causal frame —
+//      readiness is PROVEN by the observed nonce, never assumed by a clock.
+//   4. We assert (a) the observed cascade is CAUSALLY ours — at least one
+//      frame's `:message` carries the dispatched NONCE, so an unrelated bus
+//      emission can no longer false-green the gate — and (b) every collected
+//      progress frame passes the canonical
 //      `ReFrame2PairProgressNotificationParams` shape pinned by `wire-vocab/`
 //      (the JVM-side schema). A drift between the JS-side assertion
 //      below and the Malli schema trips the cross-encoding gate in
@@ -47,6 +55,14 @@
 //     `:overflow-reason` are the documented contract slots).
 //   - subscribe entirely failing to emit a progress frame on a
 //     well-formed dispatch (e.g. drain loop regression).
+//   - the subscribe→dispatch→drain CAUSAL path silently breaking: a frame
+//     that does NOT correspond to our dispatched event (e.g. the cascade
+//     for `:counter/inc` never reaches the sub's queue) no longer passes,
+//     because the NONCE assertion requires the observed frame to be the
+//     cascade we caused (rf2-x0pr0).
+//   - a refused / failed dispatch silently passing: the probe's `isError`
+//     is now FATAL, so a dispatch that never landed fails the gate rather
+//     than riding alongside an unrelated frame (rf2-x0pr0).
 //
 // ## Gating
 //
@@ -75,6 +91,7 @@
 // generic helper would dissolve that per-schema attribution and weaken
 // the conformance contract.
 
+const crypto = require('node:crypto');
 const path = require('node:path');
 const os = require('node:os');
 const { runWithWatchdog } = require('./_runner.cjs');
@@ -86,6 +103,19 @@ const SERVER = path.resolve(__dirname, '..', '..', 're-frame2-pair-mcp', 'out', 
 // needing to wait for the runtime to push an unrelated frame. Per
 // re-frame2-pair-mcp's spec the four valid topics are `trace | epoch | fx | error`.
 const TOPIC = 'trace';
+
+// Per-run unique nonce (rf2-x0pr0). We dispatch `[:counter/inc
+// "<NONCE>"]` — the `:counter/inc` event-db handler ignores its event
+// args, so the extra string is inert, but the FULL event vector rides
+// into the trace cascade's `:event` slot and is `pr-str`'d into the
+// progress frame's `:message`. Asserting at least one progress frame's
+// `message` carries this nonce makes the gate CAUSAL: it proves the
+// observed frame is the cascade from OUR dispatch, not an unrelated bus
+// emission that happened to arrive during the window. Before this, the
+// gate accepted ANY progress frame (`frames.length > 0`), so a spurious
+// emission while our dispatch raced / failed could false-green it.
+const NONCE = 'rf2-subscribe-probe-' + crypto.randomUUID();
+const PROBE_EVENT = '[:counter/inc "' + NONCE + '"]';
 
 // Subscribe duration. Short enough that the harness completes well
 // under the runner's 60s watchdog; long enough that a single dispatch
@@ -237,78 +267,97 @@ runWithWatchdog(
       { onprogress: onProgress },
     );
 
-    // Yield briefly so subscribe has a chance to install its drain
-    // loop before the dispatch lands. The runtime's poll cadence is
-    // ~250ms — a 100ms head-start guarantees the first tick window
-    // catches our event.
-    await new Promise((r) => setTimeout(r, 100));
-
-    const dispatchPromise = client.callTool({
-      name: 'dispatch',
-      // Per re-frame2-pair-mcp's `dispatch` schema the arg slot is `event` (a
-      // single EDN-vector string, parsed server-side per rf2-vflrg).
-      // An earlier draft used `event-v` (the runtime-side `pair-dispatch!`
-      // ARG name); that doesn't match the MCP tool's `inputSchema` —
-      // the server rejected with `:reason :missing-event` and the
-      // streaming trace bus never fired (no event → no trace frame →
-      // 0 ticks → :max-ms-reached with delivered 0).
-      //
-      // The event MUST be a handler that is REGISTERED in the fixture
-      // (rf2-3bu3d.3): `dispatch` now validates the event-id against the
-      // LIVE registry at the wire boundary and REFUSES an unknown id with
-      // `:ok? false :dispatched? false :nearest [...]` — it does NOT enter
-      // the dispatch loop, so an unregistered probe event fires NO trace
-      // cascade and the streaming gate sees 0 ticks. The earlier
-      // `[:rf-conformance/subscribe-probe :hello]` probe pre-dated that
-      // call-time validation; under the old contract any event vector
-      // entered the loop and emitted a `:rf.event/dispatched` trace even
-      // with no handler. We dispatch the fixture's real `:counter/inc`
-      // event-db handler (counter/core.cljs) so the dispatch actually
-      // lands and the trace bus emits — the precondition for the
-      // `notifications/progress` frame this test exists to observe. The
-      // handler is a pure `(update :count inc)`.
-      //
-      // `:queued true` routes through the runtime `pair-dispatch!`
-      // transport-ack path rather than the default `dispatch-consequence!`
-      // (rf2-3bu3d.2) — see the NOTE block below for why (the fixture
-      // boots with epoch recording at depth 0, so the consequence read
-      // would report `:no-epoch-recorded`; the trace cascade fires
-      // regardless of epoch recording).
-      arguments: { event: '[:counter/inc]', queued: true },
-    });
-
-    // Wait for both calls to settle. subscribe returns the terminal
-    // summary; dispatch returns whatever the runtime echoed.
-    const [subResp, dispatchResp] = await Promise.all([subscribePromise, dispatchPromise]);
-
-    // Surface the dispatch result for diagnostics. We do NOT fail on it:
-    // this gate's load-bearing assertion is the `notifications/progress`
-    // frame, which the trace bus emits whenever the event runs. The
-    // dispatch's OWN result is a separate concern.
+    // ---- Causality-based readiness, NOT a fixed-sleep proxy (rf2-x0pr0) ----
     //
-    // Note on the dispatch envelope under the new contract: we send
-    // `:queued true` (below) so the dispatch routes through the runtime's
-    // `pair-dispatch!` transport-ack path rather than the default
-    // `dispatch-consequence!` (rf2-3bu3d.2). `dispatch-consequence!`
-    // reads back the RECORDED EPOCH to report `:db-changed?` /
-    // `:changed-paths`; the re-frame2-pair fixture boots with epoch
-    // recording at depth 0 (it never enables it), so the consequence path
-    // returns `:ok? false :reason :no-epoch-recorded` even though the
-    // event dispatched and the TRACE cascade fired. The trace bus is
-    // independent of epoch recording, so `:queued` gives us the cascade
-    // (the progress-frame precondition) without coupling this streaming
-    // gate to the fixture's epoch-recording posture. `:counter/inc` is a
-    // registered fixture handler, so the rf2-3bu3d.3 event-id validation
-    // passes regardless of path.
-    if (dispatchResp && dispatchResp.isError) {
-      console.log(
-        'NOTE dispatch returned isError (non-fatal — the trace cascade is ' +
-          'what this gate needs): ' +
-          (dispatchResp.content?.[0]?.text || '').slice(0, 160),
+    // Pre-fix, the test slept a fixed 100ms and then dispatched ONCE,
+    // TREATING the sleep as proof the subscription was installed. But the
+    // server only registers the runtime subscription after `ensure-runtime!`
+    // + `signal-runtime!` + the `subscribe!` nREPL eval all complete — on a
+    // cold runtime that can exceed 100ms. If the single dispatch raced ahead
+    // of registration its cascade was lost and the gate either flaked (zero
+    // frames) or, worse, false-greened on an unrelated frame.
+    //
+    // We now drive readiness CAUSALLY: re-dispatch the nonce-tagged probe
+    // event on a short cadence until a progress frame carrying our NONCE is
+    // observed (`sawNonceFrame()`), or the subscribe window is nearly closed.
+    // Each `[:counter/inc "<nonce>"]` is a harmless idempotent increment, so
+    // repeating it is safe; the FIRST one to land after registration produces
+    // the causal frame and the loop stops. There is no fixed-time assumption
+    // — registration completing late just means a later probe is the one that
+    // lands. This is the "deterministic 'subscription installed' signal" the
+    // acceptance criterion asks for: the installed state is proven by the
+    // observed cascade, not assumed by a clock.
+    const sawNonceFrame = () =>
+      frames.some(
+        (f) => typeof f.message === 'string' && f.message.includes(NONCE),
       );
-    } else {
-      console.log('OK   tools/call dispatch [:counter/inc] (:queued) acked');
+
+    // The event arg slot is `event` (a single EDN-vector string parsed
+    // server-side per rf2-vflrg). The event-id MUST be a REGISTERED fixture
+    // handler — `:counter/inc` (counter/core.cljs, a pure `(update :count
+    // inc)`) — so the dispatch actually lands and the trace bus emits. An
+    // unregistered id would be refused (no cascade). `:queued true` routes
+    // through the runtime `pair-dispatch!` transport-ack path rather than the
+    // default `dispatch-consequence!` (rf2-3bu3d.2): the re-frame2-pair fixture
+    // boots with epoch recording at depth 0, so the consequence path would
+    // report `:no-epoch-recorded` even though the event dispatched and the
+    // TRACE cascade fired. The trace bus is independent of epoch recording, so
+    // `:queued` gives us the cascade without coupling this gate to the
+    // fixture's epoch-recording posture.
+    const dispatchProbe = () =>
+      client.callTool({
+        name: 'dispatch',
+        arguments: { event: PROBE_EVENT, queued: true },
+      });
+
+    // First probe + retry loop. Each dispatch is FATAL on refusal (see
+    // below): a refused dispatch means our cascade never ran, so we must not
+    // limp on toward a frame assertion that an unrelated emission could
+    // satisfy. We retry until the causal frame appears or we approach the
+    // subscribe window's end (leave a ~300ms margin so the final probe still
+    // has a drain tick to flow through before subscribe terminates).
+    const RETRY_CADENCE_MS = 200;
+    const RETRY_DEADLINE = Date.now() + MAX_MS - 300;
+    let dispatchCount = 0;
+    let lastDispatchResp = null;
+    while (Date.now() < RETRY_DEADLINE && !sawNonceFrame()) {
+      lastDispatchResp = await dispatchProbe();
+      dispatchCount++;
+      // ---- Dispatch result is FATAL on refusal (rf2-x0pr0) ----
+      //
+      // Pre-fix a dispatch `isError` was logged-and-ignored ("non-fatal").
+      // That was a false-green vector: a REFUSED dispatch (parse error,
+      // `:runtime-not-preloaded`, nREPL flap, an unknown event-id) means OUR
+      // cascade never ran, yet the old "at least one frame" gate would still
+      // pass on an unrelated emission. `:queued` returns `{:ok? true
+      // :queued? true ...}` on a real enqueue; the server maps a runtime
+      // `:ok? false` (or any failure) to an `isError` envelope
+      // (`runtime-envelope->result`, rf2-ldfnx). So `isError` here is exactly
+      // "the dispatch did not land" — fatal. (The benign
+      // `:no-epoch-recorded`/`:settled? false` posture does NOT surface as
+      // isError under `:queued`, so we stay decoupled from the fixture's
+      // epoch-recording depth.)
+      if (lastDispatchResp && lastDispatchResp.isError) {
+        throw new Error(
+          'dispatch ' + PROBE_EVENT + ' (:queued) returned isError — the ' +
+            'probe dispatch did NOT land, so the trace cascade this gate ' +
+            'exists to observe never fired. Failing rather than false-green ' +
+            'on an unrelated frame (rf2-x0pr0). Got: ' +
+            (lastDispatchResp.content?.[0]?.text ||
+              JSON.stringify(lastDispatchResp)).slice(0, 300),
+        );
+      }
+      if (sawNonceFrame()) break;
+      await new Promise((r) => setTimeout(r, RETRY_CADENCE_MS));
     }
+    console.log(
+      'OK   tools/call dispatch ' + PROBE_EVENT + ' (:queued) acked x' +
+        dispatchCount,
+    );
+
+    // Wait for subscribe to return its terminal summary (it blocks until
+    // max-ms). Dispatches already settled in the loop above.
+    const subResp = await subscribePromise;
 
     // subscribe MUST return a terminal `ok? true` summary — a
     // streaming error (e.g. nREPL flap mid-stream) would isError and
@@ -322,12 +371,11 @@ runWithWatchdog(
     }
     console.log('OK   tools/call subscribe -> isError=false, terminal summary received');
 
-    // Now the load-bearing assertion: at least one
-    // `notifications/progress` frame arrived from the streaming
-    // window. Zero frames means subscribe's drain loop never delivered
-    // — either the bus emission never made it (regression) or the
-    // notification handler installation never reached the server
-    // (SDK regression).
+    // First gate: at least one `notifications/progress` frame arrived
+    // from the streaming window. Zero frames means subscribe's drain
+    // loop never delivered — either the bus emission never made it
+    // (regression) or the notification handler installation never
+    // reached the server (SDK regression).
     if (frames.length === 0) {
       throw new Error(
         'no notifications/progress frame arrived during ' + MAX_MS + 'ms ' +
@@ -337,6 +385,46 @@ runWithWatchdog(
     }
     console.log(
       'OK   notifications/progress -> ' + frames.length + ' frame(s) received',
+    );
+
+    // ---- LOAD-BEARING CAUSALITY ASSERTION (rf2-x0pr0) ----
+    //
+    // Pre-fix the gate stopped at "at least one frame arrived" — which a
+    // spurious, unrelated bus emission during the window could satisfy
+    // even if OUR dispatch raced ahead of subscription registration or
+    // failed silently. The `:trace` topic carries EVERY dispatch on the
+    // runtime, so "a frame" is NOT proof the frame is the cascade we
+    // caused.
+    //
+    // We now require at least ONE frame whose `:message` (the EDN-printed
+    // batch — on `:trace` a `:cascades` vector, each bundle carrying its
+    // `:event` slot = the dispatched event vector) contains our per-run
+    // NONCE. Since we dispatched `[:counter/inc "<NONCE>"]`, the cascade's
+    // `:event` slot is that exact vector and the nonce string appears in
+    // the `pr-str`'d message. A frame from any OTHER source cannot carry
+    // this freshly-minted UUID. This makes the gate genuinely causal:
+    // it fails unless the observed progress frame corresponds to the
+    // specific event we dispatched.
+    const causalFrame = frames.find(
+      (f) => typeof f.message === 'string' && f.message.includes(NONCE),
+    );
+    if (!causalFrame) {
+      const messages = frames
+        .map((f, i) => '#' + i + ': ' + String(f.message || '').slice(0, 200))
+        .join('\n      ');
+      throw new Error(
+        'received ' + frames.length + ' progress frame(s) but NONE carried ' +
+          'the dispatched nonce ' + JSON.stringify(NONCE) + ' in its ' +
+          '`message`. The streaming gate cannot confirm the observed ' +
+          'frame is the cascade from OUR `[:counter/inc <nonce>]` dispatch ' +
+          '— a frame without the nonce is an unrelated bus emission, not ' +
+          'proof the subscribe→dispatch→drain path delivered our event ' +
+          '(rf2-x0pr0). Frame messages:\n      ' + messages,
+      );
+    }
+    console.log(
+      'OK   notifications/progress frame carries the dispatched nonce — ' +
+        'cascade causally attributed to [:counter/inc <nonce>]',
     );
 
     // Every frame MUST satisfy the cross-MCP shape pinned by
