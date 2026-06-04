@@ -581,17 +581,27 @@
   builds (`goog.DEBUG=false`) DCE the inner branch."
   [s]
   (let [arr #js []]
-    (loop [items s]
-      (when-let [el (first items)]
-        (when ^boolean js/goog.DEBUG
-          (when (and (vector? el)
-                     (not (get-react-key el))
-                     (exists? js/console))
-            (.warn js/console
-                   (str "[reagent-slim] each child in a list should have a unique"
-                        " :key prop; saw " (pr-str el)))))
-        (.push arr (as-element el))
-        (recur (rest items))))
+    ;; Drive the loop off seq-exhaustion (`seq`), NOT the truthiness of
+    ;; the bound element. A `when-let`/`first`-truthiness loop cannot
+    ;; distinguish "seq exhausted" from a `nil`/`false` element in the
+    ;; middle of the seq, so it terminates early and silently drops that
+    ;; element AND every subsequent child. The idiomatic conditional-list
+    ;; shape — `(for [x xs] (when (pred? x) [:li ...]))` — yields exactly
+    ;; such interior nils and would truncate at the first filtered row.
+    ;; Stock Reagent maps `as-element` over the WHOLE seq (nil → React
+    ;; null, renders nothing); we match that. (rf2-8u8tx.1)
+    (loop [items (seq s)]
+      (when items
+        (let [el (first items)]
+          (when ^boolean js/goog.DEBUG
+            (when (and (vector? el)
+                       (not (get-react-key el))
+                       (exists? js/console))
+              (.warn js/console
+                     (str "[reagent-slim] each child in a list should have a unique"
+                          " :key prop; saw " (pr-str el)))))
+          (.push arr (as-element el))
+          (recur (next items)))))
     arr))
 
 (defn- ^boolean hiccup-tag? [x]

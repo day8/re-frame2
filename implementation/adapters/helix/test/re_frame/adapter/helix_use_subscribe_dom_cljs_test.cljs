@@ -171,6 +171,16 @@
 (deftest use-subscribe-strictmode-double-mount-refcount-balances
   (suite/assert-use-subscribe-strictmode-double-mount-refcount-balances cfg))
 
+;; rf2-8u8tx.2 — a useMemo factory re-run on unchanged deps (React's
+;; documented perf-opt discard) must not leak a sub-cache ref-count.
+(deftest use-subscribe-memo-recompute-no-refcount-leak
+  (suite/assert-use-subscribe-memo-recompute-no-refcount-leak cfg))
+
+;; rf2-879fe — an abandoned/restarted render that ran use-subscribe before
+;; commit must leave no pinned sub-cache ref-count.
+(deftest use-subscribe-abandoned-render-no-refcount-leak
+  (suite/assert-use-subscribe-abandoned-render-no-refcount-leak cfg))
+
 (deftest use-subscribe-stable-deps-key
   (suite/assert-use-subscribe-stable-deps-key cfg))
 
