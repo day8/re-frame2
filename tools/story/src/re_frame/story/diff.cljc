@@ -103,6 +103,52 @@
             [re-frame.story.play.evidence :as evidence]))
 
 ;; ===========================================================================
+;; KEYED DELTA  (the shared added / removed / changed shape)
+;; ===========================================================================
+;;
+;; Three facets — the app-db key-path delta, the assertion / check verdict
+;; delta, and the sub-overrides delta — all compute the SAME thing: given two
+;; `{identity → value}` maps, which identities are in current but not baseline
+;; (`:added`), in baseline but not current (`:removed`), or in both with a
+;; different value (`:changed`). They differ ONLY in the entry key the readable
+;; rows carry (`:path` / `:selector` / `:query`). `keyed-delta` is that one
+;; computation; each facet calls it with its identity label.
+
+(defn- keyed-delta
+  "Added / removed / changed delta between two `{identity → value}` maps. Pure
+  data → data. `id-key` is the keyword each readable row carries for the
+  identity (`:path` / `:selector` / `:query`). Returns `nil` when the maps are
+  `=`, else a `cond->`-built map carrying ONLY the non-empty buckets:
+
+      {:added   [{id-key … :current  v} …]   ; in current, not baseline
+       :removed [{id-key … :baseline v} …]   ; in baseline, not current
+       :changed [{id-key … :baseline a :current b} …]}  ; value differs
+
+  Identities are ordered by `pr-str` — a total, type-safe order over
+  heterogeneous identities (a path / selector / query may mix keyword /
+  vector / number keys, so raw `sort` could throw)."
+  [id-key baseline current]
+  (when (not= baseline current)
+    (let [base-ks (set (keys baseline))
+          cur-ks  (set (keys current))
+          added   (sort-by pr-str (remove base-ks cur-ks))
+          removed (sort-by pr-str (remove cur-ks base-ks))
+          changed (sort-by pr-str
+                           (filter (fn [k] (and (contains? baseline k)
+                                                (not= (baseline k) (current k))))
+                                   cur-ks))]
+      (cond-> {}
+        (seq added)   (assoc :added
+                             (mapv (fn [k] {id-key k :current (current k)}) added))
+        (seq removed) (assoc :removed
+                             (mapv (fn [k] {id-key k :baseline (baseline k)}) removed))
+        (seq changed) (assoc :changed
+                             (mapv (fn [k] {id-key    k
+                                            :baseline (baseline k)
+                                            :current  (current k)})
+                                   changed))))))
+
+;; ===========================================================================
 ;; APP-DB DELTA  (readable key-path diff)
 ;; ===========================================================================
 ;;
@@ -111,7 +157,9 @@
 ;; that were added, removed, or changed between baseline and current. The
 ;; assembler feeds these fns NOISE-STRIPPED app-dbs (`strip-noise` —
 ;; volatile / `:rf.story/*` accumulator keys gone), so a path that survives
-;; here is a genuine semantic difference.
+;; here is a genuine semantic difference. The added/removed/changed bucketing
+;; rides the shared `keyed-delta` (keyed by `:path`); only the leaf-path
+;; PROJECTION (`leaf-paths`) is app-db-specific.
 
 (defn- leaf-paths
   "Every leaf path through a nested map, paired with its value. A non-map
@@ -153,33 +201,12 @@
   Paths are leaf paths through the nested map; a slot present on only one
   side is `:added` / `:removed`, a slot present on both with different
   values is `:changed`. Only the differing slots appear — a 100-key db with
-  one changed key yields a one-entry `:changed`."
+  one changed key yields a one-entry `:changed`. The added/removed/changed
+  bucketing is the shared `keyed-delta` (keyed by `:path`); the leaf-path
+  projection (`leaf-paths`) is the only app-db-specific step."
   [baseline current]
   (when (not= baseline current)
-    (let [base-leaves (leaf-paths baseline)
-          cur-leaves  (leaf-paths current)
-          base-paths  (set (keys base-leaves))
-          cur-paths   (set (keys cur-leaves))
-          ;; `sort-by pr-str` is a total, type-safe order over heterogeneous
-          ;; path vectors (a path may mix keyword / string / number keys, so
-          ;; raw `sort` could throw comparing a keyword to a number).
-          added       (sort-by pr-str (remove base-paths cur-paths))
-          removed     (sort-by pr-str (remove cur-paths base-paths))
-          changed     (sort-by pr-str
-                               (filter (fn [p]
-                                         (and (contains? base-leaves p)
-                                              (not= (base-leaves p) (cur-leaves p))))
-                                       cur-paths))]
-      (cond-> {}
-        (seq added)   (assoc :added
-                             (mapv (fn [p] {:path p :current (cur-leaves p)}) added))
-        (seq removed) (assoc :removed
-                             (mapv (fn [p] {:path p :baseline (base-leaves p)}) removed))
-        (seq changed) (assoc :changed
-                             (mapv (fn [p] {:path     p
-                                            :baseline (base-leaves p)
-                                            :current  (cur-leaves p)})
-                                   changed))))))
+    (keyed-delta :path (leaf-paths baseline) (leaf-paths current))))
 
 ;; ===========================================================================
 ;; MULTISET DELTA  (effects / sub-runs — emission-ordered evidence rows)
@@ -367,45 +394,9 @@
 ;; a record one run produced and the other did not, OR a record whose VERDICT
 ;; (`:status`) flipped between the runs. So the delta is keyed by selector and
 ;; carries three buckets: `:added` / `:removed` selectors, and `:changed`
-;; verdict flips. This mirrors the `diff-app-db` added/removed/changed shape
-;; rather than inventing a new diff vocabulary.
-
-(defn- verdict-delta
-  "Verdict delta between two selector→status maps. Pure data → data. Returns
-  `nil` when the maps are `=`, else a `cond->`-built map carrying ONLY the
-  non-empty buckets:
-
-      {:added   [{:selector … :current  status} …]   ; in current, not baseline
-       :removed [{:selector … :baseline status} …]   ; in baseline, not current
-       :changed [{:selector … :baseline a :current b} …]}  ; verdict flipped
-
-  Selectors are ordered by `pr-str` (a total, type-safe order over
-  heterogeneous selectors — a selector may mix keyword / vector / number, so
-  raw `sort` could throw)."
-  [baseline-by-sel current-by-sel]
-  (when (not= baseline-by-sel current-by-sel)
-    (let [base-sels (set (keys baseline-by-sel))
-          cur-sels  (set (keys current-by-sel))
-          added     (sort-by pr-str (remove base-sels cur-sels))
-          removed   (sort-by pr-str (remove cur-sels base-sels))
-          changed   (sort-by pr-str
-                             (filter (fn [s]
-                                       (and (contains? baseline-by-sel s)
-                                            (not= (baseline-by-sel s)
-                                                  (current-by-sel s))))
-                                     cur-sels))]
-      (cond-> {}
-        (seq added)   (assoc :added
-                             (mapv (fn [s] {:selector s
-                                            :current  (current-by-sel s)}) added))
-        (seq removed) (assoc :removed
-                             (mapv (fn [s] {:selector s
-                                            :baseline (baseline-by-sel s)}) removed))
-        (seq changed) (assoc :changed
-                             (mapv (fn [s] {:selector s
-                                            :baseline (baseline-by-sel s)
-                                            :current  (current-by-sel s)})
-                                   changed))))))
+;; verdict flips — exactly the shared `keyed-delta` shape (keyed by
+;; `:selector`), so `diff-assertions` / `diff-checks` project a selector→status
+;; map and hand it straight to `keyed-delta`.
 
 (defn- assertions-by-selector
   "Map every assertion record in a run to its `:status`, keyed by the stable
@@ -422,12 +413,14 @@
   "Verdict delta over the two runs' `:assertions` records, keyed by the
   stable assertion selector `[:assertion :payload]` (spec/017 §Semantic diff).
   Pure data → data; `nil` when both runs evaluated the same assertions to the
-  same verdicts, else the `verdict-delta` shape (`:added` / `:removed`
-  selectors + `:changed` verdict flips). A `:pass` → `:fail` flip on one
-  assertion reads as a one-entry `:changed`, not a wall of records."
+  same verdicts, else the shared `keyed-delta` shape keyed by `:selector`
+  (`:added` / `:removed` selectors + `:changed` verdict flips). A `:pass` →
+  `:fail` flip on one assertion reads as a one-entry `:changed`, not a wall of
+  records."
   [baseline current]
-  (verdict-delta (assertions-by-selector baseline)
-                 (assertions-by-selector current)))
+  (keyed-delta :selector
+               (assertions-by-selector baseline)
+               (assertions-by-selector current)))
 
 (defn- checks-by-id
   "Map every check record in a run to its `:status`, keyed by the `:check`
@@ -440,10 +433,11 @@
 (defn diff-checks
   "Verdict delta over the two runs' `:checks` records, keyed by the `:check`
   id (spec/017 §Semantic diff). Pure data → data; `nil` when both runs ran
-  the same checks to the same verdicts, else the `verdict-delta` shape
-  (`:added` / `:removed` check ids + `:changed` verdict flips)."
+  the same checks to the same verdicts, else the shared `keyed-delta` shape
+  keyed by `:selector` (`:added` / `:removed` check ids + `:changed` verdict
+  flips)."
   [baseline current]
-  (verdict-delta (checks-by-id baseline) (checks-by-id current)))
+  (keyed-delta :selector (checks-by-id baseline) (checks-by-id current)))
 
 ;; ===========================================================================
 ;; SUB-OVERRIDES DELTA  (the resolved render-path override map)
@@ -465,29 +459,13 @@
        :removed [{:query … :baseline v} …]   ; override only in baseline
        :changed [{:query … :baseline a :current b} …]}  ; pinned value differs
 
-  Query vectors are ordered by `pr-str` for a stable, type-safe order."
+  Query vectors are ordered by `pr-str` for a stable, type-safe order. The
+  added/removed/changed bucketing is the shared `keyed-delta` (keyed by
+  `:query`)."
   [baseline current]
-  (let [base (or (:sub-overrides baseline) {})
-        cur  (or (:sub-overrides current) {})]
-    (when (not= base cur)
-      (let [base-qs (set (keys base))
-            cur-qs  (set (keys cur))
-            added   (sort-by pr-str (remove base-qs cur-qs))
-            removed (sort-by pr-str (remove cur-qs base-qs))
-            changed (sort-by pr-str
-                             (filter (fn [q] (and (contains? base q)
-                                                  (not= (base q) (cur q))))
-                                     cur-qs))]
-        (cond-> {}
-          (seq added)   (assoc :added
-                               (mapv (fn [q] {:query q :current (cur q)}) added))
-          (seq removed) (assoc :removed
-                               (mapv (fn [q] {:query q :baseline (base q)}) removed))
-          (seq changed) (assoc :changed
-                               (mapv (fn [q] {:query    q
-                                              :baseline (base q)
-                                              :current  (cur q)})
-                                     changed)))))))
+  (keyed-delta :query
+               (or (:sub-overrides baseline) {})
+               (or (:sub-overrides current) {})))
 
 ;; ===========================================================================
 ;; FIDELITY DELTA  (the fidelity-ladder rung set)
