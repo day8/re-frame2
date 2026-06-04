@@ -58,7 +58,8 @@
 
   The singletons `config` and `epoch-counter` are irreducible (the
   former is configuration state, the latter a counter source — both
-  read/written by ALL frames, so frame-id keying would be artificial).")
+  read/written by ALL frames, so frame-id keying would be artificial)."
+  (:require [re-frame.privacy :as privacy]))
 
 ;; ---- configuration --------------------------------------------------------
 
@@ -575,10 +576,23 @@
      :row?          <bool — was there a structured `slot` row delta?>
      :trace-events  <redacted :trace-events delta value, when :append?>
      :slot          <the structured slot keyword>
-     :slot-value    <redacted `slot` delta value, when :row?>}
+     :slot-value    <redacted `slot` delta value, when :row?>
+     :sensitive?    <bool — did the RAW back-filled event carry the
+                     `:sensitive?` stamp? (rf2-j1ec6.1 rollup OR-source)>}
 
   Returns `nil` when there is no delta to append (an unmount on a record
   whose `:trace-events` was already dropped by the keep-window cap).
+
+  Per rf2-j1ec6.1 (Security.md:109 §Sensitive rollup): the record-level
+  `:rf.epoch/sensitive?` rollup MUST consider `:trace-events` overlap, but
+  `build-record` computes it ONCE at settle time over the SETTLE-TIME
+  events — a post-settle back-fill that appends a `:sensitive?`-stamped
+  trace event would otherwise leave the rollup stale-false. We capture the
+  RAW (pre-redact) back-filled event's `:sensitive?` stamp HERE so the
+  pure `splice-redacted-delta` can OR it into the record's rollup inside
+  the swap (fail-CLOSED — mayor-ruled option a). The stamp is read off the
+  RAW `event`, not the redacted delta, because a `:redact-fn` may scrub the
+  stamp while the underlying content was still sensitive.
 
   Per rf2-7i872: `redact` (the app-supplied `:redact-fn`, via
   `assembly/maybe-redact`) is INVOKED HERE — exactly ONCE — and the caller
@@ -614,7 +628,16 @@
                        append? (assoc :trace-events [event])
                        row?    (assoc slot [row]))
             redacted (redact probe)]
-        (cond-> {:append? append? :row? row? :slot slot}
+        (cond-> {:append?    append?
+                 :row?       row?
+                 :slot       slot
+                 ;; rf2-j1ec6.1: read the RAW event's sensitivity stamp
+                 ;; BEFORE redaction so the rollup OR survives a redact-fn
+                 ;; that scrubs the stamp. The back-filled `event` is always
+                 ;; the raw trace event (`back-fill-event!` is handed the raw
+                 ;; emit); the `row` is its projection and carries no
+                 ;; independent stamp.
+                 :sensitive? (privacy/sensitive? event)}
           append? (assoc :trace-events (:trace-events redacted))
           row?    (assoc :slot-value (get redacted slot)))))))
 
@@ -638,12 +661,22 @@
   vector (or absent); a real slot already collapsed to a sentinel by a
   prior whole-slot scrub is left at the sentinel (the delta is subsumed).
 
+  Per rf2-j1ec6.1: the record-level `:rf.epoch/sensitive?` rollup is
+  OR'd with the back-filled event's RAW sensitivity (`:sensitive?` on the
+  precomputed `delta`). A post-settle back-fill of a `:sensitive?`-stamped
+  trace event flips the rollup `true`, keeping the Security.md:109
+  invariant (the rollup considers `:trace-events` overlap) literally true
+  post-back-fill — coarse drop-gate consumers that branch on the boolean
+  rollup now correctly drop a record whose only sensitive content arrived
+  via back-fill. The OR is monotonic/idempotent, so it rides safely inside
+  the CAS-retried swap (a retry re-ORs the same true with no corruption).
+
   `delta` nil (no append) is a pass-through — return the record
   untouched (do NOT spuriously re-redact it)."
   [record delta]
   (if (nil? delta)
     record
-    (let [{:keys [append? row? slot trace-events slot-value]} delta
+    (let [{:keys [append? row? slot trace-events slot-value sensitive?]} delta
           splice (fn [rec real-slot dv]
                    (cond
                      (and (vector? dv) (vector? (get rec real-slot)))
@@ -658,8 +691,12 @@
                      :else               ; whole-slot collapse by the fn
                      (assoc rec real-slot dv)))]
       (cond-> record
-        append? (splice :trace-events trace-events)
-        row?    (splice slot slot-value)))))
+        append?    (splice :trace-events trace-events)
+        row?       (splice slot slot-value)
+        ;; rf2-j1ec6.1 fail-CLOSED rollup recompute: OR the back-filled
+        ;; event's sensitivity into the record-level rollup. Only flips
+        ;; false→true (never clears a settle-time true).
+        sensitive? (assoc :rf.epoch/sensitive? true)))))
 
 (defn- back-fill-event!
   "Append `event` and its projected `row` (into the `slot` projection)
