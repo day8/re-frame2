@@ -1854,6 +1854,390 @@
                (bracket-span open-bracket)]
               (concat item-children [(bracket-span close)]))))))
 
+(defn- classify-container-op
+  "Classify this container's diff op (`:same` / `:added` / `:removed` /
+  `:children`) for `render-container`.
+
+  Extracted verbatim from `render-container`'s body for clarity
+  (rf2-nk7w0) — the answer is a pure function of
+  `(diff? before value kind path projection removed-ancestor?)`.
+
+  Diff: classify this container's op via the rf2-n2jig
+  Editscript-backed projection map. The projection is computed once at
+  the top of `render-edn-inspector` and threaded down via `opts`; the
+  per-path lookup is constant-time. When the projection is absent
+  (non-diff mode), every path reads `:same` and the gutter rows
+  collapse to a transparent left border.
+
+  rf2-n2jig — tests that drive `render-node` directly without going
+  through `render-edn-inspector` skip the top-level projection compute.
+  We fall back to a lightweight local op classifier in that case so the
+  ancestor-chain force-open + chrome wiring still functions (the engine
+  is the canonical classifier, but a 6-line `(cond ...)` fallback is no
+  shim — it's the same answer for the (before, value) pair, with the
+  engine's superset of `:same-shifted` / R7 / R8 nuances unreachable
+  from this call path)."
+  [{:keys [diff? before value kind path projection removed-ancestor?]}]
+  (cond
+    ;; rf2-8pfkk — a removed-container ghost (and every container inside
+    ;; it) is unconditionally `:removed`. This MUST precede the
+    ;; projection lookup: the engine anchors a `dissoc`-to-`{}` on the
+    ;; surviving parent and classifies the ghost's own path `:children`,
+    ;; which would otherwise paint the deletion as a benign
+    ;; descendant-change rail.
+    removed-ancestor? :removed
+
+    ;; rf2-0c6a3 — a collection emptied by member removal (`#{:a}→#{}`,
+    ;; `{:k :v}→{}`, `[x]→[]`, `(x)→()`) keeps its KEY INTACT: the value
+    ;; is now the empty collection with the dropped member(s) struck
+    ;; INSIDE it. The engine's R5 `mark-wholly-changed` legitimately
+    ;; promotes the emptied set / map container path to `:removed` (the
+    ;; opposite side is empty — no surviving member to anchor a
+    ;; member-level diff at the container path). Trusting that `:removed`
+    ;; here would render the node like a `dissoc`-removed key (struck
+    ;; whole, `−` glyph). We classify it `:children` instead so the node
+    ;; stays key-intact + change-bearing (auto-expands, rail in the
+    ;; modified hue) and the `children-of-pair` /
+    ;; `sequential-diff-children` union walk surfaces the struck-through
+    ;; removed member(s). Must precede the projection lookup; a real
+    ;; ghost (handled above by `removed-ancestor?`) is unaffected because
+    ;; its AFTER value is `missing-sentinel`, not an empty collection.
+    (and diff? (diff-emptied? before value))
+    :children
+
+    (and diff? projection)
+    (let [proj-op (engine/op-at projection path)]
+      ;; rf2-8pfkk — STRUCTURAL difference wins over a `:same`
+      ;; projection. A pure vector / list tail deletion routes through
+      ;; the engine's off-path `:vector-removals` channel (it owns no
+      ;; stable after-side path), so `op-at` reports `:same` for the
+      ;; parent even though `before` ≠ `value`. Trusting that `:same`
+      ;; collapsed the container and the dropped tail vanished. When the
+      ;; two sides genuinely differ we promote to `:children` so the
+      ;; container expands and the `children-of-pair` union walk
+      ;; surfaces the struck-through removed indices.
+      (if (and (= :same proj-op)
+               (not= before missing-sentinel)
+               (not= value missing-sentinel)
+               (not= before value))
+        :children
+        proj-op))
+
+    (and diff? (or (= before missing-sentinel)
+                   (= value missing-sentinel)))
+    (cond
+      (= before missing-sentinel) :added
+      :else                       :removed)
+
+    (and diff? (not= before value))
+    :children
+
+    :else :same))
+
+(defn- render-container-header
+  "Render the header row of a container (the line bearing the toggle
+  triangle + brackets / summary), exclusive of the removed-ghost
+  wrapper.
+
+  Extracted from `render-container` for clarity (rf2-nk7w0) — this is
+  the `cond` over the five header variants (empty / depth-capped /
+  inline-fit / expanded / collapsed-summary). Output is byte-identical
+  to the inlined form; all state is threaded in."
+  [{:keys [empty? depth-capped? inline-fit? expanded? width-fits?
+           value kind panel-id mount-id path toggle-fn max-inline-width
+           diff? projection op]}]
+  (cond
+    ;; Empty collection — show bracket pair flat, no toggle.
+    empty?
+    [:span {:style {:display "inline-flex" :align-items "baseline"}}
+     (bracket kind :open value)
+     (bracket kind :close value)]
+
+    ;; Depth-capped — render the placeholder ellipsis, click expands one level.
+    depth-capped?
+    (cond-> [:span {:style {:display "inline-flex" :align-items "center" :gap "4px"}}
+             [:span {:on-click   toggle-fn
+                     :on-double-click swallow-dblclick
+                     :role       "button"
+                     :tabIndex   0
+                     :aria-expanded false
+                     :data-testid (str (testid-for panel-id mount-id path) "-toggle")
+                     ;; rf2-tzvk9 — ≥24×24 click target via the shared
+                     ;; `triangle-style` (padding + font-size + min-width/
+                     ;; -height).
+                     :style triangle-style}
+              "▸"]]
+      true        (conj (bracket kind :open value))
+      true        (conj [:span {:style (token-style :text-tertiary)} "…"])
+      true        (conj (bracket kind :close value)))
+
+    ;; Small enough to render inline — open bracket + items + close
+    ;; bracket on one row, NO toggle (already exposed). Maps /
+    ;; records render `key value` pairs; sequentials render values
+    ;; only; sets render values only (no labelled key).
+    ;;
+    ;; rf2-kbdk8 — when `width-fits?` fires (a measurement is in play
+    ;; and the FULL pr-str fits the available column), defer to
+    ;; `render-inline-recursive` which handles nested containers in
+    ;; the same inline span. The legacy strict path (scalar-only
+    ;; children) still feeds the pre-measurement fallback.
+    inline-fit?
+    (let [inline-render
+          (if width-fits?
+            (render-inline-recursive value)
+            (let [labelled? (#{:map :record :map-entry} kind)
+                  pairs     (children-of value)]
+              (into [:span {:style {:display "inline-flex"
+                                    :align-items "baseline"
+                                    :flex-wrap "wrap"
+                                    :gap "4px"}}
+                     (bracket kind :open value)]
+                    (concat
+                      (apply concat
+                             (map-indexed
+                               (fn [i [k cv]]
+                                 (let [;; rf2-7hqwe — EDN-correct separator:
+                                       ;; `, ` between map/record entries,
+                                       ;; a single space between sequential
+                                       ;; elements (was hardcoded `, `).
+                                       sep (when (pos? i)
+                                             [:span {:style (token-style :text-tertiary)}
+                                              (inline-separator kind)])
+                                       ks  (when labelled? (key-segment k))
+                                       sp  (when labelled?
+                                             [:span {:style (token-style :text-tertiary)} " "])]
+                                   (cond-> []
+                                     sep (conj sep)
+                                     ks  (conj ks)
+                                     sp  (conj sp)
+                                     true (conj (render-scalar cv)))))
+                               pairs))
+                      [(bracket kind :close value)]))))]
+      ;; rf2-zl4rs — the inline-fit row has no separate zoom glyph;
+      ;; the zoom gesture lives on the container's outer div (handlers
+      ;; merged above), so the inline render passes through unwrapped.
+      inline-render)
+
+    ;; Default — toggle glyph + open bracket (when expanded) OR summary.
+    expanded?
+    (cond-> [:span {:style {:display "inline-flex" :align-items "center" :gap "4px"}}
+             [:span {:on-click   toggle-fn
+                     :on-double-click swallow-dblclick
+                     :role       "button"
+                     :tabIndex   0
+                     :aria-expanded true
+                     :data-testid (str (testid-for panel-id mount-id path) "-toggle")
+                     ;; rf2-tzvk9 — ≥24×24 click target via the shared
+                     ;; `triangle-style`.
+                     :style triangle-style}
+              "▾"]]
+      true        (conj (bracket kind :open value)))
+
+    :else
+    (let [;; R3-revised (rf2-n2jig + Mike pair-debug 2026-05-27):
+          ;; collapsed containers carrying ANY descendant change
+          ;; show a `[N∆]` alert chip IMMEDIATELY AFTER THE TRIANGLE
+          ;; — leading-edge position, solid orange + white text,
+          ;; constant regardless of op. The triangle itself stays
+          ;; default `:text-tertiary` (no colour swap) so the click
+          ;; affordance is unmuddied. See `r3-chip-style` docstring
+          ;; for the alert-vs-per-op-colour rationale.
+          n-changes (when (and diff? projection)
+                      (engine/change-count-at projection path))
+          show-chip? (and (pos? (or n-changes 0))
+                          (not (#{:added :removed} op)))]
+      (cond-> [:span {:style {:display "inline-flex" :align-items "center" :gap "6px"}}
+               [:span {:on-click   toggle-fn
+                       :on-double-click swallow-dblclick
+                       :role       "button"
+                       :tabIndex   0
+                       :aria-expanded false
+                       :data-testid (str (testid-for panel-id mount-id path) "-toggle")
+                       ;; rf2-tzvk9 — ≥24×24 click target via the shared
+                       ;; `triangle-style`.
+                       :style triangle-style}
+                "▸"]]
+        ;; Chip BEFORE summary so the alert reads at the leading
+        ;; edge (Mike pair-debug 2026-05-27). Was previously
+        ;; appended after `(collapsed-summary ...)`.
+        show-chip?
+        (conj [:span {:data-rf-diff-chip "1"
+                      :data-rf-diff-chip-count (str n-changes)
+                      :style r3-chip-style}
+               (str n-changes "∆")])
+        true        (conj (collapsed-summary value kind))))))
+
+(defn- render-grid-child-row
+  "Render one row of a labelled-key container body (map / record /
+  map-entry) as a `[key-cell value-cell]` pair of grid children.
+
+  Extracted from `render-container` for clarity (rf2-nk7w0). Output is
+  byte-identical to the inlined `(fn [[k cv cb]] …)`; the parent's
+  threaded state arrives via the opts map."
+  [{:keys [k cv cb path depth diff? projection removed-ancestor?
+           panel-id mount-id expansion-map dispatch-fn zoomable?
+           zoom-path-prefix opts]}]
+  (let [child-path (conj (vec path) k)
+        ;; R2 — when the KEY itself is new/removed
+        ;; (the parent map sees this k for the first
+        ;; time or this k is gone) paint a `+` / `−`
+        ;; glyph in column 1 of the KEY ROW. Distinct
+        ;; from "an existing key whose value changed"
+        ;; which paints on the value cell. Pulled off
+        ;; the projection's op at the child path.
+        ;; rf2-8pfkk — inside a removed ghost every
+        ;; key is `:removed` (the projection's op at
+        ;; the child path is not authoritative here —
+        ;; see the `op` override above). Force the
+        ;; removed key chrome + slot-anchored wash so
+        ;; the whole row strikes through.
+        ;; rf2-0c6a3 — an emptied-collection slot
+        ;; (`:k #{:a}` → `:k #{}`) keeps its KEY INTACT:
+        ;; the engine's R5 promotion classifies the
+        ;; emptied set / map child path `:removed`, but
+        ;; the slot SURVIVES (the after value is a
+        ;; present empty collection, not `missing`). A
+        ;; real `dissoc` has `cv` = `missing-sentinel`.
+        ;; So we read the SLOT shape: an emptied slot is
+        ;; `:children` (key intact, value changed; no `−`
+        ;; glyph, no key strike — the dropped member is
+        ;; struck INSIDE the value cell), distinct from a
+        ;; removed key. Type-agnostic across set / map /
+        ;; vector / list.
+        child-op (cond
+                   removed-ancestor?         :removed
+                   (diff-emptied? cb cv)     :children
+                   (and diff? projection)
+                   (engine/op-at projection child-path)
+                   :else                     nil)
+        key-side-glyph (case child-op
+                         :added   "+"
+                         :removed "−"
+                         nil)
+        ;; rf2-zpeyv — slot-vs-value anchoring. When
+        ;; the SLOT itself changes (key added /
+        ;; removed) the chrome paints the WHOLE row
+        ;; (key cell + value cell) in the per-op
+        ;; wash, and `:removed` strike-through reaches
+        ;; the key text. When only the VALUE inside
+        ;; an existing slot changed (R1/R7/R8), the
+        ;; chrome stays value-anchored (no key-cell
+        ;; wash, no key strike).
+        slot-anchored? (boolean (#{:added :removed} child-op))
+        slot-wash (when slot-anchored?
+                    (op-wash-bg child-op))
+        value-node (render-node
+                     {:value cv
+                      :before cb
+                      :diff? diff?
+                      :projection projection
+                      :panel-id panel-id
+                      :mount-id mount-id
+                      :path child-path
+                      :depth (inc depth)
+                      :expansion-map expansion-map
+                      :dispatch-fn dispatch-fn
+                      :zoomable? zoomable?
+                      :zoom-path-prefix zoom-path-prefix
+                      :opts opts
+                      ;; Suppress the leaf's inner
+                      ;; gutter-row wash — the slot
+                      ;; row paints it on the value
+                      ;; cell here. The gutter glyph
+                      ;; + per-token text colour on
+                      ;; the value still render.
+                      :slot-anchored? slot-anchored?
+                      ;; rf2-8pfkk — propagate the
+                      ;; ghost so nested containers /
+                      ;; leaves keep the `:removed` op.
+                      :removed-ancestor? removed-ancestor?})]
+    [(with-meta
+       ;; Key cell — uses `div` so the grid baseline
+       ;; aligns predictably across rows. `white-
+       ;; space: nowrap` prevents long keys (e.g. a
+       ;; deeply-namespaced `:rf.x.with.many.parts/k`)
+       ;; from wrapping inside the key column.
+       ;;
+       ;; rf2-zpeyv — when slot-anchored, paint the
+       ;; per-op wash across the KEY cell (whole-row
+       ;; treatment) and strike the key text for
+       ;; `:removed`. The wash on the sibling value
+       ;; cell completes the row.
+       [:div (cond-> {:data-rf-cell "key"
+                      :style (cond-> key-cell-style
+                               slot-wash
+                               (assoc :background slot-wash)
+                               (= child-op :removed)
+                               (assoc :text-decoration "line-through"))}
+               key-side-glyph
+               (assoc :data-rf-key-glyph key-side-glyph)
+               slot-anchored?
+               (assoc :data-rf-row-anchor "slot"
+                      :data-rf-row-wash "1"))
+        ;; R2 key-side glyph — paint `+` / `−` in
+        ;; column 1 of the key row when the KEY itself
+        ;; is new/removed. The key text picks up the
+        ;; per-op decoration (`:removed` gets strike-
+        ;; through; `:added` paints the key bright).
+        (when key-side-glyph
+          [:span {:data-rf-key-glyph "1"
+                  :style {:color       (:diff-gutter tokens)
+                          :font-weight 700
+                          :margin-right "4px"
+                          :user-select  "none"}}
+           key-side-glyph])
+        (cond-> (key-segment k)
+          (= child-op :removed)
+          (->>
+            (conj [:span {:style {:text-decoration "line-through"}}])))]
+       {:key (str "k-" (pr-str k))})
+     (with-meta
+       ;; Value cell. rf2-zpeyv — when slot-anchored,
+       ;; paint the per-op wash across the whole value
+       ;; cell so it joins the key cell's wash into a
+       ;; single banded row. The leaf's inner gutter-
+       ;; row wash is suppressed via `:slot-anchored?`
+       ;; on render-node (above) — no double-paint.
+       [:div (cond-> {:data-rf-cell "value"
+                      :style (cond-> value-cell-style
+                               slot-wash
+                               (assoc :background slot-wash))}
+               slot-anchored?
+               (assoc :data-rf-row-anchor "slot"
+                      :data-rf-row-wash "1"))
+        value-node]
+       {:key (str "v-" (pr-str k))})]))
+
+(defn- render-block-child
+  "Render one child of a sequential container body (vector / list / set
+  / seq) as a single bare `render-node` (no key column).
+
+  Extracted from `render-container` for clarity (rf2-nk7w0). Output is
+  byte-identical to the inlined `(fn [[k cv cb]] …)`."
+  [{:keys [k cv cb path depth diff? projection removed-ancestor?
+           panel-id mount-id expansion-map dispatch-fn zoomable?
+           zoom-path-prefix opts]}]
+  (let [child-path (conj (vec path) k)]
+    (with-meta
+      (render-node {:value cv
+                    :before cb
+                    :diff? diff?
+                    :projection projection
+                    :panel-id panel-id
+                    :mount-id mount-id
+                    :path child-path
+                    :depth (inc depth)
+                    :expansion-map expansion-map
+                    :dispatch-fn dispatch-fn
+                    :zoomable? zoomable?
+                    :zoom-path-prefix zoom-path-prefix
+                    :opts opts
+                    ;; rf2-8pfkk — vector / set / list
+                    ;; ghost members keep the `:removed`
+                    ;; op down the subtree.
+                    :removed-ancestor? removed-ancestor?})
+      {:key (str "v-" (pr-str k))})))
+
 (defn- render-container
   "Render a map / vector / list / set / record / map-entry container.
 
@@ -1900,88 +2284,18 @@
                         (child-count value kind))
         empty?        (zero? cnt)
         depth-capped? (>= depth max-depth)
-        ;; Diff: classify this container's op via the rf2-n2jig
-        ;; Editscript-backed projection map. The projection is computed
-        ;; once at the top of `render-edn-inspector` and threaded down
-        ;; via `opts`; the per-path lookup is constant-time. When the
-        ;; projection is absent (non-diff mode), every path reads `:same`
-        ;; and the gutter rows collapse to a transparent left border.
-        ;;
-        ;; rf2-n2jig — tests that drive `render-node` directly without
-        ;; going through `render-edn-inspector` skip the top-level
-        ;; projection compute. We fall back to a lightweight local op
-        ;; classifier in that case so the ancestor-chain force-open +
-        ;; chrome wiring still functions (the engine is the canonical
-        ;; classifier, but a 6-line `(cond ...)` fallback is no shim —
-        ;; it's the same answer for the (before, value) pair, with the
-        ;; engine's superset of `:same-shifted` / R7 / R8 nuances
-        ;; unreachable from this call path).
-        op            (cond
-                        ;; rf2-8pfkk — a removed-container ghost (and
-                        ;; every container inside it) is unconditionally
-                        ;; `:removed`. This MUST precede the projection
-                        ;; lookup: the engine anchors a `dissoc`-to-`{}`
-                        ;; on the surviving parent and classifies the
-                        ;; ghost's own path `:children`, which would
-                        ;; otherwise paint the deletion as a benign
-                        ;; descendant-change rail.
-                        removed-ancestor? :removed
-
-                        ;; rf2-0c6a3 — a collection emptied by member
-                        ;; removal (`#{:a}→#{}`, `{:k :v}→{}`, `[x]→[]`,
-                        ;; `(x)→()`) keeps its KEY INTACT: the value is now
-                        ;; the empty collection with the dropped member(s)
-                        ;; struck INSIDE it. The engine's R5
-                        ;; `mark-wholly-changed` legitimately promotes the
-                        ;; emptied set / map container path to `:removed`
-                        ;; (the opposite side is empty — no surviving
-                        ;; member to anchor a member-level diff at the
-                        ;; container path). Trusting that `:removed` here
-                        ;; would render the node like a `dissoc`-removed
-                        ;; key (struck whole, `−` glyph). We classify it
-                        ;; `:children` instead so the node stays key-intact
-                        ;; + change-bearing (auto-expands, rail in the
-                        ;; modified hue) and the `children-of-pair` /
-                        ;; `sequential-diff-children` union walk surfaces
-                        ;; the struck-through removed member(s). Must
-                        ;; precede the projection lookup; a real ghost
-                        ;; (handled above by `removed-ancestor?`) is
-                        ;; unaffected because its AFTER value is
-                        ;; `missing-sentinel`, not an empty collection.
-                        (and diff? (diff-emptied? before value))
-                        :children
-
-                        (and diff? projection)
-                        (let [proj-op (engine/op-at projection path)]
-                          ;; rf2-8pfkk — STRUCTURAL difference wins over a
-                          ;; `:same` projection. A pure vector / list tail
-                          ;; deletion routes through the engine's off-path
-                          ;; `:vector-removals` channel (it owns no stable
-                          ;; after-side path), so `op-at` reports `:same`
-                          ;; for the parent even though `before` ≠
-                          ;; `value`. Trusting that `:same` collapsed the
-                          ;; container and the dropped tail vanished. When
-                          ;; the two sides genuinely differ we promote to
-                          ;; `:children` so the container expands and the
-                          ;; `children-of-pair` union walk surfaces the
-                          ;; struck-through removed indices.
-                          (if (and (= :same proj-op)
-                                   (not= before missing-sentinel)
-                                   (not= value missing-sentinel)
-                                   (not= before value))
-                            :children
-                            proj-op))
-
-                        (and diff? (or (= before missing-sentinel)
-                                       (= value missing-sentinel)))
-                        (cond
-                          (= before missing-sentinel) :added
-                          :else                       :removed)
-
-                        (and diff? (not= before value))
-                        :children
-
-                        :else :same)
+        ;; rf2-nk7w0 — op classification extracted to
+        ;; `classify-container-op` (the rf2-n2jig projection lookup +
+        ;; the rf2-8pfkk / rf2-0c6a3 structural overrides). Same answer
+        ;; for the (before, value, projection) tuple.
+        op            (classify-container-op
+                        {:diff?             diff?
+                         :before            before
+                         :value             value
+                         :kind              kind
+                         :path              path
+                         :projection        projection
+                         :removed-ancestor? removed-ancestor?})
         has-change?   (and diff? (not (#{:same :same-shifted} op)))
         ;; rf2-6q2tz — the R5 wholly-changed-ancestor lookup +
         ;; `inside-wholly?` derivation live in `render-leaf-with-diff`
@@ -2120,126 +2434,25 @@
                               :color (:diff-gutter tokens)
                               :text-decoration "none")}
          "−"])
-      (cond
-        ;; Empty collection — show bracket pair flat, no toggle.
-        empty?
-        [:span {:style {:display "inline-flex" :align-items "baseline"}}
-         (bracket kind :open value)
-         (bracket kind :close value)]
-
-        ;; Depth-capped — render the placeholder ellipsis, click expands one level.
-        depth-capped?
-        (cond-> [:span {:style {:display "inline-flex" :align-items "center" :gap "4px"}}
-                 [:span {:on-click   toggle-fn
-                         :on-double-click swallow-dblclick
-                         :role       "button"
-                         :tabIndex   0
-                         :aria-expanded false
-                         :data-testid (str (testid-for panel-id mount-id path) "-toggle")
-                         ;; rf2-tzvk9 — ≥24×24 click target via the shared
-                         ;; `triangle-style` (padding + font-size + min-width/
-                         ;; -height).
-                         :style triangle-style}
-                  "▸"]]
-          true        (conj (bracket kind :open value))
-          true        (conj [:span {:style (token-style :text-tertiary)} "…"])
-          true        (conj (bracket kind :close value)))
-
-        ;; Small enough to render inline — open bracket + items + close
-        ;; bracket on one row, NO toggle (already exposed). Maps /
-        ;; records render `key value` pairs; sequentials render values
-        ;; only; sets render values only (no labelled key).
-        ;;
-        ;; rf2-kbdk8 — when `width-fits?` fires (a measurement is in play
-        ;; and the FULL pr-str fits the available column), defer to
-        ;; `render-inline-recursive` which handles nested containers in
-        ;; the same inline span. The legacy strict path (scalar-only
-        ;; children) still feeds the pre-measurement fallback.
-        inline-fit?
-        (let [inline-render
-              (if width-fits?
-                (render-inline-recursive value)
-                (let [labelled? (#{:map :record :map-entry} kind)
-                      pairs     (children-of value)]
-                  (into [:span {:style {:display "inline-flex"
-                                        :align-items "baseline"
-                                        :flex-wrap "wrap"
-                                        :gap "4px"}}
-                         (bracket kind :open value)]
-                        (concat
-                          (apply concat
-                                 (map-indexed
-                                   (fn [i [k cv]]
-                                     (let [;; rf2-7hqwe — EDN-correct separator:
-                                           ;; `, ` between map/record entries,
-                                           ;; a single space between sequential
-                                           ;; elements (was hardcoded `, `).
-                                           sep (when (pos? i)
-                                                 [:span {:style (token-style :text-tertiary)}
-                                                  (inline-separator kind)])
-                                           ks  (when labelled? (key-segment k))
-                                           sp  (when labelled?
-                                                 [:span {:style (token-style :text-tertiary)} " "])]
-                                       (cond-> []
-                                         sep (conj sep)
-                                         ks  (conj ks)
-                                         sp  (conj sp)
-                                         true (conj (render-scalar cv)))))
-                                   pairs))
-                          [(bracket kind :close value)]))))]
-          ;; rf2-zl4rs — the inline-fit row has no separate zoom glyph;
-          ;; the zoom gesture lives on the container's outer div (handlers
-          ;; merged above), so the inline render passes through unwrapped.
-          inline-render)
-
-        ;; Default — toggle glyph + open bracket (when expanded) OR summary.
-        expanded?
-        (cond-> [:span {:style {:display "inline-flex" :align-items "center" :gap "4px"}}
-                 [:span {:on-click   toggle-fn
-                         :on-double-click swallow-dblclick
-                         :role       "button"
-                         :tabIndex   0
-                         :aria-expanded true
-                         :data-testid (str (testid-for panel-id mount-id path) "-toggle")
-                         ;; rf2-tzvk9 — ≥24×24 click target via the shared
-                         ;; `triangle-style`.
-                         :style triangle-style}
-                  "▾"]]
-          true        (conj (bracket kind :open value)))
-
-        :else
-        (let [;; R3-revised (rf2-n2jig + Mike pair-debug 2026-05-27):
-              ;; collapsed containers carrying ANY descendant change
-              ;; show a `[N∆]` alert chip IMMEDIATELY AFTER THE TRIANGLE
-              ;; — leading-edge position, solid orange + white text,
-              ;; constant regardless of op. The triangle itself stays
-              ;; default `:text-tertiary` (no colour swap) so the click
-              ;; affordance is unmuddied. See `r3-chip-style` docstring
-              ;; for the alert-vs-per-op-colour rationale.
-              n-changes (when (and diff? projection)
-                          (engine/change-count-at projection path))
-              show-chip? (and (pos? (or n-changes 0))
-                              (not (#{:added :removed} op)))]
-          (cond-> [:span {:style {:display "inline-flex" :align-items "center" :gap "6px"}}
-                   [:span {:on-click   toggle-fn
-                           :on-double-click swallow-dblclick
-                           :role       "button"
-                           :tabIndex   0
-                           :aria-expanded false
-                           :data-testid (str (testid-for panel-id mount-id path) "-toggle")
-                           ;; rf2-tzvk9 — ≥24×24 click target via the shared
-                           ;; `triangle-style`.
-                           :style triangle-style}
-                    "▸"]]
-            ;; Chip BEFORE summary so the alert reads at the leading
-            ;; edge (Mike pair-debug 2026-05-27). Was previously
-            ;; appended after `(collapsed-summary ...)`.
-            show-chip?
-            (conj [:span {:data-rf-diff-chip "1"
-                          :data-rf-diff-chip-count (str n-changes)
-                          :style r3-chip-style}
-                   (str n-changes "∆")])
-            true        (conj (collapsed-summary value kind)))))]
+      ;; rf2-nk7w0 — the five-variant header `cond` (empty / depth-capped
+      ;; / inline-fit / expanded / collapsed-summary) extracted to
+      ;; `render-container-header`. Output byte-identical.
+      (render-container-header
+        {:empty?          empty?
+         :depth-capped?   depth-capped?
+         :inline-fit?     inline-fit?
+         :expanded?       expanded?
+         :width-fits?     width-fits?
+         :value           value
+         :kind            kind
+         :panel-id        panel-id
+         :mount-id        mount-id
+         :path            path
+         :toggle-fn       toggle-fn
+         :max-inline-width max-inline-width
+         :diff?           diff?
+         :projection      projection
+         :op              op})]
 
      ;; ---- body — children rendered indented -----------------------------
      ;;
@@ -2307,138 +2520,19 @@
                           :style (cond-> body-grid-style
                                    rail-stripe
                                    (assoc :border-left (str "2px solid " rail-stripe)))})]
+                 ;; rf2-nk7w0 — per-row key/value cell construction
+                 ;; extracted to `render-grid-child-row`.
                  (mapcat
                    (fn [[k cv cb]]
-                     (let [child-path (conj (vec path) k)
-                           ;; R2 — when the KEY itself is new/removed
-                           ;; (the parent map sees this k for the first
-                           ;; time or this k is gone) paint a `+` / `−`
-                           ;; glyph in column 1 of the KEY ROW. Distinct
-                           ;; from "an existing key whose value changed"
-                           ;; which paints on the value cell. Pulled off
-                           ;; the projection's op at the child path.
-                           ;; rf2-8pfkk — inside a removed ghost every
-                           ;; key is `:removed` (the projection's op at
-                           ;; the child path is not authoritative here —
-                           ;; see the `op` override above). Force the
-                           ;; removed key chrome + slot-anchored wash so
-                           ;; the whole row strikes through.
-                           ;; rf2-0c6a3 — an emptied-collection slot
-                           ;; (`:k #{:a}` → `:k #{}`) keeps its KEY INTACT:
-                           ;; the engine's R5 promotion classifies the
-                           ;; emptied set / map child path `:removed`, but
-                           ;; the slot SURVIVES (the after value is a
-                           ;; present empty collection, not `missing`). A
-                           ;; real `dissoc` has `cv` = `missing-sentinel`.
-                           ;; So we read the SLOT shape: an emptied slot is
-                           ;; `:children` (key intact, value changed; no `−`
-                           ;; glyph, no key strike — the dropped member is
-                           ;; struck INSIDE the value cell), distinct from a
-                           ;; removed key. Type-agnostic across set / map /
-                           ;; vector / list.
-                           child-op (cond
-                                      removed-ancestor?         :removed
-                                      (diff-emptied? cb cv)     :children
-                                      (and diff? projection)
-                                      (engine/op-at projection child-path)
-                                      :else                     nil)
-                           key-side-glyph (case child-op
-                                            :added   "+"
-                                            :removed "−"
-                                            nil)
-                           ;; rf2-zpeyv — slot-vs-value anchoring. When
-                           ;; the SLOT itself changes (key added /
-                           ;; removed) the chrome paints the WHOLE row
-                           ;; (key cell + value cell) in the per-op
-                           ;; wash, and `:removed` strike-through reaches
-                           ;; the key text. When only the VALUE inside
-                           ;; an existing slot changed (R1/R7/R8), the
-                           ;; chrome stays value-anchored (no key-cell
-                           ;; wash, no key strike).
-                           slot-anchored? (boolean (#{:added :removed} child-op))
-                           slot-wash (when slot-anchored?
-                                       (op-wash-bg child-op))
-                           value-node (render-node
-                                        {:value cv
-                                         :before cb
-                                         :diff? diff?
-                                         :projection projection
-                                         :panel-id panel-id
-                                         :mount-id mount-id
-                                         :path child-path
-                                         :depth (inc depth)
-                                         :expansion-map expansion-map
-                                         :dispatch-fn dispatch-fn
-                                         :zoomable? zoomable?
-                                         :zoom-path-prefix zoom-path-prefix
-                                         :opts opts
-                                         ;; Suppress the leaf's inner
-                                         ;; gutter-row wash — the slot
-                                         ;; row paints it on the value
-                                         ;; cell here. The gutter glyph
-                                         ;; + per-token text colour on
-                                         ;; the value still render.
-                                         :slot-anchored? slot-anchored?
-                                         ;; rf2-8pfkk — propagate the
-                                         ;; ghost so nested containers /
-                                         ;; leaves keep the `:removed` op.
-                                         :removed-ancestor? removed-ancestor?})]
-                       [(with-meta
-                          ;; Key cell — uses `div` so the grid baseline
-                          ;; aligns predictably across rows. `white-
-                          ;; space: nowrap` prevents long keys (e.g. a
-                          ;; deeply-namespaced `:rf.x.with.many.parts/k`)
-                          ;; from wrapping inside the key column.
-                          ;;
-                          ;; rf2-zpeyv — when slot-anchored, paint the
-                          ;; per-op wash across the KEY cell (whole-row
-                          ;; treatment) and strike the key text for
-                          ;; `:removed`. The wash on the sibling value
-                          ;; cell completes the row.
-                          [:div (cond-> {:data-rf-cell "key"
-                                         :style (cond-> key-cell-style
-                                                  slot-wash
-                                                  (assoc :background slot-wash)
-                                                  (= child-op :removed)
-                                                  (assoc :text-decoration "line-through"))}
-                                  key-side-glyph
-                                  (assoc :data-rf-key-glyph key-side-glyph)
-                                  slot-anchored?
-                                  (assoc :data-rf-row-anchor "slot"
-                                         :data-rf-row-wash "1"))
-                           ;; R2 key-side glyph — paint `+` / `−` in
-                           ;; column 1 of the key row when the KEY itself
-                           ;; is new/removed. The key text picks up the
-                           ;; per-op decoration (`:removed` gets strike-
-                           ;; through; `:added` paints the key bright).
-                           (when key-side-glyph
-                             [:span {:data-rf-key-glyph "1"
-                                     :style {:color       (:diff-gutter tokens)
-                                             :font-weight 700
-                                             :margin-right "4px"
-                                             :user-select  "none"}}
-                              key-side-glyph])
-                           (cond-> (key-segment k)
-                             (= child-op :removed)
-                             (->>
-                               (conj [:span {:style {:text-decoration "line-through"}}])))]
-                          {:key (str "k-" (pr-str k))})
-                        (with-meta
-                          ;; Value cell. rf2-zpeyv — when slot-anchored,
-                          ;; paint the per-op wash across the whole value
-                          ;; cell so it joins the key cell's wash into a
-                          ;; single banded row. The leaf's inner gutter-
-                          ;; row wash is suppressed via `:slot-anchored?`
-                          ;; on render-node (above) — no double-paint.
-                          [:div (cond-> {:data-rf-cell "value"
-                                         :style (cond-> value-cell-style
-                                                  slot-wash
-                                                  (assoc :background slot-wash))}
-                                  slot-anchored?
-                                  (assoc :data-rf-row-anchor "slot"
-                                         :data-rf-row-wash "1"))
-                           value-node]
-                          {:key (str "v-" (pr-str k))})]))
+                     (render-grid-child-row
+                       {:k k :cv cv :cb cb
+                        :path path :depth depth
+                        :diff? diff? :projection projection
+                        :removed-ancestor? removed-ancestor?
+                        :panel-id panel-id :mount-id mount-id
+                        :expansion-map expansion-map :dispatch-fn dispatch-fn
+                        :zoomable? zoomable? :zoom-path-prefix zoom-path-prefix
+                        :opts opts}))
                    child-pairs))
            ;; --- Block body for sequentials (vector / list / set / seq) ---
            ;; Each child renders bare (no key column). Per-row block flow
@@ -2457,28 +2551,19 @@
                           :style (cond-> body-block-style
                                    rail-stripe
                                    (assoc :border-left (str "2px solid " rail-stripe)))})]
+                 ;; rf2-nk7w0 — per-child render extracted to
+                 ;; `render-block-child`.
                  (map
                    (fn [[k cv cb]]
-                     (let [child-path (conj (vec path) k)]
-                       (with-meta
-                         (render-node {:value cv
-                                       :before cb
-                                       :diff? diff?
-                                       :projection projection
-                                       :panel-id panel-id
-                                       :mount-id mount-id
-                                       :path child-path
-                                       :depth (inc depth)
-                                       :expansion-map expansion-map
-                                       :dispatch-fn dispatch-fn
-                                       :zoomable? zoomable?
-                                       :zoom-path-prefix zoom-path-prefix
-                                       :opts opts
-                                       ;; rf2-8pfkk — vector / set / list
-                                       ;; ghost members keep the `:removed`
-                                       ;; op down the subtree.
-                                       :removed-ancestor? removed-ancestor?})
-                         {:key (str "v-" (pr-str k))})))
+                     (render-block-child
+                       {:k k :cv cv :cb cb
+                        :path path :depth depth
+                        :diff? diff? :projection projection
+                        :removed-ancestor? removed-ancestor?
+                        :panel-id panel-id :mount-id mount-id
+                        :expansion-map expansion-map :dispatch-fn dispatch-fn
+                        :zoomable? zoomable? :zoom-path-prefix zoom-path-prefix
+                        :opts opts}))
                    child-pairs)))))
 
      ;; ---- close bracket (only when expanded + body present) -------------
