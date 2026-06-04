@@ -485,6 +485,201 @@
           "ONLY :left's region cascades: exit :two,:grp → action → re-enter :grp → re-init :one; :right untouched"))))
 
 ;; ===========================================================================
+;; §5b. done.state.<id> — TRANSITIONABLE compound / parallel onDone
+;;
+;; SCXML §3.7 `done.state.id`: when a COMPOUND state reaches a `<final>`
+;; child — or a `<parallel>` reaches all-regions-final — the processor raises
+;; `done.state.<id>` INTO the machine. An enclosing transition (`onDone` on
+;; the node, or an ancestor `<transition event='done.state.id'>`) can TAKE it,
+;; advancing the outer flow WHILE the machine keeps running. The signal is a
+;; transitionable completion event, NOT (necessarily) a teardown. XState v5
+;; `onDone`. Spec 005 §Final states §The done-state signal (rf2-bnjb3 /
+;; rf2-zlmz7). These exercise the PURE engine: the done-raise fires through
+;; the FIFO `:raise` queue and the enclosing `:on-done` resolves in the SAME
+;; macrostep — observable on the post-macrostep snapshot.
+;; ===========================================================================
+
+(deftest scxml-compound-done-fires-enclosing-on-done
+  (testing "SCXML §3.7 done.state.<compoundId>: a compound reaching its
+            `<final>` child raises done.state into the machine; the compound's
+            `:on-done` advances the OUTER flow in the SAME macrostep, and the
+            machine keeps running (NOT torn down). Spec 005 §Final states §The
+            done-state signal — the canonical 'sub-flow completes → continue'."
+    (let [m {:initial :flow :data {}
+             :states
+             {:flow {:initial :step
+                     ;; onDone on the compound — keyword target is a SIBLING
+                     ;; of :flow (resolved at :flow's own level).
+                     :on-done :next
+                     :states  {:step {:on {:finish :inner-done}}
+                               :inner-done {:final? true}}}
+              :next {}}}
+          ;; :finish lands [:flow :inner-done] (final child of :flow) → the
+          ;; engine raises [:rf.machine/done [:flow]] → :flow's :on-done fires
+          ;; :flow → :next, all within the one macrostep.
+          r (step m {:state [:flow :step] :data {}} [:finish])]
+      (is (= :next (:state r))
+          "the compound :flow reached its :final? child, its :on-done fired,
+           and the machine advanced to the sibling :next — same macrostep"))))
+
+(deftest scxml-compound-done-on-done-runs-action-and-target
+  (testing "SCXML §3.7 + §5.4: the compound `:on-done` transition runs its
+            executable content (the `:action`'s :data write) as it advances.
+            Spec 005 §Final states §The done-state signal."
+    (let [m {:initial :flow :data {:done-count 0}
+             :actions {:mark (fn [{d :data}] {:data (update d :done-count inc)})}
+             :states
+             {:flow {:initial :step
+                     :on-done {:target :next :action :mark}
+                     :states  {:step {:on {:finish :inner-done}}
+                               :inner-done {:final? true}}}
+              :next {}}}
+          r (step m {:state [:flow :step] :data {:done-count 0}} [:finish])]
+      (is (= :next (:state r)) "advanced to :next via :on-done")
+      (is (= 1 (get-in r [:data :done-count]))
+          "the :on-done action's :data write committed in the same macrostep"))))
+
+(deftest scxml-compound-done-handled-by-ancestor-on-clause
+  (testing "SCXML §3.7: an ANCESTOR may handle the raised done event explicitly
+            via `:on {:rf.machine/done …}` (the lower-level escape hatch) when
+            the done node declares no `:on-done`. A guard disambiguates WHICH
+            compound is done off the raised path arg. Spec 005 §Final states
+            §The done-state signal."
+    (let [m {:initial :outer :data {}
+             ;; the raised done event carries the done compound's ABSOLUTE
+             ;; declaration path — here [:outer :flow].
+             :guards {:flow-done? (fn [{ev :event}] (= [:outer :flow] (second ev)))}
+             :states
+             {:outer {:initial :flow
+                      ;; ancestor handler keyed on the reserved done event-id,
+                      ;; guarded on the raised compound path.
+                      :on {:rf.machine/done {:guard  :flow-done?
+                                             :target [:elsewhere]}}
+                      :states {:flow {:initial :step
+                                      :states  {:step {:on {:finish :inner-done}}
+                                                :inner-done {:final? true}}}}}
+              :elsewhere {}}}
+          r (step m {:state [:outer :flow :step] :data {}} [:finish])]
+      (is (= [:elsewhere] (:state r))
+          ":flow reached its final child; the ancestor :outer's explicit
+           :on {:rf.machine/done …} (guard matched the path) took it"))))
+
+(deftest scxml-compound-NOT-done-when-child-non-final
+  (testing "SCXML §3.7: NO done.state is raised while the compound's active
+            child is NOT a `<final>` state — the partial-completion guard.
+            Spec 005 §Final states §The done-state signal (negative)."
+    (let [m {:initial :flow :data {}
+             :states
+             {:flow {:initial :step
+                     :on-done :next
+                     :states  {:step {:on {:advance :step2}}
+                               :step2 {}                 ;; NOT final
+                               :inner-done {:final? true}}}
+              :next {}}}
+          ;; :advance lands [:flow :step2] — an ordinary leaf, not final — so
+          ;; no done signal, no :on-done firing.
+          r (step m {:state [:flow :step] :data {}} [:advance])]
+      (is (= [:flow :step2] (:state r))
+          "the compound is not done (child not final) ⇒ :on-done did NOT fire"))))
+
+(deftest scxml-embedded-final-does-not-leak-to-machine-finality
+  (testing "rf2-zlmz7 D7 reconciliation: an EMBEDDED `:final?` leaf signals
+            compound-done WITHOUT being whole-machine finality — the pure
+            engine commits the snapshot (machine alive) rather than the
+            lifecycle teardown. With NO enclosing `:on-done`, the done signal
+            is a benign no-op and the machine RESTS in the final config.
+            Spec 005 §Final states §Embedded vs top-level."
+    (let [m {:initial :flow :data {}
+             :states
+             {:flow {:initial :step
+                     ;; NO :on-done — the done raise has no handler.
+                     :states  {:step {:on {:finish :inner-done}}
+                               :inner-done {:final? true}}}}}
+          r (step m {:state [:flow :step] :data {}} [:finish])]
+      (is (= [:flow :inner-done] (:state r))
+          "the embedded final leaf is the resting config — the pure engine
+           keeps the machine in place (no whole-machine teardown); an
+           unhandled done signal is benign"))))
+
+(deftest scxml-nested-compound-done-propagates
+  (testing "SCXML §3.7 nesting: the IMMEDIATE parent compound of the final
+            leaf is the one that is done — its `:on-done` fires, leaving the
+            grandparent compound active. Spec 005 §Final states §The done-state
+            signal (nested)."
+    (let [m {:initial :outer :data {}
+             :states
+             {:outer {:initial :inner
+                      :states {:inner {:initial :leaf
+                                       ;; :inner's :on-done advances to a sibling
+                                       ;; of :inner (inside :outer).
+                                       :on-done :inner-next
+                                       :states {:leaf {:on {:finish :fin}}
+                                                :fin  {:final? true}}}
+                               :inner-next {}}}}}
+          r (step m {:state [:outer :inner :leaf] :data {}} [:finish])]
+      (is (= [:outer :inner-next] (:state r))
+          ":inner (immediate parent of :fin) is done; its :on-done advanced to
+           the sibling :inner-next; :outer stays active throughout"))))
+
+(deftest scxml-parallel-done-fires-root-on-done
+  (testing "SCXML §3.4 done.state.<parallelId>: when EVERY region reaches its
+            final leaf, the parallel root's `:on-done` fires (action + fx)
+            WITHOUT auto-destroy — the 'do these axes in parallel, then
+            continue' pattern. Spec 005 §Final states §The done-state signal
+            (parallel)."
+    (let [fired (atom 0)
+          m {:type :parallel :data {:n 0}
+             :actions {:complete (fn [{d :data}] {:data (assoc d :n (inc (:n d)))})}
+             ;; onDone on the PARALLEL ROOT — action-only (no in-machine target).
+             :on-done {:action :complete}
+             :regions {:left  {:initial :run :states {:run {:on {:fin :done}} :done {:final? true}}}
+                       :right {:initial :run :states {:run {:on {:fin :done}} :done {:final? true}}}}}
+          r (step m {:state {:left :run :right :run} :data {:n 0}} [:fin])]
+      (is (= {:left :done :right :done} (:state r))
+          "both regions reached :final? on the broadcast :fin")
+      (is (= 1 (get-in r [:data :n]))
+          "the parallel root's :on-done action ran exactly once when all
+           regions settled final — the machine stays in the all-final config"))))
+
+(deftest scxml-parallel-done-not-fired-while-one-region-pending
+  (testing "SCXML §3.4: the parallel root's `:on-done` does NOT fire while ANY
+            region is still non-final (premature done.state is the classic
+            parallel bug). Spec 005 §Final states §The done-state signal
+            (parallel, negative)."
+    (let [m {:type :parallel :data {:n 0}
+             :actions {:complete (fn [{d :data}] {:data (update d :n inc)})}
+             :on-done {:action :complete}
+             :regions {:left  {:initial :run :states {:run {:on {:fin-left :done}} :done {:final? true}}}
+                       :right {:initial :run :states {:run {:on {:fin-right :done}} :done {:final? true}}}}}
+          r (step m {:state {:left :run :right :run} :data {:n 0}} [:fin-left])]
+      (is (= {:left :done :right :run} (:state r)) "only :left reached final")
+      (is (= 0 (get-in r [:data :n]))
+          ":on-done did NOT fire — :right is still :run (not all-regions-final)"))))
+
+(deftest scxml-parallel-region-compound-done-fires-region-local-on-done
+  (testing "rf2-bnjb3 + rf2-zlmz7 composed: a COMPOUND region reaching its
+            `<final>` child raises a region-local done.state that the region's
+            own `:on-done` takes (re-broadcast through the parent internal-event
+            queue), advancing that region while siblings continue. Spec 005
+            §Final states §The done-state signal × §Parallel regions."
+    (let [m {:type :parallel :data {}
+             :regions
+             {:work {:initial :flow
+                     :states {:flow {:initial :step
+                                     :on-done :work-done
+                                     :states {:step {:on {:finish :inner-done}}
+                                              :inner-done {:final? true}}}
+                              :work-done {}}}
+              :status {:initial :idle :states {:idle {:on {:ping :idle}} }}}}
+          ;; :finish lands the :work region at [:flow :inner-done]; :flow is
+          ;; done → region-local [:rf.machine/done [:flow]] raise → re-broadcast
+          ;; → :work's :on-done fires :flow → :work-done. :status untouched.
+          r (step m {:state {:work [:flow :step] :status :idle} :data {}} [:finish])]
+      (is (= {:work :work-done :status :idle} (:state r))
+          ":work's compound :flow reached final, its :on-done advanced the
+           region to :work-done; :status stayed :idle"))))
+
+;; ===========================================================================
 ;; §6. Eventless / :always microstep settle (transient transitions)
 ;;
 ;; SCXML §3.13: an eventless (conditionless or condition-only) transition

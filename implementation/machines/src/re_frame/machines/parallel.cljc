@@ -51,6 +51,31 @@
   [machine]
   (= :parallel (:type machine)))
 
+(defn all-regions-final?
+  "Per Spec 005 §Parallel regions + §Final states §The done-state signal
+  (rf2-bnjb3): a parallel-region machine has reached its done configuration
+  only when EVERY region's active leaf is `:final?`. Walk each region's body
+  + active path and check the leaf node's `:final?` flag. Returns false when
+  ANY region's leaf isn't final, or when `state` is not a parallel state-map.
+
+  Lives here (not in `lifecycle-fx.finalize`) so BOTH the parallel macrostep
+  (`parallel-machine-transition`, which raises the parallel done-signal /
+  fires the parallel root's `:on-done`) and the finalize cascade (whole-
+  machine auto-destroy when no `:on-done` is declared) read one predicate —
+  `finalize` requires `parallel`, never the reverse, so the home avoids the
+  require cycle. XState v5 / SCXML §3.4: `done.state.<parallelId>` is raised
+  only when all child regions are final."
+  [machine state]
+  (and (parallel? machine)
+       (map? state)
+       (every?
+         (fn [[region-name region-state]]
+           (let [region-body (get-in machine [:regions region-name])
+                 leaf-node   (transition/node-at region-body
+                                                  (transition/state-path region-state))]
+             (transition/final-state-node? leaf-node)))
+         state)))
+
 (defn- build-region-machine
   "Construct a synthetic single-machine spec for one region of
   `parent-machine`. See `region-machine` for the contract — this is the
@@ -573,6 +598,71 @@
                              (+ acc-micro (result/microsteps step))
                              (into acc-casc (result/cascade step))))))))))))))
 
+;; ---- parallel done-state / `:on-done` signal (rf2-bnjb3) ------------------
+;;
+;; Per Spec 005 §Final states §The done-state signal: when EVERY region of a
+;; parallel machine reaches a `:final?` leaf, the parallel state is DONE —
+;; XState v5 `onDone` / SCXML §3.4 `done.state.<parallelId>`. The author
+;; declares `:on-done` ON THE PARALLEL ROOT (reading like `:spawn`'s
+;; `:on-done`); the runtime fires it the moment all regions settle final,
+;; WITHOUT tearing the machine down — the "do these axes in parallel, then
+;; continue" pattern.
+;;
+;; Structural scope (substrate-honest). A `:type :parallel` machine is
+;; ROOT-ONLY (no nested parallel; the root carries `:regions`, not `:states`),
+;; so the parallel root has NO sibling flat state to land an in-machine
+;; `:target` on. The parallel root's `:on-done` therefore runs its `:action`
+;; (a `:data` write) + emits its `:fx` — the "then continue" is expressed as a
+;; dispatch / raise in that fx to a coordinator (the re-frame2-idiomatic
+;; effects-as-data continuation), NOT an in-machine `:target`. Registration
+;; rejects a `:target` on a parallel root's `:on-done`
+;; (`:rf.error/machine-parallel-on-done-target`). The machine stays in the
+;; all-final configuration — the natural stable "complete" resting state.
+;;
+;; D7 reconciliation. A parallel root that declares NO `:on-done` keeps the
+;; existing whole-machine finality (the lifecycle boundary's
+;; `commit-or-finalize` recomputes `all-regions-final?` and routes to
+;; `finalize-machine` — singleton auto-destroy, or the SPAWNING parent's
+;; `:spawn :on-done`). The parallel root's OWN `:on-done` is the transitionable
+;; signal; the spawning parent's `:spawn :on-done` is the actor-teardown
+;; signal — distinct hooks, distinct purposes.
+
+(defn fire-parallel-on-done
+  "Per Spec 005 §Final states §The done-state signal (rf2-bnjb3): if the
+  parallel `machine`'s settled `result` snapshot has all regions final AND the
+  parallel root declares `:on-done`, run that `:on-done` transition's
+  `:action` against `:data` and append its `:fx`, marking the Result so the
+  lifecycle boundary does NOT auto-destroy. Returns the (possibly enriched)
+  Result; a `result/fail` (the `:on-done` action threw) short-circuits. A
+  `result/fail` input passes through. When the machine is not parallel, not
+  all-final, or declares no `:on-done`, returns `result` unchanged (the
+  whole-machine finalize path then runs at the lifecycle boundary)."
+  [machine result]
+  (if (result/fail? result)
+    result
+    (let [on-done (:on-done machine)]
+      (if (or (not (parallel? machine))
+              (nil? on-done)
+              (not (all-regions-final? machine (:state (result/snap result)))))
+        result
+        (result/with-ok [snap fx] result
+          ;; `:on-done` is an `:on`-shaped transition spec; a parallel root's
+          ;; `:on-done` carries only `:action` / `:guard` / `:fx` (registration
+          ;; rejects an in-machine `:target`). Run its `:action` against the
+          ;; settled `:data` and append its fx, threading the standard
+          ;; effects-map contract (`{:data .. :fx ..}`). A bare keyword /
+          ;; map without `:action` is a no-op data-wise but still suppresses
+          ;; auto-destroy (the author opted into "stay done, don't destroy").
+          (let [on-done-r (transition/apply-on-done-action machine snap on-done)]
+            (if (result/fail? on-done-r)
+              on-done-r
+              (result/with-ok [snap2 fx2] on-done-r
+                (-> (result/ok snap2 (into (vec fx) fx2))
+                    (result/with-parallel-done)
+                    (result/with-handled (result/handled? result))
+                    (result/with-microsteps (result/microsteps result))
+                    (result/with-cascade (result/cascade result)))))))))))
+
 (defn- parallel-machine-transition
   "Pure function. Given a parallel-region machine, current snapshot, and
   event, run the parallel MACROSTEP — broadcast the event to every region,
@@ -609,7 +699,14 @@
   `:rf/spawn-id`."
   [machine snapshot event]
   (let [first-r (broadcast-once machine snapshot event)]
-    (drain-parent-queue machine snapshot event first-r)))
+    ;; Per Spec 005 §Final states §The done-state signal (rf2-bnjb3): after the
+    ;; macrostep settles, if every region is now final and the parallel root
+    ;; declares `:on-done`, fire it (run its action + emit its fx) WITHOUT
+    ;; auto-destroying — the transitionable parallel completion signal. No
+    ;; `:on-done` ⇒ the Result passes through and the lifecycle boundary's
+    ;; whole-machine finalize runs (D7).
+    (fire-parallel-on-done machine
+                           (drain-parent-queue machine snapshot event first-r))))
 
 (defn machine-transition
   "Pure function. Given a machine definition, current snapshot, and event,
@@ -699,7 +796,13 @@
   [machine boot-snapshot]
   (if (parallel? machine)
     (let [first-r (reduce-regions machine boot-snapshot settle-region-birth)]
-      (drain-parent-queue machine boot-snapshot nil first-r))
+      ;; Per rf2-bnjb3: a parallel machine BORN all-regions-final (each region's
+      ;; initial+`:always` settles onto a `:final?` leaf) fires the parallel
+      ;; root's `:on-done` on birth too — same transitionable signal as the
+      ;; event-driven macrostep (XState v5 treats such an actor as done at
+      ;; start). No `:on-done` ⇒ the lifecycle boundary's birth finalize runs.
+      (fire-parallel-on-done machine
+                             (drain-parent-queue machine boot-snapshot nil first-r)))
     (transition/drain-to-fixed-point
       machine
       (result/ok boot-snapshot [])
@@ -739,12 +842,16 @@
             (result/with-ok [settled-snap settle-fx] settle-r
               ;; Compose: entry fx then settle fx; entry cascade then the
               ;; `:always` microstep cascade. `::microsteps` rides from the
-              ;; settle (the entry cascade ran no `:always`).
-              (-> (result/ok settled-snap (vec (concat entry-fx settle-fx)))
-                  (result/with-cascade
-                    (into (vec (result/cascade entry-r))
-                          (result/cascade settle-r)))
-                  (result/with-microsteps (result/microsteps settle-r))))))))))
+              ;; settle (the entry cascade ran no `:always`). Per rf2-bnjb3 the
+              ;; settle's `parallel-done-handled?` flag (set when a parallel
+              ;; machine born all-final fired its root `:on-done`) rides through
+              ;; so the birth finalize gate sees it.
+              (cond-> (-> (result/ok settled-snap (vec (concat entry-fx settle-fx)))
+                          (result/with-cascade
+                            (into (vec (result/cascade entry-r))
+                                  (result/cascade settle-r)))
+                          (result/with-microsteps (result/microsteps settle-r)))
+                (result/parallel-done-handled? settle-r) (result/with-parallel-done)))))))))
 
 ;; ---- destroy-time exit cascade (rf2-nahfm) --------------------------------
 ;;

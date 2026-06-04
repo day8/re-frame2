@@ -421,9 +421,24 @@
           no-op?    (and (= snapshot next-snapshot)
                          (empty? cascade)
                          (zero? (result/microsteps step-result)))
+          ;; Per Spec 005 §Final states §Embedded vs top-level (rf2-bnjb3 /
+          ;; rf2-zlmz7) — the D7 reconciliation. Whole-machine finality (route
+          ;; to `finalize-machine`: singleton auto-destroy / spawning parent's
+          ;; `:spawn :on-done`) is gated on:
+          ;;   - flat / compound: a `:final?` leaf that is a DIRECT CHILD of
+          ;;     the root (`top-level-final?`). A `:final?` leaf EMBEDDED in a
+          ;;     compound is NOT whole-machine finality — the engine already
+          ;;     raised `[:rf.machine/done <compound>]`, the enclosing
+          ;;     `:on-done` fired in the same macrostep, and the machine keeps
+          ;;     running.
+          ;;   - parallel: all regions final AND the parallel root declared no
+          ;;     `:on-done` (when it did, the parallel layer already fired it
+          ;;     and stamped `parallel-done-handled?` so the machine continues
+          ;;     rather than tearing down).
           finished? (or (and (not (parallel/parallel? machine))
-                             (transition/final-on-leaf? machine (:state next-snapshot)))
-                        (finalize/all-regions-final? machine (:state next-snapshot)))
+                             (transition/top-level-final? machine (:state next-snapshot)))
+                        (and (finalize/all-regions-final? machine (:state next-snapshot))
+                             (not (result/parallel-done-handled? step-result))))
           new-db    (assoc-in db path next-snapshot)]
       ;; Per rf2-hwuki: `:frame` tag is REQUIRED for epoch-capture
       ;; admission (`re-frame.epoch.capture/capture-event!` silently
@@ -554,12 +569,19 @@
                 ;; from the settled snapshot (mirroring `commit-or-finalize`)
                 ;; and route to `finalize-machine` when finished, so the
                 ;; `:on-done` + auto-destroy cascade fires on eager start
-                ;; just as it would on the lazy path.
+                ;; just as it would on the lazy path. Per rf2-bnjb3 / rf2-zlmz7
+                ;; the embedded-vs-top-level reconciliation applies here too:
+                ;; only a TOP-LEVEL final (flat/compound) or an all-regions-
+                ;; final parallel WITHOUT a fired `:on-done` (the
+                ;; `parallel-done-handled?` flag on `boot-result`) tears the
+                ;; actor down; an embedded compound born final already raised
+                ;; `[:rf.machine/done …]` through the birth settle's queue.
                 (if (= transition/start-marker (first (:inner-event ctx)))
                   (let [m (:machine ctx)]
                     (if (or (and (not (parallel/parallel? m))
-                                 (transition/final-on-leaf? m (:state post-boot-snap)))
-                            (finalize/all-regions-final? m (:state post-boot-snap)))
+                                 (transition/top-level-final? m (:state post-boot-snap)))
+                            (and (finalize/all-regions-final? m (:state post-boot-snap))
+                                 (not (result/parallel-done-handled? boot-result))))
                       (finalize/finalize-machine m (:machine-id ctx) (:frame-id ctx)
                                                  (assoc-in db (:path ctx) post-boot-snap)
                                                  post-boot-snap
