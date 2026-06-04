@@ -449,6 +449,22 @@
    :line-height    1
    :white-space    "nowrap"})
 
+;; rf2-yueoa — the `[NO OP]` QUALIFIER chip that follows the `[TRANSITION]`
+;; pill on a no-op row. A no-op IS the transition STEP of the cascade (a
+;; transition was attempted; it produced no state change), so the row carries
+;; the SAME filled magenta `[TRANSITION]` pill a real transition uses, and
+;; this qualifier marks "this transition step resulted in NO state change".
+;; It reads as a refinement on the pill — NOT a second filled kind pill — so
+;; it is an OUTLINED muted chip (the same `text-tertiary` tone badge.cljc
+;; assigns `:no-op`, and the same outlined-marker grammar skmc7's `[NO-OP]`
+;; uses in the Machine tab's focused-event header), distinguishing it from
+;; the solid TRANSITION badge beside it.
+(def ^:private cascade-no-op-qualifier-style
+  (assoc cascade-kind-pill-base-style
+         :color      text-tertiary-colour
+         :background "transparent"
+         :border     (str "1px solid " border-default-colour)))
+
 ;; rf2-it4vt — the `[START]` row's CAUSE tag (`explicit` / `lazy` /
 ;; `spawned`). A small outlined chip next to the verb that tells the
 ;; operator HOW the machine came to life. `:lazy` is the ORDERING SMELL
@@ -2711,6 +2727,25 @@
                         :background (badge/cascade-kind-colour kind))}
    (badge/cascade-kind-label kind)])
 
+(defn- cascade-no-op-qualifier
+  "Render the `[NO OP]` QUALIFIER chip for a `:no-op` cascade row (rf2-yueoa).
+  A no-op is still the TRANSITION step of the cascade — a transition was
+  attempted; it just produced no state change — so the row renders the SAME
+  `[TRANSITION]` kind pill a real transition uses (`cascade-kind-pill
+  :transition`) and this qualifier marks the result: `[TRANSITION] [NO OP]
+  staying in {state}`. The label is `badge/cascade-kind-label :no-op` (`NO OP`,
+  space not hyphen — rf2-iu3no) so the qualifier text stays in lockstep with
+  the kind-label table.
+
+  Outlined muted chip (the `:no-op` `:text-tertiary` tone, same outlined-marker
+  grammar skmc7's `[NO-OP]` uses in the Machine tab) so it reads as a
+  refinement on the filled magenta `[TRANSITION]` badge beside it, not a second
+  solid kind pill."
+  []
+  [:span {:data-testid "rf-xray-epoch-machine-cascade-no-op-qualifier"
+          :style cascade-no-op-qualifier-style}
+   (badge/cascade-kind-label :no-op)])
+
 (defn- cascade-row-ordinal
   "Render the row's 1..N step ordinal on the left rail (rf2-u69j7).
   Compact monospace chip — keeps the cascade scannable across many
@@ -3219,9 +3254,19 @@
       ;; every other kind keeps its single kind pill (the state-change
       ;; `:transition` ROW keeps its own `[TRANSITION]` pill — distinct from
       ;; a `TRANSITION ACTION`).
-      (if (= :action kind)
-        (cascade-action-pill phase)
-        (cascade-kind-pill kind))
+      ;;
+      ;; rf2-yueoa — a `:no-op` row is still the TRANSITION step of the cascade
+      ;; (a transition was ATTEMPTED; it just produced no state change), so it
+      ;; renders the SAME filled magenta `[TRANSITION]` pill a real transition
+      ;; uses (`cascade-kind-pill :transition`) PLUS a `[NO OP]` QUALIFIER chip
+      ;; that marks "this transition step resulted in no state change":
+      ;; `[TRANSITION] [NO OP] staying in {state}`. The verb (`staying in
+      ;; {state}`, rf2-iu3no) follows below as before.
+      (cond
+        (= :action kind) (cascade-action-pill phase)
+        (= :no-op kind)  [:<> (cascade-kind-pill :transition)
+                              (cascade-no-op-qualifier)]
+        :else            (cascade-kind-pill kind))
       ;; rf2-2hj0h item 6 + rf2-h710p item B — ` for <state> ` fronts the
       ;; verb on `:action` (the state the action belongs to) AND `:guard`
       ;; rows (the state whose transition the guard gates), reading the
