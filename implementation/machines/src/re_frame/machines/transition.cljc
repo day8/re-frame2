@@ -1755,23 +1755,61 @@
         ;; declared target.
         target-base   (if history-restore (:resolved-leaf history-restore) target-base0)
         target-leaf   (some->> target-base (initial-cascade machine))
-        ;; Per Spec 005 §Self-transitions + §Entry/exit cascading: an
-        ;; EXTERNAL self-transition re-enters the declaring state — `:exit`
-        ;; then transition `:action` then `:entry` all fire, the
-        ;; configuration unchanged. The LCA-driven cascade fires `:exit` /
-        ;; `:entry` only on states BELOW the LCA, so a self-target's plain
-        ;; common-prefix LCA (= the full declaring path) would fire neither.
-        ;; Pull the LCA up to the declaring state's PARENT so the declaring
-        ;; state lands in both the exit and entry cascades. A self-target on
-        ;; a compound state re-enters it AND re-runs its `:initial` child
-        ;; cascade (`target-leaf` re-descended above). An INTERNAL
-        ;; self-transition (no `:target`) is untouched — it never reaches
-        ;; here (`internal?` short-circuits exit/entry below). rf2-46ban.
-        self-transition? (and (not internal?) (= target-base decl-path))
+        ;; ---- Exit-set boundary: the true LCCA (rf2-emz8l) ----------------
+        ;; Per Spec 005 §Entry/exit cascading and SCXML §3.13: the exit set
+        ;; of an EXTERNAL transition is bounded by the LEAST COMMON COMPOUND
+        ;; ANCESTOR — the deepest compound state that is a PROPER ancestor of
+        ;; BOTH the source leaf and the target node. Everything strictly
+        ;; below the LCCA on the active path exits; the target plus its
+        ;; ancestors below the LCCA (and the target's `:initial` cascade)
+        ;; enters. `lca-len` is the depth of that LCCA (= the count of the
+        ;; common-ancestor prefix that survives the transition).
+        ;;
+        ;; The LCCA is computed against `target-base` (the resolved target
+        ;; BEFORE its own `:initial` re-descent), NOT `target-leaf` — the
+        ;; initial cascade is part of ENTERING the target, not of locating
+        ;; the common ancestor. Two geometries arise:
+        ;;
+        ;;  (1) TARGET ON THE ACTIVE PATH — `target-base` is a prefix of
+        ;;      `src-path` (the target is the source itself, OR a proper
+        ;;      ANCESTOR of the source). Here `target-base` is itself one of
+        ;;      the states involved, so the common COMPOUND ancestor must be
+        ;;      a PROPER ancestor of `target-base` → pull `lca-len` up to the
+        ;;      target's PARENT (`(count target-base) - 1`). The target then
+        ;;      lands in BOTH the exit and entry cascades: it is exited
+        ;;      (re-running its `:exit`), the transition `:action` fires, the
+        ;;      target is re-entered (re-running its `:entry`) and its
+        ;;      `:initial` chain re-descends (`target-leaf`). This is the
+        ;;      RESTART-the-compound geometry XState v5 / SCXML give an
+        ;;      external transition to an ancestor — without the pull-up the
+        ;;      plain common-prefix LCA equals the full target depth and the
+        ;;      transition is a SILENT NO-OP (rf2-emz8l). It also subsumes the
+        ;;      external SELF-transition (`:target :same-state` / own-keyword;
+        ;;      `target-base == src-path` or `target-base == decl-path`,
+        ;;      always a prefix of the active leaf) — the rf2-46ban precedent,
+        ;;      now one geometry rather than a special case. `max 0` keeps a
+        ;;      root-level target (`target-base == []`) sane: the whole
+        ;;      machine exits + re-enters from the root.
+        ;;
+        ;;  (2) TARGET IN A DISJOINT SUBTREE — sibling-leaf, cross-level to a
+        ;;      sibling subtree, or to the root. `target-base` is NOT a prefix
+        ;;      of `src-path`, so source and target diverge at the common-
+        ;;      prefix node, which is a proper ancestor of both and therefore
+        ;;      the LCCA. `lca-len` is the plain common-prefix length; the
+        ;;      common-ancestor node neither exits nor enters. (Here the LCP
+        ;;      of `src-path` with `target-base` and with `target-leaf` agree
+        ;;      — they diverge before `target-base` ends — so this arm is left
+        ;;      computing against `target-leaf`, unchanged.)
+        ;;
+        ;;  An INTERNAL self-transition (no `:target`) is untouched — it never
+        ;;  reaches the cascade (`internal?` short-circuits exit/entry below).
+        target-on-active-path? (and (not internal?)
+                                    (= (count target-base)
+                                       (common-prefix-length src-path target-base)))
         lca-len       (cond
-                        internal?        (count src-path)
-                        self-transition? (dec (count target-base))
-                        :else            (common-prefix-length src-path target-leaf))
+                        internal?              (count src-path)
+                        target-on-active-path? (max 0 (dec (count target-base)))
+                        :else                  (common-prefix-length src-path target-leaf))
         ;; Walk each path once; reuse the `[prefix node]` pair vectors
         ;; for both the cascade ref derivation AND the spawn/destroy fx
         ;; emission downstream (per audit §T6 #2 — eliminate the double

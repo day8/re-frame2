@@ -1,0 +1,77 @@
+;; Conformance fixture: machine/hierarchical-ancestor-restart-transition
+;;
+;; External transition to a PROPER ANCESTOR on the active path (the LCCA
+;; ancestor-RESTART geometry — rf2-emz8l). A transition from a descendant
+;; leaf whose `:target` names a PROPER ANCESTOR A (by absolute vector) is, by
+;; default, EXTERNAL. The Least Common COMPOUND Ancestor of {source, A} is
+;; A's PARENT — so the exit set is A's whole active subtree INCLUDING A, the
+;; transition action fires at the LCCA boundary, then A re-enters and
+;; re-descends its `:initial` chain. Net effect: A's :exit + :entry both fire
+;; and A re-initialises.
+;;
+;; This is the case the longest-common-PREFIX-as-LCA computation missed: the
+;; ancestor target's `:initial` chain re-descends to the source, so the LCP
+;; equalled the full path and the exit AND entry sets were BOTH empty — a
+;; SILENT NO-OP. The true LCCA (computed against the target BASE, before its
+;; own initial cascade) pulls the boundary up to A's parent so A restarts.
+;;
+;; Per [005 §Entry/exit cascading along the LCA]
+;; (../../005-StateMachines.md#entryexit-cascading-along-the-lca).
+;; XState v5 / SCXML §3.13 (`findLCCA` / `getEffectiveTargetStates`).
+;; Contrast with hierarchical-cross-level-transition.edn (DISJOINT subtree
+;; target — the common-ancestor node is NOT re-entered).
+
+{:fixture/id           :machine/hierarchical-ancestor-restart-transition
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/flat :fsm/hierarchical}
+ :fixture/doc          "External transition to a proper ANCESTOR A on the active path restarts A: exit A's active subtree (deepest-first, INCLUDING A) → transition action at the LCCA (A's parent) → re-enter A → re-descend A's :initial chain. The LCCA-restart geometry (rf2-emz8l); the longest-common-prefix LCA made this a silent no-op."
+
+ :fixture/registry
+ {:machine-action
+  {:auth/log-exit-x  {:doc "Logs exiting leaf :x."}
+   :auth/log-exit-a  {:doc "Logs exiting compound :a (the restarted ancestor)."}
+   :auth/log-action  {:doc "Transition action at the LCCA (:p)."}
+   :auth/log-enter-a {:doc "Logs re-entering compound :a."}
+   :auth/log-enter-x {:doc "Logs re-entering leaf :x (A's re-initialised child)."}}}
+
+ :fixture/handlers
+ {:machine-action
+  {:auth/log-exit-x  [[:fx :log {:msg "exit x"}]]
+   :auth/log-exit-a  [[:fx :log {:msg "exit a"}]]
+   :auth/log-action  [[:fx :log {:msg "restart action"}]]
+   :auth/log-enter-a [[:fx :log {:msg "enter a"}]]
+   :auth/log-enter-x [[:fx :log {:msg "enter x"}]]}}
+
+ :fixture/calls
+ [{:call         :machine-transition
+   :definition
+   {:initial :p
+    :data    {}
+    :states
+    {:p {:initial :a                         ;; :p is the LCCA — neither exits nor enters
+         :states
+         {:a {:entry   :auth/log-enter-a
+              :exit    :auth/log-exit-a
+              :initial :x
+              :states
+              ;; :x targets its grandparent :a (a proper ancestor) by
+              ;; absolute vector; :a's :initial re-descends back to :x.
+              {:x {:entry :auth/log-enter-x
+                   :exit  :auth/log-exit-x
+                   :on    {:restart {:target [:p :a]      ;; vector :target — PROPER ANCESTOR
+                                     :action :auth/log-action}}}}}}}}}
+   :snapshot     {:state [:p :a :x] :data {}}
+   :event        [:restart]
+   ;; The :restart transition is declared on :x; target [:p :a] is a PROPER
+   ;; ANCESTOR of [:p :a :x]. LCCA = :a's parent = :p. Order:
+   ;;   1. Exit cascade (deepest-first):   x → a   (INCLUDING the ancestor :a)
+   ;;   2. Transition :action (at the LCCA): restart action
+   ;;   3. Entry cascade (shallowest-first): a → x (re-init :a's :initial)
+   ;; :p (the LCCA) neither exits nor enters; the configuration is restored
+   ;; to [:p :a :x] after re-descending :a's :initial.
+   :expect-next-snapshot {:state [:p :a :x] :data {}}
+   :expect-effects       [[:log {:msg "exit x"}]
+                          [:log {:msg "exit a"}]
+                          [:log {:msg "restart action"}]
+                          [:log {:msg "enter a"}]
+                          [:log {:msg "enter x"}]]}]}

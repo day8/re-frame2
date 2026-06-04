@@ -291,3 +291,85 @@
           "compound external self-transition re-descends the :initial child")
       (is (= [:exit-active :exit-session :renew :enter-session :enter-active] @log)
           "exit cascade leaf→root → action → entry cascade root→leaf (re-runs :initial)"))))
+
+;; ---- external transition to a PROPER ANCESTOR on the active path ----------
+;; (LCCA ancestor-restart geometry — rf2-emz8l)
+;;
+;; Per Spec 005 §Entry/exit cascading along the LCCA + XState v5 / SCXML
+;; §3.13: an EXTERNAL transition from a descendant leaf to one of its PROPER
+;; ANCESTORS A restarts A — A's active subtree (including A) exits, the
+;; transition action fires at the LCCA (A's parent), then A re-enters and
+;; re-descends its `:initial` chain. Before rf2-emz8l the engine bounded the
+;; exit set by the longest common PREFIX of the source path and the
+;; initial-cascaded target leaf, so an ancestor target was a SILENT NO-OP.
+;; This ns exercises the LIVE runtime (`reg-machine` / `dispatch-sync`); the
+;; pure-engine geometry + ordering is pinned in the SCXML conformance corpus
+;; (`scxml-external-transition-to-proper-ancestor-*`).
+(deftest machine-ancestor-restart-cljs
+  (testing "external transition to a proper ANCESTOR restarts that ancestor —
+            exit subtree (incl. ancestor) → action → re-enter ancestor →
+            re-init its :initial child; configuration restored to the leaf"
+    (let [log (atom [])
+          tag (fn [k] (fn [_] (swap! log conj k) {}))
+          machine
+          {:initial :p
+           :data    {}
+           :actions {:enter-p (tag :enter-p) :exit-p (tag :exit-p)
+                     :enter-a (tag :enter-a) :exit-a (tag :exit-a)
+                     :enter-x (tag :enter-x) :exit-x (tag :exit-x)
+                     :restart (tag :restart)}
+           :states
+           {:p {:entry :enter-p :exit :exit-p          ;; LCCA — neither re-fires
+                :initial :a
+                :states
+                {:a {:entry :enter-a :exit :exit-a
+                     :initial :x
+                     :states
+                     ;; :x targets its grandparent :a (a proper ancestor) by
+                     ;; absolute vector; :a's :initial re-descends back to :x.
+                     {:x {:entry :enter-x :exit :exit-x
+                          :on {:restart {:target [:p :a] :action :restart}}}}}}}}}]
+      (rf/reg-machine :ancestor/restart machine)
+      ;; Drive the bootstrap initial-cascade with a benign unhandled event,
+      ;; then reset the log so only the :restart transition is observed.
+      (rf/dispatch-sync [:ancestor/restart [:rf2-emz8l/prime]])
+      (reset! log [])
+      (rf/dispatch-sync [:ancestor/restart [:restart]])
+      (is (= [:p :a :x] (:state (snapshot :ancestor/restart)))
+          "restarting :a re-descends its :initial back to [:p :a :x]")
+      (is (= [:exit-x :exit-a :restart :enter-a :enter-x] @log)
+          "exit :x then :a (deepest-first, incl. the ancestor) → action → re-enter :a → re-init :x; :p (the LCCA) does NOT re-fire")))
+
+  (testing "ancestor restart re-INITIALISES to the ancestor's :initial child
+            even when a non-initial child was active at restart time"
+    (let [log (atom [])
+          tag (fn [k] (fn [_] (swap! log conj k) {}))
+          machine
+          {:initial :p
+           :data    {}
+           :actions {:enter-a (tag :enter-a)   :exit-a (tag :exit-a)
+                     :enter-one (tag :enter-1) :exit-one (tag :exit-1)
+                     :enter-two (tag :enter-2) :exit-two (tag :exit-2)}
+           :states
+           {:p {:initial :a
+                :states
+                {:a {:entry :enter-a :exit :exit-a
+                     :initial :one
+                     :states
+                     {:one {:entry :enter-one :exit :exit-one
+                            :on {:to-two :two}}
+                      :two {:entry :enter-two :exit :exit-two
+                            ;; restart the ancestor from the NON-initial child
+                            :on {:restart {:target [:p :a]}}}}}}}}}]
+      (rf/reg-machine :ancestor/reinit machine)
+      ;; Bootstrap to [:p :a :one], then advance to the non-initial child :two.
+      (rf/dispatch-sync [:ancestor/reinit [:rf2-emz8l/prime]])
+      (rf/dispatch-sync [:ancestor/reinit [:to-two]])
+      (is (= [:p :a :two] (:state (snapshot :ancestor/reinit)))
+          "now resting at the non-initial child :two")
+      (reset! log [])
+      (rf/dispatch-sync [:ancestor/reinit [:restart]])
+      (is (= [:p :a :one] (:state (snapshot :ancestor/reinit)))
+          "restart re-initialises :a to its :initial child :one (not back to :two)")
+      (is (= [:exit-2 :exit-a :enter-a :enter-1] @log)
+          "exit :two then :a → re-enter :a → re-init :one"))))
