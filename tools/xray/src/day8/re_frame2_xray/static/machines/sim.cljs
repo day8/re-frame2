@@ -104,6 +104,31 @@
         :exception   (ex-message e)
         :machines-on-classpath? false}})))
 
+(defn- step-and-store
+  "Fold ONE engine step against `machine-id`'s cloned sim snapshot and
+  store the advanced (or error-stamped) sim-state back into `db`. The
+  shared body behind both step entry-points — the Step button
+  (`:sim-step`) and the on-chart edge click (`:sim-chart-edge-clicked`).
+  The two handlers differ only in how they derive `event-v` (a raw event
+  vector vs an edge-click coercion); the step-and-store logic is
+  identical, so it lives here once.
+
+  No-op (returns `db` unchanged) when there's no sim-state for the
+  machine OR `event-v` is nil — the nil-`event-v` guard makes an inert
+  edge click safe (the edge-click coercion yields nil for non-fireable
+  auto edges)."
+  [db machine-id event-v]
+  (if-let [sim (and event-v
+                    (get-in db [:rf.xray.static.machines/sim-by-machine
+                                machine-id]))]
+    (let [runtime-fn (fn [ev]
+                       (run-machine-transition
+                         (:definition sim) (:snapshot sim) ev))
+          next-sim   (sim-h/step-sim sim event-v runtime-fn)]
+      (assoc-in db [:rf.xray.static.machines/sim-by-machine machine-id]
+        next-sim))
+    db))
+
 ;; ---- subscriptions ------------------------------------------------------
 
 (defn install-subs!
@@ -193,38 +218,23 @@
         db)))
 
   ;; Step the sim — fire one event against the cloned snapshot.
-  ;; `event` is a vector like `[:foo/bar {:x 1}]`.
+  ;; `event` is a vector like `[:foo/bar {:x 1}]`. The step-and-store
+  ;; body is shared with `:sim-chart-edge-clicked` via `step-and-store`.
   (rf/reg-event-db :rf.xray.static.machines/sim-step
     (fn [db [_ {:keys [machine-id event]}]]
-      (if-let [sim (get-in db [:rf.xray.static.machines/sim-by-machine
-                               machine-id])]
-        (let [runtime-fn (fn [ev]
-                           (run-machine-transition
-                             (:definition sim) (:snapshot sim) ev))
-              next-sim   (sim-h/step-sim sim event runtime-fn)]
-          (assoc-in db [:rf.xray.static.machines/sim-by-machine machine-id]
-            next-sim))
-        db)))
+      (step-and-store db machine-id event)))
 
   ;; rf2-u422r — on-chart edge click → step. The chart's clickable edge
   ;; hands us the raw fireable event-id; coerce it to a step event vector
   ;; and fold it through the SAME engine path as the step-button (no new
-  ;; transition logic — `step-sim` + `run-machine-transition` are reused).
-  ;; A nil/non-keyword event-id (an inert auto edge) is a no-op so the
+  ;; transition logic — `step-and-store` runs `step-sim` +
+  ;; `run-machine-transition`, identical to the button path). A
+  ;; nil/non-keyword event-id (an inert auto edge) coerces to nil, which
+  ;; `step-and-store`'s nil-`event-v` guard treats as a no-op so the
   ;; click never produces a malformed dispatch.
   (rf/reg-event-db :rf.xray.static.machines/sim-chart-edge-clicked
     (fn [db [_ {:keys [machine-id event-id]}]]
-      (let [sim     (get-in db [:rf.xray.static.machines/sim-by-machine
-                                machine-id])
-            event-v (sim-h/edge-click->event event-id)]
-        (if (and sim event-v)
-          (let [runtime-fn (fn [ev]
-                             (run-machine-transition
-                               (:definition sim) (:snapshot sim) ev))
-                next-sim   (sim-h/step-sim sim event-v runtime-fn)]
-            (assoc-in db [:rf.xray.static.machines/sim-by-machine machine-id]
-              next-sim))
-          db))))
+      (step-and-store db machine-id (sim-h/edge-click->event event-id))))
 
   ;; Update the pending event-input text (controlled-input).
   (rf/reg-event-db :rf.xray.static.machines/sim-set-pending-event
