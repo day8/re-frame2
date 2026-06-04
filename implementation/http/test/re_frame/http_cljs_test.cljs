@@ -32,6 +32,27 @@
 (def ^:private cljs-fetch
   @#'transport/cljs-fetch)
 
+;; rf2-u5xwa — `cross-origin?` (the load-bearing half of the CORS
+;; classification) reads `js/globalThis.location.origin`, which is ABSENT
+;; under the node-runtime CLJS gate (`npm run test:cljs`). Inject a known
+;; origin so the cross-origin heuristic runs deterministically in node and
+;; the positive `:rf.http/cors` branch — plus the same-origin /
+;; scheme-excluded negative branches — are actually exercised rather than
+;; silently no-op'd. Mirrors the `with-stub-fetch` set!/restore idiom; this
+;; variant is synchronous (the classifier is pure, no Promise) and uses
+;; try/finally so the global is restored even if an assertion throws.
+(defn- with-stub-location
+  "Run `f` with `js/globalThis.location` stubbed to `{origin <origin>}`,
+  restoring the original (typically `js/undefined` in node) afterwards.
+  Returns whatever `f` returns."
+  [origin f]
+  (let [orig (aget js/globalThis "location")]
+    (aset js/globalThis "location" #js {:origin origin})
+    (try
+      (f)
+      (finally
+        (aset js/globalThis "location" orig)))))
+
 (deftest get-helper-shape
   (testing "(rf.http/get url) produces [:rf.http/managed {:request {:method :get :url url}}]"
     (is (= [:rf.http/managed
@@ -138,6 +159,55 @@
           out (classify-cljs-error err "https://other.invalid/x")]
       (is (= :rf.http/transport (:kind out))
           "non-TypeError stays at :rf.http/transport regardless of URL"))))
+
+;; ---- rf2-u5xwa — `cross-origin?` heuristic under a deterministic origin --
+
+(deftest cross-origin-classification-under-injected-origin
+  (testing "rf2-u5xwa — the load-bearing positive CORS branch
+  (`cross-origin?` returning true → `:rf.http/cors`) runs DETERMINISTICALLY
+  under the node gate by injecting a known `js/globalThis.location.origin`.
+  The pre-existing `classify-cors-typeerror-cross-origin` silently no-ops in
+  node (the ambient `location.origin` is absent), so this exercises the real
+  `classify-cljs-error` → `cross-origin?` → `js/URL.` → origin-comparison
+  path that otherwise ships dark on `npm run test:cljs`. Both the positive
+  branch AND its same-origin / scheme-excluded negative siblings are
+  asserted so an inverted comparison or a broken scheme-exclusion would
+  turn this red (Spec 014 §Failure categories `:rf.http/cors`)."
+    (with-stub-location "https://app.example"
+      (fn []
+        (testing "TypeError on a genuinely cross-origin URL → :rf.http/cors"
+          (let [err (js/TypeError. "Failed to fetch")
+                out (classify-cljs-error err "https://other.invalid/x?a=1")]
+            (is (= :rf.http/cors (:kind out))
+                "different origin (other.invalid ≠ app.example) classifies as CORS")
+            (is (= "https://other.invalid/x?a=1" (:url out))
+                ":url tag rides the failure shape")
+            (is (some? (:message out)) ":message tag rides the failure shape")))
+
+        (testing "TypeError on a SAME-origin absolute URL → :rf.http/transport
+        (regression guard: an inverted origin comparison would misfire here)"
+          (let [err (js/TypeError. "Failed to fetch")
+                out (classify-cljs-error err "https://app.example/api/items")]
+            (is (= :rf.http/transport (:kind out))
+                "same origin must NOT classify as CORS")))
+
+        (testing "data:/blob:/file: schemes are scheme-excluded → :rf.http/transport
+        even though their parsed origin differs from the page origin"
+          (doseq [url ["data:text/plain,hello"
+                       "blob:https://app.example/uuid"
+                       "file:///etc/hosts"]]
+            (let [err (js/TypeError. "Failed to fetch")
+                  out (classify-cljs-error err url)]
+              (is (= :rf.http/transport (:kind out))
+                  (str url " is scheme-excluded, never CORS")))))
+
+        (testing "relative URLs short-circuit to same-origin → :rf.http/transport
+        even with a non-nil page origin present"
+          (doseq [url ["/api/items" "?q=1" "#frag"]]
+            (let [err (js/TypeError. "Failed to fetch")
+                  out (classify-cljs-error err url)]
+              (is (= :rf.http/transport (:kind out))
+                  (str url " is relative/same-origin, never CORS")))))))))
 
 ;; ---- rf2-5zj6t — binary decode reads the native Fetch body ---------------
 
