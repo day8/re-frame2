@@ -39,10 +39,15 @@
 
          ;; rf2-8d7w1 — share-URL encoding is EDN → transit-write →
          ;; base64url (Principles §EDN-first on the wire; Lock #3).
-         ;; transit-cljs is dev-only like the rest of this tool jar —
+         ;; transit-cljs is a genuine RUNTIME dep of the share encode/decode
+         ;; path (`share.cljs` calls `transit/writer`/`write`/`reader`/`read`),
+         ;; so it sits in the main :deps, not the :test alias. It is
+         ;; "dev-only" ONLY because the WHOLE machines-viz jar is dev-only:
          ;; bundle isolation holds (nothing under implementation/ may
-         ;; :require this jar, so the consumer's production bundle never
-         ;; pulls transit through machines-viz).
+         ;; :require this jar), so a consumer's production bundle never
+         ;; pulls transit through machines-viz — NOT because the dep is
+         ;; test-scoped (moving it to :test would break share.cljs at
+         ;; runtime — rf2-agu25 / rf2-60whl).
          com.cognitect/transit-cljs {:mvn/version "0.8.280"}}
 
  :aliases
