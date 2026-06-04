@@ -72,7 +72,7 @@
     ;; the programmatic path matches the URL-driven path so async loaders
     ;; have a token to thread through stale-suppression.
     (let [opts (or opts {})
-          {:keys [route-id path-params query-params matched-fragment]}
+          {:keys [route-id path-params query-params matched-fragment unmatched-url]}
           (cond
             (keyword? target)
             {:route-id     target
@@ -81,10 +81,21 @@
 
             (and (map? target) (:url target))
             (let [match (registry/match-url (:url target))]
+              ;; Spec 012 §Target form — URL-string (escape hatch): an
+              ;; unmatched URL-string resolves to `:rf.route/not-found`
+              ;; with the URL in `:params`. `:unmatched-url` flags this
+              ;; no-match fallback so the commit below pushes the
+              ;; REQUESTED url VERBATIM rather than `route-url` of the
+              ;; not-found route — keeping the address bar on the URL the
+              ;; caller aimed at, consistent with the URL-driven not-found
+              ;; path (`url-change-fx`), which never pushes a fabricated
+              ;; `/404` (rf2-0zr2o). nil ⇒ the URL matched a route and the
+              ;; canonical `route-url` round-trip drives the push.
               {:route-id         (or (:route-id match) :rf.route/not-found)
                :path-params      (:params match {:url (:url target)})
                :query-params     (:query match {})
-               :matched-fragment (:fragment match)}))
+               :matched-fragment (:fragment match)
+               :unmatched-url    (when-not (:route-id match) (:url target))}))
           fragment    (or (:fragment opts)
                           (and (map? target) (:fragment target))
                           matched-fragment)
@@ -144,15 +155,30 @@
           ;; below). The reject is total — no slice write, no fallback URL
           ;; push — so a caller bug never desyncs the browser URL or
           ;; strands the slice in an invalid state.
-          url (try (registry/route-url route-id path-params query-params fragment)
-                   (catch #?(:clj Throwable :cljs :default) ex
-                     (trace/emit-error! :rf.error/schema-validation-failure
-                                        {:where    :event
-                                         :route-id route-id
-                                         :error    (or (ex-data ex)
-                                                       {:message (ex-message ex)})
-                                         :recovery :no-recovery})
-                     ::reject))
+          ;;
+          ;; Unmatched URL-string target (rf2-0zr2o): when the `{:url ...}`
+          ;; form missed every route, `route-id` fell back to
+          ;; `:rf.route/not-found`. We do NOT call `route-url` for that id —
+          ;; that would build the not-found route's literal `:path` (`/404`)
+          ;; and push it, rewriting the address bar away from the URL the
+          ;; caller aimed at (and throwing `:no-such-route` when no
+          ;; not-found route is registered). Instead the REQUESTED url is
+          ;; pushed verbatim, so the address bar keeps it and the not-found
+          ;; view renders — matching the URL-driven not-found path
+          ;; (`url-change-fx`), which already keeps the requested URL (it
+          ;; changed via link/popstate, so that path emits no push). Per
+          ;; Spec 012 §Target form — URL-string.
+          url (if unmatched-url
+                unmatched-url
+                (try (registry/route-url route-id path-params query-params fragment)
+                     (catch #?(:clj Throwable :cljs :default) ex
+                       (trace/emit-error! :rf.error/schema-validation-failure
+                                          {:where    :event
+                                           :route-id route-id
+                                           :error    (or (ex-data ex)
+                                                         {:message (ex-message ex)})
+                                           :recovery :no-recovery})
+                       ::reject)))
           on-match-vec (vec (or (:on-match route-meta) []))
           ;; Spec 012 §Per-route data loading rule 3: a programmatic
           ;; navigation whose target id/params/query/fragment match the
@@ -228,6 +254,17 @@
                                              (scroll/lookup-scroll-position db url))
                                 :fragment  fragment})
                   capture-fx (scroll/capture-scroll-fx-entry db)]
+              ;; Spec 012 §Route-not-found rule 3 (rf2-0zr2o): when an
+              ;; unmatched URL-string target resolved to
+              ;; `:rf.route/not-found` and no such route is registered,
+              ;; emit `:rf.warning/no-not-found-route` — mirroring the
+              ;; URL-driven path (`url-change-fx`), which warns and still
+              ;; commits the not-found slice. The two not-found entry
+              ;; points now agree: warn (don't reject), keep the requested
+              ;; URL, render the not-found view.
+              (when (and unmatched-url (nil? route-meta))
+                (trace/emit! :warning :rf.warning/no-not-found-route
+                             {:url unmatched-url}))
               ;; rf2-g8tzb / commit-navigation: nav-token alloc, the
               ;; allocated/activation traces, the slice publish, and the
               ;; fx assembly are the shared commit shape. The programmatic
