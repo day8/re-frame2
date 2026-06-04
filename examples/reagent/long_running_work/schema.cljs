@@ -8,17 +8,31 @@
    `:cancel`, or unmount) which cascades a teardown to every surviving
    child.
 
-   Two snapshots live under `[:rf/runtime :machines :snapshots ...]` at runtime:
+   Two machines run at runtime, and each gets a schema attached via
+   the mechanism that fits HOW the runtime addresses its snapshot:
 
-   - `:work/flow`       — the parent coordinator. Tracks per-shard
-                          progress in `:data :progress` and the chunk
-                          size / total in `:data :total`.
-   - `:work/processor`  — the child machine type. Each child gets a
-                          gensym'd id (e.g. `:work/processor#1`)
-                          assigned by the runtime at spawn time.
+   - `:work/flow`       — the parent coordinator, a singleton at a
+                          fixed id. Its snapshot lives at the fixed
+                          path `[:rf/runtime :machines :snapshots
+                          :work/flow]`, so `FlowSnapshot` is attached
+                          with `rf/reg-app-schema` on that path.
+   - `:work/processor`  — the child machine type. Each child is
+                          spawned via `:spawn-all` and gets a gensym'd
+                          id (e.g. `:work/processor#0`) assigned by the
+                          runtime at spawn time, so its snapshot lives
+                          at an UNKNOWN path that varies per instance.
+                          A fixed `reg-app-schema` path cannot reach it.
+                          Instead, `ProcessorData` is attached via the
+                          child machine's `:schema` slot on `reg-machine`
+                          (see `worker.cljs`), which validates each spawned
+                          instance's initial `:data` at spawn time, before
+                          the snapshot installs (Spec 005 §Schema
+                          validation §Spawn-time validation) — so a child
+                          spawned with malformed `:data` never enters the
+                          runtime, regardless of its gensym'd id.
 
-   The shapes are stamped as `reg-app-schema` so writes to those paths
-   are boundary-validated in development (Spec 010)."
+   Both shapes are boundary-validated in development (Spec 010 §Per-step
+   recovery row 7 — `:where :machine-data` for the child)."
   (:require [re-frame.core :as rf]
             ;; `re-frame.schemas` ships in day8/re-frame2-schemas.
             ;; Loading the ns here registers its late-bind hooks so
@@ -58,35 +72,39 @@
             [:outcome  [:maybe [:enum :complete :cancelled :error]]]]]])
 
 ;; ============================================================================
-;; CHILD SNAPSHOT — :work/processor (one instance per shard)
+;; CHILD :data SHAPE — :work/processor (one instance per shard)
 ;; ============================================================================
 ;;
-;; Shape:
-;;   {:state    <:idle | :processing | :checking-done | :yielding | :done | :cancelled>
-;;    :data     {:shard      <keyword>          ;; the parent-assigned id
-;;               :total      <int>               ;; items in this shard
-;;               :processed  <int>               ;; how many done so far
-;;               :tick-ms    <int>               ;; ms between chunks (browser yield)}
-;;    :tags     #{...}}
+;; The child machine's `:data` slot — the user-domain working memory the
+;; child carries. The runtime owns the surrounding snapshot (`:state`, the
+;; `:tags` union, the reserved `:rf/*` slots), so the machine `:schema`
+;; describes `:data` ONLY (Spec 005 §Schema validation). Attached via the
+;; `:schema` slot on `(reg-machine :work/processor ...)` in `worker.cljs`,
+;; which validates each spawned instance's initial `:data` at spawn time —
+;; the value here is what the parent's per-child `:spawn-all` invoke-spec
+;; plants (every field below is supplied, so all are required).
 
-(def ProcessorSnapshot
+(def ProcessorData
   [:map
-   [:state [:enum :idle :processing :checking-done :yielding :done :cancelled]]
-   [:data  [:map
-            [:shard     :keyword]
-            [:total     :int]
-            [:processed :int]
-            [:tick-ms   :int]]]])
+   [:shard     :keyword]   ;; the parent-assigned shard id
+   [:total     :int]       ;; items in this shard
+   [:processed :int]       ;; how many done so far
+   [:tick-ms   :int]       ;; ms between chunks (browser yield)
+   ;; Runtime-stamped address keys — the spawn fx stamps these into the
+   ;; spawned actor's initial :data (Spec 005 §Reserved snapshot-internal
+   ;; keys). Optional + declared so the schema documents them; a Malli
+   ;; :map is open, so they'd pass undeclared too.
+   [:rf/self-id   {:optional true} :any]
+   [:rf/parent-id {:optional true} :any]
+   [:rf/spawn-id  {:optional true} :any]])
 
 ;; ============================================================================
-;; SCHEMA REGISTRATION (Spec 010 §Path-based attachment)
+;; SCHEMA REGISTRATION
 ;; ============================================================================
+;;
+;; `:work/flow` is a singleton at a fixed id, so its full snapshot is
+;; attached on the fixed snapshot path. (The `:work/processor` children
+;; are attached via the machine `:schema` slot in `worker.cljs` — see the
+;; ns docstring for why a fixed path cannot reach a gensym'd-id snapshot.)
 
 (rf/reg-app-schema [:rf/runtime :machines :snapshots :work/flow] FlowSnapshot)
-;; The :work/processor children get gensym'd ids (e.g. :work/processor#1);
-;; we register a wildcard-style schema on the prefix so the rebound
-;; per-instance snapshots are validated against the same shape. The
-;; framework's path-based attachment walks the path; the per-instance
-;; id falls outside the registered prefix and is not boundary-checked
-;; directly — that's intentional, the dispatched-by-runtime spawn fx
-;; writes a known-good shape.
