@@ -679,7 +679,25 @@
                                           :initial        (boolean (:initial? n))
                                           :final          (boolean (:final? n))
                                           :compound       (boolean (:compound? n))
-                                          :tags           (vec (:tags n))
+                                          ;; rf2-vcnvj — serialise each tag
+                                          ;; to its FULLY-QUALIFIED string
+                                          ;; (`door/open`, not `open`) HERE,
+                                          ;; before xyflow `clj->js`-es the
+                                          ;; `:data` map. `clj->js`'s default
+                                          ;; keyword-fn is `name`, which drops
+                                          ;; the namespace — so a `:door/open`
+                                          ;; tag would arrive at the renderer
+                                          ;; as the truncated `"open"` and the
+                                          ;; `nodes/tag-label` identity fix
+                                          ;; (which runs AFTER the round-trip)
+                                          ;; could never recover it. Stringify
+                                          ;; via `symbol` so the namespace
+                                          ;; survives the boundary intact.
+                                          :tags           (mapv (fn [t]
+                                                                  (if (keyword? t)
+                                                                    (str (symbol t))
+                                                                    (str t)))
+                                                                (:tags n))
                                           ;; rf2-ee38b.21 — :entry / :exit
                                           ;; state actions (Spec 005
                                           ;; §State nodes) ride the payload
