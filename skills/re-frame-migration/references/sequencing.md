@@ -71,7 +71,7 @@ The M-rule numbering in [`MIGRATION.md`](../../../migration/from-re-frame-v1/REA
 | 21 | **M-7** | `reg-fx` / `reg-cofx` `:platforms` default; add `:platforms #{:client}` for browser-only fx. |
 | 21a | **M-58** | Trace-redaction factory rename. `with-redacted` → `redact-interceptor`. Single-symbol mechanical rename. v2-pre-rename only. |
 | 21b | **M-59** | Interceptor-value family suffix. `at-boundary` → `validate-at-boundary-interceptor`; `unwrap` → `unwrap-interceptor`. Two-symbol Var rename — interceptor `:id` keywords unchanged. v2-pre-rename only. |
-| 21c | **M-55 / M-66** | Listener-registration verb + namespace consolidation. Apply **M-66**'s table (`register-trace-listener!` → `register-listener!`, `register-event-emit-listener!` → `register-event-listener!`, `register-error-emit-listener!` → `register-error-listener!`); M-66 supersedes M-55's event/error-emit targets. Closed mechanical rename. v2-pre-rename only — a v1→v2 migration lands on the current names via M-26. |
+| 21c | **M-55 / M-69** | Listener-registration verb + namespace consolidation. Apply **M-69**'s table (`register-trace-listener!` → `register-listener!`, `register-event-emit-listener!` → `register-event-listener!`, `register-error-emit-listener!` → `register-error-listener!`); M-69 supersedes M-55's event/error-emit targets. Closed mechanical rename. v2-pre-rename only — a v1→v2 migration lands on the current names via M-26. |
 
 ### Group 6 — Run-to-completion / cache / counts (behaviour)
 

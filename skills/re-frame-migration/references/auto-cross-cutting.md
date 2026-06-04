@@ -109,7 +109,7 @@ The rest of the tear-down surface (`clear-event` / `clear-sub` / `clear-sub-cach
 
 ## Listener-registration verb unification (M-55)
 
-> **Superseded for the event/error-emit half by M-66.** M-66 consolidates the event-emit / error-emit listener names along a namespace-based axis (`register-event-emit-listener!` → `register-event-listener!`, `register-error-emit-listener!` → `register-error-listener!`, and the trace half `register-trace-listener!` → `register-listener!`). On a v2-pre-rename codebase apply the **M-66** table for those names; see `breaking-changes.md` M-66. (A pure v1→v2 migration lands directly on the current names via M-26 and never sees either M-55 or M-66.)
+> **Superseded for the event/error-emit half by M-69.** M-69 consolidates the event-emit / error-emit listener names along a namespace-based axis (`register-event-emit-listener!` → `register-event-listener!`, `register-error-emit-listener!` → `register-error-listener!`, and the trace half `register-trace-listener!` → `register-listener!`). On a v2-pre-rename codebase apply the **M-69** table for those names; see `breaking-changes.md` M-69. (A pure v1→v2 migration lands directly on the current names via M-26 and never sees either M-55 or M-69.)
 
 Closed mechanical rename table. The trace and epoch listener APIs collapse onto the same `register-*-listener!` / `unregister-*-listener!` shape already used by `register-event-listener!` / `register-error-listener!`. Affects v2-pre-rename codebases only — v1 had no trace/epoch-listener concept (v1's `add-post-event-callback` lands on the new name via M-26).
 
@@ -196,7 +196,7 @@ If the interceptor list becomes empty after dropping `debug`/`trim-v`, drop the 
 (rf/reg-view ^{:rf/id :ns/my-view} my-view [args] body)
 ```
 
-Inside the body, the `reg-view` macro injects frame-aware `dispatch` / `subscribe` locals — call them bare (no `rf/` qualifier, no frame-capture). If a v2-pre-rename body holds the legacy `(rf/dispatcher)` / `(rf/subscriber)` captures, drop them (M-67); the injected locals do the same job:
+Inside the body, the `reg-view` macro injects frame-aware `dispatch` / `subscribe` locals — call them bare (no `rf/` qualifier, no frame-capture). If a v2-pre-rename body holds the legacy `(rf/dispatcher)` / `(rf/subscriber)` captures, drop them (M-68); the injected locals do the same job:
 
 ```clojure
 ;; SEARCH (inside reg-view body)
