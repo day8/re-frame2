@@ -1,6 +1,6 @@
 (ns managed-http.core
-  "MANAGED-HTTP testbed (rf2-6nolv) — the PILOT consumer of the shared
-  queued-step RUNNER (rf2-8pbjr; `runner.core`).
+  "MANAGED-HTTP testbed — an Xray driving surface for the managed-HTTP
+  lifecycle (Spec 014, `:rf.http/managed` and family).
 
   An operator visually inspects how the Xray panels (Epoch · Trace ·
   App-db · Machine Inspector) render the managed-HTTP lifecycle by
@@ -21,19 +21,23 @@
                                   `:failure :kind :rf.http/http-4xx`.
     4. Error response (5xx)     — status 500; the `:rf.http/http-5xx`
                                   error trace.
-    5. Abort in-flight          — fire a deferred request, then abort it
-                                  before the reply lands
+    5. Abort in-flight          — abort the step-1 in-flight request
+                                  before any reply lands
                                   (`:rf.http/aborted`).
     6. Concurrent by same actor — TWO requests issued under the SAME
                                   actor-id; the actor-in-flight index
                                   carries both (Spec 014 §Abort on actor
-                                  destroy, rf2-wvkn).
+                                  destroy).
     7. Outlives a frame teardown — an in-flight request whose actor is
                                   destroyed mid-flight is aborted via
                                   `abort-on-actor-destroy`
                                   (`:rf.http/aborted-on-actor-destroy`).
 
-  ## Runner cursor = app-db `:step` (rf2-5sjbg)
+  Each HTTP outcome carries its OWN `:request-id` (`::ok`, `::four-oh-four`,
+  `::five-hundred`, `::in-flight`, …) so the Epoch / Trace panels show
+  three distinct request lifecycles, not one id conflated across outcomes.
+
+  ## Runner cursor = app-db `:step`
 
   The runner cursor lives in app-db's `:step` slot, written by
   `runner.core`'s run-step event — NOT a Reagent atom. `:step` churning
@@ -43,20 +47,19 @@
 
   ## Real registry vs canned replies (deterministic, clean)
 
-  Following the established `testbeds/http_toggle` pattern: the HOT path
-  (success) rides a REAL Fetch against the static `api/ok.json` shipped
-  beside the testbed; the 4xx / 5xx error paths use the framework-shipped
-  canned-stub fx (`:rf.http/managed-canned-failure`) wrapped to replay
-  the live error trace, so the lifecycle is deterministic across CI
-  environments — no flaky outbound network. The in-flight + actor-in-
-  flight registries are seeded with genuine handles in the framework
-  registry (the same atoms the real transport's `run-attempt!` records
-  into) so the pending slots render DETERMINISTICALLY — a real Fetch
-  against a dev-http static server resolves instantly, leaving nothing
-  observably in-flight across a settle window. The abort path resolves a
-  seeded handle through the LIVE `:rf.http/managed-abort` fx. A TEST
-  surface — no deliberate bugs, no teaching layers
-  (feedback_testbeds_are_test_surfaces).
+  The HOT path (success) rides a REAL Fetch against the static
+  `api/ok.json` shipped beside the testbed; the 4xx / 5xx error paths use
+  the framework-shipped canned-stub fx (`:rf.http/managed-canned-failure`)
+  wrapped to replay the live error trace, so the lifecycle is
+  deterministic across CI environments — no flaky outbound network. The
+  in-flight + actor-in-flight registries are seeded with genuine handles
+  in the framework registry (the same atoms the real transport's
+  `run-attempt!` records into) so the pending slots render
+  DETERMINISTICALLY — a real Fetch against a dev-http static server
+  resolves instantly, leaving nothing observably in-flight across a
+  settle window. The abort path resolves a seeded handle through the LIVE
+  `:rf.http/managed-abort` fx. A TEST surface — no deliberate bugs, no
+  teaching layers (feedback_testbeds_are_test_surfaces).
 
   ## Bundle isolation
 
@@ -80,8 +83,8 @@
             ;; same atom the real transport's run-attempt! records into.
             [re-frame.http-registry :as http-registry]
             ;; The canned-stub fx ids (`:rf.http/managed-canned-failure`)
-            ;; register from re-frame.http-test-support per rf2-cdmle. A
-            ;; testbed IS a test affordance, so requiring it is correct.
+            ;; register from re-frame.http-test-support. A testbed IS a
+            ;; test affordance, so requiring it is correct.
             [re-frame.http-test-support]
             [re-frame.http :as rf.http]
             [re-frame.views]
@@ -92,7 +95,7 @@
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; ============================================================================
-;; The inspected app frame (rf2-8pbjr — only the app frame is Xray-relevant)
+;; The inspected app frame (only the app frame is Xray-relevant)
 ;; ============================================================================
 
 (def host-frame :rf/default)
@@ -101,8 +104,8 @@
 ;; APP-DB
 ;; ============================================================================
 ;;
-;; Minimal — :step is the runner cursor (rf2-5sjbg, written by
-;; runner.core's run-step event; its churn IS the per-step delta); :status
+;; Minimal — :step is the runner cursor (written by runner.core's run-step
+;; event; its churn IS the per-step delta); :status
 ;; is :idle | :loading | :done | :error; :reply carries the last reply for
 ;; the operator to read in the DOM mirror; :log is a short narrative of the
 ;; last lifecycle events. The Xray Epoch / Trace panels are the primary
@@ -140,9 +143,16 @@
 ;; REQUEST IDS / URLS
 ;; ============================================================================
 
-(def ok-request-id     ::ok)
-(def in-flight-id      ::in-flight)
-(def abortable-id      ::abortable)
+;; Each HTTP outcome carries its OWN request-id so the Epoch / Trace
+;; request-id correlation shows three logically distinct request
+;; lifecycles, not one id conflated across success / 4xx / 5xx.
+(def ok-request-id      ::ok)
+(def four-oh-four-id    ::four-oh-four)
+(def five-hundred-id    ::five-hundred)
+;; The step-1 in-flight slot doubles as the abort target (step 5): one
+;; seeded request is fired, stays pending, then aborted through the live
+;; :rf.http/managed-abort fx.
+(def in-flight-id       ::in-flight)
 (def actor-a          :managed-http/actor-a)
 (def actor-b          :managed-http/actor-b)
 
@@ -155,7 +165,7 @@
 (def pending-url "api/pending")
 
 ;; ============================================================================
-;; CANNED-FAILURE-WITH-TRACE — the http_toggle pattern (rf2-3g16l)
+;; CANNED-FAILURE-WITH-TRACE
 ;; ============================================================================
 ;;
 ;; The framework `:rf.http/managed-canned-failure` synthesises a failure
@@ -164,15 +174,14 @@
 ;; render that trace, so this testbed-local wrapper replays the live
 ;; path's `trace/emit-error!` before delegating to the canned stub — so
 ;; the panels show the same `:operation :rf.http/<kind>` row a live
-;; failure would. Honours the canned stub's optional `:after-ms`
-;; deferral (rf2-j1mo4) so a deferred failure is observably in-flight.
+;; failure would.
 
 (rf/reg-fx :managed-http/canned-failure-with-trace
   {:doc       "Testbed-only wrapper around :rf.http/managed-canned-failure.
                Emits the category-attributed :rf.http/<kind> error trace
                (matching the live failure path's finalise-failure! emit),
                then delegates to the framework canned stub for the reply
-               synthesis. See rf2-3g16l / testbeds/http_toggle."
+               synthesis."
    :platforms #{:client}}
   (fn fx-canned-failure-with-trace [frame-ctx args-map]
     (let [kind (or (:kind args-map) :rf.http/transport)
@@ -191,13 +200,13 @@
 ;; LIFECYCLE EVENTS — one per interesting step
 ;; ============================================================================
 
-;; (1) Fire a request that stays IN-FLIGHT across the settle window.
-;; Seeds a genuine request-id-keyed handle in the framework registry —
-;; deterministic, so the in-flight strip shows a pending slot for the
-;; whole settle (a real Fetch against a dev-http static server resolves
-;; instantly, leaving nothing observably in-flight). The handle's
-;; abort-fn dispatches the aborted reply, so the later abort step
-;; resolves it through the LIVE :rf.http/managed-abort path.
+;; (1) Fire a request that stays IN-FLIGHT. Seeds a genuine request-id-
+;; keyed handle in the framework registry — deterministic, so the
+;; in-flight strip shows a pending slot that persists (a real Fetch
+;; against a dev-http static server resolves instantly, leaving nothing
+;; observably in-flight). The handle's abort-fn dispatches the aborted
+;; reply, so the later abort step (5) resolves THIS slot through the LIVE
+;; :rf.http/managed-abort path.
 (rf/reg-fx :managed-http/seed-in-flight
   {:doc       "Testbed-only fx: seed a request-id-keyed in-flight handle
                in the framework registry whose abort-fn dispatches a
@@ -216,9 +225,9 @@
     nil))
 
 (rf/reg-event-fx ::fire-in-flight
-  {:doc "Seed an in-flight request that stays pending across the settle
-         window (deterministic). Populates the in-flight registry;
-         status → :loading."}
+  {:doc "Seed an in-flight request that stays pending (deterministic).
+         Populates the in-flight registry; status → :loading. The slot
+         persists until the abort step (5) resolves it."}
   (fn [{:keys [db]} _ev]
     {:db (-> db (assoc :status :loading :reply nil) (log-line "→ fired (in-flight)"))
      :fx [[:managed-http/seed-in-flight {:request-id in-flight-id}]]}))
@@ -244,7 +253,7 @@
     {:db (-> db (assoc :status :loading :reply nil) (log-line "→ request (will 404)"))
      :fx [[:managed-http/canned-failure-with-trace
            {:request    {:method :get :url "api/items/missing"}
-            :request-id ok-request-id
+            :request-id four-oh-four-id
             :on-failure [::reply]
             :kind       :rf.http/http-4xx
             :tags       {:status 404 :status-text "Not Found"
@@ -257,43 +266,36 @@
     {:db (-> db (assoc :status :loading :reply nil) (log-line "→ request (will 500)"))
      :fx [[:managed-http/canned-failure-with-trace
            {:request    {:method :get :url "api/items"}
-            :request-id ok-request-id
+            :request-id five-hundred-id
             :on-failure [::reply]
             :kind       :rf.http/http-5xx
             :tags       {:status 500 :status-text "Internal Server Error"
                          :body   "<html>server error</html>" :headers {}}}]]}))
 
-;; (5a) Abort — seed a fresh in-flight request that stays pending so the
-;; NEXT step can abort it before any reply lands. Self-contained (does
-;; not depend on step 1's slot): a distinct :request-id whose abort-fn
-;; dispatches the :rf.http/aborted reply.
-(rf/reg-event-fx ::fire-abortable
-  {:doc "Seed a fresh abortable in-flight request (status :loading) so the
-         next step aborts it while still pending."}
-  (fn [{:keys [db]} _ev]
-    {:db (-> db (assoc :status :loading :reply nil) (log-line "→ fired (abortable)"))
-     :fx [[:managed-http/seed-in-flight {:request-id abortable-id}]]}))
-
-;; (5b) Abort the in-flight request via the LIVE :rf.http/managed-abort
-;; fx — it resolves the seeded handle and fires its abort-fn, which
-;; dispatches the :rf.http/aborted reply and clears the registry slot.
+;; (5) Abort the STEP-1 in-flight request via the LIVE :rf.http/managed-
+;; abort fx. Step 1's seeded slot persisted untouched through the success /
+;; 4xx / 5xx steps (those carry their own request-ids); this resolves it
+;; and fires its abort-fn, which dispatches the :rf.http/aborted reply and
+;; clears the registry slot. No separate abortable slot — the one seeded
+;; request is the one aborted.
 (rf/reg-event-fx ::abort
-  {:doc "Abort the in-flight request by :request-id via the live
-         :rf.http/managed-abort fx. The handle's abort-fn dispatches the
-         :rf.http/aborted reply and clears the registry slot."}
+  {:doc "Abort the step-1 in-flight request (:request-id ::in-flight) via
+         the live :rf.http/managed-abort fx. The handle's abort-fn
+         dispatches the :rf.http/aborted reply and clears the registry
+         slot."}
   (fn [{:keys [db]} _ev]
     {:db (log-line db "→ abort")
-     :fx [[:rf.http/managed-abort abortable-id]]}))
+     :fx [[:rf.http/managed-abort in-flight-id]]}))
 
-;; (6) Concurrent requests by the SAME actor. Two real :rf.http/managed
-;; requests issued under the same actor-id populate the actor-in-flight
-;; index with TWO entries (Spec 014 §Abort on actor destroy). They never
-;; resolve within the settle window; the reset cleans up.
+;; (6) Concurrent requests by the SAME actor. Two requests issued under
+;; the same actor-id populate the actor-in-flight index with TWO entries
+;; (Spec 014 §Abort on actor destroy). The seeded slots persist until the
+;; teardown step (7) or the reset clears them.
 (rf/reg-fx :managed-http/issue-as-actor
   {:doc       "Testbed-only fx: issue a real :rf.http/managed request under a
                supplied actor-id so the actor-in-flight registry index is
                populated, exercising the per-actor in-flight surface
-               (rf2-wvkn) without spawning a real machine actor."
+               without spawning a real machine actor."
    :platforms #{:client}}
   (fn fx-issue-as-actor [_frame-ctx {:keys [actor-id request-id]}]
     (http-registry/record-in-flight!
@@ -304,7 +306,7 @@
 
 (rf/reg-event-fx ::concurrent-by-actor
   {:doc "Issue TWO requests under the SAME actor-id so the actor-in-flight
-         index carries both (Spec 014 §Abort on actor destroy, rf2-wvkn)."}
+         index carries both (Spec 014 §Abort on actor destroy)."}
   (fn [{:keys [db]} _ev]
     {:db (log-line db (str "→ two requests as " (pr-str actor-a)))
      :fx [[:managed-http/issue-as-actor {:actor-id actor-a :request-id ::actor-a-1}]
@@ -367,16 +369,16 @@
 ;; label>"}. The runner renders :watch per STEP; pressing Step (or a per-row
 ;; RUN button) dispatches `[:managed-http/run-step n]`, which sets app-db
 ;; `:step = n` (the per-step delta the panels show) and dispatches the
-;; step's lifecycle `:event` into `:rf/default`. The fire-abortable step (5)
-;; seeds a pending request; the abort step (6) resolves it through the live
-;; :rf.http/managed-abort fx. Manual stepping needs no pacing — the deferred
-;; replies land + render on their own schedule while the operator watches
-;; (rf2-5sjbg dropped the settle machinery).
+;; step's lifecycle `:event` into `:rf/default`. The fire step (1) seeds a
+;; pending request that persists across the success / 4xx / 5xx steps; the
+;; abort step (5) resolves THAT slot through the live :rf.http/managed-abort
+;; fx. Manual stepping needs no pacing — the deferred replies land + render
+;; on their own schedule while the operator watches.
 
 (def steps
   [{:label "Fire request (in-flight)"
     :event [::fire-in-flight]
-    :watch "App-db diff: :status flips to :loading. In-flight registry strip: a pending request-id slot appears (the request is still in flight). Epoch: the fire cascade with NO reply child yet."}
+    :watch "App-db diff: :status flips to :loading. In-flight registry strip: a pending request-id slot (::in-flight) appears. This slot persists through the next three steps (they carry their own request-ids) and is the request the abort step (5) targets. Epoch: the fire cascade with NO reply child yet."}
    {:label "Success response"
     :event [::success]
     :watch "Epoch: a two-event cascade — :rf.http/managed dispatch → reply lands at ::reply. App-db diff: :status :done, :reply :kind :success, :value decoded from api/ok.json."}
@@ -386,12 +388,9 @@
    {:label "Error response (5xx)"
     :event [::error-5xx]
     :watch "Trace: an :operation :rf.http/http-5xx error row. App-db diff: reply :failure :kind :rf.http/http-5xx, :status 500. The Epoch shows the failure cascade attribution."}
-   {:label "Abort: fire an abortable request"
-    :event [::fire-abortable]
-    :watch ":status :loading; the in-flight registry strip gains another pending slot. The request stays in flight — the NEXT step aborts it before any reply lands."}
    {:label "Abort the in-flight request"
     :event [::abort]
-    :watch "Trace/Epoch: the live :rf.http/managed-abort fx resolves the handle → its abort-fn dispatches the :rf.http/aborted reply + clears the slot. App-db: :status :error, reply :kind :failure (:rf.http/aborted). In-flight strip: the abortable slot is gone."}
+    :watch "Trace/Epoch: the live :rf.http/managed-abort fx resolves the step-1 ::in-flight handle → its abort-fn dispatches the :rf.http/aborted reply + clears the slot. App-db: :status :error, reply :kind :failure (:rf.http/aborted). In-flight strip: the ::in-flight slot is gone."}
    {:label "Concurrent requests by same actor"
     :event [::concurrent-by-actor]
     :watch "Actor-in-flight strip: actor-a now carries TWO pending entries, actor-b ONE (Spec 014 §Abort on actor destroy). Epoch: the fan-out cascade of three issue fxs."}
@@ -400,7 +399,7 @@
     :watch "Trace: two :rf.http/aborted-on-actor-destroy rows for actor-a's outliving requests. Actor-in-flight strip: actor-a's slot is GONE; actor-b's pending entry remains."}])
 
 ;; ============================================================================
-;; RUNNER WIRING (rf2-5sjbg) — register the deck's run-step event
+;; RUNNER WIRING — register the deck's run-step event
 ;; ============================================================================
 
 (runner/reg-runner! {:id         :managed-http/run-step
