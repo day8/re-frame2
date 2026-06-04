@@ -118,7 +118,7 @@
   [url]
   (url/malformed-url? url))
 
-(declare compile-query-coercions)
+(declare compile-schema-coercions)
 
 ;; ---- authoring-boundary metadata validation ------------------------------
 ;; Per Spec 012 §Reserved route-metadata keys. `reg-route` has the
@@ -219,11 +219,18 @@
         structural   (when parsed (:rank parsed))
         rank         (when structural (conj structural (- idx)))
         compiled     (when parsed (select-keys parsed [:regex :names :pattern :groups]))
-        query-coerce (compile-query-coercions (:query metadata))
+        query-coerce (compile-schema-coercions (:query metadata))
+        ;; rf2-cylse.5: compile the `:params` schema into a path-coerce
+        ;; table the SAME way as the query side, so PATH captures coerce
+        ;; against their declared type (`:int`/`:uuid`/`:double`/enum)
+        ;; before validation — without it a non-`:string` path-param type
+        ;; makes every valid URL fail :params validation → 404.
+        params-coerce (compile-schema-coercions (:params metadata))
         meta'        (cond-> (source-coords/merge-coords metadata)
-                       rank         (assoc :rf.route/rank rank)
-                       compiled     (assoc :rf.route/compiled compiled)
-                       query-coerce (assoc :rf.route/query-coerce query-coerce))]
+                       rank          (assoc :rf.route/rank rank)
+                       compiled      (assoc :rf.route/compiled compiled)
+                       query-coerce  (assoc :rf.route/query-coerce query-coerce)
+                       params-coerce (assoc :rf.route/params-coerce params-coerce))]
     ;; Spec 012 rule-6 warning: scan existing routes for one whose
     ;; structural rank (rules 1-5) equals ours. The match-time tuple
     ;; (`:rf.route/rank`) carries `(- reg-index)` as its trailing
@@ -290,13 +297,16 @@
   the global `default-max-decoded-keys`."
   10000)
 
-(defn- compile-query-coercions
+(defn- compile-schema-coercions
   "Flatten a `[:map [k type-or-opts] ...]` Malli vector schema into a
   `{k type-form}` map for O(1) per-key lookup during URL coercion.
   Returns nil when the schema is absent or not a vector. Computed once
   at registration time and cached on the route metadata under
-  `:rf.route/query-coerce` (rf2-yjjrv) — O(1) per-key lookup at nav time
-  rather than re-scanning the schema per query key.
+  `:rf.route/query-coerce` (from the `:query` schema, rf2-yjjrv) and
+  `:rf.route/params-coerce` (from the `:params` schema, rf2-cylse.5) —
+  O(1) per-key lookup at nav time rather than re-scanning the schema per
+  key. Schema-agnostic: the same `[:map ...]` shape drives both the query
+  side and the path side.
 
   Per rf2-3k3o7: when the slot's type-form is a bare `[:enum ...]` with
   all-keyword choices, the type-form is rewritten as `[:rf.route/enum-keyword #{choice-names...}]`
@@ -359,16 +369,47 @@
   hosts, not silently passed through on one."
   #"^-?\d+$")
 
+(def ^:private max-safe-integer
+  "The largest integer magnitude both hosts represent EXACTLY: `2^53 - 1`,
+  the IEEE-754 double safe-integer ceiling (`js/Number.MAX_SAFE_INTEGER`).
+  Above this, a CLJS number loses precision (it is a double) while a JVM
+  `Long` stays exact — the same digit string would coerce to DIFFERENT
+  numeric values server- vs client-side (a Spec 011 hydration mismatch),
+  or coerce on one host and throw/round on the other. rf2-cylse.1."
+  9007199254740991)
+
 (defn- parse-int-strict
   "Coerce `v` to an integer iff it is a whole integer literal per
-  `int-literal-re`; otherwise return `v` unchanged. Identical on JVM and
-  CLJS (rf2-oyw04). On CLJS the digit-string is parsed via `parseInt`
-  base-10 — safe because the regex has already proven the whole string is
-  `^-?\\d+$`, so no NaN / radix-sniffing / trailing-junk path is reachable."
+  `int-literal-re` AND fits within the cross-host safe-integer range;
+  otherwise return `v` unchanged. HOST-SYMMETRIC AND TOTAL — identical
+  result on JVM and CLJS (rf2-oyw04 + rf2-cylse.1).
+
+  rf2-cylse.1: `int-literal-re` (`^-?\\d+$`) makes the parse DECISION a
+  pure function of the string, but NOT the parse RESULT — `^-?\\d+$`
+  matches arbitrarily long digit runs, and the two hosts then disagree on
+  the numeric value for an oversized literal:
+    - in (2^53, 2^63):  JVM `parse-long` → an EXACT `Long`; CLJS
+      `parse-long` → a LOSSY double (e.g. 9007199254740993 → …92);
+    - above 2^63:       JVM → `nil` (out of `Long` range); CLJS → a
+      lossy double — divergent OUTCOME (route-miss vs commit), not just
+      value.
+  Both are the exact cross-host-parity / hydration-mismatch class
+  rf2-oyw04 set out to close. The fix bounds the literal at the shared
+  `max-safe-integer` ceiling (`2^53 - 1`) and PASSES THROUGH AS A STRING
+  on BOTH hosts above it — mirroring the `\"12abc\"` passthrough
+  discipline (the route's `:int` `:query`/`:params` Malli schema then
+  flags the un-coerced string). `parse-long` is host-symmetric and total
+  (returns `nil`, never throws, on overflow), so no
+  `NumberFormatException` can escape `match-url` to a direct facade
+  caller either (the rf2-cylse.1 case-3 undocumented throw)."
   [v]
   (if (and (string? v) (re-matches int-literal-re v))
-    #?(:clj  (Long/parseLong v)
-       :cljs (js/parseInt v 10))
+    (let [n (parse-long v)]
+      (if (and n (<= (- max-safe-integer) n max-safe-integer))
+        n
+        ;; nil (>2^63 on JVM) or out of the safe-integer range on either
+        ;; host → pass through as a string, identically on both hosts.
+        v))
     v))
 
 (defn- coerce-by-type-form
@@ -376,10 +417,20 @@
   vocabulary: `:int` / `:boolean` plus the rf2-3k3o7 keyword variants:
 
   - `:int` — coerced to a number **only when the whole string is an
-    integer literal** (`^-?\\d+$`), identically on JVM and CLJS (rf2-oyw04).
-    Non-integer-literal input (`\"12abc\"`, `\"0x10\"`, `\" 12\"`, `\"abc\"`)
-    stays a string on BOTH hosts; the route's `:query` schema then flags the
-    type mismatch via the layered validator.
+    integer literal** (`^-?\\d+$`) within the cross-host safe-integer
+    range, identically on JVM and CLJS (rf2-oyw04 + rf2-cylse.1).
+    Non-integer-literal or oversized input (`\"12abc\"`, `\"0x10\"`,
+    `\" 12\"`, `\"abc\"`, a >2^53 literal) stays a string on BOTH hosts;
+    the route's `:query`/`:params` schema then flags the type mismatch via
+    the layered validator.
+  - `:double` — coerced to a number via the host-symmetric, total
+    `parse-double` (returns nil → string passthrough on bad input; never
+    throws). rf2-cylse.5.
+  - `:uuid` — coerced to a UUID object via the host-symmetric, total
+    `parse-uuid` (returns nil → string passthrough on a non-UUID; never
+    throws). This is what makes the canonical Spec 012 `:uuid` PATH route
+    (`{:path \"/articles/:id\" :params [:map [:id :uuid]]}`) round-trip a
+    real UUID URL to `{:id #uuid \"...\"}` rather than 404. rf2-cylse.5.
   - `:rf.route/keyword-unbounded` — declared as `:keyword` with no enum
     constraint. **Stays as string** (no intern; the unbounded keyword-
     interning DoS surface is precisely what rf2-3k3o7 guards against).
@@ -388,11 +439,24 @@
     choice are keyword'd, others stay string. Bounded by construction.
 
   Any other type-form (including nil) is a pass-through. Per Spec 012
-  §Query-string coercion and rf2-3k3o7."
+  §Query-string coercion and rf2-3k3o7. Shared by the query side
+  (`coerce-query`) and the path side (`coerce-path`, rf2-cylse.5)."
   [type-form v]
   (cond
     (= :int type-form)
     (parse-int-strict v)
+
+    (= :double type-form)
+    ;; rf2-cylse.5: host-symmetric + total. `parse-double` returns nil on
+    ;; a non-double string (both hosts) → leave the raw string so the
+    ;; layered :params/:query validator flags it.
+    (if (string? v) (or (parse-double v) v) v)
+
+    (= :uuid type-form)
+    ;; rf2-cylse.5: host-symmetric + total. `parse-uuid` returns nil on a
+    ;; non-UUID string (both hosts) → leave the raw string for the
+    ;; validator. Makes the canonical Spec 012 :uuid path route match.
+    (if (string? v) (or (parse-uuid v) v) v)
 
     (= :boolean type-form)
     (case v "true" true "false" false v)
@@ -456,6 +520,36 @@
           (assoc m k v)))
       (array-map)
       raw-query)))
+
+(defn- coerce-path
+  "Coerce a `{keyword-key string-value}` PATH-capture map against the
+  precompiled `params-coerce` table (`{:keyword-key type-form}`, from the
+  route's `:params` schema). Each captured key whose type-form is a known
+  coercion vocabulary entry (`:int` / `:uuid` / `:double` / `:boolean` /
+  `[:enum ...]` keyword allowlist) is coerced; every other key (incl.
+  `:string` and any undeclared capture) passes through unchanged.
+  rf2-cylse.5.
+
+  Unlike `coerce-query`, the keyword-interning DoS concern (rf2-3k3o7 /
+  rf2-5ifai) does NOT apply here: path-capture keys are already keywords
+  produced by `match-against` from the route pattern's FIXED capture
+  names — their cardinality is bounded by the author's pattern, not by
+  attacker-supplied URL keys. So this coerces values in place without a
+  key-allowlist gate.
+
+  Returns `params` unchanged when no `params-coerce` table is present
+  (the common case — a route with no `:params` schema, or an all-string
+  schema)."
+  [params-coerce params]
+  (if (and params-coerce (seq params))
+    (reduce-kv
+      (fn [m k v]
+        (assoc m k (if-let [tf (get params-coerce k)]
+                     (coerce-by-type-form tf v)
+                     v)))
+      params
+      params)
+    params))
 
 (defn- split-fragment
   "Split a URL into [url-without-fragment fragment]. Returns
@@ -629,8 +723,20 @@
           (fn [_ [id route-meta]]
             (when-let [compiled (or (:rf.route/compiled route-meta)
                                     (some-> (:path route-meta) match/parse-pattern))]
-              (when-let [params (match/match-against compiled path)]
-                (let [query-coerce  (:rf.route/query-coerce route-meta)
+              (when-let [raw-params (match/match-against compiled path)]
+                (let [;; rf2-cylse.5: coerce PATH captures against the
+                      ;; route's `:params` schema (precompiled to
+                      ;; `:rf.route/params-coerce`) BEFORE validation —
+                      ;; mirrors the query side. Without this a typed path
+                      ;; param (`:int`/`:uuid`/`:double`/enum) is a raw
+                      ;; string fed to a typed Malli schema → validation
+                      ;; FAILS → the canonical Spec 012 `:uuid` route 404s
+                      ;; for every valid URL. `params` (coerced) is what
+                      ;; both validation AND the `:params` result key use,
+                      ;; so the slice carries `{:id #uuid \"...\"}` per
+                      ;; Spec 012:269/498.
+                      params        (coerce-path (:rf.route/params-coerce route-meta) raw-params)
+                      query-coerce  (:rf.route/query-coerce route-meta)
                       defaults      (:query-defaults route-meta)
                       retain        (:query-retain route-meta)
                       ;; Force the query parse on the first successful path

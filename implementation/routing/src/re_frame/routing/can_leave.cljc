@@ -26,6 +26,7 @@
   (:require [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
             [re-frame.routing.events :as routing-events]
+            [re-frame.routing.url :as url]
             [re-frame.trace :as trace]))
 
 (defn- can-leave-query [route-meta]
@@ -154,81 +155,10 @@
   [_ _]
   {})
 
-(defn- safe-in-app-url?
-  "Fail-CLOSED lexical classifier for the no-browser-origin path (JVM /
-  SSR, and CLJS when `js/window` is unavailable). Returns true ONLY when
-  `url` is PROVABLY a same-origin in-app reference; everything ambiguous
-  or absolute returns false -> classed external (rf2-3bv8o).
-
-  Without a browser `Location` to resolve and origin-compare against
-  (the robust CLJS path below), the runtime cannot prove a URL is
-  same-origin. The pre-rf2-3bv8o JVM path was fail-OPEN: it returned the
-  URL verbatim and classed in-app anything that did not lexically look
-  absolute -- a default-ALLOW that let open-redirect bypass vectors
-  (leading whitespace before a scheme, backslash-prefixed authorities a
-  browser normalises to `//`, embedded tab/newline in the scheme) slip
-  through as in-app pushes. This flips to fail-CLOSED, consistent with
-  the routing fail-closed posture established by rf2-6t1xb (a hostile or
-  ambiguous URL resolves to the safe outcome, not the permissive one).
-
-  A URL is accepted as in-app only when, after rejecting any whitespace
-  or ASCII control character (browsers strip tab/CR/LF mid-URL before
-  parsing -- a lexical check that ignores them is bypassable), it begins
-  with a single `/` NOT followed by `/` or a backslash (a rooted
-  same-origin path) -- OR is a pure query (`?...`) / fragment (`#...`)
-  reference. A leading `//` or `/\\` (protocol-relative authority a
-  browser reads as off-origin), a scheme (`name:`), a bare relative
-  segment, the empty string, and any non-string all fail closed."
-  [url]
-  (boolean
-    (and (string? url)
-         (seq url)
-         ;; Reject any whitespace or ASCII control char (incl. DEL)
-         ;; anywhere: a leading space defeats a `^` scheme anchor, and
-         ;; embedded tab/CR/LF are stripped by browsers before parsing --
-         ;; a lexical check that ignores them is a bypass surface. The
-         ;; `\s` + hex-range class is identical under Java (CLJ) and
-         ;; JS (CLJS) regex.
-         (not (re-find #"[\s\x00-\x1f\x7f]" url))
-         (or
-           ;; Pure query or fragment reference -- unambiguously same-doc.
-           (clojure.string/starts-with? url "?")
-           (clojure.string/starts-with? url "#")
-           ;; Rooted path: a single leading `/` NOT followed by `/` or
-           ;; `\` (which a browser would treat as a protocol-relative
-           ;; authority -> off-origin).
-           (and (clojure.string/starts-with? url "/")
-                (not (clojure.string/starts-with? url "//"))
-                (not (clojure.string/starts-with? url "/\\")))))))
-
-(defn- external-url? [url]
-  #?(:cljs
-     (try
-       (if (and (exists? js/window) (.-location js/window))
-         (let [loc      (.-location js/window)
-               parsed   (js/URL. url (.-href loc))
-               protocol (.-protocol parsed)]
-           (or (not (#{"http:" "https:"} protocol))
-               (not= (.-origin parsed) (.-origin loc))))
-         ;; No browser Location to origin-compare against — fail closed.
-         (not (safe-in-app-url? url)))
-       (catch :default _
-         (not (safe-in-app-url? url))))
-     :clj
-     ;; JVM / SSR: no browser origin — fail closed (rf2-3bv8o).
-     (not (safe-in-app-url? url))))
-
-(defn- request-url->app-url [url]
-  #?(:cljs
-     (try
-       (if (and (exists? js/window) (.-location js/window)
-                (not (external-url? url)))
-         (let [parsed (js/URL. url (.-href (.-location js/window)))]
-           (str (.-pathname parsed) (.-search parsed) (.-hash parsed)))
-         url)
-       (catch :default _ url))
-     :clj
-     url))
+;; rf2-cylse.4: the open-redirect classifier (`safe-in-app-url?` /
+;; `external-url?` / `request-url->app-url`) is now shared in
+;; `re-frame.routing.url` so the programmatic `:rf.route/navigate {:url}`
+;; sink gates through the SAME fail-closed logic as `:rf/url-requested`.
 
 (defn- inject-bypass-leave-guard [event-vec fallback-url]
   (let [event-id (first event-vec)]
@@ -267,8 +197,8 @@
     ;; The :bypass-leave-guard? request flag is the rf2-yursn one-shot
     ;; escape hatch :rf.route/continue uses to re-issue the original
     ;; navigation request without re-running the leave guard.
-    (let [external? (external-url? url)
-          app-url   (request-url->app-url url)
+    (let [external? (url/external-url? url)
+          app-url   (url/request-url->app-url url)
           blocked   (when-not external?
                       (maybe-block-navigation db (or frame :rf/default)
                                               event-vec app-url bypass-leave-guard?))]

@@ -139,3 +139,105 @@
                          (when (and fragment (seq fragment))
                            (nil? (safe-url-decode fragment))))]
     (or path-bad? query-bad? fragment-bad?)))
+
+;; ---- open-redirect classifier (rf2-3bv8o + rf2-cylse.4) ------------------
+;; The shared lexical/origin gate that classifies a URL-string nav target
+;; as same-origin in-app vs external. Hoisted here from
+;; `re-frame.routing.can-leave` (rf2-cylse.4) so EVERY url-string nav sink
+;; — the gated `:rf/url-requested` link-click path AND the previously
+;; ungated `:rf.route/navigate {:url ...}` programmatic path — fails closed
+;; through ONE classifier rather than each entry point re-deciding (and
+;; only one of three being wired). Per Spec 012 §Target form — URL-string:
+;; the `{:url ...}` escape hatch is precisely for untrusted input
+;; (deep-link handlers, server-redirect targets), the same class
+;; `safe-in-app-url?` exists to gate.
+
+(defn safe-in-app-url?
+  "Fail-CLOSED lexical classifier for the no-browser-origin path (JVM /
+  SSR, and CLJS when `js/window` is unavailable). Returns true ONLY when
+  `url` is PROVABLY a same-origin in-app reference; everything ambiguous
+  or absolute returns false -> classed external (rf2-3bv8o).
+
+  Without a browser `Location` to resolve and origin-compare against
+  (the robust CLJS path in `external-url?`), the runtime cannot prove a
+  URL is same-origin. The pre-rf2-3bv8o JVM path was fail-OPEN: it
+  returned the URL verbatim and classed in-app anything that did not
+  lexically look absolute -- a default-ALLOW that let open-redirect
+  bypass vectors (leading whitespace before a scheme, backslash-prefixed
+  authorities a browser normalises to `//`, embedded tab/newline in the
+  scheme) slip through as in-app pushes. This flips to fail-CLOSED,
+  consistent with the routing fail-closed posture established by
+  rf2-6t1xb (a hostile or ambiguous URL resolves to the safe outcome,
+  not the permissive one).
+
+  A URL is accepted as in-app only when, after rejecting any whitespace
+  or ASCII control character (browsers strip tab/CR/LF mid-URL before
+  parsing -- a lexical check that ignores them is bypassable), it begins
+  with a single `/` NOT followed by `/` or a backslash (a rooted
+  same-origin path) -- OR is a pure query (`?...`) / fragment (`#...`)
+  reference. A leading `//` or `/\\` (protocol-relative authority a
+  browser reads as off-origin), a scheme (`name:`), a bare relative
+  segment, the empty string, and any non-string all fail closed."
+  [url]
+  (boolean
+    (and (string? url)
+         (seq url)
+         ;; Reject any whitespace or ASCII control char (incl. DEL)
+         ;; anywhere: a leading space defeats a `^` scheme anchor, and
+         ;; embedded tab/CR/LF are stripped by browsers before parsing --
+         ;; a lexical check that ignores them is a bypass surface. The
+         ;; `\s` + hex-range class is identical under Java (CLJ) and
+         ;; JS (CLJS) regex.
+         (not (re-find #"[\s\x00-\x1f\x7f]" url))
+         (or
+           ;; Pure query or fragment reference -- unambiguously same-doc.
+           (clojure.string/starts-with? url "?")
+           (clojure.string/starts-with? url "#")
+           ;; Rooted path: a single leading `/` NOT followed by `/` or
+           ;; `\` (which a browser would treat as a protocol-relative
+           ;; authority -> off-origin).
+           (and (clojure.string/starts-with? url "/")
+                (not (clojure.string/starts-with? url "//"))
+                (not (clojure.string/starts-with? url "/\\")))))))
+
+(defn external-url?
+  "Classify `url` as external (off-origin / non-http(s) / unsafe) vs an
+  in-app same-origin reference. On CLJS with a live `js/window.location`
+  the URL is resolved against the document origin and compared (the
+  robust path); otherwise (JVM / SSR, or any resolution failure) it falls
+  back to the fail-closed lexical `safe-in-app-url?`. rf2-3bv8o +
+  rf2-cylse.4."
+  [url]
+  #?(:cljs
+     (try
+       (if (and (exists? js/window) (.-location js/window))
+         (let [loc      (.-location js/window)
+               parsed   (js/URL. url (.-href loc))
+               protocol (.-protocol parsed)]
+           (or (not (#{"http:" "https:"} protocol))
+               (not= (.-origin parsed) (.-origin loc))))
+         ;; No browser Location to origin-compare against — fail closed.
+         (not (safe-in-app-url? url)))
+       (catch :default _
+         (not (safe-in-app-url? url))))
+     :clj
+     ;; JVM / SSR: no browser origin — fail closed (rf2-3bv8o).
+     (not (safe-in-app-url? url))))
+
+(defn request-url->app-url
+  "Normalise an in-app `url` to its origin-relative form
+  (`pathname + search + hash`) on CLJS when a browser Location is
+  available and the URL is not external; otherwise return `url`
+  unchanged. Callers must have already confirmed the URL is in-app via
+  `external-url?` — this only canonicalises, it does NOT gate."
+  [url]
+  #?(:cljs
+     (try
+       (if (and (exists? js/window) (.-location js/window)
+                (not (external-url? url)))
+         (let [parsed (js/URL. url (.-href (.-location js/window)))]
+           (str (.-pathname parsed) (.-search parsed) (.-hash parsed)))
+         url)
+       (catch :default _ url))
+     :clj
+     url))
