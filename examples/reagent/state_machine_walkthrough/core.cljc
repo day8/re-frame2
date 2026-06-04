@@ -1,7 +1,7 @@
 (ns state-machine-walkthrough.core
   "Runnable companion to docs/guide/12-machines.md.
 
-  This is the login-flow chapter as code. Every prose snippet in ch.11
+  This is the login-flow chapter as code. Every prose snippet in ch.12
   appears here in the order the chapter introduces it; each section
   ends with a smoke-test fn that drives the machine through the
   scenario the chapter describes.
@@ -109,7 +109,7 @@
     :submitting
     ;; :auth/busy tag — views query (rf/machine-has-tag? :auth.login/flow
     ;; :auth/busy) to disable inputs and re-label the submit button
-    ;; while the request is in flight (ch.11 §State tags).
+    ;; while the request is in flight (ch.12 §State tags).
     {:tags  #{:auth/busy}
      :entry :issue-request
      :on    {:auth.login/success {:target :authed
@@ -199,7 +199,7 @@
 ;; the named subs below chain off it to project out the convenient
 ;; pieces. The "in :submitting?" / "in :authed?" / "in :locked-out?"
 ;; predicates moved to the `rf/machine-has-tag?` queries in views.cljs
-;; (ch.11 §State tags) — discriminating on the machine's runtime-projected
+;; (ch.12 §State tags) — discriminating on the machine's runtime-projected
 ;; `:tags` set decouples view code from individual state-keyword identity.
 
 (rf/reg-sub :auth.login/state
