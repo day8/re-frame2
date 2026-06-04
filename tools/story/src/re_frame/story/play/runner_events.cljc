@@ -1116,6 +1116,30 @@
     (try (done-cb (current-state-for-play frame-id play-key))
          (catch #?(:clj Throwable :cljs :default) _ nil))))
 
+(defn- settle-abort!
+  "Settle `done-cb` for a run-loop that ABORTED before finishing — the frame
+  was torn down mid-run (run-state vanished) or a newer `run!` took over the
+  state slot (token mismatch, rf2-ftow6). rf2-9x5fm: every exit path of the
+  run loop MUST settle the awaiting continuation, otherwise the play-promise
+  (and the outer `run-variant` promise chained off it) hangs forever. The
+  abort is reachable on CLJS, where an async `:wait` yield gives a hot-reload
+  reset / concurrent `run!` / teardown a window to mutate the shared
+  run-state between steps.
+
+  Unlike `finish!`, this does NOT call `update-state!` / `runner/finish` — an
+  aborted loop must NOT clobber the shared run-state slot, which by this point
+  may belong to the NEWER run that took over (token mismatch) or be gone (frame
+  torn down). It resolves the awaiting `done-cb` with the last-known state
+  (`current-state-for-play`, possibly nil) so the continuation advances and the
+  promise settles. The continuation only chains the next play / builds the
+  result from the frame's accumulated assertions; it does not re-read this
+  state for correctness."
+  [frame-id play-key done-cb]
+  (when done-cb
+    (try (done-cb (current-state-for-play frame-id play-key))
+         (catch #?(:clj Throwable :cljs :default) _ nil)))
+  nil)
+
 (defn- run-loop!
   "Iterate over the script, running each step. `:wait` steps yield
   to the scheduler and resume from the wait time onwards.
@@ -1139,15 +1163,24 @@
   [frame-id play-key token done-cb]
   (let [state (current-state-for-play frame-id play-key)]
     (cond
-      ;; abort if state has gone missing (frame torn down mid-run)
+      ;; abort if state has gone missing (frame torn down mid-run).
+      ;; rf2-9x5fm: still settle `done-cb` so the awaiting continuation
+      ;; advances and the play-promise (and the outer `run-variant`
+      ;; promise) resolves rather than hanging forever. We do NOT
+      ;; `finish!` here — the run-state slot is gone, so there is nothing
+      ;; to transition; we only release the continuation.
       (nil? state)
-      nil
+      (settle-abort! frame-id play-key done-cb)
 
       ;; abort if a newer run! has taken over the state slot — the
       ;; newer loop owns continuation now, so the stale loop bails
-      ;; silently rather than racing it. rf2-ftow6.
+      ;; rather than racing it. rf2-ftow6. rf2-9x5fm: the stale loop
+      ;; must STILL settle ITS OWN `done-cb` (the continuation/promise
+      ;; for THIS run) so it does not strand the chain — but via
+      ;; `settle-abort!` (no `update-state!`), so it never clobbers the
+      ;; newer run's run-state slot.
       (and token (some? (:run-token state)) (not= token (:run-token state)))
-      nil
+      (settle-abort! frame-id play-key done-cb)
 
       (runner/done? state)
       (finish! frame-id play-key done-cb)

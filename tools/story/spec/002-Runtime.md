@@ -155,6 +155,17 @@ Strict order, per spec/007:
      play-runner bridges them into the step result so the registered
      assertion handlers record into `:rf.story/assertions` (no throw —
      see [`004-Assertions.md`](004-Assertions.md)).
+   - **The phase-4 run always settles the `run-variant` promise.** A
+     play that is ABORTED before completing — the variant frame is torn
+     down mid-run (e.g. a hot-reload reset / `destroy-variant!` lands
+     during an async `:wait` yield), or a concurrent re-run takes over
+     the variant's run slot — still resolves the awaiting promise rather
+     than stranding it. The runner builds the result from whatever the
+     run accumulated against the (possibly torn-down) frame; an aborted
+     run never hangs the host's `await`. (`run-variant` chains only the
+     play promise's success continuation, so a non-settling abort would
+     hang forever — the runner is responsible for settling every exit
+     path.)
 
 Phase 1 and 4 are async-safe; phases 2 and 3 are sync (per re-frame's
 run-to-completion drain).

@@ -19,7 +19,8 @@
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.story :as story]
             [re-frame.story.async :as async-lib]
-            [re-frame.story.loaders :as loaders]))
+            [re-frame.story.loaders :as loaders]
+            [re-frame.story.play.runner-events :as re]))
 
 ;; ---- fixtures ------------------------------------------------------------
 ;;
@@ -128,6 +129,87 @@
         ":loaders-complete-when disqualifies")
     (is (false? (loaders/events-only-variant? {} {:frame-setup [{:body {}}]}))
         ":frame-setup decorators disqualify")))
+
+;; ---- rf2-9x5fm — the run-variant promise resolves even when the play -----
+;;      runner aborts mid-:wait (frame torn down during the async yield) ----
+;;
+;; The defect: `runner-events/run-loop!` had two silent-abort branches that
+;; returned WITHOUT invoking done-cb — the `(nil? state)` branch (frame torn
+;; down mid-run) and the token-mismatch branch (a concurrent run! took over).
+;; When either fired during an async `:wait` yield (CLJS `js/setTimeout`), the
+;; play-promise never resolved → `run-phase-4!`'s continuation never fired →
+;; `finalise-run!`'s `then` never fired → the outer `run-variant` promise hung
+;; FOREVER (it chains only `then`, never `catch` / a timeout).
+;;
+;; This is the end-to-end regression guard for the ACTUAL failing path: a
+;; variant whose play has a `:wait` step, with the frame destroyed during the
+;; wait yield. Before the fix this test would NEVER call `done` and the
+;; cljs.test async runner would time out (a red hang). With the fix the
+;; aborted run still settles, so `run-variant` resolves and `done` fires.
+
+(deftest cljs-run-variant-resolves-when-frame-torn-down-mid-wait
+  (testing "rf2-9x5fm — tearing the variant frame down DURING a play's
+            `:wait` yield must still resolve the run-variant promise; the
+            aborted run loop settles its continuation instead of hanging"
+    (rf/reg-event-db :test.hang/touch
+      (fn [db _] (update db :n (fnil inc 0))))
+    (story/reg-variant :story.cljs.hang/torn-down
+      {:events      []
+       :play-script {:script [[:dispatch-sync [:test.hang/touch]]
+                              ;; The async yield window: the frame is
+                              ;; destroyed while this :wait's setTimeout is
+                              ;; pending, so the run loop resumes onto a
+                              ;; vanished run-state.
+                              [:wait 60]
+                              [:dispatch-sync [:test.hang/touch]]]}})
+    (async done
+      (let [p (story/run-variant :story.cljs.hang/torn-down)]
+        ;; Destroy the frame mid-:wait (after run-phase-4! has scheduled the
+        ;; wait's setTimeout, before it resumes). This wipes the run-state
+        ;; slot (`clear-state!` via the :drop-run-state teardown hook), so the
+        ;; resuming loop hits the `(nil? state)` abort branch.
+        (js/setTimeout #(story/destroy-variant! :story.cljs.hang/torn-down) 15)
+        (-> p
+            (async-lib/then
+              (fn [r]
+                (is (map? r)
+                    "the run-variant promise RESOLVED — the torn-down-mid-wait
+                     run settled instead of hanging forever (rf2-9x5fm)")
+                (done))))))))
+
+(deftest cljs-run-variant-resolves-when-concurrent-run-takes-over-mid-wait
+  (testing "rf2-9x5fm — a concurrent `run!` that takes over the run-state slot
+            (token swap, rf2-ftow6) DURING a play's `:wait` yield must still
+            resolve the original run-variant promise; the stale loop settles
+            its own continuation rather than stranding the chain"
+    (rf/reg-event-db :test.hang2/touch
+      (fn [db _] (update db :n (fnil inc 0))))
+    (story/reg-variant :story.cljs.hang/token-swap
+      {:events      []
+       :play-script {:auto-run? false
+                     :script [[:dispatch-sync [:test.hang2/touch]]
+                              [:wait 60]
+                              [:dispatch-sync [:test.hang2/touch]]]}})
+    (async done
+      (let [p (story/run-variant :story.cljs.hang/token-swap)]
+        (-> p
+            (async-lib/then
+              (fn [r]
+                (is (map? r)
+                    "the original run-variant promise RESOLVED even though a
+                     concurrent run! swapped the run-state token mid-:wait —
+                     the stale loop's continuation settled (rf2-9x5fm)")
+                (story/destroy-variant! :story.cljs.hang/token-swap)
+                (done))))
+        ;; Mid-:wait, fire a concurrent runner-events/run! for the SAME
+        ;; variant. It stamps a fresher :run-token onto the shared slot, so
+        ;; when the original run's loop resumes it sees a token mismatch and
+        ;; aborts — but must still settle ITS continuation. The concurrent run
+        ;; itself is allowed to complete; we only assert the ORIGINAL promise
+        ;; resolves.
+        (js/setTimeout
+          #(re/run! :story.cljs.hang/token-swap)
+          15)))))
 
 ;; ---- snapshot-identity --------------------------------------------------
 
