@@ -62,6 +62,23 @@
   #?(:clj  (cheshire/generate-string v)
      :cljs (js/JSON.stringify (clj->js v))))
 
+(defn- too-many-keys-ex
+  "rf2-wu1n5 — the keyword-interning DoS-cap overflow ex-info. Platform-
+  agnostic (plain Clojure data), so the two host branches of `json-parse`
+  share one definition rather than carrying byte-identical copies that
+  could drift (`:cause` / `:limit` / `:reason` are security-relevant and
+  asserted on by the caller's `:rf.http/decode-failure` classification).
+  Carries `:rf.error/id :rf.error/malformed-json` + `:cause :too-many-keys`
+  + the configured `:limit`."
+  [max-keys]
+  (ex-info ":rf.error/malformed-json"
+           {:rf.error/id :rf.error/malformed-json
+            :where       'rf.http/json-parse
+            :recovery    :no-recovery
+            :reason      (str "JSON payload exceeded the per-call unique-key cap (" max-keys ") — a keyword-interning DoS guard")
+            :cause       :too-many-keys
+            :limit       max-keys}))
+
 (defn json-parse
   "JSON string → Clojure data with keyword keys for object keys. JVM
   uses Cheshire's `parse-string`; CLJS uses `js/JSON.parse` +
@@ -86,13 +103,7 @@
                                (when-not (.contains seen k)
                                  (.add seen k)
                                  (when (> (.size seen) max-keys)
-                                   (throw (ex-info ":rf.error/malformed-json"
-                                                   {:rf.error/id :rf.error/malformed-json
-                                                    :where       'rf.http/json-parse
-                                                    :recovery    :no-recovery
-                                                    :reason      (str "JSON payload exceeded the per-call unique-key cap (" max-keys ") — a keyword-interning DoS guard")
-                                                    :cause       :too-many-keys
-                                                    :limit       max-keys}))))
+                                   (throw (too-many-keys-ex max-keys))))
                                (keyword k))]
                   (cheshire/parse-string s key-fn)))
         :cljs (when (string? s)
@@ -123,13 +134,7 @@
                                            (when-not (contains? @seen k)
                                              (vswap! seen conj k)
                                              (when (> (count @seen) max-keys)
-                                               (throw (ex-info ":rf.error/malformed-json"
-                                                               {:rf.error/id :rf.error/malformed-json
-                                                                :where       'rf.http/json-parse
-                                                                :recovery    :no-recovery
-                                                                :reason      (str "JSON payload exceeded the per-call unique-key cap (" max-keys ") — a keyword-interning DoS guard")
-                                                                :cause       :too-many-keys
-                                                                :limit       max-keys})))))
+                                               (throw (too-many-keys-ex max-keys)))))
                                          (doseq [k ks] (walk (aget v k))))))]
                              (walk parsed))]
                   (js->clj parsed :keywordize-keys true)))))))
