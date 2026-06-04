@@ -195,6 +195,20 @@
    "popout-full-shell!"}     ; re-frame.story.ui.xray-embed sub-ns
 
  ;; tools/xray/spec/API.md public-var references the manifest does not carry.
+ ;; The Xray-spec projection check (re-frame.api-manifest.xray-spec-check)
+ ;; resolves TWO reference shapes against DIFFERENT indexes, so it carries
+ ;; TWO allowlists (rf2-0u8kz):
+ ;;
+ ;;   - `:xray-spec-known-unmanifested` (BELOW) — bare var-name strings, for
+ ;;     bare `mount-<panel>!` references (the aggregator family). Resolved
+ ;;     against the bare-var index.
+ ;;   - `:xray-spec-known-unmanifested-qualified` (BELOW) — `[ns var]`
+ ;;     vectors, for fully-namespace-qualified `day8.re-frame2-xray.*/<var>`
+ ;;     references (the Panel inventory). Resolved against the STRICT
+ ;;     `[namespace var]` index — a qualified symbol must match the exact
+ ;;     ns+var pair, never merely share a bare var name (e.g. `Panel`) with
+ ;;     some other manifested namespace.
+ ;;
  ;; rf2-jhn46 MIGRATED the live Xray public surface (the `Panel` exports, the
  ;; `mount-<panel>!` aggregator family, the `config` published constants, the
  ;; `open-in-editor` chip, and the `runtime` discovery-sentinel + safe-egress
@@ -208,6 +222,18 @@
  :xray-spec-known-unmanifested
  #{"mount-issues-ribbon!"    ; spec/API.md §Panel reg-views — REMOVED with the Issues tab (rf2-gbz39, Option (c)); named in removal prose only
    "mount-inline-panel!"}    ; spec/API.md §What this doesn't expose — REMOVED (rf2-sbfb7, "A — delete both"); named in removal prose only
+
+ ;; Fully-namespace-qualified Xray references (`[ns var]` vectors) the
+ ;; manifest does not carry — namespace-qualified prose / removal mentions
+ ;; of a panel namespace that no longer exists. Empty today: every
+ ;; fully-qualified `day8.re-frame2-xray.*/<var>` the Xray spec names as a
+ ;; live symbol resolves to a manifest [namespace var] row. A future
+ ;; deliberate prose mention of a removed panel namespace (e.g. the stale
+ ;; `[\"day8.re-frame2-xray.panels.views\" \"Panel\"]` spelling rf2-yxw57
+ ;; corrected) would be allowlisted here as `[ns var]`, NOT as a bare var —
+ ;; so it cannot mask a live-but-renamed panel namespace.
+ :xray-spec-known-unmanifested-qualified
+ #{}
 
  ;; skills/ (excl. re-frame-migration) call-position `(rf/<var>` references
  ;; the manifest does not carry. The checked skills teach against the LIVE
