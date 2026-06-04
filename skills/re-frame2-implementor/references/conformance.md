@@ -54,7 +54,7 @@ Common ops (per the corpus's existing fixtures):
 - `[:dispatch event-vector]` — schedule a dispatch as an effect.
 - `[:fx [...]]` — return a literal `:fx` vector.
 
-The interpreter is ~50 lines per host. The CLJS reference's interpreter lives in `implementation/core/src/re_frame/test_support.cljc`; copy the dispatch-style and adapt the literal-op handlers.
+The interpreter is ~50 lines per host. The CLJS reference's interpreter lives in `implementation/core/src/re_frame/conformance.cljc` (namespace `re-frame.conformance` — `realise-event-handler` / `realise-sub` / `realise-fx-handler`); copy the dispatch-style and adapt the literal-op handlers. It's a `.cljc`, so it is both JVM- and CLJS-runnable.
 
 **Spec-gap signal.** When a fixture uses an op that isn't documented anywhere — that's a spec gap (ask for the DSL to be documented in `spec/conformance/README.md`). File it as a GitHub issue per [`cardinal-rules.md` §§8–9](cardinal-rules.md).
 
