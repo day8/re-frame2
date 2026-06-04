@@ -278,3 +278,75 @@
       (is (nil? (:on back)) "the inherited fallback is lost on import")
       (is (= (:states spec) (:states back))
           "the per-state topology DOES round-trip"))))
+
+;; ---------------------------------------------------------------------------
+;; :on-done (XState onDone) — W3C SCXML done.state.<id> (rf2-41goo)
+;;
+;; SCXML §3.7: reaching a `<final>` child generates `done.state.<id>` into
+;; the internal queue, which an enclosing `<transition event="done.state.
+;; <id>">` takes. Pre-rf2-41goo the emitter projected the `<final>` child
+;; but NOT the onDone transition — a silently lossy round-trip.
+
+(def compound-on-done-machine
+  "Spec 005 example: a compound `:flow` whose `:on-done` advances to the
+  SIBLING `:next` when its `:final?` `:paid` is reached."
+  {:initial :flow
+   :states  {:flow {:initial :collecting
+                    :on-done :next
+                    :states  {:collecting {:on {:submit :submitting}}
+                              :submitting {:on {:ok :paid}}
+                              :paid       {:final? true}}}
+             :next {:on {:reset :flow}}}})
+
+(def parallel-on-done-machine
+  "Spec 005 example: a parallel-root `:on-done` runs action-only (no
+  :target). The action survives only as a comment (lossy, like every
+  action), so it round-trips to `:on-done {}` (the empty completion
+  spec) — the COMPLETION TOPOLOGY survives; the action is named-lossy."
+  {:type    :parallel
+   :on-done {}
+   :regions {:fetch    {:initial :loading :states {:loading {:on {:loaded :done}} :done {:final? true}}}
+             :validate {:initial :checking :states {:checking {:on {:ok :done}} :done {:final? true}}}}})
+
+(deftest emit-compound-on-done-renders-done-state-transition
+  (testing "rf2-41goo — a compound `:on-done` emits the W3C SCXML
+            `<transition event=\"done.state.<compound-id>\" target=...>`
+            INSIDE the compound's own <state> (SCXML §3.7)"
+    (let [out (scxml/spec->scxml compound-on-done-machine)]
+      (is (str/includes? out "event=\"done.state.flow\"")
+          "the done.state.<compound> completion event")
+      (is (str/includes? out "target=\"next\"")
+          "advances to the sibling :next"))))
+
+(deftest emit-parallel-on-done-renders-parallel-done-state
+  (testing "rf2-41goo — a parallel-root `:on-done` emits
+            `<transition event=\"done.state.rf2_parallel_root\">` inside
+            the <parallel> element (the whole-parallel completion)"
+    (let [out (scxml/spec->scxml parallel-on-done-machine)]
+      (is (str/includes? out "event=\"done.state.rf2_parallel_root\"")
+          "the whole-parallel done.state completion event"))))
+
+(deftest round-trip-compound-on-done
+  (testing "rf2-41goo — a compound `:on-done` (sibling target) round-trips
+            through `done.state.<id>` back to `:on-done`"
+    (let [spec compound-on-done-machine
+          back (-> spec scxml/spec->scxml scxml/scxml->spec)]
+      (is (= spec back) "the compound :on-done topology round-trips exactly")
+      (is (= :next (get-in back [:states :flow :on-done]))
+          ":on-done reconstructs on the compound node"))))
+
+(deftest round-trip-parallel-on-done-topology
+  (testing "rf2-41goo — a parallel-root `:on-done` round-trips its
+            COMPLETION topology (the action is named-lossy like every
+            action — survives only as a comment, so the spec carries the
+            empty completion form `{}`)"
+    (let [spec parallel-on-done-machine
+          back (-> spec scxml/spec->scxml scxml/scxml->spec)]
+      (is (= spec back) "the parallel completion topology round-trips")
+      (is (contains? back :on-done) "the parallel-root :on-done survives import"))))
+
+(deftest no-on-done-emits-no-done-state-transition
+  (testing "rf2-41goo — a compound with no :on-done emits no done.state
+            transition (no false-positive completion edge)"
+    (let [out (scxml/spec->scxml compound-machine)]
+      (is (not (str/includes? out "done.state"))))))

@@ -183,6 +183,113 @@
     (is (not= (layout/region-node-id :r1) (layout/node-id [:r1]))
         "a region container id differs from the same-named state id")))
 
+;; ---- region-scoped node-ids (rf2-wnzha) --------------------------------
+;;
+;; BUG (P2): pre-rf2-wnzha, `parse-parallel` kept each region's in-region
+;; node-id verbatim, so two regions sharing a state NAME minted IDENTICAL
+;; ids — the canonical Spec 005 `:ingest` shape (three regions each with a
+;; `:done {:final? true}` leaf) collided all three `:done` nodes into one:
+;; xyflow dropped two, and `highlight-ids` mis-attributed the multi-active
+;; highlight across regions. The fix REGION-SCOPES every region-state id.
+
+(deftest region-scoped-id-is-injective-across-regions
+  (testing "rf2-wnzha — the SAME state path in two DIFFERENT regions mints
+            DISTINCT ids (region is part of the id namespace), but composes
+            stably from the region container id + the in-region node-id"
+    (is (= (str (layout/region-node-id :fetch) "__" (layout/node-id [:done]))
+           (layout/region-scoped-id :fetch [:done]))
+        "composed from region-node-id + in-region node-id")
+    (is (not= (layout/region-scoped-id :fetch [:done])
+              (layout/region-scoped-id :validate [:done]))
+        "same state name, two regions → DISTINCT ids")
+    (is (not= (layout/region-scoped-id :fetch [:done])
+              (layout/node-id [:done]))
+        "a region-scoped id differs from the bare in-region id")))
+
+(deftest parse-definition-parallel-same-name-region-states-distinct-nodes
+  (testing "rf2-wnzha — the Spec 005 :ingest shape: three regions each
+            carrying a same-named `:done {:final? true}` leaf. All three
+            `:done` nodes must be PRESENT and DISTINCT (pre-fix they
+            collided into one node-id → xyflow dropped two)"
+    (let [ingest {:type :parallel
+                  :regions {:fetch    {:initial :loading
+                                       :states {:loading {:on {:loaded :done}}
+                                                :done    {:final? true}}}
+                            :validate {:initial :checking
+                                       :states {:checking {:on {:ok :done}}
+                                                :done     {:final? true}}}
+                            :index    {:initial :building
+                                       :states {:building {:on {:built :done}}
+                                                :done     {:final? true}}}}}
+          {:keys [nodes]} (layout/parse-definition ingest)
+          state-nodes (remove :region? nodes)
+          done-nodes  (filter #(= [:done] (:path %)) state-nodes)
+          done-ids    (map :id done-nodes)]
+      (is (= 3 (count done-nodes)) "all three regions' :done leaves survive")
+      (is (= 3 (count (set done-ids)))
+          "the three :done node-ids are DISTINCT (no collision/drop)")
+      (is (= #{(layout/region-scoped-id :fetch [:done])
+               (layout/region-scoped-id :validate [:done])
+               (layout/region-scoped-id :index [:done])}
+             (set done-ids))
+          "each :done id is region-scoped to its own region")
+      ;; The whole projection has globally-unique node ids.
+      (is (= (count nodes) (count (set (map :id nodes))))
+          "every projected node id is globally unique"))))
+
+(deftest parse-definition-parallel-same-name-region-states-edges-region-scoped
+  (testing "rf2-wnzha — an intra-region edge to/from a shared-name state
+            resolves to that region's OWN scoped id (pre-fix the edge
+            endpoints collided across regions)"
+    (let [ingest {:type :parallel
+                  :regions {:fetch    {:initial :loading
+                                       :states {:loading {:on {:loaded :done}}
+                                                :done    {:final? true}}}
+                            :validate {:initial :checking
+                                       :states {:checking {:on {:ok :done}}
+                                                :done     {:final? true}}}}}
+          {:keys [nodes edges]} (layout/parse-definition ingest)
+          node-ids (set (map :id nodes))]
+      ;; every edge endpoint is a REAL projected node (no phantom/collided id)
+      (doseq [e edges]
+        (is (contains? node-ids (:source e))
+            (str "edge source " (:source e) " is a real node"))
+        (is (contains? node-ids (:target e))
+            (str "edge target " (:target e) " is a real node")))
+      ;; the :fetch :loaded→:done edge lands on :fetch's OWN :done, not
+      ;; :validate's
+      (let [fetch-done (layout/region-scoped-id :fetch [:done])]
+        (is (some #(= fetch-done (:target %)) edges)
+            ":fetch's :loaded→:done edge targets :fetch's scoped :done")
+        (is (= (count (set (map :id edges))) (count edges))
+            "every edge id is distinct (no cross-region edge-id collision)")))))
+
+(deftest highlight-ids-same-name-region-states-attribute-per-region
+  (testing "rf2-wnzha (THE HIGHLIGHT FIX) — when two regions are both in a
+            same-named `:done` state, the multi-active highlight lights
+            EACH region's OWN `:done` node — not one node twice. Pre-fix
+            the colliding ids meant lighting region A's :done also lit B's"
+    (let [ingest {:type :parallel
+                  :regions {:fetch    {:initial :loading
+                                       :states {:loading {:on {:loaded :done}}
+                                                :done    {:final? true}}}
+                            :validate {:initial :checking
+                                       :states {:checking {:on {:ok :done}}
+                                                :done     {:final? true}}}}}
+          {:keys [nodes]} (layout/parse-definition ingest)
+          node-ids (set (map :id (remove :region? nodes)))
+          ;; BOTH regions reached their (same-named) :done leaf
+          state    {:fetch :done :validate :done}
+          ids      (layout/highlight-ids state)]
+      (is (= 2 (count ids))
+          "TWO distinct active leaves light up (one per region), not one")
+      (is (= #{(layout/region-scoped-id :fetch [:done])
+               (layout/region-scoped-id :validate [:done])}
+             ids)
+          "each region's :done is attributed to its OWN node-id")
+      (is (every? #(contains? node-ids %) ids)
+          "every active id is a REAL parsed region-state node (no phantom)"))))
+
 ;; ---- highlight-id ------------------------------------------------------
 
 (deftest highlight-id-handles-flat-state
@@ -229,16 +336,17 @@
 (deftest highlight-ids-region-map-is-the-set-of-active-leaves
   (testing "rf2-g2svr (THE NEW CAPABILITY) — a PARALLEL snapshot's
             region-map resolves to the SET of N active leaves, one per
-            region. Each region value resolves the same way the parse
-            mints the region's state ids — via node-id of the in-region
-            path (parse-parallel keeps the in-region node-id; it does NOT
-            region-prefix it)."
+            region. rf2-wnzha — each region value resolves via
+            `region-scoped-id` of the REGION + the in-region path
+            (parse-parallel region-scopes a state's node-id so two regions
+            sharing a state NAME mint DISTINCT ids; the resolver mints the
+            SAME scoped id)."
     (let [state {:data :loading :form :neutral :mode :active}
           ids   (layout/highlight-ids state)]
       (is (= 3 (count ids)) "three regions → three active leaf ids")
-      (is (= #{(layout/node-id [:loading])
-               (layout/node-id [:neutral])
-               (layout/node-id [:active])}
+      (is (= #{(layout/region-scoped-id :data [:loading])
+               (layout/region-scoped-id :form [:neutral])
+               (layout/region-scoped-id :mode [:active])}
              ids)))))
 
 (deftest highlight-ids-region-map-matches-parsed-region-state-ids
@@ -261,7 +369,8 @@
       (is (= 2 (count ids)))
       (is (every? #(contains? node-ids %) ids)
           "every active id is a REAL parsed region-state node")
-      (is (= #{(layout/node-id [:playing]) (layout/node-id [:shown])} ids)))))
+      (is (= #{(layout/region-scoped-id :audio [:playing])
+               (layout/region-scoped-id :video [:shown])} ids)))))
 
 (deftest highlight-ids-nested-region-value-resolves-to-deepest-leaf
   (testing "rf2-g2svr — a region whose value is itself a vector path (a
@@ -270,8 +379,8 @@
             value is a vector path INSIDE that region."
     (let [state {:auth [:authenticated :dashboard] :lifecycle :idle}
           ids   (layout/highlight-ids state)]
-      (is (= #{(layout/node-id [:authenticated :dashboard])
-               (layout/node-id [:idle])}
+      (is (= #{(layout/region-scoped-id :auth [:authenticated :dashboard])
+               (layout/region-scoped-id :lifecycle [:idle])}
              ids))
       (is (= 2 (count ids))
           "the compound region contributes ONE id (its deepest leaf), not
@@ -642,3 +751,109 @@
           success (first (filter #(= [:success] (:path %)) nodes))]
       (is (false? (:final? idle)) ":final? is false, not nil")
       (is (true?  (:final? success))))))
+
+;; ---- :on-done (XState onDone) completion edge (rf2-41goo) ---------------
+;;
+;; Spec 005 §The done-state signal: a COMPOUND node's `:on-done` advances
+;; the OUTER flow to a SIBLING target when its `:final?` child is reached
+;; (the machine KEEPS RUNNING). A PARALLEL-ROOT's `:on-done` runs
+;; action/fx ONLY (no :target — registration rejects one), rendered as a
+;; TERMINAL completion affordance. Pre-rf2-41goo `:on-done` was NEVER
+;; parsed (zero matches across src/test), so the chart understated the
+;; real control flow.
+
+(def checkout-on-done
+  "Spec 005 §The done-state signal example: a sub-flow `:flow` inside a
+  compound. When `:flow` reaches its `:final?` `:paid` child, `:flow`'s
+  `:on-done` advances the machine to the SIBLING `:next`."
+  {:initial :flow
+   :states  {:flow {:initial :collecting
+                    :on-done :next                       ;; ← sibling of :flow
+                    :states  {:collecting {:on {:submit :submitting}}
+                              :submitting {:on {:ok :paid}}
+                              :paid       {:final? true}}}
+             :next {:on {:reset [:flow]}}}})
+
+(deftest parse-definition-compound-on-done-is-sibling-edge
+  (testing "rf2-41goo — a compound `:on-done` projects ONE completion edge
+            from the compound to its SIBLING target (resolved relative to
+            the compound's OWN level), flagged :on-done?, carrying the
+            done-path (the engine's done.state node)"
+    (let [{:keys [edges]} (layout/parse-definition checkout-on-done)
+          od (filter :on-done? edges)]
+      (is (= 1 (count od)) "exactly one :on-done completion edge")
+      (let [e (first od)]
+        (is (= [:flow] (:from e)) "sourced from the compound itself")
+        (is (= [:next] (:to e)) "lands on the SIBLING :next (compound-level resolution)")
+        (is (= :rf.machine/done (:event e)) "carries the reserved done event")
+        (is (= [:flow] (:done-path e)) "the done.state node is the compound's path")
+        (is (= "✓ done" (:event-label e))
+            "renders the completion ✓ done chip, not an ordinary event arrow")
+        (is (not (:internal? e)) "a targeted compound :on-done is a real sibling edge")))))
+
+(deftest parse-definition-no-on-done-emits-no-completion-edge
+  (testing "rf2-41goo — a machine with no :on-done emits no :on-done? edge
+            (no false-positive completion arrows)"
+    (let [{:keys [edges]} (layout/parse-definition compound-machine)]
+      (is (empty? (filter :on-done? edges))))))
+
+(deftest parse-definition-compound-on-done-guarded-candidate-vector
+  (testing "rf2-41goo — an :on-done candidate-vector (guarded forks)
+            projects each target-bearing arm as its own completion edge,
+            mirroring the :on candidate-vector grammar"
+    (let [m {:initial :flow
+             :states  {:flow {:initial :work
+                              :on-done [{:target :ok-next :guard :ok?}
+                                        {:target :err-next :guard :err?}]
+                              :states  {:work {:on {:finish :done}}
+                                        :done {:final? true}}}
+                       :ok-next  {}
+                       :err-next {}}}
+          {:keys [edges]} (layout/parse-definition m)
+          od (filter :on-done? edges)]
+      (is (= 2 (count od)) "both guarded completion arms project")
+      (is (= #{[:ok-next] [:err-next]} (set (map :to od))))
+      (is (every? #(= [:flow] (:from %)) od) "both sourced from the compound")
+      (is (= #{:ok? :err?} (set (map :guard od))) "guards preserved"))))
+
+(def ingest-parallel-on-done
+  "Spec 005 §The done-state signal parallel example: three orthogonal
+  axes; when ALL settle final, the parallel-root `:on-done` runs its
+  action (no :target — a parallel root is root-only)."
+  {:type    :parallel
+   :on-done {:action :announce}                 ;; ← parallel-root onDone (action only)
+   :regions {:fetch    {:initial :loading :states {:loading {:on {:loaded :done}} :done {:final? true}}}
+             :validate {:initial :checking :states {:checking {:on {:ok :done}} :done {:final? true}}}
+             :index    {:initial :building :states {:building {:on {:built :done}} :done {:final? true}}}}})
+
+(deftest parse-definition-parallel-root-on-done-is-terminal-affordance
+  (testing "rf2-41goo — a PARALLEL-ROOT `:on-done` (action/fx-only, no
+            :target — registration rejects one) projects a TERMINAL
+            completion affordance (self-anchored, :internal?), NOT a
+            sibling edge; carries the action + :parallel-root? flag"
+    (let [{:keys [edges nodes]} (layout/parse-definition ingest-parallel-on-done)
+          od (filter :on-done? edges)]
+      (is (= 1 (count od)) "one parallel-root completion affordance")
+      (let [e (first od)]
+        (is (true? (:parallel-root? e)) "flagged parallel-root")
+        (is (true? (:internal? e))
+            "a target-less parallel-root :on-done self-anchors (terminal, no sibling segment)")
+        (is (= (:source e) (:target e)) "terminal affordance: source == target")
+        (is (= :announce (:action e)) "the parallel-root action is preserved")
+        (is (= "✓ done / announce" (:event-label e))
+            "renders the completion chip with its action"))
+      ;; the synthetic parallel-root node is surfaced as the affordance anchor
+      (let [root (first (filter :parallel-root? nodes))]
+        (is (some? root) "a synthetic parallel-root node anchors the affordance")
+        (is (= (:source (first od)) (:id root))
+            "the completion edge anchors on the parallel-root node")))))
+
+(deftest parse-definition-parallel-without-on-done-emits-no-root-node
+  (testing "rf2-41goo — a parallel machine with NO :on-done leaks no
+            synthetic parallel-root node + no completion edge"
+    (let [m {:type :parallel
+             :regions {:a {:initial :x :states {:x {:on {:go :y}} :y {}}}
+                       :b {:initial :p :states {:p {:on {:go :q}} :q {}}}}}
+          {:keys [nodes edges]} (layout/parse-definition m)]
+      (is (empty? (filter :parallel-root? nodes)))
+      (is (empty? (filter :on-done? edges))))))

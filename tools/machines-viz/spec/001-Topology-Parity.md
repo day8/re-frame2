@@ -95,7 +95,13 @@ itself"). **Delayed** transitions are labelled `after` + interval;
 **eventless** transitions are labelled `always`
 ([editor-states-and-transitions](https://stately.ai/docs/editor-states-and-transitions)).
 Hierarchical transitions resolve along the LCA (entry/exit cascade) —
-xstate/SCXML semantics.
+xstate/SCXML semantics. **`onDone`** — XState draws the compound /
+parallel **completion** transition (the arrow a compound's done-state
+takes to advance the outer flow; SCXML §3.7's `done.state.<id>`); Stately
+Studio renders it as the "do these sub-flows, then continue" arrow off
+the compound. re-frame2 ships it first-class as `:on-done` (Spec 005
+§The done-state signal) — **projected by rf2-41goo** (see §2 transition
+scoping + §3.1 G9).
 
 ### 1.4 Initial / final / history
 
@@ -192,7 +198,7 @@ parse (`chart/layout.cljc`) + pure projection (`chart/projection.cljc`)
 | **Parallel regions — structure** | ✅ **Every** region renders as a synthetic `:region?` compound node with a **distinct dashed boundary per region** (palette rotation) + `∥` glyph + region label; states carry `:region` + `:parent-id`; edges stay region-local. | `layout.cljc` `parse-parallel`/`region-node-id`; `projection.cljc` (`type "parallel-region"`); `nodes/parallel_region_node.cljs`. |
 | **Parallel regions — active highlight** | ✅ **Closed (rf2-yoe6e / rf2-g2svr).** `highlight-ids` resolves the whole snapshot `:state` — flat keyword, compound path, **or region-map** `{region path}` — to the **set** of active-leaf node-ids; `xyflow-graph` threads `:highlight-ids` and marks **every** active leaf, so a parallel snapshot's **N simultaneously-active leaves** all light up at once. A nested region value resolves to its deepest leaf. | `layout.cljc` `highlight-ids`; `projection.cljc` `xyflow-graph` (`:highlight-ids` set). |
 | **Parallel regions — active CONTAINER chrome** | ✅ **Closed (rf2-80rm2 / G4).** The region (and, for self-consistency, the compound) **container** reads as active when ANY descendant leaf is active — the projector folds the container into `:active` by walking each active leaf UP its `:parent-id` chain (reusing the G1 active set; no duplicate highlight logic). `parallel-region-node` / `compound-node` then paint active chrome (solid emphasised boundary + the `:info` active-token glow ring, the same affordance state nodes use), so an active region reads as active at the zone level, not just the leaf inside it. **Palette delegated to Figma.** | `projection.cljc` `xyflow-graph` (`active-container-ids` parent-id walk); `nodes/parallel_region_node.cljs`; `nodes.cljs` `compound-node`. |
-| **Transition scoping** | ✅ `:on`, `:after`, `:always`, machine-level (top-level `:on`) fallback, external + internal self-transitions, vector-of-candidates forks. **Machine-level fallback projects ONCE** (rf2-vcnvj): a top-level `:on` is sourced from a synthetic MACHINE-ROOT node into its target as a SINGLE chip — not one back-edge per leaf (the pre-vcnvj per-state expansion repeated the chip AND injected N back-edges that scrambled ELK's top-to-bottom ranking). Self-loops render as a small loop (not a degenerate bezier); internal self-transitions render dashed + no arrowhead. | `layout.cljc` `collect-state-edges`, `collect-machine-edges` (root-sourced), `machine-root-id`, `resolve-target-path`; `projection.cljc` (`machine-root` node type); `nodes.cljs` `machine-root-node`; `edges.cljs` (self-loop path, internal dash). |
+| **Transition scoping** | ✅ `:on`, `:after`, `:always`, machine-level (top-level `:on`) fallback, **`:on-done` (XState `onDone`) compound / parallel completion** (rf2-41goo), external + internal self-transitions, vector-of-candidates forks. **Machine-level fallback projects ONCE** (rf2-vcnvj): a top-level `:on` is sourced from a synthetic MACHINE-ROOT node into its target as a SINGLE chip — not one back-edge per leaf (the pre-vcnvj per-state expansion repeated the chip AND injected N back-edges that scrambled ELK's top-to-bottom ranking). **`:on-done` (rf2-41goo)**: a COMPOUND's `:on-done` projects a completion edge from the compound to its SIBLING target (resolved at the compound's own level), an `✓ done` chip distinct from an ordinary event arrow; a PARALLEL-ROOT's `:on-done` (action/fx-only — registration rejects a `:target`) renders as a TERMINAL completion affordance (a hanging done chip, no sibling segment). Self-loops render as a small loop (not a degenerate bezier); internal self-transitions render dashed + no arrowhead. | `layout.cljc` `collect-state-edges`, `on-done-edges`, `collect-machine-edges` (root-sourced), `machine-root-id`, `resolve-target-path`; `projection.cljc` (`machine-root` node type, `:onDone` / `:doneState` event-node data); `nodes.cljs` `machine-root-node`; `edges.cljs` (self-loop path, internal dash). |
 | **Initial** | ✅ Filled-dot `initial-marker` node + unlabelled entry edge into the initial state, at **every** compound level (xstate/SCXML semantics). | `nodes.cljs` `initial-marker`; `projection.cljc` (marker-nodes + entry-edges); `layout.cljc` `collect-nodes` (per-level `:initial?`). |
 | **Final** | ✅ Quiet doubled border (outer ring 1px proud) on `state-node`. **No glyph** — the prior `✓` check glyph is DROPPED (rf2-az6e2, §1.4); the doubled border is the unambiguous final-state signal. | `nodes.cljs` `state-node` (final ring; no glyph). |
 | **History** | 🪝 **Render-hook only (rf2-az6e2, §1.4) — NOT yet emitted.** The `history-marker` renderer (shallow `H` / deep `H*`) is registered in the node-types map, but `chart.layout/parse-definition` emits **no** history pseudo-state node today (the parsed node shape carries no history data), so the projector never produces one. First-class `:history` is NOT shipped; the hook is shaped to the grammar awaiting parsed history topology (and Spec 005 history semantics). | `nodes.cljs` `history-marker` (registered hook); `layout.cljc` (no history emission). |
@@ -220,9 +226,16 @@ is now regression-guarded by test. The three **compound-endpoint
 rendering gaps** surfaced post-rf2-xh1lm are now also **closed**
 (rf2-shv82): compound-endpoint edges no longer silently drop (G6
 below), multi-self-loop labels fan to distinct perimeter slots (G7),
-cross-hierarchy labels anchor at the source-side bend point (G8).
+cross-hierarchy labels anchor at the source-side bend point (G8). The
+**`:on-done` (XState `onDone`) completion-transition** projection gap
+(G9) — `:on-done` was NEVER projected in chart / mermaid / scxml
+(pre-rf2-41goo the "COMPLETE" claim overstated parity; §1.3's onDone read
+was unmet) — is now **closed** (rf2-41goo): a compound's `:on-done`
+projects the sibling completion edge, a parallel-root's renders a terminal
+completion affordance, and the SCXML emitter round-trips the W3C
+`done.state.<id>` transition.
 **The machine-topology parity roadmap is COMPLETE (G1 / G2 / G3 / G4 /
-G5 / G6 / G7 / G8 all ✅).** Visual-readability follow-on (rf2-j10sm)
+G5 / G6 / G7 / G8 / G9 all ✅).** Visual-readability follow-on (rf2-j10sm)
 shipped padded label backgrounds (Phase 1, D). Its Phase 2, B
 multi-event collapse (N transitions sharing a `[source target]` pair →
 ONE arrow with N stacked labels via `:siblingIndex` / `:siblingCount`)
@@ -270,6 +283,7 @@ new), and the parity-bar row it serves.
 | **G6** | ✅ **CLOSED (rf2-shv82).** Was: any edge whose source or target was a compound (a parent-level transition like `:active → :disconnected`, a compound self-loop, an inbound `:failed → :active`) was SILENTLY DROPPED from the DOM. The projector emitted it, ELK routed it, but xyflow's `getHandleBounds` returned null for the compound (no `<Handle>` children) → `isNodeInitialized` returned false → `getEdgePosition` returned null → the edge never reached the DOM. No warning. The 5-layer probe trace in the bead proved 4 such edges survived to ELK's output then 0 in the DOM. Now: `compound-node` + `parallel-region-node` render invisible source + target `<Handle>` elements on all four sides; xyflow accepts the compound as an edge endpoint and ELK's routed bend-points anchor on its BORDER the way xstate/Stately Studio paints parent-level transitions. The chart root surfaces `data-edge-count-projected` alongside `data-edge-count` so the parser → projector → DOM parity is regression-guarded end to end. | **High** | §1.3, §1.7 | **impl:** rf2-shv82 ✅ |
 | **G7** | ✅ **CLOSED (rf2-shv82) → SUPERSEDED by events-as-nodes (rf2-qo5xy), collapse RETIRED (rf2-o6vh7).** Was: N self-loops on the same node (e.g. testdeck `:disconnected` carries 3: `:ws/arm-fail`, `:ws/disarm-fail`, `:ws/clear`) all rendered at the same loop anchor → garbled glyph soup. rf2-shv82 shipped a perimeter fan (8 slots, rotated per `:loopIndex`); rf2-j10sm Phase 2 then collapsed same-`[source target]` events into ONE arc + N stacked labels via `:siblingIndex` / `:siblingCount`. **The rf2-qo5xy events-as-nodes paradigm supersedes both**: each self-event is its own `rf2-event` node (`state → event-node → state`), so N self-loops are N DISTINCT event-nodes — no fan, no collapse, no garbled overlap. rf2-o6vh7 RETIRED the dead collapse machinery (`:siblingIndex` / `:siblingCount` and `data-sibling-*` are gone); the fan geometry survives only in `chart.edges/edge-path` for direct callers (every self-loop carries `:loopIndex 0`). | **Medium** | §1.3, §1.9 | **fan:** rf2-shv82 ✅ · **collapse:** rf2-j10sm (retired rf2-o6vh7) |
 | **G8** | ✅ **CLOSED (rf2-shv82).** Was: a cross-hierarchy edge (source and target in different parent containers — e.g. testdeck `:active.authenticating → :failed`) routed via ELK's bend-points had a midpoint that landed far from its visual origin (the label sat at the canvas bottom-left). Now: the projector flags the edge `:crossHierarchy true` when the source's `:parent-id` ≠ the target's (self-loops are never cross-hierarchy regardless of nesting); `chart.edges/edge-path` anchors the label NEAR the source-side first bend point (xstate/Stately convention — the label hugs the bend just outside the container the edge exits, with a small back-bias along the incoming segment so it sits in the routed channel). Degenerate two-point routes fall back to the segment midpoint; the bezier-fallback path is unchanged. Surfaces `data-cross-hierarchy` on each transition edge label. | **Medium** | §1.5, §1.9 | **impl:** rf2-shv82 ✅ |
+| **G9** | ✅ **CLOSED (rf2-41goo).** Was: Spec 005's first-class `:on-done` (XState `onDone` — the COMPOUND / PARALLEL completion transition that advances the outer flow when a sub-flow reaches its `:final?` child; SCXML §3.7 `done.state.<id>`) was **NEVER projected** — zero matches for `on-done` / `onDone` / `done.state` across `chart/layout.cljc`, `mermaid.cljc`, AND `scxml.cljc`. So the chart drew the `:final?` leaf but NOT the "then advance to sibling" arrow that actually fires; the SCXML round-trip was silently lossy for `onDone`; the "COMPLETE" headline overstated parity (§1.3's onDone read was unmet). Now: `layout.cljc/on-done-edges` parses a node's `:on-done`, `collect-state-edges` emits a COMPOUND's completion edge to its SIBLING (resolved at the compound's own level — XState onDone placement) flagged `:on-done?` + carrying the `:done-path`; `parse-parallel` emits the PARALLEL-ROOT's `:on-done` (action/fx-only — registration rejects a `:target`) as a TERMINAL completion affordance (self-anchored, `:internal?`) on a synthetic parallel-root node. `projection.cljc` buckets it as the `:on-done` event-variant and threads `:onDone` + the `done.state.<id>` `:doneState` label onto the event-node; the engine-raised `:rf.machine/done` is NOT click-to-send. `mermaid.cljc` renders the compound sibling edge (`✓ done`) + a parallel-root completion `note`; `scxml.cljc` emits + round-trips the W3C `<transition event="done.state.<id>">` (compound to sibling; parallel inside `<parallel>`). | **Medium** | §1.3, §1.5 | **impl:** rf2-41goo ✅ |
 
 ### 3.2 Deliberate non-parity divergences (intentional, NOT gaps)
 
@@ -492,6 +506,25 @@ together in rf2-shv82.
 |---|---|---|---|---|
 | E1 | **rf2-shv82** ✅ — `fix(machines-viz): compound-endpoint edges + self-loop label fan + cross-hierarchy label placement` | existing | isolated (`chart/nodes.cljs`, `chart/nodes/parallel_region_node.cljs`, `chart/projection.cljc`, `chart/edges.cljs`, `chart.cljs`, + JVM/CLJS/DOM tests + this doc + `API.md`) | **Closes G6 / G7 / G8.** Three independent fixes around one investigation context: (G6) container nodes carry invisible `<Handle>`s so compound-endpoint edges survive xyflow's `getEdgePosition` (which previously returned null for unhandled compounds and silently dropped the edge); (G7) self-loops fan to distinct perimeter slots per source via a `:loopIndex` ordinal; (G8) cross-hierarchy edge labels anchor at the source-side bend point rather than the routed midpoint. End-to-end parity gate `data-edge-count == data-edge-count-projected` is now pinned on every machine. |
 
+### Phase F — `:on-done` completion projection (the senior-dev faithfulness pass)
+
+A 2026-06-04 senior-dev review (rf2-60whl) surfaced two definition→visual
+faithfulness gaps; the `:on-done` projection gap was the parity-relevant
+one (the sibling region-id collision rf2-wnzha is a parse-injectivity
+fix, not a parity row).
+
+| Step | Bead | New? | Hot-zone | Notes |
+|---|---|---|---|---|
+| F1 | **rf2-41goo** ✅ — `feat(machines-viz): project :on-done (XState onDone) completion transition (chart + mermaid + scxml)` | existing | isolated (`chart/layout.cljc`, `chart/projection.cljc`, `mermaid.cljc`, `scxml.cljc`, + JVM tests + this doc) | **Closes G9.** `:on-done` was never parsed/projected (zero matches across the three emitters). Now: the COMPOUND completion edge resolves to the SIBLING (`✓ done` chip); the PARALLEL-ROOT completion (action/fx-only) renders as a terminal affordance / mermaid note; the SCXML emitter round-trips the W3C `done.state.<id>` transition. Parses + projects faithfully to the engine's `[:rf.machine/done <path>]` raise. |
+
+> **Sibling note (rf2-wnzha — same review pass, NOT a parity row):**
+> parallel regions sharing a state NAME minted COLLIDING node-ids (the
+> Spec 005 `:ingest` shape — three regions each with a `:done`). The fix
+> region-SCOPES every region-state node-id (`layout.cljc/region-scoped-id`)
+> so the parse is injective across regions + the G1 multi-active highlight
+> attributes per-region. A correctness/injectivity fix beneath the parity
+> bar, not a new gap row.
+
 ### Proposed NEW beads (for the mayor to file)
 
 1. **N1 — `feat(machines-viz): parallel-region ACTIVE chrome`**
@@ -510,12 +543,14 @@ together in rf2-shv82.
    (`chart/edges-cljs-test`: nested/parallel ⇒ switch present, flat ⇒
    absent, G2 routing keys pinned). Isolated (`chart.cljs` + test).
 
-> **Parity verdict after Phases A–C + N1/N2:** `MachineChart` reaches
+> **Parity verdict after Phases A–F (incl. G9):** `MachineChart` reaches
 > **full topology parity** with Stately Studio on all nine concerns
-> except the three **intentional divergences** (no code↔diagram sync,
-> trace-driven not sandbox sim, no history pseudo-states) — and remains
-> **above** the bar on the re-frame2-native overlays (`:after` rings,
-> microstep replay, `:spawn-all` join, cancellation cascade).
+> (transition scoping now includes the `:on-done` / XState `onDone`
+> completion transition — rf2-41goo / G9) except the three **intentional
+> divergences** (no code↔diagram sync, trace-driven not sandbox sim, no
+> history pseudo-states) — and remains **above** the bar on the
+> re-frame2-native overlays (`:after` rings, microstep replay,
+> `:spawn-all` join, cancellation cascade).
 
 ## See also
 

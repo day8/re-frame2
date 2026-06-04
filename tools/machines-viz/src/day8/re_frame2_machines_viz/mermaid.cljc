@@ -271,6 +271,28 @@
                 :label (edge-label "always" candidate)}]))
           (transition-candidates always)))
 
+(defn- collect-on-done-edges
+  "rf2-41goo — emit the compound / region-compound `:on-done` completion
+  edge (XState `onDone`). When a compound reaches its `:final?` child the
+  engine raises `done.state.<compound>`; the enclosing `:on-done`
+  transitions the outer flow. `:on-done` is resolved relative to the
+  compound's OWN level (a keyword target is a SIBLING — same level as
+  `source-path`), so we resolve against the source's PARENT — exactly the
+  ordinary keyword-target rule (`resolve-target-path` already conj's onto
+  the parent). The edge is labelled `✓ done` so it reads as the completion
+  transition, distinct from an ordinary event arrow. A target-less
+  `:on-done` (action/fx-only — the parallel-root shape, handled
+  separately) emits no sibling edge here."
+  [root-path source-path on-done]
+  (keep (fn [candidate]
+          (when-let [target-path (resolve-target-path root-path
+                                                      source-path
+                                                      (:target candidate))]
+            {:from  source-path
+             :to    target-path
+             :label (edge-label "✓ done" candidate)}))
+        (transition-candidates on-done)))
+
 (defn- collect-root-fallback-edges
   [root-path on-map]
   (let [source-path (conj (vec root-path) root-fallback-segment)]
@@ -297,7 +319,11 @@
         (concat
          (collect-on-edges root-path state-path (:on state-node))
          (collect-after-edges root-path state-path (:after state-node))
-         (collect-always-edges root-path state-path (:always state-node)))
+         (collect-always-edges root-path state-path (:always state-node))
+         ;; rf2-41goo — the compound `:on-done` completion edge (sibling
+         ;; target). A parallel-root `:on-done` (action/fx-only) is
+         ;; rendered separately in `render-parallel-body`.
+         (collect-on-done-edges root-path state-path (:on-done state-node)))
 
         nested-edges
         (mapcat (fn [[child-id child-node]]
@@ -421,8 +447,28 @@
           (interpose ["    --"]
                      (map render-region-block regions))))
 
+(defn- render-parallel-on-done-note
+  "rf2-41goo — the PARALLEL-ROOT `:on-done` (XState `onDone` on a parallel
+  state). When EVERY region settles `:final?`, the parallel root's
+  `:on-done` runs its `:action` + `:fx` (a `:type :parallel` machine is
+  root-only — registration rejects a `:target`, so there is no sibling
+  state to draw an arrow to; the machine STAYS in the all-final config).
+  Mermaid has no transitionable completion glyph for an action-only
+  parallel-done, so we render it as a `note` on the parallel root — the
+  completion is visible (`✓ done`) with its action when present, without
+  inventing a phantom target arrow."
+  [on-done]
+  (when on-done
+    (let [cands  (transition-candidates on-done)
+          action (some :action cands)
+          body   (cond-> "on-done: ✓ done"
+                   action (str " / " (label-value action)))]
+      [(str "  note right of " (sanitise-id parallel-root-path))
+       (str "    " body)
+       "  end note"])))
+
 (defn- render-parallel-body
-  [{:keys [regions on]} header-comment?]
+  [{:keys [regions on on-done]} header-comment?]
   (let [edges       (concat
                      (mapcat (fn [[region-id {:keys [states on]}]]
                                (let [region-path (vector region-id)]
@@ -445,7 +491,10 @@
                (render-parallel-region-blocks regions)
                ["  }"]
                edge-lines
-               final-lines))))
+               final-lines
+               ;; rf2-41goo — the parallel-root completion note (action/fx-
+               ;; only; no sibling target).
+               (render-parallel-on-done-note on-done)))))
 
 (defn- valid-state-tree?
   [{:keys [initial states]}]

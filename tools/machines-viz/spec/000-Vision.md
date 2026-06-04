@@ -190,7 +190,7 @@ must tell."
 | **Source-coord stamping** (Spec 001) | Every state, transition, guard, and action carries a source-coord chip — click jumps to the registration. |
 | **`reg-machine` definition as data** | The whole chart layout is a function of the transition table; no reflection, no instrumented build. |
 | **Compound states + parallel regions** | Nested compound states render with recursive active-child highlighting; parallel regions render as side-by-side panes. |
-| **Final states with `:on-done`** | `:final?` nodes render with a doubled border; entering one fires the `:on-done` edge highlight before the auto-destroy. |
+| **Final states + `:on-done` completion** | `:final?` leaves render with a quiet doubled border (UML final-state ring). A compound / parallel-root `:on-done` (XState `onDone`) projects the **completion transition** — a `✓ done` edge advancing the outer flow to the compound's sibling, or a terminal completion affordance for the action-only parallel-root form (rf2-41goo). Distinct from the doubled-border final marker; an EMBEDDED `:final?` leaf signals compound-done and the machine **keeps running** (Spec 005 §The done-state signal), so the completion edge is NOT tied to auto-destroy. |
 
 ## Where it lives in the stack
 

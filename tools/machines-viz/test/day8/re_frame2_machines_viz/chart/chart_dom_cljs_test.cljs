@@ -683,9 +683,10 @@
          :current-state {:audio :paused :display :off}}
         (fn [root _node]
           (let [ids (set (str/split (.getAttribute root "data-highlight-ids") #"\s+"))]
-            (is (contains? ids (layout/node-id [:paused]))
+            ;; rf2-wnzha — region states are region-scoped ids now.
+            (is (contains? ids (layout/region-scoped-id :audio [:paused]))
                 ":audio region's active leaf is in the active set")
-            (is (contains? ids (layout/node-id [:off]))
+            (is (contains? ids (layout/region-scoped-id :display [:off]))
                 ":display region's active leaf is in the active set — SIMULTANEOUSLY")
             (is (= 2 (count ids))
                 "exactly the two active region leaves, no more")

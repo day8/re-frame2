@@ -239,7 +239,7 @@
       (let [parsed (layout/parse-definition parallel-machine)
             graph  (projection/xyflow-graph parsed {} {:on-state-click cb})
             region (node-by-id graph (layout/region-node-id :audio))
-            muted  (node-by-id graph (layout/node-id [:muted]))]
+            muted  (node-by-id graph (layout/region-scoped-id :audio [:muted]))]
         (is (= "parallel-region" (:type region)))
         (is (not (contains? (:data region) :onClick))
             "a parallel-region container carries NO :onClick (not a click target)")
@@ -274,7 +274,7 @@
     (let [parsed (layout/parse-definition parallel-machine)
           graph  (projection/xyflow-graph parsed {} {})
           region (node-by-id graph (layout/region-node-id :audio))
-          muted  (node-by-id graph (layout/node-id [:muted]))]
+          muted  (node-by-id graph (layout/region-scoped-id :audio [:muted]))]
       (is (= (layout/region-node-id :audio) (:parentId muted)))
       (is (= "parent" (:extent muted)))
       (is (nil? (:parentId region)) "region container is not nested")
@@ -384,10 +384,11 @@
             region-leaf ids marks BOTH region states `:active`
             simultaneously (parallel multi-active highlight)"
     (let [parsed     (layout/parse-definition parallel-machine)
-          playing-id (layout/node-id [:playing])
-          shown-id   (layout/node-id [:shown])
-          muted-id   (layout/node-id [:muted])
-          hidden-id  (layout/node-id [:hidden])
+          ;; rf2-wnzha — region states are region-scoped ids now.
+          playing-id (layout/region-scoped-id :audio [:playing])
+          shown-id   (layout/region-scoped-id :video [:shown])
+          muted-id   (layout/region-scoped-id :audio [:muted])
+          hidden-id  (layout/region-scoped-id :video [:hidden])
           graph      (projection/xyflow-graph
                        parsed {} {:highlight-ids #{playing-id shown-id}})]
       (is (true? (:active (:data (node-by-id graph playing-id))))
@@ -416,7 +417,8 @@
           active-states (set (map :id (filter #(and (= "state" (:type %))
                                                     (:active (:data %)))
                                               (:nodes graph))))]
-      (is (= #{(layout/node-id [:playing]) (layout/node-id [:shown])} active-states)
+      (is (= #{(layout/region-scoped-id :audio [:playing])
+               (layout/region-scoped-id :video [:shown])} active-states)
           "exactly the two active region leaves are marked active"))))
 
 (deftest xyflow-graph-scalar-highlight-id-still-works
@@ -435,8 +437,8 @@
   (testing "rf2-g2svr — when BOTH `:highlight-id` and `:highlight-ids`
             are supplied the active set is their union"
     (let [parsed (layout/parse-definition parallel-machine)
-          a      (layout/node-id [:playing])
-          b      (layout/node-id [:shown])
+          a      (layout/region-scoped-id :audio [:playing])
+          b      (layout/region-scoped-id :video [:shown])
           graph  (projection/xyflow-graph
                    parsed {} {:highlight-id a :highlight-ids #{b}})]
       (is (true? (:active (:data (node-by-id graph a)))))
@@ -457,7 +459,7 @@
             parallel-region CONTAINER `:active`, so the zone (not just the
             leaf inside it) reads as active"
     (let [parsed     (layout/parse-definition parallel-machine)
-          playing-id (layout/node-id [:playing])
+          playing-id (layout/region-scoped-id :audio [:playing])
           audio-id   (layout/region-node-id :audio)
           graph      (projection/xyflow-graph
                        parsed {} {:highlight-ids #{playing-id}})
@@ -471,7 +473,7 @@
             its container `:active false` (only the active region(s) get
             chrome — orthogonality of the active read)"
     (let [parsed     (layout/parse-definition parallel-machine)
-          playing-id (layout/node-id [:playing])     ; :audio leaf, active
+          playing-id (layout/region-scoped-id :audio [:playing]) ; :audio leaf, active
           audio-id   (layout/region-node-id :audio)
           video-id   (layout/region-node-id :video)
           graph      (projection/xyflow-graph
@@ -563,19 +565,22 @@
   (testing "rf2-g2svr — with N active leaves, an edge touching ANY active
             leaf is `:active`. Each region's self/incident edge lights up
             independently (orthogonality preserved)."
-    (let [parsed   (layout/parse-definition parallel-machine)
-          ids      #{(layout/node-id [:playing]) (layout/node-id [:shown])}
-          graph    (projection/xyflow-graph parsed {} {:highlight-ids ids})
-          active-e (filter #(:active (:data %)) (:edges graph))
+    (let [parsed     (layout/parse-definition parallel-machine)
+          ;; rf2-wnzha — region states are region-scoped ids now.
+          playing-id (layout/region-scoped-id :audio [:playing])
+          shown-id   (layout/region-scoped-id :video [:shown])
+          ids        #{playing-id shown-id}
+          graph      (projection/xyflow-graph parsed {} {:highlight-ids ids})
+          active-e   (filter #(:active (:data %)) (:edges graph))
           ;; edges incident to :playing (audio) and :shown (video)
-          regions  (set (map (fn [e]
-                               (cond
-                                 (or (= (:source e) (layout/node-id [:playing]))
-                                     (= (:target e) (layout/node-id [:playing]))) :audio
-                                 (or (= (:source e) (layout/node-id [:shown]))
-                                     (= (:target e) (layout/node-id [:shown]))) :video
-                                 :else :other))
-                             active-e))]
+          regions    (set (map (fn [e]
+                                 (cond
+                                   (or (= (:source e) playing-id)
+                                       (= (:target e) playing-id)) :audio
+                                   (or (= (:source e) shown-id)
+                                       (= (:target e) shown-id)) :video
+                                   :else :other))
+                               active-e))]
       (is (seq active-e) "at least one edge is active")
       (is (contains? regions :audio) "an :audio-region edge is active")
       (is (contains? regions :video) "a :video-region edge is active"))))
@@ -2217,3 +2222,77 @@
       ;; on any edge :data, entry edges included.
       (is (not (contains? (:data entry) :siblingIndex)))
       (is (not (contains? (:data entry) :siblingCount))))))
+
+;; ---- :on-done (XState onDone) projection (rf2-41goo) -------------------
+;;
+;; The compound / parallel completion transition projects as an
+;; events-as-nodes event-node carrying the ✓ done chip + `:onDone` /
+;; `:doneState` data hooks (the renderer's completion affordance). The
+;; reserved `:rf.machine/done` is engine-RAISED, so the event-node is NOT
+;; click-to-send (no `:eventId`).
+
+(def checkout-on-done
+  "Spec 005 §The done-state signal: a compound `:flow` whose `:on-done`
+  advances to the sibling `:next` when its `:final?` `:paid` is reached."
+  {:initial :flow
+   :states  {:flow {:initial :collecting
+                    :on-done :next
+                    :states  {:collecting {:on {:submit :submitting}}
+                              :submitting {:on {:ok :paid}}
+                              :paid       {:final? true}}}
+             :next {:on {:reset [:flow]}}}})
+
+(def ingest-on-done
+  "Spec 005 §The done-state signal parallel example: parallel-root
+  `:on-done` runs action-only (no :target)."
+  {:type    :parallel
+   :on-done {:action :announce}
+   :regions {:fetch    {:initial :loading :states {:loading {:on {:loaded :done}} :done {:final? true}}}
+             :validate {:initial :checking :states {:checking {:on {:ok :done}} :done {:final? true}}}}})
+
+(deftest xyflow-graph-compound-on-done-projects-done-event-node
+  (testing "rf2-41goo — a compound `:on-done` projects an event-node with
+            the ✓ done chip + :onDone true + the done.state.<id> label;
+            the inbound/outbound edges wire compound → done-node → sibling"
+    (let [parsed   (layout/parse-definition checkout-on-done)
+          od-edge  (first (filter :on-done? (:edges parsed)))
+          graph    (projection/xyflow-graph parsed {} {})
+          ev-node  (event-node-for graph (:id od-edge))]
+      (is (some? od-edge) "fixture sanity: the parse emits an :on-done edge")
+      (is (some? ev-node) "the :on-done transition projects an event-node")
+      (is (= "✓ done" (:eventLabel (:data ev-node))) "the ✓ done completion chip")
+      (is (= "on-done" (:variant (:data ev-node))) "bucketed as the :on-done variant")
+      (is (true? (:onDone (:data ev-node))) "flagged :onDone for the renderer hook")
+      (is (= (str "done.state." (layout/node-id [:flow])) (:doneState (:data ev-node)))
+          "carries the SCXML-style done.state.<id> label")
+      (is (nil? (:eventId (:data ev-node)))
+          "the engine-raised :rf.machine/done is NOT click-to-send")
+      ;; the outbound edge lands on the sibling :next
+      (let [out (outbound-edge-for graph (:id od-edge))]
+        (is (some? out) "a targeted compound :on-done has an outbound segment")
+        (is (= (layout/node-id [:next]) (:target out))
+            "the completion edge advances to the sibling :next")))))
+
+(deftest xyflow-graph-parallel-root-on-done-is-terminal-event-node
+  (testing "rf2-41goo — a parallel-root `:on-done` (action-only, internal)
+            projects a TERMINAL event-node (no outbound segment) carrying
+            the ✓ done chip + the action; not click-to-send"
+    (let [parsed   (layout/parse-definition ingest-on-done)
+          od-edge  (first (filter :on-done? (:edges parsed)))
+          graph    (projection/xyflow-graph parsed {} {})
+          ev-node  (event-node-for graph (:id od-edge))]
+      (is (some? ev-node) "the parallel-root :on-done projects an event-node")
+      (is (true? (:onDone (:data ev-node))))
+      (is (true? (:internal (:data ev-node)))
+          "a parallel-root :on-done is a terminal (internal) affordance")
+      (is (= "announce" (:action (:data ev-node))) "the action surfaces on the chip")
+      ;; internal ⇒ NO outbound edge (terminal affordance, no sibling)
+      (is (nil? (outbound-edge-for graph (:id od-edge)))
+          "a terminal parallel-root :on-done has no outgoing segment"))))
+
+(deftest xyflow-graph-no-on-done-projects-no-done-node
+  (testing "rf2-41goo — a machine with no :on-done projects no :onDone
+            event-node (no false-positive completion chips)"
+    (let [graph (projection/xyflow-graph
+                  (layout/parse-definition compound-machine) {} {})]
+      (is (empty? (filter #(:onDone (:data %)) (:nodes graph)))))))

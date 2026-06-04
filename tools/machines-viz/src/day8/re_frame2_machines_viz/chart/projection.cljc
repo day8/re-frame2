@@ -101,12 +101,15 @@
 (defn event-variant
   "rf2-qo5xy — bucket a parsed edge by its event variant for the
   events-as-nodes paradigm: `:after` (clock glyph), `:always`
-  (infinity glyph), or `:on` (regular event keyword). Pure data → keyword."
+  (infinity glyph), `:on-done` (completion ✓ done chip — rf2-41goo, the
+  XState `onDone` compound/parallel completion transition), or `:on`
+  (regular event keyword). Pure data → keyword."
   [edge]
   (cond
-    (:after edge)   :after
-    (:always? edge) :always
-    :else           :on))
+    (:on-done? edge) :on-done
+    (:after edge)    :after
+    (:always? edge)  :always
+    :else            :on))
 
 (defn event-node-id
   "rf2-qo5xy — stable string id for an event-node. The xyflow node
@@ -839,8 +842,12 @@
                       internal?    (boolean (:internal? e))
                       ;; A `:*` wildcard `:on` arm is a real transition
                       ;; but NOT a fireable event (Spec 005 §Wildcard).
+                      ;; rf2-41goo — an `:on-done` completion edge carries
+                      ;; the reserved `:rf.machine/done` (an engine-RAISED
+                      ;; event, not user-fireable), so it is not click-to-send.
                       fireable?    (and (nil? (:after e))
                                         (not (:always? e))
+                                        (not (:on-done? e))
                                         (keyword? (:event e))
                                         (not= :* (:event e)))
                       event-id     (when fireable? (:event e))
@@ -921,6 +928,18 @@
                                        :fired       fired?
                                        :internal    internal?
                                        :machineLevel (boolean (:machine-level? edge))
+                                       ;; rf2-41goo — the XState `onDone`
+                                       ;; completion edge (compound/parallel
+                                       ;; done.state). `:onDone` is the
+                                       ;; renderer hook for the ✓ done chip;
+                                       ;; `:doneState` is the SCXML-style
+                                       ;; `done.state.<id>` label (the node-id
+                                       ;; of the done node's path) so a reader
+                                       ;; sees WHICH sub-flow completed.
+                                       :onDone      (boolean (:on-done? edge))
+                                       :doneState   (when (:on-done? edge)
+                                                      (str "done.state."
+                                                           (layout/node-id (:done-path edge))))
                                        :eventId     event-id
                                        :fromPath    (:from-path edge)
                                        :toPath      (:to-path edge)
