@@ -104,6 +104,8 @@
 ;; user code destructures the ones it needs. Keys present per slot type:
 ;;
 ;;   :guard / :action / :entry / :exit  → :data :event :state :meta
+;;                                         (+ :tags :all-state for a region —
+;;                                          see the cross-region note below)
 ;;   :on-done                            → :data :result
 ;;   :on-spawn                           → :data :id
 ;;   :after  (delay-fn)                  → :snapshot
@@ -119,26 +121,73 @@
 ;; expanding the arity-permutation matrix. Destructuring at the call site
 ;; makes meaningful keys explicit; the runtime delivers them in a single
 ;; map.
+;;
+;; ---- cross-region guard/action context (rf2-46ly6 / rf2-69d1n) ------------
+;;
+;; XState v5 / SCXML gold standard: a parallel region's guard can predicate
+;; on a SIBLING region's active state via `stateIn(stateValue)` (XState v5
+;; `xstate/guards`) / the `In(stateID)` predicate (W3C SCXML B.1). This is
+;; the canonical orthogonal-region coordination primitive — region A's
+;; `:submit` guarded by "region B is in `:valid`".
+;;
+;; re-frame2 expresses this WITHOUT a separate `stateIn` primitive (per
+;; rf2-69d1n — behavioural parity, not API mimicry). When `call-guard` /
+;; `call-action` run for a REGION of a parallel machine, the context map
+;; gains two cross-region keys, threaded in by `parallel/reduce-regions`:
+;;
+;;   :tags       — the MACHINE-WIDE active-configuration tag union across
+;;                 EVERY region (the coarse `stateIn` substitute; a sibling
+;;                 region advertises a state-tag and any region's guard
+;;                 reads `(contains? (:tags ctx) :some/tag)`). It reflects
+;;                 the EVOLVING macrostep snapshot — a sibling region that
+;;                 transitioned earlier in the same macrostep is visible.
+;;   :all-state  — the full region-name → active-state map (the PRECISE
+;;                 `stateIn` equivalent; `(= :valid (:form (:all-state ctx)))`
+;;                 reads a sibling region's discrete state value directly).
+;;
+;; `:all-state` is the unambiguous PARALLEL-REGION marker — only
+;; `reduce-regions` ever sets it. A flat / compound machine's working
+;; snapshot never carries it, so `call-guard` / `call-action` surface
+;; NEITHER key for flat / compound machines: their guard/action ctx is
+;; exactly `{:data :event :state :meta}`, unchanged. (A flat machine's
+;; `stateIn` substitute is its own `:state` — Spec 005 §Guards.) Keying the
+;; cross-region keys off `:all-state` presence means flat machines stay
+;; untouched without stripping the inherited committed `:tags` slot from
+;; their snapshot.
+
+(defn- callback-ctx
+  "Build the unified context-map handed to a `:guard` / `:action` / `:entry`
+  / `:exit` callback. Per Spec 005 §Guards / §Actions (rf2-grw4i /
+  rf2-v0rrr) the base shape is `{:data :event :state :meta}`.
+  Per rf2-46ly6 / rf2-69d1n, a parallel REGION's snapshot additionally
+  carries the machine-wide `:tags` union and the full `:all-state` region
+  map (threaded by `parallel/reduce-regions`) — the cross-region
+  coordination keys (XState v5 `stateIn` / SCXML `In()`). `:all-state` is
+  the parallel-region marker: present iff this is a region snapshot, so
+  flat / compound machines surface neither key and their ctx is unchanged."
+  [snapshot event]
+  (cond-> {:data  (:data snapshot)
+           :event event
+           :state (:state snapshot)
+           :meta  (:meta snapshot)}
+    (contains? snapshot :all-state) (assoc :all-state (:all-state snapshot)
+                                           :tags      (:tags snapshot))))
 
 (defn- call-guard
   "Invoke a resolved guard fn against a snapshot + event with the unified
   context-map contract — `(fn [{:keys [data event state meta]}] boolean)`.
-  Per Spec 005 §Guards (rf2-grw4i / rf2-v0rrr)."
+  Per Spec 005 §Guards (rf2-grw4i / rf2-v0rrr); a parallel region's guard
+  additionally receives `:tags` + `:all-state` (rf2-46ly6 / rf2-69d1n)."
   [g snapshot event]
-  (g {:data  (:data snapshot)
-      :event event
-      :state (:state snapshot)
-      :meta  (:meta snapshot)}))
+  (g (callback-ctx snapshot event)))
 
 (defn- call-action
   "Invoke a resolved action fn against a snapshot + event with the unified
   context-map contract — `(fn [{:keys [data event state meta]}] effects)`.
-  Per Spec 005 §Actions (rf2-grw4i / rf2-v0rrr)."
+  Per Spec 005 §Actions (rf2-grw4i / rf2-v0rrr); a parallel region's action
+  additionally receives `:tags` + `:all-state` (rf2-46ly6 / rf2-69d1n)."
   [f snapshot event]
-  (f {:data  (:data snapshot)
-      :event event
-      :state (:state snapshot)
-      :meta  (:meta snapshot)}))
+  (f (callback-ctx snapshot event)))
 
 ;; ---- guard / action evaluation traces -------------------------------------
 ;;

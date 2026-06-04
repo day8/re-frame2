@@ -321,7 +321,43 @@
         (let [rn          (first pending)
               region-spec (region-machine parent-machine rn)
               region-snap (cond-> {:state (get state-map rn)
-                                   :data  cur-data}
+                                   :data  cur-data
+                                   ;; Per rf2-46ly6 / rf2-69d1n: thread the
+                                   ;; cross-region coordination context into
+                                   ;; every region's guard/action ctx — the
+                                   ;; XState v5 `stateIn` / SCXML `In()`
+                                   ;; equivalent.
+                                   ;;
+                                   ;; `:all-state` is the full region-name →
+                                   ;; active-state map (the PRECISE sibling-
+                                   ;; state read); `:tags` is the MACHINE-WIDE
+                                   ;; tag union across every region (the coarse
+                                   ;; tag-as-stateIn substitute — rf2-69d1n).
+                                   ;;
+                                   ;; Both are computed from `new-states`, the
+                                   ;; EVOLVING macrostep snapshot: regions
+                                   ;; processed earlier in THIS broadcast
+                                   ;; already carry their post-transition
+                                   ;; state, so a sibling transition earlier in
+                                   ;; the same broadcast is visible here; this
+                                   ;; region (and later siblings) still carry
+                                   ;; their current (pre-transition) state,
+                                   ;; which is what a guard evaluated BEFORE the
+                                   ;; transition fires must see. Across the FIFO
+                                   ;; raise drain, every re-broadcast rebuilds
+                                   ;; these from the latest `cur-snap` via a
+                                   ;; fresh `reduce-regions`, so the union stays
+                                   ;; current through the macrostep (consistent
+                                   ;; with the rf2-yi7ts broadcast rework).
+                                   ;;
+                                   ;; `:all-state` doubles as the parallel-
+                                   ;; region marker `call-guard`/`call-action`
+                                   ;; key off (transition.cljc) — flat/compound
+                                   ;; machines never set it, so their ctx is
+                                   ;; unchanged.
+                                   :all-state new-states
+                                   :tags      (compute-tags-parallel
+                                                parent-machine new-states)}
                             (some? cur-counter)
                             (assoc :rf/spawn-counter cur-counter)
                             ;; Seed the region snapshot with the shared
