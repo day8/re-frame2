@@ -42,7 +42,7 @@ This chapter covers the registration shape, the dispatch / sub / fx surface, and
 | `:parent` | Another route id; builds a chain readable via `:rf.route/chain`. |
 | `:on-match` | Event vector(s) to dispatch when the route activates. |
 | `:on-error` | Event vector dispatched if any `:on-match` event errors. |
-| `:can-leave` | Predicate or guard event; blocks navigation when truthy. See [Guide ch.19 — Navigation blocking](../guide/19-routing.md#blocking-navigation-the-can-leave-protocol). |
+| `:can-leave` | Guard sub-query run before leaving the route. **Closed boolean contract**: `true` allows the navigation, `false` blocks it; any non-boolean value blocks and emits `:rf.error/can-leave-non-boolean`. The sub name reads positively (`:can-leave`), so `false` means "can NOT leave". See [Guide ch.19 — Navigation blocking](../guide/19-routing.md#blocking-navigation-the-can-leave-protocol). |
 | `:scroll` | Scroll-restoration behaviour for this route. |
 
 Canonical detail in [012-Routing.md](../../spec/012-Routing.md); the metadata schema is [Spec-Schemas §`:rf/route-metadata`](../../spec/Spec-Schemas.md#rfroute-metadata).
