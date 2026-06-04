@@ -26,19 +26,44 @@
                         (rf2-76wo5 testbed — :render points at an
                         unregistered view to exercise the panel-host's
                         broken-render fallback branch).
-  - `reg-story`       — `:story.counter` parent (the five variants
-                        below all inherit its decorators + args).
-  - `reg-variant`     — five variants exercising every authoring shape
-                        (four canonical + the events-only loader-body
-                        shape folded in per rf2-9jfo1.2).
-  - `reg-workspace`   — two workspaces: `:grid` + `:variants-grid`.
+  - `reg-story`       — four parent stories. The exemplary
+                        `:story.counter` parent (whose five variants
+                        below all inherit its decorators + args) plus
+                        three sibling fixture parents
+                        (`:story.counter-diagnostics`,
+                        `:story.counter-matrix`,
+                        `:story.counter-play-script`).
+  - `reg-variant`     — an exemplary core of five `:story.counter`
+                        variants exercising every authoring shape (four
+                        canonical + the events-only loader-body shape
+                        folded in per rf2-9jfo1.2), PLUS the deliberate
+                        diagnostics / matrix / CI-runner fixtures under
+                        the sibling parents below.
+  - `reg-workspace`   — five workspaces (`:grid`, `:variants-grid`,
+                        `:prose`, `:tabs`, `:custom`).
+
+  This file is therefore two layers stacked in one namespace. The
+  EXEMPLARY block — the `:story.counter` parent + its five teaching
+  variants + the all-states / auto-grid workspaces — is the small,
+  copyable reference a consumer reads to learn the authoring shapes.
+  The GATE-FIXTURE block below it (the `:story.counter-diagnostics`,
+  `:story.counter-matrix`, and `:story.counter-play-script` parents
+  and roughly thirty variants, the throwing decorators, the custom
+  panels, the schema/a11y/recorder/isolation surfaces, and the
+  CI-runner play targets) is browser-gate + test-mode diagnostics
+  machinery, NOT teaching variants. Each block carries a banner
+  comment so the reference surface stays distinguishable from the
+  gate machinery. (A future split into a sibling fixtures file is
+  tracked separately and deliberately out of scope here.)
 
   Every variant declares `:substrates #{:reagent}` per IMPL-SPEC
   §2.8.1 (Reagent is the v1 lock; UIx / Helix variants ship post-v1).
 
-  The play sequences at the bottom exercise three of the seven
-  canonical `:rf.assert/*` events — `path-equals`, `sub-equals`,
-  `dispatched?` — and one `force-fx-stub` decorator reference."
+  The exemplary `:script` bodies exercise the documented authoring
+  surface end-to-end: the `:assert-db` checkpoint sugar plus the
+  explicit `[:assert [:rf.assert/…]]` form for the assertions the
+  sugar does not cover — `sub-equals`, `dispatched?`, `effect-emitted`
+  — alongside one `force-fx-stub` decorator reference."
   (:require [re-frame.story :as story]
             ;; Source the event and view ids by requiring the namespaces
             ;; so they register themselves; the variant bodies reference
@@ -241,7 +266,7 @@
      :substrates #{:reagent}})
 
   (story/reg-story :story.counter-play-script
-    {:doc        "Parent story for the rich-DSL :play-script CI-as-test
+    {:doc        "Parent story for the rich-DSL :script CI-as-test
                  fixtures (rf2-3qcxk). Two variants exercise both the
                  pass and fail terminal paths of the play runner so the
                  CI runner has live targets in every browser-gate run."
@@ -267,19 +292,24 @@
                     [:title :string]
                     [:enabled? :boolean]]]]})
 
-  ;; -------------------------------------------------------------------------
-  ;; reg-variant — five variants, four exercising distinct authoring
-  ;; shapes + the events-only loader-body shape (rf2-9jfo1.2)
-  ;; -------------------------------------------------------------------------
+  ;; ===========================================================================
+  ;; EXEMPLARY BLOCK — the small, copyable teaching surface.
+  ;;
+  ;; reg-variant — the five `:story.counter` variants. Four exercise
+  ;; distinct authoring shapes; the fifth is the events-only loader-body
+  ;; shape (rf2-9jfo1.2). This block plus the all-states / auto-grid
+  ;; workspaces is what a consumer reads to learn the authoring surface.
+  ;; Everything below the GATE-FIXTURE banner is diagnostics machinery.
+  ;; ===========================================================================
 
   ;; Variant 1 — empty / zero state. The simplest possible variant body:
-  ;; one initialisation event, no decorators of its own (inherits the
-  ;; story-level log-decorator). One play assertion: after init, the
-  ;; `:count` slot equals zero.
+  ;; one initialisation event in :setup, no decorators of its own
+  ;; (inherits the story-level log-decorator). One :script checkpoint:
+  ;; after init, the `:count` slot equals zero.
   (story/reg-variant :story.counter/empty
     {:doc    "Fresh counter at zero. The simplest possible variant."
      :setup [[:counter/initialise 0]]
-     :script [[:dispatch-sync [:rf.assert/path-equals [:count] 0]]]
+     :script [[:assert-db [:count] 0]]
      :tags   #{:dev :docs :test}
      :substrates #{:reagent}})
 
@@ -291,22 +321,22 @@
     {:doc    "A counter seeded with a non-zero value."
      :args   {:label "Total"}
      :setup [[:counter/initialise 7]]
-     :script [[:dispatch-sync [:rf.assert/path-equals [:count]              7]]
-              [:dispatch-sync [:rf.assert/sub-equals  [:count-doubled]      14]]
-              [:dispatch-sync [:rf.assert/sub-equals  [:count-parity]       :odd]]]
+     :script [[:assert-db [:count] 7]
+              [:assert [:rf.assert/sub-equals [:count-doubled] 14]]
+              [:assert [:rf.assert/sub-equals [:count-parity]  :odd]]]
      ;; rf2-7ncf9 — faceted tags alongside the existing canonical seven.
      ;; The sidebar groups these into per-axis chip rows.
      :tags   #{:dev :docs :test :counter-with-stories/canonical
                :status/stable :role/dev :team/counter :feature/counter}
      :substrates #{:reagent}})
 
-  ;; Variant 3 — interaction. The increments happen INSIDE the play
-  ;; sequence (not the :events slot) so the `:rf.assert/dispatched?`
+  ;; Variant 3 — interaction. The increments happen INSIDE the :script
+  ;; (not the :setup slot) so the `:rf.assert/dispatched?`
   ;; assertion's accumulator sees them — the trace listener is wired
-  ;; for phase-4 play, not for phase-2 :events.
+  ;; for the phase-4 :script, not for the phase-2 :setup.
   (story/reg-variant :story.counter/clicked-three-times
     {:doc    "Counter after three increments from zero, driven from
-             the play slot so :rf.assert/dispatched? observes them."
+             the :script so :rf.assert/dispatched? observes them."
      :setup [[:counter/initialise 0]]
      ;; rf2-yn825: the play-runner's :rf.assert/* bridge now surfaces
      ;; assertion failures that the buggy runner used to swallow. The
@@ -319,7 +349,7 @@
      :script [[:dispatch-sync [:counter/inc]]
               [:dispatch-sync [:counter/inc]]
               [:dispatch-sync [:counter/inc]]
-              [:dispatch-sync [:rf.assert/dispatched? [:counter/inc]]]]
+              [:assert [:rf.assert/dispatched? [:counter/inc]]]]
      :tags   #{:dev :docs :test}
      :substrates #{:reagent}
      :decorators [[:counter-with-stories/log-decorator "variant-level"]]})
@@ -337,12 +367,14 @@
   ;;
   ;; Pinned by `tools/story/test/re_frame/story_runtime_cljs_test.cljs`
   ;; (`cljs-events-only-fast-path-to-ready` + `cljs-events-only-
-  ;; classifier`) as the canonical events-only body. NO :play slot,
+  ;; classifier`) as the canonical events-only body. NO :script slot,
   ;; NO :loaders slot, NO :frame-setup decorator — those would break
-  ;; the events-only classification and the fast-path it gates.
+  ;; the events-only classification and the fast-path it gates. (The
+  ;; runtime classifier is named "events-only" after the lowered
+  ;; `:events` slot; the authoring surface is `:setup`.)
   (story/reg-variant :story.counter/events-only-loaded
     {:doc    "Canonical events-only loader-body shape (rf2-043cm fast-
-             path repro). Counter seeded at 5 via `:events`; no
+             path repro). Counter seeded at 5 via `:setup`; no
              `:loaders`, no `:loaders-complete-when`, no `:frame-setup`
              decorators — the lifecycle takes the fast-path direct to
              `:ready`. Folded in from the retired xray_rhs_smoke
@@ -355,7 +387,7 @@
   ;; a :fx slot that issues :counter/sync-to-server. The
   ;; `:rf.story/force-fx-stub` decorator intercepts the fx-id and
   ;; records the stub call without running the real fx. The :save
-  ;; event is dispatched FROM :play (not :events) so the
+  ;; event is dispatched FROM the :script (not :setup) so the
   ;; trace-bus accumulator (installed at phase-4 start) sees the fx
   ;; and `:rf.assert/effect-emitted` passes.
   (story/reg-variant :story.counter/save-stubbed
@@ -365,20 +397,33 @@
      :setup [[:counter/initialise 5]]
      :decorators [[story/force-fx-stub-id :counter/sync-to-server {:ok? true}]]
      :script [[:dispatch-sync [:counter/save]]
-              [:dispatch-sync [:rf.assert/path-equals     [:saving?] true]]
-              [:dispatch-sync [:rf.assert/effect-emitted  :counter/sync-to-server]]]
+              [:assert-db [:saving?] true]
+              [:assert [:rf.assert/effect-emitted :counter/sync-to-server]]]
      :tags   #{:dev :test}
      :substrates #{:reagent}})
+
+  ;; ===========================================================================
+  ;; GATE-FIXTURE BLOCK — browser-gate + test-mode diagnostics machinery.
+  ;;
+  ;; Everything below this banner lives under the sibling parent stories
+  ;; (`:story.counter-diagnostics`, `:story.counter-matrix`,
+  ;; `:story.counter-play-script`). These are DELIBERATE failure /
+  ;; matrix / CI fixtures — they keep Story's diagnostics, feature-load
+  ;; gate, schema/a11y/recorder/isolation surfaces, and the CI-as-test
+  ;; runner under continuous coverage. They are NOT teaching variants;
+  ;; a consumer learning the authoring surface reads the EXEMPLARY block
+  ;; above, not this one.
+  ;; ===========================================================================
 
   ;; Diagnostic variant 1 — failing assertion without an exception.
   ;; Test mode must show the failure as data, not as an uncaught browser
   ;; error. This gives the feature-load gate a stable red test-mode
   ;; surface that does not depend on timing or external services.
   (story/reg-variant :story.counter-diagnostics/failing-play
-    {:doc    "Deterministic failing play assertion. The counter is
-             initialised to 1 but the play assertion expects 999."
+    {:doc    "Deterministic failing :script assertion. The counter is
+             initialised to 1 but the :script assertion expects 999."
      :setup [[:counter/initialise 1]]
-     :script [[:dispatch-sync [:rf.assert/path-equals [:count] 999]]]
+     :script [[:assert-db [:count] 999]]
      :tags   #{:dev :test :internal}
      :substrates #{:reagent}})
 
@@ -386,7 +431,7 @@
   ;; play-runner projects handler exceptions into the assertion list so
   ;; the test pane can explain the failure without blanking the shell.
   (story/reg-variant :story.counter-diagnostics/failing-event-throws
-    {:doc    "Deterministic event-handler exception during :play."
+    {:doc    "Deterministic event-handler exception during the :script."
      :setup [[:counter/initialise 0]]
      :script [[:dispatch-sync [:counter/throw-deterministic]]]
      :tags   #{:dev :test :internal}
@@ -395,10 +440,10 @@
   ;; Diagnostic variant 3 — loader-phase exception. This exercises the
   ;; phase-1 error capture path separately from ordinary play failures.
   (story/reg-variant :story.counter-diagnostics/loader-throws
-    {:doc     "Deterministic loader exception before events/render."
+    {:doc     "Deterministic loader exception before :setup/render."
      :loaders [[:counter/throw-deterministic]]
      :setup  [[:counter/initialise 0]]
-     :script [[:dispatch-sync [:rf.assert/path-equals [:count] 0]]]
+     :script [[:assert-db [:count] 0]]
      :tags    #{:dev :test :internal}
      :substrates #{:reagent}})
 
@@ -409,12 +454,12 @@
                 interactive."
      :component :counter-with-stories.views/throwing-card
      :setup    [[:counter/initialise 0]]
-     :script [[:dispatch-sync [:rf.assert/path-equals [:count] 0]]]
+     :script [[:assert-db [:count] 0]]
      :tags      #{:dev :test :internal}
      :substrates #{:reagent}})
 
   (story/reg-variant :story.counter-matrix/no-play
-    {:doc    "Healthy variant with no :play sequence. Test mode should
+    {:doc    "Healthy variant with no :script. Test mode should
              render its explicit empty state instead of pretending the
              variant passed."
      :args   {:label "No play"
@@ -425,12 +470,12 @@
 
   (story/reg-variant :story.counter-matrix/loader-success
     {:doc     "Loader success path. The loader seeds :count before the
-              normal event phase and the play assertion observes the
+              normal event phase and the :script assertion observes the
               loaded value."
      :args    {:label "Loaded by loader"
                :settings {:title "Loader" :enabled? true}}
      :loaders [[:counter/set 12]]
-     :script [[:dispatch-sync [:rf.assert/path-equals [:count] 12]]]
+     :script [[:assert-db [:count] 12]]
      :tags    #{:dev :test :internal}
      :substrates #{:reagent}})
 
@@ -443,7 +488,7 @@
                :settings {:title "Never" :enabled? true}}
      :loaders [[:counter/set 13]]
      :loaders-complete-when :counter/loader-never-ready?
-     :script [[:dispatch-sync [:rf.assert/path-equals [:count] 13]]]
+     :script [[:assert-db [:count] 13]]
      :tags    #{:dev :test :internal}
      :substrates #{:reagent}})
 
@@ -455,7 +500,7 @@
                :settings {:title "Rejects" :enabled? true}}
      :loaders [[:counter/throw-loader-rejection]]
      :setup  [[:counter/initialise 0]]
-     :script [[:dispatch-sync [:rf.assert/path-equals [:count] 0]]]
+     :script [[:assert-db [:count] 0]]
      :tags    #{:dev :test :internal}
      :substrates #{:reagent}})
 
@@ -466,7 +511,7 @@
      :args   {:label 42
               :settings {:title "Bad label" :enabled? true}}
      :setup [[:counter/initialise 4]]
-     :script [[:dispatch-sync [:rf.assert/path-equals [:count] 4]]]
+     :script [[:assert-db [:count] 4]]
      :tags   #{:dev :test :internal}
      :substrates #{:reagent}})
 
@@ -477,7 +522,7 @@
      :args   {:label "Nested"
               :settings {:title "Nested title" :enabled? true}}
      :setup [[:counter/initialise 6]]
-     :script [[:dispatch-sync [:rf.assert/path-equals [:count] 6]]]
+     :script [[:assert-db [:count] 6]]
      :tags   #{:dev :test :internal}
      :substrates #{:reagent}})
 
@@ -487,7 +532,7 @@
                   :settings {:title "Decorator" :enabled? true}}
      :setup     [[:counter/initialise 8]]
      :decorators [[:counter-with-stories/throwing-decorator]]
-     :script [[:dispatch-sync [:rf.assert/path-equals [:count] 8]]]
+     :script [[:assert-db [:count] 8]]
      :tags       #{:dev :test :internal}
      :substrates #{:reagent}})
 
@@ -498,7 +543,7 @@
      :args       {:label "Substrates"
                   :settings {:title "Substrates" :enabled? true}}
      :setup     [[:counter/initialise 10]]
-     :script [[:dispatch-sync [:rf.assert/path-equals [:count] 10]]]
+     :script [[:assert-db [:count] 10]]
      :tags       #{:dev :test :internal}
      :substrates #{:reagent :uix}})
 
@@ -508,7 +553,7 @@
      :args   {:label "Isolation A"
               :settings {:title "A" :enabled? true}}
      :setup [[:counter/initialise 1]]
-     :script [[:dispatch-sync [:rf.assert/path-equals [:count] 1]]]
+     :script [[:assert-db [:count] 1]]
      :tags   #{:dev :test :internal}
      :substrates #{:reagent}})
 
@@ -518,7 +563,7 @@
      :args   {:label "Isolation B"
               :settings {:title "B" :enabled? true}}
      :setup [[:counter/initialise 100]]
-     :script [[:dispatch-sync [:rf.assert/path-equals [:count] 100]]]
+     :script [[:assert-db [:count] 100]]
      :tags   #{:dev :test :internal}
      :substrates #{:reagent}})
 
@@ -526,12 +571,12 @@
     {:doc       "Recorder browser fixture: the visible button dispatches
                 a :sensitive? event with a password payload. The Story
                 recorder must preserve the row position while emitting
-                [:rf/redacted] in the generated :play snippet."
+                [:rf/redacted] in the generated :script snippet."
      :component :counter-with-stories.views/recorder-redaction-card
      :args      {:label "Recorder redaction"
                  :settings {:title "Recorder" :enabled? true}}
      :setup    [[:counter/initialise 11]]
-     :script [[:dispatch-sync [:rf.assert/path-equals [:count] 11]]]
+     :script [[:assert-db [:count] 11]]
      :tags      #{:dev :test :internal}
      :substrates #{:reagent}})
 
@@ -543,7 +588,7 @@
      :args      {:label "A11y known good"
                  :settings {:title "A11y good" :enabled? true}}
      :setup    [[:counter/initialise 21]]
-     :script [[:dispatch-sync [:rf.assert/path-equals [:count] 21]]]
+     :script [[:assert-db [:count] 21]]
      :tags      #{:dev :test :internal}
      :substrates #{:reagent}})
 
@@ -555,12 +600,12 @@
      :args      {:label "A11y known bad"
                  :settings {:title "A11y bad" :enabled? true}}
      :setup    [[:counter/initialise 22]]
-     :script [[:dispatch-sync [:rf.assert/path-equals [:count] 22]]]
+     :script [[:assert-db [:count] 22]]
      :tags      #{:dev :test :internal}
      :substrates #{:reagent}})
 
   ;; rf2-0uo4e — failing-fx-stub-miss testbed variant. Source-side follow-on
-  ;; from rf2-6hauy. :play declares :rf.assert/effect-emitted against
+  ;; from rf2-6hauy. The :script declares :rf.assert/effect-emitted against
   ;; :never-stubbed WITHOUT a corresponding force-fx-stub decorator
   ;; covering the id — the play-runner never observes the fx, so the
   ;; assertion fails with the canonical reason:
@@ -572,8 +617,8 @@
   ;; intentionally :test-tagged so the chrome test-widget picks it up
   ;; and reports the failure.
   (story/reg-variant :story.counter-matrix/failing-fx-stub-miss
-    {:doc       "Deterministic failing-fx-stub-miss failing assertion. :play
-                asserts :rf.assert/effect-emitted :never-stubbed with
+    {:doc       "Deterministic failing-fx-stub-miss failing assertion. The
+                :script asserts :rf.assert/effect-emitted :never-stubbed with
                 NO force-fx-stub decorator covering it — the assertion
                 fails with the canonical 'fx <id> was not emitted
                 during play' reason. Pattern: :story.counter-
@@ -581,26 +626,27 @@
      :args      {:label "failing-fx-stub-miss"
                  :settings {:title "failing-fx-stub-miss" :enabled? true}}
      :setup    [[:counter/initialise 0]]
-     :script [[:dispatch-sync [:rf.assert/effect-emitted :never-stubbed]]]
+     :script [[:assert [:rf.assert/effect-emitted :never-stubbed]]]
      :tags      #{:dev :test :internal}
      :substrates #{:reagent}})
 
   ;; -------------------------------------------------------------------------
-  ;; :play-script fixtures (rf2-3qcxk — CI-as-test)
+  ;; :script CI fixtures (rf2-3qcxk — CI-as-test)
   ;;
   ;; The CI runner at `examples/scripts/serve-and-run-story-play-scripts.cjs`
   ;; discovers every registered variant whose body carries a non-empty
-  ;; `:play-script` slot (via `re-frame.story.play.ci-runner/
-  ;; variants-with-play-scripts`), navigates the live Story shell to
-  ;; each, waits for the auto-run's terminal status, and asserts the
+  ;; `:script` slot (via `re-frame.story.play.ci-runner/
+  ;; variants-with-play-scripts`; the runtime fn keeps its name after the
+  ;; `:script` → `:play-script` lowering), navigates the live Story shell
+  ;; to each, waits for the auto-run's terminal status, and asserts the
   ;; aggregate result. These two fixtures pin the contract: one passes,
   ;; one is deliberately wrong so the CI runner's failure path stays
   ;; under continuous coverage too.
   ;;
-  ;; The fixtures use `:dispatch-sync` (not `:dispatch`) so the runner
-  ;; observes the resulting app-db state on the very next step without
-  ;; needing a `:wait`. The play-script slot coexists with the legacy
-  ;; `:play` slot — both run, independently, post-mount.
+  ;; The fixtures use `:dispatch-sync` drive steps (not `:dispatch`) so the
+  ;; runner observes the resulting app-db state on the very next step
+  ;; without needing a `:wait`, and author their checkpoints with the
+  ;; `:assert-db` sugar.
   ;; -------------------------------------------------------------------------
 
   ;; Both fixtures use IDEMPOTENT scripts (initialise → assert) so

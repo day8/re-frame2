@@ -26,7 +26,7 @@
                        expected handle)
     :state-is        — every variant (`:rf.assert/state-is :login/flow ...`)
     :dispatched?     — :error (the failure event was dispatched
-                       during the play sequence)
+                       during the :script)
     :effect-emitted  — :submitting (the :rf.http/managed fx fired)
 
   The `force-fx-stub` decorator is wired on every variant that hits the
@@ -88,23 +88,32 @@
   ;; -------------------------------------------------------------------------
   ;; Variant 1 — :idle (the empty form)
   ;;
-  ;; The simplest variant body — no events, no decorators of its own.
-  ;; Story's per-variant frame allocation seeds the machine to
-  ;; `:initial :idle` on first dispatch; the assertion proves the
-  ;; state is what the variant's name says it is.
+  ;; The simplest variant body — a single bootstrap dispatch in :setup,
+  ;; no decorators of its own. Story's per-variant frame allocation
+  ;; seeds the machine to `:initial :idle` on the FIRST dispatch into
+  ;; the machine, whatever that event is; the :script checkpoints prove
+  ;; the state is what the variant's name says it is.
   ;; -------------------------------------------------------------------------
 
   (story/reg-variant :story.login/idle
     {:doc    "Fresh form, no inputs typed, no submit clicked. The
              entry state the user lands on when they navigate to
-             `#/login` for the first time. The variant fires a
-             no-op `:login/dismiss` so the machine's `:initial`
-             cascade seeds the snapshot — without it, the
-             `[:rf/runtime :machines :snapshots :login/flow]` slot is nil and the
-             state-pill in the view renders empty."
+             `#/login` for the first time.
+
+             The `:setup` fires `:login/dismiss` purely to BOOTSTRAP
+             the machine: the first dispatch into a machine runs its
+             `:initial` cascade (spec/005 §Initial cascade), seeding
+             the `[:rf/runtime :machines :snapshots :login/flow]`
+             snapshot — without it that slot is nil and the view's
+             state-pill renders empty. The choice of `:login/dismiss`
+             is incidental: in `:idle` it is an UNHANDLED no-op (it is
+             only a real transition out of `:error`), so it bootstraps
+             without moving the machine off `:idle`. Any event would do
+             — do NOT read meaning into dispatching `:dismiss` here, and
+             do NOT copy 'dispatch any event to bootstrap' as an idiom."
      :setup [[:login/flow [:login/dismiss]]]
-     :script [[:dispatch-sync [:rf.assert/path-equals  [:rf/runtime :machines :snapshots :login/flow :state] :idle]]
-              [:dispatch-sync [:rf.assert/state-is :login/flow :idle]]]
+     :script [[:assert-db [:rf/runtime :machines :snapshots :login/flow :state] :idle]
+              [:assert [:rf.assert/state-is :login/flow :idle]]]
      :tags   #{:dev :docs :test}
      :substrates #{:reagent}})
 
@@ -126,8 +135,8 @@
      :setup [[:login/flow [:login/submit {:email    "ada@example.com"
                                             :password "correct-horse"}]]]
      :decorators [[story/force-fx-stub-id :rf.http/managed {}]]
-     :script [[:dispatch-sync [:rf.assert/state-is      :login/flow :submitting]]
-              [:dispatch-sync [:rf.assert/effect-emitted :rf.http/managed]]]
+     :script [[:assert [:rf.assert/state-is      :login/flow :submitting]]
+              [:assert [:rf.assert/effect-emitted :rf.http/managed]]]
      :tags   #{:dev :docs :test}
      :substrates #{:reagent}})
 
@@ -135,7 +144,7 @@
   ;; Variant 3 — :error (server rejected creds)
   ;;
   ;; The fx-stub still intercepts the request fx, but the variant
-  ;; body manually drives the failure sub-event in the same `:events`
+  ;; body manually drives the failure sub-event in the same `:setup`
   ;; sequence — equivalent to the server having returned 401. The
   ;; machine transitions idle → submitting → error and lands with the
   ;; error message surfaced.
@@ -156,10 +165,9 @@
                             {:failure {:status  401
                                        :message "Invalid credentials."}}]]]
      :decorators [[story/force-fx-stub-id :rf.http/managed {}]]
-     :script [[:dispatch-sync [:rf.assert/state-is :login/flow :error]]
-              [:dispatch-sync [:rf.assert/path-equals
-               [:rf/runtime :machines :snapshots :login/flow :data :error]
-               "Invalid credentials."]]]
+     :script [[:assert [:rf.assert/state-is :login/flow :error]]
+              [:assert-db [:rf/runtime :machines :snapshots :login/flow :data :error]
+               "Invalid credentials."]]
      :tags   #{:dev :docs :test}
      :substrates #{:reagent}})
 
@@ -184,10 +192,9 @@
               [:login/flow [:login/retry
                             {:email "ada@example.com" :password "correct-horse"}]]]
      :decorators [[story/force-fx-stub-id :rf.http/managed {}]]
-     :script [[:dispatch-sync [:rf.assert/state-is :login/flow :submitting-retry]]
-              [:dispatch-sync [:rf.assert/path-equals
-               [:rf/runtime :machines :snapshots :login/flow :data :attempts]
-               1]]]
+     :script [[:assert [:rf.assert/state-is :login/flow :submitting-retry]]
+              [:assert-db [:rf/runtime :machines :snapshots :login/flow :data :attempts]
+               1]]
      :tags   #{:dev :docs :test}
      :substrates #{:reagent}})
 
@@ -212,8 +219,8 @@
                             {:value {:user  {:email "ada@example.com"}
                                      :token "story-token"}}]]]
      :decorators [[story/force-fx-stub-id :rf.http/managed {}]]
-     :script [[:dispatch-sync [:rf.assert/state-is :login/flow :authenticated]]
-              [:dispatch-sync [:rf.assert/sub-equals [:login/email] "ada@example.com"]]]
+     :script [[:assert [:rf.assert/state-is :login/flow :authenticated]]
+              [:assert [:rf.assert/sub-equals [:login/email] "ada@example.com"]]]
      :tags   #{:dev :docs :test :login-form/tutorial}
      :substrates #{:reagent}})
 

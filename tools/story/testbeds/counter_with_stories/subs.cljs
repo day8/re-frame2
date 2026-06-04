@@ -2,7 +2,7 @@
   "Counter subscriptions. Three layer-2 subs derived from the single
   `:count` slot in `app-db`. The Story playground's
   `:rf.assert/sub-equals` assertion fires against these — the
-  variant body says 'after this play sequence, `@(subscribe [:count])`
+  variant body says 'after this :script, `@(subscribe [:count])`
   should equal N' and the assertion records pass/fail without throw."
   (:require [re-frame.core :as rf]))
 
