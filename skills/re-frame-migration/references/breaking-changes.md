@@ -124,13 +124,16 @@ The author **must** ask for these. They are never auto-applied as part of a rout
 
 If a rule is hybrid (A for one shape, B for another), the type column above lists `A/B` and the rule's text in MIGRATION.md spells out which half is which.
 
-## Devtools (not an M-rule, but author-visible)
+## Devtools (Xray replaces 10x — a STANDARD migration step for a 10x app)
 
-| Trigger in v1 dev deps | Successor | Where |
-|---|---|---|
-| `day8.re-frame/re-frame-10x` Maven coord; `day8.re-frame-10x.preload` `:preloads` entry | **Xray** (`day8/re-frame2-xray`) | [`xray-replaces-10x.md`](xray-replaces-10x.md) |
+| Trigger in v1 dev deps | Successor | Standing? | Where |
+|---|---|---|---|
+| `day8.re-frame/re-frame-10x` Maven coord; `day8.re-frame-10x.preload` `:preloads` entry | **Xray** (`day8/re-frame2-xray`) | **Standard** — done-state is the app *on Xray* | [`xray-replaces-10x.md`](xray-replaces-10x.md) |
+| No re-frame-10x in the project | Xray (offer) | **Optional** — don't force devtools the app never had | [`xray-replaces-10x.md`](xray-replaces-10x.md) |
 
-Xray is a from-scratch reimplementation against re-frame2's trace bus and epoch-history surfaces, not a port of 10x. It is **dev-only by construction** and elides cleanly under `:advanced` + `goog.DEBUG=false`. The swap is not an M-rule (no application code triggers it) but is the natural companion to M-0 — see [`xray-replaces-10x.md`](xray-replaces-10x.md) for the drop / add / host / keybinding shape and the 10x→Xray parity matrix.
+**Xray IS the v2 devtools replacement for re-frame-10x.** A from-scratch reimplementation against re-frame2's trace bus and epoch-history surfaces, not a port of 10x; **dev-only by construction**, eliding cleanly under `:advanced` + `goog.DEBUG=false`. **Rule: 10x present ⇒ swap to Xray (standard); no 10x ⇒ Xray optional.** For a 10x app the swap is a standard, expected step whose done-state is the app on Xray — not just the dead preload removed.
+
+It carries no `M-N` id (no *application code* triggers it — M-rules key off application-code surfaces), so it stays out of the M-rule list. **But "not an M-rule" ≠ "optional"** for a 10x app. It runs as a **two-stage swap straddling the M-rule sweep**: (1) at **M-0**, neutralize the dead 10x preload (drop the coord + `:preloads` entry so the post-M-0 compile gate is reachable); (2) **post-M-40**, mount Xray (preload auto-opens after `(rf/init!)`, so it can't mount until boot wiring is in place). The post-M-40 timing is a sequencing detail, not a downgrade to optional. See [`xray-replaces-10x.md`](xray-replaces-10x.md) for the drop / add / host / keybinding shape and the 10x→Xray parity matrix.
 
 ## What stays the same (do not change)
 
