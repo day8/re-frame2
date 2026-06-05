@@ -32,9 +32,11 @@ const assert = require('assert');
 const scanner = require('../../examples/scripts/check-examples-assets.cjs');
 const {
   REQUIRED_SHARED_ASSETS,
+  SOCIAL_PREVIEW_REQUIRED,
   ALLOWLIST,
   isExternalRef,
   extractHtmlRefs,
+  extractOgImageRefs,
   extractCssImports,
   resolveRef,
   scanPage,
@@ -117,7 +119,7 @@ it('LIVE: TodoMVC is the encoded style.css opt-out (allowlist, not a regression)
     'TodoMVC must STILL be required to carry the shared favicon',
   );
   assert.ok(
-    !entry.assetExemptions.includes('_shared/img/og.svg'),
+    !entry.assetExemptions.includes('_shared/img/og.png'),
     'TodoMVC must STILL be required to carry the shared OG card',
   );
   assert.ok(
@@ -151,16 +153,20 @@ function makeIo(files) {
 
 const PAGE = path.join(EXAMPLES_ROOT, 'reagent', 'demo', 'index.html');
 const FAVICON = path.join(EXAMPLES_ROOT, '_shared', 'img', 'favicon.svg');
-const OG = path.join(EXAMPLES_ROOT, '_shared', 'img', 'og.svg');
+// The shipped social-preview target is the RASTER og.png (an SVG og:image
+// renders no preview card — rf2-lr4am3); og.svg is kept only as source art.
+const OG = path.join(EXAMPLES_ROOT, '_shared', 'img', 'og.png');
+const OG_SVG = path.join(EXAMPLES_ROOT, '_shared', 'img', 'og.svg');
 const STYLE = path.join(EXAMPLES_ROOT, '_shared', 'css', 'style.css');
 const STRUCTURE = path.join(EXAMPLES_ROOT, '_shared', 'css', 'structure.css');
+const SHARED_ROOT = path.join(EXAMPLES_ROOT, '_shared');
 
 // A well-formed page that links all three shared assets, plus a style.css
 // that @imports structure.css and an external Google-Fonts URL.
 function goodHtml() {
   return [
     '<!doctype html><html><head>',
-    '<meta property="og:image" content="_shared/img/og.svg">',
+    '<meta property="og:image" content="_shared/img/og.png">',
     '<link rel="icon" href="_shared/img/favicon.svg">',
     '<link rel="stylesheet" href="_shared/css/style.css">',
     '</head><body><script src="main.js"></script></body></html>',
@@ -179,7 +185,7 @@ function fullIo(overrides = {}) {
     [STYLE]: goodStyleCss(),
     [STRUCTURE]: '/* structure */',
     [FAVICON]: '<svg/>',
-    [OG]: '<svg/>',
+    [OG]: 'PNGDATA', // og.png raster (content opaque to the scanner)
     ...overrides,
   });
 }
@@ -190,7 +196,7 @@ it('extractHtmlRefs picks up link/script/og:image refs, de-duped', () => {
   const refs = extractHtmlRefs(goodHtml());
   assert.ok(refs.includes('_shared/img/favicon.svg'));
   assert.ok(refs.includes('_shared/css/style.css'));
-  assert.ok(refs.includes('_shared/img/og.svg'));
+  assert.ok(refs.includes('_shared/img/og.png'));
   assert.ok(refs.includes('main.js'));
 });
 
@@ -245,7 +251,7 @@ it('TEETH: a missing _shared favicon is reported', () => {
     [PAGE]: goodHtml(),
     [STYLE]: goodStyleCss(),
     [STRUCTURE]: '/* structure */',
-    [OG]: '<svg/>',
+    [OG]: 'PNGDATA',
     // FAVICON intentionally absent
   });
   const { errors } = scanPage(without, PAGE);
@@ -263,7 +269,7 @@ it('TEETH: a style.css @import to a missing structure.css is reported', () => {
     [PAGE]: goodHtml(),
     [STYLE]: goodStyleCss(),
     [FAVICON]: '<svg/>',
-    [OG]: '<svg/>',
+    [OG]: 'PNGDATA',
     // STRUCTURE intentionally absent
   });
   const { errors } = scanPage(without, PAGE);
@@ -322,7 +328,7 @@ it('a page allowlisted out of style.css with vendored CSS scans clean', () => {
   // + OG. With the right allowlist entry it must scan clean.
   const todoPage = path.join(EXAMPLES_ROOT, 'reagent', 'todomvc', 'index.html');
   const todoHtml = [
-    '<meta property="og:image" content="_shared/img/og.svg">',
+    '<meta property="og:image" content="_shared/img/og.png">',
     '<link rel="icon" href="_shared/img/favicon.svg">',
     '<link rel="stylesheet" href="base.css">',
     '<link rel="stylesheet" href="index.css">',
@@ -331,7 +337,7 @@ it('a page allowlisted out of style.css with vendored CSS scans clean', () => {
   const io = makeIo({
     [todoPage]: todoHtml,
     [FAVICON]: '<svg/>',
-    [OG]: '<svg/>',
+    [OG]: 'PNGDATA',
     // base.css / index.css intentionally absent on disk (npm-staged) — the
     // allowlist's localAssets must keep them from being flagged.
   });
@@ -354,14 +360,14 @@ it('TEETH: an allowlisted page still REQUIRES favicon + OG (opt-out is styleshee
   const todoPage = path.join(EXAMPLES_ROOT, 'reagent', 'todomvc', 'index.html');
   // Drops the favicon — even though style.css is exempt, favicon is not.
   const todoHtml = [
-    '<meta property="og:image" content="_shared/img/og.svg">',
+    '<meta property="og:image" content="_shared/img/og.png">',
     '<link rel="stylesheet" href="base.css">',
     '<link rel="stylesheet" href="index.css">',
     '<script src="main.js"></script>',
   ].join('\n');
   const io = makeIo({
     [todoPage]: todoHtml,
-    [OG]: '<svg/>',
+    [OG]: 'PNGDATA',
   });
   const allowlist = {
     'examples/reagent/todomvc/index.html': {
@@ -397,16 +403,112 @@ it('TEETH: a stale exemption (page DOES reference the exempt asset) is flagged',
   );
 });
 
+// ---- TEETH: social-preview RASTER contract (rf2-lr4am3) -----------------
+
+it('extractOgImageRefs returns the og:image content value(s)', () => {
+  const refs = extractOgImageRefs(goodHtml());
+  assert.deepStrictEqual(refs, ['_shared/img/og.png']);
+});
+
+it('TEETH: an SVG og:image is flagged as a non-raster social-preview asset', () => {
+  // The exact pre-fix failure mode: the file exists, every required-asset
+  // check passes, but the og:image is an SVG that scrapers will not render.
+  const svgOgHtml = goodHtml().replace(
+    '<meta property="og:image" content="_shared/img/og.png">',
+    '<meta property="og:image" content="_shared/img/og.svg">',
+  );
+  const io = fullIo({
+    [PAGE]: svgOgHtml,
+    [OG_SVG]: '<svg/>', // the SVG resolves on disk — existence is NOT the issue
+  });
+  const { errors } = scanPage(io, PAGE);
+  assert.ok(
+    errors.some(
+      (e) => e.includes('og:image') && e.includes('not a raster'),
+    ),
+    `expected a non-raster og:image error, got: ${errors.join(' | ')}`,
+  );
+  // ...and because the page no longer references the required raster, the
+  // required-asset contract ALSO fires — both teeth bite the SVG card.
+  assert.ok(
+    errors.some((e) =>
+      e.includes("missing required shared asset reference '_shared/img/og.png'"),
+    ),
+    `expected the missing-raster error too, got: ${errors.join(' | ')}`,
+  );
+});
+
+it('TEETH: a .jpg / .webp og:image scans clean (any raster is allowed)', () => {
+  for (const ext of ['jpg', 'jpeg', 'webp', 'gif']) {
+    const html = goodHtml().replace(
+      '<meta property="og:image" content="_shared/img/og.png">',
+      `<meta property="og:image" content="_shared/img/og.${ext}">`,
+    );
+    const io = fullIo({
+      [PAGE]: html,
+      [path.join(EXAMPLES_ROOT, '_shared', 'img', `og.${ext}`)]: 'RASTER',
+    });
+    const { errors } = scanPage(io, PAGE);
+    // The page intentionally drops the required og.png, so the required-asset
+    // contract fires — but the RASTER check must NOT add a non-raster error.
+    assert.ok(
+      !errors.some((e) => e.includes('not a raster')),
+      `og.${ext} must be accepted as a raster, got: ${errors.join(' | ')}`,
+    );
+  }
+});
+
+it('TEETH: a missing og.png raster is reported by checkSharedTree', () => {
+  const io = makeIo({
+    [path.join(SHARED_ROOT, 'css', 'style.css')]: "@import url('structure.css');",
+    // A cascade-clean structure.css so only the missing-raster error fires.
+    [path.join(SHARED_ROOT, 'css', 'structure.css')]:
+      '.send-form input[type="text"] { min-width: 240px; }\n' +
+      '.cells-grid input { width: 56px; }',
+    [path.join(SHARED_ROOT, 'img', 'favicon.svg')]: '<svg/>',
+    [path.join(SHARED_ROOT, 'img', 'og.svg')]: '<svg/>',
+    // og.png intentionally absent
+  });
+  const errors = checkSharedTree(io, { sharedRoot: SHARED_ROOT });
+  assert.ok(
+    errors.some((e) => e.includes('og.png')),
+    `expected a missing-og.png error, got: ${errors.join(' | ')}`,
+  );
+});
+
+it('LIVE: no real example page ships an SVG (or otherwise non-raster) og:image', () => {
+  const fs = require('fs');
+  const offenders = [];
+  for (const idx of realIndexes) {
+    const html = fs.readFileSync(idx, 'utf8');
+    for (const og of extractOgImageRefs(html)) {
+      if (isExternalRef(og)) continue;
+      const ext = path.extname(og).toLowerCase();
+      if (!['.png', '.jpg', '.jpeg', '.webp', '.gif'].includes(ext)) {
+        offenders.push(`${path.relative(EXAMPLES_ROOT, idx)} -> ${og}`);
+      }
+    }
+  }
+  assert.deepStrictEqual(
+    offenders,
+    [],
+    `these real pages ship a non-raster og:image:\n` +
+      offenders.map((o) => `    - ${o}`).join('\n'),
+  );
+});
+
 // ---- TEETH: CSS-cascade contract (rf2-gv5xd) ----------------------------
 
 // A minimal _shared/css io: style.css @imports structure.css; structure.css
 // contents are supplied per-test so we can pin the cascade check both ways.
-const SHARED_ROOT = path.join(EXAMPLES_ROOT, '_shared');
+// (SHARED_ROOT is declared up with the other path constants.)
 function sharedCssIo(structureCss) {
   return makeIo({
     [path.join(SHARED_ROOT, 'css', 'style.css')]: "@import url('structure.css');",
     [path.join(SHARED_ROOT, 'css', 'structure.css')]: structureCss,
     [path.join(SHARED_ROOT, 'img', 'favicon.svg')]: '<svg/>',
+    // checkSharedTree requires both the shipped raster and its source art.
+    [path.join(SHARED_ROOT, 'img', 'og.png')]: 'PNGDATA',
     [path.join(SHARED_ROOT, 'img', 'og.svg')]: '<svg/>',
   });
 }
@@ -465,12 +567,15 @@ it('the build-output main.js is never resolved on disk', () => {
 
 // ---- contract constant sanity -------------------------------------------
 
-it('REQUIRED_SHARED_ASSETS names favicon, og, and style.css', () => {
+it('REQUIRED_SHARED_ASSETS names favicon, the og.png raster, and style.css', () => {
   assert.deepStrictEqual([...REQUIRED_SHARED_ASSETS].sort(), [
     '_shared/css/style.css',
     '_shared/img/favicon.svg',
-    '_shared/img/og.svg',
+    '_shared/img/og.png',
   ]);
+  // The social-preview target is a raster, never the SVG source art.
+  assert.strictEqual(SOCIAL_PREVIEW_REQUIRED, '_shared/img/og.png');
+  assert.ok(!REQUIRED_SHARED_ASSETS.includes('_shared/img/og.svg'));
 });
 
 if (failed > 0) {
