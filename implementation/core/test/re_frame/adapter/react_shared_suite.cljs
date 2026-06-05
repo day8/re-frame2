@@ -2804,6 +2804,86 @@
           (finally
             (try (.unmount root) (catch :default _ nil)))))))))
 
+(defn assert-use-subscribe-siblings-same-query-both-invalidate
+  "rf2-e4pyb finding 1: two INDEPENDENT sibling components subscribing to
+  the SAME (frame, query) pair must BOTH receive invalidation after a
+  single dispatch, and BOTH must clean up on unmount.
+
+  WHY THIS IS THE REGRESSION. Subscriptions are cached/deduped by query,
+  so sibling subscribers to the same query share the SAME cached reaction
+  object. The buggy spine derived the `add-watch` key from
+  `(hash reaction)` — identical across the siblings — so `add-watch`
+  (which replaces an existing watcher with the same key) let the
+  last-mounted sibling's `useSyncExternalStore` `on-change` SILENTLY
+  OVERWRITE the earlier sibling's. The earlier sibling then rendered
+  STALE: a dispatch invalidated the reaction, but its callback was gone,
+  so its committed DOM never updated. The fix mints a UNIQUE watch key
+  per `subscribe-fn` invocation, so each sibling's callback survives.
+
+  PROOF SHAPE. We seed n=1, mount TWO sibling probes reading the same
+  query under the same frame, dispatch ::sib-inc ONCE, and assert BOTH
+  sibling DOM nodes show n=2 (the buggy spine leaves the first-mounted
+  sibling at n=1). We assert on the COMMITTED DOM text — not just the
+  observation atoms — because a stale render is precisely a DOM that
+  React never re-committed for the orphaned subscriber. After unmount the
+  shared cache entry's ref-count must return to 0 (both cleanups ran;
+  neither leaked, and neither double-released).
+
+  cfg keys:
+    :probe-siblings-element  thunk → an element wrapping TWO sibling
+                             probes that BOTH read [:sib-query] under
+                             :refcount-target's frame and render their
+                             value into distinct DOM nodes
+    :siblings-observed-a / :siblings-observed-b  atoms each sibling
+                             pushes its observed values into
+    :refcount-target         atom the sibling probes read their target
+                             frame-id from
+    :sib-frame               frame-id keyword the siblings resolve under
+    :sib-query               query-v keyword both siblings subscribe to"
+  [{:keys [name probe-siblings-element siblings-observed-a siblings-observed-b
+           refcount-target sib-frame sib-query]}]
+  (testing (str name " — sibling subscribers to the same query both invalidate (rf2-e4pyb)")
+    (with-browser-act
+     (fn [act-fn]
+      (reset! siblings-observed-a [])
+      (reset! siblings-observed-b [])
+      (reset! refcount-target sib-frame)
+      (rf/reg-frame sib-frame {:doc "rf2-e4pyb sibling-collision probe frame"})
+      (rf/reg-event-db ::sib-seed (fn [_ _] {:n 1}))
+      (rf/reg-event-db ::sib-inc  (fn [db _] (update db :n inc)))
+      (rf/dispatch-sync [::sib-seed] {:frame sib-frame})
+      (rf/reg-sub sib-query (fn [db _] (:n db)))
+      (let [cache-key-v [sib-query]
+            cache       (:sub-cache (frame/frame sib-frame))
+            mount-node  (make-mount-node!)
+            root        (react-dom-client/createRoot mount-node)]
+        (try
+          (act-fn (fn [] (.render root (probe-siblings-element))))
+          ;; Both siblings share ONE cached reaction (same query) — the
+          ;; cache entry's ref-count reflects both live subscribers.
+          (is (= "a=1 b=1" (.-textContent mount-node))
+              "both siblings committed the seeded value n=1")
+          ;; ONE dispatch. The fix guarantees BOTH siblings' on-change
+          ;; callbacks survive on the shared reaction, so React re-commits
+          ;; BOTH. The bug leaves sibling A's callback overwritten by
+          ;; sibling B's → A renders STALE at n=1.
+          (act-fn (fn [] (rf/dispatch-sync [::sib-inc] {:frame sib-frame})))
+          (is (= "a=2 b=2" (.-textContent mount-node))
+              "BOTH siblings re-committed n=2 after one dispatch — neither
+               sibling's useSyncExternalStore callback was overwritten by
+               the other's (rf2-e4pyb: unique per-invocation watch key)")
+          (is (some #{2} @siblings-observed-a)
+              "sibling A observed the incremented value (not just stale n=1)")
+          (is (some #{2} @siblings-observed-b)
+              "sibling B observed the incremented value")
+          (act-fn (fn [] (.unmount root)))
+          (is (or (nil? (get @cache cache-key-v))
+                  (zero? (or (get-in @cache [cache-key-v :ref-count]) 0)))
+              "post-unmount the shared cache entry's ref-count is zero (or
+               dropped) — BOTH sibling cleanups ran, neither leaked")
+          (finally
+            (try (.unmount root) (catch :default _ nil)))))))))
+
 (defn assert-use-subscribe-stable-deps-key
   "rf2-mwft2: stable-literal query-v across N re-renders ⇒ exactly one
   subs/subscribe call (the deps element is JS-ref-stable across renders),

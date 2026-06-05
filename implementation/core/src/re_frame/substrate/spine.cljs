@@ -1385,10 +1385,13 @@
         replace-cont!      (make-replace-container-fn scheduler)
         make-derived       (make-derived-value-fn gensym-prefix-derived scheduler)
         ;; Precompute the `use-subscribe` watch-key keyword namespace
-        ;; once (outside the render hot path). The per-reaction key
-        ;; derives from `(hash reaction)` so the subscribe-fn closure
-        ;; pays one hash + one keyword intern per reaction-identity
-        ;; change — no process-wide gensym counter tick per render.
+        ;; once (outside the render hot path). Each `subscribe-fn`
+        ;; invocation mints a UNIQUE per-call suffix under this namespace
+        ;; (see the subscribe-fn closure below) so sibling subscribers to
+        ;; the same cached reaction never collide on the same `add-watch`
+        ;; key. The closure runs once per reaction-identity change (it is
+        ;; `use-callback`-memoized on `[reaction]`), so the per-call
+        ;; keyword is not paid per render.
         use-sub-watch-ns   (let [s gensym-prefix-use-sub
                                  n (count s)]
                              ;; Strip the trailing "-" the gensym prefix
@@ -1550,11 +1553,23 @@
                 subscribe-fn
                 (use-callback
                   (fn [on-change]
-                    ;; Hash-of-reaction-identity keyword rather than a
-                    ;; fresh `gensym` per call — stable for the
-                    ;; reaction's lifetime, sidesteps the process-wide
-                    ;; gensym counter, unique across distinct reactions.
-                    (let [k (keyword use-sub-watch-ns (str (hash reaction)))]
+                    ;; UNIQUE watch key per `subscribe-fn` INVOCATION,
+                    ;; closed over by the returned cleanup. The key MUST
+                    ;; NOT derive from `(hash reaction)`: subscriptions are
+                    ;; cached/deduped by query, so sibling UIx/Helix
+                    ;; components reading the SAME query share the SAME
+                    ;; cached reaction. A hash-of-reaction key would be
+                    ;; IDENTICAL across those siblings, and `add-watch`
+                    ;; replaces an existing watcher with the same key — so
+                    ;; the last-mounted sibling's `on-change` would silently
+                    ;; overwrite every earlier sibling's `useSyncExternalStore`
+                    ;; callback, leaving the earlier ones rendering stale UI
+                    ;; until an unrelated parent render refreshed them.
+                    ;; `subscribe-fn` is `use-callback`-memoized on
+                    ;; `[reaction]`, so React calls it once per
+                    ;; reaction-identity change (NOT per render); a fresh
+                    ;; keyword per call is cheap and collision-free.
+                    (let [k (keyword use-sub-watch-ns (str (gensym "watch-")))]
                       (when reaction
                         (add-watch reaction k (fn [_ _ _ _] (on-change))))
                       (fn unsubscribe []

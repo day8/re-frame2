@@ -12,11 +12,18 @@ This directory groups re-frame2's **substrate adapters** — implementations of 
 | [`uix/`](uix/) | UIx adapter | `day8/re-frame2-uix` | UIx 2.x — modern hooks-based React layer |
 | [`helix/`](helix/) | Helix adapter | `day8/re-frame2-helix` | Helix 0.2.x — minimal React wrapper |
 | [`reagent-slim/`](reagent-slim/) | Reagent-slim adapter | `day8/reagent-slim` [^slim-coord] | Reagent rewrite for React 19 — Stage 4 landed (full `reagent2.*` rewrite) |
-| [`test-react/`](test-react/) | Test-React adapter | `day8/re-frame2-test-react` | Pure-CLJC React class-3 lifecycle simulator — unit-testable lifecycle bug catching; carries ported regressions incl. the organic rf2-4l7t2 sync-unmount-during-render repro (rf2-gqyqv skeleton, broadened rf2-n2cuo) |
 
 [^slim-coord]: The `re-frame2-` prefix is dropped on this coord (per IMPL-SPEC DECISION-1); it is the lone adapter artefact published as `day8/reagent-slim` rather than `day8/re-frame2-*`.
 
 A consumer picks one (or more) by adding the matching artefact to their `deps.edn` alongside `day8/re-frame2`. Bundle isolation is **structural** — the wrong adapter is absent from the classpath, not eliminated by dead-code analysis. See [Conventions §Substrate-adapter shipping convention](../../spec/Conventions.md).
+
+## Local-test-only adapter
+
+| Directory | Adapter | Coordinate | Target |
+|---|---|---|---|
+| [`test-react/`](test-react/) | Test-React adapter | **none — local-test-only** | Pure-CLJC React class-3 lifecycle simulator — unit-testable lifecycle bug catching; carries ported regressions incl. the organic rf2-4l7t2 sync-unmount-during-render repro (rf2-gqyqv skeleton, broadened rf2-n2cuo) |
+
+The **test-react** adapter is **not a published artefact**. It is a development/test fixture only: it has no Maven coordinate, no `:clein/build` descriptor, and is absent from the lockstep array, the release deploy matrix, and the CI JVM job set by design. Consumers never depend on it; it exists solely so the project's own unit tests can simulate React class-3 lifecycle on the JVM and Node-CLJS without a browser. Bundle isolation treats it as test-only — no example or production build should ever pull it in.
 
 The `reagent-slim` adapter has landed Stage 4 (the full `reagent2.*` rewrite — reactive primitives, render scheduler, hiccup translation, and pure-CLJS render-to-string). It now carries its own CLJS test suite (substrate-shape contract, container round-trip, derived-value tracking, the disposal-MUST list, render Root-API call sequence, and source-coord / view-id stamping under the slim adapter) alongside the `reagent2.*` internals tests.
 
@@ -55,13 +62,13 @@ adapters/
 │   ├── src/reagent2/...      ; the slim Reagent rewrite (Stage 4: full reagent2.* rewrite)
 │   ├── src/re_frame/adapter/reagent_slim.cljs
 │   └── test/...
-└── test-react/
-    ├── deps.edn              ; declares day8/re-frame2-test-react
+└── test-react/              ; local-test-only — NOT published (no Maven coord, no :clein/build)
+    ├── deps.edn              ; depends on core via :local/root; carries no publish descriptor
     ├── src/re_frame/adapter/test_react.cljc  ; pure-CLJC class-3 lifecycle simulator
     └── test/...
 ```
 
-All five depend on `day8/re-frame2 {:local/root "../../core"}`. None depend on each other.
+All four published adapters declare `day8/re-frame2 {:local/root "../../core"}`; the unpublished test-react fixture declares the same `:local/root` dep. None depend on each other.
 
 ## Where the substrate logic lives
 
