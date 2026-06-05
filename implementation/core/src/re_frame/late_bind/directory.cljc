@@ -266,6 +266,10 @@
     :producer-ns 're-frame.schemas
     :design-bead "rf2-r2uh"
     :description "Boundary seam: explain using the registered explainer fn."}
+   {:key         :schemas/redact-event-tags
+    :producer-ns 're-frame.schemas
+    :design-bead "rf2-a5kzs"
+    :description "Boundary seam: redact a production boundary event-failure trace's value-bearing slots (and stamp :sensitive? true) when the event :schema declares any :sensitive? slot — gives the boundary path the same per-slot redaction the dev-time validate-event! step-1 path applies. Falls through verbatim when the schemas artefact is absent."}
    {:key         :schemas/malli-validate
     :producer-ns 're-frame.schemas.malli
     :design-bead "rf2-t0hq"

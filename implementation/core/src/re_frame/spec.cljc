@@ -181,13 +181,45 @@
                 ctx
 
                 :else
+                ;; Per rf2-a5kzs (finding 2, boundary seam) — the validate
+                ;; seam now isolates a malformed-schema throw and returns
+                ;; `false` (fail CLOSED), so the defensive `(catch … true)`
+                ;; here only guards against a non-schemas validator that
+                ;; throws WITHOUT the seam's isolation. A `false` from the
+                ;; seam (legitimate failure OR malformed schema) skips the
+                ;; handler — the boundary never runs an unvalidated payload.
                 (let [ok? (try (validate-fn schema event)
                                (catch #?(:clj Throwable :cljs :default) _ true))]
                   (if ok?
                     ctx
                     (let [explanation (when explain-fn
                                         (try (explain-fn schema event)
-                                             (catch #?(:clj Throwable :cljs :default) _ nil)))]
+                                             (catch #?(:clj Throwable :cljs :default) _ nil)))
+                          ;; Per rf2-a5kzs (finding 1) — route the failure
+                          ;; tags through the schemas redaction seam so a
+                          ;; sensitive event payload (a `:cat` payload map
+                          ;; carrying `{:sensitive? true}`) is scrubbed at
+                          ;; the boundary exactly as the dev-time step-1
+                          ;; `validate-event!` path scrubs it. The seam is
+                          ;; the `:schemas/redact-event-tags` late-bind hook;
+                          ;; when the schemas artefact is absent the hook is
+                          ;; nil and the tags ride verbatim (no schema =
+                          ;; nothing to redact against).
+                          redact-fn   (late-bind/get-fn-cached :schemas/redact-event-tags)
+                          base-tags   (cond-> {:where      :event
+                                               :event-id   event-id
+                                               :failing-id event-id
+                                               :schema-id  event-id
+                                               :received   event
+                                               :value      event
+                                               :explain    explanation
+                                               :source     :boundary
+                                               :reason     (str "Event " event-id
+                                                                " payload failed boundary "
+                                                                "schema " schema ", got "
+                                                                (error/type-of-value event) ".")
+                                               :recovery   :no-recovery}
+                                        frame (assoc :frame frame))]
                       ;; Emit the failure trace using the same shape as
                       ;; dev-mode step-1 (per Spec 010 L149). Per Spec
                       ;; 009 §Production builds `emit-error!` itself
@@ -196,20 +228,8 @@
                       ;; with debug-enabled? flipped off — exactly the
                       ;; surface the rf2-r2uh tests exercise.
                       (trace/emit-error! :rf.error/schema-validation-failure
-                                         (cond-> {:where      :event
-                                                  :event-id   event-id
-                                                  :failing-id event-id
-                                                  :schema-id  event-id
-                                                  :received   event
-                                                  :value      event
-                                                  :explain    explanation
-                                                  :source     :boundary
-                                                  :reason     (str "Event " event-id
-                                                                   " payload failed boundary "
-                                                                   "schema " schema ", got "
-                                                                   (error/type-of-value event) ".")
-                                                  :recovery   :no-recovery}
-                                           frame (assoc :frame frame)))
+                                         (cond-> base-tags
+                                           redact-fn (->> (redact-fn schema))))
                       ;; Per Spec 010 §Per-step recovery step 1: handler
                       ;; is not invoked. The handler-as-interceptor
                       ;; checks `:rf/skip-handler?` in its :before slot
