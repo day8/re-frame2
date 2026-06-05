@@ -58,6 +58,12 @@ See `references/setup.md` for the per-build-tool detail. Applied once, in Phase 
 
 **Note (M-1 `get-handler` rewrite)**: the rewrite above targets `rf/handler-meta`, which is the actual public registrar-query surface in `re-frame.core`. The MIGRATION.md M-1 row was corrected to match — there is no `rf/get-handler` in v2.
 
+**Caveat (M-1 `@app-db` → `app-db-value` is NOT semantically identical — reactivity loss):** `(rf/app-db-value :rf/default)` returns a **non-reactive snapshot** — a plain `app-db` map value, no deref, no reactive subscription (per `re-frame.core/app-db-value`'s docstring: *"current `app-db` VALUE (a plain map)… no deref, no container"*). v1's `@re-frame.db/app-db` is a **reactive** deref — `app-db` is a Reagent `ratom`, so a deref **inside a reactive context** (a `reaction`, a component render body, a `track`) subscribes that render to db changes and re-renders when `app-db` changes.
+
+For sites in **plain functions / event-handler bodies / effect bodies** (the common case) the mechanical swap is faithful — there's no reactive context to preserve. But for a site that derefs `@app-db` **inside a reactive context**, the mechanical swap **silently removes reactivity**: the component stops updating, with **no compile error and no warning** — a latent runtime regression a blind sweep introduces.
+
+So before rewriting each `@app-db` site, **check whether it sits inside a reactive context** (reaction / component render / `track`). If it does, the correct rewrite is a **subscription** (`@(rf/subscribe [...])` against a `reg-sub` that reads the slice), **not** `app-db-value` — **flag those sites for the author** rather than swapping them mechanically. Only the non-reactive sites take the mechanical `app-db-value` swap.
+
 **Edge case → Type B**: `(reset! re-frame.db/app-db ...)` is intent-sensitive (real bypass vs. test reset vs. seeding); promote to M-15 review.
 
 ### M-38 — Substrate adapter ns rename
