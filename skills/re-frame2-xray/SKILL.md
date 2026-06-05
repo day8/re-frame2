@@ -124,7 +124,7 @@ one that matches the user's situation.
 | Inspect the runtime while developing locally | **Default true-inline panel** | Add the preload + a `[data-rf-xray-host]` column in the app layout. Xray auto-opens on page load. |
 | Mount where the host can't give Xray a layout column (full-screen canvas, story-only / prototype host, no `[data-rf-xray-host]`) | **Overlay (fallback)** | `(xray/open-overlay!)` from CLJS, or `window.day8.re_frame2_xray.open_overlay_BANG_()` from devtools. Floats the shell above the host under `document.body` — no layout column needed. The supported fallback for hosts that can't accommodate a right column; **not** the default path (per `spec/011-Launch-Modes.md` + `spec/API.md` §rf2-sa4fr). |
 | Put Xray on a second monitor with the app full-screen | **Pop-out window** | `(xray/popout!)` from CLJS, or `window.day8.re_frame2_xray.popout_BANG_()` (call it — note the parens) from devtools. |
-| Mount Xray from code (no preload, or alternative wiring) | **Programmatic `init!`** | Call `(xray/init! opts)` after `rf/init!`. Idempotent. |
+| Install Xray from code (no preload, or alternative wiring) | **Programmatic `init!`** + a mount verb | Call `(xray/init! opts)` after `rf/init!` to install the foundation + apply config (it does **not** open a panel), then `(xray/open!)` / `(xray/open-overlay!)` / `(xray/popout!)` to make it visible. Idempotent. |
 | Browse what's *registered* instead of one dispatch | **Static mode** | Flip the L1 mode pill or press `Cmd/Ctrl+Shift+M`. Static drops the event spine and shows the 5 registry-browse tabs. |
 | Have an AI agent inspect the runtime | **re-frame2-pair-mcp** | Configure `tools/re-frame2-pair-mcp/` in the agent host — the raw nREPL pair-programming companion is the AI access path. Out of scope for this skill — see [`tools/re-frame2-pair-mcp/`](../../tools/re-frame2-pair-mcp/). |
 | Debug a mobile browser | Not supported | Per `spec/011-Launch-Modes.md` §What this doesn't do — phones refuse to mount. |
@@ -201,17 +201,28 @@ it.
  separate `settings` source). Source
  [`palette/sources.cljc`](../../tools/xray/src/day8/re_frame2_xray/palette/sources.cljc).
 - **Settings popup (`,` / `s`).** A 4-tab modal — **General ·
- Keybindings · Buffer · Diff** — tuning density, panel position/width,
- auto-open-on-error, the read-only keybindings catalogue, epoch-history
- depth / trace-buffer keep, and app-db diff thresholds. (The Theme tab
- was removed, rf2-ou3pn — the ribbon theme icon is canonical; the Filters
- tab was removed, rf2-wknb3 — filter UI lives on the L1.5 events ribbon.)
- Two layers tune `:density` / buffer-depth: `init!` (and `configure!`) set
- the **boot-time defaults** for `:theme` / `:density` / `:buffer-depths` —
- each supplied opt is written to the persisted Settings shape and applied
- immediately at boot (no reload); this runtime popup is the **runtime
- user-mutable override** layer on top. Merge order is `defaults <`
- `configure! < Settings` (rf2-g2a5v). Source
+ Keybindings · Buffer · Diff**. The current popup controls are:
+ **General** — panel position (right-rail inline / fullscreen overlay),
+ auto-open-on-error, epoch-history depth (slider), the per-operator
+ editor-override picker, and the show-`:ungrouped` toggle; **Buffer** —
+ cascades-retained + app-db inspector-collapse-threshold + a destructive
+ Clear-buffer button; **Diff** — the hiccup-diff fn-ref-changes toggle;
+ **Keybindings** — a read-only chord catalogue + the master "Handle keys?"
+ switch. **Density is NOT a popup control** — the density radio was removed
+ (2026-05-27); density stays a config / `init!` / `configure!` concern (the
+ `:general :density` slot + `:rf.xray/density` sub read the boot default).
+ **Panel width is NOT a popup control** — the width numeric input + reset
+ were removed; width is driven by the **drag handle** on the panel's outer
+ edge (double-click to reset), persisted via `:general :panel-width-px`.
+ (The Theme tab was removed, rf2-ou3pn — the ribbon theme icon is
+ canonical; the Filters tab was removed, rf2-wknb3 — filter UI lives on
+ the L1.5 events ribbon.) For the layered config story: `init!` /
+ `configure!` set the **boot-time defaults** for `:theme` / `:density` /
+ `:buffer-depths` (each supplied opt is written to the persisted Settings
+ shape and applied immediately at boot, no reload); for the slots the popup
+ *does* expose (theme via the ribbon icon, epoch-history, buffer knobs) the
+ popup is the **runtime user-mutable override** layer. Merge order is
+ `defaults < configure! < Settings` (rf2-g2a5v). Source
  [`settings/view.cljs`](../../tools/xray/src/day8/re_frame2_xray/settings/view.cljs).
 - **Sharing state with a teammate.** The Share-URL affordance (button +
  modal + `share.cljs` infra) and the per-cascade EDN export were

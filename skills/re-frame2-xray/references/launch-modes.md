@@ -187,9 +187,26 @@ can't. Source
 
 ## Programmatic init!
 
-Alternative to the preload — call `(xray/init! opts)` from app code
-after `rf/init!`. Idempotent; each underlying side-effect is `defonce`-
-guarded so a second call is a no-op.
+Alternative to the preload's **foundation block** — call `(xray/init! opts)`
+from app code after `rf/init!`. Idempotent; each underlying side-effect is
+`defonce`-guarded so a second call is a no-op.
+
+`init!` installs the foundation and applies config; it does **not** show a
+panel. It registers the `:rf.xray/*` handlers, the trace + epoch collectors,
+and the keybinding listener, then threads each supplied opt to its backing
+surface (per the `init!` docstring in
+[`core.cljs`](../../../tools/xray/src/day8/re_frame2_xray/core.cljs)).
+Unlike the preload it does **not** schedule the page-load auto-open, so after
+`init!` you must call one of the three mount verbs to make Xray visible:
+
+- `(xray/open!)` — inline panel into the `[data-rf-xray-host]` column.
+- `(xray/open-overlay!)` — overlay above `document.body` for hosts with no
+ layout column (§Overlay fallback above).
+- `(xray/popout!)` — same-origin second window (§Pop-out below).
+
+`(xray/init!)` alone leaves Xray installed-but-hidden — no panel opens until a
+mount verb runs (or `Ctrl+Shift+C` toggles the shell, which mounts on first
+press).
 
 ```clojure
 (require '[day8.re-frame2-xray.core :as xray])
@@ -199,6 +216,8 @@ guarded so a second call is a no-op.
  :theme :dark ; / :light (settings persist)
  :density :compact ; / :cosy (settings persist)
  :buffer-depths {:epoch 50}}) ; per-frame ring depth
+
+(xray/open!) ; make it visible — init! installs but does not show
 ```
 
 All four opts are wired today (the recognised set is exactly
@@ -226,8 +245,10 @@ full-screen." Same-origin required.
 
 ```clojure
 (xray/popout!)
-;; or, from a devtools console:
-;; window.day8.re_frame2_xray.popout_BANG_
+;; or, from a devtools console (note the call parens — the API installs
+;; popout_BANG_ as a FUNCTION; without () you just evaluate the fn object
+;; and nothing opens):
+;; window.day8.re_frame2_xray.popout_BANG_()
 ```
 
 Mechanism: `window.open` whose JS realm is connected to the opener's
