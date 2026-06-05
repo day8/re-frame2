@@ -149,6 +149,22 @@ jobs:
       - name: Verify ../shared/-referencing skills carry the distribution caveat
         run: python scripts/check_skill_package_refs.py --verbose --ci
 
+      # Re-authoring/spec drift guard for skills/re-frame2-pair (rf2-pok18).
+      # The skill's spec/*.md + docs/initial-spec.md are the re-author
+      # source material (not loaded during normal operation, so the
+      # mcp-drift gate above never reads them) — they had silently
+      # encoded the retired `inject-runtime` tool, a two-transport /
+      # bash-shim-fallback model, and a "six restore failure modes" count
+      # where the live Tool-Pair §Time-travel table lists SEVEN. The gate
+      # fails when a retired tool/transport name reappears in a
+      # live-contract framing, so a future re-author can't regress the
+      # MCP-only / default-gated posture.
+      - name: Self-test the re-frame2-pair re-authoring drift guard
+        run: python scripts/check_skill_pair_authoring_drift.py --self-test
+
+      - name: Verify re-frame2-pair re-authoring docs match the MCP-only contract
+        run: python scripts/check_skill_pair_authoring_drift.py --verbose --ci
+
   # PR-time gate for README link drift (rf2-br5u7). Source: the
   # rf2-oavap README sweep used a local `ai/link-sweep-v2.py` audit
   # that flagged 5 issues — 3 real, 2 false-positives caused by GitHub

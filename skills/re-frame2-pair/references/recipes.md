@@ -2,7 +2,7 @@
 
 Named procedures the user may ask for. When the user asks a matching question, run the procedure below rather than improvising.
 
-Each recipe is expressed in **MCP-tool form** — the only transport this skill exposes — using the **shipped tool vocabulary** (the flat `mcp__re-frame2-pair__*` names: `orient`, `snapshot`, `get-path`, `read-sub`, `dispatch`, `dispatch-dry-run`, `read-ui`, `read-dom`, `list-handlers`, `handler-meta`, `restore-epoch`, …). Where a gesture has no dedicated tool, the recipe drops to `eval-cljs` over a `re-frame2-pair.runtime` helper — that is **first-class for the long tail**, not a last resort (see [§eval-cljs is the workhorse](#eval-cljs-is-the-workhorse)). The bash shims under `scripts/` are retired from the skill's tool surface; see [`mcp-transport.md`](mcp-transport.md).
+Each recipe is expressed in **MCP-tool form** — the only transport this skill exposes — using the **default-reachable tool vocabulary** (the flat `mcp__re-frame2-pair__*` names: `orient`, `snapshot`, `get-path`, `read-sub`, `dispatch`, `dispatch-dry-run`, `read-ui`, `read-dom`, `list-handlers`, `handler-meta`, …). Where a gesture has no dedicated tool, the recipe drops to `eval-cljs` over a `re-frame2-pair.runtime` helper — that is **first-class for the long tail**, not a last resort (see [§eval-cljs is the workhorse](#eval-cljs-is-the-workhorse)). The two write-authority tools `restore-epoch` and `reset-frame-db` are **NOT** in this default vocabulary — they are gated behind the server's default-OFF `--allow-writes` flag and are not skill-allow-listed, so the default-reachable write/undo path is the eval form (`(rf/restore-epoch …)` / `app-db-reset!`, since `eval-cljs` is default-ON); a deployment that launches with `--allow-writes` can allow-list the dedicated tools. The bash shims under `scripts/` are retired from the skill's tool surface; see [`mcp-transport.md`](mcp-transport.md).
 
 ## Contents
 
@@ -33,7 +33,7 @@ Each recipe is expressed in **MCP-tool form** — the only transport this skill 
 
 ## eval-cljs is the workhorse
 
-The recipes lead with **structured tools** (`orient`, `snapshot`, `get-path`, `read-sub`, `dispatch`, `read-ui`, `read-dom`, `list-handlers`, `handler-meta`, `restore-epoch`) because each returns a validated, elided, single-round-trip answer for the gesture it owns. But re-frame2-pair also exposes `eval-cljs` — arbitrary ClojureScript against the live runtime — and in a real session it carries the **long tail**: anything the dedicated tools don't have a shape for.
+The recipes lead with **structured tools** (`orient`, `snapshot`, `get-path`, `read-sub`, `dispatch`, `dispatch-dry-run`, `read-ui`, `read-dom`, `list-handlers`, `handler-meta`) because each returns a validated, elided, single-round-trip answer for the gesture it owns. But re-frame2-pair also exposes `eval-cljs` — arbitrary ClojureScript against the live runtime — and in a real session it carries the **long tail**: anything the dedicated tools don't have a shape for, **plus the default write/undo path** — `restore-epoch` / `reset-frame-db` are `--allow-writes`-gated and not default allow-listed, so the eval forms `(rf/restore-epoch …)` / `app-db-reset!` are the default-reachable way to time-travel or inject state (`eval-cljs` is default-ON).
 
 **The rule:** *prefer a structured op WHEN ONE FITS the gesture; for the long tail and for recovery, `eval-cljs` is first-class, not a last resort.*
 
@@ -205,7 +205,11 @@ Canonical procedure (commit-and-compare):
 
 1. `dispatch {event: "[:foo …]", trace: true}` → observe baseline. Capture the `:epoch-id` from the resulting record. (The eval equivalent is `(re-frame2-pair.runtime/dispatch-and-collect [:foo …])`.)
 2. **Tell the user** which side effects in the cascade can't be rewound. Walk `:trace-events` for `:event/do-fx` involving non-pure fx (`:http`, navigation, localStorage, `:dispatch-later` that already landed) and warn before restoring.
-3. `restore-epoch {epoch-id: "<id>"}` → rewind `app-db`. (`--allow-writes`-gated; the eval equivalent is `(rf/restore-epoch :rf/default <epoch-id>)`.) Watch for a `false` / `:restore-rejected` return + check `(re-frame.trace.tooling/trace-buffer {:op-type :error})` for the failure reason.
+3. Rewind `app-db` to the captured epoch. The **default-reachable** form is the eval (the dedicated `restore-epoch` tool is `--allow-writes`-gated and not allow-listed by default):
+   ```
+   mcp__re-frame2-pair__eval-cljs {form: "(rf/restore-epoch :rf/default <epoch-id>)"}
+   ```
+   Returns `true` on success, `false` on any documented failure mode. On a deployment launched with `--allow-writes` (the dedicated tool allow-listed), the equivalent is `restore-epoch {epoch-id: "<id>"}`. Either way, watch for a `false` / `:restore-rejected` return + check `(re-frame.trace.tooling/trace-buffer {:op-type :error})` for the failure reason (one of the seven documented modes — Tool-Pair §Time-travel).
 4. **Modify the part of the system you're iterating on.**
    - *Handlers / subs / fx:* `eval-cljs {form: "(rf/reg-event-fx :foo …)"}` / `(rf/reg-sub :bar …)` / `(rf/reg-fx :baz …)`. The registrar replaces; `:rf.registry/handler-replaced` fires.
    - *Machines:* `eval-cljs {form: "(rf/reg-machine :auth …)"}` — bumps the machine's `:version` if one is supplied. Old snapshots may now `:rf.epoch/restore-version-mismatch` against this machine.
@@ -228,7 +232,10 @@ Returns the same `:cascade-summary` shape as `dispatch` (so you read one vocabul
 
 - `:rolled-back? true` — the app-db is unchanged after the simulation.
 - `:would-fire-effects [{:fx-id :http :args {...}} {:fx-id :navigate :args [...]}]` — the real-world impact, enumerated. Narrate this: *"checkout would POST to `/orders` and navigate to `:order-confirmation` — nothing has actually happened yet."*
+- `:db-state-after-simulation {...}` — the would-be app-db (what state the cascade *would* have committed).
 - `:cascade-summary {:db-diff {...} :outcome :ok\|:error ...}` — a schema violation surfaces as `:outcome :error`; the rollback still fires.
+
+**Privacy (rf2-z7roa).** Dry-run commits nothing, but it IS an AI-facing read surface — it returns the would-be app-db and fx args, which routinely carry app-db-derived tokens / auth headers / PII. So `:db-state-after-simulation` and every `:would-fire-effects[*].args` slot are run through `re-frame.core/elide-wire-value` **server-side** under the same `--allow-sensitive-reads` posture as `snapshot` / `get-path` / `read-sub` (see [§eval-cljs is the workhorse](#eval-cljs-is-the-workhorse) and [`vocabulary.md` §What gets dropped](vocabulary.md#what-gets-dropped-what-doesnt)): with the gate OFF (the published default) declared-sensitive slots redact to `:rf/redacted` and declared-large slots collapse to `:rf.size/large-elided`. The `:cascade-summary` slot (path lists + counts) rides through unwalked. This makes dry-run the **safer** path than a raw `eval-cljs` "what would happen?" loop — prefer it for sensitive "what would this event do?" work.
 
 Compose with `:fx-overrides` to simulate realistic conditions (a canned http response) without losing the rollback guarantee — user overrides win on conflict. Use this in place of the *baseline → restore → modify → re-dispatch* experiment loop when you only need to **read** the consequence once, not iterate on a handler.
 

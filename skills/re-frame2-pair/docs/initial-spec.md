@@ -1,8 +1,25 @@
 # re-frame2-pair — Initial Specification
 
-**Status:** Draft 1
+**Status:** Draft 1 (historical design record)
 **Date:** 2026-05-09
 **Owner:** mike.thompson@day8.com.au
+
+> **Transport superseded.** This is the original design record. The
+> live, skill-facing transport is now the **MCP server**
+> (`tools/re-frame2-pair-mcp/`) — **28** tools, **26** default
+> allow-listed, the two write-authority tools (`restore-epoch`,
+> `reset-frame-db`) gated behind the server's default-OFF
+> `--allow-writes` flag (see `STATUS.md` + `references/mcp-transport.md`).
+> The `scripts/*.sh` + babashka `ops.clj` shims and the `cljs-eval`
+> injection step described below are **retired** from the skill
+> surface — shims on disk for the e2e harness only, and there is no
+> `inject-runtime` tool (gone; the runtime ships via shadow-cljs
+> `:devtools :preloads`). The §3.3 component layout and §4 op-catalogue slash-op
+> names below are a historical snapshot; the current op surface is the
+> flat `mcp__re-frame2-pair__*` tools catalogued in
+> `references/ops.md` + `references/mcp-transport.md`. A re-authoring
+> pass MUST target the current MCP-only contract, not the shapes in
+> this draft.
 
 ---
 
@@ -52,7 +69,7 @@ re-frame2-pair itself contributes **zero** additional host-project configuration
 - **Writes.** `dispatch` (with `:origin :pair` opt), `reg-*` re-registration, `restore-epoch`, container reset (rare).
 - **Runtime introspection API.** Every Tool-Pair surface listed in [Tool-Pair §How AI tools attach](https://github.com/day8/re-frame2/blob/main/spec/Tool-Pair.md#how-ai-tools-attach).
 - **Connection mechanism.** nREPL -> shadow-cljs -> browser runtime.
-- **Packaging.** `SKILL.md` + bash shim scripts + babashka ops dispatcher.
+- **Packaging.** `SKILL.md` + `references/` + the `re-frame2-pair.runtime` preload, driven over the **MCP server** (`tools/re-frame2-pair-mcp/`) — the only skill-facing transport. The `scripts/*.sh` + `ops.clj` (babashka) shims predate the MCP server and are retired from the skill surface; they remain on disk for the project's own e2e harness only.
 - **Cardinal rule.** Two modes — REPL (ephemeral) vs source edit (permanent via hot-reload). See §3.
 
 ---
@@ -78,7 +95,7 @@ Where v1 reached into re-frame-10x's internal epoch buffer, v2 consumes re-frame
 - `(rf/register-epoch-listener! :re-frame2-pair-epoch cb)` — assembled-epoch stream. Mirrors `register-listener!`'s contract.
 - `(re-frame.trace.tooling/trace-buffer opts)` — retain-N trace ring (default 200, configurable via `(rf/configure! :trace-buffer {:depth N})`). CLJS callers must use the `re-frame.trace.tooling` ns — `rf/trace-buffer` is a JVM-only alias and returns nil in the browser runtime.
 - `(rf/epoch-history frame-id)` — per-frame epoch ring (default 50, configurable via `(rf/configure! :epoch-history {:depth N})`).
-- `(rf/restore-epoch frame-id epoch-id)` — first-class time-travel with six documented failure modes (Tool-Pair §Time-travel).
+- `(rf/restore-epoch frame-id epoch-id)` — first-class time-travel with seven documented failure modes (Tool-Pair §Time-travel).
 
 No adapter layer; no internal-state introspection; no second source of truth. If a feature isn't in the Tool-Pair contract, the skill doesn't ship it (and the gap becomes a `bd` bead candidate — see "Asymmetries to monitor in the spec" in `STATUS.md`).
 
@@ -138,7 +155,7 @@ Structured `{:ok? false :reason ...}` — every script. Recognised reasons:
 | `:ambiguous-frame` | Multiple frames; mutating ops require explicit selection |
 | `:eval-error`, `:cljs-eval-error` | nREPL or CLJS-eval surfaced an exception |
 | `:no-epoch-recorded` | `dispatch-sync` returned but no record landed; recording disabled or frame destroyed |
-| `:rf.epoch/restore-*` | One of six restore failure modes (Tool-Pair §Time-travel) |
+| `:rf.epoch/restore-*` | One of the restore failure modes (Tool-Pair §Time-travel lists seven; six fire under `:rf.epoch/*`, plus **Unknown frame** under `:rf.error/no-such-handler`) |
 | `:timed-out?` | Probe form didn't flip in `--wait-ms` (likely a compile error) |
 | `:no-element-at-src` | `dom/fire-click-at-src` couldn't find a matching DOM node |
 | `:source-coord-annotation-disabled` | Neither `:annotate-dom?` nor re-com debug is producing attributes |
@@ -159,7 +176,7 @@ See `SKILL.md` for the full vocabulary. Subsections at-a-glance:
 - §4.3b DOM bridge — `dom/source-at`, `dom/find-by-src`, `dom/fire-click-at-src`, `dom/describe`. Reads `data-rf2-source-coord` first, `data-rc-src` second.
 - §4.4 Watch — `watch/window`, `watch/count`, `watch/stream`, `watch/stop`. Predicates include `--origin`, `--frame`.
 - §4.5 Hot-reload coordination — `tail-build.sh --probe '...'`. Recommended probe: `(rf/handler-meta kind id)` hash.
-- §4.6 Time-travel — `epoch/history`, `epoch/restore`, `epoch/configure`, `undo/step-back`, `undo/to-epoch`. Six documented failure modes.
+- §4.6 Time-travel — `epoch/history`, `epoch/restore`, `epoch/configure`, `undo/step-back`, `undo/to-epoch`. Seven documented failure modes.
 - §4.7 Recipes — see SKILL.md.
 
 ---
@@ -204,7 +221,7 @@ Four surfaces — see `docs/TESTING.md`.
 ## 10. What changed from v1
 
 - **No re-frame-10x dependency.** Every 10x reach has been replaced with a re-frame2 Tool-Pair surface. See `SKILL.md`'s "Dropped from v1" section for the exhaustive substitution table.
-- **First-class time-travel.** `restore-epoch` is shipped by re-frame2; no adapter, no stubs, six documented failure modes.
+- **First-class time-travel.** `restore-epoch` is shipped by re-frame2; no adapter, no stubs, seven documented failure modes.
 - **Multi-frame.** Every op carries an operating-frame concept; reads use `:rf/default` when unambiguous; mutating ops refuse on `:ambiguous-frame`.
 - **Origin tagging.** Pair dispatches carry `:origin :pair` so they can be filtered out of a trace stream that also carries `:app` / `:ui` / `:timer` / `:http` events.
 - **Render projection consumed verbatim.** `:renders` and `:sub-runs` are projected by re-frame2 itself; no re-com classifier in the runtime (Spec-Schemas owns the projection shape).
