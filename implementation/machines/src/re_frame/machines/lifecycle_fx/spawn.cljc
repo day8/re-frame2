@@ -4,16 +4,19 @@
 
   `apply-transition-once` emits `[:rf.machine/spawn args]` into the fx
   vector whenever entry cascades cross a `:spawn`-bearing state. Per
-  Spec 005 §Spawning, the spawned actor is itself an event handler
-  whose id is the actor address; `spawn-fx` registers the live handler
-  under the spawned id and seeds its initial snapshot at
-  `[:rf/runtime :machines :snapshots <id>]`.
-
-  The two-tier registry described in Spec 005 (frame-local handlers
-  that revert with the frame's snapshot) is not yet built — for v1 the
-  registration goes through the global registrar via
-  `events/reg-event-fx`. Frame isolation is preserved by the snapshot
-  living at `[:rf/runtime :machines :snapshots <id>]` inside the spawning frame's app-db.
+  Spec 005 §Spawning + rf2-a2sn1, a spawned actor's liveness is
+  APP-DB-ONLY: `spawn-fx` seeds the actor's initial snapshot at
+  `[:rf/runtime :machines :snapshots <spawned-id>]` in the spawning
+  frame's app-db, stamping the revertible TYPE reference at
+  `:rf/machine-type`. There is NO per-instance event-handler
+  registration — the actor's liveness IS that snapshot's presence in the
+  (revertible) frame value, and the snapshot's `:rf/machine-type` lets
+  the lazy resolver (`lifecycle-fx.resolver`) re-materialise the actor's
+  handler on dispatch. Spawn is therefore a pure app-db write; destroy
+  removes only app-db, so `restore-epoch` (app-db-only) reverts an
+  actor's liveness perfectly with zero registrar drift (the Goal-2
+  revertibility invariant). Frame isolation follows from the snapshot
+  living inside the spawning frame's app-db.
 
   Per rf2-6vmw `spawn-all-init-fx` also lives here — the runtime
   emits `[:rf.machine/spawn-all-init args]` alongside per-child
