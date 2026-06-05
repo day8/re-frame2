@@ -79,10 +79,15 @@
   Terminates by construction: a single `for` over the `(< i j)` upper
   triangle of the entry vector (O(F²) prefix comparisons, F = the frame's
   flow count — a handful of nodes at v1, same order as the graph build),
-  short-circuited by `(some ...)`. The reported pair is deterministically
-  ordered by `hash` so the report is stable across runs without requiring
-  flow-ids be mutually comparable (`sort` throws on mixed-type ids) —
-  mirroring `extract-cycle-path`'s deterministic pick."
+  short-circuited by `(some ...)`. The reported pair is canonically
+  ordered by `(juxt hash str)` so the report is GENUINELY stable across
+  runs (rf2-tx1ub): `hash` alone leaves the order undefined on a hash
+  collision (distinct ids, equal hash) — `sort-by` is stable and would
+  fall back to map-iteration order there, a non-contract across JVM runs.
+  The `str` tie-break makes the lo/hi assignment depend only on the ids'
+  values, never on iteration order, while still avoiding the requirement
+  that flow-ids be mutually comparable (`sort` throws on mixed-type ids,
+  but `str` is total). Mirrors `extract-cycle-path`'s deterministic pick."
   [flow-map]
   (let [entries (vec flow-map)
         n       (count entries)]
@@ -92,7 +97,7 @@
                   a-path        (:path a-flow)
                   b-path        (:path b-flow)]
               (when (output-paths-overlap? a-path b-path)
-                (let [[lo-id hi-id]     (sort-by hash [a-id b-id])
+                (let [[lo-id hi-id]     (sort-by (juxt hash str) [a-id b-id])
                       [lo-path hi-path] (if (= lo-id a-id)
                                           [a-path b-path]
                                           [b-path a-path])]

@@ -108,6 +108,19 @@
                                      (catch :default _ nil)))
                               #js {:once true}))))
            timeout-handle (atom nil)
+           ;; rf2-6ecc6 — a real measured elapsed for the synthetic
+           ;; timeout, so CLJS `:elapsed-ms` carries the same SEMANTICS as
+           ;; the JVM's (a measured wall-clock delta `>= :limit-ms`), not a
+           ;; synthetic constant always `== :limit-ms`. `performance.now()`
+           ;; is monotonic where present (browser + Node 16+); we fall back
+           ;; to `Date.now()` on targets that lack it. Captured before the
+           ;; timer is armed so the delta spans the whole attempt.
+           now-ms   (fn []
+                      (if (and (exists? js/performance)
+                               (fn? (.-now js/performance)))
+                        (.now js/performance)
+                        (js/Date.now)))
+           started-ms (now-ms)
            ;; rf2-4zldh — the per-attempt timeout must bound the WHOLE
            ;; attempt, headers AND body read. A slow-loris upstream can
            ;; send headers promptly and then stall the body
@@ -198,7 +211,15 @@
                                                           ;; co-stamp the registry-hook signal the
                                                           ;; downstream classifier branches on
                                                           :rf.http/timeout? true
-                                                          :elapsed-ms       timeout-ms
+                                                          ;; rf2-6ecc6 — a MEASURED wall-clock delta
+                                                          ;; (whole ms, monotonic where available),
+                                                          ;; not the synthetic `timeout-ms` constant.
+                                                          ;; The setTimeout fires at ~`timeout-ms`, so
+                                                          ;; this is `>= :limit-ms` by the scheduling
+                                                          ;; margin — the SAME semantics the JVM path
+                                                          ;; reports via `System/nanoTime`, closing the
+                                                          ;; prior cross-host `:elapsed-ms` divergence.
+                                                          :elapsed-ms       (js/Math.round (- (now-ms) started-ms))
                                                           :limit-ms         timeout-ms})))
                                       timeout-ms)))))
            promise
@@ -567,12 +588,16 @@
      `HttpTimeoutException` does not itself surface the elapsed wall
      clock, so `run-attempt!` captures a monotonic start mark
      (`System/nanoTime`) before issuing the request and passes the
-     measured wall-clock delta here. This matches the CLJS path's
-     intent — `cljs-fetch` stamps `:elapsed-ms` on its synthetic timeout
-     rejection (Spec 014 §Failure categories) so a consumer branching on
-     `:elapsed-ms` sees a value on BOTH hosts rather than nil-on-JVM.
-     `elapsed-ms` is nil only when no start mark was threaded (the legacy
-     2-arity test/synthetic callers), preserving back-compat."
+     measured wall-clock delta here. rf2-6ecc6 — this matches the CLJS
+     path's VALUE semantics, not just its shape: `cljs-fetch` likewise
+     stamps a MEASURED `performance.now()`/`Date.now()` delta on its
+     timeout rejection (Spec 014 §Failure categories). So on BOTH hosts
+     `:elapsed-ms` is a measured wall-clock delta `>= :limit-ms` by the
+     scheduling margin — a consumer can compute overshoot
+     (`- :elapsed-ms :limit-ms`) portably (it was the synthetic constant
+     `== :limit-ms` on CLJS before rf2-6ecc6). `elapsed-ms` is nil only
+     when no start mark was threaded (the legacy 2-arity test/synthetic
+     callers), preserving back-compat."
      ([^Throwable t] (classify-jvm-error t nil nil))
      ([^Throwable t timeout-ms] (classify-jvm-error t timeout-ms nil))
      ([^Throwable t timeout-ms elapsed-ms]

@@ -188,7 +188,7 @@ A related but distinct JVM degradation is **shape**, not silent no-op: a binary 
 |---|---|---|
 | `:blob` / `:array-buffer` / `:form-data` | args map (top-level) | **Honoured, shape-degraded.** `jvm-fetch` reads `ofByteArray` and rides the raw bytes, so the decode is NOT ignored — but the returned value is a `byte[]`, not the native browser `Blob` / `ArrayBuffer` / `FormData` object the CLJS Fetch path yields. An EXPLICIT binary `:decode` emits one `:rf.http/binary-decode-degraded-on-jvm` warning trace per occurrence (`:auto` is not flagged — it resolves to `:blob` from the response Content-Type, unknown at dispatch time). Per [Spec 009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue). |
 
-`:elapsed-ms` on the `:rf.http/timeout` failure category (see [§Failure categories](#failure-categories-closed-set)) is now populated on the JVM as well as CLJS: `run-attempt!` captures a monotonic `System/nanoTime` start mark before issuing the request and threads the measured wall-clock delta into the failure shape. A consumer branching on `:elapsed-ms` sees a value on BOTH hosts rather than nil-on-JVM.
+`:elapsed-ms` on the `:rf.http/timeout` failure category (see [§Failure categories](#failure-categories-closed-set)) is populated on BOTH hosts with the same semantics: a **measured wall-clock delta** captured across the attempt. The JVM uses a monotonic `System/nanoTime` start mark (`run-attempt!`); CLJS uses a `performance.now()` (or `Date.now()` fallback) delta stamped on the synthetic timeout rejection (`cljs-fetch`). On both hosts `:elapsed-ms` is therefore `>= :limit-ms` by the scheduling margin, so a consumer may compute overshoot (`(- :elapsed-ms :limit-ms)`) portably. (Prior to this, CLJS reported a synthetic constant always `== :limit-ms` — shape-parity, not value-parity; the divergence is now closed.)
 
 ### Body encoding
 
@@ -479,7 +479,7 @@ Every failure carries a `:kind` keyword (under the framework-reserved `:rf.http/
 |---|---|---|
 | `:rf.http/transport` | Network / DNS / connection-refused / connection-reset error before the HTTP transaction completed | `:message`, `:cause` |
 | `:rf.http/cors` | CORS preflight rejected or response blocked by browser CORS policy. Distinct from `:transport` because CORS is a configuration error, not a network error. CLJS-only; JVM never emits this. | `:message`, `:url` |
-| `:rf.http/timeout` | Per-attempt timeout fired | `:elapsed-ms`, `:limit-ms` |
+| `:rf.http/timeout` | Per-attempt timeout fired | `:elapsed-ms` (measured wall-clock delta, `>= :limit-ms`, same semantics on both hosts — see [§JVM transport](#jvm-transport--degraded-behaviour-for-cljs-only-options)), `:limit-ms` (the configured per-attempt budget) |
 | `:rf.http/http-4xx` | Non-2xx 4xx response | `:status`, `:status-text`, `:body` (the raw response text — decode is skipped on non-2xx; see [§Classification order](#classification-order)), `:headers` |
 | `:rf.http/http-5xx` | Non-2xx 5xx response | same as `:http-4xx` |
 | `:rf.http/decode-failure` | A success-eligible (2xx) response whose body the decode pipeline rejected (schema validation error, JSON syntax error, custom decoder threw). Non-2xx responses never produce `:rf.http/decode-failure` — they classify by status. | `:body-text`, `:cause`, `:schema-validation-failure?` |
