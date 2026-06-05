@@ -3,11 +3,12 @@
 'use strict';
 
 /*
- * Source-policy gate: every `implementation/scripts/**` launcher that
+ * Source-policy gate: every `implementation/scripts/**` launcher AND
+ * every executable `examples/scripts/**` browser-gate launcher that
  * spawns a child process must use the HARDENED, shell-free posture
- * (rf2-wn4o1). Two accident classes are gated here, both static (no
- * process is spawned by this suite — it reads the script sources and
- * asserts on their text):
+ * (rf2-wn4o1; examples/scripts coverage added by rf2-y9o5e3). Two
+ * accident classes are gated here, both static (no process is spawned by
+ * this suite — it reads the script sources and asserts on their text):
  *
  *   1. No `shell: true` / `shell: isWin` on any spawn in these scripts.
  *      On Windows `shell:true` + a bare exe name (`npx`/`npm`/`clojure`)
@@ -50,6 +51,20 @@ const fs = require('fs');
 const path = require('path');
 
 const SCRIPTS_DIR = __dirname;
+// rf2-y9o5e3 — the executable browser-gate launchers under
+// examples/scripts/ run the SAME shadow-cljs compile + http-server spawn
+// posture as the implementation/scripts launchers, and `npm run
+// test:examples` / `test:story-feature-load` / `test:story-play-scripts`
+// drive them on Windows local runs. They were previously OUTSIDE this
+// policy gate (it scanned only implementation/scripts/), so a forbidden
+// npx.cmd/cmd.exe/shell posture survived there. Pull them in here.
+const EXAMPLES_SCRIPTS_DIR = path.resolve(
+  __dirname,
+  '..',
+  '..',
+  'examples',
+  'scripts',
+);
 
 const tests = [];
 function test(name, fn) {
@@ -101,14 +116,23 @@ function stripComments(src) {
   return out;
 }
 
-// Every `.cjs` launcher in the scripts dir (excludes the test suites and
-// the lib/ helpers — the harness lib carries its own taskkill/spawn that
-// is exercised by _local-browser-harness.test.cjs).
-function gateScriptFiles() {
+// Every `.cjs` launcher in a scanned scripts dir (excludes the test
+// suites and the lib/ helpers — the harness lib carries its own
+// taskkill/spawn that is exercised by _local-browser-harness.test.cjs).
+function cjsFilesIn(dir) {
   return fs
-    .readdirSync(SCRIPTS_DIR)
+    .readdirSync(dir)
     .filter((f) => f.endsWith('.cjs') && !f.endsWith('.test.cjs'))
-    .map((f) => path.join(SCRIPTS_DIR, f));
+    .map((f) => path.join(dir, f));
+}
+
+// implementation/scripts/** (the original rf2-wn4o1 scope) PLUS the
+// executable launchers under examples/scripts/** (rf2-y9o5e3). The
+// examples/scripts dir holds the three browser-gate launchers, their
+// Playwright runners, port resolvers, helpers, and static scanners; none
+// may carry a shell:true/npx.cmd posture, so the whole dir is scanned.
+function gateScriptFiles() {
+  return [...cjsFilesIn(SCRIPTS_DIR), ...cjsFilesIn(EXAMPLES_SCRIPTS_DIR)];
 }
 
 const SHELL_OPT_RE = /\bshell\s*:\s*(true|isWin)\b/;
@@ -190,6 +214,32 @@ test('serve-and-run-xray-feature-gate.cjs resolves shadow-cljs runner + spawns i
   // The compile step spawns the resolved runner constant under node.
   assert.match(src, /spawnSync\(\s*process\.execPath,\s*args/);
 });
+
+// rf2-y9o5e3 — positive guards for the three examples/scripts browser-gate
+// launchers. Each must resolve the shadow-cljs JS entry-point and spawn it
+// shell-free under process.execPath (the same hardened posture as the
+// implementation/scripts launchers above), so a future edit can't quietly
+// regress to the npx.cmd/cmd.exe/shell posture this bead removed.
+const EXAMPLES_LAUNCHERS = [
+  'serve-and-run-examples-tests.cjs',
+  'serve-and-run-story-feature-load-tests.cjs',
+  'serve-and-run-story-play-scripts.cjs',
+];
+for (const base of EXAMPLES_LAUNCHERS) {
+  test(`${base} resolves shadow-cljs runner + spawns the compile under process.execPath (rf2-y9o5e3)`, () => {
+    const src = fs.readFileSync(path.join(EXAMPLES_SCRIPTS_DIR, base), 'utf8');
+    assert.match(
+      src,
+      /require\.resolve\(\s*['"]shadow-cljs\/cli\/runner\.js['"]/,
+      `${base} must resolve shadow-cljs's JS entry-point via require.resolve(...).`,
+    );
+    assert.match(
+      src,
+      /spawnSync\(\s*process\.execPath/,
+      `${base} must spawn the shadow-cljs compile under process.execPath (shell-free).`,
+    );
+  });
+}
 
 // Loopback-bind policy (rf2-utvst): every implementation http-server
 // launcher only ever serves a loopback consumer (the readiness probe +

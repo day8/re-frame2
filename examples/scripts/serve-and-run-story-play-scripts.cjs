@@ -106,6 +106,23 @@ function httpServerBin() {
 function loadChromium() {
   return require(require.resolve('playwright', { paths: [IMPL_ROOT] })).chromium;
 }
+// Resolve shadow-cljs's JS entry-point lazily (inside compileTestbed)
+// for the same reason as httpServerBin/loadChromium: the script-policy
+// unit test require()s this module for its pure helpers without the
+// browser/build toolchain installed. compileTestbed() spawns the
+// resolved runner shell-free under process.execPath — never
+// npx/npx.cmd/cmd.exe (the Windows command-hijack accident class).
+// rf2-y9o5e3; matches story-build.cjs / dev-testbed.cjs.
+function shadowCljsRunner() {
+  try {
+    return require.resolve('shadow-cljs/cli/runner.js', { paths: [IMPL_ROOT] });
+  } catch {
+    throw new Error(
+      'serve-and-run-story-play-scripts: could not resolve shadow-cljs. ' +
+        `Run \`npm install\` in ${IMPL_ROOT} first.`,
+    );
+  }
+}
 
 const cleanup = createHarnessCleanup();
 cleanup.installSignalHandlers();
@@ -120,14 +137,11 @@ function log(line) {
 }
 
 function compileTestbed() {
-  const isWin = process.platform === 'win32';
-  const npx = isWin ? 'npx.cmd' : 'npx';
-  const shadowArgs = ['shadow-cljs', 'compile', TESTBED_BUILD];
-  const command = isWin ? 'cmd.exe' : npx;
-  const args = isWin
-    ? ['/d', '/s', '/c', [npx, ...shadowArgs].join(' ')]
-    : shadowArgs;
-  const result = spawnSync(command, args, {
+  // Spawn the resolved shadow-cljs JS entry-point under THIS node binary,
+  // shell-free (rf2-y9o5e3). Quiet-on-success: capture output and surface
+  // it only on failure (or under RF2_VERBOSE_TESTS).
+  const args = [shadowCljsRunner(), 'compile', TESTBED_BUILD];
+  const result = spawnSync(process.execPath, args, {
     cwd: IMPL_ROOT,
     encoding: 'utf8',
   });
@@ -136,7 +150,7 @@ function compileTestbed() {
     process.stdout.write(output);
   }
   if (result.status !== 0) {
-    console.error(`> ${npx} ${shadowArgs.join(' ')}`);
+    console.error(`> shadow-cljs compile ${TESTBED_BUILD}`);
     throw new Error(`shadow-cljs compile failed (exit ${result.status})`);
   }
 }

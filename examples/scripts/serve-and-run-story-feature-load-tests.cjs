@@ -26,6 +26,21 @@ const RUNNER = path.resolve(__dirname, 'run-story-feature-load-tests.cjs');
 const HTTP_SERVER_BIN = require.resolve('http-server/bin/http-server', {
   paths: [IMPL_ROOT],
 });
+// Resolve shadow-cljs's JS entry-point so compileAll() spawns it
+// shell-free under process.execPath — never npx/npx.cmd/cmd.exe (the
+// Windows command-hijack accident class). rf2-y9o5e3; matches
+// story-build.cjs / dev-testbed.cjs.
+let SHADOW_CLJS_RUNNER;
+try {
+  SHADOW_CLJS_RUNNER = require.resolve('shadow-cljs/cli/runner.js', {
+    paths: [IMPL_ROOT],
+  });
+} catch {
+  throw new Error(
+    'serve-and-run-story-feature-load-tests: could not resolve shadow-cljs. ' +
+      `Run \`npm install\` in ${IMPL_ROOT} first.`,
+  );
+}
 const READY_TIMEOUT_MS = 30000;
 const VERBOSE = process.env.RF2_VERBOSE_TESTS === '1';
 const cleanup = createHarnessCleanup();
@@ -45,14 +60,13 @@ const TESTBEDS = [
 ];
 
 function compileAll() {
-  const isWin = process.platform === 'win32';
-  const npx = isWin ? 'npx.cmd' : 'npx';
-  const shadowArgs = ['shadow-cljs', 'compile', ...TESTBEDS.map((t) => t.build)];
-  const command = isWin ? 'cmd.exe' : npx;
-  const args = isWin
-    ? ['/d', '/s', '/c', [npx, ...shadowArgs].join(' ')]
-    : shadowArgs;
-  const result = spawnSync(command, args, {
+  const builds = TESTBEDS.map((t) => t.build);
+  // Spawn the resolved shadow-cljs JS entry-point under THIS node binary,
+  // shell-free (rf2-y9o5e3). Capture output and surface it only on
+  // failure (or under RF2_VERBOSE_TESTS) — the quiet-on-success posture
+  // this gate already kept.
+  const args = [SHADOW_CLJS_RUNNER, 'compile', ...builds];
+  const result = spawnSync(process.execPath, args, {
     cwd: IMPL_ROOT,
     encoding: 'utf8',
   });
@@ -61,7 +75,7 @@ function compileAll() {
     process.stdout.write(output);
   }
   if (result.status !== 0) {
-    console.error(`> ${npx} ${shadowArgs.join(' ')}`);
+    console.error(`> shadow-cljs compile ${builds.join(' ')}`);
     throw new Error(`shadow-cljs compile failed (exit ${result.status})`);
   }
 }
