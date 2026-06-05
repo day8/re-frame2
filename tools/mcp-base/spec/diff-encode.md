@@ -83,15 +83,13 @@ The `:db-after` marker carries `:sections`, so the decoder first flattens the pe
             (let [[path op v] patch]
               (case op
                 :assoc  (if (empty? path) v (assoc-in acc path v))
-                :dissoc (let [parent (vec (butlast path))
-                              k      (last path)]
-                          (if (empty? parent)
-                            (dissoc acc k)
-                            (update-in acc parent dissoc k))))))
+                :dissoc (dissoc-in acc path))))         ; missing-/scalar-parent no-op
           base
           patches))
       db-after)))   ; not diff-encoded; passthrough
 ```
+
+> **`:dissoc` is a no-op when the key does not exist (rf2-ykv9a0).** The decoder routes nested `:dissoc` through a `dissoc-in` helper that dissocs only when the parent path resolves to a map. A naive `(update-in acc parent dissoc k)` violated the spec contract two ways: a MISSING parent manufactured nil branches (`{} + [[[:missing :leaf] :dissoc]] ⇒ {:missing nil}`), and a SCALAR parent threw a host `ClassCastException` at the wire decoder boundary. `apply-patches` is the public decoder; a malformed / corrupt / third-party diff replayed against a mismatched base must neither corrupt the base into a shape neither side emitted nor crash — so the missing-/scalar-parent case is a no-op, honouring the contract below.
 
 The shipped decoder (`decode-db-after`) Malli-validates `:sections` at the decode boundary (`validate-sections!`, symmetric with the encoder's gate) then replays via the non-validating `apply-patches*` to avoid a redundant second Malli walk on the JVM decode hot path. Both story-mcp and re-frame2-pair-mcp consume this shape; the agent-host decoder is small.
 

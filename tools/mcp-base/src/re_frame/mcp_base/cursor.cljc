@@ -147,21 +147,57 @@
   {'inst (fn [_] (bad-tag! 'inst))
    'uuid (fn [_] (bad-tag! 'uuid))})
 
+(defn- bad-trailing!
+  "Throw the cursor-boundary multi-form rejection. A cursor is ONE
+  opaque EDN payload map; decoded text carrying a second form (a
+  trailing tagged literal, a trailing ordinary EDN value, garbage)
+  is malformed. Caught by the surrounding try in `decode-cursor` →
+  `::malformed`."
+  []
+  (throw (ex-info ":rf.error/mcp-cursor-trailing-form"
+                  {:rf.error/id :rf.error/mcp-cursor-trailing-form
+                   :where       'mcp-base/decode-cursor
+                   :recovery    :no-recovery
+                   :reason      "EDN cursor decoded to more than one form — a cursor is one opaque payload map"})))
+
 (defn- read-edn-no-tags
-  "Read an EDN string with EVERY tagged literal rejected — built-in
-  (`#inst` / `#uuid`) AND custom (`#js`, `#foo/bar`, …). The `:readers`
-  overrides throw on the two built-in tags that would otherwise bypass
-  `:default` (they have registered readers), and the `:default`
-  data-reader throws `:rf.error/mcp-cursor-bad-edn-tag` on every
-  remaining unregistered tag. A hostile / corrupt cursor therefore
-  cannot smuggle ANY tagged literal — or the host object it would
-  decode to — past the reader. Caught by the surrounding try in
-  `decode-cursor` → `::malformed`."
+  "Read a cursor's decoded EDN string as EXACTLY ONE form, with EVERY
+  tagged literal rejected — built-in (`#inst` / `#uuid`) AND custom
+  (`#js`, `#foo/bar`, …). The `:readers` overrides throw on the two
+  built-in tags that would otherwise bypass `:default` (they have
+  registered readers), and the `:default` data-reader throws
+  `:rf.error/mcp-cursor-bad-edn-tag` on every remaining unregistered
+  tag.
+
+  ## One form, EOF-exhausted (rf2-ykv9a0)
+
+  A cursor is ONE opaque payload map; a token whose decoded text is a
+  valid map FOLLOWED by a second form — e.g.
+  `{:v 1 :offset 0 :sig \"s\"} #inst \"2024-01-01\"` or
+  `{...} {:junk 1}` — must be rejected as `::malformed`, not silently
+  accepted on the strength of its first form (which would ignore the
+  trailing object and weaken the opacity / corruption guard). A plain
+  `read-string` reads only the FIRST form and never checks exhaustion.
+
+  We close that by wrapping the decoded text in `[ … ]` and reading the
+  WHOLE thing as one vector: a single clean form yields a one-element
+  vector (trailing whitespace / comments are absorbed), while ANY
+  trailing form yields a 2+-element vector → `bad-trailing!`. This is a
+  pure-`read-string` technique that behaves identically on the JVM
+  (`clojure.edn`) and CLJS (`cljs.reader`) without reaching into either
+  host's pushback-reader internals. Tagged literals anywhere inside the
+  wrapped text still throw via the readers above. Returns the sole
+  decoded form (so the caller's `map?` / `valid?` checks are unchanged).
+  Caught by the surrounding try in `decode-cursor` → `::malformed`."
   [s]
-  (let [opts {:readers no-tag-readers
-              :default (fn [tag _val] (bad-tag! tag))}]
-    #?(:clj  (edn/read-string opts s)
-       :cljs (cljs.reader/read-string opts s))))
+  (let [opts    {:readers no-tag-readers
+                 :default (fn [tag _val] (bad-tag! tag))}
+        wrapped (str "[" s "]")
+        forms   #?(:clj  (edn/read-string opts wrapped)
+                   :cljs (cljs.reader/read-string opts wrapped))]
+    (if (and (vector? forms) (= 1 (count forms)))
+      (first forms)
+      (bad-trailing!))))
 
 (defn decode-cursor
   "Decode an opaque base64 cursor back to its EDN payload map.
@@ -173,6 +209,8 @@
     - `::malformed` — the cursor exists but is not a well-formed,
                       `valid?`-passing payload map: it failed to
                       base64/EDN-decode, carried a tagged literal,
+                      decoded to MORE THAN ONE EDN form (a trailing
+                      object after the payload map — rf2-ykv9a0),
                       exceeded `max-cursor-bytes`, or its payload map
                       failed the consumer's `valid?` predicate. Callers
                       treat `::malformed` exactly like a STALE cursor —

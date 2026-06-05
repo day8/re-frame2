@@ -12,6 +12,7 @@ This doc is one of eleven per-namespace contracts indexed from [`README.md`](REA
 - `group-patches-into-sections` — the flat-patch-list → sections projection.
 - `sections->patches` — the lossless inverse (flatten sections back to a replayable patch list).
 - `default-opts` (`{:max-coalesce-depth 3}`) — the tunable cluster-coalescence knob, mirroring Xray's defaults.
+- `group-patches-into-sections` `opts` also accepts `:db-before` — the pre-change value the patches diff from. When supplied, a `:section-kind :added` is claimed only for an all-`:assoc` direct-child cluster whose container was ABSENT in `:db-before` (rf2-ykv9a0); when absent, the classifier conservatively emits `:modified`.
 
 `section-grouping` does NOT own:
 
@@ -57,8 +58,12 @@ Mirrors the Xray pass (`section_grouping.cljc` §3.1.1), recast over patches:
 
 5. **Classify each section** (`:section-kind`):
    - all `:dissoc` → `:removed`.
-   - all `:assoc` AND every patch is exactly one segment deeper than `:section-path` (a newly-introduced container) → `:added`.
-   - otherwise → `:modified` (the conservative default; a mix of inserts / changes / deletes). A more precise `:added` vs `:modified` split would need `:db-before` to detect "was this path previously absent?" — patches alone can't tell, so the rule errs toward `:modified`.
+   - all `:assoc` AND every patch is exactly one segment deeper than `:section-path` AND the container was ABSENT in `:db-before` → `:added`.
+   - otherwise → `:modified` (the conservative default; a mix of inserts / changes / deletes, or an existing container whose direct children changed).
+
+   **Why `:added` needs `:db-before` (rf2-ykv9a0).** The patch grammar uses `:assoc` for BOTH inserted and changed leaves, so patch SHAPE alone cannot distinguish a newly-added container from an existing one whose direct children changed. `{:user {:name "bob"}}` → `{:user {:name "ada" :email "…"}}` emits the SAME all-`:assoc` direct-child cluster under `[:user]` as a genuinely new `[:user]` subtree — a patch-only classifier mislabels the FIRST (a modification) as `:added`, a false skim signal to the agent. So `:added` is claimed only when `:db-before` (threaded through `opts`, supplied by the `diff-encode-db-after` caller) proves the section-path container did not previously exist. When `:db-before` is absent (the standalone projection used by tests / advanced consumers diffing arbitrary structures), the classifier cannot prove addition and conservatively emits `:modified` for every all-`:assoc` cluster. The cosmetic `:section-kind` never affects round-trip — concatenating `:patches` replays losslessly regardless.
+
+   > Note: over the `collect-patches` pipeline a genuinely-new multi-key container is emitted as a single whole-subtree `[[:k] :assoc {...}]` patch (collect-patches doesn't recurse into an absent key), which heads as a singleton → `:modified`. The all-`:assoc` direct-child `:added` shape therefore arises only from an advanced consumer supplying a synthetic patch list whose `:db-before` proves the container absent.
 
 ## Ordering
 

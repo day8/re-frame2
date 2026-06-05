@@ -30,8 +30,8 @@ The rejection posture (default-suppress vs default-allow) is named at the call-s
 | Parser | Accepts | Output | Notes |
 |---|---|---|---|
 | `parse-boolean` | bools, strings (`"true"`/`"false"`/`"1"`/`"0"`/`"yes"`/`"no"`/`"y"`/`"n"`/`"on"`/`"off"`, case-insensitive), keywords (`:true`/`:false`), nil | boolean | Unrecognised → `default`. Call-sites wrap to bake the default. |
-| `parse-positive-int` | ints, parsable strings | positive int or `default` | Strictly positive; zero falls to `default`. |
-| `parse-non-negative-int` | ints, parsable strings | non-negative int or `default` | Zero allowed. |
+| `parse-positive-int` | ints, parsable strings | positive int or `default` | Strictly positive; zero clamps to 1. Out-of-domain numerics (`##Inf`/`##NaN`/past the safe-integer window) → `default`, never a crash or a real floor (rf2-ykv9a0). |
+| `parse-non-negative-int` | ints, parsable strings | non-negative int or `default` | Zero allowed. Out-of-domain numerics → `default` (same cross-runtime guard). |
 | `fresh-keyword` | keywords, strings (leading `:` optional), nil | keyword or `nil` | The `:` prefix is stripped on string input. **Positive-named intern (rf2-xxtrz)**: the name signals the call-site is ALLOCATING a new id, not resolving an existing one. INTERNS by design — reserved for operator-gated write paths whose registrar grammar bounds the per-id allocation cost (e.g. story-mcp's `register-variant`). For finite option sets, use `safe-keyword`. |
 | `safe-keyword` | keywords, strings, nil | keyword from `allowed` set, or `nil` | Bounded-allowlist gate — NEVER interns a fresh keyword on rejection. The right primitive for finite option sets and any input that doesn't go straight to a registry lookup with a bounded known set. Per rf2-ih7g4. |
 | `parse-mode` | enum-shaped strings / keywords | one of an allowed set, otherwise `default` | Bakes an `allowed-modes` set; rejected values fall to `default`. Routes through `safe-keyword` so unrecognised input never interns (rf2-ih7g4). |
@@ -47,6 +47,15 @@ The cross-MCP rule:
 3. **`parse-mode` routes through `safe-keyword`.** The convention's enum-shaped parser is internally safe; consumers should use it rather than rolling their own.
 
 The keyword-interning cap (`:rf.http/max-decoded-keys`) defends against the body-decode threat; this convention defends against the argument-parse threat. Both close the same DoS / keyword-table-poisoning vector.
+
+## Cross-runtime numeric domain (rf2-ykv9a0)
+
+`parse-positive-int` / `parse-non-negative-int` (and, via `cursor/parse-limit-arg` and `cap/max-tokens`, every numeric MCP arg) coerce through one shared finite/range guard (`coerce-finite-long`) BEFORE `(long raw)`. The guard exists because `(long raw)` is unsafe at the arg boundary:
+
+- On the JVM `(long ##Inf)` and `(long 1.0E20)` THROW `IllegalArgumentException` — a crash at the wire boundary instead of a recoverable default; `(long ##NaN)` truncates to a real `0` (a real, non-sentinel value).
+- The string arm diverged across hosts: a digit string just past the JS safe-integer ceiling parsed on the JVM (`Long/parseLong`) but defaulted on CLJS (`Number.isSafeInteger`), so the SAME wire arg behaved differently per host.
+
+The admissible domain is the JS safe-integer window `[-(2^53−1), 2^53−1]` — the strictest of the two hosts, and far wider than any real MCP arg (pagination limits, token caps). An out-of-domain value (non-finite, NaN, or past the window) is treated uniformly: the int parsers fall to `default`; `cap/max-tokens` rejects with `{:rf.mcp/invalid-arg}`. Never a crash, never a real `0`-cap, never a host-divergent result.
 
 ## Default-handling posture
 
@@ -69,8 +78,8 @@ This split keeps the parser pure data — no thread-local policy, no global conf
 
 All six parsers are pure `.cljc`. They use:
 
-- `boolean?` / `int?` / `keyword?` / `string?` host predicates.
-- Reader-conditional-free `Integer/parseInt` (JVM) / `js/parseInt` (CLJS) via a small `.cljc` adapter.
+- `boolean?` / `number?` / `keyword?` / `string?` host predicates.
+- A reader-conditional finite/range guard: `Double/isNaN`/`isInfinite` + the safe-integer window (JVM), `js/isFinite`/`isNaN` + `Number.isSafeInteger` (CLJS). The numeric string arm parses via `bigint` (JVM) / `js/parseInt` (CLJS) and clamps to the same window so the two hosts agree.
 - Standard collection ops; no host-specific machinery.
 
 `safe-keyword`'s rejection branch carries the bounded-allowlist check — a fresh keyword is created with `keyword` only after the allowlist passes.

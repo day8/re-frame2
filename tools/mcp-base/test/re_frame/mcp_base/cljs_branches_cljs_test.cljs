@@ -31,6 +31,7 @@
             [re-frame.mcp-base.diff-encode :as de]
             [re-frame.mcp-base.envelope :as envelope]
             [re-frame.mcp-base.overflow :as overflow]
+            [re-frame.mcp-base.section-grouping :as sg]
             [re-frame.mcp-base.vocab :as vocab]))
 
 ;; ---------------------------------------------------------------------------
@@ -234,6 +235,98 @@
     (is (= 1 (args/parse-positive-int "-5" 50)) "clamps to floor"))
   (testing "out-of-safe-range digit string rejected (mirrors JVM long overflow)"
     (is (= 50 (args/parse-positive-int "99999999999999999999999999" 50)))))
+
+;; ---------------------------------------------------------------------------
+;; 5b. Cross-runtime finite/range guard on numeric arg coercion (rf2-ykv9a0).
+;;     The numeric arm previously called `(long raw)` with no guard:
+;;     on the JVM `##Inf` / `1.0E20` THROW and `##NaN` truncates to a real
+;;     value, while CLJS would silently coerce. The fix routes both hosts
+;;     through one safe-integer-windowed guard so out-of-domain numerics
+;;     DEFAULT (never crash, never become a real value) IDENTICALLY. These
+;;     CLJS assertions mirror the JVM ones in args_test / cap_test.
+;; ---------------------------------------------------------------------------
+
+(deftest parse-int-finite-range-guard-cljs
+  (testing "out-of-domain numerics default (mirrors JVM)"
+    (is (= 50 (args/parse-positive-int js/Infinity 50)) "Infinity defaults")
+    (is (= 50 (args/parse-positive-int (- js/Infinity) 50)) "-Infinity defaults")
+    (is (= 50 (args/parse-positive-int js/NaN 50)) "NaN defaults (not a real floor)")
+    (is (= 50 (args/parse-positive-int 1e20 50)) "1e20 defaults (past safe-integer window)")
+    (is (= 5000 (args/parse-non-negative-int js/NaN 5000)) "NaN defaults (not a real 0)"))
+  (testing "in-domain numerics still parse"
+    (is (= 5 (args/parse-positive-int 5 50)))
+    (is (= 2 (args/parse-positive-int 2.9 50)) "in-range fractional floors")
+    (is (= 1 (args/parse-positive-int 0.5 50)) "sub-1 positive floors then clamps to floor 1")
+    (is (= 9007199254740991 (args/parse-positive-int 9007199254740991 50))
+        "safe-integer ceiling is in-domain"))
+  (testing "string threshold aligns to the safe-integer window on both hosts"
+    (is (= 50 (args/parse-positive-int "9007199254740992" 50))
+        "one past the ceiling defaults on CLJS AND JVM (JVM no longer parses it)")
+    (is (= 9007199254740991 (args/parse-positive-int "9007199254740991" 50))
+        "exactly the ceiling still parses on both hosts")))
+
+(deftest max-tokens-finite-range-guard-cljs
+  ;; rf2-ykv9a0 — non-finite / out-of-range `:max-tokens` rejects with an
+  ;; {:rf.mcp/invalid-arg} marker on CLJS too, never a crash / real 0-cap.
+  (doseq [raw [js/Infinity js/NaN 1e20 (- 1e20)]]
+    (let [out (cap/max-tokens raw)]
+      (is (cap/invalid-arg? out) "non-finite / out-of-range max-tokens rejects")
+      (is (not (number? out)) "rejection is a marker, not a real cap")
+      (is (some? out) "not nil — distinct from the disable sentinel")))
+  (is (cap/invalid-arg? (cap/max-tokens (- js/Infinity))) "-Infinity rejects (negative arm)")
+  (is (= 5000 (cap/max-tokens 5000)) "in-range cap passes through"))
+
+;; ---------------------------------------------------------------------------
+;; 5c. Cursor rejects trailing forms on CLJS too (rf2-ykv9a0). A cursor is
+;;     ONE opaque payload map; decoded text with a trailing form (tagged
+;;     literal, ordinary EDN, scalar) ⇒ ::malformed. The wrap-in-[...]
+;;     one-form check runs identically on cljs.reader.
+;; ---------------------------------------------------------------------------
+
+(deftest cursor-rejects-trailing-forms-cljs
+  (let [pair? (fn [m] (and (map? m) (some? (:after-id m))))]
+    (testing "valid map + trailing form ⇒ ::malformed"
+      (is (= :re-frame.mcp-base.cursor/malformed
+             (cursor/decode-cursor
+               (cursor/b64-encode "{:v 1 :after-id 1} #inst \"2024-01-01T00:00:00.000-00:00\"")
+               pair?)))
+      (is (= :re-frame.mcp-base.cursor/malformed
+             (cursor/decode-cursor
+               (cursor/b64-encode "{:v 1 :after-id 1} {:junk 1}")
+               pair?)))
+      (is (= :re-frame.mcp-base.cursor/malformed
+             (cursor/decode-cursor
+               (cursor/b64-encode "{:v 1 :after-id 1} 42")
+               pair?))))
+    (testing "a single clean cursor still round-trips"
+      (is (= {:v 1 :after-id "ev-9"}
+             (cursor/decode-cursor (cursor/encode-cursor {:v 1 :after-id "ev-9"}) pair?))))))
+
+;; ---------------------------------------------------------------------------
+;; 5d. apply-patches nested :dissoc no-op + section-kind :db-before
+;;     classification run under CLJS too (rf2-ykv9a0).
+;; ---------------------------------------------------------------------------
+
+(deftest apply-patches-nested-dissoc-noop-cljs
+  (testing "missing / scalar parent ⇒ no-op (no nil branches, no host throw)"
+    (is (= {} (de/apply-patches {} [[[:missing :leaf] :dissoc]])))
+    (is (= {:a {}} (de/apply-patches {:a {}} [[[:a :b :c] :dissoc]])))
+    (is (= {:a 1} (de/apply-patches {:a 1} [[[:a :b] :dissoc]]))))
+  (testing "valid nested + root dissoc unchanged"
+    (is (= {:a {:c 2}} (de/apply-patches {:a {:b 1 :c 2}} [[[:a :b] :dissoc]])))
+    (is (= {:a 1} (de/apply-patches {:a 1 :b 2} [[[:b] :dissoc]])))))
+
+(deftest section-kind-db-before-classification-cljs
+  (let [patches [[[:user :name]  :assoc "ada"]
+                 [[:user :email] :assoc "x"]]]
+    (is (= :modified (:section-kind (first (sg/group-patches-into-sections patches))))
+        "no :db-before ⇒ conservative :modified")
+    (is (= :modified (:section-kind (first (sg/group-patches-into-sections
+                                             patches {:db-before {:user {:name "bob"}}}))))
+        "existing container ⇒ :modified, not a false :added")
+    (is (= :added (:section-kind (first (sg/group-patches-into-sections
+                                          patches {:db-before {}}))))
+        "absent container + direct-child assocs ⇒ :added")))
 
 ;; ---------------------------------------------------------------------------
 ;; 6. Shared cursor codec round-trips under CLJS (rf2-ee38b.19). The base64

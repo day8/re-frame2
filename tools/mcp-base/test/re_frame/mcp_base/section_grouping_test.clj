@@ -62,8 +62,8 @@
     (is (= 1 (count sections)))
     (let [s (first sections)]
       (is (= [:cart :items 0] (:section-path s)))
-      (is (= :added (:section-kind s))
-          "all-:assoc, all direct children → :added (newly-added subtree)")
+      (is (= :modified (:section-kind s))
+          "all-:assoc direct children WITHOUT :db-before context → :modified (rf2-ykv9a0): patch shape can't prove the container is new")
       (is (= 2 (count (:patches s)))))))
 
 (deftest unrelated-root-keys-stand-as-separate-sections
@@ -154,13 +154,51 @@
         sections (sg/group-patches-into-sections patches)]
     (is (= :removed (:section-kind (first sections))))))
 
-(deftest all-assoc-direct-children-classify-as-added
-  ;; All patches are :assoc at exactly one level below the section
-  ;; path → :added.
+(deftest all-assoc-direct-children-classify-as-added-only-with-db-before-proof
+  ;; rf2-ykv9a0 — the patch grammar uses :assoc for BOTH inserted and
+  ;; changed leaves, so all-:assoc direct-child shape alone CANNOT prove
+  ;; a container is newly added. `:added` is claimed only when :db-before
+  ;; proves the container was absent.
   (let [patches  [[[:user :name]  :assoc "ada"]
-                  [[:user :email] :assoc "ada@example.com"]]
-        sections (sg/group-patches-into-sections patches)]
-    (is (= :added (:section-kind (first sections))))))
+                  [[:user :email] :assoc "ada@example.com"]]]
+    (testing "without :db-before context → conservative :modified (no false :added)"
+      (is (= :modified (:section-kind (first (sg/group-patches-into-sections patches))))))
+    (testing ":db-before proves [:user] is genuinely new → :added"
+      (is (= :added (:section-kind
+                      (first (sg/group-patches-into-sections
+                               patches {:db-before {}}))))
+          "container [:user] absent in db-before ⇒ newly-introduced subtree"))
+    (testing ":db-before shows [:user] already existed (a sibling changed) → :modified, NOT a false :added"
+      (is (= :modified (:section-kind
+                         (first (sg/group-patches-into-sections
+                                  patches {:db-before {:user {:name "bob"}}}))))
+          "existing [:user] whose direct children changed is a modification, not an addition"))))
+
+(deftest synthetic-direct-child-cluster-under-absent-container-classifies-as-added
+  ;; rf2-ykv9a0 — the genuine :added shape. An advanced consumer
+  ;; supplies a synthetic patch list (NOT from collect-patches, which
+  ;; emits a whole-subtree singleton for a brand-new key): direct-child
+  ;; :assoc patches under a container that :db-before proves was absent.
+  ;; THAT is a real newly-introduced subtree → :added.
+  (let [patches [[[:user :name]  :assoc "ada"]
+                 [[:user :email] :assoc "ada@example.com"]]]
+    (is (= :added (:section-kind
+                    (first (sg/group-patches-into-sections patches {:db-before {}}))))
+        "[:user] absent in db-before + all-:assoc direct children ⇒ :added")
+    (is (= :added (:section-kind
+                    (first (sg/group-patches-into-sections patches {:db-before {:session :idle}}))))
+        "[:user] still absent (only :session present) ⇒ :added")))
+
+(deftest db-before-with-stored-nil-counts-container-as-present
+  ;; A stored `nil` under the container key is PRESENT, not absent — the
+  ;; sentinel-based path-present? check distinguishes a stored nil from a
+  ;; missing key. So an all-:assoc direct-child cluster whose container
+  ;; key is present-but-nil classifies :modified, not a false :added.
+  (let [patches [[[:user :name]  :assoc "ada"]
+                 [[:user :email] :assoc "ada@example.com"]]]
+    (is (= :modified (:section-kind
+                       (first (sg/group-patches-into-sections patches {:db-before {:user nil}}))))
+        "[:user] present (stored nil) ⇒ :modified, not a false :added")))
 
 (deftest mixed-assoc-and-dissoc-classify-as-modified
   (let [patches  [[[:user :name]  :assoc "ada"]

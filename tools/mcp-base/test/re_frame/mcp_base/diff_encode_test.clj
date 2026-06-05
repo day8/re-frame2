@@ -82,6 +82,30 @@
            (de/apply-patches {:a 1} [[[:a] :dissoc]
                                      [[:a] :assoc 7]])))))
 
+(deftest apply-patches-nested-dissoc-missing-or-scalar-parent-is-noop
+  ;; rf2-ykv9a0 — `[<path> :dissoc]` is a no-op when the key does not
+  ;; exist (per the spec). The naive `(update-in acc parent dissoc k)`
+  ;; violated this: a MISSING parent manufactured nil branches, and a
+  ;; SCALAR parent threw a host ClassCastException at the decoder
+  ;; boundary. `apply-patches` is the public wire decoder; a malformed /
+  ;; corrupt / third-party diff replayed against a mismatched base must
+  ;; not corrupt the base into a shape neither side emitted, nor crash.
+  (testing "missing direct parent ⇒ no-op (no nil-branch manufacture)"
+    (is (= {} (de/apply-patches {} [[[:missing :leaf] :dissoc]]))
+        "was {:missing nil} before the fix"))
+  (testing "missing deeper parent ⇒ no-op"
+    (is (= {:a {}} (de/apply-patches {:a {}} [[[:a :b :c] :dissoc]]))
+        "was {:a {:b nil}} before the fix"))
+  (testing "scalar parent ⇒ no-op (no host ClassCastException)"
+    (is (= {:a 1} (de/apply-patches {:a 1} [[[:a :b] :dissoc]]))
+        "was a thrown ClassCastException before the fix"))
+  (testing "valid nested dissoc still removes the key"
+    (is (= {:a {:c 2}} (de/apply-patches {:a {:b 1 :c 2}} [[[:a :b] :dissoc]]))))
+  (testing "root-key dissoc unchanged"
+    (is (= {:a 1} (de/apply-patches {:a 1 :b 2} [[[:b] :dissoc]]))))
+  (testing "dissoc of an absent root key ⇒ no-op"
+    (is (= {:a 1} (de/apply-patches {:a 1} [[[:z] :dissoc]])))))
+
 ;; ---------------------------------------------------------------------------
 ;; diff-encode-db-after / decode-db-after — round-trip.
 ;; ---------------------------------------------------------------------------
@@ -100,6 +124,50 @@
       (is (= [:b] (:section-path s)))
       (is (= :modified (:section-kind s)))
       (is (= [[[:b] :assoc 3]] (:patches s))))))
+
+(deftest diff-encode-db-after-classifies-modified-not-false-added
+  ;; rf2-ykv9a0 — the encoder threads :db-before into section
+  ;; classification so an all-:assoc direct-child cluster is :added ONLY
+  ;; when its container was genuinely absent before. Patch shape alone
+  ;; can't tell an insert from a change (both are :assoc), so an existing
+  ;; parent whose direct child changed was mislabelled :added — a false
+  ;; skim signal to the agent.
+  ;;
+  ;; Note on collect-patches shapes: a GENUINELY-new multi-key container
+  ;; is emitted as a single whole-subtree `[[:user] :assoc {...}]` patch
+  ;; (collect-patches doesn't recurse into an absent key), which heads as
+  ;; a singleton → :modified. The all-:assoc DIRECT-CHILD shape over the
+  ;; collect-patches pipeline therefore ALWAYS means the container
+  ;; ALREADY existed and its children changed — i.e. the exact case the
+  ;; old patch-only rule falsely tagged :added. The genuine direct-child
+  ;; :added shape only arises from an advanced consumer supplying a
+  ;; synthetic patch list (pinned at the group-patches-into-sections
+  ;; level in section_grouping_test).
+  (testing "existing container, child changed + sibling added ⇒ :modified (NOT a false :added)"
+    (let [epoch    {:db-before {:user {:name "bob"}}
+                    :db-after  {:user {:name "ada" :email "ada@example.com"}}}
+          sections (get-in (de/diff-encode-db-after epoch) [:db-after :sections])
+          user-s   (first (filter #(= [:user] (:section-path %)) sections))]
+      (is (some? user-s) "a [:user] section was produced")
+      (is (= :modified (:section-kind user-s))
+          "[:user] existed in db-before; the cluster is a modification, not an addition")))
+  (testing "genuinely new multi-key container ⇒ one whole-subtree :modified section"
+    (let [epoch    {:db-before {:session :idle}
+                    :db-after  {:session :idle
+                                :user {:name "ada" :email "ada@example.com"}}}
+          sections (get-in (de/diff-encode-db-after epoch) [:db-after :sections])
+          user-s   (first (filter #(= [:user] (:section-path %)) sections))]
+      (is (some? user-s) "a [:user] section was produced")
+      (is (= :modified (:section-kind user-s))
+          "a brand-new key is a whole-subtree singleton assoc — heads :modified, never a false :added")
+      (is (= [[[:user] :assoc {:name "ada" :email "ada@example.com"}]] (:patches user-s)))))
+  (testing "round-trip still reconstructs db-after regardless of cosmetic :section-kind"
+    (doseq [epoch [{:db-before {:user {:name "bob"}}
+                    :db-after  {:user {:name "ada" :email "x"}}}
+                   {:db-before {:session :idle}
+                    :db-after  {:session :idle :user {:name "ada" :email "x"}}}]]
+      (is (= epoch (de/decode-db-after (de/diff-encode-db-after epoch)))
+          (str "encode→decode round-trips for " (pr-str epoch))))))
 
 (deftest diff-encode-then-decode-restores-original
   (let [epoch   {:db-before {:user {:name "ada" :age 30}
