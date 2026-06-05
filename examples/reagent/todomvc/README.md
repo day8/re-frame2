@@ -26,10 +26,14 @@ The example uses the official TodoMVC CSS packages, pinned in
 `implementation/package.json` (so `npm install` fetches them into
 `node_modules/`) rather than vendored into this repo:
 
-- `todomvc-common` `1.0.5`
-- `todomvc-app-css` `2.4.3`
+- `todomvc-common` `1.0.5` — ships `base.css`
+- `todomvc-app-css` `2.4.3` — ships `index.css`
 
-That keeps the rendered surface close to the current TodoMVC template without vendoring upstream CSS into this repo.
+`index.html` links both files flat (`base.css`, `index.css`), so stage
+them next to `main.js` from `node_modules/` (see **Running it**). The
+`index.css` href intentionally matches the `todomvc-app-css` package
+file name. That keeps the rendered surface close to the current TodoMVC
+template without vendoring upstream CSS into this repo.
 
 ## Running it
 
@@ -40,9 +44,16 @@ npm install
 shadow-cljs watch examples/todomvc
 ```
 
-Stage the `index.html` (and the TodoMVC CSS from `node_modules/`) next
-to the build's `main.js` under `out/examples/todomvc/` and serve that
-directory over HTTP.
+Stage `index.html` next to the build's `main.js` under
+`out/examples/todomvc/`, copy the two TodoMVC CSS files there from
+`node_modules/` so the flat `<link>` hrefs resolve, then serve that
+directory over HTTP:
+
+```bash
+cp examples/reagent/todomvc/index.html out/examples/todomvc/
+cp node_modules/todomvc-common/base.css out/examples/todomvc/base.css
+cp node_modules/todomvc-app-css/index.css out/examples/todomvc/index.css
+```
 
 Per the test-free examples policy this example carries no per-example
 spec; real-regression coverage of the primitives it exercises lives in

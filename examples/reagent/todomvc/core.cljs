@@ -36,13 +36,22 @@
 (defn- current-path []
   (hash->path (.. js/window -location -hash)))
 
+;; Named handler so the listener install is idempotent: repeated `run`
+;; (shadow hot reload, or a co-required test host invoking run twice)
+;; must not stack duplicate hashchange listeners, mirroring the
+;; `when-not @react-root` mount guard below. We remove-then-add the same
+;; Var so the registration is deduped even when the Var is redefined on
+;; reload.
+(defn- on-hashchange [_]
+  (rf/dispatch [:rf.route/handle-url-change (current-path)]))
+
 (defn run []
   ;; Pass the adapter spec map directly — no registry.
   (rf/init! reagent-adapter/adapter)
   (rf/dispatch-sync [:todo/initialise])
   (rf/dispatch-sync [:rf.route/handle-url-change (current-path)])
-  (.addEventListener js/window "hashchange"
-    (fn [_] (rf/dispatch [:rf.route/handle-url-change (current-path)])))
+  (.removeEventListener js/window "hashchange" on-hashchange)
+  (.addEventListener js/window "hashchange" on-hashchange)
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))

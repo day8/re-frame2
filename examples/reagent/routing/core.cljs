@@ -138,10 +138,17 @@
        (.. js/window -location -search)
        (.. js/window -location -hash)))
 
+;; Named handler so the listener install is idempotent: repeated `run`
+;; (shadow hot reload, or a co-required test host invoking run twice)
+;; must not stack duplicate popstate listeners, mirroring the
+;; `when-not @react-root` mount guard. We remove-then-add the same Var so
+;; the registration is deduped even when the Var is redefined on reload.
+(defn- on-popstate [_]
+  (rf/dispatch [:rf.route/handle-url-change (current-url)]))
+
 (defn install-router! []
-  (.addEventListener js/window "popstate"
-    (fn [_]
-      (rf/dispatch [:rf.route/handle-url-change (current-url)])))
+  (.removeEventListener js/window "popstate" on-popstate)
+  (.addEventListener js/window "popstate" on-popstate)
   (rf/dispatch-sync [:rf.route/handle-url-change (current-url)]))
 
 ;; ============================================================================
