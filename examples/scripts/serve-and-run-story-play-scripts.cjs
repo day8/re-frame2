@@ -35,7 +35,13 @@
  *   :story.counter-play-script/failing            → expects :fail
  *
  * Exit code: 0 if every play matched its expected status; 1 if any
- * play deviated.
+ * play deviated, if an uncaught browser `pageerror` fired (rf2-wf5al),
+ * OR if play-script discovery was VACUOUS (rf2-54xbp) — zero / a
+ * near-empty / a one-sided (no expected-fail) row set fails closed,
+ * because the testbed seeds fixtures precisely to keep both the pass and
+ * the expected-fail paths under continuous coverage, so an empty gate is
+ * a discovery/registration/lowering drift signal, not "nothing to
+ * assert".
  */
 
 'use strict';
@@ -447,6 +453,120 @@ function computeExitCode({ failures, pageErrors }) {
   return unexpectedOutcomes === 0 && uncaughtErrors === 0 ? 0 : 1;
 }
 
+// rf2-54xbp: the non-vacuous floor for play-script discovery.
+//
+// The counter-with-stories testbed INTENTIONALLY seeds play-script
+// fixtures (stories.cljs §`:script` CI fixtures) so this gate keeps both
+// the pass path AND the expected-fail path of the runner contract under
+// continuous browser coverage. The seeded inventory is six variants /
+// eight play rows:
+//
+//   passing            (1 row,  pass)
+//   failing            (1 row,  fail)
+//   pred-fn-direct     (1 row,  pass)
+//   dom                (1 row,  pass)
+//   dom-expected-fail  (1 row,  fail)
+//   multi              (3 rows: 2 pass + 1 fail)
+//
+// `MIN_PLAY_ROWS` is a conservative floor (below the seeded eight) so an
+// authored fixture can be retired without tripping the gate, while a
+// discovery/registration/lowering DRIFT that strips the fixtures to a
+// near-empty set still fails loud. The pass/fail-coverage requirement is
+// the structural half of the invariant: a vacuous gate that exercises
+// only one side of the contract is still a trust hole.
+const MIN_PLAY_ROWS = 4;
+
+/**
+ * rf2-54xbp: NON-VACUOUS guard over the discovered play-script rows.
+ *
+ * The :play-script gate previously treated an EMPTY row set as success —
+ * `runAllVariants` logged "Nothing to assert" and returned 0. So if the
+ * Story CI hook, the `:script` → `:play-script` lowering, the testbed
+ * registration, or fixture discovery drifted to expose zero rows, the
+ * gate FALSE-GREENED while exercising NONE of the runner contract (and
+ * silently skipped the failure-report artifact upload, which only fires
+ * on a non-zero exit). The adjacent static gates already fail closed on a
+ * vacuous scan (see check-examples-assets.cjs's `indexes.length < 10`
+ * floor) — this brings the play-script gate in line.
+ *
+ * The invariant is deliberately stronger than `rows.length > 0`:
+ *
+ *   1. At least `MIN_PLAY_ROWS` discovered rows (the seeded fixtures
+ *      produce eight; a near-empty set is a drift signal, not success).
+ *   2. At least one EXPECTED-PASS row AND at least one EXPECTED-FAIL row,
+ *      so a drift that strips the expected-fail fixtures — leaving the
+ *      runner's failure path uncovered — also trips, even if the floor
+ *      is otherwise met.
+ *
+ * Pure (rows in → verdict out) so it is unit-testable without a browser:
+ * a simulated empty / under-floor / one-sided discovery must yield
+ * `{ ok: false }` with a clear diagnostic.
+ *
+ * @param {Array} rows discovered ci-rows (each `{ 'variant-id', 'play-key', ... }`)
+ * @param {{ minRows?: number }} [opts]
+ * @returns {{ ok: boolean, diagnostic: (string|null), rowCount: number,
+ *             passRows: number, failRows: number }}
+ */
+function checkRowsNonVacuous(rows, opts = {}) {
+  const minRows = opts.minRows == null ? MIN_PLAY_ROWS : opts.minRows;
+  const list = Array.isArray(rows) ? rows : [];
+  let passRows = 0;
+  let failRows = 0;
+  for (const row of list) {
+    const expected = expectedStatusFor(row['variant-id'], row['play-key']);
+    if (expected === 'fail') failRows += 1;
+    else passRows += 1;
+  }
+  const rowCount = list.length;
+
+  if (rowCount === 0) {
+    return {
+      ok: false,
+      rowCount,
+      passRows,
+      failRows,
+      diagnostic:
+        'No :play-script / :plays rows were discovered. The ' +
+        'counter-with-stories testbed seeds play-script fixtures on ' +
+        'purpose to keep this gate non-vacuous, so ZERO rows means the ' +
+        'Story CI hook (window.__rf2_story_ci), the :script -> :play-script ' +
+        'lowering, the testbed registration, or fixture discovery has ' +
+        'DRIFTED — not that there is nothing to assert. Refusing to ' +
+        'false-green an empty gate (rf2-54xbp).',
+    };
+  }
+  if (rowCount < minRows) {
+    return {
+      ok: false,
+      rowCount,
+      passRows,
+      failRows,
+      diagnostic:
+        `Only ${rowCount} :play-script / :plays row(s) discovered — below ` +
+        `the non-vacuous floor of ${minRows}. The counter-with-stories ` +
+        `testbed seeds eight rows across six variants; a near-empty set is ` +
+        `a discovery/registration/lowering drift signal, not success. ` +
+        `Refusing to pass a vacuous gate (rf2-54xbp).`,
+    };
+  }
+  if (passRows === 0 || failRows === 0) {
+    return {
+      ok: false,
+      rowCount,
+      passRows,
+      failRows,
+      diagnostic:
+        `Discovered ${rowCount} row(s) but expected-pass=${passRows} / ` +
+        `expected-fail=${failRows}: the gate must exercise BOTH the pass ` +
+        `path AND the expected-fail path of the runner contract. The ` +
+        `counter-with-stories testbed seeds both (e.g. .../passing and ` +
+        `.../failing); a one-sided discovery means the failure path is no ` +
+        `longer under coverage. Refusing to pass a one-sided gate (rf2-54xbp).`,
+    };
+  }
+  return { ok: true, rowCount, passRows, failRows, diagnostic: null };
+}
+
 /**
  * Group ci-rows by variant id so we navigate ONCE per variant and
  * then drive each row's play locally.
@@ -505,12 +625,18 @@ async function runAllVariants(browser, baseUrl) {
         );
       }
     }
-    if (rows.length === 0) {
-      // No fixtures with :play-script / :plays — exit clean. The npm gate
-      // is fail-loud only on UNEXPECTED outcomes; zero rows means no
-      // signal either way.
-      log('No :play-script / :plays rows registered. Nothing to assert.');
-      return 0;
+    // rf2-54xbp: NON-VACUOUS guard. A play-script gate that exercises
+    // zero rows (or a one-sided / near-empty set) is a trust hole — the
+    // testbed seeds fixtures precisely to keep both the pass and the
+    // expected-fail paths under continuous coverage, so a drift to no
+    // rows is a discovery/registration/lowering regression, NOT "nothing
+    // to assert". Fail closed with a clear diagnostic, mirroring the
+    // adjacent static gates' vacuous-scan guards.
+    const vacuity = checkRowsNonVacuous(rows);
+    if (!vacuity.ok) {
+      log('');
+      log(`Non-vacuous play-script guard FAILED: ${vacuity.diagnostic}`);
+      throw new Error(`vacuous play-script gate: ${vacuity.diagnostic}`);
     }
 
     const results = [];
@@ -691,4 +817,10 @@ module.exports = {
   expectedStatusFor,
   isTerminalStatus,
   computeExitCode,
+  // rf2-54xbp: the non-vacuous discovery guard + its floor, exported so
+  // the script-policy unit gate can simulate empty / under-floor /
+  // one-sided discovery and assert a fail-closed verdict without a
+  // browser (symmetric with the computeExitCode unit coverage).
+  checkRowsNonVacuous,
+  MIN_PLAY_ROWS,
 };
