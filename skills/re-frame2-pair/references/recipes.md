@@ -197,7 +197,18 @@ When the user mentions a state machine (Spec 005), chain:
 
 ## Experiment loop
 
-**Reach for `dispatch-dry-run` first.** For the common case — *"what would this event do?"* — you don't need the full baseline → restore → modify → re-dispatch dance. `dispatch-dry-run {event: "[:foo …]"}` runs the whole cascade (reducer, interceptors, schema validation, machine transitions, sub-runs, renders) **without committing**: no fx execute and the framework auto-rolls-back the app-db via `restore-epoch`. It returns the same `:cascade-summary` shape as `dispatch` plus `:would-fire-effects` (every fx that *would* have fired, with args). See [§"What would this event do?"](#what-would-this-event-do-dry-run). Use the manual loop below only when you need to **commit a change and compare two REAL epochs** — i.e. you're iterating on a handler's code, not just reading one consequence.
+**Reach for `dispatch-dry-run` first — it is the safe primitive for hypothesis-testing.** When the user says *"test this handler"* / *"try a dispatch"* / *"what would this event do?"*, you don't need the full baseline → restore → modify → re-dispatch dance, and you should **not** reach for a live `dispatch` or a throwaway `eval-cljs` handler by default. `dispatch-dry-run {event: "[:foo …]"}` runs the whole cascade (reducer, interceptors, schema validation, machine transitions, sub-runs, renders) **without committing**: no fx execute and the framework auto-rolls-back the app-db via `restore-epoch`. It returns the same `:cascade-summary` shape as `dispatch` plus `:would-fire-effects` (every fx that *would* have fired, with args). See [§"What would this event do?"](#what-would-this-event-do-dry-run). Use the manual loop below only when you need to **commit a change and compare two REAL epochs** — i.e. you're iterating on a handler's code, not just reading one consequence.
+
+**Probing a *throwaway* handler — register, then dry-run.** `dispatch-dry-run` targets a **registered** event, so to test a hypothesis handler you wrote on the spot: register it with `eval-cljs`, then dry-run it — never drive it with a live `dispatch`:
+
+```
+mcp__re-frame2-pair__eval-cljs {form: "(rf/reg-event-fx :exp/probe (fn [{:keys [db]} _] {:db (assoc db :exp/x 1)}))"}
+mcp__re-frame2-pair__dispatch-dry-run {event: "[:exp/probe]"}
+```
+
+The dry-run rolls back, so even a misbehaving probe leaves the live app-db untouched. Tear the registration down (or just leave it — it's ephemeral and gone on full page reload).
+
+> **WARNING — a `reg-event-fx` handler returning `{:db …}` REPLACES app-db wholesale; it does NOT merge.** `{:db <map>}` is the canonical "the new app-db is exactly this map" effect. A throwaway probe handler returning a bare literal — `(fn [_ _] {:db {:exp/x 1}})` — then driven by a **live** `dispatch` (or an `eval-cljs` that runs the real cascade) will nuke the *entire* frame's app-db: boot state, `:rf/runtime`, machine snapshots, all of it — leaving only `{:exp/x 1}`, unrecoverable without `restore-epoch`. This is a foot-gun an agent WILL hit. Two safe paths: **(1) dry-run the probe** (above) — the rollback means even a `{:db …}` handler can't damage the live db; **(2) if you must commit, preserve the existing db** — destructure the `db` cofx (it IS the live app-db) and return `{:db (assoc db :exp/x 1)}`, never a bare literal map. Never test a `{:db …}` handler with a live `dispatch` against a frame whose state you can't afford to lose.
 
 **Why the manual loop works:** the same starting `app-db`, the same event, only the code changes — so any difference in the resulting epoch is attributable to *your edit*, nothing else. That makes it a controlled experiment rather than a fix-and-pray. re-frame2's first-class `restore-epoch` makes the loop fully closed — no adapter caveats.
 
