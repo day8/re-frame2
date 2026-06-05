@@ -45,7 +45,7 @@
 const path = require('path');
 const { createGateReporter } = require('./lib/gate-report.cjs');
 const {
-  readReleaseBlob,
+  classifyReleaseBundle,
   countMatches,
   countSubstring,
 } = require('./lib/read-release-bundle.cjs');
@@ -574,12 +574,23 @@ function main() {
   report.detail('=== Bundle isolation: counter example (rf2-51x5) ===');
 
   const bundleDir = path.join(ROOT, 'out', 'examples', 'counter');
-  const blob = readReleaseBlob(bundleDir);
+  const { status, blob } = classifyReleaseBundle(bundleDir);
 
-  if (blob == null) {
+  if (status !== 'ok') {
     report.flushDetails();
-    console.error(`[bundle-isolation] bundle path missing — ${bundleDir}`);
-    console.error('                   Did you run "shadow-cljs release examples/counter"?');
+    if (status === 'empty') {
+      // Non-vacuous floor (rf2-utvst): a present-but-empty output dir
+      // satisfies every absence check and would false-GREEN. Reject it.
+      console.error(`[bundle-isolation] bundle present but empty (zero top-level JS) — ${bundleDir}`);
+      console.error('                   The release emitted no inspectable bundle, so the');
+      console.error('                   sentinel-absence checks would pass vacuously. A clean');
+      console.error('                   release must produce top-level *.js with real content.');
+      console.error('                   Did "shadow-cljs release examples/counter" actually build,');
+      console.error('                   or is this a stale empty out/ dir?');
+    } else {
+      console.error(`[bundle-isolation] bundle path missing — ${bundleDir}`);
+      console.error('                   Did you run "shadow-cljs release examples/counter"?');
+    }
     process.exit(1);
   }
 

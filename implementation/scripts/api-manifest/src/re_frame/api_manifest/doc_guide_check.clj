@@ -24,13 +24,24 @@
 
 (def ^:private core-ns "re-frame.core")
 
+(def ^:private min-references
+  "Non-vacuous floor (rf2-utvst). The guide carries ~504 live `(rf/<var>`
+   references across ~30 chapters; this floor sits an order of magnitude
+   below that, so it trips only on a near-total collapse (the guide dir
+   moved, the `(rf/<var>` extraction broke, the alias convention changed) —
+   the cases that would otherwise turn the gate into a vacuous green —
+   never on ordinary content churn."
+  100)
+
 (defn check!
   []
   (let [rows      (proj/manifest-rows)
         core-vars (set (map :var (proj/rows-in-ns rows core-ns)))
         allow     (set (:doc-guide-known-unmanifested (gen/read-sidecar)))
         dir       (proj/repo-file "docs" "guide")
-        files     (proj/markdown-files dir)
+        ;; require-markdown-files (rf2-utvst): fail loudly if docs/guide/
+        ;; moves or is renamed, rather than silently checking zero files.
+        files     (proj/require-markdown-files "docs/guide/" dir)
         results   (for [file files
                         ref  (proj/alias-call-references "rf" (proj/numbered-lines file))]
                     (assoc ref :file (proj/repo-relative file)))
@@ -40,7 +51,7 @@
                             {:file file :line line :raw raw
                              :detail "no re-frame.core manifest row"}))
                         results)]
-    (proj/report-result! "docs/guide/" (count results) problems)))
+    (proj/report-with-floor! "docs/guide/" (count results) min-references problems)))
 
 (defn -main [& _]
   (System/exit (if (check!) 0 1)))

@@ -25,6 +25,28 @@
 //                              `dir` doesn't exist. For per-file work
 //                              (e.g. gzipped-size totalling).
 //
+// Non-vacuous floor (rf2-utvst). Both readers above intentionally
+// distinguish a MISSING dir (null) from a PRESENT-BUT-EMPTY dir (''/[]),
+// because those are genuinely different filesystem states. But every
+// consuming gate runs negative-only (sentinel-absence) checks, and a
+// present-but-empty output dir — a present `out/examples/counter` with
+// no top-level `*.js`, i.e. a release that emitted nothing or a stale
+// empty dir left behind — satisfies *every* absence check and passes as
+// a zero-byte bundle. That is a silent false-GREEN: the gate is meant to
+// prove production bundle isolation/elision, but an empty bundle proves
+// only that nothing got inspected. `classifyReleaseBundle` collapses the
+// two failure modes into one decision so each consumer's existing
+// missing-dir guard can reject the empty case with the same exit path:
+//   classifyReleaseBundle(dir) → { status, files, blob }
+//     status: 'missing'  — `dir` doesn't exist (files=null, blob=null)
+//             'empty'     — `dir` exists but has zero top-level *.js, or
+//                           every top-level *.js is zero-byte / blank
+//                           (the bundle didn't build); files=[]|paths,
+//                           blob='' or whitespace-only
+//             'ok'        — at least one top-level *.js with real content
+//   A status other than 'ok' MUST fail the gate. `'ok'` carries a
+//   non-empty `blob` and a non-empty `files` array.
+//
 // Plus the grep primitives the sibling check-*-bundle scanners run
 // against the blob. Each scanner used to carry its own verbatim copies
 // of these (rf2-jkake.15 folded them here so the bundle-grep family
@@ -66,6 +88,27 @@ function readReleaseBlob(dir) {
   return out.join('\n');
 }
 
+// Classify a release output dir into one of three states so a gate can
+// reject both a missing dir AND a present-but-empty (zero-byte) bundle
+// with the same guard (rf2-utvst). See the module header for the full
+// rationale. `blob.trim() === ''` is the non-vacuous floor: a present
+// dir whose only top-level *.js files are empty or whitespace carries no
+// inspectable artefact and must not pass an absence-only gate.
+function classifyReleaseBundle(dir) {
+  const files = listReleaseJsFiles(dir);
+  if (files == null) {
+    return { status: 'missing', files: null, blob: null };
+  }
+  if (files.length === 0) {
+    return { status: 'empty', files, blob: '' };
+  }
+  const blob = files.map((f) => fs.readFileSync(f, 'utf8')).join('\n');
+  if (blob.trim() === '') {
+    return { status: 'empty', files, blob };
+  }
+  return { status: 'ok', files, blob };
+}
+
 function escapeRe(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -88,6 +131,7 @@ function countSubstring(blob, needle) {
 module.exports = {
   readReleaseBlob,
   listReleaseJsFiles,
+  classifyReleaseBundle,
   escapeRe,
   countMatches,
   countSubstring,

@@ -35,7 +35,7 @@
 const fs   = require('fs');
 const path = require('path');
 const { createGateReporter } = require('./lib/gate-report.cjs');
-const { readReleaseBlob } = require('./lib/read-release-bundle.cjs');
+const { classifyReleaseBundle } = require('./lib/read-release-bundle.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
 const report = createGateReporter();
@@ -431,11 +431,21 @@ const DEV_ONLY_SENTINELS = [
 // only; a stale dev-build `cljs-runtime/` subdir is skipped.
 
 function checkBundle(label, bundlePath, mustContain) {
-  const blob = readReleaseBlob(bundlePath);
-  if (blob == null) {
+  const { status, blob } = classifyReleaseBundle(bundlePath);
+  if (status === 'missing') {
     console.error(`[elision] ${label}: bundle path missing — ${bundlePath}`);
     console.error('         Did you run "shadow-cljs release elision-probe"?');
     return { ok: false, checked: 0, passed: 0, bytes: null, missing: true };
+  }
+  if (status === 'empty') {
+    // Non-vacuous floor (rf2-utvst): a present-but-empty bundle satisfies
+    // every sentinel-absence check and would false-GREEN the production
+    // elision assertion.
+    console.error(`[elision] ${label}: bundle present but empty (zero top-level JS) — ${bundlePath}`);
+    console.error('         The release emitted no inspectable bundle; an empty bundle');
+    console.error('         proves only that nothing got elided-checked. Rebuild with');
+    console.error('         "shadow-cljs release elision-probe" or clear the stale dir.');
+    return { ok: false, checked: 0, passed: 0, bytes: 0, empty: true };
   }
   report.detail(`[elision] ${label}: ${bundlePath}`);
   report.detail(`          bundle size: ${blob.length} chars`);

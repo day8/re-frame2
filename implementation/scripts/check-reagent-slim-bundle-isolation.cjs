@@ -43,7 +43,7 @@
 
 const path = require('path');
 const { createGateReporter } = require('./lib/gate-report.cjs');
-const { readReleaseBlob, countSubstring } = require('./lib/read-release-bundle.cjs');
+const { classifyReleaseBundle, countSubstring } = require('./lib/read-release-bundle.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
 const report = createGateReporter();
@@ -173,22 +173,41 @@ function main() {
 
   const slimDir  = path.join(ROOT, 'out', 'examples', 'counter-slim-and-fast');
   const stockDir = path.join(ROOT, 'out', 'examples', 'counter');
-  const slim  = readReleaseBlob(slimDir);
-  const stock = readReleaseBlob(stockDir);
+  const slimCls  = classifyReleaseBundle(slimDir);
+  const stockCls = classifyReleaseBundle(stockDir);
+  const slim  = slimCls.blob;
+  const stock = stockCls.blob;
 
-  if (slim == null) {
+  if (slimCls.status !== 'ok') {
     report.flushDetails();
-    console.error(`[reagent-slim-bundle-isolation] slim bundle missing — ${slimDir}`);
-    console.error('                    Did you run "shadow-cljs release examples/counter-slim-and-fast"?');
+    if (slimCls.status === 'empty') {
+      // Non-vacuous floor (rf2-utvst): the slim bundle is checked
+      // negative-only (Contracts 2+3); a present-but-empty slim dir
+      // satisfies both absence checks and would false-GREEN.
+      console.error(`[reagent-slim-bundle-isolation] slim bundle present but empty (zero top-level JS) — ${slimDir}`);
+      console.error('                    The release emitted no bundle; the stock-Reagent and');
+      console.error('                    react-dom/server absence checks would pass vacuously.');
+      console.error('                    Rebuild "shadow-cljs release examples/counter-slim-and-fast".');
+    } else {
+      console.error(`[reagent-slim-bundle-isolation] slim bundle missing — ${slimDir}`);
+      console.error('                    Did you run "shadow-cljs release examples/counter-slim-and-fast"?');
+    }
     process.exit(1);
   }
-  if (stock == null) {
+  if (stockCls.status !== 'ok') {
     report.flushDetails();
-    console.error(`[reagent-slim-bundle-isolation] stock bundle missing — ${stockDir}`);
-    console.error('                    Did you run "shadow-cljs release examples/counter"?');
-    console.error('                    The stock bundle is required as the methodology control:');
-    console.error('                    its presence of the stock-Reagent sentinels proves the');
-    console.error('                    grep has signal.');
+    if (stockCls.status === 'empty') {
+      console.error(`[reagent-slim-bundle-isolation] stock bundle present but empty (zero top-level JS) — ${stockDir}`);
+      console.error('                    The methodology control emitted no bundle; the stock-');
+      console.error('                    Reagent present-check would have no signal.');
+      console.error('                    Rebuild "shadow-cljs release examples/counter".');
+    } else {
+      console.error(`[reagent-slim-bundle-isolation] stock bundle missing — ${stockDir}`);
+      console.error('                    Did you run "shadow-cljs release examples/counter"?');
+      console.error('                    The stock bundle is required as the methodology control:');
+      console.error('                    its presence of the stock-Reagent sentinels proves the');
+      console.error('                    grep has signal.');
+    }
     process.exit(1);
   }
 

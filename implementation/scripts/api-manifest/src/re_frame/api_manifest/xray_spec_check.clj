@@ -52,6 +52,15 @@
 
 (def ^:private xray-ns-prefix "day8.re-frame2-xray.")
 
+(def ^:private min-references
+  "Non-vacuous floor (rf2-utvst). tools/xray/spec/API.md carries ~23 live
+   references (qualified panel symbols + bare `mount-*!` names); this floor
+   sits below that, so it trips only when the extraction collapses (the
+   `day8.re-frame2-xray.*/` symbol shape or the `mount-<panel>!` pattern
+   stops matching, or the spec is gutted) — the cases that would turn the
+   gate into a vacuous green — never on ordinary panel churn."
+  8)
+
 (def ^:private mount-fn-re
   "The `mount-<panel>!` aggregator family the spec names as the mountable-
    panel contract (007-UX-IA §Mountable panel contract)."
@@ -119,9 +128,10 @@
                                     :qualified-allow qualified-allow
                                     :bare-allow      bare-allow
                                     :rel             rel})]
-    (proj/report-result! "tools/xray/spec/API.md"
-                         (+ (count qualified-refs) (count bare-refs))
-                         problems)))
+    (proj/report-with-floor! "tools/xray/spec/API.md"
+                             (+ (count qualified-refs) (count bare-refs))
+                             min-references
+                             problems)))
 
 (defn -main [& _]
   (System/exit (if (check!) 0 1)))

@@ -36,7 +36,7 @@
 
 const path = require('path');
 const { createGateReporter } = require('./lib/gate-report.cjs');
-const { readReleaseBlob, countSubstring } = require('./lib/read-release-bundle.cjs');
+const { classifyReleaseBundle, countSubstring } = require('./lib/read-release-bundle.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
 const report = createGateReporter();
@@ -72,11 +72,21 @@ const REAGENT_SENTINELS = [
 // (rf2-jkake.15).
 
 function checkBundle(label, bundlePath, mustContain) {
-  const blob = readReleaseBlob(bundlePath);
-  if (blob == null) {
+  const { status, blob } = classifyReleaseBundle(bundlePath);
+  if (status === 'missing') {
     console.error(`[uix-helix-reagent-free] ${label}: bundle path missing — ${bundlePath}`);
     console.error('                          Did you run the matching shadow-cljs release?');
     return { ok: false, checked: 0, passed: 0, bytes: null, missing: true };
+  }
+  if (status === 'empty') {
+    // Non-vacuous floor (rf2-utvst): the UIx/Helix bundles are checked
+    // negative-only; a present-but-empty bundle satisfies every Reagent-
+    // sentinel absence check and would false-GREEN.
+    console.error(`[uix-helix-reagent-free] ${label}: bundle present but empty (zero top-level JS) — ${bundlePath}`);
+    console.error('                          The release emitted no inspectable bundle; the');
+    console.error('                          Reagent-absence checks would pass vacuously.');
+    console.error('                          Rebuild the matching shadow-cljs release.');
+    return { ok: false, checked: 0, passed: 0, bytes: 0, empty: true };
   }
   report.detail(`  ${label}: ${bundlePath}`);
   report.detail(`    bundle size: ${blob.length} chars`);

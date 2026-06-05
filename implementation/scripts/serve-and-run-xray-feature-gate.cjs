@@ -555,7 +555,12 @@ async function main() {
   const baseUrl = `http://127.0.0.1:${port}`;
   console.log(`Serving ${OUT_ROOT} on ${baseUrl}`);
 
-  const server = cleanup.trackProcess(spawnHarnessProcess(process.execPath, [HTTP_SERVER_BIN, OUT_ROOT, '-p', String(port), '-s', '-c-1'], {
+  // Bind 127.0.0.1 (not http-server's 0.0.0.0 default): the ownership-
+  // token readiness probe and the headless browser only ever hit
+  // loopback, so the staged Xray bundle must not be exposed on non-
+  // loopback interfaces during the gate run (rf2-utvst; matches
+  // serve-and-run-examples-tests.cjs).
+  const server = cleanup.trackProcess(spawnHarnessProcess(process.execPath, [HTTP_SERVER_BIN, OUT_ROOT, '-a', '127.0.0.1', '-p', String(port), '-s', '-c-1'], {
     cwd: IMPL_ROOT,
     stdio: ['ignore', 'inherit', 'inherit'],
   }));
