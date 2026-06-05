@@ -949,25 +949,34 @@
     (validator/run-explainer schema value)
     (catch #?(:clj Throwable :cljs :default) _ nil)))
 
-(defn redact-event-tags
-  "Redaction seam for the production boundary-validation interceptor
-  (`re-frame.spec`, rf2-a5kzs finding 1). Given the registered event
-  `schema` and the failure trace `tags` the interceptor built, return the
-  tags with the value-bearing slots (`:received` / `:value` / `:explain` /
-  …) scrubbed to `:rf/redacted` and `:sensitive? true` stamped WHEN the
-  event schema declares any slot `:sensitive?` (e.g. a `:cat` payload map
-  `[:map [:password {:sensitive? true} :string]]`); otherwise the tags ride
-  back verbatim.
+(defn redact-validation-tags
+  "THE shared schema-aware redaction seam for EVERY validation-failure
+  trace emitted OUTSIDE this namespace (rf2-o69h5). Given the registered
+  `schema` the failing value was checked against and the failure-trace
+  `tags` a caller built, return the tags with the value-bearing slots
+  (`:value` / `:received` / `:explain` / `:explain-humanized` /
+  `:rf.fx/args` / `:rf.sub/query-v` — the canonical `value-bearing-slots`)
+  scrubbed to `:rf/redacted` and `:sensitive? true` stamped WHEN the
+  schema declares ANY slot `:sensitive?` (e.g. a payload map
+  `[:map [:password {:sensitive? true} :string]]`); otherwise the tags
+  ride back verbatim.
 
-  The dev-time step-1 path (`validate-event!`) consults the same
-  `walker/schema-has-sensitive?` predicate via `run-validation`'s
-  `walk-schema?`; this seam gives the production boundary path the SAME
-  redaction without the optional schemas artefact and the (core) `re-frame.spec`
-  interceptor coupling — the interceptor reaches it through the
-  `:schemas/redact-event-tags` late-bind hook and falls through verbatim
-  when the hook is unbound (schemas artefact absent).
+  This is the ONE redactor the class-sweep (rf2-o69h5) routes every
+  framework-side validation-failure emit site through, so the
+  `:sensitive?` redaction logic lives in a single place rather than
+  being re-derived ad-hoc per surface. The dev-time hot-path emits
+  (`validate-event!` / `-cofx!` / `-fx!` / `-sub!` / `validate-app-schema!`)
+  reach the SAME `redact-tags` core directly via `run-validation`; the
+  off-namespace emit sites — the production boundary interceptor
+  (`re-frame.spec`), machine `:data` validation
+  (`re-frame.machines.data-validation`), the `:sub-override` validation
+  path (`re-frame.subs`), and flow-output validation (`re-frame.flows`)
+  — reach it through the `:schemas/redact-validation-tags` late-bind
+  hook and fall through verbatim when the hook is unbound (schemas
+  artefact absent → no schema to redact against).
 
-  Pure; `redact-tags` is idempotent so a double-call is safe."
+  Pure; `redact-tags` is idempotent so a double-call (or a call on a
+  tags map a path-based pre-scrub already touched) is safe."
   [schema tags]
   (cond-> tags
     (walker/schema-has-sensitive? schema) redact-tags))

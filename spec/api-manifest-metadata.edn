@@ -484,7 +484,7 @@
   ["re-frame.schemas" "on-frame-destroyed!"]       {:tier :internal-public :owner "010" :status "v1"}
   ["re-frame.schemas" "validate-app-schema!"]      {:tier :internal-public :owner "010" :status "v1"}
   ["re-frame.schemas" "validate-event!"]           {:tier :internal-public :owner "010" :status "v1"}
-  ["re-frame.schemas" "redact-event-tags"]         {:tier :internal-public :owner "010" :status "v1"}
+  ["re-frame.schemas" "redact-validation-tags"]    {:tier :internal-public :owner "010" :status "v1"}
   ["re-frame.schemas" "validate-fx!"]              {:tier :internal-public :owner "010" :status "v1"}
   ["re-frame.schemas" "validate-cofx!"]            {:tier :internal-public :owner "010" :status "v1"}
   ["re-frame.schemas" "validate-sub!"]             {:tier :internal-public :owner "010" :status "v1"}
