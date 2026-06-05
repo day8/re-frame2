@@ -58,15 +58,31 @@
 ;; parse-stop-arg — keeps only the recognised keys.
 ;; ---------------------------------------------------------------------------
 
+;; rf2-e2i29 — `parse-stop-arg` returns the tagged `[:ok m]` /
+;; `[:err :invalid-stop-edn]` shape (mirroring `parse-filter-arg`,
+;; rf2-5kbkl). A malformed `stop` EDN surfaces as an honest `:err` tag
+;; rather than the pre-fix silent collapse to `{}` (the default
+;; wall-clock window).
+
 (deftest parse-stop-arg-shapes
-  (is (= {:ms 5000} (record/parse-stop-arg #js {:ms 5000})))
-  (is (= {:changes 10} (record/parse-stop-arg "{:changes 10}")))
-  (is (= {:pred {:signal 0 :equals :done}}
+  (is (= [:ok {:ms 5000}] (record/parse-stop-arg #js {:ms 5000})))
+  (is (= [:ok {:changes 10}] (record/parse-stop-arg "{:changes 10}")))
+  (is (= [:ok {:pred {:signal 0 :equals :done}}]
          (record/parse-stop-arg "{:pred {:signal 0 :equals :done}}")))
   (testing "unrecognised keys dropped"
-    (is (= {:ms 1} (record/parse-stop-arg #js {:ms 1 :bogus 9}))))
-  (testing "absent ⇒ {}"
-    (is (= {} (record/parse-stop-arg nil)))))
+    (is (= [:ok {:ms 1}] (record/parse-stop-arg #js {:ms 1 :bogus 9}))))
+  (testing "absent ⇒ [:ok {}]"
+    (is (= [:ok {}] (record/parse-stop-arg nil)))))
+
+(deftest parse-stop-arg-malformed-edn-is-err-tagged
+  ;; The regression (rf2-e2i29): a malformed `stop` EDN string must NOT
+  ;; silently collapse to `{}` (the default window) — it returns the
+  ;; honest `[:err :invalid-stop-edn]` tag so the caller short-circuits.
+  (testing "unbalanced delimiters ⇒ :err"
+    (is (= [:err :invalid-stop-edn] (record/parse-stop-arg "{:ms 5000"))) ;; missing brace
+    (is (= [:err :invalid-stop-edn] (record/parse-stop-arg "((("))))      ;; unbalanced
+  (testing "reads clean but not a map ⇒ :err (same swallow-class)"
+    (is (= [:err :invalid-stop-edn] (record/parse-stop-arg "[:ms 5000]")))))
 
 ;; ---------------------------------------------------------------------------
 ;; pred-source — DATA predicate compiles to a pure comparison fn source.
@@ -175,6 +191,27 @@
         (.then (fn [r]
                  (is (tu/error? r))
                  (is (= :no-signals (:reason (tu/extract-edn r))))
+                 (done))))))
+
+(deftest record-tool-malformed-stop-errors-honestly
+  ;; The headline regression (rf2-e2i29). A malformed `stop` EDN makes
+  ;; `record-tool` short-circuit to an honest `:ok? false` envelope
+  ;; (`:reason :invalid-stop-edn`, `:isError true`) — the `cond` branch
+  ;; fires BEFORE the `:else` arm reaches `ensure-runtime!` / the nREPL
+  ;; socket, so this resolves synchronously with no live runtime and no
+  ;; silent default-window recording started. Signals are present so the
+  ;; `:no-signals` branch does not fire first.
+  (async done
+    (-> (record/record-tool (fresh-conn)
+                            #js {:signals "[{:focus true}]" :stop "{:ms 5000"})
+        (.then (fn [r]
+                 (is (tu/error? r)
+                     "malformed stop EDN surfaces as :isError true")
+                 (let [edn (tu/extract-edn r)]
+                   (is (false? (:ok? edn)))
+                   (is (= :invalid-stop-edn (:reason edn))
+                       "honest :reason, not a silent default-window recording")
+                   (is (= "{:ms 5000" (:given edn))))
                  (done))))))
 
 ;; ---- read-recording ---------------------------------------------------------

@@ -125,19 +125,42 @@
   "Normalise the `stop` MCP arg into the runtime stop-condition map.
   Accepts a JS object, a CLJS map, or an EDN string. Recognised keys:
   `:ms` (integer), `:changes` (integer), `:pred` (a filter map — compiled
-  into the runtime predicate below). Unknown keys are dropped. Returns
-  `{}` when absent so the runtime applies its default wall-clock window."
+  into the runtime predicate below). Unknown keys are dropped.
+
+  Returns the tagged `[:ok m]` / `[:err :invalid-stop-edn]` shape
+  (mirroring `parse-filter-arg`, rf2-5kbkl / rf2-e2i29) so the caller can
+  surface a malformed `stop` EDN as an honest `:ok? false` error rather
+  than recording with the silent default window. The success shapes:
+
+    - `[:ok {}]`   — absent `stop` (runtime applies its default
+                     wall-clock window).
+    - `[:ok m]`    — a parsed EDN string, a CLJS map passed through, or
+                     a JS object keywordised — with only the recognised
+                     keys retained.
+
+  The failure shape `[:err :invalid-stop-edn]` is returned when a `stop`
+  EDN STRING fails to `read-string`, OR reads cleanly but is not a map
+  (e.g. `\"[:ms 5000]\"`). Pre-rf2-e2i29 both branches silently collapsed
+  to `{}` — a typo'd `stop {:ms 5000}` (wanting a 5s window) silently got
+  the default window with no corrective signal, the same broken-success
+  shape rf2-5kbkl eliminated for the filter arg. The tag lets `record-tool`
+  short-circuit to the same honest-error envelope `:no-signals` already
+  uses, before touching the nREPL socket."
   [raw]
-  (let [m (cond
-            (nil? raw)    {}
-            (map? raw)    raw
-            (string? raw) (try (let [p (cljs.reader/read-string raw)]
-                                 (if (map? p) p {}))
-                               (catch :default _ {}))
-            (object? raw) (try (js->clj raw :keywordize-keys true)
-                               (catch :default _ {}))
-            :else {})]
-    (select-keys m [:ms :changes :pred])))
+  (cond
+    (nil? raw)    [:ok {}]
+    (map? raw)    [:ok (select-keys raw [:ms :changes :pred])]
+    (object? raw) (let [m (try (js->clj raw :keywordize-keys true)
+                               (catch :default _ ::reader-fail))]
+                    (if (map? m)
+                      [:ok (select-keys m [:ms :changes :pred])]
+                      [:err :invalid-stop-edn]))
+    (string? raw) (let [parsed (try (cljs.reader/read-string raw)
+                                    (catch :default _ ::reader-fail))]
+                    (if (map? parsed)
+                      [:ok (select-keys parsed [:ms :changes :pred])]
+                      [:err :invalid-stop-edn]))
+    :else         [:err :invalid-stop-edn]))
 
 ;; ---------------------------------------------------------------------------
 ;; Stop / watch predicate compile (data → runtime fn).
@@ -246,7 +269,14 @@
   (let [build-id    (wire/arg-build conn raw-args)
         frame       (some-> (wire/arg raw-args :frame) args/->frame-keyword)
         signals     (parse-signals-arg (wire/arg raw-args :signals))
-        stop        (parse-stop-arg (wire/arg raw-args :stop))
+        ;; rf2-e2i29 — `parse-stop-arg` returns the tagged
+        ;; `[:ok m]` / `[:err :invalid-stop-edn]` shape (mirroring
+        ;; `parse-filter-arg`, rf2-5kbkl). A malformed `stop` EDN
+        ;; short-circuits to an honest `:ok? false` envelope below rather
+        ;; than silently collapsing to `{}` (the default wall-clock
+        ;; window) — a typo'd `stop {:ms 5000}` would otherwise record
+        ;; with the wrong stop condition and no corrective signal.
+        [stop-tag stop] (parse-stop-arg (wire/arg raw-args :stop))
         max-entries (let [m (wire/arg raw-args :max-entries)]
                       (when (and (number? m) (pos? m)) (long m)))
         ;; rf2-8fin7.2 — the `:app-db` / `:sub` samples this recorder ships
@@ -271,6 +301,19 @@
           {:ok? false :reason :no-signals
            :hint (str "usage: record {signals '[{:focus true} {:dom \"#count\"} "
                       "{:app-db [:cart :items]}]' [stop {:ms 30000}] [frame :rf/default]}")}))
+
+      ;; rf2-e2i29 — the `stop` EDN failed to parse (or read clean but
+      ;; non-map). Surface an honest `:ok? false` error (same
+      ;; one-cond-branch shape as `:no-signals` above) instead of
+      ;; recording with the silent default window. No nREPL socket touched.
+      (= :err stop-tag)
+      (js/Promise.resolve
+        (wire/err-text
+          {:ok? false :reason :invalid-stop-edn
+           :given (wire/arg raw-args :stop)
+           :hint  (str "stop must be an EDN-readable map (or a JSON object), "
+                       "e.g. \"{:ms 5000}\" / \"{:changes 10}\" / "
+                       "\"{:pred {:signal 0 :equals :done}}\".")}))
 
       :else
       (let [form (start-recording-form signals stop frame max-entries elision-opts)]
