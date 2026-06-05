@@ -105,13 +105,36 @@
 ;; It is wired into the demo frame via `reg-frame :interceptors` in
 ;; core.cljs (`:interceptors` are "prepended to every event in this
 ;; frame", Spec 002 §reg-frame). To keep it cheap and correct it short-
-;; circuits to the unchanged ctx for everything except a programmatic
-;; `:rf.route/navigate` — the one event whose `(second event)` is a route
-;; id whose tags we want to gate on. (Anchor clicks land here too: the
-;; framework `:rf/url-requested` handler resolves the URL to a route and
-;; the on-match drain runs; for THIS sketch we gate the programmatic
-;; navigation surface the navbar uses, which is the path the headless
-;; tests exercise.)
+;; circuits to the unchanged ctx for everything except a navigation
+;; event, and gates EVERY navigation ENTRY POINT so a `:requires-auth`
+;; route is unreachable logged-out by ANY access path (rf2-mzqd4.3):
+;;
+;;   - `:rf.route/navigate`          — programmatic nav (the navbar);
+;;     `(second event)` IS the target route id.
+;;   - `:rf/url-requested`           — anchor (`rf/route-link`) click;
+;;     the request map carries `:to` (the target route id) + `:params`.
+;;   - `:rf.route/handle-url-change` — URL-bar entry / reload / popstate;
+;;     `(second event)` is a URL string resolved to a route via
+;;     `rf/match-url`.
+;;
+;; An earlier sketch gated ONLY `:rf.route/navigate`, so the guard FAILED
+;; OPEN on the most common access path: a logged-out user who typed
+;; `/settings`, reloaded a protected page, or followed an anchor reached
+;; the route (and the on-match drain then fired a request the real
+;; Conduit backend would 401). Gating all three entry points closes that
+;; gap — `resolve-nav-target` normalises each event to an `{:id :params}`
+;; target so ONE redirect path handles them all.
+;;
+;; The redirect: the `:before` SKIPS the original handler (`:rf/skip-
+;; handler?`) so the protected route's slice never commits and its
+;; on-match drain never fires, then dispatches `:rf.route/navigate
+;; :realworld.auth/login` itself. This is the same login navigation the
+;; programmatic path produced, but it works uniformly for ALL three
+;; events — the runtime selects the handler from the ORIGINAL event id
+;; before interceptors run, so rewriting `[:coeffects :event]` across
+;; event ids (e.g. feeding a route-id to `:rf.route/handle-url-change`'s
+;; URL slot) would run the wrong handler. Skip-and-dispatch sidesteps
+;; that entirely.
 ;;
 ;; Bounce-back (`:return-to`). The headline of an auth guard is returning
 ;; the user to where they were headed once they sign in. `:rf.route/navigate`
@@ -120,46 +143,66 @@
 ;; `:bypass-leave-guard?` from opts and drops everything else (Spec 012
 ;; §Navigation is an event), so an opts-borne `:return-to` would silently
 ;; evaporate. We therefore stash the original target in `app-db` instead:
-;; the `:before` records the intended target on the ctx, and an `:after`
-;; folds it into the login navigation's committed `:db` at
-;; `[:auth :return-to]`. The auth machine's `:store-session` action reads
-;; that slot on a successful login and bounces there (falling back to
-;; home), then clears it (auth.cljs).
+;; the `:before` writes it to `[:auth :return-to]` via a `:db` effect
+;; (committed before the login dispatch's `:fx` runs, so the redirect's
+;; slice merge preserves it). The auth machine's `:store-session` action
+;; reads that slot on a successful login and bounces there (falling back
+;; to home), then clears it (auth.cljs).
 
-(def ^:private guard-target-key
-  "Private top-level ctx slot the `:before` uses to signal the `:after`
-   that it redirected, carrying the original {:id :params} target. Lives
-   on the ctx (not in `:coeffects`/`:effects`) so it is invisible to the
-   handler and to the committed app-db — pure intra-interceptor signalling."
-  :realworld.routing/guard-return-to)
+(defn- resolve-nav-target
+  "Normalise a navigation event into its target `{:id <route-id>
+   :params <map>}`, or nil when `event` is not a navigation (so the guard
+   short-circuits). One resolver for all three entry points (rf2-mzqd4.3)
+   so the redirect path below is identical regardless of HOW the user
+   reached the route:
+
+     - `:rf.route/navigate`          → `(second event)` is the route id,
+       `(nth event 2)` its path params (programmatic nav).
+     - `:rf/url-requested`           → anchor click; the request map
+       carries `:to` (route id) + `:params`. Falls back to resolving
+       `:url` via `rf/match-url` if `:to` is absent.
+     - `:rf.route/handle-url-change` → URL-bar / reload / popstate; the
+       URL string is resolved to a route via `rf/match-url`."
+  [[ev-id a b]]
+  (case ev-id
+    :rf.route/navigate
+    {:id a :params (or b {})}
+
+    :rf/url-requested
+    (let [{:keys [to params url]} a]
+      (cond
+        to  {:id to :params (or params {})}
+        url (when-let [{:keys [route-id params]} (rf/match-url url)]
+              {:id route-id :params (or params {})})))
+
+    :rf.route/handle-url-change
+    (when-let [{:keys [route-id params]} (rf/match-url a)]
+      {:id route-id :params (or params {})})
+
+    nil))
 
 (def auth-guard
   {:id     :realworld.routing/auth-guard
    :before (fn auth-guard-before [ctx]
-             (let [[ev-id target params] (get-in ctx [:coeffects :event])]
-               (if (= :rf.route/navigate ev-id)
-                 (let [route-meta  (rf/handler-meta :route target)
-                       needs-auth? (boolean (some #{:requires-auth} (:tags route-meta)))
-                       logged-in?  (some? (get-in ctx [:coeffects :db :auth :user]))]
-                   (if (and needs-auth? (not logged-in?))
-                     ;; Rewrite the in-flight event to a login redirect and
-                     ;; record the original target so the `:after` can stash
-                     ;; it for post-login bounce-back.
-                     (-> ctx
-                         (assoc-in [:coeffects :event]
-                                   [:rf.route/navigate :realworld.auth/login])
-                         (assoc guard-target-key {:id target :params (or params {})}))
-                     ctx))
-                 ctx)))
-   :after  (fn auth-guard-after [ctx]
-             ;; Only acts when the `:before` redirected (the slot is set)
-             ;; AND the login navigation actually committed a `:db` effect
-             ;; (a no-op re-nav or rejected navigation writes none — leave
-             ;; it alone). Folds the stashed target into the committed db.
-             (if-let [return-to (get ctx guard-target-key)]
-               (if (get-in ctx [:effects :db])
-                 (assoc-in ctx [:effects :db :auth :return-to] return-to)
-                 ctx)
+             (if-let [{:keys [id params]} (resolve-nav-target
+                                            (get-in ctx [:coeffects :event]))]
+               (let [route-meta  (rf/handler-meta :route id)
+                     needs-auth? (boolean (some #{:requires-auth} (:tags route-meta)))
+                     logged-in?  (some? (get-in ctx [:coeffects :db :auth :user]))]
+                 (if (and needs-auth? (not logged-in?))
+                   ;; Skip the original handler (so the protected slice +
+                   ;; on-match never commit), stash the intended target for
+                   ;; post-login bounce-back, and dispatch the login
+                   ;; navigation — the SAME redirect for every entry point.
+                   (-> ctx
+                       (assoc :rf/skip-handler? true)
+                       (assoc-in [:effects :db]
+                                 (assoc-in (get-in ctx [:coeffects :db])
+                                           [:auth :return-to]
+                                           {:id id :params params}))
+                       (assoc-in [:effects :fx]
+                                 [[:dispatch [:rf.route/navigate :realworld.auth/login]]]))
+                   ctx))
                ctx))})
 
 ;; ============================================================================
