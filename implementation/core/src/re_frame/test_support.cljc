@@ -55,12 +55,17 @@
   ### Fixture machinery
   - [[snapshot-registrar]] — capture the current registrar state.
   - [[restore-registrar!]] — restore the registrar to a captured snapshot.
+  - [[merge-registrar-snapshots]] — two-level merge of two registrar
+    snapshots (overlay wins per `[kind id]`).
   - [[with-fresh-registrar]] — bracket a thunk with snapshot + restore.
   - [[make-reset-runtime-fixture]] — `clojure.test`/`cljs.test` `:each`
     fixture that snapshot/restores the registrar AND resets the
     per-process state held by frames / flows (when the flows artefact
     is loaded, rf2-tfw3) / adapter / machine counters / trace
-    listeners.
+    listeners. Pins a STABLE ns-load baseline (captured at fixture-build
+    time) and reinstates it before each test's snapshot, so example /
+    framework tests are run-order-independent inside the shared
+    `:node-test` bundle (rf2-7hwnu).
 
   ### Test-flavoured helpers (rf2-0l3s / rf2-hkr5 / rf2-8j9m6)
   - [[dispatch-sequence]] — fire a vector of events synchronously,
@@ -143,6 +148,23 @@
   [snapshot]
   (reset! registrar/kind->id->metadata snapshot)
   nil)
+
+(defn merge-registrar-snapshots
+  "Two-level merge of two registrar snapshots (`kind → id → metadata`).
+
+  Entries from `overlay` win on a per-`[kind id]` collision; ids present
+  only in `base` survive; ids present only in `overlay` are added. Because
+  the registrar value is a map of `kind → (map of id → metadata)`, the
+  merge must be two-deep — `(merge-with merge base overlay)` — so that two
+  snapshots that each populate a *different* id under the same `kind` are
+  unioned rather than one `kind` map clobbering the other.
+
+  Used by [[make-reset-runtime-fixture]] to fold a stable ns-load baseline
+  back over whatever the registrar currently holds, so a test ns's own
+  ns-load registrations are present regardless of what a sibling ns's
+  `:each` fixture last restored the registrar to (rf2-7hwnu)."
+  [base overlay]
+  (merge-with merge base overlay))
 
 (defn with-fresh-registrar
   "Run `body-fn` with a snapshot/restore bracket around the registrar.
@@ -249,11 +271,30 @@
   "Build a `clojure.test` / `cljs.test` `:each` fixture that resets the
   per-process re-frame runtime around each test.
 
+  ## Run-order independence (rf2-7hwnu)
+
+  The registrar baseline is captured ONCE, when the fixture is built —
+  i.e. when the test ns's `(use-fixtures :each ...)` form is evaluated,
+  which is AT THIS TEST NS'S LOAD (after its `:require` chain has
+  registered its framework + example handlers / subs / views / machines /
+  fx). `cljs.test` runs every test ns in one shared bundle; a sibling ns's
+  `:each` fixture can restore the registrar to a snapshot that predates
+  this ns's load, stranding this ns's registrations (e.g. leaving the
+  whole `:event` registrar empty for an alphabetically-later example ns).
+  Before each test, the fixture folds the stable ns-load baseline back
+  over the live registrar (via [[merge-registrar-snapshots]]) and only
+  THEN snapshots — so the snapshot it restores to is always populated with
+  this ns's own registrations, regardless of run order. This subsumes the
+  bespoke outer-fixture workarounds the todomvc and conformance-corpus
+  tests previously carried.
+
   Per call (i.e. per test), the fixture:
 
-    1. Captures the current registrar (so user-test registrations can be
-       rolled back without losing ns-load-time framework / example
-       registrations).
+    0. Reinstates the stable ns-load baseline over the live registrar
+       (run-order independence — see above).
+    1. Captures the current (baseline-reinstated) registrar (so user-test
+       registrations can be rolled back without losing ns-load-time
+       framework / example registrations).
     2. Resets `frame/frames` to `{}`, plus the flows registry (via
        `flows/reset-flows!` per rf2-4gvb4 — atoms are private behind
        an accessor seam) and `schemas/schemas-by-frame` (when those
@@ -328,6 +369,26 @@
           {:adapter plain-atom/adapter}))"
   ([] (make-reset-runtime-fixture {}))
   ([{:keys [adapter init-fn clear-kinds clear-app-schemas?]}]
+   ;; Stable ns-load baseline (rf2-7hwnu). `make-reset-runtime-fixture` is
+   ;; called when the test ns's `(use-fixtures :each ...)` form is
+   ;; evaluated — i.e. AT THIS TEST NS'S LOAD, after its `:require` chain
+   ;; (which registers framework + example handlers / subs / views /
+   ;; machines / fx). Capturing the registrar HERE — once, at fixture-build
+   ;; time — pins every registration this ns brought live as a stable
+   ;; baseline.
+   ;;
+   ;; Why this matters: `cljs.test` runs every test ns in ONE shared
+   ;; bundle. A sibling ns's `:each` fixture restores the registrar to a
+   ;; snapshot it captured — and that snapshot can PREDATE this ns's load,
+   ;; stranding this ns's registrations (leaving e.g. the entire `:event`
+   ;; registrar empty for alphabetically-later example ns). The per-test
+   ;; closure below folds this baseline back over the live registrar before
+   ;; snapshotting, so the snapshot the fixture restores to is always
+   ;; populated with this ns's own registrations — run-order-independent.
+   ;; This subsumes the bespoke outer-fixture workarounds that the todomvc
+   ;; (`ns-load-registrar` + `reinstate-todomvc-registrations`) and
+   ;; conformance-corpus (`pretest-registrar`) tests carried.
+   (let [ns-load-baseline (snapshot-registrar)]
    (fn [test-fn]
      ;; Late-bind: when the schemas artefact is loaded, snap and restore
      ;; the per-frame schema registry around the test body. `clear-fn`
@@ -335,6 +396,16 @@
      ;; (the schemas artefact owns its own per-frame side-table — it is
      ;; NOT a registrar kind per rf2-cq1ak, so the registrar's
      ;; `clear-kind!` cannot reach it).
+     ;;
+     ;; rf2-7hwnu — reinstate the stable ns-load baseline over whatever the
+     ;; registrar currently holds BEFORE snapshotting. `merge-registrar-
+     ;; snapshots` keeps any registrations a later-loading ns left live
+     ;; (left arg) while guaranteeing this ns's own ns-load registrations
+     ;; (right arg, wins on collision) are present. The `snap` we then
+     ;; capture — and restore to on the way out — is therefore always
+     ;; populated, so this ns's tests no longer depend on run-order luck.
+     (restore-registrar!
+       (merge-registrar-snapshots (snapshot-registrar) ns-load-baseline))
      (let [snap          (snapshot-registrar)
            snapshot-fn   (late-bind/get-fn :schemas/snapshot-by-frame)
            clear-fn      (late-bind/get-fn :schemas/clear-by-frame!)
@@ -366,7 +437,7 @@
            (when restore-fn (restore-fn schemas-snap))
            (reset! frame/frames {})
            (when-let [reset-flows! (late-bind/get-fn :flows/reset-flows!)]
-             (reset-flows!))))))))
+             (reset-flows!)))))))))
 
 ;; ---- test-flavoured helpers (rf2-0l3s / rf2-hkr5) -------------------------
 ;;

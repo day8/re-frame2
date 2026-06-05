@@ -32,16 +32,14 @@
    Registrar-baseline note: TodoMVC's events register at THIS ns's load
    time. cljs.test runs every test ns in a single shared bundle, and some
    sibling test ns's `:each` fixture restores the registrar to a snapshot
-   that predates this ns's load — stranding the TodoMVC registrations by
-   the time this deftest runs. The conformance-corpus test handles the
-   same hazard by capturing a baseline at deftest entry; we capture this
-   ns's registrations once at ns-load (`ns-load-registrar`) and reinstate
-   them in an OUTER `:each` fixture that wraps the standard reset fixture,
-   so the inner fixture snapshots a populated registrar and restores it
-   intact."
+   that predates this ns's load — which used to strand the TodoMVC
+   registrations by the time this deftest runs. As of rf2-7hwnu the shared
+   `make-reset-runtime-fixture` pins a stable ns-load baseline at
+   fixture-build time and reinstates it before each test's snapshot, so
+   this ns no longer needs the bespoke outer `reinstate-*` fixture it once
+   carried — run-order independence is now the fixture's contract."
   (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
             [re-frame.core :as rf]
-            [re-frame.registrar :as registrar]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]
             [re-frame.views]
@@ -52,28 +50,7 @@
             [todomvc.core])
   (:require-macros [re-frame.core :refer [with-new-frame]]))
 
-;; Capture the registrar AT THIS NS'S LOAD — TodoMVC's events / cofx / fx
-;; are registered by now (todomvc.core's require chain ran above). The
-;; outer fixture below reinstates this baseline so a sibling test ns's
-;; pre-todomvc registrar snapshot can't strand these registrations.
-(def ^:private ns-load-registrar (test-support/snapshot-registrar))
-
-(defn- reinstate-todomvc-registrations
-  "Outer :each fixture — ensure the TodoMVC ns-load registrations are
-   present before the standard reset fixture snapshots the registrar.
-   Merge (don't replace) so any framework registrations that landed after
-   this ns loaded survive too."
-  [test-fn]
-  (let [before @registrar/kind->id->metadata]
-    (reset! registrar/kind->id->metadata
-            (merge-with merge before ns-load-registrar))
-    (try
-      (test-fn)
-      (finally
-        (reset! registrar/kind->id->metadata before)))))
-
 (use-fixtures :each
-  reinstate-todomvc-registrations
   (test-support/make-reset-runtime-fixture
     {:adapter reagent-adapter/adapter}))
 
