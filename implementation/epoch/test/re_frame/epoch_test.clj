@@ -1606,6 +1606,89 @@
       (is (every? #(contains? % :trace-events) history)
           "every record carries :trace-events — keep is large enough"))))
 
+;; ---- rf2-b2c02: value-changed scan bound tracks the ELISION boundary ------
+;;
+;; `value-changed-epoch-for` (state.cljc) scans the ring newest-first for the
+;; epoch that genuinely re-rendered a view, bounded so it only walks records
+;; that still carry `:trace-events` (the matchable set). rf2-3rg4j bounded it
+;; at `(- n keep)`. rf2-b2c02 R2: that index-derived bound is correct only in
+;; STEADY STATE — after a RUNTIME `:trace-events-keep` REDUCTION, elision is
+;; non-retroactive (`elide-just-crossed-trace-events`'s docstring), so records
+;; that were inside the OLD keep-window still carry `:trace-events` yet now sit
+;; BELOW `(- n new-keep)`. An index bound would skip those still-trace-bearing
+;; records and miss a genuine value-change, mis-attributing the render. The fix
+;; bounds the scan on the directly-observable elision state (break at the first
+;; record MISSING `:trace-events`) so it tracks reality under any reconfigure.
+
+(defn- vc-record
+  "A minimal epoch record carrying a value-changed `:rf.sub/run` for
+  `render-key` in its `:trace-events` — the shape `value-changed-epoch-for`
+  matches (via `epoch-value-changed-for-view?`)."
+  [frame-id epoch-id render-key]
+  {:frame        frame-id
+   :epoch-id     epoch-id
+   :trace-events [{:op-type   :rf.sub
+                   :operation :rf.sub/run
+                   :tags      {:rf.sub/value-changed?    true
+                               :rf.sub/reader-render-key render-key
+                               :frame                    frame-id}}]})
+
+(defn- plain-record
+  "A minimal epoch record whose `:trace-events` carries NO value-change for
+  `render-key` — a record that is present + trace-bearing but never a hit."
+  [frame-id epoch-id]
+  {:frame        frame-id
+   :epoch-id     epoch-id
+   :trace-events []})
+
+(deftest value-changed-scan-finds-trace-bearing-epoch-below-reduced-keep
+  (testing "rf2-b2c02 — after a runtime :trace-events-keep REDUCTION, the
+            value-changed scan still finds an epoch that sits below the new
+            (- n keep) index but STILL carries :trace-events (elision is
+            non-retroactive). The index-derived bound rf2-3rg4j shipped would
+            skip it; the elision-boundary bound finds it."
+    (let [frame-id   :test/main
+          render-key [:counter-view 0]
+          ;; A ring of 8 records, all still trace-bearing (elision has not yet
+          ;; re-run for the reduced keep). The value-change for the view lives
+          ;; in record index 2 — well below a freshly-reduced keep window.
+          history    (into [(vc-record frame-id :e0 render-key)        ;; idx 0
+                            (plain-record frame-id :e1)                ;; idx 1
+                            (vc-record frame-id :e2 render-key)]       ;; idx 2 ← target
+                           (map #(plain-record frame-id (keyword (str "e" %)))
+                                (range 3 8)))]                          ;; idx 3..7
+      (reset! @#'state/histories {frame-id history})
+      ;; new-keep = 3 → the index bound would be lo = (- 8 3) = 5, skipping
+      ;; idx 2 even though it still carries :trace-events.
+      (reset! @#'state/config {:depth 50 :trace-events-keep 3 :redact-fn nil})
+      (is (= :e2 (@#'state/value-changed-epoch-for frame-id render-key))
+          "the scan reaches the still-trace-bearing value-change at idx 2,
+           below (- n new-keep) = 5 — the post-reduction transient gap"))))
+
+(deftest value-changed-scan-stops-at-elision-boundary
+  (testing "rf2-b2c02 — the scan does NOT walk past the elision boundary: a
+            record whose :trace-events was elided (slot absent) terminates the
+            scan, and a value-change ONLY present in an elided (older) record is
+            correctly NOT found. This pins the O(keep) bound the fix preserves."
+    (let [frame-id   :test/main
+          render-key [:counter-view 0]
+          ;; idx 0 carries a value-change but was ELIDED (no :trace-events slot);
+          ;; idx 1 is the elision boundary (also elided); idx 2..4 trace-bearing
+          ;; but carry no value-change for the view.
+          elided-vc  (dissoc (vc-record frame-id :e0 render-key) :trace-events)
+          elided     (dissoc (plain-record frame-id :e1) :trace-events)
+          history    [elided-vc                       ;; idx 0 — elided, has a (lost) vc
+                      elided                           ;; idx 1 — elided boundary
+                      (plain-record frame-id :e2)      ;; idx 2 — trace-bearing, no vc
+                      (plain-record frame-id :e3)      ;; idx 3
+                      (plain-record frame-id :e4)]     ;; idx 4
+          ]
+      (reset! @#'state/histories {frame-id history})
+      (reset! @#'state/config {:depth 50 :trace-events-keep 5 :redact-fn nil})
+      (is (nil? (@#'state/value-changed-epoch-for frame-id render-key))
+          "the value-change lives only in an ELIDED record — the scan stops at
+           the boundary and reports no hit (the elided record cannot match)"))))
+
 ;; ---- restore-epoch reactive surfaces (rf2-2fat) ---------------------------
 ;;
 ;; Bead rf2-2fat coverage. Tool-Pair §Time-travel says restore "rewinds the

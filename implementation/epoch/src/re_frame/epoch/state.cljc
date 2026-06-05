@@ -484,30 +484,47 @@
   Reads only `:trace-events`, which the most-recent `:trace-events-keep`
   records retain — exactly the window a post-settle render can target
   (the back-fill never reaches older, projection-only records). The scan
-  is BOUNDED to that keep-window: a record past it had its `:trace-events`
-  elided (`elide-just-crossed-trace-events`), so `epoch-value-changed-for-
-  view?` short-circuits to `false` on it via `(some f nil)` — it can never
-  contribute a hit. Stopping at `(- (count history) keep)` makes the scan
+  is BOUNDED by the ELISION boundary: it stops at the first record (newest-
+  first) whose `:trace-events` slot is absent. A record below that boundary
+  had its `:trace-events` elided (`elide-just-crossed-trace-events`), so it
+  carries no value-changed `:sub/run` to find — it can never contribute a
+  hit, and every record older than it is likewise elided (elision is a
+  contiguous oldest-first prefix). Breaking at the boundary makes the scan
   genuinely O(keep) rather than O(depth) per miss (the common mount /
   mount-burst-tail case this fn exists to catch), matching the fused-walk
-  / O(keep) framing the rest of this file holds (rf2-3rg4j). A nil `keep`
-  means every record retains `:trace-events`, so the scan reaches index 0.
-  One pass newest-first; short-circuits at the first matching epoch."
+  / O(keep) framing the rest of this file holds (rf2-3rg4j).
+
+  WHY THE BOUND READS `:trace-events` PRESENCE, NOT `(- n keep)` (rf2-b2c02):
+  the steady-state elision boundary IS `(- n keep)`, but it is NOT after a
+  RUNTIME `:trace-events-keep` REDUCTION. Elision is non-retroactive (see
+  `elide-just-crossed-trace-events`'s docstring) — immediately after a
+  reduction (e.g. 50 → 5) records that were inside the OLD window but now
+  sit below `(- n new-keep)` STILL carry `:trace-events` until subsequent
+  appends re-elide them. A `(- n keep)` bound would skip those still-trace-
+  bearing records and miss a genuine value-change living in that transient
+  gap, mis-attributing the render to the mount / settling epoch. Bounding
+  on the directly-observable elision state instead tracks reality under any
+  reconfiguration: it scans EXACTLY the records that still carry traces —
+  the only records that can match — and self-heals back to O(keep) as
+  appends re-elide the gap. Cost is never worse than the pre-rf2-3rg4j
+  O(depth) and is identical O(keep) in steady state. A nil / unbounded
+  `keep` leaves every record carrying `:trace-events`, so the scan reaches
+  index 0. One pass newest-first; short-circuits at the first matching
+  epoch."
   [frame-id render-key]
   (let [history (history-for frame-id)
         deps    (render-deps-for frame-id render-key)
-        n       (count history)
-        keep    (trace-events-keep)
-        ;; Older records carry no `:trace-events`, so they can never match;
-        ;; stop the scan at the keep-window's oldest retained index. nil
-        ;; `keep` = retain everything → scan to index 0.
-        lo      (if (nat-int? keep) (max 0 (- n keep)) 0)]
+        n       (count history)]
     (loop [i (dec n)]
-      (when (>= i lo)
+      (when (>= i 0)
         (let [record (nth history i)]
-          (if (epoch-value-changed-for-view? record render-key deps)
-            (:epoch-id record)
-            (recur (dec i))))))))
+          ;; Elision is a contiguous oldest-first prefix: the first record
+          ;; (newest-first) that has lost its `:trace-events` marks the
+          ;; boundary — it and everything older are elided and unmatchable.
+          (when (contains? record :trace-events)
+            (if (epoch-value-changed-for-view? record render-key deps)
+              (:epoch-id record)
+              (recur (dec i)))))))))
 
 (defn resolve-render-epoch
   "Resolve the epoch a post-settle render of `render-key` should be
