@@ -246,10 +246,16 @@
     (if (and (some? index) comment)
       (update-in db [:comments :data]
                  (fn [xs]
-                   (let [xs (vec xs)]
-                     (vec (concat (subvec xs 0 index)
+                   ;; Clamp to the CURRENT length: the captured index is from
+                   ;; optimistic-delete time and the list may have shrunk since
+                   ;; (a `:comments/loaded` re-fetch or a concurrent delete).
+                   ;; Without the clamp, `subvec` throws IndexOutOfBounds when
+                   ;; index > (count xs) and the whole event drain dies.
+                   (let [xs (vec xs)
+                         i  (min (max 0 index) (count xs))]
+                     (vec (concat (subvec xs 0 i)
                                   [comment]
-                                  (subvec xs index))))))
+                                  (subvec xs i))))))
       db)))
 
 ;; ============================================================================
