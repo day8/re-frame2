@@ -281,11 +281,12 @@
   (or (str/starts-with? path "/")
       (str/starts-with? path "\\")
       (str/starts-with? (str/lower-case path) "file:")
-      (and (>= (count path) 2)
-           (= \: (.charAt path 1))
-           (let [c (.charAt path 0)]
-             (or (and (>= (int c) (int \a)) (<= (int c) (int \z)))
-                 (and (>= (int c) (int \A)) (<= (int c) (int \Z))))))))
+      ;; Drive-letter prefix: an ASCII letter followed by `:` (e.g. `C:` /
+      ;; `c:/...`). Matched with a regex rather than per-char arithmetic so
+      ;; CLJS doesn't emit `:invalid-arithmetic` warnings — under CLJS a char
+      ;; literal / `.charAt` result is a single-char string, and `(int <char>)`
+      ;; fed to the comparison's `bit-or` trips `[string number]` (rf2-ltedz).
+      (boolean (re-find #"(?i)^[a-z]:" path))))
 
 (defn- compose-path
   "Combine `project-root` and the source-coord's `:file` into a single
