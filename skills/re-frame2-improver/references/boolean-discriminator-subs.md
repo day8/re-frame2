@@ -21,7 +21,7 @@ A re-frame2 state machine declares the states once; tags label the per-state int
 
 ## The canonical fix
 
-[`skills/re-frame2/references/state-machines/tags.md`](../../re-frame2/references/state-machines/tags.md) — declare a `reg-machine` whose states carry `:tags`, then use `@(rf/machine-has-tag? machine-id tag)` (or a single render-priority selector sub) instead of the boolean cluster.
+[`skills/re-frame2/references/state-machines/tags.md`](../../re-frame2/references/state-machines/tags.md) — declare a `reg-machine` whose states carry `:tags`, then resolve the page's render through **one selector sub** over a data-shaped render-priority table (the view does a single `case`). Use `@(rf/machine-has-tag? machine-id tag)` directly only for single one-off affordances, not for the mutually-exclusive whole-page render branch — that is what the selector sub is for.
 
 For full page-level rendering with cardinality buckets, [`skills/re-frame2/patterns/nine-states.md`](../../re-frame2/patterns/nine-states.md) is the canonical pattern.
 
@@ -47,7 +47,7 @@ Spec source: [`spec/005-StateMachines.md`](../../../spec/005-StateMachines.md) �
     @(rf/subscribe [:article/loaded?])  [article-body]))
 ```
 
-**After** — machine + tags + one selector. The states carry `:tags` for the render question **and** `:on` transitions for the driving events, so the machine actually moves through its lifecycle (a tag-only machine would be stuck in `:loading` forever):
+**After** — machine + tags + one selector. The states carry `:tags` for the render question **and** `:on` transitions for the driving events, so the machine actually moves through its lifecycle (a tag-only machine would be stuck in `:loading` forever). The render priority lives in a **data** table; one selector sub resolves the tag union to a single render keyword; the view does **one** `case`:
 
 ```clojure
 (rf/reg-machine :article
@@ -69,15 +69,37 @@ Spec source: [`spec/005-StateMachines.md`](../../../spec/005-StateMachines.md) �
 ;;           (rf/dispatch [:article [:load-failure err]])    ;; → :error
 ;;           (rf/dispatch [:article [:reload]])              ;; back to :loading
 
+;; Render priority as data — printable, testable, diffable. First matching tag wins.
+(def render-priority
+  [{:tag :article/loading :render :loading}
+   {:tag :article/error   :render :error}
+   {:tag :article/empty   :render :empty}
+   {:tag :article/loaded  :render :loaded}])
+
+;; One selector sub over the machine's tag union. (`:tags` is elided when empty,
+;; so `contains?` against a possibly-nil set is the right test.)
+(rf/reg-sub :article/render
+  :<- [:rf/machine :article]
+  (fn [snap _]
+    (let [tags (:tags snap)]
+      (some (fn [{:keys [tag render]}]
+              (when (contains? tags tag) render))
+            render-priority))))
+
+;; The view branches once, in a `case`, on the resolved keyword.
 (defn article-page []
-  (cond
-    @(rf/machine-has-tag? :article :article/loading) [spinner]
-    @(rf/machine-has-tag? :article :article/error)   [error-banner]
-    @(rf/machine-has-tag? :article :article/empty)   [empty-state]
-    @(rf/machine-has-tag? :article :article/loaded)  [article-body]))
+  (case @(rf/subscribe [:article/render])
+    :loading [spinner]
+    :error   [error-banner]
+    :empty   [empty-state]
+    :loaded  [article-body]))
 ```
 
-The guarded-vector transition on `:load-success` (first match wins) routes an empty payload to `:empty` and a non-empty one to `:loaded` — the same discrimination the boolean cluster encoded, now declared once in the transition table instead of recomputed in four subs.
+The guarded-vector transition on `:load-success` (first match wins) routes an empty payload to `:empty` and a non-empty one to `:loaded` — the same discrimination the boolean cluster encoded, now declared once in the transition table instead of recomputed in four subs. The render priority that was previously hidden in the `cond` clause order now lives in the `render-priority` vector; the root view holds a single deref and a single branch. Adding a `:stale` state is one row in the table plus one `case` clause — no audit of mutual-exclusion across a boolean cluster.
+
+For full page-level rendering across parallel render axes (data × form × mode), the same selector-sub idiom scales up to the Nine States pattern — see [`skills/re-frame2/patterns/nine-states.md`](../../re-frame2/patterns/nine-states.md).
+
+> **`machine-has-tag?` vs the selector sub.** Reach for `@(rf/machine-has-tag? :article :some/tag)` directly for **single one-off affordances** — disabling a button while in-flight, showing a "read-only" badge — where you ask one independent tag-question. Route **mutually-exclusive whole-page render states** through one selector sub over a priority table, as above. A `cond` over multiple `machine-has-tag?` derefs in the root view re-introduces the very multi-boolean branch shape this leaf exists to retire.
 
 ## Edge cases — when boolean subs are fine
 
