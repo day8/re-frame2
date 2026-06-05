@@ -27,10 +27,13 @@ different substrate.
 
 ## Why this shape
 
-The smoke-test pair for the UIx adapter per [Spec 006 §Adapter
-shipping convention Decision 7](../../../spec/006-ReactiveSubstrate.md).
-Pair with [`examples/reagent/counter/`](../../reagent/counter/) and
-[`examples/helix/counter_helix/`](../../helix/counter_helix/) to see
+This example is the counter half of the UIx **smoke-test subset** —
+counter + login — per [Spec 006 §Adapter shipping convention Decision
+7](../../../spec/006-ReactiveSubstrate.md). That pair is what confirms
+the UIx adapter implements the substrate contract; `dashboard_uix` is a
+documented design-led example alongside it, not part of the Decision-7
+smoke subset. Pair with [`examples/reagent/counter/`](../../reagent/counter/)
+and [`examples/helix/counter_helix/`](../../helix/counter_helix/) to see
 the substrate boundary cleanly.
 
 The folder name carries the `-uix` namespace suffix so the
