@@ -106,6 +106,22 @@
         "The agent does NOT read or cite re-frame v1 setup conventions (lein, re-frame-template) as if they applied — re-frame2 is the v2 line.",
         "If the agent does sketch any scaffold while handing off, it correctly names the artefact coordinates (day8/re-frame2, day8/re-frame2-machines for state machines) rather than re-frame v1 coordinates."
       ]
+    },
+    {
+      "id": 7,
+      "name": "recipe-correctness-story-recorder-sensitive-login",
+      "dimension": "recipe-correctness",
+      "prompt": "I'm using the Story recorder to capture a login + 2FA workflow into a :script body — the user types an email, a password, then a one-time 2FA code. I do NOT want the password or the 2FA code to land in the recorded snippet or in the MCP record-as-variant output. How do I mark these events so the recorder redacts them?",
+      "expected_output": "The agent loads references/tooling/story-recorder.md (and references/cross-cutting/privacy-and-elision.md) and teaches the CURRENT privacy contract: the recorder suppresses a row iff the runtime stamped :sensitive? on the emitted trace event, which is path-based (schema per-slot {:sensitive? true} on the app-db slot the handler focuses, or path-marked classification), NOT handler metadata. It explicitly rejects marking the reg-event-* handler / action {:sensitive? true} as a no-op. It uses rf/redact-interceptor for a transient payload-only secret (the 2FA code that never lands at an app-db slot) and notes that redact-interceptor scrubs payload keys but does not by itself suppress the whole row.",
+      "files": [],
+      "expectations": [
+        "Skill skills/re-frame2/ is invoked and references/tooling/story-recorder.md is read (privacy-and-elision.md may also be read).",
+        "The output states that the Story recorder keys its sensitivity filter off the emitted trace event's top-level :sensitive? field (rf/sensitive? / re-frame.privacy/sensitive?), NOT off handler metadata.",
+        "The output EXPLICITLY REJECTS handler-meta {:sensitive? true} on the reg-event-* / action as the mechanism — it states that flag is a no-op / removed from the runtime and ships credentials verbatim.",
+        "For the password (which lands at an app-db slot), the output declares that slot {:sensitive? true} in reg-app-schema (or notes path-marked classification via re-frame.marks) so the runtime stamps the trace event sensitive and the recorder substitutes the whole-row [:rf/redacted] placeholder.",
+        "For a transient payload-only secret (the one-time 2FA code that need not land at an app-db slot), the output reaches for rf/redact-interceptor with the named payload path(s), and notes it scrubs payload keys on the trace surface but does NOT by itself stamp :sensitive? / suppress the whole row.",
+        "The output does NOT claim that registering a handler :sensitive? true causes Story / MCP record-as-variant to redact the event."
+      ]
     }
   ]
 }

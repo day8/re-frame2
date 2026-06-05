@@ -39,26 +39,40 @@ The trace-bus callback short-circuits unless a recording is in flight, so it's f
 1. **Op-type** — only `:event/dispatched` emissions qualify (`:fx`, `:sub`, `:view`, `:cofx` traffic is dropped).
 2. **Frame scope** — emission `:frame` must match the recording's target variant. Typing in another canvas while a recording is active is dropped.
 3. **Event vocabulary** — `:rf.assert/*` events and Story-internal helpers (`:rf.story/*`, `:re-frame.story.*`) are filtered. Recorded `:script` bodies capture user intent; assertions get added by hand afterwards.
-4. **Sensitivity** — events whose handler is registered `:sensitive? true` (auth, 2FA, password change, API-key rotation) replace the event vector with the placeholder `[:rf/redacted]` instead of riding the raw payload into the snippet. The temporal position survives; the secret never lands in `:script` source. See the next section for details and the authoring rule.
+4. **Sensitivity** — events the runtime has stamped `:sensitive?` on the *emitted trace event* (auth, 2FA, password change, API-key rotation) replace the event vector with the placeholder `[:rf/redacted]` instead of riding the raw payload into the snippet. The temporal position survives; the secret never lands in `:script` source. The recorder keys off the trace event's top-level `:sensitive?` field (`re-frame.privacy/sensitive?`, re-exported as `rf/sensitive?`) — **NOT** handler metadata. Handler-meta `{:sensitive? true}` was removed from the runtime and does nothing. See the next section for what actually stamps that flag, plus the authoring rule.
 
 ## Sensitive events — record-but-redact
 
-A handler registered `:sensitive? true` (an auth flow, a 2FA verify, a password change) still appears in the recording, but as the placeholder vector `[:rf/redacted]` rather than the verbatim event payload. The row's temporal position survives so the dev can see "click → auth happened → click", but the credential / PII / auth-token never rides into the snippet text.
+> **CRITICAL — what makes an event sensitive.** The recorder suppresses a row **iff the runtime stamped `:sensitive? true` on the emitted trace event** (it checks `(rf/sensitive? trace-event)`, i.e. the event's top-level `:sensitive?` field). That stamp is **path-based**, never handler-based. Marking a `reg-event-*` handler `{:sensitive? true}` does **nothing** — the runtime removed that annotation and no longer consults it, so a handler-meta-only "sensitive" login event ships its credentials verbatim into the `:script` body. Authors who rely on the old handler-meta flag will leak secrets.
+
+The current privacy contract has two declaration surfaces, and only the first one stamps the trace event the recorder gates on:
+
+| Mechanism | Where you declare it | Stamps top-level trace `:sensitive?`? | Recorder behaviour |
+|---|---|---|---|
+| **Schema per-slot `{:sensitive? true}`** on an app-db path the handler focuses (via `[(rf/path …)]`) — or path-marked sensitivity via `re-frame.marks` (Spec 015), the live successor | `(rf/reg-app-schema …)` | **Yes** — the schema-sensitive handler scope is stamped | Row redacted → `[:rf/redacted]` |
+| **`rf/redact-interceptor [[:path] …]`** — transient payload scrubbing | positional interceptor on the handler | **No** — it scrubs *named payload keys* to `:rf/redacted` on the trace surface but does **not** stamp the top-level `:sensitive?` flag | Row **kept**; only the named payload keys appear redacted |
+| Handler-meta `{:sensitive? true}` | `reg-event-*` registration map | **No** — removed; ignored | Row kept, payload verbatim — **do not rely on this** |
+
+So to get a recorded login / 2FA / API-key flow suppressed, the sensitive value must live at a **schema-declared sensitive app-db slot** (the handler focuses it with `[(rf/path …)]`) or be **path-marked** — that is what stamps the trace event and triggers whole-row redaction. `rf/redact-interceptor` is the right tool for a secret that rides *only* in the event payload and never lands at an app-db slot, but note that it scrubs payload keys without suppressing the whole row.
+
+When the runtime *has* stamped the event sensitive, it still appears in the recording — as the placeholder vector `[:rf/redacted]` rather than the verbatim event payload. The row's temporal position survives so the dev can see "click → auth happened → click", but the credential / PII / auth-token never rides into the snippet text:
 
 ```clojure
-;; A recording that includes a sensitive dispatch lands like this:
+;; A recording that includes a schema-sensitive dispatch lands like this:
 [[:counter/inc]
- [:rf/redacted]                ;; placeholder for an :auth/login dispatch
+ [:rf/redacted]                ;; whole-row placeholder for an :auth/login dispatch
  [:counter/inc]]
 ```
 
-Properties:
+**Whole-row placeholder vs payload-only redaction.** The recorder substitutes the *whole event vector* with the single-element placeholder `[:rf/redacted]` — it does not emit a redacted-payload event vector (e.g. `[:auth/login {:password :rf/redacted}]`). The two redaction shapes are distinct: `rf/redact-interceptor` produces a payload-only redaction (`[:auth/login {:password :rf/redacted}]`) on the *trace surface* but, because it does not stamp the top-level `:sensitive?` flag, the recorder does not treat that row as suppressible — it captures whatever the trace event carries. Whole-row `[:rf/redacted]` is the recorder's own substitution, applied only when the trace event is stamped `:sensitive?`.
+
+Properties of the whole-row placeholder:
 
 - **Round-trips cleanly.** `[:rf/redacted]` is a well-formed event vector; `read-string` survives. Re-playing the snippet finds no handler for `:rf/redacted`, so dispatch raises a clean `:rf.error/handler-not-found` rather than a malformed-event-vector error — the dev sees they need to replace the placeholder before re-play works.
 - **The redaction counter still bumps.** The recording overlay's REDACTED indicator shows "N rows redacted" alongside the placeholders themselves, so the dev knows how many slots are pasteholders even before scrolling.
 - **`:rf.privacy/show-sensitive? true` keeps the verbatim event.** In-box debug only; never enable for snippets that ride into source control. Set via `(story/configure! {:rf.privacy/show-sensitive? true})` early in dev boot.
 
-Authoring rule: do NOT publish a `:script` body containing `[:rf/redacted]` slots into committed source — they're recordings of credential flows, not reproducible tests. Either hand-author the equivalent dispatch with a synthetic credential, or scope the recording away from the sensitive step.
+Authoring rule: do NOT publish a `:script` body containing `[:rf/redacted]` slots into committed source — they're recordings of credential flows, not reproducible tests. Either hand-author the equivalent dispatch with a synthetic credential, or scope the recording away from the sensitive step. And do NOT reach for handler-meta `{:sensitive? true}` to make a recording safe — it is a no-op; declare the sensitive app-db slot in your schema (or path-mark it) so the runtime stamps the trace event the recorder gates on. See [`../cross-cutting/privacy-and-elision.md`](../cross-cutting/privacy-and-elision.md) for the full schema-paths / `redact-interceptor` contract.
 
 ## Worked example — recorded `:script` body
 

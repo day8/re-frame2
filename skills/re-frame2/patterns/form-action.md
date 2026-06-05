@@ -77,7 +77,14 @@ Every form POST MUST carry a CSRF token; the server MUST reject a mismatched tok
 
 ## File uploads
 
-`enctype="multipart/form-data"` — the host adapter parses files under `:form-params` as `{:filename :content-type :size :tempfile :sensitive?}` maps. The `:tempfile` is host-specific and **opaque**: pass it to a file-storage fx (S3 PUT, disk write); never dereference it in the handler, and write only the resulting URL/storage-id into `app-db`. File **contents** never appear in trace events; a `:sensitive? true` action redacts the whole `:form-params` map (filenames leak too). Mixed sensitive + non-sensitive fields → split into two POSTs (sanitisation is map-level, not field-level).
+`enctype="multipart/form-data"` — the host adapter parses files under `:form-params` as `{:filename :content-type :size :tempfile}` maps. The `:tempfile` is host-specific and **opaque**: pass it to a file-storage fx (S3 PUT, disk write); never dereference it in the handler, and write only the resulting URL/storage-id into `app-db`. File **contents** never appear in trace events.
+
+**Marking the POST sensitive — use the current privacy surface, not handler metadata.** A handler-meta `{:sensitive? true}` flag on the action is a **no-op** — the runtime removed it and the trace surface no longer consults it, so marking the action does nothing and the `:form-params` ship verbatim into trace/Story/MCP egress. Sensitivity is path-based now (per [`../references/cross-cutting/privacy-and-elision.md`](../references/cross-cutting/privacy-and-elision.md)):
+
+- If the upload metadata (or any field) lands at an **app-db slot** that can hold credentials/PII, declare that slot `{:sensitive? true}` in `reg-app-schema` — the router auto-redacts it on the trace surface and stamps the event sensitive.
+- If a secret rides only in the **event payload** (e.g. a one-time token in `:form-params`) and never lands at an app-db slot, scrub the named payload paths with a positional `(rf/redact-interceptor [[:form-params :token] …])` on the action handler. Filenames and other payload keys that should not appear in traces are named the same way. An empty-path `(rf/redact-interceptor [[:form-params]])` scrubs the whole `:form-params` map.
+
+Mixed sensitive + non-sensitive fields → name the sensitive payload paths in the interceptor (or split into two POSTs); the scrub is per-named-path, applied via `redact-interceptor`/schema, not a whole-action toggle.
 
 ## Anti-patterns
 
@@ -96,7 +103,7 @@ No standalone example app — the SSR worked apps are `examples/reagent/ssr/core
 
 - Spec: [`spec/Pattern-FormAction.md`](../../../spec/Pattern-FormAction.md) — full worked `/cart/add` page, the failure-path projector hook, multipart privacy, the server-vs-client handler-tree table, conformance checklist.
 - Substrate: `SKILL-REDIRECT.md` → *EP — SSR (011)* (`:rf.server/request` cofx, `[:rf/response]` accumulator, the six server-only fxs, `:platforms` gating, server error projection), *EP — Schemas (010)* (`:schema` boundary check, `:sensitive?`).
-- Cross-cutting: `references/cross-cutting/ssr-authoring.md` (head/meta + the `:rf/hydrate` checks).
+- Cross-cutting: `references/cross-cutting/ssr-authoring.md` (head/meta + the `:rf/hydrate` checks); `references/cross-cutting/privacy-and-elision.md` (schema-path `:sensitive?` + `rf/redact-interceptor` — the current privacy surface; handler-meta `:sensitive?` is a no-op).
 - Compose: `patterns/forms.md` (the form-slice shape this reuses server-side), `patterns/ssr-loaders.md` (the GET-path sibling — a page uses Loaders for the initial render, FormAction for subsequent POSTs).
 
 ---
