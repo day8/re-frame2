@@ -176,19 +176,43 @@ Present the categorisation per site; confirm with the author; only then apply. F
 
 ---
 
-## M-42 — React-19-removed Reagent surfaces (slim adapter)
+## M-42 — React-19-removed Reagent surfaces (bridge *and* slim)
 
-**Trigger**: only fires when migrating from the classic bridge (`day8/re-frame2-reagent`, stock Reagent) to the slim adapter (`day8/reagent-slim`). On the bridge, `reagent.dom/render`, `reagent.core/dom-node`, etc. stay unchanged — stock Reagent has not removed them. The slim rewrite ships them as throw-on-call shims.
+**Trigger**: fires on **both** Reagent paths, because `reagent.dom/render` is removed in **Reagent 2.x itself** — and the classic bridge runs on Reagent 2.x (per the Phase-0 floor gate). The render call site needs a createRoot+render **rewrite** regardless of which adapter the app boots; only the **target namespace** differs. The slim rewrite additionally ships the *other* legacy symbols (`dom-node`, `force-update-all`, `unmount-component-at-node`) as throw-on-call shims; on the bridge those four non-render Vars are **unchanged** (stock Reagent has not removed them — only the React-DOM `render`/`createRoot` floor moved).
 
-**Identify**: grep for call sites of the five removed symbols — `render`, `unmount-component-at-node`, `dom-node`, `force-update-all`, plus the `reagent.dom.server` surface per the MIGRATION.md list.
+> **Do not read "apps on the bridge are unaffected" (MIGRATION.md §M-42) as "the bridge needs no render change."** That sentence is about the *non-render* legacy Vars (`dom-node` etc.) staying available on the bridge. The **render call site still needs the createRoot rewrite on the bridge too**, because `reagent.dom/render` is gone in Reagent 2.x — the bridge just targets a different namespace than slim.
+
+**The adapter-keyed render-namespace table** (the render rewrite is the same shape — `create-root` + `render` around the same `container` — only the namespace changes):
+
+| Adapter the app boots | Render namespace (createRoot + render) | Coord |
+|---|---|---|
+| **classic bridge** (stock Reagent 2.x + `re-frame.adapter.reagent`) | `reagent.dom.client` | `day8/re-frame2-reagent` |
+| **slim rewrite** (`re-frame.adapter.reagent-slim`) | `reagent2.dom.client` | `day8/reagent-slim` |
+
+```clojure
+;; v1 (both paths) — reagent.dom/render is gone in Reagent 2.x
+(reagent.dom/render [app] (.getElementById js/document "app"))
+
+;; bridge — create-root + render via reagent.dom.client
+(defonce root (rdc/create-root (.getElementById js/document "app"))) ; [reagent.dom.client :as rdc]
+(rdc/render root [app])
+
+;; slim — identical shape, reagent2.dom.client target
+(defonce root (rdc/create-root (.getElementById js/document "app"))) ; [reagent2.dom.client :as rdc]
+(rdc/render root [app])
+```
+
+Pick the row by the **adapter artefact M-0 committed** — that disambiguates the namespace without inspecting the substrate source.
+
+**Identify**: grep for call sites of `render` (`reagent.dom/render`, `reagent.core/render`), plus — *on slim only* — the other removed symbols: `unmount-component-at-node`, `dom-node`, `force-update-all`, plus the `reagent.dom.server` surface per the MIGRATION.md list.
 
 **Risk + decision shape — split by symbol**:
 
-1. **`render` / `unmount-component-at-node` (Type A — mechanical)**: rewrite to a `create-root` + `render` / `unmount` pair around the same `container`. Apply once the caller's `container` reference is identified — this half rides the normal Type A sweep with the sweep-level announcement (Cardinal rule 9).
-2. **`dom-node` (Type B — ask first)**: `findDOMNode` returned the underlying DOM node for a mounted component; the canonical React-19 replacement captures the node via `:ref` at the call site **of the parent**, not at the consumer. There is **no static-analysable rewrite** — the agent flags every `dom-node` site and the author supplies the parent ref ownership.
-3. **`force-update-all` (Type B — ask first)**: had no documented use beyond global-rebuild scripts. Flag every site and ask the maintainer whether it can be removed entirely; if not, file a GitHub issue (per Cardinal rule 7) rather than inventing a replacement.
+1. **`render` / `unmount-component-at-node` (Type A — mechanical, *both* adapters for `render`)**: rewrite to a `create-root` + `render` / `unmount` pair around the same `container`, in the adapter-appropriate namespace from the table above. Apply once the caller's `container` reference is identified — this half rides the normal Type A sweep with the sweep-level announcement (Cardinal rule 9). (`unmount-component-at-node` is only *removed* on slim; on the bridge it remains available, but the surrounding render rewrite usually makes the `create-root`-returned root's `unmount` the natural target anyway.)
+2. **`dom-node` (Type B — ask first; slim only)**: `findDOMNode` returned the underlying DOM node for a mounted component; the canonical React-19 replacement captures the node via `:ref` at the call site **of the parent**, not at the consumer. There is **no static-analysable rewrite** — the agent flags every `dom-node` site and the author supplies the parent ref ownership. (Available unchanged on the bridge.)
+3. **`force-update-all` (Type B — ask first; slim only)**: had no documented use beyond global-rebuild scripts. Flag every site and ask the maintainer whether it can be removed entirely; if not, file a GitHub issue (per Cardinal rule 7) rather than inventing a replacement. (Available unchanged on the bridge.)
 
-Apply the mount-path half mechanically; flag the `dom-node` / `force-update-all` half and wait for the author. Full rationale + the throw-on-call shim list: [`MIGRATION.md` §M-42](../../../migration/from-re-frame-v1/README.md#m-42-react-19-removed-reagent-surfaces-ship-as-throw-on-call-shims-under-day8reagent-slim).
+Apply the render mount-path half mechanically (in the adapter's namespace); flag the `dom-node` / `force-update-all` half and wait for the author. Full rationale + the throw-on-call shim list: [`MIGRATION.md` §M-42](../../../migration/from-re-frame-v1/README.md#m-42-react-19-removed-reagent-surfaces-ship-as-throw-on-call-shims-under-day8reagent-slim).
 
 ---
 

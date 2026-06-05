@@ -19,6 +19,22 @@ For handler- / view- / db-seeding- / error-handler-shaped Type B rewrites, see [
 
 **Trigger**: only Type B when the codebase has more than one frame. Single-frame codebases hit the Type A rewrite (move to `:rf/default` `:interceptors`).
 
+> **Correctness trap — all global interceptors for a frame fold into ONE `reg-frame` call.** `reg-frame` re-registration is a **complete replacement** of the metadata map's replaceable slots, not a merge — and `:interceptors` is one of those slots (per [`spec/002-Frames.md` §Re-registration — surgical update](../../../spec/002-Frames.md#re-registration--surgical-update): "the re-registered metadata map is the **complete replacement** of the previous map's replaceable slots, *not* a merge"). So you **cannot** translate N `reg-global-interceptor` calls into N separate `(rf/reg-frame :rf/default {:interceptors [...]})` calls — the **last** call wins and silently wipes every earlier `:interceptors` vector. Fold ALL of a frame's global interceptors into a **single** `reg-frame` call's `:interceptors` vector:
+>
+> ```clojure
+> ;; v1 — two global interceptors
+> (rf/reg-global-interceptor my-audit-icpt)
+> (rf/reg-global-interceptor recorder-icpt)
+>
+> ;; v2 — ONE reg-frame, BOTH in the same vector (NOT two reg-frame calls)
+> (rf/reg-frame :rf/default
+>   {:interceptors [my-audit-icpt recorder-icpt]})
+> ```
+>
+> This applies to the single-frame Type-A rewrite too (it's a correctness fact about re-registration, not a multi-frame concern) — but it's stated here because a multi-frame fold makes the trap easy to walk into when you're replicating "globals" across several `reg-frame` sites.
+
+> **Judgement call — multi-namespace or multi-lifecycle globals are NOT pure Type-A.** When the v1 `reg-global-interceptor` calls are spread across **multiple namespaces**, or registered at **different lifecycles** (e.g. one at ns-load, another *deferred* until after some external dependency has initialised — its interceptor body depends on that init having run), folding them into a single `reg-frame` `:interceptors` vector forces a **single registration site and a single activation moment**. That can change ordering (activating a deferred interceptor too early) — a behavioural decision, not a mechanical rewrite. **Surface it to the author** (where the combined `reg-frame` should live, when it should run relative to the external init), rather than auto-applying. Even a single-frame app trips this judgement case when the globals had staggered lifecycles.
+
 **Identify**: every `(rf/reg-global-interceptor ...)` AND the codebase has any non-default `reg-frame`.
 
 **Risk**: "global" meant "every frame" in v1 because there was only one frame. In v2 the right scope depends on intent:
