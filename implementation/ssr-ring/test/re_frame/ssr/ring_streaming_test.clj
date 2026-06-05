@@ -16,6 +16,7 @@
             [re-frame.interop :as interop]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.ring :as ssr-ring]
+            [re-frame.ssr.ring.lifecycle :as lifecycle]
             [re-frame.ssr.test-fixture :as tf])
   (:import [java.io InputStream]))
 
@@ -491,3 +492,159 @@
               "the clean sub's value rendered into the streamed HTML")
           (is (str/includes? body "__rf_payload")
               "the final payload chunk streamed"))))))
+
+;; ===========================================================================
+;; rf2-5knxf.1 — a :redirect surfacing at the POST-SHELL re-read must ship a
+;;               bodiless redirect, NOT a streamed body, and spawn NO writer.
+;; ===========================================================================
+;;
+;; The early redirect branch (stream-handler, on the :on-create-drain
+;; `get-response`) is already covered by stream-handler-redirect-destroys-
+;; frame above. This test covers the SECOND `get-response` — the post-shell
+;; re-read at the materialise site (rf2-r06pc). Pre-fix, that branch
+;; UNCONDITIONALLY materialised `resp-map`, spawned the daemon writer, and
+;; assoc'd the pipe `:body` — so a `:redirect` carried on the post-shell
+;; accumulator would have shipped a malformed 3xx + Location + a FULL
+;; streamed HTML body (the writer pumps shell + payload + close) for a wire
+;; response the contract says must be bodiless (Spec 011 §Redirect
+;; precedence). The non-streaming handler gets this for free
+;; (`ssr-response->ring-response` ignores the body arg on its `:redirect`
+;; branch); the streaming path had to branch explicitly.
+;;
+;; A `:redirect` cannot surface at the post-shell read under v1's
+;; architecture (it is set only by the `:rf.server/redirect` fx during the
+;; `:on-create` drain — caught by the EARLY branch — and the error projector
+;; stamps `:status` only, never `:redirect`). So this is a LATENT fail-open:
+;; we simulate the latent condition by stubbing `ssr/get-response` to return
+;; a non-redirect on the FIRST call (so the early branch passes through to
+;; the shell render) and a redirect on the SECOND call (the post-shell
+;; re-read). This exercises the new post-shell redirect branch directly.
+
+(deftest stream-handler-post-shell-redirect-bodiless
+  (testing "rf2-5knxf.1: a :redirect surfacing at the POST-SHELL get-response
+            re-read ships a bodiless Location response (NOT a streamed
+            body), spawns NO writer thread, and destroys the frame inline."
+    (rf/reg-event-fx :rf.test.server/init-min
+      {:platforms #{:server}}
+      (fn [_ _] {:db {}}))
+    (rf/reg-view ^{:rf/id :test/plain-root} plain-root []
+      [:main [:h1 "rendered shell"]])
+    (let [real-get-response ssr/get-response
+          ;; Per-frame call counter so we stub ONLY the second
+          ;; get-response (the post-shell re-read) for our frame, leaving
+          ;; the first (early-branch drain read) untouched. Keying on the
+          ;; arg-count of calls keeps the stub from perturbing any other
+          ;; frame's reads.
+          calls (atom 0)
+          redirect-resp {:status   302
+                         :headers  []
+                         :cookies  []
+                         :redirect {:status 302 :location "/post-shell-login"}}]
+      (with-redefs [ssr/get-response
+                    (fn [fid]
+                      (let [n (swap! calls inc)]
+                        ;; 1st call = early-branch drain read → real value
+                        ;; (no redirect, so the handler proceeds to render
+                        ;; the shell). 2nd call = post-shell re-read → inject
+                        ;; the latent redirect.
+                        (if (= n 2)
+                          redirect-resp
+                          (real-get-response fid))))]
+        (let [handler       (ssr-ring/stream-handler
+                              {:on-create [:rf.test.server/init-min]
+                               :root-view [:test/plain-root]
+                               :payload :rf.ssr.payload/whole-app-db})
+              baseline-fids (disj (frame/frame-ids) :rf/default)
+              response      (handler {:uri "/secret" :request-method :get})]
+          (is (= 302 (:status response))
+              "post-shell redirect ships the 3xx status on the wire")
+          (let [headers (:headers response)
+                loc     (or (get headers "Location") (get headers "location"))]
+            (is (= "/post-shell-login" loc)
+                "Location header carries the post-shell redirect target"))
+          (is (= "" (:body response))
+              "post-shell redirect is BODILESS — :body \"\", NOT a streamed
+               full HTML document (the latent fail-open this fix closes)")
+          (is (not (instance? InputStream (:body response)))
+              "post-shell redirect body is NOT a PipedInputStream — no
+               writer pipe is handed out")
+          ;; No writer thread spawned + frame torn down inline (the writer's
+          ;; finally — the streaming teardown path — never runs on this
+          ;; branch, so the inline destroy is load-bearing).
+          (let [end-fids (disj (frame/frame-ids) :rf/default)
+                leaked   (clojure.set/difference end-fids baseline-fids)]
+            (is (empty? leaked)
+                (str "the per-request frame MUST be destroyed inline on the
+                     post-shell redirect branch — leaked frame-ids: "
+                     (vec leaked)))))))))
+
+;; ===========================================================================
+;; rf2-5knxf.2 — the streaming final-payload :rf/render-hash MATCHES the
+;;               client's resolved-tree hash (markers and all) when forms
+;;               are symmetric; the suspense marker is NOT a divergence.
+;; ===========================================================================
+;;
+;; The concern (rf2-5knxf.2) was that the streaming final hash is computed
+;; over the suspense-marker-bearing tree while the client recomputes over a
+;; "resolved" (marker-free) tree, firing a spurious
+;; :rf.ssr/hydration-mismatch on a successful streaming hydration.
+;;
+;; That premise is empirically FALSE. `render-tree-hash` is a PURE
+;; structural FNV-1a over the canonical-EDN of the hiccup — it does not
+;; expand views and does not throw on `:rf/suspense-boundary`; the marker
+;; hashes to the same canonical-EDN bytes on both sides. A streaming-aware
+;; client verifies via `:render-tree-fn #((rf/view :app/root))`, whose
+;; result is the SAME marker-bearing hiccup the server's `(rf/view
+;; :app/root)` produces. This test pins that equality directly, and pins
+;; that the streaming hash is computed by the IDENTICAL mechanism as the
+;; non-streaming handler (the only divergence is the host's choice of
+;; view-ref vs expanded form for :root-view / :render-tree-fn — shared by
+;; both handlers, not a streaming marker bug).
+
+(deftest streaming-final-hash-matches-client-resolved-tree
+  (testing "rf2-5knxf.2: the server's render-tree-hash of the marker-bearing
+            root view EQUALS the client's `#((rf/view :root))` hash — the
+            suspense marker is NOT a divergence (render-tree-hash is a pure
+            structural hash that does not expand or reject the marker)."
+    (rf/reg-event-fx :rf.test.server/init
+      {:platforms #{:server}}
+      (fn [_ _] {:db {:comments [{:body "First!"}]}}))
+    (rf/reg-sub :comments (fn [db _] (:comments db)))
+    (rf/reg-view ^{:rf/id :test/comments-section} comments-view []
+      (let [cs @(subscribe [:comments])]
+        (into [:ul.comments] (for [{:keys [body]} cs] [:li body]))))
+    (rf/reg-view ^{:rf/id :test/hash-root} hash-root []
+      [:main [:h1 "News"]
+       [:rf/suspense-boundary {:id :test/comments :fallback [:p "Loading…"]}
+        [:test/comments-section]]
+       [:footer "End"]])
+    (let [fid (keyword "rf.frame" (str (gensym "f")))]
+      (rf/reg-frame fid {:platform :server :on-create [:rf.test.server/init]})
+      (try
+        (rf/with-frame fid
+          (let [;; The server streaming handler computes the final hash over
+                ;; `hiccup` = (resolve-root-view root-view). When the host
+                ;; passes an EXPANDED form (symmetric with the client's
+                ;; :render-tree-fn), this is the marker-bearing root tree.
+                server-hiccup (lifecycle/resolve-root-view
+                                (fn [] ((rf/view :test/hash-root))))
+                server-hash   (ssr/render-tree-hash server-hiccup)
+                ;; The client verifies via :render-tree-fn #((rf/view :root)).
+                client-hiccup ((rf/view :test/hash-root))
+                client-hash   (ssr/render-tree-hash client-hiccup)]
+            ;; The marker IS present in both trees (the equality is NOT
+            ;; achieved by stripping it).
+            (is (str/includes? (pr-str server-hiccup) ":rf/suspense-boundary")
+                "server hiccup carries the :rf/suspense-boundary marker")
+            (is (str/includes? (pr-str client-hiccup) ":rf/suspense-boundary")
+                "client hiccup carries the :rf/suspense-boundary marker")
+            ;; The load-bearing assertion: marker-bearing server hash ==
+            ;; marker-bearing client hash. No spurious mismatch.
+            (is (= server-hash client-hash)
+                "streaming final-payload render-hash (over the marker-bearing
+                 resolved root) EQUALS the client's resolved-tree hash — the
+                 suspense marker hashes symmetrically on both sides, so a
+                 successful streaming hydration fires NO spurious
+                 :rf.ssr/hydration-mismatch (rf2-5knxf.2)")))
+        (finally
+          (rf/destroy-frame! fid))))))

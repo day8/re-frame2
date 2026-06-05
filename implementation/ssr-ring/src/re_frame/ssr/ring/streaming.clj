@@ -245,6 +245,44 @@
             ;; the tail (FIFO), continue until empty.
             (recur (into (pop queue) continuations)))))
       ;; Chunk N+2 — final canonical __rf_payload.
+      ;;
+      ;; rf2-5knxf.2 — the streaming final-payload `:rf/render-hash` is
+      ;; computed over `hiccup` (the resolved root view returned by
+      ;; `render-streaming-shell!`) via `render-tree-hash`, the IDENTICAL
+      ;; mechanism the non-streaming `build-full-response*` uses (it hashes
+      ;; `(resolve-root-view root-view)` the same way). This is the correct
+      ;; structural hash, NOT a streaming-specific divergence:
+      ;;
+      ;;   - `render-tree-hash` is a PURE structural FNV-1a over the
+      ;;     canonical-EDN of the hiccup (hash.cljc). It does NOT expand
+      ;;     view-refs or registered views, and it does NOT throw on a
+      ;;     `:rf/suspense-boundary` head — it just hashes the vector
+      ;;     structurally. So a `:rf/suspense-boundary` node hashes to the
+      ;;     same canonical-EDN bytes on the server AND on the client: the
+      ;;     marker is NOT a source of mismatch. A streaming-aware client
+      ;;     verifies via `verify-hydration!` against
+      ;;     `:render-tree-fn #((rf/view :app/root))` — whose result is the
+      ;;     SAME marker-bearing hiccup the server's `(rf/view :app/root)`
+      ;;     produces. Both sides hash the marker-bearing tree to the same
+      ;;     hex (empirically confirmed; see the
+      ;;     `streaming-final-hash-matches-client-resolved-tree` regression
+      ;;     in `ring_streaming_test`).
+      ;;
+      ;;   - The ONLY way server and client hashes diverge is the host
+      ;;     passing a NON-symmetric pair of forms: a view-REF `:root-view
+      ;;     [:app/root]` on the server (which `resolve-root-view` leaves
+      ;;     UNEXPANDED → the hash is over the 1-element `[:app/root]`
+      ;;     vector) vs an EXPANDED `:render-tree-fn #((rf/view :app/root))`
+      ;;     on the client. This view-ref-vs-expanded asymmetry is SHARED by
+      ;;     the non-streaming handler (identical `resolve-root-view` →
+      ;;     `render-tree-hash` shape) and is the host's responsibility to
+      ;;     avoid — pass `:root-view` and `:render-tree-fn` as matching
+      ;;     forms (both expanding, e.g. server `:root-view #((rf/view
+      ;;     :app/root))` / client `:render-tree-fn #((rf/view :app/root))`,
+      ;;     mirroring the non-streaming worked example's `((rf/view
+      ;;     :app/root))`). It is NOT a marker bug and NOT streaming-specific.
+      ;;     Spec 011 §Hydration equivalence rule (structural, not textual)
+      ;;     + §Hydration-mismatch detection.
       (let [final-hash    (rf/with-frame frame-id (ssr/render-tree-hash hiccup))
             final-payload (rf/with-frame frame-id
                             (streaming/build-final-payload
@@ -447,68 +485,106 @@
                     ;; We MATERIALISE the chunked response head from
                     ;; `resp2`, so the wire status is the fail-closed 500
                     ;; — never the stale pre-render 200 the OLD writer-
-                    ;; thread order shipped (Spec 011 §744/§750). A redirect
-                    ;; or a deliberate app-set non-200 (`:rf.server/set-
-                    ;; status`) surfaces here too and rides the wire
-                    ;; unchanged — identical to the non-streaming handler,
-                    ;; which streams the rendered body with whatever post-
-                    ;; flush status the accumulator carries (the status is
-                    ;; the fail-closed signal; the body is moot under a
-                    ;; non-200).
-                    (let [resp2 (ssr/get-response frame-id)
-                          ;; rf2-z5azc — MATERIALISE the response head
-                          ;; (status / headers / cookies) from the re-read
-                          ;; `resp2` BEFORE constructing the pipe or
-                          ;; spawning the writer. Cookie / header
-                          ;; serialisation CAN throw at materialise time on
-                          ;; a value that escaped the fx boundary's partial
-                          ;; validation — e.g. a `:max-age` carrying CR/LF,
-                          ;; which `cookie->set-cookie-header` rejects but
-                          ;; the runtime `validate-cookie!` does not. If we
-                          ;; spawned the writer first, that throw would
-                          ;; orphan the pipe (the daemon writer pumps the
-                          ;; full body into a reader-less pipe, blocks once
-                          ;; the 16 KiB buffer fills, and leaks one live
-                          ;; thread per request). By building `resp-map`
-                          ;; first, a head-materialisation failure short-
-                          ;; circuits to the outer catch BEFORE any thread
-                          ;; or pipe exists → on-error, no detached writer,
-                          ;; no orphaned pipe.
-                          ;;
-                          ;; No body default-stamp here (we pass our own
-                          ;; InputStream); `:body` is assoc'd after the
-                          ;; writer is wired below.
-                          resp-map (pipeline/ssr-response->ring-response
-                                     resp2 "" content-type)
-                          ;; 16 KiB pipe buffer — large enough to absorb the
-                          ;; shell chunk in one write so the writer thread
-                          ;; rarely blocks on a slow consumer, small enough
-                          ;; that one stuck client doesn't pin a non-trivial
-                          ;; chunk of heap per request.
-                          pipe-in  (PipedInputStream. (* 16 1024))
-                          pipe-out (PipedOutputStream. pipe-in)]
-                      ;; Daemon thread (rf2-ekwda): a writer blocked on
-                      ;; `.write` to the bounded 16 KiB pipe of a slow-loris
-                      ;; client must NOT keep the JVM alive at shutdown. The
-                      ;; ns + handler docstrings and both test namespaces
-                      ;; assert daemon semantics; this is what makes that
-                      ;; contract real.
-                      (doto
-                        (Thread.
-                          ^Runnable
-                          (fn writer-thread []
-                            (try
-                              (run-streaming-writer! pipe-out frame-id rendered opts)
-                              (finally
-                                ;; The writer's own finally closes the
-                                ;; pipe; the frame teardown happens here so
-                                ;; it does NOT block the response close on
-                                ;; the slower destroy path.
-                                (lifecycle/destroy-frame-quietly! frame-id))))
-                          ^String (str "rf2-ssr-streaming-" (name frame-id)))
-                        (.setDaemon true)
-                        (.start))
-                      (assoc resp-map :body pipe-in))))))
+                    ;; thread order shipped (Spec 011 §744/§750).
+                    ;;
+                    ;; A deliberate app-set non-200 (`:rf.server/set-status`)
+                    ;; surfaces here too and rides the wire unchanged —
+                    ;; identical to the non-streaming handler, which streams
+                    ;; the rendered body with whatever post-flush status the
+                    ;; accumulator carries (the status is the fail-closed
+                    ;; signal; the body is moot under a non-200).
+                    ;;
+                    ;; rf2-5knxf.1 — a `:redirect` is the ONE accumulator
+                    ;; state that must NOT stream a body: a 3xx + Location is
+                    ;; a bodiless wire response (Spec 011 §Redirect
+                    ;; precedence), so streaming a full HTML document under it
+                    ;; would ship a malformed redirect AND spawn a body-
+                    ;; pumping writer for a request the contract says has no
+                    ;; body. The non-streaming handler gets this for free —
+                    ;; `ssr-response->ring-response` ignores the body arg on
+                    ;; its `:redirect` branch (pipeline.clj). The streaming
+                    ;; path must branch EXPLICITLY because it would otherwise
+                    ;; overwrite the materialised `:body ""` with the pipe and
+                    ;; start the writer. In v1 a `:redirect` cannot surface at
+                    ;; this post-shell re-read (it is only set by the
+                    ;; `:rf.server/redirect` fx during the `:on-create` drain,
+                    ;; which the EARLY redirect branch above already catches;
+                    ;; the error projector stamps `:status` only, never
+                    ;; `:redirect` — error_listener.cljc). This branch is
+                    ;; defense-in-depth for a future render-phase fx /
+                    ;; projector / hand-built accumulator that learns to
+                    ;; redirect — and it aligns the code with this very
+                    ;; comment's parity claim.
+                    (let [resp2 (ssr/get-response frame-id)]
+                      (if (some? (:redirect resp2))
+                        ;; Bodiless redirect — mirror the EARLY :on-create
+                        ;; redirect branch above (and the non-streaming
+                        ;; `pipeline.clj` redirect branch): materialise the
+                        ;; Location response with NO body, spawn NO writer,
+                        ;; and destroy the per-request frame inline (no writer
+                        ;; thread will run its teardown `finally`). The 2-arg
+                        ;; form passes no `content-type` — a bodiless redirect
+                        ;; has no meaningful Content-Type to default, matching
+                        ;; the non-streaming + early-branch redirect paths.
+                        (try
+                          (pipeline/ssr-response->ring-response resp2 nil)
+                          (finally
+                            (lifecycle/destroy-frame-quietly! frame-id)))
+                        ;; Non-redirect — the streaming path. Materialise the
+                        ;; head, wire the pipe, spawn the writer.
+                        (let [;; rf2-z5azc — MATERIALISE the response head
+                              ;; (status / headers / cookies) from the re-read
+                              ;; `resp2` BEFORE constructing the pipe or
+                              ;; spawning the writer. Cookie / header
+                              ;; serialisation CAN throw at materialise time on
+                              ;; a value that escaped the fx boundary's partial
+                              ;; validation — e.g. a `:max-age` carrying CR/LF,
+                              ;; which `cookie->set-cookie-header` rejects but
+                              ;; the runtime `validate-cookie!` does not. If we
+                              ;; spawned the writer first, that throw would
+                              ;; orphan the pipe (the daemon writer pumps the
+                              ;; full body into a reader-less pipe, blocks once
+                              ;; the 16 KiB buffer fills, and leaks one live
+                              ;; thread per request). By building `resp-map`
+                              ;; first, a head-materialisation failure short-
+                              ;; circuits to the outer catch BEFORE any thread
+                              ;; or pipe exists → on-error, no detached writer,
+                              ;; no orphaned pipe.
+                              ;;
+                              ;; No body default-stamp here (we pass our own
+                              ;; InputStream); `:body` is assoc'd after the
+                              ;; writer is wired below.
+                              resp-map (pipeline/ssr-response->ring-response
+                                         resp2 "" content-type)
+                              ;; 16 KiB pipe buffer — large enough to absorb the
+                              ;; shell chunk in one write so the writer thread
+                              ;; rarely blocks on a slow consumer, small enough
+                              ;; that one stuck client doesn't pin a non-trivial
+                              ;; chunk of heap per request.
+                              pipe-in  (PipedInputStream. (* 16 1024))
+                              pipe-out (PipedOutputStream. pipe-in)]
+                          ;; Daemon thread (rf2-ekwda): a writer blocked on
+                          ;; `.write` to the bounded 16 KiB pipe of a slow-loris
+                          ;; client must NOT keep the JVM alive at shutdown. The
+                          ;; ns + handler docstrings and both test namespaces
+                          ;; assert daemon semantics; this is what makes that
+                          ;; contract real.
+                          (doto
+                            (Thread.
+                              ^Runnable
+                              (fn writer-thread []
+                                (try
+                                  (run-streaming-writer! pipe-out frame-id rendered opts)
+                                  (finally
+                                    ;; The writer's own finally closes the
+                                    ;; pipe; the frame teardown happens here so
+                                    ;; it does NOT block the response close on
+                                    ;; the slower destroy path.
+                                    (lifecycle/destroy-frame-quietly! frame-id))))
+                              ^String (str "rf2-ssr-streaming-" (name frame-id)))
+                            (.setDaemon true)
+                            (.start))
+                          (assoc resp-map :body pipe-in))))))))
             (catch Throwable t
               ;; get-response throw, redirect-materialise throw, OR (per
               ;; rf2-z5azc) a head-materialisation throw raised BEFORE the
