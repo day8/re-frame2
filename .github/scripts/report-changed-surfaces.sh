@@ -208,7 +208,7 @@ else
         adapter_testbed_smokes=true
         story_xray_browser=true
         ;;
-      implementation/schemas/*|implementation/machines/*|implementation/routing/*|implementation/flows/*|implementation/http/*|implementation/ssr/*|implementation/ssr-ring/*|implementation/epoch/*|implementation/deps.edn)
+      implementation/schemas/*|implementation/machines/*|implementation/routing/*|implementation/flows/*|implementation/http/*|implementation/ssr/*|implementation/ssr-ring/*|implementation/epoch/*|implementation/security/*|implementation/deps.edn)
         # rf2-8jz9t — adapter_testbed_smokes NOT fired here. Per-feature
         # artefact changes are covered by their own JVM + CLJS unit
         # suites (implementation_jvm, cljs_browser, cljs_prod) and by

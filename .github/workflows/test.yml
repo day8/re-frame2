@@ -728,6 +728,59 @@ jobs:
       - name: Run JVM tests (ssr artefact)
         run: clojure -M:test
 
+  jvm-security:
+    name: JVM security (clojure -M:test)
+    needs: detect_changed_surfaces
+    if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: implementation/security
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Clojure CLI
+        uses: DeLaGuardo/setup-clojure@02f5a82b79a547523e664fe8a7a32ea14884d7b2  # 13.6.0
+        with:
+          cli: latest
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          key: ${{ runner.os }}-clj-security-${{ hashFiles('implementation/security/deps.edn', 'implementation/core/deps.edn', 'implementation/schemas/deps.edn', 'implementation/machines/deps.edn', 'implementation/routing/deps.edn', 'implementation/flows/deps.edn', 'implementation/ssr/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-clj-security-
+            ${{ runner.os }}-clj-
+
+      # rf2-oni7gz — closes the gap left by rf2-gj2ae. gj2ae added the
+      # implementation/security :test alias (a cross-artefact, src-less
+      # adversarial-property tier) and wired it into the local rigorous
+      # gate (scripts/test-jvm-implementation.sh), but no PR-CI job ran it
+      # on the JVM. The security namespaces are .cljc and advertise a
+      # cross-runtime contract — most pointedly re-frame.security.gen's LCG
+      # ("byte-deterministic AND identical across JVM + JS", separate :clj
+      # full-precision `long` multiply vs :cljs Math.imul arms). Without
+      # this job the :clj reader-conditional arms (gen's multiply, the
+      # egress/redaction :clj helper branches, the clojure.walk deep-scan)
+      # never executed on the JVM in CI — a false-green cross-runtime
+      # security contract. This job runs the SAME .cljc namespaces under
+      # the JVM via the cognitect test-runner (non-zero exit on any
+      # failure), so a :clj-arm divergence in re-frame.security.gen now
+      # turns the PR CI red.
+      - name: Run JVM tests (security tier)
+        run: clojure -M:test
+
   jvm-ssr-ring:
     name: JVM ssr-ring (clojure -M:test)
     needs: detect_changed_surfaces
@@ -2495,6 +2548,7 @@ jobs:
       - jvm-flows
       - jvm-http
       - jvm-ssr
+      - jvm-security
       - jvm-ssr-ring
       - jvm-epoch
       - cljs
