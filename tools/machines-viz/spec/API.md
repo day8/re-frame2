@@ -314,8 +314,9 @@ or two edges, with these structural rules:
 
 | Parsed transition shape | Event-node | Inbound edge | Outbound edge |
 |---|---|---|---|
-| `:on {:e :target}` — regular external | yes | state → ev-node | ev-node → target |
-| `:on {:e :same-state}` — external self-transition | yes | state → ev-node | ev-node → state |
+| `:on {:e :target}` — regular targeted | yes | state → ev-node | ev-node → target |
+| `:on {:e :same-state}` — self-target, internal DEFAULT (rf2-9dj21r) | yes | state → ev-node | ev-node → state |
+| `:on {:e {:target :same-state :reenter? true}}` — self-target, EXTERNAL restart (rf2-9dj21r) | yes (`:reenter true`) | state → ev-node | ev-node → state |
 | `:on {:e {:action :a}}` — INTERNAL (no `:target`) | yes (`:internal true`) | state → ev-node | **none** |
 | `:after {1000 ...}` — timer | yes (`:variant "after"`, `:afterMs 1000`) | state → ev-node | ev-node → target |
 | `:after {1000 {:action :a}}` — INTERNAL timer (no `:target`) (rf2-mnp93.4) | yes (`:variant "after"`, `:internal true`) | state → ev-node | **none** |
@@ -323,12 +324,27 @@ or two edges, with these structural rules:
 | `:always [{:action :a}]` — INTERNAL (no `:target`) (rf2-mnp93.4) | yes (`:variant "always"`, `:internal true`) | state → ev-node | **none** |
 | Wildcard `:*` | yes (`:eventId nil`, not user-fireable) | state → ev-node | ev-node → target |
 
+**The `:reenter?` external-restart axis (rf2-9dj21r).** A TARGETED transition
+is INTERNAL by default (XState v5 / Spec 005 §Self-transitions): a self /
+ancestor / compound-declared-descendant target does NOT re-run the target's
+own `:exit`/`:entry`. Only `:reenter? true` makes it EXTERNAL — re-running
+`:exit`+`:entry` and restarting the target's `:after` timers + `:spawn`
+children. Two such transitions are RUNTIME-DISTINCT, so the viz represents
+the axis end-to-end: `chart.layout` carries `:reenter?` on the parsed edge
+(and folds it into the edge id so the with/without pair mints DISTINCT ids),
+the event-node `:data` exposes `:reenter` (the renderer paints a `↻` chip on
+the header), the Mermaid emitter appends a `↻` marker to the edge label, and
+the SCXML codec maps the axis onto W3C SCXML's native `<transition
+type="external">` (emit + lossless round-trip on import). Pre-fix the
+with/without forms produced identical chart topology, Mermaid, and SCXML.
+
 The event-node carries everything the legacy edge `:data` used to
 carry: `:eventLabel` (the `chart.layout/event-segment` glyph-aware
 text), `:guard` (string), `:action` (string), `:variant` (`:on` /
 `:after` / `:always`), `:eventId` (raw fireable keyword for the
 on-chart sim — nil for `:after` / `:always` / wildcard), `:fromPath`
-/ `:toPath`, `:focused`, `:fired`, `:internal`, `:machineLevel`,
+/ `:toPath`, `:focused`, `:fired`, `:internal`, `:reenter` (rf2-9dj21r —
+the external-restart axis; drives the `↻` reenter chip), `:machineLevel`,
 `:onClick` (the host-supplied callback), `:afterMs`, `:chart`
 (resolved visual-constants).
 

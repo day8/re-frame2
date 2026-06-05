@@ -905,3 +905,89 @@
       (is (string? xml))
       (is (str/includes? xml "cond=\"fn\""))
       (is (str/includes? xml "<!-- action: fn -->")))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-9dj21r — the EXTERNAL restart axis (`:reenter? true`) must be a
+;; DISTINCT, lossless SCXML round-trip.
+;;
+;; Spec 005 §Self-transitions / XState v5: a TARGETED transition is INTERNAL
+;; by default (its own :exit/:entry do NOT re-run); only `:reenter? true`
+;; makes a self / ancestor / compound-declared-descendant target EXTERNAL —
+;; re-running :exit+:entry and restarting the target's :after timers + :spawn
+;; children. Pre-fix the SCXML emitter/importer ignored the axis entirely, so
+;; `{:target :same-state}` and `{:target :same-state :reenter? true}` exported
+;; + round-tripped IDENTICALLY, silently dropping `:reenter? true` (which
+;; CHANGES runtime behaviour on import). We map the axis onto W3C SCXML's
+;; native `<transition type="external">`.
+
+(def reenter-self-machine
+  "A self-target transition WITH the external-restart opt-in."
+  {:initial :a
+   :states  {:a {:on {:ping {:target :same-state :reenter? true}}}}})
+
+(def internal-self-machine
+  "The SAME self-target transition WITHOUT `:reenter?` — the internal
+  default (the runtime-distinct counterpart of `reenter-self-machine`)."
+  {:initial :a
+   :states  {:a {:on {:ping {:target :same-state}}}}})
+
+(def reenter-ancestor-machine
+  "A compound-declared transition to a descendant WITH `:reenter? true`
+  (restart the declaring compound, land on the named child)."
+  {:initial :outer
+   :states  {:outer {:initial :inner1
+                     :on      {:restart {:target [:outer :inner2] :reenter? true}}
+                     :states  {:inner1 {}
+                               :inner2 {}}}}})
+
+(deftest reenter-axis-scxml-round-trip
+  (testing "rf2-9dj21r — a `:reenter? true` self-target emits SCXML
+            `type=\"external\"` and round-trips losslessly"
+    (let [xml  (scxml/spec->scxml reenter-self-machine)
+          back (scxml/scxml->spec xml)]
+      (is (str/includes? xml "type=\"external\"")
+          "the external-restart axis emits the native SCXML type attr")
+      (is (= reenter-self-machine back)
+          "exact value round-trip — `:reenter? true` survives")
+      (is (true? (get-in back [:states :a :on :ping :reenter?]))
+          "the decoded candidate carries `:reenter? true`")))
+
+  (testing "rf2-9dj21r — the internal-DEFAULT self-target emits NO
+            `type=\"external\"` and round-trips WITHOUT `:reenter?`"
+    (let [xml  (scxml/spec->scxml internal-self-machine)
+          back (scxml/scxml->spec xml)
+          cand (get-in back [:states :a :on :ping])]
+      (is (not (str/includes? xml "type=\"external\""))
+          "the internal default does NOT emit the external type attr")
+      ;; A SOLE target-only candidate normalises to the bare-keyword
+      ;; shorthand (`:same-state`) on import — the canonical, semantically
+      ;; identical form. The point is it stays a TARGET-ONLY transition with
+      ;; NO `:reenter?` synthesised (vs the map form the external one keeps).
+      (is (= :same-state cand)
+          "round-trips to the canonical target-only shorthand (no map)")
+      (is (not (and (map? cand) (contains? cand :reenter?)))
+          "no spurious `:reenter?` synthesised on the internal default")))
+
+  (testing "rf2-9dj21r — the with/without-`:reenter?` SCXML exports DIFFER
+            (the two runtime-distinct machines are no longer identical)"
+    (is (not= (scxml/spec->scxml reenter-self-machine)
+              (scxml/spec->scxml internal-self-machine))
+        "external vs internal must produce DISTINCT SCXML"))
+
+  (testing "rf2-9dj21r — a compound-declared `:reenter?` descendant target
+            round-trips the axis losslessly"
+    (let [xml  (scxml/spec->scxml reenter-ancestor-machine)
+          back (scxml/scxml->spec xml)]
+      (is (str/includes? xml "type=\"external\""))
+      (is (= reenter-ancestor-machine back)
+          "exact value round-trip preserves `:reenter? true`")))
+
+  (testing "rf2-9dj21r — `:reenter?` is emitted ONLY with a target
+            (a targetless action-only transition stays internal — no
+            `type=\"external\"`, no `:reenter?` synthesised on import)"
+    (let [spec {:initial :a
+                :states  {:a {:on {:tick {:action :log}}}}}
+          xml  (scxml/spec->scxml spec)
+          back (scxml/scxml->spec xml)]
+      (is (not (str/includes? xml "type=\"external\"")))
+      (is (= spec back)))))

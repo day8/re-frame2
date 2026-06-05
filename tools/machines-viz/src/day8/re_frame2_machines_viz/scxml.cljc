@@ -335,13 +335,31 @@
   "Emit a `<transition>` line for one candidate. `source-path` is the
   absolute path of the OWNING state; targets are path-qualified against
   it so the emitted `target` is the unique xsd:ID of the destination
-  (rf2-mnp93.7)."
-  [event-name {:keys [target guard action]} source-path depth]
+  (rf2-mnp93.7).
+
+  rf2-9dj21r — the re-frame2 `:reenter? true` axis (Spec 005
+  §Self-transitions / XState v5: a targeted transition is INTERNAL by
+  default; `:reenter?` opts into the EXTERNAL restart) maps onto W3C
+  SCXML's `<transition type=\"external\">`. SCXML's `type` is the SAME
+  external-vs-internal axis — `type=\"external\"` re-runs the exit/entry
+  of states common to the source and target. We emit `type=\"external\"`
+  only for a `:reenter? true` candidate; the default (no attr) is SCXML's
+  `internal` for a targetless action-only transition and is the natural
+  encoding for the re-frame2 internal-default targeted transition. Without
+  this a `{:target :same-state}` and a `{:target :same-state :reenter?
+  true}` exported + round-tripped IDENTICALLY."
+  [event-name {:keys [target guard action reenter?]} source-path depth]
   (let [target-id (when target
                     (qualified-id (resolve-target-path source-path target)))
         parts (cond-> []
                 event-name (conj (str "event=\"" (escape-xml-attr event-name) "\""))
                 target-id  (conj (str "target=\"" (escape-xml-attr target-id) "\""))
+                ;; rf2-9dj21r — the external-restart axis. Emitted ONLY for a
+                ;; target-bearing `:reenter? true` candidate (a targetless
+                ;; transition has no state to re-enter; SCXML's `external` is
+                ;; meaningless without a target).
+                (and target reenter?)
+                (conj "type=\"external\"")
                 ;; rf2-m285a — `ref->label` tolerates an inline-fn guard
                 ;; (lossy name/`fn` label) instead of crashing in
                 ;; `keyword->id-string` on a non-keyword.
@@ -817,6 +835,16 @@
                   event    (get attrs "event")
                   target   (get attrs "target")
                   guard-s  (get attrs "cond")
+                  ;; rf2-9dj21r — the SCXML external/internal axis. `type=
+                  ;; "external"` round-trips to the re-frame2 `:reenter? true`
+                  ;; opt-in (Spec 005 §Self-transitions / XState v5). Only a
+                  ;; target-bearing transition can be external (a targetless
+                  ;; transition has no state to re-enter), matching the
+                  ;; emitter's `(and target reenter?)` guard. Any other `type`
+                  ;; value (incl. the SCXML default `internal`) leaves
+                  ;; `:reenter?` unset — the re-frame2 internal default.
+                  type-s   (get attrs "type")
+                  reenter? (and target (= type-s "external"))
                   ;; rf2-mnp93.5 — the action name lifted from the
                   ;; `<!-- action: NAME -->` comment by `lift-action-comments`
                   ;; (a single keyword, never a vector path — decode it the
@@ -836,6 +864,13 @@
                              ;; it through `id-string->keyword`, not
                              ;; `unescape-id-string`.
                              guard-s (assoc :guard (id-string->keyword guard-s))
+                             ;; rf2-9dj21r — decode the external-restart axis.
+                             ;; `:reenter?` is added (and stays in the explicit
+                             ;; map form because the candidate is then no longer
+                             ;; target-only, so `simplify` keeps it verbatim
+                             ;; rather than collapsing to a bare keyword) ONLY
+                             ;; when `type="external"` rode a target.
+                             reenter? (assoc :reenter? true)
                              ;; rf2-mnp93.5 — recover the action so an INTERNAL
                              ;; action transition (`:on {:tick {:action :log}}`)
                              ;; round-trips to a VALID Spec-005 internal action

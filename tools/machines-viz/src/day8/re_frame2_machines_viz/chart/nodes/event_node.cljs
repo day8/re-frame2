@@ -82,6 +82,15 @@
     :internal      — internal self-transition (no :target). Visual
                      hint: dashed border ring under the header (the
                      'this action runs and we hang here' affordance).
+    :reenter       — rf2-9dj21r — the EXTERNAL restart axis (`:reenter?
+                     true`, Spec 005 §Self-transitions / XState v5). A
+                     targeted transition is internal by DEFAULT; only
+                     `:reenter?` re-runs the target's `:exit`/`:entry` +
+                     restarts its `:after` timers / `:spawn` children.
+                     Visual hint: a `↻` reenter chip on the header so a
+                     `:reenter? true` transition reads DISTINCTLY from its
+                     internal default (which is otherwise topologically
+                     identical).
     :chart         — resolved visual-constants for the active density."
   [^js props]
   (let [d           (.-data props)
@@ -95,6 +104,7 @@
         focused?    (boolean (.-focused d))
         fired?      (boolean (.-fired d))
         internal?   (boolean (.-internal d))
+        reenter?    (boolean (.-reenter d))
         machine-level? (boolean (.-machineLevel d))
         on-click    (.-onClick d)
         event-id    (.-eventId d)
@@ -138,6 +148,7 @@
              :data-variant-after (str (= :after variant))
              :data-variant-always (str (= :always variant))
              :data-internal (str internal?)
+             :data-reenter (str reenter?)
              :data-machine-level (str machine-level?)
              :data-fired (str fired?)
              :data-focused (str focused?)
@@ -197,7 +208,20 @@
                   :style {:margin-left "5px"
                           :color (:text-tertiary ct)
                           :font-weight 600}}
-           (str "IF " guard)])]
+           (str "IF " guard)])
+        ;; rf2-9dj21r — the EXTERNAL restart marker. A targeted transition
+        ;; is internal by default (XState v5 / Spec 005); a `↻` reenter chip
+        ;; makes a `:reenter? true` transition read DISTINCTLY from its
+        ;; internal default (re-runs `:exit`/`:entry`, restarts `:after` /
+        ;; `:spawn`), which is otherwise topologically identical.
+        (when reenter?
+          [:span {:data-testid (str "rf-mv-chart-event-reenter-" (.-id props))
+                  :data-reenter "true"
+                  :title "reenter (external): re-runs exit/entry, restarts timers + spawned children"
+                  :style {:margin-left "5px"
+                          :color (:text-tertiary ct)
+                          :font-weight 600}}
+           "↻"])]
        ;; Action row — appears ONLY when an action exists. Subdued bolt
        ;; chip, subordinate to the event line.
        (when action
