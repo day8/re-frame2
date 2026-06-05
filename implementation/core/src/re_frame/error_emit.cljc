@@ -3,11 +3,16 @@
   production §Error-handler policy.
 
   Survives `:advanced` + `goog.DEBUG=false`. Carries two independent
-  fan-out paths from one normative emission site (the router's
-  handler-exception path):
+  fan-out paths (the listener registry is BROAD; the per-frame policy
+  is NARROW — see the two-axis catalogue in [[dispatch-on-error!]]).
+  Fired from every production-reachable runtime `:rf.error/*` site
+  (handler / interceptor / cofx exceptions, flow exceptions, reserved-fx
+  typed throws, reactive + compute-sub exceptions, frame-destroyed
+  dispatch / subscribe, no-such-handler, no-such-sub):
 
-    1. Corpus-wide listener registry — every fn registered through
-       [[register-error-listener!]] receives a tight error-record:
+    1. Corpus-wide listener registry (BROAD, axis 1 / surface #4) —
+       every fn registered through [[register-error-listener!]] receives
+       a tight error-record:
 
          {:error        <kw>     ;; e.g. :rf.error/handler-exception
           :event        <vector> ;; dispatched event vector (elided)
@@ -28,9 +33,18 @@
        CLJS `:advanced` + `goog.DEBUG=false` builds where public
        registry-meta has been stripped of coord-keys.
 
-    2. Per-frame `:on-error` policy fn — the frame's `:on-error` slot,
-       when present, receives a structured error event (`:operation` /
-       `:tags` / `:recovery` shape) for in-app recovery decisions.
+    2. Per-frame `:on-error` policy fn (NARROW, axis 2 / surface #5) —
+       the frame's `:on-error` slot, when present, receives a structured
+       error event (`:operation` / `:tags` / `:recovery` shape) for
+       in-app recovery decisions. This path is RECOVERY-SCOPED: it fires
+       ONLY for categories where a `{:swallow | :replacement | :default}`
+       choice is meaningful (handler-exception and the handler-like
+       exception categories — interceptor / cofx / flow / reserved-fx).
+       Categories with no recovery point (frame-destroyed, no-such-
+       handler, no-such-sub — invalid operations; sub-exception — its
+       recovery is the built-in 'return nil', not a policy choice) pass
+       `error-event` as `nil` so ONLY axis 1 fires. See the two-axis
+       catalogue in [[dispatch-on-error!]].
 
   Both paths are independent (a buggy listener cannot block the policy
   fn; a buggy policy fn cannot block listeners). Both are try/catch
@@ -84,37 +98,75 @@
 
 (defn- fire-on-error-policy!
   "Invoke the frame's `:on-error` policy fn with `error-event`. No-op
-  when the frame is unregistered, when no `:on-error` slot is
-  configured, or when the slot is not a fn. Per Spec 009 §1052
-  policy-fn exceptions are caught here so a buggy policy fn cannot
-  break the cascade. Returns the policy fn's return value or nil."
+  when `error-event` is nil (the LISTENER-ONLY caller signal — see
+  [[dispatch-on-error!]] §two-axis catalogue), when the frame is
+  unregistered, when no `:on-error` slot is configured, or when the
+  slot is not a fn. Per Spec 009 §1052 policy-fn exceptions are caught
+  here so a buggy policy fn cannot break the cascade. Returns the
+  policy fn's return value or nil."
   [frame-id error-event]
-  (when-let [f (frame/frame frame-id)]
-    (when-let [policy (get-in f [:config :on-error])]
-      (when (fn? policy)
-        (try
-          (policy error-event)
-          (catch #?(:clj Throwable :cljs :default) _ nil))))))
+  (when (some? error-event)
+    (when-let [f (frame/frame frame-id)]
+      (when-let [policy (get-in f [:config :on-error])]
+        (when (fn? policy)
+          (try
+            (policy error-event)
+            (catch #?(:clj Throwable :cljs :default) _ nil)))))))
 
 (defn dispatch-on-error!
-  "Surface an `:rf.error/*` event through the two always-on error-emit
+  "Surface an `:rf.error/*` event through the always-on error-emit
   fan-out paths. Always-on (NOT gated by `re-frame.interop/debug-
   enabled?`) — fires in CLJS production builds where the trace
   surface is elided.
 
+  ## Two-axis catalogue (Mike-ruled rf2-2hvga = B + recover-but-emit)
+
+  The two fan-out paths are gated INDEPENDENTLY:
+
+    - **axis 1 — corpus-wide listener registry (surface #4): BROAD.**
+      ALWAYS fires for every catalogued production-reachable RUNTIME
+      `:rf.error/*` category. This is the off-box observability stream
+      (Sentry / Datadog / Xray / the SSR error-projection listener) and
+      is the production-survivable source of truth: a category that does
+      NOT fan out here goes silent under `goog.DEBUG=false`. (Dev-only-
+      validation / registration-time categories — dev schema checks,
+      machine-unresolved-guard — stay dev-trace-only and do NOT call
+      this fn; that is correct, not a gap.)
+
+    - **axis 2 — per-frame `:on-error` policy fn (surface #5): NARROW,
+      recovery-scoped.** Fires ONLY when `error-event` is non-nil. Pass
+      a structured `{:operation :op-type :tags :recovery}` map ONLY for
+      categories where a `{:swallow | :replacement | :default}` recovery
+      decision is meaningful (handler-exception + the handler-like
+      exception categories: interceptor / cofx / flow / reserved-fx).
+      Pass `nil` for invalid-operation categories with no recovery point
+      (frame-destroyed, no-such-handler, no-such-sub) and for
+      sub-exception (whose recovery is the built-in 'return nil', not a
+      policy choice) — then ONLY axis 1 fires.
+
   Builds the tight error-record ONCE, runs
   `re-frame.elision/elide-wire-value` against `:event` with off-box
   defaults (large → `:rf.size/large-elided`; per-path sensitive
-  declarations → `:rf/redacted`), then fans out along two independent
-  paths (listener registry, per-frame `:on-error` policy).
+  declarations → `:rf/redacted`), then fans out along the two
+  independent paths.
 
-  Sensitive-data redaction on this path is path-based: the per-frame
-  `[:rf/runtime :elision]` registry's `:sensitive-declarations` drive
-  the wire-walker's per-slot substitutions. Handler-meta `:sensitive?`
-  is no longer consulted (path-marked classification is the v2
-  mechanism; separate spec doc; in progress).
+  ## Payload hygiene (production-surviving — enforce at every site)
 
-  Called by `router.cljc` from the handler-exception path. Returns nil."
+  The listener record (`{:error :event :event-id :frame :time
+  :exception :elapsed-ms}`) is production-surviving and is NOT privacy-
+  gated like the dev trace. Every caller MUST keep identifiers tight,
+  elide `:event` (done here via the wire-walker), and carry NO raw
+  app-db slice. Sensitive-data redaction on this path is path-based:
+  the per-frame `[:rf/runtime :elision]` registry's `:sensitive-
+  declarations` drive the wire-walker's per-slot substitutions.
+  Handler-meta `:sensitive?` is no longer consulted (path-marked
+  classification is the v2 mechanism; separate spec doc; in progress).
+
+  Called from every `:rf.error/*` emission site — directly from
+  `router.cljc` (handler-exception, flow-eval, frame-destroyed) and via
+  the `:error-emit/dispatch-on-error` late-bind hook from `fx.cljc`,
+  `subs/memo.cljc`, `subs.cljc`, and `router/diagnostics.cljc` (those
+  layers cannot static-require this ns — load cycle). Returns nil."
   [error-kw event event-id frame-id exception elapsed-ms time error-event]
   (let [;; Per rf2-3un2g §Always-on error-coord registry: source-coords
         ;; for the failing handler ride the always-on parallel registry
@@ -148,7 +200,10 @@
                               (not (contains? (:tags error-event) :source-coord)))
                        (update error-event :tags assoc :source-coord source-coord)
                        error-event)]
+    ;; Axis 1 (BROAD) — corpus-wide listeners ALWAYS fan out.
     ((:fan-out registry) record)
+    ;; Axis 2 (NARROW) — `fire-on-error-policy!` no-ops when `policy-event`
+    ;; is nil (the listener-only signal for non-recovery categories).
     (fire-on-error-policy! frame-id policy-event))
   nil)
 

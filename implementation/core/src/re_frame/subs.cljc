@@ -240,11 +240,39 @@
                         ;; resolved. (rf2-agpv2.3 — aligns the emit tag-shape to
                         ;; Spec 009; recovery is unchanged: nil-yielding reaction,
                         ;; not cached.)
-                        (trace/emit-error! :rf.error/no-such-sub
-                                           {:rf.sub/id        query-id
-                                            :unresolved-input query-v
-                                            :resolved-inputs  []
-                                            :frame            frame-id}))
+                        ;;
+                        ;; Per rf2-2hvga (= B / widen): fan out through the
+                        ;; always-on error-emit listener (axis 1 / surface #4)
+                        ;; so a subscribe to a never-registered sub survives
+                        ;; `:advanced` + `goog.DEBUG=false` and reaches off-box
+                        ;; shippers — a production-meaningful runtime error.
+                        ;; LISTENER-ONLY (axis 2 not invoked): an invalid op
+                        ;; whose built-in `:replaced-with-default` recovery is
+                        ;; NOT a policy choice, so `error-event` is nil. Reached
+                        ;; via the `:error-emit/dispatch-on-error` late-bind hook
+                        ;; (subs cannot static-require `re-frame.error-emit` —
+                        ;; load cycle). The `:frame`-stampable record carries
+                        ;; `frame-id` + the attempted `query-v` for 7d30s +
+                        ;; shipper attribution.
+                        (do
+                          ;; Axis 1 — always-on listener (survives prod elision).
+                          (when-let [dispatch-on-error!
+                                     (late-bind/get-fn-cached :error-emit/dispatch-on-error)]
+                            (dispatch-on-error!
+                              :rf.error/no-such-sub
+                              query-v               ;; attempted query-vector (as :event)
+                              query-id              ;; sub-id (as :event-id)
+                              frame-id
+                              nil                   ;; no exception — invalid op
+                              0                     ;; elapsed-ms
+                              (interop/now-ms)      ;; time
+                              nil))                 ;; LISTENER-ONLY — axis 2 not invoked
+                          ;; Dev-only trace path — DCEs under `:advanced` + `goog.DEBUG=false`.
+                          (trace/emit-error! :rf.error/no-such-sub
+                                             {:rf.sub/id        query-id
+                                              :unresolved-input query-v
+                                              :resolved-inputs  []
+                                              :frame            frame-id})))
         body-fn       (:handler-fn sub-meta)
         input-signals (:input-signals sub-meta)
         layer-1?      (empty? input-signals)
@@ -532,15 +560,40 @@
           (resolve-sub-override frame-id query-v)))
      (let [frame-record (frame/frame frame-id)]
        (cond
-         ;; Missing or destroyed frame: trace and return nil rather than
-         ;; deref-ing nil and exploding. Per Spec 009 §Error contract:
-         ;; recovery is :replaced-with-default — the sub resolves to nil.
+         ;; Missing or destroyed frame: emit + return nil rather than
+         ;; deref-ing nil and exploding. Per rf2-2hvga (= B + recover-but-
+         ;; emit): subscribe RECOVERS (returns nil) AND emits a
+         ;; production-survivable `:rf.error/frame-destroyed` through the
+         ;; always-on error-emit listener (axis 1 / surface #4) so a
+         ;; subscribe during a teardown / hot-reload race recovers safely
+         ;; while a real use-after-destroy bug stays observable on the
+         ;; production-watched stream. LISTENER-ONLY (axis 2 not invoked):
+         ;; an invalid op has no `{:swallow | :replacement | :default}`
+         ;; recovery point, so `error-event` is nil. Reached via the
+         ;; `:error-emit/dispatch-on-error` late-bind hook (subs cannot
+         ;; static-require `re-frame.error-emit` — load cycle). The
+         ;; `:frame`-stampable record carries `frame-id` + the attempted
+         ;; `query-v` (as `:event`) for 7d30s + shipper attribution.
          (nil? frame-record)
-         (do (trace/emit-error! :rf.error/frame-destroyed
-                                {:frame    frame-id
-                                 :query-v  query-v
-                                 :recovery :replaced-with-default})
-             nil)
+         (do
+           ;; Axis 1 — always-on listener (survives prod elision).
+           (when-let [dispatch-on-error!
+                      (late-bind/get-fn-cached :error-emit/dispatch-on-error)]
+             (dispatch-on-error!
+               :rf.error/frame-destroyed
+               query-v                       ;; attempted query-vector (as :event)
+               (first query-v)               ;; sub-id (as :event-id)
+               frame-id
+               nil                           ;; no exception — invalid op
+               0                             ;; elapsed-ms
+               (interop/now-ms)              ;; time
+               nil))                         ;; LISTENER-ONLY — axis 2 not invoked
+           ;; Dev-only trace path — DCEs under `:advanced` + `goog.DEBUG=false`.
+           (trace/emit-error! :rf.error/frame-destroyed
+                              {:frame    frame-id
+                               :query-v  query-v
+                               :recovery :replaced-with-default})
+           nil)
 
          :else
          (let [cache (:sub-cache frame-record)
@@ -675,19 +728,77 @@
                             ;; 4-arity contract).
                             (subs-memo/maybe-validate-sub! raw query-v query-id meta nil))
                           (catch #?(:clj Throwable :cljs :default) e
-                            (let [msg #?(:clj (.getMessage ^Throwable e) :cljs (.-message e))]
-                              (trace/emit-error!
-                                :rf.error/sub-exception
-                                {:failing-id        query-id
-                                 :rf.sub/id         query-id
-                                 :sub-query         query-v
-                                 :where             :compute-sub
-                                 :exception         e
-                                 :exception-message msg
-                                 :reason            (str "Subscription `" query-id
-                                                         "` threw while computing: "
-                                                         msg ". Returning nil.")
-                                 :recovery          :replaced-with-default}))
+                            (let [msg #?(:clj (.getMessage ^Throwable e) :cljs (.-message e))
+                                  reason (str "Subscription `" query-id
+                                              "` threw while computing: "
+                                              msg ". Returning nil.")
+                                  ;; The pure `compute-sub` path has no in-flight
+                                  ;; reaction frame to attribute to (it computes
+                                  ;; against a SUPPLIED db, outside any reactive
+                                  ;; cascade — Spec 008 §Testing), so `:frame` is
+                                  ;; nil. A `compute-sub`-driven SSR harness that
+                                  ;; wants the per-frame 500 projection must use
+                                  ;; the reactive `subscribe` path (which knows
+                                  ;; its frame) — see rf2-kjf3m.3 notes.
+                                  tags  {:failing-id        query-id
+                                         :rf.sub/id         query-id
+                                         :sub-query         query-v
+                                         :frame             nil
+                                         :where             :compute-sub
+                                         :exception         e
+                                         :exception-message msg
+                                         :reason            reason
+                                         :recovery          :replaced-with-default}]
+                              ;; Per rf2-2hvga (= B / widen) — SETTLES rf2-kjf3m.3.
+                              ;; The pure `compute-sub` path was previously
+                              ;; trace-ONLY: under `interop/debug-enabled? = false`
+                              ;; (CLJS `:advanced` + `goog.DEBUG=false`; JVM
+                              ;; `-Dre-frame.debug=false`) the `trace/emit-error!`
+                              ;; below DCEs / no-ops, so a sub that threw via
+                              ;; `compute-sub` recovered to nil with NO always-on
+                              ;; emission — the exact fail-open class rf2-vvwmi
+                              ;; closed for the REACTIVE path, still open for the
+                              ;; compute-sub path. A head fn / JVM render harness
+                              ;; that resolves subs via `compute-sub` during SSR
+                              ;; could ship a silent 200 with recovered-to-nil
+                              ;; broken HTML. Routing through the always-on
+                              ;; listener (axis 1 / surface #4) — corpus-wide
+                              ;; shippers (Sentry / Datadog) now see the
+                              ;; compute-sub throw under production hardening,
+                              ;; symmetric with `subs/memo.cljc`'s reactive
+                              ;; sibling. NOTE: the per-frame epoch capture +
+                              ;; SSR per-frame 500 projection are frame-tagged;
+                              ;; the pure `compute-sub` path has no reactive frame
+                              ;; (`:frame` nil), so a `compute-sub`-driven SSR
+                              ;; harness that wants the per-frame projection MUST
+                              ;; resolve subs via the reactive `subscribe` path
+                              ;; (which knows its frame). The always-on
+                              ;; corpus-wide stream fires regardless — closing the
+                              ;; silent-recovery fail-open for off-box monitors.
+                              ;;
+                              ;; LISTENER-ONLY (axis 2 NOT invoked — `error-event`
+                              ;; nil): a sub-exception's recovery is the built-in
+                              ;; 'return nil', NOT a `{:swallow | :replacement |
+                              ;; :default}` policy choice (Mike-ruled rf2-2hvga
+                              ;; axis-2 catalogue). Reached via the
+                              ;; `:error-emit/dispatch-on-error` late-bind hook
+                              ;; (subs cannot static-require `re-frame.error-emit`
+                              ;; — load cycle). A pure `compute-sub` has no
+                              ;; triggering event vector, so `:event` / `:event-id`
+                              ;; are nil.
+                              (when-let [dispatch-on-error!
+                                         (late-bind/get-fn-cached :error-emit/dispatch-on-error)]
+                                (dispatch-on-error!
+                                  :rf.error/sub-exception
+                                  nil                       ;; event (pure compute — none)
+                                  nil                       ;; event-id
+                                  nil                       ;; frame (pure compute — no reactive frame)
+                                  e
+                                  0                         ;; elapsed-ms
+                                  (interop/now-ms)          ;; time
+                                  nil))                     ;; LISTENER-ONLY — axis 2 not invoked
+                              ;; Dev-only trace path — DCEs under `:advanced` + `goog.DEBUG=false`.
+                              (trace/emit-error! :rf.error/sub-exception tags))
                             nil))]
             (swap! memo assoc query-v v)
             v))))))

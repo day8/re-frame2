@@ -13,6 +13,7 @@
   facade and reach into this ns only on the rare warning / error paths."
   (:require [re-frame.frame :as frame]
             [re-frame.interop :as interop]
+            [re-frame.late-bind :as late-bind]
             [re-frame.trace :as trace
              #?@(:cljs [:include-macros true])]))
 
@@ -110,9 +111,40 @@
   an async callback attached inside a view body). Emit the warning ahead
   of the `:rf.error/no-such-handler` error so consumers see the specific
   diagnostic; the error fires too, preserving the existing handler-
-  missing trace contract."
+  missing trace contract.
+
+  Per rf2-2hvga (= B / widen): the `:rf.error/no-such-handler` category
+  ALSO fans out through the always-on error-emit listener (axis 1 /
+  surface #4) so it survives `:advanced` + `goog.DEBUG=false` and reaches
+  off-box observability shippers — a dispatch to a never-registered
+  handler is a production-meaningful runtime error. LISTENER-ONLY: it is
+  an invalid operation with no `{:swallow | :replacement | :default}`
+  recovery point (the runtime's built-in `:replaced-with-default` is not
+  a policy choice), so the per-frame `:on-error` policy fn (axis 2 /
+  surface #5) is NOT invoked — `error-event` is passed `nil`. Reached via
+  the `:error-emit/dispatch-on-error` late-bind hook (this diagnostics ns
+  cannot static-require `re-frame.error-emit` without a load cycle). The
+  `:frame`-stampable record carries the target `frame` + attempted
+  `event` for 7d30s + shipper attribution.
+
+  The `emit-fallthrough-warning!` warning above and the dev `trace/emit-
+  error!` below stay dev-only (they DCE under `goog.DEBUG=false`); the
+  always-on listener fan-out is what survives."
   [envelope event-id event frame]
   (emit-fallthrough-warning! envelope)
+  ;; Axis 1 — always-on listener (survives prod elision). Listener-only.
+  (when-let [dispatch-on-error!
+             (late-bind/get-fn-cached :error-emit/dispatch-on-error)]
+    (dispatch-on-error!
+      :rf.error/no-such-handler
+      event
+      event-id
+      frame
+      nil                                 ;; no exception — invalid op
+      0                                   ;; elapsed-ms
+      (interop/now-ms)                    ;; time
+      nil))                               ;; LISTENER-ONLY — axis 2 not invoked
+  ;; Dev-only trace path — DCEs under `:advanced` + `goog.DEBUG=false`.
   (trace/emit-error! :rf.error/no-such-handler
                      {:rf.trace/event-id event-id
                       :rf.event/v        event
