@@ -176,11 +176,46 @@
 
 ;; ---- hot-reload invalidation ---------------------------------------------
 ;;
-;; Per Spec 001 §Hot-reload semantics: when a :sub re-registers, every
-;; cached reaction whose query-id is that sub MUST be disposed and
-;; evicted across every frame's cache. Cached reactions hold the OLD
-;; body via closure; without explicit invalidation, they'd silently
-;; serve stale values.
+;; Per Spec 001 §Hot-reload semantics + Cross-Spec-Interactions §18: when a
+;; :sub re-registers, every cached reaction whose query-id is that sub MUST
+;; be disposed and evicted across every frame's cache — AND so must every
+;; cached DOWNSTREAM sub that depends on it (directly or transitively) via
+;; `:<-`. Cached reactions hold the OLD body via closure (and downstream
+;; reactions hold the OLD input reaction); without invalidating the whole
+;; transitive dependent closure, a downstream slot like `[:sum] :<- [:a]`
+;; keeps its stale input reaction and serves the old `:a` body's value.
+
+(defn- transitive-dependent-closure
+  "Given a cache map `m` and a re-registered sub `id`, return the set of
+  cache keys to evict: the re-registered sub's own slots PLUS every slot
+  that depends on it transitively through the `:<-` topology recorded in
+  each entry's `:inputs` (the vector of input query-vectors).
+
+  A slot is a dependent iff any of its `:inputs` query-vectors either
+  (a) has head = `id` — a DIRECT `:<-` on the re-registered sub — or
+  (b) equals a key already in the evict set — a TRANSITIVE dependency on
+  an already-condemned slot. The fixpoint loop grows the set until no new
+  key is added; it only ever ADDS keys not already present, so a cyclic
+  `:<-` graph cannot loop forever (each key is admitted at most once)."
+  [m id]
+  (let [;; Static index: cache-key → the seq of its input query-vectors.
+        inputs-of  (fn [k] (:inputs (get m k)))
+        depends-on (fn [k condemned]
+                     ;; k depends on the re-registration iff one of its
+                     ;; inputs targets `id` directly or a condemned slot.
+                     (boolean
+                       (some (fn [input-q]
+                               (or (= id (first input-q))
+                                   (contains? condemned input-q)))
+                             (inputs-of k))))
+        seed       (into #{} (filter #(= id (first %))) (keys m))]
+    (loop [condemned seed]
+      (let [next-set (into condemned
+                           (filter #(depends-on % condemned))
+                           (keys m))]
+        (if (= next-set condemned)
+          condemned
+          (recur next-set))))))
 
 (defn- invalidate-sub-on-replace!
   [{:keys [kind id]}]
@@ -190,12 +225,13 @@
         ;; The swap-fn body is pure — it returns only the new cache map.
         ;; Reactions to dispose are read from the diff between `old` and
         ;; `new` AFTER the CAS commits (so a retried `swap!` can't fire
-        ;; dispose 2+ times).
+        ;; dispose 2+ times). The condemned set is the transitive `:<-`
+        ;; dependent closure, recomputed inside the swap-fn against the
+        ;; map the CAS actually sees (a retry recomputes against fresh m).
         (let [[old new] (swap-vals! cache
                                     (fn [m]
-                                      (let [hit-keys (->> (keys m)
-                                                          (filter #(= id (first %))))]
-                                        (apply dissoc m hit-keys))))
+                                      (apply dissoc m
+                                             (transitive-dependent-closure m id))))
               ;; The keys actually evicted by THIS swap are those present
               ;; in `old` but absent in `new`. A concurrent evictor that
               ;; won the CAS race would have removed its keys before our

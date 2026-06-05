@@ -164,6 +164,79 @@
       (is (= 500 (rf/subscribe-once :right [:answer]))
           "right frame's next subscribe uses v2 (5 * 100)"))))
 
+;; ---- (2b) :sub re-register evicts the transitive :<- dependent closure ----
+;;
+;; Per Cross-Spec-Interactions §18.2 — re-registering a sub invalidates not
+;; just its own cache slot but every DOWNSTREAM cache slot that depended on
+;; it through `:<-`. rf2-kboyu: before the fix, `invalidate-sub-on-replace!`
+;; only evicted keys whose query-vector HEAD equalled the re-registered id;
+;; a cached `[:sum] :<- [:a]` kept its old input reaction and served the OLD
+;; `:a` body's value after `:a` was re-registered.
+
+(deftest sub-re-register-evicts-transitive-dependents
+  (testing "re-registering an upstream sub evicts its DOWNSTREAM :<- dependents
+            so they recompute against the new upstream body"
+    (rf/reg-event-db :seed (fn [_ _] {:n 10}))
+    (rf/dispatch-sync [:seed])
+    ;; v1 of :a is the identity over :n (= 10); :sum is :a + 0 (= 10).
+    (rf/reg-sub :a (fn [db _] (:n db)))
+    (rf/reg-sub :sum :<- [:a] (fn [a _] (+ a 0)))
+    ;; Pin the DOWNSTREAM reaction so ref-counting cannot evict it; this is
+    ;; the slot that, pre-fix, survives the re-registration with a stale
+    ;; input reaction. Subscribing [:sum] also subscribes [:a] (its input).
+    (let [pin-sum (rf/subscribe :rf/default [:sum])
+          cache   (:sub-cache (frame/frame :rf/default))]
+      (is (= 10 @pin-sum) ":sum reads 10 under v1 of :a")
+      (is (contains? @cache [:sum]) "downstream [:sum] is cached")
+      (is (contains? @cache [:a])   "upstream [:a] is cached")
+      ;; Re-register :a so its body now doubles :n (= 20). The body fn is a
+      ;; fresh closure; the OLD reaction for [:a] (and [:sum]'s held input)
+      ;; close over the v1 body.
+      (rf/reg-sub :a (fn [db _] (* 2 (:n db))))
+      ;; Both the re-registered sub's own slot AND the transitive dependent
+      ;; MUST be gone — the closure walk evicted [:a] (head match) and [:sum]
+      ;; (depends on [:a] via :<-).
+      (is (not (contains? @cache [:a]))
+          "[:a] (the re-registered sub) cache slot was evicted")
+      (is (not (contains? @cache [:sum]))
+          "[:sum] (transitive :<- dependent) cache slot was evicted")
+      ;; The next subscribe rebuilds [:sum] (and its [:a] input) against the
+      ;; new :a body: 2 * 10 = 20, NOT the stale 10.
+      (is (= 20 (rf/subscribe-once :rf/default [:sum]))
+          "next subscribe of [:sum] observes the new :a body (2 * 10 = 20)")
+      ;; A held reaction taken AFTER the re-registration also reads the new
+      ;; body — the stale input reaction is no longer reachable from the cache.
+      (let [pin-sum-v2 (rf/subscribe :rf/default [:sum])]
+        (is (= 20 @pin-sum-v2)
+            "a freshly-held [:sum] reaction reads the new :a body (20)")))))
+
+(deftest sub-re-register-transitive-eviction-terminates-on-cyclic-inputs
+  (testing "the transitive closure walk terminates even when the recorded
+            :<- topology contains a cycle — each key is admitted at most once"
+    ;; A pathological dev-time graph: :p :<- [:q] and :q :<- [:p]. The
+    ;; registrar permits the registrations; we synthesise the cyclic cache
+    ;; entries directly so the closure walk is exercised against a cycle
+    ;; without needing the reactive build to succeed.
+    (rf/reg-event-db :seed (fn [_ _] {:n 1}))
+    (rf/dispatch-sync [:seed])
+    (rf/reg-sub :base (fn [db _] (:n db)))
+    (let [cache (:sub-cache (frame/frame :rf/default))]
+      ;; Hand-craft a cycle in the cache's :inputs topology. No live
+      ;; reactions are needed for the closure walk (it reads only :inputs);
+      ;; :reaction nil means the dispose loop skips disposal for these slots.
+      (swap! cache assoc
+             [:p]    {:reaction nil :inputs [[:q] [:base]] :ref-count 1}
+             [:q]    {:reaction nil :inputs [[:p]]         :ref-count 1}
+             [:base] (or (get @cache [:base])
+                         {:reaction nil :inputs [] :ref-count 1}))
+      ;; Re-registering :base must evict :base AND its transitive dependents
+      ;; :p (direct :<- [:base]) and :q (depends on :p) — and TERMINATE despite
+      ;; the :p ↔ :q cycle.
+      (rf/reg-sub :base (fn [db _] (* 100 (:n db))))
+      (is (not (contains? @cache [:base])) "[:base] evicted (re-registered)")
+      (is (not (contains? @cache [:p]))    "[:p] evicted (transitive dependent)")
+      (is (not (contains? @cache [:q]))    "[:q] evicted (cyclic transitive dependent)"))))
+
 ;; ---- (3) :frame re-register preserves snapshot ---------------------------
 
 (deftest frame-re-register-preserves-snapshot
