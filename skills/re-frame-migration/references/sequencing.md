@@ -96,7 +96,7 @@ The M-rule numbering in [`MIGRATION.md`](../../../migration/from-re-frame-v1/REA
 
 | Order | Rule | Pairs with |
 |---|---|---|
-| 31 | **M-27** | Triggered by `reg-app-schema` / `:spec` keys (incl. `:spec` on `reg-event-*`). Add `day8/re-frame2-schemas`. |
+| 31 | **M-27** | Triggered by `reg-app-schema` / `:schema` keys (incl. `:schema` on `reg-event-*` — the key is `:schema` post-M-54, was `:spec` pre-M-54). Add `day8/re-frame2-schemas`. |
 | 31a | **M-61** | If the codebase calls `re-frame.schemas/validate-app-db!` / `validate-sub-return!` directly or publishes the matching late-bind hook keys. Rename to `validate-app-schema!` / `validate-sub!`. Pairs with M-27. v2-pre-rename only. |
 | 32 | **M-28** | Triggered by `reg-machine` / `sub-machine`. Add `day8/re-frame2-machines`. |
 | 32a | **M-57** | If the codebase uses `(rf/create-machine-handler ...)`. Rename to `make-machine-handler`. Also rename `:machines/create-machine-handler` late-bind hook key. Pairs with M-28. v2-pre-rename only. |
