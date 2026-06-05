@@ -24,9 +24,13 @@
         coordination case, impossible before rf2-46ly6.
     (b) the §State-tags-as-stateIn worked example from spec/005 actually
         works from a region guard.
-    (c) tags reflect the EVOLVING snapshot mid-macrostep — a sibling
-        transition earlier in the same macrostep is visible to a later
-        region's guard.
+    (c) FROZEN selection (rf2-42mml) — a sibling's SAME-EVENT transition is
+        NOT visible to a later region's guard during selection; the guard
+        reads the frozen pre-event sibling config. (Read-TIMING flips from
+        rf2-46ly6's evolving; the read CAPABILITY is preserved. The
+        dedicated frozen-selection / declaration-order-independence /
+        next-microstep convergence fixtures live in
+        `frozen_region_select_test.clj`.)
     (d) region guards still see their OWN state correctly (regression).
     (e) non-parallel (flat / compound) guard ctx is UNAFFECTED — neither
         `:tags` nor `:all-state` appears (regression).
@@ -135,16 +139,20 @@
       (is (contains? (:tags (snapshot :xreg/checkout)) :checkout/submitting)
           "the committed tag union reflects :checkout's new state too"))))
 
-;; ---- (c) tags reflect the evolving mid-macrostep snapshot ------------------
+;; ---- (c) FROZEN selection — a sibling's same-event move is NOT visible ------
 
-(deftest tag-union-reflects-evolving-macrostep
-  (testing "a sibling region's transition EARLIER in the same macrostep is
-            visible to a later region's guard via the evolving tag union"
+(deftest tag-union-frozen-during-selection
+  (testing "a sibling region's SAME-EVENT transition is NOT visible to a later
+            region's guard during selection — the guard reads the FROZEN
+            pre-broadcast tag union (rf2-42mml — reverses rf2-46ly6's evolving
+            read-timing; aligns to XState v5 / SCXML)"
     ;; Declaration order: :form before :gate. A single :go event makes :form
-    ;; transition :invalid → :valid (advertising :form/valid). Because :form is
-    ;; processed first within the one broadcast, :gate's :go guard — evaluated
-    ;; against the EVOLVING snapshot — already sees :form/valid and fires, all
-    ;; in ONE macrostep with NO intermediate dispatch.
+    ;; transition :invalid → :valid (advertising :form/valid). Under the FROZEN
+    ;; model, :gate's :go guard is evaluated against the pre-event snapshot, in
+    ;; which :form is still :invalid → :form/valid is NOT in the frozen union →
+    ;; :gate stays :closed. :form still advances (it selected on its OWN :on).
+    ;; This is the xstate@5.32.0 result (a=done, b=idle), declaration-order-
+    ;; independent.
     (let [m {:type    :parallel
              :data    {}
              :guards  {:form-valid? (fn [{:keys [tags]}]
@@ -156,14 +164,15 @@
               :gate {:initial :closed
                      :states  {:closed {:on {:go {:target :open :guard :form-valid?}}}
                                :open   {}}}}}]
-      (rf/reg-machine :xreg/evolving m)
-      (rf/dispatch-sync [:xreg/evolving [:go]])
-      (is (= {:form :valid :gate :open} (:state (snapshot :xreg/evolving)))
-          ":gate saw :form's same-macrostep transition to :valid and opened"))))
+      (rf/reg-machine :xreg/frozen m)
+      (rf/dispatch-sync [:xreg/frozen [:go]])
+      (is (= {:form :valid :gate :closed} (:state (snapshot :xreg/frozen)))
+          ":gate stayed :closed — it saw :form's FROZEN pre-event :invalid, not
+           the same-macrostep transition to :valid"))))
 
-(deftest tag-union-evolving-pure-fn
-  (testing "pure machine-transition: the evolving union is current as of the
-            region's position in the broadcast (declaration order)"
+(deftest tag-union-frozen-pure-fn
+  (testing "pure machine-transition: the cross-region union a guard reads is the
+            FROZEN pre-event snapshot, not the region's evolving position"
     (let [m {:type    :parallel
              :data    {}
              :guards  {:form-valid? (fn [{:keys [tags]}]
@@ -178,10 +187,11 @@
           initial {:state {:form :invalid :gate :closed}
                    :data  {} :tags #{:form/invalid}}
           {snap ::result/snap} (parallel/machine-transition m initial [:go])]
-      (is (= {:form :valid :gate :open} (:state snap))
-          "pure transition: :gate's guard read the evolving :form/valid")
+      (is (= {:form :valid :gate :closed} (:state snap))
+          "pure transition: :gate's guard read the FROZEN :form/invalid → blocked")
       (is (= #{:form/valid} (:tags snap))
-          "committed union reflects both regions' settled states"))))
+          "committed union reflects both regions' SETTLED states (:gate stayed
+           :closed, contributing no tag)"))))
 
 ;; ---- (d) a region guard still sees its OWN state correctly (regression) ---
 
