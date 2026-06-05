@@ -142,7 +142,7 @@ The view-tree assertion axis (commonly aliased `:as h`). Walk hiccup by `:data-t
 | `rf/init!` | `(adapter-map)` — install adapter + ensure `:rf/default`. No registry. |
 | `rf/install-adapter!` / `rf/destroy-adapter!` / `rf/current-adapter` / `rf/current-adapter-spec` | low-level adapter ops; `current-adapter` → discriminator keyword, `current-adapter-spec` → spec map |
 | `rf/clear-event` / `rf/clear-sub` / `rf/clear-fx` / `rf/clear-flow` / `rf/clear-sub-cache!` | targeted deregistration |
-| `rf/configure!` | `(:epoch-history\|:trace-buffer\|:sub-cache opts)` — runtime knobs |
+| `rf/configure!` | `(:epoch-history\|:trace-buffer\|:elision opts)` — runtime knobs (`:elision` opts `{:rf.size/threshold-bytes N}`) |
 | `rf/registrations` / `rf/handler-meta` / `rf/handler-ids` | registrar reads |
 | `rf/features` | `()` → map of every optional-feature keyword → `{:maven :require :spec :loaded?}`. Ships to production (not elided) |
 | `rf/feature-loaded?` | `(feature)` → bool — is the optional feature's impl artefact on the classpath. Known: `:schemas` `:machines` `:routing` `:flows` `:http` `:ssr` `:epoch` |
