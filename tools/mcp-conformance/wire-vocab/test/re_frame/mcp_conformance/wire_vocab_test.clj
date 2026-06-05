@@ -93,7 +93,11 @@
             [re-frame.mcp-base.diff-encode :as de]
             [re-frame.mcp-base.overflow :as mcp-overflow]
             [re-frame.mcp-base.vocab :as mcp-vocab]
-            [re-frame.mcp-conformance.fixtures :as fx]))
+            [re-frame.mcp-conformance.fixtures :as fx]
+            ;; rf2-2js41 finding 1 — story-mcp's cursor-stale builder, so
+            ;; the gate can drive the SECOND server's emission live and
+            ;; pin cursor-stale as a genuinely multi-server contract.
+            [re-frame.story-mcp.tools.cursor :as story-cursor]))
 
 ;; ---------------------------------------------------------------------------
 ;; Repo-root + slurp helpers live in `re-frame.mcp-conformance.fixtures`
@@ -446,9 +450,10 @@
 
 (def CursorStaleResult
   "Structured error-result envelope where `:reason :rf.mcp/cursor-stale`
-  signals the cursor's epoch-id is no longer in the runtime ring (per
-  `mcp-base/vocab.cljc/cursor-stale-reason` and re-frame2-pair-mcp
-  `tools/cursor.cljs/cursor-stale-result`).
+  signals a cursor no longer addresses a valid position. The canonical
+  `:reason` value + the cross-MCP envelope builder live in
+  `mcp-base/vocab.cljc/cursor-stale-reason` +
+  `mcp-base/cursor.cljc/cursor-stale-result`.
 
   Unlike the other markers in this file, `:rf.mcp/cursor-stale` is NOT
   a top-level wrapper — it rides as the `:reason` value on a generic
@@ -459,8 +464,29 @@
   slots (`:requested-id`, `:head-id`, `:tool`, `:hint`) are open
   per-server.
 
-  Single-server today (re-frame2-pair-mcp); the reason value is reserved
-  cross-MCP for any future pagination surface."
+  ## MULTI-server reason value (rf2-2js41 finding 1)
+
+  cursor-stale is emitted by BOTH MCP servers, for two distinct
+  staleness causes that share the same agent recovery vocabulary:
+
+  - re-frame2-pair-mcp — the cursor's epoch-id has rotated out of the
+    bounded epoch RING (`tools/cursor.cljs/cursor-stale-result`).
+  - story-mcp — the underlying registry's id-set CHANGED between
+    cursor-mint and cursor-deref, so the offset/total/sig cursor no
+    longer addresses the same page
+    (`tools/story-mcp/.../tools/cursor.cljc/cursor-stale-result`).
+
+  Both builders delegate to the shared
+  `mcp-base/cursor.cljc/cursor-stale-result`, which sources the
+  `:reason` from `vocab/cursor-stale-reason` — so an agent that learned
+  the drop-and-restart path on one server reuses it on the other. The
+  story-mcp builder wraps that data-map in story-mcp's MCP wire
+  envelope (`{:content … :isError true :structuredContent <this shape>}`)
+  — so it is the `:structuredContent` slot of story-mcp's emission that
+  this schema validates (see `story-cursor-stale-emitted-live-by-canonical-builder`
+  below). Previously documented as pair-only; promoted to a multi-server
+  reason-value contract once story-mcp shipped cursor pagination for the
+  Docs `list-*` tools."
   [:map
    {:closed false}
    [:ok?    [:enum false]]
@@ -1638,7 +1664,8 @@
                "(rf2-koq5m / rf2-c2wbp).")))))
 
 ;; ---------------------------------------------------------------------------
-;; `:rf.mcp/cursor-stale` reason-value gate (rf2-i3ffz F-GAP-5).
+;; `:rf.mcp/cursor-stale` MULTI-server reason-value gate
+;; (rf2-i3ffz F-GAP-5; promoted to multi-server by rf2-2js41 finding 1).
 ;;
 ;; Unlike the wrapper-shaped markers in `canonical-markers` above,
 ;; `:rf.mcp/cursor-stale` rides as the `:reason` value on a generic
@@ -1647,11 +1674,29 @@
 ;; itself: a rename or pluralisation would silently break every agent
 ;; that pattern-matches on it.
 ;;
-;; The pin shape mirrors the wrapper-marker pins above:
-;;   1. fixture validates against `CursorStaleResult` schema.
-;;   2. literal appears in re-frame2-pair-mcp's emit-source (mcp-base/vocab.cljc).
-;;   3. literal appears in re-frame2-pair-mcp's doc-sources (003-Tool-Catalogue.md).
-;;   4. no near-miss spelling co-exists in any conformance-tracked file.
+;; BOTH MCP servers emit this reason value (rf2-2js41 finding 1):
+;;   - re-frame2-pair-mcp — epoch-id rotated out of the bounded ring
+;;     (`tools/cursor.cljs/cursor-stale-result`).
+;;   - story-mcp — the Docs `list-*` registry id-set changed between
+;;     cursor-mint and cursor-deref
+;;     (`tools/story-mcp/.../tools/cursor.cljc/cursor-stale-result`).
+;; Both delegate to the shared `mcp-base/cursor.cljc/cursor-stale-result`,
+;; which sources `:reason` from `vocab/cursor-stale-reason` so the two
+;; emissions stay byte-identical on the reason keyword.
+;;
+;; The pin shape mirrors the wrapper-marker pins above, across BOTH
+;; servers:
+;;   1. authored fixtures validate against `CursorStaleResult` (one per
+;;      server emission shape).
+;;   2. LIVE-builder gates drive EACH server's `cursor-stale-result` and
+;;      validate the emission (pair-mcp's data-map directly; story-mcp's
+;;      `:structuredContent` slot).
+;;   3. literal appears in the shared emit-source (mcp-base/vocab.cljc)
+;;      AND in story-mcp's own cursor source (it documents/restarts on
+;;      the reason).
+;;   4. literal appears in re-frame2-pair-mcp's doc-sources (003-Tool-Catalogue.md).
+;;   5. no near-miss spelling co-exists in any conformance-tracked file
+;;      — now INCLUDING story-mcp's cursor source (added to the sweep).
 ;; ---------------------------------------------------------------------------
 
 (def ^:private cursor-stale-fixture
@@ -1666,10 +1711,31 @@
    :head-id      "epoch-9101"
    :hint         "Cursor's epoch-id is no longer in the runtime ring. Drop the cursor or widen the window."})
 
+(def ^:private story-cursor-stale-fixture
+  "Canonical story-mcp emission shape — the `:structuredContent` slot of
+  `re-frame.story-mcp.tools.cursor/cursor-stale-result` (per
+  `tools/story-mcp/.../tools/result.cljc/error-result`). story-mcp's
+  staleness cause is a registry id-set change between cursor pages, not
+  a ring rotation, but the cross-MCP `:reason` + `:ok? false` posture is
+  identical — that shared vocabulary IS the contract this fixture pins.
+  Authored here; the live-builder gate below proves the real story-mcp
+  builder actually emits it."
+  {:ok?    false
+   :reason :rf.mcp/cursor-stale
+   :tool   "list-stories"
+   :hint   "Drop :cursor and re-request from offset 0."})
+
 (deftest cursor-stale-fixture-conforms-to-schema
-  (is (m/validate CursorStaleResult cursor-stale-fixture)
-      (str "Fixture for :rf.mcp/cursor-stale failed schema validation:\n"
-           (me/humanize (m/explain CursorStaleResult cursor-stale-fixture)))))
+  ;; Both per-server emission-shape fixtures validate against the single
+  ;; canonical schema (rf2-2js41 finding 1 — cursor-stale is multi-server).
+  (testing "re-frame2-pair-mcp emission shape (ring rotation)"
+    (is (m/validate CursorStaleResult cursor-stale-fixture)
+        (str "pair-mcp fixture for :rf.mcp/cursor-stale failed schema validation:\n"
+             (me/humanize (m/explain CursorStaleResult cursor-stale-fixture)))))
+  (testing "story-mcp emission shape (registry change between pages)"
+    (is (m/validate CursorStaleResult story-cursor-stale-fixture)
+        (str "story-mcp fixture for :rf.mcp/cursor-stale failed schema validation:\n"
+             (me/humanize (m/explain CursorStaleResult story-cursor-stale-fixture))))))
 
 (deftest cursor-stale-rejects-non-error-envelopes
   ;; The reason value MUST ride a `:ok? false` envelope — emitting
@@ -1733,6 +1799,84 @@
       (is (= "epoch-9001" (:requested-id emitted)))
       (is (= "epoch-9101" (:head-id emitted))))))
 
+(deftest story-cursor-stale-emitted-live-by-canonical-builder
+  ;; SECOND-server LIVE-emission gate for `:rf.mcp/cursor-stale`
+  ;; (rf2-2js41 finding 1). The gate above drives pair-mcp's reason
+  ;; through the SHARED `mcp-base/cursor.cljc` builder; this one drives
+  ;; STORY-MCP's own `re-frame.story-mcp.tools.cursor/cursor-stale-result`
+  ;; — the builder for the Docs `list-*` pagination surface.
+  ;;
+  ;; The gap this closes: before this gate, story-mcp's cursor-stale
+  ;; emission was caught ONLY by story-mcp's local unit tests
+  ;; (`tools/story-mcp/test/...`). A drift in story-mcp's envelope shape
+  ;; or a decoupling of its `:reason` from the cross-MCP vocab constant
+  ;; would NOT trip the conformance surface that exists to enforce the
+  ;; SHARED agent vocabulary across servers. The cross-server contract
+  ;; was weaker than the (now multi-server) implementation.
+  ;;
+  ;; story-mcp's `cursor-stale-result` wraps the shared mcp-base builder
+  ;; in its MCP wire envelope via `result/error-result`, so the emission
+  ;; is `{:content [...] :isError true :structuredContent <data-map>}`.
+  ;; The cross-MCP reason-value contract lives on the `:structuredContent`
+  ;; slot — that is what we validate against canonical `CursorStaleResult`
+  ;; (the same schema pair-mcp's data-map validates against). Validating
+  ;; the structured slot, not the text blob, is the load-bearing pin: an
+  ;; agent host that reads JSON pattern-matches on `:reason` there.
+  (let [emitted    (story-cursor/cursor-stale-result "list-stories")
+        structured (:structuredContent emitted)]
+    (testing "story-mcp wraps the reason in an MCP error envelope"
+      (is (true? (:isError emitted))
+          "story-mcp cursor-stale rides an :isError true MCP result (per result/error-result)")
+      (is (some? structured)
+          "story-mcp cursor-stale MUST carry the structured data-map on :structuredContent"))
+    (testing "the structured content sources :reason from vocab/cursor-stale-reason"
+      (is (= mcp-vocab/cursor-stale-reason (:reason structured))
+          (str "story-mcp cursor-stale-result MUST emit the canonical "
+               ":reason value (vocab/cursor-stale-reason). If this fails, "
+               "story-mcp's builder drifted from the shared cross-MCP "
+               "constant agents pattern-match on. Got :reason = "
+               (pr-str (:reason structured)))))
+    (testing "the emitted :reason is the pinned cross-MCP keyword"
+      (is (= :rf.mcp/cursor-stale (:reason structured))
+          "the canonical reason keyword is :rf.mcp/cursor-stale"))
+    (testing "the structured content validates against canonical CursorStaleResult"
+      (is (m/validate CursorStaleResult structured)
+          (str "Live-emitted story-mcp cursor-stale :structuredContent failed "
+               "CursorStaleResult validation:\n"
+               (me/humanize (m/explain CursorStaleResult structured)))))
+    (testing "the builder preserves the :ok? false error posture"
+      (is (false? (:ok? structured))
+          "cursor-stale rides an :ok? false envelope — success never carries a stale-reason"))
+    (testing "the tool name threads through to the structured slot"
+      (is (= "list-stories" (:tool structured))))
+    (testing "pair-mcp + story-mcp emit the IDENTICAL cross-MCP reason value"
+      ;; The whole point of the multi-server contract: an agent learns
+      ;; the keyword once and reuses the recovery path on either server.
+      (let [pair-reason (:reason (mcp-cursor/cursor-stale-result
+                                   (fn [_m data] data) "watch-epochs" {}))]
+        (is (= pair-reason (:reason structured))
+            "the two servers MUST agree on the :rf.mcp/cursor-stale reason value")))))
+
+(def ^:private story-mcp-cursor-source
+  "story-mcp's cursor source — the builder for the Docs `list-*`
+  pagination surface (rf2-2js41 finding 1). It documents the cross-MCP
+  `:rf.mcp/cursor-stale` reason and routes through the shared
+  `mcp-base/cursor.cljc/cursor-stale-result` (sourcing `:reason` from
+  the vocab symbol, not the literal). Pinned in the cursor-stale source
+  sweep so a story-mcp-side vocabulary drift (a near-miss spelling, a
+  dropped reason) trips this cross-MCP gate, not only story-mcp's local
+  unit tests."
+  "tools/story-mcp/src/re_frame/story_mcp/tools/cursor.cljc")
+
+(def ^:private cursor-stale-near-miss-source-files
+  "The full set of conformance-tracked source/spec files the cursor-stale
+  near-miss anti-pin sweeps (rf2-2js41 finding 1). The base
+  `all-source-files` covers the shared vocab declaration + pair-mcp
+  specs; cursor-stale ALSO rides story-mcp's own cursor source, so that
+  file is folded into story-mcp's sweep here. A near-miss spelling
+  introduced on EITHER server's cursor surface now trips the gate."
+  (update all-source-files :story-mcp (fnil conj []) story-mcp-cursor-source))
+
 (deftest cursor-stale-literal-in-re-frame2-pair-mcp-emit-source
   ;; The canonical declaration lives in mcp-base/vocab.cljc — same
   ;; emit-source as the wrapper markers. Stripped before grep so a
@@ -1758,13 +1902,32 @@
     (is (some (fn [rel] (str/includes? (fx/read-source rel) literal)) files)
         (str literal " missing from re-frame2-pair-mcp doc-sources " files))))
 
+(deftest cursor-stale-literal-in-story-mcp-cursor-source
+  ;; story-mcp source pin (rf2-2js41 finding 1). cursor-stale is a
+  ;; multi-server reason value; story-mcp's cursor source MUST reference
+  ;; the canonical `:rf.mcp/cursor-stale` literal (it documents the
+  ;; shared recovery vocabulary on the builder that routes through
+  ;; `mcp-base/cursor.cljc`). Looser raw `str/includes?` — story-mcp
+  ;; sources the reason from the vocab SYMBOL (not the literal as data),
+  ;; so the literal lives in the docstring; a drop here means story-mcp
+  ;; stopped documenting the cross-MCP reason it emits.
+  (let [literal ":rf.mcp/cursor-stale"]
+    (is (str/includes? (fx/read-source story-mcp-cursor-source) literal)
+        (str literal " missing from story-mcp cursor source "
+             story-mcp-cursor-source
+             ". story-mcp emits this cross-MCP reason via the shared "
+             "mcp-base builder; its cursor source must reference the "
+             "canonical literal."))))
+
 (deftest cursor-stale-no-near-miss-in-any-server-source
   ;; Defence-in-depth: a rename to a near-miss form (snake_case,
   ;; pluralised, predicate `?` suffix) MUST NOT co-exist anywhere in
   ;; the conformance-tracked source/spec tree. Mirrors the marker-key
-  ;; near-miss anti-pin above.
+  ;; near-miss anti-pin above. The sweep set is extended with story-mcp's
+  ;; cursor source (rf2-2js41 finding 1) so a near-miss introduced on the
+  ;; SECOND server's pagination surface trips here too.
   (doseq [variant (near-miss-variants :rf.mcp/cursor-stale)
-          [server files] all-source-files
+          [server files] cursor-stale-near-miss-source-files
           rel files]
     (testing (str server " — " rel " — near-miss " variant)
       (is (not (str/includes? (fx/read-source rel) variant))

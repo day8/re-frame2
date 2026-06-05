@@ -107,10 +107,30 @@ const CLIENT_VERSION = '0.1.0';
 //                        line. Defaults to `[server]`; the redaction
 //                        gate-ON arm passes `[server:gate-on]` to keep
 //                        the two concurrent servers' logs distinguishable.
+//   - `onClient`       — OPTIONAL `(client) => void` callback, invoked
+//                        with the constructed client BEFORE the
+//                        `await client.connect()` handshake. The
+//                        watchdog form (`runWithWatchdog`) uses it to
+//                        capture a teardown handle the moment the child
+//                        is spawned — so a server that spawns and then
+//                        HANGS during the initialize handshake (connect
+//                        never resolving, never throwing) is still torn
+//                        down by the timeout path instead of orphaning
+//                        the child (rf2-2js41 finding 2; the connect
+//                        try/catch below only covers a connect that
+//                        THROWS — a connect that hangs never reaches it).
 // ---------------------------------------------------------------------
-async function connectServer({ transportSpec, clientName, stderrPrefix = '[server]' }) {
+async function connectServer({ transportSpec, clientName, stderrPrefix = '[server]', onClient }) {
   const transport = new StdioClientTransport({ ...transportSpec, stderr: 'pipe' });
   const client = new Client({ name: clientName, version: CLIENT_VERSION }, { capabilities: {} });
+  // Hand the caller a teardown handle the moment the client exists —
+  // BEFORE the connect handshake. The child has already been spawned by
+  // the transport construction above, so a connect that hangs (server
+  // boots but never finishes `initialize`) would otherwise leave the
+  // watchdog with no client to close (rf2-2js41 finding 2). `onClient`
+  // closes that window: the watchdog captures `client` here, not after
+  // `connect` resolves.
+  if (onClient) onClient(client);
   // Pipe the child's stderr to ours with the (prefixed) tag. Same shape
   // every historical caller used; the closure captures the transport
   // reference cleanly.
@@ -148,8 +168,16 @@ async function runWithWatchdog({ watchdogMs, transportSpec, clientName }, body) 
   // The watchdog must OWN the active client so a timeout tears the
   // spawned child down instead of orphaning it (rf2-voux7 finding 5).
   // `activeClient` is the closure handle the watchdog reads; it is
-  // assigned the moment `connectServer` returns, so a hang ANYWHERE
-  // after spawn (inside `body`, inside a slow tool call) is cleaned up.
+  // assigned via `connectServer`'s `onClient` callback the moment the
+  // client is constructed — BEFORE the `await client.connect()`
+  // handshake — so a hang ANYWHERE after spawn (during `initialize`,
+  // inside `body`, inside a slow tool call) is cleaned up. Pre-fix
+  // (rf2-2js41 finding 2) `activeClient` was assigned only AFTER
+  // `connectServer` RESOLVED, i.e. after `connect` completed; a server
+  // that spawned and then hung mid-handshake (connect never resolving,
+  // never throwing) left the watchdog with no client and the timeout
+  // path orphaned the child — the exact orphan class this watchdog
+  // exists to prevent.
   //
   // Pre-fix the watchdog called `process.exit(2)` directly, leaving the
   // spawned MCP server (Node bundle or JVM) running — it can keep the
@@ -189,7 +217,17 @@ async function runWithWatchdog({ watchdogMs, transportSpec, clientName }, body) 
   let bodyError;
   try {
     let transport;
-    ({ client, transport } = await connectServer({ transportSpec, clientName }));
+    // Capture the teardown handle via `onClient` — fired the instant the
+    // client is constructed, BEFORE connect awaits — so a hang during the
+    // initialize handshake is still reachable by the watchdog (rf2-2js41
+    // finding 2). The post-resolve `activeClient = client` below is now
+    // redundant on the happy path but kept as a belt-and-braces guarantee
+    // (and to leave `client` bound for the `finally` teardown).
+    ({ client, transport } = await connectServer({
+      transportSpec,
+      clientName,
+      onClient: (c) => { activeClient = c; },
+    }));
     activeClient = client;
     await body(client, transport);
     exitCode = 0;

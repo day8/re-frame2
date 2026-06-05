@@ -76,5 +76,26 @@
                        day8/de-dupe
                        {:git/url "https://github.com/day8/de-dupe.git"
                         :git/tag "v0.3.0"
-                        :git/sha "367de784faf13c710a895bed867f36a36e594a2a"}}
+                        :git/sha "367de784faf13c710a895bed867f36a36e594a2a"}
+                       ;; rf2-2js41 finding 1 — `:rf.mcp/cursor-stale` is
+                       ;; a MULTI-server reason value: pair-mcp emits it
+                       ;; on epoch-ring rotation, story-mcp emits the SAME
+                       ;; reason when a Docs `list-*` registry changes
+                       ;; between cursor pages. Both delegate to the
+                       ;; shared `mcp-base/cursor.cljc/cursor-stale-result`.
+                       ;; This dep puts story-mcp's own
+                       ;; `re-frame.story-mcp.tools.cursor/cursor-stale-result`
+                       ;; on the classpath so the gate can drive the
+                       ;; SECOND server's builder LIVE (mirroring the
+                       ;; pair-mcp + diff-encode + de-dupe live-emission
+                       ;; gates) — closing the false-green hole where a
+                       ;; story-mcp cursor-stale drift was caught only by
+                       ;; story-mcp's local unit tests, not by the
+                       ;; cross-MCP vocabulary surface. `:local/root` (not
+                       ;; an `:extra-paths` to story-mcp's `src`) is the
+                       ;; idiomatic, deprecation-warning-free form; the
+                       ;; transitive story/implementation tree it pulls is
+                       ;; the cost of validating the real builder.
+                       day8/re-frame2-story-mcp
+                       {:local/root "../../story-mcp"}}
          :main-opts   ["-m" "re-frame.test-quiet.runner"]}}}
