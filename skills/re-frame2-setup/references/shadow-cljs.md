@@ -72,30 +72,37 @@ A re-frame2 app needs an HTML page that loads the compiled JS and has a mount po
 </head>
 <body>
   <div class="rf2-app-shell">
-    <aside class="rf2-xray-host" data-rf-xray-host></aside>
     <main id="app"></main>
+    <aside class="rf2-xray-host" data-rf-xray-host></aside>
   </div>
   <script src="/js/main.js"></script>
 </body>
 </html>
 ```
 
-`resources/public/css/app.css` (the minimal layout — three rules carry the host-column contract, plus the `:empty` collapse that keeps release builds gutter-free):
+`resources/public/css/app.css` (the minimal layout — the four rules below carry the right-side host-column contract, plus the `:empty` collapse that keeps release builds gutter-free):
 
 ```css
+:root { --rf-xray-accent: #7C5CFF; } /* Xray brand-accent var — host chrome may read it */
 body { font: 16px/1.4 system-ui, sans-serif; margin: 0; }
 .rf2-app-shell { display: flex; min-height: 100vh; }
-.rf2-xray-host { flex: 0 0 420px; min-width: 320px; }
+.rf2-xray-host {
+  flex: 0 0 var(--rf-xray-inline-width, 560px);
+  min-width: 320px;
+  box-sizing: border-box;            /* the 1px border-left lives inside the width */
+  border-left: 1px solid #2a2a2a;    /* visual separator on the app side */
+}
 .rf2-xray-host:empty { display: none; }
 #app { flex: 1; min-width: 0; padding: 2em; }
 ```
 
-Five contractual bits:
+Six contractual bits:
 
-- **`<main id="app"></main>`** — the app mount point. Whatever id you use here, the entry ns must call `(js/document.getElementById "<same-id>")`. By convention it's `"app"`.
-- **`<aside class="rf2-xray-host" data-rf-xray-host></aside>`** — Xray's default true-inline devtools host, the **left** layout column beside `#app`. Order it **first** in the DOM (`<aside>` then `<main>`) so flex flow places Xray on the left, matching the template. When `day8.re-frame2-xray.preload` is enabled Xray auto-opens into this host; if it's missing, Xray logs an actionable diagnostic, also reachable via `window.day8.re_frame2_xray.status()`.
-- **`.rf2-xray-host` flex CSS** — the host app owns sizing. The contract is a fixed-width column (`flex: 0 0 420px; min-width: 320px`) and an app region that can shrink (`#app { flex: 1; min-width: 0 }`). Xray injects its own drag handle on the panel's outer edge (persisted across reloads, double-click to reset), so the consumer's CSS stays this minimal. To change the default width, edit `flex-basis` here; the full resize-affordance / theming surface is the `re-frame2-xray` skill's territory, not greenfield's.
-- **`.rf2-xray-host:empty { display: none; }`** — load-bearing in **release** builds. The preload that mounts Xray into the aside is dev-only (cut from `shadow-cljs release` and `goog.DEBUG`-gated), so in production the `<aside>` stays empty. Without this rule the empty aside still matches the `flex: 0 0 420px` column above and ships a permanent blank ~420px gutter beside `#app`. The `:empty` collapse makes the column disappear when Xray isn't there, so `#app` spans the full viewport. This matches the canonical template scaffold — don't drop it.
+- **`<main id="app"></main>`** — the app mount point. Whatever id you use here, the entry ns must call `(js/document.getElementById "<same-id>")`. By convention it's `"app"`. Order it **first** in the DOM (`<main>` then `<aside>`) so flex flow places the app on the left and Xray on the right.
+- **`<aside class="rf2-xray-host" data-rf-xray-host></aside>`** — Xray's default true-inline devtools host, the **right** layout column beside `#app` (DOM order: `<main>` first, `<aside>` second — flex flow lays the aside to the right of the app). When `day8.re-frame2-xray.preload` is enabled Xray auto-opens into this host; if it's missing, Xray logs an actionable diagnostic, also reachable via `window.day8.re_frame2_xray.status()`. This matches Xray's published layout-host contract (`spec/011-Launch-Modes.md` §Layout host contract).
+- **`.rf2-xray-host` flex CSS** — the host app owns sizing. The contract reads a single CSS custom property for its width — `flex: 0 0 var(--rf-xray-inline-width, 560px)` — with `min-width: 320px`, `box-sizing: border-box` (so the 1px `border-left` lives *inside* the documented width rather than 1px beyond it), and `border-left: 1px solid #2a2a2a` as the visual separator on the app side; the app region shrinks to fill the rest (`#app { flex: 1; min-width: 0 }`). Xray injects its own drag handle on the panel's outer edge (persisted across reloads, double-click to reset), so the consumer's CSS stays this minimal. **To change the default width, do NOT hard-code a different `flex-basis` — override the `--rf-xray-inline-width` property anywhere up the cascade** (e.g. `:root { --rf-xray-inline-width: 720px; }` or a per-route `.debug-route { --rf-xray-inline-width: 960px; }`). A literal `flex-basis` would ignore the property the drag handle and any cascade override write. The published default (`560px`) and the property/accent names are surfaced as `day8.re-frame2-xray.config/default-layout-host-width` / `default-layout-host-css-var` / `default-accent-css-var`. The full resize-affordance / theming surface is the `re-frame2-xray` skill's territory, not greenfield's.
+- **`--rf-xray-inline-width` is the resize knob** — the contract is **JS-free and host-owned**: Xray never *sets* this property from CLJS; the host's stylesheet is the single source of truth for the initial width and any cascade override. Xray's auto-injected drag handle writes the same flex-basis slot for explicit user resize gestures and persists it across reloads. The `560px` default in the `var(...)` fallback matches Xray's published `default-layout-host-width`.
+- **`.rf2-xray-host:empty { display: none; }`** — load-bearing in **release** builds. The preload that mounts Xray into the aside is dev-only (cut from `shadow-cljs release` and `goog.DEBUG`-gated), so in production the `<aside>` stays empty. Without this rule the empty aside still reserves its `flex-basis` column above and ships a permanent blank gutter beside `#app`. The `:empty` collapse makes the column disappear when Xray isn't there, so `#app` spans the full viewport. Keep it.
 - **CSP + external stylesheet.** The CSP meta tag declares `style-src 'self'`, which blocks inline `<style>`/`style=` attributes — so styles live in `css/app.css`, not inline. Keep them out of the HTML to stay CSP-clean (and matching the template).
 - **`<script src="/js/main.js">`** — `/js/` comes from `:asset-path "/js"`; `main.js` comes from the module name `:main`. If you rename either, this path follows. The absolute path from site root is correct for shadow-cljs's dev server.
 

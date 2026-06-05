@@ -59,6 +59,12 @@
 (def ^:private entry-namespace-md
   (delay (slurp-rel setup-root "references/entry-namespace.md")))
 
+(def ^:private shadow-cljs-md
+  (delay (slurp-rel setup-root "references/shadow-cljs.md")))
+
+(def ^:private skill-md
+  (delay (slurp-rel setup-root "SKILL.md")))
+
 (def ^:private uix-template-deps
   (delay (slurp-rel repo-root
                     "tools/template/resources/day8/re_frame2_template/_uix/deps.edn")))
@@ -180,6 +186,110 @@
       (is (contains-any? skill ["known-good" "tested"])
           (str "The 'template pin is the known-good/tested set' framing is "
                "missing from the UIx version-target heads-up.")))))
+
+;; ---------------------------------------------------------------------------
+;; Lock 3 — Xray layout host snippet matches the CURRENT published contract
+;; (right-side host, --rf-xray-inline-width-driven width). rf2-w4axt.
+;;
+;; The setup recipe scaffolds the `[data-rf-xray-host]` layout host. The
+;; published contract (tools/xray/spec/011-Launch-Modes.md §Layout host
+;; contract + the shipped examples/_shared/css) is a RIGHT-side host whose
+;; flex-basis reads `var(--rf-xray-inline-width, 560px)`. A prior revision
+;; scaffolded a LEFT-side host with a literal `flex: 0 0 420px`, which (a)
+;; put the panel on the wrong side and (b) ignored the persisted resize
+;; width Xray's drag handle writes. These guards fail if that stale shape
+;; (or the literal `420px`) reappears in the setup guidance.
+;; ---------------------------------------------------------------------------
+
+(deftest xray-host-snippet-consumes-inline-width-var
+  (testing "the shadow-cljs.md host CSS reads --rf-xray-inline-width, not a literal width"
+    (let [body @shadow-cljs-md]
+      (is (str/includes? body "var(--rf-xray-inline-width, 560px)")
+          (str "shadow-cljs.md's [data-rf-xray-host] CSS no longer reads "
+               "`flex: 0 0 var(--rf-xray-inline-width, 560px)`. The host "
+               "width MUST come from the published custom property "
+               "(day8.re-frame2-xray.config/default-layout-host-css-var, "
+               "default 560px per spec/011-Launch-Modes.md §Resizing the "
+               "inline host) so the drag handle's persisted width and any "
+               "cascade override take effect — a literal flex-basis ignores "
+               "them (rf2-w4axt)."))
+      (is (str/includes? body "box-sizing: border-box")
+          (str "shadow-cljs.md's host CSS lost `box-sizing: border-box` — "
+               "without it the 1px border-left renders the host 1px wider "
+               "than the documented var(...) width (rf2-w4axt)."))
+      (is (str/includes? body "border-left")
+          (str "shadow-cljs.md's host CSS lost the `border-left` separator "
+               "from the published contract (rf2-w4axt).")))))
+
+(deftest xray-host-snippet-has-no-stale-420px-or-left-wording
+  (testing "neither the host CSS nor the SKILL summary carry the stale 420px / left-column shape"
+    (doseq [[label body] [["shadow-cljs.md" @shadow-cljs-md]
+                          ["SKILL.md"       @skill-md]]]
+      (is (not (str/includes? body "420px"))
+          (str label " still mentions the stale literal `420px` host width. "
+               "The host width is `var(--rf-xray-inline-width, 560px)` per "
+               "the current Xray contract (rf2-w4axt)."))
+      (is (not (contains-any? body ["left layout column"
+                                    "left** layout column"
+                                    "Xray on the left"
+                                    "places Xray on the left"]))
+          (str label " describes the Xray host as a LEFT column. The current "
+               "contract is a RIGHT-side host (<main> first, <aside "
+               "data-rf-xray-host> second) per spec/011-Launch-Modes.md "
+               "(rf2-w4axt).")))))
+
+(deftest xray-host-dom-order-is-main-then-aside
+  (testing "shadow-cljs.md index.html orders <main> before the <aside> host (right-side flow)"
+    (let [body @shadow-cljs-md
+          main-idx  (str/index-of body "<main id=\"app\">")
+          aside-idx (str/index-of body "data-rf-xray-host")]
+      (is (and (some? main-idx) (some? aside-idx))
+          "Could not find both <main id=\"app\"> and data-rf-xray-host in shadow-cljs.md.")
+      (is (and main-idx aside-idx (< main-idx aside-idx))
+          (str "shadow-cljs.md's index.html does not place <main id=\"app\"> "
+               "BEFORE the <aside data-rf-xray-host>. Flex flow lays the "
+               "aside to the RIGHT only when <main> comes first "
+               "(spec/011-Launch-Modes.md §Layout host contract, rf2-w4axt).")))))
+
+;; ---------------------------------------------------------------------------
+;; Lock 4 — the reagent/dom CLJS-namespace troubleshooting row diagnoses the
+;; Maven/classpath side, NOT npm React. rf2-w4axt.
+;;
+;; `reagent.dom.client` ships from the `reagent/reagent` Maven coordinate on
+;; the CLJS classpath; a missing npm React surfaces as a JS module error, not
+;; a missing .cljs namespace. A prior row told the author to `npm install
+;; react react-dom` to fix a missing CLJS namespace — wrong layer. This guard
+;; fails if the reagent/dom row is mapped back to npm-only recovery.
+;; ---------------------------------------------------------------------------
+
+(deftest reagent-dom-row-diagnoses-maven-not-npm
+  (testing "SKILL.md's reagent/dom/client.cljs row points at the Maven/classpath cause"
+    (let [body @skill-md
+          ;; The reagent/dom/client.cljs troubleshooting bullet, isolated to
+          ;; one paragraph so we don't catch the separate npm-React row.
+          row   (some-> (re-find #"(?m)^- \*\*`Could not locate reagent/dom/client\.cljs`.*$"
+                                 body))]
+      (is (some? row)
+          "Could not find the `Could not locate reagent/dom/client.cljs` troubleshooting row in SKILL.md.")
+      (is (and row (str/includes? row "reagent/reagent"))
+          (str "The reagent/dom/client.cljs row does not name the "
+               "`reagent/reagent` Maven coordinate as the cause. That "
+               "namespace is provided by the Maven dep on the CLJS "
+               "classpath, not by npm React (rf2-w4axt)."))
+      (is (and row (contains-any? row ["classpath" "deps.edn" "Maven"]))
+          (str "The reagent/dom/client.cljs row no longer frames the fix as "
+               "a Maven/classpath problem (rf2-w4axt)."))
+      (is (and row (not (str/includes? row "npm install react react-dom")))
+          (str "The reagent/dom/client.cljs row still advises `npm install "
+               "react react-dom` — a missing CLJS namespace is never fixed "
+               "by installing npm packages. npm-React failures belong in the "
+               "separate JS-module-resolution row (rf2-w4axt)."))
+      ;; And the distinct npm-React row must still exist for actual JS failures.
+      (is (re-find #"Cannot find module 'react'" body)
+          (str "SKILL.md lost the separate npm-React troubleshooting row "
+               "(`Cannot find module 'react'` / react-dom/client). Real JS "
+               "module-resolution failures need their own row pointing at "
+               "`npm install` (rf2-w4axt).")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Run
