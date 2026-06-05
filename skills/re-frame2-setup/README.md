@@ -59,7 +59,7 @@ The canonical seven-step greenfield path:
 4. Write a minimal `shadow-cljs.edn` for a single-page Reagent app (with the Xray `:devtools/preloads` wiring), plus `resources/public/index.html` carrying the `[data-rf-xray-host]` column.
 5. Write the entry namespace — `(rf/init! reagent-adapter/adapter)`, the Reagent root, `(defn ^:export init [] ...)`.
 6. Write the first counter — registered event, registered sub, `reg-view`-defined view, mount.
-7. Run `shadow-cljs watch app`. Visit the dev server. Click the buttons. Done.
+7. Run `npx shadow-cljs watch app`. Visit the dev server. Click the buttons. Done.
 
 ## What it deliberately does NOT cover
 

@@ -103,8 +103,10 @@ The result is regular Reagent hiccup. Reagent renders, the React 19 root commits
 ## Verifying it works
 
 ```
-shadow-cljs watch app
+npx shadow-cljs watch app
 ```
+
+(`npx` resolves the locally-installed `shadow-cljs` from `node_modules/.bin`, so it works even when no global `shadow-cljs` binary is on your shell PATH — the common case on a fresh project, especially on Windows/PowerShell. `npm run watch` runs the same command via the `package.json` script.)
 
 Wait for the compile to land. The terminal prints something like `[:app] Build completed.`
 

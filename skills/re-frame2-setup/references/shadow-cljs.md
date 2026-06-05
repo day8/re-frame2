@@ -58,15 +58,33 @@ A re-frame2 app needs an HTML page that loads the compiled JS and has a mount po
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <!-- Strict default-safe CSP: same-origin JS/CSS only, no inline
-       script/style. `connect-src 'self' ws: wss:` admits shadow-cljs's
-       dev hot-reload websocket (it can route to a different port than
-       the page, which 'self' alone would block). The template ships
-       this dev policy; in production serve the same policy via a
-       response header and drop `ws: wss:` (no hot-reload websocket
-       there) — tighten `connect-src` to your real API origin(s). -->
+  <!-- Development-flavoured CSP, tuned to the RUNTIME this scaffold
+       actually produces — NOT an aspirational strict baseline. This
+       meta tag matches the generator template's index.html exactly.
+       Three deliberate choices:
+
+       - `style-src 'self' 'unsafe-inline'` — re-frame2 views routinely
+         use inline `:style` props (the counter's [:span {:style ...}]
+         below is one), and the default-on Xray devtools surface injects
+         <style> blocks and inline styles. A strict `style-src 'self'`
+         would emit CSP violations on the first page and block Xray's
+         styling. Keep `'unsafe-inline'` for dev; tighten it in
+         production only after externalising every inline style (see
+         "Production hardening" below).
+       - `connect-src 'self' ws: wss:` admits shadow-cljs's dev
+         hot-reload websocket (it can route to a different port than the
+         page, which 'self' alone would block).
+       - NO `frame-ancestors` here. Browsers IGNORE `frame-ancestors`
+         delivered via a <meta> tag — it only takes effect from a
+         response header. Putting it in the meta tag would imply
+         anti-clickjacking protection the page does not actually have.
+         The anti-clickjacking contract is a production response-header
+         concern (see "Production hardening" below).
+
+       `script-src 'self'` stays strict in both dev and production — the
+       scaffold has no inline <script>. -->
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' ws: wss:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'">
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:; object-src 'none'; base-uri 'none'">
   <title>your-app — re-frame2</title>
   <link rel="stylesheet" href="/css/app.css">
 </head>
@@ -103,7 +121,7 @@ Six contractual bits:
 - **`.rf2-xray-host` flex CSS** — the host app owns sizing. The contract reads a single CSS custom property for its width — `flex: 0 0 var(--rf-xray-inline-width, 560px)` — with `min-width: 320px`, `box-sizing: border-box` (so the 1px `border-left` lives *inside* the documented width rather than 1px beyond it), and `border-left: 1px solid #2a2a2a` as the visual separator on the app side; the app region shrinks to fill the rest (`#app { flex: 1; min-width: 0 }`). Xray injects its own drag handle on the panel's outer edge (persisted across reloads, double-click to reset), so the consumer's CSS stays this minimal. **To change the default width, do NOT hard-code a different `flex-basis` — override the `--rf-xray-inline-width` property anywhere up the cascade** (e.g. `:root { --rf-xray-inline-width: 720px; }` or a per-route `.debug-route { --rf-xray-inline-width: 960px; }`). A literal `flex-basis` would ignore the property the drag handle and any cascade override write. The published default (`560px`) and the property/accent names are surfaced as `day8.re-frame2-xray.config/default-layout-host-width` / `default-layout-host-css-var` / `default-accent-css-var`. The full resize-affordance / theming surface is the `re-frame2-xray` skill's territory, not greenfield's.
 - **`--rf-xray-inline-width` is the resize knob** — the contract is **JS-free and host-owned**: Xray never *sets* this property from CLJS; the host's stylesheet is the single source of truth for the initial width and any cascade override. Xray's auto-injected drag handle writes the same flex-basis slot for explicit user resize gestures and persists it across reloads. The `560px` default in the `var(...)` fallback matches Xray's published `default-layout-host-width`.
 - **`.rf2-xray-host:empty { display: none; }`** — load-bearing in **release** builds. The preload that mounts Xray into the aside is dev-only (cut from `shadow-cljs release` and `goog.DEBUG`-gated), so in production the `<aside>` stays empty. Without this rule the empty aside still reserves its `flex-basis` column above and ships a permanent blank gutter beside `#app`. The `:empty` collapse makes the column disappear when Xray isn't there, so `#app` spans the full viewport. Keep it.
-- **CSP + external stylesheet.** The CSP meta tag declares `style-src 'self'`, which blocks inline `<style>`/`style=` attributes — so styles live in `css/app.css`, not inline. Keep them out of the HTML to stay CSP-clean (and matching the template).
+- **CSP — dev meta tag, `'unsafe-inline'` styles.** The CSP meta tag declares `style-src 'self' 'unsafe-inline'` (matching the template). The `'unsafe-inline'` is **deliberate and load-bearing in dev**: re-frame2 views use inline `:style` props (the counter's `[:span {:style {:margin "0 1em"}}]`) and the default-on Xray devtools injects `<style>` blocks and inline styles — a strict `style-src 'self'` would emit CSP violations and break Xray styling on first run. The page chrome (the shell/host layout) lives in `css/app.css` regardless; only the per-component `:style` props need `'unsafe-inline'`. The meta tag deliberately **omits `frame-ancestors`** (browsers ignore it from `<meta>` — it is a response-header-only directive). Both tightenings — dropping `'unsafe-inline'` and adding `frame-ancestors` — belong to the production response header (see **Production hardening** below).
 - **`<script src="/js/main.js">`** — `/js/` comes from `:asset-path "/js"`; `main.js` comes from the module name `:main`. If you rename either, this path follows. The absolute path from site root is correct for shadow-cljs's dev server.
 
 ## `:devtools` block (hot-reload + Xray)
@@ -124,7 +142,7 @@ The top-level `:dev-http` (above) already starts the dev server. Add a `:devtool
 - `:preloads [day8.re-frame2-xray.preload]` — loads the Xray in-app devtools panel in dev/watch builds. `:preloads` (and the whole `:devtools` block) are cut from `release` builds automatically, so Xray never ships to production.
 - The dev server itself comes from the top-level `:dev-http {8280 "resources/public"}` (not from a `:http-port`/`:http-root` inside `:devtools` — that's the older style; the template uses the top-level `:dev-http` form).
 
-With this block in place, `shadow-cljs watch app` starts the dev server. Visit `http://localhost:8280/` and the browser auto-refreshes on every recompile.
+With this block in place, `npx shadow-cljs watch app` starts the dev server (use `npx` — or `npm run watch` — so the locally-installed `shadow-cljs` from `node_modules/.bin` resolves even with no global binary on PATH). Visit `http://localhost:8280/` and the browser auto-refreshes on every recompile.
 
 re-frame2's *core* does not need a preload for hot-reload — shadow-cljs's default behaviour is enough. **Xray is the one default preload:** because Xray is a day-one dep (see `deps-versions.md`), the template wires `day8.re-frame2-xray.preload` here. It auto-opens into the `[data-rf-xray-host]` column from the `index.html` above after `rf/init!` installs the substrate adapter (there is no lazy/manual-only launch step). If you genuinely want a Xray-free build, drop the `:preloads` entry and the `day8/re-frame2-xray` dep together.
 
@@ -133,6 +151,20 @@ re-frame2's *core* does not need a preload for hot-reload — shadow-cljs's defa
 `shadow-cljs release app` produces an optimised bundle. No re-frame2-specific config needed.
 
 re-frame2's `:advanced`-compile elision contract (Spec 009) automatically strips dev-only diagnostics (`trace`, `epoch-history`, schema validation at boundary) when `goog.DEBUG` is false — which it is under `:advanced`. The author gets the elision for free; nothing to configure.
+
+### Production hardening — serve CSP as a response header
+
+The `index.html` meta CSP above is **development-flavoured** (it allows `'unsafe-inline'` styles for the views' `:style` props + Xray, admits the hot-reload websocket, and omits `frame-ancestors`). For production, **prefer setting CSP as a real response header** on your server, not via the meta tag: meta-tag CSPs are evaluated late, some directives (`frame-ancestors`) are ignored entirely when delivered via `<meta>`, and an upstream proxy can strip a meta CSP.
+
+The stricter production header tightens three things relative to the dev meta tag — **drops `'unsafe-inline'`** (only after you have externalised every inline `:style` prop into `css/app.css` classes; the dev-only Xray preload is already cut from `release` builds, so it isn't a concern there), **drops `ws: wss:`** (no hot-reload in production), and **adds `frame-ancestors 'none'`** (this is where anti-clickjacking actually takes effect — *not* the meta tag):
+
+```
+Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'
+X-Content-Type-Options: nosniff
+Referrer-Policy: strict-origin-when-cross-origin
+```
+
+If you call a cross-origin API, widen `connect-src` to that origin (`connect-src 'self' https://api.example.com`) rather than dropping it back to `'unsafe-inline'`/`*`. If you have not externalised inline styles, keep `style-src 'self' 'unsafe-inline'` in the production header too — but prefer a nonce/hash over wholesale `'unsafe-inline'` for a public deployment. The generator template's `README.md` §Production hardening carries the full nginx / Caddy server-block examples and the rationale; this skill's job is just to flag that the dev meta tag is not the production policy.
 
 ## nREPL — only if you'll use `re-frame2-pair`
 
