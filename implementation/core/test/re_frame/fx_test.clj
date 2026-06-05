@@ -17,6 +17,10 @@
         (dropped + traced), not thrown — symmetric with M-8.
     6c. :fx per-ENTRY shape (rf2-n6d3m): a non-nil/non-empty NON-vector entry
         is policed (dropped + traced); nil/empty stays a silent no-op.
+    6d. :fx per-ENTRY arity / fx-id-type (rf2-18kwf): a non-keyword head or an
+        arity-≥3 vector is policed (dropped + traced), not waved through.
+    6e. RESERVED :dispatch arity-3 (rf2-tbuov): the `[:dispatch ev {:frame …}]`
+        wild malformation is policed LOUDLY end-to-end, NOT silently truncated.
 
   Per Spec 002 §`:fx` ordering and atomicity guarantees and Spec 009
   §Error contract."
@@ -849,6 +853,65 @@
           "the no-args shorthand fired once with nil args")
       (is (empty? (filter #(= :rf.error/effect-map-shape (:operation %)) @traces))
           "the no-args `[:fx-id]` shorthand emits NO shape trace — it is valid"))))
+
+;; ---- 6e. RESERVED-fx 3-element entry is policed loudly (rf2-tbuov) ---------
+;;
+;; rf2-tbuov: the canonical malformation in the wild is a surplus 3rd element
+;; on a RESERVED `:dispatch` fx entry — `[:dispatch [:ev] {:frame host-frame}]`
+;; (someone mistook the per-frame-targeting slot for a positional 3rd arg; the
+;; correct idiom is the 2-element `[:dispatch [:ev]]` with the frame inherited
+;; from the dispatching envelope per Spec 002 §Cascade propagation). Before
+;; rf2-18kwf this leaked past `fx-entry-ok?` as "any non-empty vector" into
+;; `handle-one-fx`, whose `[original-fx-id args]` destructure SILENTLY DROPPED
+;; the `{:frame ...}` slot — so the dispatch DID fire (truncated), and any
+;; intent encoded in the 3rd slot vanished with no diagnostic. The arity-3
+;; tests above pin the generic USER-fx case; THIS pins the reserved `:dispatch`
+;; case the bead + w3ver actually hit, end-to-end through `dispatch-sync`'s
+;; drain. Mike's ruling (rf2-tbuov): LOUD FAILURE — emit
+;; :rf.error/effect-map-shape and drop the whole entry; do NOT silently fire a
+;; truncated 2-tuple.
+
+(deftest reserved-dispatch-three-element-entry-is-policed-loudly
+  (testing "a 3-element reserved `[:dispatch [:ev] {:frame …}]` fx entry is a
+            shape violation — :rf.error/effect-map-shape (loud), the whole
+            entry dropped, NOT silently truncated-and-fired as `[:dispatch [:ev]]`"
+    (let [traces     (collect-traces! ::reserved-dispatch-arity3)
+          target-ran (atom 0)]
+      (rf/reg-event-db :fx-test.tbuov/target
+        (fn [db _] (swap! target-ran inc) db))
+      (rf/reg-event-fx :fx-test.tbuov/emits-malformed-dispatch
+        (fn [{:keys [db]} _]
+          {:db (assoc db :seeded? true)
+           ;; The exact wild malformation: a surplus `{:frame …}` 3rd slot on
+           ;; a reserved :dispatch entry (the form w3ver hit in the xray runner).
+           :fx [[:dispatch [:fx-test.tbuov/target] {:frame :rf/default}]]}))
+      (is (nil? (rf/dispatch-sync [:fx-test.tbuov/emits-malformed-dispatch]))
+          "dispatch returns normally — no uncaught host exception")
+      (rf/unregister-listener! ::reserved-dispatch-arity3)
+      ;; CRITICAL: the malformed entry must NOT silently fire as a truncated
+      ;; 2-tuple `[:dispatch [:fx-test.tbuov/target]]`. The queued target must
+      ;; never have run.
+      (is (= 0 @target-ran)
+          "the malformed 3-element :dispatch was DROPPED, not truncated-and-fired")
+      (is (= true (:seeded? (rf/app-db-value :rf/default)))
+          ":db still committed; only the malformed fx entry was dropped")
+      (let [shape-traces (filter #(= :rf.error/effect-map-shape (:operation %))
+                                 @traces)]
+        (is (= 1 (count shape-traces))
+            "exactly one :rf.error/effect-map-shape trace — LOUD, not silent")
+        (let [t (first shape-traces)]
+          (is (= :error (:op-type t)))
+          (is (= :logged-and-skipped (:recovery t))
+              "recovery is logged-and-skipped — recover/rollback posture kept, but NOT silent")
+          (is (= :fx (get-in t [:tags :offending-key])))
+          (is (= :fx-test.tbuov/emits-malformed-dispatch
+                 (get-in t [:tags :rf.trace/event-id]))
+              ":event-id names the offending handler")
+          (is (= [:dispatch [:fx-test.tbuov/target] {:frame :rf/default}]
+                 (get-in t [:tags :value]))
+              ":value carries the full malformed entry verbatim")
+          (is (string? (get-in t [:tags :reason]))
+              ":reason is a human-facing diagnostic"))))))
 
 ;; ---- 7. :fx-overrides function-value branch -------------------------------
 ;;
