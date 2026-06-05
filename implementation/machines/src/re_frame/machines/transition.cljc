@@ -968,18 +968,31 @@
   [machine path event snapshot]
   (let [[_ raw-invoke-id] event
         region         (:rf/region machine)
-        ;; Per Spec 005 §Per-region `:spawn` scoping (rf2-l67o): a `:spawn`
+        ;; rf2-w84jv — region-identity scoping, symmetric with
+        ;; `pick-done-transition`'s `decline-region?` (rf2-12ekv). A `:spawn`
         ;; declared inside a parallel region carries a region-name-prefixed
-        ;; invoke-id (`prefix-region-spawn-id`). Within a region's resolution
-        ;; `machine` is the region body (region-relative `node-at`) and `path`
-        ;; is in-region, so strip the region-name head — mirroring the
-        ;; `pick-after-transition` region handling. A prefix naming a DIFFERENT
-        ;; region is not this region's spawn; decline so the broadcast routes
-        ;; to the bearing region only.
+        ;; invoke-id (`prefix-region-spawn-id`), so `(first raw-invoke-id)` is
+        ;; the OWNING region's name. The spawn-error broadcast reaches every
+        ;; region's resolver (`drain-parent-queue`), so a region whose name
+        ;; does NOT match the invoke-id head must decline OUTRIGHT — for BOTH
+        ;; the `:spawn :on-error` arm and the explicit `:on
+        ;; {:rf.machine.spawn/error …}` escape-hatch arm. Before this gate the
+        ;; foreign region nilled `invoke-id` (correctly disabling arm 1) but
+        ;; still fell through to arm 2, letting a sibling region's explicit
+        ;; handler catch another region's child failure — violating
+        ;; XState v5 `invoke onError` region scoping. Mirrors the done-side
+        ;; identity test: a head naming a DIFFERENT region is not this
+        ;; region's spawn error.
+        decline-region? (and region
+                             (vector? raw-invoke-id)
+                             (not= region (first raw-invoke-id)))
+        ;; Within a region's resolution `machine` is the region body
+        ;; (region-relative `node-at`) and `path` is in-region, so strip the
+        ;; region-name head — mirroring the `pick-after-transition` /
+        ;; `pick-done-transition` region handling.
         invoke-id      (cond
                          (not (vector? raw-invoke-id)) raw-invoke-id
-                         region (when (= region (first raw-invoke-id))
-                                  (vec (rest raw-invoke-id)))
+                         region (vec (rest raw-invoke-id))
                          :else  raw-invoke-id)
         ;; The `:spawn`-bearing state lives at `invoke-id` (absolute prefix
         ;; path, region-stripped above). It is only resolvable when still on
@@ -996,18 +1009,19 @@
                                                :rf.error/machine-bad-on-error-clause))
         on-error-hit   (when (seq on-error-cands)
                          (select-passing-candidate machine on-error-cands snapshot event))]
-    (if on-error-hit
-      {:transition on-error-hit :decl-path (vec invoke-id)}
-      ;; Fall through to the standard leaf→root `:on` walk (an ancestor's
-      ;; explicit `:on {:rf.machine.spawn/error …}`), then the root `:on`.
-      (or
-        (path-walk/walk-path-leaf-to-root
-          machine path
-          (fn [prefix n]
-            (when-let [hit (match-on-clause machine n spawn-error-event-id event snapshot)]
-              {:transition hit :decl-path prefix})))
-        (when-let [hit (match-on-clause machine machine spawn-error-event-id event snapshot)]
-          {:transition hit :decl-path []})))))
+    (when-not decline-region?
+      (if on-error-hit
+        {:transition on-error-hit :decl-path (vec invoke-id)}
+        ;; Fall through to the standard leaf→root `:on` walk (an ancestor's
+        ;; explicit `:on {:rf.machine.spawn/error …}`), then the root `:on`.
+        (or
+          (path-walk/walk-path-leaf-to-root
+            machine path
+            (fn [prefix n]
+              (when-let [hit (match-on-clause machine n spawn-error-event-id event snapshot)]
+                {:transition hit :decl-path prefix})))
+          (when-let [hit (match-on-clause machine machine spawn-error-event-id event snapshot)]
+            {:transition hit :decl-path []}))))))
 
 (defn- pick-transition
   "Walk path leaf→root looking for a transition that matches event-id and

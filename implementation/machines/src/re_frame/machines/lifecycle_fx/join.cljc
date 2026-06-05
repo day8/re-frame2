@@ -38,7 +38,7 @@
 #?(:clj (set! *warn-on-reflection* true))
 
 (defn- find-active-spawn-all-in-tree
-  "Helper for `find-active-spawn-all`. Given a machine-like map with
+  "Helper for `find-active-spawn-alls`. Given a machine-like map with
   `:states` (for a non-parallel machine, the machine itself; for a
   region of a parallel machine, the region body) and a path inside
   that tree, walk leaf→root for a `:spawn-all`-bearing state whose
@@ -55,31 +55,43 @@
           (= inner-event-id (:on-child-error ia))
           {:spawn-id prefix :spec ia :kind :failed})))))
 
-(defn- find-active-spawn-all
-  "Walk the snapshot's `:state` path leaf→root looking for an
+(defn- find-active-spawn-alls
+  "Walk the snapshot's `:state` path leaf→root looking for EVERY active
   `:spawn-all`-bearing state whose `:on-child-done` or `:on-child-error`
-  matches the given inner-event-id. Returns
+  matches the given inner-event-id. Returns a vector of
   `{:spawn-id <prefix-path> :spec <invoke-all-spec> :kind :done|:failed}`
-  or nil.
+  matches (empty when none).
 
-  Per Spec 005 §Parallel regions (rf2-l67o): for parallel-region
-  machines, iterates each region's active state-tree (prefixing the
-  region name onto the resolved `:spawn-id`, matching the per-region
-  scoping `prefix-region-spawn-id` applies on the entry-side)."
+  Per Spec 005 §Parallel regions (rf2-l67o): for parallel-region machines,
+  iterates each region's active state-tree (prefixing the region name onto the
+  resolved `:spawn-id`, matching the per-region scoping
+  `prefix-region-spawn-id` applies on the entry-side). A flat machine has at
+  most one active match.
+
+  Per rf2-w84jv: returns ALL matches (not the first via `some`) so the
+  interceptor can disambiguate by join-state child-id OWNERSHIP. Two active
+  parallel regions may legitimately reuse the SAME generic `:on-child-done`
+  event id (e.g. `:done`, `:asset/loaded`); the first-match-wins `some`
+  mis-routed a later region's child completion to the first region's join,
+  flagged it as a forged child-id, and hung the correct region's join."
   [machine snapshot inner-event-id]
   (cond
     (parallel/parallel? machine)
-    (some (fn [[region-name region-state]]
-            (let [region-body (parallel/region-machine machine region-name)
-                  region-path (transition/state-path region-state)
-                  match       (find-active-spawn-all-in-tree
-                                region-body region-path inner-event-id)]
-              (when match
-                (update match :spawn-id #(vec (cons region-name %))))))
+    (into []
+          (keep (fn [[region-name region-state]]
+                  (let [region-body (parallel/region-machine machine region-name)
+                        region-path (transition/state-path region-state)
+                        match       (find-active-spawn-all-in-tree
+                                      region-body region-path inner-event-id)]
+                    (when match
+                      (update match :spawn-id #(vec (cons region-name %)))))))
           (:state snapshot))
 
     :else
-    (find-active-spawn-all-in-tree machine (transition/state-path (:state snapshot)) inner-event-id)))
+    (if-let [m (find-active-spawn-all-in-tree
+                 machine (transition/state-path (:state snapshot)) inner-event-id)]
+      [m]
+      [])))
 
 (defn- join-condition-met?
   "Evaluate the join condition against the current join state.
@@ -239,7 +251,22 @@
   destroys + the join-event dispatch)."
   [machine db _path snapshot parent-id inner-event]
   (let [inner-id (first inner-event)
-        match    (find-active-spawn-all machine snapshot inner-id)
+        child-id (second inner-event)
+        matches  (find-active-spawn-alls machine snapshot inner-id)
+        ;; Per rf2-w84jv: when more than one active spawn-all matches the
+        ;; event id (two parallel regions reusing the SAME `:on-child-done`),
+        ;; route to the join whose LIVE join-state `:children` OWNS the
+        ;; arriving child-id — ownership, not declaration order, decides. The
+        ;; first-match `some` mis-routed a later region's completion to the
+        ;; first region's join, flagged it as forged, and hung the correct
+        ;; region. The owning match is preferred; if none owns the child
+        ;; (genuinely forged), fall back to the first match so the
+        ;; bad-child-id error trace still fires against a real join.
+        owns?    (fn [{invoke-id :spawn-id}]
+                   (let [js (get-in db (paths/spawned-path parent-id invoke-id))]
+                     (and (map? js) (contains? (:children js) child-id))))
+        match    (or (some #(when (owns? %) %) matches)
+                     (first matches))
         ;; Per rf2-ko8jb: resolve the live frame from the runtime-stamped
         ;; machine (registration.cljc/prepare-machine-ctx assoc'd
         ;; `:rf/frame` before handing the machine to the interceptor).
@@ -250,7 +277,6 @@
         frame-id (:rf/frame machine)]
     (when match
       (let [{:keys [spec kind] invoke-id :spawn-id} match
-            child-id   (second inner-event)
             ;; Per Spec 005 §Spawn-and-join: child dispatches
             ;;   [<parent-id> [<event-kw> <child-id> & extra]]
             ;; where `& extra` is the child's forwarded payload (terminal

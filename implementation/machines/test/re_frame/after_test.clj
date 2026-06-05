@@ -378,9 +378,9 @@
              :states
              {:p {:initial :a
                   :after   {30000 :timed-out}     ;; parent hard-timeout
-                  :states  {:a {:after {5000 :a-warn}   ;; child progress timer
+                  :states  {:a {:after {5000 [:a-warn]}   ;; child progress timer (root-level warn state — vector target)
                                :on    {:next :b}}
-                            :b {:after {7000 :b-warn}}}
+                            :b {:after {7000 [:b-warn]}}}
                   :on {:reset :p}}
               :timed-out {}
               :a-warn    {}
@@ -422,7 +422,7 @@
              :states
              {:p {:initial :a
                   :after   {30000 :timed-out}
-                  :states  {:a {:after {5000 :a-warn} :on {:next :b}}
+                  :states  {:a {:after {5000 [:a-warn]} :on {:next :b}}
                             :b {}}
                   :on {:reset :p}}
               :timed-out {}

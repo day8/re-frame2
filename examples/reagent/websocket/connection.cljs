@@ -311,7 +311,12 @@
         {:tags  #{:websocket/active :websocket/authenticating}
          :entry :send-auth
          :on    {:ws/auth-ok     {:target :connected}
-                 :ws/auth-failed {:target :failed
+                 ;; :failed is a TOP-LEVEL state, not a sibling of
+                 ;; :authenticating under :active — a bare keyword would
+                 ;; resolve to [:active :failed] (which does not exist), so
+                 ;; the absolute vector target [:failed] is required (rf2-w84jv
+                 ;; transition-target validation now rejects the bare keyword).
+                 :ws/auth-failed {:target [:failed]
                                   :action :record-error}}}
 
         :connected
