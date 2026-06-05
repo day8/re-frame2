@@ -39,7 +39,7 @@ The authoritative rule corpus — M-rules (required) and O-rules (opt-in moderni
 
 Full skill-disambiguation matrix lives at [`skills/README.md` §Skill routing — single source](../README.md#skill-routing--single-source). In brief: not for greenfield bootstrap, authoring on an already-v2 project, live-runtime inspection, porting re-frame2 itself, or spec / design-rationale reading.
 
-Exit this skill when the project compiles, tests pass, and Type B items have been resolved.
+Exit this skill when the project compiles, tests pass, the **boot smoke-test comes back clean** (compiling is not the done-bar — v2 moves a large class of failures to runtime; see Phase 4), and Type B items have been resolved.
 
 ## Cardinal rules
 
@@ -82,7 +82,13 @@ But **neutralize the 10x preload *now*, as part of M-0** — don't wait for the 
 - [`references/error-events.md`](references/error-events.md) — pointer to [`spec/009-Instrumentation.md` §Error event catalogue](../../spec/009-Instrumentation.md#error-event-catalogue) as the single source of truth for `:rf.error/*` / `:rf.warning/*` / `:rf.fx/*` / `:rf.cofx/*` / `:rf.ssr/*` / `:rf.epoch/*` / `:rf.http/*` categories. Load when writing `:on-error` / `register-listener!` (M-13, M-17, M-26).
 - [`references/breaking-changes.md`](references/breaking-changes.md) — one-page index of every M-/O-rule by trigger surface; grep here to find the rule id.
 
-**Phase 4 — Verify.** The **author** recompiles, re-runs unit tests, and smoke-tests boot / dispatch / sub / hot-reload. The skill prints the exact compile / test commands for the author's project shape (e.g. `shadow-cljs compile app`, `clj -M:test`, the npm script), waits for the author to paste the output, and only then proceeds. If a step fails, find the rule, apply it, ask the author to re-verify. The skill never executes build/test commands — see cardinal rule 10.
+**Phase 4 — Verify. "Compiles" is NOT the done-bar.** v2 moves a large class of v1 failures from **compile-time to RUNTIME** — a clean compile means "the rewrites parse," not "the app boots and runs." Several legitimate-looking, cleanly-compiling rewrites fail **silently at boot** (signal-fn `reg-sub` throwing at ns-load, a missing per-feature artefact, a `{:db fresh}` boot handler clobbering a live machine snapshot, a dropped M-8 top-level key, a `(when …)` nil-thread losing seed state) — none of these show in the build log; all need **live `app-db` inspection** to find. So Phase 4 is three steps, not one:
+
+1. **The author recompiles** (the skill prints the exact compile command for the project shape — `shadow-cljs compile app`, `clj -M:test`, the npm script — and waits for the pasted output; cardinal rule 10).
+2. **The author re-runs unit tests** (re-baseline render counts per M-12; no new failures).
+3. **The author runs a BOOT SMOKE-TEST with live introspection** — boot the app in a dev build, then read the live frame's `app-db` + machine snapshots (`[:rf/runtime :machines :snapshots]`), deref the first-screen subs, dispatch one event per feature surface and re-read the affected slot, and scan the boot trace for `:rf.error/*` / `:rf.warning/*`. The cheapest tool is the **`re-frame2-pair` MCP / a shadow-cljs nREPL** — every silent failure above is invisible in the build log and shows only in the running runtime's state. **The migration is done when this loop comes back clean, not when it compiles.** → [`references/runtime-smoke-test.md`](references/runtime-smoke-test.md) for the silent-failure checklist (symptom → cite → confirming live read) and the smoke-test loop.
+
+If any step fails, find the rule, apply it, ask the author to re-verify. The skill never executes build/test commands — see cardinal rule 10.
 
 **Phase 5 — Opt-in modernisations (only if asked).** Walk the `O-N` rules in `MIGRATION.md` (O-1 rich metadata, O-2 `reg-view`, O-3 Malli, O-4 frames, O-8/O-9 machines, O-13/O-14 substrate moves, O-15 `:spawn-all`). The three **v1 add-on-library** modernisations are the highest-value O-rules for a real migration: O-16 (`day8.re-frame/async-flow-fx` / `:async-flow` → `reg-machine` **state machines** — translation guide + worked before→after in [`references/async-flow-to-machines.md`](references/async-flow-to-machines.md)), O-17 (`day8.re-frame/http-fx` / `:http-xhrio` → `:rf.http/managed` — translation guide + worked before→after in [`references/http-fx-to-managed-http.md`](references/http-fx-to-managed-http.md)), and O-18 (security + operational logging sweep on the observer surfaces M-13/M-17 hand off). Each is Type B (ask first) and detected by Maven coord + fx-key fingerprint; see `references/breaking-changes.md`. The *conversion path* of O-16 / O-17 is opt-in, but **doing something about the add-on is NOT** — `http-fx`, `async-flow-fx`, `undo`, and `forward-events-fx` `:refer` / call the removed `re-frame.core/console` and **fail to compile the moment re-frame2 is on the classpath**, so the broken add-on must be **removed or converted before the project compiles** (a forced compile-gate pre-step, surfaced in Phase 3 / Phase 4, not deferrable to "modernise later"). There is **no `re-frame.core/console` back-compat shim** — these v1 add-ons are superseded, not propped up. See [`references/breaking-changes.md` §v1 add-on libraries fail to COMPILE on v2](references/breaking-changes.md#v1-add-on-libraries-fail-to-compile-on-v2--replacementremoval-is-forced-not-opt-in). The remaining O-rules are never auto-applied as part of a routine migration. (O-5 was promoted to M-51 — binary fx is now required, not opt-in.)
 
@@ -100,6 +106,7 @@ For delegating the migration to a fresh Claude session: [`references/kickoff-pro
 - [ ] Project compiles cleanly with re-frame2 on the classpath.
 - [ ] Every tripped M-rule has been applied (Type A) or resolved by the author (Type B).
 - [ ] Existing test suite passes (or fails identically to pre-migration — no new failures introduced).
+- [ ] **Boot smoke-test passed (Phase 4 step 3) — "compiles" is not the done-bar.** App booted in a dev build; live `app-db` + machine snapshots read (`[:rf/runtime :machines :snapshots]` carries every expected boot/singleton machine); first-screen subs deref to real values (not `nil`); one event per feature surface dispatched and the affected slot re-read; boot trace scanned for `:rf.error/*` / `:rf.warning/*` (incl. `:rf.warning/runtime-state-dropped`). None of the silent-runtime-failure modes ([`references/runtime-smoke-test.md`](references/runtime-smoke-test.md)) present.
 - [ ] **Xray replaces 10x** — for a project that used `day8.re-frame/re-frame-10x`: 10x dep + preload dropped at M-0, Xray dep + preload + `[data-rf-xray-host]` host wired post-M-40, panel verified (`Ctrl+Shift+C`). The app is **on Xray**. (No re-frame-10x in the project ⇒ nothing to check; don't add devtools the app never had.)
 - [ ] Migration report (per `MIGRATION.md` Part 2 / `references/output-format.md`) produced and shared.
 - [ ] Items flagged for human review are explicitly listed in the report.
@@ -122,6 +129,7 @@ Hand off: *"Migration complete. Switch to **`re-frame2`** for new application co
 - [`references/guided-interceptors-subs.md`](references/guided-interceptors-subs.md) — Type B: interceptor / subscription / payload / observer walkthroughs.
 - [`references/error-events.md`](references/error-events.md) — pointer to Spec 009's error-event catalogue (single source); load when writing `:on-error` policies or `register-listener!` listeners.
 - [`references/output-format.md`](references/output-format.md) — migration-report shape with worked examples.
+- [`references/runtime-smoke-test.md`](references/runtime-smoke-test.md) — Phase 4 detail: "compiles" is not the done-bar; the silent-runtime-failure checklist (signal-fn `reg-sub` / artefact-missing / `:rf/runtime` clobber / dropped M-8 key / nil-thread) + the boot smoke-test loop with live `app-db` introspection.
 
 ## Anti-patterns
 
@@ -130,6 +138,7 @@ Hand off: *"Migration complete. Switch to **`re-frame2`** for new application co
 - **Don't add `-schemas` / `-machines` / `-routing` "to be safe"** — the artefact split is pay-as-you-go (M-27 through M-32).
 - **Don't migrate plain-Reagent fns to `reg-view`** — that's O-2 (opt-in), never required. Plain Reagent fns work in v2 with a runtime warning only under non-default frames (M-11).
 - **Don't touch `re-frame-test` namespaces eagerly** — renamed to `re-frame.test-support` (M-25); apply as a mechanical pass. Don't rewrite test bodies unless they trip a separate rule.
+- **Don't treat a clean compile as "done."** v2 moves a large class of v1 failures from compile-time to RUNTIME — signal-fn `reg-sub`, missing per-feature artefacts, a `{:db fresh}` boot handler clobbering a machine snapshot, dropped M-8 top-level keys, `(when …)` nil-threads. These compile clean and break silently at boot; only a live-introspection boot smoke-test ([`references/runtime-smoke-test.md`](references/runtime-smoke-test.md)) catches them. The done-bar is a clean boot smoke-test, not a clean compile.
 - **Don't claim "migrated" before the report is written** — the report is the contract.
 
 (The "announce before a mass rewrite" and "author runs builds/tests, not the skill" rules are Cardinal rules 9 and 10 — owned there, not restated here.)
