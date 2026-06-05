@@ -800,3 +800,165 @@
           ":rf.error/ssr-head-resolution-failed fires once for observability
            on the streaming path too (Spec 011 §1070 Option B) — degraded,
            not silent"))))
+
+;; ===========================================================================
+;; rf2-h3dg0 — stale Content-Length on the streamed body
+;;
+;; `stream-handler` materialises the response head from the accumulator and
+;; then replaces the body with a chunk-producing PipedInputStream. If app /
+;; server init set a `Content-Length` header during the `:on-create` drain
+;; (a fixed byte count for a body that no longer exists), that stale length
+;; must NOT survive onto the streamed response — a Ring server may honour it
+;; instead of chunking, truncating the HTML / blocking the client on the
+;; wrong byte count / losing progressive chunks (Spec 011 §Streaming SSR —
+;; chunked-transfer framing). The fix strips `Content-Length`
+;; case-insensitively before wiring the InputStream body.
+;; ===========================================================================
+
+(defn- header-keys-lower
+  "Lower-cased set of a Ring response's header keys — for
+  case-insensitive header-presence assertions."
+  [response]
+  (into #{} (map (fn [k] (clojure.string/lower-case (str k))))
+        (keys (:headers response))))
+
+(deftest stream-handler-strips-stale-content-length-header
+  (testing "rf2-h3dg0: an :on-create-set Content-Length is stripped
+            (case-insensitively) from the streamed response so the Ring
+            server owns chunked-transfer framing; the body still streams in
+            full with NO Content-Length header surviving"
+    (rf/reg-event-fx :rf.test.server/init-with-content-length
+      {:platforms #{:server}}
+      (fn [_ _]
+        {:db {:articles [{:id "a" :title "Article A"}]
+              :comments [{:body "First!"}]}
+         ;; A deliberately WRONG fixed length set before streaming was
+         ;; chosen — both a canonical-cased and a lower-cased variant, to
+         ;; prove the strip is case-insensitive across the materialiser's
+         ;; verbatim header casing.
+         :fx [[:rf.server/set-header {:name "Content-Length" :value "7"}]
+              [:rf.server/append-header {:name "content-length" :value "13"}]]}))
+    (let [handler  (ssr-ring/stream-handler
+                     {:on-create [:rf.test.server/init-with-content-length]
+                      :root-view [:test/root]
+                      :payload :rf.ssr.payload/whole-app-db})
+          response (handler {:uri "/" :request-method :get})
+          ;; Capture the head BEFORE draining (the head is committed on the
+          ;; request thread; the body pipe is separate).
+          keys-lc  (header-keys-lower response)
+          body     (drain-stream (:body response))]
+      (is (= 200 (:status response)) "streamed response still 200")
+      (is (instance? InputStream (:body response))
+          "the body is the streaming PipedInputStream")
+      (is (not (contains? keys-lc "content-length"))
+          (str "NO Content-Length header survives on the streamed response "
+               "(any casing) — the server frames the InputStream body as "
+               "chunked. Header keys (lower-cased): " (pr-str keys-lc)))
+      ;; The full payload is readable end-to-end — the strip did not break
+      ;; the stream, and no byte-count cap truncated it.
+      (is (str/includes? body "<!DOCTYPE html>") "shell streamed")
+      (is (str/includes? body "Article A")
+          "the resolved body content streamed in full")
+      (is (str/includes? body "__rf_payload")
+          "the final payload chunk streamed")
+      (is (str/includes? body "</body></html>")
+          "the streamed body closed cleanly — full payload readable, not
+           truncated to a stale Content-Length"))))
+
+(deftest stream-handler-preserves-content-type-when-stripping-content-length
+  (testing "rf2-h3dg0: stripping Content-Length leaves the other head
+            machinery intact — Content-Type still rides the streamed
+            response"
+    (rf/reg-event-fx :rf.test.server/init-cl-and-ct
+      {:platforms #{:server}}
+      (fn [_ _]
+        {:db {:articles [] :comments []}
+         :fx [[:rf.server/set-header {:name "Content-Length" :value "999"}]]}))
+    (let [handler  (ssr-ring/stream-handler
+                     {:on-create [:rf.test.server/init-cl-and-ct]
+                      :root-view [:test/root]
+                      :payload :rf.ssr.payload/whole-app-db})
+          response (handler {:uri "/" :request-method :get})
+          keys-lc  (header-keys-lower response)
+          _drain   (drain-stream (:body response))]
+      (is (not (contains? keys-lc "content-length"))
+          "Content-Length stripped")
+      (is (contains? keys-lc "content-type")
+          "Content-Type default survives the strip — only Content-Length
+           is removed"))))
+
+;; ===========================================================================
+;; rf2-h3dg0 — streaming suffix runs the CSP allowlist scan (parity with
+;;             the non-streaming default-html-shell)
+;;
+;; The streaming suffix injects `:body-end` RAW, exactly like the
+;; non-streaming shell, but never ran the dev-mode
+;; `:csp-script-src-allowlist` scan. The fix runs
+;; `shell/check-body-end-csp-hosts!` on the request thread (in
+;; `render-streaming-shell!`), so a disallowed absolute script host in
+;; `:body-end` now emits `:rf.ssr/csp-allowlist-violation` under streaming
+;; SSR too — the same defense-in-depth warning non-streaming SSR emits for
+;; the same config (Spec 011 §trusted-shell envelope). The raw `:body-end`
+;; emission is preserved (the scan is a signal, never a block).
+;; ===========================================================================
+
+(deftest stream-handler-csp-allowlist-warns-on-disallowed-body-end-host
+  (testing "rf2-h3dg0: a disallowed absolute <script src> host in :body-end
+            triggers :rf.ssr/csp-allowlist-violation under STREAMING SSR
+            (parity with non-streaming default-html-shell), while the raw
+            :body-end still rides the streamed wire"
+    (let [traces   (atom [])
+          _        (rf/register-listener! ::stream-csp-watch
+                     (fn [ev]
+                       (when (= :rf.ssr/csp-allowlist-violation (:operation ev))
+                         (swap! traces conj ev))))
+          handler  (ssr-ring/stream-handler
+                     {:on-create [:rf.test.server/init]
+                      :root-view [:test/root]
+                      :body-end  (str "<script src=\"https://evil.example.com/track.js\">"
+                                      "</script>")
+                      :csp-script-src-allowlist #{"cdn.allowed.com"}
+                      :payload :rf.ssr.payload/whole-app-db})
+          response (try
+                     (handler {:uri "/" :request-method :get})
+                     (finally
+                       (rf/unregister-listener! ::stream-csp-watch)))
+          body     (drain-stream (:body response))]
+      (is (= 1 (count @traces))
+          (str "exactly one :rf.ssr/csp-allowlist-violation under streaming "
+               "for the disallowed :body-end host; saw "
+               (count @traces) " — the streaming suffix now runs the same "
+               "allowlist scan as the non-streaming shell (rf2-h3dg0)"))
+      (when (seq @traces)
+        (is (= "evil.example.com" (-> @traces first :tags :host))
+            "the violation names the disallowed origin"))
+      ;; Raw emission preserved — the script tag still reaches the wire; the
+      ;; warning is the signal, NOT a block or rewrite.
+      (is (str/includes? body "https://evil.example.com/track.js")
+          "the raw :body-end <script> still streams onto the wire — the CSP
+           scan is defense-in-depth signalling, not a block (rf2-h3dg0)"))))
+
+(deftest stream-handler-csp-allowlist-no-warning-on-allowed-body-end-host
+  (testing "rf2-h3dg0: an allowlisted :body-end <script src> host emits NO
+            violation under streaming — the opt-in feature stays quiet for
+            compliant configs (parity with non-streaming)"
+    (let [traces   (atom [])
+          _        (rf/register-listener! ::stream-csp-watch-ok
+                     (fn [ev]
+                       (when (= :rf.ssr/csp-allowlist-violation (:operation ev))
+                         (swap! traces conj ev))))
+          handler  (ssr-ring/stream-handler
+                     {:on-create [:rf.test.server/init]
+                      :root-view [:test/root]
+                      :body-end  "<script src=\"https://cdn.allowed.com/ok.js\"></script>"
+                      :csp-script-src-allowlist #{"cdn.allowed.com"}
+                      :payload :rf.ssr.payload/whole-app-db})
+          response (try
+                     (handler {:uri "/" :request-method :get})
+                     (finally
+                       (rf/unregister-listener! ::stream-csp-watch-ok)))
+          body     (drain-stream (:body response))]
+      (is (zero? (count @traces))
+          "no violation when every :body-end script host is allowlisted")
+      (is (str/includes? body "https://cdn.allowed.com/ok.js")
+          "the allowlisted script still streams onto the wire"))))
