@@ -41,7 +41,7 @@ Every spec citation in this record (and in subsequent code) is against the pinne
 
 | EP | In v1? | Notes |
 |---|---|---|
-| **Required core** (000 / 001 / 002 / 004 / 006 / 009) | yes | non-negotiable |
+| **Required core** (000 / 001 / 002 / 004 / 006 / 009 / 015) | yes | non-negotiable — 015 Data Classification is v1-required, not D3-gated (see D5b) |
 | **Q1 — State machines (005)** | <yes / no> | <which sub-capabilities — flat / hierarchical / always / after / tags / parallel-regions> |
 | **Q2 — Routing (012)** | <yes / no> | |
 | **Q3 — SSR (011)** | <yes / no> | |

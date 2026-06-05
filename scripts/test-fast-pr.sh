@@ -117,6 +117,18 @@ run "skill/MCP allowed-tools drift" "python scripts/check_skill_mcp_drift.py --v
 run "skill migration cite-integrity" "python scripts/check_skill_migration_cites.py --verbose --ci" \
   python "$repo_root/scripts/check_skill_migration_cites.py" --verbose --ci
 
+# Foundation-order guard (rf2-708nm): the re-frame2-implementor skill must keep
+# Spec 015 (Data Classification — v1-required) inside the core-complete gate.
+# Catches the drift where an entry point reads "001 -> ... -> 009 -> optional"
+# (gate BEFORE 015), which would let a fresh session declare v1-core-complete
+# without the required privacy/large-payload elision surface.  Self-test first
+# (proves the guard fires on the drift shapes), then the live scan.
+run "implementor order-guard self-test" "python scripts/check_skill_implementor_order.py --self-test" \
+  python "$repo_root/scripts/check_skill_implementor_order.py" --self-test
+
+run "implementor foundation-order" "python scripts/check_skill_implementor_order.py --verbose --ci" \
+  python "$repo_root/scripts/check_skill_implementor_order.py" --verbose --ci
+
 # README inventory ratchet (rf2-198k3): layout-map<->disk bijection +
 # 'N <noun>' count-numeral claims.  Runs unconditionally (not gated on a
 # markdown diff) because the drift it catches can be triggered by a *dir*

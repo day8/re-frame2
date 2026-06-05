@@ -16,7 +16,7 @@ Decisions made under Phase 1 (host language, substrate, scope, identity primitiv
 
 ## 3. Implement in dependency order
 
-EP 001 (Registration) → 002 (Frames + events + effects + subs) → 006 (Reactive substrate) → 004 (Views) → 009 (Instrumentation) are the foundation. Acceptance gate 1 — running the `:core/*` conformance fixtures — sits at the end of this cluster; 009 is in the foundation because `:core/trace` and `:core/error` fixtures exercise it. The optional EPs (005, 007–008, 010–014) sit downstream and can be deferred or skipped per Phase 1 scope.
+EP 001 (Registration) → 002 (Frames + events + effects + subs) → 006 (Reactive substrate) → 004 (Views) → 009 (Instrumentation) → 015 (Data Classification) are the foundation. Acceptance gate 1 — running the `:core/*` conformance fixtures — sits at the end of this cluster; 009 is in the foundation because `:core/trace` and `:core/error` fixtures exercise it, and 015 immediately follows because it is **v1-required** ([`spec/015-Data-Classification.md`](../../../spec/015-Data-Classification.md), [`spec/API.md`](../../../spec/API.md) exposes `add-marks` / `set-marks` as v1) and overlays the 009 emission boundary — ship the core gate without it and marked values leak through trace, event/error-emit records, Xray, MCP, and log sinks. The optional EPs (005, 007–008, 010–014) sit downstream and can be deferred or skipped per Phase 1 scope.
 
 ## 4. Substrate-agnostic phrasing in code and docs
 
