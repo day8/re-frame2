@@ -138,6 +138,81 @@
       (is (identical? r out)))))
 
 ;; ---------------------------------------------------------------------------
+;; 4b. structuredContent must count toward the budget on the CLJS/pair path
+;;     (rf2-13wbe). re-frame2-pair-mcp's `wire/ok-text` / `err-text` emit
+;;     a `:structuredContent` JS projection alongside the `:content[*].text`
+;;     EDN on EVERY result — the SAME payload, twice on the wire. The
+;;     mcp-base `content-texts` contract (rf2-mzndx / rf2-13wbe) requires a
+;;     dual-coding consumer to surface a stable string of that slot too;
+;;     otherwise the cap undercounts by ~50% and a small-`:content` /
+;;     huge-`:structuredContent` response slips past the overflow marker.
+;;
+;;     These are JS-object-shaped reifies (matching pair-mcp's real
+;;     `#js {:content #js [...] :structuredContent ...}` envelope) so the
+;;     regression bites on the CLJS/pair shape, not just story's CLJ map.
+;; ---------------------------------------------------------------------------
+
+(defn- js-text-slots
+  "Pull the `:text` strings off a pair-mcp-shaped `#js [...]` content
+  array via native interop (mcp-base carries no `js-interop` dep)."
+  [^js content]
+  (let [n (if (array? content) (.-length content) 0)]
+    (loop [i 0 acc []]
+      (if (< i n)
+        (recur (inc i) (conj acc (.-text ^js (aget content i))))
+        acc))))
+
+(def ^:private structured-pair-io
+  "Pair-shaped reify that HONOURS the dual-slot contract: `content-texts`
+  surfaces both the `#js`-array `:text` slots AND a `js/JSON.stringify`
+  of the `:structuredContent` JS object — the exact bytes the npm SDK
+  serialises. This is the shape pair-mcp's `result-io` must adopt
+  (rf2-13wbe). Mirrors story-mcp's `structured-io` on the JS side."
+  (reify cap/ResultIO
+    (content-texts [_ result]
+      (let [sc      (.-structuredContent ^js result)
+            sc-text (when (some? sc) (js/JSON.stringify sc))]
+        (cond-> (js-text-slots (.-content ^js result))
+          (some? sc-text) (conj sc-text))))
+    (build-overflow-result [_ marker _original]
+      #js {:content          #js [#js {:type "text" :text (pr-str marker)}]
+           :structuredContent (clj->js marker)})))
+
+(def ^:private content-only-pair-io
+  "Pair-shaped reify that IGNORES `:structuredContent` (the pre-rf2-13wbe
+  pair-mcp behaviour). Used only to demonstrate the undercount the
+  contract forbids — the same payload passes the cap here while
+  `structured-pair-io` trips it."
+  (reify cap/ResultIO
+    (content-texts [_ result]
+      (js-text-slots (.-content ^js result)))
+    (build-overflow-result [_ marker _original]
+      #js {:content          #js [#js {:type "text" :text (pr-str marker)}]
+           :structuredContent (clj->js marker)})))
+
+(deftest structured-content-counted-on-pair-shape
+  ;; A pair-mcp-shaped result: tiny `:content` text, huge dual-coded
+  ;; `:structuredContent`. The honest reify MUST trip the cap; the
+  ;; structuredContent-ignoring reify under-counts and lets it through.
+  (let [huge   (clj->js {:big (apply str (repeat 30000 "x"))})
+        result #js {:content          #js [#js {:type "text" :text "ok"}]
+                    :structuredContent huge}
+        cap    1000
+        out-honest (cap/apply-cap structured-pair-io result {:tool "snapshot" :cap cap})
+        out-under  (cap/apply-cap content-only-pair-io result {:tool "snapshot" :cap cap})
+        ;; the overflow REPLACEMENT carries the marker's pr-str in its
+        ;; `:content[0].text` slot — `:rf.mcp/overflow` is the tell.
+        honest-text (.-text ^js (aget (.-content ^js out-honest) 0))]
+    (testing "honest dual-slot reify trips the cap (structuredContent counts)"
+      (is (not (identical? result out-honest))
+          "the over-budget response was replaced, not passed through")
+      (is (re-find #":rf\.mcp/overflow" honest-text)
+          "overflow marker emitted — the structured slot pushed it over budget"))
+    (testing "the ~50% undercount the contract forbids: ignoring structuredContent passes a huge response"
+      (is (identical? result out-under)
+          "structuredContent-blind reify under-counts and lets the over-budget payload through unchanged"))))
+
+;; ---------------------------------------------------------------------------
 ;; 5. Cross-host strict integer-parse contract (rf2-ee38b.19). The string
 ;;    arm of `parse-int*` previously diverged: raw `js/parseInt` parses a
 ;;    numeric PREFIX (`"12abc"` ⇒ 12) while JVM `Long/parseLong` rejects
@@ -188,7 +263,25 @@
   (testing "tagged literals in the cursor are rejected"
     (let [evil (cursor/b64-encode "#js {:a 1}")]
       (is (= :re-frame.mcp-base.cursor/malformed
-             (cursor/decode-cursor evil any?))))))
+             (cursor/decode-cursor evil any?)))))
+  (testing "built-in #inst / #uuid tags in a valid map are rejected on CLJS too (rf2-13wbe)"
+    ;; `cljs.reader` resolves built-in `inst` / `uuid` from its tag-table
+    ;; and BYPASSES `:default` — without the `:readers` override these
+    ;; decode to a host `js/Date` / `cljs.core/UUID` and smuggle a host
+    ;; object through the boundary inside an otherwise-valid map.
+    (let [permissive? (fn [m] (and (map? m) (some? (:after-id m))))
+          pair-inst   (cursor/b64-encode
+                        "{:v 1 :after-id 1 :junk #inst \"2024-01-01T00:00:00.000-00:00\"}")
+          pair-uuid   (cursor/b64-encode
+                        "{:v 1 :after-id 1 :junk #uuid \"00000000-0000-0000-0000-000000000000\"}")]
+      (is (= :re-frame.mcp-base.cursor/malformed
+             (cursor/decode-cursor pair-inst permissive?)))
+      (is (= :re-frame.mcp-base.cursor/malformed
+             (cursor/decode-cursor pair-uuid permissive?)))
+      ;; a clean cursor still survives the permissive predicate
+      (is (= {:v 1 :after-id "ev-9"}
+             (cursor/decode-cursor (cursor/encode-cursor {:v 1 :after-id "ev-9"})
+                                   permissive?))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 7. Shared with-indicators envelope helper under CLJS (rf2-ee38b.19).

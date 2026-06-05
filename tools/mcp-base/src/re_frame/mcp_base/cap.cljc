@@ -77,10 +77,29 @@
   shape-agnostic."
 
   (content-texts [_io result]
-    "Return a seq of strings, the `:text`-slot values from every entry
-    in `result`'s content vector. Non-string `:text` slots and entries
+    "Return a seq of strings — ONE for EVERY serialized, payload-bearing
+    slot that rides the wire in `result`. This is the cap's measurement
+    surface: `apply-cap` sums tokens + chars across exactly these
+    strings, so a slot omitted here is a slot the cap CANNOT see.
+
+    At minimum that means the `:text`-slot values from every entry in
+    `result`'s content vector. Non-string `:text` slots and entries
     without a `:text` slot are skipped. Implementations stay nil-safe:
-    a nil `result` or empty content yields an empty seq.")
+    a nil `result` or empty content yields an empty seq.
+
+    CONTRACT — count every payload-bearing slot, not only `:content`
+    (rf2-mzndx / rf2-13wbe): a consumer whose result envelope DUPLICATES
+    the payload into a second wire slot — most commonly a
+    `:structuredContent` JSON projection emitted alongside the
+    `:content[*].text` EDN on EVERY result (both re-frame2-pair-mcp's
+    `wire/ok-text` / `err-text` and story-mcp's `text-result` do this) —
+    MUST surface a stable string representation of THAT slot here too
+    (e.g. `pr-str` / `JSON.stringify` of the structured value). Both
+    copies ride the wire, so both count toward the one budget; omitting
+    the second copy undercounts the response by ~50% and lets an
+    over-budget payload slip past the overflow marker. The unit suites
+    pin this with both a dual-coding reify (counts both) and a
+    single-slot reify (counts one).")
 
   (build-overflow-result [_io marker original-result]
     "Build a fresh result of the consumer's native shape carrying
