@@ -524,3 +524,76 @@
     (is (= "<button disabled>Go</button>"
            (emit/render-to-string [:button {:disabled true :title nil} "Go"] {}))
         "boolean + nil attrs compose on a non-void element alongside text")))
+
+;; ===========================================================================
+;; rf2-wtd8z finding 2 — Var-headed component resolution (emit.cljc +
+;; streaming.cljc). On the JVM a Var (`#'component`) is `ifn?` but NOT
+;; `fn?`, so the prior `(fn? head)` test let a Var-headed component fall
+;; through to the scalar/`:else` arm and emit the EDN text
+;; `[#'re-frame.ssr-emit-test/var-component "ok"]` instead of resolving it
+;; to `<span>ok</span>`. The emitter / streaming walker now test `ifn?`,
+;; which resolves both fns and Var references. These tests pin standard +
+;; streaming resolution AND the root-attr threading (render-hash +
+;; source-coord) through the Var-head indirection.
+;; ===========================================================================
+
+(defn var-component
+  "A plain component fn referenced via its Var (`#'var-component`) so the
+  emitter's callable-head branch sees an `ifn?`-but-not-`fn?` head on the
+  JVM. Returns a DOM-rooted hiccup so root-attr threading has a tag to
+  land on."
+  [label]
+  [:span label])
+
+(deftest render-to-string-var-headed-component
+  (testing "rf2-wtd8z finding 2 — a Var-headed component `[#'component & args]`
+            is invoked and its hiccup emitted (NOT stringified as EDN)"
+    (is (= "<span>ok</span>"
+           (emit/render-to-string [#'var-component "ok"] {}))
+        "the Var head resolves: invoked with its args, returned hiccup emits")
+    (testing "a Var-headed component nested as a child resolves too"
+      (is (= "<ul><span>a</span><span>b</span></ul>"
+             (emit/render-to-string [:ul [#'var-component "a"] [#'var-component "b"]] {}))
+          "Var-heads in child position resolve via emit-children → emit-element"))
+    (testing "root render-hash threads through the Var head onto the resolved DOM root"
+      (let [html (emit/render-to-string [#'var-component "ok"] {:emit-hash? true})]
+        (is (re-find #"<span [^>]*data-rf-render-hash=\"[^\"]+\">ok</span>" html)
+            (str "the root data-rf-render-hash lands on the Var head's resolved"
+                 " <span> root; got: " html))))))
+
+(deftest render-to-string-var-headed-registered-view
+  (testing "rf2-wtd8z finding 2 — a registered view whose body is a
+            Var-headed component resolves (no EDN leak); the source-coord
+            follows the documented fn/component-head exemption
+            (inject-coord-on-root-hiccup only annotates keyword-headed
+            roots — a Var-headed body is one level of indirection above
+            the resolved DOM root, same as a fn-headed body or a :<>
+            fragment), while the render-hash root-attr DOES thread through
+            the Var head onto the resolved DOM root"
+    (rf/reg-view ^{:rf/id :rf.ssr-emit-test/var-view} var-view []
+      [#'var-component "v"])
+    (let [html (emit/render-to-string [:rf.ssr-emit-test/var-view] {})]
+      (is (= "<span>v</span>" html)
+          (str "the Var head resolved to <span>v</span> (NOT EDN text); the "
+               "source-coord is exempt on a Var-headed view root, matching "
+               "the fn-head / fragment exemption; got: " html)))
+    (testing "render-hash threads through the Var-headed view root onto the resolved DOM root"
+      (let [html (emit/render-to-string [:rf.ssr-emit-test/var-view] {:emit-hash? true})]
+        (is (re-find #"<span [^>]*data-rf-render-hash=\"[^\"]+\">v</span>" html)
+            (str "the root data-rf-render-hash threads through the view-ref AND "
+                 "the Var head onto the resolved <span> root; got: " html))))))
+
+(deftest render-shell-var-headed-component
+  (testing "rf2-wtd8z finding 2 — the streaming shell walker resolves a
+            Var-headed component just like the non-streaming emitter
+            (ifn?, not fn?), recursing on its returned hiccup"
+    (let [{:keys [shell-html]} (streaming/render-shell [#'var-component "streamed"])]
+      (is (= "<span>streamed</span>" shell-html)
+          (str "the streaming walker resolved the Var head + recursed on its"
+               " body; got: " shell-html)))
+    (testing "a Var head nested in a DOM tree streams resolved too"
+      (let [{:keys [shell-html]} (streaming/render-shell
+                                   [:section [#'var-component "x"]])]
+        (is (= "<section><span>x</span></section>" shell-html)
+            (str "nested Var head resolved in the shell walk; got: "
+                 shell-html))))))

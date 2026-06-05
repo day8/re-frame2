@@ -2168,7 +2168,44 @@
             traces (capture-schema-failures!
                      (fn [] (rf/dispatch-sync [:bad/redirect-status] {:frame f})))]
         (expect-fx-args-schema-failure!
-          traces :rf.server/redirect ":rf.server/redirect non-int :status")))))
+          traces :rf.server/redirect ":rf.server/redirect non-int :status")))
+
+    (testing ":rf.server/safe-redirect with non-int :status → rejected + response unmodified"
+      ;; rf2-wtd8z finding 1: pre-fix safe-redirect carried only :platforms
+      ;; — no :schema — so a valid-location-but-non-int-:status arg passed
+      ;; the (absent) boundary and safe-redirect-fx's step-5 pass wrote the
+      ;; string :status straight onto the response accumulator. With the new
+      ;; :rf.fx.server/safe-redirect-args schema attached, the malformed
+      ;; :status surfaces at the Spec 010 §step-5 fx-args boundary, the fx
+      ;; is SKIPPED, and the response is left unmodified — matching the
+      ;; sibling six.
+      (rf/reg-event-fx :bad/safe-redirect-status
+        (fn [_ _] {:fx [[:rf.server/safe-redirect
+                         {:location "/ok" :status "not-int"}]]}))
+      (let [f      (rf/make-frame {:platform :server})
+            traces (capture-schema-failures!
+                     (fn [] (rf/dispatch-sync [:bad/safe-redirect-status] {:frame f})))
+            resp   (get-response f)]
+        (expect-fx-args-schema-failure!
+          traces :rf.server/safe-redirect ":rf.server/safe-redirect non-int :status")
+        (is (nil? (:redirect resp))
+            "the malformed safe-redirect was skipped — no :redirect landed")
+        (is (not= "not-int" (:status resp))
+            "the non-int status never reached the response accumulator")))
+
+    (testing ":rf.server/safe-redirect missing :location → rejected"
+      ;; safe-redirect REQUIRES a :location (its validation target) — a
+      ;; target-less safe-redirect is a programmer error, NOT the documented
+      ;; no-target graceful path that the caller-trusted :rf.server/redirect
+      ;; carries. The schema marks :location required, so a no-location call
+      ;; fails the shape gate.
+      (rf/reg-event-fx :bad/safe-redirect-no-location
+        (fn [_ _] {:fx [[:rf.server/safe-redirect {:status 302}]]}))
+      (let [f      (rf/make-frame {:platform :server})
+            traces (capture-schema-failures!
+                     (fn [] (rf/dispatch-sync [:bad/safe-redirect-no-location] {:frame f})))]
+        (expect-fx-args-schema-failure!
+          traces :rf.server/safe-redirect ":rf.server/safe-redirect missing :location")))))
 
 (deftest ssr-server-fx-args-schema-accepts-well-formed
   (testing "rf2-kjf3m.2 — regression guard: well-formed server fx args pass
@@ -2203,7 +2240,33 @@
       (is (= 2 (count (:cookies resp)))
           "both set-cookie + delete-cookie landed")
       (is (= {:status 302 :location "/dashboard"} (:redirect resp))
-          "redirect landed"))))
+          "redirect landed")))
+
+  (testing "rf2-wtd8z finding 1 — a well-formed :rf.server/safe-redirect
+            (string :location, int :status, boolean :relative-only?,
+            vector :allow) passes the new :rf.fx.server/safe-redirect-args
+            boundary cleanly and lands its redirect"
+    (rf/reg-event-fx :good/safe-redirect
+      (fn [_ _]
+        {:fx [[:rf.server/safe-redirect
+               {:location       "https://app.example.com/dashboard"
+                :status         302
+                :relative-only? false
+                :allow          ["app.example.com"]}]]}))
+    (let [f      (rf/make-frame {:platform :server})
+          traces (capture-schema-failures!
+                   (fn [] (rf/dispatch-sync [:good/safe-redirect] {:frame f})))
+          resp   (get-response f)]
+      (is (empty? (filter (fn [ev] (and (= :fx-args (-> ev :tags :where))
+                                        (= :rf.server/safe-redirect
+                                           (-> ev :tags :failing-id))))
+                          traces))
+          (str "no :fx-args schema failure for well-formed safe-redirect; saw: "
+               (pr-str (mapv (comp :failing-id :tags) traces))))
+      (is (= "https://app.example.com/dashboard" (-> resp :redirect :location))
+          "the well-formed safe-redirect landed on the response :redirect slot")
+      (is (= 302 (-> resp :redirect :status))
+          "the int :status flowed through"))))
 
 ;; ===========================================================================
 ;; ssr-with-fx-override / ssr-end-to-end — relocated from core/smoke_test.clj

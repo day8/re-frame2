@@ -19,6 +19,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
+            [re-frame.interop :as interop]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.test-fixture :as tf]))
 
@@ -115,3 +116,66 @@
         (is (= "<p>p</p>" html)
             (str "programmatic registration (no macro coords) renders "
                  "without annotation; got: " html))))))
+
+;; ---- production gate: source-coords elided when debug-enabled? false -----
+;;
+;; rf2-wtd8z finding 3 / Spec 011 §SSR production elision: the JVM SSR
+;; annotation site MUST obey the `re-frame.interop/debug-enabled?`
+;; production gate — the counterpart to CLJS `goog.DEBUG=false`. Source
+;; coords are internal ns/symbol/line info; a production render must not
+;; leak them into public HTML. Pre-fix the emitter injected whenever the
+;; slot carried coords, ignoring the gate, so a production JVM render
+;; could ship `data-rf2-source-coord` into the wire HTML. These tests pin
+;; both arms: debug ON → annotated (the existing contract); debug OFF →
+;; elided.
+;;
+;; `debug-enabled?` is read once at ns load into a plain Var; the emitter
+;; reads it through that Var at call time, so `with-redefs` flips it for
+;; the duration of the body — the standard way to exercise the gate
+;; without a JVM restart.
+
+(deftest source-coord-injected-when-debug-enabled
+  (testing "rf2-wtd8z finding 3: with interop/debug-enabled? true the
+            registered-view root carries data-rf2-source-coord (the
+            dev-mode contract is preserved)"
+    (rf/reg-view ^{:rf/id :rf.ssr-coord-test/gated-on} gated-on-view []
+      [:h2 "on"])
+    (with-redefs [interop/debug-enabled? true]
+      (let [html (ssr/render-to-string [:rf.ssr-coord-test/gated-on] {})]
+        (is (re-find #"data-rf2-source-coord=\"rf\.ssr-coord-test:gated-on:\d+:\d+\""
+                     html)
+            (str "debug ON → source-coord injected; got: " html))))))
+
+(deftest source-coord-elided-when-debug-disabled
+  (testing "rf2-wtd8z finding 3: with interop/debug-enabled? false the SSR
+            emitter elides data-rf2-source-coord on a registered-view root
+            whose slot carries coords — a production render must not leak
+            internal source coordinates into public HTML"
+    (rf/reg-view ^{:rf/id :rf.ssr-coord-test/gated-off} gated-off-view []
+      [:h2 "off"])
+    (with-redefs [interop/debug-enabled? false]
+      (let [html (ssr/render-to-string [:rf.ssr-coord-test/gated-off] {})]
+        (is (= "<h2>off</h2>" html)
+            (str "debug OFF → no source-coord leaked into the rendered "
+                 "HTML; got: " html))
+        (is (not (str/includes? html "data-rf2-source-coord"))
+            "no data-rf2-source-coord attribute in a production render")))))
+
+(deftest streaming-source-coord-respects-debug-gate
+  (testing "rf2-wtd8z finding 3: the streaming shell walker reuses the
+            same source-coord helper and MUST obey the same production
+            gate — debug ON injects, debug OFF elides"
+    (rf/reg-view ^{:rf/id :rf.ssr-coord-test/stream-gated} stream-gated-view []
+      [:article "streamed"])
+    (let [render-shell (requiring-resolve 're-frame.ssr.streaming/render-shell)]
+      (with-redefs [interop/debug-enabled? true]
+        (let [{:keys [shell-html]} (render-shell [:rf.ssr-coord-test/stream-gated])]
+          (is (re-find #"data-rf2-source-coord=\"rf\.ssr-coord-test:stream-gated:\d+:\d+\""
+                       shell-html)
+              (str "streaming debug ON → source-coord injected; got: "
+                   shell-html))))
+      (with-redefs [interop/debug-enabled? false]
+        (let [{:keys [shell-html]} (render-shell [:rf.ssr-coord-test/stream-gated])]
+          (is (not (str/includes? shell-html "data-rf2-source-coord"))
+              (str "streaming debug OFF → no source-coord leaked; got: "
+                   shell-html)))))))

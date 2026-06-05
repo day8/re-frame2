@@ -277,6 +277,7 @@ Validation order: (1) URL must parse — :rf.error/safe-redirect-invalid-url;
 (4) :allow allowlist mismatch — :rf.error/safe-redirect-host-disallowed
 (:reason :not-in-allowlist); (5) pass — set Location header. Per
 rf2-zfm8v (Mike decision, Option A, 2026-05-14)."
+   :schema    server-fx-schemas/safe-redirect-args ;; :rf.fx.server/safe-redirect-args (rf2-wtd8z finding 1)
    :platforms #{:server}}
   response/safe-redirect-fx)
 
