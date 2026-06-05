@@ -353,6 +353,109 @@
           "navigating to the override-free shared URL clears the stale edit —
            the address bar is authoritative"))))
 
+;; ---- rf2-fkmnh: URL authoritative for ALL URL-owned chrome slots --------
+
+(deftest apply-parsed-clears-active-modes-when-url-omits-modes
+  (testing "rf2-fkmnh — hydrating a URL that omits `modes=` clears stale
+            `:active-modes` to []. A share link like ?variant=foo/bar must
+            restore the DEFAULT (no modes) view for the recipient, not keep
+            their localStorage-seeded modes."
+    (let [stale {:active-modes [:m/dark :m/grid]}
+          out   (us/apply-parsed-to-state stale {:variant-id :foo/bar} {})]
+      (is (= [] (:active-modes out))
+          "omitted modes= clears active-modes to the empty default"))))
+
+(deftest apply-parsed-sets-active-modes-when-url-carries-them
+  (testing "rf2-fkmnh — a URL that DOES carry modes= overwrites stale modes
+            (authoritative, not a merge)"
+    (let [stale {:active-modes [:m/light]}
+          out   (us/apply-parsed-to-state
+                  stale {:variant-id :foo/bar :active-modes [:m/dark]} {})]
+      (is (= [:m/dark] (:active-modes out))))))
+
+(deftest apply-parsed-clears-tag-filter-when-url-omits-it
+  (testing "rf2-fkmnh — omitted tag-filter= clears `:tag-filter` to #{}"
+    (let [stale {:tag-filter #{:tag/a :tag/b}}
+          out   (us/apply-parsed-to-state stale {:variant-id :foo/bar} {})]
+      (is (= #{} (:tag-filter out))
+          "omitted tag-filter= clears to the empty set default"))))
+
+(deftest apply-parsed-clears-viewport-when-url-omits-it
+  (testing "rf2-fkmnh — omitted viewport= clears `:viewport` to nil so the
+            chrome falls back to the :full default"
+    (let [stale {:viewport :tablet}
+          out   (us/apply-parsed-to-state stale {:variant-id :foo/bar} {})]
+      (is (nil? (:viewport out))
+          "omitted viewport= clears to nil (chrome resolves to :full)"))))
+
+(deftest apply-parsed-clears-background-when-url-omits-it
+  (testing "rf2-fkmnh — omitted background= clears `:background` to nil"
+    (let [stale {:background :dark}
+          out   (us/apply-parsed-to-state stale {:variant-id :foo/bar} {})]
+      (is (nil? (:background out))
+          "omitted background= clears to nil (chrome resolves to default)"))))
+
+(deftest apply-parsed-clears-invalid-viewport-rather-than-keeping-stale
+  (testing "rf2-fkmnh — a present-but-INVALID viewport (rejected by the
+            validator) clears the slot rather than preserving the stale
+            in-memory value, so a poisoned URL still degrades to default"
+    (let [stale {:viewport :tablet}
+          out   (us/apply-parsed-to-state
+                  stale {:viewport :nonsense}
+                  {:viewport? (fn [v] (= v :phone))})]
+      (is (nil? (:viewport out))
+          "invalid viewport= clears the stale value, not preserves it"))))
+
+(deftest apply-parsed-clears-invalid-background-rather-than-keeping-stale
+  (testing "rf2-fkmnh — a present-but-INVALID background clears the slot"
+    (let [stale {:background :dark}
+          out   (us/apply-parsed-to-state
+                  stale {:background :nonsense}
+                  {:background? (fn [b] (= b :light))})]
+      (is (nil? (:background out))))))
+
+(deftest apply-parsed-empty-url-clears-every-url-owned-slot
+  (testing "rf2-fkmnh — applying the all-nil parsed shape (a no-query
+            popstate / share URL that omits everything) clears ALL
+            URL-owned slots back to their defaults — selection, modes,
+            viewport, background, tag-filter — so the address bar is the
+            source of truth even when it carries no params."
+    (let [stale {:selected-variant :foo/bar
+                 :active-modes     [:m/dark]
+                 :viewport         :tablet
+                 :background       :dark
+                 :tag-filter       #{:tag/a}}
+          ;; the shape share/parse-params produces for an empty getter:
+          empty-parsed {:variant-id nil :workspace-id nil :mode-tab nil
+                        :active-modes nil :viewport nil :background nil
+                        :tag-filter nil :cell-overrides nil :substrate nil}
+          out   (us/apply-parsed-to-state stale empty-parsed {})]
+      (is (nil? (:selected-variant out)))
+      (is (nil? (:selected-workspace out)))
+      (is (= [] (:active-modes out)))
+      (is (nil? (:viewport out)))
+      (is (nil? (:background out)))
+      (is (= #{} (:tag-filter out))))))
+
+(deftest apply-parsed-share-counter-link-restores-default-chrome
+  (testing "rf2-fkmnh — the bead's concrete scenario: a recipient with prior
+            localStorage-seeded chrome (modes/viewport/background/tag-filter)
+            opens a share link `?variant=story.counter/loaded` that carries
+            ONLY the variant. The recipient lands on the variant with the
+            DEFAULT chrome, not their stale local framing."
+    (let [recipient-local {:active-modes [:m/dark]
+                           :viewport     :phone
+                           :background   :light
+                           :tag-filter   #{:tag/legacy}}
+          ;; share/parse-params of just ?variant=story.counter/loaded
+          shared {:variant-id :story.counter/loaded}
+          out    (us/apply-parsed-to-state recipient-local shared {})]
+      (is (= :story.counter/loaded (:selected-variant out)))
+      (is (= [] (:active-modes out)) "recipient's local modes cleared")
+      (is (nil? (:viewport out))     "recipient's local viewport cleared")
+      (is (nil? (:background out))   "recipient's local background cleared")
+      (is (= #{} (:tag-filter out))  "recipient's local tag-filter cleared"))))
+
 (deftest apply-parsed-full-round-trip-through-state
   (testing "URL → parsed → state, then state → URL produces equivalent
             params (allowing for set vs vec re-ordering)"

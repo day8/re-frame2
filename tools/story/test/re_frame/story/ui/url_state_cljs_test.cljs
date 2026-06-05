@@ -206,3 +206,64 @@
         (is (= :dark    (:background s)))
         (is (= #{:tag/a} (:tag-filter s)))))))
 
+;; ---- rf2-fkmnh: populated → omitted/default transition ------------------
+
+(deftest parse-current-url-or-empty-returns-empty-shape-on-blank-search
+  (testing "rf2-fkmnh — when the window is present but the search is empty
+            `parse-current-url-or-empty` returns the all-nil parsed shape
+            (not nil), so a no-query popstate drives the URL-owned slots to
+            their defaults instead of no-op'ing. (The harness URL has no
+            Story params, so this exercises the blank-search branch.)"
+    (when (browser?)
+      (let [parsed (us/parse-current-url-or-empty)]
+        (is (map? parsed) "returns a parsed map, never nil, when window present")
+        (is (nil? (:variant-id parsed)))
+        (is (nil? (:active-modes parsed)))
+        (is (nil? (:viewport parsed)))
+        (is (nil? (:background parsed)))
+        (is (nil? (:tag-filter parsed)))))))
+
+(deftest popstate-to-empty-url-clears-prior-state-via-swap
+  (testing "rf2-fkmnh — the back/forward-to-bare-URL scenario through the
+            same swap path the popstate handler takes: a populated shell,
+            then applying the all-nil parsed shape (what
+            `parse-current-url-or-empty` yields for an empty search) clears
+            every URL-owned slot. Drives the live shell-state ratom."
+    (let [apply-fn (fn [s parsed] (us/apply-parsed-to-state s parsed {}))]
+      ;; 1. populated: a deep-link with framing + filter + modes.
+      (swap! state/shell-state-atom apply-fn
+             {:variant-id   :foo/bar
+              :active-modes [:m/dark]
+              :viewport     :tablet
+              :background   :dark
+              :tag-filter   #{:tag/a}})
+      (is (= :foo/bar (:selected-variant @state/shell-state-atom)))
+      ;; 2. popstate to a no-query URL ⇒ all-nil parsed shape.
+      (swap! state/shell-state-atom apply-fn (share/parse-params {}))
+      (let [s @state/shell-state-atom]
+        (is (nil? (:selected-variant s)) "selection cleared on bare-URL pop")
+        (is (= [] (:active-modes s))      "modes cleared")
+        (is (nil? (:viewport s))          "viewport cleared")
+        (is (nil? (:background s))        "background cleared")
+        (is (= #{} (:tag-filter s))       "tag-filter cleared")))))
+
+(deftest popstate-to-partial-url-clears-omitted-slots-only
+  (testing "rf2-fkmnh — navigating from a fully-populated URL to one that
+            keeps the variant but drops modes/viewport/background/tag-filter
+            clears exactly the omitted slots (the variant survives)"
+    (let [apply-fn (fn [s parsed] (us/apply-parsed-to-state s parsed {}))]
+      (swap! state/shell-state-atom apply-fn
+             {:variant-id   :foo/bar
+              :active-modes [:m/dark]
+              :viewport     :tablet
+              :background   :dark
+              :tag-filter   #{:tag/a}})
+      ;; second URL: variant only.
+      (swap! state/shell-state-atom apply-fn {:variant-id :foo/bar})
+      (let [s @state/shell-state-atom]
+        (is (= :foo/bar (:selected-variant s)) "variant preserved")
+        (is (= [] (:active-modes s)))
+        (is (nil? (:viewport s)))
+        (is (nil? (:background s)))
+        (is (= #{} (:tag-filter s)))))))
+

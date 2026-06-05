@@ -364,6 +364,10 @@ async function assertShareUrlContract(page, phase) {
   const parsed = new URL(shareUrl);
   const variant = parsed.searchParams.get('variant');
   const modes = (parsed.searchParams.get('modes') || '').split(',');
+  // `URLSearchParams.get` returns the percent-decoded value. Per rf2-j0hwf
+  // the overrides wire form is ONE `pr-str`-printed EDN map (delimiter-safe
+  // — string values may carry the list separator), e.g. `{:label "Share
+  // Slice phase"}`. NOT the retired `label:"<value>"` comma-pair token.
   const overrides = parsed.searchParams.get('overrides') || '';
   if (variant !== 'story.counter/loaded') {
     throw new Error(`share URL variant mismatch: expected story.counter/loaded, got ${variant}`);
@@ -371,8 +375,25 @@ async function assertShareUrlContract(page, phase) {
   if (!modes.includes('Mode.app/dark')) {
     throw new Error(`share URL modes missing Mode.app/dark: ${parsed.searchParams.get('modes')}`);
   }
-  if (!overrides.includes(`label:"${label}"`)) {
-    throw new Error(`share URL overrides missing label ${JSON.stringify(label)}: ${overrides}`);
+  // rf2-fkmnh: validate the CURRENT EDN-map wire contract (rf2-j0hwf), not
+  // the retired legacy codec. The decoded payload is the single EDN map.
+  if (!/^\s*\{.*\}\s*$/.test(overrides)) {
+    throw new Error(
+      `share URL overrides is not the EDN-map wire form (rf2-j0hwf): ${overrides}`,
+    );
+  }
+  if (!overrides.includes(`:label ${JSON.stringify(label)}`)) {
+    throw new Error(
+      `share URL overrides EDN map missing :label ${JSON.stringify(label)}: ${overrides}`,
+    );
+  }
+  // Guard: reject the old comma-pair-only token so the probe can never drift
+  // back to the delimiter-prone legacy codec rf2-j0hwf retired.
+  if (overrides.includes(`label:"${label}"`)) {
+    throw new Error(
+      `share URL overrides used the RETIRED legacy comma-pair codec (rf2-j0hwf); ` +
+      `expected the EDN-map wire form: ${overrides}`,
+    );
   }
   if (parsed.hash !== '#/stories') {
     throw new Error(`share URL hash mismatch: expected #/stories, got ${parsed.hash}`);

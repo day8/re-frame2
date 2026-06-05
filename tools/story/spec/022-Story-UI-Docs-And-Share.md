@@ -211,6 +211,21 @@ Share semantics:
   renders WITHOUT that edit — the address bar stays the source of truth.
   Only the focused variant's slice is touched; other variants' overrides
   are left intact (rf2-2cpoo);
+- the same authoritative-clear discipline extends to EVERY URL-owned chrome
+  slot, not just overrides (rf2-fkmnh): once URL hydration is in play
+  (`apply-parsed-to-state` runs on a populated mount or any popstate), an
+  omitted `modes=` clears `:active-modes` to `[]`, an omitted `tag-filter=`
+  clears `:tag-filter` to `#{}`, and an omitted (or present-but-invalid)
+  `viewport=`/`background=` clears the slot to its neutral default (`:full`
+  / no background). A no-query popstate (back/forward to a bare URL) likewise
+  clears the URL-owned selection / modes / framing / filter rather than
+  no-op'ing. So a share link like `?variant=story.counter/loaded` restores
+  the DEFAULT view for the recipient instead of keeping their prior
+  localStorage-seeded chrome — the address bar is the source of truth for the
+  full share surface. The intentional localStorage fallback survives ONLY for
+  a fresh mount with no URL state at all (the localStorage hydrators run first
+  on mount, and `apply-parsed-to-state` only runs when the URL carries query
+  params);
 - a shared link restores VIEW STATE (it lands the recipient on the cell);
   it does not replay a run — that is the recorder's `:play-script` export;
 - the reproducibility status is computed (purely) by
