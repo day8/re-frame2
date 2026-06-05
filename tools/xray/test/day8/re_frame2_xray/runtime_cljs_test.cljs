@@ -45,6 +45,11 @@
             [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
+            ;; CLJS callers reach the per-frame trace ring directly via the
+            ;; tooling sibling — `rf/trace-buffer` / `rf/clear-trace-buffer!`
+            ;; are JVM-only aliases (core.cljc `#?(:clj ...)`). The runtime
+            ;; itself requires this same ns (rf2-qwm0a).
+            [re-frame.trace.tooling :as trace-tooling]
             [day8.re-frame2-xray.runtime :as runtime]))
 
 ;; ---------------------------------------------------------------------------
@@ -467,6 +472,79 @@
       (is (true? (:ok? result)))
       (is (vector? (:issues result)))
       (is (number? (:count result))))))
+
+;; ---------------------------------------------------------------------------
+;; (10b) Default-suppress whole `:sensitive? true` trace/issue ENVELOPES
+;;       at the runtime/MCP seam (rf2-to36uj).
+;; ---------------------------------------------------------------------------
+;;
+;; `egress-value` scrubs the VALUES inside an event but does NOT drop a
+;; whole event marked `:sensitive? true`. The framework's per-frame ring
+;; RETAINS every emitted event (a faithful record), so a sensitive
+;; event's envelope (existence, :op-type, timing, source, ids, :tags)
+;; would otherwise cross the off-box AI/MCP / log boundary by default.
+;; Per Spec 009 §Privacy + spec/013-Trace-Consumer.md the runtime/MCP
+;; seam default-SUPPRESSES whole sensitive events; the per-call
+;; `:include-sensitive? true` opt is the explicit opt-back-in.
+;;
+;; We seed the ring directly via `rf/emit-trace-event!` (the published
+;; `re-frame.trace/emit!` alias). `:sensitive?` supplied in `tags` wins
+;; (`compute-sensitive?`) and is hoisted to the event's top level; a
+;; `:rf.trace/dispatch-id` + a resolvable `:frame` are the two slots
+;; `push-to-ring!` requires to retain the event in the per-frame ring.
+
+(defn- emit-sensitive-into-ring! [op-type operation]
+  ;; A frame-bound, cascade-keyed emit so the framework's per-frame ring
+  ;; retains it (frameless emits stream live but are never retained).
+  (rf/emit-trace-event! op-type operation
+                        {:frame                 :rf/default
+                         :rf.trace/dispatch-id  (random-uuid)
+                         :sensitive?            true}))
+
+(defn- emit-plain-into-ring! [op-type operation]
+  (rf/emit-trace-event! op-type operation
+                        {:frame                :rf/default
+                         :rf.trace/dispatch-id (random-uuid)}))
+
+(deftest get-trace-buffer-default-suppresses-sensitive-envelope
+  (testing "`get-trace-buffer` DROPS a whole `:sensitive? true` trace
+            event by default — the envelope (op-type / timing / ids /
+            tags), not just the values, must respect the default-suppress
+            contract at the off-box seam (rf2-to36uj)"
+    (trace-tooling/clear-trace-buffer! :rf/default)
+    (emit-plain-into-ring!     :sub  :rf.sub/run)
+    (emit-sensitive-into-ring! :sub  :rf.sub/run)
+    (let [default (runtime/get-trace-buffer)
+          opted   (runtime/get-trace-buffer {:include-sensitive? true})]
+      (is (true? (:ok? default)))
+      (is (empty? (filterv :sensitive? (:events default)))
+          "no sensitive envelope crosses the boundary by default")
+      (is (pos? (:count default))
+          "the non-sensitive event still surfaces")
+      (is (seq (filterv :sensitive? (:events opted)))
+          ":include-sensitive? true is the explicit opt-back-in — the sensitive envelope returns")
+      (is (= (inc (:count default)) (:count opted))
+          "exactly the suppressed sensitive event is the delta between default and opted-in"))))
+
+(deftest get-issues-default-suppresses-sensitive-envelope
+  (testing "`get-issues` DROPS a whole `:sensitive? true` issue-tier
+            event by default and returns it only under
+            `:include-sensitive? true` (rf2-to36uj — symmetric with
+            get-trace-buffer)"
+    (trace-tooling/clear-trace-buffer! :rf/default)
+    (emit-plain-into-ring!     :warning :rf.warning/plain)
+    (emit-sensitive-into-ring! :error   :rf.error/handler-exception)
+    (let [default (runtime/get-issues)
+          opted   (runtime/get-issues {:include-sensitive? true})]
+      (is (true? (:ok? default)))
+      (is (empty? (filterv :sensitive? (:issues default)))
+          "no sensitive issue envelope crosses the boundary by default")
+      (is (some #(= :warning (:op-type %)) (:issues default))
+          "the non-sensitive issue still surfaces")
+      (is (seq (filterv :sensitive? (:issues opted)))
+          ":include-sensitive? true returns the sensitive issue envelope")
+      (is (= (inc (:count default)) (:count opted))
+          "exactly the suppressed sensitive issue is the delta"))))
 
 ;; ---------------------------------------------------------------------------
 ;; (11) egress-value / egress-record — the single named safe-egress fn
