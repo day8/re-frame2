@@ -6,7 +6,7 @@ The canonical inputs the skill leans on. A re-authoring pass needs these to repr
 
 ## 1. Primary input — the user's in-scope source
 
-The skill operates on re-frame2 ClojureScript source already in the conversation: files read or edited in the current session, or a snippet the user pastes. It does not ingest a file path it hasn't been shown. What the skill looks for is anti-pattern signal — the greppable + structural cues catalogued per leaf.
+The skill operates on re-frame2 ClojureScript source the user has put in scope: files read or edited in the current session, a snippet the user pastes, or a concrete `.cljs` / `.cljc` file or directory the user names for review (in which case the skill **reads the named path** before critiquing — resolving the path is the same act the in-conversation-read case already performs). What the skill looks for is anti-pattern signal — the greppable + structural cues catalogued per leaf. A named path that does not resolve (missing or unreadable) does not establish scope: say so and ask for a snippet rather than fabricate.
 
 ## 2. Secondary input — `skills/re-frame2/`
 
