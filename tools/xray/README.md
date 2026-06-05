@@ -202,16 +202,35 @@ that the tool could be one-shotted from it.
 ```
 tools/xray/
 ├── README.md                                  ; this file
-├── deps.edn                                   ; declares day8/re-frame2-xray
-├── shadow-cljs.edn                            ; build config
+├── deps.edn                                   ; declares day8/re-frame2-xray (artefact deps + :test alias)
 ├── spec/                                      ; normative contract (see above)
 ├── src/day8/re_frame2_xray/
 │   ├── preload.cljs                           ; registers listeners, mounts DOM
 │   ├── core.cljs                              ; user-facing facade (init!, open!, target-frame, ...)
 │   ├── panels/                                ; one ns per panel
 │   └── theme/                                 ; design tokens, theming
+├── testbeds/                                  ; browser feature-gate driving surfaces
 └── test/...
 ```
+
+There is no `tools/xray/shadow-cljs.edn`. The CLJS build is driven from
+the cross-artefact [`implementation/shadow-cljs.edn`](../../implementation/shadow-cljs.edn),
+which wires `../tools/xray/src` + `../tools/xray/test` onto the build
+classpath and registers every `tools/xray/testbeds/*` source dir +
+`:dev-http` port. The runnable feature gates are npm scripts in
+[`implementation/package.json`](../../implementation/package.json) — see
+**Tests** below.
+
+## Tests
+
+| Gate | Command (from `implementation/`) |
+|---|---|
+| JVM/Node unit/helper/view suite | `clojure -M:test` (per-artefact, from `tools/xray/`) or `npm run test:cljs` (cross-artefact node-runtime CLJS) |
+| Browser feature gate | `npm run test:xray-feature-gate` (full) / `npm run test:xray-feature-gate:smoke` (smoke) |
+
+The browser feature gate serves the `tools/xray/testbeds/*` pages from
+`implementation/shadow-cljs.edn`'s `:dev-http` config and drives the
+Playwright scenarios.
 
 ## Bundle isolation
 
@@ -262,9 +281,15 @@ detail panel + 5-tab Static mode), one wired keybinding
 (`Ctrl+Shift+C` toggle), default true-inline mount under
 `[data-rf-xray-host]`, programmatic pop-out via `(xray/popout!)`,
 and a frame-isolated `:rf/xray` registrar.
-Spec corpus landed via rf2-1lls (2026-05-12); the 17-row test
-coverage matrix at [`spec/017-Test-Coverage-Matrix.md`](./spec/017-Test-Coverage-Matrix.md)
-reports `covered` across every row at the unit/helper/view tier.
+Spec corpus landed via rf2-1lls (2026-05-12). The test coverage matrix
+at [`spec/017-Test-Coverage-Matrix.md`](./spec/017-Test-Coverage-Matrix.md)
+tracks per-surface status: most rows are `covered` (unit/helper/view
+tier plus a browser-level path), while several newer rows are `partial`
+— some unit/helper/view or smoke coverage exists, but the deterministic
+browser feature path or failure path is still missing (see the matrix
+for the live per-row status). The 20-event/load re-check is **not
+default CI**; it is an occasional pre-commit / explicit pre-PR gate for
+Xray-heavy work.
 
 Browser testbeds live under `tools/xray/testbeds/` —
 `two_frame_isolation`, `standard_epochs`, `routes_epochs`, `machine_epochs`,

@@ -232,6 +232,14 @@
         {:definition             definition
          :machine-id             machine-id
          :current-state          cur-path
+         ;; rf2-xf5on — forward the fired-this-epoch edge ids the view
+         ;; already computes (line ~166) into the chart so the traversed
+         ;; edges paint the FIRED treatment. The docstring's `:trace-events`
+         ;; contract promises `fired-this-epoch` edge highlights; `Chart`
+         ;; exposes + forwards `:fired-edge-ids`, so the wiring must reach
+         ;; it. `#{}` (case-B / no transition this epoch) → no fired
+         ;; highlight, identical to passing none.
+         :fired-edge-ids         fired-ids
          ;; rf2-vcnvj — surface the STATIC context shape (keys + type
          ;; captions of the definition's `:data`) so the root Context
          ;; chrome renders on the blank-state topology. nil when the
