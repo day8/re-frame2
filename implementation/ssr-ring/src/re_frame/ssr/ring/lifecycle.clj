@@ -329,6 +329,62 @@
   (payload-policy/validate-policy-opts! opts)
   (trust/validate-trusted-shell-opts! opts))
 
+(defn validate-streaming-opts!
+  "Reject opts the streaming handler CANNOT honour, at handler-
+  construction time (boot) rather than silently ignoring them per-request.
+  Run by `re-frame.ssr.ring.streaming/stream-handler` AFTER the shared
+  `validate-construction-opts!` triple.
+
+  `:html-shell` (rf2-oq4m5). The non-streaming `ssr-handler` builds its
+  response by calling a ONE-PIECE `:html-shell` fn `(body-html payload-edn
+  opts) → string` — it has the full body + payload in hand before the
+  envelope is composed, so a custom shell can wrap them arbitrarily. The
+  streaming handler CANNOT use that contract: it flushes the envelope as
+  TWO chunks straddling N continuation chunks — the prefix
+  (`default-streaming-prefix`) on first byte, the suffix
+  (`default-streaming-suffix`) after the continuations + final payload
+  have drained (Spec 011 §Streaming SSR — the wire shape pins
+  prefix → shell → continuations → payload → suffix). A one-piece
+  `:html-shell` callback can never run after streaming has started, so the
+  streaming path ALWAYS writes the split default envelope and a passed
+  `:html-shell` is silently dropped.
+
+  Accepting it silently is a fail-OPEN API-contract gap: a custom shell
+  commonly carries CSP nonces, asset URLs, analytics/script policy, root
+  markup, or host-specific document structure — a production app switching
+  from `ssr-handler` to `stream-handler` would lose all of it with no
+  construction error, warning, or test signal. We fail CLOSED at boot
+  instead: `stream-handler` refuses to construct when `:html-shell` is
+  present (any non-nil value), pointing the caller at the streaming
+  envelope surface (the split `default-streaming-prefix` /
+  `default-streaming-suffix` plus the `:head` / `:body-end` /
+  `:script-src` / `:app-element-id` trusted-shell hooks, which the
+  streaming envelope DOES honour). A nil `:html-shell` passes (no
+  override requested) so the shared `handler-defaults` map — which does
+  NOT carry `:html-shell` for the streaming path — and an explicit
+  `{:html-shell nil}` both construct cleanly.
+
+  Returns `opts` unchanged on success."
+  [opts]
+  (when (some? (:html-shell opts))
+    (throw (ex-info ":rf.error/ssr-streaming-unsupported-opt"
+                    {:rf.error/id :rf.error/ssr-streaming-unsupported-opt
+                     :where    'rf.ssr/stream-handler
+                     :opt-key  :html-shell
+                     :got      (:html-shell opts)
+                     :reason   (str "stream-handler does not support :html-shell — the "
+                                    "streaming envelope is flushed as a SPLIT prefix/suffix "
+                                    "straddling the continuation chunks (Spec 011 §Streaming "
+                                    "SSR), so a one-piece (body-html payload-edn opts) → string "
+                                    ":html-shell fn cannot be applied after streaming starts. "
+                                    "Use the streaming envelope surface instead: the :head, "
+                                    ":body-end, :script-src, and :app-element-id trusted-shell "
+                                    "hooks (honoured by default-streaming-prefix / "
+                                    "default-streaming-suffix), or build a non-streaming "
+                                    "ssr-handler when a custom one-piece shell is required.")
+                     :recovery :drop-html-shell-or-use-non-streaming-handler})))
+  opts)
+
 (defn resolve-on-error
   "Resolve the effective `:on-error` Ring-fn from `raw-opts`. Shared by
   `ssr-handler` AND `stream-handler` so the rf2-c1tac precedence lives

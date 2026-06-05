@@ -67,10 +67,14 @@
 ;; immediately and emit the suffix (close #app-div, payload script,
 ;; close </body></html>) after the continuations have drained.
 ;;
-;; The split mirrors the default shell's structure 1:1 so a caller-
-;; supplied `:html-shell` can opt out of streaming without rewriting
-;; their envelope — they simply don't pass `:stream? true` and the
-;; non-streaming path takes over.
+;; The split mirrors the default shell's structure 1:1. A one-piece
+;; `:html-shell` fn is the NON-STREAMING contract and cannot be honoured
+;; here (it can't run after streaming has started) — `stream-handler`
+;; rejects `:html-shell` at construction (rf2-oq4m5). Streaming callers
+;; customize the envelope through the four trusted shell-hook opts
+;; (`:head` / `:body-end` / `:script-src` / `:app-element-id`, honoured by
+;; the prefix/suffix below), or build a non-streaming `ssr-handler` when a
+;; bespoke one-piece shell is required.
 
 (defn default-streaming-prefix
   "The shell prefix flushed as the first chunk. Mirrors the non-streaming
@@ -365,11 +369,32 @@
   "Return a synchronous Ring handler that streams SSR responses via
   `Transfer-Encoding: chunked`. Per Spec 011 §Streaming SSR.
 
-  Opts are the same as `re-frame.ssr.ring/ssr-handler` plus implicit
-  streaming semantics on every request — non-streaming responses (no
-  `:rf/suspense-boundary` in the tree) still ride the chunked path but
-  with zero continuations, so the wire shape collapses to
-  shell-prefix + shell-html + final-payload + shell-suffix.
+  Opts mirror `re-frame.ssr.ring/ssr-handler` — same `:on-create` /
+  `:root-view` / `:payload` / `:on-error` (+ `:on-error-fallback`) /
+  `:error-view` / `:emit-hash?` / `:version` / `:schema-digest` /
+  `:content-type` plus the four trusted shell-hook opts (`:head` /
+  `:body-end` / `:script-src` / `:app-element-id`, honoured by
+  `default-streaming-prefix` / `default-streaming-suffix`) — with ONE
+  exception (rf2-oq4m5):
+
+    `:html-shell` is NOT supported by the streaming path and is REJECTED
+    at handler-construction time (`:rf.error/ssr-streaming-unsupported-opt`).
+    The non-streaming handler builds its response from a ONE-PIECE
+    `:html-shell` fn `(body-html payload-edn opts) → string`; the streaming
+    handler flushes the envelope as a SPLIT prefix/suffix straddling the
+    continuation chunks (the wire shape below), so a one-piece shell
+    callback can never run after streaming starts. Rather than silently
+    drop a passed `:html-shell` (a fail-open contract gap — a custom shell
+    commonly carries CSP nonces / asset URLs / root markup an app would
+    lose when switching ssr-handler → stream-handler), the handler fails
+    closed at boot. Customize the streaming envelope through the four
+    trusted shell-hook opts, or use a non-streaming `ssr-handler` when a
+    bespoke one-piece shell is required.
+
+  Plus implicit streaming semantics on every request — non-streaming
+  responses (no `:rf/suspense-boundary` in the tree) still ride the
+  chunked path but with zero continuations, so the wire shape collapses
+  to shell-prefix + shell-html + final-payload + shell-suffix.
 
   The returned handler:
     - sets up the per-request frame (request slot, frame registration,
@@ -440,6 +465,15 @@
   ;; prefix/suffix. See `validate-construction-opts!` for the per-check
   ;; rationale.
   (lifecycle/validate-construction-opts! raw-opts)
+  ;; rf2-oq4m5 — reject opts the streaming path cannot honour (currently
+  ;; `:html-shell`) at construction time. `ssr-handler` builds its response
+  ;; from a one-piece `:html-shell` fn; the streaming path flushes a SPLIT
+  ;; prefix/suffix straddling the continuation chunks, so a one-piece shell
+  ;; callback can never run after streaming starts and would otherwise be
+  ;; silently dropped — a fail-OPEN API-contract gap (a production app
+  ;; switching ssr-handler → stream-handler would lose CSP nonces / asset
+  ;; URLs / root markup with no signal). Fail CLOSED at boot instead.
+  (lifecycle/validate-streaming-opts! raw-opts)
   ;; Mirror ssr-handler's defaults so streaming and non-streaming
   ;; handlers feel symmetric to callers. `:on-error` resolves the same
   ;; way via the shared `lifecycle/resolve-on-error` (rf2-c1tac): caller's
