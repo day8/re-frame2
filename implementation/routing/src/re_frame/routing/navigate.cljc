@@ -12,6 +12,8 @@
   `:reload` re-wires it on a fresh registrar. Per the rf2-2yabr cohesion
   split: NAVIGATE-EVENT seam."
   (:require [clojure.string :as str]
+            [re-frame.late-bind :as late-bind]
+            [re-frame.privacy :as privacy]
             [re-frame.registrar :as registrar]
             [re-frame.routing.can-leave :as can-leave]
             [re-frame.routing.events :as routing-events]
@@ -54,6 +56,58 @@
       (seq (filter (fn [k] (and (contains? opts-only-keys k)
                                 (not (contains? declared k))))
                    (keys params))))))
+
+(defn- route-schema-sensitive?
+  "True iff the route's `:params` OR `:query` Malli schema declares ANY
+  `:sensitive?` slot (rf2-zsm03). The sensitivity decision is made by the
+  SAME shared schema-aware seam the rf2-o69h5 class sweep routes every
+  off-schemas validation-failure emit site through
+  (`:schemas/redact-validation-tags`): routing the route's schema + an
+  empty tag map through it stamps `:sensitive? true` exactly when the
+  schema is sensitive (the seam's `redact-tags` always stamps when it
+  fires). Reaching it through the late-bind hook keeps routing's optional-
+  schemas posture — when the schemas artefact is absent the hook is unbound
+  and this returns false (no schema to walk → nothing to redact), the same
+  fall-through every other off-namespace seam consumer uses."
+  [route-meta]
+  (boolean
+    (when-let [redact (late-bind/get-fn-cached :schemas/redact-validation-tags)]
+      (some (fn [slot]
+              (when-let [schema (get route-meta slot)]
+                (true? (:sensitive? (redact schema {})))))
+            [:params :query]))))
+
+(defn- redact-route-error-tags
+  "Elide the `:error` slot of a `:rf.route/navigate` schema-validation-failure
+  trace when the route's `:params` / `:query` schema declares any
+  `:sensitive?` slot (rf2-zsm03; AI/MCP egress + logs threat model).
+
+  The `:error` slot carries `(ex-data ex)` of a `route-url` construction
+  throw. For the `:rf.error/route-url-validation` case that ex-data embeds
+  `:value` (the raw path-params / query-params the caller supplied) AND
+  `:error` (the Malli explainer, which itself reproduces the failing value
+  verbatim); for `:rf.error/missing-route-param` it carries `:value` (the
+  offending param value). Route params can be document-ids / tokens, so on a
+  `:sensitive?`-marked route this slot leaks the same secret material the
+  route's `:params` / `:query` schema gates — the SAME class the rf2-o69h5
+  sweep closed for the schema-validation hot path, except route-param
+  validation is STRUCTURAL (the throw is from `route-url`, not from a
+  per-slot Malli walk at this emit point), so the shared
+  `redact-validation-tags` seam cannot path-target it. We elide the WHOLE
+  `:error` slot to `:rf/redacted` and stamp `:sensitive? true`.
+
+  The structural slots stay intact — `:where` / `:route-id` / `:recovery`
+  carry no user value, and the SSR error-projector keys only off the
+  `:operation` category (it never echoes `:error` into the public 400), so
+  eliding `:error` is invisible to the public-error projection and scoped to
+  the diagnostic (Xray / dev-detail / log) egress the threat model targets.
+  A route with no `:sensitive?` slot rides `:error` verbatim — the seam is
+  precise, not a blanket scrub."
+  [tags route-meta]
+  (if (and (contains? tags :error)
+           (route-schema-sensitive? route-meta))
+    (assoc tags :error privacy/redacted-sentinel :sensitive? true)
+    tags))
 
 (defn navigate-handler
   "`:rf.route/navigate` event-fx handler. Registered by the façade so a
@@ -248,13 +302,26 @@
                        ;; can map it to a 4xx for the correct frame under
                        ;; concurrent server frames — not the single-frame
                        ;; fallback's guess.
+                       ;; rf2-zsm03 — the `:error` slot carries the
+                       ;; `route-url` throw's ex-data, which on a
+                       ;; `:rf.error/route-url-validation` /
+                       ;; `:rf.error/missing-route-param` throw embeds the
+                       ;; raw route-param value (document-ids / tokens). Elide
+                       ;; it when the route's `:params` / `:query` schema is
+                       ;; `:sensitive?`, BEFORE the trace crosses the bus /
+                       ;; epoch-capture / AI-MCP egress boundary or a log
+                       ;; sink — the route-param analogue of the rf2-o69h5
+                       ;; class sweep (structural param validation has no
+                       ;; per-slot Malli walk here, so the slot is elided
+                       ;; whole rather than path-targeted).
                        (trace/emit-error! :rf.error/schema-validation-failure
-                                          (cond-> {:where    :event
-                                                   :route-id route-id
-                                                   :error    (or (ex-data ex)
-                                                                 {:message (ex-message ex)})
-                                                   :recovery :no-recovery}
-                                            frame (assoc :frame frame)))
+                                          (-> (cond-> {:where    :event
+                                                       :route-id route-id
+                                                       :error    (or (ex-data ex)
+                                                                     {:message (ex-message ex)})
+                                                       :recovery :no-recovery}
+                                                frame (assoc :frame frame))
+                                              (redact-route-error-tags route-meta)))
                        ::reject)))
           on-match-vec (vec (or (:on-match route-meta) []))
           ;; Spec 012 §Per-route data loading rule 3: a programmatic
