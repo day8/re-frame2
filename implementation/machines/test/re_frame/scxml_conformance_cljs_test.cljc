@@ -1022,30 +1022,45 @@
           "no effects emitted for an unhandled event"))))
 
 ;; ===========================================================================
-;; §10. Self-transitions (internal default vs external opt-in — rf2-eicq0)
+;; §10. Self-transitions (internal default vs external opt-in — rf2-eicq0,
+;;      refined for descendant re-resolution by rf2-gt1pu)
 ;;
-;; XState v5 is the gold standard: a TARGETED self/ancestor transition is
-;; INTERNAL BY DEFAULT (fires the action, NOT onexit/onentry); the EXTERNAL
-;; self-transition (exit + re-enter; re-descend a compound's :initial chain)
-;; is the OPT-IN `:reenter? true`. This INVERTS SCXML §3.13
-;; `<transition type="internal|external">`, where external is the default and
-;; `type="internal"` opts out — XState v5 deliberately flipped the default
-;; (the v4 `internal` flag was replaced by the inverted `reenter`). A
-;; targetless transition is internal in both models.
+;; XState v5 is the gold standard. THREE cases the engine must distinguish
+;; (rf2-gt1pu — earlier rf2-eicq0 collapsed the middle case into the first):
+;;
+;;   (1) TARGETLESS — the action fires; NO onexit/onentry; the active
+;;       configuration (including active descendants) is PRESERVED unchanged.
+;;       "To preserve child states, omit `target` entirely." (XState v5 docs.)
+;;   (2) EXPLICIT self/ancestor/current-compound target, NO `:reenter?` — the
+;;       TARGET state's own onexit/onentry do NOT fire, but XState v5
+;;       "re-resolves child states to their initial state": the target's
+;;       ACTIVE DESCENDANTS are exited and the target's :initial chain
+;;       re-descends. Config CHANGES (children reset). NOT a no-op.
+;;   (3) EXPLICIT target WITH `:reenter? true` — the target state itself is
+;;       exited + re-entered (onexit → action → onentry; restart :after,
+;;       re-spawn), then re-descends. Full restart.
+;;
+;; This INVERTS SCXML §3.13 `<transition type="internal|external">`, where
+;; external is the default and `type="internal"` opts out — XState v5
+;; deliberately flipped the default (the v4 `internal` flag was replaced by
+;; the inverted `reenter`). A targetless transition is internal in both
+;; models.
 ;;
 ;; HISTORY: rf2-46ban first gave the engine EXTERNAL self-transition
 ;; semantics (`:target :same-state` → exit/entry); that was the v4/SCXML
 ;; external-DEFAULT shape. rf2-eicq0 flipped the DEFAULT to v5 internal and
-;; introduced `:reenter? true` as the external handle.
+;; introduced `:reenter? true` as the external handle. rf2-gt1pu then split
+;; the no-`:reenter?` case into (1) and (2): an EXPLICIT active-path target is
+;; not a configuration no-op — it re-resolves descendants.
 ;;
 ;; The engine: `re-frame.machines.transition/target-path` resolves the
 ;; `:same-state` sentinel (and a `:target` naming the declaring state's own
-;; keyword) to the declaring state's own path; `compute-cascade-paths`
-;; pulls the LCA up to that state's parent (so the state lands in BOTH the
-;; exit and entry cascades — exit → action → entry) ONLY when the transition
-;; carries `:reenter? true`. Without `:reenter?`, an active-path target folds
-;; into the effective `internal?` flag: action only, no exit/entry, config
-;; unchanged.
+;; keyword) to the declaring state's own path; `compute-cascade-paths` keeps
+;; the LCCA at the TARGET's depth (case 2 — only descendants below the target
+;; cross the cascade boundary) and pulls it UP to the target's parent (case 3)
+;; ONLY when the transition carries `:reenter? true`. The effective
+;; `internal?` (true config no-op) flag is now reserved for TARGETLESS
+;; transitions alone.
 ;; ===========================================================================
 
 (deftest scxml-internal-self-transition-fires-action-only
@@ -1134,8 +1149,11 @@
 ;; external SELF-transition (§10) — a self-target is the degenerate case
 ;; where A is the source leaf itself.
 ;;
-;; Under the rf2-eicq0 v5 flip this restart is OPT-IN: an ancestor target
-;; WITHOUT `:reenter?` is INTERNAL (action only, config preserved). XState v5
+;; Under the rf2-eicq0 v5 flip RE-ENTERING THE ANCESTOR ITSELF is OPT-IN: an
+;; ancestor target WITHOUT `:reenter?` does NOT exit/re-enter the ancestor.
+;; BUT (rf2-gt1pu) it is NOT a no-op: the ancestor's ACTIVE DESCENDANTS are
+;; re-resolved (children reset to the ancestor's :initial). See
+;; `scxml-default-ancestor-target-re-resolves-descendants` below. XState v5
 ;; flipped the SCXML default; re-frame2 follows it.
 ;;
 ;; BEFORE rf2-emz8l the engine bounded the exit set by the longest common
@@ -1201,30 +1219,37 @@
       (is (= [:exit-2 :exit-A :entry-A :entry-1] @log)
           "exit :two then A → re-enter A → re-descend A's :initial (:one)"))))
 
-(deftest scxml-default-ancestor-target-is-internal
-  (testing "rf2-eicq0: a DEFAULT ancestor target (NO :reenter?) is INTERNAL —
-            the action fires, no exit/entry, the active descendant config is
-            PRESERVED (no restart, no :initial re-descent). Spec 005
-            §Self-transitions."
+(deftest scxml-default-ancestor-target-re-resolves-descendants
+  (testing "rf2-gt1pu (corrects an earlier rf2-eicq0 over-collapse): a DEFAULT
+            ancestor target (NO :reenter?) does NOT re-enter the ancestor
+            itself, but RE-RESOLVES the ancestor's active descendants —
+            children reset to :initial. XState v5: 'a transition with an
+            explicit target re-resolves child states to their initial state'
+            (stately.ai/docs/transitions). So an ancestor target :a (no
+            :reenter?) exits the active descendant :two and re-descends :a's
+            :initial (:one); :a itself (and :p above it) is NOT exited/entered.
+            Verified against xstate@5.32.0. Spec 005 §Self-transitions §The
+            three explicit-target geometries."
     (let [[log mk] (order-recorder)
           m {:initial :p :data {}
              :states
-             {:p {:initial :a
+             {:p {:entry (mk :entry-P) :exit (mk :exit-P)  ;; above the target — never fires
+                  :initial :a
                   :states
-                  {:a {:entry (mk :entry-A) :exit (mk :exit-A)
+                  {:a {:entry (mk :entry-A) :exit (mk :exit-A)  ;; the target — NOT re-entered
                        :initial :one
                        :states
                        {:one {:entry (mk :entry-1) :exit (mk :exit-1)}
                         :two {:entry (mk :entry-2) :exit (mk :exit-2)
-                              ;; ancestor target, NO :reenter? — internal
+                              ;; ancestor target, NO :reenter? — re-resolves :a's descendants
                               :on {:touch {:target [:p :a] :action (mk :ACTION)}}}}}}}}}
-          ;; Seed at the NON-initial child :two; an internal target must NOT
-          ;; restart A back to :one.
+          ;; Seed at the NON-initial child :two; re-resolving :a's descendants
+          ;; resets the active child back to :a's :initial (:one).
           r (step m {:state [:p :a :two] :data {}} [:touch])]
-      (is (= [:p :a :two] (:state r))
-          "default ancestor target PRESERVES the active config — NO restart, NO :initial re-descent")
-      (is (= [:ACTION] @log)
-          "ONLY the action fired — ancestor target without :reenter? is internal (v5 default flip)"))))
+      (is (= [:p :a :one] (:state r))
+          "ancestor target re-resolves :a's descendants — active child resets to :a's :initial (:one)")
+      (is (= [:exit-2 :ACTION :entry-1] @log)
+          "exit the active descendant :two → action at the LCCA (:a) → re-enter :a's :initial (:one); :a and :p NOT exited/entered (no :reenter?)"))))
 
 (deftest scxml-external-transition-to-ancestor-via-same-state-on-ancestor
   (testing "Spec 005 §Self-transitions: `:target :same-state` + `:reenter? true`
@@ -1288,6 +1313,197 @@
       (is (= [:p :b :y] (:state r)) "cross-level lands at the sibling subtree leaf")
       (is (= [:exit-X :exit-A :entry-B :entry-Y] @log)
           "exit X,A → enter B,Y; the LCCA :p untouched (sibling-subtree case unchanged by the fix)"))))
+
+;; ===========================================================================
+;; §10c. Explicit targets on the active path RE-RESOLVE DESCENDANTS
+;;       (rf2-gt1pu — the middle case; rf2-127ff — parent-declared reenter
+;;       to a specific descendant). XState v5 gold standard.
+;;
+;; The defining XState v5 rule (stately.ai/docs/transitions):
+;;   "A common mistake is using target: 'process' on a parent state
+;;    transition when you only want to execute actions. This will re-resolve
+;;    child states to their initial state. To preserve child states, omit
+;;    target entirely."
+;; and "[reenter:true] will cause the state to re-enter when transitioning to
+;; itself or descendent states."
+;;
+;; Each case below is grounded in a xstate@5.32.0 runtime check recorded in
+;; rf2-gt1pu / rf2-127ff:
+;;   • process.step3 + parent-declared target "process" (no reenter)
+;;        -> step3 exit, step1 entry; NO process exit/entry.
+;;   • parent.child.a + parent-declared target [:parent :child] (no reenter)
+;;        -> exits a + child, re-enters child/a; parent NOT exited.
+;;   • parent-declared target descendant WITH :reenter? true
+;;        -> the declaring compound exits + re-enters, then lands on the
+;;           NAMED descendant (NOT the compound's :initial).
+;;   • child-declared SIBLING :reenter? true (the anti-case)
+;;        -> the parent is NOT re-entered (disjoint geometry; :reenter? no-op).
+;; ===========================================================================
+
+(deftest scxml-explicit-current-compound-target-re-resolves-to-initial
+  (testing "rf2-gt1pu (xstate@5.32.0): at [:process :step3], a transition
+            DECLARED ON the compound :process targeting :process itself (no
+            :reenter?) does NOT exit/re-enter :process, but RE-RESOLVES its
+            descendants — exits the active child :step3 and re-descends
+            :process's :initial (:step1). The middle case rf2-eicq0 collapsed
+            into a targetless no-op. XState v5: an explicit target re-resolves
+            child states to their initial. Spec 005 §Self-transitions."
+    (let [[log mk] (order-recorder)
+          m {:initial :process :data {}
+             :states
+             {:process
+              {:entry (mk :entry-process) :exit (mk :exit-process)  ;; NOT re-entered
+               :initial :step1
+               ;; declared ON :process, target names :process itself (own kw)
+               :on {:resolve {:target :process :action (mk :ACTION)}}
+               :states
+               {:step1 {:entry (mk :entry-1) :exit (mk :exit-1)}
+                :step2 {:entry (mk :entry-2) :exit (mk :exit-2)}
+                :step3 {:entry (mk :entry-3) :exit (mk :exit-3)}}}}}
+          ;; :step3 declines :resolve; the compound :process handles it.
+          r (step m {:state [:process :step3] :data {}} [:resolve])]
+      (is (= [:process :step1] (:state r))
+          "current-compound target re-resolves descendants — back to :process's :initial (:step1)")
+      (is (= [:exit-3 :ACTION :entry-1] @log)
+          "exit the active child :step3 → action at the LCCA (:process) → enter :initial (:step1); :process NOT exited/entered"))))
+
+(deftest scxml-explicit-compound-target-re-resolves-child-even-when-on-initial
+  (testing "rf2-gt1pu: re-resolving descendants is keyed to the TARGET's depth,
+            not to whether the active child differs from :initial. Targeting
+            the compound :process exits the active CHILD and re-enters the
+            re-resolved :initial — EVEN when the active child IS already the
+            :initial (:step1). The :state is unchanged but :step1's onexit /
+            onentry DO fire (the descendant is re-resolved); :process itself is
+            NOT re-entered (no :reenter?). This matches XState v5 'an explicit
+            target re-resolves child states to their initial' — the child below
+            the target always crosses the cascade boundary. Spec 005."
+    (let [[log mk] (order-recorder)
+          m {:initial :process :data {}
+             :states
+             {:process
+              {:entry (mk :entry-process) :exit (mk :exit-process)  ;; NOT re-entered
+               :initial :step1
+               :on {:resolve {:target :process :action (mk :ACTION)}}
+               :states
+               {:step1 {:entry (mk :entry-1) :exit (mk :exit-1)}
+                :step2 {:entry (mk :entry-2) :exit (mk :exit-2)}}}}}
+          ;; already at :step1 (= :process's :initial)
+          r (step m {:state [:process :step1] :data {}} [:resolve])]
+      (is (= [:process :step1] (:state r))
+          "re-resolution lands back on :step1 (= :process's :initial)")
+      (is (= [:exit-1 :ACTION :entry-1] @log)
+          "the active child :step1 is exited + re-entered (descendant re-resolved); :process NOT exited/entered (no :reenter?)"))))
+
+(deftest scxml-parent-declared-descendant-target-re-enters-child-not-parent
+  (testing "rf2-gt1pu (xstate@5.32.0): at [:parent :child :a], a transition
+            DECLARED ON :parent targeting the DESCENDANT [:parent :child] (no
+            :reenter?) re-enters the TARGETED CHILD :child (XState v5: 'child
+            state nodes are always re-entered when targeted by transitions
+            defined on compound state nodes') and re-descends :child's :initial
+            (:a) — but does NOT exit/re-enter :parent. Spec 005 §Self-transitions
+            §The three explicit-target geometries."
+    (let [[log mk] (order-recorder)
+          m {:initial :parent :data {}
+             :states
+             {:parent
+              {:entry (mk :entry-parent) :exit (mk :exit-parent)  ;; NOT exited
+               :initial :child
+               ;; declared ON :parent; target is a DESCENDANT vector
+               :on {:reset-child {:target [:parent :child] :action (mk :ACTION)}}
+               :states
+               {:child {:entry (mk :entry-child) :exit (mk :exit-child)  ;; re-entered (targeted child)
+                        :initial :a
+                        :states {:a {:entry (mk :entry-a) :exit (mk :exit-a)}
+                                 :b {:entry (mk :entry-b) :exit (mk :exit-b)}}}}}}}
+          ;; seed at the NON-initial grandchild :b to prove the re-descent to :a
+          r (step m {:state [:parent :child :b] :data {}} [:reset-child])]
+      (is (= [:parent :child :a] (:state r))
+          "the targeted child :child re-enters and re-descends its :initial (:a); :parent unchanged")
+      (is (= [:exit-b :exit-child :ACTION :entry-child :entry-a] @log)
+          "exit deepest-first (:b, :child) → action at the LCCA (:parent) → re-enter :child → re-descend :child's :initial (:a); :parent NOT exited/entered"))))
+
+(deftest scxml-parent-declared-descendant-target-WITH-reenter-restarts-declaring-compound
+  (testing "rf2-127ff (RULED A — xstate@5.32.0): :reenter? true on a transition
+            DECLARED ON a compound S whose target is a DESCENDANT of S exits +
+            re-enters S itself (run S's :exit then :entry — restart S's :after,
+            re-spawn), THEN descends to the NAMED descendant target (NOT S's
+            :initial). The SCXML mechanics: source = the declaring compound S,
+            so findLCCA([S]+[descendant]) rises to S's PARENT, putting S into
+            the exit set. Spec 005 §Self-transitions §The three explicit-target
+            geometries."
+    (let [[log mk] (order-recorder)
+          m {:initial :editor :data {}
+             :states
+             {:editor
+              {:entry (mk :entry-editor) :exit (mk :exit-editor)  ;; S — exits + re-enters
+               :initial :draft
+               ;; declared ON :editor; target a NAMED descendant + :reenter?
+               :on {:restart-into-preview {:target [:editor :preview]
+                                           :reenter? true :action (mk :ACTION)}}
+               :states
+               {:draft   {:entry (mk :entry-draft)   :exit (mk :exit-draft)}
+                :preview {:entry (mk :entry-preview) :exit (mk :exit-preview)}}}}}
+          ;; active at :draft; forced re-entry of :editor must land on the
+          ;; NAMED :preview, NOT :editor's :initial (:draft).
+          r (step m {:state [:editor :draft] :data {}} [:restart-into-preview])]
+      (is (= [:editor :preview] (:state r))
+          "forced re-entry of :editor lands on the NAMED descendant :preview (NOT :editor's :initial :draft)")
+      (is (= [:exit-draft :exit-editor :ACTION :entry-editor :entry-preview] @log)
+          "exit deepest-first (:draft, :editor) → action at the LCCA (:editor's parent = root) → re-enter :editor → descend to the NAMED :preview"))))
+
+(deftest scxml-child-declared-sibling-reenter-does-NOT-re-enter-parent
+  (testing "rf2-127ff anti-case (xstate@5.32.0): :reenter? true on a transition
+            DECLARED ON the CHILD :draft targeting a SIBLING [:editor :preview]
+            does NOT re-enter the parent :editor — the source is a DESCENDANT,
+            so findLCCA(:draft, :preview) = :editor and the domain (:editor) is
+            NOT exited. :reenter? is a no-op for a disjoint-subtree target. This
+            is why the parent-DECLARED shape (the test above) is the ONLY way to
+            force the compound's re-entry. Spec 005 §Self-transitions."
+    (let [[log mk] (order-recorder)
+          m {:initial :editor :data {}
+             :states
+             {:editor
+              {:entry (mk :entry-editor) :exit (mk :exit-editor)  ;; must NOT fire
+               :initial :draft
+               :states
+               {:draft   {:entry (mk :entry-draft) :exit (mk :exit-draft)
+                          ;; declared ON the CHILD :draft; sibling target + reenter
+                          :on {:to-preview {:target [:editor :preview]
+                                            :reenter? true :action (mk :ACTION)}}}
+                :preview {:entry (mk :entry-preview) :exit (mk :exit-preview)}}}}}
+          r (step m {:state [:editor :draft] :data {}} [:to-preview])]
+      (is (= [:editor :preview] (:state r))
+          "child-declared sibling transition lands at the sibling :preview")
+      (is (= [:exit-draft :ACTION :entry-preview] @log)
+          ":draft exits, :preview enters; :editor (the common ancestor) NOT re-entered despite :reenter? (no-op for a disjoint target)"))))
+
+(deftest scxml-targetless-on-compound-preserves-active-descendants
+  (testing "rf2-gt1pu regression guard: a TARGETLESS transition declared on a
+            compound preserves the active descendants UNCHANGED — the
+            distinguishing counterpart to the re-resolving explicit-target
+            cases above. 'To preserve child states, omit target entirely.'
+            (XState v5.) Spec 005 §Self-transitions."
+    (let [[log mk] (order-recorder)
+          m {:initial :process :data {:n 0}
+             :states
+             {:process
+              {:entry (mk :entry-process) :exit (mk :exit-process)
+               :initial :step1
+               ;; NO :target — pure internal, descendants preserved
+               :on {:tick {:action :bump}}
+               :states
+               {:step1 {:entry (mk :entry-1) :exit (mk :exit-1)}
+                :step3 {:entry (mk :entry-3) :exit (mk :exit-3)}}}}
+             :actions {:bump (fn [{d :data}] (swap! log conj :action)
+                               {:data (update d :n inc)})}}
+          ;; active at the NON-initial child :step3; a targetless transition
+          ;; must NOT re-resolve it back to :step1.
+          r (step m {:state [:process :step3] :data {:n 0}} [:tick])]
+      (is (= [:process :step3] (:state r))
+          "targetless transition PRESERVES the active descendant :step3 (no re-resolution)")
+      (is (= 1 (get-in r [:data :n])) "the action ran")
+      (is (= [:action] @log)
+          "ONLY the action fired — no exit/entry, descendants preserved (true internal no-op)"))))
 
 ;; ===========================================================================
 ;; §11. :after — delayed transitions (SEMANTIC CORE: fire + stale)
