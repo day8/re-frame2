@@ -89,6 +89,19 @@ Add to your `~/.claude/settings.json` (or per-project `.claude/settings.json`):
 }
 ```
 
+> **After `claude mcp add`, start a FRESH session — not `--continue`
+> (rf2-646lr).** Registering the server with `claude mcp add` (or editing
+> `settings.json`) does not retroactively load the MCP into a session
+> that was already running. Field report: a session resumed with
+> `claude --continue` did **not** surface the re-frame2-pair tools even
+> though `claude mcp list` showed the server `Connected`; the tools only
+> appeared after a full exit and `claude --resume` (or a plain new
+> `claude`). MCP servers are wired up at session **start**, so launch a
+> new session after registering the server (or after pulling MCP source
+> changes and rebuilding `out/server.js` — see the
+> [stale-binary hook](#stale-binary-post-merge-hook-rf2-6jj3r)). This is
+> agent-host behaviour, not a server flag.
+
 The server auto-discovers the nREPL port from (highest precedence first):
 
 1. `--port-file <path>` launch flag — an explicit, **cwd-independent**
@@ -460,6 +473,30 @@ the failure path and reports one of four specific reasons:
 
 The ladder costs one extra `jvm-eval` (active-builds enumeration) on
 the failure path; the probe cache means the success path stays free.
+
+### Persistent `:liveness :unknown` — the zombie-shadow case (rf2-646lr)
+
+`discover-app`'s freshness token reports `:liveness :unknown` when it
+can't read the JVM-side build-worker state (so stale-build detection is
+blind), while reads themselves may still work. The dominant cause is
+**multiple / zombie shadow-cljs JVMs**: `Ctrl-C` of a `shadow-cljs
+watch` does not always free shadow's ports, so an orphan JVM lingers
+holding 9630–963x. The MCP server's nREPL socket then reaches a runtime
+whose build worker lives in a *different* JVM, and the worker lookup
+misses — for the whole session — even though evals and reads succeed.
+
+When `:liveness` stays `:unknown`, the token's `:hint` now names this
+case and the remediation directly:
+
+```bash
+npx shadow-cljs stop      # kills ALL shadow JVMs and frees the orphan ports
+npx shadow-cljs watch app # start exactly ONE watch
+# then reload the app tab and re-run discover-app to confirm :liveness :fresh
+```
+
+`npx shadow-cljs stop` is the operative move: it frees the ports that a
+bare `Ctrl-C` leaves held. Starting a *single* watch afterwards ensures
+the nREPL socket and the build worker live in the same JVM.
 
 ## Spec
 

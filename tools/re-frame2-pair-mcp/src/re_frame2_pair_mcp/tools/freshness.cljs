@@ -61,8 +61,15 @@
                      rf2-lo28u killer.)
     :no-runtime      no REPL runtime connected for the build (WS dropped
                      / no tab open).
-    :unknown         the JVM half couldn't be read (old shadow, socket
-                     hiccup) — degrade to browser-half-only, never crash.
+    :unknown         the JVM half couldn't be read after a retry — degrade
+                     to browser-half-only, never crash. The dominant cause
+                     is MULTIPLE / ZOMBIE shadow-cljs JVMs (a stale watch
+                     Ctrl-C'd without freeing its ports; the socket reaches
+                     a runtime whose build worker is in a DIFFERENT JVM, so
+                     the worker lookup misses). The hint names the
+                     `npx shadow-cljs stop` → single-watch remediation
+                     (rf2-646lr). Rarer: an old shadow without get-worker,
+                     or a transient socket hiccup.
 
   Everything here is best-effort: a JVM probe failure degrades to the
   browser half plus `:liveness :unknown`. The token is a DIAGNOSTIC
@@ -214,7 +221,8 @@
                    browser is serving old code (RELOAD).
     :fresh         runtime connected, heartbeat recent, build not
                    recompiled since load.
-    :unknown       the JVM half is absent (couldn't read shadow state).
+    :unknown       the JVM half is absent (couldn't read shadow state —
+                   most often a multiple/zombie-shadow JVM split, rf2-646lr).
 
   Order matters: `:no-runtime` wins over `:stale-build` (you can't be
   serving stale code if nothing's connected), and both win over
@@ -280,14 +288,20 @@
 
       :unknown
       (str "LIVENESS UNKNOWN: could not read the shadow-cljs build worker "
-           "state after a retry (old shadow without get-worker, or the "
-           "watch worker is down). The browser-side instance id + load "
-           "time are still reported, but stale-build detection is "
-           "unavailable this call. ACTION (the agent cannot do this): if "
-           "reads come back blank, reload " target " then re-run "
-           "discover-app; if it stays unknown, restart `shadow-cljs watch "
-           (if (some? build-id) (pr-str build-id) "<build>") "` — the "
-           "JVM-side build worker is not answering.")
+           "state after a retry. The browser-side instance id + load time "
+           "are still reported and reads may still work, but stale-build "
+           "detection is unavailable this call. Most common cause: MULTIPLE / "
+           "ZOMBIE shadow-cljs JVMs — a stale watch (Ctrl-C does not always "
+           "free shadow's ports) left an orphan JVM, and the nREPL socket "
+           "reached a runtime whose build worker lives in a DIFFERENT JVM, so "
+           "the worker lookup misses. (Less common: an old shadow without "
+           "get-worker, or the watch worker is down.) ACTION (the agent "
+           "cannot do this): run `npx shadow-cljs stop` to kill ALL shadow "
+           "JVMs, then start exactly ONE `shadow-cljs watch "
+           (if (some? build-id) (pr-str build-id) "<build>") "`, reload "
+           target ", and re-run discover-app to confirm :liveness :fresh. If "
+           "it still stays unknown after a single clean watch, the JVM-side "
+           "build worker genuinely is not answering (old shadow).")
 
       nil)))
 
