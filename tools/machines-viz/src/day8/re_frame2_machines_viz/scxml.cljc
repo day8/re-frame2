@@ -44,8 +44,30 @@
   | `:after {ms :target}`                 | `<transition event=\"after.ms\" target=\"target\"/>` |
   | `:always [...]`                       | `<transition target=\"...\"/>` (eventless) |
   | `{:type :parallel :regions ...}`      | `<parallel>` containing region `<state>`s |
-  | Namespaced ids (`:auth/login`)        | `auth.login` (`.` separates ns/name; SCXML id allows `.`) |
-  | Vector-path targets (`[:parent :child]`) | `parent:child` (`:` joins path segments — rf2-csq75) |
+  | Namespaced ids (`:auth/login`)        | `auth__login` (hex-escaped; `__` separates ns/name) |
+  | Multi-dot-ns ids (`:my.app/login`)    | `my_2eapp__login` (dots in the ns are escaped to `_2e`) |
+  | Vector-path targets (`[:parent :child]`) | `parent___child` (`___` joins path segments) |
+  | Nested-state ids                      | FULLY QUALIFIED (root→leaf, `___`-joined) — unique xsd:ID |
+
+  ## Id codec — injective, xsd:ID-conformant (rf2-mnp93.1/.7)
+
+  SCXML state ids are `xsd:ID` (XML NCName): letters / digits / `-` `.`
+  `_`, NO `:`. The codec hex-escapes every keyword ns/name char to
+  `_<2-hex>` (`.` → `_2e`, `?` → `_3f`, `_` → `_5f`) and uses two
+  reserved markers the escaper can provably never emit — `__` between a
+  keyword's namespace and name, `___` between vector-path segments — so:
+
+  - ANY keyword round-trips EXACTLY, regardless of how many dots its
+    namespace or name has (`:my.app.auth/login` ≠ `:my/app.auth.login`
+    now produce DISTINCT ids — the pre-mnp93.1 `.`-as-ns/name scheme
+    collided them; csq75's `:`-as-path was not a valid xsd:ID char).
+  - State ids are FULLY QUALIFIED with their nesting path, so two
+    same-named nested states emit UNIQUE xsd:IDs and transition targets
+    reference those same unique ids (rf2-mnp93.7 — conformant for
+    external SCXML tooling).
+  - User events named `after.*` / `done.state.*` no longer collide with
+    the synthetic timer / `:on-done` encodings: those carry a LITERAL
+    `.` the codec never emits for a real keyword (rf2-mnp93.3).
 
   ## Not supported (lossy or omitted)
 
@@ -75,52 +97,104 @@
             [day8.re-frame2-machines-viz.chart.layout :as layout]))
 
 ;; ---------------------------------------------------------------------------
-;; Id mapping
+;; Id codec — FULLY INJECTIVE, xsd:ID-conformant (rf2-mnp93.1)
 ;;
-;; Re-frame2 ids are typically keywords (`:idle`, `:auth/login-flow`)
-;; or vector paths (`[:authenticated :browsing]`). SCXML state ids
-;; are strings; the W3C grammar (XML xsd:ID) accepts `.` `_` `-` `:`
-;; and alphanumerics. Two SEPARATE separators keep the codec injective:
+;; Re-frame2 ids are keywords (`:idle`, `:auth/login-flow`,
+;; `:my.app.auth/login`) or vector paths (`[:authenticated :browsing]`).
+;; SCXML state ids are `xsd:ID` (XML NCName): the leading char must be a
+;; letter / `_`, subsequent chars letters / digits / `-` `.` `_`. A `:`
+;; is NOT a valid NCName char — so the pre-mnp93.1 `:`-as-path-separator
+;; scheme (rf2-csq75) emitted non-conformant ids that strict external
+;; SCXML consumers reject (rf2-mnp93.7), and the `.`-as-ns/name scheme
+;; was NON-INJECTIVE: a keyword namespace may itself contain dots
+;; (`:my.app.auth/login` → `"my.app.auth.login"`), so the decoder could
+;; not recover where the namespace ended (rf2-mnp93.1).
 ;;
-;; - `.` (DOT) joins a namespaced keyword's namespace and name:
-;;   `:auth/login` → `"auth.login"`. A single keyword emits AT MOST one
-;;   logical separation (ns vs name).
-;; - `:` (COLON) joins the segments of a VECTOR PATH:
-;;   `[:authenticated :browsing]` → `"authenticated:browsing"`,
-;;   `[:auth/login :browsing]` → `"auth.login:browsing"`.
+;; FIX — hex-escape codec (the same injective scheme `chart/layout`'s
+;; `node-id` uses for xyflow ids). EVERY non-alphanumeric char in a
+;; segment is escaped to `_<2-hex>` (so a literal `_` → `_5f`, `.` →
+;; `_2e`, `?` → `_3f`). After escaping, an `_` appears ONLY as the lead
+;; of a `_XX` hex triple — never two underscores in a row — so we can use
+;; consecutive-underscore RESERVED MARKERS the escaper can provably never
+;; emit:
 ;;
-;; Because `keyword->id-string` never emits a `:` (it only emits the
-;; keyword's own chars plus a `.` between ns and name), the presence of
-;; a `:` in an id string is an UNAMBIGUOUS marker that the id is a
-;; vector path. This is what makes the round-trip topology-aware rather
-;; than dot-count-aware: a single namespaced keyword (`"auth.login"`,
-;; one dot, no colon) can never collide with a two-segment vector path
-;; (`"auth:login"`, one colon). rf2-csq75 — pre-fix the encoder
-;; dot-joined vector paths, so `[:authenticated :browsing]` and
-;; `:authenticated/browsing` both produced `"authenticated.browsing"`
-;; and the decoder (dot-count) collapsed the vector into a namespaced
-;; keyword, silently changing machine semantics.
+;; - `__`  (DOUBLE underscore) joins a keyword's NAMESPACE and NAME:
+;;   `:auth/login`         → `"auth__login"`
+;;   `:my.app.auth/login`  → `"my_2eapp_2eauth__login"`
+;;   (the dots in the ns are escaped to `_2e`; the SINGLE `__` is the
+;;   unambiguous ns/name boundary regardless of how many dots the ns has)
+;; - `___` (TRIPLE underscore) joins the SEGMENTS of a vector path:
+;;   `[:authenticated :browsing]` → `"authenticated___browsing"`
+;;   `[:auth/region :browsing]`   → `"auth__region___browsing"`
+;;
+;; Decode is unambiguous: split on `___` (longest marker first) to
+;; recover vector-path segments, then split each segment on `__` to
+;; recover ns vs name, then `_XX`-unescape each part. Because the escaper
+;; never emits `__` or `___`, neither boundary can collide with segment
+;; content for ANY keyword (multi-dot ns, dotted name, `/` in ns/name) —
+;; the codec is fully injective and every emitted id is a valid xsd:ID.
+
+(def ^:private ns-name-sep
+  "rf2-mnp93.1 — the keyword NAMESPACE↔NAME boundary in an SCXML id. `__`
+  (double underscore) is impossible for `escape-id-segment` to emit (it
+  only ever emits `_` + 2 hex digits), so it is the injective ns/name
+  marker. Supersedes csq75's `.`-as-ns/name (non-injective for multi-dot
+  namespaces)."
+  "__")
 
 (def ^:private path-segment-sep
-  "rf2-csq75 — the vector-PATH segment separator. `:` is a valid XML
-  xsd:ID char that `keyword->id-string` never emits, so its presence in
-  an id string is the injective marker of a vector path."
-  ":")
+  "rf2-mnp93.1 — the vector-PATH segment boundary in an SCXML id. `___`
+  (triple underscore) the escaper can never emit and is distinct from the
+  `__` ns/name marker, so a vector path can never collide with a single
+  namespaced keyword. Supersedes csq75's `:` (not a valid xsd:ID char —
+  rf2-mnp93.7)."
+  "___")
+
+(defn- escape-id-segment
+  "Escape one keyword ns/name part INJECTIVELY into an xsd:ID-safe
+  string: every char outside `[A-Za-z0-9]` becomes `_<2-hex>` (the
+  underscore itself → `_5f`). Distinct inputs always yield distinct
+  outputs and the result contains no two consecutive underscores, so the
+  `__` / `___` reserved markers can never arise from segment content.
+  Mirrors `chart/layout/escape-id-segment` (single injective scheme
+  across all machines-viz id emitters)."
+  [s]
+  (str/join
+    (map (fn [ch]
+           (if (re-matches #"[A-Za-z0-9]" (str ch))
+             (str ch)
+             (str "_" #?(:clj  (format "%02x" (int ch))
+                         :cljs (let [h (.toString (.charCodeAt (str ch) 0) 16)]
+                                 (if (= 1 (count h)) (str "0" h) h))))))
+         s)))
+
+(defn- unescape-id-segment
+  "Inverse of `escape-id-segment`: replace every `_<2-hex>` triple with
+  the char it encodes."
+  [s]
+  (str/replace s
+               #"_([0-9a-fA-F]{2})"
+               (fn [[_ hex]]
+                 (str (char #?(:clj  (Integer/parseInt hex 16)
+                               :cljs (js/parseInt hex 16)))))))
 
 (defn- keyword->id-string
-  "Map a single keyword to its SCXML id string."
+  "Map a single keyword to its injective, xsd:ID-conformant SCXML id
+  string. Namespace and name are each `escape-id-segment`-escaped and
+  joined with `__` (`ns-name-sep`); a bare keyword emits just its escaped
+  name. rf2-mnp93.1 — exact round-trip for ANY keyword (multi-dot ns,
+  dotted name, `?`/`-`/`_` in either)."
   [k]
   (if-let [ns (namespace k)]
-    (str ns "." (name k))
-    (name k)))
+    (str (escape-id-segment ns) ns-name-sep (escape-id-segment (name k)))
+    (escape-id-segment (name k))))
 
 (defn- path->id-string
   "Map a re-frame2 id (keyword or vector path) to a single SCXML id
-  string. A namespaced keyword uses `.` between ns and name; a vector
-  path joins its per-segment id strings with `:` (`path-segment-sep`).
-  The two separators never collide, so decoders disambiguate a vector
-  path from a namespaced keyword by the PRESENCE of `:`, not by counting
-  dots (rf2-csq75)."
+  string. A keyword uses `keyword->id-string`; a vector path joins its
+  per-segment id strings with `___` (`path-segment-sep`). The `__`
+  ns/name and `___` path markers never collide with each other or with
+  segment content (rf2-mnp93.1), so the codec is fully injective."
   [id]
   (cond
     (keyword? id) (keyword->id-string id)
@@ -129,16 +203,19 @@
     :else         (str id)))
 
 (defn- id-string->keyword
-  "Inverse of `keyword->id-string` for a SINGLE keyword segment.
-  Recovers `:ns/name` from `\"ns.name\"`; bare `\"name\"` round-trips to
-  `:name`. The input is assumed to be a single keyword segment (no `:`
-  path separator) — `unescape-id-string` handles vector-path splitting."
+  "Inverse of `keyword->id-string` for a SINGLE keyword segment (no `___`
+  path separator). Splits on the `__` ns/name marker (at most once),
+  `_XX`-unescaping each part: `\"auth__login\"` → `:auth/login`,
+  `\"my_2eapp_2eauth__login\"` → `:my.app.auth/login`, bare
+  `\"name\"` → `:name`. rf2-mnp93.1 / rf2-mnp93.2 — the symmetric inverse
+  used by BOTH the id decoder and the guard `cond=` decoder."
   [s]
   (when s
-    (let [parts (str/split s #"\.")]
-      (if (= 1 (count parts))
-        (keyword s)
-        (keyword (first parts) (str/join "." (rest parts)))))))
+    (let [idx (str/index-of s ns-name-sep)]
+      (if (nil? idx)
+        (keyword (unescape-id-segment s))
+        (keyword (unescape-id-segment (subs s 0 idx))
+                 (unescape-id-segment (subs s (+ idx (count ns-name-sep)))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; XML emit — string-based, no external library
@@ -169,12 +246,54 @@
     (map? spec)     [spec]
     :else           []))
 
+;; --- path qualification (rf2-mnp93.7) ------------------------------------
+;;
+;; W3C SCXML state ids are `xsd:ID` — they MUST be unique across the whole
+;; document. The pre-mnp93.7 emitter wrote BARE local-state names, so two
+;; states sharing a name under different compound parents collided
+;; (duplicate `<state id="idle">`) — invalid SCXML a conformant external
+;; consumer rejects. We now emit the FULLY-QUALIFIED path id (root → leaf,
+;; `___`-joined via `path->id-string`) for every state, `initial`, and
+;; transition `target`, so every id is unique. The decoder reverses the
+;; qualification: a state block's local `:states` key is the LAST segment
+;; of its qualified id, and a target resolves back to the relative form
+;; (a sibling keyword when it shares the source's parent, else the
+;; absolute vector path) so the round-trip is exact.
+
+(defn- target-path?
+  "True when `v` is a grammar VECTOR-PATH target (a vector of keywords)."
+  [v]
+  (and (vector? v) (seq v) (every? keyword? v)))
+
+(defn- parent-path [path] (if (seq path) (pop path) []))
+
+(defn- resolve-target-path
+  "Resolve a transition target to its ABSOLUTE path from the machine
+  root. A keyword target is a SIBLING of the source state (Spec 005); a
+  vector-path target is absolute. `source-path` is the source state's
+  absolute path."
+  [source-path target]
+  (cond
+    (keyword? target)     (conj (parent-path source-path) target)
+    (target-path? target) (vec target)
+    :else                 nil))
+
+(defn- qualified-id
+  "The unique xsd:ID for a state at absolute `path` (rf2-mnp93.7)."
+  [path]
+  (path->id-string (vec path)))
+
 (defn- emit-transition
-  "Emit a `<transition>` line for one candidate."
-  [event-name {:keys [target guard action]} depth]
-  (let [parts (cond-> []
+  "Emit a `<transition>` line for one candidate. `source-path` is the
+  absolute path of the OWNING state; targets are path-qualified against
+  it so the emitted `target` is the unique xsd:ID of the destination
+  (rf2-mnp93.7)."
+  [event-name {:keys [target guard action]} source-path depth]
+  (let [target-id (when target
+                    (qualified-id (resolve-target-path source-path target)))
+        parts (cond-> []
                 event-name (conj (str "event=\"" (escape-xml-attr event-name) "\""))
-                target     (conj (str "target=\"" (escape-xml-attr (path->id-string target)) "\""))
+                target-id  (conj (str "target=\"" (escape-xml-attr target-id) "\""))
                 guard      (conj (str "cond=\"" (escape-xml-attr (keyword->id-string guard)) "\"")))
         attrs (str/join " " parts)
         self-close? (nil? action)]
@@ -186,26 +305,26 @@
                 "</transition>")))))
 
 (defn- emit-transitions-for-on
-  [on-map depth]
+  [on-map source-path depth]
   (mapcat (fn [[event spec]]
-            (map #(emit-transition (keyword->id-string event) % depth)
+            (map #(emit-transition (keyword->id-string event) % source-path depth)
                  (transition-candidates spec)))
           on-map))
 
 (defn- emit-transitions-for-after
-  [after-map depth]
+  [after-map source-path depth]
   (mapcat (fn [[delay spec]]
             (map #(emit-transition (str "after." (if (keyword? delay)
                                                   (keyword->id-string delay)
                                                   delay))
-                                   % depth)
+                                   % source-path depth)
                  (transition-candidates spec)))
           after-map))
 
 (defn- emit-transitions-for-always
-  [always depth]
+  [always source-path depth]
   (->> (transition-candidates always)
-       (map #(emit-transition nil % depth))))
+       (map #(emit-transition nil % source-path depth))))
 
 (defn- emit-transitions-for-on-done
   "rf2-41goo — emit the compound / parallel `:on-done` (XState `onDone`)
@@ -216,32 +335,37 @@
   `\"done.state.<id-str>\"` for THIS node. A target-less candidate
   (action/fx-only — the parallel-root shape) emits a transition with NO
   `target` (the action survives as the emitter's `<!-- action -->`
-  comment), faithful to the action-only completion the engine fires."
-  [done-event on-done depth]
+  comment), faithful to the action-only completion the engine fires.
+  `source-path` qualifies any target (rf2-mnp93.7)."
+  [done-event on-done source-path depth]
   (->> (transition-candidates on-done)
-       (map #(emit-transition done-event % depth))))
+       (map #(emit-transition done-event % source-path depth))))
 
 (defn- emit-state
-  "Emit a `<state>` (or `<final>`) block for one state-node."
-  [state-id state-node depth]
+  "Emit a `<state>` (or `<final>`) block for one state-node. `path` is
+  the absolute path (root → this state) used to emit unique xsd:IDs and
+  to qualify transition targets (rf2-mnp93.7)."
+  [path state-node depth]
   (let [{:keys [final? initial states on after always on-done]} state-node
-        id-str (path->id-string state-id)
+        id-str (qualified-id path)
         tag    (if final? "final" "state")
         attrs  (cond-> (str "id=\"" (escape-xml-attr id-str) "\"")
                  (and (not final?) initial)
-                 (str " initial=\"" (escape-xml-attr (path->id-string initial)) "\""))
+                 ;; rf2-mnp93.7 — `initial` references a CHILD by its
+                 ;; unique qualified id (the child's absolute path).
+                 (str " initial=\"" (escape-xml-attr (qualified-id (conj (vec path) initial))) "\""))
         children
         (concat
-          (emit-transitions-for-on on (inc depth))
-          (emit-transitions-for-after after (inc depth))
-          (emit-transitions-for-always always (inc depth))
+          (emit-transitions-for-on on path (inc depth))
+          (emit-transitions-for-after after path (inc depth))
+          (emit-transitions-for-always always path (inc depth))
           ;; rf2-41goo — the `done.state.<this-id>` completion transition
           ;; (XState `onDone`). Emitted INSIDE this node's own <state>.
           (when on-done
             (emit-transitions-for-on-done (str "done.state." id-str)
-                                          on-done (inc depth)))
+                                          on-done path (inc depth)))
           (mapcat (fn [[child-id child-node]]
-                    (emit-state child-id child-node (inc depth)))
+                    (emit-state (conj (vec path) child-id) child-node (inc depth)))
                   states))]
     (if (seq children)
       (concat [(str (indent-str depth) "<" tag " " attrs ">")]
@@ -267,7 +391,9 @@
       [(str (indent-str depth)
             "<!-- machine-level (top-level) :on fallback transitions"
             " — inherited by every state (Spec 005 §top-level :on) -->")]
-      (emit-transitions-for-on on depth))))
+      ;; rf2-mnp93.7 — machine-level targets are siblings at the machine
+      ;; root, so resolve them against the empty root path.
+      (emit-transitions-for-on on [] depth))))
 
 (defn- emit-flat-or-compound
   [{:keys [initial states on]} depth]
@@ -275,10 +401,13 @@
     [(str (indent-str depth)
           "<scxml xmlns=\"http://www.w3.org/2005/07/scxml\""
           " version=\"1.0\""
-          " initial=\"" (escape-xml-attr (path->id-string initial)) "\">")]
+          ;; rf2-mnp93.7 — the root `initial` references a TOP-LEVEL state
+          ;; by its unique qualified id (a single-segment path, so the
+          ;; bare name, identical to the pre-fix flat output).
+          " initial=\"" (escape-xml-attr (qualified-id [initial])) "\">")]
     (emit-machine-level-on on (inc depth))
     (mapcat (fn [[child-id child-node]]
-              (emit-state child-id child-node (inc depth)))
+              (emit-state [child-id] child-node (inc depth)))
             states)
     [(str (indent-str depth) "</scxml>")]))
 
@@ -305,11 +434,15 @@
     ;; `:target`, so the transition is action/fx-only (no `target`); the
     ;; action survives as the emitter's `<!-- action -->` comment.
     (when on-done
+      ;; The parallel-root :on-done is action-only (no target — a parallel
+      ;; machine is root-only), so the source-path is unused; pass [].
       (emit-transitions-for-on-done (str "done.state." parallel-root-scxml-id)
-                                    on-done (+ depth 2)))
+                                    on-done [] (+ depth 2)))
     (mapcat (fn [[region-id region-node]]
               ;; Each region is a state with its own initial + states.
-              (emit-state region-id region-node (+ depth 2)))
+              ;; rf2-mnp93.7 — a region's path is rooted at the region id
+              ;; (regions are the parallel's direct children).
+              (emit-state [region-id] region-node (+ depth 2)))
             regions)
     [(str (indent-str (inc depth)) "</parallel>")
      (str (indent-str depth) "</scxml>")]))
@@ -420,44 +553,59 @@
                         (str/replace "&amp;"  "&"))]))
           matches)))
 
-(defn- event-name->keyword
-  "Convert an SCXML transition `event` attribute (e.g. `\"rf.load\"`)
-  to a re-frame2 event keyword (`:rf/load`). Single dot ⇒ namespaced
-  keyword; no dot ⇒ bare keyword. Multi-dot event names are kept as
-  single keywords (`:a.b.c`) — they're not paths."
-  [event-string]
-  (when event-string
-    (let [parts (str/split event-string #"\.")]
-      (case (count parts)
-        1 (keyword event-string)
-        2 (keyword (first parts) (second parts))
-        (keyword event-string)))))
-
 (defn- unescape-id-string
   "Convert a SCXML id string back to a re-frame2 keyword (or vector
-  path). Inverse of `path->id-string` (rf2-csq75).
+  path). Inverse of `path->id-string` (rf2-mnp93.1).
 
-  The encoder uses TWO separators so the decoding is topology-aware,
-  not dot-count-aware:
+  The encoder uses two reserved markers the segment escaper can provably
+  never emit, so decoding is topology-aware and fully injective:
 
-  - `:` (`path-segment-sep`) joins VECTOR-PATH segments. Its presence
-    is the injective marker of a vector path — `keyword->id-string`
-    never emits `:`, so it cannot arise from a single keyword.
-  - `.` joins a namespaced keyword's namespace and name WITHIN a
-    segment.
+  - `___` (`path-segment-sep`) joins VECTOR-PATH segments. Its presence
+    is the injective marker of a vector path.
+  - `__` (`ns-name-sep`) joins a namespaced keyword's namespace and name
+    WITHIN a segment.
 
-  So: an id containing `:` decodes to a vector of per-segment keywords
-  (each segment via `id-string->keyword`, recovering `:ns/name` from a
-  segment's own dot); an id with NO `:` decodes to a single keyword —
-  one dot ⇒ namespaced (`\"auth.login\"` → `:auth/login`), no dot ⇒
-  bare (`\"idle\"` → `:idle`). A two-segment vector path
-  (`\"authenticated:browsing\"`) no longer collides with a namespaced
-  keyword (`\"authenticated.browsing\"`)."
+  So: an id containing `___` decodes to a vector of per-segment keywords
+  (each segment via `id-string->keyword`); an id with NO `___` decodes to
+  a single keyword (one `__` ⇒ namespaced, none ⇒ bare). Because the
+  escaper never emits `__` or `___`, a vector path
+  (`\"authenticated___browsing\"`) can never collide with a namespaced
+  keyword (`\"authenticated__browsing\"`), and a multi-dot namespace
+  (`\"my_2eapp_2eauth__login\"`) round-trips its dots exactly."
   [s]
   (when s
     (if (str/includes? s path-segment-sep)
       (mapv id-string->keyword (str/split s (re-pattern path-segment-sep)))
       (id-string->keyword s))))
+
+;; --- qualified-id decode (rf2-mnp93.7) -----------------------------------
+
+(defn- id-string->abs-path
+  "Decode a qualified SCXML id (rf2-mnp93.7) into an ABSOLUTE path
+  VECTOR. `unescape-id-string` returns a vector for a `___`-joined path
+  and a bare keyword for a single segment; normalise both to a vector."
+  [s]
+  (let [decoded (unescape-id-string s)]
+    (if (vector? decoded) decoded [decoded])))
+
+(defn- abs-path->local-key
+  "The LOCAL `:states` key for a state whose qualified id decodes to
+  absolute `abs-path` — the last segment (rf2-mnp93.7)."
+  [abs-path]
+  (last abs-path))
+
+(defn- decode-target
+  "Reconstruct a transition target's RELATIVE grammar form from the
+  qualified `target` id and the source state's absolute `source-path`
+  (rf2-mnp93.7). A target whose parent equals the source's parent is a
+  SIBLING — re-frame2 writes it as the bare keyword (the last segment);
+  any other target is written as the absolute vector path. This inverts
+  `resolve-target-path` so the round-trip is exact."
+  [target-str source-path]
+  (let [abs-path (id-string->abs-path target-str)]
+    (if (= (parent-path (vec abs-path)) (parent-path (vec source-path)))
+      (last abs-path)
+      (vec abs-path))))
 
 (defn- tokenize
   "Walk an XML string and return a flat seq of token maps:
@@ -518,8 +666,10 @@
   "Walk an open `<state>` body's tokens and split out direct-child
   transitions vs the rest (which group-children-by-state will turn
   into nested state blocks). Returns `{:on ... :after ... :always
-  [...] :children-tokens [...]}`."
-  [child-tokens]
+  [...] :children-tokens [...]}`. `source-path` is the OWNING state's
+  absolute path — qualified targets are decoded relative to it
+  (rf2-mnp93.7)."
+  [child-tokens source-path]
   (let [ts              (direct-transitions child-tokens)
         ;; The remaining stream still contains the nested-state
         ;; tokens AND the direct-transition tokens (we filter the
@@ -541,16 +691,19 @@
                   target   (get attrs "target")
                   guard-s  (get attrs "cond")
                   cand-map (cond-> {}
-                             target  (assoc :target (unescape-id-string target))
-                             guard-s (assoc :guard (keyword guard-s)))
-                  ;; Canonical shorthand: when a transition carries
-                  ;; *only* :target, write it as the bare keyword/path
-                  ;; in `:on` and `:after` maps. :always keeps the
-                  ;; full candidate-map form so the vector-of-maps
-                  ;; grammar lines up with `(transition-candidates ...)`.
-                  simple-cand (if (= [:target] (keys cand-map))
-                                (:target cand-map)
-                                cand-map)]
+                             ;; rf2-mnp93.7 — decode the qualified target id
+                             ;; back to its relative grammar form (sibling
+                             ;; keyword / absolute vector path).
+                             target  (assoc :target (decode-target target source-path))
+                             ;; rf2-mnp93.2 — decode the guard symmetrically
+                             ;; with the encoder (keyword->id-string at emit).
+                             ;; The pre-fix `(keyword guard-s)` never split the
+                             ;; namespace, so `:auth/valid?` round-tripped to
+                             ;; the bare `:auth.valid?` (ns lost). A guard is a
+                             ;; single keyword (never a vector path), so route
+                             ;; it through `id-string->keyword`, not
+                             ;; `unescape-id-string`.
+                             guard-s (assoc :guard (id-string->keyword guard-s)))]
               (cond
                 (and event (str/starts-with? event "after."))
                 (let [d-str (subs event 6)
@@ -559,14 +712,12 @@
                                  :cljs (let [n (js/parseInt d-str 10)]
                                          (if (js/isNaN n) nil n)))
                               (catch #?(:clj Exception :cljs :default) _ nil))
-                      k     (or d (keyword d-str))]
-                  (update-in acc [:after k]
-                             (fn [existing]
-                               (if existing
-                                 (if (vector? existing)
-                                   (conj existing simple-cand)
-                                   [existing simple-cand])
-                                 simple-cand))))
+                      ;; rf2-mnp93.1 — a non-numeric delay is an
+                      ;; id-encoded keyword; decode it symmetrically with
+                      ;; `keyword->id-string` so a namespaced keyword delay
+                      ;; (`:a/b` → `after.a__b`) round-trips its namespace.
+                      k     (or d (id-string->keyword d-str))]
+                  (update-in acc [:after k] (fnil conj []) cand-map))
 
                 ;; rf2-41goo — a `done.state.<id>` transition is the
                 ;; XState `onDone` completion (SCXML §3.7). It sits inside
@@ -577,28 +728,54 @@
                 ;; node); the re-frame2 grammar carries the completion as
                 ;; `:on-done` on the node, so we drop the id suffix.
                 (and event (str/starts-with? event "done.state."))
-                (update acc :on-done
-                        (fn [existing]
-                          (if existing
-                            (if (vector? existing)
-                              (conj existing simple-cand)
-                              [existing simple-cand])
-                            simple-cand)))
+                (update acc :on-done (fnil conj []) cand-map)
 
                 (nil? event)
                 (update acc :always (fnil conj []) cand-map)
 
+                ;; rf2-mnp93.1/.3 — an `:on` event key is a single keyword
+                ;; (never a vector path), so decode it with
+                ;; `id-string->keyword`. A user event whose name once
+                ;; STARTED with `after.`/`done.state.` no longer collides
+                ;; with the synthetic timer/done prefixes: the codec
+                ;; escapes the literal `.` (`:after.foo` → `after_2efoo`),
+                ;; so only the synthetic encodings carry a literal `.` here.
                 :else
-                (update-in acc [:on (unescape-id-string event)]
-                           (fn [existing]
-                             (if existing
-                               (if (vector? existing)
-                                 (conj existing simple-cand)
-                                 [existing simple-cand])
-                               simple-cand))))))
+                (update-in acc [:on (id-string->keyword event)]
+                           (fnil conj []) cand-map))))
           {}
           ts)]
-    (assoc coll :children-tokens non-transitions)))
+    ;; rf2-mnp93.8 — finalise the candidate vectors. The reduce above
+    ;; accumulates EVERY candidate as its full `{:target ... :guard ...}`
+    ;; map. The bare-keyword/path SHORTHAND now applies ONLY to a SOLE
+    ;; target-only candidate; a MULTI-candidate vector keeps each element
+    ;; in its explicit map form. Pre-fix the decoder collapsed each
+    ;; element of a vector to a bare keyword, so a MIXED vector
+    ;; (`[{:target :a :guard :g1} {:target :b}]`) round-tripped to
+    ;; `[{:target :a :guard :g1} :b]` — value-unequal to the input. Now:
+    ;;   - 1 candidate, target-only  → bare keyword/path (`:b`)
+    ;;     (matches the canonical `:on {:event :target}` shorthand)
+    ;;   - 1 candidate, guard/action → the map (`{:target :b :guard :g}`)
+    ;;   - N candidates              → vector of the full maps, verbatim
+    ;; `:always` keeps the full vector-of-maps form so it lines up with
+    ;; `(transition-candidates ...)`.
+    (let [target-only? (fn [m] (= [:target] (keys m)))
+          simplify     (fn [cands]
+                         (if (= 1 (count cands))
+                           (if (target-only? (first cands))
+                             (:target (first cands))
+                             (first cands))
+                           cands))
+          on*      (when (:on coll)
+                     (into {} (map (fn [[ev cands]] [ev (simplify cands)]) (:on coll))))
+          after*   (when (:after coll)
+                     (into {} (map (fn [[k cands]] [k (simplify cands)]) (:after coll))))
+          ondone*  (when (contains? coll :on-done) (simplify (:on-done coll)))]
+      (cond-> {:children-tokens non-transitions}
+        (:on coll)               (assoc :on on*)
+        (:after coll)            (assoc :after after*)
+        (:always coll)           (assoc :always (:always coll))
+        (contains? coll :on-done) (assoc :on-done ondone*)))))
 
 (declare parse-state-block)
 
@@ -665,20 +842,30 @@
 
 (defn- parse-state-block
   "Parse one `<state>` / `<final>` block into a `[state-id state-node]`
-  pair. `self?` indicates a self-closing tag with no children."
+  pair. `self?` indicates a self-closing tag with no children.
+
+  rf2-mnp93.7 — `id` is a FULLY-QUALIFIED unique xsd:ID (the state's
+  absolute path). The LOCAL `:states` key is its last segment; the
+  state's absolute path is threaded down so child transitions decode
+  their qualified targets back to the relative grammar form."
   [{:keys [start body self?]}]
   (let [tag        (:tag start)
         attrs      (:attrs start)
         id-str     (get attrs "id")
         initial-str (get attrs "initial")
-        state-id   (unescape-id-string id-str)
+        abs-path   (id-string->abs-path id-str)
+        state-id   (abs-path->local-key abs-path)
         base       (cond-> {}
                      (= "final" tag) (assoc :final? true)
-                     initial-str     (assoc :initial (unescape-id-string initial-str)))]
+                     ;; rf2-mnp93.7 — `initial` references a child by its
+                     ;; qualified id; the re-frame2 `:initial` is the
+                     ;; child's LOCAL key (last segment).
+                     initial-str     (assoc :initial (abs-path->local-key
+                                                       (id-string->abs-path initial-str))))]
     (if (or self? (empty? body))
       [state-id base]
       (let [{:keys [on after always children-tokens] :as consumed}
-            (consume-transitions body)
+            (consume-transitions body abs-path)
             child-blocks (group-children-by-state children-tokens)
             child-states (when (seq child-blocks)
                            (into {}
@@ -703,7 +890,8 @@
   (let [region-blocks (group-children-by-state parallel-body)]
     (into {}
           (map (fn [{:keys [start body self?]}]
-                 (let [region-id (unescape-id-string (get (:attrs start) "id"))
+                 (let [region-id (abs-path->local-key
+                                  (id-string->abs-path (get (:attrs start) "id")))
                        [_ region-node] (parse-state-block {:start start :body body :self? self?})]
                    ;; Strip :final? off the region top-level — regions are
                    ;; not final states even when their own children are.
@@ -808,7 +996,9 @@
               ;; `group-children-by-state`) filters transition tokens at
               ;; this depth, so pick it up directly via
               ;; `consume-transitions` before they are dropped.
-              parallel-on-done (:on-done (consume-transitions parallel-body))]
+              ;; The parallel-root :on-done is action-only (no target),
+              ;; so the source-path is unused — pass [].
+              parallel-on-done (:on-done (consume-transitions parallel-body []))]
           (cond-> {:type    :parallel
                    :regions (parse-parallel-body parallel-body)}
             (some? parallel-on-done) (assoc :on-done parallel-on-done)))
@@ -831,4 +1021,7 @@
                              :recovery :no-recovery
                              :reason   "scxml document has no <state> or <final> elements"})))
           (cond-> {:states states}
-            initial-str (assoc :initial (unescape-id-string initial-str))))))))
+            ;; rf2-mnp93.7 — the root `initial` is a top-level state's
+            ;; qualified id; the re-frame2 `:initial` is its local key.
+            initial-str (assoc :initial (abs-path->local-key
+                                         (id-string->abs-path initial-str)))))))))
