@@ -1749,6 +1749,31 @@
       (is (some? in-edge)  "inbound edge into the event-node is emitted")
       (is (nil? out-edge)  "no outbound edge (internal hangs at the event-node)"))))
 
+(deftest xyflow-graph-reenter-event-node-carries-reenter-data
+  (testing "rf2-9dj21r — a `:reenter? true` (external restart) self-target
+            projects its event-node with `:reenter true` (the renderer's
+            ↻ marker) AND keeps the outbound edge (it is a TARGETED
+            transition); the internal-default counterpart carries neither"
+    (let [reenter-spec  {:initial :a :states {:a {:on {:ping {:target :same-state
+                                                              :reenter? true}}}}}
+          internal-spec {:initial :a :states {:a {:on {:ping {:target :same-state}}}}}
+          r-parsed (layout/project-definition reenter-spec)
+          i-parsed (layout/project-definition internal-spec)
+          r-graph  (projection/xyflow-graph r-parsed {} {})
+          i-graph  (projection/xyflow-graph i-parsed {} {})
+          r-edge   (first (:edges r-parsed))
+          i-edge   (first (:edges i-parsed))
+          r-ev     (event-node-for r-graph (:id r-edge))
+          i-ev     (event-node-for i-graph (:id i-edge))]
+      (is (true? (:reenter (:data r-ev)))
+          "the external transition's event-node carries :reenter true")
+      (is (false? (:reenter (:data i-ev)))
+          "the internal default's event-node carries :reenter false")
+      (is (some? (outbound-edge-for r-graph (:id r-edge)))
+          "a reentering (targeted) self-transition keeps its outbound edge")
+      (is (not= (:id r-edge) (:id i-edge))
+          "the two parsed edges have DISTINCT ids (no xyflow duplicate-drop)"))))
+
 (deftest xyflow-graph-wildcard-event-node-not-fireable
   (testing "rf2-ee38b.21 + rf2-qo5xy — the `:*` wildcard transition's
             event-node carries a NIL :eventId (not user-fireable on

@@ -615,13 +615,15 @@
 
 ;; ---- self-transitions (rf2-ee38b.21) -----------------------------------
 ;;
-;; Spec 005 §Self-transitions: `:target :same-state` is the EXTERNAL
-;; self-transition (exit+entry fire); omitting `:target` is the INTERNAL
-;; one (only :action runs). Both must chart as a self-loop (source ==
+;; Spec 005 §Self-transitions (XState v5, post-eicq0): a TARGETED self-
+;; transition (`:target :same-state` / a self keyword) is INTERNAL BY
+;; DEFAULT — its own :exit/:entry do NOT re-run; only `:reenter? true`
+;; makes it EXTERNAL (rf2-9dj21r). Omitting `:target` is the targetless
+;; internal no-op (only :action runs). All chart as a self-loop (source ==
 ;; target). Pre-fix, `:same-state` resolved to a phantom node-id and
 ;; the internal form emitted nothing.
 
-(deftest project-definition-external-self-transition-same-state
+(deftest project-definition-self-transition-same-state
   (testing "rf2-ee38b.21 — `:target :same-state` resolves to the source
             path itself (a true self-loop), NOT a phantom :same-state
             node"
@@ -650,6 +652,46 @@
       (is (= [:a] (:to tick)) "internal transition self-anchors")
       (is (true? (:internal? tick)) "flagged internal")
       (is (= :inc (:action tick))))))
+
+;; ---- the :reenter? external-restart axis (rf2-9dj21r) ------------------
+;;
+;; A TARGETED transition is INTERNAL by default; `:reenter? true` is the
+;; EXTERNAL restart opt-in. The viz must carry the axis onto the edge so a
+;; `:reenter? true` transition is STRUCTURALLY distinct from its internal
+;; default — pre-fix the two produced the SAME edge map (same id, same
+;; flags), so the chart could not tell them apart.
+
+(deftest project-definition-reenter-axis-distinct-from-internal-default
+  (testing "rf2-9dj21r — a `:reenter? true` self-target carries `:reenter?
+            true` on the edge; the internal-default one does NOT"
+    (let [reenter  {:initial :a :states {:a {:on {:ping {:target :same-state
+                                                          :reenter? true}}}}}
+          internal {:initial :a :states {:a {:on {:ping {:target :same-state}}}}}
+          r-edge   (first (filter #(= :ping (:event %))
+                                  (:edges (layout/project-definition reenter))))
+          i-edge   (first (filter #(= :ping (:event %))
+                                  (:edges (layout/project-definition internal))))]
+      (is (true? (:reenter? r-edge))
+          "the external transition carries :reenter? true")
+      (is (not (contains? i-edge :reenter?))
+          "the internal default does NOT carry :reenter?")
+      (is (not= (:id r-edge) (:id i-edge))
+          "the two mint DISTINCT edge ids (so they can coexist; xyflow does
+           not drop one as a duplicate)")))
+
+  (testing "rf2-9dj21r — `:reenter?` is read off a map candidate only;
+            a bare keyword target never carries it"
+    (let [m     {:initial :a :states {:a {:on {:go :b}} :b {}}}
+          go    (first (filter #(= :go (:event %))
+                               (:edges (layout/project-definition m))))]
+      (is (not (contains? go :reenter?)))))
+
+  (testing "rf2-9dj21r — `layout/reenter?` reads the engine's
+            `(true? (:reenter? transition))` axis"
+    (is (true? (layout/reenter? {:target :same-state :reenter? true})))
+    (is (false? (layout/reenter? {:target :same-state})))
+    (is (false? (layout/reenter? {:target :same-state :reenter? false})))
+    (is (false? (layout/reenter? :b)) "a bare keyword candidate is never reenter")))
 
 ;; ---- wildcard `:*` (rf2-ee38b.21) --------------------------------------
 

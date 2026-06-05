@@ -167,6 +167,23 @@
     (target-path? target)  (vec target)
     :else                  nil))
 
+(defn reenter?
+  "rf2-9dj21r — true when a transition candidate opts in to the EXTERNAL
+  restart axis (`:reenter? true`). Spec 005 §Self-transitions + XState v5:
+  a TARGETED transition is INTERNAL by default — its own `:exit`/`:entry`
+  do not re-run — and only `:reenter? true` makes a self / proper-ancestor
+  / compound-declared-descendant target EXTERNAL (re-run `:exit`+`:entry`,
+  restart the target's `:after` timers + tear-down-and-respawn its `:spawn`
+  children). This matches the engine's `(true? (:reenter? transition))`
+  read (`re-frame.machines.transition`). Only a map candidate can carry it;
+  a bare keyword / vector-path target never does. Carried onto the edge so
+  the chart / Mermaid / SCXML emitters render a `:reenter? true` transition
+  distinct from its internal default (otherwise two runtime-distinct
+  machines chart + export IDENTICALLY)."
+  [candidate]
+  (and (map? candidate)
+       (true? (:reenter? candidate))))
+
 (defn on-done-edges
   "rf2-41goo — emit the completion edge(s) for a node's `:on-done`
   (Spec 005 §The done-state signal — XState v5 `onDone`).
@@ -209,7 +226,10 @@
                        :done-path (vec done-path)
                        :guard     (:guard candidate)
                        :action    (:action candidate)}
-                internal? (assoc :internal? true)))))
+                internal? (assoc :internal? true)
+                ;; rf2-9dj21r — carry the external-restart axis (a
+                ;; target-bearing `:on-done` may opt in to `:reenter?`).
+                (reenter? candidate) (assoc :reenter? true)))))
         (transition-candidates on-done-spec)))
 
 (defn- collect-state-edges
@@ -217,10 +237,18 @@
   resolvable transition declared on it. Compound substates recurse.
 
   Self-transitions (Spec 005 §Self-transitions) chart as self-loops:
-  `:target :same-state` (external) resolves to the source path; a
-  candidate that omits `:target` entirely (internal — runs only its
-  `:action`) self-anchors and is flagged `:internal? true` so the
-  renderer can distinguish it (no exit/entry re-trigger).
+  `:target :same-state` resolves to the source path; a candidate that
+  omits `:target` entirely (internal — runs only its `:action`)
+  self-anchors and is flagged `:internal? true` so the renderer can
+  distinguish it (no exit/entry re-trigger).
+
+  rf2-9dj21r — a TARGETED transition is INTERNAL BY DEFAULT (XState v5 /
+  Spec 005 §Self-transitions): a self / ancestor / compound-declared-
+  descendant target does NOT re-run the target's own `:exit`/`:entry`
+  unless the candidate opts in with `:reenter? true`. That EXTERNAL
+  restart axis (`reenter?`) is carried onto every edge so a `:reenter?
+  true` transition charts + exports DISTINCTLY from its internal default
+  (pre-fix the two produced identical topology / Mermaid / SCXML).
 
   rf2-41goo — a compound node's `:on-done` (XState `onDone`) emits the
   completion edge (sibling target, or a terminal affordance for the
@@ -242,7 +270,9 @@
                                         :event  event-id
                                         :guard  (:guard candidate)
                                         :action (:action candidate)}
-                                 internal? (assoc :internal? true)))))
+                                 internal? (assoc :internal? true)
+                                 ;; rf2-9dj21r — the external-restart opt-in.
+                                 (reenter? candidate) (assoc :reenter? true)))))
                          (transition-candidates spec)))
                  (:on state-node))
          (mapcat (fn [[delay spec]]
@@ -271,7 +301,9 @@
                                         :after  delay
                                         :guard  (:guard candidate)
                                         :action (:action candidate)}
-                                 internal? (assoc :internal? true)))))
+                                 internal? (assoc :internal? true)
+                                 ;; rf2-9dj21r — the external-restart opt-in.
+                                 (reenter? candidate) (assoc :reenter? true)))))
                          (transition-candidates spec)))
                  (:after state-node))
          (mapcat (fn [candidate]
@@ -294,7 +326,14 @@
                                  :always? true
                                  :guard  (:guard candidate)
                                  :action (:action candidate)}
-                          internal? (assoc :internal? true))])))
+                          internal? (assoc :internal? true)
+                          ;; rf2-9dj21r — carry the flag faithfully even on
+                          ;; `:always` (a self-target on `:always` is rejected
+                          ;; at registration, so `:reenter?` is a no-op there —
+                          ;; but the viz never silently drops author-declared
+                          ;; keys, and a cross/ancestor `:always` target may
+                          ;; legitimately carry it).
+                          (reenter? candidate) (assoc :reenter? true))])))
                  (transition-candidates (:always state-node)))
          ;; rf2-41goo — the compound / region-compound `:on-done`
          ;; completion edge (XState `onDone`). The done node is THIS node
@@ -623,7 +662,12 @@
        "__"
        (event-segment edge)
        (when (:guard edge)  (str "__g_" (name-of (:guard edge))))
-       (when (:action edge) (str "__a_" (name-of (:action edge))))))
+       (when (:action edge) (str "__a_" (name-of (:action edge))))
+       ;; rf2-9dj21r — fold the external-restart axis into the id so the
+       ;; SAME event + target with vs without `:reenter?` mint DISTINCT
+       ;; edge ids (otherwise xyflow drops the second as a duplicate id,
+       ;; and the with/without pair could never coexist on one chart).
+       (when (:reenter? edge) "__reenter")))
 
 (defn- collect-machine-edges
   "Emit edges for the machine-level (top-level) `:on` fallback
@@ -662,12 +706,14 @@
                 (let [target (:target candidate)
                       tp     (resolve-target-path [] target)]
                   (when tp
-                    {:from           []
-                     :to             tp
-                     :event          event-id
-                     :guard          (:guard candidate)
-                     :action         (:action candidate)
-                     :machine-level? true})))
+                    (cond-> {:from           []
+                             :to             tp
+                             :event          event-id
+                             :guard          (:guard candidate)
+                             :action         (:action candidate)
+                             :machine-level? true}
+                      ;; rf2-9dj21r — carry the external-restart axis.
+                      (reenter? candidate) (assoc :reenter? true)))))
               (transition-candidates spec)))
       machine-on)))
 

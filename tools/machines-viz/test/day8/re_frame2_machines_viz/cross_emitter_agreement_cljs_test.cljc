@@ -253,3 +253,64 @@
     (let [back (-> deep-history-machine scxml/spec->scxml scxml/scxml->spec)]
       (is (= :history (get-in back [:states :player :states :hist :type]))
           "round-trips back to a :type :history pseudo-state"))))
+
+;; ---------------------------------------------------------------------------
+;; G9 — the `:reenter?` EXTERNAL-restart axis agrees across the three emitters
+;; (rf2-9dj21r). Spec 005 §Self-transitions / XState v5: a targeted transition
+;; is INTERNAL by default; `:reenter? true` is the external restart opt-in
+;; (re-run :exit/:entry, restart :after/:spawn). Pre-fix NONE of the three
+;; emitters represented the axis, so `{:target :same-state}` and `{:target
+;; :same-state :reenter? true}` — two RUNTIME-DISTINCT machines — produced
+;; IDENTICAL chart topology, Mermaid, SCXML export, AND SCXML import. These
+;; tests pin that the with/without-`:reenter?` forms are now DISTINCT in every
+;; emitter (and that the axis survives the SCXML round-trip).
+
+(def reenter-self-machine
+  {:initial :a :states {:a {:on {:ping {:target :same-state :reenter? true}}}}})
+
+(def internal-default-self-machine
+  {:initial :a :states {:a {:on {:ping {:target :same-state}}}}})
+
+(deftest reenter-axis-distinct-across-all-three-emitters
+  (testing "rf2-9dj21r — chart edge data, Mermaid, AND SCXML export all
+            represent `:reenter? true` DISTINCTLY from the internal default"
+    ;; CHART — the parsed edge carries :reenter? true (vs absent), AND the two
+    ;; mint DISTINCT edge ids (so xyflow keeps both on a shared chart).
+    (let [r-edge (first (filter #(= :ping (:event %))
+                                (:edges (layout/project-definition reenter-self-machine))))
+          i-edge (first (filter #(= :ping (:event %))
+                                (:edges (layout/project-definition internal-default-self-machine))))]
+      (is (true? (:reenter? r-edge)) "chart: external edge carries :reenter?")
+      (is (not (contains? i-edge :reenter?)) "chart: internal default does not")
+      (is (not= (:id r-edge) (:id i-edge)) "chart: distinct edge ids"))
+    ;; MERMAID — the external edge carries the ↻ marker; the internal one does not.
+    (let [r-out (mermaid/emit reenter-self-machine {:fenced? false :header-comment? false})
+          i-out (mermaid/emit internal-default-self-machine {:fenced? false :header-comment? false})]
+      (is (str/includes? r-out "↻") "mermaid: external carries the ↻ marker")
+      (is (not (str/includes? i-out "↻")) "mermaid: internal default has no marker")
+      (is (not= r-out i-out) "mermaid: the two outputs DIFFER"))
+    ;; SCXML EXPORT — the external transition emits type="external"; the internal
+    ;; default does not. The two exports DIFFER.
+    (let [r-xml (scxml/spec->scxml reenter-self-machine)
+          i-xml (scxml/spec->scxml internal-default-self-machine)]
+      (is (str/includes? r-xml "type=\"external\"") "scxml: external emits type=external")
+      (is (not (str/includes? i-xml "type=\"external\"")) "scxml: internal default does not")
+      (is (not= r-xml i-xml) "scxml: the two exports DIFFER")))
+
+  (testing "rf2-9dj21r — SCXML IMPORT preserves `:reenter? true` (the round-trip
+            keeps the two machines runtime-distinct on re-import)"
+    (let [r-back (-> reenter-self-machine scxml/spec->scxml scxml/scxml->spec)
+          i-back (-> internal-default-self-machine scxml/spec->scxml scxml/scxml->spec)]
+      (is (= reenter-self-machine r-back)
+          "the external machine round-trips with :reenter? true intact (the map
+           form is not collapsible to a bare keyword, so it survives verbatim)")
+      (is (true? (get-in r-back [:states :a :on :ping :reenter?]))
+          "the imported external candidate carries :reenter? true")
+      ;; The internal default's sole target-only candidate normalises to the
+      ;; bare-keyword shorthand (`:same-state`) — the canonical, semantically
+      ;; identical form — carrying NO :reenter?.
+      (is (= :same-state (get-in i-back [:states :a :on :ping]))
+          "the internal default round-trips to the target-only shorthand")
+      (is (not= r-back i-back)
+          "the two round-tripped specs remain DISTINCT (import did not collapse
+           the external machine into the internal default)"))))

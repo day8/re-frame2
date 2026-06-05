@@ -605,3 +605,37 @@
           "a history pseudo-state is not a final state")
       (is (not (str/includes? out "state player__hist {"))
           "a history pseudo-state is not a compound block"))))
+
+;; ---- the :reenter? external-restart axis (rf2-9dj21r) ------------------
+;;
+;; A TARGETED transition is INTERNAL by default; `:reenter? true` is the
+;; EXTERNAL restart opt-in (Spec 005 §Self-transitions / XState v5). The
+;; Mermaid emitter must render the two DISTINCTLY (a `↻` marker on the
+;; reentering edge label) — pre-fix the same `:target` with vs without
+;; `:reenter?` produced byte-identical Mermaid.
+
+(def reenter-self-machine
+  {:initial :a
+   :states  {:a {:on {:ping {:target :same-state :reenter? true}}}}})
+
+(def internal-self-machine
+  {:initial :a
+   :states  {:a {:on {:ping {:target :same-state}}}}})
+
+(deftest emit-reenter-axis-visually-distinct
+  (testing "rf2-9dj21r — a `:reenter? true` edge carries the `↻` marker on
+            its Mermaid label"
+    (let [out (m/emit reenter-self-machine {:fenced? false :header-comment? false})]
+      (is (str/includes? out "ping ↻")
+          "the external-restart edge label carries the ↻ reenter marker")))
+
+  (testing "rf2-9dj21r — the internal-default edge has NO `↻` marker"
+    (let [out (m/emit internal-self-machine {:fenced? false :header-comment? false})]
+      (is (str/includes? out ": ping") "the edge is labelled `ping`")
+      (is (not (str/includes? out "↻"))
+          "the internal default carries no reenter marker")))
+
+  (testing "rf2-9dj21r — the with/without-`:reenter?` Mermaid outputs DIFFER"
+    (is (not= (m/emit reenter-self-machine {:fenced? false :header-comment? false})
+              (m/emit internal-self-machine {:fenced? false :header-comment? false}))
+        "external vs internal must produce DISTINCT Mermaid")))

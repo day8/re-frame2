@@ -897,6 +897,13 @@
                       fired?       (contains? fired-edge-ids (:id e))
                       self-loop?   (= src tgt)
                       internal?    (boolean (:internal? e))
+                      ;; rf2-9dj21r — the EXTERNAL restart axis (`:reenter?
+                      ;; true`). A targeted transition is internal by default
+                      ;; (XState v5 / Spec 005 §Self-transitions); `:reenter?`
+                      ;; re-runs the target's exit/entry + restarts its
+                      ;; `:after`/`:spawn`. Surfaced so a reentering
+                      ;; transition reads distinctly from its internal default.
+                      reenter?     (boolean (:reenter? e))
                       ;; A `:*` wildcard `:on` arm is a real transition
                       ;; but NOT a fireable event (Spec 005 §Wildcard).
                       ;; rf2-41goo — an `:on-done` completion edge carries
@@ -951,6 +958,7 @@
                    :from-active? from-active?
                    :self-loop? self-loop?
                    :internal? internal?
+                   :reenter?  reenter?
                    :cross-hier? cross-hier?
                    :in-points  in-points
                    :out-points out-points
@@ -963,7 +971,7 @@
         ;; `+ <action>` pill row.
         event-nodes
         (mapv (fn [{:keys [edge variant ev-node-id parent-id
-                           focused? fired? internal? event-id]}]
+                           focused? fired? internal? reenter? event-id]}]
                 (let [src (:source edge)
                       src-pos (get positions src {:x 0 :y 0})
                       ev-pos  (get positions ev-node-id
@@ -984,6 +992,10 @@
                                        :focused     focused?
                                        :fired       fired?
                                        :internal    internal?
+                                       ;; rf2-9dj21r — the external-restart
+                                       ;; axis surfaced to the event-node
+                                       ;; renderer (the `↻` reenter chip).
+                                       :reenter     reenter?
                                        :machineLevel (boolean (:machine-level? edge))
                                        ;; rf2-41goo — the XState `onDone`
                                        ;; completion edge (compound/parallel

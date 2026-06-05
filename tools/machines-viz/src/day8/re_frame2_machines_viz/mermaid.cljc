@@ -270,11 +270,33 @@
   (when-let [guard (:guard candidate)]
     (str " [" (sanitise-label guard) "]")))
 
+(defn- reenter?
+  "rf2-9dj21r — true when a transition candidate opts in to the EXTERNAL
+  restart axis (`:reenter? true`, Spec 005 §Self-transitions / XState v5).
+  A TARGETED transition is INTERNAL by default; only `:reenter? true` makes
+  a self / ancestor / compound-declared-descendant target external (re-run
+  `:exit`+`:entry`, restart the target's `:after` timers + `:spawn`
+  children). Without this distinction a `{:target :same-state}` transition
+  charts IDENTICALLY whether or not `:reenter? true` is set."
+  [candidate]
+  (and (map? candidate)
+       (true? (:reenter? candidate))))
+
+(defn- reenter-suffix
+  "rf2-9dj21r — a trailing `↻` marker on the Mermaid edge label for a
+  `:reenter? true` (external restart) transition, so it reads DISTINCTLY
+  from its internal-default counterpart (otherwise the two produce
+  byte-identical Mermaid)."
+  [candidate]
+  (when (reenter? candidate)
+    " ↻"))
+
 (defn- edge-label
   ([base candidate] (edge-label base candidate nil))
   ([base candidate suffix]
    (str (sanitise-label base)
         (guard-suffix candidate)
+        (reenter-suffix candidate)
         suffix)))
 
 (defn- collect-transition-edges
