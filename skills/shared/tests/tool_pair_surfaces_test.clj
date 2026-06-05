@@ -180,6 +180,77 @@
                "truth (rf2-eca6x.1).")))))
 
 ;; ---------------------------------------------------------------------------
+;; Lock — the leaf enumerates the FULL upstream-routing surface catalogue
+;; (rf2-985x1t)
+;; ---------------------------------------------------------------------------
+;;
+;; The independent correctness review (rf2-985x1t) found the leaf advertised
+;; only an abbreviated subset of the Tool-Pair surface families: it stopped
+;; at trace / registrar / epoch-restore / schema / source-coord / direct
+;; reads and OMITTED render-driving + dispatch-settle, view-plane reads /
+;; view attribution, the signal recorder, and the operating-frame trio —
+;; all of which the authoritative contract (spec/Tool-Pair.md) and the
+;; current re-frame2-pair-mcp catalogue ship. A retro finding about
+;; deterministic dispatch->settle->DOM, read-ui/read-dom provenance,
+;; human-interaction recording, or multi-frame operating-frame ambiguity
+;; could therefore be mislabeled as pair-tool friction and filed against
+;; the wrong layer. These tests pin the current catalogue tokens so a
+;; future re-narrowing of the leaf fails loudly here.
+
+(deftest render-driving-and-settle-enumerated
+  (testing "the leaf names render-driving via flush-render! and the dispatch :settle mode"
+    (let [body @surfaces-md]
+      (is (str/includes? body "flush-render!")
+          (str "tool-pair-surfaces.md no longer names `flush-render!` — the "
+               "render-driving framework primitive a headless "
+               "dispatch->observe-DOM loop needs to be deterministic "
+               "(spec/Tool-Pair.md §Driving the render, rf2-985x1t)."))
+      (is (contains-any? body [":settle" "dispatch settle" "dispatch-settle"
+                               "settle mode"])
+          (str "tool-pair-surfaces.md no longer names the dispatch `:settle` "
+               "surface that builds on `flush-render!` to return the settled "
+               "epoch in one call (rf2-985x1t).")))))
+
+(deftest view-plane-reads-enumerated
+  (testing "the leaf names the view-plane reads read-dom / read-ui and the data-rf-view attribution"
+    (let [body @surfaces-md]
+      (is (and (str/includes? body "read-dom")
+               (str/includes? body "read-ui"))
+          (str "tool-pair-surfaces.md no longer names the view-plane read "
+               "surfaces `read-dom` / `read-ui`. Without them a retro "
+               "finding about rendered-content provenance routes to the "
+               "wrong layer (spec/Tool-Pair.md §The view→content read, "
+               "re-frame2-pair-mcp/README.md, rf2-985x1t)."))
+      (is (str/includes? body "data-rf-view")
+          (str "tool-pair-surfaces.md no longer names the `data-rf-view` "
+               "view-id attribution attribute — the view↔DOM map the "
+               "view-plane reads ride (rf2-985x1t).")))))
+
+(deftest signal-recorder-triplet-enumerated
+  (testing "the leaf names the signal-recorder triplet record / read-recording / watch-until"
+    (let [body @surfaces-md]
+      (is (and (str/includes? body "record")
+               (str/includes? body "read-recording")
+               (str/includes? body "watch-until"))
+          (str "tool-pair-surfaces.md no longer names the signal-recorder "
+               "triplet (`record` / `read-recording` / `watch-until`) — the "
+               "canonical surface for intermittent / human-in-the-loop bugs "
+               "(re-frame2-pair-mcp/README.md, rf2-985x1t).")))))
+
+(deftest operating-frame-trio-enumerated
+  (testing "the leaf names the multi-frame operating-frame trio"
+    (let [body @surfaces-md]
+      (is (and (str/includes? body "set-operating-frame")
+               (str/includes? body "reset-operating-frame")
+               (str/includes? body "get-operating-frame"))
+          (str "tool-pair-surfaces.md no longer names the operating-frame "
+               "trio (`set-operating-frame` / `reset-operating-frame` / "
+               "`get-operating-frame`) required for multi-frame sessions. A "
+               "multi-frame `:ambiguous-frame` finding would route to the "
+               "wrong layer without it (spec/Tool-Pair.md §Operating frame, "
+               "rf2-985x1t).")))))
+
+;; ---------------------------------------------------------------------------
 ;; Run
 ;; ---------------------------------------------------------------------------
 
