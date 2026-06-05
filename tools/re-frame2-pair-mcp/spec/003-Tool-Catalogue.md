@@ -147,6 +147,40 @@ the fn erases the leaves it keyed on — `--allow-sensitive-reads OFF`
 strips records that carry the rollup regardless of what the fn
 did to the underlying slots.
 
+### Framework-default projection (the `:redact-fn`-independent backstop, rf2-8fin7.1)
+
+The app-installed `:redact-fn` is **optional** — an app that
+declared a slot `:sensitive?` in its app-db schema but installed
+no `:redact-fn` relies on the framework's own off-box projection,
+not the hook. For the pull-mode epoch tools the framework backstop
+is `re-frame.core/projected-record` (the single normative
+off-box-egress emission site, [Security §Epoch privacy
+posture](../../../spec/Security.md#epoch-privacy-posture--raw-in-process-records-vs-projected-egress)):
+each egressed record is routed through it server-side under the
+`--allow-sensitive-reads OFF` default, so a schema-declared
+sensitive **slot** sitting inside a **non-sensitive** epoch's
+`:db-before` / `:db-after` lands as `:rf/redacted` — even though
+the whole-epoch sensitivity rollup is false and the `:redact-fn`
+was never installed.
+
+`snapshot`'s `:epochs` slot is held to the SAME projection
+contract as `trace-window` / `watch-epochs` (rf2-6wvh5): every
+epoch record in the slice is mapped through `projected-record`
+server-side when the slice expands to `:full`, gated by the
+`:include-sensitive` two-key opt-in (the launch flag AND the
+per-call arg). Before rf2-8fin7.1 the `:epochs` slice was
+`:redact-fn`-only — the client-side sensitive scrub merely DROPS
+whole epochs stamped `:rf.epoch/sensitive? true` and never
+redacts a sensitive slot inside a non-sensitive epoch — so a
+`:redact-fn`-less app leaked the slot off-box under the OFF
+default. The projection closes that asymmetry; `snapshot :epochs`
+now carries the same fail-closed posture as the cursor-paged
+epoch tools.
+
+(`dispatch` trace mode's raw-epoch egress is tracked separately
+under rf2-8fin7.3, a pending decision — it is NOT covered by this
+projection backstop yet.)
+
 ## Universal: `:typicalTokens` on every tool descriptor
 
 Every MCP tool descriptor emitted by `tools/list` carries a

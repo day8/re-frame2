@@ -17,6 +17,7 @@
             [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.dedup :as dedup]
             [re-frame2-pair-mcp.tools.elision :as elision]
+            [re-frame2-pair-mcp.tools.epoch-egress :as egress]
             [re-frame2-pair-mcp.tools.raw-state :as raw-state]
             [re-frame2-pair-mcp.tools.reserved-frame-guard :as guard]))
 
@@ -83,6 +84,58 @@
         ;; MCP arg `elision` true = emit markers = `:include-large?` false,
         ;; hence the local `(not elision?)`.
         elision-opts-form (elision/elision-opts-edn (not elision?) incl?)
+        ;; rf2-8fin7.1 — the `:epochs` slice ships whole `:rf/epoch-record`s
+        ;; (each carrying `:db-before` / `:db-after` app-db snapshots),
+        ;; NOT bare app-db slices, so it MUST route through
+        ;; `re-frame.core/projected-record` — the framework's single
+        ;; normative off-box-egress emission site for epoch records — NOT
+        ;; the per-slot `elide-wire-value` walker that handles `:app-db` /
+        ;; `:sub-cache`. Before this fix the `:epochs` slice rode the wire
+        ;; verbatim: the client-side sensitive scrub only DROPS whole
+        ;; epochs stamped `:rf.epoch/sensitive? true`; it never redacts a
+        ;; schema-declared-sensitive SLOT (e.g. `[:auth :token]`) sitting
+        ;; inside a NON-sensitive epoch's `:db-before` / `:db-after`. So a
+        ;; sensitive slot leaked off-box under the default
+        ;; `--allow-sensitive-reads` OFF posture whenever the slice
+        ;; expanded to `:full`. The projection is gated by `incl?` (the
+        ;; sensitive opt-in), NOT by `elision?` (the large-slot toggle) —
+        ;; same posture trace-window / watch-epochs use (rf2-6wvh5). Gate
+        ;; OFF forces `incl?` false ⇒ `project-epochs?` true ⇒ every epoch
+        ;; record is projected; gate ON + `:include-sensitive true` ⇒
+        ;; records ship raw (the operator's deliberate opt-in).
+        project-epochs?   (not incl?)
+        ;; The whole `walked` reduction is needed when EITHER transform
+        ;; fires: `:app-db`/`:sub-cache` elision (`elision?`) OR `:epochs`
+        ;; projection (`project-epochs?`). When neither fires (gate ON +
+        ;; `:elision false` + `:include-sensitive true`) the snapshot
+        ;; passes through verbatim — the full raw-egress opt-in.
+        walk-snapshot?    (or elision? project-epochs?)
+        ;; Source fragment that applies the active per-slot transforms to
+        ;; one frame's slice map `fmap`. `elision?` wraps `:app-db` /
+        ;; `:sub-cache` through `elide-wire-value`; `project-epochs?` maps
+        ;; the `:epochs` vector through `projected-record`. Emitted as a
+        ;; threaded `let` so a frame can carry both transforms. The
+        ;; `opts` / `f` (`elide-wire-value`) bindings are emitted ONLY in
+        ;; the `elision?` branch — `:epochs` projection never touches the
+        ;; per-slot walker (`projected-record` carries its own elision),
+        ;; so a gate-ON `:elision false` read emits NO `elide-wire-value`
+        ;; (the `:raw-state/snapshot-opt-in-honours-elision-false`
+        ;; conformance contract) while still projecting `:epochs`.
+        slice-walk-src    (str "(let ["
+                               (if elision?
+                                 (str " opts (merge {:frame fid} " elision-opts-form ")"
+                                      " f    (fn [v] (re-frame.core/elide-wire-value v opts))"
+                                      " fmap (if (contains? fmap :app-db)"
+                                      "        (update fmap :app-db f) fmap)"
+                                      " fmap (if (contains? fmap :sub-cache)"
+                                      "        (update fmap :sub-cache f) fmap)")
+                                 "")
+                               (if project-epochs?
+                                 (str " fmap (if (contains? fmap :epochs)"
+                                      "        (update fmap :epochs"
+                                      "                (fn [es] " (egress/project-page-src "es" true) ")) fmap)")
+                                 "")
+                               "] fmap)")
         ;; rf2-3bu3d.6 — when the resolved scope is the DEFAULT `:app`
         ;; (reserved `:rf/*` tool frames excluded), piggyback the list of
         ;; tool frames that the scope dropped onto the same round-trip, so
@@ -95,7 +148,7 @@
         tool-frames-form (if (= :app frames)
                            "(filterv re-frame2-pair.runtime/reserved-tool-frame? (re-frame.core/frame-ids))"
                            "[]")
-        form     (if elision?
+        form     (if walk-snapshot?
                    (ef/emit
                      (ef/rt-let
                        ['snap (ef/rt-call 'snapshot-state opts)
@@ -103,13 +156,7 @@
                                   (str "(reduce-kv"
                                        " (fn [m fid fmap]"
                                        "   (if (map? fmap)"
-                                       "     (let [opts (merge {:frame fid} " elision-opts-form ")"
-                                       "           f    (fn [v] (re-frame.core/elide-wire-value v opts))"
-                                       "           fmap (if (contains? fmap :app-db)"
-                                       "                  (update fmap :app-db f) fmap)"
-                                       "           fmap (if (contains? fmap :sub-cache)"
-                                       "                  (update fmap :sub-cache f) fmap)]"
-                                       "       (assoc m fid fmap))"
+                                       "     (assoc m fid " slice-walk-src ")"
                                        "     (assoc m fid fmap)))"
                                        " {} snap)"))]
                        (ef/rt-raw

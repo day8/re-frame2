@@ -55,7 +55,10 @@
             [re-frame2-pair-mcp.tools.raw-state :as raw-state]
             [re-frame2-pair-mcp.tools.trace-window :as tw]
             [re-frame2-pair-mcp.tools.watch-epochs :as we]
-            [re-frame2-pair-mcp.tools.list-subscriptions :as ls]))
+            [re-frame2-pair-mcp.tools.list-subscriptions :as ls]
+            [re-frame2-pair-mcp.tools.snapshot :as snap]
+            [re-frame2-pair-mcp.tools.record :as record]
+            [re-frame2-pair-mcp.tools.watch-until :as watch-until]))
 
 ;; ---------------------------------------------------------------------------
 ;; Gate state is process-global (an atom in raw-state.cljs). Reset to the
@@ -63,7 +66,15 @@
 ;; ---------------------------------------------------------------------------
 
 (use-fixtures :each
-  {:after (fn [] (raw-state/set-allow-raw-state! false))})
+  {:before (fn []
+             ;; The signal-runtime! cache is process-global; clear it so a
+             ;; test's `configure-raw-state!` round-trip is never skipped by
+             ;; a prior test having already signalled the build (rf2-8fin7.2
+             ;; — snapshot / record / watch-until now issue signal-runtime!).
+             (raw-state/reset-runtime-signal-cache!))
+   :after  (fn []
+             (raw-state/set-allow-raw-state! false)
+             (raw-state/reset-runtime-signal-cache!))})
 
 ;; ---------------------------------------------------------------------------
 ;; Form-capturing stub. The probe form (substring `__re_frame2_pair_runtime`)
@@ -302,4 +313,183 @@
                        (is (= :rf/redacted (get-in epoch [:db-after :auth :password]))
                            "the redacted sentinel rides the wire — no raw secret")
                        (is (= :rf/redacted (get-in epoch [:db-before :auth :password])))
+                       (done)))))))))
+
+;; ===========================================================================
+;; rf2-8fin7.1 — snapshot :epochs slice raw :db-* egress
+;; ===========================================================================
+;;
+;; The snapshot eval form elided ONLY :app-db / :sub-cache; the :epochs
+;; slice rode raw. The client scrub merely DROPS whole sensitive epochs, so
+;; a schema-declared-sensitive SLOT inside a NON-sensitive epoch's
+;; :db-before / :db-after leaked off-box in :full mode under the gate-OFF
+;; default. The fix routes the :epochs slice through projected-record (the
+;; same projection trace-window / watch-epochs use), gated by the
+;; include-sensitive two-key opt-in — parity with rf2-6wvh5.
+
+;; The snapshot eval form returns {:value <snap> :elided-count N
+;; :tool-frames-excluded []}. The slice content is irrelevant to the
+;; form-contract assertions (we read the captured form, not the response);
+;; hand back an empty per-frame snap so the client pipeline resolves
+;; cleanly.
+(def ^:private snapshot-canned
+  {:value                 {:rf/default {:app-db {} :epochs []}}
+   :elided-count          0
+   :tool-frames-excluded  []})
+
+(deftest snapshot-epochs-gate-off-projects-records
+  (testing "gate OFF (default): the snapshot :epochs slice is mapped through projected-record"
+    (async done
+      (raw-state/set-allow-raw-state! false)
+      (let [forms (atom [])]
+        (-> (with-capture! forms snapshot-canned
+              ;; mode "full" expands the :epochs slice — the leak path.
+              (fn [] (snap/snapshot-tool nil (tu/args->js {:frames "[:rf/default]"
+                                                           :include "[:epochs]"
+                                                           :mode "full"}))))
+            (.then (fn [_]
+                     (let [form (slice-form forms)]
+                       (is (some? form) "the tool shipped a snapshot eval form")
+                       (is (str/includes? form "mapv re-frame.core/projected-record")
+                           "gate-off MUST route the :epochs slice through projected-record")
+                       (is (str/includes? form ":epochs")
+                           "the :epochs slot is the projection target")
+                       (done)))))))))
+
+(deftest snapshot-epochs-gate-on-include-sensitive-ships-raw
+  (testing "gate ON + include-sensitive true: NO :epochs projection — records ship raw (operator opted in)"
+    (async done
+      (raw-state/set-allow-raw-state! true)
+      (let [forms (atom [])]
+        (-> (with-capture! forms snapshot-canned
+              (fn [] (snap/snapshot-tool nil (tu/args->js {:frames "[:rf/default]"
+                                                           :include "[:epochs]"
+                                                           :mode "full"
+                                                           :include-sensitive true}))))
+            (.then (fn [_]
+                     (let [form (slice-form forms)]
+                       (is (not (str/includes? form "projected-record"))
+                           "gate-on + include-sensitive true bypasses :epochs projection — raw egress")
+                       (done)))))))))
+
+(deftest snapshot-epochs-gate-on-default-still-projects
+  (testing "gate ON but include-sensitive omitted (default false): :epochs STILL projected"
+    ;; Two-key opt-in: the launch flag alone does not flip the per-call
+    ;; default — a forgetful caller still gets redaction.
+    (async done
+      (raw-state/set-allow-raw-state! true)
+      (let [forms (atom [])]
+        (-> (with-capture! forms snapshot-canned
+              (fn [] (snap/snapshot-tool nil (tu/args->js {:frames "[:rf/default]"
+                                                           :include "[:epochs]"
+                                                           :mode "full"}))))
+            (.then (fn [_]
+                     (let [form (slice-form forms)]
+                       (is (str/includes? form "mapv re-frame.core/projected-record")
+                           "gate-on alone (no per-call opt-in) still projects :epochs — fail-safe default")
+                       (done)))))))))
+
+(deftest snapshot-epochs-projection-independent-of-elision-toggle
+  (testing "gate ON + elision false (no :app-db/:sub-cache walk) STILL projects :epochs"
+    ;; The :epochs projection is gated by include-sensitive (incl?), NOT by
+    ;; the :app-db/:sub-cache large-elision toggle (elision?). Turning
+    ;; elision off must not re-open the epoch leak.
+    (async done
+      (raw-state/set-allow-raw-state! true)
+      (let [forms (atom [])]
+        (-> (with-capture! forms snapshot-canned
+              (fn [] (snap/snapshot-tool nil (tu/args->js {:frames "[:rf/default]"
+                                                           :include "[:epochs]"
+                                                           :mode "full"
+                                                           :elision false}))))
+            (.then (fn [_]
+                     (let [form (slice-form forms)]
+                       (is (str/includes? form "mapv re-frame.core/projected-record")
+                           "elision false (incl? still false) MUST still project :epochs")
+                       (is (not (str/includes? form "re-frame.core/elide-wire-value"))
+                           "elision false means no :app-db/:sub-cache walk — only the epoch projection")
+                       (done)))))))))
+
+;; ===========================================================================
+;; rf2-8fin7.2 — record / watch-until raw :app-db & :sub signal egress
+;; ===========================================================================
+;;
+;; record (read back via read-recording) and watch-until sample {:app-db
+;; [path]} / {:sub [query-v]} signals and ship the SAMPLED VALUES back to
+;; the model. Before the fix neither routed the value through
+;; elide-wire-value / a raw-state gate, so a declared-sensitive slot leaked
+;; off-box under the gate-OFF default. The fix threads an elision-opts map
+;; (gate + per-call posture) into the runtime sampler via :elide-opts
+;; (record) / the 3rd sample-signals arg (watch-until), and issues
+;; signal-runtime! before sampling — parity with get-path / read-sub /
+;; snapshot.
+
+(def ^:private record-canned
+  {:ok? true :recording-id "rec-x" :signals [{:app-db [:auth :token]}]
+   :frame :rf/default :stop {:ms 30000}})
+
+(deftest record-gate-off-threads-elision-opts
+  (testing "gate OFF (default): start-recording! carries :elide-opts with include-sensitive? false"
+    (async done
+      (raw-state/set-allow-raw-state! false)
+      (let [forms (atom [])]
+        (-> (with-capture! forms record-canned
+              (fn [] (record/record-tool nil (tu/args->js {:signals "[{:app-db [:auth :token]}]"
+                                                           :stop "{:ms 1000}"}))))
+            (.then (fn [_]
+                     (let [form (slice-form forms)]
+                       (is (some? form) "the tool shipped a start-recording! form")
+                       (is (str/includes? form ":elide-opts")
+                           "gate-off MUST thread :elide-opts so the sampler redacts off-box egress")
+                       (is (str/includes? form ":rf.size/include-sensitive? false")
+                           "gate-off forces include-sensitive? false ⇒ sensitive samples redact")
+                       (done)))))))))
+
+(deftest record-gate-on-include-sensitive-passes-raw
+  (testing "gate ON + include-sensitive true: :elide-opts threads include-sensitive? true (raw samples)"
+    (async done
+      (raw-state/set-allow-raw-state! true)
+      (let [forms (atom [])]
+        (-> (with-capture! forms record-canned
+              (fn [] (record/record-tool nil (tu/args->js {:signals "[{:app-db [:auth :token]}]"
+                                                           :stop "{:ms 1000}"
+                                                           :include-sensitive true}))))
+            (.then (fn [_]
+                     (let [form (slice-form forms)]
+                       (is (str/includes? form ":rf.size/include-sensitive? true")
+                           "gate-on + include-sensitive true ⇒ declared-sensitive samples pass raw")
+                       (done)))))))))
+
+(deftest watch-until-gate-off-threads-elision-opts
+  (testing "gate OFF (default): the poll form threads elision-opts into sample-signals, include-sensitive? false"
+    (async done
+      (raw-state/set-allow-raw-state! false)
+      (let [forms (atom [])]
+        (-> (with-capture! forms {:held? true :sample {0 :rf/redacted} :t 1}
+              (fn [] (watch-until/watch-until-tool
+                       nil (tu/args->js {:signals "[{:app-db [:auth :token]}]"
+                                         :pred #js {:signal 0 :changed true}}))))
+            (.then (fn [_]
+                     (let [form (slice-form forms)]
+                       (is (some? form) "the tool shipped a poll form")
+                       (is (str/includes? form "re-frame2-pair.runtime/sample-signals")
+                           "the poll samples server-side")
+                       (is (str/includes? form ":rf.size/include-sensitive? false")
+                           "gate-off forces include-sensitive? false ⇒ sensitive :sample values redact")
+                       (done)))))))))
+
+(deftest watch-until-gate-on-include-sensitive-passes-raw
+  (testing "gate ON + include-sensitive true: the poll form threads include-sensitive? true (raw :sample)"
+    (async done
+      (raw-state/set-allow-raw-state! true)
+      (let [forms (atom [])]
+        (-> (with-capture! forms {:held? true :sample {0 "secret-xyz"} :t 1}
+              (fn [] (watch-until/watch-until-tool
+                       nil (tu/args->js {:signals "[{:app-db [:auth :token]}]"
+                                         :pred #js {:signal 0 :changed true}
+                                         :include-sensitive true}))))
+            (.then (fn [_]
+                     (let [form (slice-form forms)]
+                       (is (str/includes? form ":rf.size/include-sensitive? true")
+                           "gate-on + include-sensitive true ⇒ declared-sensitive :sample values pass raw")
                        (done)))))))))

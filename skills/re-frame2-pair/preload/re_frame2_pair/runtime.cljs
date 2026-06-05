@@ -3304,6 +3304,45 @@
   ;; 30 s is a generous "let me interact while you watch" window.
   30000)
 
+(defn- maybe-elide-sample
+  "Elide a sampled `:app-db` / `:sub` value for off-box egress (rf2-8fin7.2).
+
+   The signal recorder (`record` / `read-recording`) and the blocking watch
+   (`watch-until`) ship the sampled VALUES of `{:app-db [path]}` and
+   `{:sub [query-v]}` signals back to the model. Those values derive
+   straight from a live app's app-db — a declared-sensitive slot (or a sub
+   deriving from one) would cross the AI/off-box boundary RAW, exactly the
+   leak class `get-path` / `read-sub` / `snapshot` / `list-subscriptions`
+   already close via `re-frame.core/elide-wire-value`. This routes the
+   value through the SAME walker, server-side (app-side, where the
+   `[:rf/runtime :elision]` registry is reachable).
+
+   Gate posture mirrors `maybe-elide-for-tap` + the MCP read surfaces
+   (rf2-c2dtu):
+
+   - Gate OFF (`:allow-raw-state? false`, the published-build default the
+     MCP server signals via `configure-raw-state!`): the value is walked
+     with `:rf.size/include-sensitive? false` — declared-sensitive slots
+     land as `:rf/redacted`, declared-large slots as
+     `:rf.size/large-elided`. A hostile per-call opt-in cannot ship raw
+     when the operator did not pass `--allow-sensitive-reads`.
+   - Gate ON (`:allow-raw-state? true`): `elide-opts` carries the caller's
+     per-call posture. `:include-sensitive? true` (the operator's explicit
+     opt-in) passes declared-sensitive slots through verbatim; absent /
+     false still elides. `elide-opts` `nil` ⇒ gate-OFF-equivalent
+     fail-closed defaults so a bare REPL caller is never less safe than
+     the MCP path.
+
+   `frame-id` is supplied so the walker resolves the right per-frame
+   elision registry."
+  [v frame-id elide-opts]
+  (let [gate-on? (:allow-raw-state? @raw-state-config)
+        ;; Fail-closed: when the gate is OFF, force include-sensitive? false
+        ;; regardless of what the caller threaded — the launch flag wins.
+        opts     (cond-> (merge {:frame frame-id} elide-opts)
+                   (not gate-on?) (assoc :rf.size/include-sensitive? false))]
+    (rf/elide-wire-value v opts)))
+
 (defn- sample-one-signal
   "Read ONE signal's current value. Pure READ — never mutates. `signal`
    is a map naming exactly one observable; the recognised shapes:
@@ -3322,15 +3361,29 @@
    `frame-id` resolves the operating frame for :app-db / :sub signals.
    Returns the sampled value (any EDN-able shape) or nil. Errors degrade
    to `{:rf.recording/error <message>}` so one bad signal never collapses
-   the whole sampler tick."
-  [signal frame-id]
+   the whole sampler tick.
+
+   rf2-8fin7.2 — the value-bearing `:app-db` / `:sub` arms route the
+   sampled value through `maybe-elide-sample` (the off-box-egress walker)
+   so a declared-sensitive app-db slot (or a sub deriving from one) is
+   redacted before it crosses the MCP boundary, under the default
+   `--allow-sensitive-reads OFF` gate. `elide-opts` carries the caller's
+   per-call posture (gate-ON `:include-sensitive` opt-in); `nil` ⇒
+   fail-closed defaults. The `:dom` / `:focus` arms are DOM-text /
+   focus-descriptor reads (no app-db material), so they pass through
+   un-elided."
+  ([signal frame-id] (sample-one-signal signal frame-id nil))
+  ([signal frame-id elide-opts]
   (try
     (cond
       (contains? signal :app-db)
-      (get-in (rf/app-db-value frame-id) (vec (:app-db signal)))
+      (-> (get-in (rf/app-db-value frame-id) (vec (:app-db signal)))
+          (maybe-elide-sample frame-id elide-opts))
 
       (contains? signal :sub)
-      (when frame-id @(rf/subscribe frame-id (vec (:sub signal))))
+      (when frame-id
+        (-> @(rf/subscribe frame-id (vec (:sub signal)))
+            (maybe-elide-sample frame-id elide-opts)))
 
       (contains? signal :dom)
       (when-let [el (.querySelector js/document (:dom signal))]
@@ -3353,7 +3406,7 @@
       :else
       {:rf.recording/error "unrecognised signal shape — expected one of :app-db :sub :dom :focus"})
     (catch :default e
-      {:rf.recording/error (.-message e)})))
+      {:rf.recording/error (.-message e)}))))
 
 (defn sample-signals
   "One-shot read of a signal-set against the operating frame — the pure,
@@ -3363,13 +3416,20 @@
    `watch-until` op polls this server-side (like `tail-build`) so it can
    block on a predicate without installing a rAF loop. The keys of
    `:sample` are the signals' positional indices so the predicate can
-   address `(get sample 0)` regardless of signal shape."
-  ([signals] (sample-signals signals (current-frame)))
-  ([signals frame-id]
+   address `(get sample 0)` regardless of signal shape.
+
+   rf2-8fin7.2 — `elide-opts` (the optional 3rd arg) carries the off-box
+   egress posture for `:app-db` / `:sub` value sampling (gate-ON
+   `:include-sensitive` opt-in). `watch-until` threads it from the MCP
+   gate + per-call args; absent ⇒ fail-closed defaults via
+   `sample-one-signal`."
+  ([signals] (sample-signals signals (current-frame) nil))
+  ([signals frame-id] (sample-signals signals frame-id nil))
+  ([signals frame-id elide-opts]
    {:ok?    true
     :t      (js/Date.now)
     :sample (into {}
-                  (map-indexed (fn [i s] [i (sample-one-signal s frame-id)]))
+                  (map-indexed (fn [i s] [i (sample-one-signal s frame-id elide-opts)]))
                   (vec signals))}))
 
 (defn- recording-sampler-tick!
@@ -3383,9 +3443,14 @@
     (if (or (nil? rec) (not= :recording (:status rec)))
       false
       (let [{:keys [signals frame-id last-values frame-count started-at
-                    stop max-entries]} rec
+                    stop max-entries elide-opts]} rec
             now      (js/Date.now)
-            samples  (mapv #(sample-one-signal % frame-id) signals)
+            ;; rf2-8fin7.2 — each `:app-db` / `:sub` sample is elided for
+            ;; off-box egress before it lands in the change-log (which
+            ;; `read-recording` ships to the model). `elide-opts` carries
+            ;; the gate-ON `:include-sensitive` opt-in; absent ⇒ the
+            ;; runtime's fail-closed gate default.
+            samples  (mapv #(sample-one-signal % frame-id elide-opts) signals)
             ;; Per-signal change detection — structural `=` against the
             ;; last recorded value. The first tick records every signal
             ;; as a baseline (last-values starts empty for each index).
@@ -3472,13 +3537,20 @@
      :frame    operating frame for :app-db / :sub signals. Defaults to the
                session's operating frame.
      :max-entries  drop-oldest ring cap on the change-log (default 2000).
+     :elide-opts  (rf2-8fin7.2) off-box-egress walker opts threaded into
+                  every `:app-db` / `:sub` sample so a declared-sensitive
+                  slot is redacted before it lands in the change-log
+                  `read-recording` ships to the model. The MCP `record`
+                  tool passes the gate + per-call `:include-sensitive`
+                  posture here; absent ⇒ the runtime's fail-closed gate
+                  default (redact under `--allow-sensitive-reads OFF`).
 
    Refuses with `{:ok? false :reason :no-signals}` when `signals` is
    empty, and `{:ok? false :reason :ambiguous-frame}` when an :app-db /
    :sub signal is present but no frame can be resolved (multi-frame
    session, no selection) — read ops must not silently fall back to
    :rf/default."
-  [{:keys [signals stop frame max-entries]}]
+  [{:keys [signals stop frame max-entries elide-opts]}]
   (let [signals  (vec signals)
         needs-frame? (some #(or (contains? % :app-db) (contains? % :sub)) signals)
         frame-id (current-frame frame)]
@@ -3504,6 +3576,10 @@
                   :frame-id    frame-id
                   :stop        stop'
                   :max-entries (or max-entries default-recording-max-entries)
+                  ;; rf2-8fin7.2 — carried through each tick so `:app-db` /
+                  ;; `:sub` samples are elided for off-box egress before
+                  ;; landing in the change-log.
+                  :elide-opts  elide-opts
                   :status      :recording
                   :entries     []
                   :last-values {}
