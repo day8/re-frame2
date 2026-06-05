@@ -1,5 +1,5 @@
-(ns re-frame.story.recorder.dom-capture-cljs-test
-  "CLJS-only tests for the recorder's DOM-event capture layer
+(ns re-frame.story.recorder.dom-capture-dom-cljs-test
+  "DOM-gated tests for the recorder's DOM-event capture layer
   (rf2-d5u89). Exercises:
 
   - Selector picking via real DOM nodes.
@@ -9,21 +9,26 @@
   - Type debounce — rapid input + change yields a single :dom/type
     entry with the final value.
   - Form submit captures `[:dom/submit ...]`.
+  - Sensitive-input redaction on the DOM capture rail.
 
   The corpus mounts a transient DOM root inside the test document
   (`document.body`) for each test, installs the capture listeners
   on it, drives synthetic events, and tears the root down on each
   fixture exit.
 
-  ## Runtime gating
+  ## Runtime gating (rf2-jmfvc)
 
-  shadow-cljs's `:node-test` build picks up every `*_cljs_test.cljs`
-  under the classpath. Node doesn't carry a `js/document`, so every
-  deftest body below short-circuits via `dom-available?` when run
-  on node-test. Each test ships its real assertions only under the
-  `:browser-test` runner. The shared ns-regexp tier means the file
-  IS picked up under both; the gate keeps node-test green without
-  any per-test rename/exclude dance."
+  This ns is suffixed `-dom-cljs-test` (file `*_dom_cljs_test.cljs`)
+  so it matches the `:browser-test` build's `-dom-cljs-test$`
+  ns-regexp and ACTUALLY RUNS against a real DOM — the only gate
+  where the DOM bodies below execute. It was previously named
+  `-cljs-test`: under `:node-test` (`cljs-test$`) its bodies
+  short-circuit via `dom-available?` (no `js/document` on node), and
+  it never matched the `:browser-test` gate, so its ~25 assertions
+  ran in NO gate (latent false-green). The `-dom-cljs-test` suffix
+  fixes that — `:node-test`'s `cljs-test$` regex still matches it
+  too (bodies stay green-by-short-circuit on node), and
+  `:browser-test` now picks it up and runs the real assertions."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.story.config :as config]
             [re-frame.story.recorder :as recorder]

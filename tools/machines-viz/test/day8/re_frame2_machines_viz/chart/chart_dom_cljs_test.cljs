@@ -520,6 +520,39 @@
             (is (= "2" (.getAttribute panel "data-key-count"))
                 "the panel reports both declared context keys")))))))
 
+(deftest chart-context-panel-shows-inferred-badge-by-default
+  (testing "rf2-5tz9p — the root Context panel carries an 'inferred from
+            :data' badge by default, marking its key→type-caption contents
+            as an INFERRED shape (the sole production feeder), not a
+            declared schema and not the live runtime :data."
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises this")
+      (with-mounted-chart
+        {:machine-id :test/ctx :definition machine-level-on-machine
+         :machine-data {:hits "number" :seen "vector"}}
+        (fn [_root node]
+          (let [badge (.querySelector node
+                        "[data-testid$=\"-machine-data-inferred-badge\"]")]
+            (is (some? badge) "the inferred-from-:data badge mounted")
+            (is (= "inferred from :data" (.-textContent badge))
+                "the badge reads 'inferred from :data'")))))))
+
+(deftest chart-context-panel-suppresses-inferred-badge-when-live
+  (testing "rf2-5tz9p — a host feeding LIVE :data values passes
+            `:machine-data-inferred? false`; the inferred badge is then
+            omitted (the panel still renders the values)."
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises this")
+      (with-mounted-chart
+        {:machine-id :test/ctx :definition machine-level-on-machine
+         :machine-data {:hits 3 :seen [:a :b]}
+         :machine-data-inferred? false}
+        (fn [_root node]
+          (is (some? (.querySelector node "[data-testid$=\"-machine-data-panel\"]"))
+              "the Context panel still renders for live values")
+          (is (nil? (.querySelector node "[data-testid$=\"-machine-data-inferred-badge\"]"))
+              "no inferred badge when machine-data-inferred? is false"))))))
+
 ;; ---- empty / nil definition placeholders --------------------------------
 
 (deftest chart-renders-no-definition-placeholder

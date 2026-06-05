@@ -29,9 +29,12 @@ other clone and every Mac/Linux maintainer (rf2-5dphw).
   tool-relative testbed subdir the caller passes (e.g.
   `"tools/xray/testbeds"`). A `?project-root=<path>` query string wins
   as a per-session escape hatch (CI, a reader on another machine, a
-  copied bundle). When neither is present it returns `nil`, and the
-  testbed configures no root — "open in editor" degrades to a graceful
-  no-op rather than a broken link.
+  copied bundle). The path is used **verbatim** — paste it unencoded,
+  including a literal `+` (e.g. `?project-root=/home/dev/re-frame2+wip`);
+  the parser decodes percent-escapes but preserves `+` rather than
+  mapping it to a space (rf2-xdsat.1). When neither tier is present it
+  returns `nil`, and the testbed configures no root — "open in editor"
+  degrades to a graceful no-op rather than a broken link.
 
 ## The Story host harness (`story-host`)
 

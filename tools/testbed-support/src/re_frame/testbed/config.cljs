@@ -62,6 +62,14 @@
   [s]
   (when (and (string? s) (seq (str/trim s))) s))
 
+(defn- decode-component
+  "`decodeURIComponent` the value, returning the raw value unchanged if it
+  carries a malformed percent-escape (which would otherwise throw)."
+  [v]
+  (try
+    (js/decodeURIComponent v)
+    (catch :default _ v)))
+
 (defn- query-param-from-search
   "Pure parser for the per-session override knob: given a URL query string
   `search` (the `?a=b&c=d` form, as produced by `location.search`) and a
@@ -69,17 +77,28 @@
   non-blank — or nil when the param is absent, blank, or the search string
   itself is blank/nil.
 
-  `js/URLSearchParams` is a host global (present in browsers AND in Node),
-  so this fn carries no `js/window` dependency and is fully exercisable
-  off-browser. It is the testable heart of the override contract: param
-  selection, URL-decoding (`%2F` → `/`), trimming, and the blank-falls-
-  through rule all live here. The only genuinely browser-bound step — reading
+  Decoding semantics (rf2-xdsat.1): a literal `+` in the value is preserved
+  VERBATIM, NOT decoded to a space. The override names an on-disk path used
+  verbatim as tier 1, so a checkout at e.g. `/home/dev/re-frame2+wip` must
+  round-trip through `?project-root=/home/dev/re-frame2+wip`. We therefore
+  split the query string manually and decode each component with
+  `js/decodeURIComponent` (which does NOT map `+` → space) rather than
+  `js/URLSearchParams` (form-urlencoded: `+` → space, silent path
+  corruption). Percent-escapes still decode (`%2F` → `/`, `%20` → space,
+  `%2B` → `+`). This fn carries no `js/window` dependency and is fully
+  exercisable off-browser; the only genuinely browser-bound step — reading
   `location.search` off the live document — is isolated in `query-param`."
   [search param-name]
   (when-let [s (non-blank search)]
-    (let [params (js/URLSearchParams. s)]
-      (when-let [raw (non-blank (.get params param-name))]
-        (str/trim raw)))))
+    (let [s (cond-> s (str/starts-with? s "?") (subs 1))]
+      (some (fn [pair]
+              (let [eq  (str/index-of pair "=")
+                    k   (decode-component (if eq (subs pair 0 eq) pair))]
+                (when (= k param-name)
+                  (when-let [raw (non-blank (decode-component
+                                             (if eq (subs pair (inc eq)) "")))]
+                    (str/trim raw)))))
+            (str/split s #"&")))))
 
 (defn- query-param
   "Return the named URL query param as a trimmed non-blank string, or nil
@@ -110,7 +129,9 @@
   Resolution order:
 
     1. `?project-root=<path>` query string — the per-session escape
-       hatch. Wins over everything; used verbatim. (CI, a reader on a
+       hatch. Wins over everything; used verbatim — paste the path
+       unencoded, a literal `+` included (it is preserved, NOT decoded
+       to a space; see `query-param-from-search`). (CI, a reader on a
        different machine, a copied bundle served elsewhere.)
     2. The build-time `repo-root` goog-define joined with `subdir` —
        the default for a normal `npm run dev ...` launch.

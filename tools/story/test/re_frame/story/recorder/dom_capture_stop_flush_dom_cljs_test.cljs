@@ -2,14 +2,13 @@
   "Browser-gated DOM coverage for the recorder type-debounce STOP/DRAIN
   boundary (rf2-eztym.3).
 
-  The sibling `dom-capture-cljs-test` carries the in-session debounce
-  coverage but is named `*-cljs-test` — so under `:node-test` its bodies
-  short-circuit (`dom-available?` false, no `js/document`) and under
-  `:browser-test` its ns does NOT match the `-dom-cljs-test$` regex, so its
-  DOM assertions never actually execute. This file uses the `-dom-cljs-test`
-  suffix so the regressions below run in the `:browser-test` gate against a
-  real DOM, which is the only place the bug they pin (a flush firing AFTER
-  `:recording?` is cleared) is observable.
+  The sibling `dom-capture-dom-cljs-test` carries the in-session debounce
+  coverage. Both files use the `-dom-cljs-test` suffix so they run in the
+  `:browser-test` gate (`-dom-cljs-test$` regex) against a real DOM — the
+  only place the DOM assertions, and the bug these pin (a flush firing
+  AFTER `:recording?` is cleared), are observable. (The sibling was
+  previously misnamed `-cljs-test`, so its DOM assertions ran in NO gate;
+  fixed under rf2-jmfvc.)
 
   THE BUG (rf2-eztym.3): a typed `:dom/type` entry is buffered with a
   debounce timer. `flush-type-buffer!` previously routed through

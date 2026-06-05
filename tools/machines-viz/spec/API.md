@@ -69,6 +69,8 @@ registry).
 | `:show-background?` | no | `true` | When `true`, render xyflow's dot-pattern Background. |
 | `:fit-signal` | no | `nil` | rf2-6tw7t. Opaque value (any `=`-comparable nonce). When its value **changes** between renders the chart re-fits the viewport to frame the whole topology — **orthogonal** to the layout-key auto-fit. Hosts bump it on **panel-entry / tab-activation** so re-entering a panel re-frames the graph rather than restoring a stale (possibly off-screen) zoom/pan. A **steady** signal across ordinary re-renders is a no-op, so the operator's manual zoom/pan still survives non-entry re-renders. See [§Fit-on-entry signal](#fit-on-entry-signal-rf2-6tw7t). |
 | `:overlays` | no | `nil` | rf2-7w4qr. A **vector of host-fed overlay descriptor maps**, each keyed on `:id`. The single slot through which hosts compose the host-fed, spec+tick+callbacks overlay family (after-rings / spawn-all-join / cancellation-cascade) — collapses the former flat per-overlay props so a new overlay adds **one descriptor variant**, not 3–5 trunk props. The chart dispatches each descriptor to its already-modular rendering namespace by `:id` (`chart.cljs/render-overlay`); the renderers are unchanged. A per-descriptor `:tick` unifies the former `:after-ring-tick` + `:overlay-tick` (one rAF clock per chart stays host-owned — Lock #8 — just delivered per-overlay). A descriptor whose `:id` is outside the recognised set is **ignored** (a host data error, not a runtime fallback; dev builds emit a `js/console.warn`). Non-map entries are skipped. `nil` / `[]` → no overlays. See [§`:overlays` slot descriptor schema](#overlays-slot-descriptor-schema-rf2-7w4qr) for the multispec. |
+| `:machine-data` | no | `nil` | rf2-qo5xy. CLJS map fed into the root Context panel (top-left). Host projection: either live `:data` (key→value) or — the sole production feeder today — the **static inferred shape** (key→type-caption, via Xray's `static-context-shape`). `nil` / empty → no panel. See [§Context corner panel](#context-corner-panel-rf2-qo5xy). |
+| `:machine-data-inferred?` | no | `true` | rf2-5tz9p. When `true` the Context panel shows a subtle `inferred from :data` badge marking its contents as a type shape **inferred** from one sample of the definition's `:data` — **not** a declared schema and **not** the live runtime `:data`. Set `false` when the host feeds live `:data` **values**. Ignored when no panel renders. See [§Context corner panel](#context-corner-panel-rf2-qo5xy). |
 | `:testid` | no | `"rf-mv-chart"` | Root wrapper `data-testid` so tests + hosts can find the chart. |
 
 ### `:overlays` slot descriptor schema (rf2-7w4qr)
@@ -451,6 +453,18 @@ Two host projections feed it:
   `{:opened-count "number" :trail "vector"}`). This satisfies the
   rf2-vcnvj acceptance "root title/context chrome at the top when
   context shape is available" without a live runtime read.
+
+**Inferred-shape label** (rf2-5tz9p) — the static-shape projection is
+the **sole production feeder** of this panel today, and a type shape
+derived from one sample of the initial `:data` is **not** a declared
+schema (and can mislead when the initial `:data` is partial or
+unrepresentative). The chart therefore paints a subtle italic
+`inferred from :data` badge beside the **Context** header
+(`<testid>-machine-data-inferred-badge`), gated by the optional
+`:machine-data-inferred?` prop (**default `true`**). A host that feeds
+**live `:data` values** instead passes `:machine-data-inferred? false`
+to drop the badge. The badge distinguishes the panel from (a) the live
+`:data` overlay and (b) a real declared schema.
 
 #### Legacy paradigm sections below
 
