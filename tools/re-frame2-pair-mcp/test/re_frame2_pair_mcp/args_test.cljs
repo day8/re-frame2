@@ -203,3 +203,48 @@
   (is (= [:err :invalid-filter-edn]
          (args/parse-filter-arg "(((")) ;; unbalanced delimiters
       "unparseable filter EDN → honest :err tag, not a nonsense map"))
+
+;; ---------------------------------------------------------------------------
+;; parse-timeout-arg — positive-millisecond deadline knobs (rf2-wz66k7).
+;;
+;; `tail-build :wait-ms` and `eval-cljs` / `dispatch :await-render`
+;; `:timeout-ms` thread their value straight into an `(>= elapsed
+;; deadline)` poll comparison. A non-numeric value made `(>= n NaN)`
+;; never true ⇒ unbounded background polling; a zero / negative value
+;; timed out immediately. These deadlines must be POSITIVE-ms integers
+;; (>= 1); 0 is NOT an unbounded sentinel here (unlike subscribe max-ms).
+;; ---------------------------------------------------------------------------
+
+(deftest parse-timeout-arg-absent-is-ok-nil
+  (is (= [:ok nil] (args/parse-timeout-arg "wait-ms" nil))
+      "absent ⇒ caller falls back to the documented default"))
+
+(deftest parse-timeout-arg-accepts-positive-integer
+  (is (= [:ok 5000] (args/parse-timeout-arg "timeout-ms" 5000)))
+  (is (= [:ok 1]    (args/parse-timeout-arg "wait-ms" 1))))
+
+(deftest parse-timeout-arg-accepts-numeric-string
+  (is (= [:ok 250] (args/parse-timeout-arg "timeout-ms" "250"))
+      "MCP hosts sometimes stringify numbers"))
+
+(deftest parse-timeout-arg-rejects-non-numeric
+  ;; THE Finding-2 regression: "never" / "bogus" must NOT slip through as
+  ;; a deadline that makes `(>= elapsed NaN)` never true (unbounded poll).
+  (let [[tag env] (args/parse-timeout-arg "wait-ms" "never")]
+    (is (= :err tag) "a non-numeric deadline is rejected, not threaded raw")
+    (is (= :invalid-numeric-arg (:reason env)))
+    (is (= "wait-ms" (:arg env)))
+    (is (= "never" (:given env))))
+  (let [[tag _] (args/parse-timeout-arg "timeout-ms" "bogus")]
+    (is (= :err tag))))
+
+(deftest parse-timeout-arg-rejects-zero-and-negative
+  (let [[tag-z _] (args/parse-timeout-arg "wait-ms" 0)
+        [tag-n env] (args/parse-timeout-arg "timeout-ms" -100)]
+    (is (= :err tag-z) "zero is not a meaningful wait/await deadline")
+    (is (= :err tag-n) "a negative deadline would time out immediately / negative setTimeout")
+    (is (re-find #"positive integer" (:hint env)))))
+
+(deftest parse-timeout-arg-rejects-fractional
+  (let [[tag _] (args/parse-timeout-arg "timeout-ms" 12.5)]
+    (is (= :err tag) "a fractional millisecond is not a valid integer deadline")))

@@ -386,36 +386,66 @@
 (defn- handle-list [_req]
   (js/Promise.resolve #js {:tools (tools/tool-descriptors-js)}))
 
+(declare handle-call*)
+
 (defn- handle-call [launch-flags req extra]
   (let [params (j/get req :params)
         name   (j/get params :name)
         args   (or (j/get params :arguments) #js {})]
-    (-> (ensure-connection! launch-flags)
-        (.then (fn [conn]
-                 (-> (tools/invoke conn name args extra)
-                     (.catch (fn [err]
-                               (log! "handler threw for" name "—" (.-message err))
-                               (let [payload {:ok?     false
-                                              :reason  :handler-threw
-                                              :message (.-message err)}]
-                                 #js {:isError          true
-                                      :content          #js [#js {:type "text"
-                                                                  :text (pr-str payload)}]
-                                      :structuredContent (clj->js payload)}))))))
-        (.catch
-          (fn [err]
-            ;; Discovery failed — surface a structured tool-call error.
-            (let [data    (or (ex-data err) {})
-                  payload {:ok?    false
-                           :reason (or (:rf.error/id data) :nrepl-port-not-found)
-                           :hint   (or (:hint data) port-not-found-hint)}
-                  payload (if-let [cs (:candidates data)]
-                            (assoc payload :candidates cs)
-                            payload)]
-              #js {:isError          true
-                   :content          #js [#js {:type "text"
-                                               :text (pr-str payload)}]
-                   :structuredContent (clj->js payload)}))))))
+    (if-let [refusal (writes/refuse-pre-connection name)]
+      ;; rf2-wz66k7 — a gated write tool (restore-epoch / reset-frame-db)
+      ;; with `--allow-writes` OFF is refused HERE, before `ensure-
+      ;; connection!`. Otherwise a stock install with no nREPL port returns
+      ;; a misleading `:nrepl-port-not-found` (or runs discovery /
+      ;; elicitation) for a request that should be refused locally — the
+      ;; default-safe write posture would be observably false at the real
+      ;; MCP boundary. The tool body's own gate stays as defence in depth.
+      (js/Promise.resolve refusal)
+      (handle-call* launch-flags name args extra))))
+
+(defn handle-call-for-tests
+  "Test seam onto the private `handle-call` (rf2-wz66k7). Lets the
+  server-boundary test drive a `tools/call` request through the SAME
+  pre-dispatch path the SDK invokes — proving a disabled write tool is
+  refused with `:rf.error/writes-disabled` BEFORE `ensure-connection!`
+  (no discovery, no `:nrepl-port-not-found`). Builds the `req` shape the
+  SDK hands `handle-call`."
+  [launch-flags tool-name args extra]
+  (handle-call launch-flags
+               #js {:params #js {:name tool-name :arguments args}}
+               extra))
+
+(defn- handle-call*
+  "Normal tool-dispatch path: ensure the nREPL connection, then route to
+  the tool dispatcher. Reached for every tool EXCEPT a gated write
+  refused at the pre-connection boundary (rf2-wz66k7)."
+  [launch-flags name args extra]
+  (-> (ensure-connection! launch-flags)
+      (.then (fn [conn]
+               (-> (tools/invoke conn name args extra)
+                   (.catch (fn [err]
+                             (log! "handler threw for" name "—" (.-message err))
+                             (let [payload {:ok?     false
+                                            :reason  :handler-threw
+                                            :message (.-message err)}]
+                               #js {:isError          true
+                                    :content          #js [#js {:type "text"
+                                                                :text (pr-str payload)}]
+                                    :structuredContent (clj->js payload)}))))))
+      (.catch
+        (fn [err]
+          ;; Discovery failed — surface a structured tool-call error.
+          (let [data    (or (ex-data err) {})
+                payload {:ok?    false
+                         :reason (or (:rf.error/id data) :nrepl-port-not-found)
+                         :hint   (or (:hint data) port-not-found-hint)}
+                payload (if-let [cs (:candidates data)]
+                          (assoc payload :candidates cs)
+                          payload)]
+            #js {:isError          true
+                 :content          #js [#js {:type "text"
+                                             :text (pr-str payload)}]
+                 :structuredContent (clj->js payload)})))))
 
 ;; ---------------------------------------------------------------------------
 ;; Server boot.

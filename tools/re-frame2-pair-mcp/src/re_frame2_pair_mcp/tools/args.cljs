@@ -420,6 +420,49 @@
         [:ok n]
         (err-int arg-name raw "a non-negative integer (>= 0; 0 = unbounded)")))))
 
+;; ---------------------------------------------------------------------------
+;; Timeout / wait millisecond args (rf2-wz66k7).
+;;
+;; Three NON-streaming tools thread a millisecond deadline straight from
+;; the MCP args into an `(>= elapsed deadline)` poll comparison with NO
+;; coercion or lower-bound check:
+;;
+;;   - `tail-build`  → `:wait-ms`   (probe-change poll loop);
+;;   - `eval-cljs :await` / `dispatch :await-render` → `:timeout-ms`
+;;     (both thread into `await-promise/poll-mailbox!`'s
+;;     `(>= elapsed timeout-ms)`).
+;;
+;; A non-numeric value (`"never"`) makes the elapsed comparison
+;; (`(>= number NaN)`) NEVER true, so a stuck probe / pending mailbox
+;; polls FOREVER — unbounded background nREPL traffic, the exact failure
+;; the timeout knob exists to prevent. A zero / negative value times out
+;; immediately (or, for `tail-build`, schedules a negative `setTimeout`
+;; delay). These deadlines must be POSITIVE millisecond integers (>= 1);
+;; 0 is not a meaningful "wait/await for no time" sentinel here (unlike
+;; subscribe's `max-ms`, where 0 means UNBOUNDED — the opposite polarity).
+;; So this reuses the POSITIVE-int contract, not the non-negative one.
+;;
+;; Returns the same tagged `[:ok n|nil]` / `[:err {…}]` shape as the
+;; subscribe validators so each tool short-circuits a bad value to an
+;; honest `:ok? false` / isError envelope (the masterpiece-CORRECTNESS
+;; posture: an unbounded-poll arg is an agent error worth telling the
+;; agent about, not a value to silently paper over). An ABSENT arg is
+;; `[:ok nil]` — the caller falls back to its documented default.
+
+(defn parse-timeout-arg
+  "Validate an OPTIONAL positive-millisecond MCP timeout/wait arg value
+  (rf2-wz66k7). A thin alias over `parse-positive-int-arg` — the
+  millisecond deadline knobs (`tail-build :wait-ms`, `eval-cljs` /
+  `dispatch` `:timeout-ms`) share the positive-integer contract (>= 1).
+  Named distinctly so the call sites read as a timeout check and a future
+  divergence in the timeout contract lands here, not on the shared
+  positive-int helper. Returns `[:ok nil]` when absent, `[:ok n]` for an
+  integer `>= 1`, and `[:err {…}]` (`:reason :invalid-numeric-arg`) for a
+  zero / negative / fractional / non-numeric value — the value that would
+  otherwise spin or collapse the poll loop."
+  [arg-name raw]
+  (parse-positive-int-arg arg-name raw))
+
 (defn parse-filter-arg
   "MCP-side filter arg can be either a JS object or an EDN string. We
   accept both for ergonomic parity with the bash-shim chain (`pred`

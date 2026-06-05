@@ -45,6 +45,7 @@
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.eval-form :as ef]
             [re-frame2-pair-mcp.tools.wire :as wire]
+            [re-frame2-pair-mcp.tools.cap :as cap]
             [re-frame2-pair-mcp.tools.probe :as probe]
             [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.dedup :as dedup]
@@ -201,17 +202,24 @@
   The split keeps the wire shape congruent with `(rf/trace-buffer
   frame-id)` for cascade-bundle topics — one tick = one cascade's
   traces as a unit. The `:cascade?` flag on `tick-state` carries the
-  topic-shape signal."
-  [{:keys [send-note progress-tk sub-id]} dedup? tick-state]
+  topic-shape signal.
+
+  rf2-wz66k7 — the serialised `:message` EDN runs through
+  `cap/cap-message` BEFORE it crosses the notification wire, applying the
+  SAME per-notification token budget (and `:rf.mcp/overflow` overflow
+  marker) the `tools/call` result path enforces. Without this, a single
+  busy trace/epoch drain could ship a multi-megabyte progress message
+  even though ordinary results are capped — busting the per-notification
+  budget the spec pins (`Principles.md` §Streaming over batch /
+  §Subscribe streaming). The drop counts on `_meta.data` are tiny scalars
+  and ride uncapped; only the payload-bearing `:message` is gated. `cap`
+  is the resolved per-call `max-tokens` budget (`nil` ⇒ caller disabled
+  the cap via `max-tokens 0`)."
+  [{:keys [send-note progress-tk sub-id cap]} dedup? tick-state]
   (let [{:keys [tick cascade? dedup-events ev-dropped by-dropped
                 ov-reason dropped tick-elided]} tick-state
-        payload-slot (if cascade? :cascades :events)]
-    (try
-      (send-note
-        #js {:method "notifications/progress"
-             :params (progress-payload
-                       progress-tk
-                       tick
+        payload-slot (if cascade? :cascades :events)
+        message      (cap/cap-message
                        (pr-str (wire/with-indicators
                                  (cond-> {:sub-id         sub-id
                                           payload-slot    dedup-events
@@ -221,6 +229,14 @@
                                    ov-reason
                                    (assoc :overflow-reason ov-reason))
                                  {:dropped dropped :elided tick-elided}))
+                       {:tool "subscribe" :cap cap})]
+    (try
+      (send-note
+        #js {:method "notifications/progress"
+             :params (progress-payload
+                       progress-tk
+                       tick
+                       message
                        ev-dropped
                        by-dropped
                        ov-reason)})
@@ -331,7 +347,7 @@
   ordering (a denied cycle MUST NOT call the destructive drain)."
   [{:keys [conn build-id sub-id topic resolve state
            signal send-note progress-tk poll-ms max-events
-           incl? elision? dedup?]}]
+           incl? elision? dedup? cap]}]
   (let [drain-src    (drain-form sub-id elision? incl?)
         terminated?  (atom false)
         terminate
@@ -427,7 +443,8 @@
                           (emit-progress-tick!
                             {:send-note   send-note
                              :progress-tk progress-tk
-                             :sub-id      sub-id}
+                             :sub-id      sub-id
+                             :cap         cap}
                             dedup?
                             {:tick         (:tick s')
                              :cascade?     cascade?
@@ -467,7 +484,7 @@
   point need explicit release."
   [{:keys [conn raw-args topic build-id filter-map max-buf-events
            max-buf-bytes poll-ms max-ms max-events
-           incl? elision? dedup? signal send-note progress-tk]}]
+           incl? elision? dedup? cap signal send-note progress-tk]}]
   (let [subscribe-form
         (ef/emit
           (ef/rt-call 'subscribe!
@@ -497,7 +514,8 @@
                              :signal      signal      :send-note   send-note
                              :progress-tk progress-tk :poll-ms     poll-ms
                              :max-events  max-events  :incl?       incl?
-                             :elision?    elision?    :dedup?      dedup?})]
+                             :elision?    elision?    :dedup?      dedup?
+                             :cap         cap})]
                       (when (pos? max-ms)
                         (js/setTimeout #(terminate :max-ms-reached) max-ms))
                       (poll))))))))
@@ -562,6 +580,16 @@
                              (args/parse-bool-arg raw-args :elision)
                              true)
         dedup?             (args/parse-bool-arg raw-args :dedup)
+        ;; rf2-wz66k7 — the per-call wire-cap budget for the streamed
+        ;; progress notifications. The `invoke` chokepoint (tools.cljs)
+        ;; already validates `max-tokens` and short-circuits a NEGATIVE /
+        ;; fractional value to an isError BEFORE this tool runs, so the
+        ;; arg here is always a valid integer cap, `nil` (caller disabled
+        ;; via `max-tokens 0`), or the default. `cap/max-tokens-arg` is
+        ;; the same resolver the result path uses, so the progress channel
+        ;; honours the SAME per-call budget override as `tools/call`
+        ;; results — one `max-tokens` knob governs both surfaces.
+        cap                (cap/max-tokens-arg raw-args)
         {:keys [signal send-note progress-tk]} (parse-mcp-extra extra)]
     (cond
       (or (nil? topic)
@@ -602,5 +630,5 @@
              :filter-map filter-map
              :max-buf-events max-buf-events :max-buf-bytes max-buf-bytes
              :poll-ms poll-ms :max-ms max-ms :max-events max-events
-             :incl? incl? :elision? elision? :dedup? dedup?
+             :incl? incl? :elision? elision? :dedup? dedup? :cap cap
              :signal signal :send-note send-note :progress-tk progress-tk}))))))

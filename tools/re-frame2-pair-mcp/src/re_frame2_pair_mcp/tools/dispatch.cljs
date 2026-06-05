@@ -306,7 +306,15 @@
         ;; — no Promise / mailbox), so it wins over every other mode flag.
         settle?      (boolean (wire/arg args :settle))
         await-render? (boolean (and (wire/arg args :await-render) (not settle?)))
-        timeout-ms   (or (wire/arg args :timeout-ms) await-promise/default-timeout-ms)
+        ;; rf2-wz66k7 — validate `:timeout-ms` as a positive-millisecond
+        ;; integer BEFORE it threads into `await-promise/poll-mailbox!`'s
+        ;; `(>= elapsed timeout-ms)` deadline (the `:await-render` path).
+        ;; A non-numeric value (`"never"`) makes `(>= n NaN)` never true ⇒
+        ;; the render-settle mailbox poll loop runs FOREVER; a zero /
+        ;; negative value times out immediately. Absent ⇒ the documented
+        ;; default. Bad value short-circuits to an honest isError below.
+        timeout-r    (args/parse-timeout-arg "timeout-ms" (wire/arg args :timeout-ms))
+        timeout-ms   (or (second timeout-r) await-promise/default-timeout-ms)
         ;; rf2-gfu33: `:await-render` forces synchronous dispatch — the
         ;; cascade must have committed before the render can settle
         ;; against the new state. `:settle` likewise forces sync. An
@@ -354,11 +362,19 @@
                        false)
         project?     (not incl?)
         [tag payload] (parse-event-edn event-str)]
-    (case tag
-      :err
-      (js/Promise.resolve (wire/err-text payload))
+    (cond
+      ;; rf2-wz66k7 — a malformed `:timeout-ms` short-circuits to an honest
+      ;; isError BEFORE the dispatch eval, rather than threading a value
+      ;; that would spin the `:await-render` mailbox poll loop unbounded.
+      (= :err (first timeout-r))
+      (js/Promise.resolve (wire/err-text (second timeout-r)))
 
-      :ok
+      :else
+      (case tag
+        :err
+        (js/Promise.resolve (wire/err-text payload))
+
+        :ok
       (let [event-vec payload
             opts-form (cond-> {}
                         frame        (assoc :frame frame)
@@ -445,4 +461,4 @@
                 (.then (fn [_] (raw-state/signal-runtime! conn build-id)))
                 (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
                 (.then (fn [v] (runtime-envelope->result mode v)))
-                (.catch (fn [err] (probe/err->result :dispatch-failed err))))))))))
+                (.catch (fn [err] (probe/err->result :dispatch-failed err)))))))))))
