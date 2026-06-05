@@ -182,3 +182,37 @@
    [:location {:optional true} :string]
    [:url      {:optional true} :string]
    [:to       {:optional true} :string]])
+
+(def safe-redirect-args
+  "Args of `:rf.server/safe-redirect` — `:rf.fx.server/safe-redirect-args`.
+  `{:location <string> :status? <int> :relative-only? <boolean>
+    :allow? [<string> …]}` — the caller-UNtrusted redirect (open-redirect
+  mitigation, rf2-zfm8v). `:location` is the validation target, so unlike
+  the caller-trusted `:rf.server/redirect` (which has a documented no-
+  target graceful path, rf2-ee38b.11) safe-redirect REQUIRES a `:location`
+  to validate — a target-less safe-redirect is a programmer error with no
+  defensible interpretation. The five-step URL-parse / scheme / relative-
+  only? / allowlist gate lives in `re-frame.ssr.response/safe-redirect-fx`
+  and emits the specific `:rf.error/safe-redirect-*` categories; this is
+  the structural SHAPE check, completing the `:schema` boundary the other
+  six `:rf.server/*` fxs already carry (rf2-kjf3m.2 / rf2-wtd8z finding 1).
+
+  The closed gap (rf2-wtd8z finding 1): pre-fix the reg-fx carried only
+  `:platforms` — no `:schema` — so the Spec 010 §step-5 fx-args boundary
+  never ran. A `{:location \"/ok\" :status \"not-int\"}` arg flowed its
+  string `:status` straight through `safe-redirect-fx`'s step-5 pass onto
+  the response accumulator (and onto the wire). With this schema attached
+  the malformed `:status` surfaces as `:rf.error/schema-validation-failure
+  :where :fx-args` at the dispatch site, the fx is skipped, and the
+  response is left unmodified — matching the sibling six.
+
+  PERMISSIVE where the spec intends optionality (the #3202 lesson): only
+  `:location` is required; `:status` / `:relative-only?` / `:allow` are
+  optional. `:allow` is a SEQUENCE of host strings (the fx reads `:allow`,
+  not a scalar `:allowlist`). Closed map is avoided — extra keys pass —
+  so the shape gate never over-constrains a legitimate call."
+  [:map
+   [:location       :string]
+   [:status         {:optional true} :int]            ;; default 302
+   [:relative-only? {:optional true} :boolean]
+   [:allow          {:optional true} [:sequential :string]]])

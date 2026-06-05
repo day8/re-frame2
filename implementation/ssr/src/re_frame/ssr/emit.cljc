@@ -22,6 +22,7 @@
 
   Per the rf2-gxgo7 split of re-frame.ssr."
   (:require [clojure.string]
+            [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
             [re-frame.ssr.hash :as hash]
@@ -391,11 +392,21 @@
                maybe-view (registrar/lookup :view head)]
            (if maybe-view
              (let [raw   (apply (:handler-fn maybe-view) (rest el))
-                   ;; Spec 006 §Source-coord annotation: inject the
-                   ;; data-rf2-source-coord attribute on the registered
-                   ;; view's root DOM element when the slot's metadata
-                   ;; carries source coords.
-                   coord (format-view-source-coord head maybe-view)
+                   ;; Spec 006 §Source-coord annotation / Spec 011 §SSR
+                   ;; production elision: inject the data-rf2-source-coord
+                   ;; attribute on the registered view's root DOM element
+                   ;; when the slot's metadata carries source coords —
+                   ;; but ONLY when the debug gate is on. Source coords are
+                   ;; internal ns/symbol/line info; emitting them in a
+                   ;; production render leaks them into public HTML and
+                   ;; violates the SSR production-elision contract
+                   ;; (rf2-wtd8z finding 3). Gating the computation behind
+                   ;; `interop/debug-enabled?` means a production JVM render
+                   ;; never even calls `format-view-source-coord` for an
+                   ;; annotated slot, so `coord` is nil and the injection is
+                   ;; skipped — identical to the no-coords path.
+                   coord (when interop/debug-enabled?
+                           (format-view-source-coord head maybe-view))
                    out   (if coord
                            (inject-coord-on-root-hiccup coord raw)
                            raw)]
@@ -420,10 +431,19 @@
                         (emit-children children)
                         "</" tag-name ">"))))))
 
-         (fn? head)
-         ;; Pass root-attrs through fn-headed component resolution too —
-         ;; the wrapping fn is structurally the same kind of indirection as
-         ;; a registered-view ref.
+         ;; Callable component head — a plain fn OR a Var reference
+         ;; (`[#'component & args]`). On the JVM a Var is `ifn?` but NOT
+         ;; `fn?`, so a bare `(fn? head)` test let a Var-headed component
+         ;; fall through to `:else (str el)` and emit the EDN text
+         ;; `[#'user/component "ok"]` instead of resolving it (rf2-wtd8z
+         ;; finding 2). `ifn?` covers both — keywords/`:<>`/`:>`/
+         ;; `:rf/suspense-boundary` are all consumed by the branches above,
+         ;; so the only callables reaching here are fns and Var references.
+         ;; Pass root-attrs through this indirection too — structurally the
+         ;; same kind of wrapping as a registered-view ref, so the root
+         ;; hash / source-coord thread through the Var head onto the
+         ;; resolved DOM root.
+         (ifn? head)
          (emit-element (apply head (rest el)) root-attrs)
 
          :else (str el)))

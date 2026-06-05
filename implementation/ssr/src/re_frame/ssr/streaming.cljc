@@ -58,6 +58,7 @@
   (:require [clojure.data]
             [clojure.string]
             [re-frame.frame :as frame]
+            [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
             [re-frame.ssr.emit :as emit]
@@ -378,8 +379,12 @@
                 ;; `emit/emit-element` on its registered-view branch;
                 ;; we mirror the structural-injection shape here on
                 ;; the walked subtree so streamed shells still carry
-                ;; the annotation.
-                coord (emit/format-view-source-coord head v)
+                ;; the annotation. Gated on `interop/debug-enabled?` so a
+                ;; production streamed render elides the internal source
+                ;; coords — same production-elision contract the non-
+                ;; streaming emitter obeys (rf2-wtd8z finding 3).
+                coord (when interop/debug-enabled?
+                        (emit/format-view-source-coord head v))
                 out   (if coord
                         (emit/inject-coord-on-root-hiccup coord raw)
                         raw)]
@@ -391,8 +396,16 @@
           ;; saved by short-circuiting to `emit/emit-element`.
           (walk-dom-tag el acc))))
 
-    (and (vector? el) (fn? (first el)))
-    ;; fn-headed component — invoke + recurse on the body.
+    (and (vector? el) (ifn? (first el)))
+    ;; Callable component head — a plain fn OR a Var reference
+    ;; (`[#'component & args]`). On the JVM a Var is `ifn?` but NOT `fn?`,
+    ;; so a bare `(fn? …)` test left a Var-headed component falling through
+    ;; to the `(sequential? el)` / scalar arms and emitting EDN text rather
+    ;; than resolving it (rf2-wtd8z finding 2 — same gap as the non-
+    ;; streaming emitter). The keyword branch above (DOM tags, fragments,
+    ;; `:>`, registered views) is reached first, so the only callables
+    ;; reaching here are fns and Var references. Invoke + recurse on the
+    ;; body so the shell walk threads through the Var head.
     (walk-shell (apply (first el) (rest el)) acc)
 
     (sequential? el)
