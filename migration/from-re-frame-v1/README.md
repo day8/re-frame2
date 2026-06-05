@@ -306,11 +306,21 @@ The agent applies the explicit `:platforms #{:client}` rewrite for fx whose hand
 
 ### M-8. Effect map keys consolidated — only `:db` and `:fx` at the top level
 
-**Type A — fully mechanical.**
+**Type A — fully mechanical. Non-deferrable: this is a complete sweep, not optional. One missed site is an invisible runtime break.**
 
-re-frame2's effect map is `{:db ... :fx [[fx-id args] ...]}`. Top-level keys other than `:db` and `:fx` (`:dispatch`, `:dispatch-later`, `:dispatch-n`, `:http`, and any user-registered fx that was previously called as a top-level key) are **not part of the contract**. They all move into `:fx`.
+re-frame2's effect map is `{:db ... :fx [[fx-id args] ...]}`. **Every** top-level key other than `:db` and `:fx` is **not part of the contract** and must move into `:fx`. This is the whole class, not just the built-in dispatch trio:
+
+- the built-in dispatch effects — `:dispatch`, `:dispatch-later`, `:dispatch-n`;
+- the framework-shipped fx that v1 apps called top-level — `:http`, navigation effects, and the like;
+- **every user-registered / custom fx** — `:datadog/log`, toast effects, analytics pings, anything ever returned as a top-level effect-map key. These are the same class as `:dispatch` and are easy to miss precisely because they are project-specific; one real app carried ~10+ such custom-fx sites alongside the dispatch ones.
 
 Why: per [Spec-Schemas §:rf/effect-map](../../spec/Spec-Schemas.md#rfeffect-map), the effect-map is a **closed** shape. The runtime walks one ordered list of effects rather than discriminate among many top-level keys. Single-form rule fits the pattern's regularity-over-cleverness principle and lets tools (10x, agents) iterate effects uniformly.
+
+> **Why this rule is non-deferrable — an un-migrated top-level key is silently dropped at runtime.**
+>
+> A left-behind top-level effect key does **not** raise an exception, does **not** print a console warning, and does **not** halt the cascade. The runtime ([`commit-fx-effects` in `re-frame.events`](../../implementation/core/src/re_frame/events.cljc)) keeps `:db` / `:fx`, drops the offending key, and lets the dispatch return as a silent no-op — the effect simply never happens. The only diagnostic is a single `:rf.error/effect-map-shape` entry on the **dev** trace stream, which is gated on `goog.DEBUG` and is visible only if an inspection tool (Xray / Story) happens to be attached. In a **production** build that trace emit is dead-code-eliminated, so there is **zero** diagnostic of any kind.
+>
+> The failure mode is therefore an invisible behavioural break, not a crash. A single missed site can strand an entire app: e.g. a boot handler returning `{:dispatch [...]}` instead of `{:fx [[:dispatch [...]]]}` silently no-ops, the awaited event never fires, and the boot machine never advances — with no error anywhere to point at the cause. This is why the sweep below must be **complete**, not best-effort: there is no runtime backstop that will catch a key you forget to migrate.
 
 **What to look for:**
 
@@ -353,17 +363,19 @@ Why: per [Spec-Schemas §:rf/effect-map](../../spec/Spec-Schemas.md#rfeffect-map
 
 **The transformation is structural and mechanical:**
 
-1. **Discover the user's fx ids.** Sweep the codebase for every `(reg-fx :id ...)` registration; collect the set of fx ids the project defines. Add the built-ins (`:dispatch`, `:dispatch-later`, `:dispatch-n`).
-2. For each `reg-event-fx` body, find the returned map literal. For each top-level key other than `:db`:
-   - If the key is in the discovered fx-id set: rewrite per the rules below.
-   - If the key is unknown: leave it alone and **flag for human review** (it might be a destructure key, not an effect).
+1. **Discover the user's fx ids first — this is what makes the sweep complete.** Sweep the codebase for **every** `(reg-fx :id ...)` registration and collect the full set of fx ids the project defines — the custom ones (`:datadog/log`, toast effects, analytics, …) as much as anything. Add the built-ins (`:dispatch`, `:dispatch-later`, `:dispatch-n`, `:http`, navigation effects). Without this set the sweep cannot recognise a custom fx returned as a top-level key, and any such key it fails to recognise is exactly the invisible break described above. Treat the discovered set as authoritative.
+2. For each `reg-event-fx` body, find the returned map literal. For each top-level key other than `:db` and `:fx`:
+   - If the key is in the discovered fx-id set (built-in **or** custom): rewrite per the rules below.
+   - If the key is unknown: leave it alone and **flag for human review** (it might be a destructure key, not an effect). Do not silently drop it — the *runtime* already drops un-migrated keys silently, so a missed flag here reproduces the exact failure this rule exists to prevent.
 3. Rewriting:
-   - Single value (`:dispatch [:foo]` or `:http {:url ...}`): wrap as `[[:key value]]` inside `:fx`.
+   - Single value (`:dispatch [:foo]`, `:http {:url ...}`, or a custom `:datadog/log {...}`): wrap as `[[:key value]]` inside `:fx`.
    - Vector of values (`:dispatch-n [[:a] [:b]]`, `:dispatch-later [{...} {...}]`): expand to `:fx [[:key v1] [:key v2] ...]`.
 4. If the effect map already has a `:fx`, concat: `:fx (into existing-fx new-fx)`.
 5. Remove the rewritten top-level keys.
 
 The agent runs the discovery sweep first, then the per-handler rewrite. No human review needed unless step 2 hits an unknown key (rare in real code).
+
+**This rule is not optional and must be applied exhaustively.** Because the runtime gives no error, no warning, and no crash for a left-behind key (see the silent-drop note above), there is no backstop that will surface a site you skip. A partial migration ships an app that *appears* to compile and run but has individual effects — possibly load-bearing ones, like a boot dispatch or a logging fx — silently doing nothing. Migrate every site in one pass; do not defer "the custom-fx ones" to a later cleanup.
 
 This rule supersedes the older O-7 (`:dispatch-n` → `:fx`); O-7 was a stylistic upgrade in re-frame v1.x and is now mandatory under M-8.
 
