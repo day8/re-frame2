@@ -343,6 +343,44 @@
     (is (= "/items" (encoding/merge-params "/items" {})))
     (is (= "/items" (encoding/merge-params "/items" nil)))))
 
+(deftest merge-params-splices-before-fragment
+  (testing "rf2-rznrz — params are spliced BEFORE a `#fragment`, never after.
+            Query text after a `#` is fragment text — real HTTP clients send
+            the fragment to nobody, so appending the query AFTER the `#` (the
+            prior `(str url sep qs)` shape) silently drops the params."
+    (is (= "/items?page=2#frag"
+           (encoding/merge-params "/items#frag" {:page 2}))
+        "no existing `?` → the query is inserted with `?` BEFORE `#frag`,
+         and the fragment is reattached verbatim AFTER the query")
+    (is (= "/items?sort=asc&page=2#frag"
+           (encoding/merge-params "/items?sort=asc#frag" {:page 2}))
+        "existing `?` in the pre-fragment part → join with `&`, fragment
+         stays at the very end")
+    (testing "the broken `#frag?page=2` shape is NOT produced"
+      (is (not= "/items#frag?page=2"
+                (encoding/merge-params "/items#frag" {:page 2}))
+          "params MUST NOT land after the `#` where they'd be dropped on the wire"))))
+
+(deftest merge-params-no-encoded-pairs-leaves-url-unchanged
+  (testing "rf2-rznrz — when the params map encodes to NO query pairs (e.g.
+            `{:tag []}` per params->query's empty-sequential rule) the URL is
+            returned UNCHANGED — no dangling `?` / `&`. The decision keys off
+            the ENCODED query string, not `(seq params)`."
+    (is (= "/items"
+           (encoding/merge-params "/items" {:tag []}))
+        "an all-empty-sequential params map yields no pairs → no dangling `?`")
+    (is (= "/items?sort=asc"
+           (encoding/merge-params "/items?sort=asc" {:tag []}))
+        "an existing query is preserved with no dangling `&`")
+    (is (= "/items#frag"
+           (encoding/merge-params "/items#frag" {:tag []}))
+        "a fragment-only URL with no encodable params is returned verbatim")
+    (testing "a mix of empty + non-empty still encodes the non-empty pairs"
+      (is (= "/items?page=2#frag"
+             (encoding/merge-params "/items#frag" {:tag [] :page 2}))
+          "the empty-sequential drops out; the scalar sibling still splices
+           before the fragment"))))
+
 ;; ---- encode-body — Spec 014 §Body encoding --------------------------------
 ;;
 ;; Returns a tuple [encoded-body content-type]; content-type may be nil
@@ -447,3 +485,64 @@
       (is (= {:failure {:kind :domain :reason :invalid}}
              (encoding/run-accept accept {:valid? false}))
           "the user :accept can fail a 2xx response (domain-level rejection)"))))
+
+;; ---- valid-accept-return? — Spec 014 §`:accept` shape validation ----------
+
+(deftest valid-accept-return-recognises-ok-and-failure
+  (testing "rf2-rznrz — a map carrying EXACTLY one of :ok / :failure is the
+            recognised accept-return shape"
+    (is (encoding/valid-accept-return? {:ok 42}))
+    (is (encoding/valid-accept-return? {:ok nil})
+        "{:ok nil} is valid — the key presence is what matters, not the value")
+    (is (encoding/valid-accept-return? {:failure {:kind :domain}}))
+    (is (encoding/valid-accept-return? {:ok 1 :extra :ignored})
+        "extra keys alongside the single recognised key are tolerated")))
+
+(deftest valid-accept-return-rejects-malformed-shapes
+  (testing "rf2-rznrz — nil, non-maps, and maps without exactly one of
+            :ok/:failure are MALFORMED (these previously stranded the
+            request with no reply)"
+    (is (not (encoding/valid-accept-return? nil))
+        "nil return is malformed")
+    (is (not (encoding/valid-accept-return? {}))
+        "an empty map carries neither key")
+    (is (not (encoding/valid-accept-return? {:status :good}))
+        "a map without :ok/:failure is malformed")
+    (is (not (encoding/valid-accept-return? {:ok 1 :failure {}}))
+        "a map carrying BOTH keys is ambiguous → rejected")
+    (is (not (encoding/valid-accept-return? :ok))
+        "a bare keyword is not a map")
+    (is (not (encoding/valid-accept-return? [:ok 1]))
+        "a vector is not a map")
+    (is (not (encoding/valid-accept-return? "ok"))
+        "a string is not a map")))
+
+;; ---- normalize-header-pairs — Spec 014 §Request envelope (multi-valued) ---
+
+(deftest normalize-header-pairs-scalar-yields-one-pair
+  (testing "rf2-rznrz — a scalar header value yields exactly one [name value]
+            wire pair, stringified"
+    (is (= [["Accept" "application/json"]]
+           (encoding/normalize-header-pairs {"Accept" "application/json"})))
+    (is (= [["X-Count" "42"]]
+           (encoding/normalize-header-pairs {"X-Count" 42}))
+        "a non-string scalar value is stringified per element")))
+
+(deftest normalize-header-pairs-vector-yields-pair-per-element
+  (testing "rf2-rznrz — a vector/seq header value yields ONE wire pair per
+            element (the HTTP multi-valued idiom = repeat the name), NOT a
+            single pair carrying the vector"
+    (is (= [["Accept" "text/html"] ["Accept" "application/json"]]
+           (encoding/normalize-header-pairs {"Accept" ["text/html" "application/json"]}))
+        "each element gets its own [name value] pair, in order")
+    (is (= [["X-Tag" "1"] ["X-Tag" "2"] ["X-Tag" "3"]]
+           (encoding/normalize-header-pairs {"X-Tag" [1 2 3]}))
+        "numeric elements are stringified per element")
+    (is (= [["X-Tag" "a"] ["X-Tag" "b"]]
+           (encoding/normalize-header-pairs {"X-Tag" (list "a" "b")}))
+        "a seq value is treated like a vector"))
+  (testing "an empty sequential value contributes NO pair (header absent)"
+    (is (= [] (encoding/normalize-header-pairs {"X-Empty" []})))
+    (is (= [["Accept" "application/json"]]
+           (encoding/normalize-header-pairs {"X-Empty" [] "Accept" "application/json"}))
+        "the empty-sequential drops out; scalar siblings still emit")))

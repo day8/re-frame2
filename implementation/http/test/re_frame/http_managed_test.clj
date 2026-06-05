@@ -1786,3 +1786,187 @@
               "the caller's explicit Content-Type is preserved and NOT
                supplemented by the encode-body content-type (clash guard)"))
         (finally (stop-server! srv))))))
+
+;; ===========================================================================
+;; rf2-rznrz — finding 1: multi-valued REQUEST headers reach the wire as
+;; repeated header instances, not a single malformed `["a" "b"]` value.
+;; ===========================================================================
+
+(deftest jvm-vector-request-header-sent-as-repeated-values
+  (testing "rf2-rznrz — a request header whose value is a vector of strings
+            (the documented multi-valued shape) arrives at the server as N
+            repeated header instances, NOT one line carrying the stringified
+            vector. The JVM transport now calls .header once per element."
+    (let [seen-accept (atom nil)
+          {:keys [port] :as srv}
+          (start-server!
+            (fn [^HttpExchange ex]
+              ;; .get returns the List of ALL values for the header name —
+              ;; one entry per wire instance.
+              (reset! seen-accept (vec (.get (.getRequestHeaders ex) "X-Multi")))
+              (write-response! ex 200 "application/json" "{\"ok\":true}")))]
+      (try
+        (rf/reg-event-fx :multihdr/load
+          (fn [{:keys [db]} [_ msg]]
+            (if-let [reply (:rf/reply msg)]
+              {:db (assoc db :reply reply)}
+              {:fx [[:rf.http/managed
+                     {:request {:url     (str "http://127.0.0.1:" port "/m")
+                                :headers {"X-Multi" ["alpha" "beta" "gamma"]}}
+                      :decode  :json}]]})))
+        (rf/dispatch-sync [:multihdr/load])
+        (await-reply! #(some? (:reply %)) 5000)
+        (let [vs @seen-accept]
+          (is (= 3 (count vs))
+              "the vector value produced THREE separate wire header instances")
+          (is (= ["alpha" "beta" "gamma"] vs)
+              "each element arrives as its own value, in order — NOT a single
+               '[\"alpha\" \"beta\" \"gamma\"]' stringified line")
+          (is (not-any? #(clojure.string/includes? % "[")
+                        vs)
+              "no element carries a serialised-vector bracket (the prior bug)"))
+        (finally (stop-server! srv))))))
+
+(deftest jvm-scalar-request-header-still-single-value
+  (testing "rf2-rznrz — a scalar request header value is unchanged: one wire
+            instance carrying the stringified scalar (the 99% path)"
+    (let [seen (atom nil)
+          {:keys [port] :as srv}
+          (start-server!
+            (fn [^HttpExchange ex]
+              (reset! seen (vec (.get (.getRequestHeaders ex) "X-One")))
+              (write-response! ex 200 "application/json" "{\"ok\":true}")))]
+      (try
+        (rf/reg-event-fx :scalarhdr/load
+          (fn [{:keys [db]} [_ msg]]
+            (if-let [reply (:rf/reply msg)]
+              {:db (assoc db :reply reply)}
+              {:fx [[:rf.http/managed
+                     {:request {:url     (str "http://127.0.0.1:" port "/s")
+                                :headers {"X-One" "only"}}
+                      :decode  :json}]]})))
+        (rf/dispatch-sync [:scalarhdr/load])
+        (await-reply! #(some? (:reply %)) 5000)
+        (is (= ["only"] @seen)
+            "a scalar header value is a single wire instance")
+        (finally (stop-server! srv))))))
+
+;; ===========================================================================
+;; rf2-rznrz — finding 2: :accept phase isolation + shape validation.
+;;   - an :accept THROW classifies as :rf.http/accept-failure (NOT
+;;     :rf.http/decode-failure — the prior fused try/catch misclassified it);
+;;   - a MALFORMED :accept return (nil / map without :ok/:failure) classifies
+;;     as :rf.http/accept-failure and ALWAYS dispatches a reply (previously
+;;     it stranded the caller with no reply at all).
+;; ===========================================================================
+
+(deftest jvm-accept-throw-classifies-as-accept-failure-not-decode-failure
+  (testing "rf2-rznrz — an :accept fn that THROWS on a 2xx response
+            classifies as :rf.http/accept-failure (step-4 error), NOT
+            :rf.http/decode-failure (step-3). The decode succeeded; the
+            accept phase is now isolated in its own try/catch."
+    (let [{:keys [port] :as srv}
+          (start-server!
+            (fn [^HttpExchange ex]
+              (write-response! ex 200 "application/json" "{\"ok\":true}")))]
+      (try
+        (rf/reg-event-fx :acceptthrow/load
+          (fn [{:keys [db]} [_ msg]]
+            (if-let [reply (:rf/reply msg)]
+              {:db (assoc db :reply reply)}
+              {:fx [[:rf.http/managed
+                     {:request {:url (str "http://127.0.0.1:" port "/a")}
+                      :decode  :json
+                      :accept  (fn [_decoded]
+                                 (throw (ex-info "accept boom" {})))}]]})))
+        (rf/dispatch-sync [:acceptthrow/load])
+        (let [db      (await-reply! #(some? (:reply %)) 5000)
+              failure (get-in db [:reply :failure])]
+          (is (= :failure (get-in db [:reply :kind]))
+              "a thrown :accept produces a FAILURE reply (caller is not stranded)")
+          (is (= :rf.http/accept-failure (:kind failure))
+              "the throw classifies as :rf.http/accept-failure, NOT
+               :rf.http/decode-failure — decode succeeded; accept is the failing phase")
+          (is (= {:ok true} (:decoded failure))
+              "the pre-accept decoded value rides through as :decoded for context"))
+        (finally (stop-server! srv))))))
+
+(deftest jvm-accept-nil-return-classifies-as-accept-failure-and-replies
+  (testing "rf2-rznrz — an :accept fn returning nil (a malformed shape) is
+            classified as :rf.http/accept-failure and ALWAYS dispatches a
+            reply. Previously this fell through finalise-success!'s cond with
+            no matching branch: the in-flight request was cleared and NO reply
+            was dispatched — the caller hung forever."
+    (let [{:keys [port] :as srv}
+          (start-server!
+            (fn [^HttpExchange ex]
+              (write-response! ex 200 "application/json" "{\"ok\":true}")))]
+      (try
+        (rf/reg-event-fx :acceptnil/load
+          (fn [{:keys [db]} [_ msg]]
+            (if-let [reply (:rf/reply msg)]
+              {:db (assoc db :reply reply)}
+              {:fx [[:rf.http/managed
+                     {:request {:url (str "http://127.0.0.1:" port "/n")}
+                      :decode  :json
+                      ;; Returns nil — neither {:ok ..} nor {:failure ..}.
+                      :accept  (fn [_decoded] nil)}]]})))
+        (rf/dispatch-sync [:acceptnil/load])
+        (let [db      (await-reply! #(some? (:reply %)) 5000)
+              failure (get-in db [:reply :failure])]
+          (is (= :failure (get-in db [:reply :kind]))
+              "a nil :accept return STILL dispatches a reply (no infinite hang)")
+          (is (= :rf.http/accept-failure (:kind failure))
+              "the malformed return classifies as :rf.http/accept-failure")
+          (is (= {:ok true} (:decoded failure))
+              "the pre-accept decoded value rides through as :decoded"))
+        (finally (stop-server! srv))))))
+
+(deftest jvm-accept-map-without-ok-or-failure-classifies-as-accept-failure
+  (testing "rf2-rznrz — an :accept fn returning a map that carries NEITHER
+            :ok NOR :failure is malformed and classifies as
+            :rf.http/accept-failure with a reply (was a silent hang)"
+    (let [{:keys [port] :as srv}
+          (start-server!
+            (fn [^HttpExchange ex]
+              (write-response! ex 200 "application/json" "{\"ok\":true}")))]
+      (try
+        (rf/reg-event-fx :acceptbad/load
+          (fn [{:keys [db]} [_ msg]]
+            (if-let [reply (:rf/reply msg)]
+              {:db (assoc db :reply reply)}
+              {:fx [[:rf.http/managed
+                     {:request {:url (str "http://127.0.0.1:" port "/b")}
+                      :decode  :json
+                      ;; A map, but neither :ok nor :failure.
+                      :accept  (fn [_decoded] {:status :weird})}]]})))
+        (rf/dispatch-sync [:acceptbad/load])
+        (let [db      (await-reply! #(some? (:reply %)) 5000)
+              failure (get-in db [:reply :failure])]
+          (is (= :failure (get-in db [:reply :kind])))
+          (is (= :rf.http/accept-failure (:kind failure))
+              "a map without :ok/:failure is a malformed accept return"))
+        (finally (stop-server! srv))))))
+
+(deftest jvm-accept-well-formed-ok-still-succeeds
+  (testing "rf2-rznrz — a well-formed {:ok v} accept return is unaffected:
+            the success reply carries v (regression guard for the phase split)"
+    (let [{:keys [port] :as srv}
+          (start-server!
+            (fn [^HttpExchange ex]
+              (write-response! ex 200 "application/json" "{\"value\":42}")))]
+      (try
+        (rf/reg-event-fx :acceptok/load
+          (fn [{:keys [db]} [_ msg]]
+            (if-let [reply (:rf/reply msg)]
+              {:db (assoc db :reply reply)}
+              {:fx [[:rf.http/managed
+                     {:request {:url (str "http://127.0.0.1:" port "/o")}
+                      :decode  :json
+                      :accept  (fn [decoded] {:ok (:value decoded)})}]]})))
+        (rf/dispatch-sync [:acceptok/load])
+        (let [db (await-reply! #(some? (:reply %)) 5000)]
+          (is (= :success (get-in db [:reply :kind])))
+          (is (= 42 (get-in db [:reply :value]))
+              "a well-formed {:ok v} still projects the success value"))
+        (finally (stop-server! srv))))))

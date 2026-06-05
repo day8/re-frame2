@@ -76,13 +76,64 @@
        (str/join "&")))
 
 (defn merge-params
-  "Merge `:params` onto `:url`. If the URL already has a `?`, append with `&`."
+  "Merge `:params` onto `:url`, returning the URL with the encoded query
+  string spliced in BEFORE any `#fragment`.
+
+  Two correctness rules a naive append breaks (rf2-rznrz):
+
+  1. **Fragment-aware splice.** Query params after a `#` are fragment
+     text — real HTTP clients send the fragment to nobody, so a naive
+     append (`/items#frag` + `{:page 2}` → `/items#frag?page=2`)
+     silently drops the params. We split at the first `#`, append the
+     query string to the pre-fragment part with `?` (or `&` when that
+     part already carries a `?`), then reattach the fragment verbatim.
+
+  2. **Decide on the ENCODED query, not the raw params.** A params map
+     can encode to no pairs (e.g. `{:tag []}` → `\"\"` per
+     `params->query`'s empty-sequential rule), so deciding to append
+     from `(seq params)` alone produces a dangling `?`/`&`. We build the
+     query string first and return the URL unchanged when it is blank."
   [url params]
-  (if (seq params)
-    (let [qs (params->query params)
-          sep (if (str/includes? url "?") "&" "?")]
-      (str url sep qs))
-    url))
+  (let [qs (params->query params)]
+    (if (str/blank? qs)
+      url
+      (let [hash-idx (str/index-of url "#")
+            base     (if hash-idx (subs url 0 hash-idx) url)
+            fragment (if hash-idx (subs url hash-idx) "")
+            sep      (if (str/includes? base "?") "&" "?")]
+        (str base sep qs fragment)))))
+
+;; ---- request header normalisation -----------------------------------------
+
+(defn normalize-header-pairs
+  "Flatten a request-headers map into an ordered seq of `[name value]`
+  wire pairs (rf2-rznrz).
+
+  Per Spec 014 §Request envelope a request header value is `string` for
+  the single-value case or `vector-of-strings` (more generally any
+  ordered `sequential?` collection) for the multi-valued case. HTTP
+  represents a multi-valued header as the header NAME repeated once per
+  value — `Accept: a` + `Accept: b`, never a single `Accept: [\"a\" \"b\"]`
+  line. So:
+
+  - a scalar value yields one `[name (str value)]` pair, and
+  - a sequential value yields one `[name (str element)]` pair per
+    element, in order.
+
+  The name is stringified once; values are stringified per element so a
+  keyword / number value lands as its plain string form on the wire (the
+  prior CLJS path assigned a vector straight into a `HeadersInit`, and
+  the JVM path called `(str v)` on the whole vector — both produced a
+  single malformed wire value). An empty sequential value contributes no
+  pair (the header is simply absent), mirroring `params->query`'s
+  empty-sequential rule."
+  [headers]
+  (mapcat (fn [[k v]]
+            (let [name (str k)]
+              (if (sequential? v)
+                (map (fn [el] [name (str el)]) v)
+                [[name (str v)]])))
+          headers))
 
 ;; ---- body encoding --------------------------------------------------------
 
@@ -143,6 +194,26 @@
   (if accept-fn-or-nil
     (accept-fn-or-nil decoded)
     {:ok decoded}))
+
+(defn valid-accept-return?
+  "rf2-rznrz — is `v` a recognised `:accept` return shape? Per Spec 014
+  §`:accept` the contract is `(decoded → {:ok v} | {:failure m})`: a map
+  carrying EXACTLY one of `:ok` / `:failure`.
+
+  Used by `http-transport/handle-response!` to validate the accept-phase
+  return AFTER the request has completed. A malformed return (nil, a
+  non-map, or a map carrying neither key) previously cleared the
+  in-flight request and dispatched NO reply — the caller hung forever.
+  Validating the shape lets the transport classify a malformed return as
+  `:rf.http/accept-failure` and always emit a reply."
+  [v]
+  (and (map? v)
+       (let [has-ok?      (contains? v :ok)
+             has-failure? (contains? v :failure)]
+         ;; Exactly one of the two recognised keys — a map carrying both
+         ;; is ambiguous and rejected alongside the map-carrying-neither
+         ;; case.
+         (not= has-ok? has-failure?))))
 
 ;; ---- reply addressing -----------------------------------------------------
 

@@ -105,6 +105,24 @@
       (is (= :rf/redacted (get r "set-cookie")))
       (is (= :rf/redacted (get r "Set-cookie"))))))
 
+(deftest redact-headers-redacts-vector-valued-sensitive-header
+  (testing "rf2-rznrz — a denylisted header whose value is a VECTOR (the
+            documented multi-valued request-header shape, string → vector
+            of strings) is redacted WHOLE to the sentinel, never per-element
+            and never leaked. The redactor matches by header NAME, so the
+            value shape (scalar vs vector) is irrelevant to whether it is
+            scrubbed — a multi-valued `Authorization` / `Cookie` must not
+            survive in trace output just because it arrived as a vector."
+    (let [m {"Authorization" ["Bearer one" "Bearer two"]
+             "Cookie"        ["a=1" "b=2"]
+             "X-Multi"       ["keep-1" "keep-2"]}
+          r (headers/redact-headers m)]
+      (is (= :rf/redacted (get r "Authorization"))
+          "the entire vector value is replaced by the sentinel — no element leaks")
+      (is (= :rf/redacted (get r "Cookie")))
+      (is (= ["keep-1" "keep-2"] (get r "X-Multi"))
+          "a non-denylisted multi-valued header keeps its vector value intact"))))
+
 ;; ---- 3. request-sensitive? -------------------------------------------------
 
 (deftest request-sensitive-per-call-true

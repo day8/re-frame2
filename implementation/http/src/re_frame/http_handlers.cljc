@@ -280,15 +280,17 @@
         ;; directly instead of re-running the OR-chain.
         origin-event (encoding/resolve-origin-event frame-ctx args-map)
         frame-ctx'   (assoc frame-ctx :event origin-event)
-        ;; rf2-1jcpm — resolve :sensitive? once at handler entry so
-        ;; the middleware-failure trace path (URL leak via
-        ;; `:rf.error/http-interceptor-failed`) and the JVM CLJS-only
-        ;; warning path (`:rf.http/cljs-only-key-ignored-on-jvm`) both
-        ;; redact through the privacy composer. `normalise-args` then
-        ;; re-derives the same flag from `args-map` — the values agree
-        ;; by construction.
+        ;; rf2-1jcpm — resolve :sensitive? at handler entry so the
+        ;; middleware-failure trace path (URL leak via
+        ;; `:rf.error/http-interceptor-failed`) can redact through the
+        ;; privacy composer for a request that arrived already sensitive.
+        ;; rf2-rznrz — this PRE-chain reading is the floor; the EFFECTIVE
+        ;; sensitivity is recomputed below from the post-`:before` request
+        ;; (a `:before` may MARK the request sensitive) before the
+        ;; CLJS-only-key warning and `normalise-args` run. The chain
+        ;; itself recomputes per-interceptor for its own failure-path
+        ;; trace (see `run-chain*` / `run-interceptor-chain!`).
         sensitive?   (privacy/request-sensitive? args-map origin-event)
-        _            (transport/check-cljs-only-keys! args-map sensitive?)
         ctx0         {:request    (:request args-map)
                       :args       args-map
                       :frame      frame-id
@@ -303,6 +305,23 @@
         ;; downstream. Mirrors `validate-retry!`'s dispatch-time guard.
         _            (validate-url! (:request ctx))
         args-map'    (assoc args-map :request (:request ctx))
+        ;; rf2-rznrz — recompute the EFFECTIVE :sensitive? from the
+        ;; POST-`:before` request, then run the CLJS-only-key check
+        ;; against that same post-chain request. Both were previously
+        ;; evaluated on the ORIGINAL args BEFORE the chain ran, so:
+        ;;   - a `:before` that MARKED the request sensitive (set
+        ;;     `[:request :sensitive?] true`) did not raise the flag the
+        ;;     CLJS-only warning / `normalise-args` saw — a downstream
+        ;;     trace could leak a now-sensitive URL's query values; and
+        ;;   - a `:before` that ADDED a JVM-degraded CLJS-only key
+        ;;     (`:credentials` / `:mode` / `:cache` / …) into the request
+        ;;     escaped the degraded-key warning entirely (the request
+        ;;     proceeded on JVM silently dropping the key).
+        ;; Recomputing here closes both: the warning fires on the request
+        ;; the transport will actually issue, redacted by the effective
+        ;; sensitivity.
+        sensitive?'  (privacy/request-sensitive? args-map' origin-event)
+        _            (transport/check-cljs-only-keys! args-map' sensitive?')
         ;; rf2-uheqq — carry the post-:before middleware-ctx forward so
         ;; the response-side `:after` chain sees the EXACT same ctx its
         ;; sibling `:before`s ended with. Per Spec 014 §Middleware: a
