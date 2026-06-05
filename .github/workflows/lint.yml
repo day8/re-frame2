@@ -341,6 +341,18 @@ jobs:
         working-directory: implementation/scripts/api-manifest
         run: clojure -M -m re-frame.api-manifest.doc-guide-check
 
+      # Pure-reconciler regression contracts (rf2-4v79f). The `:test` alias
+      # carries the unit tests that lock the reconcilers the check-mains
+      # above drive: the api-md-check qualifier-resolution contract
+      # (rf2-41j0a — a fully-qualified symbol must match its EXACT [ns var],
+      # never merely share a bare var name) and the xray-spec-check contract
+      # (rf2-0u8kz). The check-mains go RED on real drift, but these unit
+      # contracts pin the reconciler logic itself; gating them here closes
+      # the local-only-dev-net hole.
+      - name: Run api-manifest reconciler regression tests
+        working-directory: implementation/scripts/api-manifest
+        run: clojure -M:test
+
   # ---------------------------------------------------------------------------
   # Required-checks aggregator (rf2-aemyt).
   #
