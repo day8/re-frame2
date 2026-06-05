@@ -1,0 +1,177 @@
+# O-16 — translate `async-flow-fx` to re-frame2 **state machines**
+
+The v1 add-on `day8.re-frame/async-flow-fx` coordinates **async sequences** — boot, login, wizard, init orchestration. A flow watches the router for the events its rules await, and dispatches the next step when the awaited event(s) arrive. That is an **FSM pattern**: sequential async coordination with success / failure branches. The re-frame2 successor is therefore **state machines** (`reg-machine`, Spec 005), **not** reactive flows (`reg-flow` derives values — a different concern).
+
+> **Forced, not optional.** `async-flow-fx` 0.4.0 calls the removed `re-frame.core/console` and **fails to compile** the moment re-frame2 is on the classpath — see [`breaking-changes.md` §v1 add-on libraries fail to COMPILE on v2](breaking-changes.md#v1-add-on-libraries-fail-to-compile-on-v2--replacementremoval-is-forced-not-opt-in). The add-on does **not** keep working. You must convert (this guide) or remove it **before the project compiles**. Choosing *whether to convert vs remove* is the operator's call; doing *something* is not optional.
+
+> **Type B — ask first.** The FSM shape is a re-thinking of the rule-set, not a structural lift. Surface the proposed machine per flow and wait for the operator's approval before editing.
+
+> **Verify before you write.** The `reg-machine` grammar below is summarised from [`spec/005-StateMachines.md` §Transition table grammar](../../../spec/005-StateMachines.md#transition-table-grammar). Re-read that section (plus [§Spawn-and-join via `:spawn-all`](../../../spec/005-StateMachines.md#spawn-and-join-via-spawn-all) and [§Final states](../../../spec/005-StateMachines.md#final-states-final--on-done--output-key)) against the live machines artefact before emitting any machine — the spec is the contract, this page is the on-ramp. `reg-machine` ships in `day8/re-frame2-machines` (per [M-28](breaking-changes.md#required-m-rules-by-trigger-surface)); requiring `re-frame.machines` fires its load-time registrations.
+
+## Detection
+
+- Maven coord `day8.re-frame/async-flow-fx` (any version) in `deps.edn` / `project.clj` / `shadow-cljs.edn` / `bb.edn`.
+- `(:require [day8.re-frame.async-flow-fx ...])` in any namespace (the require side-effects the `:async-flow` fx registration; the require alone signals adoption).
+- `:async-flow` keys in effect maps returned by `reg-event-fx` handlers — the unmistakable fingerprint. May sit at the top level (pre-M-8 shape) or inside `:fx` (post-M-8 shape `:fx [[:async-flow {...}]]`).
+
+Each `:async-flow` call site is **one flow** = one candidate machine. Present the flow's spec, the proposed machine, and the diff for operator approval before any edit.
+
+## Construct mapping — async-flow rule spec → `reg-machine`
+
+The rule engine and the FSM are structurally different. async-flow is **temporal** (track events through the router; fire any rule whose `:when` predicate has become true). The FSM is **spatial** (the machine occupies one state at a time; named events drive transitions). The mapping below lowers the async-flow constructs onto FSM concepts.
+
+| async-flow construct | `reg-machine` construct | Notes |
+|---|---|---|
+| `:id` (flow id) | the `machine-id` arg to `reg-machine` | async-flow's `:id` defaulted to a gensym; the machine-id is the addressing primitive (events dispatch as `[<machine-id> <event-vec>]`, the snapshot lives at `[:rf/runtime :machines :snapshots <machine-id>]`). Pick a meaningful feature-prefixed keyword — `:app/boot`, `:wizard/checkout`. |
+| `:first-dispatch [:e]` | the `:initial` state + its `:entry` action emitting the kickoff via `:fx` | `{:entry (fn [_] {:fx [[:dispatch [:e]]]})}` on the initial state. The machine bootstraps on its first received event; the parent starts it with `(rf/dispatch [<machine-id> [:start]])`. |
+| one rule `{:when (seen? :e) :dispatch [:f]}` | a **state** + a **transition** on its `:on` map gated on the awaited event `:e` | the rule's `:when` event becomes the `:on` key; the rule's `:dispatch` becomes the transition's `:action` `:fx`. "While waiting for `:e`, then go next, dispatching `:f`." |
+| `:when (seen-both? :a :b)` / `:seen-all-of?` (ALL must arrive) | a state whose `:on` **records each event in `:data`**, plus an `:always` transition gated by a `:guard` that fires once all are present | the canonical multi-await shape: each contributing `:on` action sets a flag in `:data`; an eventless `:always {:guard :both-seen? :target ...}` advances when the guard reads all flags true (per [§Eventless `:always`](../../../spec/005-StateMachines.md#eventless-always-transitions)). For the boot fan-out where each await is its own child actor, `:spawn-all` with `:join :all` is the declarative alternative (see below). |
+| `:when (seen-any-of? :a :b :c)` (ANY arrival triggers) | each event listed in the state's `:on` map with the **same** `:target` | `{:on {:a :failed :b :failed :c :failed}}`. |
+| `:dispatch [:f]` / `:dispatch-n [[:f] [:g]]` (fire on rule match) | the transition's `:action` returning `{:fx [[:dispatch [:f]] [:dispatch [:g]]]}` | the dispatch is threaded through the FSM transition surface, so it appears in the trace next to the state change. |
+| `:halt-on [:e]` / a rule with `:halt? true` | an **error transition to a `:final?` state** | `:halt-on` events route to a terminal `:failed` state; a normal terminal completion routes to `:ready`. Entering any `:final?` state auto-destroys the machine and clears its snapshot (per [§Final states](../../../spec/005-StateMachines.md#final-states-final--on-done--output-key)). |
+| `:db-path` (engine state location) | dropped — snapshots live at `[:rf/runtime :machines :snapshots <id>]` | not user-selectable. The trade is favourable: the snapshot rides in `app-db`, so it is revertible, SSR-survivable, and visible to Xray / Tool-Pair / the trace stream for free. |
+| `:debug?` (per-flow console logging) | dropped — machine transitions emit `:rf.machine/transition` trace events | the standard trace surface (Spec 009) carries them; no per-machine flag. |
+
+### `reg-machine` grammar (the slots this guide uses)
+
+```clojure
+(rf/reg-machine <machine-id>
+  {:initial <state-keyword>                  ;; required
+   :data    {<initial working-memory>}       ;; optional
+   :guards  {<kw> (fn [{:keys [data event]}] boolean), ...}  ;; named guards
+   :states
+   {<state-keyword>
+    {:entry  (fn [{:keys [data event]}] {:data .. :fx ..})  ;; one fn or :actions-map keyword
+     :on     {<event-id> <transition>, ...}  ;; event-driven transitions
+     :always [<guarded-transition>, ...]     ;; eventless — fires when a :guard turns true
+     :final? true}}})                        ;; entering terminates + auto-destroys the machine
+```
+
+A `<transition>` is `<target-keyword>` (sugar for `{:target ...}`) or a `{:target :guard :action}` map; `:guard` / `:action` are one fn or one keyword into the machine's `:guards` / `:actions` map. A guard / action receives one context map `{:keys [data event state meta]}`; an action returns a fresh `{:data ...}` (and optional `:fx`). All verified against [`spec/005-StateMachines.md` §Transition table grammar](../../../spec/005-StateMachines.md#transition-table-grammar), [§Guards](../../../spec/005-StateMachines.md#guards), and [§Actions](../../../spec/005-StateMachines.md#actions).
+
+## Worked before → after — a boot/login sequence
+
+A representative async-flow: dispatch `[:fetch-config]` first; when `[:config-loaded]` arrives, fetch the user; when **both** `[:user-loaded]` and `[:config-loaded]` have arrived, the app is ready; if any fetch fails (`[:fetch-failed]`), halt into an error state.
+
+### Before — `async-flow-fx`
+
+```clojure
+(ns my-app.boot
+  (:require [re-frame.core :as rf]
+            [day8.re-frame.async-flow-fx]))            ;; registers the :async-flow fx
+
+(rf/reg-event-fx :app/boot
+  (fn [{:keys [db]} _]
+    {:db         (assoc db :boot/phase :starting)
+     :async-flow {:id             :app/boot-flow
+                  :first-dispatch [:fetch-config]
+                  :rules
+                  [;; config arrives → fetch the user
+                   {:when     :seen?
+                    :events   :config-loaded
+                    :dispatch [:fetch-user]}
+
+                   ;; BOTH config and user loaded → ready
+                   {:when     :seen-all-of?
+                    :events   [:user-loaded :config-loaded]
+                    :dispatch [:app-ready]
+                    :halt?    true}
+
+                   ;; any failure → fail
+                   {:when     :seen-any-of?
+                    :events   [:fetch-failed]
+                    :dispatch [:app-boot-failed]
+                    :halt?    true}]}}))
+```
+
+### After — `reg-machine`
+
+```clojure
+(ns my-app.boot
+  (:require [re-frame.core :as rf]
+            [re-frame.machines]))                      ;; per M-28 — fires the machines artefact's load-time hooks
+
+(rf/reg-machine :app/boot
+  {:initial :starting
+   :data    {:config-loaded? false :user-loaded? false}
+   :guards  {:both-loaded? (fn [{:keys [data]}]
+                             (and (:config-loaded? data) (:user-loaded? data)))}
+   :states
+   {;; :first-dispatch → the initial state's :entry kicks off config fetch.
+    :starting
+    {:entry (fn [_] {:fx [[:dispatch [:fetch-config]]]})
+     :on    {:config-loaded {:target :loading-user
+                             :action (fn [{:keys [data]}] {:data (assoc data :config-loaded? true)})}
+             :fetch-failed  :failed}}                  ;; :halt-on → error transition
+
+    ;; config is in; fetch the user. Both await-events feed the :both-loaded? guard.
+    :loading-user
+    {:entry (fn [_] {:fx [[:dispatch [:fetch-user]]]})
+     :on    {:user-loaded {:action (fn [{:keys [data]}] {:data (assoc data :user-loaded? true)})}
+             :fetch-failed :failed}
+     ;; :seen-all-of? → eventless :always gated on the compound guard.
+     :always [{:guard :both-loaded? :target :ready}]}
+
+    ;; terminal states — entering either auto-destroys the machine + clears its snapshot.
+    :ready  {:final? true
+             :entry  (fn [_] {:fx [[:dispatch [:app-ready]]]})}
+
+    :failed {:final? true
+             :entry  (fn [_] {:fx [[:dispatch [:app-boot-failed]]]})}}})
+
+;; Start the machine from the app's entry point (replaces the :app/boot event):
+(rf/dispatch [:app/boot [:start]])
+```
+
+What changed:
+
+- **`:first-dispatch [:fetch-config]` → the `:starting` state's `:entry`.** The kickoff is an explicit, addressable action running through the standard fx pipeline.
+- **The single-event rule (`:config-loaded` → fetch user) → a transition on `:starting`'s `:on` map.** The awaited event is the `:on` key; the dispatch lands in the next state's `:entry` (or the transition's `:action :fx`).
+- **The `:seen-all-of? [:user-loaded :config-loaded]` rule → record-in-`:data` `:on` actions plus an `:always` gated by the `:both-loaded?` guard.** Each await flips a flag in working memory; the eventless `:always` advances the moment both are true — the FSM-native spelling of "all seen." (`:config-loaded` is recorded in `:starting`; `:user-loaded` in `:loading-user`; the guard reads both.)
+- **`:halt-on [:fetch-failed]` → a `:fetch-failed` transition to the `:final?` `:failed` state**, declared on every state that can still be in flight. The normal completion routes to the `:final?` `:ready` state. Entering either terminal triggers auto-destroy.
+- **`(:require [day8.re-frame.async-flow-fx])` dropped; `(:require [re-frame.machines])` added** (M-28). The `day8.re-frame/async-flow-fx` Maven coord is dropped once every flow is converted.
+
+### The simple-case judgement — chain vs machine
+
+A **trivial 2-step linear flow** (do A; when A done, do B; no branching, no multi-await, no failure routing) **MAY** be a plain `reg-event-fx` chain — the `[:a]` handler's success event dispatches `[:b]` via `:fx`, no machine needed. That is the lighter idiom when there is genuinely no state to model.
+
+But the moment the flow **branches** (success vs failure paths), **multi-awaits** (`:seen-all-of?` / `:seen-any-of?`), or carries a notion of **phase**, reach for a **machine** — the FSM makes the phases and their guards explicit, and the snapshot integrates with revert / SSR / trace. **Default to machines** for any non-trivial flow; the chain is the exception reserved for the genuinely linear two-step case.
+
+### Parallel fan-out — `:spawn-all` when each await is its own actor
+
+When the "all must arrive" set is a **parallel fan-out** — kick off N independent async tasks, advance when all complete — and each task is naturally its own child actor, `:spawn-all` with `:join :all` expresses it declaratively instead of N correlated record-in-`:data` flags:
+
+```clojure
+:loading
+{:spawn-all
+ {:children         [{:id :cfg  :machine-id :load-config}
+                     {:id :user :machine-id :load-user}]
+  :join             :all
+  :on-child-done    :child/done            ;; required — child→parent success signal
+  :on-child-error   :child/error           ;; required — child→parent failure signal
+  :on-all-complete  [:all-loaded]
+  :on-any-failed    [:load-failed]}
+ :on {:all-loaded  :ready
+      :load-failed :failed}}
+```
+
+`:on-child-done` and `:on-child-error` are **required** keys (per [§Spawn-and-join via `:spawn-all`](../../../spec/005-StateMachines.md#spawn-and-join-via-spawn-all)); the runtime intercepts the child completion signals, evaluates `:join`, and fires `:on-all-complete` / `:on-any-failed` into the parent. Use this shape only when turning each await into a child machine is warranted — for awaits that are plain dispatched events from existing handlers, the record-in-`:data` + `:always` guard shape above is lighter. Phase-level wall-clock timeouts ride the parent state's `:after` slot — `:spawn-all` carries no `:timeout-ms` (per [M-44](breaking-changes.md#required-m-rules-by-trigger-surface)).
+
+## Escalate — the agent surfaces and stops
+
+Do **not** silently rewrite these; present the call site, the reason, and wait for direction:
+
+- **`:halt-fns?` / `:rules` predicates closing over state outside `:data`** (the engine's seen-event history, an app-db slice, a sub value). Machine guards / actions are encapsulated to `:data` (per [§Guards](../../../spec/005-StateMachines.md#guards)); the rewrite restructures the signal to arrive as a dispatched event the machine records, or escalates as a design conversation.
+- **`:events` as a predicate fn** (matched against each observed event) rather than a keyword / vector. The machine's `:on` is keyword-indexed; arbitrary-predicate matching has no direct equivalent — restructure the upstream dispatches to carry distinguishing ids, or escalate.
+- **A `:rules` vector computed at runtime** (`(into base (when flag? extra))`). The machine spec is declarative and stamped at registration. Conditional behaviour belongs in `:guard` / `:always` branches, not a computed rule list.
+- **A flow whose `:db-path` is read by other code.** The snapshot is a different location and shape; every reader must move to `(rf/sub-machine <id>)`. Escalate so the operator can locate them.
+
+## Reporting
+
+- List every `:async-flow` call site found, whether the operator approved each rewrite, and the new machine id.
+- When the `day8.re-frame/async-flow-fx` dep is no longer referenced, flag it for removal; the operator confirms before the coord is dropped. The `day8/re-frame2-machines` dep is added per M-28.
+- List each escalation with file/line, the reason, and the recommended path.
+
+---
+
+*Authoritative grammar: [`spec/005-StateMachines.md`](../../../spec/005-StateMachines.md). v1 add-on: [`async-flow-fx`](https://github.com/day8/re-frame-async-flow-fx). Forced-compile context: [`breaking-changes.md` §v1 add-on libraries fail to COMPILE on v2](breaking-changes.md#v1-add-on-libraries-fail-to-compile-on-v2--replacementremoval-is-forced-not-opt-in). Sibling guide: [`http-fx-to-managed-http.md`](http-fx-to-managed-http.md) (O-17).*
