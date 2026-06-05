@@ -1746,20 +1746,44 @@ documenting comment and does **not** survive the parse back.
 | `:after {ms :target}`                 | `<transition event="after.ms" target="target"/>` |
 | `:always [...]`                       | `<transition target="..."/>` (eventless) |
 | `{:type :parallel :regions ...}`      | `<parallel>` containing region `<state>`s |
-| Namespaced ids (`:auth/login`)        | `auth.login` (`.` separates ns from name; SCXML xsd:ID grammar) |
-| Vector-path targets (`[:parent :child]`) | `parent:child` (`:` joins path SEGMENTS; SCXML xsd:ID grammar) |
+| Namespaced ids (`:auth/login`)        | `auth__login` (hex-escaped; `__` separates ns from name) |
+| Multi-dot-ns ids (`:my.app/login`)    | `my_2eapp__login` (ns dots escaped to `_2e`) |
+| Vector-path targets (`[:parent :child]`) | `parent___child` (`___` joins path SEGMENTS) |
+| Nested-state ids                      | fully qualified (root→leaf, `___`-joined) — unique xsd:ID |
 
-> **Id codec (rf2-csq75).** Two separators keep the round-trip
-> injective. A `.` separates a *namespaced keyword's* namespace from
-> its name (`:auth/login` → `auth.login`). A `:` joins the *segments of
-> a vector path* (`[:authenticated :browsing]` → `authenticated:browsing`;
-> a namespaced segment keeps its own dot, e.g. `[:auth/region :browsing]`
-> → `auth.region:browsing`). Because the keyword encoder never emits a
-> `:`, the presence of a `:` is the unambiguous marker of a vector path,
-> so a two-segment path (`authenticated:browsing`) can never collide
-> with a single namespaced keyword (`authenticated.browsing`). The
-> decoder is therefore topology-aware (split on `:`), not dot-count
-> based. Both separators are valid SCXML xsd:ID characters.
+> **Id codec — injective + xsd:ID-conformant (rf2-mnp93.1/.7,
+> supersedes rf2-csq75).** SCXML state ids are `xsd:ID` (XML NCName):
+> letters / digits / `-` `.` `_`, and crucially **no `:`**. The codec
+> HEX-ESCAPES every keyword namespace/name char outside `[A-Za-z0-9]` to
+> `_<2-hex>` (`.` → `_2e`, `?` → `_3f`, and the underscore itself → `_5f`)
+> and joins parts with two RESERVED MARKERS the escaper can provably
+> never emit:
+>
+> - `__` (double underscore) separates a *namespaced keyword's* namespace
+>   from its name: `:auth/login` → `auth__login`,
+>   `:my.app.auth/login` → `my_2eapp_2eauth__login` (the namespace dots
+>   are escaped, so the single `__` marks the ns/name boundary regardless
+>   of how many dots the namespace has).
+> - `___` (triple underscore) joins the *segments of a vector path*:
+>   `[:authenticated :browsing]` → `authenticated___browsing`;
+>   a namespaced segment keeps its own `__`, e.g. `[:auth/region :browsing]`
+>   → `auth__region___browsing`.
+>
+> Because the segment escaper never produces two consecutive underscores,
+> neither marker can collide with segment content or with each other, so
+> the codec is **fully injective for ANY keyword** — including
+> multi-segment namespaces and dotted names, which the pre-mnp93.1
+> `.`-as-ns/name scheme corrupted (`:my.app.auth/login` and
+> `:my/app.auth.login` both encoded to `my.app.auth.login`). State ids
+> are additionally **fully PATH-QUALIFIED** (root→leaf), so two
+> same-named nested states emit UNIQUE xsd:IDs and transition targets
+> reference those same unique ids — valid SCXML a strict external
+> consumer accepts (the pre-fix bare-name ids produced duplicate xsd:IDs;
+> the csq75 `:`-path separator was not even a valid xsd:ID char). The
+> guard `cond=` attribute is the same hex-escaped keyword encoding, and a
+> user event named `after.*` / `done.state.*` no longer aliases the
+> synthetic timer / `:on-done` encodings (those carry a literal `.` the
+> codec never emits for a real keyword — rf2-mnp93.2/.3).
 
 ### Not supported (lossy or omitted)
 

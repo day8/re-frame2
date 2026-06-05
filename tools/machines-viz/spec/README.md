@@ -55,8 +55,16 @@ shipped surface is the Mermaid `stateDiagram-v2` exporter.
   `src/day8/re_frame2_machines_viz/scxml.cljc`. Pure-data round-trip
   `(= spec (-> spec spec->scxml scxml->spec))` for the supported
   W3C SCXML subset (flat / compound / parallel, `:initial`, `:on`,
-  `:after`, `:always`, guards, `:final?`, namespaced ids). JVM +
-  CLJS test corpus pins the round-trip property + error modes.
+  `:after`, `:always`, guards, `:final?`, namespaced ids). The id codec
+  is **fully injective and xsd:ID-conformant** (rf2-mnp93.1/.7,
+  supersedes rf2-csq75): keyword ns/name chars are hex-escaped and joined
+  with reserved `__` (ns/name) and `___` (path) markers, so ANY keyword
+  — incl. multi-segment namespaces and dotted names — round-trips
+  exactly; state ids are path-qualified for document-wide xsd:ID
+  uniqueness. JVM + CLJS test corpus pins the round-trip property
+  (incl. multi-dot-ns keywords, namespaced guards, `after.*`/`done.state.*`
+  user events, nested same-name states, mixed candidate vectors) + error
+  modes.
 - **AI-generate-a-machine (v1.1)** — per
   [rf2-1bncf](../../../.beads/) and
   [`API.md`](API.md) §AI-generate-a-machine. Implemented at
