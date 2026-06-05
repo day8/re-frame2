@@ -1,0 +1,33 @@
+;; Conformance fixture: machine/parallel-root-on-region-wins
+;;
+;; Per [005 §Transition broadcast §Root parallel `:on`]
+;; (../../005-StateMachines.md#transition-broadcast) and rf2-tsq6g
+;; (verified against xstate@5.32.0).
+;;
+;; ATOMIC ANCESTOR-FALLBACK SUPPRESSION: when a region-local transition AND
+;; the root :on both match the same event, the DEEPER region transition wins
+;; and the root transition is SUPPRESSED ENTIRELY (NOT merged in). Here :a
+;; handles :go locally; the root :go would have moved BOTH regions, but it is
+;; suppressed, so :b (which has no :go) stays put.
+;;
+;; v5 verified: GO -> {a:two, b:one}.
+
+{:fixture/id           :machine/parallel-root-on-region-wins
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/flat :fsm/parallel-regions}
+ :fixture/doc          "Region-local AND root both match — the deeper region transition wins; the root :on is suppressed entirely (NOT merged). v5: GO -> {a:two, b:one}."
+
+ :fixture/registry {}
+ :fixture/handlers {}
+
+ :fixture/calls
+ [{:call         :machine-transition
+   :definition   {:type    :parallel
+                  :data    {}
+                  :on      {:go {:target [[:a :two] [:b :two]]}}
+                  :regions {:a {:initial :one :states {:one {:on {:go :two}} :two {}}}
+                            :b {:initial :one :states {:one {} :two {}}}}}
+   :snapshot     {:state {:a :one :b :one} :data {}}
+   :event        [:go]
+   :expect-next-snapshot {:state {:a :two :b :one} :data {}}
+   :expect-effects       []}]}

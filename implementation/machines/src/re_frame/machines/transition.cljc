@@ -801,6 +801,28 @@
         (when-let [star-hit (select :*)]
           (assoc star-hit :rf/via-wildcard? true))))))
 
+(defn root-on-match
+  "Per Spec 005 §Transition broadcast §Root parallel `:on` — the ancestor
+  fallback (rf2-tsq6g): resolve the PARALLEL ROOT's own `:on` for `event`
+  against the frozen pre-event `snapshot`, most-specific-tier-first
+  (exact → `:ns/*` → `:*`), via `match-on-clause` with the machine map itself
+  as the matching node. Returns the matched transition map (carrying
+  `:target` / `:action` / `:guard` / `:rf/via-wildcard?`) or nil when the
+  root declares no `:on`, or no candidate's guard passes.
+
+  This is the parallel analog of `pick-transition`'s machine-root `:on`
+  fallback for flat / compound machines (steps 6-7) — `parallel-machine-
+  transition` consults it ONLY when no region selected a transition for the
+  event (atomic ancestor-fallback suppression: a region match wins; the root
+  transition is suppressed entirely). Public so `re-frame.machines.parallel`
+  can resolve the root transition without re-implementing the three-tier
+  descriptor walk. The root `:on` guard sees the parallel snapshot's full
+  region map under `:state` (the root sees the whole configuration); no
+  `:all-state` key is present because the root snapshot is not a region
+  snapshot."
+  [machine event snapshot]
+  (match-on-clause machine machine (first event) event snapshot))
+
 (defn- pick-done-transition
   "Per Spec 005 §Final states §The done-state signal (rf2-bnjb3 / rf2-zlmz7):
   resolve the synthetic completion event `[:rf.machine/done <node-path>]` —
@@ -2138,6 +2160,34 @@
                 new-data (cond-> (:data snap)
                            (contains? r :data) (merge (:data r)))]
             (result/ok (assoc snap :data new-data) (vec (or (:fx r) [])))))))))
+
+(defn run-root-transition-action
+  "Per Spec 005 §Transition broadcast §Root parallel `:on` (rf2-tsq6g): run a
+  PARALLEL ROOT's selected `:on` transition's `:action` ONCE against the
+  parallel `snap`'s shared `:data`, threading the standard `{:data :fx}`
+  effects-map contract. Unlike the per-region apply, the root transition's
+  action is a SINGLE root-level action — it fires once and writes the shared
+  `:data` (not once per targeted region), exactly as XState v5 runs a parent
+  parallel transition's action once before the targeted region(s) move.
+
+  `transition` is the already-selected root transition map (resolved by
+  `root-on-match`); its `:action` (a keyword ref or fn) runs under phase
+  `:transition` — the root parallel `:on` IS a transition, consistent with
+  the parallel root `:on-done` (`apply-on-done-action`) and the embedded
+  compound `:on-done` path. The action's effects flow through the shared
+  `enforce-db-disallow` choke-point so a `:db` write produces the same
+  `:rf.error/machine-action-wrote-db` diagnostic + strip as every other
+  phase. Returns a `result/ok` carrying `[snap' fx]` (action's `:data`
+  merged, `:fx` collected), or a `result/fail` if the action threw. A
+  targetless / action-less transition returns `(ok snap [])`."
+  [machine snap transition event]
+  (let [r0 (run-action machine snap (:action transition) event :transition)]
+    (if (result/fail? r0)
+      r0
+      (let [r        (enforce-db-disallow machine r0 (:action transition) (:state snap))
+            new-data (cond-> (:data snap)
+                       (contains? r :data) (merge (:data r)))]
+        (result/ok (assoc snap :data new-data) (vec (or (:fx r) [])))))))
 
 ;; ---- destroy-time exit cascade (rf2-nahfm) --------------------------------
 ;;

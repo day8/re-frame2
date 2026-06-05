@@ -1,0 +1,33 @@
+;; Conformance fixture: machine/parallel-root-on-not-dropped
+;;
+;; Per [005 §Transition broadcast §Root parallel `:on`]
+;; (../../005-StateMachines.md#transition-broadcast) and rf2-tsq6g.
+;;
+;; THE BUG REGRESSION GUARD. Before rf2-tsq6g a user-written root-level `:on`
+;; on a `:type :parallel` machine was NEITHER validated NOR executed — it was
+;; SILENTLY DROPPED (the broadcast only reached the synthetic region machines).
+;; This fixture pins the fix: the root `:on` is now consulted as the ancestor
+;; fallback when no region handles the event, so the targeted regions move
+;; rather than the event being a silent no-op.
+
+{:fixture/id           :machine/parallel-root-on-not-dropped
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/flat :fsm/parallel-regions}
+ :fixture/doc          "Regression guard — a root :on on :type :parallel is no longer silently dropped: it fires as the ancestor fallback when no region handles the event."
+
+ :fixture/registry {}
+ :fixture/handlers {}
+
+ :fixture/calls
+ [{:call         :machine-transition
+   :definition   {:type    :parallel
+                  :data    {}
+                  :on      {:reset-all {:target [[:a :one] [:b :one]]}}
+                  :regions {:a {:initial :two :states {:one {} :two {}}}
+                            :b {:initial :two :states {:one {} :two {}}}}}
+   :snapshot     {:state {:a :two :b :two} :data {}}
+   :event        [:reset-all]
+   ;; If the root :on were still silently dropped, the snapshot would be
+   ;; UNCHANGED ({:a :two :b :two}). The fix makes it move both regions.
+   :expect-next-snapshot {:state {:a :one :b :one} :data {}}
+   :expect-effects       []}]}

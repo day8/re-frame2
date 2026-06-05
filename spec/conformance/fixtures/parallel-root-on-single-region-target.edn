@@ -1,0 +1,30 @@
+;; Conformance fixture: machine/parallel-root-on-single-region-target
+;;
+;; Per [005 §Transition broadcast §Root parallel `:on`]
+;; (../../005-StateMachines.md#transition-broadcast) and rf2-tsq6g
+;; (verified against xstate@5.32.0).
+;;
+;; A root parallel `:on` targeting ONE region moves that region and leaves
+;; UNtargeted regions unchanged.
+;;
+;; v5 verified: ONE -> {a:two, b:one} (root :on targets only :a; :b stays).
+
+{:fixture/id           :machine/parallel-root-on-single-region-target
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/flat :fsm/parallel-regions}
+ :fixture/doc          "Root parallel :on targeting ONE region — that region moves, untargeted regions unchanged. v5: ONE -> {a:two, b:one}."
+
+ :fixture/registry {}
+ :fixture/handlers {}
+
+ :fixture/calls
+ [{:call         :machine-transition
+   :definition   {:type    :parallel
+                  :data    {}
+                  :on      {:one {:target [:a :two]}}
+                  :regions {:a {:initial :one :states {:one {} :two {}}}
+                            :b {:initial :one :states {:one {} :two {}}}}}
+   :snapshot     {:state {:a :one :b :one} :data {}}
+   :event        [:one]
+   :expect-next-snapshot {:state {:a :two :b :one} :data {}}
+   :expect-effects       []}]}

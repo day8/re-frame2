@@ -1,0 +1,32 @@
+;; Conformance fixture: machine/parallel-root-on-no-region-handles
+;;
+;; Per [005 §Transition broadcast §Root parallel `:on`]
+;; (../../005-StateMachines.md#transition-broadcast) and rf2-tsq6g
+;; (XState v5 / SCXML gold standard — verified against xstate@5.32.0).
+;;
+;; The parallel ROOT's own `:on` is the ANCESTOR FALLBACK for its regions
+;; (deepest-wins with parent fallthrough). When NO region handles the event,
+;; the root transition fires, moving the targeted region(s).
+;;
+;; v5 verified: GO -> {a:two, b:two} (no region declares :go-all; the root
+;; :on moves both targeted regions).
+
+{:fixture/id           :machine/parallel-root-on-no-region-handles
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/flat :fsm/parallel-regions}
+ :fixture/doc          "Root parallel :on ancestor fallback — when no region handles the event, the root :on fires and moves the targeted region(s). v5: GO -> {a:two, b:two}."
+
+ :fixture/registry {}
+ :fixture/handlers {}
+
+ :fixture/calls
+ [{:call         :machine-transition
+   :definition   {:type    :parallel
+                  :data    {}
+                  :on      {:go-all {:target [[:a :two] [:b :two]]}}
+                  :regions {:a {:initial :one :states {:one {} :two {}}}
+                            :b {:initial :one :states {:one {} :two {}}}}}
+   :snapshot     {:state {:a :one :b :one} :data {}}
+   :event        [:go-all]
+   :expect-next-snapshot {:state {:a :two :b :two} :data {}}
+   :expect-effects       []}]}

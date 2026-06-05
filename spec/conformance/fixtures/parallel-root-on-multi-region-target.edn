@@ -1,0 +1,37 @@
+;; Conformance fixture: machine/parallel-root-on-multi-region-target
+;;
+;; Per [005 §Transition broadcast §Root parallel `:on`]
+;; (../../005-StateMachines.md#transition-broadcast) and rf2-tsq6g
+;; (verified against xstate@5.32.0).
+;;
+;; A root parallel `:on` with MULTIPLE region-qualified targets
+;; `[[:a :x] [:b :y]]` (the XState target ['.a.x','.b.y'] analog) updates ALL
+;; named regions atomically; an untargeted region (:c) stays unchanged. The
+;; root `:action` runs ONCE against the shared :data (not once per region).
+
+{:fixture/id           :machine/parallel-root-on-multi-region-target
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/flat :fsm/parallel-regions :core/event-handler}
+ :fixture/doc          "Multi-region root :on target — all named regions update atomically; the untargeted region is unchanged; the root :action runs ONCE against the shared :data."
+
+ :fixture/registry
+ {:machine-action
+  {:par/bump {:doc "Increments :count by 1 against the shared :data."}}}
+
+ :fixture/handlers
+ {:machine-action
+  {:par/bump [[:set [:count] [:fn :+ [:get [:count]] 1]]]}}
+
+ :fixture/calls
+ [{:call         :machine-transition
+   :definition   {:type    :parallel
+                  :data    {:count 0}
+                  :actions {:bump :par/bump}
+                  :on      {:advance {:target [[:a :x] [:b :y]] :action :bump}}
+                  :regions {:a {:initial :one :states {:one {} :x {}}}
+                            :b {:initial :one :states {:one {} :y {}}}
+                            :c {:initial :one :states {:one {}}}}}
+   :snapshot     {:state {:a :one :b :one :c :one} :data {:count 0}}
+   :event        [:advance]
+   :expect-next-snapshot {:state {:a :x :b :y :c :one} :data {:count 1}}
+   :expect-effects       []}]}

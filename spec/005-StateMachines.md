@@ -1496,9 +1496,41 @@ Three outcomes per region:
 - **Region's state has no matching `:on` entry.** That region's `:state` is unchanged. No `:rf.machine.event/unhandled-no-op` fires for the region alone *unless every region declines the event* (see below).
 - **Region's matching `:on` entry has a guard that returns false.** Same as "no match" — region stays put, no per-region trace fires.
 
-If **every region** declines the event (no region matched a transition), the machine as a whole emits the benign `:rf.machine.event/unhandled-no-op` trace exactly once, matching the flat-machine semantics (an unhandled event is a no-op, not an error — xstate-v5 parity, see [§Transition resolution](#transition-resolution--deepest-wins-with-parent-fallthrough)). If **any** region handled the event, the snapshot commits with that region's transition applied and no no-op trace fires.
+If **every region** declines the event (no region matched a transition), the parallel **root's own `:on`** is consulted as the **ancestor fallback** (see [§Root parallel `:on` — the ancestor fallback](#root-parallel-on--the-ancestor-fallback) below). Only when the root `:on` *also* declines does the machine emit the benign `:rf.machine.event/unhandled-no-op` trace exactly once, matching the flat-machine semantics (an unhandled event is a no-op, not an error — xstate-v5 parity, see [§Transition resolution](#transition-resolution--deepest-wins-with-parent-fallthrough)). If **any** region handled the event, the snapshot commits with that region's transition applied, the root `:on` is **suppressed**, and no no-op trace fires.
 
 The post-broadcast snapshot's `:state` is the map of region-name → that region's new state value. Regions that didn't transition keep their prior value in place.
+
+### Root parallel `:on` — the ancestor fallback
+
+A transition declared on the **`:type :parallel` root itself** — the root's own `:on` — is the **ancestor fallback** for its regions: deepest-wins with parent fallthrough, the parallel analog of the flat / compound machine-root `:on` fallback (per [§Transition resolution](#transition-resolution--deepest-wins-with-parent-fallthrough) steps 6-7) and of re-frame2's own compound-root `:on` fallthrough. This is the **XState v5 / SCXML gold standard** — a transition on a `<parallel>` node can target one or multiple of its regions ("Multiple transitions in parallel states", Stately/XState docs) — verified against xstate@5.32.0.
+
+> **Why this is a first-class capability, not a silent drop.** Before this, a user-written root-level `:on` on a `:type :parallel` machine was NEITHER validated NOR executed — the broadcast only reached the synthetic per-region machines, so the root `:on` was **silently dropped**. That silent drop is the bug; the ancestor fallback both fixes it and adds the v5 coordination affordance. The parallel root was the *only* root that silently dropped `:on` — an inconsistency in re-frame2's own model (every compound root already honours its `:on` as the ancestor fallback). (rf2-tsq6g.)
+
+**Selection — atomic ancestor fallback (the load-bearing semantic):**
+
+1. The root parallel transition is selected **ONLY when no region-local transition was selected** for the event. If **any** region handled the event, the root transition is **SUPPRESSED ENTIRELY** — atomic, all-or-nothing; it is *not* "fire the root for the regions that did not handle it". The root `:on`'s guard is evaluated against the **frozen pre-event snapshot** (the same two-phase frozen-selection model region guards use — see [§Cross-region coordination](#cross-region-coordination--tags-as-statein)).
+2. When selected, the root transition runs its `:action` **once** against the shared `:data`, then **atomically** updates one or more region-qualified targets, leaving **UNtargeted** regions unchanged. A moved region then settles its own `:always` + `:raise`s through the same parent internal-event queue (per [§`:raise` is the exception](#per-region-always--after--spawn-scoping)).
+
+**Target grammar.** A root `:on` transition's `:target` is one of:
+
+- **targetless / action-only** — runs the `:action` / `:fx`, moves no region;
+- a **single region-qualified target** `[<region> & <in-region-path>]` — a vector whose head is a declared region name, the rest the in-region path (`[:a :two]` moves region `:a` to its `:two`; `[:a :compound :leaf]` to a compound region's leaf);
+- **multiple region-qualified targets** `[[<region> …] [<region> …]]` — the XState `target ['.a.x', '.b.y']` analog (`[[:a :x] [:b :y]]`).
+
+Registration rejects a bare-keyword target, or a target whose head is not a declared region, with `:rf.error/machine-parallel-root-on-bad-target` (a root-only parallel machine has no flat sibling state to land a non-region-qualified target on). The root `:on` transition's `:guard` / `:action` refs are validated at registration like any other transition slot (previously the root-parallel path was skipped, so a bad ref there did not surface).
+
+**Verified v5 cases** (xstate@5.32.0):
+
+| event | region `:on` for event? | result | rule |
+|---|---|---|---|
+| `GO` (`{:go-all {:target [[:a :two] [:b :two]]}}` at root; no region declares `:go-all`) | no | `{a:two, b:two}` | no region handled → root fires, moves the targeted regions |
+| `ONE` (`{:one {:target [:a :two]}}` at root) | no | `{a:two, b:one}` | root targets one region; the other is untargeted → unchanged |
+| `GO` (root targets both; region `:a` handles `:go` locally) | `:a` yes | `{a:two, b:one}` | the **deeper** region transition wins; the root is **suppressed entirely** (NOT merged) |
+| `RESET` (root `{:reset {:target [[:a :initial] [:b :resting]]}}`; region `:a` has `:on {:reset :special}`) | `:a` yes | `{a:special, b:resting}` | **competing-multi-region suppression** — `:a` competing suppresses the WHOLE root; `:b` stays UNCHANGED |
+
+The last row is the **non-decomposable** case — the definitive parity fixture. A broadcast decomposition (region `:a`: `reset → special`; region `:b`: `reset → initial`) would fire both *independently* → `{a:special, b:initial}`. The atomic ancestor-fallback suppression gives `{a:special, b:resting}` (`:b` unchanged): a per-region `:on` has no cross-region suppression, so "this multi-region default fires UNLESS any region competes, in which case it is atomically suppressed" is a real capability per-region transitions cannot express.
+
+**`:after` at the root is NOT supported in this release.** A `:type :parallel` root declaring `:after` is rejected loudly at registration with `:rf.error/machine-parallel-root-after-not-supported` — no silent drop. Express a root-level timeout as a region `:after` that `:raise`s an internal event the root `:on` (or a sibling region) handles.
 
 ### Cross-region coordination — tags as `stateIn`
 

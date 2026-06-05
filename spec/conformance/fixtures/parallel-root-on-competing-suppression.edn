@@ -1,0 +1,45 @@
+;; Conformance fixture: machine/parallel-root-on-competing-suppression
+;;
+;; Per [005 §Transition broadcast §Root parallel `:on`]
+;; (../../005-StateMachines.md#transition-broadcast) and rf2-tsq6g
+;; (verified against xstate@5.32.0).
+;;
+;; THE DEFINITIVE PARITY FIXTURE — the NON-DECOMPOSABLE case. A root
+;; multi-region default fires UNLESS a region competes, in which case the
+;; WHOLE root transition is atomically suppressed and the untargeted sibling
+;; stays UNCHANGED. This is the one behaviour a per-region-:on broadcast
+;; CANNOT decompose into:
+;;
+;;   root :on {:reset {:target [[:a :initial] [:b :resting]]}}  ;; reset BOTH (default)
+;;   region :a :on {:reset :special}                            ;; :a wants a special reset
+;;
+;; RESET:
+;;   - re-frame2 / XState v5: :a matches :reset (deeper) -> the ENTIRE root
+;;     :reset is SUPPRESSED -> :b stays UNCHANGED. Result {a:special, b:resting}.
+;;   - Broadcast decomposition (a: reset->special, b: reset->initial) would
+;;     fire BOTH independently -> {a:special, b:initial}. DIFFERENT.
+;;
+;; v5 verified: RESET -> {a:special, b:resting} (b unchanged).
+
+{:fixture/id           :machine/parallel-root-on-competing-suppression
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/flat :fsm/parallel-regions}
+ :fixture/doc          "Competing-multi-region suppression — the non-decomposable case. A region competing for the event atomically suppresses the WHOLE root multi-region transition; the untargeted sibling stays unchanged. v5: RESET -> {a:special, b:resting}."
+
+ :fixture/registry {}
+ :fixture/handlers {}
+
+ :fixture/calls
+ [{:call         :machine-transition
+   :definition   {:type    :parallel
+                  :data    {}
+                  :on      {:reset {:target [[:a :initial] [:b :resting]]}}
+                  :regions {:a {:initial :initial
+                                :states  {:initial {:on {:reset :special}}
+                                          :special {}}}
+                            :b {:initial :resting
+                                :states  {:initial {} :resting {}}}}}
+   :snapshot     {:state {:a :initial :b :resting} :data {}}
+   :event        [:reset]
+   :expect-next-snapshot {:state {:a :special :b :resting} :data {}}
+   :expect-effects       []}]}
