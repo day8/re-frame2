@@ -485,3 +485,33 @@
   [frame-id]
   (swap! pending-exceptions dissoc frame-id)
   nil)
+
+(defn clear-all-play-state!
+  "Hard, GLOBAL reset of every per-process play atom this module owns —
+  `pending-exceptions` and `stepper-state` — plus the per-frame trace
+  listeners those sessions install. Used by the canonical test-reset path
+  (`re-frame.story/clear-all!` + `re-frame.story.test-support/story-reset!`).
+
+  Per-frame teardown (`frames/destroy!` → `drop-pending-exceptions!` +
+  `end-stepper!`) evicts these atoms one frame at a time, but a registry
+  reset that does NOT tear down frames (e.g. `with-clean-registry`) would
+  otherwise leave both atoms populated — a stale `stepper-state` entry makes
+  `play-stepper-active?` report a session a later test never began, and a
+  stale `pending-exceptions` entry could drain into a fresh frame's
+  assertions (rf2-eztym.2). This is the remaining un-reset per-process play
+  state alongside the config atoms (rf2-6ez1u) and the runner-events run
+  atoms (rf2-booyu).
+
+  Also unregisters every per-frame trace listener `begin-stepper!` /
+  `install-trace-listener!` registered (keyed by frame-id across both
+  atoms), so a stale listener cannot capture into the just-cleared atom on
+  the next dispatch. Idempotent."
+  []
+  (when config/enabled?
+    (let [frame-ids (into (set (keys @pending-exceptions))
+                          (keys @stepper-state))]
+      (doseq [frame-id frame-ids]
+        (remove-trace-listener! frame-id)))
+    (reset! pending-exceptions {})
+    (reset! stepper-state {}))
+  nil)

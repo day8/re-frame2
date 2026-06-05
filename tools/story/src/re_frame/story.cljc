@@ -898,11 +898,17 @@
     after `clear-all!` re-installs the canonical vocabulary on demand
     (the registrar's side-table is now empty — the seven canonical
     tags etc. need to be re-registered before any tagged variant can
-    be added)."
+    be added).
+  - resets the two per-process play atoms (`pending-exceptions` +
+    `stepper-state`) via `play/clear-all-play-state!` (rf2-eztym.2) — the
+    remaining un-reset per-process state, so a stepper / pending-exception
+    session in one test cannot leak into the next on a reset path that
+    bypasses per-frame `frames/destroy!` teardown."
   []
   (registrar/clear-all!)
   (config/reset-all!)
-  (canonical/reset-installed-flag!))
+  (canonical/reset-installed-flag!)
+  (play/clear-all-play-state!))
 
 ;; ---- canonical test-fixture helper — DIRECT-REQUIRE, not on this facade -
 ;;

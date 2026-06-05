@@ -622,6 +622,23 @@
     (and (:recording? state) (dom-event? entry))
     (conj-entry (dom-entry entry))))
 
+(defn append-dom-buffered
+  "Pure: append an ALREADY-CAPTURED DOM-event `entry` onto the recorder
+  state's `:entries` slot REGARDLESS of `:recording?` (rf2-eztym.3).
+
+  Unlike `append-dom`, this does NOT re-check `:recording?`. It exists for
+  the type-debounce drain: a keystroke buffered WHILE recording carries its
+  own capture-time `:t` (stamped at buffer time, when `:recording?` was
+  true), so it must survive the flush even when the flush happens AFTER the
+  recording was stopped — otherwise the final typed value is silently
+  dropped whenever the stop path clears `:recording?` before the pending
+  debounce timer (or the `remove!` drain) fires. The entry must still be a
+  well-formed DOM-event vector. Idempotent against malformed inputs."
+  [state entry]
+  (cond-> state
+    (dom-event? entry)
+    (conj-entry (dom-entry entry))))
+
 (defn stop
   "Pure: return the recorder state for a stopped recording. Preserves
   `:events` and `:variant-id` so the UI can render the captured trace
@@ -765,6 +782,17 @@
   [entry]
   (when config/enabled?
     (swap! state append-dom entry))
+  nil)
+
+(defn record-dom-event-buffered!
+  "Append an ALREADY-CAPTURED DOM-event `entry` REGARDLESS of `:recording?`
+  (rf2-eztym.3). The type-debounce drain path uses this so a keystroke
+  buffered WHILE recording (and carrying its own capture-time `:t`) survives
+  the flush even when the flush fires after `stop-recording!` has cleared
+  `:recording?`. Idempotent against malformed inputs; no-op under elision."
+  [entry]
+  (when config/enabled?
+    (swap! state append-dom-buffered entry))
   nil)
 
 (defn insert-assertion!
