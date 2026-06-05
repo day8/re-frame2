@@ -298,16 +298,17 @@
             ;; slot (machine_epochs takes 8033).
             8032 ["../tools/xray/testbeds/routes_epochs"
                   "out/examples/routes-epochs"]
-            ;; Single-frame machine-epochs testbed (rf2-w06op) — the
-            ;; STATE-MACHINE sibling of standard-epochs: a tall column of
-            ;; numbered buttons, each bumping a shared baseline counter +
-            ;; sending one machine event exercising one more machine
-            ;; feature, so clicking top-to-bottom completely exercises the
-            ;; Xray Machine Inspector (rf-xray-machine-inspector). Same
-            ;; source-dir-first cascade as 8031/8032; compiled main.js
-            ;; falls through to out/examples/machine-epochs. Port 8033 is
-            ;; the trio's machine slot (standard-epochs 8031, routes-epochs
-            ;; 8032).
+            ;; machine-epochs testbed (rf2-w06op; reworked to a
+            ;; multi-machine frame-isolated stepper per rf2-q3lfm) — the
+            ;; STATE-MACHINE Xray driver. A left machine-picker rail; each
+            ;; of the 8 machine domains runs in its OWN frame and owns its
+            ;; OWN epoch ring, and selecting one re-points Xray at that
+            ;; frame so every observation panel (Epoch cascade, scrubber,
+            ;; App-db, Machine Inspector) shows ONLY that machine's
+            ;; isolated arc. Same source-dir-first cascade as 8031/8032;
+            ;; compiled main.js falls through to out/examples/machine-epochs.
+            ;; Port 8033 is the machine slot of the _epochs port trio
+            ;; (standard-epochs 8031, routes-epochs 8032).
             8033 ["../tools/xray/testbeds/machine_epochs"
                   "out/examples/machine-epochs"]
             ;; Single-frame edn-inspector testbed (rf2-74u2s) — the
@@ -825,27 +826,30 @@
    :devtools         {:preloads [re-frame2-pair.runtime
                                  day8.re-frame2-xray.preload]}}
 
-  ;; Single-frame machine-epochs testbed (rf2-w06op) — the STATE-MACHINE
-  ;; sibling of standard-epochs. Same shape (a tall column of numbered
-  ;; buttons in ONE plainly-mounted frame, each button bumping a shared
-  ;; baseline counter + sending one machine event exercising one more
-  ;; machine feature), aimed squarely at the Xray Machine Inspector
-  ;; (rf-xray-machine-inspector): click top-to-bottom and the Inspector's
-  ;; surfaces (topology highlight · focused-transition lens · guards /
-  ;; actions · snapshot drill-in · transition history · parallel regions)
-  ;; are completely exercised. A TEST surface — no deliberate bugs, no
-  ;; teaching layers (feedback_testbeds_are_test_surfaces).
+  ;; machine-epochs testbed (rf2-w06op; reworked to a multi-machine
+  ;; frame-isolated stepper per rf2-q3lfm) — the STATE-MACHINE Xray
+  ;; driver. A left machine-picker rail over the shared queued-step
+  ;; runner, re-expressed as a multi-track picker: each of the 8 machine
+  ;; domains (door · traffic · quiz · brew · session · fuse · hvac ·
+  ;; media) runs in its OWN frame and owns its OWN epoch ring. Selecting
+  ;; a track boots its machine(s) and re-points Xray
+  ;; (:rf.xray/select-frame) at that frame, so every observation panel
+  ;; (the Epoch cascade, the time-travel scrubber, the App-db panel, the
+  ;; Machine Inspector — topology highlight · focused-transition lens ·
+  ;; guards / actions · snapshot drill-in · transition history · parallel
+  ;; regions) shows ONLY that machine's isolated arc. A TEST surface — no
+  ;; deliberate bugs, no teaching layers (feedback_testbeds_are_test_surfaces).
   ;;
   ;; The machines / events / subs / views are OWNED in
   ;; machine_epochs/core.cljs — it boots the machines artefact
   ;; (`[re-frame.machines]`) and uses the real `reg-machine` + machine-
-  ;; event-routing surface; it does NOT reuse the deleted testdeck.*
-  ;; modules, and the deep_machine framework testbed stays the gate's
-  ;; deterministic machine substrate (this deck does not touch it).
+  ;; event-routing surface; the machine specs are shared with the
+  ;; assertion harness via the sibling ns machine_epochs/machines.cljs.
   ;; Sources live under tools/xray/testbeds/machine_epochs/; the Xray
-  ;; preload auto-mounts inline so every lens reads the single frame.
+  ;; preload auto-mounts inline, and the picker re-points it per-frame so
+  ;; every lens reads exactly the selected machine's frame.
   ;; Served at http://localhost:8033 via the top-level `:dev-http` map
-  ;; (the machine slot of the _epochs trio — standard-epochs 8031,
+  ;; (the machine slot of the _epochs port trio — standard-epochs 8031,
   ;; routes-epochs 8032 mirror this build-id scheme).
   :examples/machine-epochs
   {:target           :browser
