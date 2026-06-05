@@ -74,6 +74,29 @@ itself runs in the `cljs-browser` CI job (the `cljs_browser` changed
 surface, which fires on both `examples/**` source edits and
 `shadow-cljs.edn` build-decl changes).
 
+## Stock / slim Reagent boundary gate (`test:script-policy`)
+
+re-frame2 ships two Reagent substrates with two separate example trees: the
+**stock** tree (`examples/reagent/**`, mounting `reagent.*` +
+`re-frame.adapter.reagent`) and the **slim** tree
+(`examples/reagent-slim/**`, mounting `reagent2.*` +
+`re-frame.adapter.reagent-slim`). The slim wiring exists for bundle isolation
+and belongs **only** to the slim tree.
+
+[`examples/scripts/check-reagent-slim-boundary.cjs`](scripts/check-reagent-slim-boundary.cjs)
+is a pure static scanner that walks every `.clj{,s,c}` source under
+`examples/reagent/` and fails if any of them requires `reagent2.*` or
+`re-frame.adapter.reagent-slim`. Its detector is anchored so the legitimate
+stock wiring (`reagent.core`, `re-frame.adapter.reagent` — note the *absence*
+of the `2` and the `-slim` suffix) is never flagged.
+
+This is **not** a Playwright spec and adds nothing under `examples/` source —
+it preserves the test-free examples policy (rf2-8cevm). Its teeth (slim hits
+flagged; stock wiring not flagged; a live scan of the real tree must be clean;
+a non-vacuous source floor) are pinned by
+[`implementation/scripts/check-reagent-slim-boundary.test.cjs`](../implementation/scripts/check-reagent-slim-boundary.test.cjs),
+which runs in the always-on `test:script-policy` suite.
+
 ## Server-ownership contract (`test:browser`)
 
 The browser-test orchestrator at
