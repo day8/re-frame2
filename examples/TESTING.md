@@ -220,6 +220,64 @@ runs against a fresh frame — but the *registrations* themselves are
 shared across the whole bundle. Prefix discipline is what keeps them
 non-overlapping.
 
+### Named exception — the stock/slim counter `:counter/*` id share
+
+The prefix convention has **exactly one blessed exception** in the
+example tree (parallel to how [`spec/Conventions.md`](../spec/Conventions.md)
+names `:rf.fx/reg-flow` its single principled carve-out from a general
+rule). It is deliberate, narrow, and load-bearing — not an oversight:
+
+> **[`examples/reagent/counter`](reagent/counter/) and
+> [`examples/reagent-slim/counter_slim_and_fast`](reagent-slim/counter_slim_and_fast/)
+> intentionally register the *same* `:counter/*` event and subscription
+> ids** — `:counter/initialise`, `:counter/inc`, `:counter/dec`
+> (`reg-event-db`) and `:counter/value` (`reg-sub`). The id-identity *is*
+> the demonstration: it proves **adapter parity** — byte-for-byte
+> identical dataflow driven through a different reactive substrate (the
+> stock `day8/re-frame2-reagent` bridge vs the ground-up
+> `day8/reagent-slim` rewrite). Renaming the slim ids to a
+> `:counter-slim-and-fast/*` stem would conform to the prefix rule but
+> *weaken* the parity claim the two fixtures exist to make, so it is not
+> done.
+
+The exception is bounded by four conditions, all of which must hold:
+
+1. **Scope is the shared event + subscription ids only.** The two
+   fixtures' **views are NOT shared.** `reg-view` auto-namespaces each
+   registration as `(keyword *ns* sym)`, so the views land under
+   `:counter.core/*` (stock) and `:counter-slim-and-fast.core/*` (slim) —
+   distinct ids that already satisfy the convention. The carve-out covers
+   *only* the four `:counter/*` event+sub ids; do not read it as "shared
+   views".
+2. **Allowed *only* because they are separate standalone builds that MUST
+   NOT be co-required into one runtime.** Stock builds as
+   `:examples/counter` (`:init-fn counter.core/run`); slim builds as
+   `:examples/counter-slim-and-fast`
+   (`:init-fn counter-slim-and-fast.core/run`) — two independent `:browser`
+   modules with distinct build-ids, init-fns, and namespaces. They never
+   share a JS runtime, so the identical registry ids never collide. The
+   collision is purely theoretical *and already prevented by the build
+   split*; it is not a risk the convention needs to guard against here.
+3. **If either fixture is ever added to a shared wrapper / showcase /
+   `test:browser` bundle, the ids MUST be revisited and prefixed.** The
+   moment a `*-cljs-test` wrapper (or any combined demo) co-`:require`s
+   both `counter.core` and `counter-slim-and-fast.core` into one bundle,
+   the shared ids would overwrite each other in the single shared registry
+   — and, because the handlers are currently byte-identical, *silently*
+   until the twins diverge. This exception does not survive co-loading;
+   prefix one (or both) stems before that happens.
+4. **The bundle-isolation gate is the regression surface that keeps this
+   boundary honest.** `npm run test:reagent-slim:bundle-isolation`
+   (the `cljs-reagent-slim-bundle-isolation` CI job) releases each fixture
+   as its own advanced bundle and greps it in isolation — it is the
+   binding contract that the two builds stay separate, which is precisely
+   what makes the shared ids safe.
+
+Framing note: the **stock** `:counter/*` ids do **not** violate the
+convention even in spirit — `:counter/*` *is* `examples/reagent/counter`'s
+own kebab-folder stem. Only the **slim** fixture is the exception, by
+borrowing the canonical counter's feature namespace rather than its own.
+
 ## Adding a new browser-test example
 
 A new example added to the `test:browser` surface needs:
