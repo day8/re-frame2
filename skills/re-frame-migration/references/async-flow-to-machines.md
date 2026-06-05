@@ -32,6 +32,8 @@ The rule engine and the FSM are structurally different. async-flow is **temporal
 | `:db-path` (engine state location) | dropped — snapshots live at `[:rf/runtime :machines :snapshots <id>]` | not user-selectable. The trade is favourable: the snapshot rides in `app-db`, so it is revertible, SSR-survivable, and visible to Xray / Tool-Pair / the trace stream for free. |
 | `:debug?` (per-flow console logging) | dropped — machine transitions emit `:rf.machine/transition` trace events | the standard trace surface (Spec 009) carries them; no per-machine flag. |
 
+> **CRITICAL — retarget the producers, or the machine never advances.** async-flow watches the **global** router: a rule awaiting `:config-loaded` fires when *anyone* dispatches `[:config-loaded]`. A machine does **not** — it is an event handler addressed by its id, and **only observes events dispatched to its address** `[<machine-id> <event-vec>]` (per [005 §Spawning — dynamic actors](../../../spec/005-StateMachines.md#spawning--dynamic-actors): a machine "is addressable as an event handler whose id is the actor's address"; a plain `[:config-loaded]` resolves to a *separate* `:config-loaded` handler — or to `:rf.error/no-such-handler` — and never reaches `:app/boot`). So mapping the `:when`/`:seen-*` events onto the machine's `:on` keys is only **half** the conversion. The other half is rewriting every **producer** of those awaited events — the HTTP `:on-success`/`:on-failure`, the existing completion handler, whatever dispatched the plain global event — to dispatch the **addressed** form: `[:app/boot [:config-loaded payload]]`, `[:app/boot [:fetch-failed err]]`. Skip this and the converted boot/login/wizard compiles, starts, and then **hangs silently** on its first await — the spinner never clears, with no error. When the original event must stay public (other code also listens for the plain `[:config-loaded]`), keep the global producer and add a one-line **bridge** handler that re-dispatches into the machine — `(rf/reg-event-fx :config-loaded (fn [_ ev] {:fx [[:dispatch (into [:app/boot] [ev])]]}))` — or model the await as a spawned child actor whose completion the runtime routes back to the parent (see [§Parallel fan-out — `:spawn-all`](#parallel-fan-out--spawn-all-when-each-await-is-its-own-actor) below). The worked example below shows the producer rewrites explicitly.
+
 ### `reg-machine` grammar (the slots this guide uses)
 
 ```clojure
@@ -82,6 +84,20 @@ A representative async-flow: dispatch `[:fetch-config]` first; when `[:config-lo
                     :events   [:fetch-failed]
                     :dispatch [:app-boot-failed]
                     :halt?    true}]}}))
+
+;; The PRODUCERS — the handlers that dispatch the awaited events. The flow
+;; watches the global router, so a plain [:config-loaded] satisfies its rule.
+(rf/reg-event-fx :fetch-config
+  (fn [_ _]
+    {:fx [[:http-xhrio {:method     :get :uri "/config"
+                        :on-success [:config-loaded]      ;; → global dispatch
+                        :on-failure [:fetch-failed]}]]}))
+
+(rf/reg-event-fx :fetch-user
+  (fn [_ _]
+    {:fx [[:http-xhrio {:method     :get :uri "/user"
+                        :on-success [:user-loaded]        ;; → global dispatch
+                        :on-failure [:fetch-failed]}]]}))
 ```
 
 ### After — `reg-machine`
@@ -119,6 +135,24 @@ A representative async-flow: dispatch `[:fetch-config]` first; when `[:config-lo
     :failed {:final? true
              :entry  (fn [_] {:fx [[:dispatch [:app-boot-failed]]]})}}})
 
+;; The PRODUCERS — RETARGETED to the machine address. This is the half of the
+;; conversion a blind :on-key mapping forgets: the machine only observes events
+;; dispatched to [:app/boot ...], so every awaited completion/failure must be
+;; re-addressed. (The :http-xhrio fx itself converts separately to managed HTTP
+;; per O-17 — kept as-is here to isolate the addressing change; what changes
+;; HERE is only the :on-success / :on-failure TARGET, now an addressed event.)
+(rf/reg-event-fx :fetch-config
+  (fn [_ _]
+    {:fx [[:http-xhrio {:method     :get :uri "/config"
+                        :on-success [:app/boot [:config-loaded]]    ;; ← addressed
+                        :on-failure [:app/boot [:fetch-failed]]}]]}))
+
+(rf/reg-event-fx :fetch-user
+  (fn [_ _]
+    {:fx [[:http-xhrio {:method     :get :uri "/user"
+                        :on-success [:app/boot [:user-loaded]]      ;; ← addressed
+                        :on-failure [:app/boot [:fetch-failed]]}]]}))
+
 ;; Start the machine from the app's entry point (replaces the :app/boot event).
 ;; [:rf.machine/start] is the reserved eager-creation kick (xstate createActor(m).start()):
 ;; it runs the initial-entry cascade (firing :starting's :entry) then stops.
@@ -132,6 +166,7 @@ What changed:
 - **The single-event rule (`:config-loaded` → fetch user) → a transition on `:starting`'s `:on` map.** The awaited event is the `:on` key; the dispatch lands in the next state's `:entry` (or the transition's `:action :fx`).
 - **The `:seen-all-of? [:user-loaded :config-loaded]` rule → record-in-`:data` `:on` actions plus an `:always` gated by the `:both-loaded?` guard.** Each await flips a flag in working memory; the eventless `:always` advances the moment both are true — the FSM-native spelling of "all seen." (`:config-loaded` is recorded in `:starting`; `:user-loaded` in `:loading-user`; the guard reads both.)
 - **`:halt-on [:fetch-failed]` → a `:fetch-failed` transition to the `:final?` `:failed` state**, declared on every state that can still be in flight. The normal completion routes to the `:final?` `:ready` state. Entering either terminal triggers auto-destroy.
+- **Every producer of an awaited event RETARGETED to the machine address.** `:fetch-config`'s `:on-success [:config-loaded]` → `[:app/boot [:config-loaded]]`; `:fetch-user`'s `:on-success [:user-loaded]` → `[:app/boot [:user-loaded]]`; both `:on-failure` → `[:app/boot [:fetch-failed]]`. This is the easily-missed half: the `:on`-key mapping is inert until the events actually arrive **at the machine's address** — a plain global `[:config-loaded]` bypasses the machine and the boot hangs silently. (Where the global event must stay public, bridge it instead — see the CRITICAL note under the construct table.)
 - **`(:require [day8.re-frame.async-flow-fx])` dropped; `(:require [re-frame.machines])` added** (M-28). The `day8.re-frame/async-flow-fx` Maven coord is dropped once every flow is converted.
 
 ### The top-level singleton boot machine — the most common async-flow shape
@@ -182,6 +217,7 @@ Do **not** silently rewrite these; present the call site, the reason, and wait f
 ## Reporting
 
 - List every `:async-flow` call site found, whether the operator approved each rewrite, and the new machine id.
+- **List every producer retargeted (or bridged).** For each awaited event in the flow, name the handler/fx whose dispatch you re-addressed to `[<machine-id> ...]` (or the bridge handler you added when the global event had to stay public). An unretargeted producer is a silent stuck-boot — call out any you could not locate so the operator can find them.
 - When the `day8.re-frame/async-flow-fx` dep is no longer referenced, flag it for removal; the operator confirms before the coord is dropped. The `day8/re-frame2-machines` dep is added per M-28.
 - List each escalation with file/line, the reason, and the recommended path.
 
