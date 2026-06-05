@@ -334,6 +334,41 @@
     ;; saved comment → exactly 1 comment in the slice after submit.
     (is (= 1 (count (rf/compute-sub [:comments/data] (rf/app-db-value f)))))))
 
+(defn- comment-delete-rollback-stale-index-test []
+  ;; rf2-mzqd4.2 — :comment/delete-rollback re-inserts at an index
+  ;; captured at optimistic-delete time. If the comments list SHRANK
+  ;; before the DELETE's failure reply lands (a :comments/loaded re-fetch
+  ;; or a concurrent delete), a stale index can point past the current
+  ;; vector. The rollback's `subvec` must NOT throw IndexOutOfBounds — it
+  ;; clamps the index to the current length and re-inserts at the tail.
+  (with-new-frame [f (rf/make-frame {:on-create [:app/initialise]})]
+    (rf/dispatch-sync [:comments/initialise] {:frame f})
+    ;; Seed a single comment (the list is now length 1).
+    (rf/dispatch-sync
+      [:comments/loaded
+       {:value {:comments [{:id 7 :body "survivor"
+                            :author {:username "eve"}}]}}]
+      {:frame f})
+    (is (= 1 (count (rf/compute-sub [:comments/data] (rf/app-db-value f)))))
+
+    ;; A DELETE for a comment that WAS at index 3 in a since-shrunk list
+    ;; fails. The captured prior carries the stale index 3 against the
+    ;; current length-1 list. Before the clamp this threw on `subvec`.
+    (rf/dispatch-sync
+      [:comment/delete-rollback {:index 3 :comment {:id 9 :body "rolled-back"
+                                                    :author {:username "mallory"}}}]
+      {:frame f})
+
+    (let [data (rf/compute-sub [:comments/data] (rf/app-db-value f))]
+      ;; No throw, and the rolled-back comment was re-inserted (clamped to
+      ;; the tail) rather than lost.
+      (is (= 2 (count data))
+          "stale-index rollback re-inserts without throwing")
+      (is (some #(= 9 (:id %)) data)
+          "the rolled-back comment is restored")
+      (is (some #(= 7 (:id %)) data)
+          "the surviving comment is untouched"))))
+
 ;; ============================================================================
 ;; favorites — optimistic-update rollback
 ;; ============================================================================
@@ -764,7 +799,9 @@
   (testing "article + comments load on route change"
     (comments-load-test))
   (testing "comment submit clears the form and appends to the list"
-    (comment-submit-test)))
+    (comment-submit-test))
+  (testing "delete rollback with a stale (shrunk-list) index does not throw (rf2-mzqd4.2)"
+    (comment-delete-rollback-stale-index-test)))
 
 (deftest realworld-favorites
   (testing "favorite toggle rolls back on :http failure"

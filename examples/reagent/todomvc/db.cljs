@@ -31,7 +31,13 @@
 (rf/reg-cofx :todo.storage/todos
   {:doc "Inject the saved TodoMVC items from localStorage into coeffects."}
   (fn cofx-todo-storage-todos [ctx]
+    ;; Always yield a sorted-map. `some->` short-circuits to nil when
+    ;; localStorage is empty (first run) or unavailable; without the `or`
+    ;; the nil clobbers default-db's (sorted-map) downstream, breaking
+    ;; allocate-next-id's `(last (keys todos))` = max-id invariant once the
+    ;; map promotes to an unordered PersistentHashMap (>8 entries).
     (assoc-in ctx [:coeffects :todo.storage/todos]
-              (some-> (.-localStorage js/globalThis)
-                      (.getItem ls-key)
-                      (storage->todos)))))
+              (or (some-> (.-localStorage js/globalThis)
+                          (.getItem ls-key)
+                          (storage->todos))
+                  (sorted-map)))))
