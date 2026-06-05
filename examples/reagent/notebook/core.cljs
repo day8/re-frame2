@@ -112,6 +112,34 @@
 ;; `dangerouslySetInnerHTML` escape hatch, and the example stays free of
 ;; an extra npm dependency.
 
+(def ^:private safe-link-schemes
+  "Allowlist of URI schemes a markdown link may carry in the preview.
+   Anything else (notably `javascript:` and `data:`) is treated as
+   unsafe and rendered as inert text rather than a clickable anchor."
+  #{"http" "https" "mailto"})
+
+(defn- safe-href
+  "Return `href` when it is safe to put on an `:a {:href ...}` in the
+   preview, else nil. Safe = an allowlisted absolute scheme, or a
+   scheme-less link (relative path or `#fragment`). Scheme detection
+   matches a leading `word:` prefix per RFC 3986 §3.1; a `:` that only
+   appears after a `/`, `?` or `#` is part of the path/query/fragment,
+   not a scheme, so such links are scheme-less and allowed."
+  [href]
+  (let [h (str/trim (or href ""))
+        ;; A scheme is `ALPHA *( ALPHA / DIGIT / + / - / . ) :` at the
+        ;; very start. If the first `:` is preceded by a `/`, `?` or `#`
+        ;; it is not a scheme delimiter.
+        m      (re-find #"(?i)^([a-z][a-z0-9+.-]*):" h)
+        scheme (some-> m second str/lower-case)]
+    (cond
+      ;; No leading scheme → relative path or fragment → safe.
+      (nil? scheme) href
+      ;; Allowlisted absolute scheme → safe.
+      (contains? safe-link-schemes scheme) href
+      ;; Anything else (javascript:, data:, vbscript:, …) → unsafe.
+      :else nil)))
+
 (defn- split-by-regex
   "Walk `coll` (a flat seq of strings + hiccup-vectors). For each
    string element, find non-overlapping matches of `re`; each match
@@ -150,10 +178,20 @@
   [s]
   (-> [s]
       (split-by-regex #"\[([^\]]+)\]\(([^)]+)\)"
-                      (fn [m] [:a {:href (nth m 2)
-                                   :rel "noopener noreferrer"
-                                   :target "_blank"}
-                                (nth m 1)]))
+                      (fn [m]
+                        (let [text (nth m 1)]
+                          ;; Sanitize the destination: only allowlisted
+                          ;; schemes (and scheme-less relative links)
+                          ;; become clickable anchors. Disallowed schemes
+                          ;; — `javascript:`, `data:`, … — render as inert
+                          ;; text so the preview never exposes an unsafe
+                          ;; clickable link on this user-controlled surface.
+                          (if-let [href (safe-href (nth m 2))]
+                            [:a {:href   href
+                                 :rel    "noopener noreferrer"
+                                 :target "_blank"}
+                             text]
+                            [:span.nb-unsafe-link text]))))
       (split-by-regex #"\*\*([^*]+)\*\*"
                       (fn [m] [:strong (nth m 1)]))
       (split-by-regex #"\*([^*]+)\*"

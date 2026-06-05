@@ -62,6 +62,12 @@
 ;; a fresh tick under the new generation, so the chain continues. This
 ;; generation guard makes the 0.0 reading correct regardless of dispatch
 ;; timing — Reset uses ordinary `dispatch`, like every other UI handler.
+;;
+;; :timer/set-duration reuses the same generation mechanism: when the tick
+;; chain has already stopped (elapsed reached the old duration) and the
+;; user raises the duration, the handler bumps :tick-gen and arms one fresh
+;; tick — resuming the chain without a Reset. This is what makes "the slider
+;; changes the duration on the fly" hold after completion.
 
 (rf/reg-event-fx :timer/initialise
   {:doc "Seed the timer slice and start the periodic tick."}
@@ -87,11 +93,29 @@
             (and tick-active? (not done?))
             (assoc :fx [[:dispatch-later {:ms tick-ms :event [:timer/tick gen]}]])))))))
 
-(rf/reg-event-db :timer/set-duration
-  {:doc "User dragged the slider."
+(rf/reg-event-fx :timer/set-duration
+  {:doc "User dragged the slider. Update the duration, and — if the tick
+         chain had already stopped because elapsed reached the *old*
+         duration — re-arm it under a bumped generation so a longer
+         duration resumes ticking without a Reset. Bumping :tick-gen
+         retires any still-pending tick, so exactly one chain runs.
+         If a chain is still live (elapsed < old duration) we just
+         update the duration; the running tick keeps going against the
+         new target."
    :schema [:cat [:= :timer/set-duration] :int]}
-  (fn handler-timer-set-duration [db [_ ms]]
-    (assoc-in db [:timer :duration-ms] ms)))
+  (fn handler-timer-set-duration [{:keys [db]} [_ ms]]
+    (let [{:keys [elapsed-ms duration-ms tick-active? tick-gen]} (:timer db)
+          ;; The chain stops scheduling once elapsed reaches duration
+          ;; (see :timer/tick's `done?`). Detect that stopped state.
+          was-stopped? (>= elapsed-ms duration-ms)
+          ;; Re-arm only when stopped, still active, and the new
+          ;; duration leaves elapsed below target (room to advance).
+          rearm?       (and was-stopped? tick-active? (> ms elapsed-ms))
+          next-gen     (if rearm? (inc tick-gen) tick-gen)
+          db'          (cond-> (assoc-in db [:timer :duration-ms] ms)
+                         rearm? (assoc-in [:timer :tick-gen] next-gen))]
+      (cond-> {:db db'}
+        rearm? (assoc :fx [[:dispatch-later {:ms tick-ms :event [:timer/tick next-gen]}]])))))
 
 (rf/reg-event-fx :timer/reset
   {:doc "User clicked Reset. Zero elapsed, retire any in-flight tick by
