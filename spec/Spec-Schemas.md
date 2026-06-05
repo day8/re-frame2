@@ -2212,8 +2212,10 @@ The HTTP-response accumulator owned by the request frame during SSR. Per [011 §
    [:headers  {:optional true} [:vector [:tuple :string :string]]]         ;; ordered [name value] pairs; case-insensitive name match
    [:cookies  {:optional true} [:vector [:ref :rf.server/cookie]]]         ;; structured cookies (per :rf.server/cookie below)
    [:redirect {:optional true} [:maybe [:map
-                                        [:status   {:optional true} :int] ;; default 302
-                                        [:location :string]]]]
+                                        [:status   {:optional true} :int]    ;; default 302
+                                        [:location {:optional true} :string] ;; redirect target (or :url / :to); see RedirectFxArgs — all optional, no-target permitted
+                                        [:url      {:optional true} :string]
+                                        [:to       {:optional true} :string]]]]
    [:content-type {:optional true} :string]])                              ;; convenience accessor; mirrors headers' "content-type"
 ```
 
@@ -2232,16 +2234,23 @@ The structured-cookie shape that `:rf.server/set-cookie` and `:rf.server/delete-
   [:map
    [:name      :string]
    [:value     :string]
-   [:max-age   {:optional true} :int]
-   [:expires   {:optional true} :int]                                      ;; ms-since-epoch; alternative to :max-age
+   [:max-age   {:optional true} [:or :int :string]]                        ;; canonical :int; string admitted at ingress (see §Ingress tolerance below)
+   [:expires   {:optional true} [:or :int :string]]                        ;; canonical ms-since-epoch :int; string admitted at ingress only (see below); Ring REQUIRES an int at the host boundary
    [:secure    {:optional true} :boolean]
    [:http-only {:optional true} :boolean]
-   [:same-site {:optional true} [:enum :strict :lax :none]]
+   [:same-site {:optional true} [:or [:enum :strict :lax :none] :string]]  ;; canonical enum; string admitted at ingress (see below)
    [:path      {:optional true} :string]
    [:domain    {:optional true} :string]])
 ```
 
 Either `:max-age` or `:expires` may be supplied (or neither — session cookie). User code does not build wire strings.
+
+**Ingress tolerance vs canonical/host-serialisable shape.** The `:max-age`, `:expires`, and `:same-site` attributes carry a `[:or <canonical-type> :string]` shape rather than the bare canonical type. This is **ingress tolerance for CR/LF inspection, not a serialisability promise.** Apps frequently build cookie attributes from host-data that arrives as strings, and the per-attribute CR/LF/NUL injection gate (`re-frame.ssr.response/validate-cookie!`, per [011 §CRLF fail-fast](011-SSR.md#crlf-fail-fast-on-header-values)) must be able to *see* those string forms to reject a forged `"3600\r\nSet-Cookie: admin=1"` payload at the fx boundary. The fx-args `:schema` here is a **shape/type gate**; `validate-cookie!` is the **separate CR/LF/NUL injection gate**. So these three attributes admit the string form purely so it reaches the injection gate.
+
+Two distinctions follow:
+
+- `validate-cookie!` only `str`-coerces a scalar attribute to *inspect* it for CR/LF/NUL; it does **not** write a coercion back. The cookie keeps the caller's original scalar types downstream.
+- The string form is **not** blessed as a generally-valid canonical shape. In particular, **`:expires` must be epoch-millis `:int` at the host (Ring) boundary**: the Ring adapter throws `:rf.error/cookie-invalid-expires` when `:expires` is non-integer (it needs a primitive long for `Instant/ofEpochMilli`). A string `:expires` is tolerated at the fx ingress (so the CR/LF gate can inspect host-derived values) but **fails at head materialisation by design**. The canonical-shape authority is the host adapter; the schema widening above represents ingress tolerance, not a promise that every string form is serialisable by every host.
 
 ### `:rf/head-model`
 
@@ -2406,11 +2415,24 @@ The `:rf/effect-map`'s `:fx` is `[[fx-id args] ...]`. Each *standard* `fx-id` (t
    [:path   {:optional true} :string]
    [:domain {:optional true} :string]])
 
-;; :rf.server/redirect — set status (default 302) and Location; truncates HTML body
+;; :rf.server/redirect — set status (default 302) and the redirect target; truncates HTML body.
+;; The target is supplied under any ONE of :location / :url / :to — all three are
+;; documented in [011 §Standard fx](011-SSR.md#standard-fx) and read by
+;; re-frame.ssr.response/redirect-fx (`(or :location :url :to)`, :location winning).
+;; All three are OPTIONAL and a redirect with ZERO target keys is NOT a structural
+;; error: it is the established graceful-degradation path (the fx accepts it — :location
+;; is caller-trusted/optional — and the host adapter emits a warning trace plus a 3xx
+;; with no Location header so the defect is observable rather than silently shipping a
+;; broken redirect). The schema is therefore a pure SHAPE gate (key types only) and does
+;; NOT require at-least-one target; a target-requiring clause would 400 the no-target
+;; redirect before that warn-then-302 path runs. (`:rf.server/safe-redirect` differs —
+;; :location is its validation target and so is REQUIRED there.)
 (def RedirectFxArgs
   [:map
    [:status   {:optional true} :int]                                       ;; default 302
-   [:location :string]])
+   [:location {:optional true} :string]                                    ;; redirect target (or :url / :to)
+   [:url      {:optional true} :string]                                    ;; synonym for :location
+   [:to       {:optional true} :string]])                                  ;; synonym for :location
 
 ;; :rf.server/safe-redirect — caller-UNtrusted redirect (open-redirect mitigation);
 ;; :location is the validation target and so is REQUIRED here (unlike :rf.server/redirect,

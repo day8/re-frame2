@@ -60,19 +60,15 @@
   `:rf.server/set-cookie` / `:rf.server/delete-cookie` produce. Per
   Spec 011 §Cookie shape / [Spec-Schemas §`:rf.server/cookie`].
 
-  KNOWN DIVERGENCE from [Spec-Schemas §`:rf.server/cookie`] (filed for
-  Mike's ruling — rf2-kjf3m.2 follow-up). Spec-Schemas declares the
-  canonical types strictly:
-
-      :max-age   :int
-      :expires   :int                         ;; ms-since-epoch
-      :same-site [:enum :strict :lax :none]
-
-  …but `re-frame.ssr.response/validate-cookie!` (rf2-kjf3m.1 / rf2-z7gor)
-  DELIBERATELY accepts and `str`-coerces non-canonical scalar forms for
-  these three attrs — a string `:max-age`, a string/instant `:expires`,
-  a string `:same-site` (\"Strict\"/\"Lax\") — because apps build cookie
-  attrs from host-data that often arrives as strings, and the
+  Ingress tolerance vs canonical shape (rf2-cwfy2, ruled by Mike
+  2026-06-05 — Spec-Schemas widened to match this contract; no divergence
+  remains). The `:max-age`, `:expires`, and `:same-site` attrs carry a
+  `[:or <canonical-type> :string]` shape rather than the bare canonical
+  type, because `re-frame.ssr.response/validate-cookie!` (rf2-kjf3m.1 /
+  rf2-z7gor) DELIBERATELY accepts and `str`-coerces non-canonical scalar
+  forms for these three attrs — a string `:max-age`, a string/instant
+  `:expires`, a string `:same-site` (\"Strict\"/\"Lax\") — because apps
+  build cookie attrs from host-data that often arrives as strings, and the
   per-attribute CRLF gate must SEE those strings to reject a forged
   `\"3600\\r\\nSet-Cookie: admin=1\"` payload at the fx boundary. The
   ssr CRLF tests (`ssr-set-cookie-crlf-checks-every-attribute`) and the
@@ -80,18 +76,22 @@
   accepted`, which passes `:same-site \"Strict\"` + a string `:expires`)
   lock that tolerance in.
 
-  A schema that enforced Spec-Schemas' strict types would reject those
-  string forms at the Spec 010 §step-5 boundary BEFORE the CRLF gate runs
-  — changing the surfaced error from the specific `:rf.error/cookie-
-  invalid-<attr>` to a generic `:rf.error/schema-validation-failure`, and
+  A schema that enforced strict canonical types would reject those string
+  forms at the Spec 010 §step-5 boundary BEFORE the CRLF gate runs —
+  changing the surfaced error from the specific `:rf.error/cookie-invalid-
+  <attr>` to a generic `:rf.error/schema-validation-failure`, and
   rejecting the legitimately-tolerated string `:same-site`/`:expires`. So
-  the three coercible attrs widen to `[:or <spec-type> :string]` here: the
-  canonical spec type is documented + validated, AND the deliberately-
-  tolerated string form passes the shape gate so it reaches the CRLF
-  defence. `:secure` / `:http-only` / `:name` / `:value` / `:path` /
-  `:domain` match Spec-Schemas exactly. The divergence (tighten the fx to
-  the spec's strict cookie schema, OR amend Spec-Schemas to bless the
-  string forms) is Mike's call — see the follow-up decision bead."
+  the three coercible attrs widen to `[:or <canonical-type> :string]`: the
+  canonical type is documented + validated, AND the deliberately-tolerated
+  string form passes the shape gate so it reaches the CRLF defence.
+  `:secure` / `:http-only` / `:name` / `:value` / `:path` / `:domain` are
+  the bare canonical types. This is ingress CR/LF-inspection tolerance,
+  NOT a serialisability promise: the string form is tolerated at the fx
+  ingress but is not a generally-valid canonical shape — `:expires`, in
+  particular, MUST be an epoch-millis int at the host boundary (the Ring
+  adapter throws `:rf.error/cookie-invalid-expires` on a non-integer
+  `:expires`), so a string `:expires` fails at head materialisation by
+  design."
   [:map
    [:name      :string]
    [:value     :string]
@@ -155,14 +155,14 @@
   the redirect target. The CRLF / open-redirect gates live in
   `re-frame.ssr.response`; this is the structural shape check.
 
-  [Spec-Schemas]'s `RedirectFxArgs` names only `:location`, but Spec 011
-  §Standard fx (line 435) documents the target as `:location` **or
-  `:url`/`:to`**, and `re-frame.ssr.response/redirect-fx` reads all
-  three (`(or :location :url :to)`). The schema must not be narrower
-  than the documented + implemented fx contract, so it accepts any ONE
-  of the three target keys (a `:string`), each optional, plus the
-  optional `:int` `:status`. The fx handler resolves precedence
-  (`:location` wins, then `:url`, then `:to`).
+  [Spec-Schemas §`:rf.fx.server/redirect-args`]'s `RedirectFxArgs`, Spec
+  011 §Standard fx (line 435), and `re-frame.ssr.response/redirect-fx`
+  all agree: the target is supplied under any ONE of `:location` /
+  `:url` / `:to`, and redirect-fx reads all three (`(or :location :url
+  :to)`). The schema accepts any one of the three target keys (a
+  `:string`), each optional, plus the optional `:int` `:status`. The fx
+  handler resolves precedence (`:location` wins, then `:url`, then
+  `:to`).
 
   PERMISSIVE on the no-target case (rf2-ee38b.11 contract, the live half
   of decision rf2-cwfy2). All three target keys are optional AND a
