@@ -141,16 +141,77 @@
 ;; rank tuples, not just the winner — that's the load-bearing
 ;; interactive surface that exposes the 6-rule cascade.
 
+(defn- strip-origin
+  "Reduce an ABSOLUTE URL (`https://app.example/cart?x#y`) or a
+  protocol-relative one (`//app.example/cart`) to its `pathname +
+  search + fragment` — i.e. drop the `scheme://authority` origin so the
+  remainder is what the browser's `location.pathname + .search + .hash`
+  would yield. A RELATIVE input (`/cart`, `cart/`, `?x`, `#y`, `\"\"`) is
+  returned unchanged — it carries no origin to strip.
+
+  Pure string parsing — JVM + CLJS portable; no `js/URL` (the helper ns
+  is `.cljc` and runs under `clojure -M:test`). The origin is everything
+  up to (but excluding) the FIRST `/`, `?`, or `#` that follows the
+  `scheme://` (or bare `//`) marker; the path begins at that delimiter.
+  An origin with no following path (`https://app.example`) reduces to the
+  empty string, which the caller then normalises to `\"/\"`.
+
+  rf2-6nx8y — the simulator's `split-url` previously stripped only the
+  query + fragment, so an absolute URL pasted from the browser address
+  bar (`https://app.example/cart?source=email#step-1`) was matched as the
+  path `https://app.example/cart` and patterns like `/cart` never
+  matched. The UI/spec says to paste a URL, and the common copy-paste
+  workflow yields an absolute URL — so the simulator normalises the
+  origin away first."
+  [s]
+  (let [scheme-rel? (str/starts-with? s "//")
+        after-scheme (cond
+                       scheme-rel?
+                       (subs s 2)
+                       ;; `scheme://authority…` — find the `://` marker.
+                       :else
+                       (let [idx (str/index-of s "://")]
+                         (when idx (subs s (+ idx 3)))))]
+    (if (nil? after-scheme)
+      ;; No origin marker → relative input, return verbatim.
+      s
+      ;; `after-scheme` is `authority + path?query#frag`. The path begins
+      ;; at the first `/`, `?`, or `#`; everything before it is the
+      ;; authority (host[:port], userinfo) and is dropped.
+      (let [delim (->> [(str/index-of after-scheme "/")
+                        (str/index-of after-scheme "?")
+                        (str/index-of after-scheme "#")]
+                       (remove nil?)
+                       (reduce min ##Inf))]
+        (if (= delim ##Inf)
+          ;; Authority only (`https://app.example`) — no path.
+          ""
+          (subs after-scheme delim))))))
+
 (defn- split-url
-  "Strip fragment + query off a URL string, returning just the path
-  segment. Mirrors the splitting `match-url` performs before invoking
-  `match-against`. Fragments are dropped (do not participate in
-  matching per Spec 012 §Fragments); query strings are dropped
-  (route patterns match against the path only)."
+  "Strip the origin (scheme + authority), then fragment + query off a
+  URL string, returning just the path segment. Mirrors the splitting
+  `match-url` performs before invoking `match-against`, PLUS an
+  absolute-URL normalisation step `match-url` itself does not need
+  (it only ever sees host-relative URLs from the browser's
+  `location`): the simulator's input is pasted by a human, commonly
+  copied wholesale from the address bar, so an absolute URL is
+  normalised to its `pathname` first (rf2-6nx8y).
+
+  Order: origin → fragment → query.
+
+    - Origin (`scheme://authority`) is dropped via `strip-origin` so
+      `https://app.example/cart?x#y` reduces to `/cart?x#y` before the
+      query/fragment strip; a relative input is untouched.
+    - Fragments are dropped (do not participate in matching per Spec 012
+      §Fragments).
+    - Query strings are dropped (route patterns match against the path
+      only)."
   [url]
   (when (string? url)
-    (let [[no-frag] (str/split url #"#" 2)
-          [path]    (str/split no-frag #"\?" 2)]
+    (let [path-qs-frag (strip-origin url)
+          [no-frag]    (str/split path-qs-frag #"#" 2)
+          [path]       (str/split no-frag #"\?" 2)]
       (cond
         (str/blank? path) "/"
         :else             path))))

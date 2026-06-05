@@ -134,12 +134,59 @@
 
 ;; ---- machine-row projection ---------------------------------------------
 
+(defn- count-state-map
+  "Count every state under a `{state-id state-node}` map, recursing into
+  each compound state's nested `:states`. A compound parent counts as ONE
+  state plus the count of its substates — so `{:authed {:states {:a {}
+  :b {}}}}` is THREE states (`:authed` + `:a` + `:b`), matching the node
+  count the topology renderer emits for the same definition
+  (`panels.machines.topology/parse-definition`'s `walk-states`).
+
+  Pure data — JVM-runnable; no CLJS-only deps so the helper stays
+  portable to the `clojure -M:test` target."
+  [state-map]
+  (if (map? state-map)
+    (reduce-kv (fn [acc _state-id node]
+                 (+ acc 1 (count-state-map (:states node))))
+               0
+               state-map)
+    0))
+
 (defn- state-count
-  "Count of states in the machine's definition. Reads the canonical
-  `:states` slot (Spec 005 §Definition shape). Returns 0 when the
-  definition is missing or has no states map."
+  "Count of EVERY rendered state in the machine's definition — the same
+  total the Static Machines topology renderer paints (rf2-6nx8y).
+
+  Two definition shapes (Spec 005 §Definition shape):
+
+    - Compound machine — a `{:initial :states}` map. Counts every state
+      across all nesting levels: top-level states PLUS every compound
+      state's recursively-nested substates. Reading only the top-level
+      `:states` keys (the pre-rf2-6nx8y body) under-counted the deep
+      machines Xray exists to inspect.
+
+    - Parallel machine — `{:type :parallel :regions {...}}`. Sums each
+      region's own state count (recursively). The pre-rf2-6nx8y body
+      read `(:states definition)`, which is absent on a parallel root, so
+      every parallel machine displayed `0 states`.
+
+  Mirrors the node count `panels.machines.topology/parse-definition`
+  emits for the same definition, so the browse-list chip, the detail
+  header `<N> states`, and the `Sort: States` axis all agree with the
+  rendered topology. Returns 0 for a nil / non-map definition or one
+  carrying no states. Pure data — JVM-runnable."
   [definition]
-  (count (get definition :states {})))
+  (cond
+    (not (map? definition))
+    0
+
+    (= :parallel (:type definition))
+    (reduce-kv (fn [acc _region-id region]
+                 (+ acc (state-count region)))
+               0
+               (:regions definition))
+
+    :else
+    (count-state-map (:states definition))))
 
 (defn- live-instance-count
   "Number of times the machine-id appears in the snapshots map. v1

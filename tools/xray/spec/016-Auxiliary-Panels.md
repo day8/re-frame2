@@ -437,9 +437,23 @@ ranks the matching candidates by `:rf.route/rank` descending — the
 same order `match-url` walks the registry table. The first candidate
 is the winner.
 
+**Input normalisation (rf2-6nx8y).** The input is pasted by a human and
+is commonly copied wholesale from the browser address bar — an
+**absolute** URL with a `scheme://authority` origin. The simulator
+normalises an absolute (or protocol-relative `//host/…`) URL to its
+`pathname` — dropping the scheme + authority (userinfo / host / port) —
+*before* the query/fragment strip, so a pasted
+`https://app.example/cart?source=email#step-1` matches the registered
+`/cart` pattern. A **relative** input (`/cart`, `cart/`, `?x`, `#y`) is
+left untouched; only a `scheme://` (or leading `//`) marks an origin, so
+a relative path that legitimately contains a `:` segment is not mistaken
+for a scheme. `match-url` itself does not need this step (it only ever
+sees host-relative URLs from `location`); the simulator adds it because
+its source is human-pasted.
+
 The result block surfaces:
 
-- The normalised path (query and fragment stripped).
+- The normalised path (origin, query, and fragment stripped).
 - Every matching candidate, with its `:rf.route/rank` tuple and the
   parsed `:params` map.
 - The winner highlighted (green border + `WINNER` glyph).

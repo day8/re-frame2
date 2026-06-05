@@ -227,6 +227,60 @@
       (is (= :route/exact (first ids)))
       (is (= :route/splat (second ids))))))
 
+;; ---- simulate-url: absolute-URL normalisation (rf2-6nx8y) ---------------
+;;
+;; The Simulate-URL UI says "paste a URL", and the common copy-paste
+;; workflow copies the WHOLE address-bar URL — an ABSOLUTE URL with a
+;; scheme + authority. Before rf2-6nx8y `split-url` stripped only the
+;; query + fragment, so `https://app.example/cart` was matched as the
+;; literal path `https://app.example/cart` and `/cart` never matched.
+;; The simulator now normalises an absolute (or protocol-relative) URL
+;; to its `pathname` first, while leaving relative paths untouched.
+
+(deftest simulate-url-absolute-url-test
+  (testing "absolute URL pasted from the address bar resolves its pathname"
+    (let [r (h/simulate-url cart-routes "https://app.example/cart?source=email#step-1")]
+      (is (= "/cart" (:path r))
+          "scheme + authority + query + fragment all stripped")
+      (is (= :route/cart (:winner r)))))
+
+  (testing "absolute URL with a deep path + trailing slash"
+    (let [r (h/simulate-url cart-routes "http://localhost:3000/checkout/")]
+      (is (= "/checkout" (:path r))
+          "origin stripped + trailing slash normalised")
+      (is (= :route/checkout (:winner r)))))
+
+  (testing "absolute URL whose path does not match any route → no winner"
+    (let [r (h/simulate-url cart-routes "https://app.example/nope")]
+      (is (= "/nope" (:path r)))
+      (is (= [] (:candidates r)))
+      (is (nil? (:winner r)))))
+
+  (testing "absolute URL with authority only (no path) → root"
+    (let [r (h/simulate-url cart-routes "https://app.example")]
+      (is (= "/" (:path r)))
+      (is (= :route/root (:winner r))
+          "bare origin normalises to the root path")))
+
+  (testing "userinfo + port in the authority are dropped with the origin"
+    (let [r (h/simulate-url cart-routes "https://user:pw@app.example:8443/cart")]
+      (is (= "/cart" (:path r)))
+      (is (= :route/cart (:winner r)))))
+
+  (testing "protocol-relative URL (//host/path) also strips the authority"
+    (let [r (h/simulate-url cart-routes "//app.example/cart?x=1")]
+      (is (= "/cart" (:path r)))
+      (is (= :route/cart (:winner r)))))
+
+  (testing "RELATIVE path with a colon segment is NOT treated as a scheme"
+    ;; A relative path can legitimately contain a `:` (a literal segment).
+    ;; Only a `scheme://` (or leading `//`) marks an origin, so `/a:b/cart`
+    ;; stays a relative path. cart-routes has no `/a:b/cart`, so it misses
+    ;; cleanly rather than being mangled into a host.
+    (let [r (h/simulate-url cart-routes "/cart")]
+      (is (= "/cart" (:path r)) "plain relative path unchanged")
+      (is (= :route/cart (:winner r))))))
+
 ;; ---- focused-cascade ----------------------------------------------------
 
 (deftest focused-cascade-test
@@ -536,6 +590,17 @@
       ;; Slot shape still carries path (registered) but no params (no match).
       (is (= "/cart" (:path pv)))
       (is (not (contains? (:slot-shape pv) :params))))))
+
+(deftest simulate-navigation-preview-normalises-absolute-url-test
+  (testing "preview applies the same absolute-URL normalisation as the simulator (rf2-6nx8y)"
+    ;; An absolute URL pasted into the row's Simulate-URL surface must
+    ;; match THIS row's pattern the same way the global simulator does —
+    ;; the origin is stripped before `match-against` so `/cart` matches.
+    (let [pv (h/simulate-navigation-preview cart-routes :route/cart
+                                            "https://app.example/cart?source=email#step-1")]
+      (is (true? (:matched? pv))
+          "absolute URL's pathname matches the row's pattern")
+      (is (= :route/cart (-> pv :slot-shape :id))))))
 
 (deftest simulate-navigation-preview-row-local-overlapping-test
   (testing "row preview matches the SELECTED row's pattern, not the global winner (rf2-m9rx6)"

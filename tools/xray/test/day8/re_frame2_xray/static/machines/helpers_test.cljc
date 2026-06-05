@@ -102,6 +102,90 @@
     (is (= 3 (count rows)))
     (is (= [:m/a :m/b :m/c] (mapv :machine-id rows)))))
 
+;; ---- state-count: flat / compound / parallel (rf2-6nx8y) ----------------
+;;
+;; The state-count drives the browse-list chip, the detail header
+;; `<N> states`, and the `Sort: States` axis. It MUST count every state
+;; the topology renderer paints — top-level states PLUS compound
+;; substates PLUS every parallel region's states. Pre-rf2-6nx8y it read
+;; only `(count (:states definition))`, so compound substates were
+;; omitted and parallel machines (no `:states` key) showed `0 states`.
+;; The count is exercised via the public `project-row` (`state-count`
+;; itself is private).
+
+(deftest state-count-flat-counts-top-level-states
+  (testing "a flat machine counts its top-level states"
+    (let [row (h/project-row :m/flat
+                             {:initial :idle
+                              :states  {:idle    {:on {:go :busy}}
+                                        :busy    {:on {:done :idle}}
+                                        :stopped {}}}
+                             {})]
+      (is (= 3 (:state-count row))))))
+
+(deftest state-count-compound-includes-nested-substates
+  (testing "compound substates are counted, not omitted (rf2-6nx8y)"
+    ;; :unauth + :authed + (:browsing + :paying) = 4 — the same node
+    ;; count topology/parse-definition emits for this definition.
+    (let [row (h/project-row :m/compound
+                             {:initial :unauth
+                              :states  {:unauth {:on {:login :authed}}
+                                        :authed {:initial :browsing
+                                                 :states  {:browsing {:on {:checkout :paying}}
+                                                           :paying   {:on {:done :browsing}}}}}}
+                             {})]
+      (is (= 4 (:state-count row))
+          ":unauth + :authed + :browsing + :paying"))))
+
+(deftest state-count-deeply-nested-compound
+  (testing "recursion descends every compound level"
+    ;; :a + (:b + (:c + :d)) = 4
+    (let [row (h/project-row :m/deep
+                             {:initial :a
+                              :states  {:a {:initial :b
+                                            :states  {:b {:initial :c
+                                                          :states  {:c {}
+                                                                    :d {}}}}}}}
+                             {})]
+      (is (= 4 (:state-count row))
+          ":a + :b + :c + :d across three nesting levels"))))
+
+(deftest state-count-parallel-sums-region-states
+  (testing "a :type :parallel machine sums its regions' states (rf2-6nx8y)"
+    ;; region :r1 (:a + :b) + region :r2 (:c) = 3 — was 0 pre-fix
+    ;; because a parallel root carries no top-level :states key.
+    (let [row (h/project-row :m/par
+                             {:type    :parallel
+                              :regions {:r1 {:initial :a :states {:a {} :b {}}}
+                                        :r2 {:initial :c :states {:c {}}}}}
+                             {})]
+      (is (= 3 (:state-count row))
+          "two regions' states flatten: a + b + c"))))
+
+(deftest state-count-parallel-with-compound-regions
+  (testing "parallel regions whose states are themselves compound recurse"
+    ;; region :r1: :a + (:b + :b1 + :b2) = 4 ; region :r2: :c = 1 → 5
+    (let [row (h/project-row :m/par-compound
+                             {:type    :parallel
+                              :regions {:r1 {:initial :a
+                                             :states  {:a {}
+                                                       :b {:initial :b1
+                                                           :states  {:b1 {} :b2 {}}}}}
+                                        :r2 {:initial :c :states {:c {}}}}}
+                             {})]
+      (is (= 5 (:state-count row))
+          "region :r1 (a + b + b1 + b2) + region :r2 (c)"))))
+
+(deftest state-count-degenerate-shapes-are-zero
+  (testing "nil / empty / no-states definitions count 0"
+    (is (= 0 (:state-count (h/project-row :m/nil nil {}))))
+    (is (= 0 (:state-count (h/project-row :m/empty {} {}))))
+    (is (= 0 (:state-count (h/project-row :m/no-states {:initial :idle} {})))
+        "an :initial-only map with no :states map → 0")
+    (is (= 0 (:state-count (h/project-row :m/empty-parallel
+                                          {:type :parallel :regions {}} {})))
+        "a parallel root with no regions → 0")))
+
 ;; ---- search -------------------------------------------------------------
 
 (def ^:private sample-rows
