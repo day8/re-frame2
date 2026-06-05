@@ -101,15 +101,26 @@ The per-feature directories ship as **separate artefacts** in the published libr
 
 ### EP 009 — Instrumentation (`core/src/re_frame/{trace,emit,error}.cljc`)
 
-**What you'll find.** A listener-registry + ring buffer in `trace.cljc`, the emit sites in `emit.cljc`, and the structured error contract in `error.cljc`. Emit walks the registry inline. Production elision via `goog-define :debug-enabled?` + Closure DCE. A CI script (`implementation/scripts/check-elision.cjs`) scans production bundles for dev-only sentinel strings; the build fails if any are found.
+**What you'll find.** Two distinct surfaces with opposite production postures. The **dev trace surface** — a `register-listener!` registry + retain-N ring buffer in `trace.cljc`, the rich dev emit sites in `emit.cljc` — is gated behind `re-frame.interop/debug-enabled?` and DCEs out of production. The **always-on emit substrates** — `register-event-listener!` / `register-error-listener!` (+ the per-frame `:on-error` policy fn) — ride a *separate, ungated* path that survives `:advanced` + `goog.DEBUG=false`; they fire tight fixed-shape records post-elision (`re-frame.elision/elide-wire-value` substitutes sentinels before fan-out) with per-listener exception isolation. The structured error contract lives in `error.cljc`; an `:rf.error/*` event flows on BOTH surfaces. A CI script (`implementation/scripts/check-elision.cjs`) scans production bundles for dev-only sentinel strings; the build fails if any are found.
 
 **What's CLJS-specific.**
 
-- Closure DCE for production elision. JS / TS and Squint use Vite's `define` constants and tree-shaking; Fable uses `#if !DEBUG` + tree-shake; Scala.js uses link-time-`if`; Kotlin/JS uses release-variant module omission.
-- The sentinel-string CI verifier is portable — copy the pattern, adapt to your bundler.
+- Closure DCE for **dev-trace-surface** production elision. JS / TS and Squint use Vite's `define` constants and tree-shaking; Fable uses `#if !DEBUG` + tree-shake; Scala.js uses link-time-`if`; Kotlin/JS uses release-variant module omission. (The always-on substrates are NOT elided by any of these — they sit outside the gate.)
+- The sentinel-string CI verifier is portable — copy the pattern, adapt to your bundler — and add a positive assertion that the always-on substrates survive the production bundle.
 - Chrome Performance API bridge (`performance.mark` / `performance.measure`). Every in-scope host targets the browser, so the same Performance API is uniformly available; the bridge itself is optional (the trace surface is the contract).
 
-**What's pattern-required.** Trace event stream synchronous + in-order + per-emit. Listener registry. Retain-N ring buffer (dev). Production elision (host's mechanism). Structured error contract with `:operation :rf.error/<category>`.
+**What's pattern-required.** **Dev trace surface** (production-elided): synchronous + in-order + per-emit trace stream, `register-listener!` registry, retain-N ring buffer. **Always-on emit substrates** (production-survivable): `register-event-listener!` (one tight record per event) and `register-error-listener!` + per-frame `:on-error` (one record per `:rf.error/*` cascade error) — these MUST keep firing under production elision (hosted observability, production error reporting, SSR fail-closed), deliver identical record shapes dev/prod, run post-elision, and isolate per-listener exceptions. Structured error contract with `:operation :rf.error/<category>` flows on both.
+
+### EP 015 — Data Classification (`core/src/re_frame/{marks,elision}.cljc`)
+
+**What you'll find.** `marks.cljc` holds the per-frame mark side-table (`add-marks` / `set-marks`, unioned with schema-attached `:sensitive?` / `:large?` marks at lookup time — NOT a registrar kind) plus the propagation logic across the seven dataflow boundaries. `elision.cljc` holds the shared wire-elision walker `elide-wire-value` — the one function the trace bus, the 009 always-on event/error-emit records, and the MCP wire all route through to substitute `:rf/redacted` / `:rf/large {:bytes N}` / `:rf/redacted {:bytes N}` at marked paths. Real values flow through the runtime unchanged; substitution happens only at emission time.
+
+**What's CLJS-specific.**
+
+- Per-frame side-table storage + emit-time path-graph union for propagation. Your host may store marks differently and may use write-time taint-tracking instead of an emit-time union — both conform.
+- `get-in` / `assoc-in` path grain for the path vocabulary. Your port uses its own path-access primitive (D4 S3).
+
+**What's pattern-required.** v1-required (not optional). Path-marked, opt-in, two parallel axes (`:sensitive` / `:large`). The seven first-class marking sites accept `{:sensitive [paths] :large [paths]}`; `add-marks` merges, `set-marks` replaces-and-clears (both preserve schema-attached marks). Marks propagate (footgun prevention, not security-grade taint) across the seven boundaries. Emission-time sentinel substitution at all five observation surfaces (trace bus, Xray, MCP wire, AI/LLM handoff, log sinks) via one wire-elision walker — no marked value crosses the trust boundary in dev OR production. Handlers / sub-fns / fx-handlers ALWAYS see real values.
 
 ## Walk by optional artefact
 

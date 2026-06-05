@@ -297,11 +297,11 @@ From [Implementor-Checklist §Tracing & instrumentation](https://day8.github.io/
 
 #### T3 Production elision
 
-**The question.** How does every emit site, the listener registry, the trace buffer, and the perf bridge elide in production?
+**The question.** How does the **dev trace surface** — the `register-listener!` registry, the rich trace-event emit sites, the retain-N ring buffer, and the perf bridge — elide in production, while the **always-on event/error-emit substrates survive** the same production build?
 
-**What's at stake.** All tracing is dev-only; production builds must elide it entirely. Mechanism is host-discretion (Closure DCE for CLJS via `re-frame.interop/debug-enabled?`; Vite `define` + tree-shake for TS/Squint; `#if !DEBUG` + tree-shake for Fable; link-time-`if` for Scala.js; release-variant module omission for Kotlin/JS). Copy the CLJS reference's CI sentinel-string verifier pattern.
+**What's at stake.** Only the *dev trace surface* is dev-only and elided; production builds must DCE it entirely (no listener, no allocation, no overhead). Mechanism is host-discretion (Closure DCE for CLJS via `re-frame.interop/debug-enabled?`; Vite `define` + tree-shake for TS/Squint; `#if !DEBUG` + tree-shake for Fable; link-time-`if` for Scala.js; release-variant module omission for Kotlin/JS). **But two substrates are explicitly NOT elided** — `register-event-listener!` / `register-error-listener!` (and the per-frame `:on-error` policy fn) are **always-on**: they survive `:advanced` + `goog.DEBUG=false` (and JVM `-Dre-frame.debug=false`) because they are the production observability + error-reporting + SSR fail-closed surface (see E2 below). Decide explicitly how your host's DCE scopes to the trace surface alone, leaving the two always-on substrates on a separate ungated path. Copy the CLJS reference's CI sentinel-string verifier pattern — and pair it with a positive assertion that the always-on substrates remain present in the production bundle (an over-aggressive DCE that takes them out is the expensive failure mode).
 
-**Where the spec speaks.** [Implementor-Checklist §T3](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#t3-production-elision). [`spec/009-Instrumentation.md` §Production builds](https://day8.github.io/re-frame2/spec/009-Instrumentation/#production-builds-zero-overhead-zero-code).
+**Where the spec speaks.** [Implementor-Checklist §T3](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#t3-production-elision). [`spec/009-Instrumentation.md` §Production builds](https://day8.github.io/re-frame2/spec/009-Instrumentation/#production-builds-zero-overhead-zero-code) and §The three always-on substrates / §What is available in production.
 
 ### Errors (E1–E2)
 
@@ -317,11 +317,11 @@ From [Implementor-Checklist §Errors](https://day8.github.io/re-frame2/spec/Impl
 
 #### E2 Error reporting to tools
 
-**The question.** How do tools consume errors, and where does error policy live?
+**The question.** How do tools consume errors, and where does error policy live — **in dev AND in production**?
 
-**What's at stake.** Errors are emitted as structured trace events (falls out of T1); tools branch on `:op-type :error` and `:operation` prefix. The per-frame `:on-error` slot in `reg-frame` metadata is the policy mechanism. Strings-as-errors are out — every error has an `:operation` namespaced keyword and a `:tags` map.
+**What's at stake.** Errors flow on **two surfaces** (T1's dev trace stream gates off in production; the always-on error-emit substrate does not). In dev, tools branch on `:op-type :error` and `:operation` prefix over the trace stream. In **production**, the `register-error-listener!` / `unregister-error-listener!` substrate keeps firing one error-record per `:rf.error/*` cascade error (handler / coeffect / interceptor / flow-eval exceptions, fx errors) post-elision — this is the production error-reporting fan-out (Sentry / Rollbar / hosted monitors) and the SSR fail-closed status path, and it is **NOT trace-only**. The per-frame `:on-error` slot in `reg-frame` metadata is the policy mechanism (`:default` / `:swallow` / `:replacement`) and is **also always-on**. Per-listener exceptions are isolated (one listener throwing must not abort the cascade). Strings-as-errors are out — every error has an `:operation` namespaced keyword and a `:tags` map. Design the error path so it does NOT ride only the dev-elided trace surface, or production error reporting silently vanishes.
 
-**Where the spec speaks.** [Implementor-Checklist §E2](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#e2-error-reporting-to-tools). [`spec/009-Instrumentation.md` §Error contract](https://day8.github.io/re-frame2/spec/009-Instrumentation/#error-contract).
+**Where the spec speaks.** [Implementor-Checklist §E2](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#e2-error-reporting-to-tools). [`spec/009-Instrumentation.md` §Error contract](https://day8.github.io/re-frame2/spec/009-Instrumentation/#error-contract) and §What is available in production (the always-on error-emit substrate).
 
 ---
 
@@ -338,6 +338,23 @@ From [Implementor-Checklist §Errors](https://day8.github.io/re-frame2/spec/Impl
 **Constraint.** **Open shapes** are non-negotiable. Consumers tolerate unknown keys; producers grow shapes additively. Closed records/structs at the runtime-data layer are out per [Goal 5 — Clojure ethos](https://day8.github.io/re-frame2/spec/000-Vision/#goals).
 
 **Where the spec speaks.** [`spec/010-Schemas.md`](https://day8.github.io/re-frame2/spec/010-Schemas/). [Implementor-Checklist §Schemas](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#schemas-if-q4-is-yes).
+
+---
+
+## D5b. Data classification (Sensitive + Large) — v1-required
+
+**The question.** How does the port realise path-marked data classification — the `add-marks` / `set-marks` APIs, per-registration `{:sensitive [paths] :large [paths]}`, mark propagation, and emission-time sentinel substitution?
+
+**This is NOT D3-gated.** Spec 015 marks itself **v1-required**, and [`spec/API.md`](https://day8.github.io/re-frame2/spec/API/) exposes `add-marks` / `set-marks` as v1 surface. Unlike schemas (D5, which has a `no` answer), there is no opt-out: a port that ships without 015 leaks marked values through trace, event/error-emit records, Xray, MCP, and log sinks. Decide the *mechanism*, not whether to ship it.
+
+**What's at stake.**
+
+- **Mark storage.** Where do per-frame app-db marks live? (The CLJS reference uses a per-frame side-table unioned with schema-attached `:sensitive?` / `:large?` marks at lookup time — NOT a registrar kind. Your host chooses its own storage.) `add-marks` merges; `set-marks` replaces-and-clears; both preserve schema-attached marks and return `frame-id`.
+- **Per-registration declarations.** The seven first-class marking sites (`reg-event-{db,fx,ctx}`, `reg-sub`, `reg-fx`, `reg-cofx`, `reg-machine`, `reg-flow`, plus app-db marks) accept `{:sensitive [paths] :large [paths]}`; subs/flows also take whole-output `:sensitive? true/false` / `:large? true/false` overrides.
+- **Propagation.** Footgun prevention (NOT security-grade taint): marks widen across the seven dataflow boundaries (event-arg → app-db, app-db → sub, sub → sub, app-db → flow, cofx → handler, machine `:data`, fx inputs). Choose write-time taint-tracking OR emit-time path-graph union — both conform.
+- **Emission-time substitution at all five observation surfaces.** Real values flow through the runtime unchanged; the framework substitutes `:rf/redacted` / `:rf/large {:bytes N}` / `:rf/redacted {:bytes N}` only at: trace-bus emit, Xray, MCP wire, AI/LLM context handoff, third-party log sinks. Route every observer (including the 009 always-on event/error-emit records) through one wire-elision walker (`re-frame.elision/elide-wire-value` in the reference) so a marked value never crosses the trust boundary — in dev OR production.
+
+**Where the spec speaks.** [`spec/015-Data-Classification.md`](https://day8.github.io/re-frame2/spec/015-Data-Classification/) (the full contract — seven marking sites, propagation rules, the sentinel display contract). [`spec/API.md`](https://day8.github.io/re-frame2/spec/API/) `add-marks` / `set-marks`. [`spec/Conventions.md` §Reserved namespaces](https://day8.github.io/re-frame2/spec/Conventions/) (the reserved `:rf/redacted` / `:rf/large` sentinels). [`spec/009-Instrumentation.md`](https://day8.github.io/re-frame2/spec/009-Instrumentation/) §The trace event model (the emission hook the overlay rides).
 
 ---
 
