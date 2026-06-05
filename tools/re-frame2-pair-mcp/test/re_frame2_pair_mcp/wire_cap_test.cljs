@@ -178,6 +178,65 @@
     (is (identical? r out))))
 
 ;; ---------------------------------------------------------------------------
+;; :structuredContent counts toward the cap (rf2-ycfu1).
+;;
+;; `wire/ok-text` / `wire/err-text` write the SAME payload into BOTH
+;; `:content[*].text` (pr-str EDN) and `:structuredContent` (clj->js JSON
+;; projection) on EVERY result. Both ride the wire. The cap MUST size
+;; the structured slot too — a small-:content / huge-:structuredContent
+;; response that the text gate alone judges under-budget would otherwise
+;; bust the MCP token budget. story-mcp already fixed this class
+;; (rf2-mzndx); the mcp-base contract pins it (rf2-13wbe finding 2,
+;; `structured-content-counted-toward-budget`).
+;; ---------------------------------------------------------------------------
+
+(defn- dual-coded-result
+  "Build an MCP result in the real `wire/ok-text` dual-coded shape: a
+  `:content[*].text` slot AND a `:structuredContent` JS object. `text-v`
+  drives the EDN text slot; `structured-v` is clj->js'd into the
+  structured slot (the npm-SDK JSON body)."
+  [text-v structured-v]
+  #js {:content          #js [#js {:type "text" :text (pr-str text-v)}]
+       :structuredContent (clj->js structured-v)})
+
+(deftest sum-text-tokens-counts-structured-content
+  ;; Small text slot, large structuredContent. The token sum must reflect
+  ;; the structured JSON bytes, not just the text slot.
+  (let [r          (dual-coded-result {:ok? true} {:big-payload (big-string 30000)})
+        text-only  (cap/token-estimate (read-text r))
+        total      (cap/sum-text-tokens r)]
+    (is (> total (+ text-only 5000))
+        "structuredContent JSON bytes MUST be summed alongside the text slot")))
+
+(deftest apply-cap-trips-on-huge-structured-content-under-small-text
+  ;; THE acceptance test (rf2-ycfu1): a response whose `:content` text is
+  ;; tiny but whose `:structuredContent` is huge MUST trip the overflow
+  ;; marker. FAILS before the cap.cljs fix (the structured slot was never
+  ;; counted, so the text-only sum stayed under cap and the raw oversize
+  ;; body shipped); PASSES after.
+  (let [r   (dual-coded-result {:ok? true} {:big-payload (big-string 30000)})
+        out (cap/apply-cap r {:tool "snapshot" :cap 1000})
+        edn (read-edn out)]
+    (is (contains? edn :rf.mcp/overflow)
+        "huge :structuredContent over budget MUST be replaced with the overflow marker")
+    (let [marker (:rf.mcp/overflow edn)]
+      (is (= :reached (:limit marker)))
+      (is (= "snapshot" (:tool marker)))
+      (is (= 1000 (:cap-tokens marker)))
+      (is (> (:token-count marker) 1000)
+          "token-count reflects the structured-slot bytes the text gate alone would miss"))
+    (is (<= (cap/sum-text-tokens out) 1000)
+        "the overflow replacement itself stays under cap")))
+
+(deftest apply-cap-passes-small-dual-coded-payload-untouched
+  ;; Negative: a dual-coded result whose BOTH slots are small passes
+  ;; through unchanged — the structured-slot accounting must not
+  ;; over-trip a genuinely small payload.
+  (let [r   (dual-coded-result {:ok? true :v 1} {:ok? true :v 1})
+        out (cap/apply-cap r {:tool "snapshot" :cap cap/default-max-tokens})]
+    (is (identical? r out))))
+
+;; ---------------------------------------------------------------------------
 ;; The load-bearing scenario: 5MB app-db snapshot — the failure mode
 ;; flagged in rf2-jlq5j's findings doc.
 ;; ---------------------------------------------------------------------------
