@@ -479,15 +479,6 @@
 ;; `privacy/redacted-sentinel`; the two agree by definition.
 (def ^:private path-redacted-sentinel :rf/redacted)
 
-(defn- scalar-locator?
-  "True when `x` is a scalar that can serve as a `get-in` path segment — a
-  keyword / string / number / symbol / boolean. A composite (map / set /
-  vector / seq) can NEVER be a navigable locator AND is exactly the shape
-  Malli reports as a `:set`-element value — so a non-scalar segment in a
-  failing `:in` path is always value-bearing, never a locator."
-  [x]
-  (or (keyword? x) (string? x) (number? x) (symbol? x) (boolean? x)))
-
 (defn sanitize-sensitive-path
   "Return `in-path` with every VALUE-BEARING segment replaced by the
   `:rf/redacted` sentinel, walking `schema` in lockstep with the raw
@@ -506,10 +497,18 @@
 
     - `:set` — the segment is the failing ELEMENT VALUE; ALWAYS scrub it
       (it is both unnavigable AND value-bearing), even when scalar.
-    - `:map` keys, `:vector` / `:sequential` / `:tuple` integer indices,
-      `:map-of` keys — navigable scalar locators; KEEP them so `:path`
-      stays a useful `get-in` locator for those shapes (the bead's
-      regression requirement).
+    - `:map-of` keys — navigable locators by default (KEEP them so `:path`
+      stays a useful `get-in` locator), UNLESS the key SCHEMA itself is
+      declared `:sensitive?` (rf2-612mri). A `[:map-of [:string
+      {:sensitive? true}] …]` uses the secret AS the key; Malli reports
+      that secret verbatim as the `:in` key segment, so a failing value
+      under a sensitive key would otherwise ship the secret in `:path` /
+      `:reason` despite `:value` / `:explain` being redacted. When the key
+      schema declares sensitivity, the key segment is scrubbed.
+    - `:map` keys, `:vector` / `:sequential` / `:tuple` integer indices —
+      navigable scalar locators; KEEP them so `:path` stays a useful
+      `get-in` locator for those shapes (the bead's regression
+      requirement).
     - Transparent wrappers (`:maybe` / `:and` / `:or` / `:multi` / `:orn`)
       contribute NO `:in` segment — descend without consuming. For the
       single-child wrappers (`:maybe` / `:and` / `:or`) the inner schema is
@@ -517,28 +516,37 @@
       multi-branch wrappers (`:multi` / `:orn`) and any other / opaque op
       the branch is ambiguous, so the walk drops to a FAIL-CLOSED tail.
 
-  FAIL-CLOSED tail (rf2-ss06u.1 / rf2-ss06u.2): once the lockstep walk
-  cannot confidently continue (a multi-branch / opaque op, or the schema
-  bottoms out before the path does), every remaining segment is scrubbed
-  UNLESS it is a scalar locator (`scalar-locator?`). A non-scalar segment
-  past an unresolvable point can only be a value-bearing collection (a
-  `:set` element map/set/vector, the exact leak shape) — never a locator —
-  so scrubbing it can never lose navigability, and keeping it would
-  under-redact. Per the bead: over-redaction on these wrapper shapes is
-  acceptable; the value-protection direction must never under-redact. This
-  closes the deep nesting the adversarial generator surfaced
-  (`{:a #{{:auth #{{:secret …}}}}}` under an `:orn`) where the prior
-  pass-through-verbatim fallback leaked the set-element maps into `:path`.
+  FAIL-CLOSED tail (rf2-ss06u.1 / rf2-ss06u.2 / rf2-612mri): once the
+  lockstep walk cannot confidently continue (a multi-branch / opaque op,
+  or the schema bottoms out before the path does), EVERY remaining segment
+  is scrubbed — scalars included. Past an unresolvable point the sanitizer
+  cannot PROVE a segment is a structural locator: a scalar in the tail may
+  be a navigable index/key OR a value-bearing `:set` scalar element (the
+  rf2-612mri leak shape — `[:orn [:tokens [:set [:string {:sensitive?
+  true}]]]]` reports `:in = [123456789]`, the secret element itself, and
+  the prior scalar-keep pass leaked it into `:path` / `:reason`), and a
+  non-scalar can only be a value-bearing collection. Since the sanitizer
+  runs ONLY on slots already proven `:sensitive?`, fail-closed scrubbing of
+  the unresolvable tail can never lose navigability that matters (the
+  resolvable `:map` / `:vector` / `:tuple` / `:map-of` shapes keep their
+  locators on their OWN branches above and never reach the tail) — and
+  keeping any tail scalar would under-redact. Per the bead: over-redaction
+  on these wrapper shapes is acceptable; the value-protection direction
+  must never under-redact. This closes both the deep nesting the
+  adversarial generator surfaced (`{:a #{{:auth #{{:secret …}}}}}` under an
+  `:orn`) and the scalar set-element leak (rf2-612mri).
 
   Pure; same `(schema, in-path)` always produces the same output.
   Returns a vector."
   [schema in-path]
   (letfn [(fail-closed-tail [out in]
-            ;; Cannot resolve the schema further — scrub every remaining
-            ;; non-scalar segment; keep scalar locators.
-            (into out (map (fn [seg]
-                             (if (scalar-locator? seg) seg path-redacted-sentinel)))
-                  in))]
+            ;; Cannot resolve the schema further — scrub EVERY remaining
+            ;; segment (rf2-612mri). A tail scalar cannot be proven a
+            ;; structural locator past an unresolvable op (it may be a
+            ;; value-bearing `:set` element), so keeping it would
+            ;; under-redact; the resolvable navigable shapes keep their
+            ;; locators on their own branches above and never reach here.
+            (into out (map (constantly path-redacted-sentinel)) in))]
     (loop [schema schema
            in     (vec in-path)
            out    []]
@@ -572,14 +580,31 @@
               (= op :set)
               (recur (nth children 0 nil) (subvec in 1) (conj out path-redacted-sentinel))
 
+              ;; `:map-of` — the segment is the failing entry's KEY (Malli
+              ;; reports the key VALUE verbatim, e.g. `["secret-token-123"
+              ;; :age]`). A `:map-of` key is normally a navigable locator and
+              ;; is KEPT so `:path` stays a `get-in` locator — BUT when the
+              ;; KEY SCHEMA (child 0) itself declares `:sensitive?`
+              ;; (rf2-612mri), the key IS the secret and must be scrubbed,
+              ;; else it ships verbatim in `:path` / `:reason` despite
+              ;; `:value` / `:explain` being redacted. Descend into the
+              ;; VALUE schema (child 1) either way.
+              (= op :map-of)
+              (let [key-schema (nth children 0 nil)
+                    val-schema (nth children 1 nil)
+                    seg-out    (if (schema-has-sensitive? key-schema)
+                                 path-redacted-sentinel
+                                 seg)]
+                (recur val-schema (subvec in 1) (conj out seg-out)))
+
               ;; Other index-bearing ops — the segment is a navigable index
-              ;; (`:vector` / `:sequential` / `:tuple`) or key (`:map-of`);
-              ;; keep it and descend into the element / value schema.
+              ;; (`:vector` / `:sequential` / `:tuple`); keep it and descend
+              ;; into the element schema (`:tuple` indexes per-position).
               (contains? index-bearing-ops op)
               (let [child (if (= op :tuple)
                             (when (and (int? seg) (< seg (count children)))
                               (nth children seg))
-                            (nth children (if (= op :map-of) 1 0) nil))]
+                            (nth children 0 nil))]
                 (recur child (subvec in 1) (conj out seg)))
 
               ;; Single-child transparent wrappers — no `:in` segment

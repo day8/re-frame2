@@ -441,6 +441,95 @@
       (is (not= :rf/redacted (-> v :tags :value))
           ":value rides verbatim — no spurious redaction"))))
 
+;; ---- sensitive SCALAR collection elements / map-of KEYS in :path (rf2-612mri)
+;; Two residual scalar-leak shapes the rf2-ss06u.1 :set-element scrub did NOT
+;; cover, because the value-bearing scalar is the KEY (`:map-of`) or rides in
+;; the FAIL-CLOSED tail under an ambiguous wrapper (`:orn`/`:multi`):
+;;
+;;   (a) `[:map-of [:string {:sensitive? true}] …]` — Malli reports the key
+;;       VALUE verbatim as the `:in` key segment (`["secret-token-123" :age]`),
+;;       and the prior `:map-of` branch KEPT every key (a navigable locator),
+;;       so a secret-as-key shipped raw in `:path` / `:reason`.
+;;   (b) `[:orn [:tokens [:set [:string {:sensitive? true}]]]]` — the `:orn`
+;;       is multi-branch, so the walk drops to the fail-closed tail with the
+;;       set element value as the remaining segment (`[123456789]`); the prior
+;;       scalar-keep tail KEPT it, leaking the scalar secret in `:path` /
+;;       `:reason`.
+;;
+;; The fix scrubs a `:map-of` key whose KEY SCHEMA declares `:sensitive?`, and
+;; fail-closes EVERY tail segment (scalars included) past an unresolvable op,
+;; while non-sensitive `:map-of` keys / `:vector` / `:tuple` indices stay
+;; navigable. These fail before the fix (the secret rides in :path / :reason)
+;; and pass after.
+
+(deftest app-db-validation-map-of-sensitive-key-scrubbed-from-path
+  (testing "rf2-612mri (a) — a :map-of with a :sensitive? KEY schema and a
+            failing value child scrubs the secret key from :path AND :reason;
+            the secret never appears anywhere in the emitted tags"
+    (let [v (app-db-failure-trace
+              [:by-token]
+              [:map-of [:string {:sensitive? true}] [:map [:age :int]]]
+              {:by-token {"secret-token-123" {:age "not-an-int"}}}
+              :by-token/bad)]
+      (is (some? v) "a trace fired")
+      (is (true? (:sensitive? v))
+          "top-level :sensitive? stamp present — the key schema is sensitive")
+      (is (= :rf/redacted (-> v :tags :value)) ":value redacted")
+      (is (= :rf/redacted (-> v :tags :explain)) ":explain redacted")
+      ;; The sensitive KEY is scrubbed; the navigable inner :age segment
+      ;; (a real :map key, not the secret) survives so :path stays locatable
+      ;; down to the failing slot.
+      (is (= [:by-token :rf/redacted :age] (-> v :tags :path))
+          ":path's sensitive :map-of key segment is the :rf/redacted sentinel")
+      (is (not (str/includes? (pr-str (-> v :tags :path)) "secret-token-123"))
+          "the secret key does NOT appear in :path")
+      (is (not (str/includes? (pr-str (-> v :tags :reason)) "secret-token-123"))
+          "the secret key does NOT appear in the generated :reason text")
+      ;; Belt-and-braces: NO secret anywhere in the whole tag map.
+      (is (not (str/includes? (pr-str (:tags v)) "secret-token-123"))
+          "the secret key does NOT appear anywhere in the emitted tags"))))
+
+(deftest app-db-validation-orn-wrapped-set-sensitive-scalar-scrubbed
+  (testing "rf2-612mri (b) — an :orn-wrapped :set of :sensitive? SCALARS scrubs
+            the scalar element from :path AND :reason via the fail-closed tail;
+            the scalar secret never appears anywhere in the emitted tags"
+    (let [v (app-db-failure-trace
+              [:tokens]
+              [:orn [:tokens [:set [:string {:sensitive? true}]]]]
+              {:tokens #{123456789}}
+              :tokens/bad)]
+      (is (some? v) "a trace fired")
+      (is (true? (:sensitive? v))
+          "top-level :sensitive? stamp present — the set element schema is sensitive")
+      (is (= :rf/redacted (-> v :tags :value)) ":value redacted")
+      (is (= :rf/redacted (-> v :tags :explain)) ":explain redacted")
+      ;; The :orn is ambiguous, so the walk fail-closes the tail — the
+      ;; scalar set element is scrubbed (it is value-bearing, not a locator).
+      (is (= [:tokens :rf/redacted] (-> v :tags :path))
+          ":path's fail-closed scalar set-element segment is the :rf/redacted sentinel")
+      (is (not (str/includes? (pr-str (-> v :tags :path)) "123456789"))
+          "the sensitive scalar element does NOT appear in :path")
+      (is (not (str/includes? (pr-str (-> v :tags :reason)) "123456789"))
+          "the sensitive scalar element does NOT appear in the generated :reason text")
+      (is (not (str/includes? (pr-str (:tags v)) "123456789"))
+          "the sensitive scalar element does NOT appear anywhere in the emitted tags"))))
+
+(deftest app-db-validation-non-sensitive-map-of-key-stays-navigable
+  (testing "rf2-612mri regression — a :map-of whose KEY schema is NOT sensitive
+            (only the nested VALUE slot is) keeps the navigable map key in
+            :path; the fix scrubs sensitive KEYS only, never plain keys"
+    (let [v (app-db-failure-trace
+              [:by-id]
+              [:map-of :string [:map [:secret {:sensitive? true} :string]]]
+              {:by-id {"a" {:secret 99}}}
+              :by-id/bad)]
+      (is (some? v))
+      (is (true? (:sensitive? v))
+          "the nested :secret value slot is sensitive — redaction still runs")
+      (is (= [:by-id "a" :secret] (-> v :tags :path))
+          ":path keeps the navigable plain map-of key (\"a\") — no over-redaction")
+      (is (= :rf/redacted (-> v :tags :value))))))
+
 ;; ---- ancestor-sensitive container wrapped by :and/:multi/:orn (rf2-ss06u.2)
 ;; When a slot is declared {:sensitive? true} as a CONTAINER and the failing
 ;; leaf lives under a transparent-but-unrecognised wrapper op
