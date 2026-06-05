@@ -525,6 +525,48 @@ Per [002 §Re-registration — surgical update](../../spec/002-Frames.md), a *fr
 
 ---
 
+### M-15b. A full-`app-db`-replace boot / initialise event silently drops `:rf/runtime` (kills live machines, routing, …)
+
+**Type B** (semantic flag — the rewrite depends on the boot's structure).
+
+In v1, framework runtime did **not** live in `app-db`, so the ubiquitous full-db-replace boot idiom was safe:
+
+```clojure
+;; v1 — wholesale replace; nothing of the framework's lived in app-db, so this was fine
+(rf/reg-event-db :initialize-db (fn [_ _] fresh-db))   ; or :bootstrap, returning {:db fresh-db}
+```
+
+In v2 **all** framework runtime lives in `app-db` under the single reserved root `:rf/runtime` — machine snapshots at `[:rf/runtime :machines :snapshots <id>]`, the current route at `[:rf/runtime :routing :current]`, plus elision and SSR state (per [Conventions §Reserved app-db keys](../../spec/Conventions.md#reserved-app-db-keys) and [§`:rf/runtime` sub-container catalogue](../../spec/Conventions.md#rfruntime-sub-container-catalogue)). The **same** wholesale-replace idiom now **wipes** it: any boot machine, the current route, every live snapshot — gone. The failure is silent: the machine dies, every subsequent dispatch to it is a no-op, and the app hangs on its loading spinner with no error. This bites every migrating app whose boot event does a full-db reset *and* adopts a boot machine ([Pattern-Boot](../../spec/Pattern-Boot.md)) — see the loud-diagnostic work tracked separately for the runtime-side guard. (The clobber itself is *intended*: `:rf/runtime` lives in `app-db` precisely so machine/routing/SSR state reverts atomically with `app-db` on `restore-epoch` / `reset-frame-db` / hydration — per [000 Goal 2 — Frame state revertibility](../../spec/000-Vision.md#frame-state-revertibility). The fix is to stop replacing the slot, not to teach `:db` to retain reserved keys behind your back.)
+
+**What to look for:** any event handler — `:initialize-db`, `:bootstrap`, `:app/reset`, a logout-to-clean-state event — that returns a *wholesale* `app-db` value (`(reg-event-db … (fn [_ _] fresh-db))` or `{:db fresh-db}` where `fresh-db` is built from scratch rather than threaded from the incoming `db`). The tell is that the returned map carries no `:rf/runtime`.
+
+**What to do — prefer the structural fix.** The robust rewrite is **ordering**: run the wholesale `{:db fresh-db}` reset *before* the boot machine is started, so there is no live snapshot to clobber. Initialise the db, then dispatch the eager start kick ([005 §Synthetic creation marker — `[:rf.machine/start]`](../../spec/005-StateMachines.md#synthetic-creation-marker--rfmachinestart)):
+
+```clojure
+(rf/reg-event-fx :app/init
+  (fn [_ _]
+    {:db fresh-db                                  ; wholesale reset — no machine alive yet
+     :fx [[:dispatch [:app/boot [:rf.machine/start]]]]}))   ; THEN bring the boot machine alive
+```
+
+Because the eager `[:rf.machine/start]` kick installs the boot machine's snapshot into the *already-fresh* `:rf/runtime`, nothing is lost.
+
+**The targeted stopgap** — when reordering isn't practical (e.g. a re-bootstrap event fired *while* a machine is already running) — is to preserve the existing `:rf/runtime` across the replace:
+
+```clojure
+(rf/reg-event-fx :bootstrap
+  (fn [{:keys [db]} _]
+    {:db (assoc fresh-db :rf/runtime (:rf/runtime db))}))
+```
+
+Treat this as a stopgap, not the destination: carrying `:rf/runtime` forward across a from-scratch db is exactly the retention that breaks the revertibility invariant if it leaks into a restore path, so reach for the ordering fix wherever the boot structure allows.
+
+**Rule of thumb:** a wholesale `{:db fresh}` from *inside* a machine-driven cascade is an anti-pattern — the machine's own state lives in the db being replaced. Reset the db before the machine is born, or thread (`update`/`assoc`) rather than replace.
+
+**Why:** v2 unifies framework runtime into `app-db` for atomic revertibility (per [000 Goal 2](../../spec/000-Vision.md#frame-state-revertibility)); the cost is that the v1 "just return a fresh map" boot idiom is no longer safe. Ordering the reset before machine birth keeps the wholesale replace *and* the live runtime — no retention trick needed.
+
+---
+
 ### M-16. `^:flush-dom` event-vector metadata removed — replace with `:dispatch-later {:ms 0}` (inside effect maps) or the top-level rewrite (outside event handlers)
 
 **Type A** (mechanical).
