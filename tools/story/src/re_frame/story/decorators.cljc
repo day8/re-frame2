@@ -36,7 +36,8 @@
   Unknown decorator-ids surface as an entry in the returned `:errors`
   vector; the runtime then projects those into the variant's
   `:assertions` (per IMPL-SPEC §5.5)."
-  (:require [re-frame.story.plan      :as plan]
+  (:require [re-frame.story.args      :as args]
+            [re-frame.story.plan      :as plan]
             [re-frame.story.registrar :as registrar]))
 
 ;; ---- collection -----------------------------------------------------------
@@ -68,9 +69,24 @@
 
   `decorators → plan` is acyclic (plan does NOT require decorators). The
   per-variant cost is one plan compile per resolution, which the single-
-  source invariant pays for (no second merge engine to diverge)."
-  [variant-id]
-  (or (get-in (plan/variant-plan variant-id) [:world :decorators]) []))
+  source invariant pays for (no second merge engine to diverge).
+
+  `run-args` (rf2-eyrpr) — the ambient + per-run arg layers
+  (`args/run-arg-layers`'s `{:pre … :post …}` shape) threaded into the
+  plan compile so a `[:arg key]` resolvable ONLY through a mode / cell /
+  global / story layer (never the variant chain) substitutes cleanly
+  rather than throwing `:rf.error/story-missing-arg`. The runtime's
+  `prepare-context` already compiles WITH `:run-args` and reads
+  `[:world :decorators]` off that plan; the canvas/controls/docs paths
+  flow through `resolve-decorators` → here, so they must pass the SAME
+  run layers to recompile the identical plan. Absent (a bare front-door
+  call) ⇒ the variant arg layer alone, exactly as before."
+  ([variant-id] (collect-decorator-refs variant-id nil))
+  ([variant-id run-args]
+   (or (get-in (plan/variant-plan variant-id
+                                  (when run-args {:run-args run-args}))
+               [:world :decorators])
+       [])))
 
 ;; ---- resolution -----------------------------------------------------------
 
@@ -165,15 +181,25 @@
   "Return `{decorator-id → fingerprint}` for every decorator the variant
   will use. Stage 4 caches the resolved decorator stack alongside this
   map and re-resolves if any fingerprint diverges from the registry's
-  current value."
-  [variant-id]
-  (let [refs (collect-decorator-refs variant-id)]
-    (into {}
-          (keep (fn [ref]
-                  (let [id (first ref)]
-                    (when (keyword? id)
-                      [id (decorator-fingerprint id)]))))
-          refs)))
+  current value.
+
+  `opts` (rf2-eyrpr) — the per-run `{:active-modes … :cell-overrides …}`
+  (same shape `resolve-decorators` takes), folded into the plan compile
+  that yields the decorator REF list so a `[:arg key]` resolvable only
+  through a mode / cell layer does not throw `:rf.error/story-missing-arg`
+  during the hot-reload poll. The fingerprints themselves depend only on
+  the decorator BODIES (registry), invariant under run layers; `opts`
+  serves solely to let the ref collection's plan compile succeed."
+  ([variant-id] (resolution-fingerprints variant-id nil))
+  ([variant-id opts]
+   (let [run-args (when opts (args/run-arg-layers variant-id opts))
+         refs     (collect-decorator-refs variant-id run-args)]
+     (into {}
+           (keep (fn [ref]
+                   (let [id (first ref)]
+                     (when (keyword? id)
+                       [id (decorator-fingerprint id)]))))
+           refs))))
 
 ;; ---- public surface -------------------------------------------------------
 
@@ -216,13 +242,20 @@
     variant).
   - `:fx-override` — declared order; last-wins on a key collision.
 
-  `opts` accepts `:active-modes` for forward compatibility — v1 modes
-  carry no decorators, but the slot exists for v2 (per IMPL-SPEC
-  §13.2)."
+  `opts` accepts `:active-modes` + `:cell-overrides` — the SAME per-run
+  shape `args/resolve-args` takes. v1 modes carry no decorators (per
+  IMPL-SPEC §3.1 modes are `:args`-only, so the active modes never
+  perturb the decorator REFS), but the run layers must still be threaded
+  into the plan compile (rf2-eyrpr): a `[:arg key]` resolvable ONLY
+  through a mode / cell / global / story layer would otherwise throw
+  `:rf.error/story-missing-arg` when this front-door recompiles the plan
+  WITHOUT `:run-args` — the gap rf2-2cpoo (#3248) closed for the runtime
+  `prepare-context` path but not this canvas/controls/docs path."
   ([variant-id]
    (resolve-decorators variant-id nil))
-  ([variant-id _opts]
-   (resolve-decorator-refs (collect-decorator-refs variant-id))))
+  ([variant-id opts]
+   (let [run-args (when opts (args/run-arg-layers variant-id opts))]
+     (resolve-decorator-refs (collect-decorator-refs variant-id run-args)))))
 
 (defn resolve-decorator-refs
   "Resolve, classify, and order a supplied vector of `[decorator-id & args]`

@@ -64,7 +64,7 @@ The pane renders six sections, top-to-bottom:
 | 1 | Header      | variant id, parent-story id, tags, variant `:doc` (or parent `:doc` fallback)   | always                                         |
 | 2 | Prose       | `:body` strings from `:layout :prose` workspaces that reference this variant   | at least one prose block found                 |
 | 3 | Args        | `(args/resolve-args variant-id {:cell-overrides nil})` × variant `:argtypes`    | always (renders "no args resolved" if empty)   |
-| 4 | Decorators  | `(decorators/resolve-decorators variant-id)`                                    | always (renders "no decorators" if empty)      |
+| 4 | Decorators  | `(decorators/resolve-decorators variant-id {:active-modes … :cell-overrides nil})` | always (renders "no decorators" if empty)      |
 | 5 | Parameters  | variant body's `:modes` / `:substrates` / `:platforms` slots (story fallback)  | always (renders "no … declared" if all empty) |
 | 6 | Tags        | sorted variant tags (parent-story fallback)                                     | always (renders "no tags" if empty)            |
 

@@ -494,14 +494,21 @@
   [variant-id]
   (let [view-id        (variant-component variant-id)
         variant-body   (registrar/handler-meta :variant variant-id)
-        decorator-pack (decorators/resolve-decorators variant-id)
-        eff-args       (args/resolve-args
-                         variant-id
-                         {:active-modes
-                          (:active-modes @state/shell-state-atom)
-                          :cell-overrides
-                          (get-in @state/shell-state-atom
-                                  [:cell-overrides variant-id])})
+        ;; rf2-eyrpr — the SAME per-run opts the `eff-args` resolve below
+        ;; uses, threaded into `resolve-decorators` so the plan it
+        ;; recompiles to read `[:world :decorators]` substitutes `[:arg]`
+        ;; keys with the mode/cell-aware args. Without this an `[:arg key]`
+        ;; resolvable ONLY through an active-mode / cell-override layer
+        ;; (never the variant chain) throws `:rf.error/story-missing-arg`
+        ;; here even though the runtime's plan compile (rf2-2cpoo) handled
+        ;; it — the canvas decorator recompile was the remaining gap.
+        run-opts       {:active-modes
+                        (:active-modes @state/shell-state-atom)
+                        :cell-overrides
+                        (get-in @state/shell-state-atom
+                                [:cell-overrides variant-id])}
+        decorator-pack (decorators/resolve-decorators variant-id run-opts)
+        eff-args       (args/resolve-args variant-id run-opts)
         assertions     (runtime/read-assertions variant-id)
         ;; rf2-5x1wt.13 — resolve the variant's view-state subscription
         ;; overrides (arg-substituted) for the render-path binding below.

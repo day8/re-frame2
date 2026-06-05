@@ -107,11 +107,24 @@
 
 (defn- compute-fingerprint-snapshot
   "Walk every running variant frame and capture its current decorator
-  fingerprint map. Pure data → data."
+  fingerprint map. Pure data → data.
+
+  rf2-eyrpr — thread each frame's per-run opts (`:active-modes` +
+  per-variant `:cell-overrides`) into `resolution-fingerprints` so the
+  plan compile that yields the decorator ref list substitutes `[:arg]`
+  keys resolvable only through a mode / cell layer rather than throwing
+  on the 500ms hot-reload poll. Fingerprints are body-derived and run-
+  layer-invariant; the opts only let the ref collection's compile succeed."
   []
-  (into {}
-        (map (fn [vid] [vid (decorators/resolution-fingerprints vid)]))
-        (frames/variant-frames)))
+  (let [shell        (state/get-state)
+        active-modes (:active-modes shell)]
+    (into {}
+          (map (fn [vid]
+                 [vid (decorators/resolution-fingerprints
+                        vid
+                        {:active-modes   active-modes
+                         :cell-overrides (get-in shell [:cell-overrides vid])})]))
+          (frames/variant-frames))))
 
 (defn- existing-frame-fingerprint-drift?
   "True when a frame that was present on the previous poll now reports
