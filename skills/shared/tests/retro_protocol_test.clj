@@ -33,7 +33,8 @@
 ;;;; `skills/re-frame2-pair/tests/prompts/prompt_regression_test.clj`
 ;;;; (the only other prose-regression test in the corpus).
 ;;;;
-;;;; Run:    bb tests/retro_protocol_test.clj
+;;;; Run:    bb skills/shared/tests/retro_protocol_test.clj   (from repo root)
+;;;;         bb tests/retro_protocol_test.clj                 (from skills/shared/)
 ;;;; Exit:   0 = pass, non-zero = fail.
 
 (ns retro-protocol-test

@@ -27,7 +27,8 @@
 ;;;; strips the elision invariant from the shared surface guidance fails
 ;;;; loudly. Mirrors `retro_protocol_test.clj`'s structural-drift shape.
 ;;;;
-;;;; Run:    bb tests/tool_pair_surfaces_test.clj   (from skills/shared/)
+;;;; Run:    bb skills/shared/tests/tool_pair_surfaces_test.clj   (from repo root)
+;;;;         bb tests/tool_pair_surfaces_test.clj                 (from skills/shared/)
 ;;;; Exit:   0 = pass, non-zero = fail.
 
 (ns tool-pair-surfaces-test

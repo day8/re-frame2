@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Drift smoke-test: skill `allowed-tools` vs MCP server tool catalogue (rf2-flzdp + rf2-yiccf).
+"""Drift smoke-test: skill `allowed-tools` vs MCP server tool catalogue (rf2-flzdp + rf2-yiccf + rf2-4kyg6).
 
-Two axes of cross-check.
+Three axes of cross-check.
 
 **MCP axis** (rf2-flzdp): every (mcp-server, consumer-skill) pair declared
 in `MAPPINGS` below. For each pair, builds two sets:
@@ -34,6 +34,21 @@ cardinal rule 7 instructs the agent to file GitHub issues but lacks
   - MISSING-BASH-ALLOW — body fires the rule's pattern but no allow-list
     entry matches the required shape.
 
+**Title-safety axis** (rf2-4kyg6 finding 1): the all-current-consumers
+backstop for the shared gh-issue shell-safety contract. `TITLE_SAFETY_RULES`
+lists every gh-issue-writing consumer named in
+`skills/shared/issue-filing.md` §Scope. Each must EITHER link
+`../shared/issue-filing.md` (single-source — inherits both the body- and
+the title-safety clauses) OR carry the local body+title clauses itself. The
+`retro_protocol_test.clj` suite only pinned the re-frame2-pair-retro path;
+this axis closes the gap for the other consumers so a deliberately-local
+recipe cannot drift from the title half of the contract (no `--title-file`,
+restricted safe alphabet, never-paste-evidence-into-`--title`).
+
+  - MISSING-TITLE-SAFETY — a consumer neither links the shared leaf nor
+    carries the local clauses, and is not under a tracked per-rule
+    `allowance_bead` follow-up allowance.
+
 Xray-MCP is currently spec-only (no `src/`); the script skips its entry
 gracefully rather than failing on missing files.
 
@@ -49,6 +64,8 @@ Usage:
     python scripts/check_skill_mcp_drift.py --ci             # tighter output
                                                              #   (auto on under
                                                              #   GITHUB_ACTIONS)
+    python scripts/check_skill_mcp_drift.py --self-test      # title-safety-axis
+                                                             #   self-test (rf2-4kyg6)
     python scripts/check_skill_mcp_drift.py --show-baseline  # print current
                                                              #   shipped baseline
     python scripts/check_skill_mcp_drift.py --no-baseline    # fail on every
@@ -509,6 +526,184 @@ BASH_RULES: list[BashRule] = [
 
 
 # ---------------------------------------------------------------------------
+# Title-safety axis — all-current-consumers backstop for the shared
+# gh-issue shell-safety contract (rf2-4kyg6 finding 1).
+#
+# `skills/shared/issue-filing.md` is the single home for the gh-issue
+# shell-safety core. Its §Scope claims that EVERY gh-issue-writing
+# consumer either LINKS that leaf (and so inherits the body- AND
+# title-safety clauses for free) or carries the same clauses locally.
+# The retro_protocol_test.clj suite only pins that contract for the
+# re-frame2-pair-retro path; an implementor-style consumer with a
+# deliberately-local recipe can pass every existing gate while its local
+# copy drifts from the *title* half of the contract (no `--title-file`,
+# restricted safe alphabet, never-paste-evidence-into-`--title`, reviewer
+# pass for the title arg) — `gh issue create` has no `--title-file` flag,
+# so the body-file trick cannot protect the title and the title is the
+# one argv the shell still expands before `gh` sees it.
+#
+# This axis enforces the §Scope claim structurally: for every consumer
+# listed below, require EITHER a link to `../shared/issue-filing.md`
+# (single-source — inherits both halves) OR local body+title clauses.
+# The check fires `missing-title-safety` drift when a consumer neither
+# links the leaf nor carries the local clauses.
+#
+# The per-rule `allowance_bead` field is the escape hatch for a consumer
+# that is being updated under a tracked follow-up bead but cannot be
+# edited in the same change (e.g. a concurrent worker holds the file). An
+# allowance keeps the gate green now and is removed by the named
+# follow-up, which tightens the gate to enforce the clauses. KEEP IT
+# NARROW — every allowance must name a bead.
+# ---------------------------------------------------------------------------
+
+# The canonical leaf every consumer may link to satisfy the single-source
+# branch. Matched as a substring against the consumer's SKILL.md AND its
+# referenced recipe leaves (paths listed per rule).
+SHARED_ISSUE_FILING_LINK = "shared/issue-filing.md"
+
+
+@dataclass(frozen=True)
+class TitleSafetyRule:
+    """One all-consumers title-safety backstop check (rf2-4kyg6).
+
+    `consumer`         — short human label for the gh-issue-writing skill.
+    `docs`             — tuple of doc paths that together carry the
+                         consumer's filing recipe (its SKILL.md plus any
+                         local recipe leaf). The check concatenates their
+                         text. Link-presence OR clause-presence is
+                         evaluated over the union.
+    `allowance_bead`   — if set, the consumer is a known follow-up: drift
+                         is silenced and reported as an info line naming
+                         the bead. `None` = enforced.
+    """
+    consumer: str
+    docs: tuple[Path, ...]
+    allowance_bead: str | None = None
+
+
+# Body-safety clause markers: the `--body-file` recipe and the
+# never-interpolate-inline prohibition. Either alternative per pair.
+_BODY_SAFE_MARKERS: tuple[tuple[str, ...], ...] = (
+    ("--body-file",),
+    ("never interpolate", "Never interpolate", "never inline"),
+)
+
+# Title-safety clause markers: no `--title-file`, the restricted safe
+# alphabet, and the never-paste-evidence-into-`--title` prohibition.
+# Each tuple is an OR over acceptable phrasings; ALL tuples must hit.
+_TITLE_SAFE_MARKERS: tuple[tuple[str, ...], ...] = (
+    ("no `--title-file`", "no --title-file", "has no `--title-file`",
+     "has no --title-file"),
+    ("safe alphabet", "safe-alphabet"),
+    ("into `--title`", "into --title"),
+)
+
+
+def _all_markers_present(text: str, marker_groups: tuple[tuple[str, ...], ...]) -> bool:
+    """True iff every group has at least one alternative present in `text`."""
+    return all(any(alt in text for alt in group) for group in marker_groups)
+
+
+TITLE_SAFETY_RULES: list[TitleSafetyRule] = [
+    # re-frame2-pair-retro — links the shared leaf from its SKILL.md
+    # (§Filing improvements / Reference files). Satisfied by the
+    # link-presence branch; the retro_protocol_test.clj suite separately
+    # pins its local title clauses.
+    TitleSafetyRule(
+        consumer="re-frame2-pair-retro",
+        docs=(REPO_ROOT / "skills" / "re-frame2-pair-retro" / "SKILL.md",),
+    ),
+    # re-frame-migration — cardinal-rule recipe links the shared leaf
+    # (SKILL.md §Recipes). Satisfied by link-presence.
+    TitleSafetyRule(
+        consumer="re-frame-migration",
+        docs=(REPO_ROOT / "skills" / "re-frame-migration" / "SKILL.md",),
+    ),
+    # re-frame2-implementor — carries a DELIBERATELY-LOCAL recipe in
+    # references/cardinal-rules.md §8 and does NOT link the shared leaf.
+    # That local recipe currently has the body-safety clauses but NOT the
+    # title-safety clauses (the rf2-4kyg6 finding-1 gap). Updating it is
+    # deferred to rf2-57b5t0 because a concurrent worker (rf2-708nm) holds
+    # cardinal-rules.md during this change. The allowance keeps the gate
+    # green now; rf2-57b5t0 adds the title clauses (or links the leaf) and
+    # removes this entry, tightening the gate.
+    TitleSafetyRule(
+        consumer="re-frame2-implementor",
+        docs=(
+            REPO_ROOT / "skills" / "re-frame2-implementor" / "SKILL.md",
+            REPO_ROOT / "skills" / "re-frame2-implementor" / "references" / "cardinal-rules.md",
+        ),
+        allowance_bead="rf2-57b5t0",
+    ),
+]
+
+
+def check_title_safety_rules(
+    rules: Iterable[TitleSafetyRule],
+) -> tuple[list[Drift], list[str]]:
+    """Run the all-consumers title-safety backstop (rf2-4kyg6 finding 1).
+
+    For each consumer, the union of its doc texts must EITHER link the
+    shared issue-filing leaf OR carry both the body-safety and the
+    title-safety clauses locally. A consumer that does neither is drift,
+    unless it carries an `allowance_bead` (a tracked follow-up), in which
+    case it is silenced with an info line naming the bead.
+    """
+    info: list[str] = []
+    drift: list[Drift] = []
+    for rule in rules:
+        missing = [p for p in rule.docs if not p.exists()]
+        if missing:
+            rels = ", ".join(str(p) for p in missing)
+            raise FileNotFoundError(
+                f"title-safety: consumer '{rule.consumer}' doc not found at {rels}"
+            )
+        text = "\n".join(p.read_text(encoding="utf-8") for p in rule.docs)
+
+        if SHARED_ISSUE_FILING_LINK in text:
+            info.append(
+                f"title-safety: {rule.consumer} links the shared "
+                f"issue-filing leaf (single-source) -- OK."
+            )
+            continue
+
+        has_body = _all_markers_present(text, _BODY_SAFE_MARKERS)
+        has_title = _all_markers_present(text, _TITLE_SAFE_MARKERS)
+        if has_body and has_title:
+            info.append(
+                f"title-safety: {rule.consumer} carries local body+title "
+                f"shell-safety clauses -- OK."
+            )
+            continue
+
+        # Neither linked nor fully clause-covered: this consumer can drift
+        # from the title half of the shared shell-safety contract.
+        if rule.allowance_bead:
+            info.append(
+                f"title-safety: {rule.consumer} lacks the title-safety "
+                f"clauses and does not link the shared leaf -- ALLOWED "
+                f"pending follow-up {rule.allowance_bead} "
+                f"(body-clauses={'present' if has_body else 'absent'}, "
+                f"title-clauses=absent)."
+            )
+            continue
+
+        drift.append(Drift(
+            mapping_name=f"title-safety:{rule.consumer}",
+            direction="missing-title-safety",
+            tool=rule.consumer,
+        ))
+        info.append(
+            f"title-safety: {rule.consumer} neither links "
+            f"../shared/issue-filing.md nor carries local body+title "
+            f"shell-safety clauses "
+            f"(body-clauses={'present' if has_body else 'absent'}, "
+            f"title-clauses={'present' if has_title else 'absent'}) -- DRIFT."
+        )
+    return drift, info
+
+
+# ---------------------------------------------------------------------------
 # Drift detection.
 # ---------------------------------------------------------------------------
 
@@ -530,6 +725,18 @@ class Drift:
                 f"command but `allowed-tools:` lacks Bash({self.tool}). "
                 f"Add `Bash({self.tool})` to the skill's allow-list, or "
                 f"remove the command reference from the body."
+            )
+        if self.direction == "missing-title-safety":
+            return (
+                f"{self.mapping_name}: gh-issue-writing consumer '{self.tool}' "
+                f"neither links `../shared/issue-filing.md` nor carries the "
+                f"local body+title shell-safety clauses. Per "
+                f"skills/shared/issue-filing.md §Scope, every consumer must do "
+                f"one or the other so the title half of the shell-safety "
+                f"contract (no `--title-file`, restricted safe alphabet, "
+                f"never paste evidence into `--title`) is enforced. Link the "
+                f"shared leaf, or add the clauses to the consumer's local "
+                f"recipe. (rf2-4kyg6)"
             )
         assert mapping is not None
         if self.direction == "missing-in-skill":
@@ -667,6 +874,77 @@ def _emit_error(msg: str, ci: bool) -> None:
         print(f"ERROR: {msg}", file=sys.stderr)
 
 
+def _run_self_test(ci: bool) -> int:
+    """Self-test the title-safety backstop (rf2-4kyg6 finding 1).
+
+    Guards against the axis silently degrading into a no-op:
+
+      1. With the shipped `TITLE_SAFETY_RULES` (implementor under its
+         follow-up allowance), the axis produces NO drift.
+      2. Remove the implementor allowance: the axis MUST fire
+         `missing-title-safety` drift for implementor (proving the
+         clause/link check is real, not vacuously satisfied).
+      3. The link-presence consumers (pair-retro, migration) stay green
+         even with the allowance removed — they satisfy the
+         single-source branch.
+
+    Returns 0 on pass, 1 on a broken invariant.
+    """
+    import dataclasses
+
+    failures: list[str] = []
+
+    # (1) Shipped rules: no title-safety drift.
+    drift, _ = check_title_safety_rules(TITLE_SAFETY_RULES)
+    if any(d.direction == "missing-title-safety" for d in drift):
+        failures.append(
+            "shipped TITLE_SAFETY_RULES produced missing-title-safety drift "
+            "(the implementor allowance should silence it)."
+        )
+
+    # (2) Tightened rules (allowance dropped): implementor MUST drift.
+    tightened = [
+        dataclasses.replace(r, allowance_bead=None)
+        if r.allowance_bead else r
+        for r in TITLE_SAFETY_RULES
+    ]
+    drift2, _ = check_title_safety_rules(tightened)
+    impl = [
+        d for d in drift2
+        if d.direction == "missing-title-safety"
+        and d.tool == "re-frame2-implementor"
+    ]
+    if not impl:
+        failures.append(
+            "removing the implementor allowance did NOT fire "
+            "missing-title-safety drift -- the title-safety check is a "
+            "no-op. The clause/link detection is broken."
+        )
+
+    # (3) Link-presence consumers stay green under tightening.
+    leaked = [
+        d for d in drift2
+        if d.direction == "missing-title-safety"
+        and d.tool in ("re-frame2-pair-retro", "re-frame-migration")
+    ]
+    if leaked:
+        failures.append(
+            "link-presence consumers (pair-retro / migration) were flagged "
+            "as missing-title-safety -- the single-source link branch is "
+            f"broken: {[d.tool for d in leaked]}."
+        )
+
+    if failures:
+        for f in failures:
+            _emit_error(f"title-safety self-test: {f}", ci)
+        return 1
+
+    print("title-safety self-test: PASS "
+          "(allowance silences shipped drift; tightening fires it; "
+          "link-presence consumers stay green).")
+    return 0
+
+
 def main(argv: Iterable[str]) -> int:
     parser = argparse.ArgumentParser(
         description="Diff MCP server tool catalogues against skill allowed-tools.",
@@ -679,9 +957,16 @@ def main(argv: Iterable[str]) -> int:
                         help="Ignore the shipped baseline — fail on every drift, current or new.")
     parser.add_argument("--show-baseline", action="store_true",
                         help="Print the current accepted baseline and exit.")
+    parser.add_argument("--self-test", action="store_true",
+                        help="Run the title-safety-axis self-test (rf2-4kyg6) and exit. "
+                             "Proves the all-consumers backstop fires when an allowance "
+                             "is removed and that link-presence consumers stay green.")
     args = parser.parse_args(list(argv))
 
     ci = args.ci or _is_ci()
+
+    if args.self_test:
+        return _run_self_test(ci)
 
     if args.show_baseline:
         if not _BASELINE:
@@ -713,6 +998,20 @@ def main(argv: Iterable[str]) -> int:
     bash_drift, bash_info = check_bash_rules(BASH_RULES)
     all_info.extend(bash_info)
     for d in bash_drift:
+        all_drift.append((None, d))
+
+    # Title-safety axis (rf2-4kyg6 finding 1) — all-current-consumers
+    # backstop for the shared gh-issue shell-safety contract. Same
+    # accumulator, mapping=None; Drift.message handles the
+    # missing-title-safety direction.
+    try:
+        title_drift, title_info = check_title_safety_rules(TITLE_SAFETY_RULES)
+    except FileNotFoundError as e:
+        _emit_error(str(e), ci)
+        saw_setup_error = True
+        title_drift, title_info = [], []
+    all_info.extend(title_info)
+    for d in title_drift:
         all_drift.append((None, d))
 
     if args.verbose:
