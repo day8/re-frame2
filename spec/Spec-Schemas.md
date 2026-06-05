@@ -2411,6 +2411,17 @@ The `:rf/effect-map`'s `:fx` is `[[fx-id args] ...]`. Each *standard* `fx-id` (t
   [:map
    [:status   {:optional true} :int]                                       ;; default 302
    [:location :string]])
+
+;; :rf.server/safe-redirect — caller-UNtrusted redirect (open-redirect mitigation);
+;; :location is the validation target and so is REQUIRED here (unlike :rf.server/redirect,
+;; which has a documented no-target graceful path). The scheme / relative-only? / allowlist
+;; gate lives in re-frame.ssr.response/safe-redirect-fx; this is the structural shape check.
+(def SafeRedirectFxArgs
+  [:map
+   [:location       :string]
+   [:status         {:optional true} :int]                                 ;; default 302
+   [:relative-only? {:optional true} :boolean]
+   [:allow          {:optional true} [:sequential :string]]])              ;; allowlisted hosts
 ```
 
 These are registered under spec ids:
@@ -2432,6 +2443,7 @@ These are registered under spec ids:
 | `:rf.fx.server/set-cookie-args` | `:rf.server/set-cookie` (the `:rf.server/cookie` shape) |
 | `:rf.fx.server/delete-cookie-args` | `:rf.server/delete-cookie` |
 | `:rf.fx.server/redirect-args` | `:rf.server/redirect` |
+| `:rf.fx.server/safe-redirect-args` | `:rf.server/safe-redirect` (caller-untrusted redirect; `:location` required) |
 
 The `:http` schema is **user-owned, not framework-owned** — projects that ship their own HTTP integration register their own `:schema` on their own `:http` `reg-fx`. The schema here is a reasonable starting point (the conformance corpus uses it) but is not part of the locked pattern contract.
 
