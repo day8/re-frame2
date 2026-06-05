@@ -16,10 +16,13 @@
 
    The failure path renders `[boot-failed]` (terminal `:failed`),
    which surfaces the error and offers a retry button. The retry
-   dispatches `[:app/boot [:rf/start]]` directly back into the boot
+   dispatches `[:app/boot [:boot/restart]]` directly back into the boot
    machine — re-running the boot from `:configuring` is supported
    per Pattern-Boot §Re-boot semantics (the example treats `:failed`
-   as a re-entrant target rather than terminal-with-reload).
+   as a re-entrant target rather than terminal-with-reload). Re-boot
+   uses a REAL re-entry event, not the `:rf.machine/start` creation
+   marker — the marker is a pure init-kick and is inert once the
+   machine already exists.
 
    Why split the views by boot state: the alternative — mount the
    main app and let each sub-view render a per-phase loading
@@ -65,7 +68,7 @@
         (str "Reason: " msg)
         "An unexpected error occurred during application boot.")]
      [:button {:data-testid "boot-retry"
-               :on-click    #(dispatch [:app/boot [:rf/start]])}
+               :on-click    #(dispatch [:app/boot [:boot/restart]])}
       "Retry boot"]]))
 
 (reg-view ^{:doc "Post-ready screen — the main app. By the time this
