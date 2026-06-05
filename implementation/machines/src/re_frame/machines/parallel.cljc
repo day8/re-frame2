@@ -34,8 +34,11 @@
   raises (its `machine-transition-single` settles `:always` locally but
   leaves `:raise` fx un-drained — `transition/drain-to-fixed-point` in
   `defer?` mode), and `parallel-machine-transition` re-broadcasts each
-  surfaced raise across EVERY region against the full evolving snapshot,
-  FIFO, until the queue settles — then commits once.
+  surfaced raise across EVERY region, FIFO, until the queue settles — then
+  commits once. Each re-broadcast is its own microstep: per rf2-42mml it
+  re-selects against the config as of THAT microstep's start (a FRESH
+  frozen `:all-state` / `:tags` view, reflecting prior-microstep region
+  moves) while the in-flight `:data` flows through.
   A region's `:raise` is therefore NOT region-local; it re-enters the
   parent macrostep, matching what a self-`[:dispatch [<self-id> …]]` would
   broadcast (pre-commit, in one macrostep)."
@@ -375,7 +378,43 @@
         ;; vacuously read as done (bz0ox.2 / x4s9t.2).
         ordered     (filterv #(contains? state-map %)
                              (or (vec (keys (:regions parent-machine)))
-                                 (vec (keys state-map))))]
+                                 (vec (keys state-map))))
+        ;; rf2-42mml — FROZEN pre-broadcast cross-region snapshot. The
+        ;; `:all-state` / `:tags` a region's guard OR action reads are computed
+        ;; ONCE here, from the pre-event `state-map`, and threaded UNCHANGED
+        ;; into every region's step ctx — NOT rebuilt per region from the
+        ;; evolving `new-states`. This is the SELECT-then-APPLY (two-phase)
+        ;; model in its substrate-honest form: the only cross-region
+        ;; observable during a region step IS `:all-state` / `:tags`
+        ;; (a region's own `:state` is `(get state-map rn)` — already
+        ;; pre-event; `:data` is the one value that flows, accumulating in
+        ;; declaration order). Freezing those two makes the enabled-transition
+        ;; SELECTION declaration-order-INDEPENDENT (region b's guard sees the
+        ;; same frozen sibling config whether a was declared/applied before or
+        ;; after it) — exact XState v5 / SCXML parity (a parallel macrostep
+        ;; selects against the pre-event configuration/context, then applies).
+        ;;
+        ;; Per the rf2-42mml sharpening, the FROZEN view is threaded into the
+        ;; ACTION ctx too (not only guards): statechart atomicity — the
+        ;; configuration changes atomically old->new, there is no intermediate
+        ;; configuration some transitions observe and others do not; only
+        ;; `:data` flows during a macrostep. (`commit-snapshot` preserves the
+        ;; `:all-state` / `:tags` slots through a region's own `:always`
+        ;; microstep loop, so the region's internal cascade also reads the
+        ;; frozen view.)
+        ;;
+        ;; This REVERSES rf2-46ly6's "evolving-snapshot" READ-TIMING but KEEPS
+        ;; 46ly6's CAPABILITY intact: a region guard / action still reads a
+        ;; sibling's state via `:all-state` (precise) and `:tags` (coarse
+        ;; stateIn substitute). Only the snapshot those keys resolve against
+        ;; flips (frozen pre-event, not evolving same-event). Same-event
+        ;; cross-region coordination retimes to the NEXT microstep via the
+        ;; statechart-idiomatic path (a region `:raise`s / writes `:data`; the
+        ;; FIFO re-broadcast re-selects against the now-updated config — a
+        ;; fresh `reduce-regions` recomputes a fresh frozen view per
+        ;; re-broadcast), bounded by `:always-depth-limit` / `:raise-depth-limit`.
+        frozen-all-state state-map
+        frozen-tags      (compute-tags-parallel parent-machine state-map)]
     (loop [pending      ordered
            cur-data     (:data snapshot)
            cur-counter  (:rf/spawn-counter snapshot)
@@ -465,30 +504,32 @@
                                    ;; tag union across every region (the coarse
                                    ;; tag-as-stateIn substitute — rf2-69d1n).
                                    ;;
-                                   ;; Both are computed from `new-states`, the
-                                   ;; EVOLVING macrostep snapshot: regions
-                                   ;; processed earlier in THIS broadcast
-                                   ;; already carry their post-transition
-                                   ;; state, so a sibling transition earlier in
-                                   ;; the same broadcast is visible here; this
-                                   ;; region (and later siblings) still carry
-                                   ;; their current (pre-transition) state,
-                                   ;; which is what a guard evaluated BEFORE the
-                                   ;; transition fires must see. Across the FIFO
-                                   ;; raise drain, every re-broadcast rebuilds
-                                   ;; these from the latest `cur-snap` via a
-                                   ;; fresh `reduce-regions`, so the union stays
-                                   ;; current through the macrostep (consistent
-                                   ;; with the rf2-yi7ts broadcast rework).
+                                   ;; rf2-42mml: both resolve against the
+                                   ;; FROZEN pre-broadcast snapshot (`state-map`
+                                   ;; → `frozen-all-state` / `frozen-tags`,
+                                   ;; computed ONCE above), NOT the evolving
+                                   ;; `new-states`. So a region's guard / action
+                                   ;; sees siblings' PRE-EVENT states regardless
+                                   ;; of declaration order — the
+                                   ;; SELECT-then-APPLY two-phase model in
+                                   ;; substrate-honest form (only `cur-data`
+                                   ;; flows; the cross-region view is frozen).
+                                   ;; This is exact v5/SCXML parity and
+                                   ;; declaration-order-independent. Across the
+                                   ;; FIFO raise drain, each re-broadcast runs a
+                                   ;; FRESH `reduce-regions` that recomputes a
+                                   ;; fresh frozen view from the latest
+                                   ;; `cur-snap`, so same-event coordination
+                                   ;; settles on the NEXT microstep
+                                   ;; (statechart-idiomatic), not the same pass.
                                    ;;
                                    ;; `:all-state` doubles as the parallel-
                                    ;; region marker `call-guard`/`call-action`
                                    ;; key off (transition.cljc) — flat/compound
                                    ;; machines never set it, so their ctx is
                                    ;; unchanged.
-                                   :all-state new-states
-                                   :tags      (compute-tags-parallel
-                                                parent-machine new-states)}
+                                   :all-state frozen-all-state
+                                   :tags      frozen-tags}
                             (some? cur-counter)
                             (assoc :rf/spawn-counter cur-counter)
                             ;; Seed the region snapshot with the shared
@@ -1010,19 +1051,27 @@
   internal-event queue. The root transition's GUARD is selected against the
   frozen pre-event snapshot (rf2-42mml coordination).
 
-  Per Spec 005 §Transition broadcast: each region resolves the event
-  through its own active state's deepest-wins lookup; resolved regions
-  transition, undeclined regions stay put. The `:data` slot is shared —
-  each region's actions see the prior region's `:data` writes in
-  declaration order. Per rf2-vqubp the broadcast invariant lives in
+  Per Spec 005 §Transition broadcast (rf2-42mml — select-then-apply): each
+  region's enabled transition is SELECTED against ONE frozen pre-broadcast
+  snapshot (its own deepest-wins lookup, reading siblings via the frozen
+  `:all-state` / `:tags`), then the selected transitions are APPLIED in
+  region-declaration order; resolved regions transition, undeclined regions
+  stay put. Declaration order governs only the deterministic apply (action /
+  fx order + `:data` accumulation), NEVER which sibling transitions are
+  selected. The `:data` slot is the one value that flows — each region's
+  actions see the prior region's `:data` writes in declaration order; the
+  cross-region `:all-state` / `:tags` a guard OR action reads stay frozen
+  (statechart atomicity). Per rf2-vqubp the broadcast invariant lives in
   `reduce-regions`.
 
   Per Spec 005 §Parallel-region `:raise` broadcast (rf2-yi7ts — XState v5
   parity): a `:raise` emitted by ANY region is NOT region-local. It enters
   this macrostep's internal-event queue and is re-broadcast across EVERY
-  region against the full evolving snapshot — exactly what an equivalent
-  self-`[:dispatch [<self-id> …]]` would broadcast, but pre-commit and
-  inside the one macrostep. Raises are drained FIFO (rf2-nr434): a raise
+  region — exactly what an equivalent self-`[:dispatch [<self-id> …]]` would
+  broadcast, but pre-commit and inside the one macrostep. Each re-broadcast
+  is its own microstep (rf2-42mml): it re-selects against the config as of
+  that microstep's start (a fresh frozen `:all-state` / `:tags` view that
+  reflects prior-microstep region moves) while the in-flight `:data` flows. Raises are drained FIFO (rf2-nr434): a raise
   surfaced earlier is re-broadcast before one surfaced later, and a raise
   emitted *while handling* a re-broadcast goes to the BACK of the queue.
   The whole macrostep — external event + every re-broadcast internal event
