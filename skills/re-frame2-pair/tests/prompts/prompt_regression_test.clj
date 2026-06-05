@@ -54,6 +54,7 @@
 (def ^:private testing-md (delay (slurp-rel "docs/TESTING.md")))
 (def ^:private streaming-md (delay (slurp-rel "references/streaming-subscriptions.md")))
 (def ^:private variant-md (delay (slurp-rel "references/variant-as-frame.md")))
+(def ^:private wire-size-md (delay (slurp-rel "references/wire-size-budget.md")))
 
 ;; ---------------------------------------------------------------------------
 ;; The canonical-prompts table
@@ -353,6 +354,55 @@
         (str "SKILL.md must state subscribe has no `frame` arg so the "
              "operating-frame pin does not scope a streaming subscription "
              "(rf2-ojo3z)."))))
+
+;; ---------------------------------------------------------------------------
+;; Independent-review findings (rf2-a85bb2)
+;; ---------------------------------------------------------------------------
+;;
+;; Finding 2 — wire-size-budget.md must describe the SAME topic-dependent
+;; subscribe payload slot as streaming-subscriptions.md: `:events` for the
+;; flat topics (epoch/frameless) and `:cascades` for the cascade-bundle
+;; topics (trace/fx/error). A host decoding subscribe dedup off the
+;; size-budget leaf that only knew `:events` would leave trace/fx/error
+;; cascade ticks unexpanded. Mirrors the streaming-subscriptions guard above.
+
+(deftest wire-size-budget-names-both-subscribe-slots
+  (testing "wire-size-budget.md subscribe dedup names both :events and :cascades (rf2-a85bb2 finding 2)"
+    (is (and (str/includes? @wire-size-md ":cascades")
+             (str/includes? @wire-size-md ":events"))
+        (str "wire-size-budget.md must document the topic-dependent subscribe "
+             "payload slot — :events (epoch/frameless) AND :cascades "
+             "(trace/fx/error) — not :events alone, or a host will leave "
+             "cascade-bundle dedup ticks unexpanded (rf2-a85bb2)."))))
+
+;; Finding 3 — the render-source-coord recipe must NOT tell an agent to pass
+;; the whole `:render-key` tuple to `handler-meta {kind: "view"}`. The schema
+;; defines `:render-key` as `[<view-id-or-:rf.view/anonymous> <instance-token>]`;
+;; `handler-meta :view` is keyed by the FIRST slot (the registered view id).
+;; The recipe must steer to `(first render-key)` / the `view-id`, and
+;; capabilities.md must not still call `:render-key` opaque-pending-finalisation.
+
+(deftest render-key-recipe-uses-first-tuple-slot
+  (testing "recipes.md resolves render source from the first render-key slot, not the whole tuple (rf2-a85bb2 finding 3)"
+    (is (not (str/includes? @recipes-md "id: <render-key>"))
+        (str "recipes.md tells an agent to pass the whole render-key tuple as "
+             "the handler-meta {kind: \"view\"} id — that yields :not-registered. "
+             "The id is the FIRST tuple slot (the registered view id) (rf2-a85bb2)."))
+    (is (str/includes? @recipes-md "first render-key")
+        (str "recipes.md must steer render-coord resolution to `(first "
+             "render-key)` (the view id) for handler-meta {kind: \"view\"} "
+             "(rf2-a85bb2)."))
+    (is (str/includes? @recipes-md ":rf.view/anonymous")
+        (str "recipes.md must handle the :rf.view/anonymous first-slot case "
+             "(fall back to read-ui's :source-coord) (rf2-a85bb2).")))
+  (testing "capabilities.md no longer calls :render-key opaque-pending-finalisation (rf2-a85bb2 finding 3)"
+    (is (not (str/includes? @capabilities-md "opaque pending spec finalisation"))
+        (str "capabilities.md still calls :render-key opaque-pending-"
+             "finalisation — the schema defines a finalised tuple "
+             "[<view-id> <instance-token>] (rf2-a85bb2)."))
+    (is (str/includes? @capabilities-md "first render-key")
+        (str "capabilities.md must point at `(first render-key)` for source-"
+             "coord resolution, matching recipes.md (rf2-a85bb2)."))))
 
 ;; ---------------------------------------------------------------------------
 ;; Run

@@ -50,7 +50,7 @@ Designed for web apps built from the following stack:
 - Optional: re-frame2's source-coord annotation enabled (`(rf/configure! :source-coords {:annotate-dom? true})`) — and/or [`re-com`](https://github.com/day8/re-com) with debug instrumentation + `:src (at)` at call sites. Without one of these, the `dom/*` ops degrade gracefully.
 - [shadow-cljs](https://shadow-cljs.github.io/) as the build tool, with nREPL enabled on the dev build
 
-You don't need to make any changes to your code/project to use it — the MCP server (Node) handles transport, and only re-frame2's own dev-build instrumentation is required on the application side.
+You don't need to change your application *code* to use it — the MCP server (Node) handles transport, and only re-frame2's own dev-build instrumentation is required on the application side. The one build-config change is the dev-only preload: install the `@day8/re-frame2-pair` package and add its `preload/` directory to `:source-paths` plus the namespace to `:devtools :preloads` (two `shadow-cljs.edn` lines — see *Install* below). The preload loads only in dev builds; production is untouched.
 
 ## No re-frame-10x dependency
 
@@ -153,7 +153,8 @@ Here's the kinds of conversations you can have with Claude.
 
 1. Install the MCP server: `npm install -g @day8/re-frame2-pair-mcp`.
 2. Add an `mcpServers` entry to your Claude Code settings — see [`tools/re-frame2-pair-mcp/README.md`](../../tools/re-frame2-pair-mcp/README.md) for the configuration snippet and the full tool surface.
-3. Add the shadow-cljs `:devtools :preloads` entry (`[re-frame2-pair.runtime]`) and a `:source-paths` line pointing at the bundled `preload/` directory — see `SKILL.md` §Setup for the two-line snippet. No extra deps, no closure-defines. The preload only loads in dev; production builds are untouched.
+3. Install the preload package into your app as a dev dependency: `npm install -D @day8/re-frame2-pair`. This ships the `re-frame2-pair.runtime` CLJS namespace under its `preload/` directory; the MCP server package does **not** carry it. **The preload is required** — without it `discover-app` refuses every session with `:reason :runtime-not-preloaded`.
+4. Add the shadow-cljs `:devtools :preloads` entry (`[re-frame2-pair.runtime]`) and a `:source-paths` line pointing at the installed `node_modules/@day8/re-frame2-pair/preload` directory — see `SKILL.md` §Setup for the two-line snippet. No closure-defines. The preload only loads in dev; production builds are untouched.
 
 ### How the connection works
 

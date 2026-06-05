@@ -45,8 +45,13 @@ return the input unchanged. The expand is local to the agent host;
 no extra round-trip to the runtime.
 
 **Where it fires.** `:epochs` slice on `snapshot`, `trace-window`,
-`watch-epochs`; per-tick `:events` vector on `subscribe`. Always
-opt-out via `dedup false` if your host hasn't been taught the marker.
+`watch-epochs`; the per-tick subscribe payload slot on `subscribe`.
+That slot is **topic-dependent** (per `streaming-subscriptions.md`):
+`:events` for the flat topics (`:epoch` / `:frameless`) and `:cascades`
+for the cascade-bundle topics (`:trace` / `:fx` / `:error`). A host
+decoding subscribe dedup must look under whichever slot the topic
+delivers, not `:events` alone. Always opt-out via `dedup false` if
+your host hasn't been taught the marker.
 
 **Empty / scalar inputs** are passed through unmodified (no marker),
 so the only thing that ever needs `expand` is something that already
