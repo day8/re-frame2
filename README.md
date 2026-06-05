@@ -61,7 +61,7 @@ Your app talks async with the outside world — HTTP, websockets, postMessage, s
 
 re-frame2 has the **managed external effect** — one primitive shape every outbound conforms to. Effects are data, returned from handlers, not invoked as callbacks. The framework owns retry, abort, fan-out, in-flight registry, teardown, observable trace events, `:sensitive?` + `:large?` elision composition, and a structured failure taxonomy under each surface's `:rf.<surface>/*` namespace.
 
-`:rf.http/managed` is HTTP. `:rf.ws/managed` is WebSockets. `:spawn` / `:spawn-all` on state machines are managed effects. SSR per-request lifecycle is one. **The next surface — postMessage relays, file watchers, Service Worker channels — inherits the shape by name.** Or you can roll your own from the primitives.
+`:rf.http/managed` is HTTP. `:spawn` / `:spawn-all` on state machines are managed effects. SSR per-request lifecycle is one. **The next surface — WebSockets, postMessage relays, file watchers, Service Worker channels — inherits the shape by name.** re-frame2 deliberately ships only a focused set (it does *not* fold in a managed WebSocket, for instance); the [WebSocket pattern](spec/Pattern-WebSocket.md) shows how you roll your own from the primitives so it composes exactly like the built-ins.
 
 And the external story composes naturally with the *internal* management primitives that handle, say, the Nine States of GUIs problems in an unsuspenseful way. External and internal share the same effects-as-data shape. You learn the model once, you apply it everywhere.
 

@@ -2,7 +2,7 @@
 
 Long-lived bidirectional connection lifecycle (WebSocket / SSE / WebRTC peer) modelled as a state machine that owns the socket actor.
 
-`:rf.ws/*` is one instance of the **managed external effect** umbrella — alongside `:rf.http/managed`, state-machine `:spawn`, `:rf.server/*`, and `:rf.flow/*`. The connection's lifecycle (issuance, reconnect, abort, teardown, structured failures under `:rf.ws/*`, trace-bus observability, wire-value elision) is framework-owned. See [`spec/Managed-Effects.md`](../../../spec/Managed-Effects.md) for the eight-property shared contract; the rest of this leaf is WebSocket-specific.
+**re-frame2 does NOT ship a managed WebSocket** — there is no `:rf.ws/*` fx and no reserved `:rf.ws/*` namespace. You (or a library) build the connection yourself on the state-machine substrate; the **shipped** managed-effect surfaces are `:rf.http/managed`, state-machine `:spawn`, `:rf.server/*`, and `:rf.flow/*`. This pattern is the canonical worked example of applying the **managed external effect** umbrella *by hand* to a connection: when you implement it this way, the connection's lifecycle (issuance, reconnect, abort, teardown, structured failures under an app-chosen `:rf.ws/*`-style namespace, trace-bus observability, wire-value elision) satisfies the eight-property contract — but you own it, the framework doesn't. See [`spec/Managed-Effects.md`](../../../spec/Managed-Effects.md) for that shared contract; the rest of this leaf is WebSocket-specific.
 
 > **Worked example:** `examples/reagent/websocket/` ships the canonical Pattern-WebSocket app (`connection.cljs` holds the machine). Read it as ground truth; the canonical declaration below is the leaf-level summary.
 

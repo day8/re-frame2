@@ -2,7 +2,7 @@
 
 A page-level rendering convention that makes every legal UI state explicit and testable. The page's render axes are modelled as **parallel regions** of a single `reg-machine`, each region's states carry **tags**, and one **selector sub** consults a **render-priority** table to pick the single render-model keyword the root view's `case` branches on.
 
-NineStates is the **rendering layer** that sits over the lifecycles produced by **managed external effects**. The `:data` region typically advances on replies from `:rf.http/managed`, `:rf.ws/*`, or a `:spawn`'d loader; the umbrella's framework-owned reply addressing and structured failure taxonomy is what makes the tag set (`:loading`, `:loaded`, `:error`, …) reliable enough to drive a priority table. See [`spec/Managed-Effects.md`](../../../spec/Managed-Effects.md) for the underlying contract; this leaf names how a page renders across the lifecycle's cardinality.
+NineStates is the **rendering layer** that sits over the lifecycles produced by **managed external effects**. The `:data` region typically advances on replies from `:rf.http/managed`, a `:spawn`'d loader, or an app-built WebSocket connection (re-frame2 does **not** ship `:rf.ws/*` — you build it per Pattern-WebSocket); the umbrella's reply addressing and structured failure taxonomy is what makes the tag set (`:loading`, `:loaded`, `:error`, …) reliable enough to drive a priority table. See [`spec/Managed-Effects.md`](../../../spec/Managed-Effects.md) for the underlying contract; this leaf names how a page renders across the lifecycle's cardinality.
 
 ## When to load
 
