@@ -217,6 +217,24 @@
                      {:rf.size/include-sensitive? true})
                    [:auth :password])))))
 
+(deftest schema-sensitive-tuple-position-precise-redacts
+  ;; rf2-ss06u.4 — a bare :tuple element marked {:sensitive? true} declares a
+  ;; POSITION-pinned path ([:point 0]); the runtime elision walk descends the
+  ;; tuple value (a vector) through its literal-index fork (fork-index-paths,
+  ;; (conj c i)) and matches that exact position — redacting ONLY the declared
+  ;; element while the non-sensitive sibling rides verbatim. This pins the
+  ;; core-elision coordinate-system consistency: the position-bearing walker
+  ;; decl and the runtime indexed path agree.
+  (rf/reg-app-schema [:point]
+                     [:tuple [:string {:sensitive? true}] :int])
+  (is (= [[:point 0]] (rf/populate-sensitive-from-schemas!))
+      "the sensitive tuple element declares its POSITION-pinned path")
+  (let [out (rf/elide-wire-value {:point ["the-secret" 42]})]
+    (is (= :rf/redacted (get-in out [:point 0]))
+        "the declared-sensitive element 0 is redacted")
+    (is (= 42 (get-in out [:point 1]))
+        "the non-sensitive sibling element 1 rides verbatim — no over-redaction")))
+
 (deftest sensitive-wins-over-large
   (rf/reg-app-schema [:secret-pdf]
                      [:string {:large? true

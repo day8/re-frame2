@@ -142,10 +142,25 @@
       slot props claims the parent path (the op's `base-path`), not a
       child path; dispatch values aren't path segments.
 
-    - Positional / nameless container ops (`:vector`, `:set`, `:sequential`,
-      `:maybe`, `:and`, `:or`, `:not`, `:tuple`, `:cat`, …) descend into
-      each child at the SAME `base-path` — these ops don't introduce a
-      new app-db path segment.
+    - `:tuple` children are POSITION-bearing (rf2-ss06u.4) — each element
+      has its OWN heterogeneous schema, so element `i` descends at
+      `(conj base-path i)`, the integer index being the discriminating
+      segment (the positional analogue of a `:map` key). A `:sensitive?`
+      flag on element 0 of `[:tuple [:string {:sensitive?}] :int]` claims
+      `(conj base 0)`, NOT `base` — so it does not taint the sibling at
+      `(conj base 1)`. This is the index-bearing element-precision the
+      `:vector` / `:map-of` paths already have via their map-key
+      discriminator; for `:tuple` the discriminator IS the index. The
+      position-pinned decl-path is matching-safe against the core-elision
+      coordinate system: the runtime elision walk descends a tuple value
+      (a vector) through its literal-index fork (`fork-index-paths` —
+      `(conj c i)`), which matches a position-pinned declaration exactly.
+
+    - Other positional / nameless container ops (`:vector`, `:set`,
+      `:sequential`, `:maybe`, `:and`, `:or`, `:not`, `:cat`, …) descend
+      into each child at the SAME `base-path` — these ops are homogeneous
+      (one shared element schema) or their index is not a declarable
+      app-db slot, so they don't introduce a new path segment.
 
     - Container-level props on the schema itself (the schema's OWN props,
       not a parent slot's) claim `base-path`. Covers
@@ -209,6 +224,21 @@
                    acc))))
            acc'
            children)
+
+         ;; `:tuple` — position-bearing (rf2-ss06u.4). Each element has its
+         ;; OWN schema; element `i` descends at `(conj base-path i)` so a
+         ;; per-position `:sensitive?` / `:large?` flag claims that exact
+         ;; index, NOT the shared tuple base-path. Mirrors the `:map`
+         ;; name-bearing descent with integer position keys, giving the
+         ;; sibling precision the index-free `:else` descent destroys.
+         (= op :tuple)
+         (first
+           (reduce
+             (fn [[acc i] child]
+               [(walk-flagged-schema flag-key child (conj base-path i) acc)
+                (inc i)])
+             [acc' 0]
+             children))
 
          :else
          (reduce (fn [acc c] (walk-flagged-schema flag-key c base-path acc))
@@ -316,14 +346,23 @@
 ;; app-db path segment. Malli's explainer reports a value-relative `:in`
 ;; path that descends INTO collection elements (`[1 :token]` for a
 ;; vector-of-maps, `["a" :secret]` for a map-of), but the walker builds
-;; its `{path declaration}` map at INDEX-FREE base-paths — positional /
-;; keyed containers descend at the same base-path (walker comment lines
-;; ~144-147) because the element index is not a declarable app-db slot.
-;; Aligning the two coordinate systems means dropping the collection-
-;; navigation segment that these ops contribute. `:map-of` descends into
-;; its VALUE schema (child index 1); the positional ops descend into
-;; their element/Nth-element schema. Per rf2-g5auo — without this
-;; alignment a `:sensitive?` slot nested in a collection leaks verbatim.
+;; its `{path declaration}` map at INDEX-FREE base-paths — homogeneous
+;; positional / keyed containers descend at the same base-path (walker
+;; comment lines ~145-148) because the element index is not a declarable
+;; app-db slot. Aligning the two coordinate systems means dropping the
+;; collection-navigation segment that these ops contribute. `:map-of`
+;; descends into its VALUE schema (child index 1); the homogeneous
+;; positional ops descend into their single element schema. Per rf2-g5auo
+;; — without this alignment a `:sensitive?` slot nested in a collection
+;; leaks verbatim.
+;;
+;; `:tuple` is the membership outlier (rf2-ss06u.4): it is kept in this
+;; set so `sanitize-sensitive-path` treats its integer index as a
+;; navigable locator (KEEP, not scrub), but `align-in-path` handles
+;; `:tuple` in its OWN position-KEEPING branch ABOVE the generic
+;; index-drop branch — a tuple element is heterogeneous (per-position
+;; schema), so the index IS a discriminating segment and must NOT be
+;; dropped, else sibling positions collapse and over-redact.
 (def ^:private index-bearing-ops
   #{:vector :sequential :set :tuple :map-of})
 
@@ -389,15 +428,30 @@
               ;; Key not found in the schema (shape drift) — fail-SAFE.
               [:fallback schema aligned])
 
-            ;; Index-bearing container — drop the index/key segment and
-            ;; descend into the element (or `:map-of` value) schema.
+            ;; `:tuple` — POSITION-bearing (rf2-ss06u.4). Unlike the
+            ;; homogeneous index-bearing ops below, each tuple element has
+            ;; its OWN schema, so the integer index IS a discriminating
+            ;; segment (the positional analogue of a `:map` key). KEEP the
+            ;; index in `aligned` — the walker emits per-position decl-paths
+            ;; (`(conj base i)`), so a failure at element `i` aligns to that
+            ;; same `[… i]` and prefix-matches ONLY that position's
+            ;; declaration. Dropping it (the prior behaviour) collapsed all
+            ;; elements onto the tuple base-path, so marking one element
+            ;; `:sensitive?` over-redacted every sibling failure.
+            (= op :tuple)
+            (if-let [child (when (and (int? seg) (< seg (count children)))
+                             (nth children seg))]
+              (recur child (subvec in 1) (conj aligned seg))
+              [:fallback schema aligned])
+
+            ;; Homogeneous index-bearing container — drop the index/key
+            ;; segment and descend into the element (or `:map-of` value)
+            ;; schema. `:vector`/`:sequential`/`:set` have one shared
+            ;; element schema; `:map-of`'s value schema is child 1. The
+            ;; index/key is not a declarable slot for these, so it is
+            ;; dropped to align with the walker's index-free decl-paths.
             (contains? index-bearing-ops op)
-            (let [child (if (= op :tuple)
-                          (when (and (int? seg) (< seg (count children)))
-                            (nth children seg))
-                          ;; :vector/:sequential/:set have one element
-                          ;; schema; :map-of's value schema is child 1.
-                          (nth children (if (= op :map-of) 1 0) nil))]
+            (let [child (nth children (if (= op :map-of) 1 0) nil)]
               (if (some? child)
                 (recur child (subvec in 1) aligned)
                 [:fallback schema aligned]))
