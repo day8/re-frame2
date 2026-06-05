@@ -292,6 +292,103 @@
                "`npm install` (rf2-w4axt).")))))
 
 ;; ---------------------------------------------------------------------------
+;; Lock 5 — the dev CSP guidance matches the generator template's index.html.
+;; rf2-pxl6l.
+;;
+;; The template's root/resources/public/index.html ships a DEV-flavoured CSP
+;; meta tag tuned to the runtime the scaffold produces:
+;;   - `style-src 'self' 'unsafe-inline'` — generated views use inline `:style`
+;;     props and the default-on Xray devtools injects <style>/inline styles, so
+;;     a strict `style-src 'self'` would emit violations + break Xray on first
+;;     run.
+;;   - NO meta `frame-ancestors` — browsers IGNORE it from a <meta> tag; it is a
+;;     response-header-only directive, so it belongs in the production header.
+;; A prior revision documented a strict dev CSP (`style-src 'self'`, meta
+;; `frame-ancestors`), which diverged from the tested template and could cause
+;; first-run CSP violations / broken Xray styling. These guards fail if that
+;; stale strict-dev shape (or a meta `frame-ancestors`) reappears, and require
+;; the dev/prod split (a documented stricter production RESPONSE HEADER that
+;; adds `frame-ancestors`) to stay present.
+;; ---------------------------------------------------------------------------
+
+(defn- meta-csp-content
+  "Extract the content=\"...\" of the Content-Security-Policy <meta> tag, or nil."
+  [body]
+  (some-> (re-find #"(?s)<meta http-equiv=\"Content-Security-Policy\"\s+content=\"([^\"]+)\"" body)
+          second))
+
+(deftest dev-csp-allows-unsafe-inline-styles
+  (testing "shadow-cljs.md's index.html meta CSP allows 'unsafe-inline' styles (matches the template)"
+    (let [meta-csp (meta-csp-content @shadow-cljs-md)]
+      (is (some? meta-csp)
+          "Could not find the Content-Security-Policy <meta> tag in shadow-cljs.md.")
+      (is (and meta-csp (str/includes? meta-csp "style-src 'self' 'unsafe-inline'"))
+          (str "shadow-cljs.md's CSP meta tag no longer allows "
+               "`style-src 'self' 'unsafe-inline'`. The generated views use "
+               "inline `:style` props and the default-on Xray devtools injects "
+               "<style>/inline styles — a strict `style-src 'self'` emits CSP "
+               "violations and breaks Xray styling on first run. The dev meta "
+               "tag must match the template's "
+               "root/resources/public/index.html (rf2-pxl6l)."))
+      (is (and meta-csp (not (re-find #"style-src 'self';" meta-csp)))
+          (str "shadow-cljs.md's CSP meta tag still carries a STRICT "
+               "`style-src 'self';` (no 'unsafe-inline') for the DEV policy — "
+               "that diverges from the template and breaks the first page / "
+               "Xray. Strict `style-src 'self'` belongs only in the PRODUCTION "
+               "response header (rf2-pxl6l).")))))
+
+(deftest dev-csp-meta-omits-frame-ancestors
+  (testing "shadow-cljs.md's index.html meta CSP omits frame-ancestors (meta-tag-ignored directive)"
+    ;; Isolate the <meta http-equiv="Content-Security-Policy" ...> block content
+    ;; so we test the META tag specifically, not the prose / production-header
+    ;; guidance (which legitimately mentions frame-ancestors).
+    (let [meta-csp (meta-csp-content @shadow-cljs-md)]
+      (is (some? meta-csp)
+          "Could not find the Content-Security-Policy <meta> tag in shadow-cljs.md.")
+      (is (and meta-csp (not (str/includes? meta-csp "frame-ancestors")))
+          (str "shadow-cljs.md's CSP <meta> tag declares `frame-ancestors`. "
+               "Browsers IGNORE `frame-ancestors` from a <meta> tag — it only "
+               "takes effect from a response header, so putting it in the meta "
+               "tag implies anti-clickjacking protection the page does not "
+               "have. It belongs in the production response header "
+               "(rf2-pxl6l).")))))
+
+(deftest csp-documents-prod-response-header-with-frame-ancestors
+  (testing "shadow-cljs.md documents a stricter production response header that adds frame-ancestors"
+    (let [body @shadow-cljs-md]
+      (is (contains-any? body ["response header" "Production hardening"])
+          (str "shadow-cljs.md no longer documents serving CSP as a production "
+               "RESPONSE HEADER. The dev meta tag is not the production policy; "
+               "the skill must give the dev/prod split (rf2-pxl6l)."))
+      (is (str/includes? body "frame-ancestors 'none'")
+          (str "shadow-cljs.md's production CSP guidance no longer adds "
+               "`frame-ancestors 'none'`. That directive is response-header-"
+               "only and is where anti-clickjacking actually takes effect — it "
+               "must appear in the production header guidance (rf2-pxl6l).")))))
+
+;; ---------------------------------------------------------------------------
+;; Lock 6 — user-facing direct-run shadow-cljs commands are qualified with npx.
+;; rf2-pxl6l.
+;;
+;; A fresh project's only shadow-cljs is a LOCAL npm devDependency; bare
+;; `shadow-cljs watch app` hits `command not found` when no global binary is on
+;; PATH (common on Windows/PowerShell). Direct-run commands in the user-facing
+;; prose must use `npx shadow-cljs ...` (or `npm run ...`). Bare `shadow-cljs`
+;; is fine ONLY inside a package.json "scripts" block (npm puts node_modules/.bin
+;; on PATH there). This guard fails if an unqualified direct-run command
+;; reappears outside a scripts context.
+;; ---------------------------------------------------------------------------
+
+(deftest first-counter-verify-command-uses-npx
+  (testing "first-counter.md's verification command qualifies shadow-cljs with npx"
+    (let [fc (slurp-rel setup-root "references/first-counter.md")]
+      (is (str/includes? fc "npx shadow-cljs watch app")
+          (str "first-counter.md's verify step no longer runs "
+               "`npx shadow-cljs watch app`. A fresh project's shadow-cljs is "
+               "a local devDependency — bare `shadow-cljs` is not on PATH "
+               "(esp. Windows/PowerShell) (rf2-pxl6l).")))))
+
+;; ---------------------------------------------------------------------------
 ;; Run
 ;; ---------------------------------------------------------------------------
 
