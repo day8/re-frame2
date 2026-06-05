@@ -64,8 +64,8 @@
    the `:promote-staged` action reads it from there to thread the
    `:api-base` into the next phase (mechanism 3 → mechanism 2 above).
 
-   Trigger boot once at app start via `[:app/boot [:rf/start]]`. The
-   machine self-initialises (per Spec 005 §Restore semantics): the
+   Trigger boot once at app start via `[:app/boot [:rf.machine/start]]`.
+   The machine self-initialises (per Spec 005 §Restore semantics): the
    `:initial` state and `:data` seed `[:rf/runtime :machines :snapshots :app/boot]` when
    the dispatch lands."
   (:require [re-frame.core :as rf]
@@ -204,8 +204,8 @@
 ;; ============================================================================
 
 (rf/reg-machine :app/boot
-  {:initial :idle
-   :data    {:phase  :idle
+  {:initial :configuring
+   :data    {:phase  :configuring
              :config nil
              :flags  nil
              :user   nil
@@ -245,16 +245,14 @@
        :fx   [[:dispatch [:boot/apply-hydration]]]})}
 
    :states
-   {;; ---- :idle — the parking spot before the boot kicks off -------------
-    ;; Per the standard re-frame2 state-machine convention (see the
-    ;; `:spawn-all` conformance fixtures), a machine's initial state
-    ;; is `:idle` and the first work-event transitions it onward. Here
-    ;; the `:rf/start` event the dispatched-on-app-boot fires moves
-    ;; :idle → :configuring, which fires the :spawn entry-cascade.
-    :idle
-    {:on {:rf/start :configuring}}
-
-    ;; ---- :configuring — a single :spawn fetches /config -----------------
+   {;; ---- :configuring — the :initial state; a single :spawn fetches /config
+    ;; Per Pattern-Boot the boot machine is BORN directly into its first
+    ;; work state. The init-kick `[:app/boot [:rf.machine/start]]` is a
+    ;; PURE creation marker (Spec 005 §F‴ / transition/start-marker): it
+    ;; runs the initial-entry cascade — here `:configuring`'s `:spawn` —
+    ;; and STOPS; it is NEVER fed into an `:on` map as a trigger. So there
+    ;; is no `:idle` parking spot and no start-marker transition: the
+    ;; machine starts working the moment it is kicked.
     :configuring
     {:spawn {:machine-id :boot/loader
               ;; Per Spec 005 §Spec-spec keys, `:data` admits a
@@ -332,16 +330,20 @@
     ;; ---- :ready / :failed — terminal -------------------------------------
     :ready  {:meta {:terminal? true}}
     :failed {;; Per Pattern-Boot §Re-boot semantics, :failed is
-             ;; re-entrant — dispatching `[:app/boot [:rf/start]]`
-             ;; from the failure screen re-runs the boot from
-             ;; :configuring. The terminal? meta is still true so
+             ;; re-entrant — dispatching the explicit re-entry event
+             ;; `[:app/boot [:boot/restart]]` from the failure screen
+             ;; re-runs the boot from :configuring. Re-boot uses a REAL
+             ;; event, NOT the `:rf.machine/start` creation marker: the
+             ;; marker is a pure init-kick that is never fed into an `:on`
+             ;; map (Spec 005 §F‴), so once the machine exists a start
+             ;; marker is inert. The terminal? meta is still true so
              ;; visualisers / conformance harnesses see :failed as a
-             ;; terminal state; the re-entry transition is the
-             ;; explicit re-boot, not the default end of the flow.
+             ;; terminal state; the re-entry transition is the explicit
+             ;; re-boot, not the default end of the flow.
              :meta {:terminal? true}
-             :on   {:rf/start {:target :configuring
-                               :action (fn [{data :data}]
-                                         {:data (assoc data :error nil)})}}}}})
+             :on   {:boot/restart {:target :configuring
+                                   :action (fn [{data :data}]
+                                             {:data (assoc data :error nil)})}}}}})
 
 ;; ============================================================================
 ;; HYDRATION PROMOTION
@@ -381,11 +383,13 @@
 ;; ============================================================================
 
 (rf/reg-event-fx :boot/initialise
-  {:doc "Top-level app boot. Fires the :app/boot machine's :rf/start
-         event to kick the boot sequence off. The frame's :on-create
-         points at this event (see core.cljs)."}
+  {:doc "Top-level app boot. Fires the :app/boot machine's
+         `:rf.machine/start` creation marker to kick the boot sequence
+         off — the machine is born directly into `:configuring` and runs
+         its `:spawn` entry-cascade. The frame's :on-create points at
+         this event (see core.cljs)."}
   (fn handler-app-initialise [_ _]
-    {:fx [[:dispatch [:app/boot [:rf/start]]]]}))
+    {:fx [[:dispatch [:app/boot [:rf.machine/start]]]]}))
 
 ;; ============================================================================
 ;; SUBS — boot-state slots the views read

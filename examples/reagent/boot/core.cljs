@@ -151,8 +151,9 @@
   ;; Kick the boot. The `:app/boot` machine's :initial state and
   ;; :data seed `[:rf/runtime :machines :snapshots :app/boot]` on first dispatch (per
   ;; Spec 005 §Restore semantics); :boot/initialise fires
-  ;; `[:app/boot [:rf/start]]`, which transitions :configuring's
-  ;; :spawn spawn-fx and starts the boot sequence.
+  ;; `[:app/boot [:rf.machine/start]]`, the creation marker that births
+  ;; the machine directly into :configuring and runs its :spawn
+  ;; entry-cascade, starting the boot sequence.
   (rf/dispatch-sync [:boot/initialise])
 
   (when (exists? js/document)

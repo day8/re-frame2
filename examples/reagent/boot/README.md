@@ -30,8 +30,10 @@ initialisation graph. The boot sequence is:
 - `:ready` — terminal. The main view only mounts after the boot
   machine reaches this state.
 - `:failed` — terminal. The view renders an error screen with a
-  retry button; the retry dispatches `[:app/boot [:rf/start]]`
-  back into the boot machine.
+  retry button; the retry dispatches `[:app/boot [:boot/restart]]`
+  back into the boot machine (a real re-entry event — the
+  `:rf.machine/start` creation marker is inert once the machine
+  exists).
 
 ## Key Pattern-Boot decisions
 
