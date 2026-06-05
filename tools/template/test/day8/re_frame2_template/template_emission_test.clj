@@ -72,16 +72,26 @@
   "Given a `(ns ns-sym ...)` form, return a map
      {alias-symbol  required-ns-symbol
       ...
-      ::required #{ns-sym ...}}
-  for every `:require` / `:refer-clojure` clause. Aliases come from
-  `[ns :as alias]`; bare requires (`[ns]` / `ns`) contribute to
-  `::required` only. Side-effecting requires (no `:as`) still count
-  as 'required' for the purpose of the load-order assertion below."
+      ::required #{ns-sym ...}
+      ::referred {referred-sym required-ns-symbol ...}}
+  for every `:require` / `:require-macros` clause. Aliases come from
+  `[ns :as alias]`; `:refer`-ed symbols (`[ns :refer [a b]]`) contribute
+  to `::referred` (mapping each bare symbol to its source ns). Bare
+  requires (`[ns]` / `ns`) contribute to `::required` only. Side-effecting
+  requires (no `:as`) still count as 'required' for the purpose of the
+  load-order assertion below.
+
+  Both `:require` and `:require-macros` are walked (rf2-3uqbd.2): the
+  Reagent scaffold brings `reg-view` in via `:require-macros [re-frame.core
+  :refer [reg-view]]` and calls it bare, so a `:require`-only parse left
+  that central macro invisible to the surface-drift audit. `:refer`-ed
+  symbols from either clause now feed the bare-symbol audit below."
   [ns-form]
   (let [clauses    (drop 2 ns-form) ;; skip `ns` + ns-sym
-        require?   #(and (sequential? %) (= :require (first %)))
-        req-clause (first (filter require? clauses))
-        body       (when req-clause (rest req-clause))]
+        require?   #(and (sequential? %)
+                         (#{:require :require-macros} (first %)))
+        req-bodies (->> (filter require? clauses)
+                        (mapcat rest))]
     (reduce
       (fn [acc spec]
         (cond
@@ -92,13 +102,20 @@
           (let [ns-sym    (first spec)
                 spec-tail (rest spec)            ;; the `:as alias`, `:refer […]`, … pairs
                 opt-pairs (partition 2 spec-tail)
-                alias-sym (some (fn [[k v]] (when (= k :as) v)) opt-pairs)]
+                alias-sym (some (fn [[k v]] (when (= k :as) v)) opt-pairs)
+                referred  (some (fn [[k v]] (when (= k :refer) v)) opt-pairs)]
             (cond-> (update acc ::required (fnil conj #{}) ns-sym)
-              alias-sym (assoc alias-sym ns-sym)))
+              alias-sym (assoc alias-sym ns-sym)
+              (and (sequential? referred))
+              (update ::referred
+                      (fnil into {})
+                      (->> referred
+                           (filter symbol?)
+                           (map (fn [s] [s ns-sym]))))))
 
           :else acc))
-      {::required #{}}
-      body)))
+      {::required #{} ::referred {}}
+      req-bodies)))
 
 (defn- collect-qualified-symbols
   "Walk `forms` (any nested structure) and collect every symbol with a
@@ -108,6 +125,22 @@
     (walk/postwalk
       (fn [x]
         (when (and (symbol? x) (some? (namespace x)))
+          (vswap! acc conj x))
+        x)
+      forms)
+    @acc))
+
+(defn- collect-bare-symbols
+  "Walk `forms` and collect every unqualified symbol (no namespace
+  component). Returns a set. Used (rf2-3uqbd.2) to detect bare,
+  `:refer`-ed framework symbols — e.g. the Reagent scaffold's
+  `(reg-view …)` calls, which are unqualified and therefore invisible to
+  `collect-qualified-symbols`."
+  [forms]
+  (let [acc (volatile! #{})]
+    (walk/postwalk
+      (fn [x]
+        (when (and (symbol? x) (nil? (namespace x)))
           (vswap! acc conj x))
         x)
       forms)
@@ -268,21 +301,51 @@
 ;; --- Generic ns-surface drift check (events / subs / views / events_test)
 ;; ----------------------------------------------------------------------------
 
+(defn- audit-framework-symbol!
+  "Assert `sym` is defined in framework ns `target-ns`'s source file.
+  `label` describes how the symbol was referenced (qualified vs bare
+  `:refer`) for the failure message."
+  [substrate ^java.io.File file root target-ns sym label]
+  (if-let [framework-file (framework-ns-file root target-ns)]
+    (let [defined (defined-symbols framework-file)]
+      (is (contains? defined sym)
+          (str (.getName file) " (" substrate ") " label " "
+               target-ns "/" sym
+               " but it is NOT defined in "
+               (.getPath framework-file)
+               " — likely a rename/cut. Defined symbols there: "
+               (sort defined))))
+    ;; If the framework file isn't found, that's its own drift
+    ;; signal — the template requires a namespace the framework
+    ;; doesn't ship.
+    (is false
+        (str (.getName file) " (" substrate ") " label " " target-ns
+             " but no source file found under implementation/core/src/"))))
+
 (defn- audit-framework-surface!
-  "For `file`, parse it, collect every `<alias>/<sym>` reference whose
-  alias resolves to a `re-frame.*` ns, and assert each `<sym>` is
-  defined in that framework ns's source file. This is the surface-drift
-  smoke test: catches a rename / cut / relocation of a public var that
-  the template scaffold still references."
+  "For `file`, parse it, collect every framework reference, and assert
+  each is defined in its framework ns's source file. This is the
+  surface-drift smoke test: catches a rename / cut / relocation of a
+  public var that the template scaffold still references. Two reference
+  shapes are audited:
+
+    1. `<alias>/<sym>` qualified references whose alias resolves to a
+       `re-frame.*` ns (e.g. `rf/dispatch`).
+    2. Bare, `:refer`-ed framework symbols (rf2-3uqbd.2) whose source ns
+       is `re-frame.*` (e.g. the Reagent scaffold's `(reg-view …)`,
+       brought in via `:require-macros [re-frame.core :refer [reg-view]]`
+       and called unqualified). Without this, a rename of `reg-view`
+       would ship the Reagent scaffold broken-but-green."
   [substrate ^java.io.File file root]
   (when (.isFile file)
     (let [forms      (read-cljs-forms file)
           ns-form    (first forms)
           requires   (parse-ns-requires ns-form)
           body-forms (rest forms)
-          ;; A vector of [referenced-symbol resolved-ns] pairs for every
-          ;; qualified symbol whose alias resolves to a re-frame.* ns.
-          refs       (->> (collect-qualified-symbols body-forms)
+          ;; (1) A vector of [referenced-symbol resolved-ns] pairs for
+          ;; every qualified symbol whose alias resolves to a re-frame.*
+          ;; ns.
+          qual-refs  (->> (collect-qualified-symbols body-forms)
                           (keep (fn [qsym]
                                   (let [alias-sym (symbol (namespace qsym))
                                         target-ns (get requires alias-sym)]
@@ -296,23 +359,26 @@
                           ;; (e.g. rf/dispatch in views).
                           (group-by (fn [[qsym target-ns]]
                                       [target-ns (symbol (name qsym))]))
-                          keys)]
-      (doseq [[target-ns sym] refs]
-        (if-let [framework-file (framework-ns-file root target-ns)]
-          (let [defined (defined-symbols framework-file)]
-            (is (contains? defined sym)
-                (str (.getName file) " (" substrate ") references "
-                     target-ns "/" sym
-                     " but it is NOT defined in "
-                     (.getPath framework-file)
-                     " — likely a rename/cut. Defined symbols there: "
-                     (sort defined))))
-          ;; If the framework file isn't found, that's its own drift
-          ;; signal — the template requires a namespace the framework
-          ;; doesn't ship.
-          (is false
-              (str (.getName file) " (" substrate ") requires " target-ns
-                   " but no source file found under implementation/core/src/")))))))
+                          keys)
+          ;; (2) Bare, `:refer`-ed framework symbols that actually appear
+          ;; in the body. We intersect the ns form's `:refer` set with the
+          ;; bare symbols the body uses, so an unused `:refer` (dead, but
+          ;; harmless) isn't flagged — only symbols the scaffold relies on.
+          referred   (::referred requires)
+          bare-used  (collect-bare-symbols body-forms)
+          bare-refs  (->> referred
+                          (keep (fn [[sym target-ns]]
+                                  (when (and (contains? bare-used sym)
+                                             (string/starts-with?
+                                               (name target-ns)
+                                               "re-frame."))
+                                    [sym target-ns]))))]
+      (doseq [[target-ns sym] qual-refs]
+        (audit-framework-symbol! substrate file root target-ns sym
+                                 "references"))
+      (doseq [[sym target-ns] bare-refs]
+        (audit-framework-symbol! substrate file root target-ns sym
+                                 "refers (bare)")))))
 
 ;; --- scratch.cljs with-frame shape audit (rf2-ah0gi / rf2-twoc5) -----------
 ;;
