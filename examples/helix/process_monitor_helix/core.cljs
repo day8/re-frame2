@@ -25,6 +25,7 @@
   (:require ["react-dom/client" :as react-dom-client]
             [helix.core         :refer [$ defnc]]
             [helix.dom          :as d]
+            [helix.hooks        :as helix-hooks]
             [re-frame.core      :as rf]
             [re-frame.adapter.helix :as helix-adapter]))
 
@@ -72,6 +73,18 @@
 ;; eventually fires. This mirrors the 7GUIs timer's `:tick-gen` guard
 ;; (examples/reagent/seven_guis/timer), the local precedent for the same
 ;; cancel-less `:dispatch-later` constraint.
+;;
+;; The generation guard handles *re-init* (a fresh `:monitor/initialise`
+;; retires the prior chain). It does not, on its own, handle *teardown*:
+;; unmounting or replacing the React root without a following initialise
+;; would leave the last live chain dispatching into a frame nobody is
+;; rendering, silently mutating app-db forever. So the loop is tied to the
+;; Helix component lifecycle (see the `monitor` `use-effect` below): mount
+;; arms it via `:monitor/initialise`, unmount retires it via `:monitor/stop`.
+;; `:monitor/stop` simply bumps `:monitor/tick-gen` *without* rescheduling, so
+;; the in-flight tick no-ops when it lands and the chain dies. Repeated
+;; mount/unmount (e.g. a hot-reload teardown) therefore leaves at most one
+;; live tick chain, and a teardown leaves none.
 
 (rf/reg-event-fx :monitor/initialise
   (fn [{:keys [db]} _event]
@@ -113,6 +126,15 @@
          ;; Reschedule under the same generation, so the chain continues
          ;; while a fresher initialise can still retire it.
          :fx [[:dispatch-later {:ms 1800 :event [:monitor/tick gen]}]]}))))
+
+;; Teardown counterpart to `:monitor/initialise`. Bumping `:monitor/tick-gen`
+;; without arming a fresh tick retires the live chain: the next scheduled
+;; `:monitor/tick` carries a now-stale generation and no-ops. Dispatched from
+;; the `monitor` component's `use-effect` cleanup on unmount, so the loop
+;; never outlives the rendered root.
+(rf/reg-event-db :monitor/stop
+  (fn [db _event]
+    (update db :monitor/tick-gen (fnil inc 0))))
 
 (rf/reg-event-db :monitor/toggle-level
   (fn [db [_ level]]
@@ -248,6 +270,23 @@
                       :entry entry}))))))
 
 (defnc monitor []
+  ;; The recurring tick loop is owned by this component's lifecycle, not by
+  ;; `run`. `(:dispatch (rf/frame-handle))` is captured at render-time so it
+  ;; carries the surrounding frame into the (post-commit) effect body and
+  ;; cleanup — see the Helix adapter README §use-effect. Empty deps ⇒ the
+  ;; effect runs once on mount and the cleanup runs once on unmount.
+  (let [dispatch (:dispatch (rf/frame-handle))]
+    (helix-hooks/use-effect
+      ;; Empty deps ⇒ run once on mount, clean up once on unmount.
+      []
+      ;; Mount: (re-)arm the loop. Idempotent — the `:monitor/tick-gen`
+      ;; guard retires any chain `run` already started, so exactly one
+      ;; live chain survives, and a hot-reload re-mount re-arms cleanly.
+      (dispatch [:monitor/initialise])
+      ;; Unmount: retire the live chain so it never dispatches into a frame
+      ;; that is no longer rendered.
+      (fn cleanup []
+        (dispatch [:monitor/stop]))))
   (d/div {:class "pm-shell"}
     (d/header {:class "pm-shell-head"}
       (d/div {:class "pm-brand"}
@@ -272,6 +311,11 @@
 
 (defn run []
   (rf/init! helix-adapter/adapter)
+  ;; Seed synchronously so the very first paint shows a populated UI rather
+  ;; than a flash of empty panes. This also arms the first tick; the `monitor`
+  ;; component's mount `use-effect` re-arms (idempotently, via the
+  ;; `:monitor/tick-gen` guard) so the loop is owned by the component
+  ;; lifecycle from then on — unmount stops it (see `:monitor/stop`).
   (rf/dispatch-sync [:monitor/initialise])
   (when (exists? js/document)
     (when-not @react-root
