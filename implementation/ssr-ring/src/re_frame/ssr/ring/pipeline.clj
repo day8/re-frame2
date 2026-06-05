@@ -43,6 +43,41 @@
 
 (set! *warn-on-reflection* true)
 
+(defn ^:private fail-closed-status
+  "Coerce a resolved response `:status` to a valid Ring status int,
+  defaulting to `fallback` when absent (rf2-v0qbng).
+
+  Ring requires `:status` to be an integer; Jetty/http-kit reject (or
+  mis-serialise) a non-int status while committing the response, AFTER
+  the handler has returned a nominally-successful map — past the
+  `:on-error` recovery point. The fx-args `:schema` boundary
+  (`:rf.fx.server/set-status-args` = `:int`) would reject a non-int
+  `:rf.server/set-status` at dispatch time, but that boundary
+  SOFT-PASSES when the optional schemas artefact is absent from the
+  production classpath (Spec 010 §Recommended soft-pass) — the default
+  ssr-ring runtime. The adapter is the last line: a non-int status has
+  no faithful coercion (we will not guess that \"404\" means 404), so we
+  fail closed to a 500 — a valid, fail-closed Ring response — and surface
+  the defect on the trace bus rather than ship a malformed map."
+  [status fallback]
+  (cond
+    (nil? status)         fallback
+    (integer? status)     status
+    :else
+    (do
+      (trace/emit! :warning :rf.ssr/ssr-non-integer-status
+                   {:where       :ssr-ring/ssr-response->ring-response
+                    :status       status
+                    :status-type (some-> status class .getName)
+                    :reason      (str "response :status is a non-integer value of "
+                                      "type " (or (some-> status class .getName) "nil")
+                                      " — Ring statuses must be integers; the "
+                                      "materialiser fails closed to 500 rather than "
+                                      "emit a malformed Ring map (host-dependent; "
+                                      "almost certainly a caller bug)")
+                    :recovery    :failed-closed-to-500})
+      500)))
+
 (defn ssr-response->ring-response
   "Materialise the runtime's resolved response accumulator (per
   Spec 011 §HTTP response contract) into a Ring response map. The
@@ -54,7 +89,16 @@
   that's stamped onto the Ring header map if (and only if) the response
   pairs don't already carry a Content-Type (case-insensitive). The
   defaulting happens INSIDE the single header-fold pass
-  (`headers->ring-map+default-content-type`)."
+  (`headers->ring-map+default-content-type`).
+
+  Host-serialisability fail-closed (rf2-v0qbng): this materialiser is the
+  LAST line between the runtime accumulator and the wire, and the
+  `:rf.server/*` fx-args `:schema` boundary soft-passes off the optional
+  schemas classpath (the default ssr-ring runtime). So it must emit a
+  valid Ring response regardless of what slipped past that gate: `:status`
+  is coerced to an int (`fail-closed-status` — non-int fails closed to
+  500), the Location target is coerced to a string, and header values are
+  coerced to strings in the fold (`headers/merge-pair-into-header-map`)."
   ([resp body] (ssr-response->ring-response resp body nil))
   ([{:keys [status headers cookies redirect]} body default-content-type]
    (if redirect
@@ -71,19 +115,24 @@
        (when-not target
          (trace/emit! :warning :rf.ssr/ssr-redirect-no-target
                       {:where    :ssr-ring/ssr-response->ring-response
-                       :status   (or redirect-status status 302)
+                       :status   (fail-closed-status (or redirect-status status) 302)
                        :reason   (str ":rf.server/redirect set :redirect with no "
                                       ":location/:url/:to — the response carries a "
                                       "3xx status with no Location header (malformed "
                                       "redirect; the browser has no target)")
                        :recovery :warned-and-emitted-statusonly}))
-       {:status  (or redirect-status status 302)
+       {:status  (fail-closed-status (or redirect-status status) 302)
         :headers (-> (headers/headers->ring-map+default-content-type
                        headers default-content-type)
                      (headers/append-set-cookies cookies)
-                     (cond-> target (assoc "Location" target)))
+                     ;; The Location value must be a string — a non-string
+                     ;; target (the `:location` is caller-trusted at the fx
+                     ;; boundary) is coerced so the Ring header map is valid.
+                     (cond-> target (assoc "Location" (if (string? target)
+                                                        target
+                                                        (str target)))))
         :body    ""})
-     {:status  (or status 200)
+     {:status  (fail-closed-status status 200)
       :headers (-> (headers/headers->ring-map+default-content-type
                      headers default-content-type)
                    (headers/append-set-cookies cookies))
