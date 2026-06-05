@@ -567,6 +567,98 @@
                             [:age :int]]]
                   [0 :age])))))
 
+;; ---- :tuple element-precision — no sibling taint (rf2-ss06u.4) ------------
+;; A bare :tuple's elements are HETEROGENEOUS — each position carries its own
+;; schema, so the integer index IS the discriminating segment (the positional
+;; analogue of a :map key). Marking ONE tuple position {:sensitive? true} must
+;; NOT redact a failure at a DIFFERENT, non-sensitive position. The prior
+;; behaviour emitted the element flag at the index-free tuple base-path and
+;; align-in-path dropped the tuple index, collapsing all positions onto the
+;; base-path so any one sensitive element tainted every sibling (privacy-SAFE
+;; over-redaction, but a precision divergence from the rf2-oh4se no-sibling-
+;; taint contract the :vector path holds — schemas_sensitive_test.clj:563-568).
+;; The fix makes the walker emit position-pinned decl-paths ((conj base i))
+;; and align-in-path KEEP the tuple index, so each position is independent —
+;; mirroring the :vector / :map-of map-key discriminator with the index as the
+;; tuple's discriminator. These assert the false (sibling) cases that returned
+;; true before the fix; the true (self / ancestor / descendant) cases pin the
+;; redaction direction is unchanged.
+
+(deftest schema-sensitive-at-tuple-position-precise
+  (testing "rf2-ss06u.4 — a bare :tuple's sensitivity is element-precise: a
+            failure at a NON-sensitive sibling position is NOT redacted, while
+            the declared-sensitive position (and ancestor/descendant) still is"
+    (let [s0 [:tuple [:string {:sensitive? true}] :int]]   ;; element 0 sensitive
+      ;; SELF — the sensitive position fails → redact.
+      (is (true? (schemas/schema-sensitive-at? s0 [0]))
+          "the declared-sensitive position 0 redacts")
+      ;; SIBLING — the non-sensitive position fails → must NOT redact.
+      (is (false? (schemas/schema-sensitive-at? s0 [1]))
+          "element 0 sensitive must NOT taint a failure at the non-sensitive element 1"))
+    (let [s1 [:tuple :int [:string {:sensitive? true}]]]   ;; element 1 sensitive
+      (is (true? (schemas/schema-sensitive-at? s1 [1]))
+          "the declared-sensitive position 1 redacts")
+      (is (false? (schemas/schema-sensitive-at? s1 [0]))
+          "element 1 sensitive must NOT taint a failure at the non-sensitive element 0"))
+    ;; ANCESTOR / DESCENDANT — a tuple element that is itself a container with
+    ;; a nested sensitive slot: a failure at the slot, at the whole element, or
+    ;; at the whole tuple all redact (the value carries the secret); a failure
+    ;; at the OTHER element does not.
+    (let [s [:tuple [:map [:tok {:sensitive? true} :string]] :int]]
+      (is (true?  (schemas/schema-sensitive-at? s [0 :tok])) "exact nested slot")
+      (is (true?  (schemas/schema-sensitive-at? s [0]))      "ancestor of the secret")
+      (is (true?  (schemas/schema-sensitive-at? s []))       "whole tuple carries the secret")
+      (is (false? (schemas/schema-sensitive-at? s [1]))      "non-sensitive sibling element 1"))))
+
+(deftest extract-tuple-emits-position-pinned-paths
+  (testing "rf2-ss06u.4 — the walker emits a tuple element flag at its
+            POSITION-pinned path ((conj base i)), not the index-free tuple
+            base-path; this is what gives the sibling precision"
+    (is (= {[0] {:sensitive? true :source :schema}}
+           (schemas/extract-sensitive-paths-from-schema
+             [:tuple [:string {:sensitive? true}] :int] [])))
+    (is (= {[1] {:sensitive? true :source :schema}}
+           (schemas/extract-sensitive-paths-from-schema
+             [:tuple :int [:string {:sensitive? true}]] [])))
+    ;; base-path threads through.
+    (is (= {[:pt 0] {:sensitive? true :source :schema}}
+           (schemas/extract-sensitive-paths-from-schema
+             [:tuple [:string {:sensitive? true}] :int] [:pt])))))
+
+(deftest app-db-validation-tuple-sibling-not-over-redacted
+  (testing "rf2-ss06u.4 + rf2-oh4se — END-TO-END: a :tuple with one sensitive
+            and one non-sensitive element, where ONLY the non-sensitive sibling
+            fails, must ride VERBATIM (no :sensitive? stamp, no :rf/redacted) —
+            mirrors the g5auo :vector no-sibling-taint contract"
+    ;; element 0 is {:sensitive?} :string (valid value "ok");
+    ;; element 1 is :int but supplied a string → only element 1 fails.
+    (let [v (app-db-failure-trace
+              [:point]
+              [:tuple [:string {:sensitive? true}] :int]
+              {:point ["ok" "not-an-int"]}
+              :point/bad)]
+      (is (some? v) "a trace fired")
+      (is (not (contains? v :sensitive?))
+          "the failing element 1 is not sensitive; its sensitive sibling at element 0 doesn't taint it")
+      (is (not= :rf/redacted (-> v :tags :value))
+          ":value rides verbatim — only the non-sensitive element 1 failed"))))
+
+(deftest app-db-validation-tuple-sensitive-element-still-redacts
+  (testing "rf2-ss06u.4 — no regression: when the SENSITIVE tuple element fails,
+            the value is redacted and stamped (the precision fix must not
+            under-redact the declared position)"
+    ;; element 0 is {:sensitive?} :string but supplied an int → element 0 fails.
+    (let [v (app-db-failure-trace
+              [:point]
+              [:tuple [:string {:sensitive? true}] :int]
+              {:point [99 7]}
+              :point/bad)]
+      (is (some? v) "a trace fired")
+      (is (true? (:sensitive? v))
+          "the sensitive element 0 failed — top-level :sensitive? stamp present")
+      (is (= :rf/redacted (-> v :tags :value)) ":value redacted")
+      (is (= :rf/redacted (-> v :tags :explain)) ":explain redacted"))))
+
 ;; ---- redaction at event validation site ----------------------------------
 
 (deftest event-validation-ignores-handler-meta-sensitive
