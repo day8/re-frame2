@@ -91,6 +91,18 @@ it('LIVE: the real _shared source tree is intact (style.css -> structure.css)', 
   );
 });
 
+it('LIVE: the send-form text-input baseline is scoped, not a global input[type=text] (rf2-gv5xd)', () => {
+  // The real structure.css must NOT carry a bare global `input[type="text"]`
+  // rule (it leaks min-width:240px into the 7GUIs Cells inline editors and
+  // blows the grid out), and `.cells-grid input` must keep width:56px.
+  const errors = checkSharedTree(require('fs'));
+  assert.deepStrictEqual(
+    errors,
+    [],
+    `_shared CSS-cascade contract errors:\n` + errors.map((e) => `    - ${e}`).join('\n'),
+  );
+});
+
 it('LIVE: TodoMVC is the encoded style.css opt-out (allowlist, not a regression)', () => {
   const key = 'examples/reagent/todomvc/index.html';
   const entry = ALLOWLIST[key];
@@ -382,6 +394,60 @@ it('TEETH: a stale exemption (page DOES reference the exempt asset) is flagged',
   assert.ok(
     errors.some((e) => e.includes('stale exemption')),
     `expected a stale-exemption error, got: ${errors.join(' | ')}`,
+  );
+});
+
+// ---- TEETH: CSS-cascade contract (rf2-gv5xd) ----------------------------
+
+// A minimal _shared/css io: style.css @imports structure.css; structure.css
+// contents are supplied per-test so we can pin the cascade check both ways.
+const SHARED_ROOT = path.join(EXAMPLES_ROOT, '_shared');
+function sharedCssIo(structureCss) {
+  return makeIo({
+    [path.join(SHARED_ROOT, 'css', 'style.css')]: "@import url('structure.css');",
+    [path.join(SHARED_ROOT, 'css', 'structure.css')]: structureCss,
+    [path.join(SHARED_ROOT, 'img', 'favicon.svg')]: '<svg/>',
+    [path.join(SHARED_ROOT, 'img', 'og.svg')]: '<svg/>',
+  });
+}
+const SCOPED_SENDFORM =
+  '.send-form input[type="text"] { padding: 8px 12px; flex: 1; min-width: 240px; }';
+const CELLS_INPUT = '.cells-grid input { width: 56px; box-sizing: border-box; }';
+
+it('TEETH: a bare global input[type="text"] rule is flagged (Cells blowout)', () => {
+  const bad = 'input[type="text"] { min-width: 240px; }\n' + CELLS_INPUT;
+  const errors = checkSharedTree(sharedCssIo(bad), { sharedRoot: SHARED_ROOT });
+  assert.ok(
+    errors.some((e) => e.includes('GLOBAL') && e.includes('input[type="text"]')),
+    `expected a global-text-input error, got: ${errors.join(' | ')}`,
+  );
+});
+
+it('TEETH: the scoped .send-form input[type="text"] form scans clean', () => {
+  const good = SCOPED_SENDFORM + '\n' + CELLS_INPUT;
+  const errors = checkSharedTree(sharedCssIo(good), { sharedRoot: SHARED_ROOT });
+  assert.deepStrictEqual(
+    errors,
+    [],
+    `scoped send-form CSS should scan clean, got: ${errors.join(' | ')}`,
+  );
+});
+
+it('TEETH: a single-quoted bare global input[type=text] is also flagged', () => {
+  const bad = "input[type='text'] { min-width: 240px; }\n" + CELLS_INPUT;
+  const errors = checkSharedTree(sharedCssIo(bad), { sharedRoot: SHARED_ROOT });
+  assert.ok(
+    errors.some((e) => e.includes('GLOBAL')),
+    `single-quoted bare rule must also be flagged, got: ${errors.join(' | ')}`,
+  );
+});
+
+it('TEETH: dropping the compact .cells-grid input width:56px is flagged', () => {
+  const bad = SCOPED_SENDFORM + '\n.cells-grid input { box-sizing: border-box; }';
+  const errors = checkSharedTree(sharedCssIo(bad), { sharedRoot: SHARED_ROOT });
+  assert.ok(
+    errors.some((e) => e.includes('width: 56px')),
+    `expected a missing-cells-width error, got: ${errors.join(' | ')}`,
   );
 });
 
