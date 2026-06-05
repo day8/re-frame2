@@ -13,8 +13,7 @@
   carries no Story body code. The bundle-isolation grep at
   `implementation/scripts/check-bundle-isolation.cjs` verifies the
   Story-sentinel set is absent under that build."
-  (:require [reagent.dom.client :as rdc]
-            [re-frame.core      :as rf]
+  (:require [re-frame.core      :as rf]
             [re-frame.story     :as story]
             [re-frame.story.play.ci-runner :as story-ci]
             [re-frame.adapter.reagent :as reagent-adapter]
@@ -33,7 +32,10 @@
             [counter-with-stories.stories]
             ;; Shared testbed-config helper (rf2-5dphw): derives the
             ;; open-in-editor project-root from the build env.
-            [re-frame.testbed.config :as testbed-config])
+            [re-frame.testbed.config :as testbed-config]
+            ;; Shared Story-host helper (rf2-tq26t / rf2-uv7sn): owns the
+            ;; live-app↔Story-shell hash router + React-root handle.
+            [re-frame.testbed.story-host :as story-host])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; -- The live-app root view ------------------------------------------------
@@ -77,37 +79,10 @@
 
 ;; -- Routing between app and story shell ----------------------------------
 ;;
-;; The live app and the Story shell each own their own React root on
-;; the same `#app` DOM node, one at a time. The live app's root lives
-;; in `app-root` here; the Story shell allocates and owns its root
-;; internally via `rdc/create-root` inside `mount-shell!`. We tear
-;; one down before mounting the other.
-
-(defonce ^:private app-root (atom nil))
-
-(defn- ensure-app-root! []
-  (when (nil? @app-root)
-    (reset! app-root (rdc/create-root (js/document.getElementById "app")))))
-
-(defn- tear-down-app-root! []
-  (when-let [r @app-root]
-    (try (rdc/unmount r) (catch :default _ nil))
-    (reset! app-root nil)))
-
-(defn- mount-app! []
-  (story/unmount-shell!)
-  (ensure-app-root!)
-  (rdc/render @app-root [counter-app]))
-
-(defn- mount-stories! []
-  (tear-down-app-root!)
-  (story/mount-shell! (js/document.getElementById "app")))
-
-(defn- on-hash-change! []
-  (let [hash (or (.. js/window -location -hash) "")]
-    (if (re-find #"^#/stories" hash)
-      (mount-stories!)
-      (mount-app!))))
+;; The live-app↔Story-shell hash router + React-root host handle live in
+;; the shared `re-frame.testbed.story-host` helper (rf2-tq26t / rf2-uv7sn);
+;; `run` hands it `counter-app` as the live-app surface. The helper tears
+;; one React root down before mounting the other on the same `#app` node.
 
 (defn ^:export run []
   ;; Story owns this page's full-width browser-test canvas. When the
@@ -149,7 +124,6 @@
   ;; to install unconditionally because the function body is gated
   ;; on Story being enabled (the ns itself is Story-tooling).
   (story-ci/install-ci-hooks!)
-  ;; Wire hash-change so reloading `#/stories` lands on the shell
-  ;; without a manual click-through.
-  (.addEventListener js/window "hashchange" on-hash-change!)
-  (on-hash-change!))
+  ;; Wire the live-app↔Story-shell hash router (shared helper) so reloading
+  ;; `#/stories` lands on the shell without a manual click-through.
+  (story-host/mount-with-hash-routing! counter-app))

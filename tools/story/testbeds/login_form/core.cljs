@@ -13,8 +13,7 @@
   short-circuits; the bundle carries no Story body code. The
   bundle-isolation grep at `implementation/scripts/check-bundle-
   isolation.cjs` covers the Story-sentinel absence."
-  (:require [reagent.dom.client :as rdc]
-            [re-frame.core      :as rf]
+  (:require [re-frame.core      :as rf]
             [re-frame.story     :as story]
             [re-frame.adapter.reagent :as reagent-adapter]
             [day8.re-frame2-xray.config :as xray-config]
@@ -24,7 +23,10 @@
             [login-form.stories]
             ;; Shared testbed-config helper (rf2-5dphw): derives the
             ;; open-in-editor project-root from the build env.
-            [re-frame.testbed.config :as testbed-config])
+            [re-frame.testbed.config :as testbed-config]
+            ;; Shared Story-host helper (rf2-tq26t / rf2-uv7sn): owns the
+            ;; live-app↔Story-shell hash router + React-root handle.
+            [re-frame.testbed.story-host :as story-host])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; ---------------------------------------------------------------------------
@@ -78,32 +80,10 @@
 ;; ---------------------------------------------------------------------------
 ;; Hash-routing between the live app and the Story shell
 ;; ---------------------------------------------------------------------------
-
-(defonce ^:private app-root (atom nil))
-
-(defn- ensure-app-root! []
-  (when (nil? @app-root)
-    (reset! app-root (rdc/create-root (js/document.getElementById "app")))))
-
-(defn- tear-down-app-root! []
-  (when-let [r @app-root]
-    (try (rdc/unmount r) (catch :default _ nil))
-    (reset! app-root nil)))
-
-(defn- mount-app! []
-  (story/unmount-shell!)
-  (ensure-app-root!)
-  (rdc/render @app-root [login-app]))
-
-(defn- mount-stories! []
-  (tear-down-app-root!)
-  (story/mount-shell! (js/document.getElementById "app")))
-
-(defn- on-hash-change! []
-  (let [hash (or (.. js/window -location -hash) "")]
-    (if (re-find #"^#/stories" hash)
-      (mount-stories!)
-      (mount-app!))))
+;;
+;; The live-app↔Story-shell hash router + React-root host handle live in the
+;; shared `re-frame.testbed.story-host` helper (rf2-tq26t / rf2-uv7sn); `run`
+;; hands it `login-app` as the live-app surface.
 
 (defn ^:export run []
   ;; Story owns this page's full-width browser-test canvas. When the
@@ -134,5 +114,5 @@
   ;; Without this, the live page's state-pill renders "state: "
   ;; (nil) until the user submits.
   (rf/dispatch-sync [:login/flow [:login/dismiss]])
-  (.addEventListener js/window "hashchange" on-hash-change!)
-  (on-hash-change!))
+  ;; Wire the live-app↔Story-shell hash router (shared helper).
+  (story-host/mount-with-hash-routing! login-app))
