@@ -18,9 +18,14 @@ Registering a Malli schema for a path in `app-db` with `reg-app-schema`, or atta
 (rf/app-schemas)                                   ;; -> {path schema ...}
 (rf/app-schemas-digest)                            ;; -> stable digest string
 
-(rf/set-schema-validator!  validate-fn-or-map)     ;; swap in non-Malli validator
+(rf/set-schema-validator!  validate-fn-or-nil)     ;; swap in non-Malli validator (fn or nil ONLY)
 (rf/set-schema-explainer!  explain-fn)
+(rf/set-schema-fns!  {:validate validate-fn       ;; install the validator/explainer/printer bundle atomically
+                      :explain  explain-fn
+                      :print    print-fn})
 ```
+
+> **Bundle maps must NOT go to `set-schema-validator!`.** It accepts a validator **fn or `nil`** only — it does no map-shape inspection. Because maps are invokable in Clojure, passing `{:validate ... :explain ...}` installs the *map itself* as the validator (it is called as `(the-map schema value)`, looking up `schema` as a key — almost always returning `nil`/falsey or a stray value), so validation silently mis-validates instead of running the intended fn. The bundle map belongs to `set-schema-fns!`.
 
 Verified against `implementation/core/src/re_frame/core.cljc`: the `reg-app-schema` macro (and `reg-app-schemas` plural form), the `app-schema-at` / `app-schemas` / `app-schemas-digest` query aliases, and the `set-schema-validator!` / `set-schema-fns!` validator seam — all `def`-aliased onto the `re-frame.schemas` artefact.
 
