@@ -21,7 +21,19 @@
    - console.warn CAPTURE COMPAT: the ns-load `console.warn` stub does
      not break the local save/shim/restore capture pattern that
      warning-assertion tests use — a shim installed over the stub still
-     records, and restore reverts to the stub."
+     records, and restore reverts to the stub.
+
+  NESTED-RUN BANNER (rf2-8n97n.1/.2) — JVM-ONLY SCOPE: the nested-run
+  banner-correctness regressions live in the JVM
+  `re-frame.test-quiet-runner-contract-test`, not here.  A nested
+  `cljs.test/run-tests` cannot be exercised in-process under this
+  runner: `run-tests` is block-based/async and unconditionally fires
+  `:end-run-tests`, which shadow-node overrides to `js/process.exit`
+  (see `end-run-tests-exit-decision` above) — a nested run would tear
+  down the node runner before the outer assertion. The FIX is shared
+  CLJC (the banner ns is derived from the failing var's metadata, not a
+  clobberable global cell), so the CLJS reporter benefits identically
+  for sequential runs; only the nesting REGRESSION is JVM-scoped."
   ;; NB: must NOT require re-frame.test-quiet.shadow-node — that ns is
   ;; `:dev/always` and expands the test-ns-enumeration macro, so a test
   ;; requiring it forms a compile cycle. Pure CLI parsing lives in the

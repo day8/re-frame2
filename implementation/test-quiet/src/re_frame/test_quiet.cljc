@@ -52,56 +52,117 @@
 
   Reload-friendly: dropping the `defmethod` overrides at the top of the
   test runtime is fine.  The methods close over the namespace's
-  per-thread atom (`*ns-banner-state*`), which is reset on each
-  `:begin-test-ns`."
+  `printed-banners` atom (a set of namespaces whose banner has already
+  been flushed), which the failure path consults and grows.
+
+  Nested-run correctness (rf2-8n97n.1 / .2): the banner namespace is
+  derived from the FAILING var's metadata at `:fail` / `:error` time,
+  NOT from a single mutable \"current ns\" cell.  A nested
+  `run-tests` called from inside a `deftest` fires its own
+  `:begin-test-ns`; with a single-cell design that clobbers the
+  \"current ns\" to the inner namespace, so a subsequent outer failure
+  is mislabelled (prints the inner ns banner) or — once the inner run
+  flushed its banner — orphaned (no banner at all).  Reading the ns off
+  the var that actually failed makes the banner always match the
+  failure, regardless of nesting."
   (:require
     #?(:clj  [clojure.test]
        :cljs [cljs.test])
     #?(:clj  [clojure.stacktrace])))
 
 ;; ----------------------------------------------------------------------
-;; Per-thread banner state.
+;; Banner state.
 ;;
 ;; A `clojure.test/run-tests` (or `cljs.test/run-tests`) call walks
-;; namespaces serially on the calling thread.  Holding banner state in
-;; a thread-local atom is sufficient for sequential drivers (every
-;; canonical test runner — cognitect-test-runner, shadow.test.node,
-;; shadow.test.browser — is single-threaded on the reporter callback);
-;; we don't need a dynamic var.  A plain atom is fine on the JVM since
-;; the multi-method body runs on the test-driver thread.  Under CLJS
-;; the single-threaded runtime makes the atom trivially safe.
+;; namespaces serially on the calling thread.  Every canonical test
+;; runner — cognitect-test-runner, shadow.test.node, shadow.test.browser
+;; — is single-threaded on the reporter callback, so a plain atom is
+;; sufficient: on the JVM the multi-method body runs on the test-driver
+;; thread, and under CLJS the single-threaded runtime makes it trivially
+;; safe.
 ;;
-;; Shape: {:ns <symbol> :banner-printed? <bool>}.  Reset on each
-;; :begin-test-ns; consulted on each :fail / :error.
+;; We DON'T track a single mutable "current ns" cell — that is the source
+;; of the nested-run mislabel / orphan bugs (rf2-8n97n.1 / .2), because a
+;; nested run's `:begin-test-ns` clobbers it.  Instead we record the SET
+;; of namespaces whose banner has already been flushed, and derive the
+;; namespace to flush from the failing var itself (see `failing-ns`).
+;;
+;; The set is cleared when an OUTERMOST namespace is entered (ns-depth 0
+;; at `:begin-test-ns`) so a fresh `run-tests` — or the next sibling ns
+;; within one run — re-flushes banners.  A NESTED run's `:begin-test-ns`
+;; fires while the outer ns is still open (ns-depth >= 1), so it does NOT
+;; clear: the outer run's already-printed banners stay suppressed while
+;; the inner ns can still print its own.  `:begin-test-ns`/`:end-test-ns`
+;; are balanced per ns and never nested for sibling nses, so the depth
+;; counter rises above 0 only across a nested run-tests boundary.
 
-(def ^:private banner-state
-  (atom {:ns nil :banner-printed? false}))
+(def ^:private printed-banners
+  (atom #{}))
 
-(defn- reset-ns-banner!
-  [ns-sym]
-  (reset! banner-state {:ns ns-sym :banner-printed? false}))
+(def ^:private ns-depth
+  (atom 0))
 
-(defn- ensure-banner-printed!
+(defn- on-begin-test-ns!
+  "Track nesting depth and clear the printed-banner set on entry to an
+  outermost namespace so each top-level run (and each sibling ns within
+  it) re-flushes its banner.  Nested-run entries (depth >= 1) preserve
+  the outer run's printed set."
   []
-  (let [{:keys [ns banner-printed?]} @banner-state]
-    (when (and ns (not banner-printed?))
-      (println)
-      (println "Testing" (name ns))
-      (swap! banner-state assoc :banner-printed? true))))
+  (when (zero? @ns-depth)
+    (reset! printed-banners #{}))
+  (swap! ns-depth inc))
+
+(defn- on-end-test-ns!
+  []
+  (swap! ns-depth (fn [d] (max 0 (dec d)))))
+
+(defn- ns-banner-printed?
+  [ns-sym]
+  (contains? @printed-banners ns-sym))
+
+(defn- mark-ns-printed!
+  [ns-sym]
+  (swap! printed-banners conj ns-sym))
+
+(defn- print-banner!
+  "Flush the `Testing <ns>` banner for `ns-sym` exactly once.  No-op if
+  `ns-sym` is nil or its banner was already printed."
+  [ns-sym]
+  (when (and ns-sym (not (ns-banner-printed? ns-sym)))
+    (println)
+    (println "Testing" (name ns-sym))
+    (mark-ns-printed! ns-sym)))
 
 ;; ----------------------------------------------------------------------
 ;; JVM overrides — clojure.test/report dispatches on (:type m).
 
 #?(:clj
+   (defn- failing-ns
+     "The namespace symbol of the var that is currently failing/erroring,
+     read off `clojure.test/*testing-vars*` (the same stack
+     `testing-vars-str` renders).  Returns nil if no var is in scope.
+
+     This is what makes the banner nesting-correct: it is derived from
+     the var that actually failed, so a nested run-tests can never
+     mislabel or orphan the outer failure's banner (rf2-8n97n.1 / .2)."
+     []
+     (when-let [v (first clojure.test/*testing-vars*)]
+       (when-let [ns (:ns (meta v))]
+         (ns-name ns)))))
+
+#?(:clj
    (do
-     (defmethod clojure.test/report :begin-test-ns [m]
+     (defmethod clojure.test/report :begin-test-ns [_m]
        ;; Default behaviour prints "\nTesting <ns>"; we suppress and
-       ;; defer to ensure-banner-printed! on first failure/error.
-       (reset-ns-banner! (ns-name (:ns m))))
+       ;; defer to print-banner! on first failure/error.  The banner ns
+       ;; is derived from the failing var (failing-ns), not from this
+       ;; event, so a nested run-tests can't clobber it — here we only
+       ;; track nesting depth + clear the printed-banner set on an
+       ;; outermost entry.
+       (on-begin-test-ns!))
 
      (defmethod clojure.test/report :end-test-ns [_m]
-       ;; No-op (also the default).
-       )
+       (on-end-test-ns!))
 
      (defmethod clojure.test/report :begin-test-var [_m]
        ;; No-op (also the default).
@@ -113,7 +174,7 @@
 
      (defmethod clojure.test/report :fail [m]
        (clojure.test/with-test-out
-         (ensure-banner-printed!)
+         (print-banner! (failing-ns))
          (clojure.test/inc-report-counter :fail)
          (println "\nFAIL in" (clojure.test/testing-vars-str m))
          (when (seq clojure.test/*testing-contexts*)
@@ -124,7 +185,7 @@
 
      (defmethod clojure.test/report :error [m]
        (clojure.test/with-test-out
-         (ensure-banner-printed!)
+         (print-banner! (failing-ns))
          (clojure.test/inc-report-counter :error)
          (println "\nERROR in" (clojure.test/testing-vars-str m))
          (when (seq clojure.test/*testing-contexts*)
@@ -142,13 +203,28 @@
 ;; [(:reporter env) (:type m)] with default ::cljs.test/default.
 
 #?(:cljs
+   (defn- failing-ns
+     "The namespace symbol of the var currently failing/erroring, read
+     off the env's `:testing-vars` stack (the same stack
+     `testing-vars-str` renders).  Derived from the var that actually
+     failed so a nested run-tests can't mislabel/orphan the outer
+     banner (rf2-8n97n.1 / .2).  Returns nil if no var is in scope."
+     []
+     (when-let [v (first (:testing-vars (cljs.test/get-current-env)))]
+       (let [ns (:ns (meta v))]
+         (when ns (symbol (name ns)))))))
+
+#?(:cljs
    (do
-     (defmethod cljs.test/report [:cljs.test/default :begin-test-ns] [m]
-       (reset-ns-banner! (:ns m)))
+     (defmethod cljs.test/report [:cljs.test/default :begin-test-ns] [_m]
+       ;; Suppress the default "Testing <ns>"; defer to print-banner! on
+       ;; first failure/error (banner ns derived from the failing var,
+       ;; not this event).  Here we only track nesting depth + clear the
+       ;; printed-banner set on an outermost entry.
+       (on-begin-test-ns!))
 
      (defmethod cljs.test/report [:cljs.test/default :end-test-ns] [_m]
-       ;; No-op (also the default).
-       )
+       (on-end-test-ns!))
 
      (defmethod cljs.test/report [:cljs.test/default :begin-test-var] [_m]
        ;; No-op (also the default).
@@ -159,7 +235,7 @@
        )
 
      (defmethod cljs.test/report [:cljs.test/default :fail] [m]
-       (ensure-banner-printed!)
+       (print-banner! (failing-ns))
        (cljs.test/inc-report-counter! :fail)
        (println "\nFAIL in" (cljs.test/testing-vars-str m))
        (when (seq (:testing-contexts (cljs.test/get-current-env)))
@@ -170,7 +246,7 @@
          (println "  actual:" (formatter-fn (:actual m)))))
 
      (defmethod cljs.test/report [:cljs.test/default :error] [m]
-       (ensure-banner-printed!)
+       (print-banner! (failing-ns))
        (cljs.test/inc-report-counter! :error)
        (println "\nERROR in" (cljs.test/testing-vars-str m))
        (when (seq (:testing-contexts (cljs.test/get-current-env)))
