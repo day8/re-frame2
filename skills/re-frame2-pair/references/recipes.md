@@ -98,7 +98,7 @@ Fire the event and capture its full epoch in one call — `dispatch {event: "[:c
 - Effects map (visible as `:event/do-fx` plus per-fx warning/error traces; the `:effects` projection only carries warning/error outcomes — successful fx executions live in the raw `:trace-events` slot, see Spec-Schemas note)
 - `app-db` diff between `:db-before` and `:db-after`
 - Subs that re-ran (the `:sub-runs` projection); the absence of a sub from this list means it cache-hit
-- Components that re-rendered (the `:renders` projection), with `:ns` / `:line` / `:file` resolvable via `handler-meta {kind: "view", id: <render-key>}` for registered views
+- Components that re-rendered (the `:renders` projection). Each row's `:render-key` is a **tuple** `[<view-id-or-:rf.view/anonymous> <instance-token>]` (Spec-Schemas `:rf/epoch-record` `:renders`), so resolve source coords from the **first** slot, not the whole tuple: `(first render-key)` is the registered view id you pass to `handler-meta {kind: "view", id: <view-id>}` to get `:ns` / `:line` / `:file`. When the first slot is `:rf.view/anonymous` (a plain Reagent fn, not `reg-view`-registered) `handler-meta` will return `:not-registered` — fall back to `read-ui`'s `:entity` `:view-id` / `:source-coord`, which resolves the producing entity directly. Passing the whole tuple as the `id` always yields `:not-registered`.
 
 Keep it short. One compact paragraph per domino.
 

@@ -15,6 +15,7 @@ Same as the README's *Requirements*:
 - The **MCP server** — the only skill-facing transport. Install it with `npm install -g @day8/re-frame2-pair-mcp` and add an `mcpServers` entry (see [`tools/re-frame2-pair-mcp/README.md`](../../../tools/re-frame2-pair-mcp/README.md)), or run it straight from this clone — see [§MCP server from a clone](#mcp-server-from-a-clone) below.
 - [Claude Code](https://docs.claude.com/en/docs/claude-code).
 - A re-frame2 + shadow-cljs app to exercise it against. (Optional: re-com — used as a fallback source-coord source, not required.)
+- The **`re-frame2-pair.runtime` preload** on the app's `:source-paths`. From a clone (this doc's install paths) it comes for free off the linked skill dir's `preload/` — point `:source-paths` at the absolute `skills/re-frame2-pair/preload/` path. For a non-clone (npm) install, run `npm install -D @day8/re-frame2-pair` in the app first and point at `node_modules/@day8/re-frame2-pair/preload` (see the README's *Install* §). Either way the preload is **required** — `discover-app` refuses with `:runtime-not-preloaded` without it.
 
 > **Babashka is not a skill requirement.** The retired bash shims under
 > `scripts/` (and the project's own `tests/shim/` harness) exec `bb`, but

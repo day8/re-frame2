@@ -93,7 +93,13 @@ Every operation eventually becomes a short ClojureScript form evaluated through 
 
 The skill's helper namespace ships into the app via shadow-cljs's standard `:devtools :preloads` mechanism. This is re-frame2-pair's runtime-helper requirement, separate from Xray's devtools preload and true-inline `[data-rf-xray-host]` panel contract. **The re-frame2-pair preload is required**; there is no per-session cljs-eval inject fallback. `discover-app` refuses with `:reason :runtime-not-preloaded` when it can't find the marker.
 
-Two-line setup. In `shadow-cljs.edn`:
+First install the preload package as a dev dependency in the consumer app:
+
+```bash
+npm install -D @day8/re-frame2-pair
+```
+
+This is a **separate package from the MCP server** (`@day8/re-frame2-pair-mcp`, installed globally) — the MCP server does NOT ship the `preload/` directory, so installing only the server leaves `discover-app` failing with `:runtime-not-preloaded`. Then the two-line `shadow-cljs.edn` change:
 
 ```clojure
 {:source-paths ["src"
@@ -105,8 +111,8 @@ Two-line setup. In `shadow-cljs.edn`:
 Where the runtime lives:
 
 - **Source of truth**: `skills/re-frame2-pair/preload/re_frame2_pair/runtime.cljs` in this repo. The path layout matches the CLJS namespace `re-frame2-pair.runtime` so shadow-cljs picks it up on `:source-paths`.
-- **npm consumers**: the `@day8/re-frame2-pair` package ships the `preload/` directory; the source-path entry above points there.
-- **Local-dev / linked checkouts**: substitute the absolute path to `skills/re-frame2-pair/preload/` for the `node_modules/...` entry.
+- **npm consumers**: the `@day8/re-frame2-pair` package (`npm install -D` above) ships the `preload/` directory; the source-path entry above points there.
+- **Local-dev / linked checkouts**: substitute the absolute path to `skills/re-frame2-pair/preload/` for the `node_modules/...` entry (no package install needed — see [`docs/LOCAL_DEV.md`](docs/LOCAL_DEV.md)).
 
 Verification — run `discover-app` (the MCP tool `mcp__re-frame2-pair__discover-app`). The success result is the runtime health map merged with `:ok? true` and `:build-id`, e.g. `:ok? true :debug-enabled? true :frames [:rf/default] :coord-annotation-enabled? true :build-id :app` (plus `:session-id`, `:selected-frame`, `:operating-frame` and the other health slots). If the preload is missing you get back:
 
