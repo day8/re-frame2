@@ -1603,6 +1603,69 @@
           (is (= :query (:slot (ex-data ex)))))
         (finally (restore))))))
 
+(deftest route-url-elides-nil-query-before-validation-rf2-w3qgc
+  (testing "rf2-w3qgc: nil-valued query keys are elided BEFORE :query-schema
+            validation, so `{:sort nil}` against a
+            `:query [:map [:sort {:optional true} :string]]` route returns
+            `/search` (the key is omitted) rather than throwing
+            :rf.error/route-url-validation. Non-nil invalid values STILL fail."
+    (let [restore (with-stub-validator)]
+      (try
+        ;; Predicate modelling `:query [:map [:sort {:optional true} :string]]`:
+        ;; :sort is OPTIONAL (absent OK), but when PRESENT it must be a
+        ;; string. Because nil is elided before validation, `{:sort nil}`
+        ;; reaches the predicate as `{}` (key absent) and conforms.
+        (rf/reg-route :route/search
+                      {:path  "/search"
+                       :query (fn [m] (or (not (contains? m :sort))
+                                          (string? (:sort m))))})
+        ;; (1) route-url: nil omits the key, no throw, returns /search.
+        (is (= "/search"
+               (routing/route-url :route/search {} {:sort nil}))
+            "route-url with {:sort nil} elides the key BEFORE validation → /search")
+        ;; A valid string still emits the pair.
+        (is (= "/search?sort=name"
+               (routing/route-url :route/search {} {:sort "name"}))
+            "a present, valid :sort string still round-trips into the query")
+        ;; (2) A non-nil INVALID value STILL fails validation (the fix
+        ;; narrows only nil; it does not weaken the schema gate).
+        (let [ex (try (routing/route-url :route/search {} {:sort 123})
+                      nil
+                      (catch clojure.lang.ExceptionInfo e e))]
+          (is (some? ex)
+              "a non-nil invalid :sort (a number) STILL fails validation")
+          (is (= ":rf.error/route-url-validation" (ex-message ex)))
+          (is (= :query (:slot (ex-data ex))))
+          (is (= {:sort 123} (:value (ex-data ex)))
+              ":value reports the elided map actually validated (nil-free)"))
+        (finally (restore)))))
+
+  (testing "rf2-w3qgc: programmatic `:rf.route/navigate` and SSR route-link
+            with `{:sort nil}` push/produce `/search` without a validation
+            error (the same nil-elision path through route-url)"
+    (let [restore (with-stub-validator)]
+      (try
+        (rf/reg-route :route/search
+                      {:path  "/search"
+                       :query (fn [m] (or (not (contains? m :sort))
+                                          (string? (:sort m))))})
+        (let [pushed (atom nil)]
+          (rf/reg-fx :rf.nav/push-url
+                     {:platforms #{:server :client}}
+                     (fn [_ url] (reset! pushed url)))
+          ;; Programmatic navigate with a nil optional query value: the
+          ;; navigate handler resolves the target URL via route-url, which
+          ;; must elide :sort and emit /search (no validation throw).
+          (rf/dispatch-sync [:rf.route/navigate :route/search {} {:query {:sort nil}}])
+          (is (= "/search" @pushed)
+              "programmatic navigate with {:sort nil} pushes /search (no throw)"))
+        ;; SSR route-link emission (server render path) drives the same
+        ;; route-url; the link href must be /search, not a thrown error.
+        (is (= "/search"
+               (routing/route-url :route/search {} {:sort nil}))
+            "SSR route-link href derives from route-url → /search for {:sort nil}")
+        (finally (restore))))))
+
 ;; ---- rf2-b8ugt: :rf/pending-navigation full slot shape -------------------
 ;;
 ;; Per Spec 012 §Navigation blocking — pending-nav protocol and
@@ -2040,6 +2103,74 @@
                        (= :malformed-url (-> ev :tags :reason))))
                 @traces)
           ":rf.error/no-such-handler carries `:reason :malformed-url`"))))
+
+(deftest url-changed-forward-nav-traces-carry-frame-rf2-w3qgc
+  (testing "rf2-w3qgc: forward URL-driven nav (`:rf.route/transitioned`)
+            threads the active `frame` through `url-change-fx`, so the
+            route-miss / malformed-url / no-not-found diagnostics carry
+            `:frame` — consistent with the popstate/SSR sibling
+            (`:rf.route/handle-url-change`) and the programmatic
+            `:rf.route/navigate {:url ...}` path. Spec 009 requires `:frame`
+            on `:rf.error/no-such-handler {:kind :route}` and
+            `:rf.warning/no-not-found-route`."
+    (rf/reg-frame :rf/default {})
+    (rf/reg-frame :route/owner {})
+    (rf/reg-route :route/home {:path "/"})
+    ;; No :rf.route/not-found registered → the bare-miss path also emits
+    ;; :rf.warning/no-not-found-route.
+    (rf/reg-fx :rf.nav/push-url
+               {:platforms #{:server :client}}
+               (fn [_ _] nil))
+
+    (testing "non-default frame: malformed URL → frame-tagged traces"
+      (let [traces (atom [])]
+        (rf/register-listener! ::w3qgc-malformed
+                               (fn [ev] (swap! traces conj ev)))
+        (rf/dispatch-sync [:rf.route/transitioned "/articles/%"] {:frame :route/owner})
+        (rf/unregister-listener! ::w3qgc-malformed)
+        (is (some (fn [ev]
+                    (and (= :rf.warning/malformed-url (:operation ev))
+                         (= "/articles/%" (-> ev :tags :url))
+                         (= :route/owner (-> ev :tags :frame))))
+                  @traces)
+            ":rf.warning/malformed-url carries :frame :route/owner on forward nav")
+        (is (some (fn [ev]
+                    (and (= :rf.error/no-such-handler (:operation ev))
+                         (= :route (-> ev :tags :kind))
+                         (= :route/owner (-> ev :tags :frame))))
+                  @traces)
+            ":rf.error/no-such-handler {:kind :route} carries :frame :route/owner")))
+
+    (testing "non-default frame: bare miss with no 404 route → frame-tagged
+              :rf.warning/no-not-found-route + :rf.error/no-such-handler"
+      (let [traces (atom [])]
+        (rf/register-listener! ::w3qgc-nonotfound
+                               (fn [ev] (swap! traces conj ev)))
+        (rf/dispatch-sync [:rf.route/transitioned "/no/such/route"] {:frame :route/owner})
+        (rf/unregister-listener! ::w3qgc-nonotfound)
+        (is (some (fn [ev]
+                    (and (= :rf.warning/no-not-found-route (:operation ev))
+                         (= :route/owner (-> ev :tags :frame))))
+                  @traces)
+            ":rf.warning/no-not-found-route carries :frame :route/owner")
+        (is (some (fn [ev]
+                    (and (= :rf.error/no-such-handler (:operation ev))
+                         (= :route/owner (-> ev :tags :frame))))
+                  @traces)
+            ":rf.error/no-such-handler carries :frame :route/owner")))
+
+    (testing "default-frame forward nav STILL tags :rf/default (regression guard)"
+      (let [traces (atom [])]
+        (rf/register-listener! ::w3qgc-default
+                               (fn [ev] (swap! traces conj ev)))
+        (rf/dispatch-sync [:rf.route/transitioned "/articles/%"] {:frame :rf/default})
+        (rf/unregister-listener! ::w3qgc-default)
+        (is (some (fn [ev]
+                    (and (= :rf.error/no-such-handler (:operation ev))
+                         (= :rf/default (-> ev :tags :frame))))
+                  @traces)
+            "default-frame dispatch tags :rf/default (not nil) — matches the
+             popstate/SSR sibling and the programmatic path")))))
 
 (deftest url-changed-well-formed-url-does-not-emit-malformed-trace
   (testing "the regular happy path emits NO :rf.warning/malformed-url"
