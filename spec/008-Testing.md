@@ -756,40 +756,40 @@ Testing and stories share infrastructure (frames, overrides, drain, dispatch-syn
 
 ## Open questions
 
-> **SA-4 classification.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): "Snapshot / fixture serialization" classifies as **`:post-v1 tracked`** at (foundation exists; packaged helper is user-space, post-v1); "Property-based testing integration" classifies as **`:post-v1 tracked`** at (pattern doc, no framework change); "Model-based testing harness over `machine-transition`" classifies as **`:post-v1 tracked`** at (library territory, not framework — the pure `machine-transition` contract is sufficient).
+> **SA-4 classification.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): all three items are **post-v1, untracked notes** — design directions beyond v1 with no tracking bead filed yet (so none qualifies as `:post-v1 tracked`, which requires a `rf2-<id>`). "Snapshot / fixture serialization" — foundation exists; a packaged helper is user-space. "Property-based testing integration" — a pattern doc, no framework change. "Model-based testing harness over `machine-transition`" — library territory, not framework (the pure `machine-transition` contract is sufficient). A tracking bead is filed for each only when its reconsideration trigger below fires.
 
 ### Snapshot / fixture serialization (post-v1)
 
-Some tests want to capture a frame's `app-db` and replay it later (golden-master testing, regression checks). Foundation supports this trivially (`(spit "fixture.edn" (pr-str (app-db-value f)))`); a helper is user-space. Deferred to.
+Some tests want to capture a frame's `app-db` and replay it later (golden-master testing, regression checks). Foundation supports this trivially (`(spit "fixture.edn" (pr-str (app-db-value f)))`); a helper is user-space. Deferred to a post-v1 cycle (untracked note — no bead filed yet).
 
 #### Post-v1 Tracking
 
 - **Foundation in v1.** `app-db-value` returns a plain value; `pr-str` / EDN reader round-trips it. No framework change is needed for the raw capture/replay path.
 - **Scope deferred.** A packaged helper (`golden-master`, `regression-check`) with the ergonomic API (file-naming convention, diff rendering, `clojure.test`-style failure report) is user-space library work.
 - **Reconsideration trigger.** A repeated pattern emerging across `examples/` or downstream tests that all hand-roll the same snapshot/diff scaffolding.
-- **Out of scope for the bead.** Cross-process replay (record-on-prod, replay-on-dev) — that wants the trace-buffer surface, not a snapshot helper.
+- **Out of scope for this note.** Cross-process replay (record-on-prod, replay-on-dev) — that wants the trace-buffer surface, not a snapshot helper.
 
 ### Property-based testing integration (post-v1)
 
-`test.check`-style generative testing fits cleanly into re-frame2 — `make-frame` is cheap, generators produce event sequences, properties check invariants. Documented as a pattern post-v1. Deferred to.
+`test.check`-style generative testing fits cleanly into re-frame2 — `make-frame` is cheap, generators produce event sequences, properties check invariants. Documented as a pattern post-v1. Deferred to a post-v1 cycle (untracked note — no bead filed yet).
 
 #### Post-v1 Tracking
 
 - **Foundation in v1.** `make-frame` is cheap and isolated; `dispatch-sync` settles synchronously per [Resolved decisions](#resolved-decisions); the schema-validator hook (Spec 010) gives invariants a place to live.
 - **Scope deferred.** A guide-tier pattern document: generators for event sequences, invariants expressed as schemas, shrinking strategies for `dispatch-sequence` failures. No framework primitive missing.
 - **Reconsideration trigger.** If schema-driven generation (per [010 §Schema-driven generative tests](010-Schemas.md#schema-driven-generative-tests-post-v1)) lands first, the pattern doc folds in directly.
-- **Out of scope for the bead.** A bundled `test.check` dependency — re-frame2 stays library-agnostic.
+- **Out of scope for this note.** A bundled `test.check` dependency — re-frame2 stays library-agnostic.
 
 ### Model-based testing harness over `machine-transition` (post-v1)
 
-`@xstate/test`-style: treat a transition table as a graph and *generate* test cases automatically — paths, state-coverage, transition-coverage, shortest-path-to-state, guard-coverage. The pure `machine-transition` function makes this cheap; the transition contract is sufficient to build the harness externally without runtime changes. Deferred to.
+`@xstate/test`-style: treat a transition table as a graph and *generate* test cases automatically — paths, state-coverage, transition-coverage, shortest-path-to-state, guard-coverage. The pure `machine-transition` function makes this cheap; the transition contract is sufficient to build the harness externally without runtime changes. Deferred to a post-v1 cycle (untracked note — no bead filed yet).
 
 #### Post-v1 Tracking
 
 - **Foundation in v1.** `machine-transition` is pure and JVM-runnable; `:guards` and `:actions` are machine-scoped fns the harness can call directly; the corpus shape per [005 §Future — Model-based testing harness](005-StateMachines.md#model-based-testing-harness--re-framemachinestest) is locked.
 - **Scope deferred.** The packaged library (`rf/test/machine-paths`, `rf/test/shortest-path-to`, coverage strategy selectors, EDN fixture emitter) ships as `re-frame.machines.test` post-v1.
 - **Reconsideration trigger.** Either an AI-implementor needs the coverage corpus for cross-language conformance, or app-side machines start exhibiting edge-case bugs that hand-written tests miss.
-- **Out of scope for the bead.** Time-travel / step-debugger over the generated paths — separate concern, lives in the tool layer (xray/re-frame2-pair).
+- **Out of scope for this note.** Time-travel / step-debugger over the generated paths — separate concern, lives in the tool layer (xray/re-frame2-pair).
 - **Cross-link.** See [005 §Future — Model-based testing harness](005-StateMachines.md#model-based-testing-harness--re-framemachinestest) for the substrate-side framing.
 
 Sketch of the surface:

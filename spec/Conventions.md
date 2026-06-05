@@ -205,7 +205,7 @@ A machine snapshot at `[:rf/runtime :machines :snapshots <id>]` is described in 
 - `:rf/parent-id` — the machine's own id (or the parent's id for spawned actors), used for trace addressing
 - `:rf/region` — present iff the spec is a synthetic region-machine of a `:type :parallel` parent; the region-name keyword used by `after-epoch-path` to scope timers per [005 §Per-region scoping](005-StateMachines.md#per-region-always--after--spawn-scoping)
 
-These spec-level keys are stamped by `prepare-machine-ctx` (and by the parallel-regions synthesiser) and are visible to user callbacks via the unified context-map's `:meta` key (per — every machine callback receives a single context-map arg).
+These spec-level keys are stamped by `prepare-machine-ctx` (and by the parallel-regions synthesiser) and are visible to user callbacks via the unified context-map's `:meta` key (every machine callback receives a single context-map arg).
 
 **Open-map invariant.** Snapshots are open maps: user `:data` keys at any depth are fine. The runtime-reserved set above is the **closed** subset of `:rf/*`-prefixed slots the runtime owns inside the snapshot. The migration agent flags any user write to `[:rf/runtime :machines :snapshots <id> :data :rf/<reserved>]` or to `[:rf/runtime :machines :snapshots <id> :rf/<reserved>]` as a collision.
 

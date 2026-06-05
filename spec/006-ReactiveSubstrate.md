@@ -1014,7 +1014,7 @@ The plain-atom adapter is **trivially** revertibility-compliant ([§Reference-ad
 
 ### Adapter selection at boot
 
-Per (replaces; resolves) `(rf/init! adapter-map)` requires the consumer to pass an adapter spec map explicitly. Each adapter namespace exports an `adapter` Var (the spec map); the consumer requires the namespace and passes the Var:
+`(rf/init! adapter-map)` requires the consumer to pass an adapter spec map explicitly. Each adapter namespace exports an `adapter` Var (the spec map); the consumer requires the namespace and passes the Var:
 
 ```clojure
 ;; Reagent (CLJS, day8/re-frame2-reagent):
@@ -1047,7 +1047,7 @@ Per (replaces; resolves) `(rf/init! adapter-map)` requires the consumer to pass 
 
 - `(rf/init! adapter-map)` — install the literal adapter spec.
 
-Calling `(rf/init!)` with no args raises a language-level `ArityException` at the call site (per — the no-arg arity was cut from the fn defn entirely, so the mistake surfaces at compile/load time rather than at runtime). Calling `(rf/init! :reagent)` (or any non-map value) and `(rf/init! nil)` raise `:rf.error/no-adapter-specified` at runtime — there is no default-adapter registry and no keyword-to-adapter lookup table. The runtime error message points the consumer at the adapter-ns + adapter-Var pattern.
+Calling `(rf/init!)` with no args raises a language-level `ArityException` at the call site (the no-arg arity was cut from the fn defn entirely, so the mistake surfaces at compile/load time rather than at runtime). Calling `(rf/init! :reagent)` (or any non-map value) and `(rf/init! nil)` raise `:rf.error/no-adapter-specified` at runtime — there is no default-adapter registry and no keyword-to-adapter lookup table. The runtime error message points the consumer at the adapter-ns + adapter-Var pattern.
 
 **No registry, no implicit defaults.** The previous design shipped a default-adapter registry populated by adapter ns-load side-effects so that `(rf/init!)` with no args could resolve the only registered candidate. drops the registry entirely. Two reasons:
 
@@ -1188,41 +1188,41 @@ The CLJS reference ships across multiple Maven artefacts (per [Conventions §Ada
 - **`day8/re-frame2-uix`** — the **UIx adapter** (rf2-3yij). Targets UIx 2.x; ships the `use-subscribe` hook (Decision 1), the `flush-views!` test-flush helper (Decision 6), a source-coord wrapping component (Decision 5), and a `frame-provider` consuming the shared React context (Decision 2). Apps written for UIx call `reg-view*` (plain-fn) directly — the `reg-view` macro stays Reagent-flavoured per Decision 4.
 - **`day8/re-frame2-helix`** — the **Helix adapter** (rf2-2qit). Targets Helix 0.2.x; ships the same `use-subscribe` hook, `flush-views!` test-flush helper, source-coord wrapping component, and shared-context `frame-provider` as the UIx adapter. Apps written for Helix call `reg-view*` (plain-fn) directly — the `reg-view` macro stays Reagent-flavoured per Decision 4. The eight UIx decisions transferred unchanged because Helix and UIx share the React + hooks substrate model.
 
-In the CLJS reference repository the three adapter sources live under `implementation/adapters/<name>/` — `implementation/adapters/reagent/`, `implementation/adapters/uix/`, `implementation/adapters/helix/`. Per-feature artefacts (`schemas`, `machines`, `routing`, `flows`, `http`, `ssr`, `epoch`) stay flat under `implementation/<name>/`. The directory split surfaces the adapter-vs-per-feature distinction in the layout — adapters implement the [§adapter API contract](#the-adapter-api-contract); per-feature artefacts plug into core via the late-bind hook table per [Conventions §Independence rule](Conventions.md#independence-rule). Maven artefact names are unchanged across the move per; per the directory is `adapters/`, not `substrates/` — "substrate" names the abstract contract, "adapter" names each implementation.
+In the CLJS reference repository the three adapter sources live under `implementation/adapters/<name>/` — `implementation/adapters/reagent/`, `implementation/adapters/uix/`, `implementation/adapters/helix/`. Per-feature artefacts (`schemas`, `machines`, `routing`, `flows`, `http`, `ssr`, `epoch`) stay flat under `implementation/<name>/`. The directory split surfaces the adapter-vs-per-feature distinction in the layout — adapters implement the [§adapter API contract](#the-adapter-api-contract); per-feature artefacts plug into core via the late-bind hook table per [Conventions §Independence rule](Conventions.md#independence-rule). Maven artefact names are unchanged across the move (per [rf2-0imy](#)): the directory is `adapters/`, not `substrates/` — "substrate" names the abstract contract, "adapter" names each implementation.
 
 Per-host adapters for non-CLJS implementations ship as separate packages, implementing the same contract — the per-adapter-artefact pattern is JS-cross-compile-language-agnostic across the eight in-scope hosts (TypeScript-React, Fable.React / Feliz, scalajs-react / Slinky, React.Basic, kotlin-react, ReasonReact, Melange-React, Squint-with-React). All ship a React-binding adapter; non-React substrates are out of scope per [§Abstract](#abstract).
 
 ## Open questions
 
-> **SA-4 classification.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): "Cooperative rendering substrate" classifies as **`:post-v1 tracked`** (tracked at — deferred to a later cycle's benefits-vs-cost evaluation); "Multi-adapter coexistence" classifies as **`:post-v1 tracked`** (tracked at — additive on the v1 single-adapter contract once a concrete use case emerges).
+> **SA-4 classification.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): both items are **post-v1, untracked notes** — design directions in scope for re-frame2 beyond v1 but with no concrete tracking bead filed yet (so neither qualifies as `:post-v1 tracked`, which requires a `rf2-<id>`). "Cooperative rendering substrate" is deferred to a later cycle's benefits-vs-cost evaluation; "Multi-adapter coexistence" is additive on the v1 single-adapter contract once a concrete use case emerges. A tracking bead is filed for each only when the reconsideration trigger below fires; until then they remain notes, not committed work.
 
 ### Cooperative rendering substrate (post-v1)
 
-A cooperative rendering substrate — a rendering layer designed natively to cooperate with re-frame, instead of re-frame wrapping Reagent — is on the horizon. Substrate-agnostic decoupling (this Spec) is the prerequisite. Whether the cooperative variant ships depends on a benefits-vs-cost evaluation in a later cycle. Deferred to.
+A cooperative rendering substrate — a rendering layer designed natively to cooperate with re-frame, instead of re-frame wrapping Reagent — is on the horizon. Substrate-agnostic decoupling (this Spec) is the prerequisite. Whether the cooperative variant ships depends on a benefits-vs-cost evaluation in a later cycle. Deferred to a post-v1 cycle (untracked note — no bead filed yet).
 
 #### Post-v1 Tracking
 
 - **Foundation in v1.** The adapter contract (per [§The adapter API contract](#the-adapter-api-contract)) is the substrate-decoupling primitive — any cooperative variant ships as another adapter, no core change required.
 - **Scope deferred.** The evaluation itself: identifying the cooperation primitives a native substrate could expose (e.g., scheduler-aware re-render coalescing, subscription-graph-driven scheduling, batched view updates aligned to drain boundaries), and the benefits-vs-cost ledger against staying with Reagent / UIx / Helix adapters.
 - **Reconsideration trigger.** Either (a) measured re-render overhead in the Reagent path becomes the dominant cost on a real workload, or (b) a tool (xray / re-frame2-pair / story) needs scheduling hooks the React substrates can't surface.
-- **Out of scope for the bead.** Building the cooperative substrate itself — the bead tracks the *decision*, not the implementation. A separate bead is filed if the evaluation lands "yes".
+- **Out of scope for this note.** Building the cooperative substrate itself — this note tracks the *decision*, not the implementation. A tracking bead (and a separate implementation bead) is filed if the evaluation lands "yes".
 
 ### Multi-adapter coexistence (post-v1)
 
-The current contract is single-adapter-per-process. If a concrete use case for per-frame adapter selection emerges, multi-adapter support can be added additively without breaking the single-adapter contract. Deferred to.
+The current contract is single-adapter-per-process. If a concrete use case for per-frame adapter selection emerges, multi-adapter support can be added additively without breaking the single-adapter contract. Deferred to a post-v1 cycle (untracked note — no bead filed yet).
 
 #### Post-v1 Tracking
 
 - **Foundation in v1.** The single-adapter contract (per [§Single adapter per process](#single-adapter-per-process)) is locked; per-frame adapter selection is an extension, not a replacement — the install slot becomes a map keyed by frame-id rather than a singleton.
 - **Scope deferred.** The lifting itself: dispatch envelope carrying the in-scope adapter, registrar / tool branching on which adapter a frame uses, error categories for cross-frame view mounts that span adapters.
 - **Reconsideration trigger.** A concrete app use case — e.g., a single process embedding a Reagent host alongside a UIx subtree, both backed by re-frame, where running them as separate processes is infeasible.
-- **Out of scope for the bead.** Multi-adapter *within a single frame* (one view tree mixing adapters) — that path is rejected per [§Single adapter per process](#single-adapter-per-process)'s reasoning and is not on the post-v1 ledger.
+- **Out of scope for this note.** Multi-adapter *within a single frame* (one view tree mixing adapters) — that path is rejected per [§Single adapter per process](#single-adapter-per-process)'s reasoning and is not on the post-v1 ledger.
 
 ## Resolved decisions
 
 ### Adapter selection
 
-Per (replaces; resolves) the consumer passes an adapter spec map explicitly to `(rf/init! adapter-map)`. There is no default-adapter registry. Each adapter namespace exports an `adapter` Var; consumers require the namespace and pass the Var.
+Resolved: the consumer passes an adapter spec map explicitly to `(rf/init! adapter-map)`. There is no default-adapter registry. Each adapter namespace exports an `adapter` Var; consumers require the namespace and pass the Var.
 
 See [§Adapter selection at boot](#adapter-selection-at-boot) above for the boot-time wiring, the legal call shapes, and the rationale (explicit > implicit; bundle-size; no implicit cross-adapter coupling).
 

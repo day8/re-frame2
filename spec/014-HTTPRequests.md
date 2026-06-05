@@ -318,7 +318,7 @@ The CLJS reference depends on a **hardened third-party JSON parser** (Cheshire o
 
 Ports that ship a **hand-rolled** JSON / EDN reader (rather than depending on a hardened third-party parser) own the input-bounds contract directly. the reader MUST bounds-check unicode-escape sequences (`\uXXXX`) and surface structured `:rf.error/malformed-json` with `:reason` slots (e.g., `:reason :truncated-unicode-escape`, `:reason :invalid-hex-digit`) rather than letting truncated or invalid escapes become opaque host errors.
 
-These contracts compose with the keyword-interning cap above: hardened parser → bounds-checks → cap on cardinality → caller-controllable per-request override. Per and [Security.md §Input validation / boundary parsing](Security.md#input-validation--boundary-parsing).
+These contracts compose with the keyword-interning cap above: hardened parser → bounds-checks → cap on cardinality → caller-controllable per-request override. Per [Security.md §Input validation / boundary parsing](Security.md#input-validation--boundary-parsing).
 
 ### `:timeout-ms` security defaults
 
@@ -490,7 +490,7 @@ The category vocabulary is **closed for v1** — additions require a Spec change
 
 #### CORS classification — heuristic emission
 
-`:rf.http/cors` was specced as a distinct category from `:rf.http/transport` but went un-emitted for a release cycle: browsers opaque CORS rejections and the runtime classified every browser-side rejection as `:rf.http/transport`. Per (Option a — heuristic emission), the CLJS reference now emits `:rf.http/cors` when the rejection shape is a `TypeError` against a cross-origin URL (the strongest signal the browser surfaces without dropping to the network panel). The classifier ships with conformance tests that pin the heuristic + the `:rf.http/cors` `:retry :on` membership. JVM never emits this category — host CORS belongs to the browser fetch stack. Per and [Security.md §Input validation / boundary parsing](Security.md#input-validation--boundary-parsing) (CORS classification row in the catalogue references).
+`:rf.http/cors` was specced as a distinct category from `:rf.http/transport` but went un-emitted for a release cycle: browsers opaque CORS rejections and the runtime classified every browser-side rejection as `:rf.http/transport`. Per (Option a — heuristic emission), the CLJS reference now emits `:rf.http/cors` when the rejection shape is a `TypeError` against a cross-origin URL (the strongest signal the browser surfaces without dropping to the network panel). The classifier ships with conformance tests that pin the heuristic + the `:rf.http/cors` `:retry :on` membership. JVM never emits this category — host CORS belongs to the browser fetch stack. Per [Security.md §Input validation / boundary parsing](Security.md#input-validation--boundary-parsing) (CORS classification row in the catalogue references).
 
 > Cross-reference: see [Security.md §What is explicitly out of scope](Security.md#what-is-explicitly-out-of-scope) — CORS itself is a host-platform concern; the framework classifies the rejection but does not configure CORS.
 
@@ -1152,7 +1152,7 @@ Apps may mix both freely. The two registrations coexist under `:rf.http/managed`
 
 ## Privacy
 
-Per (motivated by the [ §Completeness matrix G3](#) — the sensitive-elision audit). HTTP is the canonical privacy surface in any application: passwords ride request bodies, auth tokens ride request headers, user PII rides response bodies. Without honouring [Spec 009 §Privacy](009-Instrumentation.md#privacy--sensitive-data-in-traces)'s `:sensitive?` contract on the `:rf.http/*` trace events, the HTTP cascade is the biggest leakage vector the framework ships.
+HTTP is the canonical privacy surface in any application: passwords ride request bodies, auth tokens ride request headers, user PII rides response bodies. Without honouring [Spec 009 §Privacy](009-Instrumentation.md#privacy--sensitive-data-in-traces)'s `:sensitive?` contract on the `:rf.http/*` trace events, the HTTP cascade is the biggest leakage vector the framework ships.
 
 Spec 014 specifies HTTP-side honouring on top of the Spec 009 contract: every `:rf.http/*` trace event MUST stamp `:sensitive?` when the originating handler is sensitive, MUST redact known-sensitive request headers regardless of handler sensitivity, and MUST redact request / response bodies when the request is sensitive. The contract layers as three cooperating pieces.
 
@@ -1236,7 +1236,7 @@ Two OR-reduced sources contribute the request-side `:sensitive?` flag for a give
 
 Either source set to `true` makes the request sensitive; both sources defaulting to `false`/absent means not sensitive. The runtime resolves the effective flag once at fx-invocation time and threads it through the attempt-and-retry loop so every `:rf.http/*` trace event the cascade emits sees the same flag (no per-emit re-resolution).
 
-Handler-meta `:sensitive?` is **not** a source — the handler-level `:rf/registration-metadata` annotation has been removed (per, see [Spec 009 §The `:sensitive?` registration metadata key](009-Instrumentation.md#the-sensitive-registration-metadata-key)). Sensitivity is now declared per-request / per-call (the request-side opt-ins here) and, on the trace surface, schema-derived (Spec 009 §Schema-installed redaction). A query-param denylist hit ([§2](#2-query-param-denylist-always-on)) is a third, automatic stamping signal independent of these opt-ins.
+Handler-meta `:sensitive?` is **not** a source — the handler-level `:rf/registration-metadata` annotation has been removed (per [Spec 009 §The `:sensitive?` registration metadata key](009-Instrumentation.md#the-sensitive-registration-metadata-key)). Sensitivity is now declared per-request / per-call (the request-side opt-ins here) and, on the trace surface, schema-derived (Spec 009 §Schema-installed redaction). A query-param denylist hit ([§2](#2-query-param-denylist-always-on)) is a third, automatic stamping signal independent of these opt-ins.
 
 ```clojure
 ;; Per-request — opt a single request in:
@@ -1305,19 +1305,19 @@ Adjacent surfaces that are first-class re-frame2 commitments but live in their o
 
 ## Open questions
 
-> **SA-4 classification.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): all three items classify as **`:post-v1 tracked`** — additive surfaces that do not block v1.
+> **SA-4 classification.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): all three items are **post-v1, untracked notes** — additive surfaces that do not block v1 and have no tracking bead filed yet (so none qualifies as `:post-v1 tracked`, which requires a `rf2-<id>`). A tracking bead is filed for each only when its "deferred until …" condition is met.
 
 ### Response-side middleware composition (post-v1)
 
-Per [§Middleware](#middleware) v1 ships request-side middleware only. A response-side `:after` slot — composing additively with `:accept` and `:before` — would let apps project / log / retry on response paths without per-event boilerplate. Deferred to until the request-side surface settles in practice and the composition order with `:accept` is decided.
+Per [§Middleware](#middleware) v1 ships request-side middleware only. A response-side `:after` slot — composing additively with `:accept` and `:before` — would let apps project / log / retry on response paths without per-event boilerplate. Deferred until the request-side surface settles in practice and the composition order with `:accept` is decided.
 
 ### Streaming responses (`:rf.http/streaming`) (post-v1)
 
-Per [§What Spec 014 does NOT cover](#what-spec-014-does-not-cover) streaming responses (chunked HTTP, server-sent events) ship in a sibling spec. The per-chunk event model is a different shape from the single-reply `:rf.http/managed` contract and needs its own envelope; the contract here remains the request → single-reply shape. Deferred to.
+Per [§What Spec 014 does NOT cover](#what-spec-014-does-not-cover) streaming responses (chunked HTTP, server-sent events) ship in a sibling spec. The per-chunk event model is a different shape from the single-reply `:rf.http/managed` contract and needs its own envelope; the contract here remains the request → single-reply shape. Deferred to a sibling spec post-v1 (untracked note — no bead filed yet).
 
 ### Pluggable backoff strategy (post-v1)
 
-Per [§Retry and backoff](#retry-and-backoff) v1 ships a fixed exponential-with-jitter backoff. Pluggable backoff (per-call strategy fn, registered named strategies, host-customisable defaults) is an additive surface — deferred to until apps surface a real need that the default doesn't cover.
+Per [§Retry and backoff](#retry-and-backoff) v1 ships a fixed exponential-with-jitter backoff. Pluggable backoff (per-call strategy fn, registered named strategies, host-customisable defaults) is an additive surface — deferred until apps surface a real need that the default doesn't cover.
 
 ## Resolved decisions
 
