@@ -40,9 +40,17 @@ keep in your head, complete enough to drive every code path.
 
 ```
 managed_http_counter/
-  core.cljs    — events, sub, view, mount, canned-stub override.
-  index.html   — minimal host page.
+  core.cljs       — events, sub, view, mount, canned-stub override.
+  index.html      — minimal host page.
+  api/inc.json    — `{"delta": 1}` static asset the +1 happy path fetches.
 ```
+
+The **+1** button issues a REAL `GET api/inc.json`, so that file is a
+runtime asset the served output dir must carry — it is fetched by the
+running app, not referenced from `index.html`, so the static asset gate
+(`examples/scripts/check-examples-assets.cjs`, which walks `index.html`
+references) does not cover it. Stage it alongside `main.js` (see
+[How to run](#how-to-run)).
 
 ## How to run
 
@@ -54,7 +62,11 @@ shadow-cljs watch examples/managed-http-counter
 The watch build emits `main.js` into
 `out/examples/managed-http-counter/`; copy this folder's hand-written
 [`index.html`](index.html) (and the shared assets it references under
-[`../../_shared/`](../../_shared/)) alongside it, then serve
+[`../../_shared/`](../../_shared/)) alongside it, **and copy this
+folder's [`api/`](api/) directory to
+`out/examples/managed-http-counter/api/`** so the **+1** button's real
+`GET api/inc.json` resolves (without it the headline success path 404s
+and the example demonstrates the failure branch instead). Then serve
 `out/examples/managed-http-counter/` over HTTP.
 (`npm run test:examples` does not build this example — it compiles and
 serves only the three adapter testbeds; see
