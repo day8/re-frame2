@@ -45,7 +45,8 @@
   in-place and merges the per-subtree `data-rf2-suspense-hydrate` delta as
   chunks arrive, reconciling against the final `__rf_payload`
   (`:replace-app-db`) when it lands."
-  (:require [re-frame.core :as rf]
+  (:require [clojure.string :as str]
+            [re-frame.core :as rf]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.html-helpers :as html]
             [re-frame.ssr.ring.lifecycle :as lifecycle]
@@ -161,7 +162,24 @@
   recovered-to-nil sub case does NOT throw here — its buffered fail-
   closed status is picked up by the handler's post-shell `get-response`
   re-read."
-  [frame-id {:keys [root-view] :as opts}]
+  [frame-id {:keys [root-view body-end csp-script-src-allowlist] :as opts}]
+  ;; rf2-h3dg0 — run the dev-mode `:csp-script-src-allowlist` scan over the
+  ;; raw `:body-end` hook on the REQUEST thread, mirroring what the non-
+  ;; streaming `default-html-shell` does at shell-build time (shell.clj —
+  ;; `check-body-end-csp-hosts!` is the FIRST thing it runs). The streaming
+  ;; suffix (`default-streaming-suffix`) injects `:body-end` RAW just like
+  ;; the non-streaming shell, but it only destructures `:body-end` /
+  ;; `:script-src` and never ran the allowlist scan — so streaming SSR
+  ;; silently lost the defense-in-depth CSP warning that non-streaming SSR
+  ;; emits for the SAME config (Spec 011 §trusted-shell envelope). Running
+  ;; it here (request thread, before the head commits) keeps the warning on
+  ;; the same thread + listener context as the non-streaming path and leaves
+  ;; `default-streaming-suffix` a pure string-builder symmetric with
+  ;; `default-streaming-prefix`. Production builds elide the whole check via
+  ;; `interop/debug-enabled?` inside `check-body-end-csp-hosts!`; the raw
+  ;; emission of `:body-end` into the suffix is UNCHANGED — the scan is a
+  ;; signal, never a block or rewrite.
+  (shell/check-body-end-csp-hosts! body-end csp-script-src-allowlist)
   (rf/with-frame frame-id
     (let [hiccup     (lifecycle/resolve-root-view root-view)
           {:keys [head-html html-attrs body-attrs]}
@@ -316,6 +334,32 @@
       (try (.close out) (catch Throwable _ nil)))))
 
 ;; ---- public surface ------------------------------------------------------
+
+(defn strip-content-length
+  "Remove any `Content-Length` header (case-insensitively) from a Ring
+  response header map. The streaming body is a chunk-producing
+  `PipedInputStream` whose final byte count is unknown when the head
+  commits, so the response MUST use `Transfer-Encoding: chunked`
+  framing (Spec 011 §Streaming SSR — the wire shape pins chunked
+  transfer). A stale fixed `Content-Length` — set/appended by app or
+  server init code (`:rf.server/set-header` / `:rf.server/append-header`
+  during the `:on-create` drain) before streaming was chosen — would
+  otherwise survive onto the streamed response, and a Ring server may
+  honour that length instead of chunking: truncated HTML, clients
+  waiting on the wrong byte count, or lost progressive chunks.
+
+  Ring header NAMES are caller-cased verbatim by the materialiser
+  (`headers/merge-pair-into-header-map` preserves whatever casing the
+  fx supplied), so a `Content-Length` can land under any casing
+  (`Content-Length`, `content-length`, `CONTENT-LENGTH`, …). RFC 7230
+  §3.2 makes header names case-insensitive tokens, so we drop EVERY
+  key whose lower-case is `content-length` — letting the Ring server
+  own transfer framing for the InputStream body."
+  [headers-map]
+  (into {}
+        (remove (fn [[k _v]]
+                  (= "content-length" (str/lower-case (str k)))))
+        headers-map))
 
 (defn stream-handler
   "Return a synchronous Ring handler that streams SSR responses via
@@ -565,8 +609,29 @@
                               ;; No body default-stamp here (we pass our own
                               ;; InputStream); `:body` is assoc'd after the
                               ;; writer is wired below.
-                              resp-map (pipeline/ssr-response->ring-response
-                                         resp2 "" content-type)
+                              ;;
+                              ;; rf2-h3dg0 — STRIP any `Content-Length` header
+                              ;; (case-insensitively) from the materialised
+                              ;; head before wiring the chunk-writer body. App
+                              ;; / server init can `:rf.server/set-header` (or
+                              ;; `append-header`) a `Content-Length` during the
+                              ;; `:on-create` drain — a fixed length that is
+                              ;; meaningless (and actively harmful) once the
+                              ;; body becomes a chunk-producing PipedInputStream
+                              ;; of unknown final size. Left in place, a Ring
+                              ;; server may honour that length instead of using
+                              ;; chunked transfer framing → truncated HTML /
+                              ;; clients blocked on the wrong byte count / lost
+                              ;; chunks, violating Spec 011's chunked-transfer
+                              ;; streaming contract. The non-streaming handler
+                              ;; never hits this — its body is a finished string
+                              ;; whose Content-Length (if any) is correct. The
+                              ;; streaming path owns transfer framing for the
+                              ;; InputStream body, so it MUST drop the stale
+                              ;; length and let the server frame the stream.
+                              resp-map (-> (pipeline/ssr-response->ring-response
+                                             resp2 "" content-type)
+                                           (update :headers strip-content-length))
                               ;; 16 KiB pipe buffer — large enough to absorb the
                               ;; shell chunk in one write so the writer thread
                               ;; rarely blocks on a slow consumer, small enough
