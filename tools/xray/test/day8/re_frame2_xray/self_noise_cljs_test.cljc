@@ -19,6 +19,7 @@
   CLJS-side wiring lock drives `collect-trace!` end-to-end."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test    :refer-macros [deftest is testing use-fixtures]])
+            [re-frame.trace.projection :as projection]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.self-noise :as self-noise]
             #?(:cljs [day8.re-frame2-xray.trace-collector :as trace-collector])))
@@ -262,3 +263,48 @@
     (is (false? (self-noise/xray-internal-cascade? {})))
     (is (false? (self-noise/xray-internal-cascade?
                   {:dispatch-id 7 :event "not-a-vector"})))))
+
+;; ---- filtered-cascades — the shared group+strip projection (rf2-y2h6y) ---
+;;
+;; `filtered-cascades` is the ONE home for the `(into [] (remove
+;; xray-internal-cascade?) (group-cascades buffer))` pairing that was
+;; previously triplicated verbatim across spine/db->cascades, the
+;; reactive :rf.xray/cascades sub (registry), and the first-mount seed
+;; (mount). rf2-qlvq8 made those three agree; this helper makes the
+;; agreement structural. These tests pin (a) the strip behaviour and
+;; (b) that the helper is exactly the manual expression — so all three
+;; call sites stay in lockstep by construction.
+
+(defn- dispatched-event
+  "A minimal `:rf.event/dispatched` trace event — the cascade root
+  `group-cascades` keys on. `event-v` is the dispatched event vector;
+  `frame` the owning frame id."
+  [id dispatch-id event-v frame]
+  {:id id :op-type :rf.event :operation :rf.event/dispatched
+   :tags {:rf.trace/dispatch-id dispatch-id :rf.event/v event-v :frame frame}})
+
+(deftest filtered-cascades-strips-xray-internal-keeps-host
+  (testing "a buffer carrying one host cascade + one Xray-internal
+            cascade projects to ONLY the host cascade"
+    (let [buffer [(dispatched-event 1 100 [:counter/inc]          :below)
+                  (dispatched-event 2 101 [:rf.xray/select-tab :a] :rf/default)]
+          out    (self-noise/filtered-cascades buffer)]
+      (is (= [[:counter/inc]] (mapv :event out))
+          "only the host :counter/inc cascade survives; the frameless
+           :rf.xray/* cascade is stripped"))))
+
+(deftest filtered-cascades-equals-manual-group-then-remove
+  (testing "the helper is EXACTLY `(into [] (remove
+            xray-internal-cascade?) (group-cascades buffer))` — the
+            invariant the three call sites depend on for lockstep"
+    (let [buffer [(dispatched-event 1 100 [:counter/inc]              :below)
+                  (dispatched-event 2 101 [:rf.xray.static/select-tab] :rf/default)
+                  (dispatched-event 3 102 [:user/click]               :below)]]
+      (is (= (into [] (remove self-noise/xray-internal-cascade?)
+                   (projection/group-cascades buffer))
+             (self-noise/filtered-cascades buffer))))))
+
+(deftest filtered-cascades-empty-buffer
+  (testing "empty buffer → empty vector (always returns a vector)"
+    (is (= [] (self-noise/filtered-cascades [])))
+    (is (vector? (self-noise/filtered-cascades [])))))

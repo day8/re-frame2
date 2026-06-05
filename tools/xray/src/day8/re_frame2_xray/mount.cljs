@@ -46,7 +46,6 @@
   toggles are no-ops on this axis."
   (:require [re-frame.core :as rf]
             [re-frame.substrate.adapter :as substrate-adapter]
-            [re-frame.trace.projection :as projection]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.filters.persistence :as filters-persistence]
@@ -484,8 +483,7 @@
     ;; same snapshot so the first-mount render reads against pre-mount
     ;; events deterministically.
     (let [buffer     (trace-collector/snapshot-from-rings)
-          cascades   (into [] (remove self-noise/xray-internal-cascade?)
-                           (projection/group-cascades buffer))
+          cascades   (self-noise/filtered-cascades buffer)
           seed-frame (or (spine/focusable-head-frame-id cascades)
                          defaults/default-target-frame)]
       (rf/with-frame frame-id

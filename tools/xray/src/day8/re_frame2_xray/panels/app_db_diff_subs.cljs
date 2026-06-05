@@ -40,7 +40,23 @@
   per-path diff lens lives in the Editscript-backed engine at
   `day8.re-frame2-xray.diff.engine` (consumed by the Epoch HANDLER
   `:db` view + the Machine Inspector `:diff` lens) and in the MCP
-  `get-app-db-diff` tool."
+  `get-app-db-diff` tool.
+
+  ### rf2-zgrhw — the prune-cache growth RISK is resolved by THIS prune
+
+  rf2-zgrhw filed a latent RISK against the rf2-nfgps prune-cache: its
+  prune only ran on a cache MISS for the CURRENTLY observed frame, so a
+  frame observed once and never again kept its keyspace for the process
+  lifetime (bounded by distinct-frames × ring-size — slow growth across
+  dead frames in a long parallel-frames / SSR-hydration churn session).
+  That RISK no longer applies: the three `[frame-id epoch-id]` caches it
+  describes were the diff-sub family's memo atoms, removed wholesale
+  above. The surviving diff surface (`:rf.xray/app-db-current+diff` →
+  `:rf.xray/app-db-state`) is PURELY reactive — it re-derives from the
+  live subs each render with NO memoization atom — so there is no
+  frame-keyed cache to grow and nothing to age out. No eviction
+  machinery is needed (adding any would be machinery for a surface that
+  no longer exists)."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.panels.app-db-diff-helpers :as h]))
 
