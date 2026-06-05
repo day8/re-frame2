@@ -35,13 +35,31 @@
   `m/schema` ↔ raw EDN — round-tripping a registry ref loses the slot
   metadata).
 
-  ## Discoverability caveat — non-vector forms (rf2-yaioz)
+  ## Discoverability caveat — non-vector forms (rf2-yaioz / rf2-mxs7a)
 
   A user that registers a schema via a compiled `m/schema` value or a
   registry reference and adds per-slot `:sensitive?` / `:large?` flags
-  inside that opaque value will see the walker **silently skip** them.
-  No warning fires; the validation-failure trace will not redact the
-  sensitive slot.
+  inside that opaque value will see the walker **silently skip** them —
+  the validation-failure trace will not redact the sensitive slot. The
+  two opaque shapes differ in diagnostics:
+
+    - **Compiled / non-keyword opaque values** (a compiled `m/schema`
+      object, a map, any non-vector non-keyword form) **warn once per
+      process at registration time.** `reg-app-schema` /
+      `reg-app-schemas` emit `:rf.warning/schema-walker-opaque` (the
+      one-shot warn-once nudge owned by `re-frame.schemas.storage`,
+      pinned by `schemas_walker_opaque_warning_test`) naming the two
+      workable shapes below.
+
+    - **Keyword registry refs** (`:my/user-schema`) stay **silent by
+      design.** A bare keyword is a valid Malli schema in two flavours
+      — a primitive (`:int` / `:string`) and a registry ref — and the
+      predicate cannot cheaply tell them apart without a registry
+      consult, which Spec 010 §The `:schema` value is opaque to
+      re-frame forbids. A primitive keyword provably carries no
+      per-slot flags, so warning on every keyword would be a frequent
+      false positive to catch a rare registry-ref true positive
+      (rf2-ee38b.6); the keyword case is suppressed entirely.
 
   Two workable shapes when per-slot flags need to apply:
 

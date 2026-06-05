@@ -469,11 +469,23 @@
                               value-bearing-slots)]
             (emit-malformed-schema!
               (assoc base
-                     :schema    schema
-                     :reason    (str "Registered schema " (pr-str schema)
-                                     " is malformed and could not be "
-                                     "evaluated: " reason)
-                     :recovery  :no-recovery))
+                     :schema   schema
+                     :reason   (str "Registered schema " (pr-str schema)
+                                    " is malformed and could not be "
+                                    "evaluated: " reason)
+                     ;; Per rf2-mxs7a — preserve the surface-specific
+                     ;; recovery the caller's build-base-tags supplied
+                     ;; (validate-fx! → :skipped, validate-sub! →
+                     ;; :replaced-with-default; event/cofx →
+                     ;; :no-recovery). The runtime applies that local
+                     ;; fallback even on a malformed schema (fx.cljc
+                     ;; skips the offending fx; subs/memo.cljc returns
+                     ;; the default), so the malformed-schema trace must
+                     ;; report the SAME recovery the data plane actually
+                     ;; took rather than unconditionally lying with
+                     ;; :no-recovery. Default to :no-recovery only when
+                     ;; the surface did not carry one.
+                     :recovery (get base :recovery :no-recovery)))
             false)
 
           ;; Legitimate validation failure — the existing emit path.

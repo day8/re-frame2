@@ -78,6 +78,11 @@
             (is (= :event (-> m :tags :where)))
             (is (= [:vector] (-> m :tags :schema)) ":schema carries the malformed form to fix")
             (is (string? (-> m :tags :reason)))
+            ;; rf2-mxs7a — the malformed trace reports the surface's
+            ;; recovery; the event handler is skipped (:no-recovery).
+            ;; `:recovery` is hoisted to the top-level envelope by
+            ;; trace/build-event (Spec 009 §Core fields hoist contract).
+            (is (= :no-recovery (:recovery m)))
             ;; fail-closed: no value-bearing slot leaks into the malformed trace.
             (is (not (contains? (:tags m) :received)))
             (is (not (contains? (:tags m) :value)))))))))
@@ -108,7 +113,11 @@
         (is (= 0 @calls) "handler skipped — cofx malformed-schema is no longer a silent pass")
         (let [mal (malformed-traces traces)]
           (is (= 1 (count mal)))
-          (is (= :cofx (-> (first mal) :tags :where))))))))
+          (is (= :cofx (-> (first mal) :tags :where)))
+          ;; rf2-mxs7a — cofx malformed-schema skips the handler
+          ;; (:no-recovery), matching the legitimate-failure path.
+          ;; `:recovery` hoists to the top-level envelope.
+          (is (= :no-recovery (:recovery (first mal)))))))))
 
 (deftest fx-malformed-schema-fails-closed-skipping-only-offender
   (testing "rf2-a5kzs (finding 2) — a malformed fx :schema skips ONLY the
@@ -128,7 +137,14 @@
         (is (= 1 @good-calls) "the sibling fx still ran")
         (let [mal (malformed-traces traces)]
           (is (= 1 (count mal)))
-          (is (= :fx-args (-> (first mal) :tags :where))))))))
+          (is (= :fx-args (-> (first mal) :tags :where)))
+          ;; rf2-mxs7a — the malformed fx trace must report the ACTUAL
+          ;; recovery the data plane took: only the offending fx is
+          ;; skipped (:skipped), NOT :no-recovery. The trace previously
+          ;; lied with :no-recovery even though the sibling fx ran.
+          ;; `:recovery` hoists to the top-level envelope.
+          (is (= :skipped (:recovery (first mal)))
+              "malformed fx trace reports :skipped (sibling fx still ran)"))))))
 
 (deftest sub-malformed-schema-fails-closed-replaced-with-default
   (testing "rf2-a5kzs (finding 2) — a malformed sub :schema yields the default
@@ -145,7 +161,13 @@
                          "malformed sub schema → nil (replaced-with-default), not the raw value")))]
       (let [mal (malformed-traces traces)]
         (is (pos? (count mal)) "a malformed-schema trace fired")
-        (is (= :sub-return (-> (first mal) :tags :where)))))))
+        (is (= :sub-return (-> (first mal) :tags :where)))
+        ;; rf2-mxs7a — the malformed sub trace must report
+        ;; :replaced-with-default (the sub yielded nil), NOT the
+        ;; previous unconditional :no-recovery lie. `:recovery` hoists
+        ;; to the top-level envelope.
+        (is (= :replaced-with-default (:recovery (first mal)))
+            "malformed sub trace reports :replaced-with-default (yielded the default)")))))
 
 (deftest boundary-seam-malformed-schema-returns-false
   (testing "rf2-a5kzs (finding 2, boundary seam) — validate-with-registered-fn
