@@ -33,9 +33,9 @@ A self-contained prompt that re-authors the `re-frame2-pair` skill from this `sp
 > │   ├── ops.md                          (op catalogue)
 > │   ├── recipes.md                      (named procedures)
 > │   ├── errors.md                       (structured error → English + recovery)
-> │   └── mcp-transport.md                (MCP install + bash-shim mapping)
+> │   └── mcp-transport.md                (MCP install + tool reference — the ONLY transport)
 > │   (the hot-reload protocol and the v1 → v2 surface-map both live in `ops.md` as sections.)
-> ├── scripts/                            (bash shims — deprecated)
+> ├── scripts/                            (bash shims — retired from the skill surface; on disk only for the e2e harness)
 > ├── tests/                              (smoke tests)
 > ├── docs/                               (maintainer docs)
 > └── spec/
@@ -46,7 +46,7 @@ A self-contained prompt that re-authors the `re-frame2-pair` skill from this `sp
 >
 > *Every reference is ≤250 lines. SKILL.md is ~130 lines (well under Anthropic's 500-line ceiling). All references one level deep — no SKILL → A → B chains.*
 >
-> *Frontmatter — `allowed-tools` lists every MCP tool the skill uses (`mcp__re-frame2-pair__discover-app`, `eval-cljs`, `inject-runtime`, `dispatch`, `trace-window`, `watch-epochs`, `tail-build`) plus every bash shim (`Bash(scripts/discover-app.sh *)` etc.) plus the editor tools (`Read`, `Edit`, `Write`, `Grep`, `Glob`). The `description` is "pushy" and lists every re-frame2 surface: `app-db`, `dispatch`, `subscribe`, `reg-event`, `reg-sub`, `reg-fx`, `reg-machine`, `frame`, `epoch`, `interceptor`, `sub-cache`, `trace-buffer`, `register-listener!`, `register-epoch-listener!`, `restore-epoch`, plus toolchain (`re-com`, `shadow-cljs`).*
+> *Frontmatter — `allowed-tools` lists the default-reachable MCP tools (`mcp__re-frame2-pair__discover-app`, `eval-cljs`, `dispatch`, `dispatch-dry-run`, `trace-window`, `watch-epochs`, `tail-build`, … — the **26** of the server's **28** tools that a stock gate-OFF session can call) plus the editor tools (`Read`, `Edit`, `Write`, `Grep`, `Glob`). The two `--allow-writes`-gated write tools (`restore-epoch`, `reset-frame-db`) are NOT default allow-listed — a deployment that launches the server with `--allow-writes` adds them per-deployment. There is **no** `inject-runtime` tool (the runtime ships via shadow-cljs `:devtools :preloads`), and **no** `Bash(...)` shim entries (the MCP server is the only transport; the `scripts/*.sh` shims stay on disk for the e2e harness only). The `description` is "pushy" and lists every re-frame2 surface: `app-db`, `dispatch`, `subscribe`, `reg-event`, `reg-sub`, `reg-fx`, `reg-machine`, `frame`, `epoch`, `interceptor`, `sub-cache`, `trace-buffer`, `register-listener!`, `register-epoch-listener!`, `restore-epoch`, plus toolchain (`re-com`, `shadow-cljs`).*
 >
 > *Cardinal rules to bake in (SKILL.md):*
 >
@@ -81,7 +81,7 @@ A self-contained prompt that re-authors the `re-frame2-pair` skill from this `sp
 > *- Don't include bead-ids in user-facing leaves.*
 > *- Don't invent alternate vocabulary (e.g. "state graph" for frame). Pillar 2.*
 >
-> *Open the PR with title `feat(skills): re-frame2-pair — live-app pair-programming skill`. PR body lists: the skill structure, the file LoC table, the cardinal rules, the three primitives, the MCP-vs-bash transport story, the relationship to the sibling skills (`re-frame2` for authoring, `re-frame2-pair-retro` for retrospectives).*
+> *Open the PR with title `feat(skills): re-frame2-pair — live-app pair-programming skill`. PR body lists: the skill structure, the file LoC table, the cardinal rules, the three primitives, the MCP-only transport story (28 server tools, 26 default-reachable, the two `--allow-writes`-gated write tools), the relationship to the sibling skills (`re-frame2` for authoring, `re-frame2-pair-retro` for retrospectives).*
 
 ## Notes on the reauthoring contract
 
@@ -93,8 +93,8 @@ A self-contained prompt that re-authors the `re-frame2-pair` skill from this `sp
 ## When to re-author
 
 - The Tool-Pair contract gains a new structured surface (e.g. a future `register-machine-cb` or a new projection) → the existing references' coverage is incomplete; rebuild.
-- The MCP server gains or loses tools materially → the `allowed-tools` block and `references/mcp-transport.md` need updates.
-- The bash shims are retired entirely (OQ1 resolves) → strip `scripts/` and the bash entries in `allowed-tools`.
+- The MCP server gains or loses tools materially → the `allowed-tools` block, `references/mcp-transport.md`, and the **28-tool / 26-default** counts (here, in `STATUS.md`, and in `references/mcp-transport.md`) need updates; re-run `scripts/check_skill_mcp_drift.py` to confirm the allow-list matches the catalogue, and `scripts/check_skill_pair_authoring_drift.py` to confirm no retired tool/transport name crept back into these re-authoring docs.
+- A write tool's gate posture changes (e.g. `restore-epoch` / `reset-frame-db` become default-reachable, or a new write tool lands) → update the `intentional_server_only` set in `scripts/check_skill_mcp_drift.py` and the gated-tool prose in `SKILL.md` / `references/mcp-transport.md`.
 - Anthropic skill conventions change materially (e.g. `allowed-tools` shape changes) → reauthor against the new conventions.
 - A major class of recipe is added (e.g. machine-replay, sub-cache-eviction) → add a recipe section and an op catalogue row.
 

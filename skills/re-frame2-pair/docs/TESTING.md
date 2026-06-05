@@ -107,8 +107,8 @@ RE_FRAME2_PAIR_FIXTURE_URL=http://localhost:8030 node tests/e2e/run.cjs
 ```
 
 Future specs to add: `dom/source-at` against the annotated DOM,
-`restore-epoch` against the six documented failure modes, full
-page-refresh + re-injection, multi-frame routing. See
+`restore-epoch` against the seven documented failure modes (Tool-Pair
+§Time-travel), full page-refresh + re-injection, multi-frame routing. See
 `tests/e2e/README.md` for the scaffolded extension points.
 
 ## 4. Skill-prompt regression (`tests/prompts/`)

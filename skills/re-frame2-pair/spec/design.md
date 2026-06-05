@@ -35,12 +35,12 @@ Every op the skill teaches eventually becomes a ClojureScript form evaluated thr
 
 Time-travel, trace-stream consumption, and epoch records ride on `re-frame2`'s native Tool-Pair surfaces. The skill never proposes fixes that route through `re-frame-10x`. This is L1 of the sibling `re-frame2-pair-retro` skill too — consistent across the pair family.
 
-### L3 — Two transports, MCP preferred
+### L3 — MCP is the only skill-facing transport
 
-- **MCP transport** — `mcp__re-frame2-pair__*` tools. Single persistent nREPL connection per session. Preferred.
-- **Bash-shim transport** — `scripts/discover-app.sh` and friends. Deprecated; kept for back-compat sessions where the MCP server isn't installed.
+- **MCP transport** — `mcp__re-frame2-pair__*` tools. Single persistent nREPL connection per session. The **only** transport the skill exposes. The server ships **28** tools; **26** are default allow-listed (the frontmatter `allowed-tools:` carries no shell tool). The two write-authority tools (`restore-epoch`, `reset-frame-db`) are gated behind the server's default-OFF `--allow-writes` flag and are NOT default allow-listed — the default-reachable write path is the eval forms (`eval-cljs` is default-ON).
+- **Bash shims** — `scripts/discover-app.sh` and friends predate the MCP server and are **retired from the skill's tool surface**. They remain on disk only for the project's own e2e test harness and ad-hoc shell use; no shell tool is in `allowed-tools:`, so the skill cannot reach them.
 
-The MCP-vs-shim mapping lives in `references/mcp-transport.md`. The frontmatter `allowed-tools` block lists both surfaces so the skill works either way.
+The MCP tool reference lives in `references/mcp-transport.md`.
 
 ### L4 — Two modes of changing the app
 
@@ -116,8 +116,8 @@ skills/re-frame2-pair/
 │   ├── ops.md                          (op catalogue — read/write/trace/DOM/watch/hot-reload/time-travel + v1 surface-map appendix)
 │   ├── recipes.md                      (named procedures — "explain this dispatch", post-mortem, etc.)
 │   ├── errors.md                       (structured error → English + recovery)
-│   └── mcp-transport.md                (MCP install + bash-shim → MCP tool name map)
-├── scripts/                            (bash shims — deprecated, kept for back-compat)
+│   └── mcp-transport.md                (MCP install + tool reference — the only transport)
+├── scripts/                            (bash shims — retired from the skill surface; on disk for the e2e harness only)
 ├── tests/                              (skill smoke tests)
 ├── docs/                               (developer docs for the skill maintainer)
 └── spec/
@@ -146,15 +146,15 @@ The `description` is "pushy" and lists every surface the live-app workflow expos
 
 - **No patterns/ directory.** The skill is an op catalogue and a recipe library, not a pattern catalogue.
 - **No decision-trees/ directory.** The decisions are operational ("which op for which task?") and live in the `references/ops.md` and `references/recipes.md` tables.
-- **First-class `allowed-tools` frontmatter.** The MCP transport + bash-shim coexistence requires explicit tool listing.
-- **`scripts/` directory.** The bash-shim transport is a first-class fallback, even though deprecated.
+- **First-class `allowed-tools` frontmatter.** The MCP transport requires explicit tool listing — the **26** default-reachable tools of the server's **28** (the two `--allow-writes`-gated write tools excluded).
+- **`scripts/` directory.** Holds the retired bash shims — kept on disk for the project's e2e harness, not a skill-facing transport.
 - **`STATUS.md` + `RELEASING.md`** — the skill ships as both a Claude plugin (`.claude-plugin/plugin.json`) and an npm package (`package.json`), so per-release metadata is load-bearing.
 
 ## 9. Open questions (deferred to Mike)
 
-### OQ1 — When to retire the bash-shim transport entirely?
+### OQ1 — Should the retired bash shims leave the tree entirely?
 
-L3 keeps both; the MCP transport is preferred. Once the MCP server is installed in ≥95% of sessions, the bash shims can move to a `legacy/` folder or be removed. Status: monitored; no removal target.
+**Resolved for the skill surface:** L3 is now MCP-only — the bash shims are already retired from the skill's tool surface (no shell tool in `allowed-tools:`). What remains open is whether the `scripts/*.sh` files should also leave the repo or stay on disk for the project's e2e harness + ad-hoc shell use. Status: kept on disk for the harness; no removal target. If they are deleted, strip `scripts/` from the file-structure blocks above and from `references/mcp-transport.md` / `STATUS.md`.
 
 ### OQ2 — Should recipes carry severity / leverage tagging?
 

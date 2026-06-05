@@ -73,9 +73,10 @@ deliberate request and can pre-filter with `(re-frame.trace.tooling/trace-buffer
 
 The guarantee is scoped to the **structured MCP read / stream tools**
 (`snapshot`, `get-path`, `read-sub`, `subscribe`, `trace-window`,
-`watch-epochs`, and the signal recorders `record` / `read-recording` /
-`watch-until`) — the off-box wire boundary they egress through. It does
-**not** extend to raw `eval-cljs` (see §The raw-eval carve-out below).
+`watch-epochs`, `dispatch-dry-run`, and the signal recorders `record` /
+`read-recording` / `watch-until`) — the off-box wire boundary they
+egress through. It does **not** extend to raw `eval-cljs` (see §The
+raw-eval carve-out below).
 
 - **Dropped from streaming subs by default**: any trace event whose
   top-level `:sensitive?` is `true` (the `streaming-drop?` filter on the
@@ -119,6 +120,20 @@ The guarantee is scoped to the **structured MCP read / stream tools**
   slots to `:rf.size/large-elided`. DOM (`{:dom "sel"}`) and focus
   (`{:focus true}`) signals are read-only host reads, not app-db slots,
   so the gate does not transform them.
+- **Redacted / elided by default (`dispatch-dry-run`)**: dry-run
+  (rf2-z7roa) commits nothing, but it returns the would-be app-db under
+  `:db-state-after-simulation` and each recorded fx call's args under
+  `:would-fire-effects[*].args` — reducers / fx routinely derive tokens
+  / auth headers / PII from app-db. Both slots run through
+  `re-frame.core/elide-wire-value` **server-side** under the same
+  `--allow-sensitive-reads` posture as `snapshot` / `get-path` /
+  `subscribe`: gate OFF (the published default) forces `:elision true`
+  + `:include-sensitive false`, so a declared-sensitive slot redacts to
+  `:rf/redacted` and a declared-large slot collapses to
+  `:rf.size/large-elided`. The `:cascade-summary` slot is a
+  depth-bounded projection (path lists + counts) and rides through
+  unwalked. Dry-run is NOT `--allow-writes`-gated (its contract is "no
+  observable effect"); its egress gate is the read-side one.
 - **Not gated**: events with `:sensitive? false` or no `:sensitive?` key,
   and the underlying `re-frame.trace.tooling/trace-buffer` ring read
   directly via `eval-cljs` — that ring is a deliberate raw read surface
@@ -165,9 +180,13 @@ ride the redacted/elided shape regardless of any per-call MCP arg or
 in-runtime `configure-privacy!` toggle:
 
 - `snapshot`, `get-path`, `read-sub`, `subscribe`, `trace-window`,
-  `watch-epochs`, and the signal recorders `record` / `read-recording` /
-  `watch-until` — forced wire arg `:include-sensitive false` + forced
-  `:elision true`. For the epoch-egressing tools (`trace-window`,
+  `watch-epochs`, `dispatch-dry-run`, and the signal recorders `record` /
+  `read-recording` / `watch-until` — forced wire arg
+  `:include-sensitive false` + forced `:elision true`. For
+  `dispatch-dry-run` (rf2-z7roa) the forced posture walks
+  `:db-state-after-simulation` + each `:would-fire-effects[*].args` slot
+  through `elide-wire-value` server-side. For the epoch-egressing tools
+  (`trace-window`,
   `watch-epochs`, `snapshot`'s `:epochs` slice, and the `:epoch`
   streaming topic) the forced posture routes each record through
   `projected-record` / `elide-wire-value` server-side (rf2-6wvh5 /
