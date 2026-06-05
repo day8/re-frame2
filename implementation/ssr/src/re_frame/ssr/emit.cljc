@@ -206,6 +206,26 @@
 (defn- emit-children [children]
   (clojure.string/join (mapv emit-element children)))
 
+(defn- emit-children-threading-root-attrs
+  "Emit `children`, threading `root-attrs` (per rf2-lxwse) onto the FIRST
+  child only (nil to the rest), so the render-hash / source-coord lands
+  exactly once on the first DOM-tag element reachable through a fragment
+  root. A fragment whose first child is itself a fragment / fn-head /
+  view-ref recurses — `emit-element` keeps threading the same root-attrs
+  down its own root path until a DOM tag consumes it. When `root-attrs`
+  is nil this is identical to `emit-children`. Per rf2-58zvy1 finding 2 —
+  the `:<>` branch previously dropped root-attrs via plain `emit-children`,
+  so a fragment-rooted SSR tree lost the `data-rf-render-hash` marker the
+  emitter docstring promises."
+  [children root-attrs]
+  (if (nil? root-attrs)
+    (emit-children children)
+    (let [v (vec children)]
+      (clojure.string/join
+        (map-indexed (fn [i child]
+                       (emit-element child (when (zero? i) root-attrs)))
+                     v)))))
+
 ;; ---- source-coord annotation on registered-view roots --------------------
 ;;
 ;; Per Spec 006 §Source-coord annotation (rf2-z7f7 / rf2-z9n1) and
@@ -333,12 +353,21 @@
      (let [head (first el)]
        (cond
          ;; Fragment `:<>` — emits its rendered children with no wrapper.
-         ;; Per Spec 011: root-attrs (rf2-lxwse) skip this head, source-
-         ;; coord annotation skips it, and the tag-name validator
-         ;; (rf2-z7gor) does not apply. Handled ahead of the general
-         ;; keyword branch so it never reaches `parse-tag-name`.
+         ;; Per Spec 011: source-coord annotation skips this head (the
+         ;; fragment itself is not a DOM element), and the tag-name
+         ;; validator (rf2-z7gor) does not apply. Handled ahead of the
+         ;; general keyword branch so it never reaches `parse-tag-name`.
+         ;;
+         ;; rf2-58zvy1 finding 2 — root-attrs (rf2-lxwse, the render-hash
+         ;; / `:render-hash` marker) MUST thread through a fragment root
+         ;; onto the first DOM-tag child, exactly once. The prior plain
+         ;; `emit-children` dropped them, so `[:<> [:div "x"]]` with
+         ;; `{:emit-hash? true}` lost its `data-rf-render-hash` even though
+         ;; the docstring promises threading "past … fragments". Thread
+         ;; onto the first child only; nested fragments / fn-heads /
+         ;; view-refs keep threading down their own root path.
          (= :<> head)
-         (emit-children (rest el))
+         (emit-children-threading-root-attrs (rest el) root-attrs)
 
          ;; Reagent-native interop head `:>` — `[:> Component {props} …]`
          ;; passes its children through to a React COMPONENT, not a DOM
