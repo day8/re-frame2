@@ -113,8 +113,6 @@ Confirmed-broken v1 add-ons (each references the removed `re-frame.core/console`
 
 This surface is keyed off application-/dep-level triggers (Maven coords + fx ids), so it pairs with the O-16 / O-17 detection but is **not** gated behind the opt-in question — the removal/replacement is required.
 
-> **Note on the corpus.** Older MIGRATION.md O-16 / O-17 prose says the v1 add-on "continues to work against v2." That line predates the `re-frame.core/console` removal and is **superseded by this section** — the add-on does not compile on v2. Where the corpus and this section disagree on the add-on "keeps working" point, **this section governs** until the corpus prose is corrected.
-
 ## Opt-in modernisations (O-rules) by trigger surface
 
 The author **must** ask for these. They are never auto-applied as part of a routine v1→v2 migration.
