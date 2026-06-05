@@ -74,7 +74,10 @@ Spec source: [`spec/Conventions.md`](../../../spec/Conventions.md) (data-only fx
 
 ;; Writes -> data-only fx (effect performed after the handler returns):
 (rf/reg-fx :local-storage/set
-  (fn [_ctx {:keys [k v]}] (.setItem js/localStorage k v)))
+  {:platforms #{:client}}                                          ;; browser-only: skipped cleanly under SSR
+  (fn [_ctx {:keys [k v]}]
+    (when-let [ls (.-localStorage js/globalThis)]                  ;; defensive: globalThis works on every platform
+      (.setItem ls k v))))
 
 (rf/reg-fx :dom/set-body-class
   {:platforms #{:client}}
