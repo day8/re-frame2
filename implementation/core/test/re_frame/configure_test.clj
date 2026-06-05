@@ -63,6 +63,51 @@
     (is (= 4096 (:rf.size/threshold-bytes (elision/current-config)))
         ":elision {:rf.size/threshold-bytes N} reaches the elision config")))
 
+(deftest trace-buffer-rejected-opts-warn-not-silent
+  (testing "rf2-x3m8c finding 1 — the retired {:depth N} shape (and any
+            non-numeric / negative :cascades-retained) is a no-op that
+            emits :rf.warning/trace-buffer-unrecognised-opts and leaves
+            retention unchanged, rather than silently doing nothing.
+            :cascades-retained is the SOLE canonical opt — impl, core
+            docstring, API.md, and Spec 009 all agree."
+    ;; Establish a known retention first.
+    (rf/configure! :trace-buffer {:cascades-retained 9})
+    (let [warnings (atom [])]
+      (rf/register-listener! ::trace-buffer-opts
+                             (fn [ev]
+                               (when (= :rf.warning/trace-buffer-unrecognised-opts
+                                        (:operation ev))
+                                 (swap! warnings conj ev))))
+      (try
+        ;; The documented footgun: a user following stale docs passes the
+        ;; retired {:depth N} shape.
+        (rf/configure! :trace-buffer {:depth 200})
+        (is (= 1 (count @warnings))
+            "the retired {:depth N} shape emits exactly one warning")
+        (let [ev (first @warnings)]
+          (is (= :error (:op-type ev))
+              "op-type is :error (emit-error! family); :operation carries the :rf.warning/* category")
+          (is (= {:depth 200} (-> ev :tags :opts))
+              "the rejected opts map rides the :opts tag")
+          (is (string? (-> ev :tags :reason))
+              "the :reason names the fix"))
+        ;; A negative value is likewise rejected.
+        (rf/configure! :trace-buffer {:cascades-retained -1})
+        (is (= 2 (count @warnings))
+            "a negative :cascades-retained also warns")
+        ;; Retention is still the last GOOD value — the bad calls were
+        ;; pure no-ops.
+        (rf/reg-event-db :ping (fn [db _] db))
+        (dotimes [_ 20] (rf/dispatch-sync [:ping]))
+        (is (<= (count (rf/trace-buffer :rf/default)) 9)
+            "retention stayed at the last valid {:cascades-retained 9}")
+        ;; The canonical shape still applies cleanly (no warning).
+        (rf/configure! :trace-buffer {:cascades-retained 3})
+        (is (= 2 (count @warnings))
+            "the canonical {:cascades-retained N} shape does NOT warn")
+        (finally
+          (rf/unregister-listener! ::trace-buffer-opts))))))
+
 (deftest configure-unknown-key-is-silent-no-op
   (testing "rf2-mmlci — unknown keys silently no-op; configure returns nil"
     ;; The vocabulary is closed-and-additive: keys not enumerated in

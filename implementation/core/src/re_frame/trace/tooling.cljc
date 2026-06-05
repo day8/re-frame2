@@ -569,8 +569,34 @@
   When `:cascades-retained 0`, the ring is disabled but the surface
   remains live. Per Spec 009 §Cascades-retained-zero semantics.
 
+  `:cascades-retained` is the SOLE recognised opt. An opts map that
+  lacks a usable `:cascades-retained` (e.g. the retired `{:depth N}`
+  shape, or a negative / non-numeric value) is a no-op that emits a
+  `:rf.warning/trace-buffer-unrecognised-opts` trace rather than
+  failing silently — a misconfigured retention knob would otherwise
+  leave the ring at its default while the caller believes it was
+  tuned (per Spec 009 §Error & warning catalog).
+
   No-op in production. Returns nil."
-  [{:keys [cascades-retained]}]
+  [{:keys [cascades-retained] :as opts}]
+  (when (and interop/debug-enabled?
+             (not (and (number? cascades-retained)
+                       (not (neg? cascades-retained)))))
+    ;; Loud-not-silent: a config call that supplied opts we can't apply
+    ;; is a misuse the runtime recovers from (the ring stays at its
+    ;; current default) but must surface. Routed through the late-bound
+    ;; `:trace/emit-error!` so this ns carries no static dep on
+    ;; `re-frame.trace`; the warning rides the same trace stream tools
+    ;; already consume.
+    (when-let [emit-error! (late-bind/get-fn :trace/emit-error!)]
+      (emit-error! :rf.warning/trace-buffer-unrecognised-opts
+                   {:category :rf.warning/trace-buffer-unrecognised-opts
+                    :opts     opts
+                    :reason   (str "(configure! :trace-buffer ...) accepts only "
+                                   "{:cascades-retained N} where N is a non-negative "
+                                   "integer; got " (pr-str opts) ". Retention is "
+                                   "unchanged. The retired {:depth N} shape is not "
+                                   "supported — use {:cascades-retained N}.")})))
   (when (and interop/debug-enabled?
              (number? cascades-retained)
              (not (neg? cascades-retained)))

@@ -18,6 +18,8 @@
                             for the affected sub-id.
       `:cache-clear`      — explicit `clear-sub-cache!` walked the
                             cache and disposed every slot.
+      `:frame-destroy`    — `destroy-frame!` tore down the destroyed
+                            frame's whole sub-cache (rf2-x3m8c).
 
   Single-fire discipline: the emit rides the SAME CAS-winner check that
   gates `interop/dispose!`, so a concurrent invalidate + sync-dispose
@@ -294,7 +296,7 @@
           (is (contains? tags :rf.sub/id))
           (is (contains? tags :rf.sub/query-v))
           (is (contains? tags :rf.sub/reason))
-          (is (#{:no-more-derefers :hot-reload :cache-clear}
+          (is (#{:no-more-derefers :hot-reload :cache-clear :frame-destroy}
                 (:rf.sub/reason tags))
               "reason is in the closed-enum"))
         (finally

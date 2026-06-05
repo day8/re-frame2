@@ -101,6 +101,10 @@
    {:key         :subs/subscribe-once
     :producer-ns 're-frame.subs
     :description "Subscribe and immediately deref (snapshot value, no reaction)."}
+   {:key         :subs.cache/dispose-all-for-frame-destroy!
+    :producer-ns 're-frame.subs.cache
+    :design-bead "rf2-x3m8c"
+    :description "Dispose every cached subscription in a destroyed frame's sub-cache, emitting one `:rf.sub/dispose` per slot with `:rf.sub/reason :frame-destroy`. Invoked by `frame/destroy-frame!` via late-bind so `re-frame.frame` carries no static dep on `re-frame.subs.cache` (which requires `frame`)."}
 
    ;; ===========================================================================
    ;; GROUP 2 — CROSS-ARTEFACT

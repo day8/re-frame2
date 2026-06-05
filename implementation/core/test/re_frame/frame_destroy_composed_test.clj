@@ -257,6 +257,104 @@
           "frame is unregistered"))))
 
 ;; ---------------------------------------------------------------------------
+;; 3b. Frame-destroy sub-cache eviction emits :rf.sub/dispose (rf2-x3m8c f2)
+;;
+;; tear-down-sub-cache! used to dispose reactions directly, bypassing the
+;; :rf.sub/dispose lifecycle emit that every OTHER eviction site fires.
+;; Frame teardown is a real eviction class and MUST appear in the stream
+;; (reason :frame-destroy) so tooling can tell a clean teardown from
+;; missing trace data.
+;; ---------------------------------------------------------------------------
+
+(deftest destroy-emits-sub-dispose-per-cached-slot
+  (testing ":rf.sub/dispose fires once per cached slot when destroy-frame!
+            tears the frame down — reason :frame-destroy, correct :frame
+            + :rf.sub/query-v (rf2-x3m8c finding 2)"
+    (rf/reg-frame :composed/dispose-emit {:doc "dispose-emit"})
+    (rf/reg-event-db :composed/seed2 (fn [_ _] {:a 1 :b 2}))
+    (rf/reg-sub :composed/da (fn [db _] (:a db)))
+    (rf/reg-sub :composed/db (fn [db _] (:b db)))
+    (rf/dispatch-sync [:composed/seed2] {:frame :composed/dispose-emit})
+
+    (let [disposes (atom [])]
+      (rf/register-listener! ::dispose-emit
+                             (fn [ev]
+                               (when (= :rf.sub/dispose (:operation ev))
+                                 (swap! disposes conj ev))))
+      (try
+        (rf/subscribe :composed/dispose-emit [:composed/da])
+        (rf/subscribe :composed/dispose-emit [:composed/db])
+        (is (= 2 (count @(:sub-cache (frame/frame :composed/dispose-emit))))
+            "both subscriptions are cached before destroy")
+
+        (is (nil? (frame/destroy-frame! :composed/dispose-emit)))
+
+        (let [evs   @disposes
+              q-vs  (set (map #(-> % :tags :rf.sub/query-v) evs))]
+          (is (= 2 (count evs))
+              "one :rf.sub/dispose per evicted slot on frame destroy")
+          (is (= #{[:composed/da] [:composed/db]} q-vs)
+              "every cached query-vector got its own dispose emit")
+          (is (every? #(= :frame-destroy (-> % :tags :rf.sub/reason)) evs)
+              ":rf.sub/reason :frame-destroy discriminates the teardown path")
+          (is (every? #(= :composed/dispose-emit (-> % :tags :frame)) evs)
+              "each emit carries the destroyed frame's id"))
+        (finally
+          (rf/unregister-listener! ::dispose-emit))))))
+
+;; ---------------------------------------------------------------------------
+;; 3c. Throwing cleanup hook emits a diagnostic, not silence (rf2-x3m8c f3)
+;;
+;; safe-call-hook! keeps best-effort teardown (the throw is swallowed and
+;; downstream hooks still run) BUT now emits exactly one structured
+;; :rf.warning/teardown-hook-exception carrying the hook key, frame id,
+;; and exception — so a leaked optional-artefact cleanup is diagnosable.
+;; ---------------------------------------------------------------------------
+
+(deftest throwing-cleanup-hook-emits-one-diagnostic
+  (testing "a throwing late-bound cleanup hook emits exactly one
+            :rf.warning/teardown-hook-exception (carrying :hook, :frame,
+            :exception) while teardown continues best-effort (rf2-x3m8c
+            finding 3)"
+    (rf/reg-frame :composed/hook-diag {:doc "hook-diag"})
+    (let [downstream-ran (atom #{})
+          original-schemas-h (late-bind/get-fn :schemas/on-frame-destroyed!)
+          original-flows-h   (late-bind/get-fn :flows/teardown-on-frame-destroy!)
+          warnings (atom [])]
+      (rf/register-listener! ::hook-diag
+                             (fn [ev]
+                               (when (= :rf.warning/teardown-hook-exception
+                                        (:operation ev))
+                                 (swap! warnings conj ev))))
+      (try
+        (late-bind/set-fn! :schemas/on-frame-destroyed!
+                           (fn [_id]
+                             (throw (ex-info "schemas teardown blew" {:k :v}))))
+        (late-bind/set-fn! :flows/teardown-on-frame-destroy!
+                           (fn [_id] (swap! downstream-ran conj :flows-ran)))
+
+        (is (nil? (frame/destroy-frame! :composed/hook-diag))
+            "destroy completes; the hook throw was swallowed")
+        (is (contains? @downstream-ran :flows-ran)
+            "best-effort: the downstream hook still ran after the throw")
+
+        (is (= 1 (count @warnings))
+            "exactly one teardown-hook-exception diagnostic for the failed hook")
+        (let [ev (first @warnings)]
+          (is (= :error (:op-type ev))
+              "op-type is :error (emit-error! family); :operation carries the :rf.warning/* category")
+          (is (= :schemas/on-frame-destroyed! (-> ev :tags :hook))
+              ":hook names the failing late-bind hook key")
+          (is (= :composed/hook-diag (-> ev :tags :frame))
+              ":frame carries the frame being destroyed (via the dynamic binding)")
+          (is (some? (-> ev :tags :exception))
+              ":exception carries the throwable"))
+        (finally
+          (rf/unregister-listener! ::hook-diag)
+          (late-bind/set-fn! :schemas/on-frame-destroyed! original-schemas-h)
+          (late-bind/set-fn! :flows/teardown-on-frame-destroy! original-flows-h))))))
+
+;; ---------------------------------------------------------------------------
 ;; 4. Cross-frame dispatch from inside :on-destroy event
 ;;
 ;; A frame's :on-destroy handler can legitimately need to talk to a
