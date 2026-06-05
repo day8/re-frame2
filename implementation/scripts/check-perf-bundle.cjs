@@ -32,7 +32,7 @@
 
 const path = require('path');
 const { createGateReporter } = require('./lib/gate-report.cjs');
-const { readReleaseBlob } = require('./lib/read-release-bundle.cjs');
+const { classifyReleaseBundle } = require('./lib/read-release-bundle.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
 const report = createGateReporter();
@@ -66,11 +66,21 @@ const PERF_SENTINELS = [
 // only; a stale dev-build `cljs-runtime/` subdir is skipped.
 
 function checkBundle(label, bundlePath, mustContain) {
-  const blob = readReleaseBlob(bundlePath);
-  if (blob == null) {
+  const { status, blob } = classifyReleaseBundle(bundlePath);
+  if (status === 'missing') {
     console.error(`[perf-bundle] ${label}: bundle path missing — ${bundlePath}`);
     console.error('              Did you run the matching shadow-cljs release?');
     return { ok: false, checked: 0, passed: 0, bytes: null, missing: true };
+  }
+  if (status === 'empty') {
+    // Non-vacuous floor (rf2-utvst): a present-but-empty bundle satisfies
+    // every sentinel-absence check and would false-GREEN the perf-off
+    // isolation assertion.
+    console.error(`[perf-bundle] ${label}: bundle present but empty (zero top-level JS) — ${bundlePath}`);
+    console.error('              The release emitted no inspectable bundle; an empty bundle');
+    console.error('              proves nothing about perf-flag isolation. Rebuild the');
+    console.error('              matching shadow-cljs release or clear the stale dir.');
+    return { ok: false, checked: 0, passed: 0, bytes: 0, empty: true };
   }
   report.detail(`[perf-bundle] ${label}: ${bundlePath}`);
   report.detail(`              bundle size: ${blob.length} chars`);
@@ -123,9 +133,13 @@ function main() {
   const on  = checkBundle('perf-on  (counter-perf,  enabled?=true) ',
                           onDir,  true);
 
-  // Report the counts the bead asks for.
-  const offBlob = readReleaseBlob(offDir);
-  const onBlob  = readReleaseBlob(onDir);
+  // Report the counts the bead asks for. classifyReleaseBundle returns
+  // blob=null for a missing dir (countOccurrences guards null) and the
+  // real blob otherwise; the off/on checks above already fail the gate
+  // on a missing/empty dir, so these counts are only ever consulted for
+  // the diagnostic report.
+  const offBlob = classifyReleaseBundle(offDir).blob;
+  const onBlob  = classifyReleaseBundle(onDir).blob;
   const patterns = ['performance\\.mark',
                     'performance\\.measure',
                     're-frame\\.performance'];

@@ -37,6 +37,15 @@
    by design)."
   "skills/re-frame-migration")
 
+(def ^:private min-references
+  "Non-vacuous floor (rf2-utvst). The skills tree carries ~505 live
+   `(rf/<var>` references across ~127 checked `*.md` files; this floor sits
+   an order of magnitude below that, so it trips only on a near-total
+   collapse (the skills dir moved, the `(rf/<var>` extraction broke, the
+   alias convention changed) — the cases that would otherwise turn the gate
+   into a vacuous green — never on ordinary content churn."
+  100)
+
 (defn check!
   []
   (let [rows      (proj/manifest-rows)
@@ -45,7 +54,9 @@
         core-vars (set (map :var (proj/rows-in-ns rows core-ns)))
         allow     (set (:skills-known-unmanifested (gen/read-sidecar)))
         dir       (proj/repo-file "skills")
-        files     (->> (proj/markdown-files dir)
+        ;; require-markdown-files (rf2-utvst): fail loudly if skills/ moves
+        ;; or is renamed, rather than silently checking zero files.
+        files     (->> (proj/require-markdown-files "skills/" dir)
                        (remove #(str/includes?
                                  (str/replace (proj/repo-relative %) "\\" "/")
                                  excluded-skill-dir)))
@@ -58,7 +69,8 @@
                             {:file file :line line :raw raw
                              :detail "no re-frame.core manifest row"}))
                         results)]
-    (proj/report-result! "skills/ (excl. re-frame-migration)" (count results) problems)))
+    (proj/report-with-floor! "skills/ (excl. re-frame-migration)"
+                             (count results) min-references problems)))
 
 (defn -main [& _]
   (System/exit (if (check!) 0 1)))

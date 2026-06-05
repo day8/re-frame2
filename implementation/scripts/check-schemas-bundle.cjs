@@ -50,7 +50,10 @@ const fs   = require('fs');
 const path = require('path');
 const zlib = require('zlib');
 const { createGateReporter } = require('./lib/gate-report.cjs');
-const { listReleaseJsFiles } = require('./lib/read-release-bundle.cjs');
+const {
+  listReleaseJsFiles,
+  classifyReleaseBundle,
+} = require('./lib/read-release-bundle.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
 const report = createGateReporter();
@@ -112,6 +115,18 @@ function main() {
   let bundlesOk = true;
 
   for (const bundle of BUNDLES) {
+    // Non-vacuous floor (rf2-utvst): a present-but-empty output dir sums
+    // to 0 gzipped bytes and would pass the `<= ceiling` size assertion
+    // (and the equality guard) vacuously. Reject it before measuring.
+    const cls = classifyReleaseBundle(bundle.bundleDir);
+    if (cls.status === 'empty') {
+      console.error(`[schemas-bundle] ${bundle.name}: bundle present but empty (zero top-level JS) — ${bundle.bundleDir}`);
+      console.error('              The release emitted no bundle; a zero-byte bundle would');
+      console.error('              pass the size ceiling vacuously. Rebuild with "shadow-cljs');
+      console.error(`              release ${bundle.name}" or clear the stale dir.`);
+      bundlesOk = false;
+      continue;
+    }
     const total = sumGzippedBytes(bundle.bundleDir);
     if (total == null) {
       console.error(`[schemas-bundle] ${bundle.name}: bundle dir missing — ${bundle.bundleDir}`);

@@ -79,7 +79,13 @@
 
 (defn markdown-files
   "Every `*.md` file under `dir` (an `io/file`), recursively, sorted by
-   path for deterministic reporting. Skips a missing dir (returns nil)."
+   path for deterministic reporting. Skips a missing dir (returns nil).
+
+   NB (rf2-utvst): a `nil` return is INDISTINGUISHABLE from a present-but-
+   empty dir, and silently produces zero work in the downstream check —
+   a directory move / rename then turns the projection gate into a
+   vacuous green. Callers that own an EXPECTED directory must use
+   `require-markdown-files` instead, which fails loudly on a missing dir."
   [dir]
   (when (.isDirectory ^java.io.File dir)
     (->> (file-seq dir)
@@ -95,6 +101,27 @@
       (.relativize (.toPath file))
       str
       (str/replace "\\" "/")))
+
+(defn require-markdown-files
+  "Like `markdown-files`, but throws when `dir` does not exist or is not a
+   directory (rf2-utvst non-vacuous floor). A check that owns an EXPECTED
+   surface directory (skills/, docs/guide/) must fail loudly when that
+   directory moves or is renamed rather than silently checking zero files
+   and reporting a vacuous OK. `label` names the surface for the error."
+  [label dir]
+  (when-not (.isDirectory ^java.io.File dir)
+    ;; Render the dir relative-to-repo-root for the message, but never let
+    ;; the diagnostic itself throw (a non-relativizable path falls back to
+    ;; the raw path string).
+    (let [shown (try (repo-relative dir) (catch Exception _ (str dir)))]
+      (throw (ex-info
+               (format (str "%s: expected directory is missing — %s. The "
+                            "projection gate cannot run against a non-existent "
+                            "surface (a moved/renamed dir would otherwise pass "
+                            "vacuously). Reconcile the surface path.")
+                       label shown)
+               {:label label :dir (str dir)}))))
+  (markdown-files dir))
 
 ;; ---------------------------------------------------------------------------
 ;; Reference extraction.
@@ -208,3 +235,37 @@
           (doseq [{:keys [file line raw detail]} problems]
             (println (format "  %s:%d  `%s`  %s" file line raw detail))))
         false)))
+
+(defn vacuity-floor-problem
+  "Return a problem-map describing a non-vacuous-floor violation when
+   `checked` (the number of public-var references the extractor actually
+   reconciled) is below `min-refs`, else nil (rf2-utvst).
+
+   A projection check reports OK whenever its problem list is empty — even
+   if it extracted ZERO references. A docs/skills directory move, a markdown
+   table-shape change, an alias-convention change, or parser drift can
+   silently drop the extracted-reference count toward 0 and turn the gate
+   into a vacuous green: stale public-API references would no longer be
+   reconciled against the manifest. `min-refs` is a deliberately low floor —
+   set well below the current live count — so it trips ONLY on a near-total
+   collapse (the vacuous-green class), never on ordinary content churn."
+  [label checked min-refs]
+  (when (< checked min-refs)
+    {:file  "(extractor)"
+     :line  0
+     :raw   (format "%d reference(s) extracted" checked)
+     :detail (format (str "below the non-vacuous floor of %d for %s — the "
+                          "extractor reconciled almost nothing, so an OK "
+                          "verdict would be vacuous. Likely a moved/renamed "
+                          "surface dir, a table-shape/alias-convention change, "
+                          "or parser drift. Investigate before trusting GREEN.")
+                     min-refs label)}))
+
+(defn report-with-floor!
+  "Like `report-result!`, but first enforces a non-vacuous floor: if fewer
+   than `min-refs` references were reconciled, prepend a floor-violation
+   problem so the gate goes RED even when the (possibly empty) `problems`
+   seq would otherwise report a vacuous OK (rf2-utvst)."
+  [label checked min-refs problems]
+  (let [floor (vacuity-floor-problem label checked min-refs)]
+    (report-result! label checked (if floor (cons floor problems) problems))))

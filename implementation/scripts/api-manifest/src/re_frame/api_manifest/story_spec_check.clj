@@ -23,6 +23,15 @@
 
 (def ^:private story-ns "re-frame.story")
 
+(def ^:private min-var-rows
+  "Non-vacuous floor (rf2-utvst). tools/story/spec/API.md carries ~65
+   back-ticked-identifier var-rows; this floor sits well below that, so it
+   trips only when the table shape changes (the first-cell back-ticked-
+   identifier discriminator stops matching) or the doc is gutted — the
+   cases that would turn the gate into a vacuous green — never on ordinary
+   row churn."
+  20)
+
 (defn check!
   []
   (let [rows       (proj/manifest-rows)
@@ -37,7 +46,8 @@
                              {:file rel :line line :raw var
                               :detail "no re-frame.story manifest row"}))
                          var-rows)]
-    (proj/report-result! "tools/story/spec/API.md" (count var-rows) problems)))
+    (proj/report-with-floor! "tools/story/spec/API.md"
+                             (count var-rows) min-var-rows problems)))
 
 (defn -main [& _]
   (System/exit (if (check!) 0 1)))

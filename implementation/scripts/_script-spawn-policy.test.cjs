@@ -191,6 +191,38 @@ test('serve-and-run-xray-feature-gate.cjs resolves shadow-cljs runner + spawns i
   assert.match(src, /spawnSync\(\s*process\.execPath,\s*args/);
 });
 
+// Loopback-bind policy (rf2-utvst): every implementation http-server
+// launcher only ever serves a loopback consumer (the readiness probe +
+// the headless browser both hit 127.0.0.1), so each must spawn
+// http-server with an explicit `-a 127.0.0.1` rather than relying on
+// http-server's broad 0.0.0.0 default — otherwise the generated app
+// bundle and the per-run `.rf-harness-token` endpoint are reachable on
+// non-loopback interfaces during a test run. This mirrors the examples-
+// side guard in _story-script-runners-policy.test.cjs (rf2-wf5al.2). The
+// regex matches the http-server bin token followed (within a short
+// window) by the `'-a', '127.0.0.1'` pair. NB `[\s\S]{0,80}?` not `[^]`
+// (the JS-regex `[^]`-any-char gotcha).
+const LOOPBACK_BIND_RE =
+  /HTTP_SERVER_BIN,[\s\S]{0,80}?['"]-a['"]\s*,\s*['"]127\.0\.0\.1['"]/;
+const IMPL_LOOPBACK_LAUNCHERS = [
+  'serve-and-run-browser-tests.cjs',
+  'check-story-static.cjs',
+  'serve-and-run-xray-feature-gate.cjs',
+];
+for (const base of IMPL_LOOPBACK_LAUNCHERS) {
+  test(`${base}: http-server is bound to 127.0.0.1 explicitly (rf2-utvst)`, () => {
+    const src = fs.readFileSync(path.join(SCRIPTS_DIR, base), 'utf8');
+    assert.match(
+      src,
+      LOOPBACK_BIND_RE,
+      `${base} must spawn http-server with '-a', '127.0.0.1' (loopback only) — ` +
+        `http-server's default is 0.0.0.0, and this launcher only ever serves ` +
+        `127.0.0.1 (readiness probe + headless browser). Match ` +
+        `serve-and-run-examples-tests.cjs.`,
+    );
+  });
+}
+
 // stripComments sanity: it must remove a forbidden token that appears
 // only in a comment, but keep one that appears in real code. Guards the
 // gate itself against false-negatives (a comment masking a live spawn)

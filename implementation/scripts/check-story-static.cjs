@@ -362,13 +362,18 @@ async function smokeTest(baseUrl, diagnostics) {
   const port = await resolvePort(diagnostics);
   diagnostics.add(`Serving ${OUT_DIR} on http://127.0.0.1:${port}`);
 
+  // Bind 127.0.0.1 (not http-server's 0.0.0.0 default): the readiness
+  // probe and the headless browser only ever hit loopback, so the
+  // listener must not be exposed on non-loopback interfaces during a
+  // test run (rf2-utvst; matches serve-and-run-examples-tests.cjs).
+  const serverArgs = [HTTP_SERVER_BIN, OUT_DIR, '-a', '127.0.0.1', '-p', String(port), '-s', '-c-1'];
   const server = cleanup.trackProcess(spawnHarnessProcess(
     process.execPath,
-    [HTTP_SERVER_BIN, OUT_DIR, '-p', String(port), '-s', '-c-1'],
+    serverArgs,
     { cwd: IMPL_ROOT, stdio: ['ignore', 'pipe', 'pipe'] },
   ));
   diagnostics.add(
-    `Process: ${process.execPath} ${[HTTP_SERVER_BIN, OUT_DIR, '-p', String(port), '-s', '-c-1'].join(' ')}`,
+    `Process: ${process.execPath} ${serverArgs.join(' ')}`,
   );
   server.stdout.on('data', (d) => addChunk(diagnostics, '[http-server:stdout] ', d));
   server.stderr.on('data', (d) => addChunk(diagnostics, '[http-server:stderr] ', d, 'stderr'));

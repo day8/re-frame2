@@ -41,6 +41,7 @@ const path = require('path');
 const {
   readReleaseBlob,
   listReleaseJsFiles,
+  classifyReleaseBundle,
   escapeRe,
   countMatches,
   countSubstring,
@@ -155,7 +156,69 @@ test('readReleaseBlob returns "" for a present dir with no *.js (distinct from m
   const dir = makeBundleDir({ 'manifest.edn': '{}' });
   // Present-but-empty is a real, non-null state: the dir exists, the
   // release simply emitted no JS. Distinct from the null missing-dir case.
+  // NOTE: this is the low-level reader's contract; gates MUST NOT branch
+  // on this alone — they use classifyReleaseBundle to reject the empty
+  // case (rf2-utvst non-vacuous floor) so an empty bundle is not a
+  // vacuous GREEN. See the classifyReleaseBundle tests below.
   assert.equal(readReleaseBlob(dir), '');
+});
+
+// ----- classifyReleaseBundle (rf2-utvst non-vacuous floor) -------------------
+
+test('classifyReleaseBundle reports status "missing" for a missing dir', () => {
+  const c = classifyReleaseBundle(missingDir());
+  assert.equal(c.status, 'missing');
+  assert.equal(c.files, null);
+  assert.equal(c.blob, null);
+});
+
+test('classifyReleaseBundle reports status "empty" for a present dir with no *.js', () => {
+  // The false-GREEN class: a present `out/examples/counter` with no
+  // top-level JS (release emitted nothing, or a stale empty dir was left
+  // behind). Gates branching only on missing-dir would pass this dir
+  // through every sentinel-absence check vacuously.
+  const dir = makeBundleDir({ 'manifest.edn': '{}' });
+  const c = classifyReleaseBundle(dir);
+  assert.equal(c.status, 'empty');
+  assert.deepEqual(c.files, []);
+  assert.equal(c.blob, '');
+});
+
+test('classifyReleaseBundle reports status "empty" when every top-level *.js is zero-byte', () => {
+  // A present dir whose only top-level JS files carry no content is just
+  // as vacuous as a dir with no JS at all — the bundle did not build.
+  const dir = makeBundleDir({ 'main.js': '', 'cljs_base.js': '' });
+  const c = classifyReleaseBundle(dir);
+  assert.equal(c.status, 'empty');
+  assert.equal(c.files.length, 2);
+  assert.equal(c.blob.trim(), '');
+});
+
+test('classifyReleaseBundle reports status "empty" when top-level *.js is whitespace-only', () => {
+  const dir = makeBundleDir({ 'main.js': '   \n\t \n' });
+  const c = classifyReleaseBundle(dir);
+  assert.equal(c.status, 'empty');
+});
+
+test('classifyReleaseBundle reports status "ok" for a real bundle (non-empty top-level *.js)', () => {
+  const dir = makeBundleDir({ 'main.js': 'RELEASE_TOKEN();' });
+  const c = classifyReleaseBundle(dir);
+  assert.equal(c.status, 'ok');
+  assert.equal(c.files.length, 1);
+  assert.equal(c.blob.includes('RELEASE_TOKEN'), true);
+});
+
+test('classifyReleaseBundle ignores stale cljs-runtime dev sources when deciding ok/empty (rf2-z9a06)', () => {
+  // The only top-level JS is empty, but a stale cljs-runtime/ dev source
+  // has content. The classifier must still report "empty" — the release
+  // artefact is the top-level JS, not the recursively-walked dev tree.
+  const dir = makeBundleDir({
+    'main.js': '',
+    'cljs-runtime/re_frame.core.js': 'DEV_ONLY_CONTENT();',
+  });
+  const c = classifyReleaseBundle(dir);
+  assert.equal(c.status, 'empty', 'stale dev sources must not rescue an empty release artefact');
+  assert.equal(c.blob.includes('DEV_ONLY_CONTENT'), false);
 });
 
 // ----- escapeRe --------------------------------------------------------------
