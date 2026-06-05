@@ -41,6 +41,28 @@ the changed-surface CI job is `cljs-reagent-slim-bundle-isolation` in
 The slim adapter is also a drop-in for the bridge at the
 behavioural level: same clicks, same counts.
 
+## Shared `:counter/*` ids — a deliberate, documented exception
+
+This fixture registers the **same** `:counter/*` event and subscription
+ids as the canonical [`examples/reagent/counter/`](../../reagent/counter/)
+— `:counter/initialise`, `:counter/inc`, `:counter/dec`, and
+`:counter/value`. That id-identity is **intentional**: it is how the two
+fixtures demonstrate **adapter parity** (byte-for-byte identical dataflow
+on a different reactive substrate). It is the one blessed exception to the
+example-tree id-prefix convention, narrowed and justified in
+[`examples/TESTING.md` § Named exception — the stock/slim counter
+`:counter/*` id share](../../TESTING.md#named-exception--the-stockslim-counter-counter-id-share).
+
+The share is safe **only** because stock and slim build as two separate
+standalone bundles that must never be co-required into one runtime; the
+`npm run test:reagent-slim:bundle-isolation` gate is the regression
+surface that keeps that boundary honest. The carve-out covers the four
+event+sub ids **only** — the views are *not* shared: `reg-view`
+auto-namespaces them under `:counter-slim-and-fast.core/*` here vs
+`:counter.core/*` in the stock fixture. If either fixture is ever folded
+into a shared wrapper/showcase/`test:browser` bundle, the ids must be
+prefixed first.
+
 ## Files
 
 ```
