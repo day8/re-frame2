@@ -106,6 +106,20 @@
     (vector? spec)      (mapcat transition-candidates spec)
     :else               []))
 
+(defn history-node?
+  "rf2-m285a — true when a node under a compound's `:states` is a
+  `:type :history` PSEUDO-STATE (Spec 005 §History states), not an
+  ordinary occupiable substate. A history pseudo-state is NEVER active:
+  a transition *to* it resolves to the compound's recorded / default
+  leaf configuration, so the machine's `:state` is never `[… :hist]`.
+  The projector must paint it as a small `history-marker` glyph inside
+  its owning compound — keeping incoming edges but treating it as
+  neither initial nor final nor compound (it declares only `:type` /
+  `:deep?` / `:default-target`)."
+  [state-node]
+  (and (map? state-node)
+       (= :history (:type state-node))))
+
 (defn- parent-path [path]
   (if (seq path)
     (pop path)
@@ -303,8 +317,27 @@
   SCXML / Mermaid emitters' `<initial>` rendering."
   [parent-path state-map]
   (mapcat (fn [[state-id state-node]]
-            (let [path (conj parent-path state-id)
-                  self (cond-> {:path     path
+            (let [path (conj parent-path state-id)]
+             (if (history-node? state-node)
+              ;; rf2-m285a — a `:type :history` PSEUDO-STATE (Spec 005
+              ;; §History states). NEVER occupiable: not initial / final /
+              ;; compound, declares no transitions. Emit a single
+              ;; `:history?`-flagged marker node carrying `:deep?` +
+              ;; `:default-target` so the projector paints the
+              ;; `history-marker` glyph (`H` / `H*`) and the SCXML / Mermaid
+              ;; emitters preserve the history semantics. It has no children
+              ;; (a history node MUST NOT declare `:states`).
+              [{:path           path
+                :label          (name state-id)
+                :depth          (count parent-path)
+                :history?       true
+                :deep?          (boolean (:deep? state-node))
+                :default-target (:default-target state-node)
+                :initial?       false
+                :final?         false
+                :compound?      false
+                :tags           #{}}]
+              (let [self (cond-> {:path     path
                                 :label    (name state-id)
                                 :depth    (count parent-path)
                                 :initial? (boolean (:initial? state-node))
@@ -338,7 +371,7 @@
                                           c))
                                       raw-children)
                                  raw-children)]
-              (cons self children)))
+                (cons self children)))))
           state-map))
 
 ;; ---- public ids ---------------------------------------------------------

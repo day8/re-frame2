@@ -742,3 +742,166 @@
           back (-> spec scxml/spec->scxml scxml/scxml->spec)]
       (is (= {} (get-in back [:states :a :on :tick]))
           "an empty-map forbidden block survives as `{}`, not invented an action"))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-m285a — `:type :history` pseudo-states export as W3C `<history>`
+;; (NOT `<state>` / `<final>`), preserving the shallow / deep / default-target
+;; semantics, and round-trip back to `:type :history` nodes.
+
+(def shallow-history-machine
+  "Compound with a SHALLOW `:type :history` pseudo-state targeted by an
+  outer transition. The history node is NEVER occupiable — a transition
+  to `:hist` resolves to the compound's recorded direct child at runtime.
+  Uses the normalised `:deep? false` shape `rf/machine-meta` returns (an
+  absent `:deep?` reads as shallow per Spec 005; SCXML's `<history>`
+  always carries an explicit `type`, so the decode is `:deep? false`)."
+  {:initial :off
+   :states  {:off    {:on {:resume [:player :hist]}}
+             :player {:initial :stopped
+                      :states  {:stopped {:on {:play :playing}}
+                                :playing {:on {:stop :stopped}}
+                                :hist    {:type :history :deep? false}}
+                      :on      {:power-off :off}}}})
+
+(def deep-history-machine
+  "Compound with a DEEP history pseudo-state (`:deep? true`)."
+  {:initial :off
+   :states  {:off    {:on {:resume [:player :hist]}}
+             :player {:initial :stopped
+                      :states  {:stopped {:on {:play :playing}}
+                                :playing {:on {:stop :stopped}}
+                                :hist    {:type :history :deep? true}}
+                      :on      {:power-off :off}}}})
+
+(def default-target-history-machine
+  "History pseudo-state with an explicit `:default-target` (a sibling — a
+  direct child of the owning compound)."
+  {:initial :off
+   :states  {:off    {:on {:resume [:player :hist]}}
+             :player {:initial :stopped
+                      :states  {:stopped {:on {:play :playing}}
+                                :playing {:on {:stop :stopped}}
+                                :hist    {:type :history :deep? false
+                                          :default-target :playing}}
+                      :on      {:power-off :off}}}})
+
+(deftest history-exports-as-w3c-history-element
+  (testing "rf2-m285a — a SHALLOW history pseudo-state emits <history
+            type=\"shallow\">, NOT a <state>/<final>"
+    (let [xml (scxml/spec->scxml shallow-history-machine)]
+      (is (str/includes? xml "<history ")
+          "a <history> element is emitted")
+      (is (str/includes? xml "type=\"shallow\"")
+          "shallow history carries type=\"shallow\"")
+      ;; The history node id is the qualified path player___hist; assert it
+      ;; rides a <history>, never a <state>/<final> for that id.
+      (is (not (re-find #"<state id=\"player___hist\"" xml))
+          "the history node is NOT exported as an occupiable <state>")
+      (is (not (re-find #"<final id=\"player___hist\"" xml))
+          "the history node is NOT exported as a <final>")))
+
+  (testing "rf2-m285a — a DEEP history pseudo-state emits type=\"deep\""
+    (let [xml (scxml/spec->scxml deep-history-machine)]
+      (is (str/includes? xml "<history "))
+      (is (str/includes? xml "type=\"deep\""))))
+
+  (testing "rf2-m285a — a history :default-target rides a default
+            <transition target=...> inside the <history>"
+    (let [xml (scxml/spec->scxml default-target-history-machine)]
+      (is (str/includes? xml "<history "))
+      ;; the default-target :playing is a sibling — qualified id player___playing
+      (is (re-find #"<history[^>]*>\s*<transition target=\"player___playing\"/>" xml)
+          "the default transition targets the qualified default-target leaf"))))
+
+(deftest history-round-trips-to-type-history
+  (testing "rf2-m285a — a SHALLOW history pseudo-state round-trips to
+            `:type :history` (NOT an ordinary state)"
+    (let [back (-> shallow-history-machine scxml/spec->scxml scxml/scxml->spec)
+          hist (get-in back [:states :player :states :hist])]
+      (is (= :history (:type hist))
+          "the node decodes back to a :type :history pseudo-state")
+      (is (= false (:deep? hist))
+          "shallow ⇒ :deep? false")
+      (is (= shallow-history-machine back)
+          "exact value round-trip")))
+
+  (testing "rf2-m285a — a DEEP history pseudo-state round-trips with :deep? true"
+    (let [back (-> deep-history-machine scxml/spec->scxml scxml/scxml->spec)
+          hist (get-in back [:states :player :states :hist])]
+      (is (= :history (:type hist)))
+      (is (= true (:deep? hist)))
+      (is (= deep-history-machine back))))
+
+  (testing "rf2-m285a — a :default-target round-trips to its relative
+            (sibling-keyword) grammar form"
+    (let [back (-> default-target-history-machine scxml/spec->scxml scxml/scxml->spec)
+          hist (get-in back [:states :player :states :hist])]
+      (is (= :history (:type hist)))
+      (is (= :playing (:default-target hist))
+          "the default-target decodes back to the sibling keyword")
+      (is (= default-target-history-machine back))))
+
+  (testing "rf2-m285a — an absent `:deep?` exports as shallow and decodes to
+            the normalised `:deep? false` (Spec 005: absent ⇒ shallow)"
+    (let [spec {:initial :off
+                :states {:off    {:on {:resume [:player :hist]}}
+                         :player {:initial :stopped
+                                  :states  {:stopped {:on {:play :playing}}
+                                            :hist    {:type :history}}}}}
+          xml  (scxml/spec->scxml spec)
+          back (scxml/scxml->spec xml)
+          hist (get-in back [:states :player :states :hist])]
+      (is (str/includes? xml "type=\"shallow\"")
+          "an absent :deep? exports as type=\"shallow\"")
+      (is (= :history (:type hist)))
+      (is (= false (:deep? hist))
+          "decodes to the normalised :deep? false"))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-m285a — SCXML export tolerates INLINE-FN guard / action refs
+;; (lossy name/`fn` label), instead of crashing in keyword->id-string.
+
+(deftest inline-fn-guard-action-does-not-crash
+  (testing "rf2-m285a — a NAMED inline-fn guard exports as a lossy name
+            label without throwing (chart/Mermaid already tolerate it)"
+    (let [guard-fn (with-meta (fn [_] true) {:name 'ready?})
+          spec     {:initial :a
+                    :states  {:a {:on {:go {:target :b :guard guard-fn}}}
+                              :b {}}}
+          xml      (scxml/spec->scxml spec)]
+      (is (string? xml) "export succeeds (no ClassCastException)")
+      (is (str/includes? xml "cond=\"ready?\"")
+          "the named fn surfaces its :name meta as the cond label")))
+
+  (testing "rf2-m285a — an ANONYMOUS inline-fn guard exports as the stable
+            `fn` fallback label without throwing"
+    (let [spec {:initial :a
+                :states  {:a {:on {:go {:target :b :guard (fn [_] true)}}}
+                          :b {}}}
+          xml  (scxml/spec->scxml spec)]
+      (is (string? xml))
+      (is (str/includes? xml "cond=\"fn\"")
+          "an anonymous fn falls back to the opaque \"fn\" label")))
+
+  (testing "rf2-m285a — an inline-fn ACTION exports as a lossy label
+            (action comment) without throwing"
+    (let [action-fn (with-meta (fn [_] {}) {:name 'log!})
+          spec      {:initial :a
+                     :states  {:a {:on {:tick {:action action-fn}}}
+                               :b {}}}
+          xml       (scxml/spec->scxml spec)]
+      (is (string? xml))
+      (is (str/includes? xml "<!-- action: log! -->")
+          "the named fn action surfaces its name in the action comment")))
+
+  (testing "rf2-m285a — guard + action BOTH inline fns on one transition
+            export without throwing"
+    (let [spec {:initial :a
+                :states  {:a {:on {:go {:target :b
+                                        :guard  (fn [_] true)
+                                        :action (fn [_] {})}}}
+                          :b {}}}
+          xml  (scxml/spec->scxml spec)]
+      (is (string? xml))
+      (is (str/includes? xml "cond=\"fn\""))
+      (is (str/includes? xml "<!-- action: fn -->")))))

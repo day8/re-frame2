@@ -1046,11 +1046,15 @@ colour is subordinate to structure**.
   rotating border colour (the prior `region-boundary-palette` rotation is
   removed). Active / focus colour is reserved for runtime state.
 - **Pseudo-states**: initial markers are small **neutral** dots (not
-  accent-blue). A **history** pseudo-state renderer (shallow `H` / deep
-  `H*`, small symbolic node) is registered as a **hook** — the projector
-  emits no history node until parsed history-pseudo-state topology data
-  exists (this bead does not add statechart history semantics). See
-  [`001-Topology-Parity.md`](001-Topology-Parity.md) §History.
+  accent-blue). A **history** pseudo-state (shallow `H` / deep `H*`, small
+  symbolic node, never occupiable) is **wired end-to-end** (rf2-m285a):
+  `chart.layout` parses a `:type :history` node into a non-occupiable
+  `{:history? true :deep? …}` marker, `chart.projection` maps it to xyflow
+  `"history-marker"` + `:data {:deep …}`, and `chart.nodes/history-marker`
+  paints it. The SCXML / Mermaid emitters preserve the history semantics
+  (SCXML uses W3C `<history type="shallow|deep">` + the default
+  `<transition>`). See
+  [`001-Topology-Parity.md`](001-Topology-Parity.md) §1.4.
 - **Arrow/routing**: the two-edge event-node route reads as **one
   transition** — a quiet source→event segment (thinner stroke, small
   `:arrow-width-quiet` arrowhead, `:edge-quiet`) and a primary
@@ -1388,9 +1392,18 @@ encoder:
    the encoder rejects (with `:invalid-chart-state`) anything the decoder
    could not accept — e.g. a `:snapshot` `:state` that is none of the
    three configuration arms — rather than emitting an undecodable URL.
-2. Strips metadata off `:definition` (registered definitions carry
-   source-coord meta per Spec 001; that meta must not propagate
-   into the share payload).
+2. Strips metadata off `:definition` AND structurally sanitises it
+   (rf2-m285a). A macro-stamped spec (Spec 005 §Source-coord stamping)
+   co-locates `:source-coords` / `:source-code` + executable `:fn` values
+   as ordinary DATA inside `:states` / `:guards` / `:actions` /
+   `:on-spawn-actions` — NOT as metadata — so `strip-meta` alone never
+   reached them (a local-filesystem-path leak, and a live `:fn` would make
+   Transit encoding fail). `sanitise-definition` recursively drops the
+   `:source-coords` / `:source-code` debug fields and executable `:fn`
+   values, and replaces any inline-fn slot with a names-only opaque label,
+   so the payload is a viewer-safe topology with no source/paths/fns. The
+   topology references (state ids, transition targets, guard/action NAMES)
+   survive.
 3. Canonicalises map / set ordering (per
    [Principles §Reproducible from the registry alone](./Principles.md)).
 4. Wraps in the versioned envelope.
@@ -1762,6 +1775,7 @@ documenting comment and does **not** survive the parse back.
 | `:after {ms :target}`                 | `<transition event="after.ms" target="target"/>` |
 | `:always [...]`                       | `<transition target="..."/>` (eventless) |
 | `{:type :parallel :regions ...}`      | `<parallel>` containing region `<state>`s |
+| `{:type :history :deep? <b> :default-target <t>}` (rf2-m285a) | W3C `<history type="shallow\|deep">` inside the owning compound; a `:default-target` rides a default `<transition target="…"/>`. NEVER occupiable (a transition TO it resolves to the recorded/default leaf), so it emits `<history>`, never `<state>`/`<final>`. Round-trips back to `:type :history`. |
 | Namespaced ids (`:auth/login`)        | `auth__login` (hex-escaped; `__` separates ns from name) |
 | Multi-dot-ns ids (`:my.app/login`)    | `my_2eapp__login` (ns dots escaped to `_2e`) |
 | Vector-path targets (`[:parent :child]`) | `parent___child` (`___` joins path SEGMENTS) |
@@ -1814,7 +1828,12 @@ documenting comment and does **not** survive the parse back.
 - `:action`s and guard FN bodies — only the *names* survive
   (SCXML `cond="name"` for guards; entry/exit `<script>` would
   require evaluation context, so names are preserved as XML
-  comments on imports/exports).
+  comments on imports/exports). An INLINE-FN `:guard` / `:action`
+  (the Spec 005 escape hatch) is **lossy-not-crash** (rf2-m285a): the
+  exporter surfaces the fn's `:name` meta or a stable `"fn"` fallback
+  (consistent with the chart + Mermaid emitters, and the API promise
+  that fn bodies are lossy, NOT unsupported) — pre-fix it threw a
+  `ClassCastException` when passed to the keyword id codec.
 - Source-coord metadata — stripped at export time (same posture as
   share-URL encoding; see [Principles §No session data in shares](./Principles.md)).
 

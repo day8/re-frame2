@@ -207,6 +207,69 @@
           region (node-by-id graph (layout/region-node-id :audio))]
       (is (= "parallel-region" (:type region))))))
 
+;; ---- history pseudo-state projection (rf2-m285a) -----------------------
+
+(def shallow-history-machine
+  "rf2-m285a — a compound with a SHALLOW `:type :history` pseudo-state
+  targeted by an outer transition."
+  {:initial :off
+   :states  {:off    {:on {:resume [:player :hist]}}
+             :player {:initial :stopped
+                      :states  {:stopped {:on {:play :playing}}
+                                :playing {:on {:stop :stopped}}
+                                :hist    {:type :history :deep? false}}
+                      :on      {:power-off :off}}}})
+
+(def deep-history-machine
+  (assoc-in shallow-history-machine [:states :player :states :hist]
+            {:type :history :deep? true :default-target :playing}))
+
+(deftest xyflow-graph-history-node-type
+  (testing "rf2-m285a — a `:type :history` pseudo-state projects as a
+            `history-marker`-type node, NOT a `state`"
+    (let [parsed (layout/parse-definition shallow-history-machine)
+          graph  (projection/xyflow-graph parsed {} {})
+          hist   (node-by-id graph (layout/node-id [:player :hist]))]
+      (is (some? hist) "the history node is present in the projection")
+      (is (= "history-marker" (:type hist))
+          "it projects to the registered history-marker node-type")
+      (is (false? (:deep (:data hist)))
+          "shallow history threads :deep false to the renderer"))))
+
+(deftest xyflow-graph-deep-history-node
+  (testing "rf2-m285a — a DEEP history pseudo-state threads :deep true"
+    (let [parsed (layout/parse-definition deep-history-machine)
+          graph  (projection/xyflow-graph parsed {} {})
+          hist   (node-by-id graph (layout/node-id [:player :hist]))]
+      (is (= "history-marker" (:type hist)))
+      (is (true? (:deep (:data hist)))))))
+
+(deftest history-node-is-not-occupiable
+  (testing "rf2-m285a — a history pseudo-state is NEVER occupiable: not
+            initial / final / compound, and not an on-state-click target"
+    (let [parsed (layout/parse-definition shallow-history-machine)
+          ;; the parsed node (pre-projection) carries the pseudo-state flags
+          hist-n (first (filter #(= [:player :hist] (:path %)) (:nodes parsed)))]
+      (is (true? (:history? hist-n)))
+      (is (false? (:initial? hist-n)) "never initial")
+      (is (false? (:final? hist-n))   "never final")
+      (is (false? (:compound? hist-n)) "never compound"))
+    (let [graph (projection/xyflow-graph (layout/parse-definition shallow-history-machine) {} {})
+          hist  (node-by-id graph (layout/node-id [:player :hist]))]
+      (is (nil? (:onClick (:data hist)))
+          "a history marker carries no on-state-click handler"))))
+
+(deftest history-node-keeps-incoming-edge
+  (testing "rf2-m285a — a transition targeting the history pseudo-state keeps
+            its incoming edge (the marker is a legitimate transition target),
+            sourced from the off state's event node"
+    (let [parsed (layout/parse-definition shallow-history-machine)
+          ;; one parsed edge :resume from :off → [:player :hist]
+          resume (first (filter #(= [:player :hist] (:to-path %)) (:edges parsed)))]
+      (is (some? resume) "the :resume → :hist edge is projected")
+      (is (= (layout/node-id [:player :hist]) (:target resume))
+          "the edge target is the history marker's node id"))))
+
 ;; ---- error-final KIND threading + composition (rf2-b4loj) --------------
 ;;
 ;; An `:error?` final (Spec 005 §:final?) is a re-frame2 EXTENSION routing

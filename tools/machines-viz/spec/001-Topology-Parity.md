@@ -116,21 +116,25 @@ scoping + §3.1 G9).
   history pseudo-state node
   ([stately.ai/docs/parallel-states](https://stately.ai/docs/parallel-states) §history,
   [state-machines-and-statecharts](https://stately.ai/docs/state-machines-and-statecharts)).
-  **(re-frame2 has no `:history` in Spec 005 v1 — see §3 divergences.)**
-  **rf2-az6e2 — VISUAL HOOK ONLY.** The structured grammar defines how a
-  history pseudo-state *renders* (shallow `H` / deep `H*`, a small
-  symbolic node inside the owning compound at the same child level, NOT
-  a normal state box, with direct incoming transitions and no default
-  fallback edge unless the topology explicitly carries one). The
-  renderer (`chart.nodes/history-marker`) is registered in the
-  node-types map, but `chart.layout/parse-definition` emits **no**
-  history pseudo-state node today (the parsed node shape carries no
-  `:history` data), so the projector never produces one. This bead adds
-  the VISUAL rendering for parsed pseudo-state data that already exists —
-  it does **not** add statechart history semantics. When Spec 005 history
-  semantics + the parse land, flip the projector to emit a
-  `{:type "history-marker" :data {:deep? …}}` node and `history-marker`
-  paints it; file the follow-on render-wiring bead then.
+  **re-frame2 has FIRST-CLASS history** — a `:type :history` pseudo-state
+  (shallow / deep / `:default-target`) declared under a compound's
+  `:states` ([Spec 005 §History states](../../../spec/005-StateMachines.md)).
+  **rf2-m285a — WIRED END-TO-END.** A history pseudo-state renders as a
+  small symbolic node inside the owning compound at the same child level
+  (shallow `H` / deep `H*`), NOT a normal state box, with direct incoming
+  transitions and no default fallback edge unless the topology explicitly
+  carries a `:default-target`. The pipeline:
+  - **Parse** (`chart.layout/collect-nodes`) — detects `:type :history`
+    and emits a single `{:history? true :deep? <bool> :default-target …}`
+    node that is NEVER occupiable (not initial / final / compound,
+    declares no transitions; the machine's `:state` is never `[… :hist]`).
+  - **Projection** (`chart.projection/xyflow-graph`) — maps a `:history?`
+    node to xyflow type `"history-marker"` and threads `:data {:deep …}`;
+    it carries no `:onClick` (not an on-state-click target — never
+    occupied). The renderer `chart.nodes/history-marker` paints `H` / `H*`.
+  - Incoming `:target :hist` edges are preserved (a history pseudo-state
+    is a legitimate transition target; at runtime it resolves to the
+    compound's recorded / default leaf configuration).
 
 > **rf2-az6e2 final-state glyph decision.** The final-state marker is the
 > quiet **doubled border** (the UML/SCXML convention) — the previously-
@@ -392,7 +396,7 @@ fill), and colours resolved through the active-theme **chart-tokens**
 | **Final state (success)** | **quiet doubled** border (outer ring proud of corner). **No glyph** (rf2-az6e2 dropped the ✓) | *outer ring in the resting/runtime border colour* |
 | **Final state (error — `:error?`)** | doubled border whose **outer ring is the error hue** (rf2-b4loj — re-frame2 clarity, the terminal routes the parent's `:on-error`; NOT XState/Stately parity). Main border stays runtime-driven so an active error-final composes both | *outer ring in `:final-error` (theme `:error`); main border unchanged* |
 | **Initial marker** | small **neutral** filled dot + unlabelled arrow into the initial state, at every compound level (NOT accent-blue) | *`:pseudo-marker` dot* |
-| **History pseudo-state (HOOK)** | small symbolic node — shallow `H` / deep `H*` — inside the owning compound; NOT a state box. **Renderer registered as a hook; projector emits none until parsed history topology exists** (this bead adds no statechart history semantics) | *`history-marker` node-type registered; `:pseudo-*` constants carry the variant* |
+| **History pseudo-state** | small symbolic node — shallow `H` / deep `H*` — inside the owning compound; NOT a state box, never occupiable, keeps incoming `:target :hist` edges. **WIRED end-to-end (rf2-m285a):** `chart.layout` parses `:type :history` → `{:history? true :deep? …}`; `chart.projection` maps it to xyflow `"history-marker"` + `:data {:deep …}`; `chart.nodes/history-marker` paints `H` / `H*` | *`history-marker` node-type emitted by the projector; `:pseudo-*` constants carry the variant* |
 | **Compound container** | **solid subtle-neutral** box + full-width title strip; NO dashed border, NO accent wash by default | *`:container-body-bg` fill, `:container-border` solid, `:container-header-bg` strip* |
 | **Parallel region container** | **dashed neutral** boundary + full-width region title strip + subtle `∥` glyph + uppercased label. Region identity from **containment/layout**, NOT a rotating border colour | *`:region-border` dashed (same for every region — rotation removed)* |
 | **Parallel region (ACTIVE) — G1/G4** | region boundary firms to **solid** + header carries an **active affordance**; **every** active leaf inside lights **simultaneously** | ✅ shipped (rf2-80rm2 / rf2-az6e2): solid `:active` boundary + `:active-wash` header + `:glow` ring |
@@ -584,6 +588,7 @@ SCXML codec round-trips it faithfully, and the mermaid id is injective.
 | F5 | **rf2-mnp93.4** ✅ — `fix(machines-viz): surface internal action-only :on/:after/:always consistently across chart + mermaid + scxml` | new | isolated (`chart/layout.cljc`, `mermaid.cljc` + JVM/CLJS tests + this doc) | **G9 faithfulness — generalised from `:on-done` (F2) to the ordinary internal transition.** An INTERNAL (action-only, no-`:target`) `:on` / `:after` / `:always` candidate was projected INCONSISTENTLY: the CHART charted internal `:on` (self-anchored, `:internal?`) but SILENTLY DROPPED internal `:after` / `:always` (the `resolve-target-path` inside `keep` returned nil for a target-less candidate — inconsistent even WITHIN the chart); MERMAID dropped ALL three; SCXML kept all three. Three emitters, three projections of one machine. Fix: `chart/layout.cljc`'s `:after` / `:always` branches now detect the target-less candidate and self-anchor it (`:internal? true`), matching the `:on` branch; `mermaid.cljc` renders each internal candidate as a `note right of <state>` line (`<descriptor> [guard] / <action>`) — the SAME action-only-note affordance F2 introduced for `:on-done`. SCXML was already faithful. A new `cross_emitter_agreement_cljs_test` pins the three-emitter count agreement (chart 3 / mermaid 3 / scxml 3 for the bead repro). |
 | F6 | **rf2-mnp93.5** ✅ — `fix(machines-viz): SCXML round-trips an internal action transition (not a forbidden block)` | new | isolated (`scxml.cljc` + JVM/CLJS tests + this doc) | **SCXML round-trip semantic inversion.** An internal action `:on {:tick {:action :log}}` emitted `<transition event="tick"><!-- action: log --></transition>`; the decoder's `strip-comments` discarded the action comment BEFORE tokenizing, so the candidate decoded to the EMPTY map `{}` — which Spec 005 §Forbidden transitions defines as a FORBIDDEN BLOCK (consume-the-event-and-block-inheritance). 'Run an action' → 'block the event entirely' is a SEMANTIC INVERSION, not lossy detail. Fix: a `lift-action-comments` pre-pass folds each `<!-- action: NAME -->` into a synthetic `data_rf_action` attribute on its own `<transition>` BEFORE comments are stripped, and the decoder recovers it into the candidate's `:action`. An internal action transition now round-trips as `{:action :log}` — a VALID Spec-005 internal action transition (the distinguishing feature is the PRESENCE of `:action`, Spec 005 §Forbidden L1346). A genuine `{}` forbidden block still round-trips to `{}` (the lift-pass only recovers a PRESENT action). |
 | F7 | **rf2-mnp93.6** ✅ — `fix(machines-viz): mermaid sanitise-id is injective` | new | isolated (`mermaid.cljc` + JVM/CLJS tests + this doc) | **Mermaid node-id collision.** `sanitise-id` mapped every non-`[a-zA-Z0-9_]` char to `_`, so `:a/b`, `:a-b`, and `:a_b` all collapsed to `a_b`: two distinct states became ONE Mermaid node, mis-wiring every edge to/from either (hyphens are pervasive in re-frame keywords). The SAME collision class the chart's `node-id` was fixed for in rf2-ee38b.21. Fix: port the chart's injective hex-escape scheme (`:a/b` → `a_2fb`, `:a-b` → `a_2db`, `:a_b` → `a_5fb`; `/` ns/name marker → `_2f`, `__` path separator) into `sanitise-id`, so distinct keywords map to distinct mermaid nodes AND the chart + mermaid emitters mint the SAME id for the same path (a tool reading both addresses every node identically). Mermaid node-ids are internal — the visible label comes from `render-state-alias` — so the injective encoding costs no legibility. |
+| F8 | **rf2-m285a** ✅ — `fix(machines-viz): history pseudo-states + SCXML inline-fn refs + parity` | new | isolated (`chart/layout.cljc`, `chart/projection.cljc`, `mermaid.cljc`, `scxml.cljc`, `share.cljs` + JVM/CLJS tests + this doc) | **History pseudo-states were parsed/exported as ordinary occupiable states** — `collect-nodes` made a normal node, projection fell through to xyflow `"state"`, mermaid emitted a bare leaf id, SCXML emitted `<state>`/`<final>` (never `<history>`). This contradicted Spec 005 (history = pseudo-state, never active; a transition to `:hist` resolves to the recorded/default leaf) and lost XState-v5/SCXML history parity. Fix: detect `:type :history` at parse → non-occupiable `{:history? true :deep? … :default-target …}` marker (the `chart.nodes/history-marker` HOOK becomes a live projector path → xyflow `"history-marker"`); mermaid declares a labelled `H` / `H*` marker + a `%% default-target` note; SCXML export/import preserve W3C `<history type="shallow|deep">` + the default `<transition>` and round-trip back to `:type :history`. **Also (F8b)** SCXML export crashed (`ClassCastException`) on an inline-fn `:guard`/`:action` (it passed the fn to `keyword->id-string`); a new `ref->label` tolerates fn refs as opaque/lossy labels (consistent with chart/mermaid + the API promise that fn bodies are lossy, not unsupported). **And (F8c)** the share encoder leaked macro-stamped `:source-coords`/`:source-code` + executable `:fn` DATA (which `strip-meta` — metadata only — never reached); `sanitise-definition` strips them structurally before Transit. |
 
 > **Sibling note (rf2-wnzha — same review pass, NOT a parity row):**
 > parallel regions sharing a state NAME minted COLLIDING node-ids (the
@@ -617,8 +622,10 @@ SCXML codec round-trips it faithfully, and the mermaid id is injective.
 > includes the `:on-done` / XState `onDone` completion transition — rf2-41goo
 > / G9 — AND the ordinary INTERNAL action-only `:on` / `:after` / `:always`
 > transition surfaced consistently across all three emitters — rf2-mnp93.4)
-> except the three **intentional divergences** (no code↔diagram sync,
-> trace-driven not sandbox sim, no history pseudo-states) — and remains
+> except the two **intentional divergences** (no code↔diagram sync,
+> trace-driven not sandbox sim) — history pseudo-states are now
+> FIRST-CLASS (rf2-m285a — Spec 005 §History states; §1.4) and no longer
+> a divergence — and remains
 > **above** the bar on the re-frame2-native overlays (`:after` rings,
 > microstep replay, `:spawn-all` join, cancellation cascade). The three
 > emitters agree on internal-transition projection (rf2-mnp93.4), the SCXML
@@ -641,7 +648,8 @@ SCXML codec round-trips it faithfully, and the mermaid id is injective.
 - [`spec/005-StateMachines.md`](../../../spec/005-StateMachines.md) —
   the machine model: compound paths, parallel region-map `:state`,
   microsteps, LCA cascade, self-transitions, `:spawn-all`, final
-  states; **no `:history` in v1**.
+  states; **first-class `:type :history` pseudo-states** (shallow / deep
+  / `:default-target` — §History states).
 - [`spec/009-Instrumentation.md`](../../../spec/009-Instrumentation.md)
   — the `:rf.machine/*` trace vocab the trace-driven highlight + fired-
   edge mapping consume.

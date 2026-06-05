@@ -716,6 +716,19 @@
                                    ;; chip class rf2-34ff3 fixed for the
                                    ;; machine-root + region containers.
                                    (:parallel-root? n) "machine-root"
+                                   ;; rf2-m285a — a `:type :history`
+                                   ;; PSEUDO-STATE (Spec 005 §History states)
+                                   ;; is NEVER occupiable: it is a transition
+                                   ;; target that resolves to the compound's
+                                   ;; recorded / default leaf, so the machine
+                                   ;; never sits in `[… :hist]`. Paint it as
+                                   ;; the small `history-marker` glyph (`H` /
+                                   ;; `H*`) inside its owning compound — NOT a
+                                   ;; clickable state box. The renderer
+                                   ;; (`chart.nodes/history-marker`) was a
+                                   ;; registered HOOK; this is the projector
+                                   ;; path that finally emits it.
+                                   (:history? n)  "history-marker"
                                    region?        "parallel-region"
                                    (:compound? n) "compound"
                                    :else          "state")
@@ -763,6 +776,13 @@
                                           ;; the state declares none.
                                           :entry          (:entry n)
                                           :exit           (:exit n)
+                                          ;; rf2-m285a — a `:type :history`
+                                          ;; pseudo-state's variant. The
+                                          ;; `history-marker` renderer reads
+                                          ;; `(.-deep props)`: deep history
+                                          ;; paints `H*`, shallow `H`
+                                          ;; (Spec 005 §History states).
+                                          :deep           (boolean (:deep? n))
                                           :chart          chart
                                           :palette        ct}
                                    ;; rf2-34ff3 — `:onClick` (on-state-click)
@@ -781,8 +801,15 @@
                                    ;; they carry no `:onClick` the renderer
                                    ;; would never consume — the inverse of the
                                    ;; original half-wired bug.
+                                   ;; rf2-m285a — a `:type :history`
+                                   ;; pseudo-state is also NOT an
+                                   ;; on-state-click target: it is never
+                                   ;; occupied, so there is no state to select
+                                   ;; (same inert-synthetic-chip posture as the
+                                   ;; machine-root / parallel-root anchors).
                                    (not (or (:machine-root? n)
                                             (:parallel-root? n)
+                                            (:history? n)
                                             region?))
                                    (assoc :onClick on-state-click)
 

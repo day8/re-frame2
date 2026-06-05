@@ -418,9 +418,14 @@ tool, then map, then name where we diverge):
   replay are driven by the Spec 009 `:rf.machine/*` trace bus
   in-process, not by a standalone interpreter sandbox (see
   §Active-state highlighting transport).
-- **No history pseudo-states.** Spec 005 omits `:history` in v1, so
-  the chart has no history-node glyph; XState / SCXML history nodes
-  have no re-frame2 analogue to render.
+- **First-class history pseudo-states (rf2-m285a — no longer a
+  divergence).** Spec 005 has first-class `:type :history` pseudo-states
+  (shallow / deep / `:default-target` — §History states). The chart
+  parses them into non-occupiable history markers (`H` / `H*`), the
+  Mermaid + SCXML emitters preserve the history semantics (SCXML uses the
+  W3C `<history type=...>` element + default transition), and the share
+  payload carries them as topology. See
+  [`001-Topology-Parity.md`](001-Topology-Parity.md) §1.4.
 - **re-frame2-native overlays.** `:after` countdown rings,
   microstep replay, `:spawn-all` join visualisation, and the
   cancellation cascade are projections of re-frame2 substrate

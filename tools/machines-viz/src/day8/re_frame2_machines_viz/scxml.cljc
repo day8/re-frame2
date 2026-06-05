@@ -45,6 +45,7 @@
   | `:after {ms :target}`                 | `<transition event=\"after.ms\" target=\"target\"/>` |
   | `:always [...]`                       | `<transition target=\"...\"/>` (eventless) |
   | `{:type :parallel :regions ...}`      | `<parallel>` containing region `<state>`s |
+  | `{:type :history :deep? <b> :default-target <t>}` (rf2-m285a) | W3C `<history type=\"shallow\\|deep\">` inside the owning compound; a `:default-target` rides a default `<transition target=\"…\"/>`. Round-trips back to `:type :history`. A history pseudo-state is NEVER occupiable — it is a transition TARGET that resolves to the recorded/default leaf — so it emits `<history>`, never `<state>`/`<final>`. |
   | Namespaced ids (`:auth/login`)        | `auth__login` (hex-escaped; `__` separates ns/name) |
   | Multi-dot-ns ids (`:my.app/login`)    | `my_2eapp__login` (dots in the ns are escaped to `_2e`) |
   | Vector-path targets (`[:parent :child]`) | `parent___child` (`___` joins path segments) |
@@ -83,7 +84,12 @@
   - `:action`s and guard FN bodies — only the *names* survive (SCXML
     `cond=\"name\"` for guards; a transition `:action` name rides an
     `<!-- action: name -->` comment, the only SCXML-tolerable slot, since
-    SCXML proper has no transition-action-id attribute). The action name
+    SCXML proper has no transition-action-id attribute). An INLINE-FN
+    `:guard` / `:action` (the Spec 005 escape hatch) is LOSSY-not-crash
+    (rf2-m285a): `ref->label` surfaces the fn's `:name` meta or a stable
+    `\"fn\"` fallback (consistent with chart/Mermaid; matches the API
+    promise that fn bodies are lossy, not unsupported) — it does NOT
+    round-trip back to the original fn. The action name
     **round-trips** (rf2-mnp93.5): `scxml->spec` lifts the action comment
     back into the candidate's `:action` BEFORE comments are stripped, so an
     internal `:on {:tick {:action :log}}` returns `{:action :log}` — a valid
@@ -198,6 +204,29 @@
     (str (escape-id-segment ns) ns-name-sep (escape-id-segment (name k)))
     (escape-id-segment (name k))))
 
+(defn- ref->label
+  "rf2-m285a — render a transition `:guard` / `:action` REF as an SCXML
+  attribute label, tolerating inline fns the SAME way `chart/layout` +
+  `mermaid` already do.
+
+  A keyword ref keeps the injective, round-tripping `keyword->id-string`
+  codec (the supported subset). An INLINE FN ref is LOSSY by design — the
+  machine grammar permits `:guard (fn …)` / `:action (fn …)` (Spec 005
+  §Guards / §Actions), and the API promise is that fn BODIES are
+  lossy/opaque, NOT unsupported. Pre-fix, `spec->scxml` passed the fn
+  straight to `keyword->id-string`, which calls `(namespace f)` on it and
+  throws a `ClassCastException` — crashing SCXML export for a valid
+  machine. We instead surface the fn's `:name` meta (a named
+  `(fn name […] …)` / `defn`) or a stable `\"fn\"` fallback, mirroring
+  `chart/layout/name-of`. No attempt is made to serialise the executable
+  body."
+  [ref]
+  (cond
+    (keyword? ref) (keyword->id-string ref)
+    (fn? ref)      (or (some-> ref meta :name str) "fn")
+    (nil? ref)     nil
+    :else          (str ref)))
+
 (defn- path->id-string
   "Map a re-frame2 id (keyword or vector path) to a single SCXML id
   string. A keyword uses `keyword->id-string`; a vector path joins its
@@ -274,6 +303,16 @@
   [v]
   (and (vector? v) (seq v) (every? keyword? v)))
 
+(defn- history-node?
+  "rf2-m285a — true when a node under a compound's `:states` is a
+  `:type :history` PSEUDO-STATE (Spec 005 §History states). W3C SCXML has
+  a first-class `<history>` element; pre-fix `emit-state` emitted a
+  `<state>` / `<final>` for it (losing the history semantics on export
+  AND making round-trip produce a DIFFERENT machine)."
+  [state-node]
+  (and (map? state-node)
+       (= :history (:type state-node))))
+
 (defn- parent-path [path] (if (seq path) (pop path) []))
 
 (defn- resolve-target-path
@@ -303,14 +342,18 @@
         parts (cond-> []
                 event-name (conj (str "event=\"" (escape-xml-attr event-name) "\""))
                 target-id  (conj (str "target=\"" (escape-xml-attr target-id) "\""))
-                guard      (conj (str "cond=\"" (escape-xml-attr (keyword->id-string guard)) "\"")))
+                ;; rf2-m285a — `ref->label` tolerates an inline-fn guard
+                ;; (lossy name/`fn` label) instead of crashing in
+                ;; `keyword->id-string` on a non-keyword.
+                guard      (conj (str "cond=\"" (escape-xml-attr (ref->label guard)) "\"")))
         attrs (str/join " " parts)
         self-close? (nil? action)]
     (str (indent-str depth)
          (if self-close?
            (str "<transition " attrs "/>")
            (str "<transition " attrs ">"
-                "<!-- action: " (escape-xml-attr (keyword->id-string action)) " -->"
+                ;; rf2-m285a — likewise tolerate an inline-fn action.
+                "<!-- action: " (escape-xml-attr (ref->label action)) " -->"
                 "</transition>")))))
 
 (defn- emit-transitions-for-on
@@ -350,10 +393,42 @@
   (->> (transition-candidates on-done)
        (map #(emit-transition done-event % source-path depth))))
 
+(defn- emit-history
+  "rf2-m285a — emit a W3C SCXML `<history>` pseudo-state element for a
+  re-frame2 `:type :history` node (Spec 005 §History states). `path` is
+  the history node's absolute path (its unique xsd:ID).
+
+  W3C SCXML §3.10: `<history type=\"shallow|deep\">` carries an OPTIONAL
+  default `<transition target=\"…\"/>` used when the parent has no stored
+  configuration — the exact semantics of re-frame2's `:default-target`
+  (Spec 005: the target when the compound was never entered). A `:deep?
+  true` node emits `type=\"deep\"`; shallow / absent emits
+  `type=\"shallow\"`. The `:default-target` resolves relative to the
+  history node's own level (a keyword target is a sibling — i.e. a direct
+  child of the owning compound — per Spec 005), path-qualified to the
+  destination's unique id (rf2-mnp93.7), and round-trips back via
+  `decode-target`."
+  [path {:keys [deep? default-target]} depth]
+  (let [id-str    (qualified-id path)
+        type-str  (if deep? "deep" "shallow")
+        attrs     (str "id=\"" (escape-xml-attr id-str) "\""
+                       " type=\"" type-str "\"")
+        target-id (when default-target
+                    (qualified-id (resolve-target-path path default-target)))]
+    (if target-id
+      [(str (indent-str depth) "<history " attrs ">")
+       (str (indent-str (inc depth))
+            "<transition target=\"" (escape-xml-attr target-id) "\"/>")
+       (str (indent-str depth) "</history>")]
+      [(str (indent-str depth) "<history " attrs "/>")])))
+
 (defn- emit-state
   "Emit a `<state>` (or `<final>`) block for one state-node. `path` is
   the absolute path (root → this state) used to emit unique xsd:IDs and
-  to qualify transition targets (rf2-mnp93.7)."
+  to qualify transition targets (rf2-mnp93.7).
+
+  rf2-m285a — a `:type :history` child of this state is emitted as a W3C
+  `<history>` element (`emit-history`), NOT a nested `<state>`."
   [path state-node depth]
   (let [{:keys [final? initial states on after always on-done]} state-node
         id-str (qualified-id path)
@@ -374,7 +449,11 @@
             (emit-transitions-for-on-done (str "done.state." id-str)
                                           on-done path (inc depth)))
           (mapcat (fn [[child-id child-node]]
-                    (emit-state (conj (vec path) child-id) child-node (inc depth)))
+                    ;; rf2-m285a — a `:type :history` child is a W3C
+                    ;; `<history>` pseudo-state, not a nested `<state>`.
+                    (if (history-node? child-node)
+                      (emit-history (conj (vec path) child-id) child-node (inc depth))
+                      (emit-state (conj (vec path) child-id) child-node (inc depth))))
                   states))]
     (if (seq children)
       (concat [(str (indent-str depth) "<" tag " " attrs ">")]
@@ -900,6 +979,30 @@
           :else
           (recur (rest remaining) acc))))))
 
+(defn- parse-history-block
+  "rf2-m285a — parse a W3C SCXML `<history>` pseudo-state element back into
+  a re-frame2 `[state-id {:type :history …}]` node (Spec 005 §History
+  states). `type=\"deep\"` ⇒ `:deep? true`; `type=\"shallow\"` (or absent)
+  ⇒ `:deep? false`. An OPTIONAL child default `<transition target=\"…\"/>`
+  (W3C SCXML §3.10) round-trips to `:default-target`, decoded back to its
+  relative grammar form (sibling keyword / absolute vector) via
+  `decode-target` — the exact inverse of `emit-history`."
+  [{:keys [start body self?]}]
+  (let [attrs      (:attrs start)
+        id-str     (get attrs "id")
+        abs-path   (id-string->abs-path id-str)
+        state-id   (abs-path->local-key abs-path)
+        deep?      (= "deep" (get attrs "type"))
+        ;; The default transition is the SINGLE direct-child <transition>
+        ;; of the <history> element (target-only — no event / guard).
+        default-tt (when-not self?
+                     (let [t (->> (direct-transitions body)
+                                  (some #(get-in % [:attrs "target"])))]
+                       (when t (decode-target t abs-path))))
+        node (cond-> {:type :history :deep? deep?}
+               (some? default-tt) (assoc :default-target default-tt))]
+    [state-id node]))
+
 (defn- parse-state-block
   "Parse one `<state>` / `<final>` block into a `[state-id state-node]`
   pair. `self?` indicates a self-closing tag with no children.
@@ -907,9 +1010,14 @@
   rf2-mnp93.7 — `id` is a FULLY-QUALIFIED unique xsd:ID (the state's
   absolute path). The LOCAL `:states` key is its last segment; the
   state's absolute path is threaded down so child transitions decode
-  their qualified targets back to the relative grammar form."
-  [{:keys [start body self?]}]
-  (let [tag        (:tag start)
+  their qualified targets back to the relative grammar form.
+
+  rf2-m285a — a `<history>` pseudo-state child is routed to
+  `parse-history-block` (it is `:type :history`, not an ordinary state)."
+  [{:keys [start body self?] :as block}]
+  (if (= "history" (:tag start))
+    (parse-history-block block)
+   (let [tag        (:tag start)
         attrs      (:attrs start)
         id-str     (get attrs "id")
         initial-str (get attrs "initial")
@@ -940,7 +1048,7 @@
                    ;; `seq`-test; use the key's presence).
                    (contains? consumed :on-done) (assoc :on-done (:on-done consumed))
                    (seq child-states) (assoc :states child-states))]
-        [state-id node]))))
+        [state-id node])))))
 
 (defn- parse-parallel-body
   "Parse the children of a `<parallel>` element into a `:regions`

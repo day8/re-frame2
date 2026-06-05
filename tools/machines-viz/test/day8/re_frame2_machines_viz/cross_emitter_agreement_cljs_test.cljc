@@ -206,3 +206,50 @@
       (is (str/includes? out (str "start --> " (layout/node-id [:a/b])  " : one")))
       (is (str/includes? out (str "start --> " (layout/node-id [:a-b])  " : two")))
       (is (str/includes? out (str "start --> " (layout/node-id [:a_b])  " : three"))))))
+
+;; ---------------------------------------------------------------------------
+;; G9 — history pseudo-states agree across the three emitters (rf2-m285a).
+;; A `:type :history` node must surface as a HISTORY pseudo-state in every
+;; emitter (NOT an ordinary occupiable state): chart → `history-marker` node,
+;; mermaid → labelled `H`/`H*` marker, SCXML → `<history>` element. Pre-fix all
+;; three rendered it as a normal state/edge — three emitters mis-teaching the
+;; same topology.
+
+(def deep-history-machine
+  {:initial :off
+   :states  {:off    {:on {:resume [:player :hist]}}
+             :player {:initial :stopped
+                      :states  {:stopped {:on {:play :playing}}
+                                :playing {:on {:stop :stopped}}
+                                :hist    {:type :history :deep? true}}
+                      :on      {:power-off :off}}}})
+
+(deftest history-pseudo-state-agrees-across-emitters
+  (testing "rf2-m285a — a `:type :history` node surfaces as a history
+            pseudo-state in chart, mermaid, AND SCXML (never an ordinary
+            occupiable state)"
+    ;; CHART — a `history-marker`-flagged, non-occupiable node.
+    (let [hist (->> (layout/parse-definition deep-history-machine)
+                    :nodes
+                    (filter #(= [:player :hist] (:path %)))
+                    first)]
+      (is (true? (:history? hist)) "chart parses it as a history pseudo-state")
+      (is (true? (:deep? hist))    "deep variant preserved")
+      (is (false? (:final? hist))  "never final")
+      (is (false? (:compound? hist)) "never compound"))
+    ;; MERMAID — labelled H* marker, not a bare leaf id / final edge.
+    (let [out (mermaid/emit deep-history-machine {:fenced? false :header-comment? false})]
+      (is (str/includes? out "state \"H*\" as player__hist")
+          "mermaid declares the deep-history H* marker")
+      (is (not (str/includes? out "player__hist --> [*]"))
+          "mermaid does not render it as a final state"))
+    ;; SCXML — a <history type="deep"> element, not <state>/<final>.
+    (let [out (scxml/spec->scxml deep-history-machine)]
+      (is (str/includes? out "<history ") "scxml emits a <history> element")
+      (is (str/includes? out "type=\"deep\"") "deep variant preserved")
+      (is (not (re-find #"<state id=\"player___hist\"" out))
+          "scxml does NOT emit it as an occupiable <state>"))
+    ;; SCXML round-trips back to `:type :history` (not a state).
+    (let [back (-> deep-history-machine scxml/spec->scxml scxml/scxml->spec)]
+      (is (= :history (get-in back [:states :player :states :hist :type]))
+          "round-trips back to a :type :history pseudo-state"))))
