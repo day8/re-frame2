@@ -602,7 +602,7 @@ re-frame2 has three orthogonal configuration surfaces. The user-facing question 
 For knobs that apply globally to the framework runtime, are addressed by a **keyword** (no impl-reference required), and whose values are plain data (numbers, booleans, small maps). The full key vocabulary is enumerated at [API.md §Configure keys](API.md#configure-keys) and is fixed-and-additive.
 
 - `(rf/configure! :epoch-history {:depth 50})` — ring-buffer depth for the Tool-Pair epoch surface
-- `(rf/configure! :trace-buffer {:depth 200})` — ring-buffer depth for trace events
+- `(rf/configure! :trace-buffer {:cascades-retained 200})` — retained cascade-slot count for trace events
 - `(rf/configure! :elision {:rf.size/threshold-bytes 16384})` — wire-elision size threshold
 
 The opts-map sub-keys mix two shapes deliberately: cross-surface policy slots use a namespaced keyword under the area's reserved `:rf.<area>/*` sub-namespace (e.g. `:rf.size/threshold-bytes` — the same key the wire-elision walker reads); one-off per-knob settings stay bare (e.g. `:depth`, `:grace-period-ms`). The rule is closed and the discriminator is **whether the sub-key names a cross-spec policy slot or a one-off knob** — full statement at [API.md §Configure keys — Opts-key naming rule](API.md#opts-key-naming-rule).
