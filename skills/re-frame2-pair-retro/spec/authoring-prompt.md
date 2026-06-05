@@ -56,7 +56,7 @@ A self-contained prompt that re-authors the `re-frame2-pair-retro` skill from th
 > *3. **Default to diagnosis, not contribution.** Do not assume the user wants to file a GitHub issue.*
 > *4. **Never file a GitHub issue or edit another repo without explicit user approval.***
 > *5. **No re-frame-10x routing.** Time-travel + trace consumption ride on re-frame2's native Tool-Pair surfaces.*
-> *6. **If the best fix is upstream in `re-frame2`, say so.** File against the right repo.*
+> *6. **If the best fix is upstream in the framework, say so.** All issues file against `day8/re-frame2`; carry the `pair-mcp` label for tool-side friction, no label for upstream framework friction.*
 >
 > *Output format the skill produces (compact retrospective):*
 >
@@ -72,7 +72,7 @@ A self-contained prompt that re-authors the `re-frame2-pair-retro` skill from th
 >
 > *- **L1 — No re-frame-10x routing.** Cardinal anti-pattern.*
 > *- **L2 — Never file a GitHub issue without explicit user approval.** Cardinal guard-rail.*
-> *- **L3 — Route the fix to the right repo.** `re-frame2-pair` for tool changes; `re-frame2` for upstream contract changes. Skills file GitHub issues against the target repo — `bd` (beads) is the re-frame2 monorepo's internal tracker and is never invoked from a published skill.*
+> *- **L3 — Route the fix to the right layer.** Both kinds of friction file against `day8/re-frame2` (the monorepo that ships the pair tool), distinguished by label: tool changes carry `--label pair-mcp`; upstream contract changes carry no `pair-mcp` label. There is no separate `re-frame2-pair` repo. Skills file GitHub issues against that repo — `bd` (beads) is the re-frame2 monorepo's internal tracker and is never invoked from a published skill.*
 > *- **L10 — No internal `bd`/`rf2-XXXX` ids in user-facing skill content.***
 > *- **L11 — Findings stay local.** Don't commit `ai/` or `findings/`.*
 > *- **L12 — Redact secrets before filing.** GitHub-issue drafts strip secrets, tokens, internal URLs, unnecessary local paths. The body is composed to a file with the `Write` tool and passed via `--body-file` (`gh issue create --body-file /tmp/issue-body.md`), never inline interpolation of transcript-derived text.*

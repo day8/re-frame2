@@ -6,7 +6,7 @@ The design rationale and locked decisions for the `re-frame2-pair-retro` skill. 
 
 ## 1. Goal
 
-Help a user **retrospect on a re-frame2-pair session** and turn it into a structured product retrospective. The output is a friction analysis, a classification of root causes, and 2-5 concrete improvement ideas — optionally accompanied by a draft GitHub issue the user can file against `re-frame2-pair` (or `re-frame2` itself, if the root cause is upstream).
+Help a user **retrospect on a re-frame2-pair session** and turn it into a structured product retrospective. The output is a friction analysis, a classification of root causes, and 2-5 concrete improvement ideas — optionally accompanied by a draft GitHub issue the user can file against `day8/re-frame2` (the monorepo that ships the pair tool alongside the framework), labelled `pair-mcp` for tool-side friction and unlabelled for upstream framework friction.
 
 The skill's success criterion: after a session with `re-frame2-pair`, the user invokes this skill and walks away with a clear list of friction points, a credible classification of each, and prioritised improvement ideas — with no speculative GitHub issues filed without explicit approval.
 
@@ -99,7 +99,7 @@ GitHub-issue drafts redact secrets, tokens, internal URLs, and unnecessary local
 - Users finishing a `re-frame2-pair` session who want a structured retrospective.
 - Friction analysis: direct (user complaints) + indirect (repeated commands, fallback to lower-level tools, manual reconstruction).
 - Classification across the nine lenses in `references/analysis-lenses.md`.
-- Drafting GitHub issues against `re-frame2-pair` (tool changes) or `re-frame2` (upstream contract changes).
+- Drafting GitHub issues against `day8/re-frame2`, distinguished by label: `pair-mcp` for tool changes; no label for upstream contract changes.
 - Spotting recurring patterns via `references/known-frictions.md`.
 
 ### Out of scope
