@@ -14,7 +14,9 @@
   (rf/dispatch [:counter/increment])
   (rf/dispatch [:counter/increment])
 
-  ;; Read the current value out of the default frame.
+  ;; Obtain the subscription ref for the default frame. `subscribe`
+  ;; returns a reactive ref — deref it (`@…`) to read the current
+  ;; value, as the `with-frame` block below does.
   (rf/subscribe [:counter/value])
 
   ;; Run a scratch experiment against a throw-away frame — leaves

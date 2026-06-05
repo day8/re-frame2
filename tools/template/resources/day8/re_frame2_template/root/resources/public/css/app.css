@@ -1,12 +1,19 @@
 /* {{name}} — minimal stylesheet.
  *
- * Three rules. Plain CSS — no Tailwind, no garden, no spade. Replace
- * or extend as your app grows; or swap to Tailwind via :css :tailwind
- * when that template flag lands. */
+ * A handful of rules. Plain CSS — no Tailwind, no garden, no spade.
+ * Replace or extend as your app grows; or swap to Tailwind via
+ * :css :tailwind when that template flag lands. */
 
 body { font: 16px/1.4 system-ui, sans-serif; margin: 0; }
 .rf2-app-shell { display: flex; min-height: 100vh; }
+/* The Xray host only reserves its column once Xray has populated it.
+ * In dev, the `day8.re-frame2-xray.preload` mounts Xray into the
+ * `[data-rf-xray-host]` aside, making it non-empty and sizing it here.
+ * Release builds drop the preload, so the aside stays empty and
+ * `:empty` collapses it — `#app` then spans the full viewport instead
+ * of shipping a blank ~420px gutter. */
 .rf2-xray-host { flex: 0 0 420px; min-width: 320px; }
+.rf2-xray-host:empty { display: none; }
 #app { flex: 1; min-width: 0; padding: 2em; }
 button { padding: 0.4em 0.8em; }
 h1 { margin: 0 0 1em; }
