@@ -34,16 +34,36 @@ Per-file confirmation is not required — the author has already invoked the mig
 
 See `references/setup.md` for the per-build-tool detail. Applied once, in Phase 2.
 
-### M-1 — Private-namespace requires
+### M-1 — Off-contract `re-frame.*` namespace requires
+
+**M-1 is a PRINCIPLE, not a fixed enumeration.** re-frame2's compatibility commitment covers the **public surface** only — every other `re-frame.*` namespace is off-contract and a require of one is an M-1 site. The public surface is:
+
+- **`re-frame.core`** — the public façade. The single import for application code (`[re-frame.core :as rf]`).
+- **The per-feature artefact namespaces** `re-frame.<feature>` you require *only when the feature is in use* (M-27..M-33): `re-frame.schemas`, `re-frame.machines`, `re-frame.routing`, `re-frame.flows`, `re-frame.http-managed` / `re-frame.http`, `re-frame.ssr`, `re-frame.epoch`, and the test-side `re-frame.test-support` / `re-frame.http-test-support`.
+- **`re-frame.interop`** (JVM interop) and **`re-frame.std-interceptors`** — explicitly preserved (see [`breaking-changes.md` §What stays the same](breaking-changes.md#what-stays-the-same-do-not-change)). Not off-contract; leave them.
+
+Everything else under `re-frame.*` is off-contract. `re-frame.alpha` is **not** a public surface in v2 — it does not exist as a v2 namespace; a v1 `re-frame.alpha` require is removed by **M-23**, not M-1. The internals that an `:enumerate-the-list` sweep tends to miss include `re-frame.db`, `re-frame.router`, `re-frame.subs`, `re-frame.events`, `re-frame.registrar`, **`re-frame.utils`**, `re-frame.loggers`, `re-frame.interceptor`, `re-frame.fx`, `re-frame.cofx`, `re-frame.spec` (reach the interceptor through `re-frame.core` instead). `re-frame.utils` in particular is a classic surprise: a v1 app that used `re-frame.utils/map-vals` sails through an enumerated sweep and only fails later with `The required namespace "re-frame.utils" is not available` — *after* the obvious db/router/subs/events/registrar requires are cleared, so it reads as a regression rather than a known M-1 site.
+
+**Grep all off-contract requires up front** so the migrator fixes them in one pass, not one compile error at a time (the "march the wall" effect — each fix reveals the next missing-namespace error). The skill's only shell verb is `rg` (SKILL.md `allowed-tools`):
+
+```bash
+# Every re-frame.* require that is NOT on the public surface.
+# Negative lookahead excludes core + the preserved/feature namespaces.
+rg -n '\[\s*re-frame\.(?!core\b|interop\b|std-interceptors\b|schemas\b|machines\b|routing\b|flows\b|http\b|http-managed\b|http-test-support\b|ssr\b|epoch\b|test-support\b)[a-z-]+' .
+```
+
+(`rg` uses the Rust regex engine, which supports the `(?!…)` lookahead. Each surviving hit is an M-1 site: find a public equivalent in `re-frame.core`, or — if none — flag for human review with the call site and what it is doing.)
 
 ```clojure
-;; SEARCH
+;; SEARCH (the common internals — illustrative, NOT exhaustive: the principle above governs)
 (:require [re-frame.db :as db])
 (:require [re-frame.db :refer [app-db]])
 (:require [re-frame.router :as router])
 (:require [re-frame.subs :as subs])
 (:require [re-frame.events :as events])
 (:require [re-frame.registrar :as reg])
+(:require [re-frame.utils :as u])          ; off-contract — gone in v2
+(:require [re-frame.loggers :as log])      ; off-contract — gone in v2
 
 ;; REWRITE
 ;; Remove the :require entirely; replace usages per the table:
@@ -54,6 +74,7 @@ See `references/setup.md` for the per-build-tool detail. Applied once, in Phase 
 (subs/clear-sub-cache!) → (rf/clear-sub-cache! :rf/default)
 (re-frame.core/clear-subscription-cache!) → (rf/clear-sub-cache! :rf/default) ; public v1 no-arg name
 (reg/get-handler kind id) → (rf/handler-meta kind id) ; public registrar query; returns the registration metadata map (no raw handler fn is exposed publicly in v2)
+(re-frame.utils/map-vals f m) → (clojure.core/update-vals m f) ; Clojure 1.11+ (note arg order: update-vals takes the map first)
 ```
 
 **Note (M-1 `get-handler` rewrite)**: the rewrite above targets `rf/handler-meta`, which is the actual public registrar-query surface in `re-frame.core`. The MIGRATION.md M-1 row was corrected to match — there is no `rf/get-handler` in v2.
