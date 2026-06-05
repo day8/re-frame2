@@ -322,6 +322,30 @@
 ;; `reduce-regions` names this invariant once — every broadcast
 ;; reducer in the parallel layer delegates here.
 
+(defn- region-spec-overlaid
+  "Return the synthetic region-spec for region `rn` of `parent-machine` with
+  the LIVE runtime dynamic keys overlaid. `region-machine` memoises the spec
+  at REGISTRATION time — before `prepare-machine-ctx` stamps `:rf/parent-id`
+  / `:rf/platform` / `:rf/frame` onto the live machine — so the cached spec
+  carries stale registration-time values for all three. The live
+  `parent-machine` threaded into a broadcast DOES carry the current values, so
+  overlay them here so region pure logic (`build-after-fx`'s server-skip gate,
+  trace `:frame` attribution, declarative-`:spawn` parent attribution) always
+  runs against the live runtime context (rf2-z522n / rf2-r09fc).
+  `(:id parent-machine)` is the defensive `:rf/parent-id` fallback for pure-fn
+  callers. The single overlay choke-point shared by the broadcast invariant
+  (`reduce-regions`) and the root-parallel `:on` region-target apply
+  (`apply-root-parallel-transition` — rf2-tsq6g)."
+  [parent-machine rn]
+  (let [parent-id (or (:rf/parent-id parent-machine) (:id parent-machine))]
+    (cond-> (region-machine parent-machine rn)
+      (some? parent-id) (assoc :rf/parent-id parent-id)
+      ;; Overlay live platform/frame unconditionally — an explicit nil from the
+      ;; live parent is still the correct current value (a `:client` / nil-frame
+      ;; runtime) and must replace any stale cached value.
+      true (assoc :rf/platform (:rf/platform parent-machine)
+                  :rf/frame    (:rf/frame parent-machine)))))
+
 (defn- reduce-regions
   "Apply `step-fn` to each region of `parent-machine` in declaration
   order, threading `:data` + `:rf/spawn-counter` between regions and
@@ -418,26 +442,15 @@
               ;; carry the current runtime values (`prepare-machine-ctx`
               ;; stamps them: `:rf/parent-id` = the parent's own
               ;; registration / spawned id; `:rf/platform` = the frame's
-              ;; platform; `:rf/frame` = the operating frame id). We OVERLAY
-              ;; all three live dynamic keys onto the cached region-spec here,
-              ;; at the single choke-point both transition callers
-              ;; (`broadcast-once`, `run-initial-cascade`'s `bootstrap-step`)
-              ;; funnel through, so region pure logic (`build-after-fx`'s
-              ;; server-skip gate, trace `:frame` attribution) always runs
-              ;; against the LIVE runtime context — never the cached snapshot
-              ;; (rf2-z522n). `(:id parent-machine)` is a defensive fallback
-              ;; for pure-fn callers that synthesise a parent spec with `:id`
-              ;; but no `:rf/parent-id`.
-              parent-id   (or (:rf/parent-id parent-machine)
-                              (:id parent-machine))
-              region-spec (cond-> (region-machine parent-machine rn)
-                            (some? parent-id) (assoc :rf/parent-id parent-id)
-                            ;; Overlay the live platform/frame unconditionally —
-                            ;; an explicit nil from the live parent is still the
-                            ;; correct current value (a `:client` / nil-frame
-                            ;; runtime) and must replace any stale cached value.
-                            true (assoc :rf/platform (:rf/platform parent-machine)
-                                        :rf/frame    (:rf/frame parent-machine)))
+              ;; platform; `:rf/frame` = the operating frame id). The OVERLAY
+              ;; of all three live dynamic keys onto the cached region-spec is
+              ;; the single `region-spec-overlaid` choke-point both transition
+              ;; callers (`broadcast-once`, `run-initial-cascade`'s
+              ;; `bootstrap-step`) funnel through, so region pure logic
+              ;; (`build-after-fx`'s server-skip gate, trace `:frame`
+              ;; attribution) always runs against the LIVE runtime context —
+              ;; never the cached snapshot (rf2-z522n / rf2-r09fc).
+              region-spec (region-spec-overlaid parent-machine rn)
               region-snap (cond-> {:state (get state-map rn)
                                    :data  cur-data
                                    ;; Per rf2-46ly6 / rf2-69d1n: thread the
@@ -587,6 +600,160 @@
   (reduce-regions machine snapshot
                   (fn [region-spec region-snap]
                     (machine-transition region-spec region-snap event))))
+
+;; ---- root parallel `:on` — the ancestor fallback (rf2-tsq6g) --------------
+;;
+;; XState v5 / SCXML gold standard: a transition declared on a `<parallel>`
+;; node is the ANCESTOR FALLBACK for its regions — deepest-wins with parent
+;; fallthrough, the parallel analog of the machine-root `:on` fallback every
+;; flat / compound machine already has (`transition/pick-transition` steps
+;; 6-7) and of re-frame2's own compound-root `:on` fallthrough. The selection
+;; semantic (verified against xstate@5.32.0):
+;;
+;;   1. The root parallel transition is selected ONLY when NO region-local
+;;      transition was selected for the event. If ANY region handled it, the
+;;      root transition is SUPPRESSED ENTIRELY (atomic, all-or-nothing — NOT
+;;      "fire root for the regions that did not handle it"). This atomic
+;;      ancestor-fallback suppression is the load-bearing semantic: it is the
+;;      one behaviour a per-region-`:on` broadcast CANNOT decompose into (a
+;;      multi-region root default that fires UNLESS any region competes, in
+;;      which case the untargeted siblings stay UNCHANGED).
+;;   2. If selected, the root transition atomically updates one OR MORE
+;;      region-qualified targets, leaving UNtargeted regions UNCHANGED, after
+;;      running the root `:action` ONCE against the shared `:data`.
+;;   3. Target grammar: targetless / action-only; a single region-qualified
+;;      target `[<region> & <in-region-path>]`; or multiple region-qualified
+;;      targets `[[<region> …] [<region> …]]` (the XState `target ['.a.x',
+;;      '.b.y']` analog).
+;;
+;; Before this, a user-written root-level `:on` on a `:type :parallel` machine
+;; was NEITHER validated NOR executed — silently DROPPED (the broadcast only
+;; reached the synthetic region machines). rf2-tsq6g kills the silent-drop and
+;; honours the ancestor fallback.
+;;
+;; rf2-42mml COORDINATION: the root transition's GUARD is resolved against the
+;; FROZEN pre-event `snapshot` (the value `parallel-machine-transition` was
+;; called with) — NOT an evolving per-region snapshot — so root-parallel guard
+;; selection is already aligned to the two-phase frozen-selection model
+;; rf2-42mml installs for region guards. (rf2-42mml rebases on this merge and
+;; freezes the REGION-guard snapshot too; the root resolver here is already
+;; frozen-correct.)
+
+(defn- normalise-root-targets
+  "Normalise a root parallel transition's `:target` into a vector of
+  region-qualified absolute targets `[[<region> & <in-region-path>] …]`. Per
+  the grammar (rf2-tsq6g):
+    - nil / absent  → `[]` (targetless / action-only).
+    - a vector of KEYWORDS (`[:a :two]`) → ONE region-qualified target
+      (head = region name, rest = the in-region path). Wrapped to `[[:a :two]]`.
+    - a vector of VECTORS (`[[:a :x] [:b :y]]`) → MULTIPLE region-qualified
+      targets, returned as-is.
+  Shape is validated at registration (`validate-parallel!`); this is the
+  runtime resolver mirror."
+  [target]
+  (cond
+    (nil? target)             []
+    (and (vector? target)
+         (every? vector? target)) (vec target)
+    (vector? target)          [target]
+    :else                     []))
+
+(defn- apply-root-region-target
+  "Apply ONE region-qualified target `[<region> & <in-region-path>]` to the
+  parallel machine: synthesise a root-relative `:target`-only transition
+  against region `<region>`'s `region-machine` and run it through the
+  single-machine `apply-transition-once`, so the region's exit / entry
+  cascade, `:after` (re)scheduling, declarative `:spawn` / history all fire
+  exactly as a region-local transition to that target would. The transition
+  carries NO `:action` — the root action already ran once at the root level
+  (`transition/run-root-transition-action`); a region target is a pure
+  configuration change. Threads the shared `:data` / `:rf/spawn-counter` /
+  `:rf/history` through `acc` `{:data :rf/spawn-counter :rf/history :state-map
+  :fx}` (the same flow `reduce-regions` uses) and prefixes per-region fx with
+  the region name. Returns the updated `acc`, or a `result/fail` (a region
+  `:entry` / `:exit` action threw)."
+  [parent-machine event acc [region-name & in-region-path]]
+  (if (result/fail? acc)
+    acc
+    (let [region-spec (region-spec-overlaid parent-machine region-name)
+          region-snap (cond-> {:state (get-in acc [:state-map region-name])
+                               :data  (:data acc)}
+                        (some? (:rf/spawn-counter acc))
+                        (assoc :rf/spawn-counter (:rf/spawn-counter acc))
+                        (some? (:rf/history acc))
+                        (assoc :rf/history (:rf/history acc)))
+          ;; Root-relative target WITHIN the region (`:decl-path []` → a
+          ;; keyword/vector target resolves against the region root, exactly
+          ;; like a region-root `:on` target). A single-element in-region path
+          ;; is passed as a KEYWORD so `commit-snapshot` collapses the region's
+          ;; new `:state` to a keyword (matching a flat region's snapshot
+          ;; shape); a deeper path stays a vector (a compound region's path).
+          in-region   (vec in-region-path)
+          synthetic   {:target    (if (= 1 (count in-region))
+                                    (first in-region)
+                                    in-region)
+                       :decl-path []}
+          step        (transition/apply-transition-once
+                        region-spec region-snap event synthetic :transition)]
+      (if (result/fail? step)
+        step
+        (result/with-ok [reg-snap reg-fx] step
+          (-> acc
+              (assoc :data (:data reg-snap))
+              (cond-> (some? (:rf/spawn-counter reg-snap))
+                (assoc :rf/spawn-counter (:rf/spawn-counter reg-snap)))
+              (cond-> (some? (:rf/history reg-snap))
+                (assoc :rf/history (:rf/history reg-snap)))
+              (assoc-in [:state-map region-name] (:state reg-snap))
+              (update :fx into
+                      (map (partial prefix-region-spawn-id region-name))
+                      reg-fx)))))))
+
+(defn- apply-root-parallel-transition
+  "Apply the parallel machine ROOT's selected `:on` transition as the
+  ancestor fallback (rf2-tsq6g): run the root `:action` ONCE against the
+  shared `:data`, then atomically apply each region-qualified `:target` to
+  its named region (leaving untargeted regions unchanged), and re-stamp the
+  tag union. `transition` is the transition map `root-on-match` selected.
+  Targets are applied in REGION-DECLARATION order (the `:regions` key order,
+  filtered to the targeted regions) so `:data` accumulation across multiple
+  region targets is deterministic, consistent with `reduce-regions`. Returns
+  a `result/ok` carrying `[merged-snapshot fx]` stamped `::handled? true` (the
+  root transition resolved the event), or a `result/fail` if the root action
+  or any region cascade threw."
+  [machine snapshot event transition]
+  (let [action-r (transition/run-root-transition-action machine snapshot transition event)]
+    (if (result/fail? action-r)
+      action-r
+      (result/with-ok [snap-after-action action-fx] action-r
+        (let [targets        (normalise-root-targets (:target transition))
+              ;; Apply in region-declaration order (filtered to targeted
+              ;; regions) for deterministic `:data` accumulation.
+              decl-order     (or (vec (keys (:regions machine)))
+                                 (vec (keys (:state snapshot))))
+              target-by-rn   (into {} (map (fn [t] [(first t) t])) targets)
+              ordered-targets (->> decl-order
+                                   (keep target-by-rn)
+                                   vec)
+              seed           {:data            (:data snap-after-action)
+                              :rf/spawn-counter (:rf/spawn-counter snapshot)
+                              :rf/history      (:rf/history snapshot)
+                              :state-map       (:state snapshot)
+                              :fx              (vec action-fx)}
+              acc            (reduce (partial apply-root-region-target machine event)
+                                     seed
+                                     ordered-targets)]
+          (if (result/fail? acc)
+            acc
+            (let [merged (cond-> (-> snapshot
+                                     (assoc :state (:state-map acc))
+                                     (assoc :data  (:data acc)))
+                           (some? (:rf/spawn-counter acc))
+                           (assoc :rf/spawn-counter (:rf/spawn-counter acc))
+                           (some? (:rf/history acc))
+                           (assoc :rf/history (:rf/history acc)))]
+              (-> (result/ok (commit-tags-parallel machine merged) (:fx acc))
+                  (result/with-handled true)))))))))
 
 (defn- drain-parent-queue
   "Drain the parent's single internal-event queue (region-surfaced
@@ -772,6 +939,57 @@
                     (result/with-microsteps (result/microsteps result))
                     (result/with-cascade (result/cascade result)))))))))))
 
+(declare settle-region-birth)
+
+(defn- root-fallback-seed
+  "Per Spec 005 §Transition broadcast §Root parallel `:on` (rf2-tsq6g): when
+  NO region handled `event` (the first broadcast `first-r` is not handled),
+  consult the parallel ROOT's own `:on` as the ancestor fallback. The root
+  transition is resolved against the FROZEN pre-event `snapshot` (rf2-42mml
+  frozen-selection coordination — the root guard sees the pre-event config),
+  and only for a genuine UNKNOWN USER event (`unhandled-event-no-op?` —
+  reserved `:rf/*` framework lifecycle traffic is NOT a candidate; its
+  done / error / timer routing already runs through the region resolvers).
+
+  Returns the SEED Result the macrostep should drain from:
+   - the applied + `:always`-settled root-transition Result (handled, region
+     targets moved, root `:action` run once) when the root `:on` matches; or
+   - `first-r` UNCHANGED when no region handled the event and the root has no
+     matching `:on` (the existing all-regions-declined no-op path then runs).
+
+  When the root transition fires, the moved regions' `:always` is settled here
+  (per-region, deferring raises — `settle-region-birth`) and the root + region
+  fx is folded in FRONT of the settle fx, so the caller's `drain-parent-queue`
+  re-broadcasts any surfaced `:raise`s FIFO and a moved region's eventless
+  `:always` continues the macrostep — exactly the settle `settle-birth` runs.
+  A `result/fail` from the root action / a region cascade / an `:always`
+  short-circuits."
+  [machine snapshot event first-r]
+  (if (or (result/fail? first-r)
+          (result/handled? first-r)
+          (not (transition/unhandled-event-no-op? event)))
+    first-r
+    (if-let [t (transition/root-on-match machine event snapshot)]
+      (let [root-r (apply-root-parallel-transition machine snapshot event t)]
+        (if (result/fail? root-r)
+          root-r
+          (result/with-ok [root-snap root-fx] root-r
+            ;; Settle the moved regions' `:always` (deferring raises) against
+            ;; the post-root snapshot, then fold the root + region-target fx in
+            ;; FRONT of the per-region settle fx so `drain-parent-queue`'s
+            ;; `split-raises` harvests any `:raise`s and the non-raise root fx
+            ;; keep their position ahead of `:always` fx — mirroring
+            ;; `settle-birth`'s parallel branch.
+            (let [always-r (reduce-regions machine root-snap settle-region-birth)]
+              (if (result/fail? always-r)
+                always-r
+                (result/with-ok [snap0 settle-fx0] always-r
+                  (-> (result/ok snap0 (into (vec root-fx) settle-fx0))
+                      (result/with-handled true)
+                      (result/with-microsteps (result/microsteps always-r))
+                      (result/with-cascade (result/cascade always-r)))))))))
+      first-r)))
+
 (defn- parallel-machine-transition
   "Pure function. Given a parallel-region machine, current snapshot, and
   event, run the parallel MACROSTEP — broadcast the event to every region,
@@ -779,6 +997,18 @@
   `:raise`s, re-broadcast FIFO across all regions) to a fixed point, and
   return the merged result. Returns a `result/ok` Result on success or a
   `result/fail` Result if any region's action threw.
+
+  Per Spec 005 §Transition broadcast §Root parallel `:on` (rf2-tsq6g): when
+  NO region selects a transition for the event, the parallel ROOT's own `:on`
+  is consulted as the ANCESTOR FALLBACK (deepest-wins with parent fallthrough
+  — the parallel analog of the flat / compound machine-root `:on` fallback).
+  A region match SUPPRESSES the root transition entirely (atomic ancestor
+  fallback — `root-fallback-seed` keys off `first-r`'s `::handled?`). When the
+  root transition fires it runs its `:action` once and atomically moves one or
+  more region-qualified targets, leaving untargeted regions unchanged; the
+  moved regions then settle their `:always` + raises through the same parent
+  internal-event queue. The root transition's GUARD is selected against the
+  frozen pre-event snapshot (rf2-42mml coordination).
 
   Per Spec 005 §Transition broadcast: each region resolves the event
   through its own active state's deepest-wins lookup; resolved regions
@@ -808,7 +1038,14 @@
   `:rf/spawn-id`."
   [machine snapshot event]
   (let [first-r       (broadcast-once machine snapshot event)
-        settled       (drain-parent-queue machine snapshot event first-r)
+        ;; rf2-tsq6g — root parallel `:on` ancestor fallback. When no region
+        ;; handled the event, consult the root `:on`; if it fires, its result
+        ;; (handled, region targets moved) BECOMES the macrostep seed and is
+        ;; settled through the same parent queue (so a moved region's `:always`
+        ;; / `:raise` continue the macrostep). When no region handled AND the
+        ;; root declines, `seed` == `first-r` and the existing no-op path runs.
+        seed          (root-fallback-seed machine snapshot event first-r)
+        settled       (drain-parent-queue machine snapshot event seed)
         ;; h3wca.1 — false→true EDGE guard. `:on-done` fires ONCE, on the
         ;; macrostep that CROSSES into the all-regions-final done config
         ;; (XState v5 `onDone` / SCXML `done.state.<id>`), NOT on every later

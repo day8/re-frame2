@@ -1,0 +1,57 @@
+;; Conformance fixture: machine/reg-error-parallel-root-on
+;;
+;; Per [005 §Transition broadcast §Root parallel `:on`]
+;; (../../005-StateMachines.md#transition-broadcast) and rf2-tsq6g. A
+;; `:type :parallel` root's own `:on` (the ancestor fallback) is
+;; shape-validated at registration:
+;;
+;;   - a root `:on` `:target` MUST be region-qualified — a bare keyword or a
+;;     head that is not a declared region has no flat sibling state to land
+;;     on: `:rf.error/machine-parallel-root-on-bad-target`.
+;;   - a `:type :parallel` root declaring `:after` is rejected loudly — the
+;;     timer-driven root ancestor fallback is not wired in this release (no
+;;     silent drop): `:rf.error/machine-parallel-root-after-not-supported`.
+;;
+;; Mode-B `:reg-machine` fixture pinning two members of the
+;; registration-error taxonomy (Spec 009 §The thrown-error shape). The
+;; control case — a well-formed root parallel `:on` with region-qualified
+;; targets — validates silently.
+
+{:fixture/id           :machine/reg-error-parallel-root-on
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/parallel-regions :fsm/registration-validation}
+ :fixture/doc          "A root parallel :on with a non-region-qualified :target throws :rf.error/machine-parallel-root-on-bad-target; a :type :parallel root declaring :after throws :rf.error/machine-parallel-root-after-not-supported. The control — region-qualified targets — validates silently."
+
+ :fixture/registry {}
+ :fixture/handlers  {}
+
+ :fixture/calls
+ [;; (1) A bare-keyword root :on target — no flat sibling state, rejected.
+  {:call         :reg-machine
+   :definition   {:type    :parallel
+                  :on      {:go :somewhere}
+                  :regions {:a {:initial :one :states {:one {}}}}}
+   :expect-error :rf.error/machine-parallel-root-on-bad-target}
+
+  ;; (2) A root :on target whose head is not a declared region — rejected.
+  {:call         :reg-machine
+   :definition   {:type    :parallel
+                  :on      {:go {:target [:nonregion :x]}}
+                  :regions {:a {:initial :one :states {:one {} :x {}}}}}
+   :expect-error :rf.error/machine-parallel-root-on-bad-target}
+
+  ;; (3) A :type :parallel root declaring :after — rejected loudly.
+  {:call         :reg-machine
+   :definition   {:type    :parallel
+                  :after   {1000 {:target [:a :two]}}
+                  :regions {:a {:initial :one :states {:one {} :two {}}}}}
+   :expect-error :rf.error/machine-parallel-root-after-not-supported}
+
+  ;; (4) Control: region-qualified single + multi targets validate silently.
+  {:call       :reg-machine
+   :definition {:type    :parallel
+                :on      {:one {:target [:a :two]}
+                          :go  {:target [[:a :two] [:b :two]]}
+                          :ping {}}
+                :regions {:a {:initial :one :states {:one {} :two {}}}
+                          :b {:initial :one :states {:one {} :two {}}}}}}]}

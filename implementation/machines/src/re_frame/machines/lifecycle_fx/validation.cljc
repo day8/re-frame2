@@ -219,13 +219,39 @@
       `:type :parallel` machine has no sibling flat state to land a target
       on; the parallel `:on-done` runs its `:action` + emits `:fx` (the
       \"then continue\" is a dispatch/raise in that fx), never an in-machine
-      transition target."
+      transition target.
+    - `:rf.error/machine-parallel-root-on-bad-target` — a root parallel `:on`
+      transition's `:target` is NOT region-qualified (rf2-tsq6g). The root
+      `:on` is the ancestor fallback; a `:target` must name one or more
+      regions — `[<region> & <in-region-path>]` (single) or
+      `[[<region> …] [<region> …]]` (multiple). A bare keyword / a head that
+      is not a declared region is rejected (the root has no flat sibling state
+      to land a non-region-qualified target on).
+    - `:rf.error/machine-parallel-root-after-not-supported` — the parallel
+      ROOT declares `:after` (rf2-tsq6g). Root-parallel `:on` ships as the
+      ancestor fallback, but the timer-driven root `:after` is NOT wired in
+      this release; it is rejected LOUDLY here (no silent drop) rather than
+      shipped half-wired. Express a root-level timeout as a region `:after`
+      that `:raise`s an internal event the root `:on` (or sibling regions)
+      handle."
   [machine]
   (when (parallel/parallel? machine)
     (when-not (and (map? (:regions machine)) (seq (:regions machine)))
       (throw (validation-error
                :rf.error/machine-parallel-bad-shape
                ":type :parallel requires a non-empty :regions map")))
+    ;; Per rf2-tsq6g: the parallel ROOT's `:after` is rejected loudly — the
+    ;; timer-driven root ancestor fallback is not wired in this release (no
+    ;; silent drop). Done BEFORE the region-name set is needed (a shape gate).
+    (when (contains? machine :after)
+      (throw (validation-error
+               :rf.error/machine-parallel-root-after-not-supported
+               (str "a :type :parallel root cannot declare :after — the "
+                    "timer-driven root ancestor fallback is not supported in "
+                    "this release. Use a region :after that :raises an internal "
+                    "event the root :on (or a sibling region) handles. Per "
+                    "Spec 005 §Transition broadcast §Root parallel :on.")
+               {:after (:after machine)})))
     ;; Per rf2-bnjb3: the parallel root's `:on-done` must not carry an
     ;; in-machine `:target` (root-only parallel has no flat sibling to land
     ;; on). Normalise the candidate(s) and reject any that declare `:target`.
@@ -243,6 +269,55 @@
                         ":action / :fx (e.g. a dispatch to a coordinator). Per "
                         "Spec 005 §Final states §The done-state signal.")
                    {:on-done on-done})))))
+    ;; Per rf2-tsq6g: every root parallel `:on` transition's `:target` (if
+    ;; present) MUST be region-qualified — the root ancestor fallback has no
+    ;; flat sibling state to land a bare-keyword / non-region target on. A
+    ;; target is either a single region-qualified path `[<region> &
+    ;; <in-region-path>]` (a vector whose head is a declared region) OR
+    ;; multiple such paths `[[<region> …] [<region> …]]` (a vector of
+    ;; vectors). A targetless / action-only transition is fine (no target to
+    ;; check). The check normalises each `:on` entry to its candidate map(s)
+    ;; and validates each candidate's `:target`.
+    (let [region-names (set (keys (:regions machine)))
+          declared?    (fn [t] (contains? region-names t))
+          bad-target!  (fn [target]
+                         (throw (validation-error
+                                  :rf.error/machine-parallel-root-on-bad-target
+                                  (str "a root parallel :on :target must be "
+                                       "region-qualified — [<region> & "
+                                       "<in-region-path>] for one region or "
+                                       "[[<region> …] [<region> …]] for many. "
+                                       "Each target's head must be a declared "
+                                       "region. A :type :parallel root has no "
+                                       "flat sibling state to land a bare "
+                                       "keyword / non-region target on. Per "
+                                       "Spec 005 §Transition broadcast §Root "
+                                       "parallel :on.")
+                                  {:target       target
+                                   :regions      region-names})))
+          check-one!   (fn [target]
+                         (cond
+                           (nil? target) nil          ; targetless / action-only
+                           ;; multiple region-qualified targets
+                           (and (vector? target) (seq target) (every? vector? target))
+                           (doseq [t target]
+                             (when-not (and (seq t) (declared? (first t)))
+                               (bad-target! target)))
+                           ;; single region-qualified target
+                           (vector? target)
+                           (when-not (declared? (first target))
+                             (bad-target! target))
+                           ;; bare keyword / any other shape — no flat sibling
+                           :else (bad-target! target)))]
+      (doseq [[_event v] (:on machine)
+              cand        (cond
+                            (nil? v)                       [{}]
+                            (keyword? v)                   [{:target v}]
+                            (and (vector? v) (every? map? v) (seq v)) v
+                            (vector? v)                    [{:target v}]
+                            (map? v)                       [v]
+                            :else                          [])]
+        (check-one! (:target cand))))
     (when (or (contains? machine :initial) (contains? machine :states))
       (throw (validation-error
                :rf.error/machine-parallel-bad-shape
@@ -834,10 +909,18 @@
     ;; `:states` but not the region body itself, so a parallel machine's
     ;; per-region root `:on` / `:after` (which IS consulted at runtime via
     ;; the region's own `machine-transition-single` root fallback) is
-    ;; validated here too. The parent parallel root carries no `:on`
-    ;; (it routes via region broadcast).
+    ;; validated here too.
+    ;;
+    ;; Per rf2-tsq6g: the PARALLEL ROOT's OWN `:on` (the ancestor fallback,
+    ;; now consulted at runtime when no region handles the event) carries
+    ;; `:guard` / `:action` refs that must resolve here too — previously the
+    ;; root-parallel transition path was skipped, so a bad ref there did not
+    ;; surface. The parent parallel root is therefore added to `roots`. (The
+    ;; root-parallel transition target SHAPE — region-qualified — is validated
+    ;; by `validate-parallel!`; this block validates only the guard/action
+    ;; refs, like every other transition slot.)
     (let [roots (if (parallel/parallel? machine)
-                  (vals (:regions machine))
+                  (cons machine (vals (:regions machine)))
                   [machine])]
       (doseq [root roots
               [_ t] (:on root)]
