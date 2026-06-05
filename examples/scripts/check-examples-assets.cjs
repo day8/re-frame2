@@ -43,16 +43,23 @@
  *      relative to the page's own directory.
  *
  *   2. Asserts the REQUIRED _shared asset contract: every example must
- *      reference _shared/img/favicon.svg, _shared/img/og.svg, and
+ *      reference _shared/img/favicon.svg, _shared/img/og.png, and
  *      _shared/css/style.css — UNLESS the page is allowlisted out of a
  *      specific asset (see ALLOWLIST). The TodoMVC stylesheet opt-out is
  *      encoded there: it is exempt from style.css (it links the vendored
  *      TodoMVC base.css + index.css) but STILL required to carry the shared
  *      favicon + OG card.
  *
- *   3. Asserts the _shared source tree itself is intact: the required
- *      _shared files exist on disk and structure.css remains reachable from
- *      style.css's @import.
+ *   3. Asserts the social-preview (og:image) target is a RASTER, never an SVG:
+ *      link-preview scrapers (Facebook / X / LinkedIn / Slack / Discord) do
+ *      not render an SVG og:image, so an SVG card silently produces no large
+ *      preview while a pure "the file exists" check stays green. The .svg is
+ *      kept only as editable source art. (rf2-lr4am3)
+ *
+ *   4. Asserts the _shared source tree itself is intact: the required
+ *      _shared files exist on disk (incl. the og.png raster + its og.svg
+ *      source art) and structure.css remains reachable from style.css's
+ *      @import.
  *
  * This is NOT a per-example *.spec.cjs — examples/ stays test-free
  * (rf2-8cevm). It is a pure static scanner, wired into the always-run
@@ -87,9 +94,18 @@ const SHARED_ROOT = path.join(EXAMPLES_ROOT, '_shared');
 // individual asset via ALLOWLIST below.
 const REQUIRED_SHARED_ASSETS = [
   '_shared/img/favicon.svg',
-  '_shared/img/og.svg',
+  // The social-preview (og:image) target MUST be a raster: link-preview
+  // scrapers (Facebook / X / LinkedIn / Slack / Discord) do not render an SVG
+  // og:image, so an SVG card silently produces no large preview while this
+  // gate stays green. The .svg is kept as editable SOURCE ART only.
+  '_shared/img/og.png',
   '_shared/css/style.css',
 ];
+
+// The set of href extensions the social-preview (og:image) asset is allowed to
+// use. SVG is deliberately excluded — see REQUIRED_SHARED_ASSETS above.
+const SOCIAL_PREVIEW_RASTER_EXTS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif']);
+const SOCIAL_PREVIEW_REQUIRED = '_shared/img/og.png';
 
 // ---------------------------------------------------------------------------
 // Allowlisted exceptions — the ONE encoded place that names a page's opt-out
@@ -193,6 +209,22 @@ function extractHtmlRefs(html) {
     push(m[2] != null ? m[2] : m[3]);
   }
   return refs;
+}
+
+// Extract the og:image content value(s) specifically — the social-preview
+// target a link-preview scraper would fetch. Used to enforce the raster
+// contract (an SVG og:image renders no preview card). Query/hash stripped.
+function extractOgImageRefs(html) {
+  const out = [];
+  for (const m of html.matchAll(
+    /<meta\b[^>]*\bproperty\s*=\s*["']og:image["'][^>]*\bcontent\s*=\s*("([^"]*)"|'([^']*)')[^>]*>/gi,
+  )) {
+    const raw = m[2] != null ? m[2] : m[3];
+    if (!raw) continue;
+    const clean = raw.split(/[?#]/)[0].trim();
+    if (clean && !out.includes(clean)) out.push(clean);
+  }
+  return out;
 }
 
 // Extract local @import targets from a CSS source. Handles both
@@ -329,6 +361,25 @@ function scanPage(io, indexAbsPath, opts = {}) {
     }
   }
 
+  // 3) Social-preview RASTER contract: every og:image the page declares must
+  //    point at a raster (PNG/JPG/WebP/GIF), never an SVG. Link-preview
+  //    scrapers (Facebook / X / LinkedIn / Slack / Discord) ignore an SVG
+  //    og:image and render no large preview card — a failure mode invisible to
+  //    a pure "the referenced file exists" check. (rf2-lr4am3)
+  for (const og of extractOgImageRefs(html)) {
+    if (isExternalRef(og)) continue; // a hosted absolute URL is the page's call
+    const ext = path.extname(og).toLowerCase();
+    if (!SOCIAL_PREVIEW_RASTER_EXTS.has(ext)) {
+      errors.push(
+        `${relIndex}: og:image '${og}' is not a raster social-preview asset ` +
+          `(extension '${ext || '(none)'}'). Link-preview scrapers do not ` +
+          `render an SVG og:image — point it at the rasterised ` +
+          `'${SOCIAL_PREVIEW_REQUIRED}' (allowed: ` +
+          `${[...SOCIAL_PREVIEW_RASTER_EXTS].join(', ')}).`,
+      );
+    }
+  }
+
   return { relIndex, errors, refs };
 }
 
@@ -343,6 +394,10 @@ function checkSharedTree(io, opts = {}) {
     path.join(sharedRoot, 'css', 'style.css'),
     path.join(sharedRoot, 'css', 'structure.css'),
     path.join(sharedRoot, 'img', 'favicon.svg'),
+    // og.png is the SHIPPED social-preview target every page references; og.svg
+    // is its editable SOURCE ART. Require both: a deleted raster breaks every
+    // page's preview, a deleted source removes the ability to re-export it.
+    path.join(sharedRoot, 'img', 'og.png'),
     path.join(sharedRoot, 'img', 'og.svg'),
   ];
   for (const f of mustExist) {
@@ -419,11 +474,14 @@ module.exports = {
   EXAMPLES_ROOT,
   SHARED_ROOT,
   REQUIRED_SHARED_ASSETS,
+  SOCIAL_PREVIEW_RASTER_EXTS,
+  SOCIAL_PREVIEW_REQUIRED,
   ALLOWLIST,
   BUILD_OUTPUTS,
   listExampleIndexHtml,
   isExternalRef,
   extractHtmlRefs,
+  extractOgImageRefs,
   extractCssImports,
   resolveRef,
   checkCssImports,

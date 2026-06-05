@@ -48,13 +48,21 @@ tools, and docs all sit naturally next to one another.
   every `index.html`. Imports `structure.css`.
 - `css/structure.css` — substrate-agnostic structural baseline (form
   geometry, grid layout, max-widths).
-- `img/favicon.svg` — shared favicon (warm-slate + amber accent).
-- `img/og.svg` — shared Open Graph preview card.
+- `img/favicon.svg` — shared favicon (warm-slate + amber accent). SVG is a
+  valid favicon format (browsers render it), so it ships as-is.
+- `img/og.png` — shared Open Graph preview card, a 1200×630 raster. This is
+  the asset every `index.html` references and the one the asset gate requires:
+  link-preview scrapers (Facebook / X / LinkedIn / Slack / Discord) do **not**
+  render an SVG `og:image`, so the social card must be a raster (PNG/JPG).
+- `img/og.svg` — editable SOURCE ART for the card above; not referenced by any
+  page. Re-export `og.png` from it when the design changes (see that file's
+  header for the 1200×630 render recipe).
 
 ## Adding a new example
 
 1. Reference `_shared/css/style.css`, `_shared/img/favicon.svg`, and
-   `_shared/img/og.svg` from the new example's `index.html` `<head>`.
+   `_shared/img/og.png` (the raster social card — **not** the `.svg` source
+   art) from the new example's `index.html` `<head>`.
 2. For per-example layout-only inline CSS, use the `--ex-*` tokens.
 3. No need to add new shared assets — substrate variety is no longer
    communicated via the design system.
