@@ -625,6 +625,68 @@
       (is (= "/editor/articles/X" (current-url *history-state*))
           "the address bar still shows the editor route (it never moved)"))))
 
+;; ---- rf2-8zvajk: CONTINUE after a blocked popstate re-moves the URL ------
+;;
+;; The block above restored the address bar to the rejecting route's URL via
+;; replaceState. On `:rf.route/continue` the resume re-dispatches the
+;; original `[:rf.route/handle-url-change requested-url {:bypass-leave-guard?
+;; true}]`, which rewrites the slice but emits NO history mutation (it
+;; assumes the browser already moved). After the restore that assumption is
+;; false — so without a fix the slice commits to /cart while the address bar
+;; stays on /editor/articles/X, leaving the visible route and the browser
+;; URL / history entry divergent (refresh, copy-URL, and subsequent
+;; Back/Forward all operate on the stale URL). The fix: a blocked popstate
+;; that restored the URL records `:url-restored?`, and continue replaces the
+;; address bar with `:requested-url` (replaceState — preserving the popstate
+;; entry's place, history length unchanged).
+
+(deftest blocked-popstate-continue-restores-url-cljs
+  (testing "rf2-8zvajk: :rf.route/continue after a blocked popstate moves the
+            address bar to the requested URL — slice and URL agree, no new
+            history entry"
+    (rf/reg-route :hist/cart   {:path "/cart"})
+    (rf/reg-route :hist/editor {:path      "/editor/articles/:id"
+                                :params    [:map [:id :string]]
+                                :can-leave :hist/can-leave?})
+    (rf/reg-event-db :hist/dirty (fn [db [_ v]] (assoc-in db [:editor :dirty?] v)))
+    (rf/reg-sub :hist/can-leave?
+                (fn [db _] (not (boolean (get-in db [:editor :dirty?])))))
+
+    ;; A → B: land on /cart, then push the guarded editor route.
+    (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
+    (rf/dispatch-sync [:rf/url-requested {:url "/editor/articles/X"}])
+    (rf/dispatch-sync [:hist/dirty true])
+
+    ;; Browser Back to /cart, then dispatch the popstate-style change. The
+    ;; guard blocks; the runtime restores the address bar to the editor URL.
+    (.back (.-history js/globalThis.window))
+    (rf/dispatch-sync [:rf.route/handle-url-change (current-url *history-state*)])
+    (is (= "/editor/articles/X" (current-url *history-state*))
+        "the block restored the address bar to the editor route")
+    (let [pending (get-in (rf/app-db-value :rf/default)
+                          [:rf/runtime :routing :pending-navigation])]
+      (is (some? pending) "pending-nav populated on the blocked popstate")
+      (is (true? (:url-restored? pending))
+          "the pending-nav records that a URL restore was performed")
+
+      ;; The history stack is at 3 entries before continue resolves.
+      (let [entries-before (count (:entries @*history-state*))
+            pn-id          (:id pending)]
+        ;; CONTINUE: resume the rejected Back navigation.
+        (rf/dispatch-sync [:rf.route/continue pn-id])
+
+        (is (nil? (get-in (rf/app-db-value :rf/default)
+                          [:rf/runtime :routing :pending-navigation]))
+            "continue clears the pending-nav slot")
+        (is (= :hist/cart
+               (:id (get-in (rf/app-db-value :rf/default)
+                            [:rf/runtime :routing :current])))
+            "continue committed the slice to the requested /cart route")
+        (is (= "/cart" (current-url *history-state*))
+            "continue moved the address bar to /cart — slice and URL agree")
+        (is (= entries-before (count (:entries @*history-state*)))
+            "the URL move was a replace, not a push — history length unchanged")))))
+
 ;; =========================================================================
 ;; 3. hashchange — fragment-only round-trip
 ;; =========================================================================

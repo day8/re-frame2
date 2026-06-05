@@ -150,19 +150,37 @@
     (when-not ok?
       (let [[db' pn-id] (routing-events/alloc-pending-nav-id db)
             guard-id    (can-leave-guard-id current-meta)
-            pending-nav (cond-> {:id                 pn-id
-                                 :requested-by-event (vec event-vec)
-                                 :requested-url      requested-url
-                                 :reason             :can-leave
-                                 :rejecting-route    (:id current-route)}
-                          guard-id (assoc :rejecting-guard guard-id))
             ;; rf2-ede1h.3: a blocked popstate (Back/Forward) has already
             ;; moved the address bar; restore it to the slice's URL so URL
             ;; and slice agree. Only `:rf.route/handle-url-change` carries
             ;; that already-moved-URL semantics; the forward-nav entry
             ;; points never moved the URL, so they emit no restore.
             popstate?   (= :rf.route/handle-url-change (first event-vec))
-            restore-url (when popstate? (current-slice->url current-route))]
+            restore-url (when popstate? (current-slice->url current-route))
+            ;; rf2-8zvajk: record whether THIS block performed a URL
+            ;; restore. `:rf.route/continue` reads it to decide whether the
+            ;; resume must re-move the address bar. A blocked popstate's
+            ;; resume re-dispatches the original
+            ;; `[:rf.route/handle-url-change requested-url]` (bypassing the
+            ;; guard); that handler rewrites the slice but emits NO history
+            ;; mutation because it assumes the browser already moved. That
+            ;; assumption held at the ORIGINAL popstate, but the restore
+            ;; above moved the address bar BACK to the rejecting route — so
+            ;; on resume the browser URL is stale and `continue-handler`
+            ;; must replace it with `:requested-url`, or the committed slice
+            ;; and the address bar diverge (refresh / copy-URL / Back-Forward
+            ;; all operate on the wrong URL). Forward-nav blocks (no restore)
+            ;; never moved the URL, so their resume re-runs the full
+            ;; `:rf/url-requested` policy chain that pushes — no extra
+            ;; restore needed; the flag stays absent.
+            url-restored? (some? restore-url)
+            pending-nav (cond-> {:id                 pn-id
+                                 :requested-by-event (vec event-vec)
+                                 :requested-url      requested-url
+                                 :reason             :can-leave
+                                 :rejecting-route    (:id current-route)}
+                          guard-id      (assoc :rejecting-guard guard-id)
+                          url-restored? (assoc :url-restored? true))]
         ;; Per Spec 012 §Navigation blocking §Default flow step 4e: the
         ;; trace marks the blocked transition for tools.
         (trace/emit! :rf.event :rf.route/navigation-blocked
@@ -282,14 +300,35 @@
     ;; with the URL push).
     (let [pending  (get-in db [:rf/runtime :routing :pending-navigation])
           original (:requested-by-event pending)
-          url      (:requested-url pending)]
+          url      (:requested-url pending)
+          ;; rf2-8zvajk: when the block was a popstate that RESTORED the
+          ;; address bar (`:url-restored?`), the resume must re-move the
+          ;; browser URL to `:requested-url` itself — the re-dispatched
+          ;; `[:rf.route/handle-url-change requested-url {:bypass-leave-guard?
+          ;; true}]` (built by `inject-bypass-leave-guard`) rewrites the
+          ;; slice but emits NO history mutation (it assumes the browser
+          ;; already moved). After the restore that assumption is false, so
+          ;; without this the slice commits to `:requested-url` while the
+          ;; address bar stays on the rejecting route. A `:rf.nav/replace-url`
+          ;; (not push) keeps the popstate entry's place in the history stack
+          ;; — confirming a blocked Back/Forward must not grow history.
+          ;; Emitted FIRST so the address bar is correct by the time the
+          ;; bypassed handler synchronously rewrites the slice. Forward-nav
+          ;; resumes (`:url-restored?` absent — no restore happened) re-run
+          ;; the full `:rf/url-requested` policy chain, which pushes on its
+          ;; own; adding a replace there would clobber that push.
+          restore-fx (when (:url-restored? pending)
+                       [:rf.nav/replace-url url])
+          dispatch-fx [:dispatch (if (vector? original)
+                                   (inject-bypass-leave-guard original url)
+                                   [:rf/url-requested {:url url
+                                                       :bypass-leave-guard? true}])]]
       (if (and pending (= pn-id (:id pending)))
         (cond-> {:db (update-in db [:rf/runtime :routing] dissoc :pending-navigation)}
           (or (vector? original) url)
-          (assoc :fx [[:dispatch (if (vector? original)
-                                   (inject-bypass-leave-guard original url)
-                                   [:rf/url-requested {:url url
-                                                       :bypass-leave-guard? true}])]]))
+          (assoc :fx (cond-> []
+                       restore-fx (conj restore-fx)
+                       :always    (conj dispatch-fx))))
         {})))
 
 (defn cancel-handler

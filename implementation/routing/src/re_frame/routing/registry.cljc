@@ -1063,7 +1063,55 @@
                      (if all-present?
                        (let [[i' parts'] (emit-group (inc i) parts)]
                          (recur i' parts'))
-                       (recur close-end parts)))
+                       ;; rf2-8zvajk: ELIDE the group — and own the
+                       ;; separator-slash elision so a slash-OWNED inline
+                       ;; group (`{:base}?`, body without a leading `/`) does
+                       ;; not orphan a literal `/`. The grammar permits two
+                       ;; optional-group shapes (Spec 012 §Path-pattern grammar
+                       ;; rule 2 + `validate-optional-group!`): the group either
+                       ;; OWNS its leading slash (`{/:id}?` — the `/` is inside
+                       ;; the body, so eliding the body drops it cleanly) or is
+                       ;; SLASH-OWNED INLINE (`{:base}?` — bracketed by LITERAL
+                       ;; `/`s in the surrounding pattern, e.g. `/{:base}?/about`
+                       ;; or `/docs/{:section}?/about`). Spec 012's own
+                       ;; ranking-rule-5 example uses the inline shape
+                       ;; (`/about` beats `/{:base}?/about`), so it is
+                       ;; spec-endorsed and cannot be rejected at registration.
+                       ;; For the inline shape the present form is
+                       ;; `/before/<v>/after`; the absent form must collapse to
+                       ;; `/before/after` (one separator, not two). Without this,
+                       ;; the prior emitter left BOTH literal slashes, producing
+                       ;; `//about` — a PROTOCOL-RELATIVE URL (`route-link` would
+                       ;; render `href="//about"`, a modifier-click escapes the
+                       ;; app; programmatic `pushState` skips/rejects it, so the
+                       ;; route slice and the address bar diverge).
+                       ;;
+                       ;; Rule: the slash BEFORE the elided group is redundant
+                       ;; when the group is followed by a separator `/` (the
+                       ;; trailing slash supplies the join) or when nothing
+                       ;; follows (a dangling trailing `/`). Pop that leading
+                       ;; separator unless it is the lone ROOT slash (so
+                       ;; `/{:base}?` absent stays `/`, never `""`). A
+                       ;; slash-OWNING group (`{/:id}?`) has a NON-slash char
+                       ;; before `{` (`...articles{` → last part `"articles"`),
+                       ;; so the guard is a no-op for it — its existing clean
+                       ;; elision is unchanged. A global `//`→`/` collapse is
+                       ;; deliberately NOT used: a splat value legitimately
+                       ;; carries embedded `//` (`{:rest "a//b"}` → `/files/a//b`)
+                       ;; and must survive.
+                       (let [prev-slash? (= "/" (peek parts))
+                             next-slash? (and (< close-end n)
+                                              (= \/ (.charAt ^String pattern close-end)))
+                             at-end?     (>= close-end n)
+                             ;; the lone root slash has no non-slash part before
+                             ;; it; popping it would emit `""` instead of `/`.
+                             root-only?  (every? #(= "/" %) parts)
+                             parts'      (if (and prev-slash?
+                                                  (or next-slash?
+                                                      (and at-end? (not root-only?))))
+                                           (pop parts)
+                                           parts)]
+                         (recur close-end parts'))))
 
                    ;; `:name` / `*name` in the top-level pattern — the
                    ;; value is REQUIRED; `require-param` throws on absent.
