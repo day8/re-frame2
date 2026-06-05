@@ -48,7 +48,7 @@ Describe the change concretely. Name the likely layer:
 - script/runtime op
 - result/warning shape
 - tests/fixture
-- upstream `day8/re-frame2` issue (Tool-Pair contract, trace event, epoch machinery, schema reflection, source-coord annotation)
+- upstream `day8/re-frame2` issue (a Tool-Pair surface from [`../../shared/tool-pair-surfaces.md`](../../shared/tool-pair-surfaces.md))
 
 ## Expected impact
 
