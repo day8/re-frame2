@@ -121,43 +121,75 @@
        (seq v)
        (every? keyword? v)))
 
+(defn- escape-id-segment
+  "Escape one keyword ns/name part INJECTIVELY into a Mermaid-id-safe
+  string: every char outside `[A-Za-z0-9]` becomes `_<2-hex>` (the
+  underscore itself → `_5f`). Distinct inputs always yield distinct
+  outputs, and the result contains no two consecutive underscores, so
+  the `_2f` ns/name marker and the `__` path separator can never arise
+  from segment content.
+
+  rf2-mnp93.6 — mirrors `chart/layout/escape-id-segment` (the SAME
+  injective scheme the SCXML codec + the chart's xyflow `node-id` use),
+  so the three emitters address every node identically. The naive
+  `str/replace #\"[^a-zA-Z0-9_]\" \"_\"` collapsed `:a/b`, `:a-b`, `:a_b`
+  all to `\"a_b\"` — two distinct states became ONE Mermaid node, silently
+  mis-wiring every edge to/from either."
+  [s]
+  (str/join
+    (map (fn [ch]
+           (if (re-matches #"[A-Za-z0-9]" (str ch))
+             (str ch)
+             (str "_" #?(:clj  (format "%02x" (int ch))
+                         :cljs (let [h (.toString (.charCodeAt (str ch) 0) 16)]
+                                 (if (= 1 (count h)) (str "0" h) h))))))
+         s)))
+
 (defn- id-segment
-  "Render one path segment before Mermaid-safe character replacement."
+  "Render one path segment as an INJECTIVE Mermaid-id-safe string.
+
+  A keyword's namespace and name are each `escape-id-segment`-escaped
+  and joined with `_2f` (the hex escape of `/`, the boundary marker the
+  escaper itself uses for a namespaced keyword — so a namespaced keyword
+  `:auth/login` reads `auth_2flogin` and can never collide with a state
+  literally named `:auth-login` → `auth_2dlogin` (rf2-mnp93.6)."
   [segment]
   (cond
-    (keyword? segment) (let [n (name segment)]
-                         (if-let [ns (namespace segment)]
-                           (str ns "_" n)
-                           n))
-    (string? segment)  segment
+    (keyword? segment) (if-let [ns (namespace segment)]
+                         (str (escape-id-segment ns) "_2f" (escape-id-segment (name segment)))
+                         (escape-id-segment (name segment)))
+    (string? segment)  (escape-id-segment segment)
     (nil? segment)     "nil"
-    :else              (pr-str segment)))
+    :else              (escape-id-segment (pr-str segment))))
 
 (defn- sanitise-id
-  "Map a keyword or vector path `id` to a Mermaid-safe identifier.
+  "Map a keyword or vector path `id` to an INJECTIVE Mermaid-safe
+  identifier — distinct inputs always mint distinct ids.
 
   Mermaid stateDiagram-v2 identifiers are restricted to a subset of
   alphanumerics + underscore. Namespaced keywords (`:auth/login`) and
   hyphenated names (`:login-flow`) are common in re-frame2 machine
-  ids; we map both to underscore-joined names: `:auth/login` →
-  `auth_login`, `:login-flow` → `login_flow`.
+  ids. Each path segment is `id-segment`-escaped (every non-alphanumeric
+  char → `_<hex>`); compound state ids are path-qualified with `__`
+  separators: `[:authenticated :cart :browsing]` →
+  `authenticated__cart__browsing`.
 
-  Compound state ids are path-qualified with `__` separators:
-  `[:authenticated :cart :browsing]` →
-  `authenticated__cart__browsing`."
+  rf2-mnp93.6 — the id is INJECTIVE (the same hex-escape discipline the
+  SCXML codec + the chart's xyflow `node-id` follow). The pre-fix naive
+  `[^a-zA-Z0-9_]`-collapse merged `:a/b`, `:a-b`, `:a_b` into one node;
+  the hex escape keeps them distinct (`a_2fb`, `a_2db`, `a_5fb`). Mermaid
+  node-ids are internal — the visible label comes from
+  `render-state-alias` — so an injective encoding costs no legibility.
+  The id need not start with a letter (Mermaid accepts a leading `_`);
+  every escaped non-alphanumeric leader is a `_`, so the prior
+  leading-digit `s_` guard is unnecessary (a digit-leading name like
+  `:5x` escapes to `_35x` already)."
   [id]
   (when id
-    (let [segments (if (vector? id) id [id])
-          s        (if (seq segments)
-                     (str/join "__" (map id-segment segments))
-                     "root")]
-      (-> s
-          (str/replace #"[^a-zA-Z0-9_]" "_")
-          ;; Mermaid identifiers must start with a letter; prefix a
-          ;; leading digit with `s_`. (Re-frame2's machine ids
-          ;; typically start with a letter; the guard is belt-and-
-          ;; braces.)
-          (#(if (re-find #"^[0-9]" %) (str "s_" %) %))))))
+    (let [segments (if (vector? id) id [id])]
+      (if (seq segments)
+        (str/join "__" (map id-segment segments))
+        "root"))))
 
 (defn- sanitise-label
   "Escape a transition event-id for use as a Mermaid edge label.
@@ -270,6 +302,85 @@
                 :to    target-path
                 :label (edge-label "always" candidate)}]))
           (transition-candidates always)))
+
+;; --- internal (action-only) transition notes (rf2-mnp93.4) ---------------
+;;
+;; An INTERNAL transition candidate (a map that OMITS `:target` — Spec 005
+;; §Transition slots: "omit for internal"; §Self-transitions: the internal
+;; default runs only the `:action`, the config is unchanged) has NO arrow to
+;; draw in Mermaid (there is no destination state). Pre-fix, the `:on` /
+;; `:after` / `:always` collectors all silently DROPPED every target-less
+;; candidate, while the chart + SCXML emitters surfaced it — breaking the G9
+;; 'faithful across all three emitters' parity claim
+;; (001-Topology-Parity.md §3.1). We close the asymmetry exactly the way the
+;; action-only `:on-done` was closed (rf2-ay42f): render the internal
+;; transition as a `note right of <state>` so the action it runs is visible.
+
+(defn- internal-candidate?
+  "rf2-mnp93.4 — true when a transition candidate is INTERNAL: a map that
+  omits `:target` (the action-only / no-config-change shape). A keyword /
+  vector-path candidate always carries a target, so only a map can be
+  internal."
+  [candidate]
+  (and (map? candidate)
+       (not (contains? candidate :target))))
+
+(defn- internal-note-line
+  "rf2-mnp93.4 — the note body for one internal (target-less) candidate.
+  Reads `<descriptor> [guard] / <action>` (the same `event [guard] /
+  action` order edges use), so an internal `:on :tick {:action :log}`
+  surfaces as `on tick / log`, an `:after 1000 {:action :timeout}` as
+  `after(1000) / timeout`, an `:always {:action :poll}` as `always / poll`."
+  [descriptor candidate]
+  (let [guard  (when (:guard candidate)
+                 (str " [" (sanitise-label (:guard candidate)) "]"))
+        action (when (:action candidate)
+                 (str " / " (label-value (:action candidate))))]
+    (str "    " (sanitise-label descriptor) guard action)))
+
+(defn- internal-candidate-lines
+  "rf2-mnp93.4 — note-body lines for every INTERNAL candidate declared on
+  one state's `:on` / `:after` / `:always`. `:on` candidates carry their
+  event id as the descriptor; `:after` candidates `after(<delay>)`;
+  `:always` candidates `always`."
+  [state-node]
+  (concat
+    (mapcat (fn [[event-id spec]]
+              (->> (transition-candidates spec)
+                   (filter internal-candidate?)
+                   (map #(internal-note-line (label-value event-id) %))))
+            (:on state-node))
+    (mapcat (fn [[delay spec]]
+              (->> (transition-candidates spec)
+                   (filter internal-candidate?)
+                   (map #(internal-note-line (str "after(" (label-value delay) ")") %))))
+            (:after state-node))
+    (->> (transition-candidates (:always state-node))
+         (filter internal-candidate?)
+         (map #(internal-note-line "always" %)))))
+
+(defn- collect-internal-transition-notes
+  "rf2-mnp93.4 — emit a `note right of <state>` for every state with one or
+  more INTERNAL (action-only, target-less) `:on` / `:after` / `:always`
+  candidates. Walks the state tree the same way `collect-edges` does so a
+  nested state's internal transitions are covered too. Returns a flat seq
+  of note lines. Pre-fix these candidates were silently dropped while the
+  chart self-anchored them (`:internal? true`) and SCXML emitted them as
+  target-less `<transition>`s — this restores three-emitter agreement."
+  [root-path states]
+  (mapcat
+    (fn [[state-id state-node]]
+      (let [state-path (conj (vec root-path) state-id)
+            lines      (internal-candidate-lines state-node)
+            self       (when (seq lines)
+                         (concat [(str "  note right of " (sanitise-id state-path))]
+                                 lines
+                                 ["  end note"]))
+            child      (when (:states state-node)
+                         (collect-internal-transition-notes state-path
+                                                            (:states state-node)))]
+        (concat self child)))
+    states))
 
 (defn- collect-on-done-edges
   "rf2-41goo — emit the compound / region-compound `:on-done` completion
@@ -476,7 +587,12 @@
         ;; (target-less) has no sibling arrow to draw; render its
         ;; completion as a note so it is not silently dropped (the
         ;; chart + SCXML emitters both surface it).
-        on-done-notes  (collect-compound-on-done-notes root-path states)]
+        on-done-notes  (collect-compound-on-done-notes root-path states)
+        ;; rf2-mnp93.4 — an INTERNAL (action-only, target-less) `:on` /
+        ;; `:after` / `:always` candidate has no arrow to draw; render it
+        ;; as a note so it is not silently dropped (the chart self-anchors
+        ;; it `:internal? true`, SCXML emits a target-less <transition>).
+        internal-notes (collect-internal-transition-notes root-path states)]
     (str/join "\n"
               (concat
                (when header-comment? [header-comment])
@@ -486,7 +602,8 @@
                compound-lines
                edge-lines
                final-lines
-               on-done-notes))))
+               on-done-notes
+               internal-notes))))
 
 (defn- region-initial-line
   [region-path initial depth]
@@ -548,6 +665,13 @@
         region-on-done-notes
         (mapcat (fn [[region-id {:keys [states]}]]
                   (collect-compound-on-done-notes [region-id] states))
+                regions)
+        ;; rf2-mnp93.4 — an INTERNAL (action-only) `:on` / `:after` /
+        ;; `:always` candidate on a state inside a region renders as a note
+        ;; too (no arrow to draw), matching the flat/compound emitter.
+        region-internal-notes
+        (mapcat (fn [[region-id {:keys [states]}]]
+                  (collect-internal-transition-notes [region-id] states))
                 regions)]
     (str/join "\n"
               (concat
@@ -561,6 +685,7 @@
                edge-lines
                final-lines
                region-on-done-notes
+               region-internal-notes
                ;; rf2-41goo — the parallel-root completion note (action/fx-
                ;; only; no sibling target).
                (render-parallel-on-done-note on-done)))))

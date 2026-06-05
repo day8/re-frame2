@@ -233,25 +233,54 @@
                  (:on state-node))
          (mapcat (fn [[delay spec]]
                    (keep (fn [candidate]
-                           (when-let [tp (resolve-target-path state-path
-                                                              (:target candidate))]
-                             {:from   state-path
-                              :to     tp
-                              :event  (keyword (str "after-" delay))
-                              :after  delay
-                              :guard  (:guard candidate)
-                              :action (:action candidate)}))
+                           ;; rf2-mnp93.4 — an internal (action-only,
+                           ;; no-`:target`) `:after` candidate is a
+                           ;; documented Spec 005 shape (the timer just
+                           ;; runs an `:action`; the config is unchanged).
+                           ;; Self-anchor + flag `:internal?`, exactly as
+                           ;; the `:on` branch above already does — pre-fix
+                           ;; `resolve-target-path` returned nil for a
+                           ;; target-less candidate, so `keep` SILENTLY
+                           ;; DROPPED it (inconsistent even WITHIN the chart:
+                           ;; internal `:on` rendered, internal `:after` did
+                           ;; not).
+                           (let [internal? (and (map? candidate)
+                                                (not (contains? candidate :target)))
+                                 tp        (if internal?
+                                             (vec state-path)
+                                             (resolve-target-path state-path
+                                                                  (:target candidate)))]
+                             (when tp
+                               (cond-> {:from   state-path
+                                        :to     tp
+                                        :event  (keyword (str "after-" delay))
+                                        :after  delay
+                                        :guard  (:guard candidate)
+                                        :action (:action candidate)}
+                                 internal? (assoc :internal? true)))))
                          (transition-candidates spec)))
                  (:after state-node))
          (mapcat (fn [candidate]
-                   (when-let [tp (resolve-target-path state-path
-                                                      (:target candidate))]
-                     [{:from   state-path
-                       :to     tp
-                       :event  :always
-                       :always? true
-                       :guard  (:guard candidate)
-                       :action (:action candidate)}]))
+                   ;; rf2-mnp93.4 — an internal (action-only) `:always`
+                   ;; candidate (the canonical re-evaluate-while-condition
+                   ;; loop is a TARGETLESS guarded `:always`, Spec 005
+                   ;; §:reenter? vs a self-`:target` on `:always`) self-
+                   ;; anchors + flags `:internal?` like the `:on`/`:after`
+                   ;; branches — pre-fix it was silently dropped.
+                   (let [internal? (and (map? candidate)
+                                        (not (contains? candidate :target)))
+                         tp        (if internal?
+                                     (vec state-path)
+                                     (resolve-target-path state-path
+                                                          (:target candidate)))]
+                     (when tp
+                       [(cond-> {:from   state-path
+                                 :to     tp
+                                 :event  :always
+                                 :always? true
+                                 :guard  (:guard candidate)
+                                 :action (:action candidate)}
+                          internal? (assoc :internal? true))])))
                  (transition-candidates (:always state-node)))
          ;; rf2-41goo — the compound / region-compound `:on-done`
          ;; completion edge (XState `onDone`). The done node is THIS node

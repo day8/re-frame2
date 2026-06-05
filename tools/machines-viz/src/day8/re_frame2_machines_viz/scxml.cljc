@@ -41,6 +41,7 @@
   | `:final? true`                        | `<final id=\"...\">` |
   | `:on {:event :target}`                | `<transition event=\"event\" target=\"target\"/>` |
   | `:on {:event {:target ... :guard G}}` | `<transition cond=\"G\" .../>` |
+  | `:on {:event {:action A}}` — INTERNAL (no `:target`) | `<transition event=\"event\"><!-- action: A --></transition>` — round-trips to `{:action A}`, NOT the `{}` forbidden block (rf2-mnp93.5) |
   | `:after {ms :target}`                 | `<transition event=\"after.ms\" target=\"target\"/>` |
   | `:always [...]`                       | `<transition target=\"...\"/>` (eventless) |
   | `{:type :parallel :regions ...}`      | `<parallel>` containing region `<state>`s |
@@ -79,10 +80,18 @@
     root-level transitions), so these are exported as a documenting
     XML comment and do **not** round-trip back through `scxml->spec`.
   - `:tags` — re-frame2-specific; not part of W3C SCXML.
-  - `:action`s and guard FN bodies — only the *names* survive
-    (SCXML `cond=\"name\"` for guards; entry/exit `<script>` would
-    require evaluation context, so names are preserved as XML
-    comments on imports/exports).
+  - `:action`s and guard FN bodies — only the *names* survive (SCXML
+    `cond=\"name\"` for guards; a transition `:action` name rides an
+    `<!-- action: name -->` comment, the only SCXML-tolerable slot, since
+    SCXML proper has no transition-action-id attribute). The action name
+    **round-trips** (rf2-mnp93.5): `scxml->spec` lifts the action comment
+    back into the candidate's `:action` BEFORE comments are stripped, so an
+    internal `:on {:tick {:action :log}}` returns `{:action :log}` — a valid
+    Spec-005 internal action transition — NOT the empty `{}` FORBIDDEN BLOCK
+    a naive comment-strip would synthesise (a semantic inversion). FN
+    BODIES are still lost (only the name survives). Entry/exit actions would
+    require an evaluation context, so their names are preserved as XML
+    comments but are not part of this round-trip.
   - Source-coord metadata — stripped at export time (same posture as
     share-URL encoding; see `Principles.md` §No session data in shares).
 
@@ -528,11 +537,50 @@
   [s]
   (str/replace s #"(?s)^\s*<\?xml[^?]*\?>\s*" ""))
 
+;; rf2-mnp93.5 — the synthetic attribute the action-comment lift-pass folds
+;; an action name into. `parse-attrs`' `(\w+)` key pattern forbids hyphens,
+;; so the key uses underscores; it can never collide with a real SCXML
+;; attribute (W3C SCXML has no `data_rf_action`). It is stripped from the
+;; emitted output (the emitter writes the action as a COMMENT for external
+;; tooling); it exists ONLY transiently between `lift-action-comments` and
+;; `parse-attrs` on the DECODE side.
+(def ^:private action-attr "data_rf_action")
+
+(defn- lift-action-comments
+  "rf2-mnp93.5 — fold every transition action COMMENT into a synthetic
+  attribute on its OWN `<transition>` start-tag BEFORE comments are
+  stripped, so the action name survives the round-trip.
+
+  The emitter writes an action-bearing transition as
+  `<transition ATTRS><!-- action: NAME --></transition>` (the comment is
+  how the action survives for external SCXML tooling, which has no
+  transition-action slot). Pre-fix, `strip-comments` discarded the comment
+  globally, so an INTERNAL action transition (`:on {:tick {:action :log}}`)
+  decoded to the EMPTY candidate map `{}` — which Spec 005 §Forbidden
+  transitions defines as a FORBIDDEN BLOCK (consume-the-event-and-block-
+  inheritance), the OPPOSITE of 'run an action'. A semantic inversion, not
+  a lossy detail (rf2-mnp93.5).
+
+  This pass rewrites `<transition ATTRS><!-- action: NAME --></transition>`
+  to `<transition ATTRS data_rf_action=\"NAME\"/>` so the decoder recovers
+  the action into the candidate map's `:action` — yielding a VALID Spec-005
+  internal action transition (`{:action :log}`), never the forbidden-block
+  `{}`. Per Spec 005 §Forbidden transitions L1346, an action-bearing
+  internal transition halts the walk AND runs the action; the distinguishing
+  shape feature is the PRESENCE of `:action`."
+  [s]
+  (str/replace
+    s
+    #"(?s)(<transition\b[^>]*?)>\s*<!--\s*action:\s*(\S+)\s*-->\s*</transition>"
+    (fn [[_ start-tag action-name]]
+      (str start-tag " " action-attr "=\"" action-name "\"/>"))))
+
 (defn- strip-comments
-  "Drop `<!-- ... -->` comments. Used by the parser to discard the
-  action-name comments the emitter injects on transitions with
-  actions (the action survives the round-trip as a comment because
-  SCXML proper has no action-id-on-transition slot)."
+  "Drop `<!-- ... -->` comments. The action-name comments the emitter
+  injects on transitions are first lifted into a synthetic attribute by
+  `lift-action-comments` (rf2-mnp93.5) so they survive the round-trip;
+  this then drops the remaining (documenting / machine-level) comments,
+  which SCXML proper has no slot for."
   [s]
   (str/replace s #"(?s)<!--.*?-->" ""))
 
@@ -690,6 +738,11 @@
                   event    (get attrs "event")
                   target   (get attrs "target")
                   guard-s  (get attrs "cond")
+                  ;; rf2-mnp93.5 — the action name lifted from the
+                  ;; `<!-- action: NAME -->` comment by `lift-action-comments`
+                  ;; (a single keyword, never a vector path — decode it the
+                  ;; same way the guard `cond=` does).
+                  action-s (get attrs action-attr)
                   cand-map (cond-> {}
                              ;; rf2-mnp93.7 — decode the qualified target id
                              ;; back to its relative grammar form (sibling
@@ -703,7 +756,14 @@
                              ;; single keyword (never a vector path), so route
                              ;; it through `id-string->keyword`, not
                              ;; `unescape-id-string`.
-                             guard-s (assoc :guard (id-string->keyword guard-s)))]
+                             guard-s (assoc :guard (id-string->keyword guard-s))
+                             ;; rf2-mnp93.5 — recover the action so an INTERNAL
+                             ;; action transition (`:on {:tick {:action :log}}`)
+                             ;; round-trips to a VALID Spec-005 internal action
+                             ;; transition (`{:action :log}`) — NOT the empty
+                             ;; `{}` FORBIDDEN BLOCK the comment-strip used to
+                             ;; synthesise (a semantic inversion).
+                             action-s (assoc :action (id-string->keyword action-s)))]
               (cond
                 (and event (str/starts-with? event "after."))
                 (let [d-str (subs event 6)
@@ -922,7 +982,7 @@
                      :recovery :no-recovery
                      :reason   "scxml->spec expects a string"
                      :input    scxml-string})))
-  (let [tokens (-> scxml-string strip-prolog strip-comments tokenize vec)
+  (let [tokens (-> scxml-string strip-prolog lift-action-comments strip-comments tokenize vec)
         root-start (first (filter #(= "scxml" (:tag %)) tokens))]
     (when-not root-start
       (throw (ex-info ":scxml/parse-error"

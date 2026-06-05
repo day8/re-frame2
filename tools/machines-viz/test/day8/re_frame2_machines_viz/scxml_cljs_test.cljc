@@ -651,3 +651,94 @@
                          ["mixed-candidate-on-machine"         mixed-candidate-on-machine]]]
       (testing name
         (is (= spec (-> spec scxml/spec->scxml scxml/scxml->spec)))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-mnp93.5 — an INTERNAL ACTION transition must NOT round-trip into a
+;; Spec-005 FORBIDDEN BLOCK.
+;;
+;; `:on {:tick {:action :log}}` is an internal action transition: it RUNS an
+;; action and leaves the config unchanged (Spec 005 §Transition slots — "omit
+;; for internal"). Pre-fix, the action rode an XML COMMENT that the decoder's
+;; `strip-comments` discarded BEFORE tokenizing, so the candidate decoded to
+;; the EMPTY map `{}` — which Spec 005 §Forbidden transitions (L1335-1346)
+;; defines as a FORBIDDEN BLOCK: an enabled internal no-op that CONSUMES the
+;; event and shadows every coarser descriptor + ancestor (opts OUT of
+;; inheritance). 'Run an action' decoding to 'block the event entirely' is a
+;; SEMANTIC INVERSION, not lossy detail. The distinguishing shape feature is
+;; the PRESENCE of `:action` (L1346: an action-bearing internal transition
+;; halts the walk AND runs the action). The fix lifts the action comment into
+;; the candidate so it round-trips as `{:action :log}` — a VALID internal
+;; action transition.
+
+(def internal-action-on-machine
+  "An INTERNAL action `:on` transition (no `:target`)."
+  {:initial :a
+   :states  {:a {:on {:tick {:action :log}}}}})
+
+(def internal-action-after-machine
+  "An INTERNAL action `:after` transition (no `:target`)."
+  {:initial :a
+   :states  {:a {:after {1000 {:action :timeout-log}}}}})
+
+(def internal-action-always-machine
+  "An INTERNAL action `:always` transition (no `:target`)."
+  {:initial :a
+   :states  {:a {:always [{:action :poll}]}}})
+
+(def internal-guarded-action-machine
+  "An INTERNAL action `:on` transition with a guard (no `:target`)."
+  {:initial :a
+   :states  {:a {:on {:tick {:action :log :guard :ready?}}}}})
+
+(def internal-ns-action-machine
+  "An INTERNAL action `:on` transition whose action is NAMESPACED — the
+  action codec must round-trip its namespace too."
+  {:initial :a
+   :states  {:a {:on {:tick {:action :log/append}}}}})
+
+(deftest internal-action-transition-not-forbidden-block
+  (testing "rf2-mnp93.5 — an internal action `:on` round-trips to a VALID
+            internal action transition, NOT the `{}` forbidden block"
+    (let [back (-> internal-action-on-machine scxml/spec->scxml scxml/scxml->spec)
+          cand (get-in back [:states :a :on :tick])]
+      (is (= {:action :log} cand)
+          "the candidate keeps its :action (NOT the empty {} forbidden block)")
+      (is (not= {} cand)
+          "explicitly: it is NOT the Spec-005 forbidden block shape")
+      (is (contains? cand :action)
+          "the distinguishing :action key is present")
+      (is (not (contains? cand :target))
+          "still internal — no :target")
+      (is (= internal-action-on-machine back)
+          "exact value round-trip")))
+
+  (testing "rf2-mnp93.5 — internal action `:after` round-trips faithfully"
+    (let [back (-> internal-action-after-machine scxml/spec->scxml scxml/scxml->spec)]
+      (is (= internal-action-after-machine back))
+      (is (= {:action :timeout-log} (get-in back [:states :a :after 1000])))))
+
+  (testing "rf2-mnp93.5 — internal action `:always` round-trips faithfully"
+    (let [back (-> internal-action-always-machine scxml/spec->scxml scxml/scxml->spec)]
+      (is (= internal-action-always-machine back))
+      (is (= [{:action :poll}] (get-in back [:states :a :always])))))
+
+  (testing "rf2-mnp93.5 — an internal action transition WITH a guard keeps
+            both :action and :guard (still not a forbidden block)"
+    (let [back (-> internal-guarded-action-machine scxml/spec->scxml scxml/scxml->spec)
+          cand (get-in back [:states :a :on :tick])]
+      (is (= {:action :log :guard :ready?} cand))
+      (is (not= {} cand))))
+
+  (testing "rf2-mnp93.5 — a NAMESPACED action round-trips its namespace"
+    (let [back (-> internal-ns-action-machine scxml/spec->scxml scxml/scxml->spec)]
+      (is (= internal-ns-action-machine back))
+      (is (= :log/append (get-in back [:states :a :on :tick :action])))))
+
+  (testing "rf2-mnp93.5 — a genuine FORBIDDEN block ({} — no action, no
+            target) still round-trips to `{}` (the action lift-pass only
+            recovers a PRESENT action; absence stays absent — no false
+            action synthesised)"
+    (let [spec {:initial :a :states {:a {:on {:tick {}}}}}
+          back (-> spec scxml/spec->scxml scxml/scxml->spec)]
+      (is (= {} (get-in back [:states :a :on :tick]))
+          "an empty-map forbidden block survives as `{}`, not invented an action"))))
