@@ -15,8 +15,27 @@
   public helper surface."
   (:require [clojure.edn :as edn]
             [clojure.test :refer [deftest is testing]]
+            [re-frame.mcp-base.cursor :as base-cursor]
             [re-frame.story-mcp.tools.cursor :as cursor]
             [re-frame.story-mcp.tools.result :as result]))
+
+(defn- forge-cursor
+  "Mint a cursor token from a raw payload WITHOUT going through
+  `cursor/encode-cursor` — so a regression test can craft the out-of-
+  range payloads (`:offset -1`, an over-total offset) that the public
+  encoder would never emit. Mirrors what an agent that hand-edits an
+  opaque cursor token would produce on the wire."
+  [payload]
+  (base-cursor/b64-encode (pr-str payload)))
+
+(defn- live-sig-for
+  "The whole-set fingerprint `cursor/page` will compute for `ids` — read
+  it back off a legitimately-minted cursor so a forged-payload test can
+  reuse the matching `:sig` (isolating the RANGE gate from the
+  fingerprint-drift gate)."
+  [entries ids]
+  (let [[_ _ m] (cursor/page entries ids {:limit 1} "t")]
+    (:sig (cursor/decode-cursor (:next-cursor m)))))
 
 ;; ---------------------------------------------------------------------------
 ;; encode-cursor / decode-cursor round-trip + the end-of-page guard.
@@ -125,6 +144,67 @@
           [res err-result] (cursor/page entries entries {:cursor "garbage!!!"} "list-things")]
       (is (= :err res))
       (is (= :rf.mcp/cursor-stale (-> err-result :structuredContent :reason))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-to3q7 — wire-boundary range gate on the cursor payload.
+;;
+;; The cursor `:offset` / `:total` are NATURAL integers and `:offset <=
+;; :total`. A forged/edited cursor that violates this (negative offset,
+;; over-total offset) must decode to the malformed sentinel and recover
+;; through the documented cursor-stale envelope — NOT feed `subvec` a
+;; bad index (throwing a generic handler exception) or slice an empty
+;; window (silently skipping the tail of the registry). These use a
+;; matching live `:sig` so the RANGE gate is isolated from the
+;; fingerprint-drift gate.
+;; ---------------------------------------------------------------------------
+
+(deftest decode-cursor-rejects-negative-offset
+  (testing "a forged cursor with :offset -1 decodes to malformed, not a payload"
+    (let [forged (forge-cursor {:v 1 :offset -1 :total 5 :sig "any"})]
+      (is (cursor/decode-cursor forged)
+          "a negative-offset cursor is NOT nil — it must surface as malformed")
+      (is (= (cursor/decode-cursor "!!!garbage!!!") (cursor/decode-cursor forged))
+          "the negative-offset cursor reads as the SAME malformed sentinel as raw garbage"))))
+
+(deftest decode-cursor-rejects-negative-total
+  (testing "a forged cursor with a negative :total decodes to malformed"
+    (let [forged (forge-cursor {:v 1 :offset 0 :total -3 :sig "any"})]
+      (is (= (cursor/decode-cursor "!!!garbage!!!") (cursor/decode-cursor forged))))))
+
+(deftest decode-cursor-rejects-offset-over-total
+  (testing "a forged cursor whose :offset exceeds :total decodes to malformed"
+    (let [forged (forge-cursor {:v 1 :offset 99 :total 5 :sig "any"})]
+      (is (= (cursor/decode-cursor "!!!garbage!!!") (cursor/decode-cursor forged))))))
+
+(deftest decode-cursor-accepts-offset-equal-to-total
+  (testing "offset == total is a VALID position (fully-consumed end-of-list)"
+    (let [c (forge-cursor {:v 1 :offset 5 :total 5 :sig "any"})
+          p (cursor/decode-cursor c)]
+      (is (map? p) "offset == total must NOT be rejected — it is the legitimate end position")
+      (is (= 5 (:offset p))))))
+
+(deftest page-negative-offset-cursor-returns-cursor-stale-not-throw
+  (testing "a tampered negative-offset cursor recovers via cursor-stale, never throwing into subvec"
+    (let [entries (vec (range 5))
+          forged  (forge-cursor {:v 1 :offset -1 :total 5 :sig (live-sig-for entries entries)})
+          ;; Pre-fix this threw IndexOutOfBoundsException from subvec;
+          ;; post-fix the bad offset is rejected at decode and page
+          ;; returns the structured stale envelope.
+          [res err-result] (cursor/page entries entries {:cursor forged} "list-things")]
+      (is (= :err res))
+      (is (true? (:isError err-result)))
+      (is (= :rf.mcp/cursor-stale (-> err-result :structuredContent :reason))
+          "the negative-offset cursor recovers through the documented cursor-stale contract")
+      (is (= "list-things" (-> err-result :structuredContent :tool))))))
+
+(deftest page-over-total-offset-cursor-returns-cursor-stale-not-empty-page
+  (testing "an over-total offset recovers via cursor-stale rather than silently skipping the tail"
+    (let [entries (vec (range 5))
+          forged  (forge-cursor {:v 1 :offset 99 :total 5 :sig (live-sig-for entries entries)})
+          [res err-result] (cursor/page entries entries {:cursor forged} "list-things")]
+      (is (= :err res))
+      (is (= :rf.mcp/cursor-stale (-> err-result :structuredContent :reason))
+          "an over-total offset must NOT silently return an empty page that loses rows"))))
 
 ;; ---------------------------------------------------------------------------
 ;; paged-result — folds page + the tool-specific payload build + envelope.

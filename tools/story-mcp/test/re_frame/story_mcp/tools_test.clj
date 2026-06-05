@@ -3538,6 +3538,45 @@
       (is (= #{:label} (set (keys co))) "the unknown override key was dropped")
       (is (nil? (find-keyword probe)) "and never interned"))))
 
+(deftest read-run-opts-allows-active-mode-introduced-cell-override-key
+  (testing "an override for an arg introduced ONLY by an active mode is preserved (rf2-to3q7)"
+    ;; story.button/primary declares :args {:label "Save"} — :theme is
+    ;; NOT among its base args. The fixture's :Mode.theme/dark mode
+    ;; contributes :args {:theme :dark}. Story precedence merges mode
+    ;; args before cell-local overrides, so with that mode active a
+    ;; caller :theme override is a LEGITIMATE override target. Before
+    ;; rf2-to3q7 the allowlist was built from the bare variant (no
+    ;; active modes), so the :theme override was dropped as 'unknown'
+    ;; and the render fell back to the mode's :dark value.
+    (let [probe (str "rf2-to3q7-co-" (System/nanoTime))
+          opts  (targs/read-run-opts
+                  :story.button/primary
+                  {:active-modes   [":Mode.theme/dark"]
+                   :cell-overrides {"theme" ":light"   ; arg introduced by the active mode
+                                    "label" "Override"  ; arg on the variant itself
+                                    probe   "x"}})      ; genuinely-unknown key
+          co    (:cell-overrides opts)]
+      (is (= [:Mode.theme/dark] (:active-modes opts)) "the mode coerced through the bounded set")
+      (is (= ":light" (:theme co))
+          "rf2-to3q7: the mode-introduced :theme override is PRESERVED, not dropped")
+      (is (= "Override" (:label co)) "the variant's own :label override is kept")
+      (is (= #{:theme :label} (set (keys co)))
+          "the genuinely-unknown key is still dropped — the allowlist widened only to the mode args")
+      (is (nil? (find-keyword probe)) "the unknown key never interned"))))
+
+(deftest read-run-opts-without-active-mode-still-drops-mode-only-key
+  (testing "without the active mode, the mode-only arg key is correctly NOT an allowed override (rf2-to3q7)"
+    ;; Mirror of the test above with the mode absent: :theme is not in
+    ;; the variant's effective args, so the override IS unknown and must
+    ;; drop — proving the widening is scoped to the ACTIVE modes, not a
+    ;; blanket relaxation.
+    (let [opts (targs/read-run-opts
+                 :story.button/primary
+                 {:cell-overrides {"theme" ":light" "label" "Override"}})
+          co   (:cell-overrides opts)]
+      (is (= #{:label} (set (keys co)))
+          "with no active mode, :theme is not a declared arg and the override drops"))))
+
 (deftest ingress-unknown-variant-id-over-wire-does-not-intern
   (testing "an unknown :variant-id sent over JSON is rejected WITHOUT interning (rf2-3luf3)"
     ;; This is the wire-level peer of the rf2-lqjbk direct-invoke test —

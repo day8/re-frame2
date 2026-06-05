@@ -99,16 +99,24 @@
 
 (defn- cell-override-key-set
   "Bounded allowlist for `:cell-overrides` KEYS: the keys of the
-  variant's resolved effective-args map (`story/resolve-args`, no
-  overrides). Cell-overrides exist to override an arg the variant
-  already declares, so the legitimate key universe is exactly that
-  variant's declared arg keys — a finite, registry-derived set. Used by
-  `read-run-opts` to route each caller-supplied override key through
-  `args/safe-keyword` (no JVM intern outside the set; rf2-3luf3).
-  Returns `#{}` for an unresolvable variant — every override key then
-  rejects, which is the honest answer (nothing to override)."
-  [vk]
-  (set (keys (story/resolve-args vk))))
+  variant's EFFECTIVE-args map under the caller's `active-modes`
+  (`story/resolve-args` with `:active-modes`, no cell-overrides).
+  Cell-overrides exist to override an arg already present in the cell's
+  effective args, so the legitimate key universe is exactly the keys the
+  render will carry — a finite, registry-derived set. That universe is
+  the variant's declared args UNION every arg key the active modes
+  contribute, because Story's precedence merges mode args BEFORE
+  cell-local overrides (`re-frame.story.args` §precedence: `… < mode-args
+  < variant-args < cell-overrides`). Building the allowlist from the
+  variant alone would drop a caller override for an arg introduced ONLY
+  by an active mode (rf2-to3q7), so the render would show the mode value
+  instead of the caller override. Used by `read-run-opts` to route each
+  caller-supplied override key through `args/safe-keyword` (no JVM intern
+  outside the set; rf2-3luf3). Returns `#{}` for an unresolvable variant
+  with no active modes — every override key then rejects, which is the
+  honest answer (nothing to override)."
+  [vk active-modes]
+  (set (keys (story/resolve-args vk {:active-modes active-modes}))))
 
 (defn- safe-cell-overrides
   "Coerce a caller-supplied `:cell-overrides` map (string-keyed off the
@@ -155,26 +163,36 @@
   rf2-3luf3: `:cell-overrides` arrives string-keyed off the JSON wire
   (the no-intern ingress no longer keywordises nested arg keys). Its
   KEYS are routed through `args/safe-keyword` against the variant's
-  declared arg-key set (`cell-override-key-set`) — a bounded, registry-
-  derived allowlist — so an override key outside that set is dropped
-  rather than interned. This is the read-side counterpart to the
-  operator-gated write-body keywordisation in `tools.write`."
+  EFFECTIVE arg-key set under the active modes (`cell-override-key-set`)
+  — a bounded, registry-derived allowlist — so an override key outside
+  that set is dropped rather than interned. This is the read-side
+  counterpart to the operator-gated write-body keywordisation in
+  `tools.write`.
+
+  rf2-to3q7: the active modes are coerced FIRST so the cell-override
+  allowlist is derived from the EFFECTIVE args for those modes
+  (`story/resolve-args` with `:active-modes`). Story's precedence merges
+  mode args before cell-local overrides, so an arg key introduced only
+  by an active mode is a legitimate override target; building the
+  allowlist from the bare variant (as before) dropped that override and
+  the render fell back to the mode value."
   [vk arguments]
   (let [substrate-set (cljs-resolve/registered-substrates-set)
-        mode-set      (story/list-modes)]
+        mode-set      (story/list-modes)
+        active-modes  (when (some? (:active-modes arguments))
+                        (into []
+                              (keep #(args/safe-keyword % mode-set))
+                              (:active-modes arguments)))]
     (cond-> {}
       (some? (:substrate arguments))
       (assoc :substrate (args/safe-keyword (:substrate arguments) substrate-set))
 
       (some? (:active-modes arguments))
-      (assoc :active-modes
-             (into []
-                   (keep #(args/safe-keyword % mode-set))
-                   (:active-modes arguments)))
+      (assoc :active-modes active-modes)
 
       (some? (:cell-overrides arguments))
       (assoc :cell-overrides (safe-cell-overrides (:cell-overrides arguments)
-                                                  (cell-override-key-set vk))))))
+                                                  (cell-override-key-set vk active-modes))))))
 
 (defn with-variant
   "Resolve `:variant-id` from `arguments` (required), resolve it against

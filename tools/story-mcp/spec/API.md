@@ -112,6 +112,17 @@ of `list-stories`), the server returns
 — the same vocab pair-mcp uses for ring-rotation staleness. The
 agent restarts pagination from offset 0.
 
+The cursor `:offset` and `:total` are validated as **natural integers**
+with `:offset ≤ :total` at decode time. A forged or hand-edited cursor
+that violates this range (a negative offset, or an offset past the
+total) is treated as malformed and recovers through the SAME
+`:rf.mcp/cursor-stale` envelope — it never feeds the slice a bad index
+(which would throw a generic handler exception) nor silently returns an
+empty page that skips registry rows (rf2-to3q7). This is the wire-
+boundary range gate on the opaque cursor; the `:sig` fingerprint
+separately catches a registry that changed under a structurally-valid
+cursor.
+
 The `get-*` / `<thing>->edn` tools are NOT paginated — their return
 is a single record bounded by the registered body's size, not a
 function of registry size. Wire-budget overruns are caught by the
