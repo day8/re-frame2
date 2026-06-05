@@ -84,6 +84,36 @@
   (is (cap/invalid-arg? (cap/max-tokens -5)) "larger-magnitude negatives reject too")
   (is (cap/invalid-arg? (cap/max-tokens -1.5)) "negative doubles reject too"))
 
+(deftest max-tokens-fractional-positive-rejected-with-invalid-arg
+  ;; rf2-li6y2.2 — a fractional positive in (0,1) — e.g. 0.5 — is neither
+  ;; caught by (zero? raw) nor (neg? raw); pre-fix it fell to (long raw),
+  ;; flooring to a REAL 0 cap (non-nil, NOT the disable sentinel). That 0
+  ;; then over-tripped `apply-cap`'s `over-cap?` on EVERY non-empty payload,
+  ;; locking the agent out — the exact lockout class rf2-5rdit rejected for
+  ;; negatives. The resolver now rejects it honestly as an
+  ;; `{:rf.mcp/invalid-arg {...}}` marker rather than flooring to a 0-cap
+  ;; lockout.
+  (let [out (cap/max-tokens 0.5)]
+    (is (cap/invalid-arg? out)
+        "fractional positive in (0,1) resolves to an :rf.mcp/invalid-arg rejection, NOT a floored 0 cap")
+    (is (not (number? out)) "the rejection is a marker map, not a (0) cap integer")
+    (is (not= 0 out)
+        "must NOT return a real 0 cap — that is the apply-cap lockout shape, distinct from the nil disable-sentinel")
+    (is (some? out)
+        "must NOT return nil — nil is the disable-sentinel, a rejection must be distinguishable")
+    (let [body (get out vocab/invalid-arg-key)]
+      (is (= :max-tokens (:arg body)) "rejection names the offending arg")
+      (is (= 0.5 (:value body)) "rejection echoes the rejected value")
+      (is (string? (:hint body)) "rejection carries an actionable recovery hint")))
+  ;; Other sub-1 positives that would floor to 0 reject identically.
+  (is (cap/invalid-arg? (cap/max-tokens 0.1)) "0.1 rejects")
+  (is (cap/invalid-arg? (cap/max-tokens 0.999)) "0.999 rejects (would floor to 0)")
+  ;; Boundary: exactly 1 (and >= 1 fractionals) are valid usable caps —
+  ;; they floor to >= 1, NOT to a 0-cap lockout.
+  (is (= 1 (cap/max-tokens 1)) "exactly 1 is the smallest valid cap")
+  (is (= 1 (cap/max-tokens 1.0)) "1.0 floors to a usable 1")
+  (is (= 2 (cap/max-tokens 2.9)) "2.9 floors to a usable 2 (benign silent floor, still >= 1)"))
+
 (deftest invalid-arg?-predicate-discriminates
   ;; The predicate consumers gate on. True only for the rejection marker;
   ;; false for every valid `max-tokens` return (cap int, nil-disable,
