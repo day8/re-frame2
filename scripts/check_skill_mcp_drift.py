@@ -621,19 +621,19 @@ TITLE_SAFETY_RULES: list[TitleSafetyRule] = [
     ),
     # re-frame2-implementor — carries a DELIBERATELY-LOCAL recipe in
     # references/cardinal-rules.md §8 and does NOT link the shared leaf.
-    # That local recipe currently has the body-safety clauses but NOT the
-    # title-safety clauses (the rf2-4kyg6 finding-1 gap). Updating it is
-    # deferred to rf2-57b5t0 because a concurrent worker (rf2-708nm) holds
-    # cardinal-rules.md during this change. The allowance keeps the gate
-    # green now; rf2-57b5t0 adds the title clauses (or links the leaf) and
-    # removes this entry, tightening the gate.
+    # That local recipe now carries BOTH the body-safety clauses and the
+    # title-safety clauses (no `--title-file`, restricted safe alphabet,
+    # never-paste-evidence-into-`--title`, reviewer pass for the title arg),
+    # added under rf2-57b5t0 — the rf2-4kyg6 finding-1 gap is closed. The
+    # follow-up allowance that kept the gate green while rf2-708nm held
+    # cardinal-rules.md has been removed, so this consumer is now enforced
+    # via the local-clauses branch (no allowance).
     TitleSafetyRule(
         consumer="re-frame2-implementor",
         docs=(
             REPO_ROOT / "skills" / "re-frame2-implementor" / "SKILL.md",
             REPO_ROOT / "skills" / "re-frame2-implementor" / "references" / "cardinal-rules.md",
         ),
-        allowance_bead="rf2-57b5t0",
     ),
 ]
 
@@ -877,62 +877,126 @@ def _emit_error(msg: str, ci: bool) -> None:
 def _run_self_test(ci: bool) -> int:
     """Self-test the title-safety backstop (rf2-4kyg6 finding 1).
 
-    Guards against the axis silently degrading into a no-op:
+    Guards against the axis silently degrading into a no-op. As of
+    rf2-57b5t0 the implementor allowance is removed — every shipped
+    consumer satisfies the contract on its own (pair-retro / migration via
+    the shared-leaf link, implementor via its local body+title clauses), so
+    the non-vacuousness proof uses synthetic fixtures rather than toggling a
+    live allowance:
 
-      1. With the shipped `TITLE_SAFETY_RULES` (implementor under its
-         follow-up allowance), the axis produces NO drift.
-      2. Remove the implementor allowance: the axis MUST fire
-         `missing-title-safety` drift for implementor (proving the
-         clause/link check is real, not vacuously satisfied).
-      3. The link-presence consumers (pair-retro, migration) stay green
-         even with the allowance removed — they satisfy the
-         single-source branch.
+      1. With the shipped `TITLE_SAFETY_RULES`, the axis produces NO drift
+         (all consumers satisfied; no allowances remain).
+      2. A synthetic consumer whose docs carry NEITHER the shared-leaf link
+         NOR the local body+title clauses MUST fire `missing-title-safety`
+         drift — proving the clause/link detection is real, not vacuously
+         satisfied.
+      3. A synthetic consumer carrying the local body+title clauses (no
+         link) MUST stay green — proving the local-clauses branch is the
+         live path the implementor recipe now travels.
+      4. The shipped implementor consumer specifically must be GREEN via
+         its local clauses with no allowance present — the exact tightening
+         rf2-57b5t0 lands.
 
     Returns 0 on pass, 1 on a broken invariant.
     """
-    import dataclasses
+    import tempfile
 
     failures: list[str] = []
 
-    # (1) Shipped rules: no title-safety drift.
+    # (1) Shipped rules: no title-safety drift, and no allowance remains.
     drift, _ = check_title_safety_rules(TITLE_SAFETY_RULES)
     if any(d.direction == "missing-title-safety" for d in drift):
         failures.append(
             "shipped TITLE_SAFETY_RULES produced missing-title-safety drift "
-            "(the implementor allowance should silence it)."
+            "(every shipped consumer must satisfy the contract on its own)."
+        )
+    if any(r.allowance_bead for r in TITLE_SAFETY_RULES):
+        leftover = [r.consumer for r in TITLE_SAFETY_RULES if r.allowance_bead]
+        failures.append(
+            "a TITLE_SAFETY_RULES entry still carries an allowance_bead "
+            f"({leftover}); rf2-57b5t0 removes the implementor allowance and "
+            "no consumer should rely on one."
         )
 
-    # (2) Tightened rules (allowance dropped): implementor MUST drift.
-    tightened = [
-        dataclasses.replace(r, allowance_bead=None)
-        if r.allowance_bead else r
-        for r in TITLE_SAFETY_RULES
-    ]
-    drift2, _ = check_title_safety_rules(tightened)
-    impl = [
-        d for d in drift2
-        if d.direction == "missing-title-safety"
-        and d.tool == "re-frame2-implementor"
-    ]
-    if not impl:
-        failures.append(
-            "removing the implementor allowance did NOT fire "
-            "missing-title-safety drift -- the title-safety check is a "
-            "no-op. The clause/link detection is broken."
-        )
+    with tempfile.TemporaryDirectory() as td:
+        td_path = Path(td)
 
-    # (3) Link-presence consumers stay green under tightening.
-    leaked = [
-        d for d in drift2
-        if d.direction == "missing-title-safety"
-        and d.tool in ("re-frame2-pair-retro", "re-frame-migration")
-    ]
-    if leaked:
-        failures.append(
-            "link-presence consumers (pair-retro / migration) were flagged "
-            "as missing-title-safety -- the single-source link branch is "
-            f"broken: {[d.tool for d in leaked]}."
+        # (2) Synthetic NEGATIVE fixture: neither link nor clauses -> MUST drift.
+        neg = td_path / "no-safety.md"
+        neg.write_text(
+            "# fixture\nThis recipe files a gh issue with no shell-safety "
+            "guidance at all.\n",
+            encoding="utf-8",
         )
+        neg_drift, _ = check_title_safety_rules(
+            [TitleSafetyRule(consumer="synthetic-negative", docs=(neg,))]
+        )
+        if not [
+            d for d in neg_drift
+            if d.direction == "missing-title-safety"
+            and d.tool == "synthetic-negative"
+        ]:
+            failures.append(
+                "a synthetic consumer lacking BOTH the shared-leaf link and "
+                "the local body+title clauses did NOT fire missing-title-safety "
+                "drift -- the title-safety check is a no-op. The clause/link "
+                "detection is broken."
+            )
+
+        # (3) Synthetic POSITIVE fixture: local body+title clauses, no link ->
+        #     MUST stay green (the branch the implementor recipe now travels).
+        pos = td_path / "local-clauses.md"
+        pos.write_text(
+            "# fixture\n"
+            "Write the body with the Write tool and pass it via --body-file; "
+            "never interpolate transcript text inline.\n"
+            "gh issue create has no `--title-file` flag; author the title from "
+            "a restricted safe alphabet (letters, digits, spaces, - . , / ( ) :) "
+            "and never paste evidence into `--title`; the reviewer pass covers "
+            "the title arg.\n",
+            encoding="utf-8",
+        )
+        pos_drift, _ = check_title_safety_rules(
+            [TitleSafetyRule(consumer="synthetic-positive", docs=(pos,))]
+        )
+        if [
+            d for d in pos_drift
+            if d.direction == "missing-title-safety"
+            and d.tool == "synthetic-positive"
+        ]:
+            failures.append(
+                "a synthetic consumer carrying the local body+title clauses "
+                "(no shared-leaf link) was flagged as missing-title-safety -- "
+                "the local-clauses branch is broken."
+            )
+
+    # (4) Shipped implementor specifically: GREEN via local clauses, no
+    #     allowance. This is the exact state rf2-57b5t0 lands.
+    impl_rule = next(
+        (r for r in TITLE_SAFETY_RULES if r.consumer == "re-frame2-implementor"),
+        None,
+    )
+    if impl_rule is None:
+        failures.append(
+            "re-frame2-implementor is no longer in TITLE_SAFETY_RULES -- the "
+            "consumer must stay enforced, not dropped."
+        )
+    else:
+        if impl_rule.allowance_bead is not None:
+            failures.append(
+                "re-frame2-implementor still carries an allowance_bead -- "
+                "rf2-57b5t0 removes it so the local clauses enforce the rule."
+            )
+        impl_drift, _ = check_title_safety_rules([impl_rule])
+        if [
+            d for d in impl_drift
+            if d.direction == "missing-title-safety"
+        ]:
+            failures.append(
+                "re-frame2-implementor fired missing-title-safety drift with "
+                "no allowance -- its local recipe is missing the body or title "
+                "clauses (rf2-57b5t0 must add them)."
+            )
 
     if failures:
         for f in failures:
@@ -940,8 +1004,9 @@ def _run_self_test(ci: bool) -> int:
         return 1
 
     print("title-safety self-test: PASS "
-          "(allowance silences shipped drift; tightening fires it; "
-          "link-presence consumers stay green).")
+          "(shipped consumers green with no allowance; synthetic negative "
+          "fires; synthetic local-clauses positive stays green; implementor "
+          "enforced via its local clauses).")
     return 0
 
 
