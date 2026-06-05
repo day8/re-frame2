@@ -10,6 +10,7 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.story :as story]
+            [re-frame.story.share :as share]
             [re-frame.story.ui.share :as ui-share]
             [re-frame.story.ui.state :as state]))
 
@@ -138,3 +139,41 @@
       (on-click nil)
       (is (some? (ui-share/share-export-dialog))
           "clicking the chip opens the dialog (it now renders a tree)"))))
+
+;; ---- rf2-76l69l: declared-arg-keys is the stale-override contract --------
+
+(deftest declared-arg-keys-unions-args-and-argtypes
+  (testing "rf2-76l69l — declared-arg-keys is the variant's editable arg
+            surface: resolved-args keys ∪ :argtypes keys"
+    (story/reg-variant :story.dak/v
+      {:tags     #{:dev}
+       :events   []
+       :args     {:label "Hi" :count 1}
+       :argtypes {:flavour {:control :select}}})
+    (let [ks (ui-share/declared-arg-keys :story.dak/v)]
+      (is (contains? ks :label) "an :args key is declared")
+      (is (contains? ks :count) "an :args key is declared")
+      (is (contains? ks :flavour) "an :argtypes-only key is declared")
+      (is (not (contains? ks :removed)) "a never-declared key is NOT in the set"))))
+
+(deftest declared-arg-keys-nil-for-unregistered
+  (testing "rf2-76l69l — an unregistered variant has no known contract → nil
+            (so drop-stale-overrides degrades to keep-all, not drop-all)"
+    (is (nil? (ui-share/declared-arg-keys :story.dak/never-registered)))))
+
+(deftest drop-stale-overrides-against-live-contract
+  (testing "rf2-76l69l — a stale override (an arg the variant removed) is
+            dropped + reported against the live declared-key set, while a
+            still-declared override survives — the end-to-end finding-2 fix"
+    (story/reg-variant :story.dak/contract
+      {:tags   #{:dev}
+       :events []
+       :args   {:label "Hi"}})
+    (let [parsed {:overrides {:label "Renamed" :gone 9} :dropped []}
+          out    (share/drop-stale-overrides
+                   parsed (ui-share/declared-arg-keys :story.dak/contract))]
+      (is (= {:label "Renamed"} (:overrides out))
+          "the still-declared :label override survives")
+      (is (= 1 (count (:dropped out))) "the removed :gone override is dropped")
+      (is (re-find #":gone" (first (:dropped out)))
+          "the dropped token names the stale key"))))

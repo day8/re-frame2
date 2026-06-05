@@ -961,9 +961,17 @@
                          (do (settle-terminal-assertions! variant-id plan)
                              (resolve (read-assertions variant-id)))
                          (let [spec (first remaining)]
+                           ;; rf2-76l69l — the orchestrator cleared the settle
+                           ;; boundaries ONCE above (before the loop). Drive
+                           ;; every auto-play with `:clear-boundaries? false`
+                           ;; so the per-play absolute boundaries ACCUMULATE
+                           ;; across the concatenated `:executed-script` rather
+                           ;; than each `run!` wiping the prior play's — the
+                           ;; multi-play attribution-boundary fix.
                            (runner-events/run! variant-id (:name spec) spec
                                                (fn [_state]
-                                                 (step! (rest remaining)))))))]
+                                                 (step! (rest remaining)))
+                                               {:clear-boundaries? false}))))]
                (step! auto-plays))))]))))
 
 (defn- finalise-run!

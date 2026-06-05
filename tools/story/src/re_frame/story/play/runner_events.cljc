@@ -140,7 +140,12 @@
   The boundaries accumulate in dispatch-step execution order, which — for
   both the single-play and multi-play (sequential) runner — is exactly the
   order the dispatch steps appear in the concatenated executed-script the
-  narrative spans."
+  narrative spans. For multi-play this holds ONLY because the sequencer
+  clears once up front and drives each play with `:clear-boundaries? false`
+  (rf2-76l69l): the boundaries from play K+1 (absolute epoch-history
+  lengths) tail play K's, so the full vector zips positionally against the
+  concatenated script. A per-play clear would drop every earlier play's
+  boundaries, leaving only the last play's to be mis-zipped."
   [frame-id step]
   (when (evidence/dispatch-step? step)
     (swap! step-boundaries update frame-id (fnil conj []) (epoch-count frame-id)))
@@ -1256,13 +1261,28 @@
                                     is the play's `:name` string (or
                                     nil for the single-script case);
                                     callers handing a hand-built `spec`
-                                    pass its `:name` as `play-key`."
+                                    pass its `:name` as `play-key`.
+  - `[variant-id play-key spec done-cb opts]` — as above + an options
+                                    map. `{:clear-boundaries? false}`
+                                    SUPPRESSES the per-run settle-boundary
+                                    reset, for a caller SEQUENCING several
+                                    plays against one frame (rf2-76l69l):
+                                    the sequencer clears ONCE up front and
+                                    each subsequent play APPENDS its
+                                    absolute boundaries, so the
+                                    concatenated-script attribution stays
+                                    positionally aligned. Defaults to
+                                    `{:clear-boundaries? true}` — the
+                                    standalone single-play contract."
   ([variant-id]
-   (run! variant-id nil nil nil))
+   (run! variant-id nil nil nil nil))
   ([variant-id done-cb]
    ;; Two-arity: variant-id + done-cb. Picks the default play.
-   (run! variant-id nil nil done-cb))
+   (run! variant-id nil nil done-cb nil))
   ([variant-id play-key spec done-cb]
+   (run! variant-id play-key spec done-cb nil))
+  ([variant-id play-key spec done-cb {:keys [clear-boundaries?]
+                                      :or   {clear-boundaries? true}}]
    (let [spec  (or spec
                    (resolve-play variant-id play-key)
                    ;; Fall back to the legacy single-script path so the
@@ -1288,7 +1308,20 @@
      ;; the boundaries snapshot the ABSOLUTE epoch-history length, so any setup
      ;; epochs already on the tape precede the first boundary (in the
      ;; orchestrator path setup runs in phase-2, before phase-4 drives `run!`).
-     (clear-step-boundaries! variant-id)
+     ;;
+     ;; rf2-76l69l — a MULTI-PLAY sequencer (`run-plays-sequentially!`, the
+     ;; orchestrator `runtime/run-phase-4!`) passes `:clear-boundaries? false`
+     ;; for the 2nd…Nth play so the boundaries ACCUMULATE across the whole
+     ;; auto-run sequence. The narrative spans the CONCATENATED script
+     ;; (`(mapcat :script auto-plays)`), and the epoch tape is append-only
+     ;; across the run (no per-play reset), so each play's absolute boundaries
+     ;; tail the previous play's — keeping the positional zip in `stamp-tape`
+     ;; aligned. Clearing per-play (the old behaviour) dropped every earlier
+     ;; play's boundaries, leaving only the LAST play's absolute boundaries to
+     ;; be mis-zipped against the concatenated script's leading dispatch steps
+     ;; — a false-green evidence-provenance failure.
+     (when clear-boundaries?
+       (clear-step-boundaries! variant-id))
      (set-state! variant-id pk started)
      (set-active-play! variant-id pk)
      (run-loop! variant-id pk token done-cb)
@@ -1362,9 +1395,19 @@
 (defn- run-plays-sequentially!
   "Internal: run `plays` against `variant-id` one after another.
   Resolves `done-cb` with a vector of terminal states once every play
-  has finished (or the loop is interrupted by a missing frame)."
+  has finished (or the loop is interrupted by a missing frame).
+
+  rf2-76l69l — clears the per-dispatch-step settle boundaries ONCE up
+  front, then drives each play with `:clear-boundaries? false` so the
+  boundaries ACCUMULATE across the sequence. The evidence narrative spans
+  the CONCATENATED play scripts, and the epoch tape is append-only across
+  the run, so each play's absolute boundaries must tail the previous
+  play's for the positional `stamp-tape` zip to stay aligned. Letting each
+  `run!` clear (the old behaviour) left only the last play's boundaries,
+  mis-attributing later-play effects to earlier-play steps."
   [variant-id plays done-cb]
   (let [acc (atom [])]
+    (clear-step-boundaries! variant-id)
     (letfn [(step! [remaining]
               (if (empty? remaining)
                 (when done-cb
@@ -1375,7 +1418,8 @@
                   (run! variant-id pk spec
                         (fn [final]
                           (swap! acc conj final)
-                          (step! (rest remaining)))))))]
+                          (step! (rest remaining)))
+                        {:clear-boundaries? false}))))]
       (step! plays))))
 
 (defn run-all-plays!

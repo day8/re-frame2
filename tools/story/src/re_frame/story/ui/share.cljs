@@ -62,12 +62,14 @@
             [re-frame.story.args :as args]
             [re-frame.story.config :as config]
             [re-frame.story.egress :as egress]
+            [re-frame.story.malli-schema :as msu]
             [re-frame.story.plan :as plan]
             [re-frame.story.registrar :as registrar]
             [re-frame.story.review-dialog :as review-dialog]
             [re-frame.story.share :as share]
             [re-frame.story.ui.a11y-dialog :as a11y-dialog]
             [re-frame.story.ui.state :as state]
+            [re-frame.story.view-args :as view-args]
             [re-frame.story.theme.typography :as typography :refer [mono-stack sans-stack]]
             [re-frame.story.theme.colors :as colors]))
 
@@ -82,6 +84,36 @@
           (js/URLSearchParams. search)
           (catch :default _ nil))))))
 
+(defn declared-arg-keys
+  "The set of TOP-LEVEL arg-keys `variant-id` currently declares — the
+  share-import contract a stale URL override is checked against
+  (rf2-76l69l). The same surface the controls panel exposes as editable
+  args: the union of
+
+    - the resolved args' keys (`args/resolve-args` WITHOUT cell-overrides
+      — the global / story / variant-chain `:args` layers);
+    - the variant's + parent story's explicit `:argtypes` keys;
+    - the compiled view-args (props) schema's top-level `:map` entry keys
+      (`view-args/compiled-view-args-schema`).
+
+  Returns nil for an unregistered / uncompilable variant (no contract
+  known) so `share/drop-stale-overrides` degrades to keeping every parsed
+  override rather than dropping all. Best-effort: any read failure
+  contributes its empty layer; the resolved-args layer alone is the
+  floor."
+  [variant-id]
+  (when (and variant-id (registrar/registered? :variant variant-id))
+    (let [story-id   (args/parent-story-id variant-id)
+          vb         (registrar/handler-meta :variant variant-id)
+          sb         (when story-id (registrar/handler-meta :story story-id))
+          arg-keys   (set (keys (args/resolve-args variant-id)))
+          argtype-ks (into (set (keys (:argtypes sb)))
+                           (keys (:argtypes vb)))
+          schema     (view-args/compiled-view-args-schema variant-id)
+          schema-ks  (when (and (vector? schema) (= :map (msu/schema-op schema)))
+                       (map msu/map-entry-key (msu/schema-children schema)))]
+      (into (into arg-keys argtype-ks) schema-ks))))
+
 (defn hydrate-from-url!
   "Hydrate the share-URL-owned shell state from `window.location.search`.
 
@@ -95,15 +127,32 @@
   a non-blocking hint when a recorded URL has drifted (variant args
   refactored, removed, renamed). Returns nothing — side-effect only.
   Pure helper exposed via `share/parse-overrides-param*` so tests can
-  assert per-axis without touching the ratom."
+  assert per-axis without touching the ratom.
+
+  rf2-76l69l — drift is detected at TWO stages: `parse-overrides-param*`
+  drops UNPARSEABLE entries, then `share/drop-stale-overrides` drops every
+  parsed override whose arg-key the selected variant no longer DECLARES
+  (renamed / removed args — `declared-arg-keys`). Both classes land in
+  `:dropped` and feed the share-import hint, so a stale override is
+  reported (reproducibility downgraded) instead of silently installed as
+  an orphan live arg."
   []
   (when-let [params (current-url-params)]
     (let [variant-id (share/parse-keyword-token (.get params "variant"))
-          parsed     (share/parse-overrides-param* (.get params "overrides"))
+          valid?     (and variant-id (registrar/registered? :variant variant-id))
+          parsed0    (share/parse-overrides-param* (.get params "overrides"))
+          ;; Second stage: drop overrides for args the selected variant no
+          ;; longer declares (renamed / removed) so they are REPORTED, not
+          ;; merged as orphan live args. Only meaningful for a valid variant
+          ;; (its declared-key contract); an invalid variant installs nothing
+          ;; anyway. `declared-arg-keys` returns nil → keep-all degrade.
+          parsed     (if valid?
+                       (share/drop-stale-overrides parsed0
+                                                   (declared-arg-keys variant-id))
+                       parsed0)
           overrides  (:overrides parsed)
           dropped    (:dropped parsed)
-          substrate  (share/parse-substrate-param (.get params "substrate"))
-          valid?     (and variant-id (registrar/registered? :variant variant-id))]
+          substrate  (share/parse-substrate-param (.get params "substrate"))]
       (state/swap-state!
         (fn [s]
           (let [s' (if valid?
@@ -112,7 +161,7 @@
                                  (state/select-workspace nil))
                        (seq overrides)
                        (assoc-in [:cell-overrides variant-id] overrides)
-                       (and valid? (seq dropped))
+                       (seq dropped)
                        (assoc-in [:rf.story/share-import-hint variant-id]
                                  {:dropped-count (count dropped)
                                   :dropped       (vec dropped)}))
