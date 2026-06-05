@@ -2087,17 +2087,35 @@
         (expect-fx-args-schema-failure!
           traces :rf.server/delete-cookie ":rf.server/delete-cookie missing :name")))
 
-    (testing ":rf.server/redirect with no target key → rejected"
-      ;; :location / :url / :to all absent — the [:fn] predicate fails.
-      (rf/reg-event-fx :bad/redirect
+    (testing ":rf.server/redirect with no target key → PASSES the schema (warn path, not 400)"
+      ;; rf2-ee38b.11 + the live half of decision rf2-cwfy2: a redirect
+      ;; with no :location/:url/:to is NOT a structural error — the schema
+      ;; is permissive (all target keys optional, zero allowed) so the
+      ;; no-target case PASSES the Spec 010 §step-5 boundary and falls
+      ;; through to the runtime's graceful no-target path. redirect-fx
+      ;; accepts it (location is caller-trusted/optional), sets :redirect,
+      ;; and the host adapter is the last line — it emits the
+      ;; :rf.ssr/ssr-redirect-no-target WARNING + a 3xx with no Location
+      ;; header so the defect is observable. A schema [:fn] requiring a
+      ;; target would 400 here BEFORE the warn→302 path runs, contradicting
+      ;; ee38b.11; this test pins that the redirect schema stays a pure
+      ;; shape check and does NOT reject the no-target redirect.
+      (rf/reg-event-fx :soft/redirect-no-target
         (fn [_ _] {:fx [[:rf.server/redirect {:status 302}]]}))
       (let [f      (rf/make-frame {:platform :server})
             traces (capture-schema-failures!
-                     (fn [] (rf/dispatch-sync [:bad/redirect] {:frame f})))]
-        (expect-fx-args-schema-failure!
-          traces :rf.server/redirect ":rf.server/redirect with no target key")
-        (is (nil? (:redirect (get-response f)))
-            "the malformed redirect was skipped; no :redirect set")))
+                     (fn [] (rf/dispatch-sync [:soft/redirect-no-target] {:frame f})))]
+        (is (empty? (filter (fn [ev] (and (= :fx-args (-> ev :tags :where))
+                                          (= :rf.server/redirect
+                                             (-> ev :tags :failing-id))))
+                            traces))
+            (str "no :fx-args schema failure for a no-target redirect — "
+                 "the schema permits it; saw: "
+                 (pr-str (mapv (comp :failing-id :tags) traces))))
+        (is (= {:status 302} (:redirect (get-response f)))
+            (str "the no-target redirect passed the schema and set :redirect"
+                 " — the adapter's warn+302 no-target path takes over"
+                 " downstream"))))
 
     (testing ":rf.server/redirect with non-int :status → rejected"
       (rf/reg-event-fx :bad/redirect-status

@@ -162,15 +162,23 @@
   than the documented + implemented fx contract, so it accepts any ONE
   of the three target keys (a `:string`), each optional, plus the
   optional `:int` `:status`. The fx handler resolves precedence
-  (`:location` wins, then `:url`, then `:to`)."
-  [:and
-   [:map
-    [:status   {:optional true} :int]      ;; default 302
-    [:location {:optional true} :string]
-    [:url      {:optional true} :string]
-    [:to       {:optional true} :string]]
-   ;; A real fn value (not a quoted sexpr) so Malli needs no sci
-   ;; evaluator dependency — the schema is consumed as-is by the
-   ;; registered validator. Requires at least one redirect-target key.
-   [:fn {:error/message "redirect args must carry one of :location / :url / :to"}
-    (fn [m] (boolean (some #(contains? m %) [:location :url :to])))]])
+  (`:location` wins, then `:url`, then `:to`).
+
+  PERMISSIVE on the no-target case (rf2-ee38b.11 contract, the live half
+  of decision rf2-cwfy2). All three target keys are optional AND a
+  redirect with ZERO target keys PASSES this shape gate — it is not a
+  structural error. A target-less redirect is the established
+  `:rf.ssr/ssr-redirect-no-target` graceful-degradation path: the
+  redirect-fx accepts it (location is caller-trusted/optional at the fx
+  boundary) and the adapter emits the warning trace + a 3xx with no
+  Location header so the defect is observable rather than silently
+  shipping a broken redirect. A `[:fn]` clause requiring a target key
+  here would 400 the no-target redirect at the Spec 010 §step-5 boundary
+  BEFORE that warn→302 path runs, contradicting ee38b.11 — so the schema
+  stays a pure shape check (key types only) and lets the no-target case
+  fall through to the runtime's warning path."
+  [:map
+   [:status   {:optional true} :int]      ;; default 302
+   [:location {:optional true} :string]
+   [:url      {:optional true} :string]
+   [:to       {:optional true} :string]])
