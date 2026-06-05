@@ -83,7 +83,12 @@ async function main() {
   compileAll();
   stageHtml();
 
-  const server = cleanup.trackProcess(spawnHarnessProcess(process.execPath, [HTTP_SERVER_BIN, OUT_ROOT, '-p', String(port), '-s', '-c-1'], {
+  // Bind 127.0.0.1 (not the http-server 0.0.0.0 default): the runner
+  // and resolveStoryFeatureLoadPort only ever touch loopback, so binding
+  // every interface is avoidable local-network surface. Matches the
+  // adapter-smoke orchestrator (serve-and-run-examples-tests.cjs).
+  // rf2-wf5al(2).
+  const server = cleanup.trackProcess(spawnHarnessProcess(process.execPath, [HTTP_SERVER_BIN, OUT_ROOT, '-a', '127.0.0.1', '-p', String(port), '-s', '-c-1'], {
     cwd: IMPL_ROOT,
     stdio: ['ignore', 'pipe', 'pipe'],
   }));
