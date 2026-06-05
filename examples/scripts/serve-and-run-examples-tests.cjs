@@ -29,8 +29,10 @@
  * matching spec.cjs exists under SPEC_ROOTS; never stage a surface
  * that nothing tests.
  *
- * Cross-platform: compile via npx, but launch http-server directly from the
- * local package so teardown kills the real server process on Windows too.
+ * Cross-platform: compile shadow-cljs shell-free by resolving its JS
+ * entry-point and spawning it under THIS node binary (process.execPath),
+ * and launch http-server the same way so teardown kills the real server
+ * process on Windows too. Never npx/npx.cmd under a shell (rf2-y9o5e3).
  */
 
 const { spawnSync } = require('child_process');
@@ -111,6 +113,22 @@ const RUNNER = path.resolve(__dirname, 'run-examples-tests.cjs');
 const HTTP_SERVER_BIN = require.resolve('http-server/bin/http-server', {
   paths: [IMPL_ROOT],
 });
+// shadow-cljs is a devDependency of implementation/package.json. Resolve
+// its JS entry-point from there so compileAll() can spawn it shell-free
+// under process.execPath — never `npx`/`npx.cmd` under a shell, which on
+// Windows resolves a workspace-local `.cmd` ahead of PATH from a repo-
+// controlled cwd (the command-hijack accident class). rf2-y9o5e3.
+let SHADOW_CLJS_RUNNER;
+try {
+  SHADOW_CLJS_RUNNER = require.resolve('shadow-cljs/cli/runner.js', {
+    paths: [IMPL_ROOT],
+  });
+} catch {
+  throw new Error(
+    'serve-and-run-examples-tests: could not resolve shadow-cljs. Run ' +
+      `\`npm install\` in ${IMPL_ROOT} first.`,
+  );
+}
 const READY_TIMEOUT_MS = 30000;
 const cleanup = createHarnessCleanup();
 cleanup.installSignalHandlers();
@@ -134,8 +152,6 @@ function selectedExamples() {
 }
 
 function compileAll() {
-  const isWin = process.platform === 'win32';
-  const cmd = isWin ? 'npx.cmd' : 'npx';
   // Compile every build in one shadow-cljs invocation — faster: it
   // shares the JVM warmup across builds. Silent-on-success: shadow-
   // cljs's own status lines flow through; that output is build-tool,
@@ -146,14 +162,16 @@ function compileAll() {
       `EXAMPLES_FILTER='${FILTER}' matched zero builds; nothing to compile.`,
     );
   }
-  const args = ['shadow-cljs', 'compile', ...builds];
-  const result = spawnSync(cmd, args, {
+  // Spawn the resolved shadow-cljs JS entry-point under THIS node binary,
+  // shell-free (rf2-y9o5e3). Same hardened posture as story-build.cjs /
+  // dev-testbed.cjs in implementation/scripts.
+  const args = [SHADOW_CLJS_RUNNER, 'compile', ...builds];
+  const result = spawnSync(process.execPath, args, {
     cwd: IMPL_ROOT,
     stdio: 'inherit',
-    shell: isWin,
   });
   if (result.status !== 0) {
-    console.error(`> ${cmd} ${args.join(' ')}`);
+    console.error(`> shadow-cljs compile ${builds.join(' ')}`);
     throw new Error(`shadow-cljs compile failed (exit ${result.status})`);
   }
 }

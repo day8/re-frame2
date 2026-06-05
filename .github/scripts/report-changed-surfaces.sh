@@ -172,15 +172,41 @@ else
         mcp_conformance=true
         mcp_live=true
         ;;
-      examples/scripts/serve-and-run-examples-tests.cjs|examples/scripts/run-examples-tests.cjs|examples/scripts/spec-helpers.cjs|examples/scripts/examples-filter.cjs)
+      examples/scripts/serve-and-run-examples-tests.cjs|examples/scripts/run-examples-tests.cjs|examples/scripts/spec-helpers.cjs|examples/scripts/examples-filter.cjs|examples/scripts/examples-port.cjs)
         # rf2-bxdk8 + rf2-cjp0i — the orchestrator + runner + helpers
         # under examples/scripts/ drive the adapter-testbed-smokes job
         # (via `npm run test:examples`). rf2-l72e2 — examples-filter.cjs
         # is the shared example-set manifest + selection logic both the
         # orchestrator and runner import, so a change to it must fire the
-        # gate too. They are the *only* paths under examples/ that fire
-        # this gate; the rest of examples/** is test-free per rf2-8cevm.
+        # gate too. rf2-y9o5e3 — examples-port.cjs is the port resolver
+        # the orchestrator's main() calls before any compile/serve; a
+        # break there false-greens the adapter smoke gate, so it fires it
+        # too. These are the adapter-smoke executable paths under
+        # examples/scripts/; the rest of examples/** is test-free per
+        # rf2-8cevm. (port-resolver.cjs is shared with the Story launchers
+        # and is handled in its own case below so it fires BOTH gates.)
         adapter_testbed_smokes=true
+        ;;
+      examples/scripts/serve-and-run-story-feature-load-tests.cjs|examples/scripts/run-story-feature-load-tests.cjs|examples/scripts/serve-and-run-story-play-scripts.cjs|examples/scripts/story-feature-load-port.cjs)
+        # rf2-y9o5e3 — the Story CI-as-test launchers + their dedicated
+        # port resolver under examples/scripts/ are the executable
+        # orchestration for `npm run test:story-feature-load` and
+        # `npm run test:story-play-scripts`, both of which run under the
+        # story-xray-browser PR job. A break in one of these launchers
+        # (compile step, server staging, port resolution, runner spawn)
+        # can break the Story browser gate, so editing one must fire that
+        # gate — closing the false-green hole where the launcher could
+        # break and still avoid the gate it drives.
+        story_xray_browser=true
+        ;;
+      examples/scripts/port-resolver.cjs)
+        # rf2-y9o5e3 — port-resolver.cjs is the shared free-port resolver
+        # imported by BOTH examples-port.cjs (adapter smoke orchestrator)
+        # and story-feature-load-port.cjs (Story launchers). A break here
+        # affects every examples/scripts browser gate, so it fires BOTH
+        # the adapter-testbed-smokes and the story-xray-browser gates.
+        adapter_testbed_smokes=true
+        story_xray_browser=true
         ;;
       implementation/schemas/*|implementation/machines/*|implementation/routing/*|implementation/flows/*|implementation/http/*|implementation/ssr/*|implementation/ssr-ring/*|implementation/epoch/*|implementation/deps.edn)
         # rf2-8jz9t — adapter_testbed_smokes NOT fired here. Per-feature

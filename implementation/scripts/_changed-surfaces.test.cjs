@@ -390,6 +390,69 @@ test('examples/scripts/examples-filter.cjs (shared manifest) fires adapter_testb
   assert.equal(result.adapter_testbed_smokes, 'true');
 });
 
+// rf2-y9o5e3 — every EXECUTABLE examples/scripts gate file must fire the
+// browser gate it drives, so a PR breaking a launcher / shared port
+// resolver can't avoid the gate it can break. The adapter-smoke
+// orchestrator + runner + helpers (incl. examples-port.cjs) fire
+// adapter_testbed_smokes; the Story launchers + their dedicated port
+// resolver fire story_xray_browser; the SHARED port-resolver.cjs fires
+// BOTH. Static-only scanners (check-examples-assets.cjs,
+// check-reagent-slim-boundary.cjs) stay on the always-on JS harness path
+// (cljs_browser only) — they have always-on .test.cjs coverage under
+// test:script-policy and drive no browser gate.
+
+const ADAPTER_SMOKE_GATE_FILES = [
+  'examples/scripts/serve-and-run-examples-tests.cjs',
+  'examples/scripts/run-examples-tests.cjs',
+  'examples/scripts/spec-helpers.cjs',
+  'examples/scripts/examples-filter.cjs',
+  'examples/scripts/examples-port.cjs',
+];
+for (const file of ADAPTER_SMOKE_GATE_FILES) {
+  test(`${file} fires adapter_testbed_smokes (rf2-y9o5e3)`, () => {
+    const result = classify(file);
+    assert.equal(result.adapter_testbed_smokes, 'true');
+  });
+}
+
+const STORY_GATE_FILES = [
+  'examples/scripts/serve-and-run-story-feature-load-tests.cjs',
+  'examples/scripts/run-story-feature-load-tests.cjs',
+  'examples/scripts/serve-and-run-story-play-scripts.cjs',
+  'examples/scripts/story-feature-load-port.cjs',
+];
+for (const file of STORY_GATE_FILES) {
+  test(`${file} fires story_xray_browser (rf2-y9o5e3)`, () => {
+    const result = classify(file);
+    assert.equal(result.story_xray_browser, 'true');
+  });
+}
+
+test('examples/scripts/port-resolver.cjs (shared resolver) fires BOTH browser gates (rf2-y9o5e3)', () => {
+  const result = classify('examples/scripts/port-resolver.cjs');
+  assert.equal(result.adapter_testbed_smokes, 'true');
+  assert.equal(result.story_xray_browser, 'true');
+});
+
+test('examples/scripts static-only scanners stay on the always-on JS harness path, no browser gate (rf2-y9o5e3)', () => {
+  for (const file of [
+    'examples/scripts/check-examples-assets.cjs',
+    'examples/scripts/check-reagent-slim-boundary.cjs',
+  ]) {
+    const result = classify(file);
+    assert.equal(
+      result.adapter_testbed_smokes,
+      'false',
+      `${file} is a static scanner with always-on .test.cjs coverage; it must NOT fire adapter_testbed_smokes`,
+    );
+    assert.equal(
+      result.story_xray_browser,
+      'false',
+      `${file} is a static scanner; it must NOT fire story_xray_browser`,
+    );
+  }
+});
+
 test('framework-testbeds workflow job is removed (rf2-t5slp)', () => {
   const workflow = fs.readFileSync(WORKFLOW, 'utf8');
   assert.doesNotMatch(workflow, /^\s*framework-testbeds:/m);
