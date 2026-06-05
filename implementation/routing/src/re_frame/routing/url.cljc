@@ -210,14 +210,25 @@
   [url]
   #?(:cljs
      (try
-       (if (and (exists? js/window) (.-location js/window))
-         (let [loc      (.-location js/window)
-               parsed   (js/URL. url (.-href loc))
-               protocol (.-protocol parsed)]
-           (or (not (#{"http:" "https:"} protocol))
-               (not= (.-origin parsed) (.-origin loc))))
-         ;; No browser Location to origin-compare against — fail closed.
-         (not (safe-in-app-url? url)))
+       ;; rf2-w3qgc: fail closed (classify EXTERNAL) for any non-string or
+       ;; empty-string `url` BEFORE handing it to `js/URL`. JavaScript
+       ;; stringifies non-strings — `new URL(null, base)` resolves to
+       ;; `/null`, numbers to `/123`, objects via `toString` — so a nil /
+       ;; number / boolean / object could otherwise resolve same-origin and
+       ;; push a fabricated in-app URL. This is an untrusted-URL sink; the
+       ;; JVM / no-window fallback already fails closed via
+       ;; `safe-in-app-url?` (which rejects any non-string), so guarding
+       ;; here removes the host divergence and keeps the contract uniform.
+       (if-not (and (string? url) (seq url))
+         true
+         (if (and (exists? js/window) (.-location js/window))
+           (let [loc      (.-location js/window)
+                 parsed   (js/URL. url (.-href loc))
+                 protocol (.-protocol parsed)]
+             (or (not (#{"http:" "https:"} protocol))
+                 (not= (.-origin parsed) (.-origin loc))))
+           ;; No browser Location to origin-compare against — fail closed.
+           (not (safe-in-app-url? url))))
        (catch :default _
          (not (safe-in-app-url? url))))
      :clj

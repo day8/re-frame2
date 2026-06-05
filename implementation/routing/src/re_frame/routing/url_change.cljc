@@ -256,7 +256,15 @@
                   event-vec url
                   (:bypass-leave-guard? opts))]
     (or blocked
-        (url-change-fx db url :top nil))))
+        ;; rf2-w3qgc: thread the active `frame` into `url-change-fx` so the
+        ;; forward-nav route-miss / malformed-url / too-many-keys trace sites
+        ;; carry `:frame`, consistent with the popstate / SSR sibling
+        ;; (`handle-url-change-handler`, :restore below) and the programmatic
+        ;; `:rf.route/navigate {:url ...}` path. Spec 009 requires `:frame` on
+        ;; `:rf.error/no-such-handler {:kind :route}` and
+        ;; `:rf.warning/no-not-found-route`. The default frame still tags
+        ;; `:rf/default` (the dispatch cofx supplies it).
+        (url-change-fx db url :top frame))))
 
 (defn handle-url-change-handler
   "`:rf.route/handle-url-change` event-fx handler. Registered by the

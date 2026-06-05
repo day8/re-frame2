@@ -921,6 +921,21 @@
   ([route-id path-params query-params] (route-url route-id path-params query-params nil))
   ([route-id path-params query-params fragment]
    (let [query-params (or query-params {})
+         ;; rf2-w3qgc: elide nil-valued query keys BEFORE :query-schema
+         ;; validation (and reuse the elided map for emission below). Per
+         ;; Spec 012 §Bidirectional URL ↔ params a nil-valued query key is
+         ;; SILENTLY OMITTED — `{:page nil}` emits no key and never throws —
+         ;; so a route declaring e.g. `:query [:map [:sort {:optional true}
+         ;; :string]]` must accept `{:sort nil}` to mean "omit :sort" and
+         ;; return `/search`, NOT raise `:rf.error/route-url-validation`.
+         ;; Validating the raw map first contradicted that policy (nil
+         ;; failed the `:string` branch). A present-but-falsy value
+         ;; (`false`, `0`, `""`) is a legitimate value and is preserved —
+         ;; only `nil` is elided — so non-nil invalid values STILL fail
+         ;; validation against the elided map.
+         emitted-query (into (array-map)
+                             (remove (fn [[_ v]] (nil? v)))
+                             query-params)
          route-meta   (registrar/lookup :route route-id)
          pattern      (:path route-meta)]
      (when (nil? pattern)
@@ -945,7 +960,12 @@
                    :slot     :params
                    :value    path-params
                    :error    p-error}))))
-     (let [[q-failed? q-error] (validate-route-shape route-meta :query query-params)]
+     ;; rf2-w3qgc: validate the NIL-ELIDED query map (`emitted-query`), not
+     ;; the raw `query-params` — a nil-valued optional key is omitted per
+     ;; Spec 012 and must not be presented to the schema (where it would
+     ;; fail an optional non-nil branch). `:value` reports the elided map
+     ;; actually validated.
+     (let [[q-failed? q-error] (validate-route-shape route-meta :query emitted-query)]
        (when q-failed?
          (throw (route-error
                   :rf.error/route-url-validation
@@ -953,7 +973,7 @@
                   (str "the supplied :query did not validate against route " route-id "'s :query schema")
                   {:route-id route-id
                    :slot     :query
-                   :value    query-params
+                   :value    emitted-query
                    :error    q-error}))))
      (let [n      (count pattern)
            ;; Per Spec 012 §Bidirectional URL ↔ params: optional groups
@@ -1056,14 +1076,13 @@
                    :else
                    (recur (inc i) (conj parts (str ch)))))))
            path-out (apply str parts)
-           ;; Drop nil-valued query keys from emission — `{:page nil}`
-           ;; omits the key rather than emitting a bare `?page=`. Mirrors
-           ;; the path-param `if-some` discipline above: a present-but-
-           ;; falsy value (`false`, `0`, `""`) is a legitimate query value
-           ;; and round-trips, but `nil` means "absent" and is elided.
-           emitted-query (into (array-map)
-                               (remove (fn [[_ v]] (nil? v)))
-                               query-params)
+           ;; rf2-w3qgc: `emitted-query` (the nil-elided query map) is
+           ;; computed once at the top of the fn so the SAME elided map
+           ;; both feeds `:query`-schema validation AND drives URL emission.
+           ;; `{:page nil}` omits the key rather than emitting a bare
+           ;; `?page=`; a present-but-falsy value (`false`, `0`, `""`) is a
+           ;; legitimate query value and round-trips, but `nil` means
+           ;; "absent" and is elided.
            qs (when (seq emitted-query)
                 (str "?"
                      (clojure.string/join "&"

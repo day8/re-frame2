@@ -34,6 +34,10 @@
             ;; rf2-qwm0a: listener / buffer surface lives in re-frame.trace.tooling.
             [re-frame.trace.tooling :as trace-tooling]
             [re-frame.routing :as routing]
+            ;; rf2-w3qgc: internal URL-classifier namespace — `external-url?`
+            ;; / `request-url->app-url` are not facade-exported, so the
+            ;; non-string fail-closed test calls them directly.
+            [re-frame.routing.url :as routing-url]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]))
 
@@ -308,6 +312,46 @@
     (is (= :hist/home
            (:id (get-in (rf/app-db-value :rf/default) [:rf/runtime :routing :current])))
         "external URL did not rewrite the app route to not-found")))
+
+(deftest url-requested-non-string-url-fails-closed-cljs-rf2-w3qgc
+  (testing "rf2-w3qgc: with a live window/location, a NON-STRING `:url`
+            (nil / number / boolean / object) is classed EXTERNAL and never
+            pushed — JS would otherwise stringify it through `js/URL`
+            (`new URL(null, base)` → `/null`, numbers → `/123`) and class it
+            same-origin, pushing a FABRICATED in-app URL. The browser path
+            must fail closed identically to the JVM/no-window fallback."
+    (register-routes!)
+    ;; Land on /cart so we can prove the slice does NOT move on a bad URL.
+    (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
+    (is (= :hist/cart
+           (:id (get-in (rf/app-db-value :rf/default) [:rf/runtime :routing :current])))
+        "precondition: active route is :hist/cart")
+    (let [entries-before (:entries @*history-state*)
+          index-before   (:index @*history-state*)]
+      (doseq [bad [nil 123 true false (js-obj "toString" (fn [] "/checkout")) #js {} []]]
+        ;; external-url? classifies the raw value as external (fail closed).
+        (is (true? (routing-url/external-url? bad))
+            (str "non-string url " (pr-str bad) " classes EXTERNAL"))
+        ;; request-url->app-url must NOT canonicalise a non-string (gate is
+        ;; external? → returns the value unchanged, never touching js/URL).
+        (is (= bad (routing-url/request-url->app-url bad))
+            (str "request-url->app-url leaves non-string " (pr-str bad) " unchanged"))
+        ;; End-to-end: the :rf/url-requested sink does not push or rewrite.
+        (rf/dispatch-sync [:rf/url-requested {:url bad}])
+        (is (= entries-before (:entries @*history-state*))
+            (str "non-string url " (pr-str bad) " appended NO history entry"))
+        (is (= index-before (:index @*history-state*))
+            (str "non-string url " (pr-str bad) " did not move the history index"))
+        (is (= :hist/cart
+               (:id (get-in (rf/app-db-value :rf/default) [:rf/runtime :routing :current])))
+            (str "non-string url " (pr-str bad) " did not rewrite the route slice"))))
+    ;; Sanity: a normal same-origin string STILL works through the same path.
+    (rf/dispatch-sync [:rf/url-requested {:url "/checkout"}])
+    (is (= "/checkout" (current-url *history-state*))
+        "a normal same-origin string still pushes through after the guard")
+    (is (= :hist/checkout
+           (:id (get-in (rf/app-db-value :rf/default) [:rf/runtime :routing :current])))
+        "the slice tracks the legitimate same-origin navigation")))
 
 (deftest scroll-position-captured-before-forward-nav-cljs
   (testing "leaving a route captures the current browser scroll position under that route's URL"
