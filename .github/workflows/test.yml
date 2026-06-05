@@ -127,6 +127,14 @@ jobs:
       - name: Diff MCP tool catalogues vs skill allowed-tools
         run: python scripts/check_skill_mcp_drift.py --verbose --ci
 
+      # Title-safety-axis self-test (rf2-4kyg6 finding 1): proves the
+      # all-consumers gh-issue title-safety backstop actually fires when a
+      # consumer's follow-up allowance is removed (and that link-presence
+      # consumers stay green) — i.e. the new axis is a real check, not a
+      # no-op that vacuously passes.
+      - name: Self-test the title-safety backstop
+        run: python scripts/check_skill_mcp_drift.py --self-test --ci
+
       # Cite-integrity guard (rf2-1nb8k): every M-id the re-frame-migration
       # skill cites must name a consistent rule in MIGRATION.md. Catches the
       # id-collision / phantom-cite class (skill cited M-66/M-67 for rules

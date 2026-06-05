@@ -55,17 +55,20 @@ high-fidelity assertion (would catch "agent obeys an injected
 
 ## Running
 
+`bb` resolves the test path relative to the current working directory,
+so the path you pass depends on where you run it from:
+
 ```bash
-# Run every shared structural test (the shape CI uses):
+# Run every shared structural test (the shape CI uses) — from the repo root:
 for f in skills/shared/tests/*_test.clj; do bb "$f"; done
 
-# Or run one at a time — from the repo root, or from skills/shared/:
-bb tests/retro_protocol_test.clj
-bb tests/tool_pair_surfaces_test.clj
-
-# Or absolute:
+# Or run one at a time. From the REPO ROOT (repo-relative paths):
 bb skills/shared/tests/retro_protocol_test.clj
 bb skills/shared/tests/tool_pair_surfaces_test.clj
+
+# Or from skills/shared/ (the paths relative to that dir):
+bb tests/retro_protocol_test.clj
+bb tests/tool_pair_surfaces_test.clj
 ```
 
 Exit code 0 = all structural locks pass. Non-zero = drift detected;
