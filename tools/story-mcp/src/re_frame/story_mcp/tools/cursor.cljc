@@ -91,16 +91,41 @@
   [ids]
   (str (hash (vec (sort-by str ids)))))
 
+(defn- nat-int?*
+  "A non-negative integer. Used as the cursor `:offset` / `:total`
+  bound. (`clojure.core/nat-int?` exists on the JVM but not in older
+  CLJS cores; this leaf is `.cljc` so we spell the check out to stay
+  portable — `integer?` + non-negative.)"
+  [x]
+  (and (integer? x) (not (neg? x))))
+
 (defn- payload-valid?
-  "The story cursor payload shape: a versioned map carrying the integer
-  offset/total + the whole-set fingerprint. Passed to the shared
-  `base-cursor/decode-cursor` so the codec is shared while the shape
-  check stays story-specific."
+  "The story cursor payload shape: a versioned map carrying the
+  natural-integer offset/total + the whole-set fingerprint. Passed to
+  the shared `base-cursor/decode-cursor` so the codec is shared while
+  the shape check stays story-specific.
+
+  rf2-to3q7 — wire-boundary range gate. `:offset` and `:total` MUST be
+  NATURAL integers (a negative offset would feed `subvec` a negative
+  start and throw a generic handler exception instead of the documented
+  cursor-stale envelope), and `:offset` MUST NOT exceed `:total` (an
+  over-total offset would slice an empty window and silently skip the
+  tail of the registry). A cursor failing this shape decodes to the
+  `::base-cursor/malformed` sentinel, which `page` already maps onto the
+  drop-and-restart cursor-stale recovery — so a tampered/edited cursor
+  recovers through the contract rather than crashing or losing rows.
+
+  Note `:total` is NOT cross-checked against the LIVE total here — this
+  predicate has no registry context. `page` already validates the
+  payload's `:sig` against the live whole-set fingerprint, and the
+  fingerprint changes whenever the id-set (and therefore the count)
+  changes; a stale `:total` is caught there as a sig mismatch."
   [v]
   (and (map? v)
        (= 1 (:v v))
-       (integer? (:offset v))
-       (integer? (:total v))
+       (nat-int?* (:offset v))
+       (nat-int?* (:total v))
+       (<= (:offset v) (:total v))
        (string? (:sig v))))
 
 (defn parse-limit-arg

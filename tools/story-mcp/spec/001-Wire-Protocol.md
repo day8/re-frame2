@@ -54,8 +54,15 @@ before the bounded allowlists run.** Concretely:
 - Genuinely data-bearing nested maps keep string keys at ingress and are
   routed through each surface's own **bounded** keyword policy:
   - `:cell-overrides` KEYS are resolved through `safe-keyword` against
-    the variant's declared arg-key set (`read-run-opts`) — a finite,
-    registry-derived allowlist; an override key outside it is dropped.
+    the variant's **effective** arg-key set under the request's
+    `:active-modes` (`read-run-opts`) — a finite, registry-derived
+    allowlist; an override key outside it is dropped. The allowlist is
+    the effective set (variant args ∪ the active modes' contributed
+    keys) rather than the bare variant's declared keys because Story's
+    args precedence merges mode args *before* cell-local overrides, so
+    an arg introduced only by an active mode is a legitimate override
+    target (rf2-to3q7). The active modes are coerced first so the
+    allowlist is derived from the same effective args the render uses.
   - the object-form `register-variant` `:body` is keywordised by
     `coerce-body` only **behind the `--allow-writes` operator gate** and
     only **after** the rf2-g9fje depth cap, so the intern is bounded by
