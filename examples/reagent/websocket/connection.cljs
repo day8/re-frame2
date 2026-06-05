@@ -210,11 +210,11 @@
                 ;; `:current-socket?` guard drops stale timeouts from
                 ;; a prior connection epoch.
                 [:dispatch-later
-                 {:ms       timeout-ms
-                  :dispatch [:ws/connection
-                             [:ws/request-timeout
-                              {:request-id       request-id
-                               :source-socket-id (:socket-id data)}]]}]]})
+                 {:ms    timeout-ms
+                  :event [:ws/connection
+                          [:ws/request-timeout
+                           {:request-id       request-id
+                            :source-socket-id (:socket-id data)}]]}]]})
 
       :clear-request
       (fn action-clear-request [{data :data [_ {:keys [request-id]}] :event}]

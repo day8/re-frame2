@@ -104,7 +104,29 @@
 (rf/reg-sub :flight/start-text  (fn [db _] (get-in db [:flight :start-text])))
 (rf/reg-sub :flight/return-text (fn [db _] (get-in db [:flight :return-text])))
 
-(defn valid-date? [s] (boolean (re-matches date-pattern (or s ""))))
+(defn valid-date?
+  "True when `s` is a real ISO `yyyy-mm-dd` calendar date. The regex
+   alone only checks shape, so it would accept impossible dates like
+   `2026-99-99`, `2026-00-00`, or `2026-02-31`. We round-trip the
+   parsed fields through a UTC `js/Date` and require every component to
+   come back unchanged — this rejects out-of-range months/days and is
+   leap-year-correct (e.g. `2025-02-29` overflows to March and fails,
+   `2024-02-29` round-trips and passes)."
+  [s]
+  (let [s (or s "")]
+    (boolean
+      (when (re-matches date-pattern s)
+        (let [y  (js/parseInt (subs s 0 4) 10)
+              m  (js/parseInt (subs s 5 7) 10)
+              d  (js/parseInt (subs s 8 10) 10)
+              dt (js/Date. 0)]
+          ;; setUTCFullYear avoids the legacy 0-99 → 1900-1999 mapping
+          ;; that the `js/Date.UTC` two-digit-year rule applies, so
+          ;; four-digit years like 0026 round-trip honestly.
+          (.setUTCFullYear dt y (dec m) d)
+          (and (= y (.getUTCFullYear dt))
+               (= (dec m) (.getUTCMonth dt))
+               (= d (.getUTCDate dt))))))))
 
 (rf/reg-sub :flight/return-enabled?
   :<- [:flight/trip-type]
