@@ -48,6 +48,10 @@ const TESTS = [
     argv: ['--test', 'test/exec-safety.test.cjs'],
   },
   {
+    name: 'runner watchdog connect-hang teardown (rf2-2js41 finding 2)',
+    argv: ['--test', 'test/runner-watchdog.test.cjs'],
+  },
+  {
     name: 're-frame2-pair-mcp end-to-end',
     argv: ['test/end-to-end-re-frame2-pair.cjs'],
   },

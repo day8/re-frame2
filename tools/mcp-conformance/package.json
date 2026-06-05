@@ -13,6 +13,7 @@
     "test:story": "node test/end-to-end-story.cjs",
     "test:flag-gates": "node test/end-to-end-flag-gates.cjs",
     "test:exec-safety": "node --test test/exec-safety.test.cjs",
+    "test:runner-watchdog": "node --test test/runner-watchdog.test.cjs",
     "test": "node scripts/test-all.cjs"
   },
   "dependencies": {
