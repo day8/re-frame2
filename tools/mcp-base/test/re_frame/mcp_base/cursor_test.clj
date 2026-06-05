@@ -138,12 +138,47 @@
 
 (deftest decode-cursor-rejects-tagged-literals
   ;; The hardening contract: a cursor smuggling a tagged literal must
-  ;; be rejected by the reader's :default handler → ::malformed, never
-  ;; evaluated.
+  ;; be rejected by the reader → ::malformed, never evaluated.
   (let [evil-inst (cursor/b64-encode "#inst \"2024-01-01\"")
         evil-map  (cursor/b64-encode "{:v 1 :offset #foo/bar 0 :total 5 :sig \"s\"}")]
     (is (= ::cursor/malformed (cursor/decode-cursor evil-inst offset-cursor?)))
     (is (= ::cursor/malformed (cursor/decode-cursor evil-map offset-cursor?)))))
+
+(deftest decode-cursor-rejects-builtin-tags-inside-valid-map
+  ;; rf2-13wbe: the BUILT-IN EDN tags `#inst` / `#uuid` have registered
+  ;; readers (`clojure.edn` / `cljs.reader` resolve them from
+  ;; `*data-readers*` / the tag-table) and BYPASS the `:default`
+  ;; handler entirely. Before the fix they decoded to a host
+  ;; `java.util.Date` / `UUID` (JVM) / `js/Date` / `cljs.core/UUID`
+  ;; (CLJS), smuggling a host object through the cursor boundary inside
+  ;; an OTHERWISE-VALID payload map. Pair-mcp's predicate is permissive
+  ;; (`some? :after-id`), so the tagged value would survive validation
+  ;; instead of being treated as malformed.
+  ;;
+  ;; The `:readers` overrides now throw on `#inst` / `#uuid`, so EVERY
+  ;; tag is rejected. Covered for both a story-style strict predicate
+  ;; and a pair-style permissive predicate; both expect ::malformed.
+  (let [permissive? (fn [m] (and (map? m) (some? (:after-id m))))
+        ;; pair-style permissive map with a built-in tag in a junk slot
+        pair-inst (cursor/b64-encode
+                    "{:v 1 :after-id 1 :junk #inst \"2024-01-01T00:00:00.000-00:00\"}")
+        pair-uuid (cursor/b64-encode
+                    "{:v 1 :after-id 1 :junk #uuid \"00000000-0000-0000-0000-000000000000\"}")
+        ;; story-style map with a built-in tag in a valid-shape slot
+        story-inst (cursor/b64-encode
+                     "{:v 1 :offset 0 :total 5 :sig #inst \"2024-01-01\"}")
+        story-uuid (cursor/b64-encode
+                     "{:v 1 :offset 0 :total #uuid \"00000000-0000-0000-0000-000000000000\" :sig \"s\"}")]
+    (testing "pair-style permissive predicate — #inst / #uuid in a valid map ⇒ ::malformed"
+      (is (= ::cursor/malformed (cursor/decode-cursor pair-inst permissive?)))
+      (is (= ::cursor/malformed (cursor/decode-cursor pair-uuid permissive?))))
+    (testing "story-style strict predicate — #inst / #uuid in a valid map ⇒ ::malformed"
+      (is (= ::cursor/malformed (cursor/decode-cursor story-inst offset-cursor?)))
+      (is (= ::cursor/malformed (cursor/decode-cursor story-uuid offset-cursor?))))
+    (testing "a clean pair-style cursor still passes the permissive predicate"
+      (is (= {:v 1 :after-id "ev-9"}
+             (cursor/decode-cursor (cursor/encode-cursor {:v 1 :after-id "ev-9"})
+                                   permissive?))))))
 
 (deftest malformed?-predicate
   (is (true? (cursor/malformed? ::cursor/malformed)))

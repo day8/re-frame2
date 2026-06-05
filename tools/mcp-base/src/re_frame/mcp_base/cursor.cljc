@@ -19,9 +19,10 @@
 
   The cursor PAYLOAD differs by domain — story carries
   `{:offset :total :sig}`, pair carries `{:after-id :ms :until-ms
-  :frame}` — but the base64 codec, the EDN read with tagged-literal
-  rejection + size guard, the `::malformed` recovery contract, the
-  `:limit` clamp, and the `cursor-stale-result` envelope are identical.
+  :frame}` — but the base64 codec, the EDN read with ALL-tagged-literal
+  rejection (built-in `#inst`/`#uuid` included) + size guard, the
+  `::malformed` recovery contract, the `:limit` clamp, and the
+  `cursor-stale-result` envelope are identical.
   Earlier the README argued the codec was consumer-side because
   `js/Buffer` vs `java.util.Base64` differ — but story-mcp's
   `cursor.cljc` already proved the codec lifts cleanly as a `.cljc`
@@ -44,9 +45,11 @@
   Pure CLJC. The base64 codec resolves to `java.util.Base64` on the
   JVM (story-mcp) and `js/Buffer` on CLJS (re-frame2-pair-mcp). The EDN
   read uses `clojure.edn/read-string` (JVM) / `cljs.reader/read-string`
-  (CLJS) — both gated by a `:default` tagged-literal handler that
-  throws so a hostile / corrupt cursor cannot smuggle a tagged literal
-  past the reader."
+  (CLJS) — gated so that a hostile / corrupt cursor cannot smuggle ANY
+  tagged literal past the reader: a `:default` handler throws on every
+  UNREGISTERED tag, and `:readers` overrides throw on the BUILT-IN
+  `#inst` / `#uuid` tags (which have registered readers and would
+  otherwise bypass `:default`, decoding to a host `Date` / `UUID`)."
   (:require [clojure.string :as str]
             #?(:clj [clojure.edn :as edn])
             [re-frame.mcp-base.args :as args]
@@ -115,19 +118,48 @@
   (when (map? payload)
     (b64-encode (pr-str payload))))
 
+(defn- bad-tag!
+  "Throw the cursor-boundary tagged-literal rejection. `tag` (a symbol
+  or nil for the built-in arms that don't carry it through) rides the
+  ex-data for diagnosis. Caught by the surrounding try in
+  `decode-cursor` → `::malformed`."
+  [tag]
+  (throw (ex-info ":rf.error/mcp-cursor-bad-edn-tag"
+                  {:rf.error/id :rf.error/mcp-cursor-bad-edn-tag
+                   :where       'mcp-base/decode-cursor
+                   :recovery    :no-recovery
+                   :tag         tag
+                   :reason      "EDN cursor carried a tagged literal — none are permitted"})))
+
+(def ^:private no-tag-readers
+  "Per-tag readers that reject the BUILT-IN EDN tags `#inst` / `#uuid`.
+
+  The `:default` data-reader catches every UNREGISTERED tag, but the
+  built-in `inst` / `uuid` tags have registered readers
+  (`clojure.edn` / `cljs.reader` resolve them from
+  `*data-readers*` / the tag-table) and so BYPASS `:default` entirely —
+  they would otherwise decode to a host `java.util.Date` / `UUID`
+  (JVM) or `js/Date` / `cljs.core/UUID` (CLJS) and smuggle a host
+  object through the cursor boundary. Overriding them here with
+  throwing fns closes that hole so EVERY tag — built-in or custom —
+  is rejected. `:readers` is consulted before `:default` on both
+  platforms, so these win."
+  {'inst (fn [_] (bad-tag! 'inst))
+   'uuid (fn [_] (bad-tag! 'uuid))})
+
 (defn- read-edn-no-tags
-  "Read an EDN string with EVERY tagged literal rejected. The
-  `:default` data-reader throws `:rf.error/mcp-cursor-bad-edn-tag` so a
-  hostile / corrupt cursor cannot smuggle a `#js`, `#inst`, or custom
-  tagged literal past the reader. Caught by the surrounding try in
+  "Read an EDN string with EVERY tagged literal rejected — built-in
+  (`#inst` / `#uuid`) AND custom (`#js`, `#foo/bar`, …). The `:readers`
+  overrides throw on the two built-in tags that would otherwise bypass
+  `:default` (they have registered readers), and the `:default`
+  data-reader throws `:rf.error/mcp-cursor-bad-edn-tag` on every
+  remaining unregistered tag. A hostile / corrupt cursor therefore
+  cannot smuggle ANY tagged literal — or the host object it would
+  decode to — past the reader. Caught by the surrounding try in
   `decode-cursor` → `::malformed`."
   [s]
-  (let [opts {:default (fn [_tag _val]
-                         (throw (ex-info ":rf.error/mcp-cursor-bad-edn-tag"
-                                         {:rf.error/id :rf.error/mcp-cursor-bad-edn-tag
-                                          :where       'mcp-base/decode-cursor
-                                          :recovery    :no-recovery
-                                          :reason      "EDN cursor carried a tagged literal — none are permitted"})))}]
+  (let [opts {:readers no-tag-readers
+              :default (fn [tag _val] (bad-tag! tag))}]
     #?(:clj  (edn/read-string opts s)
        :cljs (cljs.reader/read-string opts s))))
 

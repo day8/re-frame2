@@ -81,7 +81,12 @@ The `:reason` slot is the cross-MCP `vocab/cursor-stale-reason` (`:rf.mcp/cursor
 
 ## Tagged-literal rejection
 
-The EDN reader inside `decode-cursor` runs with a `:default` data-reader that throws `:rf.error/mcp-cursor-bad-edn-tag` on ANY tagged literal. A hostile / corrupt cursor cannot smuggle a `#js`, `#inst`, or custom tagged literal past the reader. The throw is caught by the surrounding try and surfaces as `::malformed`.
+The EDN reader inside `decode-cursor` rejects **every** tagged literal — custom AND built-in — and surfaces the rejection as `::malformed`:
+
+- A `:default` data-reader throws `:rf.error/mcp-cursor-bad-edn-tag` on every **unregistered** tag (`#js`, `#foo/bar`, …).
+- `:readers` overrides throw on the **built-in** `#inst` / `#uuid` tags. These have registered readers (`clojure.edn` / `cljs.reader` resolve them from `*data-readers*` / the tag-table), so they **bypass `:default`** and would otherwise decode to a host `java.util.Date` / `UUID` (JVM) or `js/Date` / `cljs.core/UUID` (CLJS). Because `:readers` is consulted **before** `:default` on both platforms, the override wins and the built-in tag never materialises a host object.
+
+A hostile / corrupt cursor therefore cannot smuggle any tagged literal — or the host object it would decode to — past the reader. The throw is caught by the surrounding try in `decode-cursor` and surfaces as `::malformed`. (This closes the built-in-tag hole found in the rf2-13wbe correctness review: `pair-mcp`'s permissive `some? :after-id` predicate would have let `{:v 1 :after-id 1 :junk #inst "…"}` survive validation, carrying a `Date` through the MCP cursor boundary.)
 
 ## Why this ns
 

@@ -78,10 +78,16 @@ Each consumer reifies `ResultIO` with two methods:
   (build-overflow-result [io marker original-result]      "Fresh result map / object carrying the overflow marker"))
 ```
 
-- `(content-texts io result)` ⇒ seq of strings, the `:text`-slot values inside `result`'s content vector. The platform-specific accessor (`:text` / `j/get :text`) lives behind this method.
+- `(content-texts io result)` ⇒ seq of strings — **one for every serialized, payload-bearing slot that rides the wire**. This is the cap's measurement surface: `apply-cap` sums tokens + chars across exactly these strings, so a slot omitted here is a slot the cap cannot see. At minimum that means the `:text`-slot values inside `result`'s content vector (platform accessor `:text` / `j/get :text` lives behind this method).
 - `(build-overflow-result io marker original-result)` ⇒ a fresh result map / object carrying the overflow marker, shaped for the consumer's transport.
 
 The cap pipeline calls these two methods; everything else is shared. Adding a third consumer is a single reify, not a code copy.
+
+### Contract: count every payload-bearing slot, not only `:content` (rf2-mzndx / rf2-13wbe)
+
+A consumer whose result envelope **duplicates** the payload into a second wire slot MUST surface a stable string representation of that slot from `content-texts` too. The common case is a `:structuredContent` JSON projection emitted **alongside** the `:content[*].text` EDN on **every** result — both re-frame2-pair-mcp's `wire/ok-text` / `err-text` and story-mcp's `text-result` do exactly this (the dual-coded envelope: agent hosts that understand `:structuredContent` read the typed object; the rest fall back to the text). Both copies ride the wire, so both count toward the one budget.
+
+Omitting the second copy undercounts the response by **~50%**: a response whose `:content[*].text` slot is under budget but whose `:structuredContent` is large would slip past the overflow marker and bust the MCP token budget. story-mcp closed this (rf2-mzndx) by appending a `pr-edn`'d `:structuredContent` string to `content-texts`; any dual-coding consumer (pair-mcp's `result-io`) must mirror it (`JSON.stringify` / `pr-str` of the structured value). The unit suites pin the contract with **both** a dual-coding reify (`structured-io` — counts both slots and trips the cap) and a single-slot reify (`map-io` — counts one), so a regression that drops the second copy fails the dual-coding regression.
 
 ### Example reify — re-frame2-pair-mcp (CLJS, JS-object results)
 
