@@ -367,6 +367,117 @@
       (is (= "{:a 1}" (:text (first @captured))))
       (is (= "[:cart :items]" (:text (second @captured)))))))
 
+;; ---- (7b) clipboard copy is an OFF-BOX EGRESS site (rf2-uo0rc.2) ---------
+;;
+;; The system clipboard is an off-box sink. The copy fx wrote the RAW
+;; (pr-str value) — a `{:sensitive? true}` slot or a large blob leaked
+;; verbatim. The value-copy event now routes through runtime/egress-value
+;; (fail-closed: sensitive ⇒ :rf/redacted, large ⇒ :rf.size/large-elided),
+;; pinned to the observed frame so that frame's schema declarations govern
+;; — the same fix class as the palette snapshot (rf2-mxzgg) + get-app-db
+;; (rf2-a96xq).
+
+(defn- seed-sensitive-schema! []
+  ;; Mirror runtime_cljs_test/seed-sensitive-schema! — a `{:sensitive? true}`
+  ;; schema slot hydrates the per-frame sensitive-declarations so the wire
+  ;; walker substitutes :rf/redacted on off-box egress.
+  (rf/reg-app-schema [:auth]
+                     [:map
+                      [:username :string]
+                      [:password {:sensitive? true} :string]])
+  (rf/populate-sensitive-from-schemas!))
+
+(defn- seed-large-schema! []
+  (rf/reg-app-schema [:blob]
+                     [:map
+                      [:payload {:large? true} :any]])
+  (rf/populate-elision-from-schemas!))
+
+(defn- capture-copy! []
+  (let [captured (atom [])]
+    (rf/reg-fx :rf.xray.fx/copy-to-clipboard
+      (fn [_ctx args] (swap! captured conj args)))
+    captured))
+
+(deftest copy-value-redacts-sensitive-slot
+  (testing "rf2-uo0rc.2 — a copied value carrying a schema-declared
+            sensitive slot is REDACTED before it reaches the clipboard fx;
+            the raw secret never crosses the off-box boundary"
+    (registry/register-xray-handlers!)
+    (frame/reg-frame :rf/default {})
+    (frame/reg-frame :rf/xray {})
+    ;; Declare the sensitive path on the OBSERVED frame (:rf/default) so the
+    ;; egress, pinned to the observed frame, matches the declaration.
+    (rf/with-frame :rf/default (seed-sensitive-schema!))
+    (let [captured (capture-copy!)]
+      ;; Pin the spine focus at the observed frame so the event resolves it.
+      (rf/with-frame :rf/xray
+        (rf/dispatch-sync [:rf.xray/set-target-frame :rf/default])
+        (rf/dispatch-sync
+          [:rf.xray/copy-value-to-clipboard
+           {:auth {:username "ada" :password "shh"}}]))
+      (is (= 1 (count @captured)))
+      (let [text (:text (first @captured))]
+        (is (re-find #":rf/redacted" text)
+            (str "the sensitive slot must be redacted on the clipboard text. "
+                 "text: " (pr-str text)))
+        (is (not (re-find #"shh" text))
+            (str "the RAW secret leaked to the clipboard — off-box egress "
+                 "fail-open (rf2-uo0rc.2). text: " (pr-str text)))
+        (is (re-find #"ada" text)
+            "non-sensitive sibling survives the copy")))))
+
+(deftest copy-value-size-elides-large-slot
+  (testing "rf2-uo0rc.2 — a copied value carrying a schema-declared
+            :large? slot is size-elided before it reaches the clipboard fx"
+    (registry/register-xray-handlers!)
+    (frame/reg-frame :rf/default {})
+    (frame/reg-frame :rf/xray {})
+    (rf/with-frame :rf/default (seed-large-schema!))
+    (let [captured (capture-copy!)]
+      (rf/with-frame :rf/xray
+        (rf/dispatch-sync [:rf.xray/set-target-frame :rf/default])
+        (rf/dispatch-sync
+          [:rf.xray/copy-value-to-clipboard
+           {:blob {:payload {:big "value"}}}]))
+      (is (= 1 (count @captured)))
+      (let [text (:text (first @captured))]
+        (is (re-find #":rf.size/large-elided" text)
+            (str "the large slot must be size-elided on the clipboard text. "
+                 "text: " (pr-str text)))
+        (is (not (re-find #"\"value\"" text))
+            (str "the RAW large value leaked to the clipboard. text: "
+                 (pr-str text)))))))
+
+(deftest copy-value-non-sensitive-passes-through
+  (testing "rf2-uo0rc.2 — egress is a no-op for a value with no
+            sensitive/large declarations: the copy still round-trips the
+            full value (fail-closed only bites declared slots)"
+    (registry/register-xray-handlers!)
+    (frame/reg-frame :rf/default {})
+    (frame/reg-frame :rf/xray {})
+    (let [captured (capture-copy!)]
+      (rf/with-frame :rf/xray
+        (rf/dispatch-sync [:rf.xray/set-target-frame :rf/default])
+        (rf/dispatch-sync [:rf.xray/copy-value-to-clipboard {:a 1 :b [2 3]}]))
+      (is (= "{:a 1, :b [2 3]}" (:text (first @captured)))
+          "an undeclared value copies verbatim"))))
+
+(deftest copy-path-is-not-a-value-egress
+  (testing "rf2-uo0rc.2 — the path-copy variant copies only the path
+            vector (key names, no values); it is not a value-egress site
+            and must NOT redact path segments"
+    (registry/register-xray-handlers!)
+    (frame/reg-frame :rf/default {})
+    (frame/reg-frame :rf/xray {})
+    (rf/with-frame :rf/default (seed-sensitive-schema!))
+    (let [captured (capture-copy!)]
+      (rf/with-frame :rf/xray
+        (rf/dispatch-sync [:rf.xray/set-target-frame :rf/default])
+        (rf/dispatch-sync [:rf.xray/copy-path-to-clipboard [:auth :password]]))
+      (is (= "[:auth :password]" (:text (first @captured)))
+          "the path vector copies verbatim — it carries no values to elide"))))
+
 ;; ---- (8) view renders — current-state inspector (rf2-okvit) -------------
 ;;
 ;; The app-db tab is a CURRENT-STATE inspector, not a diff. The Panel

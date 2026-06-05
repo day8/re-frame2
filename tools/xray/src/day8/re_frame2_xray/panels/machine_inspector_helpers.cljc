@@ -99,7 +99,8 @@
   on a populated registrar, `rf/app-db-value` on a frame) are read
   by the composite sub in `registry.cljs`; the result is handed to
   this ns as a plain map."
-  (:require [clojure.string :as str]))
+  (:require [clojure.string :as str]
+            [day8.re-frame2-xray.panels.shared.focus-resolver :as focus]))
 
 ;; ---- canonical operation taxonomy ---------------------------------------
 
@@ -954,23 +955,22 @@
   cascade's settling `:epoch-id` per spec/018 §6 (Spine events); the
   record's `:trace-events` is the cascade window the lens reads.
 
-  Falls back to the head record when the focused epoch-id is nil
-  (LIVE mode default; matches the views-focused-cascade-pair fallback
-  pattern). Returns nil when the buffer is empty.
+  Routes through the shared `panels.shared.focus-resolver/find-epoch-record`
+  (rf2-uo0rc.1) so the Machine Inspector resolves focus identically to
+  every other L4 panel:
+
+    - NIL focus epoch-id + non-empty history → HEAD record (rf2-h0120
+      head-fallback — the natural LIVE/cold-start debugging UX).
+    - focus epoch-id MATCHES a record → that record.
+    - focus epoch-id pinned but EVICTED from the ring → nil. The panel
+      then renders the §10.7 evicted/blank placeholder rather than
+      silently falling back to HEAD and showing the LATEST machine
+      state, which lied about which epoch the operator was inspecting.
+    - empty history → nil.
 
   Pure fn — JVM-runnable."
   [epoch-history focus]
-  (let [history (vec (or epoch-history []))]
-    (cond
-      (empty? history) nil
-      (some? (:epoch-id focus))
-      (or (some (fn [r] (when (= (:epoch-id focus) (:epoch-id r)) r))
-                history)
-          ;; Focused epoch-id not in buffer (evicted) → fall back to
-          ;; head so the panel renders something rather than going
-          ;; silent on what is really a buffer-eviction event.
-          (peek history))
-      :else (peek history))))
+  (focus/find-epoch-record (:epoch-id focus) epoch-history))
 
 ;; ---- Dynamic-mode single-instance rule (rf2-8og3k, impl rf2-2n34o) ------
 ;;

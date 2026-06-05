@@ -719,6 +719,22 @@ snapshot is always the redacted / size-elided projection — the raw-egress
 opt-in (`{:include-sensitive? true}` / `{:include-large? true}`) is
 reachable only through the runtime accessors, never the palette command.
 
+The **universal copy-to-clipboard affordance** is the same shape of
+off-box sink and routes the same way (rf2-uo0rc.2). The `⎘` copy button
+that rides every value inspector dispatches `:rf.xray/copy-value-to-clipboard`,
+which writes the copied value to the system clipboard via the
+`:rf.xray.fx/copy-to-clipboard` fx — an off-box sink. The event routes the
+value through `egress-value` **before** the clipboard write, pinned to the
+**observed** frame (`[:focus :frame]`, falling back to `:target-frame`) so
+that frame's own schema declarations govern — a `{:sensitive? true}` slot
+copies as `:rf/redacted`, a `{:large? true}` blob as `:rf.size/large-elided`,
+fail-closed (mirroring the snapshot's `with-frame` pinning, rf2-mxzgg).
+The sibling `:rf.xray/copy-path-to-clipboard` copies only the path vector
+(key names, no values), so it is not a value-egress site and is not
+elided. Like the snapshot, the value-copy event exposes no raw opt-in —
+the operator-controlled `{:include-sensitive? true}` / `{:include-large? true}`
+gate is reachable only through the runtime accessors.
+
 ### Inspection band (9 accessors — read-only)
 
 | Accessor (fn) | Tool name | Returns | Reads |
