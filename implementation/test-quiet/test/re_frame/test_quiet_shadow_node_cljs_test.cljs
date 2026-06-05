@@ -115,6 +115,62 @@
       (is (= '[] (select '[absent.ns]))))))
 
 ;; ----------------------------------------------------------------------
+;; Unmatched-selector guard (rf2-lbo79.1) — a `--test=<selector>` that
+;; matches NO test var must be rejected, not reported as a 0-test SUCCESS.
+;;
+;; Pre-fix, `execute-cli` ran `st/run-test-vars` over an empty matched-var
+;; set whenever `test-syms` was non-empty; shadow's runner then reported a
+;; 0-test successful summary and the `:end-run-tests` defmethod exited 0,
+;; so a typo in `npm run test:cljs -- --test=<selector>` silently "passed"
+;; with ZERO tests. The fix computes the unmatched selectors and, when any
+;; exist, prints them and `js/process.exit`s NONZERO before running.
+;;
+;; `cli/unmatched-selectors` is the pure decision `execute-cli` branches
+;; on — `(seq unmatched) -> exit 1`. It is pinned directly here (the
+;; runner ns is `:dev/always` and forms a compile cycle, so the guard
+;; lives in the pure `-cli` ns precisely so it can be unit-pinned). Vars
+;; are the same fake `{:ns :name}`-meta stand-ins `find-matching-test-vars`
+;; reads, so this pins the REAL guard against the REAL matched-var shape.
+
+(deftest unmatched-selectors-guard
+  (let [a-test    (fake-var 'my.ns 'a-test)
+        b-test    (fake-var 'my.ns 'b-test)
+        all-vars  [a-test b-test]]
+    (testing "a fully-matched selection has no unmatched selectors -> runs (no exit)"
+      ;; ns selector matches: my.ns has matched vars.
+      (is (= '() (cli/unmatched-selectors '[my.ns] all-vars)))
+      ;; fqn selector matches: my.ns/a-test is in the matched set.
+      (is (= '() (cli/unmatched-selectors '[my.ns/a-test] [a-test]))))
+    (testing "--test=missing.ns (absent namespace) is reported unmatched -> guard exits nonzero"
+      ;; The CORE false-green case: a typo'd namespace matches zero vars.
+      ;; Pre-fix this ran 0 tests and exited 0; the guard now sees a
+      ;; non-empty unmatched set and the `(seq unmatched)` branch exits 1.
+      (let [unmatched (cli/unmatched-selectors '[missing.ns] [])]
+        (is (= '[missing.ns] unmatched)
+            "an absent namespace selector matches nothing -> unmatched")
+        (is (seq unmatched)
+            "non-empty unmatched -> execute-cli takes the exit-1 branch, NOT run-test-vars")))
+    (testing "--test=missing.ns/a-test (absent var) is reported unmatched -> guard exits nonzero"
+      (let [unmatched (cli/unmatched-selectors '[missing.ns/a-test] [])]
+        (is (= '[missing.ns/a-test] unmatched)
+            "an absent fully-qualified selector matches nothing -> unmatched")
+        (is (seq unmatched)
+            "non-empty unmatched -> execute-cli takes the exit-1 branch")))
+    (testing "a typo'd fqn against a present ns is STILL unmatched (the ns matching some vars does not cover a wrong var name)"
+      ;; my.ns exists and has vars, but my.ns/c-test does not — a qualified
+      ;; selector must match by FQN, not be rescued by its namespace having
+      ;; OTHER matched vars. This is the subtle false-green: the matched-var
+      ;; set is non-empty (a-test/b-test), but the SELECTOR matched nothing.
+      (is (= '[my.ns/c-test]
+             (cli/unmatched-selectors '[my.ns/c-test] all-vars))
+          "a qualified selector for an absent var is unmatched even when its ns has other matches"))
+    (testing "a mix of matched + unmatched reports only the unmatched, in input order"
+      (is (= '[gone.ns missing.ns/x]
+             (cli/unmatched-selectors '[my.ns gone.ns my.ns/a-test missing.ns/x]
+                                      [a-test]))
+          "matched selectors drop out; unmatched ones survive in order"))))
+
+;; ----------------------------------------------------------------------
 ;; Failure-exit decision — pinned via the predicate the :end-run-tests
 ;; defmethod branches on. (Invoking the defmethod itself calls
 ;; js/process.exit, which would tear down this runner.)

@@ -353,3 +353,68 @@
           (is (str/includes? out "0 failures, 0 errors.")
               (str "the OUTER summary must stay clean — the scoped inner"
                    " failure must not leak into it; got:\n" out)))))))
+
+;; ----------------------------------------------------------------------
+;; Diagnostics-survive contract — rf2-lbo79.2.
+;;
+;; The wrapper used to bind `*out*` to a blanket SINK for the whole
+;; delegated `cognitect.test-runner/-main` call, which silenced far more
+;; than the discovery banner: `-H` usage text, CLI parse-error
+;; diagnostics, and bare `(println ...)` from tests/fixtures all
+;; vanished. The fix swaps the sink for a line-precise filter that drops
+;; ONLY the `Running tests in #{...}` banner; everything else reaches the
+;; real stdout. These subprocess pins prove the misuse paths are no
+;; longer opaque while the green-path banner stays quiet.
+
+(deftest help-flag-prints-usage
+  (testing "-H prints cognitect usage and exits 0 (was swallowed by the old *out* sink)"
+    (with-fixture-dir
+      (fn [dir]
+        (let [{:keys [exit out err]} (run-runner dir "-H")]
+          (is (zero? exit)
+              (str "-H must exit 0; got " exit
+                   "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
+          (is (str/includes? out "USAGE:")
+              (str "the help USAGE header must reach stdout; got:\n" out))
+          (is (str/includes? out "--test-help")
+              (str "the help body (option listing) must reach stdout; got:\n" out))
+          (is (not (str/includes? out discovery-banner-marker))
+              (str "the help path never runs tests, so the discovery banner"
+                   " must be absent; got:\n" out)))))))
+
+(deftest invalid-flag-prints-parse-error
+  (testing "an unknown flag prints the parse error + usage and exits 1 (was swallowed)"
+    (with-fixture-dir
+      (fn [dir]
+        (let [{:keys [exit out err]}
+              (run-runner dir "--definitely-not-a-runner-option")]
+          (is (= 1 exit)
+              (str "an unknown flag must exit 1; got " exit
+                   "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
+          (is (str/includes? out "Unknown option")
+              (str "the cli parse-error diagnostic must reach stdout; got:\n" out))
+          (is (str/includes? out "--definitely-not-a-runner-option")
+              (str "the offending flag must be named in the diagnostic; got:\n" out))
+          (is (str/includes? out "USAGE:")
+              (str "cognitect prints usage after the parse error; got:\n" out)))))))
+
+(deftest test-stdout-survives-on-green
+  (testing "bare (println ...) from a passing test reaches stdout; banner stays quiet (rf2-lbo79.2)"
+    (with-fixture-dir
+      (fn [dir]
+        (write-fixture! dir "stdout_green_fixture_test" "stdout-green-fixture-test"
+                        (str "(deftest a-talking-test"
+                             " (println \"BARE-STDOUT-MARKER\")"
+                             " (is (= 1 1)))"))
+        (let [{:keys [exit out err]} (run-runner dir)]
+          (is (zero? exit)
+              (str "the talking suite is green; must exit 0; got " exit
+                   "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
+          (is (str/includes? out "BARE-STDOUT-MARKER")
+              (str "a test's bare println must reach the real stdout — the"
+                   " filter forwards everything but the banner; got:\n" out))
+          (is (not (str/includes? out discovery-banner-marker))
+              (str "the discovery banner must STILL be swallowed even though"
+                   " other stdout is forwarded; got:\n" out))
+          (is (str/includes? out "0 failures, 0 errors.")
+              (str "the green summary must still print; got:\n" out)))))))

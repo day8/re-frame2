@@ -46,3 +46,30 @@
             opts)))
     {:test-syms []}
     args))
+
+(defn unmatched-selectors
+  "The subset of `test-syms` that matched NO var in `matched-vars`.
+
+  `matched-vars` is the seq `find-matching-test-vars` returns — each var
+  carries `{:ns :name}` metadata.  A simple symbol (namespace selector)
+  is satisfied if any matched var lives in that ns; a qualified symbol
+  (single-var selector) is satisfied if a matched var has that
+  fully-qualified name.  Returns the selectors with no match, in input
+  order — empty when every selector matched at least one var.
+
+  Pure (no `shadow.test.env` dependency) so it can be unit-pinned here
+  rather than from the `:dev/always` runner ns, which forms a compile
+  cycle.  This is the guard against a `--test=<typo>` false green
+  (rf2-lbo79.1): a selection that matches nothing must be rejected, not
+  reported as a 0-test SUCCESS."
+  [test-syms matched-vars]
+  (let [matched-ns  (->> matched-vars (map (comp :ns meta)) set)
+        matched-fqn (->> matched-vars
+                         (map (fn [v] (let [{:keys [ns name]} (meta v)]
+                                        (symbol ns name))))
+                         set)]
+    (remove (fn [sym]
+              (if (qualified-symbol? sym)
+                (contains? matched-fqn sym)
+                (contains? matched-ns sym)))
+            test-syms)))
