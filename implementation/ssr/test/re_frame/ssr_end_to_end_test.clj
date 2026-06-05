@@ -486,6 +486,50 @@
           traces :rf.error/redirect-invalid-location
           (str ev " redirect via " ev " alias"))))))
 
+(deftest ssr-redirect-rejects-structurally-malformed-location
+  (testing "rf2-kjf3m.4 — :rf.server/redirect with a structurally-malformed
+            :location (not a valid RFC 3986 URI reference) fails fast with
+            :rf.error/redirect-invalid-location. Per Spec 011 §CRLF
+            fail-fast: the Location: value gets the CRLF check PLUS a
+            structural URL-shape check. The structural-malformity classes
+            (unencoded space, stray delimiter chars, malformed %-escape)
+            surface the same error keyword as the CRLF case."
+    (doseq [[label loc] [["unencoded space"        "https://example.com/a b"]
+                         ["stray caret"            "https://example.com/^"]
+                         ["unbalanced brace"       "/path/{id"]
+                         ["malformed percent-esc"  "/path%zz"]
+                         ["bare control via %1"    "/path%1"]]]
+      (rf/reg-event-fx :redirect/malformed
+        (fn [_ _]
+          {:fx [[:rf.server/redirect {:location loc}]]}))
+      (let [f      (rf/make-frame {:platform :server})
+            traces (capture-fx-traces!
+                     (fn [] (rf/dispatch-sync [:redirect/malformed] {:frame f})))]
+        (expect-fx-error-keyword!
+          traces :rf.error/redirect-invalid-location
+          (str "structurally-malformed redirect :location (" label ")")))))
+
+  (testing "rf2-kjf3m.4 — regression guard: the structural check stays a
+            SHAPE gate, NOT an origin gate. The caller-trusted redirect
+            still accepts arbitrary well-formed targets — absolute http(s)
+            URLs to any origin, protocol-relative, relative refs, and the
+            structurally-valid edge cases (query / fragment / port / encoded
+            space) all flow through without error."
+    (doseq [loc ["https://example.com/path?q=1&r=2#frag"
+                 "https://other.example.org:8443/deep/path"
+                 "//cdn.example.com/asset"
+                 "/login"
+                 "dashboard"
+                 "a/b/c"
+                 "/path%20with%20encoded%20space"]]
+      (rf/reg-event-fx :redirect/well-formed
+        (fn [_ _]
+          {:fx [[:rf.server/redirect {:location loc}]]}))
+      (let [f    (rf/make-frame {:platform :server :on-create [:redirect/well-formed]})
+            resp (get-response f)]
+        (is (= loc (-> resp :redirect :location))
+            (str "well-formed redirect :location survives the structural gate: " loc))))))
+
 (deftest ssr-header-clean-values-still-accepted
   (testing "rf2-hbty2 — regression guard: legitimate header values still flow
             through. Whitespace, semicolons, quoted-strings, full URLs are
