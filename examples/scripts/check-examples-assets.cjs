@@ -368,6 +368,39 @@ function checkSharedTree(io, opts = {}) {
       );
     }
   }
+
+  // CSS-cascade contract (rf2-gv5xd): the WebSocket send-form text-input
+  // baseline (padding/flex/min-width:240px) MUST stay scoped to the
+  // `.send-form` so it cannot leak into other examples. Component-specific
+  // sizing lives behind a component selector, never as a global element rule.
+  // The 7GUIs Cells example renders each inline editor as a text input inside
+  // `.cells-grid`; a bare global `input[type="text"] { min-width: 240px }`
+  // would override the intended compact `.cells-grid input { width: 56px }`
+  // and blow the spreadsheet grid out to >=240px columns. A static cascade
+  // check, since the asset gate cannot observe layout.
+  const structurePath = path.join(sharedRoot, 'css', 'structure.css');
+  const structure = readFileSafe(io, structurePath);
+  if (structure != null) {
+    // A bare `input[type="text"]` selector (no class/id/attribute qualifier
+    // to its LEFT) is global; the send-form baseline must be qualified.
+    if (/(^|[},;])\s*input\[type=(["'])text\2\]\s*\{/m.test(structure)) {
+      errors.push(
+        `examples/_shared/css/structure.css: the WebSocket text-input ` +
+          `baseline is a GLOBAL 'input[type="text"]' rule. It sets ` +
+          `min-width:240px on EVERY text input in EVERY example and blows ` +
+          `out the 7GUIs Cells grid (whose inline editors are text inputs ` +
+          `inside .cells-grid intended at width:56px). Scope it to the send ` +
+          `form (e.g. '.send-form input[type="text"]') — see rf2-gv5xd.`,
+      );
+    }
+    // The Cells grid editor must keep its compact width.
+    if (!/\.cells-grid\s+input\s*\{[^}]*width:\s*56px/m.test(structure)) {
+      errors.push(
+        `examples/_shared/css/structure.css: the '.cells-grid input' rule ` +
+          `must pin the compact 'width: 56px' cell-editor size (rf2-gv5xd).`,
+      );
+    }
+  }
   return errors;
 }
 

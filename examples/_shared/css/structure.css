@@ -152,7 +152,7 @@ dl.boot-summary dd { margin: 0; }
   align-items: center;
 }
 
-input[type="text"] {
+.send-form input[type="text"] {
   padding: 8px 12px;
   flex: 1;
   min-width: 240px;
