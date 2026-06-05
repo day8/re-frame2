@@ -244,6 +244,71 @@
       (is (str/includes? body "</body></html>") "body closes cleanly"))))
 
 ;; ===========================================================================
+;; rf2-kjf3m.5 — the per-boundary hydration-delta <script> is emitted ONLY
+;; for a boundary whose render CHANGED app-db. A continuation that merely
+;; READS state (the common case — deferred subtrees typically subscribe,
+;; they do not mutate) yields an EMPTY delta (`{}`) from `subtree-delta`,
+;; and the writer must emit NO `<script data-rf2-suspense-hydrate>` chunk
+;; for it. Pre-fix the writer guard was `(some? delta)` — `{}` is `some?`,
+;; so every unchanged boundary shipped an inert `…hydrate=…>{}</script>`
+;; the client parsed and discarded; the guard is now `(seq delta)`.
+;; ===========================================================================
+
+(deftest stream-handler-skips-empty-delta-script-on-unchanged-boundary
+  (testing "rf2-kjf3m.5: a boundary whose continuation MUTATES app-db emits
+            its delta script; a boundary whose continuation only READS state
+            (empty/unchanged delta) emits NO `data-rf2-suspense-hydrate`
+            script — not an inert `{}` chunk."
+    ;; A db-mutating event the deferred subtree dispatches during its render
+    ;; — produces a non-empty per-subtree delta for the :changed boundary.
+    (rf/reg-event-db :rf.test/bump-counter
+      {:platforms #{:server}}
+      (fn [db _] (update db :counter (fnil inc 0))))
+    ;; Subtree that mutates app-db during render → non-empty delta.
+    (rf/reg-view ^{:rf/id :test/mutating-section} mutating-section []
+      (rf/dispatch-sync [:rf.test/bump-counter])
+      [:div.mutated "mutated content"])
+    ;; Subtree that only READS app-db (subscribes, no mutation) → empty delta.
+    (rf/reg-view ^{:rf/id :test/reading-section} reading-section []
+      (let [arts @(subscribe [:articles])]
+        (into [:div.read] (for [{:keys [title]} arts] [:span title]))))
+    (rf/reg-view ^{:rf/id :test/delta-root} delta-root []
+      [:main
+       [:h1 "Deltas"]
+       [:rf/suspense-boundary
+        {:id :test/changed :fallback [:p "changed loading"]}
+        [:test/mutating-section]]
+       [:rf/suspense-boundary
+        {:id :test/unchanged :fallback [:p "unchanged loading"]}
+        [:test/reading-section]]
+       [:footer "End"]])
+    (let [handler  (ssr-ring/stream-handler
+                     {:on-create [:rf.test.server/init]
+                      :root-view [:test/delta-root]
+                      :payload :rf.ssr.payload/whole-app-db})
+          response (handler {:uri "/" :request-method :get})
+          body     (drain-stream (:body response))]
+      (is (= 200 (:status response)) "stream still 200")
+      ;; Both boundaries resolved (their bodies are on the wire).
+      (is (str/includes? body "mutated content")
+          "the mutating boundary's resolved body streamed")
+      (is (str/includes? body "Article A")
+          "the reading boundary's resolved body streamed")
+      ;; The mutating boundary SHIPS its delta script.
+      (is (str/includes? body "data-rf2-suspense-hydrate=\":test/changed\"")
+          "the boundary that changed app-db ships its hydration-delta script")
+      ;; THE PIN: the read-only boundary ships NO delta script. Pre-fix this
+      ;; emitted `data-rf2-suspense-hydrate=":test/unchanged" …>{}</script>`.
+      (is (not (str/includes? body "data-rf2-suspense-hydrate=\":test/unchanged\""))
+          "the unchanged boundary ships NO hydration-delta script — an empty
+           `{}` delta is skipped, not emitted as an inert script chunk
+           (rf2-kjf3m.5: guard is `(seq delta)`, not `(some? delta)`)")
+      ;; No empty-EDN delta body anywhere on the wire.
+      (is (not (str/includes? body ">{}</script>"))
+          "no empty-`{}` delta-script body crosses the wire")
+      (is (str/includes? body "__rf_payload") "final payload still emitted"))))
+
+;; ===========================================================================
 ;; rf2-ee38b.11 — streaming redirect short-circuit MUST destroy the
 ;; per-request frame.
 ;;
@@ -648,3 +713,90 @@
                  :rf.ssr/hydration-mismatch (rf2-5knxf.2)")))
         (finally
           (rf/destroy-frame! fid))))))
+
+;; ===========================================================================
+;; rf2-7rkc0 — STREAMING-path counterpart of the non-streaming
+;; handler-throwing-head-fn-ships-degraded-200 wire pin
+;; (ring_test.clj `handler-throwing-head-fn-ships-degraded-200-not-projected-error`).
+;;
+;; CONTRACT (Spec 011 §1070, lifecycle/resolve-head, rf2-bof8i Option B):
+;; a throwing route `:head` fn is a RECOVERABLE DEGRADATION — the request
+;; still ships a 200 with an empty head fragment + body intact, AND emits
+;; `:rf.error/ssr-head-resolution-failed` for observability; the throwable
+;; message never reaches the wire.
+;;
+;; The STREAMING path resolves the head on the request thread inside
+;; `render-streaming-shell!` (streaming.clj `lifecycle/resolve-head`),
+;; BEFORE the chunked response head + status are committed and BEFORE the
+;; daemon writer is spawned — so a head-resolution failure physically
+;; cannot change the already-committed 200. The streaming path is thus
+;; structurally MORE immune than the non-streaming one; this test pins the
+;; degraded-stream-200 contract so a future refactor of the streaming head
+;; path cannot regress it silently (the non-streaming side had a wire pin,
+;; the streaming side did not — rf2-7rkc0).
+;; ===========================================================================
+
+(deftest stream-handler-throwing-head-fn-ships-degraded-streamed-200
+  (testing "rf2-7rkc0: a throwing route :head fn on the STREAMING path →
+            a streamed 200 (degraded — empty head, body chunks intact),
+            NEVER a projected 4xx/5xx, AND the
+            :rf.error/ssr-head-resolution-failed trace fires once."
+    (rf/reg-head :test.stream/head-throws
+                 (fn [_db _route]
+                   (throw (ex-info "synthetic streaming head failure (rf2-7rkc0)"
+                                   {:reason :test}))))
+    (rf/reg-route :test.stream/route-head-throws
+                  {:doc  "Streaming route whose head fn throws"
+                   :path "/stream-head-throws"
+                   :head :test.stream/head-throws})
+    (rf/reg-event-db :rf.test.stream/seed-throwing-head-route
+      {:platforms #{:server}}
+      (fn [db _]
+        (assoc-in db [:rf/runtime :routing :current]
+                  {:id :test.stream/route-head-throws})))
+    (rf/reg-view ^{:rf/id :test/stream-head-body} stream-head-body []
+      [:main [:h1 "Streamed body rendered fine"]])
+    (let [traces  (atom [])
+          _       (rf/register-listener! ::stream-head-fail-watch
+                    (fn [ev]
+                      (when (= :rf.error/ssr-head-resolution-failed
+                               (:operation ev))
+                        (swap! traces conj ev))))
+          handler (ssr-ring/stream-handler
+                    {:on-create [:rf.test.stream/seed-throwing-head-route]
+                     :root-view [:test/stream-head-body]
+                     :payload   :rf.ssr.payload/whole-app-db})
+          response (try
+                     (handler {:uri "/stream-head-throws" :request-method :get})
+                     (finally
+                       (rf/unregister-listener! ::stream-head-fail-watch)))
+          ;; Drain the chunked body — the head trace fires on the request
+          ;; thread (before the writer), but draining proves the body chunks
+          ;; still ship cleanly after the head degradation.
+          body    (drain-stream (:body response))]
+      ;; THE PIN: the streamed status is 200, not a projected 5xx. The head
+      ;; status/headers are committed BEFORE the writer is spawned, so a
+      ;; head-resolution throw cannot change the already-sent status — were
+      ;; the head trace ever projected (a reorder regression), this 200
+      ;; assertion turns red.
+      (is (= 200 (:status response))
+          "throwing :head fn degrades to a streamed 200 — NEVER a projected
+           4xx/5xx (Spec 011 §1070; the streaming status commits BEFORE the
+           writer thread + the projector-skip belt-and-suspenders, rf2-lia3i)")
+      ;; The streamed body is intact: doctype + the rendered root view.
+      (is (str/includes? body "<!DOCTYPE html>")
+          "the document still streams — the shell + body rendered")
+      (is (str/includes? body "Streamed body rendered fine")
+          "the body view content streams intact — only the head degraded")
+      (is (str/includes? body "__rf_payload")
+          "the final payload chunk still streams")
+      (is (str/includes? body "</body></html>")
+          "the streamed body closes cleanly")
+      ;; The throwable message never crosses the wire.
+      (is (not (str/includes? body "synthetic streaming head failure"))
+          "the throwable's message never reaches the streamed wire")
+      ;; Observability preserved: degrade AND emit.
+      (is (= 1 (count @traces))
+          ":rf.error/ssr-head-resolution-failed fires once for observability
+           on the streaming path too (Spec 011 §1070 Option B) — degraded,
+           not silent"))))

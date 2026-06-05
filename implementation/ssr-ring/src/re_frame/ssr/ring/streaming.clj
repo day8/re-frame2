@@ -239,7 +239,18 @@
                           streaming/failed-template
                           streaming/resolved-template)]
             (write-chunk! out (tmpl-fn id html))
-            (when (and (not failed?) (some? delta))
+            ;; rf2-kjf3m.5 — emit the per-boundary hydration-delta <script>
+            ;; ONLY when the delta carries something to hydrate. A
+            ;; continuation that merely READS app-db (the common case —
+            ;; deferred subtrees rarely mutate state) yields a delta of
+            ;; `{}` from `streaming/subtree-delta`, which is `some?` but
+            ;; empty; `(seq delta)` is the correct guard (falsy for both
+            ;; `{}` and `nil`) so an unchanged boundary emits NO delta
+            ;; script rather than an inert `<script …>{}</script>` chunk
+            ;; the client would parse and discard. `failed?` continuations
+            ;; carry `:delta nil` (also falsy here), so the `not failed?`
+            ;; arm is now redundant but kept for intent clarity.
+            (when (and (not failed?) (seq delta))
               (write-chunk! out (streaming/hydrate-delta-script id (pr-str delta))))
             ;; Pop the drained entry, append any nested continuations at
             ;; the tail (FIFO), continue until empty.
