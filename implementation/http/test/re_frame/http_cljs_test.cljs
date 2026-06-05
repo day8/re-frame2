@@ -467,7 +467,17 @@
                             "the stalled-body timeout rejects with the canonical :rf.error/http-timeout")
                         (is (true? (:rf.http/timeout? data))
                             "the registry-hook timeout signal is co-stamped")
-                        (is (= 40 (:limit-ms data))))
+                        (is (= 40 (:limit-ms data)))
+                        ;; rf2-6ecc6 — CLJS `:elapsed-ms` is now a MEASURED
+                        ;; wall-clock delta (>= :limit-ms by the scheduling
+                        ;; margin), the SAME value-semantics the JVM path
+                        ;; reports — not the synthetic constant == :limit-ms
+                        ;; it used to be. (The timer fires at ~40ms, so the
+                        ;; measured elapsed is at least that.)
+                        (is (number? (:elapsed-ms data))
+                            ":elapsed-ms is a measured number, not absent")
+                        (is (>= (:elapsed-ms data) (:limit-ms data))
+                            ":elapsed-ms (measured) is >= :limit-ms — same semantics as the JVM path"))
                       (done))))))))
 
 (deftest cljs-timeout-stalled-body-finalises-as-timeout-and-clears-registry

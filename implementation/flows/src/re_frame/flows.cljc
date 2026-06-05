@@ -206,13 +206,20 @@
               ;; Event Detail, re-frame-10x flow panel) no longer
               ;; need to walk the epoch's `:db-before` snapshot to
               ;; render "wrote [:cart :total] 47.50 -> 52.50". The
-              ;; read happens against `db` (the loop accumulator
-              ;; that includes prior flows' writes in this drain), so
-              ;; a downstream flow whose `:path` overlaps an upstream
-              ;; flow's `:path` sees the UPSTREAM's just-written
-              ;; value as its `:before` — the correct cascade-local
-              ;; semantics. Gated to dev-only so the read is DCE'd
-              ;; under `:advanced` + `goog.DEBUG=false`.
+              ;; read happens against `db` (the loop accumulator that
+              ;; includes prior flows' writes in this drain), so a
+              ;; flow that reads (via `:inputs`) a slot an UPSTREAM
+              ;; flow wrote sees that upstream write — the correct
+              ;; cascade-local semantics. The `:before` at the flow's
+              ;; OWN `:path`, however, can only ever reflect the
+              ;; handler's / pre-existing value, NEVER another flow's
+              ;; write: the rf2-um6d9/#3086 invariant
+              ;; (`detect-output-path-overlap!`, wired into `reg-flow`)
+              ;; rejects any two same-frame flows whose output `:path`s
+              ;; stand in a prefix relationship, so no upstream flow can
+              ;; have written this flow's `:path` earlier in the drain
+              ;; (per Spec 013 §Disjoint output paths). Gated to dev-only
+              ;; so the read is DCE'd under `:advanced` + `goog.DEBUG=false`.
               old-output (when interop/debug-enabled?
                            (get-in db (:path flow)))
               new-db     (assoc-in db (:path flow) new-output)]

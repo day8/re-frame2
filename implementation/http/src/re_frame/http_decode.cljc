@@ -318,14 +318,22 @@
 
       ;; rf2-5zj6t — binary decode modes (`:blob` / `:array-buffer` /
       ;; `:form-data`, the `binary-decode-kinds` set) return the native
-      ;; Fetch body the transport already read via `.blob()` /
-      ;; `.arrayBuffer()` / `.formData()`. On hosts that have no binary
-      ;; body (the JVM transport reads `.body` as a String) `body-binary`
-      ;; is absent and we fall back to the raw `body-text` so the value
-      ;; is at least the payload, not nil. rf2-jkake.9 — the three modes
-      ;; collapse onto the shared `binary-decode-kinds` set (the same set
-      ;; `binary-read-kind` consults) rather than three identical cond
-      ;; arms.
+      ;; binary body the transport already read: the CLJS transport rides
+      ;; it under `:body-binary` via `.blob()` / `.arrayBuffer()` /
+      ;; `.formData()`, and (per rf2-a3wxe) the JVM transport rides the
+      ;; raw `byte[]` it read via `BodyHandlers/ofByteArray` under the
+      ;; SAME `:body-binary` key — so on BOTH real-transport hosts a
+      ;; binary 2xx response arrives here with `body-binary` PRESENT and
+      ;; this arm returns it verbatim (no lossy text fallback). The
+      ;; `body-text` fallback fires only when `body-binary` is genuinely
+      ;; absent — e.g. a synthetic / test ctx that populated only
+      ;; `:body-text` — so the value is at least the payload, not nil.
+      ;; (Pre-rf2-a3wxe the JVM read `.body` as a String and this arm
+      ;; ALWAYS fell through to the lossy text fallback for binary modes;
+      ;; a3wxe eliminated that — see `jvm-fetch`'s ofByteArray read.)
+      ;; rf2-jkake.9 — the three modes collapse onto the shared
+      ;; `binary-decode-kinds` set (the same set `binary-read-kind`
+      ;; consults) rather than three identical cond arms.
       (contains? binary-decode-kinds resolved)
       (if (some? body-binary) body-binary body-text)
 

@@ -158,6 +158,50 @@
       (is (= (overlap-of) (overlap-of) (overlap-of))
           "repeated detection yields an identical :overlap (deterministic ordering)"))))
 
+(deftest detect-output-path-overlap!-pair-ordering-invariant-to-iteration-order
+  ;; rf2-tx1ub — the reported :overlap pair must be GENUINELY deterministic
+  ;; across runs, not merely run-stable. The prior `sort-by hash` tie-break
+  ;; left the lo/hi assignment undefined on a hash collision: `sort-by` is
+  ;; stable and would fall back to the INPUT (map-iteration) order, which is
+  ;; not a cross-run contract for Clojure hash-maps. The `(juxt hash str)`
+  ;; tie-break makes the result depend only on the ids' VALUES, so feeding
+  ;; the same logical pair in opposite iteration orders MUST yield the same
+  ;; reported pair. Insertion-ordered array-maps below stand in for the two
+  ;; possible cross-run iteration orders.
+  (testing "the reported pair is invariant to flow-map iteration order"
+    (let [flow-a {:id :a :inputs [[:w]] :output identity :path [:x]}
+          flow-b {:id :b :inputs [[:h]] :output identity :path [:x]}
+          overlap-of (fn [m] (-> (try (topo/detect-output-path-overlap! m)
+                                      (catch clojure.lang.ExceptionInfo e (ex-data e)))
+                                 :overlap))
+          a-first (overlap-of (array-map :a flow-a :b flow-b))
+          b-first (overlap-of (array-map :b flow-b :a flow-a))]
+      (is (= a-first b-first)
+          "the same colliding pair reported identically regardless of iteration order")
+      (is (= [:a :b] (:flow-ids a-first))
+          "the pair is canonically ordered by (juxt hash str) — value-derived, not iteration-derived")))
+  (testing "the tie-break is robust on a genuine hash collision (juxt str fallback)"
+    ;; Construct two DISTINCT ids that share a hash so the `hash` key ties
+    ;; and the `str` key alone decides the order — the exact case the old
+    ;; `sort-by hash` left to iteration order. Strings whose hashCodes
+    ;; collide ("Aa"/"BB" is the canonical Java String hashCode collision)
+    ;; give us distinct, equal-hash ids.
+    (let [id-lo "Aa"
+          id-hi "BB"]
+      (is (= (hash id-lo) (hash id-hi))
+          "precondition: the two ids genuinely collide on hash")
+      (let [flow-lo {:id id-lo :inputs [[:w]] :output identity :path [:x]}
+            flow-hi {:id id-hi :inputs [[:h]] :output identity :path [:x]}
+            overlap-of (fn [m] (-> (try (topo/detect-output-path-overlap! m)
+                                        (catch clojure.lang.ExceptionInfo e (ex-data e)))
+                                   :overlap))
+            lo-first (overlap-of (array-map id-lo flow-lo id-hi flow-hi))
+            hi-first (overlap-of (array-map id-hi flow-hi id-lo flow-lo))]
+        (is (= lo-first hi-first)
+            "on a hash collision the pair is STILL identical across iteration orders")
+        (is (= [id-lo id-hi] (:flow-ids lo-first))
+            "the str tie-break orders the colliding pair canonically (\"Aa\" < \"BB\")")))))
+
 ;; ---------------------------------------------------------------------------
 ;; 3. integrated rf/reg-flow — THE bug repro: same-frame overlapping
 ;;    outputs + DISJOINT inputs (no cycle, no edge) must be rejected.
