@@ -73,7 +73,8 @@ deliberate request and can pre-filter with `(re-frame.trace.tooling/trace-buffer
 
 The guarantee is scoped to the **structured MCP read / stream tools**
 (`snapshot`, `get-path`, `read-sub`, `subscribe`, `trace-window`,
-`watch-epochs`) — the off-box wire boundary they egress through. It does
+`watch-epochs`, and the signal recorders `record` / `read-recording` /
+`watch-until`) — the off-box wire boundary they egress through. It does
 **not** extend to raw `eval-cljs` (see §The raw-eval carve-out below).
 
 - **Dropped from streaming subs by default**: any trace event whose
@@ -85,19 +86,39 @@ The guarantee is scoped to the **structured MCP read / stream tools**
   ring-buffer reads remain monotonic.
 - **Redacted / elided by default (NOT shipped raw)**: `:rf/epoch-record`
   values that the structured pull-mode tools (`trace-window`,
-  `watch-epochs`) and the `:epoch` streaming topic egress. As of
-  rf2-6wvh5 / rf2-vr2hn the pull-mode tools route every egressed record
-  through `re-frame.core/projected-record` and the streaming `:epoch`
-  topic wraps each delivered record through `re-frame.core/elide-wire-value`
-  **server-side, before it crosses the nREPL wire** — so a schema-sensitive
-  slot inside `:db-before` / `:db-after` / `:trigger-event` /
-  `:trace-events` lands as `:rf/redacted` and a declared-large slot as
-  `:rf.size/large-elided`, even with the `--allow-sensitive-reads` gate
-  OFF (the published default) and even if a caller passed
-  `:include-sensitive true`. Epoch records **do** carry a top-level
-  `:rf.epoch/sensitive?` rollup (a namespaced key, not the bare
-  trace-event `:sensitive?`); the `cascade-summary` projection surfaces it
-  as `:sensitive? true`.
+  `watch-epochs`), `snapshot`'s `:epochs` slice, and the `:epoch`
+  streaming topic egress. As of rf2-6wvh5 / rf2-vr2hn / rf2-8fin7.1 the
+  pull-mode tools and `snapshot`'s `:epochs` slice route every egressed
+  record through `re-frame.core/projected-record` and the streaming
+  `:epoch` topic wraps each delivered record through
+  `re-frame.core/elide-wire-value` **server-side, before it crosses the
+  nREPL wire** — so a schema-sensitive slot inside `:db-before` /
+  `:db-after` / `:trigger-event` / `:trace-events` lands as `:rf/redacted`
+  and a declared-large slot as `:rf.size/large-elided`, even with the
+  `--allow-sensitive-reads` gate OFF (the published default) and even if a
+  caller passed `:include-sensitive true`. (Before rf2-8fin7.1 the
+  `:epochs` slice rode the wire verbatim — the client-side scrub only
+  dropped whole `:rf.epoch/sensitive?` records, never a declared-sensitive
+  slot inside a non-sensitive epoch — so a sensitive slot could leak when
+  the slice expanded to `:full`; the projection closes that.) Epoch
+  records **do** carry a top-level `:rf.epoch/sensitive?` rollup (a
+  namespaced key, not the bare trace-event `:sensitive?`); the
+  `cascade-summary` projection surfaces it as `:sensitive? true`.
+- **Redacted / elided by default (the signal recorders)**: the
+  `{:app-db [path]}` / `{:sub [query-v]}` signals that `record` /
+  `read-recording` sample into the change-log, and `watch-until`'s
+  `:sample` (on hold) / `:last-sample` (on timeout) slots, are raw
+  app-db-derived values that ship back to the model. As of rf2-8fin7.2
+  the recorders mirror the `get-path` / `read-sub` / `snapshot` posture:
+  the `--allow-sensitive-reads` gate + per-call `:include-sensitive` /
+  `:elision` args resolve an elision-opts map threaded into the runtime's
+  `start-recording!`, so every `:app-db` / `:sub` sample walks through
+  `re-frame.core/elide-wire-value` **server-side** before it lands in the
+  log. Gate OFF (the published default) forces `:include-sensitive false`
+  ⇒ declared-sensitive slots redact to `:rf/redacted`, declared-large
+  slots to `:rf.size/large-elided`. DOM (`{:dom "sel"}`) and focus
+  (`{:focus true}`) signals are read-only host reads, not app-db slots,
+  so the gate does not transform them.
 - **Not gated**: events with `:sensitive? false` or no `:sensitive?` key,
   and the underlying `re-frame.trace.tooling/trace-buffer` ring read
   directly via `eval-cljs` — that ring is a deliberate raw read surface
@@ -144,14 +165,19 @@ ride the redacted/elided shape regardless of any per-call MCP arg or
 in-runtime `configure-privacy!` toggle:
 
 - `snapshot`, `get-path`, `read-sub`, `subscribe`, `trace-window`,
-  `watch-epochs` — forced wire arg `:include-sensitive false` + forced
+  `watch-epochs`, and the signal recorders `record` / `read-recording` /
+  `watch-until` — forced wire arg `:include-sensitive false` + forced
   `:elision true`. For the epoch-egressing tools (`trace-window`,
-  `watch-epochs`, and the `:epoch` streaming topic) the forced posture
-  routes each record through `projected-record` / `elide-wire-value`
-  server-side (rf2-6wvh5 / rf2-vr2hn) so sensitive slots inside the
-  `:db-before` / `:db-after` payloads redact. (The MCP wire arg is
-  `:include-sensitive`, no `?`; the runtime `configure-privacy!` opt and
-  the walker option `:rf.size/include-sensitive?` keep the `?`.)
+  `watch-epochs`, `snapshot`'s `:epochs` slice, and the `:epoch`
+  streaming topic) the forced posture routes each record through
+  `projected-record` / `elide-wire-value` server-side (rf2-6wvh5 /
+  rf2-vr2hn / rf2-8fin7.1) so sensitive slots inside the `:db-before` /
+  `:db-after` payloads redact. For the recorders the forced posture walks
+  each `:app-db` / `:sub` signal sample through `elide-wire-value`
+  server-side (rf2-8fin7.2) before it lands in the change-log / `:sample`
+  slot. (The MCP wire arg is `:include-sensitive`, no `?`; the runtime
+  `configure-privacy!` opt and the walker option
+  `:rf.size/include-sensitive?` keep the `?`.)
 - The preload's `app-db-reset!` — both `:previous` and `:next` slots in
   the `tap>` emission default-elide through `re-frame.core/elide-wire-value`
   before any registered tap consumer sees them.
