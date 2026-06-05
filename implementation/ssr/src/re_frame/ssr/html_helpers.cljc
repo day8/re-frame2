@@ -258,7 +258,13 @@
 
 ;; WHATWG event-handler content attributes (HTML Living Standard
 ;; §"Event handlers on elements, Document objects, and Window objects",
-;; plus the IDL `on*` attributes on Window/Document/Element). All
+;; plus the IDL `on*` attributes on Window/Document/Element), and the
+;; W3C Touch Events Level 2 §8 `GlobalEventHandlers` touch attributes
+;; (`ontouchstart` / `ontouchmove` / `ontouchend` / `ontouchcancel` —
+;; rf2-cv165: the structural regex only catches the camelCase/kebab
+;; spellings, so the lower-case canonical touch names MUST be enumerated
+;; here or they ride through as live attributes on touch-capable
+;; browsers — an XSS-equivalent gap of the same class as `:onclick`). All
 ;; lower-case; the lookup lower-cases the candidate name first so every
 ;; casing (`onload`, `ONLOAD`, `OnLoad`) is covered. Curated to the
 ;; event-handler names browsers actually fire — NOT a broad `on`-prefix —
@@ -287,7 +293,8 @@
     "onresize" "onscroll" "onscrollend" "onsecuritypolicyviolation"
     "onseeked" "onseeking" "onselect" "onselectionchange"
     "onselectstart" "onslotchange" "onstalled" "onstorage" "onsubmit"
-    "onsuspend" "ontimeupdate" "ontoggle" "ontransitioncancel"
+    "onsuspend" "ontimeupdate" "ontoggle" "ontouchcancel" "ontouchend"
+    "ontouchmove" "ontouchstart" "ontransitioncancel"
     "ontransitionend" "ontransitionrun" "ontransitionstart"
     "onunhandledrejection" "onunload" "onvolumechange" "onwaiting"
     "onwheel"})
