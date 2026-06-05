@@ -191,7 +191,25 @@
   no longer encodes overrides renders WITHOUT the prior control edits, and
   the address bar stays the source of truth. Only the focused variant's
   slice is touched; other variants' overrides are left intact (the URL
-  speaks for the focused variant alone)."
+  speaks for the focused variant alone).
+
+  Per rf2-fkmnh: the SAME authoritative-clear discipline applies to every
+  URL-owned chrome slot, not just overrides. `apply-parsed-to-state` only
+  runs when URL hydration is in play (mount-with-params or a popstate),
+  and at that point the applied URL is the source of truth for the full
+  share surface. So:
+    - omitted `modes=`      clears `:active-modes` to `[]`
+    - omitted `tag-filter=` clears `:tag-filter`   to `#{}`
+    - omitted (or invalid) `viewport=`/`background=` clear the slot to nil
+      so the chrome falls back to its neutral default (`:full` / no bg).
+  This means a share URL like `?variant=story.counter/loaded` restores the
+  DEFAULT framing / filter / modes for the recipient rather than keeping
+  their prior localStorage-seeded chrome, and back/forward from a populated
+  URL to one without those params drops the stale framing. The intentional
+  localStorage fallback survives ONLY for a fresh mount with no URL state
+  (shell.cljs runs the localStorage hydrators first and only calls this fn
+  when `parse-current-url` finds query params); a no-query popstate clears
+  the URL-owned slots via `apply-empty-url` (below)."
   [state parsed validators]
   (let [{:keys [variant-id workspace-id mode-tab active-modes
                 viewport background tag-filter cell-overrides
@@ -246,17 +264,20 @@
       (and keep-variant? (not (seq cell-overrides)))
       (update :cell-overrides dissoc variant-id)
 
-      (seq active-modes)
-      (assoc :active-modes (vec active-modes))
-
-      (and viewport vp-ok?)
-      (assoc :viewport viewport)
-
-      (and background bg-ok?)
-      (assoc :background background)
-
-      (seq tag-filter)
-      (assoc :tag-filter (set tag-filter))
+      ;; rf2-fkmnh: the URL is authoritative for every URL-owned chrome
+      ;; slot once hydration is in play, so each of these writes
+      ;; UNCONDITIONALLY — present ⇒ the parsed value, omitted ⇒ the
+      ;; neutral default. An absent `modes=` clears to `[]`, an absent
+      ;; `tag-filter=` clears to `#{}`. A present-but-invalid
+      ;; viewport/background (rejected by the validator) clears to nil so
+      ;; the chrome falls back to its default rather than keeping a stale
+      ;; localStorage / prior-session value — the address bar stays the
+      ;; source of truth for the full share surface.
+      :always
+      (-> (assoc :active-modes (vec active-modes))
+          (assoc :viewport   (when vp-ok? viewport))
+          (assoc :background (when bg-ok? background))
+          (assoc :tag-filter (set tag-filter)))
 
       substrate
       (assoc :substrate substrate))))
@@ -314,6 +335,25 @@
                (let [usp (js/URLSearchParams. search)]
                  (share/parse-params (params->getter usp)))
                (catch :default _ nil))))))
+
+     (defn parse-current-url-or-empty
+       "Like `parse-current-url`, but returns the all-nil parsed shape
+       (`share/parse-params {}`) instead of nil when the window is present
+       and the search is empty.
+
+       Used by the popstate handler (rf2-fkmnh): navigating back/forward to
+       a URL with NO query params must CLEAR the URL-owned slots (selection,
+       modes, viewport, background, tag-filter) — `apply-parsed-to-state` is
+       authoritative for those slots, and an all-nil parsed map drives them
+       to their defaults. (Contrast mount-time hydration, which keeps using
+       `parse-current-url` so a fresh no-URL mount preserves the intentional
+       localStorage fallback rather than clobbering it.)
+
+       Returns nil only when the window is unavailable."
+       []
+       (when-let [w (safe-window)]
+         (or (parse-current-url)
+             (share/parse-params {}))))
 
      (defn embed-flag-from-current-url
        "Read the `?embed=1` flag (rf2-pucku) from
@@ -397,6 +437,14 @@
        viewport / backgrounds nss directly). Tests can pass a no-op /
        capturing apply-fn.
 
+       rf2-fkmnh: the handler parses via `parse-current-url-or-empty`, so
+       a back/forward to a URL with NO query params applies the all-nil
+       parsed shape rather than no-op'ing. Because `apply-parsed-to-state`
+       is authoritative for the URL-owned slots, that clears the prior
+       selection / modes / viewport / background / tag-filter back to
+       their defaults — the address bar stays the source of truth across
+       history navigation, not just on populated-URL pops.
+
        Idempotent: re-installing replaces the previous handler. Returns
        the wired handler so tests can introspect."
        [shell-state-atom apply-fn]
@@ -405,7 +453,7 @@
            (try (.removeEventListener w "popstate" prev)
                 (catch :default _ nil)))
          (let [h (fn [_]
-                   (when-let [parsed (parse-current-url)]
+                   (when-let [parsed (parse-current-url-or-empty)]
                      (with-hydration-guard
                        (fn []
                          (swap! shell-state-atom apply-fn parsed)))))]
