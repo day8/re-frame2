@@ -28,6 +28,66 @@ test('summary parser extracts cljs.test counts from noisy text', () => {
   });
 });
 
+// rf2-mwx08 (regression): a prelude app log shaped exactly like a
+// zero-failure cljs.test summary (`0 failures, 0 errors.`) that PRECEDES
+// the real `Ran ...` line must NOT be paired as the failure summary. The
+// old first-match-of-each parser returned `{failErr: "0 failures, 0
+// errors."}` here and false-greened a red run. The paired parser binds
+// the failures/errors line that FOLLOWS the selected `Ran ...` line.
+test('noisy zero-failure prelude before the real run is not mis-paired as green (rf2-mwx08)', () => {
+  const blob = [
+    '[browser:log] app boot: 0 failures, 0 errors.',
+    'FAIL in (my-test) expected: 1 actual: 2',
+    'Ran 8 tests containing 20 assertions.',
+    '1 failures, 0 errors.',
+  ].join('\n');
+  const parts = summaryPartsFromText(blob);
+  assert.equal(parts.ran, 'Ran 8 tests containing 20 assertions.');
+  // MUST be the real red line, never the prelude zero line.
+  assert.equal(parts.failErr, '1 failures, 0 errors.');
+  const counts = parseFailureCounts(parts.failErr);
+  assert.equal(counts.failures > 0 || counts.errors > 0, true,
+    'red run must parse to a non-zero count, not green');
+});
+
+// rf2-mwx08: a bare `failures, errors` line with no preceding `Ran ...`
+// is console noise, not a summary — it must be ignored, leaving failErr
+// null (the "no verdict yet → run fails" signal in run-browser-tests).
+test('a failures/errors line with no preceding Ran line is ignored (rf2-mwx08)', () => {
+  const parts = summaryPartsFromText([
+    '[browser:log] some lib says: 0 failures, 0 errors.',
+    '[browser:log] still booting',
+  ].join('\n'));
+  assert.deepEqual(parts, { ran: null, failErr: null });
+});
+
+// rf2-mwx08: when a page emits more than one cljs.test summary (e.g. a
+// re-run), the LAST complete pair wins, and each failErr stays bound to
+// its own Ran line.
+test('last complete cljs.test summary pair wins on a re-run (rf2-mwx08)', () => {
+  const parts = summaryPartsFromText([
+    'Ran 3 tests containing 9 assertions.',
+    '0 failures, 0 errors.',
+    '[browser:log] re-running suite',
+    'Ran 4 tests containing 12 assertions.',
+    '2 failures, 1 errors.',
+  ].join('\n'));
+  assert.equal(parts.ran, 'Ran 4 tests containing 12 assertions.');
+  assert.equal(parts.failErr, '2 failures, 1 errors.');
+});
+
+// rf2-mwx08: an un-paired `Ran ...` line (failures/errors not yet
+// streamed) surfaces the `ran` half for a meaningful timeout message,
+// but failErr stays null so no green verdict can form.
+test('a Ran line with no failures/errors line yet surfaces ran only (rf2-mwx08)', () => {
+  const parts = summaryPartsFromText([
+    '[browser:log] booted',
+    'Ran 8 tests containing 20 assertions.',
+  ].join('\n'));
+  assert.equal(parts.ran, 'Ran 8 tests containing 20 assertions.');
+  assert.equal(parts.failErr, null);
+});
+
 test('failure count parser returns numeric counts', () => {
   assert.deepEqual(parseFailureCounts('2 failures, 1 errors.'), {
     failures: 2,

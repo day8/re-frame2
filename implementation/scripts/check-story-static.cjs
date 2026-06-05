@@ -260,9 +260,18 @@ async function smokeTest(baseUrl, diagnostics) {
   const context = await browser.newContext();
   const page = await context.newPage();
 
+  // rf2-mwx08: track uncaught browser/runtime exceptions SEPARATELY from
+  // console noise. The static-export smoke passes when its visible
+  // assertions resolve; previously an uncaught `pageerror` was
+  // diagnostic-only, so the smoke could ship green while the page threw a
+  // runtime exception the assertions happened not to cover. Console
+  // output stays diagnostic-only; only `pageerror` is fatal. Mirrors the
+  // rf2-wf5al fix for the examples/scripts Story play runner.
+  const pageErrors = [];
   diagnostics.add('Spec: story-static static export smoke');
   diagnostics.add(`URL: ${baseUrl}`);
   page.on('pageerror', (err) => {
+    pageErrors.push(err.stack || err.message);
     diagnostics.add(`[browser:pageerror] ${err.message}`, 'stderr');
     if (err.stack) diagnostics.add(err.stack, 'stderr');
   });
@@ -328,6 +337,19 @@ async function smokeTest(baseUrl, diagnostics) {
       .getByText(':story.counter/empty', { exact: false })
       .first()
       .waitFor({ state: 'visible', timeout: 10000 });
+
+    // rf2-mwx08: all visible assertions passed — but an uncaught
+    // `pageerror` is still fatal. A green smoke that ignored a runtime
+    // exception is a false-green. Allow a brief settle for any
+    // post-interaction pageerror to surface, then fail if any were seen.
+    await new Promise((r) => setTimeout(r, 200));
+    if (pageErrors.length > 0) {
+      throw new Error(
+        `story-static smoke assertions passed, but the page emitted ` +
+          `${pageErrors.length} uncaught pageerror(s) — failing the smoke ` +
+          `(rf2-mwx08). First: ${pageErrors[0]}`,
+      );
+    }
 
   } finally {
     await browser.close();

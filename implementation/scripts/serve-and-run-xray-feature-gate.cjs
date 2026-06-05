@@ -451,6 +451,21 @@ async function runScenarios(baseUrl) {
             setTimeout(() => reject(new Error(`Scenario timed out after ${TIMEOUT_MS}ms`)), TIMEOUT_MS);
           }),
         ]);
+        // rf2-mwx08: an uncaught browser/runtime exception is fatal even
+        // when the scenario's visible assertions all passed. pageErrors
+        // are captured by the `pageerror` listener above (line ~430) and
+        // were previously diagnostic-only — a green verdict could ship
+        // while Chromium observed an uncaught exception. Console noise
+        // stays diagnostic-only (this gate never treated it as fatal);
+        // only `pageerror` flips the verdict. Mirrors the rf2-wf5al fix
+        // for the examples/scripts Story play runner.
+        if (browserState.pageErrors.length > 0) {
+          throw new Error(
+            `Scenario emitted ${browserState.pageErrors.length} uncaught ` +
+              `browser pageerror(s) — failing the gate (rf2-mwx08). ` +
+              `First: ${browserState.pageErrors[0]}`,
+          );
+        }
         passed = true;
       } catch (err) {
         failure = err;

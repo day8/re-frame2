@@ -9,8 +9,15 @@
 // the failure/error counts — without echoing the whole noisy log on a
 // green run.
 //
-//   summaryPartsFromText(text)  → { ran, failErr } (each the matched
-//                                  line or null).
+//   summaryPartsFromText(text)  → { ran, failErr } — the LAST complete
+//                                  cljs.test summary PAIR in the stream:
+//                                  a `Ran ...` line plus the
+//                                  `failures, errors` line that FOLLOWS
+//                                  it. Returned as an atomic pair so a
+//                                  prelude `0 failures, 0 errors.` app
+//                                  log that PRECEDES the real `Ran ...`
+//                                  line can never be mis-paired as the
+//                                  failure summary (rf2-mwx08).
 //   parseFailureCounts(failErr) → { failures, errors } or null. A gate
 //                                  is green only when both are 0 AND a
 //                                  `Ran ...` line was seen.
@@ -28,13 +35,63 @@ function isVerboseTests(env = process.env) {
   return env.RF2_VERBOSE_TESTS === '1';
 }
 
+// Extract the cljs.test summary as an ATOMIC, ORDERED pair rather than
+// two independent first-matches (rf2-mwx08). cljs.test always emits the
+// `Ran N tests ...` line FIRST and the `K failures, L errors.` line
+// IMMEDIATELY AFTER it. Arbitrary browser-console noise — including a
+// prior app log shaped exactly like a zero-failure summary
+// (`0 failures, 0 errors.`) — may be interleaved before the real run.
+//
+// The previous implementation took the first `Ran ...` match and the
+// first `failures, errors` match from the whole blob independently, so a
+// preceding noise line could be accepted as the failure summary and then
+// paired with the later real `Ran ...` line — false-greening a red run.
+//
+// We instead walk the lines, and for each `Ran ...` line we look for the
+// FIRST `failures, errors` line that FOLLOWS it (before the next
+// `Ran ...`). That candidate pair is the summary for that run; we keep
+// the LAST such complete pair (the most recent run wins if a page emits
+// more than one cljs.test summary). A `failures, errors` line with no
+// preceding `Ran ...` is ignored — it cannot be a cljs.test summary.
 function summaryPartsFromText(text) {
   const value = text == null ? '' : String(text);
-  const ran = value.match(RAN_RE);
-  const failErr = value.match(FAIL_RE);
+  const lines = value.split('\n');
+
+  let pendingRan = null; // a `Ran ...` line awaiting its failures/errors pair
+  let pairedRan = null;
+  let pairedFailErr = null;
+
+  for (const line of lines) {
+    const ranMatch = line.match(RAN_RE);
+    if (ranMatch) {
+      // A new run begins. Any earlier un-paired `Ran ...` is abandoned
+      // (its failures/errors line never arrived before this next run).
+      pendingRan = ranMatch[0];
+      continue;
+    }
+    if (pendingRan == null) {
+      // No `Ran ...` seen yet on this run — a bare `failures, errors`
+      // line here is console noise, not a cljs.test summary. Ignore it.
+      continue;
+    }
+    const failMatch = line.match(FAIL_RE);
+    if (failMatch) {
+      // Complete pair: the failures/errors line that follows the most
+      // recent `Ran ...`. Record it as the latest complete summary and
+      // reset so a subsequent run can form its own pair.
+      pairedRan = pendingRan;
+      pairedFailErr = failMatch[0];
+      pendingRan = null;
+    }
+  }
+
+  // If a `Ran ...` line was seen but its failures/errors line has not
+  // arrived yet (still streaming), surface the `ran` half so callers can
+  // report a meaningful timeout. `failErr` stays null until the matching
+  // line lands — which is exactly the "no green verdict yet" signal.
   return {
-    ran: ran ? ran[0] : null,
-    failErr: failErr ? failErr[0] : null,
+    ran: pairedRan != null ? pairedRan : pendingRan,
+    failErr: pairedFailErr,
   };
 }
 
