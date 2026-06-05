@@ -32,8 +32,10 @@
      `:reconnecting` `:after` re-enters `:active` which spawns a
      fresh one.
 
-   Run standalone via `npm run test:examples`; the mock server keeps
-   the app self-contained."
+   Coverage lives in the CLJS substrate contract tests (`npm run
+   test:cljs`, ns `re-frame.websocket-cljs-test`); the mock server keeps
+   the app self-contained. The example tree is test-free (rf2-8cevm), so
+   `npm run test:examples` does not build this example."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             [re-frame.adapter.reagent :as reagent-adapter]
