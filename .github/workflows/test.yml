@@ -190,6 +190,19 @@ jobs:
       - name: Validate README links (targets + MkDocs-rule anchor slugs)
         run: python scripts/check_readme_links.py --ci
 
+      # README inventory drift-ratchet gate (rf2-fvv9c, follows rf2-198k3).
+      # check_readme_inventories.py asserts the layout-map <-> disk bijection
+      # and the "N <noun>" count-numeral claims in the pair-mcp / story-mcp
+      # READMEs. It was wired into the local pre-checkin spine
+      # (scripts/test-fast-pr.sh) but did not gate CI, so a contributor who
+      # skipped the local spine could land README inventory drift unchecked.
+      # Pure Python stdlib — no extra deps over the slugifier install above.
+      - name: Self-test the README inventory validator
+        run: python scripts/check_readme_inventories.py --self-test --verbose
+
+      - name: Validate README inventories (layout-map <-> disk + count claims)
+        run: python scripts/check_readme_inventories.py --verbose
+
   jvm-core:
     name: JVM core (clojure -M:test)
     # rf2-f79t8 — job-level gating (NOT a workflow-trigger path filter:
