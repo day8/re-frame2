@@ -472,11 +472,18 @@ async function seedRuntime(client, label) {
 
   const enable = await client.callTool({ name: 'eval-cljs', arguments: { form: ENABLE_CONFIGURE_FORM } });
   assertOk(enable, label + ' eval-cljs configure-epoch');
-  if (!responseText(enable).includes('true')) {
+  // Assert the STRUCTURED `:hook-installed? true` slot, not a bare 'true'
+  // substring. The form returns `{:hook-installed? <bool> :depth <int>}`;
+  // a substring search for 'true' anywhere in the rendered EDN would be
+  // satisfied by a stray 'true' in any future-added slot (a note string,
+  // a richer map) even with the hook NOT installed. Pin the typed value
+  // by matching the key+value as a full token — mirror the `:epoch-count
+  // \s+0\b` regex style used for the seed assertion below.
+  if (!/:hook-installed\?\s+true\b/.test(responseText(enable))) {
     throw new Error(
       label + ' eval-cljs configure-epoch did not install the :epoch/settle! hook ' +
-        '(epoch recording would stay disabled and no epoch would be recorded). ' +
-        'Got: ' + responseText(enable).slice(0, 300),
+        '(:hook-installed? not true — epoch recording would stay disabled and no ' +
+        'epoch would be recorded). Got: ' + responseText(enable).slice(0, 300),
     );
   }
 
@@ -524,11 +531,13 @@ async function enableEpochRecording(client, label) {
   assertOk(req, label + ' eval-cljs require-epoch');
   const enable = await client.callTool({ name: 'eval-cljs', arguments: { form: ENABLE_CONFIGURE_FORM } });
   assertOk(enable, label + ' eval-cljs configure-epoch');
-  if (!responseText(enable).includes('true')) {
+  // Structured `:hook-installed? true` token, not a bare 'true' substring
+  // — same rationale as the seedRuntime check above (rf2-6r5qe.2).
+  if (!/:hook-installed\?\s+true\b/.test(responseText(enable))) {
     throw new Error(
       label + ' eval-cljs configure-epoch did not install the :epoch/settle! hook ' +
-        '(epoch recording would stay disabled and no epoch would be recorded). ' +
-        'Got: ' + responseText(enable).slice(0, 300),
+        '(:hook-installed? not true — epoch recording would stay disabled and no ' +
+        'epoch would be recorded). Got: ' + responseText(enable).slice(0, 300),
     );
   }
 }
