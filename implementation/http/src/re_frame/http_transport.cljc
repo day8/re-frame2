@@ -252,14 +252,29 @@
 #?(:cljs
    (defn- cross-origin?
      "Heuristic: is `url` cross-origin relative to the current page?
-     Returns `false` for same-origin URLs, relative URLs (no scheme/host),
-     `data:`/`blob:`/`file:` schemes, and any URL the host can't parse.
-     The conservative path returns `false` so we never misclassify a
-     same-origin Fetch failure as CORS.
+     Returns `false` for same-origin URLs (incl. relative + same-host
+     protocol-relative), `data:`/`blob:`/`file:` schemes, and any URL the
+     host can't parse. The conservative path returns `false` so we never
+     misclassify a same-origin Fetch failure as CORS.
 
      `js/location.origin` is the comparison base in browser hosts; on
      non-browser CLJS targets (Node / shadow-cljs node tests) the global
-     is absent and we return `false`."
+     is absent and we return `false`.
+
+     rf2-azrcs — resolution semantics:
+
+     - The URL is parsed WITH `loc-origin` as the base (`js/URL. url base`),
+       so relative (`/x`, `?q`, `#f`), protocol-relative (`//host/x`), and
+       absolute (`https://host/x`) URLs all resolve through one path. A
+       protocol-relative URL inherits the page SCHEME but carries its own
+       HOST, so `//other.invalid/x` is genuinely cross-origin while
+       `//app.example/x` (same host) is same-origin — the prior
+       single-slash short-circuit misclassified BOTH as same-origin.
+     - The `data:`/`blob:`/`file:` scheme exclusion is matched
+       CASE-INSENSITIVELY (URL schemes are case-insensitive per RFC 3986
+       §3.1). The prior lowercase-only prefix check let `DATA:`/`FILE:`
+       fall through to the parse, where their parsed origin is the literal
+       string `\"null\"` (≠ page origin) and so false-classified as CORS."
      [^String url]
      (try
        (let [loc-origin (some-> js/globalThis
@@ -268,17 +283,20 @@
          (cond
            (nil? url)        false
            (nil? loc-origin) false
-           ;; Relative URLs are always same-origin.
-           (or (str/starts-with? url "/")
-               (str/starts-with? url "?")
-               (str/starts-with? url "#"))           false
            ;; data:/blob:/file: schemes are not http(s) origins; treat
            ;; as not-cross-origin (transport errors there are not CORS).
-           (or (str/starts-with? url "data:")
-               (str/starts-with? url "blob:")
-               (str/starts-with? url "file:"))       false
+           ;; Scheme match is case-insensitive (RFC 3986 §3.1).
+           (let [lower (str/lower-case url)]
+             (or (str/starts-with? lower "data:")
+                 (str/starts-with? lower "blob:")
+                 (str/starts-with? lower "file:")))   false
            :else
-           (let [parsed (js/URL. url)
+           ;; Parse WITH the page origin as the base so relative,
+           ;; protocol-relative, and absolute URLs all resolve in one
+           ;; path. Same-origin relatives inherit `loc-origin`; a
+           ;; protocol-relative URL with a different host resolves to its
+           ;; own (cross) origin.
+           (let [parsed (js/URL. url loc-origin)
                  origin (.-origin parsed)]
              (and (string? origin)
                   (not= origin loc-origin)))))

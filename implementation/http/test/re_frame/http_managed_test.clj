@@ -19,6 +19,7 @@
             [re-frame.http-decode :as http-decode]
             [re-frame.http-encoding :as http-encoding]
             [re-frame.http-managed :as http-managed]
+            [re-frame.late-bind :as late-bind]
             ;; rf2-cdmle — the canned-stub fxs no longer register at
             ;; `re-frame.http-managed` load time. This test file uses
             ;; `:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}`
@@ -1124,6 +1125,110 @@
                           {:fx-overrides {:rf.http/managed :rzqan/explicit-override}})
         (is (= :explicit @chosen)
             "the per-call :fx-overrides won over the helper's lexical default")))))
+
+;; ---- 11a-azrcs. route-map stub keys off the POST-`:before` request --------
+;;
+;; rf2-azrcs (independent-review finding #2) — the route-map stub picked
+;; `:method`/`:url` from the ORIGINAL pre-middleware args, then delegated to
+;; the canned handler that ran the `:before` chain LATER. The real
+;; `:rf.http/managed` handler runs `:before` FIRST, validates the FINAL url,
+;; then sends the post-middleware request. So a base-URL / url-rewriting
+;; `:before` made the stub key off the draft url:
+;;   - false-fail when the route map is keyed to the FINAL url (what
+;;     production sends) — the draft url misses it; and
+;;   - false-green when keyed to the ORIGINAL url even though production
+;;     issues a different one.
+;; The fix runs the `:before` chain ONCE in the stub, keys the match against
+;; the post-`:before` url, and emits via that same middleware-ctx (no
+;; double-`:before`). A url-erasing `:before` now throws the production
+;; `:rf.error/http-bad-request` instead of a synthetic stubbed reply.
+
+(deftest stub-matches-post-before-url-rewrite-rf2-azrcs
+  (testing "rf2-azrcs — a base-URL `:before` rewrites `/articles` → `/v2/articles`;
+            the stub keyed to the FINAL `/v2/articles` matches (pre-fix it
+            keyed off the draft `/articles` and fell through to the
+            no-stub-matched failure)"
+    (rf/reg-http-interceptor :azrcs/base-url
+      {:before (fn [ctx]
+                 (update-in ctx [:request :url]
+                            (fn [u] (clojure.string/replace u #"^/" "/v2/"))))})
+    (rf/reg-event-fx :azrcs/list
+      (fn [{:keys [db]} [_ msg]]
+        (if-let [reply (:rf/reply msg)]
+          {:db (assoc db :result reply)}
+          {:fx [[:rf.http/managed
+                 {:request {:method :get :url "/articles"}
+                  :decode  :json}]]})))
+    (rf/with-managed-request-stubs
+      ;; Keyed to the FINAL url the `:before` produces — NOT the draft.
+      {[:get "/v2/articles"] {:reply {:ok [:rewritten :ok]}}}
+      (rf/dispatch-sync [:azrcs/list])
+      (let [db (await-reply! #(some? (:result %)) 2000)]
+        (is (= :success (get-in db [:result :kind]))
+            "the stub matched the post-`:before` url")
+        (is (= [:rewritten :ok] (get-in db [:result :value]))
+            "the configured :ok value for the FINAL url rode through")))))
+
+(deftest stub-does-not-match-stale-original-url-rf2-azrcs
+  (testing "rf2-azrcs (complement) — a route map keyed to the ORIGINAL
+            (draft) url no longer false-greens: with a url-rewriting
+            `:before`, the post-`:before` url is what the stub matches, so
+            the stale-key entry misses and the no-stub-matched failure fires"
+    (rf/reg-http-interceptor :azrcs/base-url2
+      {:before (fn [ctx]
+                 (update-in ctx [:request :url]
+                            (fn [u] (clojure.string/replace u #"^/" "/v2/"))))})
+    (rf/reg-event-fx :azrcs/list2
+      (fn [{:keys [db]} [_ msg]]
+        (if-let [reply (:rf/reply msg)]
+          {:db (assoc db :result reply)}
+          {:fx [[:rf.http/managed
+                 {:request {:method :get :url "/articles"}
+                  :decode  :json}]]})))
+    (rf/with-managed-request-stubs
+      ;; Keyed to the ORIGINAL draft url — production would issue /v2/articles,
+      ;; so this stub must NOT match (pre-fix it false-matched).
+      {[:get "/articles"] {:reply {:ok [:should :not :match]}}}
+      (rf/dispatch-sync [:azrcs/list2])
+      (let [db (await-reply! #(some? (:result %)) 2000)]
+        (is (= :failure (get-in db [:result :kind]))
+            "the stale original-url key did NOT match the post-`:before` url")
+        (is (= "no stub matched" (get-in db [:result :failure :message]))
+            "the no-stub-matched synthetic failure fired (not the stale :ok)")
+        (is (= "/v2/articles" (get-in db [:result :failure :url]))
+            "the no-match failure reports the FINAL post-`:before` url")))))
+
+(deftest stub-url-erasing-before-throws-bad-request-rf2-azrcs
+  (testing "rf2-azrcs (complement) — a `:before` that BLANKS the url makes
+            the stub throw the production `:rf.error/http-bad-request` and
+            dispatch NO synthetic reply (pre-fix the stub keyed off the
+            original valid url and returned a stubbed reply, masking the
+            invalid request the real handler would reject)"
+    (rf/reg-http-interceptor :azrcs/url-eraser
+      {:before (fn [ctx] (assoc-in ctx [:request :url] nil))})
+    ;; Install the stub fx directly so the throw is observable (a throw
+    ;; inside dispatch-sync's fx phase is swallowed into the error sink).
+    (let [recorded (atom [])
+          original (late-bind/get-fn :router/dispatch!)]
+      (late-bind/set-fn! :router/dispatch!
+                         (fn [ev opts] (swap! recorded conj [ev opts])))
+      (try
+        (re-frame.http-test-support/install-managed-request-stubs!
+          {[:get "/x"] {:reply {:ok {:stubbed true}}}})
+        (let [stub-fx (registrar/handler :fx :rf.http/managed-test-stub)
+              ex      (try (stub-fx {:frame :rf/default :event [:azrcs/erase]}
+                                    {:request {:method :get :url "/x"}})
+                           nil
+                           (catch clojure.lang.ExceptionInfo e e))]
+          (is (some? ex) "the url-erasing :before made the stub throw")
+          (is (= ":rf.error/http-bad-request" (.getMessage ex))
+              "the throw is the canonical production bad-request, not a stubbed reply")
+          (is (= :rf.error/http-bad-request (:rf.error/id (ex-data ex))))
+          (is (empty? @recorded)
+              "NO synthetic reply was dispatched — the invalid request is rejected, not masked"))
+        (finally
+          (re-frame.http-test-support/uninstall-managed-request-stubs!)
+          (late-bind/set-fn! :router/dispatch! original))))))
 
 ;; ---- 11b. canned-stub fxs gated on explicit test-support require (rf2-cdmle)
 ;;

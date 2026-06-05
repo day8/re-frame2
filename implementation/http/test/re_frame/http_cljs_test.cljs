@@ -216,7 +216,40 @@
             (let [err (js/TypeError. "Failed to fetch")
                   out (classify-cljs-error err url)]
               (is (= :rf.http/transport (:kind out))
-                  (str url " is relative/same-origin, never CORS")))))))))
+                  (str url " is relative/same-origin, never CORS")))))
+
+        ;; rf2-azrcs — protocol-relative URLs inherit the page SCHEME but
+        ;; carry their OWN host, so the host decides cross-origin. The
+        ;; pre-fix single-slash short-circuit (`starts-with? url "/"`)
+        ;; misclassified BOTH a different-host and a same-host
+        ;; protocol-relative URL as same-origin.
+        (testing "a protocol-relative URL with a DIFFERENT host → :rf.http/cors"
+          (let [err (js/TypeError. "Failed to fetch")
+                out (classify-cljs-error err "//other.invalid/x")]
+            (is (= :rf.http/cors (:kind out))
+                "//other.invalid/x resolves to https://other.invalid (cross-origin)")
+            (is (= "//other.invalid/x" (:url out))
+                ":url tag rides the original (unresolved) URL")))
+
+        (testing "a protocol-relative URL with the SAME host → :rf.http/transport"
+          (let [err (js/TypeError. "Failed to fetch")
+                out (classify-cljs-error err "//app.example/x")]
+            (is (= :rf.http/transport (:kind out))
+                "//app.example/x resolves to https://app.example (same-origin)")))
+
+        ;; rf2-azrcs — URL schemes are case-insensitive (RFC 3986 §3.1).
+        ;; The pre-fix lowercase-only prefix check let `DATA:`/`FILE:` fall
+        ;; through to `js/URL.`, where their parsed origin is the literal
+        ;; string "null" (≠ page origin) → false-classified as CORS.
+        (testing "uppercase / mixed-case non-http schemes are scheme-excluded
+        → :rf.http/transport (case-insensitive scheme match)"
+          (doseq [url ["DATA:text/plain,hello"
+                       "Blob:https://app.example/uuid"
+                       "FILE:///etc/hosts"]]
+            (let [err (js/TypeError. "Failed to fetch")
+                  out (classify-cljs-error err url)]
+              (is (= :rf.http/transport (:kind out))
+                  (str url " is scheme-excluded case-insensitively, never CORS")))))))))
 
 ;; ---- rf2-5zj6t — binary decode reads the native Fetch body ---------------
 
