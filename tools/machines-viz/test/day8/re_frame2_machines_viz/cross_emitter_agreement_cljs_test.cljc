@@ -55,7 +55,7 @@
   "The internal (self-anchored, `:internal? true`) edges the chart projects
   for a definition."
   [definition]
-  (->> (layout/parse-definition definition)
+  (->> (layout/project-definition definition)
        :edges
        (filter :internal?)))
 
@@ -229,7 +229,7 @@
             pseudo-state in chart, mermaid, AND SCXML (never an ordinary
             occupiable state)"
     ;; CHART — a `history-marker`-flagged, non-occupiable node.
-    (let [hist (->> (layout/parse-definition deep-history-machine)
+    (let [hist (->> (layout/project-definition deep-history-machine)
                     :nodes
                     (filter #(= [:player :hist] (:path %)))
                     first)]

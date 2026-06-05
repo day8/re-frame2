@@ -28,7 +28,7 @@
 
   ## Shape
 
-  `(parse-definition definition)` returns:
+  `(project-definition definition)` returns:
 
       {:nodes        [{:id <string>          ;; xyflow node id
                        :path <vec-of-kw>     ;; full hierarchical path
@@ -609,7 +609,7 @@
   candidates grammar (`spec/005-StateMachines.md:253-256`) routinely
   produces same-event/same-target edges differing only by guard, so
   folding the guard/action in keeps them distinct (xyflow drops a
-  duplicate-id edge). The `parse-flat` caller appends a per-key ordinal
+  duplicate-id edge). The `project-flat` caller appends a per-key ordinal
   as a final tiebreak for the rare byte-identical-candidate case.
 
   rf2-vcnvj — the source segment is `edge-source-id` (the MACHINE-ROOT
@@ -673,9 +673,9 @@
 
 ;; ---- public projection --------------------------------------------------
 
-(defn- parse-flat
+(defn- project-flat
   "Project a non-parallel machine definition into `{:nodes :edges
-  :initial-path}`. The shared single-machine walker; `parse-definition`
+  :initial-path}`. The shared single-machine walker; `project-definition`
   calls this for plain machines AND once per region of a `:parallel`
   machine (the per-region nodes/edges then get tagged with their
   region + parent-id)."
@@ -709,7 +709,7 @@
         ;; `:on` keeps the pre-vcnvj node set unchanged. The root node is
         ;; a top-level (no `:parent-id`) pseudo-state the projector paints
         ;; as the root-context chip; its `:label` is filled in by
-        ;; `parse-definition` (which knows the machine-id), defaulting to
+        ;; `project-definition` (which knows the machine-id), defaulting to
         ;; a neutral caption here.
         root-node (when (seq machine-edges)
                     {:id           machine-root-id
@@ -755,7 +755,7 @@
      :edges        edges
      :initial-path initial-path}))
 
-(defn- parse-parallel
+(defn- project-parallel
   "Project a `{:type :parallel :regions {...}}` definition into the
   flat graph, projecting EVERY region (rf2-lkwev — Phase 1 deferred
   all but the first). Each region becomes a synthetic `:region?`
@@ -769,7 +769,7 @@
   rf2-wnzha — every region-state node-id is REGION-SCOPED
   (`region-scoped-id`): the in-region path is prefixed with the region
   container's id, so two regions that share a state NAME mint DISTINCT
-  node-ids. Pre-fix, `parse-flat` kept each region's in-region node-id
+  node-ids. Pre-fix, `project-flat` kept each region's in-region node-id
   verbatim (e.g. path `[:done]` → `\"done\"` in EVERY region), so the
   canonical Spec 005 `:ingest` shape — three regions each carrying a
   `:done {:final? true}` leaf — collided all three `:done` nodes into
@@ -788,10 +788,10 @@
         (map-indexed
           (fn [idx [region-id region-def]]
             (let [rid       (region-node-id region-id)
-                  parsed    (parse-flat region-def)
+                  parsed    (project-flat region-def)
                   ;; rf2-7i7t3 — a region def is a compound state map and MAY
                   ;; carry a top-level `:on` (a legal Spec 005 region-level
-                  ;; fallback). `parse-flat` mints a synthetic MACHINE-ROOT
+                  ;; fallback). `project-flat` mints a synthetic MACHINE-ROOT
                   ;; node (`{:path [] :machine-root? true}`) + machine-level
                   ;; edges (rf2-vcnvj) WHENEVER its definition has a top-level
                   ;; `:on`. But the machine-root concept is a FLAT/top-level-
@@ -901,7 +901,7 @@
      :initial-path nil
      :parallel?    true}))
 
-(defn parse-definition
+(defn project-definition
   "Project a machine definition into a flat `{:nodes :edges
   :initial-path}` graph. Pure fn — JVM-runnable.
 
@@ -918,10 +918,10 @@
     {:nodes [] :edges [] :initial-path nil}
 
     (= :parallel (:type definition))
-    (parse-parallel definition)
+    (project-parallel definition)
 
     :else
-    (parse-flat definition)))
+    (project-flat definition)))
 
 (defn highlight-id
   "Resolve a single-active snapshot `:state` value to the node-id used
@@ -959,7 +959,7 @@
     keyword-or-path **relative to that region's own state-tree**, so it
     resolves the SAME way the parse mints region-state ids — via
     `region-scoped-id` of the REGION + the in-region path (rf2-wnzha:
-    parse-parallel region-scopes a state's node-id so two regions sharing
+    project-parallel region-scopes a state's node-id so two regions sharing
     a state NAME mint DISTINCT ids; the resolver MUST mint the SAME scoped
     id or the highlight would target a phantom). A nested region value (a
     region whose value is itself a vector path) resolves to its DEEPEST
@@ -980,7 +980,7 @@
                            ;; rf2-wnzha — region-scope each region's
                            ;; active-leaf id (the region-map KEY is the
                            ;; region-id) so it agrees with the node ids
-                           ;; `parse-parallel` minted; otherwise a
+                           ;; `project-parallel` minted; otherwise a
                            ;; same-named leaf would mis-attribute across
                            ;; regions (or resolve to a phantom).
                            (keep (fn [[region region-state]]

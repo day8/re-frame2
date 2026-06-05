@@ -535,7 +535,7 @@
             on the inbound xyflow edge and the `__out` route on the
             outbound xyflow edge. (Pre-fix the consumer keyed on the bare
             id and BOTH segments fell back to a straight bezier.)"
-    (let [parsed     (layout/parse-definition
+    (let [parsed     (layout/project-definition
                        {:initial :idle
                         :states  {:idle    {:on {:start :loading}}
                                   :loading {}}})

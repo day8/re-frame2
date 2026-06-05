@@ -343,7 +343,7 @@
 (defn parse-definition
   "Project a `definition` machine-spec map into a flat graph
   `{:nodes [...] :edges [...] :initial-path ...}`. Mirrors the
-  existing `chart-layout/parse-definition`'s posture but is
+  existing `chart-layout/project-definition`'s posture but is
   self-contained (no machines-viz dep) so the xyflow path is fully
   isolated from the SVG chart's evolution.
 

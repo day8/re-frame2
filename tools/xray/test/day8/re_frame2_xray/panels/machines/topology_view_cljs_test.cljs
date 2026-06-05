@@ -25,11 +25,11 @@
 
 (defn- canonical-edge-id
   "The live-chart canonical edge id for `from→to via event`, projected
-  through the SAME `chart.layout/parse-definition` the live MachineChart
+  through the SAME `chart.layout/project-definition` the live MachineChart
   uses — so the test asserts the EXACT ids the chart paints, not a
   re-implemented scheme."
   [definition from-path to-path event]
-  (->> (:edges (chart-layout/parse-definition definition))
+  (->> (:edges (chart-layout/project-definition definition))
        (some (fn [e]
                (when (and (= from-path (:from-path e))
                           (= to-path   (:to-path e))

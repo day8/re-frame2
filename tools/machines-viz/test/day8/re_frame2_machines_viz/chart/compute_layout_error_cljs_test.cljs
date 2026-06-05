@@ -37,7 +37,7 @@
 ;; ---- fixtures ----------------------------------------------------------
 
 (def ^:private sample-parsed
-  "Minimal `parse-definition` shape sufficient for `compute-layout!`'s
+  "Minimal `project-definition` shape sufficient for `compute-layout!`'s
   `->elk-input` projection. Two flat states, one transition."
   {:nodes [{:id "idle"} {:id "loading"}]
    :edges [{:id "idle->loading"
