@@ -110,10 +110,11 @@ skills/re-frame-migration/
 └── spec/
     ├── design.md                  (this file)
     ├── inputs.md                  (the canonical inputs the skill leans on)
+    ├── improving.md               (maintenance methodology — how to find + fold in improvements)
     └── authoring-prompt.md        (one-shot reauthor prompt)
 ```
 
-**Totals**: SKILL.md (~125) + 12 reference leaves (~1,965) + 3 spec files (~330) ≈ ~2,420 LoC across 16 markdown files. Most leaves sit under the 250-line soft ceiling; the two Type A catalogues (`auto-call-site-rewrites.md` ~250, `auto-cross-cutting.md` ~290) run to the cap or just over because their shape-catalogue content resists further splitting. SKILL.md is well under the 500-line Anthropic guideline.
+**Totals**: SKILL.md (~125) + 12 reference leaves (~1,965) + 4 spec files (~425) ≈ ~2,515 LoC across 17 markdown files. (The 4th `spec/` file, `improving.md`, is the maintenance-methodology meta-doc — the friction-loop + quality-bar for *finding* skill improvements, distinct from `inputs.md` §6's mechanical update procedure for *applying a known* corpus change.) Most leaves sit under the 250-line soft ceiling; the two Type A catalogues (`auto-call-site-rewrites.md` ~250, `auto-cross-cutting.md` ~290) run to the cap or just over because their shape-catalogue content resists further splitting. SKILL.md is well under the 500-line Anthropic guideline.
 
 **Type A / Type B split into two leaves each.** The 365L `automated-transforms.md` and 300L `guided-checklist.md` originals violated the 250-line soft ceiling. They've been split along natural cluster boundaries: Type A divides into per-call-site rewrites (ns / effect-map / dispatch shapes) and cross-cutting (keyword renames / interceptor cleanup / views / init / artefact adds); Type B divides into handler-state-shaped (M-3, M-5, M-10, M-11, M-12, M-13, M-14, M-15) and interceptor-sub-payload-shaped (M-17, M-18, M-19, M-21, M-23, M-26). All four leaves remain one level deep from SKILL.md — no SKILL → A → B chains.
 

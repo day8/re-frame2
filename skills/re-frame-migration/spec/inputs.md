@@ -67,3 +67,5 @@ When MIGRATION.md changes, the skill needs targeted updates. The audit shape:
 5. **MIGRATION.md Part 2 changes** (the execution procedure) → audit `references/kickoff-prompt.md` and `references/output-format.md` for any phrasing that referenced the old shape.
 
 The skill's `breaking-changes.md` is the integration point — every M-rule and O-rule in MIGRATION.md gets a row. A periodic audit greps both files and reports rules-in-MIGRATION-not-in-skill.
+
+This section is the **mechanical** procedure: a known corpus change has happened, and these steps say which leaf to touch. It does not cover how you *discover* what the skill is missing in the first place, nor how to judge whether a candidate finding earns a change. That discovery layer — drive the skill against a real app, harvest friction (reaching runtime, where the high-value gaps hide), and clear each candidate against the generic-gate / routing / field-evidence quality bar — lives in [`improving.md`](improving.md).
