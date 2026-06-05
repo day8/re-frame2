@@ -80,6 +80,7 @@
   (:require [re-frame.events               :as events]
             [re-frame.fx                   :as fx]
             [re-frame.http-encoding        :as encoding]
+            [re-frame.http-handlers        :as handlers]
             [re-frame.http-machine-wrapper :as machine-wrapper]
             [re-frame.http-middleware      :as middleware]
             [re-frame.late-bind            :as late-bind]
@@ -207,30 +208,63 @@
 ;; not own.
 
 (defn- stub-handler
+  "Route-map-consulting `:rf.http/managed` override target.
+
+  rf2-azrcs — the stub now keys its route match against the request the
+  managed pipeline would ACTUALLY issue, not the pre-middleware draft. It
+  runs the per-frame `:before` chain ONCE (`run-request-chain`, which also
+  validates the final url with the canonical `:rf.error/http-bad-request`),
+  reads the post-`:before` `:method`/`:url` back off that ctx to key the
+  route map, then emits the canned reply through the `:after` chain with
+  that SAME ctx — without re-running `:before` (no double-firing of
+  load-bearing interceptor side effects).
+
+  Consequences of the prior pre-`:before` matching this fixes:
+   - a base-URL / url-rewriting `:before` made the stub match the ORIGINAL
+     url (false-green when keyed to the draft, false-fail when keyed to the
+     final url the production transport sends); and
+   - a `:before` that blanked the url received a synthetic stubbed reply
+     instead of the production `:rf.error/http-bad-request`, masking the
+     invalid request. `run-request-chain` now throws before any match."
   [stubs frame-ctx args-map]
-  (let [req    (:request args-map)
-        method (or (:method req) :get)
-        url    (:url req)
-        entry  (get stubs [method url])
-        reply  (:reply entry)]
+  ;; Run the `:before` chain ONCE up front (a `:before` throw propagates
+  ;; exactly as the real `:rf.http/managed` handler's does — no reply is
+  ;; synthesised). Then validate the FINAL post-`:before` url with the
+  ;; canonical `:rf.error/http-bad-request` — the stub is the
+  ;; `:rf.http/managed` override target, so it owes the same final-url
+  ;; guard the real handler runs after its `:before` chain. A `:before`
+  ;; that blanks the url now throws here instead of receiving a synthetic
+  ;; stubbed reply.
+  (let [middleware-ctx (machine-wrapper/run-request-chain frame-ctx args-map)
+        _              (handlers/validate-url! (:request middleware-ctx))
+        ;; Match against the POST-`:before` request — the url the managed
+        ;; pipeline would actually send.
+        req            (:request middleware-ctx)
+        method         (or (:method req) :get)
+        url            (:url req)
+        entry          (get stubs [method url])
+        reply          (:reply entry)]
     (cond
       (and entry (contains? reply :ok))
-      (machine-wrapper/canned-success-handler frame-ctx (assoc args-map :value (:ok reply)))
+      (machine-wrapper/emit-canned-success! frame-ctx (assoc args-map :value (:ok reply))
+                                            middleware-ctx)
 
       (and entry (contains? reply :failure))
-      (machine-wrapper/canned-failure-handler frame-ctx
-                                              (-> args-map
-                                                  (assoc :kind (or (:kind (:failure reply))
-                                                                   :rf.http/transport))
-                                                  (assoc :tags (dissoc (:failure reply) :kind))))
+      (machine-wrapper/emit-canned-failure! frame-ctx
+                                            (-> args-map
+                                                (assoc :kind (or (:kind (:failure reply))
+                                                                 :rf.http/transport))
+                                                (assoc :tags (dissoc (:failure reply) :kind)))
+                                            middleware-ctx)
 
       :else
-      (machine-wrapper/canned-failure-handler frame-ctx
-                                              (assoc args-map
-                                                     :kind :rf.http/transport
-                                                     :tags {:message "no stub matched"
-                                                            :method  method
-                                                            :url     url})))))
+      (machine-wrapper/emit-canned-failure! frame-ctx
+                                            (assoc args-map
+                                                   :kind :rf.http/transport
+                                                   :tags {:message "no stub matched"
+                                                          :method  method
+                                                          :url     url})
+                                            middleware-ctx))))
 
 (def ^:private stub-fx-id :rf.http/managed-test-stub)
 

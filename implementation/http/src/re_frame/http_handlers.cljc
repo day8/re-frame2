@@ -108,10 +108,16 @@
                                :retryable-set retryable-categories
                                :reason        "`:retry :on` must be drawn exclusively from the closed retryable set #{:rf.http/transport :rf.http/cors :rf.http/timeout :rf.http/http-4xx :rf.http/http-5xx}; `:rf.http/aborted`, `:rf.http/decode-failure`, and `:rf.http/accept-failure` are non-retryable by construction"})))))))))
 
-(defn- validate-url!
+(defn validate-url!
   "Per Spec 014 §Request envelope `:url` is the only REQUIRED key in the
   request envelope; per Spec 009 §Error catalogue a missing/blank `:url`
   surfaces as `:rf.error/http-bad-request` (rf2-93bck).
+
+  Public (rf2-azrcs) so the canned-stub override target
+  (`http-machine-wrapper`/`http-test-support`'s route-map stub) validates
+  the FINAL post-`:before` url with the same canonical error the real
+  `:rf.http/managed` handler emits — a `:before` that blanks the url must
+  raise `:rf.error/http-bad-request`, not receive a synthetic stubbed reply.
 
   Validated AFTER `run-interceptor-chain!` produces the final `:request`,
   because a `:before` interceptor may legitimately SET the url (e.g. a

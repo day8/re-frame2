@@ -68,7 +68,7 @@
 ;; `encoding/resolve-origin-event` (single source of truth shared with
 ;; `http-managed/managed-handler`).
 
-(defn- run-request-chain
+(defn run-request-chain
   "Per rf2-yhfgf — the request-side middleware chain (Spec 014 §Middleware)
   fires for every issued request, not just real-transport ones. The canned
   stub fxs replace the TRANSPORT, not the entire managed pipeline, so they
@@ -83,7 +83,14 @@
   Returns the post-`:before` middleware-ctx so the caller can thread it
   through `run-after-chain!` — the same ctx the `:after` chain sees on
   the real-transport path (carried forward by `managed-handler` as the
-  normalised ctx's `:middleware-ctx`)."
+  normalised ctx's `:middleware-ctx`). The route-map stub
+  (`http-test-support/stub-handler`, rf2-azrcs) ALSO reads the
+  post-`:before` `:request` back off this ctx to key its match against
+  the url the managed pipeline would actually issue, and runs
+  `handlers/validate-url!` on it — the final-url validation belongs to the
+  `:rf.http/managed` OVERRIDE-TARGET role (the stub), not to this shared
+  chain walk, which the lower-level canned handlers also call with a bare
+  `:value` and no `:request`."
   [frame-ctx args-map]
   (let [frame-id     (or (:frame frame-ctx) :rf/default)
         origin-event (encoding/resolve-origin-event frame-ctx args-map)
@@ -131,22 +138,21 @@
      :reply-payload  reply-payload
      :kind           kind}))
 
-(defn canned-success-handler
-  "Stub fx — synthesises a success reply per Spec 014 §Testing.
-
-  Per rf2-yhfgf — walks the per-frame request-side (`:before`) interceptor
-  chain before synthesising the reply, so `:before` interceptors with
-  load-bearing side effects (auth headers, observability) fire on the
-  canned path the same way they fire on the real-transport path.
-
-  Per rf2-r5m22 — also threads the reply through the response-side
-  (`:after`) chain (via `dispatch-canned-reply!`), mirroring
-  `http-transport/dispatch-reply!` so the stub path is a faithful test
-  seam for BOTH halves of the middleware chain."
-  [frame-ctx args-map]
-  (let [middleware-ctx (run-request-chain frame-ctx args-map)
-        frame-id       (or (:frame frame-ctx) :rf/default)
-        value          (get args-map :value {:stubbed true})]
+;; rf2-azrcs — the canned-success / canned-failure bodies split into a
+;; pre-computed-ctx emit (`emit-canned-success!` / `emit-canned-failure!`)
+;; plus a thin run-the-chain-then-emit wrapper. The route-map stub
+;; (`http-test-support/stub-handler`) runs the `:before` chain ONCE itself
+;; (so it can key its route match against the post-`:before` url), then
+;; calls the emit fns with that same ctx — WITHOUT re-running `:before`
+;; (which would double-fire load-bearing interceptor side effects).
+(defn emit-canned-success!
+  "Synthesise a success reply from a PRE-COMPUTED post-`:before`
+  `middleware-ctx` (rf2-azrcs). Threads the reply through the `:after`
+  chain via `dispatch-canned-reply!`. Does NOT run the `:before` chain —
+  the caller already did."
+  [frame-ctx args-map middleware-ctx]
+  (let [frame-id (or (:frame frame-ctx) :rf/default)
+        value    (get args-map :value {:stubbed true})]
     (dispatch-canned-reply!
       {:origin-event   (encoding/resolve-origin-event frame-ctx args-map)
        :explicit-on    {:supplied? (contains? args-map :on-success)
@@ -156,6 +162,41 @@
        :frame          frame-id
        :middleware-ctx middleware-ctx})
     nil))
+
+(defn emit-canned-failure!
+  "Synthesise a failure reply from a PRE-COMPUTED post-`:before`
+  `middleware-ctx` (rf2-azrcs). Symmetric with `emit-canned-success!`."
+  [frame-ctx args-map middleware-ctx]
+  (let [frame-id (or (:frame frame-ctx) :rf/default)
+        kind     (or (:kind args-map) :rf.http/transport)
+        tags     (or (:tags args-map) {})
+        failure  (assoc tags :kind kind)]
+    (dispatch-canned-reply!
+      {:origin-event   (encoding/resolve-origin-event frame-ctx args-map)
+       :explicit-on    {:supplied? (contains? args-map :on-failure)
+                        :value     (:on-failure args-map)}
+       :reply-payload  {:kind :failure :failure failure}
+       :kind           :failure
+       :frame          frame-id
+       :middleware-ctx middleware-ctx})
+    nil))
+
+(defn canned-success-handler
+  "Stub fx — synthesises a success reply per Spec 014 §Testing.
+
+  Per rf2-yhfgf — walks the per-frame request-side (`:before`) interceptor
+  chain before synthesising the reply, so `:before` interceptors with
+  load-bearing side effects (auth headers, observability) fire on the
+  canned path the same way they fire on the real-transport path.
+  Per rf2-azrcs — the chain walk (`run-request-chain`) also validates the
+  final post-`:before` url with the canonical `:rf.error/http-bad-request`.
+
+  Per rf2-r5m22 — also threads the reply through the response-side
+  (`:after`) chain (via `dispatch-canned-reply!`), mirroring
+  `http-transport/dispatch-reply!` so the stub path is a faithful test
+  seam for BOTH halves of the middleware chain."
+  [frame-ctx args-map]
+  (emit-canned-success! frame-ctx args-map (run-request-chain frame-ctx args-map)))
 
 (defn canned-failure-handler
   "Stub fx — synthesises a failure reply per Spec 014 §Testing.
@@ -169,20 +210,7 @@
   (`:after`) chain (via `dispatch-canned-reply!`), mirroring
   `http-transport/dispatch-reply!`."
   [frame-ctx args-map]
-  (let [middleware-ctx (run-request-chain frame-ctx args-map)
-        frame-id       (or (:frame frame-ctx) :rf/default)
-        kind           (or (:kind args-map) :rf.http/transport)
-        tags           (or (:tags args-map) {})
-        failure        (assoc tags :kind kind)]
-    (dispatch-canned-reply!
-      {:origin-event   (encoding/resolve-origin-event frame-ctx args-map)
-       :explicit-on    {:supplied? (contains? args-map :on-failure)
-                        :value     (:on-failure args-map)}
-       :reply-payload  {:kind :failure :failure failure}
-       :kind           :failure
-       :frame          frame-id
-       :middleware-ctx middleware-ctx})
-    nil))
+  (emit-canned-failure! frame-ctx args-map (run-request-chain frame-ctx args-map)))
 
 ;; ---- machine-shape wrapper spec (rf2-ijm7) --------------------------------
 
