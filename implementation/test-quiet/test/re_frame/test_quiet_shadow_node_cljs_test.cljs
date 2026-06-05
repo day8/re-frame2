@@ -219,9 +219,19 @@
       (js/console.warn "post-restore-marker")
       (is (= [] @recorded)
           "after restore the recording shim no longer captures (clean revert)")))
-  (testing "the ns-load stub is installed in this build (shadow-node is :main)"
-    ;; Soft evidence the silencing stub is live: calling console.warn at
-    ;; the baseline must not throw. This catches a regression that replaced
-    ;; the stub with something that errors on a bare call.
+  (testing "the silencing stub — not native console.warn — is the live baseline (shadow-node is :main)"
+    ;; The stub carries a `rf-test-quiet-silenced` marker property (set in
+    ;; shadow-node at ns-load).  Native Node `console.warn` has no such
+    ;; property, so asserting the marker is present is positive proof the
+    ;; SILENCING stub is installed — not just that the call returns nil
+    ;; (native console.warn also returns undefined while still EMITTING the
+    ;; warning text).  This fails if a regression drops the stub and the
+    ;; runner falls back to native `console.warn`, which would reintroduce
+    ;; green-path warning noise — the slice's core operational contract.
+    (is (true? (.-rf-test-quiet-silenced (.-warn js/console)))
+        (str "the live console.warn must be the identifiable silencing stub"
+             " (marker present) — a missing marker means native console.warn"
+             " is in place and green-path warnings would leak"))
+    ;; And it must still accept a bare call without throwing.
     (is (nil? (js/console.warn "stub-smoke"))
-        "the live baseline console.warn must accept a bare call without throwing")))
+        "the silencing stub must accept a bare call without throwing")))

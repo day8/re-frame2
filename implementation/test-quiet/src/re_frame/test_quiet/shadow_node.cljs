@@ -31,9 +31,17 @@
 ;; Silence stray runtime warnings on green. See ns docstring for the
 ;; capture-compatibility rationale.  Installed at ns-load time so it's
 ;; in place before shadow's `run-all-tests` walks the test ns set.
+;;
+;; The stub carries a `re-frame.test-quiet/silenced` marker property so it
+;; is IDENTIFIABLE: a contract test can assert the live `console.warn` is
+;; this stub (and so fail if a regression leaves native `console.warn` —
+;; which has no such marker — in place), without requiring this
+;; `:dev/always` ns (which would form a compile cycle).
 (when (and (exists? js/console)
            (fn? (.-warn js/console)))
-  (set! (.-warn js/console) (fn [& _])))
+  (let [stub (fn [& _])]
+    (set! (.-rf-test-quiet-silenced stub) true)
+    (set! (.-warn js/console) stub)))
 
 ;; ----------------------------------------------------------------------
 ;; The single override shadow.test.node ships — exit the node process

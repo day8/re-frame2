@@ -418,3 +418,69 @@
                    " other stdout is forwarded; got:\n" out))
           (is (str/includes? out "0 failures, 0 errors.")
               (str "the green summary must still print; got:\n" out)))))))
+
+;; ----------------------------------------------------------------------
+;; Banner-prefix precision — rf2-pjlx6.1.
+;;
+;; The filter must drop ONLY cognitect's own banner, which always renders
+;; as `Running tests in #{...}` (the directory set is always a set: it
+;; defaults to `#{"test"}` and `-d` accumulates via `(fnil conj #{})`).  A
+;; bare prefix match on `Running tests in ` would also eat a legitimate
+;; diagnostic that merely begins with those words — e.g. a fixture that
+;; prints `Running tests in local fixture ...`.  This pins that such a
+;; line survives while the real discovery banner is still swallowed.
+
+(deftest banner-lookalike-diagnostic-survives
+  (testing "a test line beginning 'Running tests in ' but NOT the banner survives (rf2-pjlx6.1)"
+    (with-fixture-dir
+      (fn [dir]
+        (write-fixture! dir "lookalike_fixture_test" "lookalike-fixture-test"
+                        (str "(deftest a-lookalike-test"
+                             " (println \"Running tests in local fixture LOOKALIKE-MARKER\")"
+                             " (is (= 1 1)))"))
+        (let [{:keys [exit out err]} (run-runner dir)]
+          (is (zero? exit)
+              (str "the lookalike suite is green; must exit 0; got " exit
+                   "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
+          (is (str/includes? out "Running tests in local fixture LOOKALIKE-MARKER")
+              (str "a diagnostic that merely starts 'Running tests in ' (but"
+                   " is not the `#{...}` discovery banner) must survive; got:\n"
+                   out))
+          ;; Assert the real banner's distinctive `#{` shape is absent — NOT
+          ;; the bare `discovery-banner-marker` prefix, which the lookalike
+          ;; line legitimately contains.
+          (is (not (str/includes? out "Running tests in #{"))
+              (str "the real discovery banner (`Running tests in #{...}`)"
+                   " must STILL be swallowed; got:\n" out)))))))
+
+;; ----------------------------------------------------------------------
+;; Unterminated-partial survival across System/exit — rf2-pjlx6.2.
+;;
+;; cognitect exits straight from the computed fail/error counts, so the
+;; wrapper's `finally` flush never runs on the test path.  A bare
+;; `(print ...)` with no trailing newline AND no explicit flush must still
+;; reach stdout: the filter forwards non-banner text eagerly (it only ever
+;; holds back a live banner-prefix candidate) and `-main` registers a JVM
+;; shutdown hook that flushes the filtering writer.  Pre-fix, such a
+;; partial sat in the wrapper's line buffer and was lost at exit.
+
+(deftest unterminated-partial-survives-exit
+  (testing "a bare (print ...) with no newline/flush reaches stdout before System/exit (rf2-pjlx6.2)"
+    (with-fixture-dir
+      (fn [dir]
+        ;; No trailing newline, no (flush) — the worst case the finding
+        ;; describes. The marker must still survive to stdout.
+        (write-fixture! dir "partial_fixture_test" "partial-fixture-test"
+                        (str "(deftest a-partial-test"
+                             " (print \"PARTIAL-EXIT-MARKER\")"
+                             " (is (= 1 1)))"))
+        (let [{:keys [exit out err]} (run-runner dir)]
+          (is (zero? exit)
+              (str "the partial-print suite is green; must exit 0; got " exit
+                   "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
+          (is (str/includes? out "PARTIAL-EXIT-MARKER")
+              (str "a bare unterminated (print ...) must reach stdout even"
+                   " though cognitect System/exits before the finally flush;"
+                   " got:\n" out))
+          (is (str/includes? out "0 failures, 0 errors.")
+              (str "the green summary must still print; got:\n" out)))))))

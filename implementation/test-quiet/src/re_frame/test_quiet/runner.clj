@@ -53,53 +53,112 @@
 (def ^:private discovery-banner-prefix
   "The literal text cognitect-test-runner's `test` fn prints via bare
   `println` before running tests: `(format \"\\nRunning tests in %s\" dirs)`.
-  We match on this prefix so the directory-set tail (which varies) need
-  not be enumerated."
-  "Running tests in ")
 
-(defn- discovery-banner-line?
-  "True iff `line` (one logical println line, sans terminator) is
-  cognitect's discovery banner and nothing else.  The banner is emitted
-  alone on its own line, so an exact prefix match is unambiguous."
-  [^String line]
-  (.startsWith line discovery-banner-prefix))
+  `dirs` is ALWAYS a set — it defaults to `#{\"test\"}` and the `-d` CLI
+  option accumulates via `(fnil conj #{})` — so the banner renders as
+  `Running tests in #{...}`.  We match the prefix up to and including the
+  set-literal opener `#{` rather than the bare `Running tests in ` so that
+  a legitimate diagnostic such as `Running tests in local fixture...`
+  emitted by a test or fixture is forwarded, not silently swallowed: only
+  the runner's own banner opens a set literal here."
+  "Running tests in #{")
 
 (defn- banner-filtering-writer
-  "A `java.io.Writer` that forwards every character to `target` EXCEPT a
-  whole line equal to cognitect's discovery banner, which it drops.
+  "A `java.io.Writer` that forwards every character to `target` EXCEPT
+  cognitect's discovery banner line, which it drops.
 
-  Buffers the current line until a newline arrives, then forwards
-  newline-terminated lines verbatim unless they are the banner.  This is
-  line-precise: help text, parse-error diagnostics, the reporter's
-  failure output, and bare test stdout all pass through untouched; only
-  the banner line is swallowed.  Any trailing unterminated text (no final
-  newline) is forwarded on `flush`/`close` so nothing is silently lost.
+  Forwards eagerly, holding back only as much text as could still BECOME
+  the banner.  At the start of each line we are watching whether the
+  incoming characters spell out `discovery-banner-prefix`:
+
+   - while the buffered run is still a viable prefix of the banner we hold
+     it (the banner candidate);
+   - the moment it diverges from the banner prefix we forward the whole
+     run immediately and pass the rest of the line straight through;
+   - the moment it reaches the full banner prefix we know it IS the banner
+     and drop the remainder of the line.
+
+  A newline resets the watch for the next line.  The crucial property
+  versus a line-at-a-time buffer: non-banner text is never retained across
+  the runner's `System/exit` (cognitect exits straight from the computed
+  fail/error counts, so neither `flush` nor `close` runs).  An eager
+  forward means a bare `(print ...)` diagnostic with no trailing newline
+  still reaches stdout before exit.  The only text that can sit unflushed
+  at exit is a run that is character-for-character a strict prefix of the
+  banner and never terminates — which only the banner itself produces, and
+  the banner always ends in a newline (cognitect uses `println`).
+
+  Help text, parse-error diagnostics, the reporter's failure output, and
+  bare test stdout all pass through untouched; only the banner line is
+  swallowed.
 
   Clojure's `proxy` dispatches `write` by arity rather than by Java's
   static overload set, so the single-arg form must itself branch on the
   argument type (int char, `String`, or char[]).  Each arity feeds the
-  same `consume-char!` line buffer, so the banner-detection logic lives
-  in exactly one place."
+  same `consume-char!` watcher, so the banner-detection logic lives in
+  exactly one place."
   ^java.io.Writer [^java.io.Writer target]
-  (let [buf (StringBuilder.)
-        ;; Forward the buffered line `s` (without its trailing newline)
-        ;; plus the newline, unless `s` is the banner — then drop both.
-        flush-line! (fn [^String s]
-                      (when-not (discovery-banner-line? s)
-                        (.write target s)
-                        (.write target (int \newline))))
-        consume-char! (fn [c]
-                        (if (= c \newline)
-                          (do (flush-line! (.toString buf))
-                              (.setLength buf 0))
-                          (.append buf c)))
-        consume-str! (fn [^String s]
-                       (dotimes [i (.length s)]
-                         (consume-char! (.charAt s i))))
+  (let [prefix-len (.length ^String discovery-banner-prefix)
+        ;; `buf` holds the live banner-prefix candidate for the current
+        ;; line. `state` is one of:
+        ;;   :watching    — buf is a viable prefix of the banner-so-far;
+        ;;   :passthrough — this line diverged; forward chars verbatim;
+        ;;   :dropping    — this line IS the banner; drop to its newline.
+        buf   (StringBuilder.)
+        state (volatile! :watching)
+        emit! (fn [^String s] (when (pos? (.length s)) (.write target s)))
         forward-partial! (fn []
+                           ;; Forward any held candidate (only ever a
+                           ;; strict banner prefix). Called on flush/close
+                           ;; for the in-process help/return path.
                            (when (pos? (.length buf))
                              (.write target (.toString buf))
-                             (.setLength buf 0)))]
+                             (.setLength buf 0)))
+        reset-line! (fn []
+                      (.setLength buf 0)
+                      (vreset! state :watching))
+        consume-char! (fn [c]
+                        (cond
+                          (= c \newline)
+                          (do (case @state
+                                ;; Short line that never reached the full
+                                ;; banner prefix — forward the held run.
+                                :watching    (do (emit! (.toString buf))
+                                                 (.write target (int \newline)))
+                                ;; Diverged line — its chars already went
+                                ;; straight through; terminate it.
+                                :passthrough (.write target (int \newline))
+                                ;; The banner line — drop its newline too,
+                                ;; so no blank line is left behind.
+                                :dropping    nil)
+                              (reset-line!))
+
+                          (= @state :passthrough)
+                          (.write target (int c))
+
+                          (= @state :dropping)
+                          nil ; swallow the rest of the banner line
+
+                          :else ; :watching — extend the candidate
+                          (do
+                            (.append buf c)
+                            (cond
+                              ;; Reached the full prefix → confirmed banner.
+                              (>= (.length buf) prefix-len)
+                              (do (.setLength buf 0)
+                                  (vreset! state :dropping))
+                              ;; Still on track to be the banner — keep holding.
+                              (.startsWith ^String discovery-banner-prefix
+                                           (.toString buf))
+                              nil
+                              ;; Diverged → this line is not the banner.
+                              :else
+                              (do (emit! (.toString buf))
+                                  (.setLength buf 0)
+                                  (vreset! state :passthrough))))))
+        consume-str! (fn [^String s]
+                       (dotimes [i (.length s)]
+                         (consume-char! (.charAt s i))))]
     (proxy [java.io.Writer] []
       (write
         ([x]
@@ -136,10 +195,20 @@
   ;; path (from the computed fail/error counts) and on the parse-error
   ;; path, so control typically does not return past the `apply`. The
   ;; `-H`/help path is the exception: it prints usage and RETURNS without
-  ;; exiting, so we must flush the filtering writer afterwards to forward
-  ;; the trailing line. Flushing is harmless on the paths that did exit.
-  (let [real-out *out*
+  ;; exiting, so we flush the filtering writer in the `finally` to forward
+  ;; any trailing line; flushing is harmless on the paths that did exit.
+  ;;
+  ;; The `finally` cannot fire on the `System/exit` paths, so we also
+  ;; register a JVM shutdown hook that flushes the filtering writer (and,
+  ;; through it, the real stdout).  Without it, a bare `(print ...)`
+  ;; diagnostic with no trailing newline — buffered anywhere between this
+  ;; wrapper and the OS — could be lost exactly when a failing run needs
+  ;; it most.  The hook makes flush-on-exit deterministic rather than
+  ;; relying on the runtime or cognitect to flush before exiting.
+  (let [real-out  *out*
         filtering (java.io.PrintWriter. (banner-filtering-writer real-out))]
+    (.addShutdownHook (Runtime/getRuntime)
+                      (Thread. ^Runnable #(.flush filtering)))
     (binding [*out* filtering]
       (try
         (apply cognitect.test-runner/-main args)
