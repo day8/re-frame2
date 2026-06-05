@@ -351,6 +351,65 @@
     (is (= [{:event-id :b}] (get-in out [:rf/default :epochs])))))
 
 ;; ---------------------------------------------------------------------------
+;; Single-map fail-closed branch routes through the caller-supplied strip-fn
+;; (rf2-li6y2.1). The rf2-wm9kp guard classified a single-map slice with the
+;; BASE `sensitive-event?` instead of the caller's `strip-fn`. So a single-map
+;; slice sensitive ONLY by a UNION signal the caller's predicate catches
+;; (re-frame2-pair-mcp's epoch rollup `:rf.epoch/sensitive? true`, carrying no
+;; unqualified `:sensitive?` stamp) slipped past the guard to the `:else` arm
+;; and shipped RAW with dropped=0 — the rf2-5613h leak class re-surfacing
+;; inside the rf2-wm9kp defensive guard. The single-map branch now classifies
+;; via the SAME strip-fn the sequential branch uses.
+;; ---------------------------------------------------------------------------
+
+;; The pair-mcp UNION strip-fn (mirrors tools/re-frame2-pair-mcp
+;; sensitive/strip-sensitive): base trace-event stamp OR the epoch-level
+;; `:rf.epoch/sensitive?` rollup, classified via the shared fail-closed
+;; `sensitive-stamp?`.
+(defn- union-strip [items _include?]
+  (let [drop? (fn [x] (or (sensitive/sensitive-event? x)
+                          (and (map? x)
+                               (sensitive/sensitive-stamp? (:rf.epoch/sensitive? x)))))
+        kept  (filterv (complement drop?) items)]
+    [kept (- (count items) (count kept))]))
+
+(deftest scrub-snapshot-single-map-sensitive-by-union-signal-dropped
+  ;; rf2-li6y2.1 (the leak) — a single-MAP :epochs slice sensitive ONLY by
+  ;; the union signal (`:rf.epoch/sensitive? true`, NO unqualified
+  ;; `:sensitive?` stamp). Pre-fix the single-map branch hardcoded the base
+  ;; `sensitive-event?` (which returns false here — no `:sensitive?` stamp),
+  ;; so the slice fell to the `:else` arm and PASSED THROUGH RAW with
+  ;; dropped=0, leaking the secret. The branch now routes through the
+  ;; caller-supplied union strip-fn, so the union sensitivity is honoured.
+  (let [snap {:rf/default {:epochs {:rf.epoch/sensitive? true
+                                    :event-id :auth/sign-in
+                                    :secret "TOKEN_LEAK"}}}
+        [out dropped] (sensitive/scrub-snapshot snap false union-strip)]
+    (is (= 1 dropped)
+        "single-map slice sensitive by the union signal is counted as a drop")
+    (is (= [] (get-in out [:rf/default :epochs]))
+        "the union-sensitive single-map :epochs is dropped (empty batch), not shipped raw")
+    (is (not (clojure.string/includes? (pr-str out) "TOKEN_LEAK"))
+        "the secret never survives in the scrubbed output (fail-closed)"))
+  ;; Symmetric :traces shape.
+  (let [snap {:rf/default {:traces {:rf.epoch/sensitive? true :secret "TRACE_LEAK"}}}
+        [out dropped] (sensitive/scrub-snapshot snap false union-strip)]
+    (is (= 1 dropped))
+    (is (= [] (get-in out [:rf/default :traces])))
+    (is (not (clojure.string/includes? (pr-str out) "TRACE_LEAK")))))
+
+(deftest scrub-snapshot-single-map-not-sensitive-by-union-passes-through
+  ;; rf2-li6y2.1 — symmetric safety: a single-map slice the union strip-fn
+  ;; does NOT classify as sensitive (no `:sensitive?` stamp, no
+  ;; `:rf.epoch/sensitive?` rollup) still passes through byte-identically.
+  ;; The fix must not over-drop benign single maps.
+  (let [snap {:rf/default {:epochs {:event-id :ui/click :data 42}}}
+        [out dropped] (sensitive/scrub-snapshot snap false union-strip)]
+    (is (zero? dropped))
+    (is (= {:event-id :ui/click :data 42} (get-in out [:rf/default :epochs]))
+        "a single map the caller's strip-fn keeps survives verbatim")))
+
+;; ---------------------------------------------------------------------------
 ;; Malformed counter — operator-surface observability for the fail-
 ;; closed gate (rf2-8cpsg / F19).
 ;; ---------------------------------------------------------------------------

@@ -99,9 +99,11 @@
 
 (def ^:const invalid-arg-hint
   "Recovery hint embedded in the `:rf.mcp/invalid-arg` rejection when a
-  caller supplies a negative `:max-tokens` (rf2-5rdit). States the valid
-  domain AND the disable sentinel so the agent's next call is correct."
-  "max-tokens must be >= 0; 0 disables the cap")
+  caller supplies an out-of-domain `:max-tokens` — a negative (rf2-5rdit)
+  or a fractional positive in (0,1) that would floor to a 0-cap lockout
+  (rf2-li6y2.2). States the valid domain AND the disable sentinel so the
+  agent's next call is correct."
+  "max-tokens must be an integer >= 1; 0 disables the cap")
 
 (defn invalid-arg-marker
   "Build the `{:rf.mcp/invalid-arg {...}}` rejection payload (rf2-5rdit)
@@ -131,8 +133,9 @@
   "Resolve the per-call cap from an ALREADY-EXTRACTED raw value.
   Returns the integer cap in tokens, `nil` when the cap is disabled
   (caller passed `0`), `overflow/default-max-tokens` when absent or
-  not a number, or — for a NEGATIVE number — an
-  `{:rf.mcp/invalid-arg {...}}` REJECTION marker (rf2-5rdit).
+  not a number, or — for an out-of-domain number (a NEGATIVE, rf2-5rdit;
+  or a fractional positive in (0,1) that would floor to a 0-cap lockout,
+  rf2-li6y2.2) — an `{:rf.mcp/invalid-arg {...}}` REJECTION marker.
 
   Each consumer extracts the raw value from its platform-specific args
   object — re-frame2-pair-mcp uses `(j/get args \"max-tokens\")` against a JS
@@ -148,9 +151,11 @@
   - `default-max-tokens` (5000) return ⇒ caller didn't supply a value
     OR supplied a non-number. The default applies.
   - positive integer return ⇒ caller supplied a custom cap.
-  - `{:rf.mcp/invalid-arg {...}}` return ⇒ caller supplied a NEGATIVE
-    number. The consumer surfaces this as an `isError: true` result
-    (test via `invalid-arg?`) and MUST NOT pass it to `apply-cap`.
+  - `{:rf.mcp/invalid-arg {...}}` return ⇒ caller supplied an out-of-domain
+    number: a NEGATIVE (rf2-5rdit) OR a fractional positive in (0,1) that
+    would floor to a real 0-cap lockout (rf2-li6y2.2). The consumer surfaces
+    this as an `isError: true` result (test via `invalid-arg?`) and MUST NOT
+    pass it to `apply-cap`.
 
   ## Why negatives are rejected, not clamped (rf2-5rdit)
 
@@ -169,6 +174,12 @@
     (nil? raw)                       overflow/default-max-tokens
     (and (number? raw) (zero? raw))  nil
     (and (number? raw) (neg? raw))   (invalid-arg-marker :max-tokens raw invalid-arg-hint)
+    ;; A fractional positive in (0,1) — e.g. 0.5 — would `(long …)` floor
+    ;; to a REAL 0 cap (non-nil, NOT the disable sentinel). `apply-cap`
+    ;; then over-trips on EVERY non-empty payload, locking the agent out —
+    ;; the exact lockout class rf2-5rdit rejected for negatives (rf2-li6y2.2).
+    ;; Reject it honestly rather than silently flooring to a 0-cap lockout.
+    (and (number? raw) (< raw 1))    (invalid-arg-marker :max-tokens raw invalid-arg-hint)
     (number? raw)                    (long raw)
     :else                            overflow/default-max-tokens))
 

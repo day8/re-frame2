@@ -284,10 +284,16 @@
   event shape, reported zero drops, AND carried any secret in that map
   straight past the filter.
 
-  Fail-CLOSED exception: a single MAP slice that is itself a sensitive
-  event (`sensitive-event?`) is DROPPED, not passed through — shipping it
-  raw would leak the very secret the filter exists to suppress. It is
-  replaced with the empty batch and counted as one drop."
+  Fail-CLOSED exception: a single MAP slice that the caller-supplied
+  `strip-fn` classifies as sensitive is DROPPED, not passed through —
+  shipping it raw would leak the very secret the filter exists to
+  suppress. It is replaced with the empty batch and counted as one drop.
+  Classification routes through `strip-fn` (the SAME predicate the
+  sequential branch uses), NOT the base `sensitive-event?` — so a
+  union-signal sensitivity the caller's predicate catches (e.g.
+  re-frame2-pair-mcp's `:rf.epoch/sensitive? true` epoch rollup, carrying
+  no unqualified `:sensitive?` stamp) is honoured on the single-map shape
+  too (rf2-li6y2.1)."
   ([snapshot include?]
    (scrub-snapshot snapshot include? strip-sensitive))
   ([snapshot include? strip-fn]
@@ -316,12 +322,24 @@
                    ;; Fail-CLOSED: a single map that is itself a sensitive
                    ;; event is NOT a batch and would leak its secret if
                    ;; shipped raw — drop it (empty batch) and count it.
-                   (sensitive-event? slice)
-                   [(assoc frame-map slice-key []) (inc acc)]
+                   ;; Classify via the SAME caller-supplied `strip-fn` the
+                   ;; sequential branch uses (rf2-li6y2.1) — NOT the base
+                   ;; `sensitive-event?`. Otherwise a single-map slice that
+                   ;; is sensitive ONLY by a union signal the caller's
+                   ;; predicate catches (e.g. re-frame2-pair-mcp's epoch
+                   ;; rollup `:rf.epoch/sensitive? true`, with no unqualified
+                   ;; `:sensitive?` stamp) would slip past this guard to the
+                   ;; `:else` arm and ship RAW — the rf2-5613h leak class
+                   ;; re-surfacing inside the rf2-wm9kp defensive guard.
+                   (map? slice)
+                   (let [[_ n] (strip-fn [slice] false)]
+                     (if (pos? n)
+                       [(assoc frame-map slice-key []) (inc acc)]
+                       [frame-map acc]))
 
-                   ;; Any other non-sequential shape (nil, scalar, string,
-                   ;; non-sensitive single map) is not a batch — pass it
-                   ;; through byte-identically per the helper contract.
+                   ;; Any other non-sequential shape (nil, scalar, string)
+                   ;; is not a batch — pass it through byte-identically per
+                   ;; the helper contract.
                    :else
                    [frame-map acc]))))
            scrub-frame
