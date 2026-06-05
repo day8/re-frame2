@@ -447,7 +447,22 @@
   on the classpath. The projection threads it `cond->` so the row slot
   is likewise absent in those cases — consumers reading `(:cause-event-id row)`
   see nil and treat as no-attribution, parity with the OMITTED-vs-nil
-  semantics of the trace tag."
+  semantics of the trace tag.
+
+  PAYLOAD-BEARING value slots (rf2-at60h): `:prev-value` and `:value`
+  carry the sub's computed app-data, so this row is NOT value-free. The
+  whole-output `:sensitive?` stamp (rf2-isdwf) is already honoured at the
+  marks emit site (`re-frame.marks/project-sub-tags`) — `:value` /
+  `:prev-value` arrive carrying the `:rf/redacted` sentinel, so no further
+  projection is needed for the sensitive case. The whole-output `:large?`
+  stamp, however, only marks largeness on the trace tag and leaves the raw
+  value intact (the on-box ring must keep the exact value for Xray diff /
+  REPL / `restore-epoch`). We thread that tag onto the row as `:large?` so
+  the off-box `projected-record` egress boundary can substitute the
+  `:rf.size/large-elided` marker for `:value` / `:prev-value` under the
+  `:include-large? false` default. Threaded `cond->` (absent, not false,
+  when the sub's output is not large) — parity with the trace tag's
+  presence semantics."
   [event]
   (when (= :rf.sub/run (:operation event))
     (let [tags (:tags event)]
@@ -460,7 +475,10 @@
                :cascade?       (:rf.sub/cascade? tags)
                :cause-sub      (:rf.sub/cause-sub tags)}
         (contains? tags :rf.sub/cause-event-id)
-        (assoc :cause-event-id (:rf.sub/cause-event-id tags))))))
+        (assoc :cause-event-id (:rf.sub/cause-event-id tags))
+
+        (:large? tags)
+        (assoc :large? true)))))
 
 (defn render-row
   "Project a `:rf.view/rendered` trace event into its structured
