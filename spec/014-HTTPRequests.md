@@ -354,6 +354,13 @@ Returns either:
 
 The default `:accept` returns `{:ok decoded}` for 2xx responses, `{:failure {:kind :http-status :status N :body decoded}}` otherwise.
 
+**The accept phase is isolated from decode, and its return is shape-validated.** A recognised return is a map carrying *exactly one* of `:ok` / `:failure`. Two misuse paths classify as `:rf.http/accept-failure` (never `:rf.http/decode-failure` — the accept phase is step 4, distinct from the step-3 decode phase per [§Classification order](#classification-order)) and **always dispatch a reply**:
+
+- **An `:accept` fn that throws.** The throw is the application's accept bug; classifying it as a decode failure would point telemetry at the wrong phase. The pre-`:accept` decoded value rides at `:decoded`.
+- **A malformed `:accept` return** — `nil`, a non-map, a map carrying neither key, or a map carrying *both* `:ok` and `:failure`. A malformed return MUST NOT strand the caller: the request has already completed, so failing to emit either a success or a failure reply would leave `:on-success` / `:on-failure` un-dispatched forever. The runtime classifies it as `:rf.http/accept-failure` and dispatches the failure reply.
+
+Both carry a framework-supplied `:detail` describing the bad-accept condition alongside the `:decoded` value for context.
+
 ## Retry and backoff
 
 `:rf.http/managed`'s `:retry` slot owns **transport-level retry only** — retries whose decision is a pure function of the failure category and the attempt count. Network errors, 5xx, per-attempt timeouts, CORS rejection: each is a `:rf.http/*` category the runtime classifies before decode, and the policy is "given attempt N and a category from `:on`, wait `backoff(N)` ms, then re-issue the same request." The failure category, the attempt count, and the configured backoff are the only inputs; the response body, the application state, and the outcome of any other request never enter the picture.
@@ -483,7 +490,7 @@ Every failure carries a `:kind` keyword (under the framework-reserved `:rf.http/
 | `:rf.http/http-4xx` | Non-2xx 4xx response | `:status`, `:status-text`, `:body` (the raw response text — decode is skipped on non-2xx; see [§Classification order](#classification-order)), `:headers` |
 | `:rf.http/http-5xx` | Non-2xx 5xx response | same as `:http-4xx` |
 | `:rf.http/decode-failure` | A success-eligible (2xx) response whose body the decode pipeline rejected (schema validation error, JSON syntax error, custom decoder threw). Non-2xx responses never produce `:rf.http/decode-failure` — they classify by status. | `:body-text`, `:cause`, `:schema-validation-failure?` |
-| `:rf.http/accept-failure` | `:accept` returned `{:failure user-map}`. The user's failure map sits at `:detail`; `:decoded` carries the pre-`:accept` decoded value for context. | `:detail` (user's verbatim failure map), `:decoded` |
+| `:rf.http/accept-failure` | `:accept` returned `{:failure user-map}` — OR `:accept` threw / returned a malformed shape (see [§`:accept`](#accept--domain-failure-normalisation)). For the `{:failure user-map}` case the user's failure map sits at `:detail`; for the throw / malformed-return cases `:detail` is a framework descriptor of the bad-accept condition. `:decoded` carries the pre-`:accept` decoded value for context. | `:detail` (user's verbatim failure map, or framework bad-accept descriptor), `:decoded` |
 | `:rf.http/aborted` | The request was aborted via `:request-id` or `:abort-signal` | `:request-id` (if any), `:reason` (`:user` on the reply; `:request-id-superseded` is trace-only — see [§`:request-id` (internal)](#request-id-internal)) |
 
 The category vocabulary is **closed for v1** — additions require a Spec change. The `:rf.http/*` namespace makes these unambiguous wherever they leak: trace events, error projector, `:retry :on` sets, epoch records.

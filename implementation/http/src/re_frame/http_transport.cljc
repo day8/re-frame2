@@ -79,8 +79,20 @@
      (let [init     #js {}
            _        (do (aset init "method" (str/upper-case (name method)))
                         (when (seq headers)
-                          (let [h #js {}]
-                            (doseq [[k v] headers] (aset h k v))
+                          ;; rf2-rznrz — build a Fetch `Headers` object and
+                          ;; `.append` each normalised wire pair. A scalar
+                          ;; header value yields one pair; a vector/seq value
+                          ;; yields one pair per element (`encoding/normalize-
+                          ;; header-pairs`), and `.append` ACCUMULATES repeated
+                          ;; names into the multi-valued wire form (`Accept: a`
+                          ;; + `Accept: b`) rather than overwriting. The prior
+                          ;; shape assigned the vector straight into a plain JS
+                          ;; object via `aset`, so a documented multi-valued
+                          ;; request header serialised as a single malformed
+                          ;; `[\"a\" \"b\"]` wire value.
+                          (let [h (js/Headers.)]
+                            (doseq [[k v] (encoding/normalize-header-pairs headers)]
+                              (.append h k v))
                             (aset init "headers" h)))
                         (when (some? body) (aset init "body" body))
                         (when credentials  (aset init "credentials" (name credentials)))
@@ -425,7 +437,7 @@
        ;; "no timeout" so the JDK request carries no per-request deadline.
        (when (and timeout-ms (pos? timeout-ms))
          (.timeout b (Duration/ofMillis (long timeout-ms))))
-       (doseq [[k v] headers]
+       (doseq [[k v] (encoding/normalize-header-pairs headers)]
          ;; rf2-9lun0 — surface JDK HttpClient header-validation throws
          ;; via a `:rf.warning/http-header-invalid` trace rather than
          ;; silently dropping. Stray `\r`/`\n` / control chars / empty
@@ -436,19 +448,27 @@
          ;; the offending header so a stray bad header doesn't sink
          ;; an otherwise-valid request; the trace is the alarm.
          ;;
+         ;; rf2-rznrz — `encoding/normalize-header-pairs` expands a
+         ;; documented multi-valued request header (string → vector of
+         ;; strings) into one `[name value]` pair per element, so we call
+         ;; `.header` ONCE PER VALUE — the JDK accumulates repeated names
+         ;; into the multi-valued wire form (`Accept: a` + `Accept: b`).
+         ;; The prior `(str v)` on the whole value stringified a vector
+         ;; into a single malformed `[\"a\" \"b\"]` header line.
+         ;;
          ;; rf2-1jcpm — the `:url` slot on the warning event is routed
          ;; through `privacy/prepare-emit-tags` so a denylisted query
          ;; param (`?api_key=…`) is scrubbed and `:sensitive?` is
          ;; stamped when the request is sensitive. Previously the raw
          ;; URL rode the trace surface even when the handler / request
          ;; was declared sensitive.
-         (try (.header b (str k) (str v))
+         (try (.header b k v)
               (catch Throwable t
                 (when interop/debug-enabled?
                   (trace/emit! :warning :rf.warning/http-header-invalid
                                (privacy/prepare-emit-tags
                                  {:url     url
-                                  :header  (str k)
+                                  :header  k
                                   :cause   (.getMessage t)}
                                  (true? sensitive?)))))))
        (.build b))))
@@ -1227,34 +1247,52 @@
                      :headers     headers})
 
       ok?
-      (try
-        (let [decoded  (decode/decode-response-body
-                         {:body-text        body-text
-                          ;; rf2-5zj6t — the CLJS transport reads a native
-                          ;; Blob / ArrayBuffer / FormData for binary decode
-                          ;; modes and rides it here; `decode-response-body`
-                          ;; returns it verbatim for `:blob` / `:array-buffer`
-                          ;; / `:form-data`. Absent on the text path / on JVM.
-                          :body-binary      body-binary
-                          :headers          headers
-                          :decode           decode
-                          :decode-supplied? decode-supplied?
-                          :request-id       request-id
-                          :url              url
-                          ;; rf2-xuvj7 — the originating event-id keys the
-                          ;; one-shot-per-handler decode-defaulted latch.
-                          ;; Nil for synthetic / test-path callers with no
-                          ;; origin event; the latch degrades to a shared
-                          ;; runtime-wide slot in that case.
-                          :handler-id       (first (:origin-event ctx))
-                          :sensitive?       (:sensitive? ctx)
-                          ;; rf2-wu1n5 — thread the keyword-cap from the
-                          ;; normalised ctx into the decoder; nil means
-                          ;; the reader uses its default.
-                          :max-decoded-keys (:max-decoded-keys ctx)})
-              accepted (encoding/run-accept accept decoded)]
-          (finalise-success! (assoc ctx :decoded decoded) accepted))
-        (catch #?(:clj Throwable :cljs :default) e
+      ;; rf2-rznrz — DECODE and ACCEPT are SEPARATE phases (Spec 014
+      ;; §Classification order steps 3 + 4). They were previously fused
+      ;; under one try/catch, so an `:accept` throw was misclassified as
+      ;; `:rf.http/decode-failure` (step-4 error masquerading as step-3),
+      ;; and a malformed `:accept` return (nil / a map without :ok/:failure)
+      ;; fell through `finalise-success!`'s `cond` with no matching branch —
+      ;; clearing the in-flight request and dispatching NO reply, so the
+      ;; caller hung forever. Now:
+      ;;
+      ;;   - the decode try/catch catches ONLY decoder exceptions →
+      ;;     `:rf.http/decode-failure`;
+      ;;   - accept runs in its OWN try/catch and its return is SHAPE-
+      ;;     VALIDATED (`encoding/valid-accept-return?`); an accept throw OR
+      ;;     a malformed return classifies as `:rf.http/accept-failure`
+      ;;     (the closed-set canonical bad-accept category) and ALWAYS
+      ;;     dispatches a reply.
+      (let [decode-result
+            (try
+              {:decoded
+               (decode/decode-response-body
+                 {:body-text        body-text
+                  ;; rf2-5zj6t — the CLJS transport reads a native
+                  ;; Blob / ArrayBuffer / FormData for binary decode
+                  ;; modes and rides it here; `decode-response-body`
+                  ;; returns it verbatim for `:blob` / `:array-buffer`
+                  ;; / `:form-data`. Absent on the text path / on JVM.
+                  :body-binary      body-binary
+                  :headers          headers
+                  :decode           decode
+                  :decode-supplied? decode-supplied?
+                  :request-id       request-id
+                  :url              url
+                  ;; rf2-xuvj7 — the originating event-id keys the
+                  ;; one-shot-per-handler decode-defaulted latch.
+                  ;; Nil for synthetic / test-path callers with no
+                  ;; origin event; the latch degrades to a shared
+                  ;; runtime-wide slot in that case.
+                  :handler-id       (first (:origin-event ctx))
+                  :sensitive?       (:sensitive? ctx)
+                  ;; rf2-wu1n5 — thread the keyword-cap from the
+                  ;; normalised ctx into the decoder; nil means
+                  ;; the reader uses its default.
+                  :max-decoded-keys (:max-decoded-keys ctx)})}
+              (catch #?(:clj Throwable :cljs :default) e
+                {:decode-error e}))]
+        (if-let [e (:decode-error decode-result)]
           (let [d (ex-data e)
                 ;; rf2-mdxd7 — the keyword-interning DoS cap (Spec 014
                 ;; §Keyword-interning cap) throws a structured
@@ -1285,7 +1323,50 @@
                 ;; with no `:cause`/`:limit`) carries no `:reason`/`:limit`
                 ;; slots — only the cap-overflow shape does.
                 (some? reason) (assoc :reason reason)
-                (some? limit)  (assoc :limit limit))))))
+                (some? limit)  (assoc :limit limit))))
+          ;; ---- ACCEPT phase (rf2-rznrz) -----------------------------
+          ;; Decode succeeded. Run `:accept` in its OWN try/catch and
+          ;; shape-validate the return. Three outcomes:
+          ;;   - returns `{:ok v}` / `{:failure m}` → hand to
+          ;;     `finalise-success!`, which dispatches the success reply
+          ;;     or the `:rf.http/accept-failure` domain-failure reply;
+          ;;   - throws → `:rf.http/accept-failure` (the throw is the
+          ;;     app's accept bug; misclassifying it as decode-failure
+          ;;     pointed telemetry at the wrong phase);
+          ;;   - returns a malformed shape (nil / non-map / map without
+          ;;     exactly one of :ok/:failure) → `:rf.http/accept-failure`.
+          ;;     Previously this stranded the request with no reply.
+          ;; `:rf.http/accept-failure` is non-retryable by construction
+          ;; (Spec 014 §Failure categories), so we route straight to
+          ;; `finalise-failure!` — never `maybe-retry!`.
+          (let [decoded (:decoded decode-result)
+                ctx'    (assoc ctx :decoded decoded)
+                outcome (try
+                          {:accepted (encoding/run-accept accept decoded)}
+                          (catch #?(:clj Throwable :cljs :default) e
+                            {:accept-error e}))]
+            (cond
+              (:accept-error outcome)
+              (finalise-failure!
+                ctx'
+                {:kind       :rf.http/accept-failure
+                 :detail     {:rf.http/bad-accept :threw
+                              :message #?(:clj (.getMessage ^Throwable (:accept-error outcome))
+                                          :cljs (.-message ^js (:accept-error outcome)))}
+                 :decoded    decoded
+                 :request-id request-id})
+
+              (encoding/valid-accept-return? (:accepted outcome))
+              (finalise-success! ctx' (:accepted outcome))
+
+              :else
+              (finalise-failure!
+                ctx'
+                {:kind       :rf.http/accept-failure
+                 :detail     {:rf.http/bad-accept :malformed-return
+                              :returned (:accepted outcome)}
+                 :decoded    decoded
+                 :request-id request-id})))))
 
       :else
       ;; Non-2xx that didn't fall in 4xx/5xx (e.g., 1xx/3xx that the

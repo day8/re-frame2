@@ -229,7 +229,7 @@
 ;; for `:after`), and the bad-return sentence. The load-bearing comments
 ;; on each wrapper preserve the per-path rationale.
 (defn- run-chain*
-  [{:keys [chain frame-id slot-key invoke sensitive? where phase url-of slot-noun]} init]
+  [{:keys [chain frame-id slot-key invoke sensitive-of where phase url-of slot-noun]} init]
   (reduce
     (fn [acc interceptor]
       (let [{:keys [id]} interceptor
@@ -275,10 +275,19 @@
                   ;; and `:sensitive?` is stamped on the trace event when
                   ;; either the handler/per-call sensitivity OR the URL's
                   ;; query string carries a denylisted param name.
+                  ;;
+                  ;; rf2-rznrz — `sensitive-of` recomputes the EFFECTIVE
+                  ;; sensitivity from the CURRENT accumulator (the evolving
+                  ;; ctx a prior `:before` may have MARKED sensitive), not a
+                  ;; flag captured before the chain ran. Previously a
+                  ;; `:before` that set `[:request :sensitive?] true`
+                  ;; followed by a later `:before` that threw emitted this
+                  ;; diagnostic with the stale non-sensitive flag, leaking
+                  ;; non-denylisted query values for a now-sensitive request.
                   (trace/emit-error! :rf.error/http-interceptor-failed
                                      (privacy/prepare-emit-failure
                                        (ex-data data)
-                                       sensitive?)))
+                                       (sensitive-of acc))))
                 (throw data))))
           acc)))
     init
@@ -310,7 +319,16 @@
      ;; interceptor actually saw it.
      :invoke     (fn [before acc] (before acc))
      :url-of     #(get-in % [:request :url])
-     :sensitive? (true? (:sensitive? ctx))
+     ;; rf2-rznrz — recompute effective sensitivity from the CURRENT
+     ;; accumulator at the failure site, not a flag fixed before the
+     ;; chain ran. A `:before` may MARK the request sensitive (set
+     ;; `[:request :sensitive?] true`) — mirrors `privacy/request-
+     ;; sensitive?`'s top-level-or-`:request` OR-reduction, applied to
+     ;; the threaded ctx so a later `:before`'s throw redacts under the
+     ;; sensitivity the request carries at the moment it failed.
+     :sensitive-of (fn [acc]
+                     (or (true? (:sensitive? acc))
+                         (true? (get-in acc [:request :sensitive?]))))
      :where      'rf.http/run-interceptor-chain!
      :slot-noun  ":before did not return a ctx map"}
     ctx))
@@ -343,7 +361,14 @@
      ;; reduce), so the URL is read from that ctx rather than the acc.
      :invoke     (fn [after acc] (after middleware-ctx acc))
      :url-of     (fn [_acc] (get-in middleware-ctx [:request :url]))
-     :sensitive? (true? (:sensitive? middleware-ctx))
+     ;; rf2-rznrz — the `:after` chain threads the RESPONSE through `acc`;
+     ;; the request ctx is the fixed `middleware-ctx` the `:before` chain
+     ;; ended with, so effective sensitivity is recomputed from THAT
+     ;; (constant across `:after` steps), not the evolving response acc.
+     ;; Mirrors `privacy/request-sensitive?`'s OR-reduction.
+     :sensitive-of (fn [_acc]
+                     (or (true? (:sensitive? middleware-ctx))
+                         (true? (get-in middleware-ctx [:request :sensitive?]))))
      :where      'rf.http/run-after-chain!
      :phase      :after
      :slot-noun  ":after did not return a response map"}

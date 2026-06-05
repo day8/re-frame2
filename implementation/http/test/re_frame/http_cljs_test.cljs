@@ -379,6 +379,42 @@
                      (done)))
             (.catch (fn [e] (is false (str "unexpected reject: " e)) (done))))))))
 
+;; ---- rf2-rznrz — CLJS multi-valued request headers -----------------------
+
+(deftest cljs-fetch-multi-valued-request-header-appends-each-value
+  (testing "rf2-rznrz — a request header whose value is a vector of strings
+  is normalised into a Fetch `Headers` object with one APPEND per element,
+  so the multi-valued wire form (`X-Multi: alpha` + `X-Multi: beta`) is
+  produced. The pre-fix transport `aset` the vector straight into a plain
+  JS object, serialising it as a single malformed `[\"alpha\" \"beta\"]`
+  value."
+    (async done
+      (let [captured-init (atom nil)
+            resp (fake-response {:status 200 :content-type "application/json"
+                                 :text-val "{}"})]
+        (-> (with-init-capturing-fetch resp captured-init
+              #(cljs-fetch {:method  :get
+                            :url     "/x"
+                            :headers {"X-Multi" ["alpha" "beta" "gamma"]
+                                      "X-One"   "solo"}
+                            :decode  :json
+                            :internal-controller (js/AbortController.)}))
+            (.then (fn [_]
+                     (let [h (aget @captured-init "headers")]
+                       (is (instance? js/Headers h)
+                           "headers is a Fetch `Headers` object, not a plain JS map")
+                       ;; `Headers.get` joins repeated values with ", " — three
+                       ;; appended values produce the joined multi-value string,
+                       ;; NOT a serialised-vector blob.
+                       (is (= "alpha, beta, gamma" (.get h "X-Multi"))
+                           "each vector element was appended as its own value")
+                       (is (not (re-find #"\[" (.get h "X-Multi")))
+                           "no serialised-vector bracket leaked onto the wire value")
+                       (is (= "solo" (.get h "X-One"))
+                           "a scalar header value is a single appended value"))
+                     (done)))
+            (.catch (fn [e] (is false (str "unexpected reject: " e)) (done))))))))
+
 (deftest zero-timeout-ms-does-not-arm-near-instant-abort
   (testing "rf2-ee38b.7 — `:timeout-ms 0` is an explicit opt-out (no
   per-attempt timeout) per Spec 014 §`:timeout-ms` security defaults,

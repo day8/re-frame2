@@ -597,6 +597,108 @@
     (is (= {} @http-managed/interceptors)
         "atom stays empty")))
 
+;; ---- rf2-rznrz — sensitivity recomputed from the POST-:before request -----
+;;
+;; A `:before` that MARKS the request sensitive (sets [:request :sensitive?]
+;; true) followed by a LATER :before that throws must produce a
+;; :rf.error/http-interceptor-failed trace redacted under the EFFECTIVE
+;; (post-mark) sensitivity — not the stale pre-chain flag. We assert against
+;; a NON-denylisted query param (`customer_email`) so the only thing that can
+;; redact it is the per-request :sensitive? flag the first :before set; the
+;; query-param denylist alone would leave it verbatim.
+
+(deftest before-marked-sensitive-then-throw-redacts-under-effective-sensitivity
+  (testing "rf2-rznrz — a :before sets [:request :sensitive?] true, a later
+            :before throws; the interceptor-failed trace redacts the
+            NON-denylisted query value because effective sensitivity is
+            recomputed from the post-mark request (not the stale pre-chain
+            flag)"
+    (let [traces      (atom [])
+          listener-id (gensym "rznrz-mark-sensitive-")]
+      (try
+        (trace/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
+        ;; First :before marks the request sensitive.
+        (rf/reg-http-interceptor :mark-sensitive
+          {:before (fn [ctx] (assoc-in ctx [:request :sensitive?] true))})
+        ;; Second :before throws — fires AFTER the mark.
+        (rf/reg-http-interceptor :boom
+          {:before (fn [_ctx] (throw (ex-info "kaboom" {})))})
+        (rf/reg-event-fx :rznrz/load
+          (fn [_ _]
+            {:fx [[:rf.http/managed
+                   ;; customer_email is NOT in the query-param denylist, so
+                   ;; it only redacts when the request is effectively sensitive.
+                   {:request {:url "https://api.example.invalid/v1?customer_email=alice%40example.com&page=2"}
+                    :decode     :json
+                    :on-success nil
+                    :on-failure nil}]]}))
+        (rf/dispatch-sync [:rznrz/load])
+        (test-support/poll-until
+          #(some (fn [t] (= :rf.error/http-interceptor-failed (:operation t))) @traces)
+          {:label ":rf.error/http-interceptor-failed surfaced (sensitivity recompute)"})
+        (let [w    (first (filter #(= :rf.error/http-interceptor-failed (:operation %)) @traces))
+              tags (:tags w)]
+          (is (some? w))
+          ;; A sensitive request redacts ALL query values (broader than the
+          ;; denylist), so BOTH the non-denylisted customer_email AND page
+          ;; scrub. The load-bearing signal is that customer_email — which the
+          ;; denylist alone would leave verbatim — is redacted: that can only
+          ;; happen if the trace saw the post-:before-mark (sensitive) request.
+          (is (= "https://api.example.invalid/v1?customer_email=:rf/redacted&page=:rf/redacted"
+                 (:url tags))
+              "the NON-denylisted query value is redacted — proving the trace
+               saw the post-:before-mark (sensitive) request, not the stale
+               pre-chain non-sensitive flag (a sensitive request scrubs ALL params)")
+          (is (true? (:sensitive? w))
+              ":sensitive? stamped because the effective request is sensitive"))
+        (finally
+          (trace/unregister-listener! listener-id))))))
+
+;; ---- rf2-rznrz — CLJS-only-key check runs on the POST-:before request -----
+;;
+;; A :before that ADDS a JVM-degraded CLJS-only key (:credentials / :mode /
+;; …) into the request must trip the :rf.http/cljs-only-key-ignored-on-jvm
+;; warning. Previously check-cljs-only-keys! ran on the ORIGINAL args before
+;; the chain, so a :before-added key proceeded on JVM with no degraded-key
+;; warning at all.
+
+(deftest before-added-cljs-only-key-trips-degradation-warning
+  (testing "rf2-rznrz — a :before that adds a CLJS-only key (:credentials)
+            into the request trips :rf.http/cljs-only-key-ignored-on-jvm; the
+            check now runs against the post-:before request, not the original
+            args"
+    (let [traces      (atom [])
+          listener-id (gensym "rznrz-cljs-only-")
+          {:keys [port] :as srv}
+          (start-server!
+            (fn [^HttpExchange ex]
+              (write-response! ex 200 "application/json" "{\"ok\":true}")))]
+      (try
+        (trace/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
+        ;; The request as DISPATCHED carries no CLJS-only key; the :before
+        ;; adds :credentials into the request map.
+        (rf/reg-http-interceptor :add-credentials
+          {:before (fn [ctx] (assoc-in ctx [:request :credentials] :include))})
+        (rf/reg-event-fx :rznrz.cljsonly/load
+          (fn [{:keys [db]} [_ msg]]
+            (if-let [reply (:rf/reply msg)]
+              {:db (assoc db :reply reply)}
+              {:fx [[:rf.http/managed
+                     {:request {:url (str "http://127.0.0.1:" port "/x")}
+                      :decode  :json}]]})))
+        (rf/dispatch-sync [:rznrz.cljsonly/load])
+        (await-reply! #(some? (:reply %)) 5000)
+        (let [warns (filter #(= :rf.http/cljs-only-key-ignored-on-jvm (:operation %))
+                            @traces)
+              keys-seen (set (map #(get-in % [:tags :key]) warns))]
+          (is (contains? keys-seen :credentials)
+              "the :before-added :credentials key trips the JVM degradation
+               warning — proving check-cljs-only-keys! ran on the post-chain
+               request, not the original (key-free) args"))
+        (finally
+          (trace/unregister-listener! listener-id)
+          (stop-server! srv))))))
+
 ;; ---- rf2-oyd1b — direct unit tests for the fx wrappers --------------------
 ;;
 ;; The :rf.fx/reg-http-interceptor + :rf.fx/clear-http-interceptor fxs
