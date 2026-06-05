@@ -2553,8 +2553,10 @@
 
     ;; Call on-frame-destroyed! DIRECTLY — without going through
     ;; frame/destroy-frame!. The frame record still exists in
-    ;; frames-atom; only the epoch ring is dropped.
-    (epoch.listeners/on-frame-destroyed! :test/other)
+    ;; frames-atom; only the epoch ring is dropped. (rf2-9neiq: the
+    ;; hook now takes (frame-id db-before db-after); this seam tests the
+    ;; ring-drop with no in-flight cascade, so nil/nil snapshots apply.)
+    (epoch.listeners/on-frame-destroyed! :test/other nil nil)
 
     ;; The frame's ring is gone.
     (is (= [] (rf/epoch-history :test/other))
@@ -2573,12 +2575,13 @@
     (rf/dispatch-sync [:seed] {:frame :test/repeat})
     (is (= 1 (count (rf/epoch-history :test/repeat))))
 
-    ;; First call — clears the buffer.
-    (epoch.listeners/on-frame-destroyed! :test/repeat)
+    ;; First call — clears the buffer. (rf2-9neiq: hook arity is now
+    ;; (frame-id db-before db-after); nil/nil for this ring-drop pin.)
+    (epoch.listeners/on-frame-destroyed! :test/repeat nil nil)
     (is (= [] (rf/epoch-history :test/repeat)))
 
     ;; Second call — no-op.
-    (epoch.listeners/on-frame-destroyed! :test/repeat)
+    (epoch.listeners/on-frame-destroyed! :test/repeat nil nil)
     (is (= [] (rf/epoch-history :test/repeat))
         "ring stays empty across repeated calls")))
 
@@ -2590,7 +2593,7 @@
     ;; The observable contract is "no throw, no side effects on
     ;; unrelated state".
     (let [traces (record-trace!)]
-      (epoch.listeners/on-frame-destroyed! :test/no-such-frame)
+      (epoch.listeners/on-frame-destroyed! :test/no-such-frame nil nil)
       (is (empty? @traces)
           "no traces emitted — nothing observed to silence"))))
 
@@ -2689,14 +2692,19 @@
       (is (some? (get @buffers-atom :test/main))
           "sanity: the synthetic capture-buffer entry is present pre-destroy")
 
-      (epoch.listeners/on-frame-destroyed! :test/main)
+      ;; rf2-9neiq: on-frame-destroyed! now takes (frame-id db-before
+      ;; db-after) — the two snapshots destroy-frame! threads. This test
+      ;; exercises the buffer-drop (step 4), so nil/nil snapshots are fine
+      ;; (the synthetic run-start carries no :event-id, so no halted record
+      ;; commits — and this test does not assert one).
+      (epoch.listeners/on-frame-destroyed! :test/main nil nil)
 
       (is (nil? (get @buffers-atom :test/main))
           "the capture-buffer entry was dropped on destroy — no
            pre-destroy event can leak into a same-keyed frame's next
            cascade"))))
 
-;; ---- rf2-ee38b: live :halted-destroy partial-record commit ---------------
+;; ---- rf2-ee38b + rf2-9neiq: live :halted-destroy partial-record commit ----
 ;;
 ;; Per the correctness review (ai/findings/review/correctness--
 ;; implementation-epoch.md): the live `:halted-destroy` partial-record
@@ -2709,19 +2717,40 @@
 ;; mid-drain `destroy-frame!` and asserts the full contract
 ;; UNCONDITIONALLY: exactly one :halted-destroy record reaches a
 ;; registered epoch listener, with :outcome :halted-destroy, a populated
-;; :event-id, nil dbs, the halt-reason descriptor, and — crucially — that
-;; the partial record was NOT appended to the ring (epoch-history carries
-;; no :halted-destroy record; per rf2-d656/rf2-v0jwt devtools receive it
-;; via the listener fan-out only, before the ring is dropped).
+;; :event-id, REAL :db-before / :db-after snapshots, the halt-reason
+;; descriptor, and — per the rf2-d656 read-empty contract — that the
+;; partial record was NOT appended to the ring (epoch-history returns []
+;; for a destroyed frame; devtools receive the record via the listener
+;; fan-out, the documented introspection channel for the destroy halt).
+;;
+;; rf2-9neiq corrected the FALSE-GREEN db assertions here: this test
+;; previously PINNED `nil` :db-before / :db-after, contradicting
+;; Spec-Schemas §:rf/epoch-record §Outcomes, which documents
+;; :halted-destroy as carrying the PRE-CASCADE snapshot as :db-before and
+;; the DESTROY-TIME state as :db-after. The prior nil/nil arose because
+;; `destroy-frame!` notified epoch AFTER the container was dissoc'd; the
+;; fix threads both snapshots (pre-cascade via frame/*cascade-db-before*,
+;; destroy-time via the container read at the top of destroy-frame!) into
+;; the destroy hook so the record now carries the real app-db state.
 
-(deftest live-halted-destroy-fires-partial-record-to-listeners-only
+(deftest live-halted-destroy-fires-partial-record-with-real-snapshots
   (testing "a mid-drain destroy-frame! fires exactly one :halted-destroy
             partial record to listeners (NOT to the ring), carrying the
-            cascade's :event-id and halt-reason — the live capture-buffer
-            → in-cascade? gate → notify-listeners! chain"
+            cascade's :event-id, halt-reason, and the REAL pre-cascade
+            :db-before / destroy-time :db-after snapshots (rf2-9neiq) —
+            the live capture-buffer → in-cascade? gate →
+            destroy-frame!-threaded-snapshots → notify-listeners! chain"
     (rf/reg-frame :test/main {})
+    ;; Seed the frame so the pre-cascade app-db is a real, non-empty
+    ;; value — proves the snapshots carry actual state, not {} / nil.
+    (rf/reg-event-db :seed (fn [_ _] {:n 7 :live true}))
+    (rf/dispatch-sync [:seed] {:frame :test/main})
     (let [records (atom [])]
       (rf/register-epoch-listener! ::watch (fn [r] (swap! records conj r)))
+      ;; A handler that destroys its own frame mid-cascade. It writes no
+      ;; committed db before destroying, so destroy-time db == pre-cascade
+      ;; db here (the {:n 7 :live true} the :seed cascade settled) — both
+      ;; REAL and non-nil, which is the contract (Spec-Schemas §Outcomes).
       (rf/reg-event-fx :destroy-self
                        (fn [_ _]
                          (frame/destroy-frame! :test/main)
@@ -2742,23 +2771,83 @@
           (is (= :destroy-self (:event-id halted))
               "the cascade's :event-id is pinned on the partial record
                (the buffered :destroy-self run-start drove the commit)")
-          (is (nil? (:db-before halted))
-              "halted-destroy carries nil :db-before (the frame container
-               is gone — schema admits :any)")
-          (is (nil? (:db-after halted))
-              "halted-destroy carries nil :db-after")
+          ;; rf2-9neiq: the partial record carries the REAL pre-cascade
+          ;; snapshot as :db-before, NOT nil. The :destroy-self cascade's
+          ;; pre-cascade db is the {:n 7 :live true} the :seed settled.
+          (is (= {:n 7 :live true} (:db-before halted))
+              "halted-destroy carries the real pre-cascade :db-before
+               snapshot (rf2-9neiq) — the frame's app-db before the
+               in-flight cascade began, NOT nil")
+          ;; The destroy-time :db-after: the live container value read at
+          ;; the top of destroy-frame!, before teardown. The :destroy-self
+          ;; handler committed no db before destroying, so it equals the
+          ;; pre-cascade value here — REAL state, NOT nil.
+          (is (= {:n 7 :live true} (:db-after halted))
+              "halted-destroy carries the real destroy-time :db-after
+               state (rf2-9neiq) — the partial cascade's writes survive in
+               the recorded value; NOT nil")
           (is (= {:operation :rf.frame/destroyed-mid-drain}
                  (:halt-reason halted))
               "the halt-reason descriptor rides the partial record"))
         ;; The partial record is NOT appended to the ring — devtools
         ;; receive it via the listener fan-out only, and the ring is
-        ;; dropped on destroy (epoch-history returns no :halted-destroy
-        ;; record).
+        ;; dropped on destroy (epoch-history returns [] for the destroyed
+        ;; frame per the rf2-d656 read-empty contract). This part of the
+        ;; contract is UNCHANGED by rf2-9neiq.
         (is (empty? (filter (fn [r] (= :halted-destroy (:outcome r)))
                             (epoch/epoch-history :test/main)))
             "the :halted-destroy record never lands in the ring buffer
-             (it is delivered to listeners only, before the ring is
-             dropped on destroy)")))))
+             (it is delivered to listeners only; epoch-history is
+             read-empty post-destroy per rf2-d656)")))))
+
+;; rf2-9neiq — :db-before and :db-after DIVERGE when the in-flight cascade
+;; committed an app-db write before destroying. A parent event writes the
+;; db and `:fx`-dispatches a child; the child is the event whose handler
+;; calls destroy-frame!. The child's pre-cascade :db-before is the
+;; POST-PARENT state, and the destroy-time :db-after reflects the live
+;; container at destroy time — exercising the "partial cascade's writes
+;; survive in the recorded value" half of the Spec-Schemas §Outcomes
+;; contract with non-equal snapshots.
+
+(deftest live-halted-destroy-db-before-reflects-committed-cascade-writes
+  (testing "the :halted-destroy record's :db-before is the destroying
+            (child) event's pre-cascade snapshot — which reflects the
+            parent event's already-committed write (rf2-9neiq)"
+    (rf/reg-frame :test/main {})
+    (let [records (atom [])]
+      (rf/register-epoch-listener! ::watch (fn [r] (swap! records conj r)))
+      ;; Child: destroys the frame. Its pre-cascade db-before is whatever
+      ;; the container held when it was dequeued — i.e. AFTER the parent's
+      ;; {:phase :parent-done} write committed (per-event epoch boundary).
+      (rf/reg-event-fx :child-destroy
+                       (fn [_ _]
+                         (frame/destroy-frame! :test/main)
+                         {}))
+      ;; Parent: commits a db write, then fx-dispatches the child. The
+      ;; child runs as a SEPARATE dequeued event in the same drain.
+      (rf/reg-event-fx :parent-write-then-spawn
+                       (fn [_ _]
+                         {:db {:phase :parent-done :marker 42}
+                          :fx [[:dispatch [:child-destroy]]]}))
+      (try (rf/dispatch-sync [:parent-write-then-spawn] {:frame :test/main})
+           (catch Throwable _ nil))
+      (let [halted (first (filterv (fn [r] (= :halted-destroy (:outcome r)))
+                                   @records))]
+        (is (some? halted)
+            "the child's mid-drain destroy committed a :halted-destroy
+             record to listeners")
+        (is (= :child-destroy (:event-id halted))
+            "the halted record's :event-id is the destroying child event")
+        ;; The child's pre-cascade :db-before reflects the parent's
+        ;; already-committed write — proving :db-before is the genuine
+        ;; per-event pre-cascade snapshot, not nil and not the frame's
+        ;; initial {} (rf2-9neiq).
+        (is (= {:phase :parent-done :marker 42} (:db-before halted))
+            ":db-before is the destroying event's pre-cascade snapshot —
+             the parent's committed {:phase :parent-done :marker 42}")
+        (is (= {:phase :parent-done :marker 42} (:db-after halted))
+            ":db-after is the destroy-time state (the child committed no
+             further write before destroying)")))))
 
 ;; ---- rf2-kl5p1: build-record omits :event-id / :trigger-event when
 ;; ---- find-trigger-event yields nothing -----------------------------------

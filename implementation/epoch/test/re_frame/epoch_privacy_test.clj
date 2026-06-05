@@ -178,16 +178,25 @@
           "rollup fires on the db-before signal"))))
 
 (deftest rollup-strict-boolean-on-halted-destroy
-  (testing "halted-destroy records carry nil :db-before / :db-after
-            (per rf2-v0jwt); the rollup must still produce a strict
-            boolean (no NPE on the nil-db sensitive-leaf walk).
+  (testing "halted-destroy records carry REAL :db-before / :db-after
+            snapshots (rf2-9neiq — the pre-cascade + destroy-time state,
+            per Spec-Schemas §:rf/epoch-record §Outcomes); the rollup
+            must still produce a strict boolean over those real dbs.
 
             Per the rf2-ee38b correctness review: this drives a REAL
             mid-drain `destroy-frame!` and asserts UNCONDITIONALLY that
             exactly one :halted-destroy record reached the listener. The
             prior `(when-let [halted ...] ...)` guard silently no-op'd if
             the live wiring stopped firing the partial record, passing
-            green with zero executed assertions."
+            green with zero executed assertions.
+
+            rf2-9neiq corrected the FALSE-GREEN nil-db assertions: the
+            record now carries the real app-db state, not nil/nil. Here
+            no `[:auth :password]` value was ever written (only the
+            schema declaration lives in app-db), so the sensitive-leaf
+            walk finds no non-nil sensitive leaf and the rollup is a
+            strict `false` — proving the rollup walks the real (non-nil)
+            db without NPE and without a spurious true."
     (rf/reg-frame :test/main {})
     (install-sensitive-schema! :test/main)
     ;; Trigger a real cascade so capture-buffers carries a run-start;
@@ -200,7 +209,8 @@
                          (frame/destroy-frame! :test/main)
                          {}))
       ;; The destroy fires inside the drain — on-frame-destroyed!
-      ;; emits a :halted-destroy partial record carrying nil dbs.
+      ;; emits a :halted-destroy partial record carrying the REAL
+      ;; pre-cascade + destroy-time db snapshots (rf2-9neiq).
       (try (rf/dispatch-sync [:destroy-self] {:frame :test/main})
            (catch Throwable _ nil))
       (let [halted-records (filterv (fn [r] (= :halted-destroy (:outcome r)))
@@ -211,13 +221,25 @@
             "the live mid-drain destroy fires exactly one :halted-destroy
              record to listeners")
         (let [halted (first halted-records)]
-          (is (or (false? (:rf.epoch/sensitive? halted))
-                  (true?  (:rf.epoch/sensitive? halted)))
-              "rollup is a strict boolean on the halted-destroy path")
-          (is (nil? (:db-before halted))
-              "halted-destroy carries nil :db-before")
-          (is (nil? (:db-after halted))
-              "halted-destroy carries nil :db-after"))))))
+          ;; The rollup is computed over the REAL (non-nil) dbs and stays
+          ;; a strict boolean. No `[:auth :password]` value was written,
+          ;; so the only sensitive-declared path resolves nil → false.
+          (is (false? (:rf.epoch/sensitive? halted))
+              "rollup is strict false on the halted-destroy path — the
+               declared-sensitive [:auth :password] path holds no value")
+          ;; rf2-9neiq: the record carries the REAL pre-cascade /
+          ;; destroy-time state, NOT nil. Both reflect the app-db the
+          ;; schema-install populated ([:rf/runtime :elision ...]); no
+          ;; password write means the sensitive leaf is absent.
+          (is (some? (:db-before halted))
+              "halted-destroy carries a real (non-nil) :db-before (rf2-9neiq)")
+          (is (some? (:db-after halted))
+              "halted-destroy carries a real (non-nil) :db-after (rf2-9neiq)")
+          (is (nil? (get-in halted [:db-before :auth :password]))
+              "no sensitive [:auth :password] leaf was written, so the
+               rollup correctly reads false")
+          (is (nil? (get-in halted [:db-after :auth :password]))
+              "destroy-time db likewise carries no sensitive leaf"))))))
 
 ;; ---- 2. projected-record ---------------------------------------------------
 ;;
