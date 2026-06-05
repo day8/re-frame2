@@ -148,6 +148,88 @@
       (is (= "" (:body ring)) "nil body → empty string"))))
 
 ;; ===========================================================================
+;; HOST-SERIALISABILITY FAIL-CLOSED (rf2-v0qbng)
+;;
+;; The `:rf.server/*` fx-args :schema boundary (set-status-args = :int,
+;; set-header-args :value :string, …) SOFT-PASSES when the optional schemas
+;; artefact is absent from the production classpath (Spec 010 §Recommended
+;; soft-pass) — the DEFAULT ssr-ring runtime. The materialiser is the last
+;; line: a non-int status / non-string header value / non-string Location
+;; that slipped past the (optional) fx-args gate must NOT produce a Ring
+;; response carrying a non-Ring type, or Jetty/http-kit may reject /
+;; mis-serialise it WHILE committing — past the :on-error recovery point.
+;;
+;; These tests assert the wire-correct outcome with NO schemas dependency:
+;; status is always an int, header values are always strings or vectors of
+;; strings, the Location value is always a string.
+;; ===========================================================================
+
+(deftest non-integer-status-fails-closed-to-500
+  (testing "rf2-v0qbng: a string :status (what a soft-passed
+            `:rf.server/set-status \"404\"` leaves on the accumulator) does
+            NOT reach the wire as a non-int — the materialiser fails closed
+            to a valid 500 Ring response"
+    (let [ring (pipeline/ssr-response->ring-response
+                 {:status "404" :headers [["Content-Type" "text/html"]]}
+                 "<p>x</p>")]
+      (is (integer? (:status ring))
+          "the Ring :status is an integer regardless of accumulator garbage")
+      (is (= 500 (:status ring)) "a non-int status fails closed to 500")))
+  (testing "rf2-v0qbng: a non-integer redirect :status also fails closed"
+    (let [ring (pipeline/ssr-response->ring-response
+                 {:redirect {:status "302" :location "/ok"}} nil)]
+      (is (integer? (:status ring)) "redirect :status is an integer")
+      (is (= 500 (:status ring)) "non-int redirect status → 500")))
+  (testing "rf2-v0qbng: a float status (200.0) is not a valid Ring int → 500"
+    (is (= 500 (:status (pipeline/ssr-response->ring-response
+                          {:status 200.0 :headers []} "x"))))))
+
+(deftest integer-status-passes-through-unchanged
+  (testing "rf2-v0qbng: a genuine integer status is untouched by the
+            fail-closed guard (no false-positive coercion)"
+    (is (= 201 (:status (pipeline/ssr-response->ring-response
+                          {:status 201 :headers []} "x"))))
+    (is (= 302 (:status (pipeline/ssr-response->ring-response
+                          {:redirect {:status 302 :location "/x"}} nil))))
+    (is (= 200 (:status (pipeline/ssr-response->ring-response
+                          {:headers []} "x")))
+        "absent status still defaults to 200")
+    (is (= 302 (:status (pipeline/ssr-response->ring-response
+                          {:redirect {:location "/x"}} nil)))
+        "absent redirect status still defaults to 302")))
+
+(deftest non-string-header-value-coerced-in-materialiser
+  (testing "rf2-v0qbng: a non-string header value on the accumulator (what a
+            soft-passed `:rf.server/set-header {:name \"X-Count\" :value 5}`
+            leaves) is coerced to a string in the emitted Ring header map —
+            the value is never a raw scalar on the wire"
+    (let [ring (pipeline/ssr-response->ring-response
+                 {:status 200 :headers [["X-Count" 5]
+                                        ["X-Flag" true]
+                                        ["X-Kw" :enabled]]}
+                 "<p>x</p>")
+          hdrs (:headers ring)]
+      (is (= "5" (get hdrs "X-Count")) "number → string")
+      (is (= "true" (get hdrs "X-Flag")) "boolean → string")
+      (is (= ":enabled" (get hdrs "X-Kw")) "keyword → string")
+      (is (every? (fn [[_ v]] (or (string? v)
+                                  (and (vector? v) (every? string? v))))
+                  hdrs)
+          "EVERY emitted header value is a string or vector-of-strings"))))
+
+(deftest non-string-redirect-location-coerced-to-string
+  (testing "rf2-v0qbng: a non-string redirect :location (the fx is
+            caller-trusted and `(str loc)` passes its shape gate, so a raw
+            scalar can reach the accumulator) is coerced to a string in the
+            emitted Location header"
+    (let [ring (pipeline/ssr-response->ring-response
+                 {:redirect {:status 302 :location 5}} nil)
+          loc  (get (:headers ring) "Location")]
+      (is (= 302 (:status ring)))
+      (is (string? loc) "the Location header value is a string")
+      (is (= "5" loc) "the non-string target is coerced via str"))))
+
+;; ===========================================================================
 ;; headers->ring-map+default-content-type — POSITIVE default-append +
 ;; nil-content-type paths (the suppression path is covered by
 ;; ring_test/content-type-default-no-duplicate-on-mixed-case)
@@ -212,25 +294,29 @@
                (headers/merge-pair-into-header-map ["Link" "b"])
                (headers/merge-pair-into-header-map ["Link" "c"]))))))
 
-(deftest repeated-non-string-value-does-not-wipe-header-map
-  (testing "rf2-5t8mr.14: a repeated header name whose value is a
-            non-string scalar (the runtime's set/append-header fxs gate
-            CR/LF/NUL but do NOT coerce to string) must collapse into a
-            2-vector via the :else arm — NOT fall through the cond and
-            return nil, which silently wiped the ENTIRE accumulated
-            header map (Content-Type, Set-Cookie, everything)"
-    (is (= {"X-Count" [5 6]}
+(deftest repeated-non-string-value-coerced-and-does-not-wipe-header-map
+  (testing "rf2-v0qbng (was rf2-5t8mr.14): a repeated header name whose value
+            is a non-string scalar (the runtime's set/append-header fxs gate
+            CR/LF/NUL but do NOT coerce to string, and the fx-args :schema
+            soft-passes off the optional schemas classpath) must (a) collapse
+            into a 2-vector via the :else arm — NOT fall through the cond and
+            return nil, which silently wiped the ENTIRE accumulated header
+            map — AND (b) be coerced to its string form so the Ring header
+            value is a vector OF STRINGS, never of raw scalars"
+    (is (= {"X-Count" ["5" "6"]}
            (-> {}
                (headers/merge-pair-into-header-map ["X-Count" 5])
                (headers/merge-pair-into-header-map ["X-Count" 6])))
-        "two non-string values under one name collapse to a vector")
+        "two non-string values under one name collapse to a vector of strings")
     (let [result (headers/headers->ring-map+default-content-type
                    [["X-Count" 5]
                     ["X-Count" 6]
                     ["X-Other" "keep"]]
                    "text/html")]
-      (is (= [5 6] (get result "X-Count"))
-          "the repeated non-string header survives as a 2-vector")
+      (is (= ["5" "6"] (get result "X-Count"))
+          "the repeated non-string header survives as a 2-vector of strings")
+      (is (every? string? (get result "X-Count"))
+          "every member of the multi-value vector is a string (Ring contract)")
       (is (= "keep" (get result "X-Other"))
           "headers folded AFTER the repeat are NOT wiped (no nil-map)")
       (is (= "text/html" (get result "Content-Type"))
@@ -261,15 +347,16 @@
     @traces))
 
 (deftest non-string-header-value-emits-exactly-one-dev-warning
-  (testing "rf2-b0jlr: a non-string header value reaching the fold emits
-            exactly one :warning trace naming the offending key + value-type;
-            the value still folds in (the :else-arm tolerance is unchanged)"
+  (testing "rf2-b0jlr + rf2-v0qbng: a non-string header value reaching the
+            fold emits exactly one :warning trace naming the offending key +
+            value-type; the value folds in COERCED to its string form (the
+            fail-closed coercion — the wire value is always a string)"
     (let [warnings (collect-non-string-header-warnings
                      (fn []
                        (let [result (headers/merge-pair-into-header-map
                                       {} ["X-Count" 5])]
-                         (is (= {"X-Count" 5} result)
-                             "the non-string value still folds in verbatim"))))]
+                         (is (= {"X-Count" "5"} result)
+                             "the non-string value folds in coerced to a string"))))]
       (is (= 1 (count warnings)) "exactly one warning for one non-string value")
       (let [ev   (first warnings)
             tags (:tags ev)]
