@@ -91,11 +91,20 @@ data, so the egress classifies each payload as runtime/captured VALUE
   against the variant frame's declared-`:sensitive?` values for derived
   / non-live trees). This covers the live-state tools' `:app-db` /
   `:rendered-hiccup` / `:snapshot` / evidence slots and assertion
-  records (`preview-variant` / `run-variant` / `read-failures`), AND the
-  non-live value-bearing slots: `explain-variant`'s plan-RESOLVED
-  `:effective-args` / `:args` / `:substitutions` / `:network` /
-  `:db-seed`, and `record-as-variant`'s `:captured` event vectors + the
-  `:play-snippet` text rendered from them. A declared-sensitive value
+  records (`preview-variant` / `run-variant` / `read-failures`),
+  `run-a11y`'s `:violations` (axe-core nodes — the violating element's
+  `:html` outerHTML is rendered runtime DOM that can embed a sensitive
+  value), AND the non-live value-bearing slots: `explain-variant`'s
+  plan-RESOLVED `:effective-args` / `:args` / `:substitutions` /
+  `:network` / `:db-seed` / `:sub-overrides` override values /
+  `:setup-order` + `:script-order` step payloads, and
+  `record-as-variant`'s `:captured` event vectors + the `:play-snippet`
+  text rendered from them. `:sub-overrides` / `:setup-order` /
+  `:script-order` carry resolved arg VALUES (the SAME `substitute-args`
+  that feeds `:substitutions`), so the value-only redaction scrubs the
+  embedded secrets while preserving their public step STRUCTURE — leaving
+  them raw would be a clean bypass of the `:substitutions` scrub
+  (rf2-q8ebq.1). A declared-sensitive value
   cannot cross any of these raw by default. The shared
   `--allow-sensitive-reads` + per-call `:include-sensitive` opt-in is the
   one documented escape hatch (gate closed ⇒ the opt-in is omitted from
@@ -107,10 +116,16 @@ data, so the egress classifies each payload as runtime/captured VALUE
   `list-assertions` enumerations, the markdown render, and the
   `explain` map's plan-STRUCTURE slots (`:source-chain` /
   `:parent-chain` / `:compose` / `:merge` / `:strict-conflicts` /
-  `:setup-order` / `:script-order` / `:tags` / `:platforms` / …). These
+  `:tags` / `:platforms` / …). These
   are registration-time authoring prose, not runtime/user state, so they
   cross unredacted by design — scrubbing them would only degrade the
-  discovery UX without protecting any secret. Registry-wide enumerations
+  discovery UX without protecting any secret. NOTE: `:setup-order` /
+  `:script-order` are NOT in this list — although their step STRUCTURE
+  (which fx ids, in which order) is discovery metadata, `substitute-args`
+  injects resolved arg VALUES into the step payloads at plan-compile
+  time, so the post-substitution sequences are value-bearing and scrubbed
+  (rf2-q8ebq.1). The value-only redaction preserves the public structure
+  while redacting the embedded secrets. Registry-wide enumerations
   (modes, decorators) are not frame-keyed and carry no runtime values;
   their `:args` / `:app-db-patch` / `:response` slots are the author's
   own published fixture data.

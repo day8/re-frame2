@@ -244,23 +244,45 @@
 
 (def ^:private explain-value-bearing-slots
   "The `explain` map slots that carry RUNTIME-RESOLVED / SEEDED VALUES
-  (rf2-12f2q) — the slots a value-redaction step must scrub against the
-  variant frame's declared-sensitive values before the explain payload
-  crosses the AI/off-box boundary:
+  (rf2-12f2q, extended rf2-q8ebq.1) — the slots a value-redaction step
+  must scrub against the variant frame's declared-sensitive values before
+  the explain payload crosses the AI/off-box boundary:
 
   - `:effective-args` / `:args` / `:substitutions` — the post-resolution
     arg map(s); a sensitive arg lands its value here.
   - `:network` — the per-route HTTP reply map (`{[method url] {:reply …}}`)
     the variant authored; a stub reply can carry a real token / PII.
   - `:db-seed` — the frame-setup seed data merged into the run's app-db.
+  - `:sub-overrides` — the view-state subscription override map
+    (`{:overrides {[query] value}}`). Override VALUES are resolved at
+    plan-compile time by the SAME `substitute-args` that feeds
+    `:substitutions` (story plan.cljc:1297), so a declared-sensitive arg
+    pinned into an override value lands here verbatim. `scrub-frame-value`
+    recurses the nested `[:overrides …]` subtree.
+  - `:setup-order` / `:script-order` — the resolved setup / script step
+    sequences. Both run `substitute-args` (story plan.cljc:1263/1269) —
+    the IDENTICAL substitution that feeds the scrubbed `:substitutions` —
+    so a sensitive arg substituted into a setup/script step's payload
+    rides these post-substitution sequences. Scrubbing `:substitutions`
+    while leaving these raw is a clean bypass (the secret leaks via the
+    unscrubbed sibling), so they are scrubbed too (rf2-q8ebq.1).
 
   Every OTHER explain slot is plan-STRUCTURE (source/parent chains,
-  compose lineage, merge rules, strict conflicts, setup/script order,
-  tags, platforms, runner requirements) — author-published discovery
-  metadata that is intentionally public per the threat model
+  compose lineage, merge rules, strict conflicts, tags, platforms, runner
+  requirements) — author-published discovery metadata that is
+  intentionally public per the threat model
   (`spec/015-Data-Classification.md`). See `egress/scrub-frame-value` for
-  the runtime-vs-authored split rationale."
-  [:effective-args :args :substitutions :network :db-seed])
+  the runtime-vs-authored split rationale.
+
+  NOTE on `:setup-order`/`:script-order`: the STEP STRUCTURE (which fx
+  ids, in which order) is discovery metadata, but `substitute-args`
+  injects resolved arg VALUES into the step payloads at plan-compile
+  time, so the post-substitution sequences are value-bearing. The
+  value-only redaction (`scrub-frame-value` replaces only leaves that
+  EQUAL a declared-sensitive value) preserves the public step structure
+  while redacting the embedded secrets."
+  [:effective-args :args :substitutions :network :db-seed
+   :sub-overrides :setup-order :script-order])
 
 (defn- scrub-explain
   "Value-redact the runtime/seeded VALUE slots of an `explain` map against
@@ -297,15 +319,20 @@
 
   Plan-derived data — no run, no live `:app-db` slice. BUT the plan
   RESOLVES author args into runtime VALUES: `:effective-args` /
-  `:substitutions` / `:network` route replies / `:db-seed` can carry a
-  declared-sensitive value (a seeded token, a stubbed PII reply). Those
+  `:substitutions` / `:network` route replies / `:db-seed` /
+  `:sub-overrides` override values / `:setup-order` + `:script-order` step
+  payloads can carry a declared-sensitive value (a seeded token, a stubbed
+  PII reply, a control-driven override, a setup-dispatched secret). Those
   value-bearing slots are value-redacted against the variant frame's
-  declared-sensitive values at egress (rf2-12f2q) via
+  declared-sensitive values at egress (rf2-12f2q, rf2-q8ebq.1) via
   `egress/scrub-frame-value` — the SAME value-based redaction the live
-  tools apply to their derived trees. The plan-STRUCTURE slots
-  (`:source-chain` / `:parent-chain` / `:compose` / `:merge` /
-  `:strict-conflicts` / `:setup-order` / `:script-order` / `:tags` / …)
-  are author-published discovery metadata and pass through unredacted.
+  tools apply to their derived trees. `:sub-overrides` /
+  `:setup-order` / `:script-order` carry resolved arg VALUES (the SAME
+  `substitute-args` that feeds `:substitutions`) so they are scrubbed too;
+  the value-only redaction preserves their public step STRUCTURE. The
+  remaining plan-STRUCTURE slots (`:source-chain` / `:parent-chain` /
+  `:compose` / `:merge` / `:strict-conflicts` / `:tags` / …) are
+  author-published discovery metadata and pass through unredacted.
   The `:extends`-resolved variant body is already public via
   `get-variant` / `variant->edn`; this adds the plan-compiler's
   source/merge/lowering reasoning on top. Pass `:include-sensitive true`

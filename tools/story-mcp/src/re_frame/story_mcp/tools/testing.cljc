@@ -213,17 +213,36 @@
     3. Call this MCP tool to read the violations the panel stored.
 
   When the server is JVM-standalone (no co-hosted CLJS runtime) this
-  returns an empty result with a hint."
+  returns an empty result with a hint.
+
+  ## Wire-egress posture (rf2-q8ebq.2)
+
+  The `:violations` vec is LIVE RUNTIME observed state — the rendered DOM
+  of the variant frame, normalised from axe-core's JS violation objects.
+  Each axe-core violation NODE carries `:html` (the violating element's
+  outerHTML), `:target` (CSS selectors) and `:failureSummary`; a sensitive
+  value rendered into the DOM (`<input value=\"<token>\">`, a `data-*`
+  attribute, a PII text node) lands verbatim in node `:html`. So
+  `:violations` is value-redacted against the variant frame's
+  declared-`:sensitive?` values via `egress/scrub-frame-value` — the SAME
+  value-based redaction `explain-variant` / `record-as-variant` and the
+  live-state tools apply (every Story-MCP payload crosses elided; nothing
+  raw). Fail-closed by default; pass `:include-sensitive true` to opt out
+  (gated by `--allow-sensitive-reads`, per spec/Tool-Pair.md §Direct-read
+  privacy posture). `run-a11y` is `:readOnlyHint true` (agent hosts
+  auto-approve it), so an unscrubbed runtime read here is the wrong shape."
   [arguments]
   (targs/with-variant-id arguments
     (fn [vk]
-      (let [by-frame (try
+      (let [incl?    (targs/include-sensitive? arguments)
+            by-frame (try
                        (when violations-by-frame-var
                          (deref @violations-by-frame-var))
                        (catch Throwable _ nil))
             violations (when by-frame (get by-frame vk))
             payload {:variant-id vk
-                     :violations (vec (or violations []))
+                     :violations (egress/scrub-frame-value
+                                   (vec (or violations [])) vk incl?)
                      :note       (when (nil? by-frame)
                                    "a11y is CLJS-only; this JVM-standalone deploy can't run axe-core. Run the panel in-browser; the violations atom is read by this tool.")}]
         (result/edn-result payload)))))
@@ -346,14 +365,15 @@
 
    {:name           "run-a11y"
     :category       :testing
-    :description    (str "Read axe-core violations for a variant from `re-frame.story.ui.a11y/violations-by-frame`. The actual axe-core run is CLJS-only; this tool returns whatever the in-browser panel has accumulated. "
+    :description    (str "Read axe-core violations for a variant from `re-frame.story.ui.a11y/violations-by-frame`. The actual axe-core run is CLJS-only; this tool returns whatever the in-browser panel has accumulated. The `:violations` vec is LIVE RUNTIME DOM state — each axe-core node carries `:html` (the violating element's outerHTML), `:target` (CSS selectors) and `:failureSummary`, so a sensitive value rendered into the DOM lands verbatim in node `:html`. `:violations` is value-redacted against the variant frame's declared-`:sensitive?` values by default (the same redaction `run-variant` / `explain-variant` apply); pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
                          "Examples: "
                          "1. Clean variant in shared-process deploy: {:variant-id \":story.cart/full\"} -> {:variant-id :story.cart/full :violations [] :note nil}. "
                          "2. Variant with axe-core findings: {:variant-id \":story.form/checkout\"} -> {:variant-id :story.form/checkout :violations [{:id \"label\" :impact \"critical\" :nodes [...]}]}. "
                          "3. JVM-standalone deploy: {:variant-id \":story.cart/full\"} -> {:variant-id :story.cart/full :violations [] :note \"a11y is CLJS-only; this JVM-standalone deploy can't run axe-core...\"}.")
     :typicalTokens  500
     :inputSchema {:type "object"
-                  :properties (s/with-max-tokens {:variant-id s/kw-or-string})
+                  :properties (s/with-max-tokens
+                                (s/with-include-sensitive {:variant-id s/kw-or-string}))
                   :required ["variant-id"]
                   :additionalProperties false}
     :outputSchema s/default-output-schema
