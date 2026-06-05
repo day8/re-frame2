@@ -291,6 +291,7 @@
   {:namespace "re-frame.schemas", :var "frame-schema-entries", :tier :internal-public, :kind :fn, :owner "010", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.schemas", :var "on-frame-destroyed!", :tier :internal-public, :kind :fn, :owner "010", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.schemas", :var "printer-fn", :tier :internal-public, :kind :var, :owner "010", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.schemas", :var "redact-event-tags", :tier :internal-public, :kind :fn, :owner "010", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.schemas", :var "reg-app-schema", :tier :internal-public, :kind :fn, :owner "010", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.schemas", :var "reg-app-schemas", :tier :internal-public, :kind :fn, :owner "010", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.schemas", :var "reset-schema-validator!", :tier :advanced, :kind :fn, :owner "010", :status "v1", :facade? false, :runtime-verified? true}
