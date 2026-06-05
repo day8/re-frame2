@@ -249,9 +249,31 @@
   stories.cljs that won't load) fails here too rather than shipping
   green (rf2-5v619, G1).
 
+  ## :advanced release build (rf2-jdj17.2)
+
+  When the optional `release?` opt is true, the variant ALSO runs
+  `clojure -M:shadow release app` — a `:advanced`/Closure-optimised
+  compile — after the dev compile+run. NO other gate anywhere compiles
+  the generated app under `:advanced`: every other template compile is
+  dev `:none` (this fn's `compile app test`, the generated ci.yml's
+  `compile test`), so `:advanced`-only failures (Closure DCE, externs,
+  `^:export` munging, `:closure-define` elision) first hit a newcomer's
+  `npm run release`. The release tier asserts exit 0, a non-empty
+  release bundle (`resources/public/js/main.js`), and the cut-from-
+  release invariant: the dev-only `:devtools/preloads
+  [day8.re-frame2-xray.preload]` is stripped from the release build, so
+  the Xray preload ns must NOT appear in the optimised bundle. It is
+  caller-gated to the Reagent variants (default + with-story) — the
+  `:advanced`-specific risks (Story `:closure-define` elision lives in
+  the Reagent with-story scaffold; the `:app` module + `^:export init`
+  shape is substrate-invariant) are exercised there without paying the
+  ~30–60 s `:advanced` cost on all four variants.
+
   Caller is responsible for the env-var gate — this fn always runs."
   ([substrate] (compile-and-run-emitted-test! substrate false))
   ([substrate include-story?]
+   (compile-and-run-emitted-test! substrate include-story? {}))
+  ([substrate include-story? {:keys [release?] :or {release? false}}]
    (let [root  (repo-root)
          label (variant-label substrate include-story?)
          ;; Compile both the `:app` (:browser) build — the only build that
@@ -313,7 +335,59 @@
                    (is (re-find #"Ran \d+ tests? containing \d+ assertions" out)
                        (str "expected 'Ran N tests' summary line in output. Got:\n" out))
                    (is (re-find #"0 failures, 0 errors" out)
-                       (str "expected '0 failures, 0 errors' line in output. Got:\n" out))))))))
+                       (str "expected '0 failures, 0 errors' line in output. Got:\n" out))))))
+
+           ;; --- :advanced release build (rf2-jdj17.2) -----------------------
+           ;; No other gate compiles the generated app under :advanced —
+           ;; every other template compile is dev :none. Run
+           ;; `clojure -M:shadow release app` so an :advanced-only failure
+           ;; (Closure DCE/externs, ^:export munging, :closure-define
+           ;; elision) is caught here rather than on a newcomer's first
+           ;; `npm run release`. The :browser (:app) compile ignores
+           ;; NODE_PATH, so the project-local node_modules symlink/junction
+           ;; (`linked?`) is the same hard requirement as the dev compile.
+           (when release?
+             (testing (str label " — clojure -M:shadow release app (:advanced)")
+               (let [{:keys [exit out]}
+                     (run-process! ["clojure" "-M:shadow" "release" "app"]
+                                   proj env-overrides)]
+                 (is (zero? exit)
+                     (str "`clojure -M:shadow release app` exited " exit
+                          " for " label ". An :advanced-only break "
+                          "(Closure DCE/externs, ^:export munging, "
+                          ":closure-define elision) ships green from the "
+                          "dev :none compile and surfaces only on a "
+                          "newcomer's `npm run release`. Output:\n" out))
+                 ;; The :app module is :main, so the optimised bundle lands
+                 ;; at resources/public/js/main.js. A zero-exit with an
+                 ;; empty/absent bundle would false-green.
+                 (let [release-bundle (io/file proj "resources/public/js/main.js")]
+                   (is (and (.isFile release-bundle)
+                            (pos? (.length release-bundle)))
+                       (str "`shadow release app` must emit a non-empty "
+                            "resources/public/js/main.js for " label
+                            ". Bundle: "
+                            (if (.isFile release-bundle)
+                              (str (.length release-bundle) " bytes")
+                              "absent")))
+                   ;; Cut-from-release invariant: :devtools/preloads
+                   ;; [day8.re-frame2-xray.preload] is dev-only and stripped
+                   ;; from release. The Xray preload ns must not appear in
+                   ;; the optimised bundle (mangled goog ns segments survive
+                   ;; verbatim in shadow's :advanced output for top-level
+                   ;; provides). Guards against a regression that wires Xray
+                   ;; into release or whose dev/release split misfires.
+                   (when (.isFile release-bundle)
+                     (let [bundle-text (slurp release-bundle)]
+                       (is (not (string/includes?
+                                  bundle-text
+                                  "day8.re_frame2_xray.preload"))
+                           (str "Xray preload ns must be CUT from the "
+                                ":advanced release bundle for " label
+                                " (:devtools/preloads is dev-only). Found "
+                                "'day8.re_frame2_xray.preload' in "
+                                "resources/public/js/main.js — the "
+                                "cut-from-release invariant is broken."))))))))))
        (finally
          (delete-recursively tmp))))))
 
@@ -331,7 +405,14 @@
 ;; --- Tests -----------------------------------------------------------------
 
 (deftest reagent-emitted-tests-run-test
-  (testing "the emitted Reagent app's events_test.cljs compiles + runs green"
+  ;; rf2-jdj17.2 — the Reagent default variant also runs the :advanced
+  ;; release build (`release? true`). The `:app` module + `^:export init`
+  ;; shape is substrate-invariant, so the default Reagent variant is the
+  ;; canonical place to assert the release path compiles green and the
+  ;; dev-only Xray preload is cut from the optimised bundle, without
+  ;; paying the :advanced cost on UIx + Helix too.
+  (testing "the emitted Reagent app's events_test.cljs compiles + runs green
+            and the :advanced release build is clean"
     (if-not @enabled?
       (skip-if-disabled! :reagent)
       (do (is @clojure-cli-available?
@@ -339,7 +420,7 @@
           (is @node-available?
               "`node` must be on PATH when RF2_TEMPLATE_RUN_EMITTED_TESTS=1")
           (when (and @clojure-cli-available? @node-available?)
-            (compile-and-run-emitted-test! :reagent))))))
+            (compile-and-run-emitted-test! :reagent false {:release? true}))))))
 
 (deftest uix-emitted-tests-run-test
   (testing "the emitted UIx app's events_test.cljs compiles + runs green"
@@ -372,8 +453,22 @@
   ;; re-frame.story + the stories ns), `deps_with_story.edn`, and
   ;; `stories.cljs` are all on the compile classpath — a broken
   ;; with-story compile fails the build before `node` ever runs.
+  ;;
+  ;; rf2-jdj17.2 — the with-story variant ALSO runs the :advanced release
+  ;; build (`release? true`). This is where the Story `:closure-define`
+  ;; elision risk lives: core_with_stories.cljs documents the
+  ;; `:closure-defines {re-frame.story.config/enabled? false}` elision,
+  ;; and a regression that makes the elided `:advanced` build fail to
+  ;; compile (a reg-* macro that won't elide cleanly, a dead-code path
+  ;; Closure rejects) ships green from the dev :none compile. NB the
+  ;; template does NOT set that closure-define by default — `enabled?`
+  ;; defaults true — so this tier asserts the release build COMPILES
+  ;; (and the Xray preload is cut), not that Story body code is elided;
+  ;; Story-body-elision is a documented opt-in (flip the closure-define),
+  ;; not the default scaffold's invariant.
   (testing "the emitted with-story Reagent app compiles (story scaffold
-            on the classpath) + events_test.cljs runs green"
+            on the classpath) + events_test.cljs runs green + the
+            :advanced release build is clean"
     (if-not @enabled?
       (skip-if-disabled! "reagent-with-story")
       (do (is @clojure-cli-available?
@@ -381,4 +476,4 @@
           (is @node-available?
               "`node` must be on PATH when RF2_TEMPLATE_RUN_EMITTED_TESTS=1")
           (when (and @clojure-cli-available? @node-available?)
-            (compile-and-run-emitted-test! :reagent true))))))
+            (compile-and-run-emitted-test! :reagent true {:release? true}))))))
