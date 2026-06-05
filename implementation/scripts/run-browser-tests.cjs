@@ -39,20 +39,28 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// rf2-mwx08: capture the `ran` + `failErr` lines as an ATOMIC pair from
+// a single source. summaryPartsFromText now only ever yields a non-null
+// `failErr` together with the `Ran ...` line it directly follows, so the
+// failure verdict can never be assembled from a `ran` line in one source
+// and a noise-shaped `failures, errors` line in another. We lock the
+// summary the moment ONE source produces a complete pair. The `ran`-only
+// half is still remembered (best-effort, for a meaningful timeout
+// message) but never combined cross-source into a green verdict.
 function rememberSummary(summary, hit, sourceName) {
-  if (hit.ran && !summary.ran) {
+  if (hit.ran && hit.failErr) {
+    summary.ran = hit.ran;
+    summary.failErr = hit.failErr;
+    summary.ranSource = sourceName;
+    summary.failErrSource = sourceName;
+    summary.source = sourceName;
+    return true;
+  }
+  // Partial: a `Ran ...` line with no failures/errors pair yet. Keep it
+  // for diagnostics only — do NOT pair it with any prior `failErr`.
+  if (hit.ran && !summary.failErr) {
     summary.ran = hit.ran;
     summary.ranSource = sourceName;
-  }
-  if (hit.failErr && !summary.failErr) {
-    summary.failErr = hit.failErr;
-    summary.failErrSource = sourceName;
-  }
-  if (summary.ran && summary.failErr) {
-    summary.source = summary.ranSource === summary.failErrSource
-      ? summary.ranSource
-      : `${summary.ranSource}; ${summary.failErrSource}`;
-    return true;
   }
   return false;
 }
@@ -87,6 +95,12 @@ async function main() {
     // Capture every console line so we can scan for the cljs.test summary.
     // Flush the buffer only on failure or RF2_VERBOSE_TESTS=1.
     const consoleLines = [];
+    // rf2-mwx08: track uncaught browser/runtime exceptions SEPARATELY from
+    // console noise. A green cljs.test summary must NOT exit 0 if Chromium
+    // observed an uncaught `pageerror` (a real runtime regression the
+    // suite happened not to assert on). Console output stays diagnostic-
+    // only; only `pageerror` is fatal. Mirrors the rf2-wf5al fix.
+    const pageErrors = [];
     diagnostics.add(`URL: ${URL}`);
     page.on('console', (msg) => {
       const text = msg.text();
@@ -94,6 +108,7 @@ async function main() {
       diagnostics.add(`[browser:${msg.type()}] ${text}`);
     });
     page.on('pageerror', (err) => {
+      pageErrors.push(err.stack || err.message);
       diagnostics.add(`[browser:pageerror] ${err.message}`, 'stderr');
       if (err.stack) diagnostics.add(err.stack, 'stderr');
     });
@@ -162,6 +177,20 @@ async function main() {
     }
 
     if (counts.failures > 0 || counts.errors > 0) {
+      printSummaryDetails(summary);
+      flushDiagnostics(diagnostics);
+      return 1;
+    }
+
+    // rf2-mwx08: even a green cljs.test summary fails the run if Chromium
+    // observed an uncaught `pageerror`. The suite may simply not assert on
+    // the regression that threw; a passing summary is necessary but not
+    // sufficient for a green verdict.
+    if (pageErrors.length > 0) {
+      console.error(
+        `cljs.test summary was green, but the browser emitted ` +
+          `${pageErrors.length} uncaught pageerror(s) — failing the run (rf2-mwx08).`,
+      );
       printSummaryDetails(summary);
       flushDiagnostics(diagnostics);
       return 1;
