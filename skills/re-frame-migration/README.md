@@ -12,8 +12,9 @@ This is the **migration** companion to the main [`re-frame2`](../re-frame2/) ski
 
 ## What it covers
 
-The six-phase migration workflow:
+A pre-flight floor gate plus a six-phase migration workflow:
 
+0. **Pre-flight — the React-19 / Reagent-2 floor gate** — before any dep edit, audit downstream React-coupled deps, confirm the UI component library has a React-19 (Reagent-2 if Reagent-based) release, scan for legacy `ReactDOM.render` call sites, and make an explicit go/no-go. A component library with no React-19 build is a hard blocker surfaced here, not mid-compile.
 1. **Orient** — read the project's dep file; identify the substrate; skim `migration/from-re-frame-v1/README.md` for the rule index.
 2. **Bump (M-0)** — swap `re-frame/re-frame` for `day8/re-frame2` + a substrate-adapter artefact. **Try a compile.** Most codebases require nothing more.
 3. **Sweep** — if Phase 2 surfaced failures, walk the M-rules in order. Apply Type A (mechanical) without asking; flag Type B (judgment-call) for the author.

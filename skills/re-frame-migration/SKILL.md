@@ -57,7 +57,9 @@ Exit this skill when the project compiles, tests pass, and Type B items have bee
 
 ## The migration workflow
 
-Six phases. Each links to a leaf for the detail; the SKILL.md carries only the workflow shape.
+A pre-flight gate plus six phases. Each links to a leaf for the detail; the SKILL.md carries only the workflow shape.
+
+**Phase 0 — Pre-flight: the React-19 / Reagent-2 floor gate (run before any dep edit).** re-frame2's substrate adapters target React 19 (the Reagent bridge runs on Reagent 2.x). For a project already on React 19 with a React-19-ready component library this is a fast pass; for the rest of the v1 population (React 17/18 + Reagent 1.x) it is the single largest and riskiest part of the migration, and the blocking case must be discovered *here* — not deep inside a failed compile loop after the coord swap. Run four checks before touching any dep coord: (1) **downstream React-lib compat audit** — enumerate `package.json` deps with a `react`/`react-dom` peer dependency and bucket each as React-19-ready / needs-bump / needs-replacement; (2) **component/substrate-library check** — confirm the project's UI component library has a React-19 (and, if Reagent-based, Reagent-2) release — **if it does not, STOP: this is a go/no-go BLOCKER, surface it to the author before any edit**; (3) **legacy-API scan** — flag surviving `ReactDOM.render` / `react-dom` legacy call sites (removed in React 18, still gone in 19) for the `createRoot` rewrite; (4) **explicit go/no-go** — GO carries the React/Reagent bump into M-0; NO-GO stops the migration until the blocker resolves. → [`references/setup.md`](references/setup.md#the-react-19--reagent-2-floor-gate-pre-flight--run-before-m-0) for the full gate. This is a gate, not a footnote — clear it before Phase 1.
 
 **Phase 1 — Orient.** Read the project's dep file (`deps.edn` / `project.clj` / `shadow-cljs.edn` / `bb.edn`), then [`MIGRATION.md`](../../migration/from-re-frame-v1/README.md) Part 1, then the project's test-suite shape. → [`references/setup.md`](references/setup.md) for the M-0 dep swap.
 
@@ -82,10 +84,11 @@ If the project's dev deps hold `day8.re-frame/re-frame-10x` (the v1 devtools pan
 
 ## Kickoff (paste-ready)
 
-For delegating the migration to a fresh Claude session: [`references/kickoff-prompt.md`](references/kickoff-prompt.md). The author drops it into a session opened in the root of their v1 project; the session loads this skill and walks the six phases, surfacing Type B checkpoints.
+For delegating the migration to a fresh Claude session: [`references/kickoff-prompt.md`](references/kickoff-prompt.md). The author drops it into a session opened in the root of their v1 project; the session loads this skill and walks the pre-flight gate plus six phases, surfacing Type B checkpoints.
 
 ## Done checklist
 
+- [ ] React-19 / Reagent-2 floor gate cleared (Phase 0): downstream React-lib compat audited, component-library React-19 build confirmed (or the blocker resolved/the migration held), legacy `ReactDOM.render` call sites flagged, go/no-go recorded.
 - [ ] `re-frame/re-frame` removed from every dep file; `day8/re-frame2` + adapter at a matching VERSION.
 - [ ] Project compiles cleanly with re-frame2 on the classpath.
 - [ ] Every tripped M-rule has been applied (Type A) or resolved by the author (Type B).

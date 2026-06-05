@@ -1,9 +1,10 @@
 # setup
 
-Operational detail for **M-0 — the dep-coord swap**. This is the precondition for every other rule. Apply this leaf's content first; verify the project compiles; *then* sweep for breakage.
+Operational detail for two early steps: the **React-19 / Reagent-2 floor gate** (the pre-flight that runs *before* any dep edit) and **M-0 — the dep-coord swap** (the precondition for every other rule). Clear the gate first; then apply the coord swap; then verify the project compiles; *then* sweep for breakage.
 
 ## Contents
 
+- The React-19 / Reagent-2 floor gate (pre-flight — run before M-0)
 - The coord swap (M-0)
 - Per-build-tool shapes
 - Picking the substrate-adapter artefact
@@ -13,11 +14,49 @@ Operational detail for **M-0 — the dep-coord swap**. This is the precondition 
 
 ---
 
-## The coord swap (M-0)
+## The React-19 / Reagent-2 floor gate (pre-flight — run before M-0)
 
-### Prerequisites — JS-level deps
+> **This is a go/no-go gate, not a footnote.** Run all four checks below *before* you touch any dep coord. For a codebase already on React 19 it is a fast pass — read the four checks, confirm each, move on. For the rest of the v1 population (overwhelmingly React 17/18 + Reagent 1.x) this gate is the single largest and riskiest part of the whole migration, and the blocking case (check 2) must be discovered here — not deep inside a failed compile loop after the coord swap.
 
-**React 19 is the only supported floor for `day8/re-frame2-reagent`.** The Reagent bridge adapter targets Reagent 2.x, which ships against React 19; Reagent 1.x is no longer supported. The bridge loads `reagent.dom.client` (the `createRoot` path); if the project's `package.json` pins `react`/`react-dom` to 17 or 18, the build either fails at module-resolve time or succeeds and crashes on first render against React-19-only API surfaces. If your `package.json` pins `react` 17 or 18, bump to `^19` in the same M-0 pass:
+**Why this comes first.** re-frame2's substrate adapters target React 19. The `day8/re-frame2-reagent` bridge runs on Reagent 2.x, which ships against React 19 (it loads `reagent.dom.client` — the `createRoot` path); Reagent 1.x is no longer supported. UIx and Helix hit the same floor — all three substrates target React 19. So a v1 codebase on React 17/18 must clear a forced React → 19 (and, for Reagent, Reagent → 2.x) upgrade *and the cascade it drags in* — the component library, React-coupled JS deps, and any hand-rolled render call site — before the coord swap can succeed. If `package.json` still pins `react`/`react-dom` to 17 or 18 when the swap lands, the build either fails at module-resolve time or compiles and then crashes on first render against React-19-only API surfaces.
+
+The four checks, in order:
+
+### Check 1 — Downstream React-lib compatibility audit
+
+Enumerate every `package.json` dependency that declares a `react` or `react-dom` **peer dependency** — these are the JS libraries that will break if React's major version moves under them. Typical culprits in a view-heavy app: animation, toast/notification, portal/modal, drag-and-drop, virtualised-list, date-picker, and chart libraries.
+
+For each one, check its current React-19 support (its published `peerDependencies` range, its release notes, or its changelog). Produce a list with three buckets:
+
+- **Already React-19-compatible** — peer range admits `19` (e.g. `^18 || ^19`, `>=18`). No action.
+- **Needs a bump** — a newer release of the *same* library supports React 19. Note the target version.
+- **Needs a replacement / has no React-19 release** — the library is abandoned or has not shipped React-19 support. This is a blocker dimension; surface it to the author for a decision (upgrade path, replacement library, or hold the migration).
+
+You can list the peer-dependency declarations with a read-only search over the lockfile / installed packages — e.g. `rg -l '"react"' node_modules/*/package.json` (or the package manager's own `why`/`ls` for `react`). The skill enumerates and reports; the **author** runs any `npm install` / upgrade command (cardinal rule 10).
+
+### Check 2 — Component / substrate-library check (the go/no-go BLOCKER)
+
+If the project leans on a **UI component library** — any Reagent-based or React-based component kit (a design-system wrapper, a Reagent component suite, a React component library consumed from CLJS) — confirm it has a release compatible with **React 19** (and, if it is a Reagent component lib, **Reagent 2.x**).
+
+- If it does: note the target version; it joins the Check-1 bump list.
+- **If it does not: STOP. This is a go/no-go blocker.** Do not touch any dep coord. Surface it to the operator/author as an explicit decision: wait for a React-19 release of the component library, replace it, vendor/patch it, or hold the migration. A Reagent component library with no Reagent-2 / React-19 build cannot be carried across the floor, and discovering that *after* the coord swap means unwinding a half-migrated tree. Discover it here.
+
+This is the one check most likely to turn a "cheap coord swap" into a multi-week project — which is exactly why it runs before any edit.
+
+### Check 3 — Legacy React-API scan
+
+Scan the source for surviving hand-rolled React-DOM **legacy** call sites — chiefly `ReactDOM.render` (and `ReactDOM.hydrate` / `ReactDOM.unmountComponentAtNode`). These were removed in React 18 and remain gone in React 19; any survivor must migrate to the `createRoot` API (`react-dom/client`) in the same pass.
+
+Most v1 codebases route their root mount through Reagent and never call `ReactDOM.render` directly, so this is usually empty — but a flag here, found pre-flight, is far cheaper than a runtime crash. A read-only search such as `rg -n 'ReactDOM\.(render|hydrate|unmountComponentAtNode)'` over the source tree surfaces them; flag each for the author.
+
+### Check 4 — Explicit go / no-go
+
+Decide and record the gate outcome before proceeding:
+
+- **GO** — React already at 19 (or cleanly bumpable), and every Check-1/Check-2 library has a React-19-compatible target, and Check-3 is empty or its call sites are slated for the `createRoot` rewrite. Carry the React/Reagent bump and any component-lib bumps into the M-0 pass below, then continue. (For a project already on React 19 with a React-19-ready component library, this is the fast path — the gate adds minutes, not weeks.)
+- **NO-GO** — any Check-2 component library (or a load-bearing Check-1 dep) has no React-19 release. **Stop here.** Do not edit any dep coord. Report the blocker and the options to the author; the migration resumes once the blocker is resolved.
+
+**The React/Reagent bump itself**, once the gate is GO. If `package.json` pins `react`/`react-dom` to 17 or 18, bump both to `^19` (Reagent users are simultaneously on Reagent 2.x — that rides in via the `day8/re-frame2-reagent` adapter, not a separate `package.json` pin unless the project pins Reagent directly):
 
 ```json
 "dependencies": {
@@ -26,9 +65,13 @@ Operational detail for **M-0 — the dep-coord swap**. This is the precondition 
 }
 ```
 
-Then `npm install` (or the project's package manager equivalent) before the first dev build. UIx and Helix users hit the same floor — all three substrates target React 19 — so the bump applies regardless of substrate. If the project is already on React 19, leave it alone; do not downgrade.
+The author then runs `npm install` (or the project's package-manager equivalent) before the first dev build. If the project is already on React 19, leave it alone; do not downgrade.
 
-If the v1 codebase has its own hand-rolled `ReactDOM.render` call surviving anywhere (rare; usually wrapped by Reagent), flag it — `ReactDOM.render` was removed in React 18 and is still gone in React 19; that call site needs to migrate to `createRoot` in the same pass. Most v1 codebases route through Reagent and never see this.
+---
+
+## The coord swap (M-0)
+
+Run this only after the React-19 floor gate above returns **GO**. The dep-coord swap and the React/Reagent bump land in the same M-0 pass.
 
 ### The swap itself
 
