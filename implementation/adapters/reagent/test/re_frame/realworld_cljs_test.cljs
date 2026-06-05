@@ -697,6 +697,84 @@
     (is (nil? (get-in (rf/app-db-value f) [:auth :return-to]))
         ":auth/post-login-redirect clears the :return-to slot")))
 
+(defn- auth-guard-all-access-paths-test []
+  ;; rf2-mzqd4.3 — the guard must FAIL CLOSED on EVERY navigation entry
+  ;; point, not just the programmatic `:rf.route/navigate` the navbar
+  ;; uses. Pre-fix the guard gated only `:rf.route/navigate`, so a
+  ;; logged-out user reaching a `:requires-auth` route via the MOST
+  ;; common access path — a direct URL / reload (`:rf.route/handle-url-
+  ;; change`) or an anchor click (`:rf/url-requested`) — bypassed the
+  ;; guard and landed on the protected page (fail OPEN). These cases
+  ;; assert all three paths now redirect to login.
+
+  ;; --- direct-URL / reload / popstate (`:rf.route/handle-url-change`) ---
+  (with-new-frame [f (rf/make-frame {:on-create    [:app/initialise]
+                                 :interceptors [routing/auth-guard]})]
+    ;; Logged-out direct URL (or reload) to a :requires-auth route.
+    (rf/dispatch-sync [:rf.route/handle-url-change "/settings"] {:frame f})
+    (is (= :realworld.auth/login (rf/compute-sub [:rf.route/id] (rf/app-db-value f)))
+        "logged-out direct-URL/reload to a :requires-auth route redirects to login")
+    (is (= {:id :realworld.user/settings :params {}}
+           (get-in (rf/app-db-value f) [:auth :return-to]))
+        "the direct-URL redirect stashes the original target for bounce-back")
+
+    ;; Editor route via direct URL with path params is also gated, and
+    ;; the stash carries the params.
+    (rf/dispatch-sync [:rf.route/handle-url-change "/editor/my-slug"] {:frame f})
+    (is (= :realworld.auth/login (rf/compute-sub [:rf.route/id] (rf/app-db-value f)))
+        "logged-out direct-URL to a :requires-auth editor route redirects to login")
+    (is (= {:id :realworld.editor/edit :params {:slug "my-slug"}}
+           (get-in (rf/app-db-value f) [:auth :return-to]))
+        "the editor direct-URL redirect stashes id + params for bounce-back")
+
+    ;; A non-auth route via direct URL is unaffected.
+    (rf/dispatch-sync [:rf.route/handle-url-change "/profile/eve"] {:frame f})
+    (is (= :realworld.profile/show (rf/compute-sub [:rf.route/id] (rf/app-db-value f)))
+        "logged-out direct-URL to a non-auth route is unaffected"))
+
+  ;; --- anchor click (`:rf/url-requested`) ---
+  (with-new-frame [f (rf/make-frame {:on-create    [:app/initialise]
+                                 :interceptors [routing/auth-guard]})]
+    ;; An anchor whose href targets a :requires-auth route. The
+    ;; framework `rf/route-link` dispatches `:rf/url-requested` with the
+    ;; resolved url + :to route-id.
+    (rf/dispatch-sync [:rf/url-requested {:url "/settings"
+                                          :to  :realworld.user/settings}]
+                      {:frame f})
+    (is (= :realworld.auth/login (rf/compute-sub [:rf.route/id] (rf/app-db-value f)))
+        "logged-out anchor click to a :requires-auth route redirects to login")
+    (is (= {:id :realworld.user/settings :params {}}
+           (get-in (rf/app-db-value f) [:auth :return-to]))
+        "the anchor redirect stashes the original target for bounce-back")
+
+    ;; A url-only request (no :to) still gates via match-url resolution.
+    (rf/dispatch-sync [:rf/url-requested {:url "/editor"}] {:frame f})
+    (is (= :realworld.auth/login (rf/compute-sub [:rf.route/id] (rf/app-db-value f)))
+        "logged-out url-only anchor to a :requires-auth route redirects to login")
+
+    ;; A non-auth anchor is unaffected.
+    (rf/dispatch-sync [:rf/url-requested {:url "/profile/eve"
+                                          :to  :realworld.profile/show
+                                          :params {:username "eve"}}]
+                      {:frame f})
+    (is (= :realworld.profile/show (rf/compute-sub [:rf.route/id] (rf/app-db-value f)))
+        "logged-out anchor to a non-auth route is unaffected"))
+
+  ;; --- authenticated: every entry point now PASSES through ---
+  (with-new-frame [f (rf/make-frame {:on-create    [:app/initialise]
+                                 :interceptors [routing/auth-guard]})]
+    (rf/dispatch-sync [:auth/store-session {:username "eve" :token "t"}] {:frame f})
+    ;; direct-URL / reload to a guarded route proceeds when logged in.
+    (rf/dispatch-sync [:rf.route/handle-url-change "/settings"] {:frame f})
+    (is (= :realworld.user/settings (rf/compute-sub [:rf.route/id] (rf/app-db-value f)))
+        "authenticated direct-URL to a :requires-auth route proceeds")
+    ;; anchor click to a guarded route also proceeds when logged in.
+    (rf/dispatch-sync [:rf/url-requested {:url "/settings"
+                                          :to  :realworld.user/settings}]
+                      {:frame f})
+    (is (= :realworld.user/settings (rf/compute-sub [:rf.route/id] (rf/app-db-value f)))
+        "authenticated anchor click to a :requires-auth route proceeds")))
+
 ;; ============================================================================
 ;; ssr — `hydration-payload` selects the SSR-safe slice keys
 ;; ============================================================================
@@ -794,7 +872,9 @@
   (testing "navigate, handle-url-change, query, and not-found all resolve"
     (routing-tests))
   (testing "auth-guard redirects unauthenticated nav to :requires-auth routes (Spec 012)"
-    (auth-guard-test)))
+    (auth-guard-test))
+  (testing "auth-guard fails CLOSED on direct-URL / anchor / reload entry points (rf2-mzqd4.3)"
+    (auth-guard-all-access-paths-test)))
 
 (deftest realworld-ssr
   (testing "hydration-payload selects the SSR-safe slice keys"
