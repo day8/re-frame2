@@ -123,6 +123,8 @@ Verification — run `discover-app` (the MCP tool `mcp__re-frame2-pair__discover
 
 Report the hint to the user verbatim — they can fix it in seconds without re-cloning anything.
 
+**Registering the MCP server takes a fresh session, not `--continue` (rf2-646lr).** Wiring `@day8/re-frame2-pair-mcp` into the agent host (`claude mcp add`, or editing `settings.json`) only takes effect in sessions that **start** afterwards. A session resumed with `claude --continue` will not surface the re-frame2-pair tools even though `claude mcp list` reports the server `Connected` — exit and start a new session (`claude --resume`, or a plain new `claude`) after registering the server. This is agent-host behaviour, not a server flag; the same applies after pulling MCP source changes and rebuilding `out/server.js`.
+
 ---
 
 ## Cardinal rule — two modes of changing the app
@@ -167,7 +169,7 @@ This locates the shadow-cljs nREPL port, connects, switches the session to `:clj
 - `:fresh` — runtime connected, heartbeat recent, build not recompiled since load. Read away.
 - `:stale-build` — the tab is serving OLD code (a recompile landed the runtime never picked up). The `:hint` tells the user the exact URL to reload.
 - `:no-runtime` — no live CLJS runtime is connected (WS dropped, no tab open) — reads will come back blank. The `:hint` names the exact `http://localhost:<port>` to reload, then "re-run discover-app".
-- `:unknown` — the JVM-side build-worker state couldn't be read even after a retry. **This is not a green light.** The `:hint` is actionable: reload the named URL if reads come back blank, and if it stays `:unknown`, restart `shadow-cljs watch <build>` — the build worker isn't answering.
+- `:unknown` — the JVM-side build-worker state couldn't be read even after a retry, so stale-build detection is blind (reads may still work). **This is not a green light.** The dominant cause is **multiple / zombie shadow-cljs JVMs** — a `Ctrl-C`'d watch that didn't free its ports left an orphan JVM, and the socket reached a runtime whose build worker is in a *different* JVM. The `:hint` is actionable: relay it to the user, who should run `npx shadow-cljs stop` (frees the orphan ports a bare `Ctrl-C` leaves held), start exactly **one** `shadow-cljs watch <build>`, reload the tab, and re-run discover-app to confirm `:fresh`.
 
 You **cannot reload a browser yourself** — so when the verdict is non-`:fresh`, relay the `:freshness :hint` to the user as the single next step rather than firing reads that will return blank.
 

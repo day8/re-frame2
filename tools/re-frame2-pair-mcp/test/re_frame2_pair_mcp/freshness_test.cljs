@@ -224,6 +224,27 @@
                 "names the watch restart as the escalation")
             (done))))))
 
+(deftest unknown-hint-diagnoses-the-zombie-shadow-case
+  ;; rf2-646lr field report: discover-app stayed :liveness :unknown for an
+  ;; entire session because MULTIPLE / ZOMBIE shadow-cljs JVMs held the
+  ;; ports — reads worked (the socket reached a runtime) but the build
+  ;; worker lived in a different JVM, so the worker lookup missed. The
+  ;; :unknown hint must NAME that case and recommend the `npx shadow-cljs
+  ;; stop` → single-watch remediation that actually frees the orphan ports.
+  (async done
+    (-> (with-jvm-half! nil ; nil JVM half ⇒ :unknown
+          (fn [] (fresh/assemble nil :examples/machine-epochs browser-half {:port 8033})))
+        (.then
+          (fn [token]
+            (is (= :unknown (:liveness token)))
+            (is (re-find #"(?i)zombie" (:hint token))
+                "names the multiple/zombie-shadow case as the dominant cause")
+            (is (re-find #"npx shadow-cljs stop" (:hint token))
+                "recommends the remediation that frees the orphan ports")
+            (is (re-find #"(?i)one" (:hint token))
+                "tells the operator to start exactly ONE watch")
+            (done))))))
+
 (deftest unknown-hint-degrades-to-build-name-without-a-port
   (async done
     (-> (with-jvm-half! nil
