@@ -27,9 +27,13 @@ different substrate.
 
 ## Why this shape
 
-The smoke-test pair for the Helix adapter per [Spec 006 §Adapter
-shipping convention Decision 7](../../../spec/006-ReactiveSubstrate.md).
-Pair with [`examples/reagent/counter/`](../../reagent/counter/) and
+This example is the counter half of the Helix **smoke-test subset** —
+counter + login — per [Spec 006 §CLJS reference: Helix as alternative
+substrate Decision 7](../../../spec/006-ReactiveSubstrate.md#cljs-reference-helix-as-alternative-substrate).
+That pair is what confirms the Helix adapter implements the substrate
+contract; `process_monitor_helix` is a documented design-led example
+alongside it, not part of the Decision-7 smoke subset. Pair with
+[`examples/reagent/counter/`](../../reagent/counter/) and
 [`examples/uix/counter_uix/`](../../uix/counter_uix/) to see the
 substrate boundary cleanly.
 

@@ -7,7 +7,7 @@
 
 ## Layout — grouped by substrate
 
-Examples are organised under per-substrate top-level directories. Reagent is the canonical substrate; UIx and Helix each ship a curated smoke-test subset (counter + login) rather than a 1:1 mirror.
+Examples are organised under per-substrate top-level directories. Reagent is the canonical substrate; UIx and Helix each ship a curated set rather than a 1:1 mirror — the **Decision-7 smoke-test subset is counter + login**, plus one design-led example per non-canonical substrate (dashboard for UIx, process-monitor for Helix) that is a documented build but not part of the smoke subset.
 
 ```
 examples/
@@ -42,14 +42,14 @@ examples/
     login/
   reagent-slim/                         <-- day8/reagent-slim substrate (its own adapter)
     counter_slim_and_fast/              <-- same dataflow, mounted on day8/reagent-slim
-  uix/                                  <-- UIx adapter examples (counter + login + dashboard)
+  uix/                                  <-- UIx adapter examples (smoke subset counter + login; dashboard documented-not-smoke)
     counter_uix/                        <-- folder name carries the namespace suffix so it
     login_uix/                              doesn't collide with reagent/{counter,login}/ on the classpath
-    dashboard_uix/
-  helix/                                <-- Helix adapter examples (counter + login + process-monitor)
+    dashboard_uix/                      <-- design-led example; documented build, not part of the smoke subset
+  helix/                                <-- Helix adapter examples (smoke subset counter + login; process-monitor documented-not-smoke)
     counter_helix/                      <-- folder name carries the namespace suffix so it
     login_helix/                            doesn't collide with reagent/ or uix/ siblings on the classpath
-    process_monitor_helix/
+    process_monitor_helix/              <-- design-led example; documented build, not part of the smoke subset
 ```
 
 > **The `examples/` tree is test-free.** No `*.spec.cjs` may live under `examples/`. Browser smoke coverage is exactly 3 adapter-level smokes (Reagent / UIx / Helix) at [`implementation/adapters/<name>/testbed/spec.cjs`](../implementation/adapters/). Real-regression coverage lives in substrate contract tests (`npm run test:cljs`), the Xray feature-matrix gate (`npm run test:xray-feature-gate`), bundle-isolation (`npm run test:bundle-isolation`), the perf-bundle gate (`npm run test:perf-bundle`), and mcp-conformance. Framework testbeds at [`tools/xray/testbeds/`](../tools/xray/testbeds/) and the top-level [`testbeds/`](../testbeds/) stay in-tree as Xray observation targets and carry no paired Playwright `spec.cjs` files — their assertions live as CLJS/JVM unit tests under `implementation/{core,epoch,flows,http,machines,ssr}/test/`.
@@ -105,23 +105,23 @@ The `day8/reagent-slim` adapter ([`implementation/adapters/reagent-slim/`](../im
 
 ## UIx
 
-The UIx adapter ships a curated subset rather than a 1:1 mirror of the Reagent set. Per [Spec 006 §Adapter shipping convention](../spec/006-ReactiveSubstrate.md) Decision 7, the canonical Reagent set is reduced for UIx to the **counter + login + dashboard** trio — realworld is heavy with Reagent-flavoured idioms and is deferred until a UIx user wants it. Adapter-level smoke coverage lives at [`implementation/adapters/uix/testbed/spec.cjs`](../implementation/adapters/uix/testbed/spec.cjs).
+The UIx adapter ships a curated set rather than a 1:1 mirror of the Reagent set. Per [Spec 006 §Adapter shipping convention](../spec/006-ReactiveSubstrate.md) Decision 7, the **smoke-test subset is counter + login** — that pair is what confirms the UIx adapter implements the substrate contract; realworld is heavy with Reagent-flavoured idioms and is deferred until a UIx user wants it. Alongside the smoke pair the tree also ships `dashboard_uix`, a design-led example: a documented build (it carries compile coverage) but **not** part of the Decision-7 smoke subset. Adapter-level smoke coverage lives at [`implementation/adapters/uix/testbed/spec.cjs`](../implementation/adapters/uix/testbed/spec.cjs).
 
 | # | Example | Maturity | Build id | What it demonstrates |
 |---|---|---|---|---|
 | 1 | [`uix/counter_uix/`](uix/counter_uix/) | Pedagogical sketch | `examples/counter-uix` | The Reagent [`counter/`](reagent/counter/) dataflow rendered through the UIx adapter — same events, subs, and `app-db` shape; the view layer is `defui` components consuming subs via the `use-subscribe` hook. |
 | 2 | [`uix/login_uix/`](uix/login_uix/) | Pedagogical sketch | `examples/login-uix` | The Reagent [`login/`](reagent/login/) example through UIx — schemas, machine, and managed-HTTP stub are unchanged (substrate-agnostic); only the view layer differs. |
-| 3 | [`uix/dashboard_uix/`](uix/dashboard_uix/) | Design-led | `examples/dashboard-uix` | Design-led example proving UIx can drive a substantive multi-pane layout. Shares the "Editorial Warm" identity from [`examples/_shared/css/style.css`](_shared/css/style.css) with the Reagent `notebook/` and Helix `process_monitor_helix/` siblings. |
+| 3 | [`uix/dashboard_uix/`](uix/dashboard_uix/) | Design-led (documented-not-smoke) | `examples/dashboard-uix` | Design-led example proving UIx can drive a substantive multi-pane layout. Documented build (carries compile coverage) but not part of the Decision-7 smoke subset. Shares the "Editorial Warm" identity from [`examples/_shared/css/style.css`](_shared/css/style.css) with the Reagent `notebook/` and Helix `process_monitor_helix/` siblings. |
 
 ## Helix
 
-The Helix adapter ships the same subset shape as UIx — counter + login (plus the process-monitor design-led example). The eight UIx decisions transferred unchanged because Helix and UIx share the React + hooks substrate model; only the component-shape primitive (`defnc` rather than `defui`) and the target version (Helix 0.2.x rather than UIx 2.x) differ. Adapter-level smoke coverage lives at [`implementation/adapters/helix/testbed/spec.cjs`](../implementation/adapters/helix/testbed/spec.cjs).
+The Helix adapter ships the same shape as UIx — the **smoke-test subset is counter + login** per Decision 7, plus the process-monitor design-led example (a documented build, not part of the smoke subset). The eight UIx decisions transferred unchanged because Helix and UIx share the React + hooks substrate model; only the component-shape primitive (`defnc` rather than `defui`) and the target version (Helix 0.2.x rather than UIx 2.x) differ. Adapter-level smoke coverage lives at [`implementation/adapters/helix/testbed/spec.cjs`](../implementation/adapters/helix/testbed/spec.cjs).
 
 | # | Example | Maturity | Build id | What it demonstrates |
 |---|---|---|---|---|
 | 1 | [`helix/counter_helix/`](helix/counter_helix/) | Pedagogical sketch | `examples/counter-helix` | The Reagent [`counter/`](reagent/counter/) dataflow rendered through the Helix adapter — same events, subs, and `app-db` shape; the view layer is `defnc` components consuming subs via the `use-subscribe` hook. |
 | 2 | [`helix/login_helix/`](helix/login_helix/) | Pedagogical sketch | `examples/login-helix` | The Reagent [`login/`](reagent/login/) example through Helix — schemas, machine, and managed-HTTP stub are unchanged (substrate-agnostic); only the view layer differs. |
-| 3 | [`helix/process_monitor_helix/`](helix/process_monitor_helix/) | Design-led | `examples/process-monitor-helix` | Design-led example proving Helix can drive a substantive multi-pane layout. Shares the "Editorial Warm" identity from [`examples/_shared/css/style.css`](_shared/css/style.css) with the Reagent `notebook/` and UIx `dashboard_uix/` siblings. |
+| 3 | [`helix/process_monitor_helix/`](helix/process_monitor_helix/) | Design-led (documented-not-smoke) | `examples/process-monitor-helix` | Design-led example proving Helix can drive a substantive multi-pane layout. Documented build (carries compile coverage) but not part of the Decision-7 smoke subset. Shares the "Editorial Warm" identity from [`examples/_shared/css/style.css`](_shared/css/style.css) with the Reagent `notebook/` and UIx `dashboard_uix/` siblings. |
 
 The bundle-isolation grep at `implementation/scripts/check-bundle-isolation.cjs` runs against the Reagent `examples/counter` bundle — separate per-example shadow-cljs builds per substrate let CI verify a Reagent-substrate example carries no UIx or Helix code, a UIx-substrate example carries no Reagent or Helix code, and a Helix-substrate example carries no Reagent or UIx code.
 
