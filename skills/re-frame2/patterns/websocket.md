@@ -29,7 +29,7 @@ SSE (`EventSource`) and WebRTC peer connections share the same lifecycle shape �
 
 Bearer tokens, cookies, refresh tokens, and similar credentials **must never live in machine `:data`**. Machine state is framework-inspectable (app-db snapshots, trace emissions, recorder fixtures, pair tooling), so anything in `:data` is liable to be serialised into a place the dev never inspects character-by-character. The canonical declaration below holds **only a credential reference** (`:cred-ref`) in `:data` — an opaque key that the host-side socket actor exchanges for the real bearer at spawn time via a client-only cofx (`:rf.cred/fetch`, registered with `:platforms #{:client}` so SSR never sees it). The actor uses the resolved bearer inside its own JS context and discards it; the bearer never re-enters the dispatch stream.
 
-For events that genuinely must carry a secret across the dispatch boundary (e.g. `:ws/refresh-token` propagating a freshly minted bearer), prefer storing the secret in an app-schema slot marked `{:sensitive? true}` and handle it through a path-scoped event. If the secret is not representable as app-db schema data, use handler metadata `{:sensitive? true}` as the whole-handler escape hatch.
+For events that genuinely must carry a secret across the dispatch boundary (e.g. `:ws/refresh-token` propagating a freshly minted bearer), prefer storing the secret in an app-schema slot marked `{:sensitive? true}` and handle it through a path-scoped event. If the secret rides only in the event payload (not at a schema slot), scrub the payload path with a positional `(rf/redact-interceptor [[:bearer]])`. There is **no** handler-meta `{:sensitive? true}` privacy switch — that annotation was removed from the runtime and is no longer consulted.
 
 The pattern below uses `:cred-ref` as the placeholder; substitute whatever opaque key your auth slice already issues (a UUID, a `(random-uuid)` index into a host-side credential vault, a session id, etc.). The crucial property: the value in `:data` is **not** the bearer itself.
 
@@ -124,14 +124,16 @@ If the credential genuinely must move via dispatch (e.g. an out-of-band rotation
 
 ```clojure
 (rf/reg-event-fx :ws/rotate-cred-from-bearer
-  {:sensitive? true}
+  [(rf/redact-interceptor [[:bearer]])]
   (fn [{:keys [db]} [_ {:keys [bearer]}]]
-    ;; Handler metadata is the escape hatch when the bearer cannot be
-    ;; represented as a schema-sensitive app-db path.
+    ;; redact-interceptor scrubs the :bearer payload key to :rf/redacted on
+    ;; the trace/listener/error surface when the bearer cannot be represented
+    ;; as a schema-sensitive app-db path; the handler body still sees the real
+    ;; value via the :event coeffect.
     {:fx [[:rf.cred/store {:bearer bearer :on-stored [:ws/connection [:ws/rotate-cred ::new-ref]]}]]}))
 ```
 
-The `:rf.cred/*` family is the recommended sketch — your app's auth slice provides the real shape. The contract this leaf locks: **opaque ref in `:data`; bearer never in `:data`; if bearer must move via dispatch, prefer schema `:sensitive?`, with handler metadata as the escape hatch**.
+The `:rf.cred/*` family is the recommended sketch — your app's auth slice provides the real shape. The contract this leaf locks: **opaque ref in `:data`; bearer never in `:data`; if bearer must move via dispatch, prefer a schema-`:sensitive?` app-db path, otherwise scrub the payload key with `redact-interceptor`** (there is no handler-meta privacy switch).
 
 ## Variations
 

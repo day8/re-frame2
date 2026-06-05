@@ -13,8 +13,10 @@ Sensitive wins when both flags apply; no large marker is emitted for a sensitive
 
 - Put `{:sensitive? true}` on app-schema slots that can hold credentials, auth tokens, payment details, or PII.
 - Put `{:large? true}` on app-schema slots that can exceed the wire budget, such as base64 blobs, PDFs, large JSON, logs, and generated reports.
-- Use handler metadata `{:sensitive? true}` only as a whole-handler escape hatch when sensitivity is cross-cutting and cannot be represented as an app-db schema slot.
+- When a sensitive value rides in the event payload but does not land at a schema-declared app-db slot, scrub it with a positional `(rf/redact-interceptor [[:path] [:in :payload]])` on the handler — it overwrites those payload keys with `:rf/redacted` on the trace/listener/error surface while the handler body still sees the real value via the `:event` coeffect. This composes additively with schema `:sensitive?` paths.
 - Do not hand-roll redaction and do not use imperative large-path declarations; schema metadata is the declaration surface.
+
+> **No handler-level escape hatch.** Earlier versions of this skill taught handler metadata `{:sensitive? true}` as a whole-handler privacy switch. That annotation was **removed from the runtime** — the event/error emit substrate no longer consults it (see `re_frame/event_emit.cljc` and `error_emit.cljc` ns docstrings, and `re_frame/core.cljc` `redact-interceptor` docstring: "handler-meta `:sensitive?` has been removed in favour of path-marked classification"). Marking a handler `{:sensitive? true}` does **nothing** — the payload still ships unredacted unless the path is schema-declared sensitive or covered by `redact-interceptor`. Sensitivity is a property of the *value at a path*, not of the handler that touched it.
 
 ## Schema example
 
@@ -32,18 +34,20 @@ Sensitive wins when both flags apply; no large marker is emitted for a sensitive
 
 For a path-scoped handler like `[(rf/path :auth :login)]`, the router auto-installs trace/error redaction for matching sensitive schema paths. The handler body still receives the raw `:event` coeffect.
 
-## Handler escape hatch
+## Payload-path redaction (`rf/redact-interceptor`)
+
+When a secret rides in the event vector but never lands at a schema-declared app-db slot — an OAuth code exchanged for a token, a one-time payload posted straight to an HTTP fx — name the payload paths with a positional `redact-interceptor`. The handler body keeps the unredacted value via the `:event` coeffect; the trace, listener, and error surfaces see `:rf/redacted`.
 
 ```clojure
 (rf/reg-event-fx :auth/exchange-token
-  {:sensitive? true}
-  (fn [_ctx [_ payload]]
+  [(rf/redact-interceptor [[:code] [:client-secret]])]
+  (fn [_ctx [_ payload]]                 ;; payload still real here
     {:fx [[:rf.http/managed {:request {:method :post
                                         :url "/token"
                                         :body payload}}]]}))
 ```
 
-Handler metadata stamps every trace event emitted in the handler scope and drives always-on event/error substrate policy. It does not name payload paths; prefer schema metadata whenever the sensitive value lives at an app-db path.
+`paths` are `get-in`-style key paths into the M-19 payload map (the second element of the event vector). A path to a missing leaf is a no-op; an empty path scrubs the whole payload. `redact-interceptor` composes **additively** with schema `:sensitive?` declarations — the router stashes a `:rf/redacted-event` projection and the interceptor extends it. Prefer schema metadata whenever the sensitive value lives at an app-db path; reach for `redact-interceptor` only for transient payload-only secrets.
 
 ## `rf/elide-wire-value`
 

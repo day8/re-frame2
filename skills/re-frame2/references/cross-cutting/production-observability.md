@@ -34,7 +34,7 @@ Fires once per event the runtime processes — NOT per sub, NOT per fx, NOT per 
 
 No trace-bus keys (no `:dispatch-id`, `:parent-dispatch-id`, `:rf.trace/trigger-handler`, source coords) — those ride the dev-only trace surface. Verified: `re-frame.event-emit/dispatch-on-event!` (`event_emit.cljc:167-230`); record shape per the ns docstring §Record shape.
 
-**Handler-meta `:sensitive?` honoured BEFORE elision:** if the event's registered handler-meta carries `:sensitive? true`, `dispatch-on-event!` drops the record entirely — listeners are NOT invoked, regardless of which paths in the payload happen to match `[:rf/runtime :elision]` declarations. Sensitive at the handler boundary is the headline privacy filter.
+**Privacy is path-based, applied at egress — the record always fans out.** Every surviving record's `:event` vector is walked by `elide-wire-value` with off-box defaults (large → `:rf.size/large-elided`; schema-declared sensitive paths → `:rf/redacted`) *before* listeners run. There is **no** whole-record privacy drop at the handler boundary: `dispatch-on-event!` never suppresses a record for sensitivity — it redacts the payload per `[:rf/runtime :elision] :sensitive-declarations` and ships the rest. (Handler-meta `:sensitive?` is **not** consulted; it was removed from the runtime — see `event_emit.cljc` ns docstring.) The only whole-record drop gate is `:rf.trace/no-emit?` on handler-meta, which is **framework-internal** (Xray / Story bookkeeping handlers) and not a user privacy knob.
 
 ## `register-error-listener!` — one record per runtime error
 
@@ -168,7 +168,7 @@ Worked vendor recipes (Datadog tags, Sentry breadcrumbs, Honeycomb spans): [`doc
 
 - **Listeners block the drain step.** Bodies run synchronously after each event settles. Ship work to a background channel (`requestIdleCallback`, queueing fetch, `setTimeout 0`) if it can't fit inside the per-event wall-clock budget.
 - **Don't re-run elision unless widening.** The record already has off-box defaults applied. A listener that re-walks with defaults is a no-op; one that flips `:include-large?` / `:include-sensitive?` to `true` exposes data you'd otherwise hide.
-- **`:sensitive?` on the handler drops the listener record entirely — there's nothing to ship.** If you need an audit trail of sensitive events (without their payloads), that's a separate per-event `:sensitive?`-aware path; don't try to ship redacted records through the same channel.
+- **Sensitivity redacts the payload, it does NOT drop the record.** There is no handler-level "drop the whole record" privacy gate — every event record fans out, and schema-declared sensitive paths in its `:event` payload arrive as `:rf/redacted` (per `elide-wire-value` egress). You always get the event-id, frame, outcome, and timing — a built-in audit trail of sensitive events without their secret values. The only whole-record drop (`:rf.trace/no-emit?`) is framework-internal and not yours to set.
 - **Listener exceptions are swallowed.** The cascade catches; sibling listeners still run. You will NOT see a thrown listener error in the console; log inside the listener body if you want visibility.
 - **Don't use `register-listener!` for production observability.** It dies under `:advanced` + `goog.DEBUG=false`. The two `*-emit-listener!` surfaces are the prod-survivable channel.
 
@@ -176,7 +176,7 @@ Worked vendor recipes (Datadog tags, Sentry breadcrumbs, Honeycomb spans): [`doc
 
 - Guide chapter: [`docs/guide/16-observability.md`](../../../../docs/guide/16-observability.md) — narrative walkthrough with vendor-specific recipes.
 - Spec normative: [`spec/009-Instrumentation.md §What IS available in production`](../../../../spec/009-Instrumentation.md) (line 489) — substrate contracts.
-- Privacy composition: [`privacy-and-elision.md`](privacy-and-elision.md) — `:sensitive?` short-circuits BEFORE elision; payload already walked at listener entry.
+- Privacy composition: [`privacy-and-elision.md`](privacy-and-elision.md) — schema-declared sensitive paths are redacted to `:rf/redacted` by `elide-wire-value`; payload already walked at listener entry. No whole-record drop.
 - Per-frame `:on-error` policy: [`references/fundamentals/frames.md`](../fundamentals/frames.md) §`:on-error` — in-app recovery, sibling to the corpus-wide error listener.
 
 ---
