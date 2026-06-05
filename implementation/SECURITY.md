@@ -23,23 +23,23 @@ Four sections:
 |---|---|---|
 | Wire-elision walker — single emission site for `:rf/redacted` and `:rf.size/large-elided` | `re-frame.core/elide-wire-value` | `day8/re-frame2` (core) — `re-frame.elision` |
 | Production-elision gate (CLJS) | `re-frame.interop/debug-enabled?` — alias of `goog.DEBUG` | `day8/re-frame2` (core) — `re-frame.interop` |
-| Open-redirect-mitigating fx | `:rf.server/safe-redirect` (registered fx) | `day8/re-frame2-ssr` (`re-frame.ssr.fx.safe-redirect`) |
-| Header CRLF check site | `:rf.server/set-header` / `:rf.server/append-header` fx handlers | `day8/re-frame2-ssr` (`re-frame.ssr.fx.headers`) |
-| Cookie per-attribute CRLF check | `:rf.server/set-cookie` fx handler | `day8/re-frame2-ssr` (`re-frame.ssr.fx.cookies`) |
-| Editor-URI scheme reject-list | `re-frame.source-coords.editor-uri/reject-schemes` (`#{"javascript:" "data:" "vbscript:"}`) | `day8/re-frame2` (core) — `re-frame.source-coords.editor-uri` |
-| Path-policy check (writing tools) | `re-frame.path-policy/check-write-path` (or per-tool equivalent) | tooling — `tools/*/scripts/` and shared helper |
-| JSON keyword-interning cap (Cheshire path, JVM) | `re-frame.http.decode.json/with-keyword-cap` | `day8/re-frame2-http` (`re-frame.http.decode.json`) |
-| JSON keyword-interning cap (CLJS reader path) | `re-frame.http.decode.json/decode-with-cap` | `day8/re-frame2-http` (`re-frame.http.decode.json`) |
-| Schema walker — populates `[:rf/runtime :elision :sensitive-declarations]` at boot | `re-frame.schemas.walker/collect-sensitive-declarations` | `day8/re-frame2-schemas` (core split pending [rf2-p7va](#)) |
-| Always-on error-emit substrate (production-survivable) | `re-frame.error-emit/emit-error!` | `day8/re-frame2` (core) — `re-frame.error-emit` |
-| Always-on event-emit substrate | `re-frame.event-emit/emit-event!` | `day8/re-frame2` (core) — `re-frame.event-emit` |
+| Open-redirect-mitigating fx | `:rf.server/safe-redirect` (registered fx; handler `re-frame.ssr.response/safe-redirect-fx`) | `day8/re-frame2-ssr` (registered in `re-frame.ssr`; handler in `re-frame.ssr.response`) |
+| Header CRLF check site | `:rf.server/set-header` / `:rf.server/append-header` fx (handlers `re-frame.ssr.response/set-header-fx` / `append-header-fx`) | `day8/re-frame2-ssr` (registered in `re-frame.ssr`; handlers in `re-frame.ssr.response`) |
+| Cookie per-attribute CRLF check | `:rf.server/set-cookie` fx (handler `re-frame.ssr.response/set-cookie-fx`) | `day8/re-frame2-ssr` (registered in `re-frame.ssr`; handler in `re-frame.ssr.response`) |
+| Editor-URI scheme reject-list | `re-frame.source-coords.editor-uri/forbidden-uri-schemes` (`#{"javascript:" "data:" "vbscript:"}`); gate predicate `allowed-uri?` | `day8/re-frame2` (core) — `re-frame.source-coords.editor-uri` |
+| Path-policy check (writing tools) | `enforcePolicy` (Node helper; opt-in via the `OPT_IN_VAR` env var) | tooling — `implementation/scripts/_path-policy.cjs` |
+| JSON keyword-interning cap (Cheshire path, JVM) | `re-frame.util-json/json-parse` (`{:max-decoded-keys N}`; default `re-frame.util-json/default-max-decoded-keys`) | `day8/re-frame2-http` (`re-frame.util-json`) |
+| JSON keyword-interning cap (CLJS reader path) | `re-frame.util-json/json-parse` (same fn; the `:cljs` branch walks the parsed tree counting unique keys before keywordizing) | `day8/re-frame2-http` (`re-frame.util-json`) |
+| Schema walker — extracts the `{path {:sensitive? true}}` map that populates `[:rf/runtime :elision :sensitive-declarations]` at boot | `re-frame.schemas.walker/extract-sensitive-paths-from-schema` (re-exported as `re-frame.schemas/extract-sensitive-paths-from-schema`); installed into the registry by `re-frame.elision/populate-sensitive-from-schemas!` | `day8/re-frame2-schemas` (`re-frame.schemas.walker`) |
+| Always-on error-emit substrate (production-survivable) | `re-frame.error-emit/dispatch-on-error!` (plus `register-error-listener!` / `unregister-error-listener!`) | `day8/re-frame2` (core) — `re-frame.error-emit` |
+| Always-on event-emit substrate | `re-frame.event-emit/dispatch-on-event!` (plus `register-event-listener!` / `unregister-event-listener!`) | `day8/re-frame2` (core) — `re-frame.event-emit` |
 | Schema-installed redaction | `{:sensitive? true}` on app-schema slots | `day8/re-frame2` (core) — `re-frame.privacy` |
 | Epoch projected-record helper (off-box egress emission site) | `re-frame.epoch/projected-record` (wraps `re-frame.core/elide-wire-value`) | `day8/re-frame2-epoch` — `re-frame.epoch` |
-| MCP-tool wire-egress walker (off-box defaults) | `re-frame.mcp-base.elision/walk-for-wire` (wraps `elide-wire-value`) | `day8/re-frame2-mcp-base` ([rf2-vw4sq](#)) |
-| Hiccup → HTML attribute-key escape | `re-frame.ssr.hiccup/escape-attr-key` | `day8/re-frame2-ssr` (`re-frame.ssr.hiccup`) |
-| JSON-LD `<script>` body `<` escape | `re-frame.ssr.hiccup/escape-script-body` | `day8/re-frame2-ssr` (`re-frame.ssr.hiccup`) |
-| Reagent-slim event-handler-prop filter | `re-frame.adapter.reagent-slim/strip-event-props` | `day8/re-frame2-reagent` (slim build path) |
-| Reagent-slim reserved-prop-keys gate | `re-frame.adapter.reagent-slim/reserved-prop-keys?` (`#{"__proto__" "constructor" "prototype"}`) | `day8/re-frame2-reagent` (slim build path) |
+| MCP-tool wire-egress indicator walkers (off-box defaults) | `re-frame.mcp-base.elision/count-elided-markers` (counts `:rf.size/large-elided` markers for the `:elided-large` envelope slot) and `re-frame.mcp-base.sensitive/strip-sensitive` (drops `:sensitive?`-stamped entries, returning `[kept dropped-count]` for the `:dropped-sensitive` slot). The framework's `re-frame.core/elide-wire-value` runs at the runtime boundary before the payload reaches these walkers. | `day8/re-frame2-mcp-base` (`re-frame.mcp-base.elision` / `re-frame.mcp-base.sensitive`) |
+| Hiccup → HTML attribute-key gate (HTML5-grammar reject, applied at attribute emit) | `re-frame.ssr.html-helpers/validate-attr-name!` (applied via `re-frame.ssr.html-helpers/attr-string`) | `day8/re-frame2-ssr` (`re-frame.ssr.html-helpers`) |
+| JSON-LD `<script>` body `<` escape | `re-frame.ssr.html-helpers/escape-script-body-string` | `day8/re-frame2-ssr` (`re-frame.ssr.html-helpers`) |
+| Reagent-slim event-handler-prop filter | `reagent2.dom.server/event-handler-prop?` (applied in `emit-attr`; also drops fn-valued props) | `day8/re-frame2-reagent` slim build — `reagent2.dom.server` |
+| Reagent-slim reserved-prop-keys gate | `reagent2.impl.template/reserved-prop-key?` over the set `reserved-prop-keys` (`#{"__proto__" "prototype" "constructor"}`) | `day8/re-frame2-reagent` slim build — `reagent2.impl.template` |
 
 The public surface (the names a user types into their code) is consolidated in [`../spec/API.md`](../spec/API.md). This table is the contract for *internal CLJS implementation conformance* — a future port would re-bind every row to host-idiomatic names.
 
@@ -72,7 +72,7 @@ The reference implementation uses `re-frame.interop` (with separate `.clj` and `
 
 The same name, two implementations:
 
-- **CLJS** (`re-frame/interop.cljs`): aliased to `goog.DEBUG`. In `:advanced` builds, `(when ^boolean re-frame.interop/debug-enabled? ...)` is constant-folded by the Closure compiler — the entire gated branch (allocation, listener iteration, malli call, error-reason string assembly, Performance API bridge) is dead-code-eliminated. The CLJS production-elision conformance gate ([rf2-?? per `npm run test:elision`](../implementation/scripts/test-elision/)) verifies that gated branches do not survive `:advanced` + `goog.DEBUG=false`.
+- **CLJS** (`re-frame/interop.cljs`): aliased to `goog.DEBUG`. In `:advanced` builds, `(when ^boolean re-frame.interop/debug-enabled? ...)` is constant-folded by the Closure compiler — the entire gated branch (allocation, listener iteration, malli call, error-reason string assembly, Performance API bridge) is dead-code-eliminated. The CLJS production-elision conformance gate (`npm run test:elision` → [`scripts/check-elision.cjs`](scripts/check-elision.cjs)) verifies that gated branches do not survive `:advanced` + `goog.DEBUG=false`.
 - **JVM** (`re-frame/interop.clj`): a `def` whose value is read once at ns-load from the system property `re-frame.debug` or the env var `RE_FRAME_DEBUG`. Defaults `true` (dev posture). SSR / webhook receivers / long-running JVMs set `-Dre-frame.debug=false` or `RE_FRAME_DEBUG=false` explicitly to eliminate the dev-side enrichment surface in production. Unlike CLJS, the JVM gate is a runtime read, not a compile-time constant — the cost is a single boolean check per trace-emit site, which is acceptable for the JVM posture (SSR responses are not the hot loop the CLJS browser path is).
 
 The JVM stub is not a "no-op stub" — it is a real, runtime-honoured gate. The same source code (`(when re-frame.interop/debug-enabled? ...)`) elides via Closure on CLJS and runtime-shortcircuits on JVM.
@@ -82,8 +82,8 @@ The JVM stub is not a "no-op stub" — it is a real, runtime-honoured gate. The 
 Three substrates survive `:advanced` + `goog.DEBUG=false` on CLJS, and survive `re-frame.debug=false` on JVM:
 
 - **The per-frame `:on-error` policy fn** (per [`../spec/009-Instrumentation.md`](../spec/009-Instrumentation.md)). Always runs; production-monitoring case.
-- **The event-emit listener surface** — `re-frame.event-emit/emit-event!` plus the listener registry. Always fans out per-event records to registered observability listeners (Datadog, Honeycomb, Sentry, custom).
-- **The error-emit listener surface** — `re-frame.error-emit/emit-error!` plus the listener registry. Corpus-wide fan-out path parallel to per-frame `:on-error`. Mutually isolated from the per-frame policy fn.
+- **The event-emit listener surface** — `re-frame.event-emit/dispatch-on-event!` plus the listener registry. Always fans out per-event records to registered observability listeners (Datadog, Honeycomb, Sentry, custom).
+- **The error-emit listener surface** — `re-frame.error-emit/dispatch-on-error!` plus the listener registry. Corpus-wide fan-out path parallel to per-frame `:on-error`. Mutually isolated from the per-frame policy fn.
 
 Sensitive data marking on these substrates is path-based per the upcoming data-classification mechanism (separate spec doc; in progress). The legacy handler-meta `:sensitive?` annotation has been removed; per-path elision (the per-frame `[:rf/runtime :elision]` registry, populated from app-schema `:sensitive?` slot meta) is the load-bearing privacy surface on these substrates.
 
