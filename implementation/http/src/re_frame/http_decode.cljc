@@ -66,6 +66,28 @@
       nil
       headers)))
 
+(defn- empty-2xx-json-body?
+  "rf2-upexd.1 — cross-host parity (the oyw04 contract) for an empty /
+  whitespace-only 2xx JSON body. An empty `200`/`204`-shaped body is a
+  NORMAL HTTP outcome (the common PUT/DELETE/POST-with-no-content reply),
+  NOT a programmer error — so the managed-cascade decode altitude must
+  classify it IDENTICALLY on both hosts.
+
+  Without this guard the two `util-json/json-parse` branches diverge: the
+  JVM Cheshire reader surfaces an empty document as end-of-stream → nil,
+  while the CLJS `js/JSON.parse(\"\")` THROWS a `SyntaxError` that the
+  transport reclassifies as `:rf.http/decode-failure`. The helper-level
+  divergence is DELIBERATELY pinned at the `util-json` unit altitude
+  (util_json_cljs_test.cljs / util_json_test.clj — an empty hand-passed
+  helper arg is a transport-layer programmer error). That reasoning is
+  sound for the bare helper but WRONG at the `:rf.http/managed` cascade
+  altitude. We therefore short-circuit the empty/blank case HERE, at the
+  decode altitude, returning nil on BOTH hosts before `json-parse` is
+  reached — so the helper keeps its pinned per-host semantics while the
+  managed path stays host-symmetric (`{:kind :success :value nil}`)."
+  [body-text]
+  (and (string? body-text) (str/blank? body-text)))
+
 (defn- sniff-decoder
   "Per Spec 014 §`:auto`: sniff the response Content-Type header."
   [content-type]
@@ -74,6 +96,20 @@
       (and ct (str/includes? ct "application/json")) :json
       (and ct (str/starts-with? ct "text/"))         :text
       :else                                          :blob)))
+
+(defn- json-content-type?
+  "rf2-upexd.2 — does the response declare a JSON Content-Type? The
+  Malli-schema decode path is JSON-ONLY (Spec 014 §Decoding §Schema-
+  driven): the only Malli transformer the decoder wires is the
+  `json-transformer` (see `malli-transformer-fn`), so a schema rides a
+  JSON body by construction. A `nil` content-type is treated as
+  JSON-eligible — many JSON APIs omit the header, and rejecting them
+  would be a regression; only a Content-Type that is PRESENT and
+  declares a NON-JSON MIME is rejected as a clear contract violation
+  rather than silently JSON-parsing (and failing) a non-JSON body."
+  [content-type]
+  (or (nil? content-type)
+      (some-> content-type str/lower-case (str/includes? "application/json"))))
 
 (def ^:private binary-decode-kinds
   "Decode modes whose result is a native binary/structured Fetch body
@@ -269,7 +305,13 @@
       (requested-decode body-text headers)
 
       (= :json resolved)
-      (util-json/json-parse body-text parse-opts)
+      ;; rf2-upexd.1 — an empty/whitespace-only 2xx JSON body is a normal
+      ;; HTTP outcome (empty-success-envelope); classify it as nil on BOTH
+      ;; hosts before `json-parse` (which throws on CLJS for `""`). See
+      ;; `empty-2xx-json-body?`.
+      (if (empty-2xx-json-body? body-text)
+        nil
+        (util-json/json-parse body-text parse-opts))
 
       (= :text resolved)
       body-text
@@ -294,13 +336,49 @@
       ;; text path, which preserves the existing tolerant-of-non-JSON
       ;; semantics for legacy callers.
       (some? resolved)
-      (let [parsed (try (util-json/json-parse body-text parse-opts)
-                        (catch #?(:clj Throwable :cljs :default) e
-                          (let [d (ex-data e)]
-                            (if (= :rf.error/malformed-json (:rf.error/id d))
-                              (throw e)
-                              body-text))))]
-        (malli-decode resolved parsed))
+      ;; rf2-upexd.2 — the schema decode path is JSON-ONLY: the only
+      ;; Malli transformer the decoder wires is the `json-transformer`,
+      ;; so a schema rides a JSON body by construction (Spec 014
+      ;; §Decoding §Schema-driven, tightened by this bead). A response
+      ;; that DECLARES a non-JSON Content-Type (e.g. `application/edn`,
+      ;; `text/plain`) under a schema `:decode` is a contract mismatch.
+      ;; Previously the body was JSON-parsed unconditionally; a non-JSON
+      ;; body's parse failure fell through to the raw text, then Malli
+      ;; validated the STRING against the schema and almost always failed
+      ;; — surfacing a confusing `:schema-validation-failure?` instead of
+      ;; the real cause (the MIME mismatch). Reject up-front with a clear
+      ;; tagged ex-info that the transport classifies as
+      ;; `:rf.http/decode-failure` (NOT a schema-validation failure), so
+      ;; the diagnostic names the actual problem. A nil/absent Content-
+      ;; Type stays JSON-eligible (many JSON APIs omit the header).
+      (if-not (json-content-type? content-type)
+        (throw (ex-info ":rf.error/http-schema-non-json-content-type"
+                        {:rf.error/id  :rf.error/http-schema-non-json-content-type
+                         :where        'rf.http/decode-response-body
+                         :recovery     :no-recovery
+                         :reason       (str "a Malli `:decode` schema was supplied but the response "
+                                            "declared a non-JSON Content-Type (" content-type "); the "
+                                            "schema decode path is JSON-only (it wires Malli's "
+                                            "json-transformer). The caller classifies this as "
+                                            ":rf.http/decode-failure.")
+                         :content-type content-type
+                         :schema       resolved}))
+        ;; rf2-upexd.1 — an empty/whitespace-only 2xx body parses to nil on
+        ;; BOTH hosts (the JVM Cheshire reader already yields nil for an
+        ;; empty document; CLJS would throw inside `json-parse`). Short-
+        ;; circuit to nil before the parse so the schema sees the same value
+        ;; cross-host; the schema then decides whether nil is acceptable
+        ;; (e.g. `[:maybe ...]` passes, a required `:map` rejects) — a
+        ;; host-symmetric outcome, not a per-host parse divergence.
+        (let [parsed (if (empty-2xx-json-body? body-text)
+                       nil
+                       (try (util-json/json-parse body-text parse-opts)
+                            (catch #?(:clj Throwable :cljs :default) e
+                              (let [d (ex-data e)]
+                                (if (= :rf.error/malformed-json (:rf.error/id d))
+                                  (throw e)
+                                  body-text)))))]
+          (malli-decode resolved parsed)))
 
       :else
       body-text)))
