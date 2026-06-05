@@ -389,6 +389,111 @@
                "(esp. Windows/PowerShell) (rf2-pxl6l).")))))
 
 ;; ---------------------------------------------------------------------------
+;; Lock 7 — the UIx/Helix manual path supplies substrate-specific VIEW code and
+;; does NOT route UIx/Helix authors to the Reagent `reg-view` first-counter.
+;; rf2-74uffk.
+;;
+;; The Reagent first-counter leaf uses `reg-view` (auto-injected
+;; dispatch/subscribe) — a Reagent-only construct. UIx/Helix have no
+;; auto-injection: they read subs via the adapter `use-subscribe` hook and
+;; dispatch via `(:dispatch (rf/frame-handle))`. A prior revision only supplied
+;; deps/entry-root substitutions for UIx/Helix, leaving an author to combine a
+;; UIx/Helix entry ns with the Reagent `reg-view` counter — a non-compiling
+;; scaffold. These guards require the substrate VIEW snippets to be present in
+;; entry-namespace.md (matching the template's _uix/_helix/views.cljs) and
+;; require SKILL.md + first-counter.md to steer UIx/Helix away from `reg-view`.
+;; ---------------------------------------------------------------------------
+
+(deftest uix-helix-greenfield-supplies-substrate-views
+  (testing "entry-namespace.md gives UIx/Helix view code (defui/defnc + use-subscribe), not just deps/entry"
+    (let [body @entry-namespace-md]
+      (is (and (str/includes? body "defui counter-buttons")
+               (str/includes? body "defnc counter-buttons"))
+          (str "entry-namespace.md no longer supplies BOTH the UIx (`defui`) "
+               "and Helix (`defnc`) counter view snippets. UIx/Helix have no "
+               "auto-injection — the manual path must ship the substrate "
+               "`views.cljs`, not send the author to the Reagent `reg-view` "
+               "leaf (rf2-74uffk)."))
+      (is (and (str/includes? body "uix-adapter/use-subscribe")
+               (str/includes? body "helix-adapter/use-subscribe"))
+          (str "The UIx/Helix view snippets must read subscriptions through "
+               "the adapter `use-subscribe` hook (no auto-injected `subscribe` "
+               "on these substrates) (rf2-74uffk)."))
+      (is (str/includes? body "(:dispatch (rf/frame-handle))")
+          (str "The UIx/Helix view snippets must dispatch via "
+               "`(:dispatch (rf/frame-handle))` — there is no auto-injected "
+               "`dispatch` on these substrates (rf2-74uffk)."))
+      ;; The "everything else is identical" claim must NOT swallow views.
+      (is (not (re-find #"(?i)views.{0,40}identical across substrates" body))
+          (str "entry-namespace.md claims views are identical across "
+               "substrates — they are NOT. Reagent uses `reg-view`; UIx/Helix "
+               "use `defui`/`defnc` with `use-subscribe`. The 'everything else "
+               "identical' claim must exclude views (rf2-74uffk).")))))
+
+(deftest uix-helix-not-routed-to-reagent-reg-view-counter
+  (testing "SKILL.md + first-counter.md steer UIx/Helix away from the Reagent reg-view leaf"
+    (let [skill @skill-md
+          fc    (slurp-rel setup-root "references/first-counter.md")]
+      ;; SKILL step 6 must flag the leaf as Reagent-specific and point
+      ;; UIx/Helix at use-subscribe / the substrate views.
+      (is (contains-any? skill ["UIx / Helix do NOT use `reg-view`"
+                                "UIx / Helix** do NOT use `reg-view`"
+                                "UIx and Helix do NOT use `reg-view`"
+                                "UIx / Helix** do not use `reg-view`"
+                                "do NOT use `reg-view`"])
+          (str "SKILL.md step 6 no longer warns that UIx/Helix do not use the "
+               "Reagent `reg-view` counter. A UIx/Helix author must be routed "
+               "to the substrate views, not the Reagent leaf (rf2-74uffk)."))
+      ;; first-counter.md must declare itself Reagent-only and redirect.
+      (is (contains-any? fc ["Reagent only" "Reagent-only"])
+          (str "first-counter.md no longer flags itself as Reagent-only. The "
+               "leaf uses `reg-view` + `reagent.dom.client` — UIx/Helix must "
+               "be redirected to the substrate views (rf2-74uffk)."))
+      (is (and (str/includes? fc "use-subscribe")
+               (str/includes? fc "entry-namespace.md"))
+          (str "first-counter.md no longer redirects UIx/Helix authors to the "
+               "`use-subscribe`/substrate path in entry-namespace.md "
+               "(rf2-74uffk).")))))
+
+;; ---------------------------------------------------------------------------
+;; Lock 8 — the JS-module React recovery uses the PINNED baseline, not bare
+;; `npm install react react-dom` (which writes latest-from-npm). rf2-74uffk.
+;;
+;; The skill's default path copies the React/ReactDOM versions from the pinned
+;; `implementation/package.json` (deps-versions.md §package.json) and only takes
+;; latest-from-npm on explicit opt-in. A prior revision's JS-module
+;; troubleshooting row advised bare `npm install react react-dom`, which writes
+;; npm's current `latest` into package.json — breaking reproducibility and
+;; risking a React/Reagent mismatch. This guard fails if that bare command
+;; reappears in the JS-module row and requires the pinned-baseline recovery.
+;; ---------------------------------------------------------------------------
+
+(deftest js-module-react-row-uses-pinned-baseline
+  (testing "SKILL.md's JS-module React row recovers on the pinned baseline, not bare npm install"
+    (let [body @skill-md
+          row  (some-> (re-find #"(?m)^- \*\*`Cannot find module 'react'`.*$" body))]
+      (is (some? row)
+          "Could not find the `Cannot find module 'react'` troubleshooting row in SKILL.md.")
+      ;; The row must positively recover from the pinned baseline...
+      (is (and row (str/includes? row "pinned"))
+          (str "The JS-module React row no longer recovers from the PINNED "
+               "baseline. The fix is to restore react/react-dom in "
+               "package.json from the pinned `implementation/package.json`, "
+               "then plain `npm install` — not latest-from-npm (rf2-74uffk)."))
+      (is (and row (contains-any? row ["reproducibility" "cardinal rule 1"]))
+          (str "The JS-module React row no longer cites the reproducibility / "
+               "cardinal-rule-1 reason for avoiding latest-from-npm "
+               "(rf2-74uffk)."))
+      ;; ...and must NOT POSITIVELY advise the bare unpinned command. The
+      ;; corrected row may mention it only to FORBID it ("Don't run bare ...");
+      ;; a positive recommendation would lack that negation cue.
+      (is (and row (str/includes? row "Don't run bare `npm install react react-dom`"))
+          (str "The JS-module React row no longer explicitly FORBIDS bare "
+               "`npm install react react-dom` (writes npm `latest`, breaks "
+               "reproducibility). If the bare command appears, it must be "
+               "framed as the thing NOT to do (rf2-74uffk).")))))
+
+;; ---------------------------------------------------------------------------
 ;; Run
 ;; ---------------------------------------------------------------------------
 
