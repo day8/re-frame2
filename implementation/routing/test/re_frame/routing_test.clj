@@ -2773,6 +2773,81 @@
            (routing/route-url :route/articles2 {:id "intro" :slug "welcome"}))
         "all inner params present → group emits")))
 
+;; ---- rf2-8xvyo: empty-string path param inside an OPTIONAL GROUP is
+;; rejected on emission, exactly like a top-level required path param.
+;;
+;; The optional-group gate enters a group when every inner param is
+;; `some?`. `(some? "")` is TRUE, so `{:id ""}` ENTERS the group and the
+;; pre-fix emitter wrote the value directly — emitting a zero-length
+;; segment (`/articles/`) that `match-url`'s trailing-slash normalisation
+;; erases (`/articles/` → `/articles`) before matching. The URL then
+;; round-trips back as the param ABSENT, diverging the committed route
+;; slice from the address bar (reload / popstate / SSR-hydration drift).
+;; Spec 012 §`route-url` nil-policy makes `""` a HARD ERROR for ANY path
+;; segment — the optional-group path must apply the same invariant as the
+;; top-level `require-param` (rf2-ede1h.2). `false` / `0` are non-empty
+;; legitimate segments and still round-trip on either side.
+
+(deftest route-url-optional-group-empty-string-rejected
+  (testing "rf2-8xvyo: an empty-string param inside an optional group is
+            REJECTED on emission — it cannot emit an un-round-trippable
+            trailing slash (`/articles/`)"
+    (rf/reg-route :route/og-articles {:path "/articles{/:id}?"})
+    ;; Sanity: absent elides, present-non-empty emits, as before.
+    (is (= "/articles"
+           (routing/route-url :route/og-articles {}))
+        "absent :id → group elides; bare /articles")
+    (is (= "/articles/intro"
+           (routing/route-url :route/og-articles {:id "intro"}))
+        "present non-empty :id → group emits")
+    ;; The bug: `(some? "")` enters the group, then emits `/articles/`.
+    (let [ex (try
+               (routing/route-url :route/og-articles {:id ""})
+               nil
+               (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? ex)
+          "\"\" optional-group param throws (it would emit \"/articles/\", which match-url normalises to \"/articles\" and re-parses with :id ABSENT)")
+      (is (= ":rf.error/missing-route-param" (ex-message ex))
+          "reuses the missing/empty-required-param error id")
+      (is (= "" (:value (ex-data ex)))
+          "ex-data carries the offending empty-string value")))
+
+  (testing "rf2-8xvyo: empty-string rejection holds for an optional group
+            trailing a REQUIRED top-level param (/articles/:id{/:slug}?)"
+    (rf/reg-route :route/og-slug {:path "/articles/:id{/:slug}?"})
+    ;; The required :id still round-trips; absent :slug elides.
+    (is (= "/articles/5"
+           (routing/route-url :route/og-slug {:id "5"}))
+        "required :id present, optional :slug absent → group elides")
+    (is (= "/articles/5/welcome"
+           (routing/route-url :route/og-slug {:id "5" :slug "welcome"}))
+        "both present → group emits")
+    ;; Empty optional-group :slug rejected (would emit "/articles/5/").
+    (let [ex (try
+               (routing/route-url :route/og-slug {:id "5" :slug ""})
+               nil
+               (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? ex)
+          "\"\" optional-group :slug throws — it would emit the un-round-trippable \"/articles/5/\"")
+      (is (= ":rf.error/missing-route-param" (ex-message ex)))
+      (is (= "" (:value (ex-data ex))))))
+
+  (testing "rf2-8xvyo: false and 0 inside an optional group STILL round-trip —
+            only the empty string is rejected (non-empty falsy is legitimate)"
+    (rf/reg-route :route/og-flag {:path "/items{/:flag}?"})
+    (is (= "/items/false"
+           (routing/route-url :route/og-flag {:flag false}))
+        "false → non-empty segment \"false\"")
+    (is (= "/items/0"
+           (routing/route-url :route/og-flag {:flag 0}))
+        "0 → non-empty segment \"0\"")
+    (is (= {:flag "false"}
+           (:params (routing/match-url (routing/route-url :route/og-flag {:flag false}))))
+        "false round-trips through match-url")
+    (is (= {:flag "0"}
+           (:params (routing/match-url (routing/route-url :route/og-flag {:flag 0}))))
+        "0 round-trips through match-url")))
+
 ;; ---- rf2-8zvajk: slash-OWNED INLINE optional group ({:base}?) ------------
 ;;
 ;; The grammar permits TWO optional-group shapes (Spec 012 §Path-pattern

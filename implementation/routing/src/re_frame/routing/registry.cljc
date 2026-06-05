@@ -1005,18 +1005,28 @@
            ;; honest. This narrows the spec's "present-but-falsy round-trips"
            ;; to the values that actually CAN (`false`, `0`); `""` is the
            ;; one falsy value with no legitimate segment form.
+           ;; A PRESENT value for a path segment must be non-empty. Shared
+           ;; by `require-param` (top-level segments) and `emit-group`
+           ;; (optional-group inner segments): the empty-string-segment
+           ;; rule is a property of the SEGMENT, not of where it sits in
+           ;; the pattern. Spec 012 §`route-url` nil-policy: `""` on a path
+           ;; param is a hard error on EITHER side because a zero-length
+           ;; segment (`/articles/`) round-trips back as the param ABSENT.
+           reject-empty-segment
+           (fn [k kind v]
+             (if (= "" (str v))
+               (throw (route-error
+                        :rf.error/missing-route-param
+                        'rf/route-url
+                        (str "route " route-id " requires a non-empty " kind " param " k
+                             " but it was an empty string (a zero-length path segment "
+                             "cannot round-trip through match-url)")
+                        {:param k :route-id route-id :value v}))
+               v))
            require-param
            (fn [k kind]
              (if-some [v (get path-params k)]
-               (if (= "" (str v))
-                 (throw (route-error
-                          :rf.error/missing-route-param
-                          'rf/route-url
-                          (str "route " route-id " requires a non-empty " kind " param " k
-                               " but it was an empty string (a zero-length path segment "
-                               "cannot round-trip through match-url)")
-                          {:param k :route-id route-id :value v}))
-                 v)
+               (reject-empty-segment k kind v)
                (throw (route-error
                         :rf.error/missing-route-param
                         'rf/route-url
@@ -1042,11 +1052,21 @@
 
                    ;; `:name` / `*name` inside an optional group — the
                    ;; group is only entered when all its inner params are
-                   ;; present, so read directly (no require check).
+                   ;; `some?` (absent → the whole group elides), so the
+                   ;; ABSENT case is already handled by the enclosing gate.
+                   ;; A PRESENT `""` is NOT elision: `(some? "")` is true,
+                   ;; so the group is entered and would emit a zero-length
+                   ;; segment (`/articles/` for `{:id ""}`) that round-trips
+                   ;; back as the param absent — the same un-round-trippable
+                   ;; URL the top-level path rejects. Spec 012's nil-policy
+                   ;; table makes `""` a hard error for ANY path segment, so
+                   ;; reject it here too (`false`/`0` still round-trip).
                    (or (= ch \:) (= ch \*))
-                   (let [[end k] (param-seg-bounds pattern n i)]
-                     (recur end (conj parts (encode-param (= ch \*)
-                                                          (get path-params k)))))
+                   (let [splat?  (= ch \*)
+                         [end k] (param-seg-bounds pattern n i)
+                         v       (reject-empty-segment k (if splat? "splat" "path")
+                                                       (get path-params k))]
+                     (recur end (conj parts (encode-param splat? v))))
 
                    :else
                    (recur (inc i) (conj parts (str ch)))))))
