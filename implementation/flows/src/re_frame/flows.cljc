@@ -446,6 +446,24 @@
 (late-bind/set-fn! :flows/run-flows-on-db    run-flows-on-db)
 (late-bind/set-fn! :flows/reset-last-inputs! reset-last-inputs!)
 (late-bind/set-fn! :flows/reset-flows!       reset-flows!)
+;; Per rf2-4wqu6 finding 1 — the dirty-check-rollback pair the router uses
+;; to keep this frame's `last-inputs` bookkeeping aligned with the DURABLE
+;; app-db across a POST-commit schema/machine-data rollback. The flow
+;; transform runs inside the chain and eagerly advances `last-inputs` for
+;; each computed flow; but the rollback decision lands AFTER the chain, in
+;; `commit-db-effect!`, OUTSIDE `run-flows-on-db`'s own throw-path
+;; snapshot/restore. Without these hooks a rolled-back commit restores
+;; app-db to `db-before` but leaves the advanced `last-inputs` rows, so the
+;; next clean drain sees `=`-equal inputs, SKIPS the flow, and the flow
+;; output never re-materialises — a deterministic dev/test failure path can
+;; permanently suppress a flow. The router snapshots the draining frame's
+;; rows BEFORE the flow transform and, on a rollback, restores them — the
+;; exact mirror of the in-`run-flows-on-db` throw-path rollback, just at the
+;; post-commit boundary the flows artefact cannot see. Both delegate to the
+;; SAME frame-scoped registry primitives the throw path uses (rf2-94ol5):
+;; structurally incapable of touching a sibling frame's container.
+(late-bind/set-fn! :flows/snapshot-last-inputs registry/frame-last-inputs-snapshot)
+(late-bind/set-fn! :flows/restore-last-inputs!  registry/reset-frame-last-inputs-to!)
 ;; Per rf2-wbtjn — frame-destroy teardown hook (symmetric with the
 ;; machines `:machines/teardown-on-frame-destroy!` hook landed by
 ;; rf2-vsigt). `frame/destroy-frame!` invokes this hook so per-frame

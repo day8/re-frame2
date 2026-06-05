@@ -267,3 +267,114 @@
                "stale 10. Got " (:out (rf/app-db-value :rf/default))))
       (is (:touched (rf/app-db-value :rf/default))
           "the unrelated event's own write also landed"))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-4wqu6 finding 2 — clear-flow's flow lookup + `:path` capture must
+;; happen UNDER the drain-lock, not before it. A stale PRE-LOCK read can race
+;; a same-id same-frame `reg-flow` replacement that moves the output to a new
+;; `:path`, leaving clear-flow vacating the OLD (now-empty) path while the
+;; replacement's NEW path stays materialised after the flow is removed from
+;; the registry — a stale-derived-state leak (violating Spec 013's clear-flow
+;; cleanup contract) plus a misleading `:rf.flow/cleared` for the old path.
+;;
+;; This is DISTINCT from rf2-2woz9: that fix serialized clear-flow's
+;; vacate→deregister MUTATION against the drain, but left the lookup + path
+;; capture OUTSIDE the lock. rf2-4wqu6 finding 2 folds the lookup into the
+;; serialized region so the whole op runs over the SAME live flow definition.
+;; ---------------------------------------------------------------------------
+
+(deftest clear-flow-lookup-happens-under-the-lock-vs-a-racing-path-change-replacement
+  ;; Deterministic reproduction of the stale PRE-LOCK read, using a REAL
+  ;; drain as the lock-holder so the reentrancy / materialisation are natural
+  ;; (no manual lock-juggling, no reentrancy deadlock).
+  ;;
+  ;; A replacement event's HANDLER pauses early in the drain — the drain
+  ;; already holds the frame's `:drain-lock` and the OLD flow (`:path
+  ;; [:out-a]`) is still the live definition (the replacement `reg-flow`
+  ;; runs LATER, after the handler resumes). While the handler is parked we
+  ;; start `clear-flow` on thread B (its PRE-LOCK read, if any, captures the
+  ;; OLD `[:out-a]` here) and let B reach the lock-wait. We then resume the
+  ;; handler: it `reg-flow`s `:scaled` to `:path [:out-b]` (reentrant — the
+  ;; drainer already holds the lock) and the drain's flow transform
+  ;; MATERIALISES :out-b. The drain completes, releases the lock, and B's
+  ;; serialized region finally runs.
+  ;;
+  ;;   PRE-FIX: B vacates the stale pre-lock `[:out-a]` (a no-op — already
+  ;;            empty) and removes the registry row, leaving the
+  ;;            replacement's materialised `[:out-b]` STALE in app-db.
+  ;;   POST-FIX: B reads the LIVE flow UNDER the lock — `[:out-b]` — and
+  ;;            vacates THAT, so no stale derived state remains.
+  (testing "clear-flow vacates the replacement's NEW path, not the stale pre-lock OLD path"
+    (let [in-handler (CountDownLatch. 1) ;; drain parked in handler, OLD flow live
+          release    (CountDownLatch. 1)] ;; resume the handler → swap + materialise
+      (rf/reg-event-db :seed (fn [_ _] {:n 5}))
+      ;; OLD flow: :out-a = 2 × :n.
+      (rf/reg-flow {:id     :scaled
+                    :inputs [[:n]]
+                    :output (fn [n] (* 2 (or n 0)))
+                    :path   [:out-a]})
+      (rf/dispatch-sync [:seed])
+      (is (= 10 (:out-a (rf/app-db-value :rf/default)))
+          "precondition: the OLD flow materialised :out-a = 2 × :n = 10")
+
+      ;; The replacement handler: park early in the drain (lock held, OLD
+      ;; flow still live), then on resume re-register :scaled to :out-b. The
+      ;; reg-flow runs reentrantly inside the single-drainer window; the
+      ;; drain's flow transform then materialises :out-b = 100 × :n = 500.
+      ;; The handler dissocs the OLD output (:out-a) from its returned db so
+      ;; the deferred `:db` commit reflects the path change (the abandoned
+      ;; old-path value does not survive the move — mirrors what the path-
+      ;; change vacate intends; the reentrant vacate writes the container
+      ;; directly, but the drain's deferred commit installs THIS db, so the
+      ;; dissoc here is what makes the move durable through the drain).
+      (rf/reg-event-db :replace-scaled
+                       (fn [db _]
+                         (.countDown in-handler)
+                         (await! release "replace-scaled handler release")
+                         (rf/reg-flow {:id     :scaled
+                                       :inputs [[:n]]
+                                       :output (fn [n] (* 100 (or n 0)))
+                                       :path   [:out-b]}
+                                      {:frame :rf/default})
+                         (dissoc db :out-a)))
+
+      (let [;; Thread A: the replacement drain. Parks in the handler holding
+            ;; the drain-lock with the OLD flow still live.
+            replacer (future (rf/dispatch-sync [:replace-scaled] {:frame :rf/default}))]
+        ;; Wait until A's drain is parked in the handler.
+        (await! in-handler "in-handler (main)")
+        ;; Thread B: clear :scaled. Pre-fix its pre-lock read captures the
+        ;; OLD `[:out-a]` now (A hasn't swapped yet); in BOTH versions it
+        ;; then blocks on the drain-lock A's drain holds.
+        (let [clearer (future (rf/clear-flow :scaled {:frame :rf/default}))]
+          ;; B must NOT complete while A holds the lock — it's blocked on the
+          ;; drain-lock (bounded wait; B's pre-lock read, if any, is a few
+          ;; instructions before the blocking acquire).
+          (is (= ::still-blocked (deref clearer 1000 ::still-blocked))
+              "clear-flow is blocked on the drain-lock A's drain holds")
+          ;; Resume A: it swaps :scaled → :out-b, the flow transform
+          ;; materialises :out-b = 500, the drain commits + releases the
+          ;; lock. B's serialized region then runs.
+          (.countDown release)
+          (is (not= ::timeout (deref replacer 30000 ::timeout))
+              "the replacement drain completed within 30s")
+          (is (not= ::timeout (deref clearer 30000 ::timeout))
+              "clear-flow completed within 30s")))
+
+      ;; --- The load-bearing post-conditions (bead acceptance) -----------
+      (is (not (contains? (get (flows/flows-snapshot) :rf/default) :scaled))
+          "registry row gone: clear-flow removed :scaled")
+      (is (not (contains? (flows/last-inputs-snapshot) :scaled))
+          "last-inputs row gone")
+      (is (nil? (registrar/lookup :flow :scaled))
+          "the :flow registrar slot was vacated (last owner released)")
+      ;; THE FINDING-2 ASSERT: clear-flow vacated the REPLACEMENT's live path
+      ;; (:out-b), not the stale pre-lock :out-a. Pre-fix :out-b would linger
+      ;; (500) after the flow was removed from the registry.
+      (is (not (contains? (rf/app-db-value :rf/default) :out-b))
+          (str ":out-b ABSENT — clear-flow read the LIVE flow under the lock "
+               "and vacated the replacement's new path. Pre-fix it vacated the "
+               "stale pre-lock :out-a and left :out-b = "
+               (:out-b (rf/app-db-value :rf/default)) " in app-db."))
+      (is (not (contains? (rf/app-db-value :rf/default) :out-a))
+          ":out-a also absent (the replacement vacated it on the path change)"))))

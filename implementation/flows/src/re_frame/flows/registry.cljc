@@ -676,63 +676,80 @@
   not the parent's emptiness."
   ([id] (clear-flow id {}))
   ([id {:keys [frame] :as _opts}]
-   (let [frame-id (or frame (frame/current-frame))]
-     (when-let [flow (get-in @flows [frame-id id])]
-       (let [path (:path flow)]
-         ;; rf2-2woz9 finding 1: the vacate-then-deregister sequence below
-         ;; MUST be atomic w.r.t. the frame drain. Pre-fix, `vacate-output-
-         ;; path!` ran, then a same-frame drain could start, observe the
-         ;; STILL-registered flow, recompute it, and re-commit the output
-         ;; this clear vacated — and clear-flow, having already vacated,
-         ;; never vacated again, leaving stale derived state in app-db
-         ;; (violating Spec 013's clear-flow cleanup contract). Serializing
-         ;; the whole mutation against the drain (`:drain-lock`) makes the
-         ;; flow vanish from registry + app-db as one indivisible step the
-         ;; drain can never interleave with. Reentrant: a mid-drain
-         ;; `:rf.fx/clear-flow` runs directly inside the single-drainer
-         ;; window (see `frame/call-serialized-with-drain!`).
+   (let [frame-id (or frame (frame/current-frame))
+         ;; rf2-4wqu6 finding 2: the flow lookup + `:path` capture MUST
+         ;; happen INSIDE the drain-lock, not before it. Pre-fix this
+         ;; read the flow and captured `path` ahead of
+         ;; `call-serialized-with-drain!`; on the JVM a competing same-frame
+         ;; same-id `reg-flow` replacement could win the lock after that
+         ;; stale read, install a NEW `:path`, a drain could materialise the
+         ;; replacement's new output, and this clear-flow would then run
+         ;; under the lock using the OLD path — vacating a now-empty old
+         ;; path (a no-op) while removing the live registry row and leaving
+         ;; the replacement's new output stale in app-db (violating Spec
+         ;; 013's clear-flow cleanup contract). It would also emit a
+         ;; misleading `:rf.flow/cleared` for the old path.
+         ;;
+         ;; The fix folds the lookup, path capture, app-db vacate, registry
+         ;; removal, dirty-row drop, and registrar realignment into ONE
+         ;; serialized operation over the SAME live flow definition. The
+         ;; thunk returns the path it actually cleared (or nil when no flow
+         ;; was registered under the lock) so the `:rf.flow/cleared` emit
+         ;; below fires only on a real clear, with the path captured under
+         ;; the lock. (rf2-2woz9 finding 1: serializing the mutation against
+         ;; the drain already made the vacate→deregister sequence atomic;
+         ;; this extends that atomicity to the lookup the sequence reads.)
+         ;; Reentrant: a mid-drain `:rf.fx/clear-flow` runs directly inside
+         ;; the single-drainer window (see `frame/call-serialized-with-drain!`).
+         cleared-path
          (frame/call-serialized-with-drain!
            frame-id
            (fn []
-             (vacate-output-path! frame-id path)
-             ;; Drop the flow from `frame-id`'s per-frame slot; when that was
-             ;; the LAST flow on the frame, prune the now-empty `frame-id` key
-             ;; entirely rather than leave a `{frame-id {}}` husk (rf2-4bbaw).
-             ;; The husk was harmless (bounded by frame count, tolerated by the
-             ;; concurrency-stress invariant) but a naive `flows-snapshot`
-             ;; consumer would iterate the empty entry; pruning keeps the
-             ;; registry exactly symmetric with `teardown-on-frame-destroy!`'s
-             ;; `(swap! flows dissoc frame-id)`.
-             (swap! flows (fn [m]
-                            (let [m' (update m frame-id dissoc id)]
-                              (cond-> m'
-                                (empty? (get m' frame-id)) (dissoc frame-id)))))
-             ;; Drop the cleared flow's dirty-check row from THIS frame's own
-             ;; `last-inputs` container (rf2-94ol5). Frame-local — a sibling
-             ;; frame registering the same id keeps its own row untouched.
-             (drop-frame-flow-row! frame-id id)
-             ;; Keep the shared `:flow` registrar slot aligned with a live
-             ;; owner (rf2-73pi1): unregister when this was the LAST frame
-             ;; holding the id, or re-point the slot to a surviving owner
-             ;; when the cleared frame was the slot's current (now-stale)
-             ;; metadata writer. Pre-fix this only unregistered on
-             ;; last-owner-release, leaving the slot pointing at the cleared
-             ;; frame whenever a sibling still held the id.
-             (realign-registrar-owner! @flows id frame-id)))
-         ;; Per Spec 009 §:op-type vocabulary: :rf.flow/cleared fires after
-         ;; clear-flow has removed the flow from the per-frame registry
-         ;; and dissoc-in'd its output path. Tools observe this to drop
-         ;; their per-flow display state. The outer `debug-enabled?` gate
-         ;; matches the hot-path emits in flows.cljc (per Spec 009
-         ;; §Production builds, "keep the gate OUTERMOST"); clear-flow is
-         ;; a cold path so the cost is negligible, but the gate keeps the
-         ;; tag-map literal out of CLJS prod and the convention uniform
-         ;; across every flow emit site (rf2-ee38b.9).
-         (when interop/debug-enabled?
-           (trace/emit! :flow :rf.flow/cleared
-                        {:flow-id id
-                         :path    path
-                         :frame   frame-id}))))
+             (when-let [flow (get-in @flows [frame-id id])]
+               (let [path (:path flow)]
+                 (vacate-output-path! frame-id path)
+                 ;; Drop the flow from `frame-id`'s per-frame slot; when that was
+                 ;; the LAST flow on the frame, prune the now-empty `frame-id` key
+                 ;; entirely rather than leave a `{frame-id {}}` husk (rf2-4bbaw).
+                 ;; The husk was harmless (bounded by frame count, tolerated by the
+                 ;; concurrency-stress invariant) but a naive `flows-snapshot`
+                 ;; consumer would iterate the empty entry; pruning keeps the
+                 ;; registry exactly symmetric with `teardown-on-frame-destroy!`'s
+                 ;; `(swap! flows dissoc frame-id)`.
+                 (swap! flows (fn [m]
+                                (let [m' (update m frame-id dissoc id)]
+                                  (cond-> m'
+                                    (empty? (get m' frame-id)) (dissoc frame-id)))))
+                 ;; Drop the cleared flow's dirty-check row from THIS frame's own
+                 ;; `last-inputs` container (rf2-94ol5). Frame-local — a sibling
+                 ;; frame registering the same id keeps its own row untouched.
+                 (drop-frame-flow-row! frame-id id)
+                 ;; Keep the shared `:flow` registrar slot aligned with a live
+                 ;; owner (rf2-73pi1): unregister when this was the LAST frame
+                 ;; holding the id, or re-point the slot to a surviving owner
+                 ;; when the cleared frame was the slot's current (now-stale)
+                 ;; metadata writer. Pre-fix this only unregistered on
+                 ;; last-owner-release, leaving the slot pointing at the cleared
+                 ;; frame whenever a sibling still held the id.
+                 (realign-registrar-owner! @flows id frame-id)
+                 path))))]
+     ;; Per Spec 009 §:op-type vocabulary: :rf.flow/cleared fires after
+     ;; clear-flow has removed the flow from the per-frame registry
+     ;; and dissoc-in'd its output path. Tools observe this to drop
+     ;; their per-flow display state. Only emit when a flow was ACTUALLY
+     ;; cleared (rf2-4wqu6 finding 2 — a no-op clear-flow for an unregistered
+     ;; id, or one that lost the race to a competing lifecycle op, emits
+     ;; nothing), carrying the path captured under the lock. The outer
+     ;; `debug-enabled?` gate matches the hot-path emits in flows.cljc (per
+     ;; Spec 009 §Production builds, "keep the gate OUTERMOST"); clear-flow is
+     ;; a cold path so the cost is negligible, but the gate keeps the
+     ;; tag-map literal out of CLJS prod and the convention uniform
+     ;; across every flow emit site (rf2-ee38b.9).
+     (when (and cleared-path interop/debug-enabled?)
+       (trace/emit! :flow :rf.flow/cleared
+                    {:flow-id id
+                     :path    cleared-path
+                     :frame   frame-id}))
      nil)))
 
 ;; ---- frame-destroy teardown ---------------------------------------------

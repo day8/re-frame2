@@ -855,7 +855,20 @@
   Schema-derived redaction is reflected in the `:event/db-changed`
   trace event's `:tags :event` slot. The router-installed internal
   interceptor stashes the scrubbed form under `:rf/redacted-event`;
-  this commit path reads it through."
+  this commit path reads it through.
+
+  Per rf2-4wqu6 finding 1: on rollback the flow dirty-check
+  (`last-inputs`) bookkeeping is rolled back in lock-step with the
+  app-db. The flow transform advanced each computed flow's `last-inputs`
+  row inside the chain (folding the output into the now-discarded
+  pending `:db`); restoring app-db to `db-before` without also restoring
+  those rows would leave the dirty-check believing the flows are
+  up-to-date, so the next clean drain would skip them on `=`-equal
+  inputs and the output would never re-materialise. `ctx` carries the
+  pre-drain snapshot under `:rf/flow-last-inputs-before` (stashed by
+  `flows-after-interceptor`); the rollback arm restores it through the
+  frame-scoped `:flows/restore-last-inputs!` hook — the mirror of
+  `run-flows-on-db`'s throw-path rollback at the post-commit boundary."
   [effects event-id event frame ctx db-before]
   (if (contains? effects :db)
     (let [container  (frame/app-db-container frame)
@@ -885,6 +898,24 @@
           ;; (in order): forward commit, schema-failure error,
           ;; rollback commit.
           (adapter/replace-container! container db-before)
+          ;; Per rf2-4wqu6 finding 1: app-db rolled back to its pre-handler
+          ;; value, so the flow dirty-check (`last-inputs`) bookkeeping MUST
+          ;; roll back too — the flow transform already advanced each
+          ;; computed flow's row inside the chain, but those outputs were
+          ;; just discarded along with the rolled-back db. Restore THIS
+          ;; frame's pre-drain `last-inputs` snapshot (stashed on the ctx by
+          ;; `flows-after-interceptor`) so the next clean drain re-reads
+          ;; changed inputs and re-materialises the flow output instead of
+          ;; skipping it as `=`-equal. This is the exact mirror of
+          ;; `run-flows-on-db`'s throw-path rollback, applied at the
+          ;; post-commit boundary the flows artefact cannot reach. Both the
+          ;; snapshot and the restorer are frame-scoped (rf2-94ol5): a
+          ;; sibling frame's container is a different atom and is untouched.
+          ;; No-op when no flow ran (no snapshot stashed) or the flows
+          ;; artefact never loaded (restorer hook nil).
+          (when (contains? ctx :rf/flow-last-inputs-before)
+            (when-let [restore-li (late-bind/get-fn-cached :flows/restore-last-inputs!)]
+              (restore-li frame (:rf/flow-last-inputs-before ctx))))
           (trace/emit! :rf.event :rf.event/db-changed
                        {:rf.trace/event-id event-id
                         :rf.event/v        emit-event
@@ -1014,7 +1045,31 @@
                         :rf.event/db       pending-db}))
         (if run-on-db
           (try
-            (let [new-db (run-on-db frame pending-db)]
+            (let [;; Per rf2-4wqu6 finding 1: snapshot THIS frame's
+                  ;; dirty-check (`last-inputs`) rows BEFORE the flow transform
+                  ;; advances them. The transform eagerly advances a flow's row
+                  ;; the moment it recomputes, folding the output into the
+                  ;; pending `:db`. But whether that pending `:db` becomes
+                  ;; DURABLE is decided AFTER the chain, in `commit-db-effect!`:
+                  ;; a POST-commit schema / machine-data validation failure
+                  ;; rolls app-db back to `db-before`. `run-flows-on-db`'s own
+                  ;; throw-path snapshot/restore cannot cover that — the
+                  ;; rollback lands outside it. Without restoring here, the
+                  ;; advanced rows survive a rollback, so the next clean drain
+                  ;; sees `=`-equal inputs, SKIPS the flow, and the output
+                  ;; never re-materialises (a deterministic dev/test failure
+                  ;; can permanently suppress a flow). We stash the pre-drain
+                  ;; snapshot on the ctx; `commit-db-effect!` restores it iff it
+                  ;; rolls back — the exact mirror of the throw-path rollback,
+                  ;; at the post-commit boundary. Frame-scoped (rf2-94ol5): the
+                  ;; snapshot is `frame`'s own container, structurally unable to
+                  ;; touch a sibling frame draining on another thread. The
+                  ;; snapshot is a persistent map (pointer-sized to stash); the
+                  ;; hook is nil only when the flows artefact never loaded, in
+                  ;; which case there are no rows and nothing to restore.
+                  snapshot-li (late-bind/get-fn-cached :flows/snapshot-last-inputs)
+                  li-before   (when snapshot-li (snapshot-li frame))
+                  new-db (run-on-db frame pending-db)]
               ;; t2 — flows transformed the pending `:db`. Stamp the
               ;; flow-augmented value so the Xray panel can render the
               ;; t1→t2 reshape. The dirty-check below is the same
@@ -1037,9 +1092,15 @@
               ;; the value OR the handler already had one — a no-flow /
               ;; no-write event must not synthesise a spurious `:db`
               ;; effect (which would force an app-db install + db-changed
-              ;; trace on an event that wrote nothing).
+              ;; trace on an event that wrote nothing). When we DO publish a
+              ;; `:db`, stash the pre-drain dirty-check snapshot + the
+              ;; restorer fn (rf2-4wqu6 finding 1) so `commit-db-effect!` can
+              ;; roll `last-inputs` back in lock-step with an app-db rollback.
+              ;; A no-flow / no-write event publishes no `:db`, hits no
+              ;; commit/rollback boundary, and needs no snapshot.
               (if (or has-db? (not (identical? new-db pending-db)))
-                (interceptor/assoc-effect ctx :db new-db)
+                (cond-> (interceptor/assoc-effect ctx :db new-db)
+                  snapshot-li (assoc :rf/flow-last-inputs-before li-before))
                 ctx))
             (catch #?(:clj Throwable :cljs :default) e
               ;; Atomicity contract (Spec 013 §Failure semantics, Mike
