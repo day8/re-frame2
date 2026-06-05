@@ -29,20 +29,54 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Seeded PRNG - a 32-bit LCG (numerical-recipes constants). Deterministic
-;; and identical across JVM + JS (we mask to 32 bits with bit-and so the
-;; arithmetic never depends on host integer width). State is an int.
+;; and IDENTICAL across JVM + JS.
+;;
+;; ## Why the multiply needs host-specific care (rf2-h2yvs finding 2)
+;;
+;; The LCG step is `s' = (s * 1103515245 + 12345) mod 2^32`. The constant
+;; `1103515245` is ~2^30, so for a 32-bit state `s` the product `s *
+;; 1103515245` is ~2^62 BEFORE the mod-2^32 truncation. On the JVM `s` is a
+;; `long` (64-bit) so `unchecked-multiply` holds the full product exactly and
+;; the subsequent `bit-and … mask32` truncates correctly. On CLJS, though,
+;; `unchecked-multiply` compiles to JS `*` on a double, which only has 53 bits
+;; of mantissa - a ~2^62 product loses its low bits, so `(s * 1103515245) &
+;; 0xFFFFFFFF` does NOT equal the true 32-bit product and the JS sequence
+;; diverges from the JVM sequence after the first step (verified: seed 1 /
+;; bound 100 gave JVM `54 24 56 95 …` vs the double path `54 25 12 28 …`).
+;;
+;; The portable primitive is `js/Math.imul`, which returns the low 32 bits of
+;; the integer product (signed) exactly. We then coerce to an UNSIGNED 32-bit
+;; state (`>>> 0` via `unsigned-bit-shift-right`) so both runtimes carry the
+;; same `0 <= state < 2^32` convention - matching what the JVM `bit-and …
+;; mask32` already yields (`mask32` is a long, so the JVM result is unsigned).
+;; The `next-int` hi-bit extraction (`(bit-shift-right s' 8) & 0x7FFFFF`) is
+;; sign-agnostic because the `& 0x7FFFFF` (23-bit) mask discards exactly the
+;; bits a signed vs unsigned shift would differ in, so it needs no change.
+;; State is an unsigned 32-bit integer on both hosts.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private mask32 0xFFFFFFFF)
 
+(def ^:private lcg-mult 1103515245)
+(def ^:private lcg-inc 12345)
+
 (defn make-rng
-  "Make a PRNG state from an integer seed."
+  "Make a PRNG state (unsigned 32-bit) from an integer seed."
   [seed]
-  (bit-and (int seed) mask32))
+  #?(:clj  (bit-and (long seed) mask32)
+     ;; `>>> 0` coerces to an unsigned 32-bit value, matching the JVM
+     ;; `bit-and … mask32` convention (`mask32` is a long there).
+     :cljs (unsigned-bit-shift-right (int seed) 0)))
 
 (defn- next-state
+  "Advance the LCG one step. Uses a portable 32-bit multiply: the JVM holds
+  the full ~2^62 product in a `long` then truncates; CLJS uses `Math.imul`
+  (exact low-32-bit product) then coerces to unsigned 32-bit. Both yield the
+  identical unsigned-32 state sequence (rf2-h2yvs finding 2)."
   [s]
-  (bit-and (unchecked-add (unchecked-multiply s 1103515245) 12345) mask32))
+  #?(:clj  (bit-and (unchecked-add (unchecked-multiply (long s) lcg-mult) lcg-inc)
+                    mask32)
+     :cljs (unsigned-bit-shift-right (+ (js/Math.imul s lcg-mult) lcg-inc) 0)))
 
 (defn next-int
   "Return `[n rng']` where `0 <= n < bound`. `bound` must be positive."
