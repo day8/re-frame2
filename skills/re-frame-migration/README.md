@@ -73,6 +73,7 @@ skills/re-frame-migration/
 └── spec/
     ├── design.md                  # Locked design decisions
     ├── inputs.md                  # Canonical inputs the skill leans on
+    ├── improving.md               # How to find + fold in skill improvements (friction loop + quality bar)
     └── authoring-prompt.md        # One-shot reauthor prompt
 ```
 
