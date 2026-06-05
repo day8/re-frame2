@@ -323,9 +323,12 @@
       (is (= [:exit-active :exit-session :renew :enter-session :enter-active] @log)
           "exit cascade leaf→root → action → entry cascade root→leaf (re-runs :initial)")))
 
-  (testing "DEFAULT-INTERNAL self-transition on a COMPOUND state (:same-state,
-            NO :reenter?) — action ONLY, no exit/entry, active child preserved
-            (NOT re-initialised) (rf2-eicq0)"
+  (testing "DEFAULT self-transition on a COMPOUND state (:same-state, NO
+            :reenter?) RE-RESOLVES its descendants — the compound itself is NOT
+            exited/re-entered, but its active child is exited and the compound's
+            :initial re-descends. XState v5: 'an explicit target re-resolves
+            child states to their initial' (rf2-gt1pu, correcting an earlier
+            rf2-eicq0 over-collapse). Verified against xstate@5.32.0."
     (let [log (atom [])
           tag (fn [k] (fn [_] (swap! log conj k) {}))
           machine
@@ -336,30 +339,31 @@
                      :enter-active  (tag :enter-active)
                      :exit-active   (tag :exit-active)
                      :enter-idle    (tag :enter-idle)
+                     :exit-idle     (tag :exit-idle)
                      :renew         (tag :renew)}
            :states
            {:session
             {:initial :active
              :entry   :enter-session
              :exit    :exit-session
-             ;; :same-state with NO :reenter? — internal by default
+             ;; :same-state with NO :reenter? — re-resolves descendants (v5)
              :on      {:reauth {:target :same-state :action :renew}}
              :states
              {:active {:entry :enter-active :exit :exit-active
                        ;; sibling target — moves to :idle (relative to :session)
                        :on {:sleep :idle}}
-              :idle   {:entry :enter-idle}}}}}]
+              :idle   {:entry :enter-idle :exit :exit-idle}}}}}]
       (rf/reg-machine :self/compound-default-internal machine)
       (rf/dispatch-sync [:self/compound-default-internal [:rf2-eicq0/prime]])
-      ;; Move the active child to :idle so we can prove the internal self-target
-      ;; does NOT re-descend :initial (which would land back on :active).
+      ;; Move the active child to the NON-initial :idle so the re-resolution to
+      ;; :session's :initial (:active) is observable.
       (rf/dispatch-sync [:self/compound-default-internal [:sleep]])
       (reset! log [])
       (rf/dispatch-sync [:self/compound-default-internal [:reauth]])
-      (is (= [:session :idle] (:state (snapshot :self/compound-default-internal)))
-          "default internal self-target preserves the active child — NO :initial re-descent")
-      (is (= [:renew] @log)
-          "ONLY the action fired — no compound exit/entry, no child churn (v5 internal default)"))))
+      (is (= [:session :active] (:state (snapshot :self/compound-default-internal)))
+          "compound self-target re-resolves descendants — re-descends :session's :initial (:active)")
+      (is (= [:exit-idle :renew :enter-active] @log)
+          "exit the active child :idle → action at the LCCA (:session) → re-enter :initial (:active); :session itself NOT exited/entered (no :reenter?)"))))
 
 ;; ---- external (:reenter? true) transition to a PROPER ANCESTOR -----------
 ;; (LCCA ancestor-restart geometry — rf2-emz8l; default flipped by rf2-eicq0)
@@ -368,8 +372,10 @@
 ;; §3.13: a `:reenter? true` transition from a descendant leaf to one of its
 ;; PROPER ANCESTORS A restarts A — A's active subtree (including A) exits, the
 ;; transition action fires at the LCCA (A's parent), then A re-enters and
-;; re-descends its `:initial` chain. Under the rf2-eicq0 v5 flip this restart
-;; is OPT-IN: an ancestor target WITHOUT `:reenter?` is internal (no churn).
+;; re-descends its `:initial` chain. Under the rf2-eicq0 v5 flip RE-ENTERING
+;; THE ANCESTOR ITSELF is OPT-IN; an ancestor target WITHOUT `:reenter?` does
+;; NOT exit/re-enter the ancestor BUT (rf2-gt1pu) still RE-RESOLVES its active
+;; descendants (children reset to :initial) — it is not a no-op.
 ;; Before rf2-emz8l the engine bounded the exit set by the longest common
 ;; PREFIX of the source path and the initial-cascaded target leaf, so an
 ;; ancestor target was a SILENT NO-OP. This ns exercises the LIVE runtime
@@ -448,10 +454,12 @@
       (is (= [:exit-2 :exit-a :enter-a :enter-1] @log)
           "exit :two then :a → re-enter :a → re-init :one")))
 
-  ;; ---- rf2-eicq0: ancestor target WITHOUT :reenter? is INTERNAL ------------
-  (testing "DEFAULT ancestor target (NO :reenter?) is INTERNAL — action fires,
-            no exit/entry, the active descendant config is PRESERVED (not
-            re-initialised) (rf2-eicq0)"
+  ;; ---- rf2-gt1pu: ancestor target WITHOUT :reenter? RE-RESOLVES descendants -
+  (testing "DEFAULT ancestor target (NO :reenter?) does NOT re-enter the
+            ancestor itself, but RE-RESOLVES its active descendants — children
+            reset to the ancestor's :initial. XState v5: 'an explicit target
+            re-resolves child states to their initial' (rf2-gt1pu, correcting
+            an earlier rf2-eicq0 over-collapse). Verified against xstate@5.32.0."
     (let [log (atom [])
           tag (fn [k] (fn [_] (swap! log conj k) {}))
           machine
@@ -464,13 +472,13 @@
            :states
            {:p {:initial :a
                 :states
-                {:a {:entry :enter-a :exit :exit-a
+                {:a {:entry :enter-a :exit :exit-a   ;; the target — NOT re-entered
                      :initial :one
                      :states
                      {:one {:entry :enter-one :exit :exit-one
                             :on {:to-two :two}}
                       :two {:entry :enter-two :exit :exit-two
-                            ;; ancestor target with NO :reenter? — internal
+                            ;; ancestor target, NO :reenter? — re-resolves :a's descendants
                             :on {:touch {:target [:p :a] :action :touch}}}}}}}}}]
       (rf/reg-machine :ancestor/default-internal machine)
       (rf/dispatch-sync [:ancestor/default-internal [:rf2-eicq0/prime]])
@@ -479,7 +487,7 @@
           "resting at the non-initial child :two")
       (reset! log [])
       (rf/dispatch-sync [:ancestor/default-internal [:touch]])
-      (is (= [:p :a :two] (:state (snapshot :ancestor/default-internal)))
-          "default ancestor target PRESERVES the active config — NO restart, NO :initial re-descent")
-      (is (= [:touch] @log)
-          "ONLY the action fired — ancestor target without :reenter? is internal (v5 default flip)"))))
+      (is (= [:p :a :one] (:state (snapshot :ancestor/default-internal)))
+          "ancestor target re-resolves :a's descendants — active child resets to :a's :initial (:one)")
+      (is (= [:exit-2 :touch :enter-1] @log)
+          "exit the active descendant :two → action at the LCCA (:a) → re-enter :a's :initial (:one); :a and :p NOT exited/entered (no :reenter?)"))))

@@ -2205,12 +2205,15 @@
   "Phase 1 — derive the transition's geometry. Returns a map with:
     :src-path       — source state path (vector).
     :target-leaf    — initial-cascaded target path (nil for internal).
-    :internal?      — the EFFECTIVE internal flag (rf2-eicq0): true iff the
-                      transition has no `:target`, OR its target lands on the
-                      active path (self / proper ancestor) WITHOUT
-                      `:reenter? true`. An active-path target is internal by
-                      default (XState-v5); `:reenter? true` makes it external
-                      (exit/entry re-run, `:after`/`:spawn` restart).
+    :internal?      — the EFFECTIVE internal flag (rf2-gt1pu): true iff the
+                      transition has NO `:target` (a targetless internal
+                      no-op). Per XState v5 (rf2-gt1pu) any EXPLICIT target —
+                      even self / ancestor / current-compound on the active
+                      path — re-resolves the active descendants below the
+                      target (children reset to `:initial`), so it is NOT a
+                      configuration no-op and `internal?` is false. See
+                      `lca-len` for the four active-path geometries
+                      (self/ancestor ± `:reenter?`, descendant ± `:reenter?`).
     :lca-len        — common-prefix length of src and target.
     :cascade-steps  — per rf2-n9f4z, the vec of cascade STEP maps in
                       execution order (`:exit` × N deepest-first → the
@@ -2367,14 +2370,48 @@
         ;;  without `:reenter?`) is untouched — it never reaches the cascade
         ;;  (`internal?` short-circuits exit/entry below).
         ;;
-        ;; `target-on-active-path?` is the GEOMETRIC predicate (target lands
-        ;; on the active path), independent of the `:reenter?` opt-in. The
-        ;; EXTERNAL pull-up fires only when re-entry is also REQUESTED
-        ;; (`reenter-active-path?`); otherwise an active-path target is folded
-        ;; into the effective `internal?` flag below.
+        ;; `target-on-active-path?` is the GEOMETRIC predicate (the literal
+        ;; target lands on the active path — `target-base` is a prefix of
+        ;; `src-path`, so the target is the source leaf, a CURRENTLY-ACTIVE
+        ;; COMPOUND on the path, or a proper ANCESTOR of the leaf),
+        ;; independent of the `:reenter?` opt-in. An explicit active-path
+        ;; target is NEVER a configuration no-op — XState v5 RE-RESOLVES the
+        ;; active descendants below the target (children reset to `:initial`)
+        ;; even without `:reenter?` (rf2-gt1pu). Only a TARGETLESS transition
+        ;; preserves the configuration unchanged.
         target-on-active-path? (and (not targetless?)
                                     (= (count target-base)
                                        (common-prefix-length src-path target-base)))
+        ;; The DECLARING-state ↔ TARGET relationship. XState v5: "child state
+        ;; nodes are always re-entered when targeted by transitions defined on
+        ;; compound state nodes." So a transition DECLARED ON an active
+        ;; compound D whose target T is a PROPER DESCENDANT of D re-enters the
+        ;; targeted descendant T (and exits/re-enters the active descendants
+        ;; between D and the resolved leaf), while D itself and the prefix
+        ;; above survive — UNLESS `:reenter?` forces D's own restart
+        ;; (rf2-127ff). Note T need NOT be on the active branch: D may target a
+        ;; DISJOINT descendant (e.g. a sibling of the active child) — exactly
+        ;; the rf2-127ff `:editor`→`[:editor :preview]` shape while `:draft` is
+        ;; active. So this is gated on T-vs-D, NOT on `target-on-active-path?`.
+        ;;
+        ;; THREE structural conditions (all over ABSOLUTE paths):
+        ;;   (a) D is a NON-EMPTY genuine state node — excludes the synthetic
+        ;;       root / bootstrap whose `:decl-path` is `[]` (a root-`:on` or
+        ;;       the birth cascade is the standard external geometry, not the
+        ;;       compound-targets-its-child rule);
+        ;;   (b) D is an ACTIVE ancestor of the current leaf (D is a prefix of
+        ;;       `src-path`) — the firing compound is on the active path, the
+        ;;       leaf→root walk that selected the transition guarantees it for a
+        ;;       real `:on` match;
+        ;;   (c) T is a PROPER DESCENDANT of D (D is a strict prefix of T).
+        ;; (rf2-gt1pu / rf2-127ff.)
+        target-descendant-of-decl? (and (not targetless?)
+                                        (pos? (count decl-path))
+                                        (= (count decl-path)
+                                           (common-prefix-length src-path decl-path))
+                                        (> (count target-base) (count decl-path))
+                                        (= (count decl-path)
+                                           (common-prefix-length decl-path target-base)))
         ;; A HISTORY restore is an external re-entry BY NATURE — it resolves
         ;; the pseudo-state to a concrete config and re-enters the compound,
         ;; recording the outgoing config on the way (rf2-mle6e). It must NOT
@@ -2386,16 +2423,69 @@
         reenter-active-path?   (and target-on-active-path? external-re-entry?)
         ;; The EFFECTIVE internal flag threaded to every downstream phase
         ;; (cascade-steps, `commit-snapshot` state preservation, after-fx /
-        ;; after-cancel / destroy / done-raise / history-record). A
-        ;; self/ancestor target WITHOUT `:reenter?` is internal — XState-v5
-        ;; default (rf2-eicq0). Targetless is always internal. A history
-        ;; restore is never internal (it re-enters by nature, above).
-        internal?     (or targetless?
-                          (and target-on-active-path? (not external-re-entry?)))
+        ;; after-cancel / destroy / done-raise / history-record). ONLY a
+        ;; targetless transition is internal (true configuration no-op).
+        ;; XState v5 (rf2-gt1pu): any EXPLICIT target — even self / ancestor /
+        ;; current-compound on the active path — re-resolves the active
+        ;; descendants below the target, so it is NOT a no-op. (Pre-rf2-gt1pu
+        ;; this also folded a no-`:reenter?` active-path target into
+        ;; `internal?`, collapsing the middle "re-resolve descendants" case to
+        ;; a targetless no-op — the bug.)
+        internal?     targetless?
+        ;; The exit/entry boundary (LCCA depth) — the count of the common
+        ;; prefix that SURVIVES (is neither exited nor entered). The geometries
+        ;; (rf2-gt1pu / rf2-127ff), all grounded in xstate@5.32.0, are
+        ;; discriminated by the TARGET ↔ DECLARING-state (`decl-path`)
+        ;; relationship, NOT by the active leaf:
+        ;;
+        ;;  • T is a PROPER DESCENDANT of D (D's compound transition targets a
+        ;;    descendant — XState "child nodes targeted by compound transitions
+        ;;    are re-entered"):
+        ;;      WITHOUT `:reenter?` — the targeted descendant T is re-entered,
+        ;;        D survives. boundary = (count target-base) - 1. Computed
+        ;;        against target-BASE (not target-leaf) so a T whose `:initial`
+        ;;        re-descends to the active leaf still re-enters rather than
+        ;;        collapsing to the emz8l silent no-op.
+        ;;          e.g. declared on :parent, target [:parent :child] while at
+        ;;          [:parent :child :a] → exit a + child, re-enter child/a;
+        ;;          :parent not exited.
+        ;;      WITH `:reenter?` (rf2-127ff) — the DECLARING compound D exits +
+        ;;        re-enters (run D's :exit/:entry, restart D's :after, re-spawn),
+        ;;        then descends to the NAMED descendant T (NOT D's :initial —
+        ;;        `target-leaf` already cascades from T).
+        ;;        boundary = (count decl-path) - 1.
+        ;;          e.g. declared on :editor, target [:editor :preview] +
+        ;;          :reenter? while at :draft → exit draft + editor, re-enter
+        ;;          editor, descend to :preview.
+        ;;  • T is on the ACTIVE PATH but NOT a descendant of D (SELF or proper
+        ;;    ANCESTOR of D):
+        ;;      WITHOUT `:reenter?` — T survives; only its active descendants
+        ;;        re-resolve. boundary = (count target-base) (computed against
+        ;;        target-BASE so re-resolution is not a no-op).
+        ;;          e.g. at [:process :step3], target :process → exit step3,
+        ;;          re-enter :initial (step1); :process not exited.
+        ;;      WITH `:reenter?` (eicq0) — T is exited + re-entered (restart
+        ;;        timers/spawns) then re-descends. boundary = (count target-base) - 1.
+        ;;  • DISJOINT-subtree target (not a descendant of D, not on the active
+        ;;    path) — the LCCA is the plain common-prefix node; `:reenter?` is a
+        ;;    no-op. boundary = common-prefix-length(src-path, target-leaf).
         lca-len       (cond
-                        internal?            (count src-path)
-                        reenter-active-path? (max 0 (dec (count target-base)))
-                        :else                (common-prefix-length src-path target-leaf))
+                        internal?
+                        (count src-path)
+
+                        target-descendant-of-decl?
+                        (if external-re-entry?
+                          (max 0 (dec (count decl-path)))
+                          (max 0 (dec (count target-base))))
+
+                        reenter-active-path?
+                        (max 0 (dec (count target-base)))
+
+                        target-on-active-path?
+                        (count target-base)
+
+                        :else
+                        (common-prefix-length src-path target-leaf))
         ;; Walk each path once; reuse the `[prefix node]` pair vectors
         ;; for both the cascade ref derivation AND the spawn/destroy fx
         ;; emission downstream (per audit §T6 #2 — eliminate the double
