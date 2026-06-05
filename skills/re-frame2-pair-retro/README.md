@@ -15,7 +15,7 @@ It is designed for retrospectives like:
 
 It focuses on evidence from the session itself: retries, confusion, workarounds, stale or empty results, missing observability, brittle platform behavior, hidden prerequisites, and trust gaps. It then proposes improvements at the right layer: `SKILL.md`, scripts/runtime ops, warnings/results, tests/fixtures, or — when the friction is caused by the framework rather than the pair tool — an upstream GitHub issue against `day8/re-frame2`.
 
-It can draft a GitHub issue against `day8/re-frame2` — the monorepo where the pair tool ships, alongside the framework — but only if the user wants that. Tool-side friction is filed under the `pair-mcp` label; upstream framework friction is filed without it, so the two stay distinguishable.
+It can draft a GitHub issue against `day8/re-frame2` — the monorepo where the pair tool ships, alongside the framework — but only if the user wants that. Tool-side vs upstream-framework friction is carried in the issue title and body; when the target repo defines them, an optional `pair-mcp` / `upstream-from-re-frame2-pair` label reinforces the distinction. Labels are best-effort taxonomy, never a precondition: filing falls back to a no-label `gh issue create` so the handoff lands even on a repo that has not defined those labels.
 
 It is intentionally diagnosis-first: the default outcome is a better understanding of what went wrong and which improvements would matter most, not pressure to contribute code or file issues.
 
@@ -26,6 +26,7 @@ It is intentionally diagnosis-first: the default outcome is a better understandi
 - `references/analysis-lenses.md` — friction taxonomy and prioritization prompts (re-frame2-aware)
 - `references/known-frictions.md` — recurring classes of product friction to pattern-match against
 - `references/issue-template.md` — GitHub-issue drafting structure (with the shell-safety pattern for transcript-derived bodies)
+- `references/working-style.md` — diagnostic-posture rules applied per finding (evidence over vibes, symptom vs cause, direct/indirect friction, positive gaps, creativity after diagnosis)
 - `spec/` — skill-internal meta-docs (`design.md`, `inputs.md`, `authoring-prompt.md`) for re-authoring the skill; not loaded during normal operation
 - `evals/evals.json` — trigger-accuracy fixtures (which prompts should and should not activate the skill)
 - `.claude-plugin/plugin.json` — plugin packaging metadata
@@ -48,7 +49,7 @@ A good run of the skill produces:
 2. the main friction points observed in the session
 3. likely root causes
 4. 2-5 high-leverage improvement ideas
-5. optional GitHub-issue candidates (against `day8/re-frame2`, labelled `pair-mcp` for tool-side friction), with draft text or direct filing only after approval
+5. optional GitHub-issue candidates (against `day8/re-frame2`; the `pair-mcp` label for tool-side friction is applied only when the repo defines it), with draft text or direct filing only after approval
 
 ## Status
 

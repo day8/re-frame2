@@ -2,14 +2,14 @@
 
 Use this structure when drafting or filing an improvement. Keep it evidence-based and concise.
 
-The default filing path is a **GitHub issue** against `day8/re-frame2` — the pair tool ships inside that monorepo (`skills/re-frame2-pair/` + `tools/re-frame2-pair-mcp/`). Pair-tool friction and upstream / framework friction both file there; a **`pair-mcp` label** distinguishes pair-tool issues from framework issues. (Tracker boundary: never `bd` — see Filing rules below.)
+The default filing path is a **GitHub issue** against `day8/re-frame2` — the pair tool ships inside that monorepo (`skills/re-frame2-pair/` + `tools/re-frame2-pair-mcp/`). Pair-tool friction and upstream / framework friction both file there; a **`pair-mcp` label**, *when the repo defines it*, distinguishes pair-tool issues from framework issues. **Labels are optional taxonomy, never a filing precondition** — `gh issue create` fails the whole command on an unknown `--label`, so the routing distinction lives primarily in the title + body, and a label is added only after confirming it exists (see §Filing with `gh issue create`). (Tracker boundary: never `bd` — see Filing rules below.)
 
 ## Routing first
 
-Before drafting, decide which kind of friction it is — both target `day8/re-frame2`, distinguished by label:
+Before drafting, decide which kind of friction it is — both target `day8/re-frame2`. The distinction is carried in the title + body; the label is an optional reinforcement applied only when the repo defines it (§Filing with `gh issue create`):
 
-- **pair-tool friction** (`--label pair-mcp`) — friction in the pair tool itself: SKILL.md, scripts, recipes, attach logic, structured results, cross-platform handling.
-- **framework friction** (no `pair-mcp` label) — friction caused by a gap in the framework's Tool-Pair contract. Name the specific surface from [`../../shared/tool-pair-surfaces.md`](../../shared/tool-pair-surfaces.md) (e.g. missing trace event category, under-specified `:rf.epoch/*` failure mode, missing registrar query, source-coord shape question, schema-reflection limitation) or a private-namespace reach-through that should be promoted.
+- **pair-tool friction** (optional `--label pair-mcp`) — friction in the pair tool itself: SKILL.md, scripts, recipes, attach logic, structured results, cross-platform handling.
+- **framework friction** (optional `--label upstream-from-re-frame2-pair`, no `pair-mcp`) — friction caused by a gap in the framework's Tool-Pair contract. Name the specific surface from [`../../shared/tool-pair-surfaces.md`](../../shared/tool-pair-surfaces.md) (e.g. missing trace event category, under-specified `:rf.epoch/*` failure mode, missing registrar query, source-coord shape question, schema-reflection limitation) or a private-namespace reach-through that should be promoted.
 
 When unsure, ask the user. Sometimes both: a tool-side workaround now and an upstream GitHub issue for the long-term fix; cross-link them.
 
@@ -78,7 +78,28 @@ This is the canonical shape from [`../../README.md` §Published-skill `allowed-t
    …
    ```
 
-2. File it against `day8/re-frame2` with one `gh issue create` command. For **pair-tool friction**, add the `pair-mcp` label so it is distinguishable from framework issues:
+2. File it against the target repo (here `day8/re-frame2`) with one `gh issue create` command. **The labels below are optional, best-effort taxonomy — never a precondition for filing.** `gh issue create` **fails the whole command** if you pass a `--label` the repo does not define, and a consumer's repo (or even this one, today) may not carry `retro` / `pair-mcp` / `upstream-from-re-frame2-pair`. So the **baseline filing command carries no `--label` at all** — it always succeeds:
+
+   ```bash
+   gh issue create \
+     --repo day8/re-frame2 \
+     --title "<short title>" \
+     --body-file /tmp/issue-body.md
+   ```
+
+   Encode the tool-vs-framework routing in the **title and body** (it is also stated in §Proposed improvement → layer), not solely in a label. The label is a nicety on top.
+
+3. **Only if you want the label taxonomy, add labels that already exist** — never pass an unverified label. Detect first, then pass only the present ones:
+
+   ```bash
+   # List the repo's labels once; keep only the ones you intend to apply.
+   gh label list --repo day8/re-frame2 --limit 200
+   ```
+
+   - **pair-tool friction** — if the repo defines them, add `--label retro,pair-mcp` (drop either token that is absent; omit `--label` entirely if neither exists).
+   - **framework friction** — if the repo defines them, add `--label retro,upstream-from-re-frame2-pair` (same degrade rule).
+
+   Worked example for pair-tool friction *when both labels exist*:
 
    ```bash
    gh issue create \
@@ -88,23 +109,16 @@ This is the canonical shape from [`../../README.md` §Published-skill `allowed-t
      --label retro,pair-mcp
    ```
 
-For **framework friction** (a gap in the Tool-Pair contract), file against the same repo without the `pair-mcp` label:
+   If a `gh issue create --label …` call fails with an unknown-label error, **re-run the no-label baseline command above** rather than treating the retro as failed — the issue must land; the label is optional. (Maintainers who want this taxonomy can create the labels with `gh label create retro …` once; that is a repo-maintenance choice, not a filing prerequisite.)
 
-```bash
-gh issue create \
-  --repo day8/re-frame2 \
-  --title "<short title>" \
-  --body-file /tmp/issue-body.md \
-  --label retro,upstream-from-re-frame2-pair
-```
-
-`--body-file` reads the body verbatim from disk, so no shell expansion ever touches the transcript-derived text, and the only `Bash` call is a bare `gh issue create` — exactly what the skill's `allowed-tools` grants. The `--title` value is safe only because it is agent-authored from the safe alphabet (§Title patterns), not because it is read from a file.
+`--body-file` reads the body verbatim from disk, so no shell expansion ever touches the transcript-derived text, and the only `Bash` call is a bare `gh issue create` / `gh label list` — exactly what the skill's `allowed-tools` grants. The `--title` value is safe only because it is agent-authored from the safe alphabet (§Title patterns), not because it is read from a file. Never paste an evidence-derived string into `--label` either (§Filing rules).
 
 Always run `gh issue list --repo <owner/repo> --search "<keywords>"` first to check for an existing issue on the same friction; reference it instead of duplicating.
 
 ## Filing rules
 
 - File only after explicit user approval.
+- **Labels are optional; never let a missing label block filing.** `gh issue create` fails the whole command on an unknown `--label`, and the target repo may not define `retro` / `pair-mcp` / `upstream-from-re-frame2-pair`. File the no-label baseline command by default; add a `--label` only after confirming it exists (`gh label list`), passing only the present tokens. If a labelled create fails, re-run the no-label command — the issue must land.
 - **Never interpolate transcript-derived text directly into a shell command.** Use the `Write` tool + `--body-file /tmp/issue-body.md` pattern for the body, and **author the `--title` from the safe alphabet** (§Title patterns) — never paste evidence text into `--title`, `--label`, or `--repo`.
 - Redact secrets, tokens, and internal-only details.
 - Prefer one issue per distinct improvement.
