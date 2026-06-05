@@ -19,12 +19,35 @@
   Keyword rows (`:rf.http/managed`, `:rf/route`, …) and prose-celled rows
   are skipped — they are not vars and carry no Tier-for-a-var.
 
-  NAME NORMALISATION. API.md writes some var names namespace-qualified
-  (`helix-adapter/adapter`, `re-frame.http/get`, `re-frame.interop/...`).
-  We normalise to the bare var name and resolve it against the manifest by
-  var-name (the manifest is keyed by namespace+var, but a bare API.md row
-  is unambiguous in practice — and where a name is genuinely ambiguous we
-  match if ANY manifest row with that var-name carries the stated tier).
+  QUALIFIER RESOLUTION (rf2-41j0a). API.md writes some var names
+  namespace-qualified (`helix-adapter/adapter`, `re-frame.http/get`,
+  `re-frame.interop/debug-enabled?`) and others bare (`reg-event-db`). The
+  two SHAPES resolve against DIFFERENT manifest indexes, because they carry
+  different identity — exactly the rf2-0u8kz lesson the Xray-spec check
+  already pins:
+
+    - A QUALIFIED row names BOTH a namespace (or its documented `:as`
+      alias) AND a var. It resolves STRICTLY against the `[namespace var]`
+      index — resolving by bare var alone is unsound, because the manifest
+      carries the SAME `:var \"adapter\"` for FOUR distinct namespaces
+      (`re-frame.adapter.{reagent,uix,helix}` at tier `:adapter`, plus
+      `re-frame.ssr` at `:internal-public`). A bare-`:var` match would let
+      a qualified row drift to a stale/wrong/unknown qualifier
+      (`uix-adapter/adapter` → `bogus-adapter/adapter`) and still pass the
+      moment ANY manifest row with bare name `adapter` carried the stated
+      tier — a false-green drift gate. The qualifier is first resolved to
+      an EXACT manifest namespace: a documented adapter `:as` alias via
+      `adapter-aliases`, otherwise the qualifier verbatim (the
+      full-namespace rows `re-frame.http/...`, `re-frame.interop/...`,
+      `re-frame.performance/...` ARE literal manifest namespaces). A
+      qualifier that resolves to neither a known alias nor a manifest
+      namespace+var pair fails as a wrong/unknown qualifier.
+
+    - A BARE row names only a var. It keeps the original name-resolution
+      latitude: it resolves if ANY manifest row with that var-name carries
+      the stated tier (a bare API.md row is unambiguous in practice), and
+      its knowingly-unmanifested allowlist (`:api-md-known-unmanifested`)
+      is keyed by bare var-name.
 
   TIER ALIASES. A handful of API.md rows state a tier in the Tier cell as
   prose-with-the-tier-word (e.g. `— (fx-id; follows the advanced HTTP
@@ -57,15 +80,34 @@
   [cell]
   (boolean (re-find #"^(Fn|M|Var|Component)\b" (str/trim cell))))
 
-(defn- bare-var-name
-  "Normalise an API.md first-cell identifier to its bare var name:
-   `helix-adapter/adapter` -> `adapter`, `re-frame.http/get` -> `get`,
-   `reg-event-db` -> `reg-event-db`."
+(def adapter-aliases
+  "The documented `:require [<ns> :as <alias>]` adapter aliases API.md uses
+   to qualify the substrate-adapter surfaces (spec/API.md §UIx adapter /
+   §Helix adapter prose). A qualified API.md row written with one of these
+   aliases resolves to the EXACT manifest namespace named here — never by
+   bare var name (the `adapter` / `flush-views!` / … vars are carried for
+   all three adapter namespaces, so a bare match would not distinguish
+   them). The alias→namespace shape is regular (`<x>-adapter` ->
+   `re-frame.adapter.<x>`); it is spelled out so the contract is explicit
+   and a new adapter alias is an intentional one-line addition."
+  {"reagent-adapter" "re-frame.adapter.reagent"
+   "uix-adapter"     "re-frame.adapter.uix"
+   "helix-adapter"   "re-frame.adapter.helix"})
+
+(defn- parse-first-cell-ident
+  "Split an API.md first-cell identifier into `[qualifier bare-var]`. For a
+   QUALIFIED ident the qualifier is everything before the last `/`
+   (`helix-adapter/adapter` -> `[\"helix-adapter\" \"adapter\"]`,
+   `re-frame.http/get` -> `[\"re-frame.http\" \"get\"]`); for a BARE ident
+   the qualifier is nil (`reg-event-db` -> `[nil \"reg-event-db\"]`). The
+   qualifier is PRESERVED (not stripped) so a qualified row can be resolved
+   strictly against the manifest's `[namespace var]` index — see the ns
+   docstring's QUALIFIER RESOLUTION note (rf2-41j0a)."
   [ident]
   (let [s (str/trim ident)]
     (if-let [i (str/last-index-of s "/")]
-      (subs s (inc i))
-      s)))
+      [(subs s 0 i) (subs s (inc i))]
+      [nil s])))
 
 (defn- table-row-cells
   "Split a markdown `| a | b | c |` row into trimmed cell strings, or nil
@@ -91,9 +133,13 @@
   (first (keep-indexed (fn [i c] (when (= "Tier" (str/trim c)) i)) cells)))
 
 (defn parse-api-md-var-rows
-  "Parse spec/API.md and return `[{:var <bare-name> :tier <kw> :line <n>
-   :raw <first-cell>} ...]` for every VAR-row found in any table that has
-   a `Tier` column.
+  "Parse spec/API.md and return `[{:var <bare-name> :qualifier <ns-or-alias
+   or nil> :tier <kw> :line <n> :raw <first-cell>} ...]` for every VAR-row
+   found in any table that has a `Tier` column. `:qualifier` is the
+   namespace/alias prefix for a qualified row (`helix-adapter`,
+   `re-frame.http`) or nil for a bare row — preserved so qualified rows can
+   resolve strictly against the manifest `[namespace var]` index
+   (rf2-41j0a).
 
    We track the CURRENT table's `Tier` column index (from its header row)
    and read the tier from EXACTLY that cell — not by scanning every cell,
@@ -126,14 +172,71 @@
               (if (and tier-idx m (var-kind-marker? kind-cell)
                        (< tier-idx (count cells)))
                 (if-let [tier (first-tier-token (nth cells tier-idx))]
-                  (recur more tier-idx
-                         (conj! acc {:var  (bare-var-name (second m))
-                                     :tier tier
-                                     :line n
-                                     :raw  (second m)}))
+                  (let [[qualifier bare] (parse-first-cell-ident (second m))]
+                    (recur more tier-idx
+                           (conj! acc {:var       bare
+                                       :qualifier qualifier
+                                       :tier      tier
+                                       :line      n
+                                       :raw       (second m)})))
                   (recur more tier-idx acc))
                 (recur more tier-idx acc)))))
         (persistent! acc)))))
+
+(defn reconcile
+  "Pure reconciler (rf2-41j0a — extracted so the qualifier-resolution
+   contract is unit-testable with synthetic inputs). Returns the seq of
+   problem maps for the supplied API.md var-rows.
+
+   `rows`               — manifest rows (each `{:namespace :var :tier ...}`).
+   `api-rows`           — parsed API.md var-rows `{:var :qualifier :tier
+                          :line :raw}` (`:qualifier` nil for a bare row).
+   `known-unmanifested` — set of bare var-name strings knowingly
+                          unmanifested (the `:api-md-known-unmanifested`
+                          allowlist; bare rows only).
+   `aliases`            — `{alias -> namespace}` for documented adapter
+                          `:as` aliases (`adapter-aliases`).
+
+   QUALIFIED rows resolve STRICTLY against the `[namespace var] -> #{tiers}`
+   index after mapping the qualifier through `aliases` (else verbatim) — a
+   qualifier that does not resolve to a manifest `[namespace var]` pair is
+   `:missing` (this is what catches a stale/wrong/unknown qualifier on a
+   duplicate bare var). BARE rows keep the name-resolution latitude: any
+   manifest row with the bare name carrying the tier satisfies them, and
+   the bare-name allowlist applies."
+  [{:keys [rows api-rows known-unmanifested aliases]}]
+  (let [;; bare var-name -> set of tiers the manifest carries for that name
+        by-name (reduce (fn [acc {:keys [var tier]}]
+                          (update acc var (fnil conj #{}) tier))
+                        {} rows)
+        ;; strict [namespace var] -> set of tiers (a [ns var] pair is unique
+        ;; in the manifest, so each set is a singleton — but a set keeps the
+        ;; not-contains? tier check uniform with the bare path).
+        by-ns+var (reduce (fn [acc {:keys [namespace var tier]}]
+                            (update acc [namespace var] (fnil conj #{}) tier))
+                          {} rows)]
+    (keep (fn [{:keys [var qualifier tier line raw]}]
+            (if qualifier
+              ;; QUALIFIED: resolve the qualifier to an exact namespace,
+              ;; then require an exact [namespace var] manifest pair.
+              (let [ns'   (get aliases qualifier qualifier)
+                    tiers (get by-ns+var [ns' var])]
+                (cond
+                  (nil? tiers)
+                  {:kind :missing :var var :raw raw :line line :api-tier tier}
+                  (not (contains? tiers tier))
+                  {:kind :tier-mismatch :var var :raw raw :line line
+                   :api-tier tier :manifest-tiers tiers}))
+              ;; BARE: original by-name latitude + bare-name allowlist.
+              (let [tiers (get by-name var)]
+                (cond
+                  (contains? known-unmanifested var) nil
+                  (nil? tiers)
+                  {:kind :missing :var var :raw raw :line line :api-tier tier}
+                  (not (contains? tiers tier))
+                  {:kind :tier-mismatch :var var :raw raw :line line
+                   :api-tier tier :manifest-tiers tiers}))))
+          api-rows)))
 
 (defn check!
   "Validate spec/API.md var-rows against the manifest. Returns true when
@@ -142,25 +245,14 @@
   []
   (let [manifest   (gen/read-committed-manifest)
         rows       (:vars manifest)
-        ;; var-name -> set of tiers the manifest carries for that name
-        by-name    (reduce (fn [acc {:keys [var tier]}]
-                             (update acc var (fnil conj #{}) tier))
-                           {} rows)
         ;; API.md var-rows the sidecar marks as knowingly-unmanifested
         ;; (post-v1-lib surfaces the reference impl does not yet ship).
         known-unmanifested (set (:api-md-known-unmanifested (gen/read-sidecar)))
         api-rows   (parse-api-md-var-rows)
-        problems
-        (keep (fn [{:keys [var tier line raw]}]
-                (let [tiers (get by-name var)]
-                  (cond
-                    (contains? known-unmanifested var) nil
-                    (nil? tiers)
-                    {:kind :missing :var var :raw raw :line line :api-tier tier}
-                    (not (contains? tiers tier))
-                    {:kind :tier-mismatch :var var :raw raw :line line
-                     :api-tier tier :manifest-tiers tiers})))
-              api-rows)]
+        problems   (reconcile {:rows               rows
+                               :api-rows           api-rows
+                               :known-unmanifested known-unmanifested
+                               :aliases            adapter-aliases})]
     (if (empty? problems)
       (do (println (format "OK: spec/API.md projection in sync (%d var-rows checked against the manifest)."
                            (count api-rows)))
