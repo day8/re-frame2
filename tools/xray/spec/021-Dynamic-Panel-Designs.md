@@ -1203,7 +1203,13 @@ superseded). Section order, top → bottom, each separated by a 1px hairline:
 3. **ROUTE TABLE** — all **registered routes** (id → path pattern), drawn as a **tree when
    nested** (expand chevrons; else a flat list), with the **current route highlighted**
    (mode-accent row + `◀ current` marker) and the focused navigation's FROM→TO marked on it.
-   Click a route → its definition / source coord.
+   Click a route → its definition / source coord. **Every registered route appears exactly
+   once**, even when its `:parent` metadata is malformed: an orphan parent (points at an
+   unregistered id) renders at depth 0, and a rootless cycle (a self-cycle, or a closed
+   `A↔B` where every member's parent is registered) is surfaced at depth 0 with a `↻ cycle`
+   badge rather than being silently dropped (rf2-m9rx6) — diagnosing malformed parent
+   metadata is exactly what the topology view is for. The projection
+   (`routing_helpers/project-topology`) terminates on any cycle via a global visited set.
 
 ```
 ┌─ ROUTING · epoch #38 ──────────────────────────── [◀ Prev] [Next ▶] ─┐

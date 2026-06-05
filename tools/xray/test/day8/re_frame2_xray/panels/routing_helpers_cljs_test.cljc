@@ -72,6 +72,32 @@
    :tags      (cond-> {:route-id route-id :nav-token nav-token}
                 dispatch-id (assoc :rf.trace/dispatch-id dispatch-id))})
 
+(defn- deactivated-trace
+  "The `:rf.route/deactivated` lifecycle emit the runtime fires for the
+  PRIOR route id on a cross-route navigation (carries `:tags :route-id`
+  = the FROM). Lands in the cascade's `:other` bucket."
+  [route-id]
+  {:id        2
+   :op-type   :rf.event
+   :operation :rf.route/deactivated
+   :tags      {:route-id route-id}})
+
+(defn- nav-cascade
+  "A focused navigation cascade carrying the runtime's lifecycle emits:
+  nav-token/allocated (TO) plus, on a cross-route nav, deactivated
+  (FROM). Mirrors `emit-activation-traces!` — same-route navigations
+  pass `from-id` nil so NEITHER deactivated nor a distinct FROM appears."
+  [dispatch-id event-vec to-id from-id nav-token]
+  {:dispatch-id dispatch-id
+   :event       event-vec
+   :handler     nil
+   :fx          nil
+   :effects     []
+   :subs        []
+   :renders     []
+   :other       (cond-> [(nav-allocated-trace to-id nav-token dispatch-id)]
+                  from-id (conj (deactivated-trace from-id)))})
+
 (defn- cascade
   [dispatch-id event-vec & {:keys [other effects fx handler]
                             :or {other [] effects [] fx nil handler nil}}]
@@ -236,43 +262,82 @@
               :effects [(nav-allocated-trace :route/x "nav-2")])]
       (is (some? (h/nav-token-allocated-in-cascade c))))))
 
+;; ---- route-deactivated-in-cascade ---------------------------------------
+
+(deftest route-deactivated-in-cascade-test
+  (testing "nil cascade → nil"
+    (is (nil? (h/route-deactivated-in-cascade nil))))
+
+  (testing "cascade with no deactivated emit → nil"
+    (is (nil? (h/route-deactivated-in-cascade (cascade 1 [:foo])))))
+
+  (testing "deactivated emit in :other bucket is found; :tags :route-id is the FROM"
+    (let [c (cascade 1 [:rf.route/navigate :route/confirm]
+              :other [(nav-allocated-trace :route/confirm "nav-1")
+                      (deactivated-trace :route/cart)])
+          ev (h/route-deactivated-in-cascade c)]
+      (is (some? ev))
+      (is (= :route/cart (-> ev :tags :route-id))))))
+
 ;; ---- from-to-from-cascade -----------------------------------------------
+;;
+;; FROM is derived from the focused cascade's :rf.route/deactivated emit
+;; (rf2-m9rx6) — NEVER the live current slice. The live slice is the
+;; *current* route, which is time-dependent (it drifts as the app keeps
+;; navigating); reading FROM from the cascade makes the lens honest about
+;; the transition the SELECTED epoch performed.
 
 (deftest from-to-from-cascade-test
   (testing "no nav emit → not navigated"
     (let [c (cascade 1 [:foo])
           {:keys [navigated? from-id to-id]}
-          (h/from-to-from-cascade c {:id :route/cart})]
+          (h/from-to-from-cascade c)]
       (is (false? navigated?))
       (is (nil? from-id))
       (is (nil? to-id))))
 
-  (testing "nav from cart to confirm yields both ids"
-    (let [c (cascade 1 [:rf.route/navigate :route/confirm]
-              :other [(nav-allocated-trace :route/confirm "nav-7")])
+  (testing "cross-route nav yields both ids from the cascade emits"
+    (let [c (nav-cascade 1 [:rf.route/navigate :route/confirm]
+                         :route/confirm :route/cart "nav-7")
           {:keys [navigated? from-id to-id]}
-          (h/from-to-from-cascade c {:id :route/cart})]
+          (h/from-to-from-cascade c)]
       (is (true? navigated?))
       (is (= :route/cart from-id))
       (is (= :route/confirm to-id))))
 
-  (testing "first navigation (no prior slice) yields nil FROM"
-    (let [c (cascade 1 [:rf.route/navigate :route/cart]
-              :other [(nav-allocated-trace :route/cart "nav-1")])
+  (testing "first navigation (no deactivated emit) yields nil FROM"
+    ;; The runtime emits no :rf.route/deactivated on the first nav (no
+    ;; prior route to leave) — absence of the emit ⇒ no FROM.
+    (let [c (nav-cascade 1 [:rf.route/navigate :route/cart]
+                         :route/cart nil "nav-1")
           {:keys [navigated? from-id to-id]}
-          (h/from-to-from-cascade c nil)]
+          (h/from-to-from-cascade c)]
       (is (true? navigated?))
       (is (nil? from-id))
       (is (= :route/cart to-id))))
 
-  (testing "same-route re-navigation collapses FROM to nil"
-    (let [c (cascade 1 [:rf.route/navigate :route/cart {:filter :all}]
-              :other [(nav-allocated-trace :route/cart "nav-3")])
+  (testing "same-route re-navigation (no deactivated emit) collapses FROM"
+    ;; Same route-id, changed params/query: the runtime emits NEITHER
+    ;; deactivated nor activated, so no FROM surfaces.
+    (let [c (nav-cascade 1 [:rf.route/navigate :route/cart {:filter :all}]
+                         :route/cart nil "nav-3")
           {:keys [navigated? from-id to-id]}
-          (h/from-to-from-cascade c {:id :route/cart :params {:filter :open}})]
+          (h/from-to-from-cascade c)]
       (is (true? navigated?))
-      (is (nil? from-id) "from collapses when TO == current")
-      (is (= :route/cart to-id)))))
+      (is (nil? from-id) "no deactivated emit ⇒ no FROM")
+      (is (= :route/cart to-id))))
+
+  (testing "FROM is independent of the live current slice (rf2-m9rx6)"
+    ;; The historical bug: FROM came from the live slice's :id. A focused
+    ;; A→B cascade must report FROM A / TO B regardless of where the app
+    ;; has since navigated — the cascade carries deactivated-A /
+    ;; allocated-B unconditionally, so the live route is irrelevant.
+    (let [c (nav-cascade 1 [:rf.route/navigate :route/confirm]
+                         :route/confirm :route/cart "nav-9")
+          {:keys [from-id to-id]} (h/from-to-from-cascade c)]
+      ;; No current-slice arg at all — FROM/TO read off the cascade.
+      (is (= :route/cart from-id) "FROM is the deactivated (prior) route")
+      (is (= :route/confirm to-id) "TO is the allocated (new) route"))))
 
 ;; ---- assign-markers -----------------------------------------------------
 
@@ -329,27 +394,47 @@
       (is (= :route/cart (get-in data [:current :id]))))))
 
 (deftest project-data-navigation-test
-  (testing "focused cascade caused navigation — TO renders"
-    (let [c (cascade 42 [:rf.route/navigate :route/confirm]
-              :other [(nav-allocated-trace :route/confirm "nav-9" 42)])
+  (testing "focused cascade caused navigation with no deactivated emit — TO renders, no FROM"
+    (let [c (nav-cascade 42 [:rf.route/navigate :route/confirm]
+                         :route/confirm nil "nav-9")
           data (h/project-data cart-routes {:id :route/confirm} c)
           by-id (into {} (map (juxt :route-id :marker)) (:routes data))]
       (is (true? (:navigated? data)))
       (is (= :route/confirm (:to-id data)))
       (is (nil? (:from-id data))
-          "current.id == to-id ⇒ FROM collapses per from-to-from-cascade")
+          "no deactivated emit ⇒ FROM nil per from-to-from-cascade")
       (is (= :to (get by-id :route/confirm)))))
 
-  (testing "nav cascade with distinct current slice — FROM ≠ TO"
-    (let [c (cascade 1 [:rf.route/navigate :route/confirm]
-              :other [(nav-allocated-trace :route/confirm "nav-3")])
-          data (h/project-data cart-routes {:id :route/cart} c)
+  (testing "cross-route cascade — FROM derived from deactivated emit, not the live slice"
+    ;; Live current slice is :route/cart (the post-nav value), and the
+    ;; cascade carries deactivated :route/cart → activated :route/confirm.
+    (let [c (nav-cascade 1 [:rf.route/navigate :route/confirm]
+                         :route/confirm :route/cart "nav-3")
+          data (h/project-data cart-routes {:id :route/confirm} c)
           by-id (into {} (map (juxt :route-id :marker)) (:routes data))]
       (is (true? (:navigated? data)))
       (is (= :route/cart (:from-id data)))
       (is (= :route/confirm (:to-id data)))
       (is (= :from (get by-id :route/cart)))
-      (is (= :to   (get by-id :route/confirm))))))
+      (is (= :to   (get by-id :route/confirm)))))
+
+  (testing "FROM/TO are time-independent — drift in the live slice does not corrupt them (rf2-m9rx6)"
+    ;; A focused A→B cascade. The app has since navigated to C, so the
+    ;; live slice's :id is :route/checkout (≠ both A and B). FROM must
+    ;; STILL be A and TO STILL B; the only thing the live slice governs
+    ;; is the HERE marker (suppressed here because navigated? is true).
+    (let [c (nav-cascade 5 [:rf.route/navigate :route/confirm]
+                         :route/confirm :route/cart "nav-5")
+          data (h/project-data cart-routes {:id :route/checkout} c)
+          by-id (into {} (map (juxt :route-id :marker)) (:routes data))]
+      (is (= :route/cart (:from-id data))
+          "FROM stays A even though the live slice moved on to C")
+      (is (= :route/confirm (:to-id data))
+          "TO stays B even though the live slice moved on to C")
+      (is (= :from (get by-id :route/cart)))
+      (is (= :to   (get by-id :route/confirm)))
+      (is (nil? (get by-id :route/checkout))
+          "the live route C carries no marker for this historical epoch"))))
 
 (deftest project-data-query-and-sim-test
   (testing "query filter is applied to :routes"
@@ -452,6 +537,41 @@
       (is (= "/cart" (:path pv)))
       (is (not (contains? (:slot-shape pv) :params))))))
 
+(deftest simulate-navigation-preview-row-local-overlapping-test
+  (testing "row preview matches the SELECTED row's pattern, not the global winner (rf2-m9rx6)"
+    ;; Two routes both match /checkout/payment: the exact route (global
+    ;; winner) and a lower-ranked splat fallback. The OLD impl reported
+    ;; the splat row as no-match because it lost the global rank race;
+    ;; the row preview must report ITS OWN match + params.
+    (let [routes {:route/exact (route "/checkout/payment")
+                  :route/splat (route "/*rest")}
+          ;; sanity: the global resolution still ranks exact first.
+          sim   (h/simulate-url routes "/checkout/payment")]
+      (is (= :route/exact (:winner sim)) "exact route is the global winner")
+      ;; Previewing the exact row: matched.
+      (let [pv-exact (h/simulate-navigation-preview routes :route/exact "/checkout/payment")]
+        (is (true? (:matched? pv-exact)) "exact row matches its own pattern"))
+      ;; Previewing the SPLAT row (the global loser): must STILL match
+      ;; its own pattern and surface its params.
+      (let [pv-splat (h/simulate-navigation-preview routes :route/splat "/checkout/payment")]
+        (is (true? (:matched? pv-splat))
+            "splat fallback row matches its own pattern despite losing the global rank")
+        (is (some? (:params pv-splat))
+            "splat captures its params (e.g. :rest) — not hidden")
+        (is (contains? (:slot-shape pv-splat) :params)
+            "matched splat row carries params into the slot shape")))))
+
+(deftest simulate-navigation-preview-row-local-non-matching-row-test
+  (testing "a row whose own pattern does NOT match the URL reports no match (rf2-m9rx6)"
+    ;; /cart is the URL; previewing :route/checkout (pattern /checkout)
+    ;; must report no match even though some OTHER route matches the URL.
+    (let [routes {:route/cart     (route "/cart")
+                  :route/checkout (route "/checkout")}
+          pv     (h/simulate-navigation-preview routes :route/checkout "/cart")]
+      (is (false? (:matched? pv))
+          "the selected row's pattern doesn't match the URL ⇒ no match")
+      (is (nil? (:params pv))))))
+
 ;; ---- project-topology (rf2-3kjlo) ---------------------------------------
 
 (def parented-routes
@@ -539,27 +659,73 @@
       (is (= 0 (:depth orphan-entry))
           "orphan rendered at depth 0 (parent reference broken)"))))
 
-(deftest project-topology-cycle-protection-test
-  (testing "a cycle in the :parent graph does not loop"
-    ;; A → B → A. Neither has a nil parent; both should still appear
-    ;; (the rooted? predicate treats them as roots since neither's
-    ;; parent points to nil, BUT the registered-ids set DOES contain
-    ;; both ids — so they're NOT rooted via the orphan branch. They
-    ;; ARE rooted only when their parent isn't in registered-ids.
-    ;; With both parents registered they wouldn't be roots — which
-    ;; means the walk-from-roots never includes them. Test the milder
-    ;; cycle case: a self-cycle.
+(deftest project-topology-self-cycle-test
+  (testing "a self-cycle (A → A) appears exactly once as a cycle root (rf2-m9rx6)"
+    ;; :route/self's :parent is itself. Both parents are registered, so
+    ;; it is NOT a root via the rooted? predicate — the walk-from-roots
+    ;; never reaches it. The cycle-root append phase must still surface
+    ;; it (the topology view is meant to DIAGNOSE malformed parent meta,
+    ;; not hide it).
     (let [self-cycle {:route/self
                       (route "/self" :parent :route/self)
                       :route/root (route "/")}
           topology (h/project-topology self-cycle)
-          ids      (mapv #(-> % :row :route-id) topology)]
-      ;; :route/root appears; :route/self may or may not (it's a self-
-      ;; root via the cycle-protection branch). Critically, the call
-      ;; must terminate and return a vector.
+          by-id    (group-by #(-> % :row :route-id) topology)]
       (is (vector? topology) "projection terminates on self-cycle")
-      (is (contains? (set ids) :route/root)
-          "non-cycling routes still appear"))))
+      (is (= 2 (count topology))
+          "every registered route appears exactly once")
+      (is (= 1 (count (get by-id :route/self)))
+          ":route/self appears exactly once (not dropped)")
+      (is (= 1 (count (get by-id :route/root)))
+          "non-cycling :route/root still appears once")
+      (let [self-entry (first (get by-id :route/self))]
+        (is (= 0 (:depth self-entry)) "cycle root rendered at depth 0")
+        (is (true? (:cycle-root? self-entry))
+            ":route/self flagged :cycle-root? for the diagnose-malformed view"))
+      (let [root-entry (first (get by-id :route/root))]
+        (is (false? (:cycle-root? root-entry))
+            "ordinary root carries :cycle-root? false")))))
+
+(deftest project-topology-two-node-cycle-test
+  (testing "a two-node cycle (A ↔ B) — both appear exactly once, projection terminates (rf2-m9rx6)"
+    ;; :route/a's :parent is :route/b and vice-versa. Both parents are
+    ;; registered, so NEITHER is a root — the walk-from-roots reaches
+    ;; neither. The cycle-root append phase surfaces the component once.
+    (let [cycle-routes {:route/a (route "/a" :parent :route/b)
+                        :route/b (route "/b" :parent :route/a)}
+          topology (h/project-topology cycle-routes)
+          by-id    (group-by #(-> % :row :route-id) topology)]
+      (is (vector? topology) "projection terminates on A ↔ B cycle")
+      (is (= 2 (count topology))
+          "both cycle members appear, each exactly once")
+      (is (= 1 (count (get by-id :route/a))) ":route/a appears exactly once")
+      (is (= 1 (count (get by-id :route/b))) ":route/b appears exactly once")
+      ;; The first-by-path member is the cycle root (depth 0,
+      ;; cycle-root? true); the other rides under it as its child.
+      (let [a-entry (first (get by-id :route/a))]
+        (is (= 0 (:depth a-entry)) "lexically-first member is the cycle root at depth 0")
+        (is (true? (:cycle-root? a-entry)) "cycle root flagged :cycle-root?")))))
+
+(deftest project-topology-mixed-roots-and-cycle-test
+  (testing "ordinary roots plus a rootless cycle coexist — all appear once (rf2-m9rx6)"
+    (let [mixed {:route/root (route "/")
+                 :route/a    (route "/a" :parent :route/b)
+                 :route/b    (route "/b" :parent :route/a)}
+          topology (h/project-topology mixed)
+          by-id    (group-by #(-> % :row :route-id) topology)]
+      (is (= 3 (count topology)) "all three registered routes appear exactly once")
+      (doseq [rid (keys mixed)]
+        (is (= 1 (count (get by-id rid))) (str rid " appears exactly once")))
+      (is (false? (:cycle-root? (first (get by-id :route/root))))
+          "the genuine root is not flagged as a cycle root"))))
+
+(deftest project-topology-cycle-root-flag-on-normal-routes-test
+  (testing "ordinary (acyclic) topology carries :cycle-root? false on every entry"
+    (let [topology (h/project-topology parented-routes)]
+      (is (every? #(false? (:cycle-root? %)) topology)
+          "no acyclic route is flagged :cycle-root?")
+      (is (every? #(contains? % :cycle-root?) topology)
+          "every entry carries the :cycle-root? key"))))
 
 ;; ---- epoch-routing-activity (rf2-3kjlo) ---------------------------------
 
@@ -657,8 +823,8 @@
 
 (deftest project-topology-data-overlay-test
   (testing "focused cascade caused navigation → :to overlay + :on-match phase"
-    (let [c (cascade 42 [:rf.route/navigate :route/confirm]
-              :other [(nav-allocated-trace :route/confirm "nav-9" 42)])
+    (let [c (nav-cascade 42 [:rf.route/navigate :route/confirm]
+                         :route/confirm nil "nav-9")
           data (h/project-topology-data parented-routes
                                         {:id :route/confirm
                                          :params {:x 1}}
@@ -673,15 +839,31 @@
       (is (= :on-match (-> data :activity :phase)))
       (is (= {:x 1} (-> data :activity :match)))))
 
-  (testing "focused cascade with distinct prior slice paints both :from and :to"
-    (let [c (cascade 1 [:rf.route/navigate :route/confirm]
-              :other [(nav-allocated-trace :route/confirm "nav-3")])
-          data (h/project-topology-data parented-routes {:id :route/cart} c)
+  (testing "cross-route cascade paints both :from (deactivated) and :to (allocated)"
+    (let [c (nav-cascade 1 [:rf.route/navigate :route/confirm]
+                         :route/confirm :route/cart "nav-3")
+          data (h/project-topology-data parented-routes {:id :route/confirm} c)
           marker-by-id (into {}
                              (map (juxt #(-> % :row :route-id) :marker))
                              (:topology data))]
+      (is (= :route/cart (:from-id data)))
       (is (= :from (get marker-by-id :route/cart)))
-      (is (= :to   (get marker-by-id :route/confirm))))))
+      (is (= :to   (get marker-by-id :route/confirm)))))
+
+  (testing "FROM marker is time-independent of the live slice (rf2-m9rx6)"
+    ;; Live slice has moved to :route/admin; the focused cascade is still
+    ;; cart→confirm. FROM cart / TO confirm must still paint.
+    (let [c (nav-cascade 7 [:rf.route/navigate :route/confirm]
+                         :route/confirm :route/cart "nav-7")
+          data (h/project-topology-data parented-routes {:id :route/admin} c)
+          marker-by-id (into {}
+                             (map (juxt #(-> % :row :route-id) :marker))
+                             (:topology data))]
+      (is (= :route/cart (:from-id data)))
+      (is (= :from (get marker-by-id :route/cart)))
+      (is (= :to   (get marker-by-id :route/confirm)))
+      (is (nil? (get marker-by-id :route/admin))
+          "the live route carries no marker for this historical epoch"))))
 
 (deftest project-topology-data-no-activity-test
   (testing "focused cascade has no routing trace events → activity nil; HERE still paints"

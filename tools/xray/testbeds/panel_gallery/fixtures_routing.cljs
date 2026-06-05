@@ -102,11 +102,31 @@
    :tags      {:rf.trace/dispatch-id dispatch-id
                :rf.event/v       event-vec}})
 
+(defn- deactivated-trace
+  "The runtime's `:rf.route/deactivated` lifecycle emit for the PRIOR
+  route on a cross-route nav. Its `:tags :route-id` is the FROM — the
+  panel reads FROM off this emit, not the live slice (rf2-m9rx6)."
+  [id dispatch-id route-id]
+  {:id        id
+   :op-type   :rf.event
+   :operation :rf.route/deactivated
+   :tags      {:rf.trace/dispatch-id dispatch-id
+               :route-id    route-id}})
+
 (defn nav-buffer
-  "Trace buffer carrying one cascade that navigates to `to-route`."
-  [dispatch-id to-route nav-token]
-  [(event-dispatched-trace 1 dispatch-id [:rf.route/navigate to-route])
-   (nav-allocated-trace 2 dispatch-id to-route nav-token)])
+  "Trace buffer carrying one cascade that navigates to `to-route`.
+
+  The 4-arity threads a `from-route`: the runtime emits
+  `:rf.route/deactivated` for the prior route on a cross-route nav, and
+  the panel derives FROM from that emit (NOT the live slice, rf2-m9rx6),
+  so the FROM ◆ glyph requires the deactivated trace to be present."
+  ([dispatch-id to-route nav-token]
+   [(event-dispatched-trace 1 dispatch-id [:rf.route/navigate to-route])
+    (nav-allocated-trace 2 dispatch-id to-route nav-token)])
+  ([dispatch-id to-route nav-token from-route]
+   [(event-dispatched-trace 1 dispatch-id [:rf.route/navigate to-route])
+    (nav-allocated-trace 2 dispatch-id to-route nav-token)
+    (deactivated-trace 3 dispatch-id from-route)]))
 
 (defn no-nav-buffer
   "Trace buffer carrying one cascade that does NOT navigate."

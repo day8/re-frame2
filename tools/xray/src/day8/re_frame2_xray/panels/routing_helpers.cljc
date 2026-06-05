@@ -29,11 +29,16 @@
 
   Per-focused-event highlighting (unchanged from rf2-nrbs9):
 
-  - `◆ HERE` on the current matched route (always — orientation).
+  - `◆ HERE` on the current matched route (always — orientation;
+    read off the LIVE slice).
   - `◆ FROM` / `◆ TO` arrow when the focused cascade caused
-    navigation; the `:rf.route.nav-token/allocated` trace event plus
-    the slice change identify the FROM (prior route) and TO (newly
-    matched route).
+    navigation. Both ids come from the FOCUSED cascade's own trace
+    events — the `:rf.route.nav-token/allocated` emit gives TO (the
+    newly matched route) and the `:rf.route/deactivated` emit gives
+    FROM (the prior route). Reading FROM from the cascade — not the
+    live slice — keeps the marker honest about the SELECTED epoch's
+    transition regardless of where the app has navigated since
+    (rf2-m9rx6).
   - Show params + query + fragment for the active route.
   - When the app has no routes registered: every projection helper
     returns the silent shape (`{:routes [] :silent? true}`) and the
@@ -263,12 +268,21 @@
    (if-let [meta (get routes-map route-id)]
      (let [path     (:path meta)
            on-match (:on-match meta)
-           sim      (when (and url (not (str/blank? url)))
-                      (simulate-url routes-map url))
-           winner   (some-> sim :candidates first)
-           matched? (and (some? winner)
-                         (= route-id (:route-id winner)))
-           params   (when matched? (:params winner))
+           ;; Row-local match (rf2-m9rx6): the preview answers "what would
+           ;; land when the URL matches THIS row's pattern", so match the
+           ;; SELECTED route's own compiled pattern against the URL — never
+           ;; the global rank winner. For overlapping routes (an exact
+           ;; route plus a lower-ranked splat fallback that both match
+           ;; `/checkout/payment`), the global winner is the exact route,
+           ;; but previewing the splat row must still report ITS match +
+           ;; params. Mirror the simulator's path normalization so the row
+           ;; preview agrees with what `match-against` would resolve.
+           sim-path (when (and url (not (str/blank? url)))
+                      (normalize-path (split-url (str/trim url))))
+           compiled (compile-pattern-on-demand meta)
+           params   (when (and sim-path compiled)
+                      (match/match-against compiled sim-path))
+           matched? (some? params)
            slot     (cond-> {:id route-id}
                       (some? path)   (assoc :path path)
                       (some? params) (assoc :params params))]
@@ -292,6 +306,16 @@
   nav-token (per `implementation/routing/src/re_frame/routing.cljc`
   §`trace/emit! :event :rf.route.nav-token/allocated`)."
   :rf.route.nav-token/allocated)
+
+(def ^:private route-deactivated-op
+  "Trace operation emitted by the navigation commit for the
+  PREVIOUSLY-active route id when a cross-route navigation leaves one
+  (per `implementation/routing/src/re_frame/routing/events.cljc`
+  §`emit-activation-traces!`). Carries `:tags :route-id` = the prior
+  route — the FROM. Emitted only when `prev-id` differs from `next-id`;
+  same-route re-navigations emit NEITHER deactivated nor activated, so
+  the absence of this event is exactly the same-route-collapse signal."
+  :rf.route/deactivated)
 
 (defn focused-cascade
   "Find the cascade in `cascades` whose `:dispatch-id` matches
@@ -318,6 +342,19 @@
     (:renders cascade)
     (:other cascade)))
 
+(defn- cascade-event-by-op
+  "Find the first trace-event map in `cascade`'s buckets whose
+  `:operation` equals `op`. Returns the event map or nil. Shared scan
+  for the routing-lifecycle emits (`nav-token/allocated`,
+  `:rf.route/deactivated`)."
+  [cascade op]
+  (when cascade
+    (some (fn [ev]
+            (when (and (map? ev)
+                       (= op (:operation ev)))
+              ev))
+          (cascade-trace-events cascade))))
+
 (defn nav-token-allocated-in-cascade
   "Scan a cascade's trace-event buckets for a
   `:rf.route.nav-token/allocated` event. Returns the trace event map
@@ -326,46 +363,64 @@
   programmatic dispatch) and `:rf.route/transitioned` (browser-driven URL
   change), so this catches both navigation paths uniformly."
   [cascade]
-  (when cascade
-    (some (fn [ev]
-            (when (and (map? ev)
-                       (= nav-allocated-op (:operation ev)))
-              ev))
-          (cascade-trace-events cascade))))
+  (cascade-event-by-op cascade nav-allocated-op))
+
+(defn route-deactivated-in-cascade
+  "Scan a cascade's trace-event buckets for a `:rf.route/deactivated`
+  event. Returns the trace event map (with its `:tags :route-id`
+  carrying the PRIOR route id — the FROM) when present; nil otherwise.
+  The runtime emits this only on a cross-route navigation (prev-id ≠
+  next-id), in the same cascade as the nav-token allocation (per
+  `emit-activation-traces!`)."
+  [cascade]
+  (cascade-event-by-op cascade route-deactivated-op))
 
 (defn from-to-from-cascade
-  "Derive a `{:from-id :to-id :navigated?}` map from a focused cascade
-  + the current route slice.
+  "Derive a `{:from-id :to-id :navigated?}` map from a focused cascade.
 
-  - `:to-id` comes from the nav-token-allocated trace event (the new
-    route the cascade navigated to).
-  - `:from-id` is the current slice's `:id` IFF it differs from
-    `:to-id`. Two cases collapse to no FROM:
-      - first navigation in the session (no prior slice — `current`
-        is nil so `:from-id` resolves to nil).
-      - same-route re-navigation (different params/query but same
-        route-id — surfacing a FROM equal to TO is noise).
+  Both ids are read off the FOCUSED cascade's own trace events — never
+  the live route slice — so the lens reports the transition that the
+  selected epoch actually performed, regardless of where the app has
+  navigated since:
 
-  The slice's `:id` is the *post-navigation* value (the navigate
-  handler writes the slice before this projection runs); for the
-  prior route we would need to scan trace history, which is
-  out-of-scope for v1 — the same-id collapse keeps the lens honest.
+  - `:to-id` comes from the `:rf.route.nav-token/allocated` trace event
+    (the new route the cascade navigated to).
+  - `:from-id` comes from the `:rf.route/deactivated` trace event (the
+    PRIOR route the cascade left). The runtime emits `deactivated`
+    before `activated`, in the same cascade as the nav-token allocation
+    (`emit-activation-traces!`, Spec 012 §Trace events). Two cases
+    leave no `deactivated` emit — and both correctly collapse FROM to
+    nil:
+      - first navigation in the session (no prior route to leave);
+      - same-route re-navigation (params/query/fragment changed, route
+        id unchanged — the runtime skips the activated/deactivated pair
+        because the route stays active; surfacing a FROM equal to TO is
+        noise anyway).
 
-  Pre-navigation contract: when the cascade carries no nav-token
-  emit, returns `{:navigated? false :from-id nil :to-id nil}`."
-  [cascade current-slice]
-  (let [nav-ev (nav-token-allocated-in-cascade cascade)
-        to-id  (some-> nav-ev :tags :route-id)
-        current-id (:id current-slice)
-        from-id (when (and to-id current-id (not= to-id current-id))
-                  current-id)]
+  Reading FROM from the cascade — not the live slice — fixes the
+  time-dependence bug (rf2-m9rx6): the live slice is the *current*
+  route, so a normal navigation to B collapsed FROM (current was
+  already B), and focusing an older A→B cascade after the app moved to
+  C falsely reported C as FROM. The cascade carries `deactivated A` /
+  `activated B` for that epoch unconditionally, so FROM A / TO B render
+  correctly no matter the live route.
+
+  Pre-navigation contract: when the cascade carries no nav-token emit,
+  returns `{:navigated? false :from-id nil :to-id nil}`. (The
+  `current-slice` is no longer read here; callers derive the HERE /
+  current-orientation marker from the live slice separately.)"
+  [cascade]
+  (let [nav-ev    (nav-token-allocated-in-cascade cascade)
+        to-id     (some-> nav-ev :tags :route-id)
+        deact-ev  (route-deactivated-in-cascade cascade)
+        from-id   (some-> deact-ev :tags :route-id)]
     (cond
       (nil? nav-ev)
       {:navigated? false :from-id nil :to-id nil}
 
       :else
       {:navigated? true
-       :from-id    from-id
+       :from-id    (when (not= from-id to-id) from-id)
        :to-id      to-id})))
 
 ;; ---- row marker assignment ---------------------------------------------
@@ -496,8 +551,19 @@
   Cycles in the `:parent` graph (e.g. A → B → A) are protected against
   via a `visited` set — a row that would re-enter the walk is skipped
   at the second visit. The first visit wins; the second occurrence
-  drops out so the projection terminates and rows still appear exactly
-  once."
+  drops out so the projection terminates.
+
+  A FULLY cyclic component (a self-cycle `A → A`, or a closed
+  `A ↔ B` where every member's `:parent` is itself registered) has NO
+  root, so the walk-from-roots never reaches it. Such rows are NOT
+  dropped (rf2-m9rx6): after the root walks, any registered row still
+  unvisited is appended as a depth-0 cycle root (sorted by `:path`),
+  carrying `:cycle-root? true` so the view can flag the malformed
+  parent metadata the topology view is meant to help diagnose. A
+  global visited set is threaded across both phases so every
+  registered row appears EXACTLY once and the projection always
+  terminates. Each emitted entry carries `:cycle-root? <bool>` (false
+  for ordinary roots/children)."
   [routes-map]
   (let [rows           (project-routes routes-map)
         registered-ids (set (map :route-id rows))
@@ -506,32 +572,56 @@
                             (filter #(rooted? % registered-ids))
                             (sort-by :path)
                             vec)
-        walk (fn walk [row depth visited last-sibling?]
+        ;; walk returns [entries visited'] so the global visited set
+        ;; threads across sibling roots AND the appended cycle roots —
+        ;; a node placed under one root (or in an earlier cycle
+        ;; component) is never re-emitted by a later walk.
+        walk (fn walk [row depth visited last-sibling? cycle-root?]
                (let [id (:route-id row)]
                  (if (contains? visited id)
                    ;; Cycle protection — drop the re-entry.
-                   []
-                   (let [visited' (conj visited id)
-                         children (get kids id [])
+                   [[] visited]
+                   (let [children (get kids id [])
                          last-idx (dec (count children))
-                         child-rows
-                         (->> children
-                              (map-indexed
-                                (fn [i child]
-                                  (walk child (inc depth) visited'
-                                        (= i last-idx))))
-                              (reduce into []))]
-                     (into [{:row            row
-                             :depth          depth
-                             :last-at-depth? (boolean last-sibling?)
-                             :has-children?  (boolean (seq children))}]
-                           child-rows)))))
-        last-root-idx (dec (count roots))]
-    (->> roots
-         (map-indexed
-           (fn [i root]
-             (walk root 0 #{} (= i last-root-idx))))
-         (reduce into []))))
+                         [child-rows visited']
+                         (reduce
+                           (fn [[acc vis] [i child]]
+                             (let [[entries vis'] (walk child (inc depth) vis
+                                                        (= i last-idx) false)]
+                               [(into acc entries) vis']))
+                           [[] (conj visited id)]
+                           (map-indexed vector children))]
+                     [(into [{:row            row
+                              :depth          depth
+                              :last-at-depth? (boolean last-sibling?)
+                              :has-children?  (boolean (seq children))
+                              :cycle-root?    (boolean cycle-root?)}]
+                            child-rows)
+                      visited']))))
+        ;; Phase 1: ordinary roots (parent nil or orphaned).
+        last-root-idx (dec (count roots))
+        [root-entries visited-after-roots]
+        (reduce (fn [[acc vis] [i root]]
+                  (let [[entries vis'] (walk root 0 vis (= i last-root-idx) false)]
+                    [(into acc entries) vis']))
+                [[] #{}]
+                (map-indexed vector roots))
+        ;; Phase 2: any registered row a root walk never reached is a
+        ;; member of a rootless cycle component — append it as a
+        ;; cycle-marked depth-0 root. Sorted by :path for determinism.
+        cycle-rows (->> rows
+                        (remove #(contains? visited-after-roots (:route-id %)))
+                        (sort-by :path))
+        last-cycle-idx (dec (count cycle-rows))
+        [cycle-entries _]
+        (reduce (fn [[acc vis] [i row]]
+                  (if (contains? vis (:route-id row))
+                    [acc vis]
+                    (let [[entries vis'] (walk row 0 vis (= i last-cycle-idx) true)]
+                      [(into acc entries) vis'])))
+                [[] visited-after-roots]
+                (map-indexed vector cycle-rows))]
+    (into root-entries cycle-entries)))
 
 ;; ---- per-epoch routing-activity projection (rf2-3kjlo) ------------------
 ;;
@@ -634,7 +724,7 @@
   ([routes-map current-slice focused-cascade query sim-url]
    (let [rows         (project-routes routes-map)
          silent?      (empty? rows)
-         nav          (from-to-from-cascade focused-cascade current-slice)
+         nav          (from-to-from-cascade focused-cascade)
          decorated    (assign-markers rows
                                       (assoc nav
                                         :current-id (:id current-slice)))
@@ -682,7 +772,7 @@
   [routes-map current-slice focused-cascade]
   (let [topology       (project-topology routes-map)
         silent?        (empty? topology)
-        nav            (from-to-from-cascade focused-cascade current-slice)
+        nav            (from-to-from-cascade focused-cascade)
         marker-input   (assoc nav :current-id (:id current-slice))
         decorated      (mapv (fn [{:keys [row] :as entry}]
                                (let [marked-row (first
