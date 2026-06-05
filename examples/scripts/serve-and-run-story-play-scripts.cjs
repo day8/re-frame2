@@ -90,10 +90,16 @@ const TERMINAL_TIMEOUT_MS = Number(
 );
 const VERBOSE = process.env.RF2_VERBOSE_TESTS === '1';
 
-const HTTP_SERVER_BIN = require.resolve('http-server/bin/http-server', {
-  paths: [IMPL_ROOT],
-});
-const { chromium } = require(require.resolve('playwright', { paths: [IMPL_ROOT] }));
+// Resolve the browser toolchain lazily (inside main()) rather than at
+// module top-level, so the script-policy unit test can `require(...)`
+// this module for its pure helpers without http-server / playwright
+// installed (rf2-wf5al). These are only ever used by the harness path.
+function httpServerBin() {
+  return require.resolve('http-server/bin/http-server', { paths: [IMPL_ROOT] });
+}
+function loadChromium() {
+  return require(require.resolve('playwright', { paths: [IMPL_ROOT] })).chromium;
+}
 
 const cleanup = createHarnessCleanup();
 cleanup.installSignalHandlers();
@@ -227,12 +233,31 @@ async function readPlayRunStateOnce(page, variantId, playKey) {
   );
 }
 
+/**
+ * Shared terminal-status predicate. Symmetric with the CLJS
+ * `re-frame.story.play.ci-runner/terminal?` (spec/017 §`:cannot-run`):
+ * a run is terminal once its status is `pass`, `fail`, OR `cannot-run`.
+ *
+ * rf2-wf5al(3): `cannot-run` is a genuine terminal run status (the
+ * runner core finishes a play as cannot-run when every unmet step is a
+ * capability/refusal row). Treating only pass/fail as terminal made an
+ * honest cannot-run look like a hang — the wait loops below burned the
+ * full STORY_PLAY_SCRIPT_TERMINAL_TIMEOUT_MS per affected row before
+ * the (no-state-change) timeout surfaced the failure. Accepting it here
+ * returns immediately so `expectedStatusFor` can mark it as an
+ * unexpected outcome (it never equals the expected pass/fail) and the
+ * refusal is reported at once.
+ */
+function isTerminalStatus(status) {
+  return status === 'pass' || status === 'fail' || status === 'cannot-run';
+}
+
 async function waitForTerminalState(page, variantId) {
   const deadline = Date.now() + TERMINAL_TIMEOUT_MS;
   let last = null;
   while (Date.now() < deadline) {
     last = await readRunStateOnce(page, variantId);
-    if (last && (last.status === 'pass' || last.status === 'fail')) {
+    if (last && isTerminalStatus(last.status)) {
       return last;
     }
     await new Promise((r) => setTimeout(r, 100));
@@ -248,7 +273,7 @@ async function waitForPlayTerminalState(page, variantId, playKey) {
   let last = null;
   while (Date.now() < deadline) {
     last = await readPlayRunStateOnce(page, variantId, playKey);
-    if (last && (last.status === 'pass' || last.status === 'fail')) {
+    if (last && isTerminalStatus(last.status)) {
       return last;
     }
     await new Promise((r) => setTimeout(r, 100));
@@ -370,13 +395,18 @@ function summariseResults(results) {
  * Best-effort: a write failure here must never mask the real gate verdict,
  * so it is logged and swallowed.
  */
-function writeFailureReport(failures, allResults, browserMessages) {
+function writeFailureReport(failures, allResults, browserMessages, pageErrors = []) {
   const report = {
     gate: 'story-play-scripts',
     bead: 'rf2-5x1wt.7 / rf2-315cf',
     capturedAt: new Date().toISOString(),
     totalRows: allResults.length,
     unexpectedOutcomes: failures.length,
+    // rf2-wf5al(1): record uncaught browser exceptions explicitly so a
+    // pageerror-only RED gate (all play rows matched, but the shell
+    // threw) still produces an actionable post-mortem.
+    uncaughtPageErrors: pageErrors.length,
+    pageErrors: pageErrors.slice(-40),
     failures: failures.map((r) => ({
       variantId: r.variantId,
       playKey: r.playKey || null,
@@ -393,6 +423,28 @@ function writeFailureReport(failures, allResults, browserMessages) {
   } catch (err) {
     log(`(warning) could not write failure report: ${err.message}`);
   }
+}
+
+/**
+ * rf2-wf5al(1): compute the gate verdict from BOTH signals — the
+ * per-row play-status matches AND any uncaught browser `pageerror`.
+ *
+ * Previously the runner returned success solely from `failures.length`
+ * (derived from play-status expectation matches), so an uncaught
+ * runtime/browser exception could FALSE-GREEN the :play-script gate as
+ * long as every play row still reported its expected pass/fail status.
+ * That contradicted the pageerror discipline the adjacent example and
+ * Story feature-load runners already keep. Any pageerror is now fatal.
+ *
+ * Console errors are intentionally NOT fatal: they are captured (under
+ * RF2_VERBOSE_TESTS) for diagnostics only, matching the adjacent
+ * runners, which likewise gate on crashes/`pageerror` and not on
+ * console noise. Pure inputs → exit code, so it is unit-testable.
+ */
+function computeExitCode({ failures, pageErrors }) {
+  const unexpectedOutcomes = (failures && failures.length) || 0;
+  const uncaughtErrors = (pageErrors && pageErrors.length) || 0;
+  return unexpectedOutcomes === 0 && uncaughtErrors === 0 ? 0 : 1;
 }
 
 /**
@@ -413,11 +465,21 @@ async function runAllVariants(browser, baseUrl) {
   const context = await browser.newContext();
   const page = await context.newPage();
   const browserMessages = [];
+  // rf2-wf5al(1): pageErrors are tracked SEPARATELY from browserMessages
+  // so an uncaught browser/runtime exception can flip the gate verdict
+  // regardless of RF2_VERBOSE_TESTS. browserMessages stays diagnostics
+  // -only (and only populated when VERBOSE); pageErrors is the fatal
+  // signal fed to computeExitCode below.
+  const pageErrors = [];
   page.on('console', (msg) => {
     if (VERBOSE) browserMessages.push(`[browser:${msg.type()}] ${msg.text()}`);
   });
   page.on('pageerror', (err) => {
-    browserMessages.push(`[browser:pageerror] ${err.message}`);
+    const message = `[browser:pageerror] ${err.message}`;
+    pageErrors.push(message);
+    // Mirror into browserMessages so the existing diagnostics dump and
+    // the failure-report's `browserDiagnostics` slice still surface it.
+    browserMessages.push(message);
   });
 
   try {
@@ -500,14 +562,25 @@ async function runAllVariants(browser, baseUrl) {
 
     const { lines, failures } = summariseResults(results);
     log(lines);
-    if (failures.length > 0 && browserMessages.length > 0) {
+    // rf2-wf5al(1): an uncaught browser `pageerror` is fatal even when
+    // every play row matched its expected status — otherwise a runtime
+    // regression (shell/hydration/dispatch exception) false-greens the
+    // gate behind a clean play-status summary.
+    if (pageErrors.length > 0) {
+      log('');
+      log(
+        `Detected ${pageErrors.length} uncaught browser pageerror(s) — failing the gate (rf2-wf5al).`,
+      );
+    }
+    const gateFailed = failures.length > 0 || pageErrors.length > 0;
+    if (gateFailed && browserMessages.length > 0) {
       log('--- browser diagnostics ---');
       for (const msg of browserMessages.slice(-40)) log(msg);
     }
-    if (failures.length > 0) {
-      writeFailureReport(failures, results, browserMessages);
+    if (gateFailed) {
+      writeFailureReport(failures, results, browserMessages, pageErrors);
     }
-    return failures.length === 0 ? 0 : 1;
+    return computeExitCode({ failures, pageErrors });
   } finally {
     await context.close();
   }
@@ -523,10 +596,16 @@ async function main() {
   compileTestbed();
   stageTestbedHtml();
 
+  // Bind 127.0.0.1 (not the http-server 0.0.0.0 default): the runner
+  // only ever hits http://127.0.0.1:<port>, and resolveStoryFeatureLoadPort
+  // pre-flights loopback — so exposing implementation/out/examples on
+  // every interface is avoidable local-network surface. Matches the
+  // adapter-smoke orchestrator (serve-and-run-examples-tests.cjs).
+  // rf2-wf5al(2).
   const server = cleanup.trackProcess(
     spawnHarnessProcess(
       process.execPath,
-      [HTTP_SERVER_BIN, OUT_ROOT, '-p', String(port), '-s', '-c-1'],
+      [httpServerBin(), OUT_ROOT, '-a', '127.0.0.1', '-p', String(port), '-s', '-c-1'],
       {
         cwd: IMPL_ROOT,
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -572,7 +651,7 @@ async function main() {
     return 1;
   }
 
-  const browser = await chromium.launch({ headless: true });
+  const browser = await loadChromium().launch({ headless: true });
   cleanup.addCleanup(async () => {
     try {
       await browser.close();
@@ -588,19 +667,28 @@ async function main() {
   }
 }
 
-main()
-  .then(async (code) => {
-    exiting = true;
-    await cleanup.cleanup();
-    process.exit(code == null ? 1 : code);
-  })
-  .catch(async (err) => {
-    exiting = true;
-    console.error(err && err.stack ? err.stack : err);
-    await cleanup.cleanup();
-    process.exit(1);
-  });
+// Only launch the harness when run directly (`node serve-and-run-...`).
+// Guarding on `require.main` lets the script-policy unit test
+// (_story-play-scripts-policy.test.cjs) `require(...)` this module to
+// exercise the pure helpers below WITHOUT spawning the browser harness
+// or calling process.exit (rf2-wf5al).
+if (require.main === module) {
+  main()
+    .then(async (code) => {
+      exiting = true;
+      await cleanup.cleanup();
+      process.exit(code == null ? 1 : code);
+    })
+    .catch(async (err) => {
+      exiting = true;
+      console.error(err && err.stack ? err.stack : err);
+      await cleanup.cleanup();
+      process.exit(1);
+    });
+}
 
 module.exports = {
   expectedStatusFor,
+  isTerminalStatus,
+  computeExitCode,
 };
