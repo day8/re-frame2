@@ -278,28 +278,43 @@
 ;; browser, mirroring how the join tests redefine `repo-root`.
 
 (deftest resolve-project-root-override-wins-over-repo-root
-  (testing "a present `?project-root=` override is used VERBATIM and beats
-            the build-time repo-root tier entirely — the subdir is NOT
-            appended (the override already names the final on-disk root)"
+  (testing "a present `?project-root=` override beats the build-time
+            repo-root tier, AND — like that tier — names a CHECKOUT root
+            to which the caller's subdir is appended (rf2-w4yw9q). Both
+            tiers mean the same thing, so the composed editor URI reaches
+            the tool source-path root the classpath-relative source coords
+            resolve against."
     (with-redefs [config/query-param (fn [param]
                                        (when (= param "project-root")
-                                         "/override/path"))
+                                         "/override/checkout"))
                   config/repo-root "/home/dev/re-frame2"]
-      (is (= "/override/path"
+      (is (= "/override/checkout/tools/xray/testbeds"
              (config/resolve-project-root "tools/xray/testbeds"))
-          "override wins; repo-root + subdir is not joined")
-      (is (= "/override/path"
+          "override checkout wins; the caller's subdir is still appended")
+      (is (= "/override/checkout/tools/story/testbeds"
              (config/resolve-project-root "tools/story/testbeds"))
-          "the subdir the caller passes is irrelevant when the override is set"))))
+          "the appended subdir tracks the caller, the root tracks the override"))))
+
+(deftest resolve-project-root-override-checkout-normalises-like-repo-root
+  (testing "the override goes through the SAME join as the build-time tier:
+            a trailing slash on the override checkout never doubles the
+            separator, and the subdir's leading slash is normalised away"
+    (with-redefs [config/query-param (fn [param]
+                                       (when (= param "project-root")
+                                         "/override/checkout/"))
+                  config/repo-root ""]
+      (is (= "/override/checkout/tools/xray/testbeds"
+             (config/resolve-project-root "/tools/xray/testbeds"))
+          "trailing slash on root + leading slash on subdir → single separator"))))
 
 (deftest resolve-project-root-override-wins-even-when-repo-root-blank
   (testing "the override governs regardless of the repo-root tier's state —
-            it is the highest-precedence source"
+            it is the highest-precedence root source"
     (with-redefs [config/query-param (fn [param]
                                        (when (= param "project-root")
-                                         "/override/path"))
+                                         "/override/checkout"))
                   config/repo-root ""]
-      (is (= "/override/path"
+      (is (= "/override/checkout/tools/xray/testbeds"
              (config/resolve-project-root "tools/xray/testbeds"))))))
 
 (deftest resolve-project-root-blank-override-falls-through-to-repo-root
@@ -316,6 +331,70 @@
                   config/repo-root ""]
       (is (nil? (config/resolve-project-root "tools/xray/testbeds"))
           "no override AND no repo-root → nil (graceful no-op)"))))
+
+;; ---- composed editor path: the documented override form (rf2-w4yw9q) ---
+;;
+;; The whole point of the resolved root is that the open-in-editor
+;; resolver prepends it to a CLASSPATH-RELATIVE source coord (the
+;; form-meta `:file` slot, e.g. `standard_epochs/core.cljs`, relative to
+;; the testbed source-path root `<checkout>/tools/xray/testbeds`). These
+;; tests pin that the documented override form — pasting a CHECKOUT root
+;; into `?project-root=` — composes with a representative source coord to
+;; the intended on-disk file, the exact cross-machine portability path the
+;; override exists to provide. (The downstream prepend is `(str root "/"
+;; file)`; we reproduce that single join here so the slice's unit suite
+;; pins the end-to-end contract without reaching into the Xray editor-uri
+;; resolver.)
+
+(defn- composed-editor-path
+  "Mirror the open-in-editor prepend: resolved-root + \"/\" + the
+  classpath-relative source-coord `:file`."
+  [root file]
+  (str root "/" file))
+
+(deftest documented-override-composes-to-intended-on-disk-file
+  (testing "rf2-w4yw9q: pasting a CHECKOUT root into `?project-root=` (the
+            documented `?project-root=/home/dev/re-frame2+wip` form) and
+            resolving for the xray testbed subdir composes with a
+            representative source coord to the real on-disk file —
+            `<checkout>/tools/xray/testbeds/standard_epochs/core.cljs` —
+            NOT the tool-source-root-missing
+            `<checkout>/standard_epochs/core.cljs` that the pre-fix
+            verbatim semantics produced"
+    (with-redefs [config/query-param (fn [param]
+                                       (when (= param "project-root")
+                                         "/home/dev/re-frame2+wip"))
+                  config/repo-root ""]
+      (let [root (config/resolve-project-root "tools/xray/testbeds")]
+        (is (= "/home/dev/re-frame2+wip/tools/xray/testbeds" root)
+            "the checkout override has the tool subdir appended")
+        (is (= "/home/dev/re-frame2+wip/tools/xray/testbeds/standard_epochs/core.cljs"
+               (composed-editor-path root "standard_epochs/core.cljs"))
+            "the composed editor path reaches the actual on-disk source file")))))
+
+(deftest documented-override-and-build-time-tier-compose-identically
+  (testing "rf2-w4yw9q: the override and the build-time `repo-root` tier
+            produce the SAME composed editor path for the same checkout —
+            the contract is one meaning (a checkout root) across both
+            tiers, so a reader's `?project-root=` override behaves exactly
+            like a local `npm run dev` launch from that checkout"
+    (let [coord "standard_epochs/core.cljs"
+          subdir "tools/xray/testbeds"
+          via-override (with-redefs [config/query-param
+                                     (fn [param]
+                                       (when (= param "project-root")
+                                         "/home/dev/re-frame2+wip"))
+                                     config/repo-root ""]
+                         (composed-editor-path
+                          (config/resolve-project-root subdir) coord))
+          via-build-time (with-redefs [config/query-param (constantly nil)
+                                       config/repo-root "/home/dev/re-frame2+wip"]
+                           (composed-editor-path
+                            (config/resolve-project-root subdir) coord))]
+      (is (= via-build-time via-override)
+          "override and build-time tier compose to the identical on-disk path")
+      (is (= "/home/dev/re-frame2+wip/tools/xray/testbeds/standard_epochs/core.cljs"
+             via-override)))))
 
 ;; ---- public-surface stability sentinel ---------------------------------
 

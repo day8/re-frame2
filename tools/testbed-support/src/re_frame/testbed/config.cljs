@@ -30,9 +30,13 @@
 
   `resolve-project-root` then joins that root with the tool-relative
   testbed subdir (`\"tools/xray/testbeds\"` /  `\"tools/story/testbeds\"`)
-  the caller passes. A `?project-root=<path>` query string still wins as
-  the per-session escape hatch (CI, a reader on a different machine, a
-  testbed served from a copied bundle). When neither the override nor the
+  the caller passes. A `?project-root=<checkout>` query string still wins
+  as the per-session escape hatch (CI, a reader on a different machine, a
+  testbed served from a copied bundle) — it names the same thing as the
+  build-time root (a CHECKOUT root) and has the subdir appended the same
+  way, so the composed editor URI reaches the tool source-path root
+  (`<checkout>/tools/xray/testbeds`) the classpath-relative source coords
+  resolve against (rf2-w4yw9q). When neither the override nor the
   build-time root is present, this returns `nil` and the testbed simply
   configures no root — 'open in editor' degrades to a no-op rather than a
   broken link, exactly the graceful-absence behaviour
@@ -78,10 +82,10 @@
   itself is blank/nil.
 
   Decoding semantics (rf2-xdsat.1): a literal `+` in the value is preserved
-  VERBATIM, NOT decoded to a space. The override names an on-disk path used
-  verbatim as tier 1, so a checkout at e.g. `/home/dev/re-frame2+wip` must
-  round-trip through `?project-root=/home/dev/re-frame2+wip`. We therefore
-  split the query string manually and decode each component with
+  VERBATIM, NOT decoded to a space. The override names an on-disk checkout
+  root, so a checkout at e.g. `/home/dev/re-frame2+wip` must round-trip
+  through `?project-root=/home/dev/re-frame2+wip` with the `+` intact. We
+  therefore split the query string manually and decode each component with
   `js/decodeURIComponent` (which does NOT map `+` → space) rather than
   `js/URLSearchParams` (form-urlencoded: `+` → space, silent path
   corruption). Percent-escapes still decode (`%2F` → `/`, `%20` → space,
@@ -121,33 +125,55 @@
     (subs s 0 (dec (count s)))
     s))
 
+(defn- join-root+subdir
+  "Join a checkout `root` with the tool-relative testbed `subdir`,
+  normalising both sides so the result carries exactly one separator.
+
+  `root` has any single trailing slash stripped (so `/repo/` + `sub`
+  never yields `/repo//sub`); `subdir` is trimmed and any leading
+  slash(es) removed (so callers may pass it with or without a leading
+  slash). A blank / nil / slash-only `subdir` collapses to the
+  normalised root verbatim."
+  [root subdir]
+  (let [normalized-root   (strip-trailing-slash (str/trim root))
+        normalized-subdir (-> (or subdir "")
+                              str/trim
+                              (str/replace #"^/+" ""))]
+    (if (seq normalized-subdir)
+      (str normalized-root "/" normalized-subdir)
+      normalized-root)))
+
 (defn resolve-project-root
   "Resolve the on-disk project-root a testbed should hand to its
   open-in-editor resolver, for the given tool-relative testbed subdir
   (e.g. `\"tools/xray/testbeds\"` or `\"tools/story/testbeds\"`).
 
+  Both root tiers name a *checkout root* and have the caller's `subdir`
+  appended, because the editor URI is built by prepending the resolved
+  root to a *classpath-relative* source coord (the form-meta `:file`
+  slot, e.g. `\"standard_epochs/core.cljs\"`, relative to the testbed
+  source-path root `<checkout>/tools/xray/testbeds`). The root must
+  therefore reach down to that source-path root, or the composed editor
+  URI misses the tool source-root segment and points at a nonexistent
+  file (rf2-w4yw9q). The override and the build-time define mean the
+  same thing — a checkout root — so they share one join.
+
   Resolution order:
 
-    1. `?project-root=<path>` query string — the per-session escape
-       hatch. Wins over everything; used verbatim — paste the path
-       unencoded, a literal `+` included (it is preserved, NOT decoded
-       to a space; see `query-param-from-search`). (CI, a reader on a
-       different machine, a copied bundle served elsewhere.)
-    2. The build-time `repo-root` goog-define joined with `subdir` —
-       the default for a normal `npm run dev ...` launch.
-    3. `nil` — neither is available. The caller configures no root and
-       open-in-editor is a graceful no-op (matching `set-project-root!`'s
-       blank-input contract).
+    1. `?project-root=<checkout>` query string — the per-session escape
+       hatch (CI, a reader on a different machine, a copied bundle served
+       elsewhere). Wins over the build-time tier. Paste the checkout root
+       unencoded, a literal `+` included (it is preserved, NOT decoded to
+       a space; see `query-param-from-search`); `subdir` is appended just
+       like tier 2.
+    2. The build-time `repo-root` goog-define — the default for a normal
+       `npm run dev ...` launch; `subdir` is appended.
+    3. `nil` — neither root is available. The caller configures no root
+       and open-in-editor is a graceful no-op (matching
+       `set-project-root!`'s blank-input contract).
 
-  `subdir` is normalised so callers may pass it with or without a
-  leading slash."
+  `subdir` is normalised (trim + leading-slash strip) so callers may
+  pass it with or without a leading slash."
   [subdir]
-  (or (query-param "project-root")
-      (when-let [root (non-blank repo-root)]
-        (let [normalized-root   (strip-trailing-slash (str/trim root))
-              normalized-subdir (-> (or subdir "")
-                                    str/trim
-                                    (str/replace #"^/+" ""))]
-          (if (seq normalized-subdir)
-            (str normalized-root "/" normalized-subdir)
-            normalized-root)))))
+  (when-let [root (non-blank (or (query-param "project-root") repo-root))]
+    (join-root+subdir root subdir)))
