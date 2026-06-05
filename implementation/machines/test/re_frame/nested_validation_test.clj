@@ -635,3 +635,137 @@
           "a cyclic guard indirection MUST throw at registration (not loop)")
       (is (= ":rf.error/machine-unresolved-guard" (.getMessage thrown))
           "error category names the unresolved-guard contract"))))
+
+;; ---- transition :target shape + resolution (rf2-w84jv) -------------------
+;;
+;; Per Spec 005 (005:441 "a transition targeting an unknown state fails
+;; registration") + Spec-Schemas §TransitionTarget ([:or :keyword [:vector
+;; :keyword]]): every transition slot's `:target` must be a well-formed,
+;; resolvable target. Before rf2-w84jv only `:guard` / `:action` refs were
+;; validated, so a malformed `{:target 42}` registered and threw
+;; `:rf.error/machine-bad-state-form` later at the triggering dispatch, and a
+;; missing `{:target [:missing]}` registered and committed an invalid snapshot.
+;; XState v5 rejects unresolvable targets at machine creation; we align.
+
+(deftest on-scalar-target-rejected-at-registration
+  (testing "an :on transition whose :target is a non-keyword/non-vector scalar is rejected at registration (rf2-w84jv)"
+    (let [m {:initial :idle
+             :states  {:idle  {:on {:go {:target 42}}}
+                       :other {}}}
+          thrown (registration-throws? :rf.w84jv/scalar-target m)]
+      (is (some? thrown)
+          "a scalar :target SHOULD throw at registration, not at dispatch")
+      (is (= ":rf.error/machine-bad-target" (.getMessage thrown))
+          "error category names the bad-target contract")
+      (is (= 42 (:target (ex-data thrown)))
+          "ex-data carries the offending target"))))
+
+(deftest on-missing-vector-target-rejected-at-registration
+  (testing "an :on transition whose vector :target names no declared state is rejected at registration (rf2-w84jv)"
+    (let [m {:initial :idle
+             :states  {:idle  {:on {:go {:target [:missing]}}}
+                       :other {}}}
+          thrown (registration-throws? :rf.w84jv/missing-vector-target m)]
+      (is (some? thrown)
+          "an unresolved vector :target SHOULD throw at registration, not commit an invalid snapshot at dispatch")
+      (is (= ":rf.error/machine-unresolved-target" (.getMessage thrown))
+          "error category names the unresolved-target contract")
+      (is (= [:missing] (:target (ex-data thrown)))
+          "ex-data carries the offending target"))))
+
+(deftest on-missing-keyword-target-rejected-at-registration
+  (testing "an :on transition whose keyword :target names no sibling state is rejected at registration (rf2-w84jv)"
+    (let [m {:initial :idle
+             :states  {:idle  {:on {:go :nowhere}}
+                       :other {}}}
+          thrown (registration-throws? :rf.w84jv/missing-kw-target m)]
+      (is (some? thrown)
+          "an unresolved keyword :target SHOULD throw at registration")
+      (is (= ":rf.error/machine-unresolved-target" (.getMessage thrown))
+          "error category names the unresolved-target contract")
+      (is (= :nowhere (:target (ex-data thrown)))))))
+
+(deftest nested-keyword-target-resolves-as-sibling-not-cross-level
+  (testing "a keyword :target from a NESTED state resolves as a sibling (direct child of the parent compound), so a target naming a state at a different level is rejected (rf2-w84jv)"
+    ;; :leaf is at [:outer :mid :leaf]; keyword :sib resolves to
+    ;; [:outer :mid :sib] (sibling), NOT [:outer :sib]. Targeting :outer's
+    ;; child :elsewhere by bare keyword does NOT resolve — must be a vector.
+    (let [m {:initial :outer
+             :states  {:outer {:initial :mid
+                               :states  {:mid {:initial :leaf
+                                               :states  {:leaf {:on {:go :elsewhere}}}}
+                                         :elsewhere {}}}}}
+          thrown (registration-throws? :rf.w84jv/cross-level-kw m)]
+      (is (some? thrown)
+          "a keyword target reaching past the immediate parent level SHOULD throw")
+      (is (= ":rf.error/machine-unresolved-target" (.getMessage thrown))))))
+
+(deftest after-unresolved-target-rejected-at-registration
+  (testing "an :after entry whose :target is unresolved is rejected at registration (rf2-w84jv)"
+    (let [m {:initial :idle
+             :states  {:idle  {:after {1000 :nowhere}}
+                       :other {}}}
+          thrown (registration-throws? :rf.w84jv/after-target m)]
+      (is (some? thrown)
+          "an unresolved :after :target SHOULD throw at registration")
+      (is (= ":rf.error/machine-unresolved-target" (.getMessage thrown))))))
+
+(deftest on-done-unresolved-target-rejected-at-registration
+  (testing "a compound's :on-done whose :target is unresolved is rejected at registration (rf2-w84jv)"
+    (let [m {:initial :outer
+             :states  {:outer {:initial :done
+                               :on-done :nowhere
+                               :states  {:done {:final? true}}}}}
+          thrown (registration-throws? :rf.w84jv/on-done-target m)]
+      (is (some? thrown)
+          "an unresolved compound :on-done :target SHOULD throw at registration")
+      (is (= ":rf.error/machine-unresolved-target" (.getMessage thrown))))))
+
+(deftest spawn-on-error-unresolved-target-rejected-at-registration
+  (testing "a :spawn :on-error whose :target is unresolved is rejected at registration (rf2-w84jv)"
+    (let [m {:initial :working
+             :states  {:working {:spawn {:machine-id :rf.w84jv/some-child
+                                         :on-error {:target :nowhere}}}
+                       :other   {}}}
+          thrown (registration-throws? :rf.w84jv/spawn-on-error-target m)]
+      (is (some? thrown)
+          "an unresolved :spawn :on-error :target SHOULD throw at registration")
+      (is (= ":rf.error/machine-unresolved-target" (.getMessage thrown))))))
+
+(deftest parallel-region-unresolved-target-rejected-at-registration
+  (testing "an unresolved :target inside a parallel REGION is rejected at registration (rf2-w84jv)"
+    (let [m {:type    :parallel
+             :regions {:region-a {:initial :a
+                                  :states  {:a {:on {:go :nowhere}}
+                                            :b {}}}
+                       :region-b {:initial :x
+                                  :states  {:x {}}}}}
+          thrown (registration-throws? :rf.w84jv/region-target m)]
+      (is (some? thrown)
+          "an unresolved region :target SHOULD throw at registration")
+      (is (= ":rf.error/machine-unresolved-target" (.getMessage thrown))))))
+
+(deftest valid-targets-register-cleanly
+  (testing "well-formed resolvable targets (keyword sibling, vector absolute, :same-state, history pseudo-state) register cleanly (control) (rf2-w84jv)"
+    (let [m {:initial :idle
+             :states  {:idle  {:on {:go     :other          ;; keyword sibling
+                                    :abs    [:nested :deep]  ;; vector absolute
+                                    :self   :same-state}}    ;; self-target sentinel
+                       :other {}
+                       :nested {:initial :deep
+                                :states  {:deep {}
+                                          :hist {:type :history}}}}}
+          thrown (registration-throws? :rf.w84jv/valid-targets m)]
+      (is (nil? thrown)
+          "well-formed resolvable targets must NOT be rejected"))))
+
+(deftest history-pseudo-state-target-registers
+  (testing "a vector :target naming a :type :history pseudo-state resolves (it lives in :states) and registers (control) (rf2-w84jv)"
+    (let [m {:initial :idle
+             :states  {:idle    {:on {:resume [:compound :hist]}}
+                       :compound {:initial :a
+                                  :states  {:a    {}
+                                            :hist {:type :history}}}}}
+          thrown (registration-throws? :rf.w84jv/history-target m)]
+      (is (nil? thrown)
+          "a history-pseudo-state vector target must resolve and register cleanly"))))

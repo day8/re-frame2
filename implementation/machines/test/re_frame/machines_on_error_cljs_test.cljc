@@ -35,6 +35,9 @@
         :on-done` and `:spawn :on-error` resolve REGION-SCOPED end-to-end
         (error `:final?` leaf AND uncaught child-action exception), with the
         sibling region untouched.
+    (h) parallel-region explicit `:on {:rf.machine.spawn/error …}` escape
+        hatch is REGION-scoped (rf2-w84jv) — a sibling region's explicit
+        handler must NOT catch another region's child failure.
 
   Named `*-cljs-test.cljc` so it runs under both cognitect.test-runner (JVM)
   and shadow-cljs (CLJS), matching `final_state_cljs_test.cljc`."
@@ -472,3 +475,57 @@
           "the uncaught child action exception drove the :loader region's :spawn :on-error :target")
       (is (= :idle (get-in (snapshot :rf2-r09fc-g3/parent) [:state :other]))
           "the sibling :other region is untouched — :on-error is region-local"))))
+
+;; ---- (h) explicit :on {:rf.machine.spawn/error …} escape hatch is REGION-scoped (rf2-w84jv) ----
+;;
+;; Per rf2-w84jv — the spawn-error broadcast reaches EVERY region's resolver
+;; (`drain-parent-queue`), so the explicit `:on {:rf.machine.spawn/error …}`
+;; escape-hatch arm of `pick-spawn-error-transition` must decline outright in a
+;; FOREIGN region (a region whose name does not match the invoke-id head),
+;; SYMMETRIC with the `:spawn :on-error` arm and with `pick-done-transition`'s
+;; region-identity `decline-region?` gate. Before the fix the foreign region
+;; nilled its invoke-id (correctly disabling the `:spawn :on-error` arm) but
+;; still fell through to the explicit-`:on` arm, letting a SIBLING region's
+;; explicit handler catch another region's child failure — violating XState v5
+;; `invoke onError` region scoping.
+
+(deftest parallel-region-explicit-on-spawn-error-is-region-scoped
+  (testing "an explicit :on {:rf.machine.spawn/error …} in a sibling region does NOT catch another region's child failure (rf2-w84jv)"
+    (rf/reg-machine :rf2-w84jv-h/child
+      {:initial :running
+       :data    {}
+       :states  {:running {:on {:boom {:target :failed}}}
+                 :failed  {:final?     true
+                           :error?     true
+                           :output-key :err}}})
+    ;; The synthetic spawn-error event is only DISPATCHED when the spawning
+    ;; parent declares `:spawn :on-error` (finalize / registration gate on its
+    ;; presence). To reach the explicit-`:on` escape-hatch arm we give :loader
+    ;; a `:spawn :on-error` whose GUARD fails (so the headline arm misses and
+    ;; the event falls through to the explicit-`:on` walk). :loader's own
+    ;; explicit `:on {:rf.machine.spawn/error :handled}` then catches it
+    ;; in-region; the sibling :other declares a DECOY explicit handler that
+    ;; must NEVER fire — the failure belongs to :loader's region. Before the
+    ;; fix :other's decoy caught :loader's child failure (foreign-region leak).
+    (rf/reg-machine :rf2-w84jv-h/parent
+      {:type    :parallel
+       :data    {}
+       :guards  {:never (fn [_] false)}
+       :regions {:loader {:initial :working
+                          :states  {:working {:spawn {:machine-id :rf2-w84jv-h/child
+                                                      :on-error {:target :unreached
+                                                                 :guard  :never}}
+                                              :on    {:rf.machine.spawn/error :handled}}
+                                    :unreached {}
+                                    :handled   {}}}
+                 :other  {:initial :idle
+                          :states  {:idle {:on {:rf.machine.spawn/error :bad}}
+                                    :bad  {}}}}})
+    (rf/dispatch-sync [:rf2-w84jv-h/parent [:rf.machine.spawn/spawned]])
+    (let [child (spawned-id-for :rf2-w84jv-h/parent [:loader :working])]
+      (is (some? child) "child spawned under the real parent in the :loader region")
+      (rf/dispatch-sync [child [:boom]])
+      (is (= :handled (get-in (snapshot :rf2-w84jv-h/parent) [:state :loader]))
+          "the :loader region's own explicit :on {:rf.machine.spawn/error …} caught its child's failure (its guarded :on-error missed → fell through to the in-region explicit :on)")
+      (is (= :idle (get-in (snapshot :rf2-w84jv-h/parent) [:state :other]))
+          "the sibling :other region's DECOY explicit :on handler did NOT fire — the explicit escape hatch is region-scoped"))))

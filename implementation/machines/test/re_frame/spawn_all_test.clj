@@ -653,6 +653,70 @@
         (is (= :ready (:state (snapshot :sup/gate-ok)))
             "legitimate :spawn-all resolution still fires :on-all-complete")))))
 
+;; ---- parallel regions reusing the SAME :on-child-done id (rf2-w84jv) -----
+;;
+;; Two active parallel regions may legitimately reuse a generic
+;; `:on-child-done` event id (`:done`, `:asset/loaded`). `find-active-spawn-all`
+;; used `some`, returning the FIRST region whose active state matched — so a
+;; child completion from a LATER region was routed to the first region's join,
+;; failed its child-id OWNERSHIP check as forged, and the correct region's join
+;; never updated (it hung). The fix collects ALL active matches and routes by
+;; which join-state OWNS the arriving child-id.
+
+(deftest parallel-regions-sharing-on-child-done-route-by-child-ownership
+  (testing "two parallel regions reusing :on-child-done :done route each child completion to the region whose join OWNS it; no bad-child-id, neither region hangs (rf2-w84jv)"
+    (rf/reg-machine :rf2-w84jv/r1-child (mk-child :rf2-w84jv/par-parent :done :err))
+    (rf/reg-machine :rf2-w84jv/r2-child (mk-child :rf2-w84jv/par-parent :done :err))
+    (rf/reg-machine :rf2-w84jv/par-parent
+      {:type    :parallel
+       :regions {:region-1
+                 {:initial :hydrating
+                  :states  {:hydrating
+                            {:spawn-all
+                             {:children        [{:id :r1a :machine-id :rf2-w84jv/r1-child :start [:set-id :r1a]}]
+                              :join            :all
+                              :on-child-done   :done
+                              :on-child-error  :err
+                              :on-all-complete [:r1/done]}
+                             :on {:r1/done :ready}}
+                            :ready {}}}
+                 :region-2
+                 {:initial :hydrating
+                  :states  {:hydrating
+                            {:spawn-all
+                             {:children        [{:id :r2x :machine-id :rf2-w84jv/r2-child :start [:set-id :r2x]}]
+                              :join            :all
+                              :on-child-done   :done
+                              :on-child-error  :err
+                              :on-all-complete [:r2/done]}
+                             :on {:r2/done :ready}}
+                            :ready {}}}}})
+    (rf/dispatch-sync [:rf2-w84jv/par-parent [:rf.machine.spawn/spawned]])
+    (let [r1-children (:children (get-in (frame-db) [:rf/runtime :machines :spawned :rf2-w84jv/par-parent [:region-1 :hydrating]]))
+          r2-children (:children (get-in (frame-db) [:rf/runtime :machines :spawned :rf2-w84jv/par-parent [:region-2 :hydrating]]))]
+      (is (= #{:r1a} (set (keys r1-children))) "region-1 seeded its own join")
+      (is (= #{:r2x} (set (keys r2-children))) "region-2 seeded its own join")
+      ;; Complete the SECOND region's child first. With the first-match `some`
+      ;; this routed to region-1 (whose :children lacks :r2x), flagging forged
+      ;; and hanging region-2. Now it routes to region-2 by ownership.
+      (let [traces (collect-traces
+                     (fn [] (rf/dispatch-sync [(:r2x r2-children) [:go]])))
+            errs   (bad-child-id-error-traces traces)]
+        (is (= [] (vec errs))
+            "no bad-child-id: region-2's child routed to region-2's join by ownership")
+        (is (= :ready (get-in (snapshot :rf2-w84jv/par-parent) [:state :region-2]))
+            "region-2 resolved its :spawn-all (its child completion was NOT mis-routed to region-1)")
+        (is (= :hydrating (get-in (snapshot :rf2-w84jv/par-parent) [:state :region-1]))
+            "region-1 is untouched — its own child has not completed yet"))
+      ;; Now complete region-1's child — it must resolve region-1 too.
+      (let [r1c    (:children (get-in (frame-db) [:rf/runtime :machines :spawned :rf2-w84jv/par-parent [:region-1 :hydrating]]))
+            traces (collect-traces
+                     (fn [] (rf/dispatch-sync [(:r1a r1c) [:go]])))
+            errs   (bad-child-id-error-traces traces)]
+        (is (= [] (vec errs)) "no bad-child-id for region-1's own child")
+        (is (= :ready (get-in (snapshot :rf2-w84jv/par-parent) [:state :region-1]))
+            "region-1 resolved its :spawn-all on its own child completion")))))
+
 (deftest any-failed-trace-carries-reason-payload
   (testing ":rf.machine.spawn-all/any-failed trace carries :reason from decisive failure"
     (let [traces (atom [])

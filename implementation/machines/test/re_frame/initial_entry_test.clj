@@ -125,8 +125,13 @@
                           {:mid  {:entry   :enter-mid
                                   :initial :leaf
                                   :states
+                                  ;; :elsewhere is a child of :outer (not of
+                                  ;; :leaf's parent :mid), so the absolute
+                                  ;; vector target [:outer :elsewhere] resolves
+                                  ;; it; a bare keyword would resolve as a
+                                  ;; sibling of :leaf under :mid (rf2-w84jv).
                                   {:leaf {:entry :enter-leaf
-                                          :on    {:go :elsewhere}}}}
+                                          :on    {:go [:outer :elsewhere]}}}}
                            :elsewhere {}}}}}]
       (rf/reg-machine :rf2-0z73/compound spec)
       (rf/dispatch-sync [:rf2-0z73/compound [:go]])

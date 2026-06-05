@@ -816,6 +816,152 @@
       :else
       (walk [] (:states machine)))))
 
+(defn- walk-state-nodes-with-scope
+  "Like `walk-state-nodes-with-path` but additionally yields the `:states`
+  SCOPE each node lives in (its flat machine's `:states` or its owning
+  region's body's `:states`) — `[scope-states absolute-path state-node]`
+  triples. Used by `validate-transition-targets!`, which must resolve a
+  vector `:target` against the same scope the runtime resolver uses (a
+  vector target is absolute FROM THE REGION ROOT, so a region's nodes resolve
+  within that region's `:states`, never the parallel root). Paths are
+  scope-relative — region-name keywords are never part of a within-region
+  path, exactly as in `walk-state-nodes-with-path`."
+  [machine]
+  (letfn [(walk [scope path nodes]
+            (mapcat
+              (fn [[k n]]
+                (let [p (conj path k)]
+                  (cons [scope p n]
+                        (when (:states n)
+                          (walk scope p (:states n))))))
+              nodes))]
+    (cond
+      (parallel/parallel? machine)
+      (mapcat (fn [[_region region-body]]
+                (walk (:states region-body) [] (:states region-body)))
+              (:regions machine))
+
+      :else
+      (let [scope (:states machine)]
+        (walk scope [] scope)))))
+
+;; ---- transition target shape + resolution (rf2-w84jv) ---------------------
+;;
+;; Per Spec 005 (005:441 "the snapshot's :state slot is already validated at
+;; registration time — a transition targeting an unknown state fails
+;; registration") and Spec-Schemas §`TransitionTarget` (`[:or :keyword
+;; [:vector :keyword]]`): every transition slot's `:target` MUST be a keyword
+;; (a sibling of the declaring state — resolves to a direct child of the
+;; declaring state's parent compound), a non-empty vector path (absolute from
+;; the region/machine root), or the `:same-state` self-target sentinel.
+;; Anything else is malformed; a keyword / vector that does not resolve to a
+;; real node is an unresolved target. Before rf2-w84jv the validator checked
+;; only `:guard` / `:action` refs, so `{:target 42}` registered and threw
+;; `:rf.error/machine-bad-state-form` later at dispatch, and `{:target
+;; [:missing]}` registered and committed an invalid snapshot — false-green
+;; registration + brittle runtime failures. This block closes the gap loudly,
+;; aligned with XState v5 (which rejects unresolvable targets at machine
+;; creation). The parallel ROOT's own region-qualified `:on` / `:on-done`
+;; targets have DIFFERENT (region-qualified) semantics and are validated by
+;; `validate-parallel!`; this block walks only per-region / flat state nodes.
+
+(defn- candidate-targets
+  "Normalise a transition slot's value (an `:on` entry, an `:after` entry,
+  an `:on-done`, a `:spawn :on-error`) to the seq of `:target`s it declares,
+  mirroring `transition/normalise-candidates`: a keyword IS the target; a
+  vector of maps yields each map's `:target`; any other vector IS the target
+  (an absolute path); a single map yields its `:target`. A targetless /
+  action-only candidate contributes no target. The `:present?` marker on each
+  yielded entry distinguishes \"`:target` key absent\" (internal transition —
+  always fine) from \"`:target` present but malformed\" (e.g. `{:target
+  nil}`, which is still internal but worth nothing here)."
+  [v]
+  (cond
+    (nil? v)        []
+    (keyword? v)    [{:present? true :target v}]
+    (and (vector? v) (seq v) (every? map? v))
+    (map (fn [m] {:present? (contains? m :target) :target (:target m)}) v)
+    (vector? v)     [{:present? true :target v}]
+    (map? v)        [{:present? (contains? v :target) :target (:target v)}]
+    :else           []))
+
+(defn- validate-target!
+  "Validate one `:target` against the declaring state's `scope` (its region /
+  machine `:states`) and `path` (its absolute scope-relative path). `slot` and
+  `state-key` name the declaring site for diagnostics. A nil / `:same-state`
+  target is fine (internal / self-target sentinel). A keyword resolves as a
+  sibling (direct child of the declaring state's parent); a vector resolves
+  absolutely from the scope root — either must land on a real node (an
+  occupiable state OR a `:type :history` pseudo-state, both live in `:states`).
+  A non-keyword / non-vector target is malformed shape; an unresolved keyword /
+  vector is an unresolved target. Emits `:rf.error/machine-bad-target` /
+  `:rf.error/machine-unresolved-target`."
+  [scope path slot state-key target]
+  (cond
+    (nil? target)          nil
+    (= :same-state target) nil
+    (or (keyword? target) (vector? target))
+    ;; A keyword is a sibling of the declaring state — owning compound is the
+    ;; declaring state's PARENT (`drop-last path`). A vector is absolute.
+    (when-not (resolves-to-state? scope (vec (drop-last path)) target)
+      (throw (validation-error
+               :rf.error/machine-unresolved-target
+               (str "the " slot " :target " (pr-str target) " on state "
+                    state-key " does not resolve to a real state — a keyword "
+                    "target names a sibling (a direct child of the declaring "
+                    "state's parent compound) and a vector target is an "
+                    "absolute path from the (region) root; both MUST name a "
+                    "declared state (or a :type :history pseudo-state). Per "
+                    "Spec 005 §Transition resolution + Spec-Schemas "
+                    "§TransitionTarget.")
+               {:state  state-key
+                :slot   slot
+                :target target})))
+    :else
+    (throw (validation-error
+             :rf.error/machine-bad-target
+             (str "the " slot " :target " (pr-str target) " on state "
+                  state-key " is malformed — a transition :target must be a "
+                  "keyword (sibling of the declaring state), a non-empty vector "
+                  "path (absolute from the region/machine root), or the "
+                  ":same-state self-target sentinel. Per Spec-Schemas "
+                  "§TransitionTarget ([:or :keyword [:vector :keyword]]).")
+             {:state  state-key
+              :slot   slot
+              :target target}))))
+
+(defn- validate-transition-targets!
+  "Per Spec 005 (005:441) + Spec-Schemas §TransitionTarget (rf2-w84jv):
+  reject malformed-shape and unresolved transition `:target`s at registration
+  for every transition-bearing slot of every per-region / flat state node —
+  `:on`, `:after`, `:always`, a compound's `:on-done`, and a `:spawn`-bearing
+  state's `:spawn :on-error`. The parallel root's region-qualified `:on` /
+  `:on-done` targets are validated by `validate-parallel!` (different
+  semantics) and are NOT revisited here.
+
+  Catches `{:target 42}` (malformed → `:rf.error/machine-bad-target`) and
+  `{:target [:missing]}` (unresolved → `:rf.error/machine-unresolved-target`)
+  at registration rather than at the triggering dispatch (where the former
+  threw `:rf.error/machine-bad-state-form` and the latter committed an invalid
+  snapshot)."
+  [machine]
+  (doseq [[scope path node] (walk-state-nodes-with-scope machine)]
+    (let [state-key (peek path)
+          check!    (fn [slot v]
+                      (doseq [{:keys [present? target]} (candidate-targets v)]
+                        (when present?
+                          (validate-target! scope path slot state-key target))))]
+      (doseq [[_event v] (:on node)]
+        (check! :on v))
+      (doseq [[_delay v] (:after node)]
+        (check! :after v))
+      (doseq [entry (always-entries node)]
+        (check! :always entry))
+      (when (contains? node :on-done)
+        (check! :on-done (:on-done node)))
+      (when-let [oe (get-in node [:spawn :on-error])]
+        (check! :spawn/on-error oe)))))
+
 (defn validate-machine!
   "Run every registration-time check the machine grammar requires (rf2-f9tu).
   Composed at the top of `make-machine-handler` so the registered handler
@@ -850,7 +996,14 @@
 
   Per Spec 005 §Self-loop forbidden at registration: an `:always` entry
   that targets its own declaring state is rejected. Throws
-  `:rf.error/machine-always-self-loop`."
+  `:rf.error/machine-always-self-loop`.
+
+  Per Spec 005 (005:441) + Spec-Schemas §TransitionTarget (rf2-w84jv):
+  every transition slot's `:target` (`:on` / `:after` / `:always` /
+  compound `:on-done` / `:spawn :on-error`) must be a well-formed,
+  resolvable target. Throws `:rf.error/machine-bad-target` (malformed
+  shape) / `:rf.error/machine-unresolved-target` (keyword / vector that
+  names no declared state)."
   [machine]
   (validate-history! machine)
   (validate-parallel! machine)
@@ -864,6 +1017,8 @@
   ;; resolve vector `:target`s, so it drives off the path-aware walker.
   (doseq [[path n] (walk-state-nodes-with-path machine)]
     (validate-always-self-loop! path (peek path) n))
+  ;; rf2-w84jv: every transition slot's `:target` shape + resolution.
+  (validate-transition-targets! machine)
   ;; Validate guard/action references at construction time. machine-id
   ;; isn't known yet (it's the registration-site id), so error tags use
   ;; a placeholder; real misuse traces at handler-call time fill it in.
