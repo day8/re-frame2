@@ -150,6 +150,7 @@ The `examples/` tree is **test-free** — no `*.spec.cjs` lives under `examples/
 - **`npm run test:xray-feature-gate`** — 14-scenario Xray feature-matrix gate. The canonical browser sweep for cross-cutting feature regressions.
 - **`npm run test:bundle-isolation`** — production bundle grep contract for the per-feature artefact split.
 - **`npm run test:perf-bundle`** — static perf-flag bundle-isolation grep (the live perf-API counterpart at `implementation/core/test/re_frame/performance_emit_nightly_test.cljs` runs in the nightly CLJS suite).
+- **`npm run test:script-policy`** — JS-harness self-tests, including the **static examples asset-contract gate** ([`examples/scripts/check-examples-assets.cjs`](scripts/check-examples-assets.cjs)). For every example `index.html` it verifies each referenced asset (`_shared/*` css/img + transitive `@import` targets) resolves to a real file and that every page carries the required shared assets — favicon, OG card, and `_shared/css/style.css` — unless explicitly allowlisted (TodoMVC opts out of the shared stylesheet but still ships the shared favicon + OG). This catches a broken/renamed/missing `_shared` asset that the adapter-smoke harness cannot, since the testbed pages it serves link none of `_shared`.
 - **`npm run test:story-feature-load`** — Story tool feature/load gate (occasional).
 
 ### Building examples interactively
@@ -161,7 +162,9 @@ If you want to iterate on one example:
 shadow-cljs watch examples/counter
 ```
 
-Stage the `index.html` once (copy `examples/reagent/counter/index.html` next to `out/examples/counter/main.js`) and serve `out/examples/` over HTTP.
+The build's `:output-dir` (see `implementation/shadow-cljs.edn`) is where `main.js` lands. Stage the example's hand-written `index.html` next to that `main.js`, copy the `examples/_shared/` tree alongside it so the `_shared/...` hrefs resolve, then serve that directory over HTTP. (The `npm run test:examples` smoke harness does this automatically for the three adapter testbeds, staging into `implementation/out/examples/adapter-testbeds/<name>/`; the per-build `:output-dir` for a standalone `:examples/*` build is whatever that build declares.)
+
+For TodoMVC, also copy the two vendored CSS files next to `main.js` (its `index.html` links them flat instead of the shared stylesheet — see [`reagent/todomvc/README.md`](reagent/todomvc/README.md) §Official assets).
 
 ### Adding a new example
 
