@@ -32,7 +32,7 @@ For each one, check its current React-19 support (its published `peerDependencie
 - **Needs a bump** — a newer release of the *same* library supports React 19. Note the target version.
 - **Needs a replacement / has no React-19 release** — the library is abandoned or has not shipped React-19 support. This is a blocker dimension; surface it to the author for a decision (upgrade path, replacement library, or hold the migration).
 
-You can list the peer-dependency declarations with a read-only search over the lockfile / installed packages — e.g. `rg -l '"react"' node_modules/*/package.json` (or the package manager's own `why`/`ls` for `react`). The skill enumerates and reports; the **author** runs any `npm install` / upgrade command (cardinal rule 10).
+You can list the peer-dependency declarations with a read-only search over the lockfile / installed packages — e.g. `rg -l '"react"' node_modules/*/package.json` (or the package manager's own `why`/`ls` for `react`). The skill enumerates and reports; the **author** runs any `npm install` / upgrade command (cardinal rule 5).
 
 ### Check 2 — Component / substrate-library check (the go/no-go BLOCKER)
 
@@ -170,6 +170,17 @@ All three become `day8/re-frame2` + the matching adapter artefact.
 
 If the codebase has **both** Reagent and UIx requires (a phased substrate migration), pick whichever one drives the React root and add only that adapter — the other substrate's views become broken at runtime but that's a separate migration the author has to drive.
 
+## Pin the migration corpus before reading it
+
+[`MIGRATION.md`](../../../migration/from-re-frame-v1/README.md) is the contract for every rewrite, so it must be **pinned**, not fetched live. Load it from a **local checkout of `day8/re-frame2` pinned to a specific commit or tag** — an unpinned remote fetch makes every migration depend on whatever happens to be on `main` that minute, and a non-reproducible corpus is a non-reproducible migration. Before reading the corpus, verify the checkout:
+
+```bash
+git -C <path-to-re-frame2> rev-parse HEAD          # the pinned commit
+git -C <path-to-re-frame2> remote get-url origin   # confirm it's day8/re-frame2
+```
+
+Do **not** fetch `MIGRATION.md` from GitHub at runtime. **Record the pinned hash in the migration report** ([`output-format.md`](output-format.md)) alongside the chosen `<v2-version>` (next section) — both pin the migration to a reproducible point.
+
 ## Discovering the current VERSION
 
 **The author picks the target VERSION; the skill never auto-selects "latest".** The kickoff prompt names a specific `<v2-version>` string — that's the contract. If `<v2-version>` is unset (the author left a placeholder), **stop and ask** before editing any dep file.
@@ -226,7 +237,7 @@ Flag this case in the report — the author owns the decision about whether to u
 
 Excluding the *named* add-ons and re-compiling, only to still see `re-frame.core` resolving to v1, is the classic symptom: the obvious add-on was a red herring and the real root is a git/vendored/deep-transitive edge. Don't chase it by guessing — read the full dependency tree.
 
-**Verification step — prove the classpath is clean before you compile.** After the exclusion sweep, run a tool-appropriate classpath check filtered for `re-frame` and confirm **no v1 `re-frame/re-frame` artefact remains** on the classpath, *before* attempting the post-M-0 compile. Don't trust the exclusion list — prove the classpath is clean. (Per cardinal rule 10 the **author** runs the command; the skill prints it.)
+**Verification step — prove the classpath is clean before you compile.** After the exclusion sweep, run a tool-appropriate classpath check filtered for `re-frame` and confirm **no v1 `re-frame/re-frame` artefact remains** on the classpath, *before* attempting the post-M-0 compile. Don't trust the exclusion list — prove the classpath is clean. (Per cardinal rule 5 the **author** runs the command; the skill prints it.)
 
 - **tools.deps (`deps.edn`):** `clojure -Stree` shows the full resolved tree — search the output for any `re-frame/re-frame` node (it should be absent; only `day8/re-frame2` + the adapter should appear). `clojure -Spath` prints the realised classpath — it must contain **no** `re-frame/re-frame` jar (look for a `re-frame/re-frame/<1.x.x>/…jar` Maven-cache path). For an `:aliases`-gated dev/test classpath, run the check **under the same aliases** the build uses (e.g. `clojure -A:dev -Stree`), because a leak can hide behind a profile/alias.
 - **Leiningen (`project.clj`):** `lein deps :tree` (and `lein with-profile +dev deps :tree` for profile overlays) — confirm no `[re-frame "1.x.x"]` node survives.

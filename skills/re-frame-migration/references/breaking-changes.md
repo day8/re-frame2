@@ -149,6 +149,34 @@ The author **must** ask for these. They are never auto-applied as part of a rout
 
 If a rule is hybrid (A for one shape, B for another), the type column above lists `A/B` and the rule's text in MIGRATION.md spells out which half is which.
 
+## Failure-visibility axis — loud-fail vs silent-fail (orthogonal to Type A/B)
+
+Type A/B answers *"auto-apply or ask?"*. This second axis answers a **different** question — *"if I miss this rule, will anything tell me?"* — and it drives **how you sweep**, not whether you ask. The two axes are independent: a rule can be Type A loud (M-1 off-contract ns), Type A silent (M-8 fold), Type B loud (M-3 run-to-completion → an exception you'll hit), or Type B silent (M-15b `:rf/runtime` clobber).
+
+- **LOUD-fail rules** surface at **compile or first-run** — removed namespaces, `console`/`unwrap` add-on refs, undefined vars, unresolved renamed symbols. **March-the-wall works**: swap the coord, compile, fix the error the compiler points at, recompile, repeat. The compile *is* the to-do list. The default M-rule population is loud.
+- **SILENT-fail rules** compile **clean** and misbehave only when a specific runtime path executes. March-the-wall **cannot find them** — the compile never gives you a wall to hit. Evidence: a real migration compiled with zero errors then had five-plus runtime breaks, most silent (see [`runtime-smoke-test.md`](runtime-smoke-test.md)).
+
+**The silent-fail register (the planning column — these are the rules that need different handling):**
+
+| Rule | Silent because | The miss looks like |
+|---|---|---|
+| **M-8** | v2 reads **only** `:db` + `:fx` at the effect-map top level; any other top-level key (`:dispatch`, `:dispatch-n`, a custom fx id) is silently ignored, not errored | the side-effect that key drove never fires; no error |
+| **M-15b** | a wholesale `{:db fresh}` boot/reset compiles + runs; it just **wipes** `:rf/runtime` (machines / routing / SSR) | boot machine starts then its snapshot vanishes; `[:machine …]` dispatches no-op; app hangs on its spinner |
+| **M-16** | a missed `^:flush-dom` metadata key is simply ignored — the synchronous-flush timing silently changes | a render that depended on the pre-flush no longer flushes; intermittent visual/timing glitch |
+| **M-18** (signal-fn) | the throw is at **registration / ns-load**, not compile; the v1 3-arity `reg-sub` form parses fine | the sub never produces a value; views deref `nil` (or a load-time `:rf.error/reg-sub-bad-args`) |
+| **M-28 / M-29 / M-30 / M-31 / M-32** | the call site resolves through the `re-frame.core` re-export even when the per-feature artefact dep + its `:require` are absent | first dispatch to the surface throws `:rf.error/<artefact>-missing` (machine events silent-no-op) — M-31's `re-frame.http` vs `re-frame.http-managed` two-require trap is the classic |
+| **M-54** | the dual-key `(or :schema :spec)` read was stripped — a leftover `:spec` slot is **silently ignored**, so a partial `:spec`→`:schema` rewrite is a correctness hazard | the schema the `:spec` slot named stops validating; no error |
+
+**Everything not in this register is loud** — it will announce itself at compile or first-run, so march-the-wall is the right tool for it.
+
+**Three disciplines follow from the axis:**
+
+1. **Silent-fail rules get an EXHAUSTIVE up-front grep, never march-the-wall.** Grep every site in one pass *before* the sweep — the compile will not surface a second occurrence after you fix the first. (Loud rules can ride the march-the-wall loop; silent ones cannot.)
+2. **The inventory phase (Phase 0a) greps the APP source for these patterns**, not only the dependency surfaces. Silent-fail patterns (`{:db fresh}` boots, top-level `:dispatch` keys, signal-fn `reg-sub`, `^:flush-dom`) live in **application code** — they won't show up in a dependency scan.
+3. **The runtime smoke-test with live introspection is a first-class gate** ([`runtime-smoke-test.md`](runtime-smoke-test.md)) — for silent-fail rules it is the **only** detector. Reading the booted app's `app-db` + machine snapshots is what confirms the rewrite actually landed; the compiler structurally cannot.
+
+This axis is the organizing insight behind the Phase 4 silent-failure checklist and the M-15b loud diagnostic — see [`runtime-smoke-test.md`](runtime-smoke-test.md) for the symptom→cite→confirming-read checklist and the boot smoke-test loop.
+
 ## Devtools (Xray replaces 10x — a STANDARD migration step for a 10x app)
 
 | Trigger in v1 dev deps | Successor | Standing? | Where |
