@@ -2,6 +2,8 @@
 
 Four surfaces need coverage at different fidelities. See `docs/initial-spec.md` §9 for the architectural split.
 
+> **Scope (current surface).** The **MCP server** (`tools/re-frame2-pair-mcp/`) is the only skill-facing transport, and it carries its own test suite under that directory (`shadow-cljs compile server-test`). The surfaces below cover the skill's **runtime preload** + **structural docs** + the **retained bash shims** (now harness/ad-hoc-only, not reachable from the skill's `allowed-tools:`). §2 in particular exercises the retained shims for the project's own e2e harness — it is not the skill's live transport.
+
 The fixture app at `tests/fixture/` backs the shim and e2e
 surfaces — a minimal Reagent + shadow-cljs build that preloads
 `re-frame2-pair.runtime` and renders a counter. See `tests/fixture/README.md`
@@ -38,9 +40,15 @@ Failing points to flag on first run:
 - ~~`parse-rf2-coord` assumes a `'<ns>|<file>:<line>:<col>'` shape for `data-rf2-source-coord`.~~ Resolved 2026-05-09: parser updated to the canonical `<ns>:<handler-id>:<line>:<col>` shape per Spec 006 §Source-coord annotation. Bb-runnable tests at `tests/runtime/parse_rf2_coord_test.clj` until the shadow-cljs harness lands.
 - `parse-rc-src` assumes a `"file:line"` or `"file:line:column"` format for `data-rc-src`. Real re-com attribute format needs verification.
 
-## 2. Bash-shim integration (`tests/shim/`)
+## 2. Bash-shim integration (`tests/shim/`) — retained harness only
 
 **Status: scaffolded — 7 tests, 28 assertions, runs in changed-surface PR CI.**
+
+> The bash shims this suite drives are **retired from the skill surface** —
+> they are not reachable from `allowed-tools:`. This suite is retained because
+> the shims are kept on disk for the project's own e2e harness and ad-hoc
+> shell use; it guards that harness contract, not the skill's live MCP
+> transport.
 
 Per-push integration suite against a **stubbed nREPL**, not the live
 fixture. `tests/shim/stub_nrepl.clj` is a babashka program that accepts
@@ -118,7 +126,9 @@ covers it AND the ops the recipe is expected to name.
 The 5 canonical prompts wired so far:
 
 1. "What's in `app-db` under `:user/profile`?" → recipe still names
-   an `app-db/snapshot` / `app-db/get` style read.
+   a `snapshot` / `get-path` style read (the `:must-mention`
+   alternation also tolerates the legacy `app-db/snapshot` /
+   `app-db/get` vocabulary names).
 2. "Trace `[:cart/apply-coupon "SPRING25"]`" → recipe still names
    `dispatch-and-collect`, the `:rf/epoch-record` shape, and the
    `:sub-runs` / `:renders` projections.
@@ -153,8 +163,9 @@ re-deriving the prompts.
 
 | Surface | Runs on |
 |---|---|
+| MCP server suite (`tools/re-frame2-pair-mcp/`) | The skill-facing transport's own tests — `shadow-cljs compile server-test` + the descriptor-manifest drift gate. Run under the tool's directory, not this skill's `tests/`. |
 | Runtime structural tests | PR CI when `skills/re-frame2-pair/**` changes; nightly/manual expensive workflow may also run them before release. |
-| Bash-shim integration | PR CI when `skills/re-frame2-pair/**` changes. |
+| Bash-shim integration (retained harness) | PR CI when `skills/re-frame2-pair/**` changes. Guards the harness shims, not the skill's live transport. |
 | End-to-end in-browser | Manual/nightly diagnostic; not required PR coverage because it depends on a live fixture. |
 | Prompt regression | PR CI when `skills/re-frame2-pair/**` changes. |
 

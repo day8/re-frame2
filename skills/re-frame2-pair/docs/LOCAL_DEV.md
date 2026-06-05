@@ -12,9 +12,40 @@ npm publishing is for distribution to other people. While developing the skill i
 
 Same as the README's *Requirements*:
 
-- [`babashka`](https://babashka.org) on `PATH` — the shell shims exec `bb` regardless of how the skill is installed.
+- The **MCP server** — the only skill-facing transport. Install it with `npm install -g @day8/re-frame2-pair-mcp` and add an `mcpServers` entry (see [`tools/re-frame2-pair-mcp/README.md`](../../../tools/re-frame2-pair-mcp/README.md)), or run it straight from this clone — see [§MCP server from a clone](#mcp-server-from-a-clone) below.
 - [Claude Code](https://docs.claude.com/en/docs/claude-code).
 - A re-frame2 + shadow-cljs app to exercise it against. (Optional: re-com — used as a fallback source-coord source, not required.)
+
+> **Babashka is not a skill requirement.** The retired bash shims under
+> `scripts/` (and the project's own `tests/shim/` harness) exec `bb`, but
+> they are not reachable from the skill's `allowed-tools:`. You only need
+> [`babashka`](https://babashka.org) on `PATH` if you are running those
+> shims directly for the e2e harness or ad-hoc shell use.
+
+## MCP server from a clone
+
+The install paths below link the **skill directory** (`SKILL.md` + `preload/`
++ `docs/` + `references/`). They do not start the **MCP server** — the only
+skill-facing transport — which lives at `tools/re-frame2-pair-mcp/` outside the
+skill dir. To run the server from this clone instead of waiting for an npm
+release, build it once (`cd tools/re-frame2-pair-mcp && npm install && npm run
+build`) and point your Claude Code `mcpServers` entry at the compiled server:
+
+```json
+{
+  "mcpServers": {
+    "re-frame2-pair": {
+      "command": "node",
+      "args": ["<repo>/tools/re-frame2-pair-mcp/out/server.js"]
+    }
+  }
+}
+```
+
+See [`tools/re-frame2-pair-mcp/README.md`](../../../tools/re-frame2-pair-mcp/README.md)
+for the exact entry point, the launch flags (`--allow-writes`,
+`--allow-sensitive-reads`, `--no-eval`, `--port-file`), and port discovery.
+Restart Claude Code after editing `mcpServers`.
 
 ## 0. Repo installer (recommended — links all skills)
 
@@ -99,18 +130,19 @@ Once the skill directory is in place:
 - **Implicit**: ask about your running re-frame2 app in natural language (*"what's in `app-db` under `:cart`?"*). Claude auto-matches the skill's description.
 - **Explicit**: type `/re-frame2-pair` or name it in a prompt (*"Using re-frame2-pair, trace `[:cart/apply-coupon ...]`"*).
 
-First use of a session runs `scripts/discover-app.sh` — that connects to your shadow-cljs nREPL, verifies prerequisites, and probes the preloaded `re-frame2-pair.runtime` marker.
+First use of a session calls the `discover-app` MCP tool — that connects to your shadow-cljs nREPL (the MCP server discovers the port itself), verifies prerequisites, and probes the preloaded `re-frame2-pair.runtime` marker.
 
 ## Dev loop: iterating on the skill itself
 
-The power of the symlink approach is that editing `SKILL.md` / `preload/re_frame2_pair/runtime.cljs` / `scripts/ops.clj` in the repo takes effect immediately:
+The power of the symlink approach is that editing `SKILL.md` / `references/*.md` / `preload/re_frame2_pair/runtime.cljs` in the repo takes effect immediately:
 
 | You edited... | What Claude sees after your next prompt |
 |---|---|
 | `SKILL.md` frontmatter or body | New vocabulary / recipes on next invocation (may need to restart the Claude Code session for the description change to be re-indexed). |
-| `scripts/ops.clj` | Next `bb` invocation picks it up — no action needed. |
+| `references/*.md` | Picked up on the next leaf load — no restart needed. |
 | `preload/re_frame2_pair/runtime.cljs` | shadow-cljs hot-reloads the namespace into the running app as soon as you save (it's on the consumer's `:source-paths`). No re-inject command. If the changes touch `defonce`'d state (listeners, atoms), reload the page once. |
-| Shell shims (`*.sh`) | Next invocation picks them up. |
+| The MCP server (`tools/re-frame2-pair-mcp/`) | Rebuild it (`npm run build` in that dir) and restart Claude Code so it reconnects to the new server. |
+| The retired shell shims (`scripts/*.sh`, `scripts/ops.clj`) | Not reachable from the skill — they only affect the project's own `tests/shim/` e2e harness. A re-run of `bb ops.clj` (or the `.sh` wrapper) picks them up. |
 
 ## Troubleshooting
 
@@ -121,18 +153,18 @@ The power of the symlink approach is that editing `SKILL.md` / `preload/re_frame
 - Restart Claude Code — it reads the skill registry at session start.
 - Check the skill name in `SKILL.md`'s frontmatter — it must match the directory name (`re-frame2-pair`).
 
-### `babashka-missing` error from `discover-app.sh`
+### `babashka-missing` (harness-only — not the skill path)
 
-`bb` isn't on `PATH`. Verify with `which bb` (macOS/Linux) or `where bb` (Windows). Install:
+You will only see this if you run the retired bash shims (`scripts/*.sh`, `tests/shim/`) directly for the e2e harness — the skill itself never execs `bb`. It means `bb` isn't on `PATH`. Verify with `which bb` (macOS/Linux) or `where bb` (Windows). Install:
 
 - macOS: `brew install borkdude/brew/babashka`
 - Linux / Windows: [babashka install guide](https://github.com/babashka/babashka#installation)
 
-Restart the shell (and Claude Code) so the new `PATH` takes effect.
+Restart the shell so the new `PATH` takes effect.
 
-### `:nrepl-port-not-found`
+### `discover-app` can't find the nREPL
 
-`discover-app.sh` couldn't locate a port file (`target/shadow-cljs/nrepl.port`, `.shadow-cljs/nrepl.port`, or `.nrepl-port` — probed at the CWD and under `implementation/`) and `$SHADOW_CLJS_NREPL_PORT` is unset. Start your dev build:
+`discover-app` returns a port-not-found / connection error. The MCP server discovers the port automatically (it scans `target/shadow-cljs/nrepl.port`, `.shadow-cljs/nrepl.port`, `.nrepl-port` at the CWD and under `implementation/`, and picks the most-recently-modified one). If it misses, first start your dev build:
 
 ```bash
 npx shadow-cljs watch <build-id>
@@ -140,11 +172,7 @@ npx shadow-cljs watch <build-id>
 
 ...and make sure nREPL is enabled for the build.
 
-If a build *is* running but discovery picks the wrong port (`connection refused`, or it attaches to a stale build), set the override explicitly — it bypasses file discovery entirely and is independent of the shell's working directory:
-
-```bash
-SHADOW_CLJS_NREPL_PORT=<live-port> scripts/discover-app.sh
-```
+If a build *is* running but discovery picks the wrong port (`connection refused`, or it attaches to a stale build), set the override explicitly — pass `--port-file <abs>` to the server or set `SHADOW_CLJS_NREPL_PORT=<live-port>`, which bypasses file discovery entirely and is independent of the working directory.
 
 ### `:debug-disabled`
 
@@ -156,14 +184,14 @@ The app hasn't called `(rf/init!)` yet (or the only frame was destroyed). Wait f
 
 ### `:ambiguous-frame`
 
-Multiple frames are registered and the session hasn't selected one. Use `frames/select` or pass `--frame :foo` per call. Reads proceed against `:rf/default` after warning; mutating ops refuse.
+Two-plus app frames are registered and the session hasn't pinned one. Pin one with `set-operating-frame {frame: ":foo"}`, or pass `frame: ":foo"` per call. The dedicated `snapshot` / `get-path` / `dispatch` tools refuse rather than guess; the lower-level eval helpers warn-and-default to `:rf/default`.
 
 ### Watch ops don't stream anything
 
 Two likely causes:
 
 - **No epoch history yet.** `(rf/epoch-history :rf/default)` returns `[]` until the app dispatches at least one event. Click around or fire one synthetic dispatch.
-- **No activity matches the predicate**. Try `scripts/watch-epochs.sh --count 5` with no predicate to confirm the transport works, then add filters.
+- **No activity matches the predicate**. Try `watch-epochs {}` with no predicate (or `subscribe {topic: "epoch"}`) to confirm the transport works, then add filters.
 
 ### DOM ops return `{:src nil}`
 

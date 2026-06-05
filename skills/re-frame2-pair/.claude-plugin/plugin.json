@@ -27,18 +27,5 @@
   "skills": [
     "./SKILL.md"
   ],
-  "scripts": [
-    "./scripts/discover-app.sh",
-    "./scripts/eval-cljs.sh",
-    "./scripts/dispatch.sh",
-    "./scripts/trace-window.sh",
-    "./scripts/watch-epochs.sh",
-    "./scripts/tail-build.sh",
-    "./scripts/ops.clj",
-    "./preload/re_frame2_pair/runtime.cljs"
-  ],
-  "requirements": {
-    "babashka": ">=1.3.0"
-  },
   "status": "pre-alpha"
 }
