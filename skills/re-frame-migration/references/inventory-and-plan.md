@@ -1,0 +1,91 @@
+# inventory-and-plan
+
+Phase 0a — the **inventory-and-plan pre-flight**. Run it **before** any dep edit, before any compile, before the React-19 floor gate (Phase 0b) and M-0 (Phase 2). The output is a single written table: every v1 re-frame add-on library and every v1 re-frame feature the app uses, each mapped to its disposition + the rule(s) that govern it + whether acting is forced or optional. The migrator then acts in **one planned sweep** instead of marching the wall.
+
+## Why a complete inventory comes first
+
+re-frame2 removes and moves surfaces that v1 add-on libraries and v1 app code reach into. A compile reaches those breakages **one namespace at a time** — so a "swap the coord, compile, fix the first error, recompile, fix the next" loop turns into whack-a-mole, because the breakages live in **dependency source** (add-on jars, git/source deps, vendored code) that the compiler only loads as it walks the require graph. Each fix unblocks the compiler to reach the *next* broken namespace, which you had no warning about.
+
+A complete up-front inventory collapses that loop. You read the dep tree and the relevant add-on **source** once, list every surface that will break, and produce a plan that fixes them all in a single pass. The compile then either passes or surfaces only the genuinely-unforeseeable.
+
+**This phase is the umbrella that the other pre-flights feed into.** It does not restate them — it **drives** them as per-item checks:
+
+- the **React-19 / Reagent-2 floor gate** (Phase 0b) → the downstream-JS/React-lib dimension of the inventory ([`setup.md` §The React-19 / Reagent-2 floor gate](setup.md#the-react-19--reagent-2-floor-gate-pre-flight--run-before-m-0));
+- the **off-contract-namespace principle** (M-1) → the source-scan rule for "which `re-frame.*` namespaces does this add-on/app reach into?";
+- the **add-on `re-frame.core/console` compile-gate** → the disposition for any add-on whose source `:refer`s / calls the removed `console` ([`breaking-changes.md` §v1 add-on libraries fail to COMPILE on v2](breaking-changes.md#v1-add-on-libraries-fail-to-compile-on-v2--replacementremoval-is-forced-not-opt-in));
+- the **classpath-clean verification** → the proof, after the plan's removals/exclusions, that no v1 `re-frame/re-frame` jar still roots the classpath ([`setup.md` §Edge cases](setup.md#edge-cases)).
+
+The inventory **enumerates** the items; those existing checks **classify** each one.
+
+## Step 1 — Inventory the v1 add-on libraries on the classpath
+
+Read the **full resolved dependency tree**, not just the top-level dep file — the breaking add-on is frequently a transitive (a git/source dep or a deeper edge), not a direct coord. Per cardinal rule 10 the **author** runs the tree command; the skill prints it and reads the pasted output:
+
+- **tools.deps:** `clojure -Stree` (and `clojure -A:dev -Stree` / `:test` under each build alias).
+- **Leiningen:** `lein deps :tree` (and `lein with-profile +dev deps :tree`).
+- **shadow-cljs:** `npx shadow-cljs classpath`, or rely on the `deps.edn` tree if shadow reads from it.
+
+From that tree, list every **re-frame add-on** — any library that depends on `re-frame/re-frame` or extends a re-frame surface. The common ones to expect (this is an EXAMPLE list of things to look for — **not** a fixed set, and **not** a set of per-library migration paths):
+
+| v1 add-on (example) | What it is |
+|---|---|
+| `day8.re-frame/http-fx` (`:http-xhrio`) | the de-facto v1 HTTP effect layer |
+| `day8.re-frame/async-flow-fx` (`:async-flow`) | async boot/wizard orchestration |
+| `day8.re-frame/forward-events-fx` | event forwarding (transitive of async-flow-fx) |
+| `day8.re-frame/undo` | undo/redo via app-db snapshots |
+| `day8.re-frame/re-frame-10x` | the v1 devtools panel (dev dep) |
+| `day8.re-frame/re-frame-test` / `day8/re-frame-test` | the v1 test harness |
+| `re-frame-utils` / `re-frame-fx` and friends | community effect/cofx grab-bags |
+| any other library on the tree that depends on `re-frame/re-frame` | a re-frame consumer that may reach a moved/removed surface |
+
+The principle is **scan ALL of them**, including any you don't recognise — a community add-on you've never heard of is exactly the one whose source reaches a removed surface and stalls the compile.
+
+## Step 2 — Scan each add-on's SOURCE for v2-broken surfaces
+
+This is the load-bearing step the march-the-wall loop skips. For each add-on from Step 1, read **its source** (the jar's `.cljc`/`.cljs`, the git-dep checkout, the vendored files on `:paths`) and grep for the v2-broken surfaces. The generic principles that classify a hit are already in the skill — apply them to the add-on's source, not just to the app's:
+
+- **Off-contract `re-frame.*` requires (M-1).** The compatibility commitment covers **only** `re-frame.core` (the public façade) and the per-feature `re-frame.<feature>` artefact namespaces. **Any other `re-frame.*` require is off-contract and breaks on v2** — e.g. `re-frame.interceptor`, `re-frame.utils`, `re-frame.db`, `re-frame.router`, `re-frame.registrar`, `re-frame.loggers`. An add-on that `(:require [re-frame.interceptor ...])` or `(:require [re-frame.utils ...])` will not compile. Grep each add-on's source for `re-frame\.` requires outside `re-frame.core` / the artefact namespaces. → M-1 (this is the **principle**, not a fixed list — see [`breaking-changes.md`](breaking-changes.md) M-1 row).
+- **The removed `re-frame.core/console` (add-on compile-gate).** v2's public façade defines **no `console`**, and there is **no back-compat shim**. Any add-on whose source `:refer`s `console` from `re-frame.core` or calls `(re-frame.core/console ...)` **fails to compile the moment re-frame2 is on the classpath** — independent of whether the app converted its own call sites. Grep each add-on's source for `console`. → [`breaking-changes.md` §v1 add-on libraries fail to COMPILE on v2](breaking-changes.md#v1-add-on-libraries-fail-to-compile-on-v2--replacementremoval-is-forced-not-opt-in).
+- **`unwrap` → `unwrap-interceptor` (M-59).** v1's `unwrap` Var was renamed; the `:unwrap` interceptor `:id` is unchanged but the Var moved. An add-on (or app) that `:refer`s `unwrap` from `re-frame.core` breaks. Grep for `unwrap`. → M-59.
+- **React-19 / Reagent-2 downstream coupling (Phase 0b).** An add-on that ships **views** (a component kit, a Reagent-based widget lib) is subject to the same React-19 / Reagent-2 floor as the app. Bucket it React-19-ready / needs-bump / needs-replacement exactly as the floor gate does. → [`setup.md` §The React-19 / Reagent-2 floor gate](setup.md#the-react-19--reagent-2-floor-gate-pre-flight--run-before-m-0).
+- **Transitive v1-`re-frame/re-frame` coord (classpath collision).** A v1-built add-on declares its own `re-frame/re-frame` dep, which collides with `day8/re-frame2` on the classpath. This is a **separate** failure mode from the `console` compile error (an add-on can hit both). The plan's disposition records the exclusion/upgrade, and the classpath-clean verification proves it cleared. → [`setup.md` §Edge cases](setup.md#edge-cases).
+
+The point: walk this list against **every** inventoried add-on's source in **one pass**, so you know the full set of broken add-ons before the first compile — not one per recompile.
+
+## Step 3 — Inventory the app's own v1 re-frame features
+
+Separately from the add-ons, grep the **app's own source** for the v1 feature surfaces that trip an M/O-rule. This is the same trigger-surface scan `references/breaking-changes.md` indexes — run it up front rather than discovering each on a compile. The high-frequency ones:
+
+| v1 feature surface in the app | Rule |
+|---|---|
+| Direct `re-frame.db` / `re-frame.utils` / other off-contract `re-frame.*` requires; `@re-frame.db/app-db` | **M-1** |
+| `reg-global-interceptor` / `clear-global-interceptor` | **M-17** |
+| `reg-sub-raw` | **M-18** |
+| `^:flush-dom` event metadata | **M-16** |
+| top-level `:dispatch` / `:dispatch-n` / `:http` / user-fx keys in effect maps | **M-8** |
+| `(reset! re-frame.db/app-db ...)` top-level seeding | **M-15** |
+| `re-frame.alpha` requires | **M-23** |
+| `re-frame.test` / `day8.re-frame.test` requires | **M-25** |
+| `reg-event-error-handler` | **M-13** |
+| `(rf/init!)` with no adapter — or no `init!` at all | **M-40** |
+
+This list is illustrative; the authoritative index is [`breaking-changes.md`](breaking-changes.md) — grep it for any surface you find. The inventory's job is to run that scan **once, comprehensively**, not to re-derive the rules.
+
+## Step 4 — Produce the per-item migration plan
+
+Emit a single table — one row per inventoried add-on and per app feature — with, for each:
+
+1. **Item** — the add-on coord (`day8.re-frame/http-fx`) or the app feature (`reg-global-interceptor` at `src/app/core.cljs:42`).
+2. **What breaks on v2** — the scanned surface (e.g. *"`:refer`s removed `re-frame.core/console`"*, *"`:require [re-frame.interceptor]` off-contract"*, *"views target React 18"*).
+3. **Rule(s)** — the governing `M-N` / `O-N` id(s), or the named principle (off-contract-ns / console-gate / classpath-collision / floor-gate) where no `M-N` applies.
+4. **Forced vs optional** — does the project **compile** with the item unchanged? A `console`-referencing add-on or an off-contract require is **forced** (compile-blocker). An opt-in modernisation (O-16 conversion path) is **optional**. The forced/optional split is the one most worth getting right — it's what separates "must do before compile" from "do at leisure."
+5. **Disposition** — **CONVERT** (to a v2-native effect/machine — e.g. http-fx → `:rf.http/managed`, async-flow-fx → `reg-machine`), **PATCH** (mechanical M-rule fix to a kept lib — e.g. swap the off-contract require, drop the `console` `:refer`), **DROP** (the feature is unused — remove the add-on), **REPLACE/REWRITE** (no drop-in successor — re-implement against a v2 surface), **UPSTREAM** (PR the add-on to a v2-compatible release), or **FIX-IN-PLACE** (the app's own source).
+6. **Replacement target** — the v2 surface the disposition lands on (`:rf.http/managed`, `reg-machine`, `clojure.core/update-vals`, Xray, …).
+
+Then state the **recommended ordering** — which removals/exclusions unblock the compile (they go first), so the post-M-0 compile gate is actually reachable. A `console`-referencing add-on and a classpath-colliding transitive both must clear before the compile can surface real application-code breakage.
+
+> **Stay generic — no per-library migration sections.** The conversion details for the *named* add-ons live in their own opt-in leaves (`http-fx` → [`http-fx-to-managed-http.md`](http-fx-to-managed-http.md), `async-flow-fx` → [`async-flow-to-machines.md`](async-flow-to-machines.md)). For every **other** add-on — including any community library not in the example list above — the disposition is driven by the **generic** rules: scan its source, classify each hit by the principle (off-contract-ns / console-gate / M-59 / floor-gate / classpath-collision), and pick a disposition. The inventory does **not** carry a bespoke migration path per library; a library may appear in the example "scan these" list, but the rules that move it are the generic ones.
+
+## What the plan unblocks
+
+With the table in hand the migrator runs M-0 + the React-19 bump, applies every **forced** PATCH/DROP/CONVERT in one sweep, and only then asks the author to compile. The expected result is the compile passes (or surfaces only genuinely-novel breakage) instead of marching one broken namespace at a time. The plan also becomes the spine of the Phase-6 report — every disposition is already written down.
