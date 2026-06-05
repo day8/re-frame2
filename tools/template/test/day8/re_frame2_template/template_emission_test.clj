@@ -470,6 +470,99 @@
                    "keyword argument is a compile-time error; use "
                    "`with-frame` to pin to an existing frame-id.")))))))
 
+;; --- Xray layout-host contract audit (rf2-29zmf) ---------------------------
+;;
+;; The scaffold ships an Xray layout host in the emitted
+;; `resources/public/index.html` (`<aside data-rf-xray-host>`) and sizes
+;; it in `resources/public/css/app.css` (`.rf2-xray-host`). The current
+;; published host contract (tools/xray/spec/011-Launch-Modes.md §Layout
+;; host contract; mirrored in examples/_shared/css/structure.css and
+;; examples/reagent/counter/index.html) is a RIGHT-side, *resizable*
+;; host:
+;;
+;;   - DOM order: `<main id="app">` FIRST, `<aside data-rf-xray-host>`
+;;     SECOND (flex flow then lays the panel to the right).
+;;   - `flex-basis` reads `var(--rf-xray-inline-width, 560px)` so the
+;;     host-owned resize knob + persisted drag-resize width + cascade
+;;     overrides take effect. A literal `420px` ignores them.
+;;   - `box-sizing: border-box` + `border-left` so the separator lives
+;;     inside the documented width.
+;;
+;; This audit reads the *generated* HTML/CSS (not the template resource
+;; directly) so it also catches a future templating step that mangles
+;; the host. It fails on the stale `flex: 0 0 420px` / left-column shape
+;; the scaffold shipped before rf2-29zmf.
+
+(defn- assert-xray-host-contract!
+  [substrate ^java.io.File root]
+  ;; root here is the *emitted project* root (named `proj` at call sites
+  ;; below). We shadow the framework-root `root` deliberately — this
+  ;; helper only inspects the generated app.
+  (let [index-html (io/file root "resources/public/index.html")
+        app-css    (io/file root "resources/public/css/app.css")]
+    (is (.isFile index-html)
+        (str "resources/public/index.html emitted for " substrate))
+    (is (.isFile app-css)
+        (str "resources/public/css/app.css emitted for " substrate))
+    (when (.isFile index-html)
+      (let [html      (slurp index-html)
+            ;; Position of the layout host vs the app mount. The host
+            ;; MUST follow `<main id="app">` (right-side); a host that
+            ;; precedes it is the stale left-side shape.
+            host-idx  (.indexOf html "data-rf-xray-host")
+            app-idx   (.indexOf html "id=\"app\"")]
+        (is (not (neg? host-idx))
+            (str "index.html (" substrate
+                 ") declares an Xray layout host (data-rf-xray-host)"))
+        (is (not (neg? app-idx))
+            (str "index.html (" substrate ") declares the app mount (id=\"app\")"))
+        (when (and (not (neg? host-idx)) (not (neg? app-idx)))
+          (is (< app-idx host-idx)
+              (str "index.html (" substrate
+                   ") must order `<main id=\"app\">` BEFORE "
+                   "`<aside data-rf-xray-host>` — current right-side "
+                   "host contract (tools/xray/spec/011-Launch-Modes.md "
+                   "§Layout host contract). A host that precedes the app "
+                   "mount is the stale left-side layout.")))))
+    (when (.isFile app-css)
+      (let [css (slurp app-css)]
+        ;; The stale shape: a literal flex-basis that can't resize.
+        (is (not (re-find #"flex:\s*0\s+0\s+420px" css))
+            (str "app.css (" substrate
+                 ") still ships the stale literal `flex: 0 0 420px` "
+                 "Xray host — it can't consume the persisted resize "
+                 "width. Use `flex: 0 0 var(--rf-xray-inline-width, "
+                 "560px)`."))
+        ;; The current contract: flex-basis reads the resize knob.
+        (is (re-find #"flex:\s*0\s+0\s+var\(--rf-xray-inline-width" css)
+            (str "app.css (" substrate
+                 ") Xray host must read `--rf-xray-inline-width` for its "
+                 "flex-basis (host-owned resize knob; "
+                 "tools/xray/spec/011-Launch-Modes.md §Resizing the "
+                 "inline host)."))
+        ;; The 560px default fallback matches Xray's recommended default.
+        (is (re-find #"var\(--rf-xray-inline-width,\s*560px\)" css)
+            (str "app.css (" substrate
+                 ") Xray host flex-basis fallback must be 560px (Xray's "
+                 "recommended default, rf2-9ovfb)."))
+        ;; box-sizing + border-left so the separator lives inside the
+        ;; documented width.
+        (is (re-find #"(?s)\.rf2-xray-host\s*\{[^}]*box-sizing:\s*border-box" css)
+            (str "app.css (" substrate
+                 ") .rf2-xray-host must set `box-sizing: border-box` so "
+                 "the 1px border-left stays inside the documented width."))
+        (is (re-find #"(?s)\.rf2-xray-host\s*\{[^}]*border-left:" css)
+            (str "app.css (" substrate
+                 ") .rf2-xray-host must declare a `border-left` separator "
+                 "(right-side host contract)."))
+        ;; The :empty collapse must survive — release builds drop the
+        ;; preload and the host must not ship a blank gutter.
+        (is (re-find #"\.rf2-xray-host:empty\s*\{[^}]*display:\s*none" css)
+            (str "app.css (" substrate
+                 ") must keep the `.rf2-xray-host:empty { display: none }` "
+                 "collapse so release builds (no Xray preload) don't ship "
+                 "a blank gutter."))))))
+
 (defn- run-for-substrate!
   [substrate]
   (let [tmp  (tmp-dir (str "rf2-emission-" (name substrate) "-"))
@@ -478,6 +571,7 @@
       (let [proj (run-template! tmp "acme/my-app" substrate)]
         (assert-events-test-shape! substrate proj)
         (assert-scratch-with-frame-shape! substrate proj)
+        (assert-xray-host-contract! substrate proj)
         (doseq [rel ["test/acme/my_app/events_test.cljs"
                      "src/acme/my_app/events.cljs"
                      "src/acme/my_app/schema.cljs"
