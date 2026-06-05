@@ -378,9 +378,16 @@ the delta box earns its place by carrying `:tags` + the structured
 before→after object (rf2-ge6uj header · rf2-iwy0c body; §021 §6).
 
 Per-canvas footer lists guards / actions / cancellation cascade chips
-inline (no modal, no popout). Empty state (machines registered, no
-activity this epoch) renders the topology with `current ●` annotation
-intact — topology is always visible (§021 §6.2 Case B).
+inline (no modal, no popout). When the focused event had **no machine
+activity** the panel is **truly blank** — a single calm placeholder line,
+**no per-machine topology** (agreeing with this leaf's earlier BLANK
+statement and the `machine_inspector` blank-state tests, which assert no
+topology renders on a non-machine epoch). To browse a machine's topology
+cold — without picking a machine-active event — flip to **Static mode**'s
+Machines tab (the spine-INDEPENDENT canvas browser). (The "topology
+always visible on a no-activity epoch" treatment in §021 §6.2 Case B is a
+documented future tightening, **not** the live behaviour — the live panel
+gates topology on machine activity.)
 
 **Open when:** "what state is my checkout machine in?", "what
 transition fired this epoch?", "what guards passed / failed?"
