@@ -4,7 +4,7 @@
 
 `re-frame2-xray` is a Claude Code **tour skill** for [Xray](https://github.com/day8/re-frame2/tree/main/tools/xray) — the re-frame2 in-app devtools panel. It answers three questions, and only three:
 
-1. **How do I launch Xray?** — the inline panel, the pop-out, the programmatic `init!`, the wired hotkeys, and the Dynamic ↔ Static mode toggle.
+1. **How do I launch Xray?** — the inline panel, the overlay fallback (`open-overlay!`, for hosts that can't give Xray a layout column), the pop-out, the programmatic `init!`, the wired hotkeys, and the Dynamic ↔ Static mode toggle.
 2. **Which tab shows X?** — a one-line purpose for each tab across both modes: the 6 Dynamic event-spine tabs (Epoch · app-db · Views · Trace · Machine · Routes) and the 5 Static registry-browse tabs.
 3. **What's the chrome around the tabs for?** — the first-screen navigation primitives: time-travel inspect / `Reset`-rewind, the filter-pill cluster, the command palette, and the Settings popup.
 
@@ -19,7 +19,7 @@ Xray is the **human-facing** panel; for an AI agent surface against the running 
 ## Repo contents
 
 - `SKILL.md` — the skill itself
-- `references/launch-modes.md` — full launch-mode decision tree (preload vs `init!`, suppress-auto-open, `:rf.xray/layout-host-selector`, host-CSS-variable resize, pop-out lifecycle, wired hotkeys)
+- `references/launch-modes.md` — full launch-mode decision tree (preload vs `init!`, suppress-auto-open, `:rf.xray/layout-host-selector`, host-CSS-variable resize, the `open-overlay!` no-layout-host fallback, pop-out lifecycle, wired hotkeys)
 - `references/panels.md` — the full tab tour in depth (6 Dynamic event-spine tabs + 5 Static registry-browse tabs, deeper "open it when…" guidance)
 - `references/shared-components.md` — the components every L4 panel reuses (`edn-inspector/render-node`, `film_strip/header`, `focus_resolver`) + the tab-icon / L2-badge / cross-panel-arrow glyph reference
 - `evals/evals.json` — trigger-eval fixtures (should-trigger + should-not-trigger entries, per skill-creator's description-optimisation contract)

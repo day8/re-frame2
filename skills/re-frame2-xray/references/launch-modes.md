@@ -26,15 +26,17 @@ Is the host app's dev build running with the Xray preload? ── no ──► �
  inline host on page load. diagnostic (console.error +
  Toggle with Ctrl+Shift+C. window.day8.re_frame2_xray.status)
  │ │
- ▼ ▼
- Need a second monitor? §Layout host contract (add the column)
- │
- yes
- │
- ▼
- (xray/popout!) — same-origin
- second window, reads the
- opener's runtime atoms directly.
+ ▼ ┌────────────┴────────────┐
+ Need a second monitor? Can the host give Xray a layout column?
+ │ │
+ yes ┌─────────┴─────────┐
+ │ yes no
+ ▼ │ │
+ (xray/popout!) — same-origin ▼ ▼
+ second window, reads the §Layout host §Overlay fallback
+ opener's runtime atoms directly. contract (open-overlay!) —
+ (add the column) floats above the host,
+ no column needed.
 ```
 
 ## Install the preload
@@ -152,6 +154,37 @@ App dev pages should keep the default `true` posture and provide
 :closure-defines {re-frame.interop/debug-enabled? false}
 ```
 
+## Overlay fallback (open-overlay!)
+
+For hosts that **cannot accommodate a right column** — a full-screen
+canvas, a story-only or prototype host, any page with no
+`[data-rf-xray-host]` — the supported fallback is the overlay mount verb.
+It floats the shell above the host under `document.body`, so it needs no
+layout column.
+
+```clojure
+(require '[day8.re-frame2-xray.core :as xray])
+(xray/open-overlay!)
+;; or, from a devtools console:
+;; window.day8.re_frame2_xray.open_overlay_BANG_()
+```
+
+`open-overlay!` is one of the mount facade's three open verbs by design
+(`open!` inline · `open-overlay!` modal overlay · `popout!` window — per
+[`spec/API.md` §rf2-sa4fr](../../../tools/xray/spec/API.md), the three
+naming distinct mount surfaces, not modal variants of one shape). It is
+the **optional, non-default** path: the inline panel is the canonical
+developer experience, and `open-overlay!` is explicitly documented as a
+real-but-non-primary surface — per
+[`spec/011-Launch-Modes.md`](../../../tools/xray/spec/011-Launch-Modes.md),
+the overlay debug surface "remains an optional debug mode and must not be
+described as the primary path." Prefer adding the `[data-rf-xray-host]`
+column when the host can host one; reach for `open-overlay!` only when it
+can't. Source
+[`mount.cljs`](../../../tools/xray/src/day8/re_frame2_xray/mount.cljs)
+(`open-overlay!`), exported via
+[`core.cljs`](../../../tools/xray/src/day8/re_frame2_xray/core.cljs).
+
 ## Programmatic init!
 
 Alternative to the preload — call `(xray/init! opts)` from app code
@@ -243,7 +276,7 @@ When Xray is toggled off (Ctrl+Shift+C while open), the shell stays
 mounted with `display: none` on the container. The app receives no
 body padding, no viewport overlay, no fixed chrome. Re-open is a
 CSS-only `display: block` — no React remount, internal state
-(selected tab, scroll, AI conversation) survives. The first paint after
+(selected tab, scroll, selected epoch) survives. The first paint after
 the first toggle hits the <80ms target per
 [`spec/007-UX-IA.md` §Animation](../../../tools/xray/spec/007-UX-IA.md).
 

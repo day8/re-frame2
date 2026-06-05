@@ -115,12 +115,14 @@ panel; re-frame2-pair-mcp is the AI-facing surface.
 
 ## Launching Xray — pick a mode
 
-Three launch modes ship today. Pick the one that matches the user's
-situation.
+Four launch surfaces ship today (one mount facade with three open verbs
+— inline / overlay / window — plus the programmatic `init!`). Pick the
+one that matches the user's situation.
 
 | User wants to … | Use | How |
 |---|---|---|
 | Inspect the runtime while developing locally | **Default true-inline panel** | Add the preload + a `[data-rf-xray-host]` column in the app layout. Xray auto-opens on page load. |
+| Mount where the host can't give Xray a layout column (full-screen canvas, story-only / prototype host, no `[data-rf-xray-host]`) | **Overlay (fallback)** | `(xray/open-overlay!)` from CLJS, or `window.day8.re_frame2_xray.open_overlay_BANG_()` from devtools. Floats the shell above the host under `document.body` — no layout column needed. The supported fallback for hosts that can't accommodate a right column; **not** the default path (per `spec/011-Launch-Modes.md` + `spec/API.md` §rf2-sa4fr). |
 | Put Xray on a second monitor with the app full-screen | **Pop-out window** | `(xray/popout!)` from CLJS, or `window.day8.re_frame2_xray.popout_BANG_()` (call it — note the parens) from devtools. |
 | Mount Xray from code (no preload, or alternative wiring) | **Programmatic `init!`** | Call `(xray/init! opts)` after `rf/init!`. Idempotent. |
 | Browse what's *registered* instead of one dispatch | **Static mode** | Flip the L1 mode pill or press `Cmd/Ctrl+Shift+M`. Static drops the event spine and shows the 5 registry-browse tabs. |
@@ -129,7 +131,8 @@ situation.
 
 For the decision tree in depth (preload vs `init!`, suppress-auto-open
 on tool-only pages, the `:rf.xray/layout-host-selector` knob, host-CSS-variable
-resize, pop-out lifecycle), see [`references/launch-modes.md`](references/launch-modes.md).
+resize, the `open-overlay!` no-layout-host fallback, pop-out lifecycle),
+see [`references/launch-modes.md`](references/launch-modes.md).
 
 ### Wired hotkeys
 
@@ -203,8 +206,12 @@ it.
  depth / trace-buffer keep, and app-db diff thresholds. (The Theme tab
  was removed, rf2-ou3pn — the ribbon theme icon is canonical; the Filters
  tab was removed, rf2-wknb3 — filter UI lives on the L1.5 events ribbon.)
- This runtime popup (not `init!` opts) is where `:density` / buffer-depth
- actually get tuned. Source
+ Two layers tune `:density` / buffer-depth: `init!` (and `configure!`) set
+ the **boot-time defaults** for `:theme` / `:density` / `:buffer-depths` —
+ each supplied opt is written to the persisted Settings shape and applied
+ immediately at boot (no reload); this runtime popup is the **runtime
+ user-mutable override** layer on top. Merge order is `defaults <`
+ `configure! < Settings` (rf2-g2a5v). Source
  [`settings/view.cljs`](../../tools/xray/src/day8/re_frame2_xray/settings/view.cljs).
 - **Sharing state with a teammate.** The Share-URL affordance (button +
  modal + `share.cljs` infra) and the per-cascade EDN export were
@@ -232,9 +239,11 @@ it.
  command's default. Source
  [`palette/sources.cljc`](../../tools/xray/src/day8/re_frame2_xray/palette/sources.cljc)
  (`:snapshot-app-db` command).
- *(Status: per rf2-6fgob the palette command is being routed through this
- safe projection; this skill describes the contract the share path MUST
- honour, so it never teaches a raw off-box share even mid-fix.)*
+ *(Status: shipped. The palette command routes the snapshot through
+ `runtime/egress-value` by default — sensitive ⇒ `:rf/redacted`, large ⇒
+ `:rf.size/large-elided`, pinned to the focused frame, fail-closed, no
+ command-level raw opt-in (rf2-mxzgg, PR #3155). The contract prose above
+ is what the share path honours today, not an in-flight target.)*
 
 ---
 
