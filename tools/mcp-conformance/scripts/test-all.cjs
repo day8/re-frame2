@@ -48,8 +48,12 @@ const TESTS = [
     argv: ['--test', 'test/exec-safety.test.cjs'],
   },
   {
-    name: 'runner watchdog connect-hang teardown (rf2-2js41 finding 2)',
+    name: 'runner watchdog connect-hang teardown (rf2-2js41 finding 2 + rf2-wqi4n4 finding 1)',
     argv: ['--test', 'test/runner-watchdog.test.cjs'],
+  },
+  {
+    name: 'hermetic setup-command timeout (rf2-wqi4n4 finding 2)',
+    argv: ['--test', 'test/hermetic-setup-timeout.test.cjs'],
   },
   {
     name: 're-frame2-pair-mcp end-to-end',

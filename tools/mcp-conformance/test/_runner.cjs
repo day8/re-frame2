@@ -164,6 +164,35 @@ async function closeQuietly(client) {
   }
 }
 
+// Module-scope set of SECONDARY MCP clients the watchdog must ALSO tear
+// down on a timeout (rf2-wqi4n4 finding 1). `runWithWatchdog` owns at most
+// ONE primary client (`activeClient`); but two gates boot ADDITIONAL
+// in-process servers via bare `connectServer` INSIDE the body
+// (`live-re-frame2-pair-redaction.cjs`'s inner-projection + gate-ON arms),
+// and those were never reachable by the outer watchdog — a hang in a
+// secondary boot or a later secondary tool call orphaned that child despite
+// the harness reporting a watchdog timeout. A body registers each secondary
+// client here (via `registerAuxClient`, fired the instant the client is
+// constructed) and deregisters it on teardown; the watchdog drains every
+// surviving member so EVERY spawned child the conformance process owns is
+// reachable by the timeout path from the moment it can exist until teardown.
+const AUX_CLIENTS = new Set();
+
+// Register a secondary client so the active watchdog reaps it on a timeout.
+// Call it from a bare `connectServer`'s `onClient` (BEFORE connect awaits)
+// so a hung secondary boot is reachable from the moment its child exists.
+// Returns the client unchanged for fluent use.
+function registerAuxClient(client) {
+  if (client) AUX_CLIENTS.add(client);
+  return client;
+}
+
+// Drop a secondary client from the watchdog set once its arm has torn it
+// down (or is about to). Idempotent; safe to call in a `finally`.
+function unregisterAuxClient(client) {
+  if (client) AUX_CLIENTS.delete(client);
+}
+
 async function runWithWatchdog({ watchdogMs, transportSpec, clientName }, body) {
   // The watchdog must OWN the active client so a timeout tears the
   // spawned child down instead of orphaning it (rf2-voux7 finding 5).
@@ -202,8 +231,17 @@ async function runWithWatchdog({ watchdogMs, transportSpec, clientName }, body) 
     // hard-exit fallback so a hung close can't keep the process alive.
     const hardExit = setTimeout(() => process.exit(2), 2000);
     hardExit.unref();
-    if (activeClient) {
-      closeQuietly(activeClient).finally(() => process.exit(2));
+    // Close the primary AND every registered secondary client (rf2-wqi4n4
+    // finding 1) so a hang in ANY in-process MCP child the body spawned is
+    // reaped, not just the runner-managed primary. `closeQuietly` never
+    // throws; wait for all closes to settle before the exit.
+    const toClose = [];
+    if (activeClient) toClose.push(activeClient);
+    for (const aux of AUX_CLIENTS) toClose.push(aux);
+    if (toClose.length > 0) {
+      Promise.all(toClose.map((c) => closeQuietly(c))).finally(() =>
+        process.exit(2),
+      );
     } else {
       process.exit(2);
     }
@@ -612,6 +650,8 @@ module.exports = {
   runWithWatchdog,
   connectServer,
   closeQuietly,
+  registerAuxClient,
+  unregisterAuxClient,
   assertJsonRpcErrorCodes,
   assertDescriptorShape,
   assertClassificationRatchet,

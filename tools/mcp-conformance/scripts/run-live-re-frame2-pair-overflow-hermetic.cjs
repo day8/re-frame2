@@ -51,6 +51,15 @@
  * on a cold CI runner. The shadow-cljs `watch` child + Playwright
  * browser are killed in the `finally`; SIGINT/SIGTERM also wire to the
  * same cleanup.
+ *
+ * Per rf2-wqi4n4 finding 2: the fixture `npm install` setup runs under an
+ * ASYNC spawn with its own `SETUP_COMMAND_TIMEOUT_MS` cap (see
+ * `runTrusted`). A synchronous `crossSpawn.sync` there would block the
+ * event loop for the install's whole lifetime — during which the
+ * HERMETIC_TIMEOUT_MS watchdog (and signal handlers) physically cannot
+ * fire — so a hung `npm install` would have wedged the run past the outer
+ * CI job timeout. The async spawn keeps the loop live so BOTH the
+ * per-command timeout AND the whole-run watchdog stay armed across setup.
  */
 'use strict';
 
@@ -426,30 +435,125 @@ function trustedExe(name) {
   return resolved;
 }
 
+// Hard cap on any trusted SETUP command (fixture `npm install`). Generous
+// enough for a cold-cache install of the tiny fixture's deps on a slow CI
+// runner, but bounded so a wedged package-manager child can't wedge the
+// whole hermetic run (rf2-wqi4n4 finding 2). Distinct from
+// `HERMETIC_TIMEOUT_MS` (the whole-run cap) — this is the per-setup-command
+// cap that the whole-run watchdog physically CANNOT enforce while a
+// synchronous child blocks the event loop.
+//
+// `$HERMETIC_SETUP_TIMEOUT_MS` overrides the cap for the rf2-wqi4n4
+// finding-2 regression harness ONLY (`hermetic-setup-timeout.test.cjs`
+// drives `runTrusted` against a never-exiting child under a tiny cap to
+// prove the timeout/kill path fires and the loop stays live). Production
+// CI never sets it, so the 300s cap stands.
+const SETUP_COMMAND_TIMEOUT_MS =
+  Number(process.env.HERMETIC_SETUP_TIMEOUT_MS) || 300_000;
+
+// Run a trusted setup command (resolved to an absolute path outside the
+// workspace via `trustedExe`) under an ASYNC spawn with an explicit
+// child-level timeout/kill.
+//
+// Per rf2-wqi4n4 finding 2: the pre-fix shape used `crossSpawn.sync`, which
+// SYNCHRONOUSLY blocks the Node event loop for the child's entire lifetime.
+// While blocked, Node delivers no signals and runs no timers — so the
+// `HERMETIC_TIMEOUT_MS` `setTimeout` watchdog (and the SIGINT/SIGTERM
+// handlers) CANNOT fire. A hung `npm install` (stuck registry fetch, a
+// package-manager prompt, a lock contention) would therefore wedge the
+// whole hermetic job until the OUTER CI job timeout, bypassing this
+// script's own hard time-cap and diagnostics. This is the SAME failure
+// mode the inner-test spawn already documents + avoids (rf2-i3ffz F-PERF-1,
+// `crossSpawn(...)` async there); the setup command had the same hole.
+//
+// The async spawn keeps the event loop live, so both the per-command
+// timeout below AND the whole-run watchdog stay armed. On timeout we
+// SIGTERM the child, then SIGKILL after a short grace, and reject with an
+// orchestration error — surfacing as exit 2 (orchestration failure) within
+// `SETUP_COMMAND_TIMEOUT_MS` rather than the multi-minute CI job timeout.
 function runTrusted(name, args, cwd) {
   const bin = trustedExe(name);
-  // cross-spawn.sync handles the `.cmd` -> cmd.exe dispatch on Windows
+  // cross-spawn (async) handles the `.cmd` -> cmd.exe dispatch on Windows
   // without re-introducing PATH/cwd lookup ambiguity — see the module
   // comment at the top of this file for the contract. Passing the
-  // absolute path is what keeps cross-spawn's `which.sync` from doing
-  // its own cwd-relative walk.
+  // absolute path is what keeps cross-spawn's `which` from doing its own
+  // cwd-relative walk.
   log(`running ${name} ${args.join(' ')} in ${cwd} (bin=${bin})`);
-  const r = crossSpawn.sync(bin, args, {
-    cwd,
-    encoding: 'utf8',
-    maxBuffer: 64 * 1024 * 1024,
-    stdio: ['ignore', 'pipe', 'pipe'],
-    env: process.env,
+  return new Promise((resolve, reject) => {
+    const child = crossSpawn(bin, args, {
+      cwd,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: process.env,
+    });
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+    let killTimer = null;
+
+    const settle = (fn, arg) => {
+      if (settled) return;
+      settled = true;
+      if (killTimer) clearTimeout(killTimer);
+      if (timer) clearTimeout(timer);
+      fn(arg);
+    };
+
+    // Per-command hard cap, enforced by the live event loop (the whole
+    // point of the async spawn). On elapse: SIGTERM, then SIGKILL after a
+    // short grace, then reject as an orchestration failure.
+    const timer = setTimeout(() => {
+      logErr(
+        `${name} ${args.join(' ')} exceeded SETUP_COMMAND_TIMEOUT_MS ` +
+          `(${SETUP_COMMAND_TIMEOUT_MS}ms) — killing the setup child`,
+      );
+      try { child.kill('SIGTERM'); } catch {}
+      killTimer = setTimeout(() => {
+        try { child.kill('SIGKILL'); } catch {}
+      }, 5000);
+      killTimer.unref();
+      settle(
+        reject,
+        new Error(
+          `${name} ${args.join(' ')} in ${cwd} timed out after ` +
+            `${SETUP_COMMAND_TIMEOUT_MS}ms (setup command hung — killed)`,
+        ),
+      );
+    }, SETUP_COMMAND_TIMEOUT_MS);
+    timer.unref();
+
+    child.stdout.on('data', (d) => {
+      stdout += String(d);
+      recordChunk(`[${name}:stdout] `, d);
+    });
+    child.stderr.on('data', (d) => {
+      stderr += String(d);
+      recordChunk(`[${name}:stderr] `, d, 'stderr');
+    });
+    child.on('error', (err) => settle(reject, err));
+    child.on('exit', (code, signal) => {
+      if (signal) {
+        // Signal-terminated (incl. our own timeout SIGKILL, which the
+        // timeout branch has already rejected for). Treat as a failure so a
+        // killed setup child never reads as success.
+        settle(
+          reject,
+          new Error(
+            `${name} ${args.join(' ')} in ${cwd} killed by ${signal}`,
+          ),
+        );
+        return;
+      }
+      if (code !== 0) {
+        settle(
+          reject,
+          new Error(`${name} ${args.join(' ')} in ${cwd} exited ${code}`),
+        );
+        return;
+      }
+      log(`${name} exited ${code}`);
+      settle(resolve, undefined);
+    });
   });
-  if (r.stdout) recordChunk(`[${name}:stdout] `, r.stdout);
-  if (r.stderr) recordChunk(`[${name}:stderr] `, r.stderr, 'stderr');
-  if (r.error) {
-    throw r.error;
-  }
-  if (r.status !== 0) {
-    throw new Error(`${name} ${args.join(' ')} in ${cwd} exited ${r.status}`);
-  }
-  log(`${name} exited ${r.status}`);
 }
 
 function resolvePlaywright() {
@@ -517,9 +621,13 @@ async function main() {
   }
 
   // ---- Install fixture deps --------------------------------------------
+  // `await` the async spawn (rf2-wqi4n4 finding 2): the setup command now
+  // runs under a live event loop with its own hard timeout, so a hung
+  // `npm install` is bounded by `SETUP_COMMAND_TIMEOUT_MS` instead of
+  // wedging the whole run past the outer CI job cap.
   if (!exists(path.join(FIXTURE_DIR, 'node_modules'))) {
     log(`installing fixture deps in ${FIXTURE_DIR}`);
-    runTrusted('npm', ['install', '--no-audit', '--no-fund'], FIXTURE_DIR);
+    await runTrusted('npm', ['install', '--no-audit', '--no-fund'], FIXTURE_DIR);
   }
 
   // ---- Boot shadow-cljs watch ------------------------------------------
@@ -826,21 +934,37 @@ const watchdog = setTimeout(() => {
 }, HERMETIC_TIMEOUT_MS);
 watchdog.unref();
 
-main()
-  .then(() => {
-    clearTimeout(watchdog);
-    console.log(
-      `RE-FRAME2-PAIR-MCP live hermetic conformance passed (${INNER_TESTS.length} inner tests).`,
-    );
-    process.exit(0);
-  })
-  .catch((err) => {
-    clearTimeout(watchdog);
-    logErr('FAIL: ' + (err && err.message ? err.message : err));
-    if (err && err.stack) logErr(err.stack);
-    flushDiagnostics();
-    // err.exitCode is set when the inner live-re-frame2-pair-overflow.cjs itself
-    // exited non-zero — surface it so CI distinguishes conformance
-    // failure (1) from orchestration failure (2).
-    process.exit(err && typeof err.exitCode === 'number' ? err.exitCode : 2);
-  });
+// Only auto-run the orchestrator when invoked as the entry-point. Required
+// as a module (by the rf2-wqi4n4 finding-2 `runTrusted` regression test),
+// it exports the unit under test WITHOUT kicking off the whole hermetic run
+// (which would spawn shadow-cljs + Chromium). Guarding the run here keeps
+// the watchdog timer from arming on `require` too.
+if (require.main === module) {
+  main()
+    .then(() => {
+      clearTimeout(watchdog);
+      console.log(
+        `RE-FRAME2-PAIR-MCP live hermetic conformance passed (${INNER_TESTS.length} inner tests).`,
+      );
+      process.exit(0);
+    })
+    .catch((err) => {
+      clearTimeout(watchdog);
+      logErr('FAIL: ' + (err && err.message ? err.message : err));
+      if (err && err.stack) logErr(err.stack);
+      flushDiagnostics();
+      // err.exitCode is set when the inner live-re-frame2-pair-overflow.cjs itself
+      // exited non-zero — surface it so CI distinguishes conformance
+      // failure (1) from orchestration failure (2).
+      process.exit(err && typeof err.exitCode === 'number' ? err.exitCode : 2);
+    });
+} else {
+  // Required as a module — don't arm the whole-run watchdog.
+  clearTimeout(watchdog);
+}
+
+// Exported for the rf2-wqi4n4 finding-2 regression harness. `runTrusted` is
+// the async, timeout-bounded setup-command spawn; the test drives it
+// against a never-exiting child to prove a hung setup command is killed
+// within `SETUP_COMMAND_TIMEOUT_MS` instead of wedging the event loop.
+module.exports = { runTrusted, SETUP_COMMAND_TIMEOUT_MS };

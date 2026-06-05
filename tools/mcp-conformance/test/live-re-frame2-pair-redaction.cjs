@@ -97,7 +97,13 @@
 
 const path = require('node:path');
 const os = require('node:os');
-const { runWithWatchdog, connectServer, closeQuietly } = require('./_runner.cjs');
+const {
+  runWithWatchdog,
+  connectServer,
+  closeQuietly,
+  registerAuxClient,
+  unregisterAuxClient,
+} = require('./_runner.cjs');
 
 const SERVER = path.resolve(__dirname, '..', '..', 're-frame2-pair-mcp', 'out', 'server.js');
 
@@ -565,6 +571,12 @@ async function runInnerProjectionArm() {
       cwd: os.tmpdir(),
       env: { ...process.env },
     },
+    // Register with the outer watchdog the INSTANT this secondary child is
+    // constructed — BEFORE connect awaits — so a hang in THIS arm's boot or
+    // a later tool call is reaped by the outer timeout instead of orphaning
+    // the secondary Node child (rf2-wqi4n4 finding 1). The bare-caller
+    // analogue of the rf2-2js41 finding-2 fix.
+    onClient: registerAuxClient,
   });
   try {
     await enableEpochRecording(client, 'inner');
@@ -648,6 +660,9 @@ async function runInnerProjectionArm() {
     assertInnerRedacted(we, 'watch-epochs (inner projected-record value-redaction)');
     console.log('OK   watch-epochs (gate OFF, inner layer SOLE) -> :db-after :rf/redacted + :dropped-sensitive 0');
   } finally {
+    // Deregister before the explicit close so the watchdog set doesn't hold
+    // a stale handle past teardown (rf2-wqi4n4 finding 1).
+    unregisterAuxClient(client);
     await closeQuietly(client);
   }
 }
@@ -676,6 +691,11 @@ async function runGateOnArm() {
       cwd: os.tmpdir(),
       env: { ...process.env },
     },
+    // Register with the outer watchdog the INSTANT this secondary child is
+    // constructed — BEFORE connect awaits — so a hang in this gate-ON boot
+    // or a later tool call is reaped by the outer timeout instead of
+    // orphaning the secondary Node child (rf2-wqi4n4 finding 1).
+    onClient: registerAuxClient,
   });
   try {
     // Same seed: enable epoch recording, declare the sensitive slot, and
@@ -714,6 +734,9 @@ async function runGateOnArm() {
     }
     console.log('OK   gate-ON watch-epochs (+:include-sensitive) -> sentinel SHIPS (opt-in honoured)');
   } finally {
+    // Deregister before the explicit close so the watchdog set doesn't hold
+    // a stale handle past teardown (rf2-wqi4n4 finding 1).
+    unregisterAuxClient(client);
     await closeQuietly(client);
   }
 }

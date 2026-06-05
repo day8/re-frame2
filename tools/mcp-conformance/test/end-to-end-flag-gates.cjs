@@ -96,7 +96,13 @@ const FIXTURE_BODY_EDN = '{:doc "flag-gate conformance probe." :tags #{:dev}}';
 // is a boot-time atom — we can't flip it on a running server through the
 // MCP surface, which is exactly the point). Three sequential boots fit
 // comfortably under the watchdog with margin.
-const WATCHDOG_MS = 180000;
+//
+// `$FLAG_GATE_WATCHDOG_MS` overrides the cap for the hermetic
+// connect-hang regression harness ONLY (rf2-wqi4n4 finding 1's
+// `runner-watchdog.test.cjs` drives this module with a stubbed
+// never-resolving connect under a 200ms cap to prove the watchdog tears
+// the hung JVM down). Production CI never sets it, so the 180s cap stands.
+const WATCHDOG_MS = Number(process.env.FLAG_GATE_WATCHDOG_MS) || 180000;
 
 // ---------------------------------------------------------------------------
 // Boot one story-mcp server with the given extra CLI args, run `body`
@@ -116,6 +122,19 @@ const WATCHDOG_MS = 180000;
 // watchdog and the hermetic orchestrator rf2-e6enf fix). `withStoryServer`
 // publishes its connected client here for the spawn's lifetime and clears
 // it on teardown; the boots are sequential so at most one is live at once.
+//
+// Per rf2-wqi4n4 finding 1: publish the handle via `connectServer`'s
+// `onClient` callback — fired the INSTANT the client is constructed,
+// BEFORE the `await client.connect()` handshake — not after `connectServer`
+// resolves. The transport spawns the JVM during construction, so a story-mcp
+// child that boots and then HANGS mid-`initialize` (connect never resolving,
+// never throwing) leaves `await connectServer(...)` blocked forever; the
+// post-resolve `activeFlagGateClient = client` below would never run, the
+// module-scope watchdog would fire with `activeFlagGateClient === null`, and
+// its `else` branch would `process.exit(2)` WITHOUT tearing the hung JVM
+// down — orphaning exactly the child the watchdog exists to reap. `onClient`
+// closes that window. (This is the bare-caller analogue of the rf2-2js41
+// finding-2 fix in `runWithWatchdog`, which these callers bypass.)
 let activeFlagGateClient = null;
 
 async function withStoryServer(extraArgs, body) {
@@ -127,6 +146,11 @@ async function withStoryServer(extraArgs, body) {
       cwd: STORY_MCP_CWD,
       env: { ...process.env },
     },
+    // Capture the teardown handle BEFORE connect awaits, so a connect that
+    // hangs mid-handshake is still reachable by the module-scope watchdog
+    // (rf2-wqi4n4 finding 1). The post-resolve assignment below is now
+    // redundant on the happy path but kept belt-and-braces.
+    onClient: (c) => { activeFlagGateClient = c; },
   });
   activeFlagGateClient = client;
   try {
