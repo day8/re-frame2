@@ -470,6 +470,139 @@
               "decode runs on 2xx; a thrown decoder surfaces as :rf.http/decode-failure"))
         (finally (stop-server! srv))))))
 
+;; ---- 5b'. empty 2xx JSON body → success-nil (rf2-upexd.1, JVM full-stack) ---
+;;
+;; The cross-host parity contract (oyw04) for an empty/whitespace-only 2xx
+;; JSON body is asserted host-symmetrically at the decode altitude in
+;; `http_empty_body_parity_cljs_test.cljc` (runs on BOTH the JVM and CLJS
+;; runners). This JVM full-stack test pins the SAME outcome end-to-end
+;; through the real `java.net.http.HttpClient` transport + the
+;; `handle-response!` → `run-accept` → `finalise-success!` cascade: an empty
+;; 200 body with `Content-Type: application/json` must reply
+;; `{:kind :success :value nil}`, NOT `{:kind :failure ...decode-failure}`.
+
+(deftest jvm-empty-200-json-body-replies-success-nil
+  (testing "rf2-upexd.1 — a 200 with an EMPTY body + application/json
+            Content-Type (the common empty-success-envelope from a
+            PUT/DELETE/POST-with-no-content) replies :success with :value
+            nil through the full JVM transport cascade, NOT a
+            :rf.http/decode-failure."
+    (let [{:keys [port] :as srv}
+          (start-server!
+            (fn [^HttpExchange ex]
+              (write-response! ex 200 "application/json" "")))]
+      (try
+        (rf/reg-event-fx :empty/load
+          (fn [{:keys [db]} [_ msg]]
+            (if-let [reply (:rf/reply msg)]
+              {:db (assoc db :reply reply)}
+              {:fx [[:rf.http/managed
+                     {:request {:url (str "http://127.0.0.1:" port "/empty")}
+                      :decode  :json}]]})))
+        (rf/dispatch-sync [:empty/load {}])
+        (let [db (await-reply! #(some? (:reply %)) 5000)]
+          (is (= :success (get-in db [:reply :kind]))
+              "an empty 2xx JSON body is a NORMAL outcome, not a decode-failure")
+          (is (nil? (get-in db [:reply :value]))
+              "the decoded value of an empty JSON body is nil"))
+        (finally (stop-server! srv))))))
+
+;; ---- 5b''. non-retried terminal failure emits NO retry-attempt (rf2-upexd.3) -
+;;
+;; `maybe-retry!`'s terminal (non-retry) branch previously emitted a
+;; `:rf.http/retry-attempt` info trace whenever `(> max-attempts 1)`, even
+;; when the just-failed kind was NEVER retry-eligible and no retry ever
+;; fired. The spec (§Retry × :on-failure semantics) ties retry-attempt to
+;; "each intermediate attempt" — a phantom retry-attempt for a request that
+;; was never retried pollutes the trace semantics pair tools / 10x panels
+;; read. The guard now also requires `(or (> attempt 1) (contains? on-set
+;; kind))`, so a non-retried, non-eligible terminal failure emits nothing.
+
+(deftest jvm-non-retried-decode-failure-emits-no-retry-attempt
+  (testing "rf2-upexd.3 — a NON-retry-eligible failure (a :rf.http/decode-
+            failure under `:retry {:on #{:rf.http/http-5xx} :max-attempts
+            3}`) on attempt 1 must emit ZERO :rf.http/retry-attempt traces:
+            no retry happened and the kind was never in :on. Pre-fix the
+            blanket `(> max-attempts 1)` guard fired a phantom retry-attempt."
+    (let [traces      (atom [])
+          listener-id ::upexd3-no-phantom
+          {:keys [port] :as srv}
+          (start-server!
+            (fn [^HttpExchange ex]
+              ;; 200 OK, but the decoder throws → :rf.http/decode-failure
+              ;; (NOT in the :on set, so non-retryable).
+              (write-response! ex 200 "application/json" "{\"ok\":true}")))]
+      (try
+        (trace/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
+        (rf/reg-event-fx :upexd3/load
+          (fn [{:keys [db]} [_ msg]]
+            (if-let [reply (:rf/reply msg)]
+              {:db (assoc db :reply reply)}
+              {:fx [[:rf.http/managed
+                     {:request {:url (str "http://127.0.0.1:" port "/x")}
+                      ;; Throwing decoder → decode-failure on attempt 1.
+                      :decode  (fn [_text _headers] (throw (ex-info "boom" {})))
+                      :retry   {:on           #{:rf.http/http-5xx}
+                                :max-attempts 3
+                                :backoff      {:base-ms 5 :factor 1 :max-ms 10}}}]]})))
+        (rf/dispatch-sync [:upexd3/load {}])
+        (let [db (await-reply! #(some? (:reply %)) 5000)]
+          ;; The reply is the terminal decode-failure.
+          (is (= :failure (get-in db [:reply :kind])))
+          (is (= :rf.http/decode-failure (get-in db [:reply :failure :kind])))
+          ;; The load-bearing assertion: no phantom retry-attempt trace.
+          (let [retry-traces (filter #(= :rf.http/retry-attempt (:operation %))
+                                     @traces)]
+            (is (empty? retry-traces)
+                (str "a non-retried, non-eligible terminal failure must emit no "
+                     ":rf.http/retry-attempt trace; saw "
+                     (count retry-traces) " — "
+                     (pr-str (mapv #(get-in % [:tags :failure :kind]) retry-traces))))))
+        (finally
+          (trace/unregister-listener! listener-id)
+          (stop-server! srv))))))
+
+(deftest jvm-retry-eligible-exhaustion-still-emits-retry-attempts
+  (testing "rf2-upexd.3 — counter-case: a RETRY-ELIGIBLE failure exhausting
+            its attempts STILL emits the retry-attempt traces (the tighten
+            is surgical — it removes only the phantom case). A 5xx under
+            `:retry {:on #{:rf.http/http-5xx} :max-attempts 3}` retries
+            twice and exhausts on attempt 3; the trace stream must carry the
+            per-attempt retry-attempt events (the final one with
+            :next-backoff-ms nil)."
+    (let [traces      (atom [])
+          listener-id ::upexd3-eligible
+          {:keys [port] :as srv}
+          (start-server!
+            (fn [^HttpExchange ex]
+              (write-response! ex 500 "application/json" "{\"err\":true}")))]
+      (try
+        (trace/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
+        (rf/reg-event-fx :upexd3b/load
+          (fn [{:keys [db]} [_ msg]]
+            (if-let [reply (:rf/reply msg)]
+              {:db (assoc db :reply reply)}
+              {:fx [[:rf.http/managed
+                     {:request {:url (str "http://127.0.0.1:" port "/5xx")}
+                      :decode  :json
+                      :retry   {:on           #{:rf.http/http-5xx}
+                                :max-attempts 3
+                                :backoff      {:base-ms 5 :factor 1 :max-ms 10}}}]]})))
+        (rf/dispatch-sync [:upexd3b/load {}])
+        (let [db (await-reply! #(some? (:reply %)) 8000)]
+          (is (= :failure (get-in db [:reply :kind])))
+          (is (= :rf.http/http-5xx (get-in db [:reply :failure :kind])))
+          (let [retry-traces (filter #(= :rf.http/retry-attempt (:operation %))
+                                     @traces)]
+            (is (seq retry-traces)
+                "a retry-eligible exhaustion MUST still emit retry-attempt traces")
+            ;; The terminal exhaustion trace carries :next-backoff-ms nil.
+            (is (some #(nil? (get-in % [:tags :next-backoff-ms])) retry-traces)
+                "the final exhaustion retry-attempt carries :next-backoff-ms nil")))
+        (finally
+          (trace/unregister-listener! listener-id)
+          (stop-server! srv))))))
+
 ;; ---- 5d. Content-Type lookup is case-insensitive (rf2-6hbo8) -------------
 ;;
 ;; Per Spec 014 §Request envelope, HTTP header names are case-insensitive.

@@ -1138,10 +1138,28 @@
         (registry/clear-in-flight! request-id (:handle ctx))
         (schedule-backoff-handle! ctx delay-ms))
       (do
-        ;; Final attempt: emit retry-attempt with nil next-backoff if any retries occurred.
+        ;; rf2-upexd.3 — terminal failure: emit the final `:rf.http/retry-
+        ;; attempt` trace (with `:next-backoff-ms nil`) ONLY when retries
+        ;; were actually part of this request's lifecycle. The spec (§Retry
+        ;; × `:on-failure` semantics) ties the trace to "each intermediate
+        ;; attempt" — the final exhaustion event is meaningful only when a
+        ;; retry sequence happened. The previous guard `(> max-attempts 1)`
+        ;; fired for ANY terminal failure under a >1-attempt policy, even a
+        ;; NON-retry-eligible failure on attempt 1 (e.g. a
+        ;; `:rf.http/decode-failure` under `:retry {:on #{:rf.http/http-5xx}
+        ;; :max-attempts 3}`) — no retry ever happened, yet pair tools saw a
+        ;; phantom retry-attempt. Tighten to:
+        ;;   - `(> attempt 1)`         — at least one retry actually fired
+        ;;                               (we are on attempt 2+), OR
+        ;;   - `(contains? on-set kind)` — this failure WAS retry-eligible
+        ;;                               but attempts are now exhausted (the
+        ;;                               documented final-exhaustion case).
+        ;; A non-retried, non-eligible terminal failure emits nothing.
         (when (and interop/debug-enabled?
                    (some? max-attempts)
-                   (> max-attempts 1))
+                   (> max-attempts 1)
+                   (or (> attempt 1)
+                       (contains? on-set kind)))
           (trace/emit! :info :rf.http/retry-attempt
                        (privacy/prepare-emit-tags
                          {:request-id      request-id

@@ -219,11 +219,13 @@ Pass a Malli schema as `:decode`:
 
 The fx:
 1. Reads the response body as text.
-2. Parses by content-type (JSON if `application/json`; declared MIME otherwise).
-3. Validates / coerces with Malli's `decode` against the schema.
+2. **JSON-parses the body.** The schema path is **JSON-only**: the runtime wires Malli's `json-transformer` for the decode step, so a schema rides a JSON body by construction. A response that *declares* a non-JSON Content-Type (e.g. `application/edn`, `text/plain`) under a schema `:decode` is a contract mismatch and classifies as `:rf.http/decode-failure` with a `:rf.error/http-schema-non-json-content-type` discriminator — the diagnostic names the MIME mismatch rather than masking it as a schema-validation failure. A **missing/absent** Content-Type is JSON-eligible (many JSON APIs omit the header); only a *present non-JSON* MIME is rejected. (Non-JSON wire formats under a schema are out of v1 scope — decode the body yourself with a `:decode` fn and validate downstream if you need EDN/other MIMEs.)
+3. Validates / coerces with Malli's `decode` against the schema (using the `json-transformer`).
 4. Hands the decoded value to `:accept`.
 
 If a 2xx response's body fails to decode (transport-OK, status-OK, but malformed payload), the fx classifies it as `:rf.http/decode-failure` and routes through the failure path. Decode never runs on a 4xx/5xx — see [§Classification order](#classification-order).
+
+**Empty/whitespace-only 2xx body.** An empty (`""`) or whitespace-only 2xx JSON body is a *normal* HTTP outcome — the common `200`/`204`-shaped PUT/DELETE/POST-with-no-content reply — **not** a decode failure. Both the explicit `:decode :json` path and the schema path treat it as a parsed value of `nil`, **identically on every host** (the bare `util-json/json-parse` helper's per-host quirks for an empty string are normalised at the managed-cascade decode altitude). For `:decode :json` the reply is `{:kind :success :value nil}`; for a schema `:decode` the schema decides whether `nil` is acceptable (`[:maybe …]` passes; a required `:map` rejects as a normal schema-validation failure). This is the cross-host parity contract — an empty 2xx body MUST classify the same way on the JVM and CLJS reference hosts.
 
 ### Explicit content type
 
