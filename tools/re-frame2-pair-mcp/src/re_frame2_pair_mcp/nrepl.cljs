@@ -125,8 +125,13 @@
   ## Precedence (highest first; rf2-3grub adds step 3)
 
     1. `--port-file <path>`   explicit, cwd-independent override
-                              (rf2-3dbwh). Wins outright; `:project-home`
-                              is the dirname of the port file.
+                              (rf2-3dbwh). Wins outright WHEN READABLE;
+                              `:project-home` is the dirname of the port
+                              file. An explicit-but-unreadable / non-
+                              numeric file falls through to steps 2-5
+                              (rf2-olvr5) — mirroring `read-port-from-fs`
+                              — so a stale port file can't strand a live
+                              port reachable via env / roots / HTTP / cwd.
     2. `$SHADOW_CLJS_NREPL_PORT` env var. `:project-home` left nil
                               (env-overridden discovery doesn't surface a
                               root); the per-tool-call port-file re-read
@@ -173,13 +178,19 @@
   the seams explicit and gives tests clean stub-points."
   [explicit-port-file http-port shadow-probe-fn roots-discovery-fn]
   (cond
-    ;; Step 1 — explicit --port-file flag.
-    (and explicit-port-file (seq explicit-port-file))
-    (if-let [port (read-port-file explicit-port-file)]
-      (js/Promise.resolve {:port         port
-                           :project-home (node-path/dirname explicit-port-file)})
-      ;; Explicit but unreadable — record and fall through.
-      (js/Promise.resolve {:port nil}))
+    ;; Step 1 — explicit --port-file flag. Wins ONLY when it actually
+    ;; reads a port. An explicit-but-unreadable / non-numeric port file
+    ;; (a stale leftover, a typo'd path) MUST fall through to env →
+    ;; roots → HTTP → cwd — exactly the precedence `read-port-from-fs`
+    ;; (the sync slice) already implements via its leading `or`. The
+    ;; pre-fix shape hard-resolved `{:port nil}` here, so a stale
+    ;; `--port-file` short-circuited the whole cascade even when the env
+    ;; var / configured roots / shadow HTTP endpoint / cwd scan would
+    ;; have found a live port (rf2-olvr5 finding 4).
+    (and explicit-port-file (seq explicit-port-file)
+         (some? (read-port-file explicit-port-file)))
+    (js/Promise.resolve {:port         (read-port-file explicit-port-file)
+                         :project-home (node-path/dirname explicit-port-file)})
 
     ;; Step 2 — $SHADOW_CLJS_NREPL_PORT.
     (some? (read-env-port))

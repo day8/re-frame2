@@ -151,9 +151,26 @@
     :else (js->clj args)))
 
 (defn cache-key
-  "Build the cache key tuple for a tool invocation."
-  [tool args]
-  [tool (args->fingerprint args)])
+  "Build the cache key tuple for a tool invocation.
+
+  rf2-olvr5 finding 3 — the key includes the resolved BUILD as well as
+  `(tool, args-fingerprint)`. The same `(tool, args)` against two
+  different shadow-cljs builds reachable over the one nREPL connection is
+  two distinct reads; keying on the build alone (the pre-fix shape)
+  meant a precheck-hash collision across builds could serve one build's
+  payload for the other. `build` is the resolved build-id keyword (from
+  `wire/arg-build`); a legacy call without one passes nil and keys on
+  `(tool, args)` exactly as before.
+
+  Note: the OPERATING FRAME for an omitted-`:frame` call is not knowable
+  here (it resolves runtime-side), so it cannot be folded into the key.
+  That axis is covered by clearing the whole cache on every operating-
+  frame change (`operating-frame` tools call `cache/clear!`), which
+  eliminates any cross-frame stale hit regardless of app-db-hash
+  collisions."
+  ([tool args] (cache-key tool args nil))
+  ([tool args build]
+   [tool build (args->fingerprint args)]))
 
 (defn hash-result
   "Compute the cache hash for an MCP result. We sum every text slot's
@@ -293,14 +310,14 @@
   via the rf2-36xod precheck wiring), it is stored alongside the
   result hash so the NEXT call can short-circuit via `precheck`
   without re-running the tool."
-  [result-js {:keys [tool args enabled? precheck-hash]}]
+  [result-js {:keys [tool args enabled? precheck-hash build]}]
   (cond
     (not enabled?)               result-js
     (nil? result-js)             result-js
     (not (cacheable? tool))      result-js
     (boolean (j/get result-js :isError)) result-js
     :else
-    (let [k          (cache-key tool args)
+    (let [k          (cache-key tool args build)
           h          (hash-result result-js)
           prior      (lookup k)
           now        (.getTime (js/Date.))]
@@ -342,13 +359,13 @@
   after the tool runs.
 
   On a hit, it does touch the LRU (so the entry stays warm)."
-  [{:keys [tool args enabled?]} current-precheck-hash]
+  [{:keys [tool args enabled? build]} current-precheck-hash]
   (cond
     (not enabled?)                       nil
     (not (cacheable? tool))              nil
     (nil? current-precheck-hash)         nil
     :else
-    (let [k     (cache-key tool args)
+    (let [k     (cache-key tool args build)
           prior (lookup k)]
       (when (and prior
                  (some? (:precheck-hash prior))

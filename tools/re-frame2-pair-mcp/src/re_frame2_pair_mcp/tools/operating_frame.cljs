@@ -73,6 +73,22 @@
             [re-frame2-pair-mcp.tools.wire :as wire]
             [re-frame2-pair-mcp.tools.probe :as probe]))
 
+;; rf2-olvr5 finding 3 — the response cache key is `(tool, build,
+;; args-fingerprint)`; it deliberately can NOT include the resolved
+;; operating frame for an omitted-`:frame` call (that resolves runtime-
+;; side, after the key is built). So a `get-path {path X}` with no
+;; `:frame` arg, cached against operating frame A, would serve A's payload
+;; after the session switches to frame B if B happens to share A's
+;; app-db-hash (the multi-frame identical-initial-db case the bead
+;; reproduces). The fix flushes the WHOLE response cache whenever the
+;; operating frame changes — and to avoid a `cache → registry →
+;; operating-frame → cache` require cycle (registry wires these handlers,
+;; cache reads registry's `cacheable?`), the flush is driven from the
+;; `invoke` dispatch chokepoint in `re-frame2-pair-mcp.tools` (which
+;; already requires both `cache` and `registry`) rather than imported
+;; here. `operating-frame-mutating?` is the predicate that chokepoint
+;; consults.
+
 ;; ---------------------------------------------------------------------------
 ;; set-operating-frame
 ;;
@@ -167,6 +183,23 @@
           (if (map? v)
             v
             {:ok? false :reason :unexpected-shape :value v}))))))
+
+(def operating-frame-mutating-tools
+  "Tool names whose successful invocation changes the session's operating
+  frame, invalidating every omitted-`:frame` cached read (rf2-olvr5
+  finding 3). The `invoke` chokepoint flushes the response cache after
+  these run. `get-operating-frame` is a pure read and is NOT included."
+  #{"set-operating-frame" "reset-operating-frame"})
+
+(defn operating-frame-mutating?
+  "True iff `tool-name` is an operating-frame mutation (rf2-olvr5
+  finding 3) — the predicate `re-frame2-pair-mcp.tools/invoke` consults
+  to decide whether to flush the response cache after the call. Lives
+  here (not in `cache`) so the cache ns stays free of an
+  operating-frame require; lives as a name-set check (not a per-result
+  inspection) so the chokepoint never has to parse the tool's envelope."
+  [tool-name]
+  (contains? operating-frame-mutating-tools tool-name))
 
 ;; ---------------------------------------------------------------------------
 ;; get-operating-frame

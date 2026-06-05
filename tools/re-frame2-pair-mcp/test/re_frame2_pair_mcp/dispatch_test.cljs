@@ -14,12 +14,37 @@
       MCP arg (string) → read-string → vector check → rt-call data arg
                               ↑
                               the security gate (rf2-vflrg)"
-  (:require [cljs.test :refer-macros [deftest is async]]
+  (:require [cljs.test :refer-macros [deftest is async use-fixtures]]
             [cljs.reader]
             [clojure.string :as str]
             [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.nrepl :as nrepl]
+            [re-frame2-pair-mcp.tools.raw-state :as raw-state]
             [re-frame2-pair-mcp.tools.dispatch :as dispatch]))
+
+;; ## Stub lifetime — fixture-scoped, not Promise-chain-scoped (rf2-wb06a)
+;;
+;; `with-captured-eval!` installs its `cljs-eval-value` stub via a bare
+;; `set!` (no per-test `.finally`); the `:after` fixture below restores
+;; the pristine original captured at ns-load. A `.finally`-scoped restore
+;; fires AFTER cljs.test's `done` has advanced to the NEXT test (often the
+;; next NAMESPACE, e.g. orient-test), where it clobbers that neighbour's
+;; freshly-installed stub mid-eval — surfacing as a `captured = nil`
+;; (the orient-test failure) or a real-socket `EADDRNOTAVAIL`. The fixture
+;; boundary closes that race (the same fix orient_test / invoke_test carry).
+;;
+;; The `--allow-sensitive-reads` boot gate is also module-level state: the
+;; rf2-olvr5 finding-1 tests set it SYNCHRONOUSLY inside each body-fn
+;; (immediately before the synchronous form build, no intervening await)
+;; and the `:after` fixture resets it to the published default (OFF) so a
+;; gate-ON test can't leak its posture into a neighbour.
+
+(def ^:private pristine-eval nrepl/cljs-eval-value)
+
+(use-fixtures :each
+  {:after (fn []
+            (set! nrepl/cljs-eval-value pristine-eval)
+            (raw-state/set-allow-raw-state! false))})
 
 ;; ---------------------------------------------------------------------------
 ;; Stub harness — capture the form string the dispatch tool would have
@@ -35,10 +60,11 @@
 
 (defn- with-captured-eval!
   "Install a stub `cljs-eval-value` that records the form string into
-  `captured*` and resolves to `canned-value`. Restore in `.finally`."
+  `captured*` and resolves to `canned-value`. Cleanup is the `:after`
+  fixture's job (rf2-wb06a) — NOT a per-call `.finally`, which fires after
+  `done` and races a neighbour's stub."
   [captured* canned-value body-fn]
-  (let [orig nrepl/cljs-eval-value
-        stub (fn
+  (let [stub (fn
                ([_conn _build-id form-str]
                 (reset! captured* form-str)
                 (js/Promise.resolve canned-value))
@@ -47,8 +73,7 @@
                 (js/Promise.resolve canned-value)))]
     (set! nrepl/cljs-eval-value stub)
     (-> (js/Promise.resolve nil)
-        (.then (fn [_] (body-fn)))
-        (.finally (fn [] (set! nrepl/cljs-eval-value orig))))))
+        (.then (fn [_] (body-fn))))))
 
 ;; `read-result-text` (EDN read of the wire envelope) and `err?` are the
 ;; shared extractors (rf2-wnrpi) — aliased from `test-utils`.
@@ -209,13 +234,25 @@
   ;; settled epoch). Unlike `:await-render`, the runtime fn returns a map
   ;; directly, so the emitted form is the ordinary `rt-call` (NOT the
   ;; await-promise mailbox wrapper).
+  ;;
+  ;; rf2-olvr5 finding 1 — raw egress requires BOTH the gate ON AND an
+  ;; explicit `:include-sensitive true` (the same two-key contract every
+  ;; other egress surface wears — see `epoch_egress`). With both, the
+  ;; settle form is the BARE call (no projection wrap), so the original
+  ;; structural `read-string` assertions hold verbatim. The default-gate
+  ;; projection is pinned by `settle-projects-epoch-by-default-when-gate-off`.
   (async done
     (let [captured (atom nil)]
       (-> (with-captured-eval! captured {:ok? true :epoch-id 11 :settled? true
                                          :render-events [] :cascade-summary {:renders 1}}
             (fn []
+              ;; Set the gate ON immediately before the synchronous
+              ;; form-build so there's no async-fixture window where it
+              ;; could be flipped back (the gate is global mutable state).
+              (raw-state/set-allow-raw-state! true)
               (dispatch/dispatch-tool (fresh-conn)
-                                      #js {:event "[:list/toggle]" :settle true})))
+                                      #js {:event "[:list/toggle]" :settle true
+                                           :include-sensitive true})))
           (.then (fn [r]
                    (is (not (err? r)))
                    (let [form @captured]
@@ -223,12 +260,108 @@
                          ":settle routes to the synchronous dispatch-and-settle!")
                      (is (not (str/includes? form "__rf2pair_await__"))
                          "NO mailbox wrapper — dispatch-and-settle! is synchronous")
+                     (is (not (str/includes? form "projected-record"))
+                         "gate ON ⇒ no projection wrap — operator opted into raw egress")
                      (let [parsed (cljs.reader/read-string form)]
                        (is (= 're-frame2-pair.runtime/dispatch-and-settle! (first parsed)))
                        (is (= [:list/toggle] (second parsed)))))
                    (let [edn (read-result-text r)]
                      (is (= :settle (:mode edn)) "mode is :settle")
                      (is (true? (:settled? edn)) "the settled flag rides through"))
+                   (raw-state/set-allow-raw-state! false)
+                   (done)))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-olvr5 finding 1 — epoch-bearing dispatch modes project before egress.
+;;
+;; `:trace` (dispatch-and-collect) and `:settle` (dispatch-and-settle!)
+;; return RAW `:epoch` records (db-before / db-after / trigger-event /
+;; trace-events) plus, for settle, `:render-events`. With the
+;; `--allow-sensitive-reads` gate OFF (the published default) the emitted
+;; form MUST route the result's epoch slots through
+;; `re-frame.core/projected-record` APP-SIDE before crossing the wire —
+;; mirroring the pull-mode trace-window / watch-epochs egress (rf2-6wvh5).
+;; The default sync / queued consequence shapes carry no raw app-db, so
+;; they stay un-wrapped.
+;; ---------------------------------------------------------------------------
+
+(deftest settle-projects-epoch-by-default-when-gate-off
+  ;; Gate OFF (default) ⇒ the settle form wraps the runtime call so the
+  ;; result's `:epoch` is projected via `projected-record` and
+  ;; `:render-events` is re-derived from the projected (elided) epoch's
+  ;; trace-events. The runtime fn is still invoked (substring intact).
+  (async done
+    (let [captured (atom nil)]
+      (-> (with-captured-eval! captured {:ok? true :epoch-id 11 :settled? true}
+            (fn []
+              (raw-state/set-allow-raw-state! false)
+              (dispatch/dispatch-tool (fresh-conn)
+                                      #js {:event "[:list/toggle]" :settle true})))
+          (.then (fn [_]
+                   (let [form @captured]
+                     (is (str/includes? form "dispatch-and-settle!")
+                         "the runtime settle fn is still the inner call")
+                     (is (str/includes? form "re-frame.core/projected-record")
+                         "gate OFF ⇒ :epoch routes through the framework's off-box projection")
+                     (is (str/includes? form ":render-events")
+                         "the settle form re-derives :render-events from the projected epoch"))
+                   (done)))))))
+
+(deftest trace-projects-epoch-by-default-when-gate-off
+  ;; Gate OFF (default) ⇒ the trace form (dispatch-and-collect) wraps the
+  ;; runtime call so the returned `:epoch` is projected before egress.
+  (async done
+    (let [captured (atom nil)]
+      (-> (with-captured-eval! captured {:ok? true :epoch-id 7 :epoch {:frame :rf/default}}
+            (fn []
+              (raw-state/set-allow-raw-state! false)
+              (dispatch/dispatch-tool (fresh-conn)
+                                      #js {:event "[:list/toggle]" :trace true})))
+          (.then (fn [_]
+                   (let [form @captured]
+                     (is (str/includes? form "dispatch-and-collect")
+                         "the runtime trace fn is still the inner call")
+                     (is (str/includes? form "re-frame.core/projected-record")
+                         "gate OFF ⇒ :epoch routes through projected-record before egress"))
+                   (done)))))))
+
+(deftest trace-ships-raw-when-gate-on
+  ;; Gate ON (--allow-sensitive-reads) AND explicit `:include-sensitive
+  ;; true` ⇒ the trace form is the bare call, no projection — the
+  ;; deliberate raw-egress opt-in, mirroring subscribe's bare-drain path.
+  (async done
+    (let [captured (atom nil)]
+      (-> (with-captured-eval! captured {:ok? true :epoch-id 7}
+            (fn []
+              (raw-state/set-allow-raw-state! true)
+              (dispatch/dispatch-tool (fresh-conn)
+                                      #js {:event "[:list/toggle]" :trace true
+                                           :include-sensitive true})))
+          (.then (fn [_]
+                   (let [form @captured]
+                     (is (str/includes? form "dispatch-and-collect"))
+                     (is (not (str/includes? form "projected-record"))
+                         "gate ON ⇒ raw epoch ships verbatim (operator opt-in)"))
+                   (raw-state/set-allow-raw-state! false)
+                   (done)))))))
+
+(deftest sync-mode-does-not-project
+  ;; The default sync consequence (dispatch-consequence!) carries no raw
+  ;; app-db — it returns :db-changed? / :changed-paths / :effects-fired,
+  ;; not :db-before/:db-after. It must NOT be wrapped in the projection
+  ;; (the wrap is for the epoch-bearing modes only).
+  (async done
+    (let [captured (atom nil)]
+      (-> (with-captured-eval! captured {:ok? true :epoch-id 7 :db-changed? false}
+            (fn []
+              (raw-state/set-allow-raw-state! false)
+              (dispatch/dispatch-tool (fresh-conn)
+                                      #js {:event "[:list/toggle]" :sync true})))
+          (.then (fn [_]
+                   (let [form @captured]
+                     (is (str/includes? form "dispatch-consequence!"))
+                     (is (not (str/includes? form "projected-record"))
+                         "sync consequence carries no raw app-db — no projection wrap"))
                    (done)))))))
 
 (deftest settle-wins-over-other-mode-flags
@@ -604,8 +737,7 @@
   `read-count*` records how many poll reads happened — the deterministic
   proof the server waited for the flush rather than resolving eagerly."
   [{:keys [wrap-form* read-count* pending-polls resolved]} body-fn]
-  (let [orig nrepl/cljs-eval-value
-        respond (fn [form-str]
+  (let [respond (fn [form-str]
                   (cond
                     (await-wrap-form? form-str)
                     (do (reset! wrap-form* form-str)
@@ -625,8 +757,7 @@
                ([_conn _build-id form-str _opts] (respond form-str)))]
     (set! nrepl/cljs-eval-value stub)
     (-> (js/Promise.resolve nil)
-        (.then (fn [_] (body-fn)))
-        (.finally (fn [] (set! nrepl/cljs-eval-value orig))))))
+        (.then (fn [_] (body-fn))))))
 
 (deftest await-render-emits-substrate-agnostic-flush-form
   ;; SHAPE invariant: the settle form must flush via the adapter
