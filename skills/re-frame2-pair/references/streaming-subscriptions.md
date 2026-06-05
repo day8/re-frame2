@@ -91,16 +91,25 @@ The MCP client passes a `progressToken` on the `tools/call` for `subscribe`; eac
 {
   "progressToken": "<client-supplied>",
   "progress": <tick-number>,
-  "message": "<EDN-printed batch of events>",
-  "data": {
-    "dropped-events":  <count>,
-    "dropped-bytes":   <count>,
-    "overflow-reason": ":max-buffered-events" | ":max-buffered-bytes" | null
+  "message": "<EDN-printed map — see below>",
+  "_meta": {
+    "data": {
+      "dropped-events":  <count>,
+      "dropped-bytes":   <count>,
+      "overflow-reason": ":max-buffered-events" | ":max-buffered-bytes" | null
+    }
   }
 }
 ```
 
-The `message` slot is an EDN-printed string of the batch (a vector of events for `:trace` topics, a vector of `:rf/epoch-record` maps for `:epoch`). The agent reads `message` directly; capable hosts can additionally inspect `data` for structured counts. `overflow-reason` carries the stringified EDN keyword of the budget that tripped on this tick (`null` when no eviction happened).
+The structured drop counts live under **`_meta.data`**, not a top-level `data` slot — the MCP SDK strips unknown top-level progress params but preserves `_meta`. `overflow-reason` carries the stringified EDN keyword of the budget that tripped on this tick (`null` when no eviction happened).
+
+The `message` slot is an EDN-printed **map** (not a bare vector). It carries `:sub-id` plus the delivered batch under exactly one topic-dependent slot (rf2-mscih):
+
+- `:cascades` — on the cascade-bundle topics (`:trace` / `:fx` / `:error`): a vector of cascade bundles, each matching the `(rf/trace-buffer frame-id)` shape (`:dispatch-id :frame :event :dispatched :handler :fx :effects :subs :renders :other :trace-events :parent-dispatch-id`).
+- `:events` — on the flat topics (`:epoch` / `:frameless`): a flat vector (`:rf/epoch-record` maps for `:epoch`; raw trace events for `:frameless`).
+
+So a `:epoch` tick's `message` reads as `{:sub-id "<uuid>" :events [<epoch-record> ...] :dedup <bool> :dropped-events <n> :dropped-bytes <n>}`, and a `:trace`/`:fx`/`:error` tick reads as `{:sub-id "<uuid>" :cascades [<bundle> ...] :dedup <bool> ...}`. The `:dedup` flag signals whether the slot was structurally deduped (rf2-obpa9; reconstruct via `(de-dupe.core/expand cache-map)`); `:overflow-reason` rides the map too when a budget tripped. The agent reads `message` directly; capable hosts can additionally inspect `_meta.data` for the structured counts.
 
 When sensitive events are dropped, the payload carries an extra `:dropped-sensitive` count; see [Privacy posture](#privacy-posture) below.
 

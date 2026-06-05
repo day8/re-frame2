@@ -46,6 +46,15 @@
 (def ^:private vocabulary-md (delay (slurp-rel "references/vocabulary.md")))
 (def ^:private hot-reload (delay (slurp-rel "references/ops.md")))
 
+;; User-facing docs + the streaming + variant leaves the MCP-surface
+;; conformance drift guards (rf2-ojo3z) assert against.
+(def ^:private readme-md (delay (slurp-rel "README.md")))
+(def ^:private capabilities-md (delay (slurp-rel "docs/capabilities.md")))
+(def ^:private local-dev-md (delay (slurp-rel "docs/LOCAL_DEV.md")))
+(def ^:private testing-md (delay (slurp-rel "docs/TESTING.md")))
+(def ^:private streaming-md (delay (slurp-rel "references/streaming-subscriptions.md")))
+(def ^:private variant-md (delay (slurp-rel "references/variant-as-frame.md")))
+
 ;; ---------------------------------------------------------------------------
 ;; The canonical-prompts table
 ;; ---------------------------------------------------------------------------
@@ -255,6 +264,95 @@
     (is (and (str/includes? @ops-md "trace-buffer")
              (str/includes? @ops-md "epoch-history"))
         "ops.md must still name the raw trace-buffer / epoch-history surfaces the carve-out governs.")))
+
+;; ---------------------------------------------------------------------------
+;; MCP-surface conformance drift (rf2-ojo3z)
+;; ---------------------------------------------------------------------------
+;;
+;; The skill-facing docs MUST describe the MCP-primary 28-tool surface, NOT
+;; the retired bash/Babashka shim world or v1-style op names. These guards
+;; assert the current surface IS named and the specific retired-as-primary
+;; phrasings the rf2-ojo3z review caught do NOT come back. They are scoped to
+;; the user-facing prose docs (README / capabilities / LOCAL_DEV / TESTING) —
+;; the legitimate harness appendix in references/ops.md is out of scope here.
+
+(deftest readme-names-mcp-primary-28-tool-surface
+  (testing "README names the 28-tool MCP-primary surface, not 'fourteen ops'"
+    (is (str/includes? @readme-md "28")
+        "README must state the MCP server catalogues 28 tools.")
+    (is (not (str/includes? @readme-md "fourteen ops"))
+        (str "README carries the stale 'fourteen ops' count — the MCP surface "
+             "is 28 tools (rf2-ojo3z).")))
+  (testing "README does not claim the skill is un-exercised end-to-end"
+    (is (not (str/includes? @readme-md "not yet exercised against a running"))
+        (str "README carries the stale 'not yet exercised against a running "
+             "re-frame2 app' status — the fixture app + push-mode streaming "
+             "have landed (rf2-ojo3z)."))))
+
+(deftest local-dev-is-mcp-primary-not-babashka-required
+  (testing "LOCAL_DEV no longer lists Babashka as a skill prerequisite"
+    (is (str/includes? @local-dev-md "Babashka is not a skill requirement")
+        (str "LOCAL_DEV must scope Babashka to the retained harness shims, not "
+             "list it as a skill prerequisite (rf2-ojo3z)."))
+    (is (not (str/includes? @local-dev-md "scripts/discover-app.sh"))
+        (str "LOCAL_DEV references the retired scripts/discover-app.sh as the "
+             "live first-use path — first use calls the discover-app MCP tool "
+             "(rf2-ojo3z).")))
+  (testing "LOCAL_DEV documents the MCP server as the transport"
+    (is (str/includes? @local-dev-md "@day8/re-frame2-pair-mcp")
+        "LOCAL_DEV must name the MCP server package as the skill transport.")))
+
+(deftest capabilities-uses-current-tool-names
+  (testing "capabilities.md Notes column names current MCP tools, not v1 ops"
+    ;; `epoch/history` / `epoch/restore` are checked in backtick-wrapped
+    ;; op form so they don't collide with the legitimate `:rf.epoch/restore-*`
+    ;; error keywords (which must stay).
+    (doseq [retired ["app-db/snapshot" "app-db/get" "registrar/list"
+                     "registrar/describe" "subs/sample" "subs/cache"
+                     "machines/list" "frames/list" "`epoch/history`"
+                     "`epoch/restore`" "undo/step-back" "repl/eval"
+                     "epoch-diff"]]
+      (is (not (str/includes? @capabilities-md retired))
+          (str "capabilities.md still names the retired v1 op `" retired
+               "` — map it to the current MCP tool (rf2-ojo3z).")))
+    (is (str/includes? @capabilities-md "get-path")
+        "capabilities.md must name the get-path tool.")
+    (is (str/includes? @capabilities-md "list-handlers")
+        "capabilities.md must name the list-handlers tool.")))
+
+(deftest testing-scopes-shim-suite-as-harness-only
+  (testing "TESTING.md frames the bash-shim suite as retained harness, not the live transport"
+    (is (str/includes? @testing-md "retained harness")
+        (str "TESTING.md must mark the bash-shim integration suite as a "
+             "retained harness (not the skill's live MCP transport) "
+             "(rf2-ojo3z)."))
+    (is (str/includes? @testing-md "only skill-facing transport")
+        "TESTING.md must state the MCP server is the only skill-facing transport.")))
+
+(deftest streaming-progress-payload-matches-impl
+  (testing "streaming-subscriptions.md documents _meta.data + both payload slots (finding 2)"
+    (is (str/includes? @streaming-md "_meta.data")
+        (str "streaming-subscriptions.md must place the structured drop counts "
+             "under _meta.data, not a top-level `data` slot (rf2-ojo3z)."))
+    (is (and (str/includes? @streaming-md ":cascades")
+             (str/includes? @streaming-md ":events"))
+        (str "streaming-subscriptions.md must document BOTH the :cascades "
+             "(trace/fx/error) and :events (epoch/frameless) payload slots."))
+    (is (str/includes? @streaming-md "EDN-printed **map**")
+        (str "streaming-subscriptions.md must state `message` is an EDN map "
+             "(with :sub-id + :cascades/:events), not a bare vector "
+             "(rf2-ojo3z)."))))
+
+(deftest subscribe-not-scoped-by-operating-frame-pin
+  (testing "variant-as-frame.md + SKILL.md carve subscribe out of operating-frame scoping (finding 3)"
+    (is (str/includes? @variant-md "filter {:frame")
+        (str "variant-as-frame.md must say subscribe is scoped via "
+             "filter {:frame ...}, not the operating-frame pin (rf2-ojo3z)."))
+    (is (and (str/includes? @skill-md "subscribe")
+             (str/includes? @skill-md "no `frame` arg"))
+        (str "SKILL.md must state subscribe has no `frame` arg so the "
+             "operating-frame pin does not scope a streaming subscription "
+             "(rf2-ojo3z)."))))
 
 ;; ---------------------------------------------------------------------------
 ;; Run

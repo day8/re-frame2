@@ -1,6 +1,6 @@
 # Variant-as-frame — driving Story variants from a re-frame2-pair session
 
-> A Story variant *is* a re-frame2 frame. This leaf documents the pattern and what falls out of it for re-frame2-pair — frame-scoped reads/writes/watches against a variant's isolated app-db, no extra resolver step. Assumes you've read `SKILL.md` (the multi-frame model) and have a Story-enabled build running.
+> A Story variant *is* a re-frame2 frame. This leaf documents the pattern and what falls out of it for re-frame2-pair — frame-scoped reads/writes/watches against a variant's isolated app-db, no extra resolver step. One exception (see Idiom 1): `subscribe` has no `frame` arg, so the operating-frame pin does **not** scope a streaming subscription — scope it with `filter {:frame ...}`. Assumes you've read `SKILL.md` (the multi-frame model) and have a Story-enabled build running.
 
 ## When to load this leaf
 
@@ -27,14 +27,16 @@ This identity is the single most important thing about the variant-as-frame patt
 
 Every re-frame2-pair op that takes an operating frame works against a variant out of the box. The two recommended idioms:
 
-**Idiom 1 — pin the session operating frame, then operate normally.** `set-operating-frame {frame: ":story.counter/loaded"}` pins the variant as the session's default; subsequent calls inherit it (the eval-based `frames/select` is the lower-level equivalent).
+**Idiom 1 — pin the session operating frame, then operate normally.** `set-operating-frame {frame: ":story.counter/loaded"}` pins the variant as the session's default; the frame-arg-bearing ops (`snapshot`, `get-path`, `dispatch`, `read-sub`, `list-subscriptions`, `trace-window`, `watch-epochs`, …) inherit it (the eval-based `select-frame!` is the lower-level equivalent).
 
 ```
 set-operating-frame {frame: ":story.counter/loaded"}
-app-db/snapshot                        ;; reads the variant's frame
-trace/last-epoch                       ;; epoch history from the variant's frame
-dispatch [:counter/inc]                ;; dispatches into the variant's frame
+snapshot                               ;; reads the variant's frame
+trace-window                           ;; epoch window from the variant's frame
+dispatch {event: "[:counter/inc]"}     ;; dispatches into the variant's frame
 ```
+
+> **`subscribe` is the exception — pin it doesn't scope.** Unlike the ops above, the `subscribe` streaming tool has **no top-level `frame` arg**; the operating-frame pin does not restrict it. A pinned variant + `subscribe {topic: "epoch"}` streams epochs from **every** frame. To scope a stream to a variant, pass `filter {:frame ":story.counter/loaded"}` (see [§Recipe — drive a Story variant](recipes.md) and the [streaming-subscriptions](streaming-subscriptions.md) filter vocab). Until/unless `subscribe` gains a `frame` arg, the filter is the only frame scope for streams.
 
 **Idiom 2 — explicit `frame` per call.** Useful when you're flipping between variants or when the session-default is something else (e.g. `:rf/default`).
 
@@ -61,16 +63,16 @@ Each variant has its own isolated copy of every per-frame surface. State does no
 
 ## What's NOT per-variant (registry-scoped)
 
-The **registrar** is global: `reg-event`, `reg-sub`, `reg-fx`, `reg-machine`, `reg-view`, `reg-decorator`, etc. are visible from every frame. Hot-swapping a handler via re-frame2-pair's `repl/eval` affects every variant that dispatches that event — useful for the experiment loop (`recipes.md §Experiment loop`), occasionally surprising if you expected variant-scoped isolation.
+The **registrar** is global: `reg-event`, `reg-sub`, `reg-fx`, `reg-machine`, `reg-view`, `reg-decorator`, etc. are visible from every frame. Hot-swapping a handler via re-frame2-pair's `eval-cljs` affects every variant that dispatches that event — useful for the experiment loop (`recipes.md §Experiment loop`), occasionally surprising if you expected variant-scoped isolation.
 
-If you need a handler change to affect *only* one variant, use the per-frame `:interceptor-overrides` slot on `reg-frame` (Spec 002 §Per-frame overrides) — but Story's variant-mount doesn't expose this directly; you'd need to mutate the variant's frame metadata via `repl/eval`. Usually the right move is to dispatch different args into different variants rather than reach for per-frame overrides.
+If you need a handler change to affect *only* one variant, use the per-frame `:interceptor-overrides` slot on `reg-frame` (Spec 002 §Per-frame overrides) — but Story's variant-mount doesn't expose this directly; you'd need to mutate the variant's frame metadata via `eval-cljs`. Usually the right move is to dispatch different args into different variants rather than reach for per-frame overrides.
 
 ## Discovering the current variant
 
 When you've attached to a Story-enabled build and don't know which variants are registered:
 
 ```
-frames/list                              ;; (rf/frame-ids) — every registered frame
+get-operating-frame                      ;; :frames lists every registered frame (rf/frame-ids)
 ```
 
 Story-registered variants appear as `:story.*` keywords. Filter:
@@ -80,7 +82,7 @@ mcp__re-frame2-pair__eval-cljs {form: "(filter #(= \"story\" (namespace %)) (rf/
 ```
 
 
-For richer metadata (parent story, tags, modes, substrates), use Story's side-table via the MCP transport if available (`mcp__re-frame2-story-mcp__list-stories` / `get-variant`), or fall back to `(re-frame.story/variant->edn <id>)` over `repl/eval`. The variant-id grammar (`:story.<dotted.path>/<variant-name>`) is documented in `skills/re-frame2/references/tooling/stories.md`.
+For richer metadata (parent story, tags, modes, substrates), use Story's side-table via the MCP transport if available (`mcp__re-frame2-story-mcp__list-stories` / `get-variant`), or fall back to `(re-frame.story/variant->edn <id>)` over `eval-cljs`. The variant-id grammar (`:story.<dotted.path>/<variant-name>`) is documented in `skills/re-frame2/references/tooling/stories.md`.
 
 To discover the *active* variant in the user's canvas (the one currently visible), inspect frame metadata for the `:story/active?` flag set by Story's shell — or ask the user. re-frame2-pair has no DOM bridge that locates the canvas iframe specifically; use `dom/source-at` on something inside it.
 
