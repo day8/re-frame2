@@ -96,7 +96,7 @@ skills/re-frame-migration/
 ├── .claude-plugin/plugin.json     (Claude Code plugin metadata)
 ├── references/
 │   ├── kickoff-prompt.md           (~70 lines)
-│   ├── setup.md                    (~170 lines)
+│   ├── setup.md                    (~215 lines; incl. the React-19 / Reagent-2 floor pre-flight gate)
 │   ├── xray-replaces-10x.md        (~240 lines; devtools swap — re-frame-10x → Xray)
 │   ├── breaking-changes.md         (~150 lines)
 │   ├── sequencing.md               (~150 lines)
@@ -120,7 +120,7 @@ skills/re-frame-migration/
 
 The eleven reference leaves are sized to load on demand without spending context budget on irrelevant detail. Typical migration session loads:
 
-- **Phase 2 (bump-only success)**: `setup.md` + `output-format.md`. ~285 LoC.
+- **Phase 0 + Phase 2 (bump-only success)**: `setup.md` (floor gate + coord swap) + `output-format.md`. ~330 LoC.
 - **Phase 3 (sweep with Type A only)**: `auto-call-site-rewrites.md` + `auto-cross-cutting.md` + `breaking-changes.md` + `sequencing.md` + `output-format.md`. ~960 LoC.
 - **Phase 3 (sweep with Type A + Type B)**: add the relevant `guided-*.md` (typically one; both for cross-surface migrations). ~1,120–1,280 LoC.
 - **Full migration (rare)**: all eleven reference leaves. ~1,850 LoC.
