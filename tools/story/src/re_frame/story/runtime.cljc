@@ -708,8 +708,16 @@
   removed; phase-4 drives the rich-DSL step executor through
   `runner-events/run!`."
   [variant-id variant-body opts]
-  (let [{:keys [active-modes]} opts
-        plan (plan/variant-plan variant-id)]
+  (let [;; rf2-2cpoo — compile the plan WITH the per-run arg layers
+        ;; (`:active-modes` / `:cell-overrides`) so the substituted
+        ;; setup/script/db-seed/network/sub-overrides, `[:world :effective-args]`,
+        ;; and the plan hash all use the SAME effective args the result
+        ;; reports. Previously the plan compiled with the static variant args
+        ;; while the result reported the override/mode-aware
+        ;; `args/resolve-args`, so a cell override or active mode executed a
+        ;; different scenario than the one reported.
+        plan (plan/variant-plan variant-id
+                                {:run-args (args/run-arg-layers variant-id opts)})]
     {:variant-id       variant-id
      :variant-body     variant-body
      :plan             plan
@@ -718,9 +726,25 @@
      ;; Threaded down so `record-result-map` can surface the chosen runner +
      ;; fold UNMET requirements into the unified result's :cannot-run.
      :runner-selection (resolve-runner-selection plan opts)
-     :decorator-stack  (decorators/resolve-decorators variant-id
-                                                      {:active-modes active-modes})
-     :effective-args   (args/resolve-args variant-id opts)
+     ;; rf2-2cpoo — resolve the decorator stack from the ALREADY-compiled
+     ;; plan's `[:world :decorators]` refs (the twin of the inline path's
+     ;; `prepare-inline-context`), NOT via `decorators/resolve-decorators`
+     ;; which recompiles the plan WITHOUT `:run-args`. Reusing this plan
+     ;; (a) avoids a redundant second compile, and (b) is correct now that a
+     ;; `[:arg key]` may resolve ONLY through a run-opts layer (an active
+     ;; mode / cell override) — a recompile without `:run-args` would throw
+     ;; `:rf.error/story-missing-arg` substituting that script placeholder.
+     ;; v1 modes carry no decorators (IMPL-SPEC §3.1: modes are :args only),
+     ;; so `:active-modes` does not perturb the decorator refs.
+     :decorator-stack  (decorators/resolve-decorator-refs
+                         (get-in plan [:world :decorators] []))
+     ;; rf2-2cpoo — report the SAME effective args the plan was compiled
+     ;; with (the plan is the single source of truth). The plan folds the
+     ;; ambient + run layers around its `:extends`-aware variant layer, so
+     ;; `[:world :effective-args]` equals `args/resolve-args` for a variant
+     ;; with no `:extends`, and is the strictly-more-correct extends-aware
+     ;; value when the variant inherits args.
+     :effective-args   (get-in plan [:world :effective-args] {})
      :snapshot         (ident/snapshot-identity variant-id opts)}))
 
 (defn- run-phase-0!

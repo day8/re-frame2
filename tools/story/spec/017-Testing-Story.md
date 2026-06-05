@@ -452,6 +452,24 @@ The plan compiler MUST resolve `[:arg key]` placeholders before
 execution. If a placeholder references a missing arg, plan construction
 MUST fail. `explain` MUST show arg substitutions.
 
+**Run opts feed the SAME effective args the result reports.** The
+effective args are the full precedence chain
+`global < story < active-modes < variant < cell-overrides`
+(`re-frame.story.args/resolve-args`). The runner threads the per-run
+layers — the UI/test surfaces' `:active-modes` and `:cell-overrides` —
+INTO plan compilation (the `:run-args` compiler input), so the substituted
+`[:arg key]` placeholders in **setup, script, db-seed, network replies, and
+sub-overrides**, the `[:world :args]` / `[:world :effective-args]` slots,
+AND the `:plan-hash` all use the SAME effective args the run-result reports
+under `:effective-args`. A cell override or an active mode therefore
+executes the EXACT scenario the result claims — the runner never substitutes
+the static variant args while reporting the override/mode-aware ones
+(rf2-2cpoo). The runtime executes `[:world :scripts]` (the normalized plays),
+so those plays carry the resolved placeholders, not the raw `[:arg …]` forms.
+(`render-variant` keeps its own post-compile path: it layers
+`:control-overrides` on top of the plan-time effective args and re-resolves
+sub-overrides, because rendering does not execute setup/script/db-seed.)
+
 `:effective-args` (the args after control-panel overrides) is a
 first-class plan field, and `(story/render-variant target opts)` renders
 the workshop view from the **same plan** the runner consumes. The live

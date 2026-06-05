@@ -142,3 +142,47 @@
   call-out (`get-effective-args`). Same arguments, same return."
   ([variant-id] (resolve-args variant-id nil))
   ([variant-id opts] (resolve-args variant-id opts)))
+
+;; ---- ambient + run arg layers (rf2-2cpoo) ---------------------------------
+;;
+;; The plan compiler resolves the variant-CHAIN `:args` (the `:extends`-merged
+;; variant body args, the §Total resolution order variant layer) itself, but
+;; the AMBIENT layers (global-args, parent-story `:args`) and the per-RUN
+;; layers (active-modes' `:args`, the controls-panel `:cell-overrides`) live
+;; outside the variant body. `resolve-args` folds all five (`global <
+;; story-args < mode-args < variant-args < cell-overrides`); the plan compiler
+;; needs the four NON-variant layers, split around its own variant layer, so
+;; its `arg-map` — and therefore every `[:arg key]` substitution in
+;; setup/script/db-seed/network/sub-overrides, plus `[:world :effective-args]`
+;; and the plan hash — uses the SAME effective args the run/render surfaces
+;; report (rf2-2cpoo: the run path used to compile with the variant layer
+;; ALONE, so a cell override / active mode reported one effective-args while
+;; the executed plan substituted another).
+
+(defn run-arg-layers
+  "Return the AMBIENT + per-RUN arg layers (everything `resolve-args` folds
+  AROUND the variant layer), split into the `:pre`-variant and `:post`-variant
+  groups the plan compiler deep-merges around its own `:extends`-merged
+  variant `arg-map`:
+
+      :pre  [global-args story-args mode-args]   ; lower precedence than variant
+      :post [cell-overrides]                      ; higher precedence than variant
+
+  So the compiler's effective args are
+  `(deep-merge-all (concat pre [variant-chain-args] post))`, which equals
+  `resolve-args` for the SAME `:active-modes` / `:cell-overrides` whenever the
+  variant carries no `:extends` (and is the strictly-more-correct,
+  extends-aware variant layer when it does — the plan is the single source of
+  truth for the variant layer; this fn supplies only the layers it cannot see).
+
+  `opts` is `{:active-modes [...] :cell-overrides {...}}` — the SAME shape
+  `resolve-args` takes. Pure aside from the registrar/config reads `resolve-args`
+  already performs."
+  ([variant-id] (run-arg-layers variant-id nil))
+  ([variant-id {:keys [active-modes cell-overrides] :as _opts}]
+   (let [story-id   (parent-story-id variant-id)
+         story-body (when story-id (registrar/handler-meta :story story-id))]
+     {:pre  [(config/get-global-args)
+             (:args story-body)
+             (active-modes-args (or active-modes []))]
+      :post [(or cell-overrides {})]})))

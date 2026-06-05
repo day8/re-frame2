@@ -292,6 +292,67 @@
       (is (= {:label "Save, continue" :n 3}
              (get-in out [:cell-overrides :foo/bar]))))))
 
+;; ---- rf2-2cpoo: URL is authoritative — clear stale overrides on hydrate ---
+
+(deftest apply-parsed-clears-stale-overrides-when-url-omits-them
+  (testing "rf2-2cpoo — hydrating a URL that KEEPS the focused variant but
+            carries NO overrides CLEARS the stale in-memory overrides for it.
+            Previously the write-only branch left them intact, so back/forward,
+            a bookmark, or a share link that no longer encoded overrides still
+            rendered the prior control edits — the address bar stopped being the
+            source of truth."
+    (let [stale {:selected-variant :story.foo/bar
+                 :cell-overrides   {:story.foo/bar {:label "stale edit"}}}
+          ;; parsed URL: same variant, NO :cell-overrides slice.
+          out   (us/apply-parsed-to-state stale {:variant-id :story.foo/bar} {})]
+      (is (= :story.foo/bar (:selected-variant out)))
+      (is (nil? (get-in out [:cell-overrides :story.foo/bar]))
+          "the focused variant's stale overrides are cleared — URL wins"))))
+
+(deftest apply-parsed-overwrites-stale-overrides-when-url-has-new
+  (testing "rf2-2cpoo — a URL that carries DIFFERENT overrides for the kept
+            variant overwrites the stale slice (not a deep-merge); the slice
+            equals the URL payload exactly"
+    (let [stale {:selected-variant :story.foo/bar
+                 :cell-overrides   {:story.foo/bar {:label "stale" :keep "old"}}}
+          out   (us/apply-parsed-to-state
+                  stale {:variant-id     :story.foo/bar
+                         :cell-overrides {:label "fresh"}} {})]
+      (is (= {:label "fresh"} (get-in out [:cell-overrides :story.foo/bar]))
+          "the slice is REPLACED by the URL payload, dropping the stale :keep"))))
+
+(deftest apply-parsed-clear-leaves-other-variants-overrides-intact
+  (testing "rf2-2cpoo — clearing the focused variant's overrides touches ONLY
+            its slice; another variant's overrides survive (the URL speaks for
+            the focused variant alone)"
+    (let [stale {:selected-variant :story.foo/bar
+                 :cell-overrides   {:story.foo/bar   {:label "stale"}
+                                    :story.other/baz {:n 7}}}
+          out   (us/apply-parsed-to-state stale {:variant-id :story.foo/bar} {})]
+      (is (nil? (get-in out [:cell-overrides :story.foo/bar]))
+          "the focused variant's slice is cleared")
+      (is (= {:n 7} (get-in out [:cell-overrides :story.other/baz]))
+          "an unfocused variant's overrides are left intact"))))
+
+(deftest apply-parsed-share-back-forward-scenario
+  (testing "rf2-2cpoo — the back/forward + share scenario end-to-end: an
+            override edit, then navigating to an override-free URL for the same
+            variant (a bookmark / share link from before the edit) renders
+            WITHOUT the edit. state → params (with edit) → params (without) →
+            hydrate the override-free one ⇒ no stale slice."
+    (let [;; 1. user edits a control — overrides live in state + would push to URL.
+          edited      {:selected-variant :foo/bar
+                       :cell-overrides   {:foo/bar {:label "edited"}}}
+          ;; 2. a share link / bookmark captured BEFORE the edit: same variant,
+          ;;    no overrides. params-from-state of a no-override shell yields no slice.
+          shared-proj (us/params-from-state {:selected-variant :foo/bar})
+          ;; 3. navigating to that URL must clear the in-memory edit.
+          out         (us/apply-parsed-to-state edited shared-proj {})]
+      (is (= :foo/bar (:selected-variant out)))
+      (is (nil? (get-in out [:cell-overrides :foo/bar]))
+          "navigating to the override-free shared URL clears the stale edit —
+           the address bar is authoritative"))))
+
 (deftest apply-parsed-full-round-trip-through-state
   (testing "URL → parsed → state, then state → URL produces equivalent
             params (allowing for set vs vec re-ordering)"

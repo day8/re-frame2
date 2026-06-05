@@ -44,6 +44,7 @@
   (story/install-canonical-vocabulary!)
   (frame/ensure-default-frame!)
   (rf/reg-event-db :rp/set-status (fn [db [_ v]] (assoc db :status v)))
+  (rf/reg-event-db :rp/set-value  (fn [db [_ v]] (assoc db :value v)))
   (test-fn))
 
 (use-fixtures :each reset-rf!)
@@ -187,3 +188,101 @@
                                (:assertions result)))]
         (is (some? rec) "the visual-snapshot record landed (no longer dropped)")
         (is (= :cannot-run (:status rec)))))))
+
+;; ===========================================================================
+;; rf2-2cpoo — run opts (:cell-overrides / :active-modes) thread into PLAN
+;; compilation, so the EXECUTED `[:arg …]` substitutions match the REPORTED
+;; `:effective-args`. Before the fix the runtime compiled the plan with the
+;; static variant args while reporting `args/resolve-args` (override/mode
+;; aware), so a cell override or active mode executed a DIFFERENT scenario
+;; than the one the result claimed — a false pass/fail + misleading snapshot.
+;; ===========================================================================
+
+(deftest cell-override-threads-into-script-arg-substitution
+  (testing "a :cell-override drives an `[:arg …]` placeholder in the SCRIPT;
+            the executed app-db AND the reported :effective-args BOTH reflect
+            the override value — not the static story arg (rf2-2cpoo)"
+    (story/reg-variant
+      :story.opts/scripted
+      {:args   {:value "static"}
+       ;; `[:arg :value]` is resolved at plan-compile time; the run opts must
+       ;; thread into compilation so the dispatched value IS the override.
+       :script [[:dispatch-sync [:rp/set-value [:arg :value]]]
+                [:assert [:rf.assert/path-equals [:value] "override"]]]})
+    (let [result (run-target :story.opts/scripted
+                             {:cell-overrides {:value "override"}})]
+      (is (= "override" (get-in result [:app-db :value]))
+          "the SCRIPT dispatched the OVERRIDE value (plan compiled with run opts)")
+      (is (= "override" (get-in result [:effective-args :value]))
+          "the reported :effective-args carries the override")
+      (is (= :pass (:status result))
+          "the [:arg]-driven assertion against the override value PASSES — the
+           executed plan and the reported effective args agree")
+      (is (every? :passed? (:assertions result))))))
+
+(deftest cell-override-threads-into-db-seed-arg-substitution
+  (testing "a :cell-override drives an `[:arg …]` placeholder in the :db-seed;
+            the seeded app-db reflects the override, matching :effective-args
+            (rf2-2cpoo — db-seed substitution uses the run-opts effective args)"
+    (story/reg-variant
+      :story.opts/seeded
+      {:args    {:value "static"}
+       :db-seed {:seeded [:arg :value]}})
+    (let [result (run-target :story.opts/seeded
+                             {:cell-overrides {:value "override"}})]
+      (is (= "override" (get-in result [:app-db :seeded]))
+          "the :db-seed seeded the OVERRIDE value (plan compiled with run opts)")
+      (is (= "override" (get-in result [:effective-args :value]))
+          "the reported :effective-args carries the override")
+      (is (= :pass (:status result))))))
+
+(deftest active-mode-threads-into-arg-substitution
+  (testing "an :active-mode's :args drive an `[:arg …]` placeholder for an arg
+            the variant does NOT itself set; the executed app-db AND the
+            reported :effective-args BOTH reflect the mode value (rf2-2cpoo —
+            mode args fold into plan compilation at `mode < variant` precedence,
+            so the mode supplies args the variant leaves open)"
+    (story/reg-mode :Mode.test/big {:args {:value "from-mode"}})
+    (story/reg-variant
+      :story.opts/moded
+      ;; the variant declares NO :value, so the mode's :value flows through
+      ;; (precedence `mode < variant`: the mode fills args the variant omits).
+      {:script [[:dispatch-sync [:rp/set-value [:arg :value]]]
+                [:assert [:rf.assert/path-equals [:value] "from-mode"]]]})
+    (let [result (run-target :story.opts/moded
+                             {:active-modes [:Mode.test/big]})]
+      (is (= "from-mode" (get-in result [:app-db :value]))
+          "the SCRIPT dispatched the MODE value (mode args threaded into compile)")
+      (is (= "from-mode" (get-in result [:effective-args :value]))
+          "the reported :effective-args carries the mode value")
+      (is (= :pass (:status result)))
+      (is (every? :passed? (:assertions result))))))
+
+(deftest cell-override-wins-over-active-mode-in-arg-substitution
+  (testing "precedence holds end-to-end: mode < cell-override; the SCRIPT
+            dispatches the override (highest layer), matching :effective-args
+            (rf2-2cpoo — the plan folds layers in resolve-args precedence)"
+    (story/reg-mode :Mode.test/mid {:args {:value "from-mode"}})
+    (story/reg-variant
+      :story.opts/precedence
+      {:args   {:value "static"}
+       :script [[:dispatch-sync [:rp/set-value [:arg :value]]]]})
+    (let [result (run-target :story.opts/precedence
+                             {:active-modes   [:Mode.test/mid]
+                              :cell-overrides {:value "override"}})]
+      (is (= "override" (get-in result [:app-db :value]))
+          "cell-override beats the active mode in the EXECUTED substitution")
+      (is (= "override" (get-in result [:effective-args :value]))
+          "and in the reported :effective-args — executed == reported"))))
+
+(deftest no-run-opts-still-uses-static-args
+  (testing "with NO run opts the run still substitutes the STATIC variant args —
+            the run-args threading is purely additive (rf2-2cpoo regression
+            guard: the absent-opts path is unchanged)"
+    (story/reg-variant
+      :story.opts/plain
+      {:args   {:value "static"}
+       :script [[:dispatch-sync [:rp/set-value [:arg :value]]]]})
+    (let [result (run-target :story.opts/plain)]
+      (is (= "static" (get-in result [:app-db :value])))
+      (is (= "static" (get-in result [:effective-args :value]))))))

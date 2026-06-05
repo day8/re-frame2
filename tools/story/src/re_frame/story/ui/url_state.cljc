@@ -182,7 +182,16 @@
   selection. Overrides are variant-scoped (the URL carries only the
   focused variant's slice), so they apply solely alongside a kept
   variant. The state-watcher pushes that same slice, so this closes the
-  encode/decode round-trip on back/forward navigation."
+  encode/decode round-trip on back/forward navigation.
+
+  Per rf2-2cpoo: the URL is authoritative for the FOCUSED variant's
+  overrides. When the URL keeps a variant but carries NO overrides, this
+  fn CLEARS any stale `[:cell-overrides variant-id]` slice (not just
+  skipping the write) — so back/forward, a bookmark, or a share link that
+  no longer encodes overrides renders WITHOUT the prior control edits, and
+  the address bar stays the source of truth. Only the focused variant's
+  slice is touched; other variants' overrides are left intact (the URL
+  speaks for the focused variant alone)."
   [state parsed validators]
   (let [{:keys [variant-id workspace-id mode-tab active-modes
                 viewport background tag-filter cell-overrides
@@ -225,6 +234,17 @@
       ;; an override edit pushed to the URL was dropped on back/forward.
       (and keep-variant? (seq cell-overrides))
       (assoc-in [:cell-overrides variant-id] cell-overrides)
+
+      ;; rf2-2cpoo: the URL is the source of truth for the FOCUSED variant's
+      ;; overrides. When the URL keeps this variant but carries NO `overrides=`
+      ;; slice, any stale in-memory overrides for it MUST be cleared — otherwise
+      ;; back/forward, a bookmark, or a share link that no longer encodes
+      ;; overrides would still render the prior control edits, and the address
+      ;; bar would stop being authoritative. (The slice is variant-scoped, so
+      ;; OTHER variants' overrides are deliberately untouched — the URL only
+      ;; speaks for the focused variant.)
+      (and keep-variant? (not (seq cell-overrides)))
+      (update :cell-overrides dissoc variant-id)
 
       (seq active-modes)
       (assoc :active-modes (vec active-modes))
