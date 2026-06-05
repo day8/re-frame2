@@ -26,6 +26,13 @@
  *      cannot-run is surfaced immediately instead of burning the full
  *      per-row terminal timeout. Asserted via `isTerminalStatus`, kept
  *      symmetric with the CLJS `ci-runner/terminal?`.
+ *
+ * Plus the rf2-54xbp non-vacuous discovery guard (rf2-ljyp9 follow-up):
+ *
+ *   4. The :play-script gate must FAIL CLOSED on an empty / under-floor /
+ *      one-sided (no expected-fail) discovery rather than false-greening
+ *      "nothing to assert". Asserted via the pure `checkRowsNonVacuous`
+ *      / `MIN_PLAY_ROWS` exports, with the runtime call-site pinned.
  */
 
 const assert = require('assert/strict');
@@ -47,6 +54,8 @@ const FEATURE_LOAD_RUNNER = path.join(
 const {
   computeExitCode,
   isTerminalStatus,
+  checkRowsNonVacuous,
+  MIN_PLAY_ROWS,
 } = require(PLAY_SCRIPTS_RUNNER);
 
 const tests = [];
@@ -162,6 +171,106 @@ test('both wait loops gate on isTerminalStatus (rf2-wf5al.3)', () => {
     matches.length >= 2,
     'waitForTerminalState and waitForPlayTerminalState must both gate on ' +
       'isTerminalStatus(last.status).',
+  );
+});
+
+// ---- Finding 4 (rf2-54xbp / rf2-ljyp9): non-vacuous discovery guard ----
+//
+// rf2-54xbp added `checkRowsNonVacuous(rows)` + `MIN_PLAY_ROWS` to the
+// :play-script runner: a pure (rows in → verdict out) guard that fails
+// the gate closed on an empty / under-floor / one-sided discovery rather
+// than false-greening "nothing to assert". The runtime call-site is
+// pinned below; these cases lock the pure verdict (the canonical home the
+// rf2-54xbp examples/scripts lane could not reach). Rows are classified
+// expected-fail iff `variant-id` OR `play-key` carries `failing` /
+// `expected-fail` — symmetric with the runner's `expectedStatusFor` — so
+// the test rows here drive the same classification the runtime uses.
+
+// The seeded inventory shape: eight discovered rows, five classified
+// expected-pass and three expected-fail (the `failing` / `-expected-fail`
+// markers below) — the 8 / 5-pass / 3-fail shape the bead pins as the
+// healthy gate. Mirrors the counter-with-stories testbed's seeded
+// fixtures and the runner's `expectedStatusFor` classification.
+const SEEDED_ROWS = [
+  // 5 expected-pass:
+  { 'variant-id': 'story.counter/basic', 'play-key': null },
+  { 'variant-id': 'story.counter/keyword-play', 'play-key': null },
+  { 'variant-id': 'story.counter/pred-fn-vector', 'play-key': null },
+  { 'variant-id': 'story.counter/dom', 'play-key': null },
+  { 'variant-id': 'story.counter/multi', 'play-key': 'passing' },
+  // 3 expected-fail (carry a `failing` / `expected-fail` marker):
+  { 'variant-id': 'story.counter/dom-expected-fail', 'play-key': null },
+  { 'variant-id': 'story.counter/pred-fn-failing', 'play-key': null },
+  { 'variant-id': 'story.counter/multi', 'play-key': 'expected-fail' },
+];
+
+test('checkRowsNonVacuous: empty discovery → { ok:false } with a DRIFTED diagnostic (rf2-54xbp)', () => {
+  const v = checkRowsNonVacuous([]);
+  assert.equal(v.ok, false);
+  assert.equal(v.rowCount, 0);
+  assert.match(v.diagnostic, /DRIFTED/);
+});
+
+test('checkRowsNonVacuous: a non-array (undefined) discovery is treated as empty → { ok:false }', () => {
+  const v = checkRowsNonVacuous(undefined);
+  assert.equal(v.ok, false);
+  assert.equal(v.rowCount, 0);
+  assert.match(v.diagnostic, /DRIFTED/);
+});
+
+test('checkRowsNonVacuous: under-floor (< MIN_PLAY_ROWS) → { ok:false } /below the non-vacuous floor/ (rf2-54xbp)', () => {
+  // MIN_PLAY_ROWS rows minus one, with BOTH sides present so the failure
+  // is attributable to the floor and not to one-sidedness.
+  const underFloor = [
+    { 'variant-id': 'story.counter/basic', 'play-key': null },
+    { 'variant-id': 'story.counter/dom', 'play-key': null },
+    { 'variant-id': 'story.counter/dom-expected-fail', 'play-key': null },
+  ];
+  assert.ok(underFloor.length < MIN_PLAY_ROWS, 'fixture must sit below the floor');
+  const v = checkRowsNonVacuous(underFloor);
+  assert.equal(v.ok, false);
+  assert.equal(v.rowCount, underFloor.length);
+  assert.match(v.diagnostic, /below the non-vacuous floor/);
+});
+
+test('checkRowsNonVacuous: one-sided (no expected-fail) → { ok:false } /one-sided|expected-fail=0/ (rf2-54xbp)', () => {
+  // At/above the floor, but every row classifies expected-pass — the
+  // runner's failure path is uncovered.
+  const oneSided = [
+    { 'variant-id': 'story.counter/basic', 'play-key': null },
+    { 'variant-id': 'story.counter/keyword-play', 'play-key': null },
+    { 'variant-id': 'story.counter/pred-fn-vector', 'play-key': null },
+    { 'variant-id': 'story.counter/dom', 'play-key': null },
+  ];
+  assert.ok(oneSided.length >= MIN_PLAY_ROWS, 'fixture must clear the floor');
+  const v = checkRowsNonVacuous(oneSided);
+  assert.equal(v.ok, false);
+  assert.equal(v.failRows, 0);
+  assert.match(v.diagnostic, /one-sided|expected-fail=0/);
+});
+
+test('checkRowsNonVacuous: seeded inventory shape (8 rows, 5 pass / 3 fail) → { ok:true } (rf2-54xbp)', () => {
+  const v = checkRowsNonVacuous(SEEDED_ROWS);
+  assert.equal(v.ok, true);
+  assert.equal(v.diagnostic, null);
+  assert.equal(v.rowCount, 8);
+  assert.equal(v.passRows, 5);
+  assert.equal(v.failRows, 3);
+});
+
+// Pin the runtime call-site so a refactor can't drop the non-vacuous
+// guard back to the old "empty rows → 0 / nothing to assert" false-green.
+test('play-scripts runner gates discovery on checkRowsNonVacuous (rf2-54xbp / rf2-ljyp9)', () => {
+  const src = fs.readFileSync(PLAY_SCRIPTS_RUNNER, 'utf8');
+  assert.match(
+    src,
+    /checkRowsNonVacuous\(\s*rows\s*\)/,
+    'runAllVariants must call checkRowsNonVacuous(rows) over the discovered rows.',
+  );
+  assert.match(
+    src,
+    /if\s*\(\s*!\s*vacuity\.ok\s*\)/,
+    'the runner must fail closed (throw) when the non-vacuous verdict is not ok.',
   );
 });
 
