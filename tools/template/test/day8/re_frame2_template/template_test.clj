@@ -262,21 +262,62 @@
                 "ci.yml's GitHub `${{ hashFiles(...) }}` expression
                  survives substitution verbatim"))
 
-          ;; -- Security baseline (rf2-sh3l8) --
+          ;; -- Security baseline (rf2-sh3l8; CSP-runtime parity rf2-l4prz) --
           (let [index-text  (slurp (io/file root "resources/public/index.html"))
+                ;; The actual CSP policy is the `content="…"` attribute of
+                ;; the CSP meta tag — NOT the surrounding HTML comment
+                ;; (which legitimately discusses directives like
+                ;; frame-ancestors). Pull just the policy string so the
+                ;; directive assertions below test the live policy, not
+                ;; documentation prose (rf2-l4prz).
+                csp-policy  (some-> (re-find #"http-equiv=\"Content-Security-Policy\"\s+content=\"([^\"]*)\""
+                                             index-text)
+                                    second)
                 readme-text (slurp (io/file root "README.md"))]
             (is (.contains index-text "Content-Security-Policy")
                 "index.html ships a CSP meta tag")
-            (is (.contains index-text "default-src 'self'")
+            (is (some? csp-policy)
+                "the CSP meta tag's content=\"…\" policy string is parseable")
+            (is (.contains csp-policy "default-src 'self'")
                 "index.html CSP uses default-src 'self'")
-            (is (.contains index-text "frame-ancestors 'none'")
-                "index.html CSP forbids framing (anti-clickjacking)")
-            (is (.contains index-text "object-src 'none'")
+            (is (.contains csp-policy "object-src 'none'")
                 "index.html CSP forbids plugin objects")
             (is (.contains index-text "data-rf-xray-host")
                 "index.html provides Xray's default true-inline layout host")
+
+            ;; rf2-l4prz Finding 2 — the dev meta CSP MUST permit inline
+            ;; styles: the generated views use inline :style props and the
+            ;; default-on Xray surface injects <style> blocks + inline
+            ;; styles. A strict `style-src 'self'` would emit CSP
+            ;; violations on the first page and block Xray. Assert the
+            ;; meta tag's style-src admits 'unsafe-inline' so the shipped
+            ;; runtime renders clean under its own policy.
+            (is (.contains csp-policy "style-src 'self' 'unsafe-inline'")
+                "index.html meta CSP permits inline styles (generated
+                 views + default-on Xray both rely on them — rf2-l4prz
+                 Finding 2)")
+
+            ;; rf2-l4prz Finding 3 — `frame-ancestors` delivered via a
+            ;; <meta> tag is IGNORED by browsers; only a response header
+            ;; honours it. Asserting it on the meta tag (as the old test
+            ;; did) was a false anti-clickjacking pass. The CSP POLICY must
+            ;; NOT carry frame-ancestors; the anti-clickjacking contract
+            ;; lives in the README's response-header snippets, asserted
+            ;; below. (The HTML comment may mention it — we test the
+            ;; policy string, not the file.)
+            (is (not (.contains csp-policy "frame-ancestors"))
+                "index.html meta CSP policy does NOT carry frame-ancestors —
+                 browsers ignore it from <meta>; it belongs in a response
+                 header (rf2-l4prz Finding 3)")
+
             (is (.contains readme-text "Production hardening")
                 "README documents Production hardening")
+            ;; The anti-clickjacking contract: frame-ancestors lives in
+            ;; the README's response-header snippets, where it works.
+            (is (.contains readme-text "frame-ancestors 'none'")
+                "README's production response-header snippets carry
+                 frame-ancestors 'none' (the real anti-clickjacking
+                 contract — rf2-l4prz Finding 3)")
             (is (.contains readme-text "X-Content-Type-Options")
                 "README covers nosniff header")
             (is (.contains readme-text "Referrer-Policy")
@@ -508,7 +549,23 @@
                 "with-stories core.cljs routes #/stories to the shell")
             (is (.contains core-text "acme.my-app.stories")
                 "with-stories core.cljs requires the stories ns so its
-                 reg-* calls fire at boot"))
+                 reg-* calls fire at boot")
+            ;; rf2-l4prz Finding 4 — `init` runs on every hot-reload, and
+            ;; the hashchange listener's closure identity changes per
+            ;; rebuild. Without a defonce-held listener + removeEventListener
+            ;; before re-adding, reloads accumulate stale listeners (each
+            ;; route change then fires the mount switch N times: repeated
+            ;; React root teardown, flicker, a listener leak). Assert the
+            ;; hot-reload-safe wiring is present.
+            (is (.contains core-text "defonce")
+                "with-stories core.cljs holds hot-reload state in a defonce
+                 (the hashchange listener must survive reloads — rf2-l4prz
+                 Finding 4)")
+            (is (.contains core-text "removeEventListener")
+                "with-stories core.cljs removes the previously-installed
+                 hashchange listener before re-adding on hot-reload, so
+                 reloads don't accumulate stale listeners (rf2-l4prz
+                 Finding 4)"))
           ;; -- stories.cljs uses the four shipped reg-* macros and
           ;;    references the template's existing event/sub/view ids --
           (let [stories-text (slurp (io/file root "src/acme/my_app/stories.cljs"))]
@@ -530,6 +587,85 @@
             (is (.contains stories-text ":acme.my-app.views/counter-app")
                 "stories.cljs references the template's view by namespaced
                  id (Story renders by id, not by symbol)")))
+        (finally
+          (delete-recursively tmp))))))
+
+;; --- with-Story release elision: config ⇆ docs agreement (rf2-l4prz) -----
+;;
+;; Finding 1: the with-Story core docstring + the generated README must
+;; NOT claim that `npx shadow-cljs release app` elides Story
+;; automatically / for free. It does NOT — `re-frame.story.config/enabled?`
+;; defaults true and the emitted shadow-cljs.edn sets no `:release`
+;; closure-define, so a plain release SHIPS the Story shell + `#/stories`
+;; route + every registration. The docs and the config must AGREE that
+;; elision is OPT-IN, and the docs must give the exact closure-define a
+;; user adds to elide.
+;;
+;; This test pins that agreement three ways:
+;;   (a) the emitted shadow-cljs.edn does NOT set the Story closure-define
+;;       (matches the "opt-in" story — if a future edit DID add it, the
+;;       docs would need to flip to "automatic" and this test reminds us);
+;;   (b) the with-Story core docstring + README both carry the exact
+;;       opt-in closure-define string AND flag it as opt-in;
+;;   (c) neither doc carries the retired false-automatic claims
+;;       ("inherits that elision automatically" / "costs nothing in
+;;       production") that asserted free release elision.
+
+(deftest with-story-release-elision-docs-config-agree-test
+  (testing "with-Story scaffold: the release-elision docs (core docstring
+            + README) agree with the emitted shadow-cljs.edn — elision is
+            documented as OPT-IN with the exact closure-define, and the
+            config does not silently set it (rf2-l4prz Finding 1)"
+    (let [tmp (tmp-dir "rf2-template-story-elision-")]
+      (try
+        (let [root      (run-template! tmp "acme/my-app" :reagent true)
+              core-text (slurp (io/file root "src/acme/my_app/core.cljs"))
+              readme    (slurp (io/file root "README.md"))
+              scs       (read-edn (io/file root "shadow-cljs.edn"))
+              ;; The exact closure-define a user adds to elide Story.
+              define-sym 're-frame.story.config/enabled?]
+
+          ;; (a) The emitted shadow-cljs.edn must NOT set the Story
+          ;;     closure-define anywhere — that is what makes elision
+          ;;     opt-in. Walk the whole build map for the define symbol so
+          ;;     a `:release`/`:dev`/`:compiler-options` placement is all
+          ;;     caught.
+          (let [scs-str (pr-str scs)]
+            (is (not (.contains scs-str (str define-sym)))
+                (str "emitted shadow-cljs.edn must NOT set "
+                     define-sym " — Story release elision is opt-in (the "
+                     "docs say so). If a future change DOES set it by "
+                     "default, the docs must flip to 'automatic' and this "
+                     "assertion + the doc text must be updated together "
+                     "(rf2-l4prz Finding 1).")))
+
+          ;; (b) Both docs carry the exact opt-in closure-define AND mark
+          ;;     it opt-in. `enabled? false` is the literal token a user
+          ;;     copies; "opt-in" / "OPT-IN" marks it as not automatic.
+          (doseq [[label text] [["with-Story core.cljs" core-text]
+                                ["README" readme]]]
+            (is (.contains text "re-frame.story.config/enabled? false")
+                (str label " gives the exact closure-define a user adds "
+                     "to elide Story from release (rf2-l4prz Finding 1)"))
+            (is (.contains (clojure.string/lower-case text) "opt-in")
+                (str label " marks Story release elision as OPT-IN "
+                     "(not automatic) (rf2-l4prz Finding 1)")))
+
+          ;; (c) The retired false-automatic claims must be gone from both
+          ;;     docs — these asserted free/automatic release elision.
+          ;;     `inherits that elision automatically` (whitespace-folded)
+          ;;     and `costs nothing in production` were the two phrases
+          ;;     that promised a free/automatic release elision.
+          (doseq [[label text] [["with-Story core.cljs" core-text]
+                                ["README" readme]]]
+            (let [folded (clojure.string/replace text #"\s+" " ")]
+              (is (not (.contains folded "inherits that elision automatically"))
+                  (str label " no longer claims the release build inherits "
+                       "elision automatically (rf2-l4prz Finding 1)")))
+            (is (not (.contains text "costs nothing in production"))
+                (str label " no longer claims Story 'costs nothing in "
+                     "production' (it ships unless you opt in) "
+                     "(rf2-l4prz Finding 1)"))))
         (finally
           (delete-recursively tmp))))))
 

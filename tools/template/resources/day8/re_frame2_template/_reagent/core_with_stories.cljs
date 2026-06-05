@@ -16,9 +16,21 @@
    `:closure-defines {re-frame.story.config/enabled? false}`, every
    `reg-*` form in `{{namespace}}.stories` elides to `nil` and
    `mount-shell!` short-circuits — the production bundle carries no
-   Story body code. The `:release` shadow build inherits that elision
-   automatically; flip the closure-define in `shadow-cljs.edn` if you
-   need a release-flavoured Story build for visual-regression."
+   Story body code.
+
+   IMPORTANT — elision is OPT-IN, not automatic. `re-frame.story.config/
+   enabled?` defaults to `true`, and `shadow-cljs.edn` does NOT set the
+   closure-define for you. So a plain `npx shadow-cljs release app` SHIPS
+   the Story shell, the `#/stories` route, and every registration to
+   production. To elide Story from the release bundle, add the
+   `:release` compiler-options block to `shadow-cljs.edn`'s `:app`
+   build:
+
+     :release {:compiler-options
+               {:closure-defines {re-frame.story.config/enabled? false}}}
+
+   (Leave it OUT — keep `enabled?` true in release — only when you want
+   a release-flavoured Story build for visual-regression.)"
   (:require [reagent.dom.client       :as rdc]
             [re-frame.core            :as rf]
             [re-frame.story           :as story]
@@ -59,6 +71,25 @@
       (mount-stories!)
       (mount-app!))))
 
+;; -- hashchange listener (hot-reload-safe) --------------------------------
+;;
+;; `init` runs on first boot AND on every shadow hot-reload. The closure
+;; identity of `on-hash-change!` changes on each rebuild, so a naive
+;; `(.addEventListener … on-hash-change!)` in `init` would accumulate one
+;; stale listener per rebuild — every subsequent route change would then
+;; fire the mount switch N times (repeated React root teardown/recreate,
+;; flicker, a growing listener leak). We hold the *installed* listener in
+;; a `defonce` atom that survives reloads, and remove the previous one
+;; before adding the new one — so exactly one hashchange listener is ever
+;; wired, pointing at the current code.
+(defonce ^:private hash-listener (atom nil))
+
+(defn- install-hash-listener! []
+  (when-let [prev @hash-listener]
+    (.removeEventListener js/window "hashchange" prev))
+  (.addEventListener js/window "hashchange" on-hash-change!)
+  (reset! hash-listener on-hash-change!))
+
 (defn ^:export init
   "Called by shadow-cljs (see :init-fn in shadow-cljs.edn). Idempotent —
    shadow's hot-reload pipeline re-invokes it on each rebuild."
@@ -73,6 +104,9 @@
   ;; populated frame.
   (rf/dispatch-sync [:counter/initialise])
   ;; Wire hash-change so reloading `#/stories` lands on the shell
-  ;; without a manual click-through.
-  (.addEventListener js/window "hashchange" on-hash-change!)
+  ;; without a manual click-through. `install-hash-listener!` removes any
+  ;; listener a previous hot-reload installed before adding this one, so
+  ;; reloads never accumulate stale listeners (defonce atom holds the
+  ;; current one).
+  (install-hash-listener!)
   (on-hash-change!))
