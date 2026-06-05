@@ -233,7 +233,7 @@
   ## Static-only verbs
 
   Jump-to-static-tab — selects one of the 5 Static L3 tabs (Machines /
-  Routes / Schemas / Views / Events). Static has no spine so the
+  Routes / Schemas / Flows / Interceptors). Static has no spine so the
   Dynamic tab jumps don't apply.
 
   ## Mode-agnostic verbs (rf2-ybjkx)
@@ -355,7 +355,7 @@
 (defn static-tab-items
   "Static-mode sub-tab jumps (rf2-ybjkx). Five entries mirroring the
   `static/shell.cljs/tabs` inventory: Machines / Routes / Schemas /
-  Views / Events. Each carries `:modes #{:static}` so the aggregator
+  Flows / Interceptors. Each carries `:modes #{:static}` so the aggregator
   filters them out when the palette opens in Dynamic mode."
   [static-tab-entries]
   (mapv
