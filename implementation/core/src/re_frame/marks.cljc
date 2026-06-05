@@ -757,6 +757,48 @@
           (contains? tags :after)    (assoc :after    (project (:after    tags)))
           (contains? tags :snapshot) (assoc :snapshot (project (:snapshot tags))))))))
 
+(defn- project-machine-error-tags
+  "Walk the `:rf.error/machine-action-exception` tag shape (rf2-zsm03).
+  The trace carries `:exception-data` — the `ex-data` of a thrown machine
+  action — under a bare slot the machine-snapshot projection
+  (`project-machine-tags`) does NOT cover: the `:event` slot is redacted by
+  `project-event-tags` and `:before`/`:after`/`:snapshot` by
+  `project-machine-tags`, but `:exception-data` is the developer's
+  arbitrary exception payload and could embed the same app secrets the
+  machine's `:data` marks gate (a thrown action that puts a token /
+  document-id in its `ex-data`).
+
+  Unlike the snapshot slots, `:exception-data` is NOT snapshot-shaped, so
+  the machine's `[:data …]`-rooted `:sensitive` paths do not map onto it.
+  The conservative, footgun-prevention posture (mirroring how
+  `resolve-sub-output-marks` treats a layer-1 sub against any sensitive
+  app-db declaration — Spec 015 §Propagation rules): when the machine
+  declares ANY `:sensitive` mark, the machine handles secrets, so an
+  action's `ex-data` MAY carry them and we cannot prove otherwise. Elide
+  the WHOLE `:exception-data` slot to the `:rf/redacted` sentinel before
+  the error trace crosses the bus / epoch-capture / AI-MCP egress boundary
+  or reaches a log sink. The structural slots (`:machine-id` / `:action-id`
+  / `:state-path` / `:reason` / `:exception-message`) stay intact — they
+  carry no user value and consumers need them to locate the failure.
+
+  A machine with NO `:sensitive` mark rides `:exception-data` verbatim
+  (the seam is precise, not a blanket scrub — symmetric with every other
+  per-registration projection). `:large` marks do not apply: the slot is
+  a developer-shaped diagnostic, not an app-data path graph.
+
+  The whole-Throwable `:exception` slot is left as-is — a Throwable is not
+  a Clojure-walkable collection and consumers extract `:exception-message`
+  (the plain string, untouched here) separately; this matches how every
+  other `:rf.error/*` trace handles the raw exception object."
+  [tags]
+  (let [machine-id (:machine-id tags)
+        marks      (machine-marks machine-id)]
+    (if (and (contains? tags :exception-data)
+             marks
+             (seq (:sensitive marks)))
+      (assoc tags :exception-data privacy/redacted-sentinel :sensitive? true)
+      tags)))
+
 (defn- machine-op?
   [operation]
   (let [n (and (keyword? operation) (namespace operation))]
@@ -821,7 +863,18 @@
                       (project-sub-tags frame-id)
 
                       (and (map? tags) (machine-op? operation))
-                      (project-machine-tags))]
+                      (project-machine-tags)
+
+                      ;; rf2-zsm03 — the `:rf.error/machine-action-exception`
+                      ;; trace carries the thrown action's `ex-data` under a
+                      ;; bare `:exception-data` slot. Its op namespace is
+                      ;; `:rf.error/*` (NOT `rf.machine`), so `machine-op?`
+                      ;; above does not reach it; redact the slot against the
+                      ;; machine's declared `:sensitive` marks here so an
+                      ;; action that throws app secrets inside a sensitive
+                      ;; machine does not leak them past the egress boundary.
+                      (and (map? tags) (contains? tags :exception-data))
+                      (project-machine-error-tags))]
       (assoc event :tags tags'))))
 
 ;; ---- late-bind hook registration ----------------------------------------

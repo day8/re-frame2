@@ -1,0 +1,345 @@
+(ns re-frame.security.error-slot-egress-security-cljs-test
+  "Security tier — non-schema-validation error-emit slots that carry
+  caller-supplied data the path-marks projection did NOT cover and the
+  shared schema-aware validation seam does NOT apply to (rf2-zsm03;
+  follow-up to the rf2-o69h5 class sweep).
+
+  ## The two slots
+
+  rf2-o69h5 closed the `:rf.error/schema-validation-failure` class: every
+  framework emission of that op routes its value-bearing slots through the
+  one shared schema-aware redactor. Two OTHER error-emit sites carry
+  caller-supplied data outside that class:
+
+    1. `:rf.error/machine-action-exception` `:exception-data` — the `ex-data`
+       of a thrown machine action (re-frame.machines.lifecycle-fx.registration).
+       The `:event` slot IS covered by the marks projection's
+       `project-event-tags`; `:before`/`:after`/`:snapshot` by
+       `project-machine-tags`. But `:exception-data` is the developer's
+       arbitrary exception payload — under a bare slot NO projection clause
+       reached (the op namespace is `:rf.error/*`, not `rf.machine`, so
+       `machine-op?` skips it). It can embed the same app secrets the
+       machine's `:data` marks gate.
+
+    2. `:rf.route/navigate` `:error` (re-frame.routing.navigate) — `(ex-data
+       ex)` of a `route-url` construction throw. On
+       `:rf.error/route-url-validation` / `:rf.error/missing-route-param` it
+       embeds the raw route-param value (document-ids / tokens) AND the Malli
+       explainer. Route-param validation is STRUCTURAL (the throw is from
+       `route-url`, not a per-slot Malli walk at this emit point), so the
+       shared `redact-validation-tags` seam cannot path-target it.
+
+  ## The fix (mirrors the rf2-o69h5 egress-chokepoint approach)
+
+  Both slots are elided at the trace egress chokepoint BEFORE the event
+  crosses the bus / epoch-capture / AI-MCP boundary or reaches a log sink:
+
+    1. `re-frame.marks/project-machine-error-tags` (a NEW projection clause,
+       wired into `project-trace-event`) elides the WHOLE `:exception-data`
+       slot to `:rf/redacted` and stamps `:sensitive? true` when the machine
+       declares ANY `:sensitive` mark.
+    2. `re-frame.routing.navigate`'s `redact-route-error-tags` elides the
+       WHOLE `:error` slot and stamps `:sensitive? true` when the route's
+       `:params` / `:query` schema declares any `:sensitive?` slot (decided
+       through the SAME shared `:schemas/redact-validation-tags` seam).
+
+  Both stamp `:sensitive? true`, so the MCP egress gate
+  (`re-frame.mcp-base.sensitive/strip-sensitive`) ALSO drops the whole event
+  with the boot gate OFF — defence in depth (asserted below).
+
+  ## Net property (verify-by-revert)
+
+  Reverting `project-machine-error-tags` (or its dispatch clause) to a
+  pass-through makes the machine corpus + property go RED — the sentinel
+  surfaces in `:exception-data`. Reverting `redact-route-error-tags` makes
+  the navigate corpus go RED — the sentinel surfaces in `:error`. Confirmed
+  by temporary local revert + restore (see PR Quality gates).
+
+  ## Threat model
+
+  AI/MCP boundary + logs ONLY (per rf2-zsm03 / rf2-o69h5) — human-facing
+  egress is out of scope and not gold-plated."
+  (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
+               :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+            [clojure.walk :as walk]
+            [re-frame.core :as rf]
+            ;; Publishes the Malli late-bind validate/explain/sensitive hooks;
+            ;; without it `route-url` soft-passes (no validation throw) and the
+            ;; `:schemas/redact-validation-tags` sensitivity oracle is unbound.
+            [re-frame.schemas.malli]
+            [re-frame.marks :as marks]
+            [re-frame.mcp-base.sensitive :as sens]
+            [re-frame.routing :as routing]
+            ;; Call `navigate-handler` directly (a plain event-fx handler fn)
+            ;; so site 2 exercises the REAL redaction path headless — no
+            ;; reactive-substrate adapter / `dispatch-sync` machinery needed.
+            ;; A `:params`-schema validation reject short-circuits inside the
+            ;; handler before any push/scroll fx, so a synthetic cofx suffices.
+            [re-frame.routing.navigate :as navigate]
+            [re-frame.routing.registry :as registry]
+            [re-frame.test-support :as test-support]
+            [re-frame.trace.tooling :as trace-tooling]
+            [re-frame.security.gen :as gen]))
+
+;; Reset per-test so route + mark + app-schema registrations don't bleed.
+(use-fixtures :each
+  (test-support/make-reset-runtime-fixture
+    {:clear-app-schemas? true}))
+
+;; ---------------------------------------------------------------------------
+;; Sentinel — a value that must NEVER appear unredacted in either slot.
+;; ---------------------------------------------------------------------------
+
+(def ^:private sentinel "S3CR3T-rf2-zsm03-ERROR-SLOT-DO-NOT-LEAK")
+
+(defn- contains-sentinel?
+  "Deep-walk `x`; true when the sentinel string appears anywhere (as a
+  value, inside a collection, or inside a stringified form)."
+  [x]
+  (let [hit (volatile! false)]
+    (walk/postwalk
+      (fn [node]
+        (when (and (string? node) (re-find (re-pattern sentinel) node))
+          (vreset! hit true))
+        node)
+      x)
+    (or @hit
+        (boolean (re-find (re-pattern sentinel) (pr-str x))))))
+
+;; ===========================================================================
+;; SITE 1 — :rf.error/machine-action-exception :exception-data
+;; Driven through the REAL egress chokepoint `marks/project-trace-event`.
+;; ===========================================================================
+
+(def ^:private sensitive-machine-id :sec/sensitive-machine)
+(def ^:private plain-machine-id     :sec/plain-machine)
+
+(defn- declare-machine-marks!
+  "Install the per-(kind, id) marks a `reg-machine` with `:sensitive`
+  machine-data paths would install (machine marks are keyed under the
+  `:event` kind because a machine IS an event handler)."
+  []
+  ;; Sensitive machine — declares a sensitive `:data` path (the snapshot
+  ;; analogue), the signal `project-machine-error-tags` keys off.
+  (marks/register-marks! :event sensitive-machine-id
+                         {:sensitive [[:data :token]]})
+  ;; Plain machine — no marks at all.
+  (marks/register-marks! :event plain-machine-id {}))
+
+(defn- machine-action-exception-event
+  "Build a realistic `:rf.error/machine-action-exception` trace envelope
+  (the shape `trace/build-event` produces) carrying `machine-id` and the
+  sentinel-bearing `:exception-data`."
+  [machine-id]
+  {:operation :rf.error/machine-action-exception
+   :op-type   :error
+   :tags      {:machine-id        machine-id
+               :action-id         :do/thing
+               :state-path        [:running]
+               :event             [machine-id [:tick]]
+               :exception-message "boom"
+               :exception-data    {:user-token sentinel :doc-id [sentinel]}
+               :reason            "Machine action threw."
+               :recovery          :no-recovery}})
+
+(deftest machine-exception-data-redacted-for-sensitive-machine
+  (testing "rf2-zsm03 — a sensitive machine's :exception-data is elided to
+            :rf/redacted at the egress chokepoint, :sensitive? is stamped,
+            and the sentinel never survives"
+    (declare-machine-marks!)
+    (let [out  (marks/project-trace-event
+                 (machine-action-exception-event sensitive-machine-id))
+          tags (:tags out)]
+      (is (= :rf/redacted (:exception-data tags)) ":exception-data redacted")
+      (is (true? (:sensitive? tags)) ":sensitive? stamped on the tags")
+      (is (not (contains-sentinel? out))
+          (str "the sentinel leaked into the machine-action-exception trace: "
+               (pr-str tags)))
+      ;; Structural slots survive — consumers locate the failure.
+      (is (= sensitive-machine-id (:machine-id tags)) ":machine-id kept")
+      (is (= :do/thing (:action-id tags)) ":action-id kept")
+      (is (= "boom" (:exception-message tags)) ":exception-message kept"))))
+
+(deftest machine-exception-data-verbatim-for-plain-machine
+  (testing "rf2-zsm03 — a machine with NO :sensitive mark rides
+            :exception-data verbatim (the seam is precise, not a blanket
+            scrub)"
+    (declare-machine-marks!)
+    (let [out  (marks/project-trace-event
+                 (machine-action-exception-event plain-machine-id))
+          tags (:tags out)]
+      (is (map? (:exception-data tags)) ":exception-data NOT redacted")
+      (is (not (contains? tags :sensitive?))
+          "no :sensitive? stamp when the machine declares nothing sensitive"))))
+
+(deftest machine-exception-data-verbatim-for-unregistered-machine
+  (testing "rf2-zsm03 — a machine with no marks entry at all (never
+            registered marks) rides :exception-data verbatim"
+    ;; No declare-machine-marks! call — kind->id->marks has no entry.
+    (let [out  (marks/project-trace-event
+                 (machine-action-exception-event :sec/unregistered))
+          tags (:tags out)]
+      (is (map? (:exception-data tags)) ":exception-data verbatim (no marks)")
+      (is (not (contains? tags :sensitive?)) "no :sensitive? stamp"))))
+
+;; ---------------------------------------------------------------------------
+;; SITE 1 PROPERTY — across arbitrary collection/map nestings of the
+;; sentinel inside :exception-data, a sensitive machine NEVER egresses it.
+;; ---------------------------------------------------------------------------
+
+(defn- gen-ex-data
+  "Generator: a sentinel-bearing ex-data value at a random collection/map
+  nesting. `depth` bounds recursion."
+  [depth]
+  (if (<= depth 0)
+    (fn [rng] [sentinel rng])
+    (fn [rng]
+      (let [[wrap rng1] (gen/rand-nth rng [:map :vector :set :nested-map])
+            [inner rng2] ((gen-ex-data (dec depth)) rng1)]
+        (case wrap
+          :map        [{:k inner} rng2]
+          :vector     [[inner] rng2]
+          :set        [#{inner} rng2]
+          :nested-map [{:a {:b inner}} rng2])))))
+
+(def ^:private gen-nested-ex-data
+  (fn [rng]
+    (let [[depth rng1] (gen/next-int rng 5)]
+      ((gen-ex-data (inc depth)) rng1))))
+
+(deftest sensitive-machine-redacts-ex-data-at-arbitrary-nesting
+  (testing "rf2-zsm03 — across arbitrary nestings of the sentinel inside
+            :exception-data, a sensitive machine elides the WHOLE slot and
+            stamps :sensitive?; the sentinel never survives"
+    (declare-machine-marks!)
+    (let [result (gen/for-all
+                   gen-nested-ex-data 120 41
+                   (fn [ex-data]
+                     (let [ev   (assoc-in (machine-action-exception-event
+                                            sensitive-machine-id)
+                                          [:tags :exception-data] ex-data)
+                           out  (marks/project-trace-event ev)]
+                       (and (= :rf/redacted (-> out :tags :exception-data))
+                            (true? (-> out :tags :sensitive?))
+                            (not (contains-sentinel? out))))))]
+      (is (nil? result)
+          (str "a sensitive machine leaked :exception-data for a generated "
+               "nesting: " (pr-str (when result (dissoc result :threw))))))))
+
+;; ===========================================================================
+;; SITE 2 — :rf.route/navigate :error
+;; Driven END-TO-END through the REAL navigate-handler: a validation-reject
+;; short-circuits BEFORE any push/scroll fx, so no window stub is needed.
+;; ===========================================================================
+
+(def ^:private sensitive-params-schema
+  ;; A route :params schema marking the doc-id slot sensitive. A navigate
+  ;; with a non-conforming :doc value throws :rf.error/route-url-validation
+  ;; whose ex-data carries the failing value (the sentinel) under :value AND
+  ;; the Malli explainer.
+  [:map [:doc {:sensitive? true} :int]])
+
+(def ^:private plain-params-schema
+  [:map [:doc :int]])
+
+(defn- capture-navigate-failure
+  "Register `:sec/route` with `params-schema`, invoke the REAL
+  `navigate-handler` with a sentinel-bearing (non-:int) :doc param so
+  `route-url` throws inside the handler, and return the emitted
+  `:rf.error/schema-validation-failure` trace event. Calling the handler
+  fn directly (rather than `dispatch-sync`) keeps the test substrate-free:
+  the `:params`-schema reject short-circuits before any push/scroll fx."
+  [params-schema]
+  (rf/reg-route :sec/route {:path "/doc/:doc" :params params-schema})
+  (let [traces (atom [])
+        kw     (keyword "rf2-zsm03" (name (gensym "nav")))]
+    (trace-tooling/register-listener! kw (fn [ev] (swap! traces conj ev)))
+    (try
+      ;; :doc must be a value the schema rejects (schema wants :int). The
+      ;; sentinel rides as the offending param value.
+      (navigate/navigate-handler {:db {} :frame :rf/default}
+                                 [:rf.route/navigate :sec/route {:doc sentinel}])
+      (finally (trace-tooling/unregister-listener! kw)))
+    (first (filter #(= :rf.error/schema-validation-failure (:operation %))
+                   @traces))))
+
+(deftest navigate-error-redacted-for-sensitive-route
+  (testing "rf2-zsm03 — a navigate whose route :params schema is :sensitive?
+            elides the :error slot (carrying the failing param value) to
+            :rf/redacted, stamps :sensitive?, and never egresses the sentinel"
+    (let [trace (capture-navigate-failure sensitive-params-schema)
+          tags  (:tags trace)]
+      (is (some? trace) "a schema-validation-failure trace fired for the reject")
+      (when trace
+        (is (= :rf/redacted (:error tags)) ":error slot redacted")
+        ;; The redaction stamps tags-level `:sensitive?`; this emit goes
+        ;; through the real `trace/emit-error!` → `build-event`, which hoists
+        ;; the flag to the TOP LEVEL of the envelope (and strips it from
+        ;; `:tags`). The top-level stamp is exactly what the MCP egress gate
+        ;; reads (`mcp-base.sensitive/sensitive-event?`).
+        (is (true? (:sensitive? trace)) "top-level :sensitive? stamped")
+        (is (not (contains-sentinel? trace))
+            (str "the sentinel leaked into the navigate :error trace: "
+                 (pr-str trace)))
+        ;; Structural slots survive.
+        (is (= :sec/route (:route-id tags)) ":route-id kept")
+        (is (= :event (:where tags)) ":where kept")))))
+
+(deftest navigate-error-verbatim-for-plain-route
+  (testing "rf2-zsm03 — a navigate whose route :params schema has NO
+            :sensitive? slot rides :error verbatim (no over-redaction)"
+    (let [trace (capture-navigate-failure plain-params-schema)
+          tags  (:tags trace)]
+      (is (some? trace) "a schema-validation-failure trace fired")
+      (when trace
+        (is (not= :rf/redacted (:error tags)) ":error NOT redacted")
+        (is (map? (:error tags)) ":error rode through as the raw ex-data map")
+        (is (not (contains? tags :sensitive?))
+            "no :sensitive? stamp on a non-sensitive route")))))
+
+;; ===========================================================================
+;; REDACTION IS AT-SOURCE — the scrub happens at the trace egress chokepoint,
+;; so the sentinel is gone from the event REGARDLESS of the MCP boot gate.
+;; Unlike the MCP whole-event drop (which would also hide the useful "an
+;; action threw" / "a navigate rejected" signal from the agent), per-slot
+;; redaction lets the agent SEE the structural error while the secret stays
+;; off-box. So we pass the redacted events through the MCP egress with the
+;; gate ON (include? true — the MOST permissive, fully opted-in path) and
+;; confirm the sentinel STILL never reaches the boundary: the protection is
+;; the source scrub, not a gate decision.
+;; ===========================================================================
+
+(deftest redaction-survives-even-the-opt-in-mcp-egress
+  (testing "rf2-zsm03 — the per-slot scrub is at-source: even with the MCP
+            boot gate fully ON (include? true), neither the machine
+            :exception-data nor the navigate :error egresses the sentinel"
+    (declare-machine-marks!)
+    (let [machine-ev (marks/project-trace-event
+                       (machine-action-exception-event sensitive-machine-id))
+          nav-trace  (capture-navigate-failure sensitive-params-schema)
+          events     (filterv some? [machine-ev nav-trace])
+          [kept _]   (sens/strip-sensitive events true)]
+      (is (= 2 (count events)) "both redacted events were produced")
+      (is (not-any? contains-sentinel? kept)
+          (str "the sentinel reached the MCP boundary even after redaction: "
+               (pr-str kept))))))
+
+;; ===========================================================================
+;; UNIT — the route-url throw genuinely carries the sentinel in its ex-data
+;; (pins the pre-redaction leak vector so the redaction is not vacuous).
+;; ===========================================================================
+
+(deftest route-url-throw-ex-data-carries-the-sentinel
+  (testing "rf2-zsm03 — the route-url validation throw's ex-data DOES embed
+            the failing param value (the sentinel); without redaction the
+            navigate :error slot would ship it"
+    (rf/reg-route :sec/raw-route {:path "/doc/:doc" :params sensitive-params-schema})
+    (let [ex (try
+               (registry/route-url :sec/raw-route {:doc sentinel})
+               nil
+               (catch #?(:clj Throwable :cljs :default) e e))]
+      (is (some? ex) "route-url threw on the non-conforming sensitive param")
+      (when ex
+        (is (contains-sentinel? (ex-data ex))
+            "pre-redaction: the throw's ex-data embeds the sentinel — the leak
+             vector the :error redaction closes")))))

@@ -76,6 +76,21 @@
   "Emit `:rf.error/machine-action-exception` for a `result/fail` Result's
   `::result/info` map. Returns `{}` so the handler short-circuits.
 
+  Per rf2-zsm03 (privacy — AI/MCP egress + logs threat model): the
+  `:event` slot is redacted by the marks projection's `project-event-tags`
+  and `:before`/`:after`/`:snapshot` by `project-machine-tags`, but the
+  `:exception-data` slot below carries the thrown action's `ex-data` — the
+  developer's arbitrary exception payload, which could embed the same app
+  secrets the machine's `:data` marks gate. That slot is path-elided at the
+  trace egress chokepoint by `re-frame.marks/project-machine-error-tags`
+  (a NEW projection clause): when the machine declares ANY `:sensitive`
+  mark the whole `:exception-data` slot scrubs to `:rf/redacted` before the
+  trace crosses the bus / epoch-capture / AI-MCP boundary or a log sink —
+  the same egress seam (the marks projection) the rf2-o69h5 class sweep
+  routed the core validation-failure class through. The redaction lives at
+  the chokepoint (not here) so it covers EVERY consumer of the trace
+  uniformly and stays the single place the `:sensitive` decision is made.
+
   Per Spec 005 §Final states §`:on-error` (rf2-5hlsh; XState v5 invoke
   `onError`): an uncaught child action exception is the SECOND `:on-error`
   trigger (the control-flow case — formerly observability-only). When the
