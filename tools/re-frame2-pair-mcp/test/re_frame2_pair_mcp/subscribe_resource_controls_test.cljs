@@ -20,7 +20,8 @@
   nREPL socket. The contracts pinned here cover the wire-shape side
   of the integration; the runtime side rides the existing per-sub
   queue-cap tests + the rf2-3ijbl bead's manual smoke."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
+  (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
+            [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.resource-controls :as resource]
             [re-frame2-pair-mcp.tools.subscribe :as sub]))
 
@@ -101,3 +102,118 @@
                                     :ov-reason nil :dropped 0 :tick-elided 0})]
     (is (contains? s' :rate-dropped))
     (is (zero? (:rate-dropped s')))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-uvfph — rate gate is checked BEFORE the destructive drain.
+;;
+;; The headline regression: pre-rf2-uvfph the poll loop drained the
+;; runtime queue (`drain-subscription!` pops + clears it) and ONLY THEN
+;; checked the rate limit; a denied tick threw the already-drained batch
+;; away — silent event loss, despite the spec promising "left in queue
+;; for later delivery". The fix gates the drain itself: a denied cycle
+;; MUST NOT call `drain-subscription!`, so the queue stays intact for a
+;; later cycle once a token refills.
+;;
+;; We drive ONE `poll` invocation through `make-stream-controller` with a
+;; stubbed `nrepl/cljs-eval-value` that records every form it's asked to
+;; eval, and a rate bucket emptied to deny. The assertion: the drain form
+;; never reached nREPL (no destructive drain → no loss), and the cycle is
+;; tallied as `:rate-dropped`.
+;; ---------------------------------------------------------------------------
+
+(defn- empty-the-bucket!
+  "Set the rate cap to 1 and consume the single token so the next
+  `check-rate!` denies. Returns nothing."
+  []
+  (resource/set-config! {:max-events-per-sec 1})
+  (is (true? (resource/check-rate!)) "first token consumed — bucket now empty")
+  (is (false? (resource/check-rate!)) "bucket empty — subsequent checks deny"))
+
+(defn- fresh-state []
+  (atom {:tick 0 :delivered 0 :dropped-events 0
+         :dropped-bytes 0 :overflow-reason nil
+         :dropped-sensitive 0 :elided-large 0
+         :rate-dropped 0}))
+
+;; `js/setTimeout` is a JS global, NOT a CLJS var — `with-redefs` cannot
+;; restore it (it only manages var roots), and a leaked stub would break
+;; later tests' real poll loops (e.g. tail-build). So we `set!` it and
+;; restore explicitly. `nrepl/cljs-eval-value` IS a var but we restore it
+;; the same way to keep the lifetime obvious across the async boundary.
+;; Both stubs use explicit arity-3/4 — the call sites compile to a
+;; fixed-arity invoke, so a variadic-only stub has no `arity$3` method.
+
+(deftest rate-denied-cycle-does-not-drain-no-event-loss
+  ;; With the bucket empty, the poll cycle is DEFERRED: the destructive
+  ;; drain form must NOT be evaluated, and `:rate-dropped` ticks up. The
+  ;; events stay queued runtime-side for a later cycle — no loss. The
+  ;; denied path is synchronous, so we assert then restore in a finally.
+  (let [evald          (atom [])
+        state          (fresh-state)
+        orig-eval      nrepl/cljs-eval-value
+        orig-set-to    js/setTimeout
+        record-eval    (fn [form] (swap! evald conj form) (js/Promise.resolve {}))]
+    (try
+      (set! nrepl/cljs-eval-value
+            (fn ([_c _b form] (record-eval form))
+              ([_c _b form _o] (record-eval form))))
+      ;; no-op the reschedule so the deferred cycle doesn't spin a
+      ;; background timer past the assertion
+      (set! js/setTimeout (fn [& _] 0))
+      (empty-the-bucket!)
+      (let [{:keys [poll]}
+            (sub/make-stream-controller
+              {:conn :stub :build-id "b" :sub-id "sub-rl" :topic :trace
+               :resolve (fn [_] nil) :state state
+               :signal nil :send-note nil :progress-tk nil
+               :poll-ms 100 :max-events 0
+               :incl? false :elision? true :dedup? false})]
+        (poll)
+        (is (empty? @evald)
+            "rate-denied cycle MUST NOT evaluate the drain form — the runtime queue is preserved (no event loss)")
+        (is (= 1 (:rate-dropped @state))
+            "the deferred cycle is tallied as :rate-dropped"))
+      (finally
+        (set! nrepl/cljs-eval-value orig-eval)
+        (set! js/setTimeout orig-set-to)))))
+
+(deftest rate-allowed-cycle-does-drain
+  ;; Control: with a token available, the cycle DOES drain — the gate
+  ;; only defers when the bucket is empty. The stub resolves a non-gone,
+  ;; empty drain so the cycle is a normal (no-tick) drain; `terminate` is
+  ;; NOT entered, so the single eval recorded is the drain form itself.
+  (async done
+    (let [evald       (atom [])
+          state       (fresh-state)
+          orig-eval   nrepl/cljs-eval-value
+          orig-set-to js/setTimeout
+          record-eval (fn [form]
+                        (swap! evald conj form)
+                        (js/Promise.resolve {:ok? true :sub-id "sub-ok"
+                                             :events [] :gone? false}))
+          restore!    (fn []
+                        (set! nrepl/cljs-eval-value orig-eval)
+                        (set! js/setTimeout orig-set-to))]
+      (set! nrepl/cljs-eval-value
+            (fn ([_c _b form] (record-eval form))
+              ([_c _b form _o] (record-eval form))))
+      (set! js/setTimeout (fn [& _] 0))
+      (resource/reset-for-tests!) ; fresh bucket at default cap — first check passes
+      (let [{:keys [poll]}
+            (sub/make-stream-controller
+              {:conn :stub :build-id "b" :sub-id "sub-ok" :topic :trace
+               :resolve (fn [_] nil) :state state
+               :signal nil :send-note nil :progress-tk nil
+               :poll-ms 100 :max-events 0
+               :incl? false :elision? true :dedup? false})]
+        ;; poll's drain runs on a resolved Promise; assert in a .then
+        ;; once the drain handler has recorded the eval.
+        (-> (poll)
+            (.then (fn [_]
+                     (is (= 1 (count @evald))
+                         "rate-allowed cycle evaluates the drain form exactly once")
+                     (is (re-find #"drain-subscription!" (first @evald))
+                         "the recorded eval is the destructive drain form")
+                     (is (zero? (:rate-dropped @state))
+                         "no rate-drop when a token was available")))
+            (.finally (fn [] (restore!) (done))))))))

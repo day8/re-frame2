@@ -30,11 +30,15 @@
 
   ## Per-session event rate-limit (token bucket)
 
-  `check-rate!` is called once per delivered event. The session-wide
-  token bucket refills at `max-events-per-sec` (default 100) and caps
-  at the same value. Excess events are rate-dropped — `check-rate!`
-  returns `false` and the tick is silently skipped (counted via
-  `rate-dropped-count` for the final summary).
+  `check-rate!` is called once per poll cycle BEFORE the destructive
+  drain (rf2-uvfph). The session-wide token bucket refills at
+  `max-events-per-sec` (default 100) and caps at the same value. When a
+  token is available the caller drains + emits; when the bucket is empty
+  `check-rate!` returns `false` and the caller DEFERS the cycle — it
+  does NOT drain, so the runtime-side queue stays intact for a later
+  cycle once a token refills. The deferred cycle is tallied as
+  `:rate-dropped` on the final summary (a cap-tripped signal, not a lost-
+  event count).
 
   Token-bucket vs leaky-bucket: token-bucket allows brief bursts up to
   the cap, leaky-bucket smooths uniformly. Streaming trace events are
@@ -253,9 +257,10 @@
 
 (defn check-rate!
   "Try to consume one token from the rate-limit bucket. Returns `true`
-  if a token was available (the caller may proceed to emit the event);
-  `false` if the bucket is empty (the caller should drop the event
-  silently and tally it as rate-dropped on the stream's final summary).
+  if a token was available (the caller may proceed to drain + emit);
+  `false` if the bucket is empty (the caller should DEFER this poll
+  cycle — skip the destructive drain so the runtime queue is preserved
+  — and tally it as rate-dropped on the stream's final summary).
 
   Lazy initialisation: the bucket is filled to its cap on first call
   so a fresh session doesn't pay a ramp-up penalty. Reset between

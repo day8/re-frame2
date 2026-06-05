@@ -666,10 +666,17 @@ failure).
 
 A session-wide token bucket caps the rate of progress-notification
 ticks emitted across all open streams. Refill rate = bucket capacity
-= `max-events-per-sec`. Excess ticks are silently dropped (the
-runtime-side queue still holds the events; subsequent ticks drain
-them when tokens refill). The `tools/call` final summary surfaces
-the cumulative count as `:rate-dropped` (omitted when zero).
+= `max-events-per-sec`. The bucket is checked once per poll cycle
+**before** the destructive drain: when a token is available the cycle
+drains + emits; when the bucket is empty the cycle is **deferred** —
+the server does NOT drain, so the runtime-side queue stays intact and
+its events ride a later cycle once a token refills. Deferral, not
+loss: no queued event is discarded by the rate cap (the runtime's own
+per-sub queue budget still bounds memory via drop-oldest if a consumer
+never catches up). The `tools/call` final summary surfaces the
+cumulative count of deferred cycles as `:rate-dropped` (omitted when
+zero) — a "cap was tripped, consider raising `--max-events-per-sec`"
+signal, not a lost-event tally.
 
 Token-bucket over leaky-bucket: streaming trace events are bursty
 by nature (one event triggers a cascade of fx + sub-runs + renders
@@ -2473,7 +2480,7 @@ On termination, the `tools/call` result is
  :dropped-events <integer>   ; total events evicted from the runtime queue
  :dropped-bytes  <integer>   ; total bytes evicted
  :overflow-reason :max-buffered-events | :max-buffered-bytes | (key absent)
- :rate-dropped   <integer>   ; ticks silenced by the per-session rate cap (omitted when zero)
+ :rate-dropped   <integer>   ; poll cycles DEFERRED by the per-session rate cap — events stayed queued for a later cycle, not lost (omitted when zero)
  :ticks     <integer>
  :reason    :aborted | :sub-gone | :max-ms-reached | :max-events-reached |
             :rf.error/stream-abuse-detected}

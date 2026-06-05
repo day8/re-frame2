@@ -84,6 +84,105 @@
                    (is (= "(((" (:given edn))))
                  (done))))))
 
+;; ---------------------------------------------------------------------------
+;; rf2-uvfph — numeric subscribe-control validation. The five integer
+;; knobs (buffer caps, poll-ms, max-ms, max-events) were forwarded raw to
+;; the runtime budget / poll loop / termination caps with NO lower bound.
+;; Negatives collapsed the queue budget (empty probe), spun the poll loop,
+;; or silently disabled the intended bound. The args helpers vet them.
+;; ---------------------------------------------------------------------------
+
+(deftest positive-int-arg-absent-is-ok-nil
+  (is (= [:ok nil] (args/parse-positive-int-arg "poll-ms" nil))))
+
+(deftest positive-int-arg-accepts-positive
+  (is (= [:ok 500] (args/parse-positive-int-arg "max-buffered-events" 500)))
+  (is (= [:ok 1]   (args/parse-positive-int-arg "poll-ms" 1))))
+
+(deftest positive-int-arg-accepts-numeric-string
+  ;; MCP hosts sometimes stringify numbers — accept a clean integer string.
+  (is (= [:ok 250] (args/parse-positive-int-arg "max-buffered-bytes" "250"))))
+
+(deftest positive-int-arg-rejects-zero
+  (let [[tag env] (args/parse-positive-int-arg "poll-ms" 0)]
+    (is (= :err tag))
+    (is (= :invalid-numeric-arg (:reason env)))
+    (is (= "poll-ms" (:arg env)))
+    (is (= 0 (:given env)))))
+
+(deftest positive-int-arg-rejects-negative
+  (let [[tag env] (args/parse-positive-int-arg "max-buffered-events" -5)]
+    (is (= :err tag))
+    (is (= :invalid-numeric-arg (:reason env)))
+    (is (re-find #"positive integer" (:hint env)))))
+
+(deftest positive-int-arg-rejects-fractional
+  (let [[tag _] (args/parse-positive-int-arg "poll-ms" 1.5)]
+    (is (= :err tag) "a fractional value is not a valid integer cadence")))
+
+(deftest positive-int-arg-rejects-non-numeric
+  (let [[tag _] (args/parse-positive-int-arg "max-events" "soon")]
+    (is (= :err tag) "non-numeric junk is rejected")))
+
+(deftest non-negative-int-arg-accepts-zero-sentinel
+  ;; 0 = unbounded — the documented sentinel for max-ms / max-events.
+  (is (= [:ok 0] (args/parse-non-negative-int-arg "max-ms" 0)))
+  (is (= [:ok 0] (args/parse-non-negative-int-arg "max-events" 0))))
+
+(deftest non-negative-int-arg-accepts-positive
+  (is (= [:ok 30000] (args/parse-non-negative-int-arg "max-ms" 30000))))
+
+(deftest non-negative-int-arg-absent-is-ok-nil
+  (is (= [:ok nil] (args/parse-non-negative-int-arg "max-events" nil))))
+
+(deftest non-negative-int-arg-rejects-negative
+  (let [[tag env] (args/parse-non-negative-int-arg "max-events" -1)]
+    (is (= :err tag))
+    (is (= :invalid-numeric-arg (:reason env)))
+    (is (= "max-events" (:arg env)))
+    (is (re-find #"non-negative integer" (:hint env)))))
+
+(deftest non-negative-int-arg-rejects-fractional
+  (let [[tag _] (args/parse-non-negative-int-arg "max-ms" 12.3)]
+    (is (= :err tag))))
+
+;; Tool-boundary: a bad numeric arg short-circuits to an honest
+;; `:ok? false` envelope WITHOUT touching the nREPL socket or reserving a
+;; stream slot — same synchronous shape as the malformed-filter check.
+
+(deftest subscribe-tool-negative-buffer-errors-honestly
+  (async done
+    (-> (sub/subscribe-tool nil #js {:topic "trace" :max-buffered-events -10} nil)
+        (.then (fn [r]
+                 (is (tu/error? r) "negative buffer cap surfaces as :isError true")
+                 (let [edn (tu/extract-edn r)]
+                   (is (false? (:ok? edn)))
+                   (is (= :invalid-numeric-arg (:reason edn)))
+                   (is (= "max-buffered-events" (:arg edn))))
+                 (done))))))
+
+(deftest subscribe-tool-zero-poll-ms-errors-honestly
+  (async done
+    (-> (sub/subscribe-tool nil #js {:topic "epoch" :poll-ms 0} nil)
+        (.then (fn [r]
+                 (is (tu/error? r) "zero poll cadence surfaces as :isError true")
+                 (let [edn (tu/extract-edn r)]
+                   (is (false? (:ok? edn)))
+                   (is (= :invalid-numeric-arg (:reason edn)))
+                   (is (= "poll-ms" (:arg edn))))
+                 (done))))))
+
+(deftest subscribe-tool-negative-max-events-errors-honestly
+  (async done
+    (-> (sub/subscribe-tool nil #js {:topic "fx" :max-events -3} nil)
+        (.then (fn [r]
+                 (is (tu/error? r) "negative termination cap surfaces as :isError true")
+                 (let [edn (tu/extract-edn r)]
+                   (is (false? (:ok? edn)))
+                   (is (= :invalid-numeric-arg (:reason edn)))
+                   (is (= "max-events" (:arg edn))))
+                 (done))))))
+
 ;; The VALID-filter path "works unchanged" is pinned by the
 ;; `subscribe-form-with-trace-and-filter` / `-fx-topic` round-trip tests
 ;; above: a well-formed filter rides into the runtime `subscribe!`
