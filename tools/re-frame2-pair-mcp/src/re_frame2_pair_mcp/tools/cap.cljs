@@ -106,33 +106,57 @@
   "ResultIO reify over re-frame2-pair-mcp's `#js {:content #js [...]}` shape
   (npm MCP SDK). Reads `:text` slots via `js-interop` and builds the
   overflow result with the same JS shape so the SDK can serialise it
-  as a `tools/call` reply unchanged."
+  as a `tools/call` reply unchanged.
+
+  HOT PATH (rf2-ycfu1; mirrors story-mcp's rf2-mzndx fix): `wire/ok-text`
+  / `wire/err-text` write the SAME payload into BOTH `:content[*].text`
+  (the pr-str EDN) AND `:structuredContent` (the `clj->js` JSON
+  projection) on EVERY result. Both slots ride the wire — the
+  `:structuredContent` JSON is the npm SDK's serialised tool-result
+  body just as much as the text slot is. Cap accounting MUST size the
+  structured slot too; otherwise the cap undercounts wire by ~50% and a
+  small-`:content` / huge-`:structuredContent` response slips past the
+  overflow marker and busts the MCP token budget. We surface the
+  structured slot as one extra string — `js/JSON.stringify` of the JS
+  object, the exact wire bytes — appended to the `content-texts` seq;
+  `sum-text-tokens` then transduces it alongside the `:text` strings
+  under one budget. (story-mcp uses `pr-edn` because its structured slot
+  is a CLJ map; pair-mcp's is a JS object, so `JSON.stringify` is the
+  byte-faithful equivalent.)"
   (reify base-cap/ResultIO
     (content-texts [_ result]
       (let [content (j/get result :content)
-            n       (if (array? content) (.-length content) 0)]
-        ;; Lazy seq over the JS array's :text slots. `apply-cap`
-        ;; transduces with a `(filter string?)` upstream, so any
-        ;; missing slot passes through as nil and is dropped.
+            n       (if (array? content) (.-length content) 0)
+            sc      (when result (j/get result :structuredContent))]
+        ;; Seq over the JS array's :text slots, plus a stringified
+        ;; :structuredContent when present. `apply-cap` transduces with
+        ;; a `(filter string?)` upstream, so any missing slot passes
+        ;; through as nil and is dropped.
         (loop [i 0 acc (transient [])]
           (if (< i n)
             (let [item (aget content i)
                   text (when item (j/get item :text))]
               (recur (inc i) (conj! acc text)))
-            (persistent! acc)))))
+            (persistent!
+             (cond-> acc
+               (and (some? sc) (not (undefined? sc)))
+               (conj! (js/JSON.stringify sc))))))))
     (build-overflow-result [_ marker _original]
       #js {:content          #js [#js {:type "text"
                                        :text (pr-str marker)}]
            :structuredContent (clj->js marker)})))
 
 (defn sum-text-tokens
-  "Sum `token-estimate` across every `:text` slot in the MCP
-  `{:content [{:type \"text\" :text ...} ...]}` result. The
-  serialised response's wire size is dominated by these slots; the
-  JSON envelope is bounded and ignored.
+  "Sum `token-estimate` across every wire-bearing slot in the MCP
+  `{:content [{:type \"text\" :text ...} ...] :structuredContent ...}`
+  result — both the `:content[*].text` strings AND the
+  `:structuredContent` JSON projection (rf2-ycfu1). Both ride the wire
+  as the serialised tool-result body; the bounded JSON envelope keys
+  are ignored.
 
   Delegates to `base-cap/sum-text-tokens` against re-frame2-pair-mcp's
-  JS-shape `result-io`."
+  JS-shape `result-io`, whose `content-texts` surfaces the structured
+  slot as `js/JSON.stringify` of the JS object."
   [result-js]
   (base-cap/sum-text-tokens result-io result-js))
 
