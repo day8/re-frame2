@@ -1944,6 +1944,206 @@
       (is (= "stale"   (-> resp :cookies second :name))))))
 
 ;; ===========================================================================
+;; ssr-server-fx-args-schema-boundary — rf2-kjf3m.2
+;;
+;; Spec 011 §Standard fx (line 438) + [Spec-Schemas §Standard fx args
+;; schemas] declare the `:rf.fx.server/*-args` / `:rf.server/cookie`
+;; schemas as REGISTERED, and assert "args validation runs as part of the
+;; standard `:schema` boundary check" (per Spec 010 §Validation order step
+;; 5). Pre-rf2-kjf3m.2 the six `:rf.server/*` reg-fx calls carried no
+;; `:schema`, so that boundary never fired — a malformed arg (e.g. a
+;; string `:rf.server/set-status`) fell straight onto the response
+;; accumulator and onto the wire. These tests prove the boundary now
+;; fires: a structurally-malformed server fx arg is REJECTED at dispatch
+;; with `:rf.error/schema-validation-failure :where :fx-args`, the
+;; offending fx is SKIPPED (Spec 010 §Per-step recovery row 5 — the
+;; accumulator is untouched), and well-formed args still pass.
+;;
+;; The schemas artefact (transitively Malli) is on the ssr JVM test
+;; classpath and `re-frame.ssr.test-fixture` requires `re-frame.schemas`,
+;; so the late-bind validator (`:schemas/validate-fx!`) is LIVE here.
+;; ===========================================================================
+
+(defn- capture-schema-failures!
+  "Record every `:rf.error/schema-validation-failure` trace emitted during
+  `body-fn`. Returns the recorded traces (each an emit event with
+  `:operation` + `:tags`). Mirrors `capture-fx-traces!` but for the
+  schema-boundary category rather than fx-handler-exception."
+  [body-fn]
+  (let [traces (atom [])
+        tag    (keyword (str "::schema-cap-" (gensym)))]
+    (rf/register-listener! tag
+      (fn [ev]
+        (when (= :rf.error/schema-validation-failure (:operation ev))
+          (swap! traces conj ev))))
+    (try
+      (body-fn)
+      @traces
+      (finally
+        (rf/unregister-listener! tag)))))
+
+(defn- expect-fx-args-schema-failure!
+  "Assert `traces` carries a `:rf.error/schema-validation-failure` whose
+  `:where` is `:fx-args` and whose `:failing-id` is `fx-id`."
+  [traces fx-id context-str]
+  (let [hits (filter
+               (fn [ev]
+                 (let [t (:tags ev)]
+                   (and (= :fx-args (:where t))
+                        (= fx-id    (:failing-id t)))))
+               traces)]
+    (is (seq hits)
+        (str context-str " — expected a :rf.error/schema-validation-failure"
+             " :where :fx-args for " fx-id
+             "; saw: " (pr-str (mapv (fn [ev] [(:operation ev)
+                                               (-> ev :tags :where)
+                                               (-> ev :tags :failing-id)])
+                                     traces))))))
+
+(deftest ssr-server-fx-args-schema-boundary
+  (testing "rf2-kjf3m.2 — the spec-declared :rf.fx.server/*-args boundary
+            fires on malformed server fx args (Spec 011 §Standard fx /
+            Spec-Schemas §Standard fx args schemas / Spec 010 §step 5)"
+
+    (testing ":rf.server/set-status with a non-int arg → rejected + skipped + projected 400"
+      ;; The bead's concrete failing scenario: a string status that
+      ;; pre-rf2-kjf3m.2 rode straight onto the wire (Ring then emitted a
+      ;; non-integer status). Now the :schema boundary rejects it before
+      ;; set-status-fx runs, so the malformed "not-an-int" NEVER reaches
+      ;; the accumulator. The fired :rf.error/schema-validation-failure
+      ;; ALSO routes through the always-on SSR error-projection substrate,
+      ;; which maps that category to 400 :bad-request (Spec 011 §Server
+      ;; error projection / error_projector.cljc line 65) and stamps 400
+      ;; onto the response — a clean, surfaced failure instead of a
+      ;; malformed wire status. End-to-end, the fix turns a silent wire
+      ;; defect into a proper 400.
+      (rf/reg-event-fx :bad/status
+        (fn [_ _] {:fx [[:rf.server/set-status "not-an-int"]]}))
+      (let [f      (rf/make-frame {:platform :server})
+            traces (capture-schema-failures!
+                     (fn [] (rf/dispatch-sync [:bad/status] {:frame f})))
+            status (:status (get-response f))]
+        (expect-fx-args-schema-failure!
+          traces :rf.server/set-status "string :rf.server/set-status")
+        ;; The malformed string never landed on the accumulator …
+        (is (not= "not-an-int" status)
+            "the malformed status was skipped — never reached the accumulator")
+        (is (integer? status)
+            "the wire status is an integer (the gap this bead closes)")
+        ;; … and the schema failure surfaced as a proper 400 :bad-request
+        ;; via the SSR error-projection substrate.
+        (is (= 400 status)
+            "schema-validation-failure projected to 400 :bad-request")))
+
+    (testing ":rf.server/set-header missing :value → rejected + skipped"
+      (rf/reg-event-fx :bad/header
+        (fn [_ _] {:fx [[:rf.server/set-header {:name "X-Foo"}]]}))   ;; :value absent
+      (let [f      (rf/make-frame {:platform :server})
+            traces (capture-schema-failures!
+                     (fn [] (rf/dispatch-sync [:bad/header] {:frame f})))]
+        (expect-fx-args-schema-failure!
+          traces :rf.server/set-header ":rf.server/set-header missing :value")
+        (is (not-any? (fn [[k _]] (= "X-Foo" k)) (:headers (get-response f)))
+            "the malformed header was skipped; nothing landed")))
+
+    (testing ":rf.server/append-header with non-string :value → rejected"
+      (rf/reg-event-fx :bad/append
+        (fn [_ _] {:fx [[:rf.server/append-header {:name "X-Bar" :value 42}]]}))
+      (let [f      (rf/make-frame {:platform :server})
+            traces (capture-schema-failures!
+                     (fn [] (rf/dispatch-sync [:bad/append] {:frame f})))]
+        (expect-fx-args-schema-failure!
+          traces :rf.server/append-header ":rf.server/append-header non-string :value")))
+
+    (testing ":rf.server/set-cookie missing :value → rejected via [:ref :rf.server/cookie]"
+      (rf/reg-event-fx :bad/cookie
+        (fn [_ _] {:fx [[:rf.server/set-cookie {:name "session"}]]})) ;; :value absent
+      (let [f      (rf/make-frame {:platform :server})
+            traces (capture-schema-failures!
+                     (fn [] (rf/dispatch-sync [:bad/cookie] {:frame f})))]
+        (expect-fx-args-schema-failure!
+          traces :rf.server/set-cookie ":rf.server/set-cookie missing :value")
+        (is (empty? (:cookies (get-response f)))
+            "the malformed cookie was skipped; accumulator stays empty")))
+
+    (testing ":rf.server/set-cookie with bogus :same-site keyword → rejected"
+      ;; :same-site accepts the enum #{:strict :lax :none} (or a string,
+      ;; per the documented divergence) — a bogus KEYWORD is neither.
+      (rf/reg-event-fx :bad/cookie-samesite
+        (fn [_ _] {:fx [[:rf.server/set-cookie
+                         {:name "s" :value "v" :same-site :bogus}]]}))
+      (let [f      (rf/make-frame {:platform :server})
+            traces (capture-schema-failures!
+                     (fn [] (rf/dispatch-sync [:bad/cookie-samesite] {:frame f})))]
+        (expect-fx-args-schema-failure!
+          traces :rf.server/set-cookie ":rf.server/set-cookie bogus :same-site keyword")))
+
+    (testing ":rf.server/delete-cookie missing :name → rejected"
+      (rf/reg-event-fx :bad/delete
+        (fn [_ _] {:fx [[:rf.server/delete-cookie {:path "/"}]]}))    ;; :name absent
+      (let [f      (rf/make-frame {:platform :server})
+            traces (capture-schema-failures!
+                     (fn [] (rf/dispatch-sync [:bad/delete] {:frame f})))]
+        (expect-fx-args-schema-failure!
+          traces :rf.server/delete-cookie ":rf.server/delete-cookie missing :name")))
+
+    (testing ":rf.server/redirect with no target key → rejected"
+      ;; :location / :url / :to all absent — the [:fn] predicate fails.
+      (rf/reg-event-fx :bad/redirect
+        (fn [_ _] {:fx [[:rf.server/redirect {:status 302}]]}))
+      (let [f      (rf/make-frame {:platform :server})
+            traces (capture-schema-failures!
+                     (fn [] (rf/dispatch-sync [:bad/redirect] {:frame f})))]
+        (expect-fx-args-schema-failure!
+          traces :rf.server/redirect ":rf.server/redirect with no target key")
+        (is (nil? (:redirect (get-response f)))
+            "the malformed redirect was skipped; no :redirect set")))
+
+    (testing ":rf.server/redirect with non-int :status → rejected"
+      (rf/reg-event-fx :bad/redirect-status
+        (fn [_ _] {:fx [[:rf.server/redirect {:location "/x" :status "oops"}]]}))
+      (let [f      (rf/make-frame {:platform :server})
+            traces (capture-schema-failures!
+                     (fn [] (rf/dispatch-sync [:bad/redirect-status] {:frame f})))]
+        (expect-fx-args-schema-failure!
+          traces :rf.server/redirect ":rf.server/redirect non-int :status")))))
+
+(deftest ssr-server-fx-args-schema-accepts-well-formed
+  (testing "rf2-kjf3m.2 — regression guard: well-formed server fx args pass
+            the :schema boundary cleanly (no :rf.error/schema-validation-
+            failure) and land on the accumulator. The boundary rejects the
+            malformed and admits the valid — it is not a blanket gate."
+    (rf/reg-event-fx :good/all
+      (fn [_ _]
+        {:fx [[:rf.server/set-status 201]
+              [:rf.server/set-header  {:name "Cache-Control" :value "no-store"}]
+              [:rf.server/append-header {:name "Vary" :value "Accept"}]
+              ;; canonical cookie shape — int :max-age, keyword :same-site
+              [:rf.server/set-cookie  {:name "session" :value "abc"
+                                       :max-age 3600 :same-site :lax
+                                       :secure true :http-only true}]
+              [:rf.server/delete-cookie {:name "stale" :path "/"}]
+              [:rf.server/redirect    {:location "/dashboard" :status 302}]]}))
+    (let [f      (rf/make-frame {:platform :server})
+          traces (capture-schema-failures!
+                   (fn [] (rf/dispatch-sync [:good/all] {:frame f})))
+          resp   (get-response f)]
+      (is (empty? (filter (fn [ev] (= :fx-args (-> ev :tags :where))) traces))
+          (str "no :fx-args schema failure for well-formed args; saw: "
+               (pr-str (mapv (comp :failing-id :tags) traces))))
+      ;; redirect-fx flows its :status through to the response :status
+      ;; (Spec 011 §Redirect precedence step 1), so :status is 302 here.
+      (is (= 302 (:status resp)) "redirect status flows through")
+      (is (some (fn [[k _]] (= "Cache-Control" k)) (:headers resp))
+          "set-header landed")
+      (is (some (fn [[k _]] (= "Vary" k)) (:headers resp))
+          "append-header landed")
+      (is (= 2 (count (:cookies resp)))
+          "both set-cookie + delete-cookie landed")
+      (is (= {:status 302 :location "/dashboard"} (:redirect resp))
+          "redirect landed"))))
+
+;; ===========================================================================
 ;; ssr-with-fx-override / ssr-end-to-end — relocated from core/smoke_test.clj
 ;; (rf2-zqar3). The :fx-overrides redirect and the dispatch-sync →
 ;; render-to-string → embedded-hash flow are concise smoke complements to

@@ -63,6 +63,15 @@
             [re-frame.ssr.hydrate :as hydrate]
             [re-frame.ssr.request :as request]
             [re-frame.ssr.response :as response]
+            ;; rf2-kjf3m.2 — the standard `:rf.fx.server/*-args` /
+            ;; `:rf.server/cookie` Malli args schemas Spec 011 §Standard fx
+            ;; (line 438) + [Spec-Schemas §Standard fx args schemas] name as
+            ;; registered. Attached as the `:schema` key on the six
+            ;; `:rf.server/*` reg-fx calls below so the Spec 010 §step-5
+            ;; fx-args `:schema` boundary check actually fires on the server
+            ;; fx args (it previously did not — the calls carried only :doc
+            ;; + :platforms).
+            [re-frame.ssr.server-fx-schemas :as server-fx-schemas]
             [re-frame.ssr.substrate :as substrate]
             ;; rf2-ojakd / rf2-olb64 (a) — streaming SSR primitive
             ;; (:rf/suspense-boundary). Loaded eagerly so the three
@@ -198,6 +207,7 @@ the client's registered app-schema digest. A mismatch emits a structured
   {:doc       "Set the HTTP response status. Last-write-wins. A second
 write in the same drain emits :rf.warning/multiple-status-set per
 [Spec 011 §Multiple-status policy]."
+   :schema    server-fx-schemas/set-status-args   ;; :rf.fx.server/set-status-args (rf2-kjf3m.2)
    :platforms #{:server}}
   response/set-status-fx)
 
@@ -205,6 +215,7 @@ write in the same drain emits :rf.warning/multiple-status-set per
   {:doc       "Replace any existing header with the same name (case-
 insensitive) and write [name value]. Per Spec 011 §Header replacement
 vs append."
+   :schema    server-fx-schemas/set-header-args   ;; :rf.fx.server/set-header-args (rf2-kjf3m.2)
    :platforms #{:server}}
   response/set-header-fx)
 
@@ -212,6 +223,7 @@ vs append."
   {:doc       "Append [name value] to headers — preserves any existing
 header with the same name. Required for Set-Cookie-style multi-valued
 headers. Per Spec 011 §Header replacement vs append."
+   :schema    server-fx-schemas/append-header-args ;; :rf.fx.server/append-header-args (rf2-kjf3m.2)
    :platforms #{:server}}
   response/append-header-fx)
 
@@ -219,6 +231,7 @@ headers. Per Spec 011 §Header replacement vs append."
   {:doc       "Add a structured cookie to the :cookies vector. Cookie
 attributes are stored as a structured map (RFC 6265 wire-form
 serialisation is host-adapter business). Per Spec 011 §Cookie shape."
+   :schema    server-fx-schemas/set-cookie-args   ;; :rf.fx.server/set-cookie-args = [:ref :rf.server/cookie] (rf2-kjf3m.2)
    :platforms #{:server}}
   response/set-cookie-fx)
 
@@ -226,6 +239,7 @@ serialisation is host-adapter business). Per Spec 011 §Cookie shape."
   {:doc       "Sugar over :rf.server/set-cookie with :max-age 0 and an
 empty :value. The host adapter materialises the delete-marker semantics
 on the wire. Per Spec 011 §Cookie shape."
+   :schema    server-fx-schemas/delete-cookie-args ;; :rf.fx.server/delete-cookie-args (rf2-kjf3m.2)
    :platforms #{:server}}
   response/delete-cookie-fx)
 
@@ -239,6 +253,7 @@ Caller-trusted :location — accepts arbitrary URL strings without
 allowlist or relative-only gating. For caller-untrusted location strings
 (e.g. a `?next=` URL param), use :rf.server/safe-redirect (below).
 Per rf2-zfm8v."
+   :schema    server-fx-schemas/redirect-args     ;; :rf.fx.server/redirect-args (rf2-kjf3m.2)
    :platforms #{:server}}
   response/redirect-fx)
 
