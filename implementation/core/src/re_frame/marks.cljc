@@ -455,10 +455,16 @@
   (when sub-id
     (marks-for :sub sub-id)))
 
-(defn- flow-marks
-  [flow-id]
-  (when flow-id
-    (marks-for :flow flow-id)))
+;; Flow output marks are NOT resolved through this per-(kind, id) table
+;; (rf2-ouemt). Spec 013 lets the SAME flow-id carry different definitions —
+;; hence different `:sensitive` / `:large` declarations — in different
+;; frames, so a frame-blind `{flow-id marks}` shape is wrong for flows.
+;; `re-frame.flows.registry` instead installs each flow's output marks
+;; FRAME-AWARE into that frame's app-db elision registry, rooted at the
+;; flow's `:path`; the schema-first wire walker (`elision/elide-wire-value`)
+;; the flow trace emits already ride, plus `project-db-tags` /
+;; `project-view-rendered-tags` below, redact the flow output through that
+;; single per-frame source of truth.
 
 ;; ---- sub-output propagation registry -------------------------------------
 ;;
