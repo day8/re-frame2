@@ -29,7 +29,7 @@ The cheapest tool that can see these failures is **live `app-db` + machine-snaps
 - **The `re-frame2-pair` MCP** (the Tool-Pair contract) — attach to the running shadow-cljs build's nREPL and read the live frame. `orient` for the app shape, then drill: `read-sub {sub: "[:some/sub]"}`, `get-path {path: "[:rf/runtime :machines :snapshots]"}`, `snapshot {path: "[:rf/runtime]"}`. This is the recommended surface for a migration check — it speaks the exact slices the checklist needs and refuses ambiguous-frame reads. (Switch to the **`re-frame2-pair` skill** for a live session — see the post-migration hand-off in SKILL.md.)
 - **A bare shadow-cljs nREPL** if Tool-Pair isn't wired — eval `(re-frame.core/app-db-value :rf/default)` for the whole frame db, or read `[:rf/runtime :machines :snapshots]` directly. Same reads, less ergonomics.
 
-**The smoke-test loop (the author runs it — Cardinal rule 10; the skill prints the reads):**
+**The smoke-test loop (the author runs it — Cardinal rule 5; the skill prints the reads):**
 
 1. **Boot the app** in a dev build with `interop/debug-enabled?` true (so the loud diagnostics — `:rf.warning/runtime-state-dropped`, `:rf.error/*-missing`, `:rf.error/reg-sub-bad-args` — actually fire and reach the trace).
 2. **Read `[:rf/runtime :machines :snapshots]`** — every boot/singleton machine the app started should have a live snapshot here. **Empty-where-you-expected-one is checklist #3** (snapshot clobbered) — confirm against the dev warning.

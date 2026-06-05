@@ -6,7 +6,7 @@ For the *why* of each rule, see [`MIGRATION.md`](../../../migration/from-re-fram
 
 ## Announce before each multi-file sweep
 
-Per SKILL.md Cardinal rule 9: before executing any Type A rewrite that will edit more than a single file, post a one-line announcement and pause. Example shape:
+Per SKILL.md Cardinal rule 4: before executing any Type A rewrite that will edit more than a single file, post a one-line announcement and pause. Example shape:
 
 ```
 About to apply M-8 (fold top-level :dispatch / :dispatch-n / :dispatch-later
@@ -117,7 +117,7 @@ Same for `uix` / `helix` variants.
 (sub {:re-frame/q ::id :param 1})    → (subscribe [::id 1])   ; vectorize the query-map
 ```
 
-**Edge case → Type B**: any `:re-frame/lifecycle` annotation in the original — drop the annotation; if the user explicitly wanted non-default lifecycle, flag it (and, with their approval, file a GitHub issue against `day8/re-frame2` per [`SKILL.md`](../SKILL.md) cardinal rule 7). See [`guided-interceptors-subs.md` §M-23](guided-interceptors-subs.md#m-23--re-framelifecycle-annotation-drop).
+**Edge case → Type B**: any `:re-frame/lifecycle` annotation in the original — drop the annotation; if the user explicitly wanted non-default lifecycle, flag it (and, with their approval, file a GitHub issue against `day8/re-frame2` per the shared [`issue-filing.md`](../../shared/issue-filing.md) recipe). See [`guided-interceptors-subs.md` §M-23](guided-interceptors-subs.md#m-23--re-framelifecycle-annotation-drop).
 
 ### M-25 — `re-frame.test` rename
 
