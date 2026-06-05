@@ -17,7 +17,7 @@ A generated, CI-guarded manifest prevents the drift the way the keystone's `spec
 
 - The **catalogue-row projection** (`descriptor->row`): the stable shape one registry descriptor maps to.
 - The **deterministic, byte-stable, LF-pinned EDN serialiser** (`render-edn`) — one tool row per line for surgical diffs.
-- The **drift-check** (`check`): regenerate-in-memory vs committed, with an added/removed name diff for the failure message.
+- The **drift-check** (`check`): regenerate-in-memory vs committed, with an added / removed / **changed** name diff for the failure message. `:changed` (rf2-y3qpv) names every tool present in BOTH manifests whose catalogue row drifted (a changed `:description` / `:input-keys` / `:output?` / `:annotations`) and carries its `{:name :old :new}` rows, so a tool-set-identical-but-descriptor-changed drift is row-level actionable instead of forcing a manual whole-manifest diff.
 - `build-rows` / `build-manifest` — the small assembly helpers between the two.
 
 `descriptor-manifest` does NOT own:
@@ -48,7 +48,7 @@ The full descriptor maps carry deeply-nested JSON-Schema fragments whose exact s
 | `build-rows` | `[descriptors]` | sorted-by-`:name` vector of rows |
 | `build-manifest` | `[server descriptors]` | `{:meta {:server :tool-count} :tools [rows]}` |
 | `render-edn` | `[manifest]` | deterministic, LF-pinned EDN string |
-| `check` | `[generated-manifest generated-edn committed-string-or-nil]` | `{:ok? :added :removed (:missing-file?)}` |
+| `check` | `[generated-manifest generated-edn committed-string-or-nil]` | `{:ok? :added :removed :changed (:missing-file?)}` |
 
 ## Determinism + byte-stability
 

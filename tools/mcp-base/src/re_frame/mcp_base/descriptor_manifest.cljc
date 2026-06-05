@@ -176,13 +176,26 @@
 ;; Drift-check — regenerate-in-memory vs committed.
 ;; ---------------------------------------------------------------------------
 
+(defn- row-by-name
+  "Index a seq of manifest rows by `:name`. Defensive against a row
+  missing a `:name` (the committed EDN may be partly malformed) — such
+  rows are dropped from the index rather than colliding under `nil`."
+  [rows]
+  (reduce (fn [m row]
+            (if-let [nm (:name row)]
+              (assoc m nm row)
+              m))
+          {}
+          rows))
+
 (defn check
   "Compare a freshly-generated manifest string against the committed
   file content. Returns a result map:
 
       {:ok?     <bool>
        :added   [<row name strings the generator produced the file lacks>]
-       :removed [<row name strings in the file the generator no longer produces>]}
+       :removed [<row name strings in the file the generator no longer produces>]
+       :changed [{:name <str> :old <committed-row> :new <generated-row>} ...]}
 
   `generated-edn` is `(render-edn (build-manifest ...))`; `committed`
   is the committed file's content string (or nil if it doesn't exist).
@@ -190,20 +203,50 @@
   checkout on Windows does not trip a spurious drift. The added/removed
   name diffs are derived from the two manifests' tool rows so the
   failure message names exactly which tool drifted — same affordance
-  the keystone's `check!` prints."
+  the keystone's `check!` prints.
+
+  ## Row-level `:changed` identity (rf2-y3qpv)
+
+  `:added` / `:removed` only name tools whose IDENTITY entered or left
+  the catalogue. When an EXISTING tool's `:description`, `:input-keys`,
+  `:output?`, or `:annotations` drifts, neither set names it — the CI
+  guard went red with `{:ok? false :added [] :removed []}` and the
+  consumer generator could only print a generic \"tool set identical;
+  descriptor changed\" message, forcing a maintainer to manually diff
+  the whole manifest. `:changed` closes that gap: for every name present
+  in BOTH manifests whose row differs, it carries
+  `{:name <str> :old <committed-row> :new <generated-row>}` so the
+  failure message can name exactly which existing tool drifted and how.
+  An in-sync manifest (`:ok? true`) and a missing-file result both carry
+  `:changed []`."
   [generated-manifest generated-edn committed]
-  (let [gen-names (set (map :name (:tools generated-manifest)))]
+  (let [gen-rows  (:tools generated-manifest)
+        gen-names (set (map :name gen-rows))]
     (if (nil? committed)
-      {:ok? false :added (vec (sort gen-names)) :removed []
+      {:ok? false :added (vec (sort gen-names)) :removed [] :changed []
        :missing-file? true}
       (let [ok?       (= (normalise-lf generated-edn) (normalise-lf committed))
-            ;; Parse committed names out of the EDN for the diff summary.
+            ;; Parse committed rows out of the EDN for the diff summary.
             ;; We read the committed EDN as data; if it's unparseable the
             ;; equality check above already failed and we report all gen
-            ;; names as added (the file is structurally broken).
-            com-names (try
-                        (set (map :name (:tools (edn/read-string committed))))
-                        (catch #?(:clj Throwable :cljs :default) _ #{}))]
+            ;; names as added (the file is structurally broken) with no
+            ;; :changed rows (we can't compare against unreadable rows).
+            com-rows  (try
+                        (:tools (edn/read-string committed))
+                        (catch #?(:clj Throwable :cljs :default) _ nil))
+            com-names (set (map :name com-rows))
+            gen-by    (row-by-name gen-rows)
+            com-by    (row-by-name com-rows)
+            ;; Names present in BOTH whose row content differs.
+            changed   (->> (set/intersection gen-names com-names)
+                           sort
+                           (keep (fn [nm]
+                                   (let [old (get com-by nm)
+                                         new (get gen-by nm)]
+                                     (when (not= old new)
+                                       {:name nm :old old :new new}))))
+                           vec)]
         {:ok?     ok?
          :added   (vec (sort (set/difference gen-names com-names)))
-         :removed (vec (sort (set/difference com-names gen-names)))}))))
+         :removed (vec (sort (set/difference com-names gen-names)))
+         :changed changed}))))

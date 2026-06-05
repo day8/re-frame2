@@ -419,6 +419,66 @@
                  (:where (ex-data e)))
               "ex-info names the DECODE-side boundary, not the encoder (rf2-4ypau)"))))))
 
+(deftest decode-db-after-rejects-malformed-sections-slot
+  ;; rf2-y3qpv: a diff marker whose `:sections` slot is MISSING, `nil`,
+  ;; or `false` previously decoded to a no-op via `(or sections [])` —
+  ;; an empty seq satisfies `[:sequential section-schema]`, so the gate
+  ;; never tripped and the epoch's real `:db-after` change was silently
+  ;; ERASED back to `:db-before`. The raw slot is now validated, so a
+  ;; non-sequential `:sections` trips `:rf.error/bad-diff-sections`
+  ;; (Malli present). `:db-before` carries a real change so a regression
+  ;; (silent no-op) would observably hand back `{:a 1}` instead of throwing.
+  (testing "missing :sections slot throws"
+    (let [epoch {:db-before {:a 1}
+                 :db-after  {:rf.mcp/diff-from :db-before}}]
+      (is (thrown-with-msg?
+            clojure.lang.ExceptionInfo
+            #":rf\.error/bad-diff-sections"
+            (de/decode-db-after epoch)))))
+  (testing ":sections nil throws"
+    (let [epoch {:db-before {:a 1}
+                 :db-after  {:rf.mcp/diff-from :db-before
+                             :sections nil}}]
+      (is (thrown-with-msg?
+            clojure.lang.ExceptionInfo
+            #":rf\.error/bad-diff-sections"
+            (de/decode-db-after epoch)))))
+  (testing ":sections false throws"
+    (let [epoch {:db-before {:a 1}
+                 :db-after  {:rf.mcp/diff-from :db-before
+                             :sections false}}]
+      (is (thrown-with-msg?
+            clojure.lang.ExceptionInfo
+            #":rf\.error/bad-diff-sections"
+            (de/decode-db-after epoch)))))
+  (testing "the malformed-slot throw names the DECODE-side boundary"
+    (let [epoch {:db-before {:a 1}
+                 :db-after  {:rf.mcp/diff-from :db-before}}]
+      (try
+        (de/decode-db-after epoch)
+        (is false "expected throw")
+        (catch clojure.lang.ExceptionInfo e
+          (is (= :rf.error/bad-diff-sections (:rf.error/id (ex-data e))))
+          (is (= 'mcp-base/decode-db-after (:where (ex-data e)))))))))
+
+(deftest decode-db-after-explicit-empty-sections-is-valid-no-change
+  ;; rf2-y3qpv companion: an EXPLICIT `:sections []` is a legitimate
+  ;; no-change diff (db-before == db-after) and MUST still validate and
+  ;; replay to `:db-before` unchanged — the gate guards malformed shape,
+  ;; it does not reject a real empty diff.
+  (testing "encoder emits :sections [] for an unchanged epoch and decode round-trips"
+    (let [epoch   {:db-before {:a 1} :db-after {:a 1}}
+          encoded (de/diff-encode-db-after epoch)]
+      (is (= [] (get-in encoded [:db-after :sections]))
+          "no-change epoch encodes to an explicit empty section vector")
+      (is (= epoch (de/decode-db-after encoded)))))
+  (testing "a hand-built :sections [] marker decodes to :db-before without throwing"
+    (let [epoch {:db-before {:a 1 :b 2}
+                 :db-after  {:rf.mcp/diff-from :db-before
+                             :sections []}}]
+      (is (= {:db-before {:a 1 :b 2} :db-after {:a 1 :b 2}}
+             (de/decode-db-after epoch))))))
+
 (deftest decode-db-after-well-formed-sections-round-trip
   ;; The positive companion: well-formed sections decode silently and
   ;; reconstruct :db-after — proving the decode gate is a guard, not a
