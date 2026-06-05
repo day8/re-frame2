@@ -337,11 +337,19 @@
     (string? v) :string
     :else       :scalar))
 
-(defn- large-marker
-  "Mirror of `re-frame.elision/->marker`'s shape — inlined so this ns
+(defn large-marker
+  "Build the `:rf.size/large-elided` marker for value `v` at `path`.
+  Mirror of `re-frame.elision/->marker`'s shape — inlined so this ns
   carries no dependency on elision's privates. Carries `:reason
   :marks` so consumers can discriminate per-registration marks
-  from schema-driven marks."
+  from schema-driven marks.
+
+  Public because the off-box epoch egress projector
+  (`re-frame.epoch.tool-pair/projected-record`, rf2-at60h) reuses it to
+  substitute the marker for a whole-output `:large?`-stamped sub's
+  `:value` / `:prev-value` in the structured `:sub-runs` row — the same
+  `:reason :marks` provenance the whole-output propagation table sets,
+  built in ONE place rather than re-inlined a third time."
   [v path]
   (let [p (vec path)]
     {:rf.size/large-elided

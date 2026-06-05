@@ -956,6 +956,46 @@
             ":cause-event-id key is ABSENT when the trace tag was
              omitted at the emit site (cond-> on (contains? tags ...))")))))
 
+(deftest sub-run-row-threads-large-marker
+  (testing "rf2-at60h — the whole-output `:large?` stamp that
+            `re-frame.marks/project-sub-tags` writes onto a `:rf.sub/run`
+            trace tag (when the sub's output is marked large but its raw
+            value is left in place for the on-box ring) is threaded onto
+            the structured `:sub-runs` row as `:large?`, so the off-box
+            `projected-record` egress boundary can substitute a
+            `:rf.size/large-elided` marker for `:value` / `:prev-value`.
+            Direct unit test against `capture/sub-run-row`."
+    (testing ":large? tag PRESENT → row carries :large? true, value intact
+              (the projection, not the row builder, does the substitution)"
+      (let [row (capture/sub-run-row
+                  {:op-type   :rf.sub
+                   :operation :rf.sub/run
+                   :tags      {:rf.sub/id             :big/value
+                               :rf.sub/query-v        [:big/value]
+                               :rf.sub/value-changed? true
+                               :rf.sub/prev-value     "small"
+                               :rf.sub/value          "BIG"
+                               :rf.sub/cascade?       false
+                               :rf.sub/cause-sub      nil
+                               :large?                true}})]
+        (is (true? (:large? row))
+            ":large? is lifted from the trace tag so the egress projector sees it")
+        (is (= "BIG" (:value row))
+            "the raw value stays on the row — on-box ring keeps exact state")))
+    (testing ":large? tag ABSENT (non-large sub) → row omits the flag"
+      (let [row (capture/sub-run-row
+                  {:op-type   :rf.sub
+                   :operation :rf.sub/run
+                   :tags      {:rf.sub/id             :small/value
+                               :rf.sub/query-v        [:small/value]
+                               :rf.sub/value-changed? true
+                               :rf.sub/prev-value     0
+                               :rf.sub/value          1
+                               :rf.sub/cascade?       false
+                               :rf.sub/cause-sub      nil}})]
+        (is (not (contains? row :large?))
+            ":large? key is ABSENT when the sub's output is not large")))))
+
 (deftest effects-projection-skipped-on-platform
   (testing ":effects captures :skipped-on-platform outcomes"
     (rf/reg-frame :test/main {})

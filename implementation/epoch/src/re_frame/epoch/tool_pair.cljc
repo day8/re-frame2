@@ -45,6 +45,7 @@
             [re-frame.epoch.state :as state]
             [re-frame.frame :as frame]
             [re-frame.late-bind :as late-bind]
+            [re-frame.marks :as marks]
             [re-frame.registrar :as registrar]
             [re-frame.substrate.adapter :as adapter]
             [re-frame.trace :as trace]))
@@ -542,19 +543,77 @@
         (reroot-trace-event-db-slots frame-id)
         (elision/elide-wire-value {:frame frame-id}))))
 
+(defn- elide-sub-run-row
+  "Project a single structured `:sub-runs` row for off-box egress
+  (rf2-at60h). The row carries value-bearing `:prev-value` / `:value`
+  slots holding the sub's computed app-data — so, unlike the non-value
+  metadata (`:sub-id`, `:query-v`, `:value-changed?`, `:cascade?`,
+  `:cause-sub`, `:cause-event-id`), they MUST respect the projection
+  contract.
+
+  The whole-output `:sensitive?` case is already redacted at the marks
+  emit site (the slots arrive carrying `:rf/redacted`), so no work is
+  needed here for sensitive. The whole-output `:large?` case is carried
+  on the row as `:large?` (threaded by `capture/sub-run-row`) with the
+  RAW value still attached (the on-box ring keeps the exact value). For
+  the off-box `:include-large? false` default we substitute the canonical
+  `:rf.size/large-elided` marker (`re-frame.marks/large-marker`, the
+  same `:reason :marks` provenance the propagation table sets) for both
+  value slots, then strip the now-spent `:large?` flag so the projected
+  row's shape matches the on-box base shape's metadata. Idempotent: a
+  marker value rebuilt through a second pass would be wrong-sized, so a
+  slot already carrying a marker is left untouched.
+
+  Per-PATH large declarations (a sub with `:large [<path>]` marks but no
+  whole-output `:large?` stamp) are already substituted INTO the value
+  at the marks emit site (`redact-with-paths`), so they ride the row
+  pre-marked and need no projection here."
+  [row]
+  (if-not (:large? row)
+    row
+    (-> row
+        (cond-> (contains? row :value)
+          (update :value (fn [v]
+                            (if (elision/marker? v) v (marks/large-marker v [:value]))))
+          (contains? row :prev-value)
+          (update :prev-value (fn [v]
+                                (if (elision/marker? v) v (marks/large-marker v [:prev-value])))))
+        (dissoc :large?))))
+
+(defn- elide-sub-runs-slot
+  "Project the structured `:sub-runs` vector for off-box egress: walk
+  each row through `elide-sub-run-row`. Nil- and non-sequential-
+  preserving (a `:redact-fn` may have already replaced the slot with a
+  scalar sentinel)."
+  [sub-runs]
+  (if-not (sequential? sub-runs)
+    sub-runs
+    (mapv elide-sub-run-row sub-runs)))
+
 (defn projected-record
   "Project an `:rf/epoch-record` for off-box egress. Routes the four
-  payload-bearing slots (`:db-before`, `:db-after`, `:trigger-event`,
+  full-value payload slots (`:db-before`, `:db-after`, `:trigger-event`,
   `:trace-events`) through `re-frame.elision/elide-wire-value` against
   the record's frame, with the off-box defaults
   `:include-sensitive? false` / `:include-large? false`. Sensitive
   paths land as `:rf/redacted`; large paths land as
-  `:rf.size/large-elided` markers per the §Composition rule. The
-  record-level bookkeeping (`:epoch-id`, `:frame`, `:committed-at`,
+  `:rf.size/large-elided` markers per the §Composition rule.
+
+  The structured `:sub-runs` rows are ALSO value-bearing (rf2-at60h):
+  each carries the sub's computed `:prev-value` / `:value`. Their
+  whole-output `:sensitive?` case is already redacted at the marks emit
+  site, but the whole-output `:large?` case leaves the raw value on the
+  row (the on-box ring keeps exact state), so this projection substitutes
+  the `:rf.size/large-elided` marker for those slots under the
+  `:include-large? false` default — see `elide-sub-runs-slot`. The
+  non-value row metadata (`:sub-id`, `:query-v`, `:value-changed?`,
+  `:cascade?`, `:cause-sub`, `:cause-event-id`) and the value-free
+  `:renders` / `:effects` projections pass through unchanged.
+
+  The record-level bookkeeping (`:epoch-id`, `:frame`, `:committed-at`,
   `:event-id`, `:outcome`, `:halt-reason`, `:schema-digest`,
   `:rf.epoch/sensitive?`, `:rf.epoch/redacted-modified-paths-count`)
-  and the cheap structured projections (`:sub-runs`, `:renders`,
-  `:effects`) pass through unchanged — they carry no app-db material.
+  also passes through unchanged — it carries no app-db material.
 
   Per Security.md §Epoch privacy posture and rf2-mrsck: this is the
   single normative projection emission site for off-box egress. Tools
@@ -584,7 +643,10 @@
         (update :trigger-event elide-payload-slot frame-id)
 
         (contains? record :trace-events)
-        (update :trace-events  elide-trace-events-slot frame-id)))))
+        (update :trace-events  elide-trace-events-slot frame-id)
+
+        (contains? record :sub-runs)
+        (update :sub-runs      elide-sub-runs-slot)))))
 
 (defn projected-history
   "Convenience: return the projected vector of records for a frame.

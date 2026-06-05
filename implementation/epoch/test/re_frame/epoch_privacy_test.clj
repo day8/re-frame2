@@ -32,6 +32,7 @@
             [re-frame.flows :as flows]
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
+            [re-frame.marks :as marks]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
             [re-frame.substrate.plain-atom :as plain-atom]
@@ -47,6 +48,11 @@
   (flows/reset-flows!)
   (reset! schemas/schemas-by-frame {})
   (flows/reset-last-inputs!)
+  ;; The sub-output / per-registration marks tables are NOT cleared by
+  ;; `registrar/clear-all!`, so reset them here to keep the whole-output
+  ;; `:large?` propagation (rf2-at60h) from leaking across test cases.
+  (marks/clear-sub-output-marks!)
+  (marks/clear-marks!)
   (trace/clear-listeners!)
   (epoch/clear-history!)
   (epoch/clear-epoch-listeners!)
@@ -286,6 +292,83 @@
               (elision/marker? marked))
           "projected record substitutes a :rf.size/large-elided marker"))))
 
+(deftest projected-record-elides-large-sub-output
+  (testing "rf2-at60h — a whole-output `:large?`-marked subscription's
+            computed value rides the structured `:sub-runs` row as
+            `:value` / `:prev-value`. The raw on-box record keeps the
+            exact value (Xray diff / restore-epoch need it), but the
+            off-box `projected-record` / `projected-history` egress
+            boundary MUST substitute a `:rf.size/large-elided` marker for
+            those value slots under the `:include-large? false` default —
+            otherwise a bulky derived value escapes the projection
+            contract (the pre-fix leak). The non-value row metadata
+            (`:sub-id`, `:query-v`, `:value-changed?`, `:cascade?`) is
+            preserved, and the now-spent `:large?` row flag is stripped."
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed (fn [_ _] {:n 0}))
+    ;; A whole-output `:large?` sub: its output is treated as large for
+    ;; downstream egress regardless of any per-path declaration. The
+    ;; reactive sub-cache records this via `mark-sub-output!` at build
+    ;; time; `re-frame.marks/project-sub-tags` then stamps the `:rf.sub/run`
+    ;; trace tag with bare `:large?` and leaves the raw value in place.
+    (rf/reg-sub :big {:large? true}
+                (fn [db _] (big-string 50000)))
+    ;; Read the sub inside a handler so a `:rf.sub/run` lands in the
+    ;; cascade's structured `:sub-runs` (mirrors epoch_test's
+    ;; sub-runs-projection).
+    (rf/reg-event-fx :read-big
+                     (fn [_ _]
+                       (let [_v (rf/subscribe-once :test/main [:big])]
+                         {})))
+    (rf/dispatch-sync [:seed]     {:frame :test/main})
+    (rf/dispatch-sync [:read-big] {:frame :test/main})
+
+    ;; Sanity: the propagation table marked the sub's output large.
+    (is (true? (marks/sub-output-large? :test/main :big))
+        "whole-output :large? propagation recorded")
+
+    (let [raw       (last-record :test/main)
+          raw-row   (->> (:sub-runs raw)   (filter #(= :big (:sub-id %))) first)
+          projected (epoch/projected-record raw)
+          proj-row  (->> (:sub-runs projected) (filter #(= :big (:sub-id %))) first)]
+      (is (some? raw-row)   "the :big sub produced a structured :sub-runs row")
+      (is (some? proj-row)  "the projected record keeps the :big sub-run row")
+
+      ;; Raw on-box row carries the exact 50KB value (and the :large? flag
+      ;; threaded by capture/sub-run-row).
+      (is (= 50000 (count (:value raw-row)))
+          "raw on-box row carries the full computed value")
+      (is (true? (:large? raw-row))
+          "raw row threads the whole-output :large? marker")
+
+      ;; Off-box projected row: value slot is a marker, NOT the raw value.
+      (is (elision/marker? (:value proj-row))
+          "projected :sub-runs :value is a :rf.size/large-elided marker, not raw")
+      (is (not= (:value raw-row) (:value proj-row))
+          "the raw 50KB value does NOT egress in the projected :sub-runs")
+      ;; The prev-value slot (nil on first recompute) is left as-is; if a
+      ;; bulky prev-value were present it would also be a marker — assert
+      ;; it is never the raw bulky value.
+      (when (contains? proj-row :prev-value)
+        (is (or (nil? (:prev-value proj-row))
+                (elision/marker? (:prev-value proj-row)))
+            "projected :prev-value is never a raw bulky value"))
+
+      ;; Non-value metadata preserved; the spent :large? flag is stripped.
+      (is (= (:sub-id raw-row)  (:sub-id proj-row)))
+      (is (= (:query-v raw-row) (:query-v proj-row)))
+      (is (= (:value-changed? raw-row) (:value-changed? proj-row)))
+      (is (not (contains? proj-row :large?))
+          "the now-spent :large? row flag is stripped from the projection")
+
+      ;; projected-history routes through the same projection.
+      (let [hist-row (->> (epoch/projected-history :test/main)
+                          (mapcat :sub-runs)
+                          (filter #(= :big (:sub-id %)))
+                          first)]
+        (is (elision/marker? (:value hist-row))
+            "projected-history also elides the large :sub-runs value")))))
+
 (deftest projected-record-bookkeeping-passes-through
   (testing "bookkeeping slots are preserved by the projection — the
             projection only mutates payload-bearing slots"
@@ -303,9 +386,17 @@
             (str "bookkeeping slot " k " passes through unchanged"))))))
 
 (deftest projected-record-structured-projections-pass-through
-  (testing ":sub-runs / :renders / :effects pass through unchanged —
-            they carry no app-db material (only sub-ids, render-keys,
-            fx-ids, and outcome tags)"
+  (testing ":renders / :effects carry no app-db material (only
+            render-keys, fx-ids, and outcome tags), so they pass through
+            the projection unchanged. `:sub-runs` rows carry value-bearing
+            `:prev-value` / `:value` (rf2-at60h) so they are NOT value-free
+            in general — but a row that is neither whole-output sensitive
+            (already redacted at the marks emit site) nor whole-output
+            large (no `:large?` flag → nothing to substitute) survives the
+            projection byte-for-byte. This cascade declares only a SENSITIVE
+            schema path and reads no large-marked sub, so its `:sub-runs`
+            rows still pass through identically; the large-value egress
+            case is pinned by `projected-record-elides-large-sub-output`."
     (rf/reg-frame :test/main {})
     (install-sensitive-schema! :test/main)
     (rf/reg-event-db :login
