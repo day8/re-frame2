@@ -7,7 +7,7 @@ The walking order is dependency-driven. Earlier EPs are foundations for later on
 **Three cross-cutting anchors to keep open for every EP below:**
 
 - [`spec/Ownership.md`](https://day8.github.io/re-frame2/spec/Ownership/) — the canonical "where does X live" contract-surface map. When an EP touches a surface and you're unsure which spec owns it, this is the index. Read it once before EP 001 and consult it per-EP.
-- [`spec/Conventions.md`](https://day8.github.io/re-frame2/spec/Conventions/) — the reserved `:rf/*` single-root namespace scheme, reserved fx-ids, reserved app-db keys, the `reg-*` macro inventory. Every framework id your port emits lands under `:rf/*`; honour the scheme from EP 001 onward (cardinal rule 10). Conformance fixtures assert `:rf.*` operation ids.
+- [`spec/Conventions.md`](https://day8.github.io/re-frame2/spec/Conventions/) — the reserved `:rf/*` single-root namespace scheme, reserved fx-ids, reserved app-db keys, the `reg-*` macro inventory. Almost every framework id your port emits lands under `:rf/*`; honour the scheme from EP 001 onward (cardinal rule 10). **The one carve-out:** the three reserved fx-ids `:dispatch`, `:dispatch-later`, and `:raise` ship **unqualified** (bare, not under `:rf/*`) as frozen pre-consolidation legacy — register and recognise them exactly as-is; do not namespace or reject them (per [`cardinal-rules.md` §10](cardinal-rules.md) and [`spec/Conventions.md` §Reserved fx-ids](https://day8.github.io/re-frame2/spec/Conventions/#reserved-fx-ids)). Conformance fixtures assert `:rf.*` operation ids on the trace stream and emit the bare `:dispatch` / `:dispatch-later` fx from handler `:fx`.
 - [`spec/API.md`](https://day8.github.io/re-frame2/spec/API/) — the consolidated public signature list. Read the relevant entries first whenever an EP's "The contract" names a public surface (`reg-*`, `dispatch`, `subscribe`, the fx/cofx surface, …).
 
 ## Walking order
@@ -17,9 +17,10 @@ The walking order is dependency-driven. Earlier EPs are foundations for later on
 3. EP 006 — Reactive substrate
 4. EP 004 — Views
 5. EP 009 — Instrumentation
-6. **Acceptance gate 1**: run `:core/*` conformance fixtures
-7. Optional EPs per Phase 1's D3 scope (suggested order below)
-8. **Acceptance gate 2**: run the full claimed-capability fixture set
+6. EP 015 — Data Classification (v1-required; overlays the 009 emission boundary)
+7. **Acceptance gate 1**: run `:core/*` conformance fixtures
+8. Optional EPs per Phase 1's D3 scope (suggested order below)
+9. **Acceptance gate 2**: run the full claimed-capability fixture set
 
 Each EP is multi-day work. Plan one focused session per EP; don't try to land two in one sitting.
 
@@ -139,28 +140,59 @@ Each EP is multi-day work. Plan one focused session per EP; don't try to land tw
 
 **Read first.** [`spec/009-Instrumentation.md`](https://day8.github.io/re-frame2/spec/009-Instrumentation/).
 
-**The contract.**
+**The contract.** EP 009 has **two distinct surfaces with opposite production postures** — conflating them is the single most expensive 009 mistake (see the trap below). Read [`spec/009-Instrumentation.md` §The three always-on substrates](https://day8.github.io/re-frame2/spec/009-Instrumentation/) and §What is available in production before designing the emit path.
 
-- **Trace event stream.** Structured events emitted from well-defined points (event-handler entry/exit, fx invocations, sub computations, errors). Synchronous, in-order, per-emit listener invocation.
-- **Listener registry.** `(register-listener! key callback)` / `(deregister-listener! key)`. Multiple listeners; each gets every event.
-- **Retain-N ring buffer.** Dev-only; tools that attach after events have fired can read recent history.
-- **Error contract.** Structured trace events for runtime failures — handler exceptions, schema validation, drain depth, no-such-handler. `:operation :rf.error/<category>`, `:op-type :error`.
-- **Production elision.** Every emit site, the listener registry, the trace buffer must elide in production builds. Mechanism is host-discretion (Closure DCE for CLJS; Vite `define` + tree-shake for JS/TS and Squint; `#if !DEBUG` + tree-shake for Fable; link-time-`if` for Scala.js; release-variant module omission for Kotlin/JS).
+- **Dev-only trace surface (production-ELIDED).** The full structured trace stream — `register-listener!` / `deregister-listener!`, the rich per-emit trace events (event-handler entry/exit, fx invocations, sub computations, the dev-only `:rf.event/*` enrichments), and the retain-N ring buffer — is **dev-only by construction**. Synchronous, in-order, per-emit listener invocation. It DCEs out entirely in a default production build (no listener, no allocation, no overhead). Xray / Story / re-frame-10x consume it in dev. This is what "production elision" governs.
+- **Always-on emit surfaces (production-SURVIVABLE).** Two substrates **survive `:advanced` + `goog.DEBUG=false`** and are NOT part of the dev trace surface — they exist precisely for the production / SSR observability posture and would defeat their purpose if a debug-gate flip silenced them:
+  - **Event-emit listener** — `register-event-listener!` / `unregister-event-listener!`. Fires one tight, fixed-shape event-record per processed event (`{:event :event-id :frame :time :outcome :elapsed-ms}`) for direct hosted-backend forwarding. The `:event` vector rides `re-frame.elision/elide-wire-value` once before fan-out (post-elision: large → `:rf.size/large-elided`, sensitive → `:rf/redacted`).
+  - **Error-emit listener** — `register-error-listener!` / `unregister-error-listener!`, plus the per-frame `:on-error` policy fn (`:default` / `:swallow` / `:replacement`). Fires one error-record per `:rf.error/*` cascade error (handler / coeffect / interceptor / flow-eval exceptions, fx errors). This is the production error-reporting fan-out (Sentry / Rollbar / hosted monitors) and the SSR fail-closed status path — it is **NOT trace-only** and MUST keep firing post-elision.
+  - Both substrates deliver **identical record shapes in dev and prod**, run post-elision (marked values already substituted), and **isolate per-listener exceptions** (one listener throwing must not abort the cascade or the other listeners).
+- **Error contract.** Structured records for runtime failures — handler exceptions, schema validation, drain depth, no-such-handler. `:operation :rf.error/<category>`, `:op-type :error`. The same `:rf.error/*` event flows on BOTH surfaces: the dev trace stream (when the gate is true) AND the always-on error-emit substrate (always).
+- **Production elision applies to the dev trace surface only.** Every dev trace emit site, the `register-listener!` registry, the ring buffer, and the perf bridge elide in production builds. Mechanism is host-discretion (Closure DCE for CLJS; Vite `define` + tree-shake for JS/TS and Squint; `#if !DEBUG` + tree-shake for Fable; link-time-`if` for Scala.js; release-variant module omission for Kotlin/JS). **The two always-on substrates above are explicitly OUT of the elision scope** — they must survive the same production build that DCEs the trace surface, or hosted observability and error reporting silently vanish.
 
-**What the CLJS reference did (example).** A single atom holds the listener registry; emit walks it inline. A separate ring-buffer atom holds the dev-only history. Production elision via `goog-define` + Closure DCE; a CI script verifies dev-only sentinel strings are absent from production bundles.
+**What the CLJS reference did (example).** A single atom holds the dev-only `register-listener!` registry; emit walks it inline behind the `re-frame.interop/debug-enabled?` gate. A separate ring-buffer atom holds the dev-only history. The two always-on substrates (`register-event-listener!` / `register-error-listener!`) ride a *separate*, ungated emit path that survives `:advanced` + `goog.DEBUG=false`. Dev-trace production elision via `goog-define` + Closure DCE; a CI script verifies dev-only sentinel strings are absent from production bundles — while asserting the always-on substrates remain present.
 
 **Conformance fixtures.** `:core/trace`, `:core/error` families. Verify: dispatching an event emits the expected trace sequence; a handler that throws produces an `:rf.error/handler-exception` trace event; the ring buffer holds the last N events when no listener was registered at emit time.
 
 **Common spec-gap traps.**
 
 - **Listener invocation order.** The spec says "synchronous, in-order, event-at-a-time, exactly once per registered listener". It does NOT specify which listener fires first when multiple are registered. Don't over-commit; don't rely on order in your tests.
-- **Production elision.** The hardest piece. The CLJS reference's CI verifier (sentinel-string scan) is a useful pattern to copy — emit a known string at every dev-only call site, scan production bundles for any occurrence, fail the build if found.
+- **Production elision — scope it to the DEV TRACE surface only.** The single most expensive 009 mistake is DCE-ing the whole instrumentation module, taking the always-on event/error-emit substrates with it. The `register-event-listener!` / `register-error-listener!` substrates and the per-frame `:on-error` policy fn **must survive `:advanced` + `goog.DEBUG=false`** — a production build that elides them kills hosted observability, kills production error reporting (Sentry / Rollbar fan-out), and breaks the SSR fail-closed status path. Wire the dev trace surface behind the debug gate; wire the two always-on substrates on a separate, ungated path. The CLJS reference's CI verifier (sentinel-string scan) is a useful pattern to copy — emit a known string at every *dev-only* call site, scan production bundles for any occurrence, fail the build if found — but pair it with a positive assertion that the always-on substrates are still present in the production bundle, so an over-aggressive DCE pass is caught.
 - **Error category coverage.** Don't miss categories — and don't assume "category" means "exception." The spec's `:rf.error/*` taxonomy splits into two kinds, and a port that audits only the first ships silent bugs:
   - **Exception-driven (you `catch`).** Every catch must fire a trace event, no silent swallow: `:rf.error/handler-exception`, `:rf.error/fx-handler-exception`, `:rf.error/sub-exception`, `:rf.error/schema-validation-failure`, `:rf.error/drain-depth-exceeded`, `:rf.error/no-such-handler`, and more (spec/009 enumerates ~90 `:rf.error/*` categories; this is a sample, not the whole list). Use the fully-qualified `:rf.error/` form — a bare `fx-exception` is not a category (the real one is `:rf.error/fx-handler-exception`), and consumers/fixtures match on the exact keyword.
   - **Proactive shape-policing (you POLICE, nothing throws).** Two load-bearing fail-closed categories never raise an exception, so "audit each catch" misses them entirely — you must validate the effect-map shape *before* the fx interpreter runs:
     - `:rf.error/effect-map-shape` — a malformed effect-map from a `reg-event-fx` handler (per spec/009 §Error contract, three cases: (a) a top-level key other than `:db` / `:fx`; (b) a non-`nil`, non-sequential `:fx` value, e.g. `{:fx :oops}`; (c) a single `:fx` entry that is not a `[fx-id args]` tuple, e.g. `{:fx [[:good a] :oops]}`). Recovery is `:logged-and-skipped` — one trace per offending key/value/entry, the offender is **dropped while sibling `:fx` entries still run** (a `nil`/empty entry is the legal conditional-fx no-op, NOT traced). The `:fx` entry shape is `[:vector [:tuple :keyword :any]]` per [`spec/Spec-Schemas.md` §`:rf/effect-map`](https://day8.github.io/re-frame2/spec/Spec-Schemas/#rfeffect-map).
     - `:rf.error/effect-handler-bad-return` — a `reg-event-fx` handler that returns a value that is neither a map nor `nil`; the dispatch is a no-op + trace (`nil` stays the legal no-op).
   Audit each catch **AND each proactive shape gate** in your port against the spec/009 error contract. A lenient fx-entry guard that accepts any non-empty vector — instead of policing the `[fx-id args]` tuple shape — silently truncates malformed effect maps with no diagnostic (the exact bug rf2-18kwf fixed in the reference). The conformance corpus **now backstops this class** (`effect-map-shape-bad-top-level-key.edn`, `effect-map-shape-bad-fx-value.edn`, `effect-map-shape-bad-fx-entry.edn`, `effect-map-shape-surplus-entry-field.edn`, `effect-handler-bad-return.edn` — rf2-xqt6v), so a lenient port now FAILS green conformance here rather than shipping the bug undetected. Still police it from the spec first — the corpus confirms, it does not teach.
+
+---
+
+## EP 015 — Data Classification (Sensitive + Large)
+
+**v1-required, not optional.** Spec 015 marks itself v1-required, and [`spec/API.md`](https://day8.github.io/re-frame2/spec/API/) exposes `add-marks` / `set-marks` as v1 surface. A port that ships 001–009 but omits 015 ships a privacy hole: marked values leak through every observation surface (trace bus, event/error emit records, Xray, MCP wire, third-party log sinks). It lands here — right after 009 — because the classification machinery is a leak-prevention overlay on the 009 emission boundary, so it needs 009's emit path in place first.
+
+**Read first.** [`spec/015-Data-Classification.md`](https://day8.github.io/re-frame2/spec/015-Data-Classification/) end-to-end. Keep open: the `add-marks` / `set-marks` entries in [`spec/API.md`](https://day8.github.io/re-frame2/spec/API/), [`spec/Conventions.md` §Reserved namespaces](https://day8.github.io/re-frame2/spec/Conventions/) (the `:rf/redacted` / `:rf/large` sentinels are framework-reserved), and [`spec/009-Instrumentation.md`](https://day8.github.io/re-frame2/spec/009-Instrumentation/) §The trace event model (where emission-time substitution hooks in).
+
+**The contract.**
+
+- **Opt-in, path-marked, two parallel axes.** Nothing is auto-detected. The author declares *paths* (vectors of keywords/indices, `get-in` grain) inside well-known data shapes as `:sensitive` and/or `:large`. The two axes are independent and compose.
+- **Seven first-class marking sites** — each accepts an optional `{:sensitive [paths] :large [paths]}` on its registration map: `reg-event-{db,fx,ctx}`, subscriptions (`reg-sub`), effects (`reg-fx`), coeffects (`reg-cofx`), state machines (`reg-machine`), flows (`reg-flow`), plus **app-db marks per frame** via `add-marks` (additive merge — paths not mentioned keep prior state) and `set-marks` (wholesale replace — unmentioned paths CLEARED; schema-attached marks preserved either way). Both are pure declarations that return `frame-id` and do NOT mutate `app-db`.
+- **`:sensitive` / `:large` registration metadata + whole-output overrides.** Per-path `:sensitive [paths]` / `:large [paths]`; whole-output `:sensitive? true/false` / `:large? true/false` force-mark or opt out and win over per-path on conflict. The `false` opt-out is the author's explicit assertion that a derived value is safe to surface.
+- **Marks propagate across the dataflow** (footgun prevention, NOT a security-grade taint system). Seven propagation boundaries: event-args → app-db (a sensitive event-arg written to app-db widens the destination path's mark transitively), app-db → subs, sub → sub, app-db → flows, cofx → handler, machine `:data`, fx inputs. The framework trusts author overrides.
+- **Three display sentinels at the emission boundary.** `:rf/redacted` (sensitive — opaque, MUST NOT be revealable: no click-to-expand, no off-box hop, no LLM-context leak); `:rf/large {:bytes N :head "…"}` (large-but-not-sensitive — MAY surface a size-confirmed click-to-expand); `:rf/redacted {:bytes N}` (both — size visible, content not, no `:head`). The keywords are framework-reserved; apps MUST NOT use them as payload values.
+- **Substitution happens at EMISSION time, never mid-handler.** Real values flow through events → cofx → handler → fx → app-db → subs → views **unchanged** — handlers, sub-fns, fx-handlers ALWAYS see real values. The framework substitutes sentinels only at the five observation surfaces marks MUST guard: (1) trace-bus emit, (2) Xray panel rendering, (3) MCP wire transport, (4) AI/LLM context handed off by tools, (5) third-party log sinks consuming the trace bus. The shared wire-elision walker is `re-frame.elision/elide-wire-value` (`:rf/redacted` for sensitive, `:rf.size/large-elided` for large) — the **same walker the 009 always-on event/error-emit substrates run before fan-out**, so production observability records are also mark-respecting.
+- **No runtime cost on the happy path.** Mark lookups happen only at emission time. The trace-bus emit path is compile-time elided in production per [009 §Production elision] — but the always-on event/error-emit substrates still run `elide-wire-value` in production, so production records never leak a marked value either.
+
+**What the CLJS reference did (example).** Marks live in a per-frame side-table (alongside the schemas side-table, NOT a registrar kind), unioned with schema-attached `:sensitive?` / `:large?` marks at lookup time. Propagation is computed as a path-graph union at emit time (the spec also permits write-time taint-tracking — both conform). The sentinel substitution rides the same `goog.DEBUG` gate as the trace surface for trace-bus emit, and rides `elide-wire-value` for the always-on substrates and MCP wire. None of this layout is normative.
+
+**Conformance fixtures.** Data-classification fixtures assert that a marked path renders as the correct sentinel at the observation boundary while the real value still flows through the runtime. Verify: a `:sensitive`-marked app-db path yields `:rf/redacted` in trace / emit records but the real value in the handler; a `:large`-marked path yields `:rf/large {:bytes N}`; propagation widens a sub's output mark from a sensitive input; `:sensitive? false` opts a sanitised sub out; `add-marks` merges and `set-marks` clears-then-sets as specified.
+
+**Common spec-gap traps.**
+
+- **Redacting mid-handler.** The framework must NOT redact before the handler runs — handlers need real values. Substitution is emission-time only.
+- **Forgetting a consumer.** All five observation surfaces must consult marks. A port that guards the trace bus but not the always-on event/error-emit records, the MCP wire, or a log-sink listener still leaks. Route every observer through the one `elide-wire-value` walker.
+- **`add-marks` vs `set-marks` semantics.** `add-marks` merges; `set-marks` replaces wholesale and CLEARS unmentioned paths. Both preserve schema-attached marks. Getting the merge-vs-replace backwards silently widens or drops privacy coverage.
+- **Treating 015 as optional.** It is v1-required. Do not gate it behind a D3 question.
 
 ---
 
@@ -212,9 +244,9 @@ For each capability the port declared `yes` for in D3, walk the matching EP. Sug
 
 ### EP 011 — SSR (if D3 Q3 = yes)
 
-**Read.** [`spec/011-SSR.md`](https://day8.github.io/re-frame2/spec/011-SSR/).
+**Read.** [`spec/011-SSR.md`](https://day8.github.io/re-frame2/spec/011-SSR/) — including §Streaming SSR (shipped in v1).
 
-**Contract.** `:platforms` metadata on `reg-fx`, `render-to-string`, `:rf/hydrate`, hydration-mismatch detection, `init-platform`.
+**Contract.** `:platforms` metadata on `reg-fx`, `render-to-string`, `:rf/hydrate`, hydration-mismatch detection, `init-platform`. **Streaming SSR is shipped** (`:rf/suspense-boundary` markers → shell-with-template-fallbacks → per-continuation resolved chunks → final `__rf_payload`): the `re-frame.ssr.streaming` surface (`render-shell!` / `render-continuation!` / `build-final-payload`) drives the `:ssr/suspense-boundary`, `:ssr/hydration-payload`, `:ssr/chunked-response` capabilities. The conformance corpus exercises it via the Mode-B `:call` ops `:ssr.streaming/render-shell` / `:ssr.streaming/render-continuation` / `:ssr.streaming/build-final-payload` (see [`conformance.md`](conformance.md) §Mode B); a Q3=yes port either implements streaming or puts those capability tags on `known-skipped-capabilities`.
 
 ### EP 013 — Flows (if D3 Q8 = yes)
 

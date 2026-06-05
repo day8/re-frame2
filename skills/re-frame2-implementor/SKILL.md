@@ -30,7 +30,7 @@ This skill is **workflow + guidance** layered on the spec corpus at [`spec/`](..
 The job is to walk the engineer through two phases:
 
 1. **Phase 1** — lock the load-bearing decisions (target language, substrate, scope, identity primitive, persistent data, concurrency, schema mechanism, hot-reload).
-2. **Phase 2** — implement EPs in dependency order (001 → 002 → 006 → 004 → 009, then optional EPs per Phase 1 scope), validated by the conformance corpus.
+2. **Phase 2** — implement EPs in dependency order (001 → 002 → 006 → 004 → 009 → 015, then optional EPs per Phase 1 scope), validated by the conformance corpus.
 
 > **Term: EP.** Throughout this skill, "EP" abbreviates **Extension Point** — a numbered per-area Spec in the corpus at [`spec/`](../../spec/). EP 001 corresponds to [`spec/001-Registration.md`](../../spec/001-Registration.md), EP 002 to [`spec/002-Frames.md`](../../spec/002-Frames.md), and so on. The spec itself calls these "numbered Specs"; this skill uses "EP" as a compact shorthand because the walking order, dependency graph, and conformance-fixture families are all keyed off the numbers.
 
@@ -42,14 +42,14 @@ Full skill-disambiguation matrix lives at [`skills/README.md` §Skill routing �
 
 1. **Spec is the contract — pinned before reading.** When `implementation/` and [`spec/`](../../spec/) disagree, the spec wins. The kickoff prompt names a `day8/re-frame2` commit/tag; verify the checkout's HEAD and origin before reading the spec and record the pin in `DECISIONS.md` (preamble before D1). An unverified checkout is not the contract.
 2. **Phase 1 before Phase 2.** Lock decisions in writing before writing code.
-3. **Dependency order.** EP 001 → 002 → 006 → 004 → 009 are the foundation; optional EPs sit downstream.
+3. **Dependency order.** EP 001 → 002 → 006 → 004 → 009 → 015 are the foundation; optional EPs sit downstream. (Spec 015 Data Classification is v1-required — it rides the 009 emission boundary, so it lands right after instrumentation.)
 4. **Substrate-agnostic phrasing.** Write to "the identity primitive", "the render-tree", "the reactive container" — not to hiccup / Reagent / keywords.
 5. **No core.async equivalents.** Async effects ride host primitives; cross-frame work is run-to-completion-drained.
 6. **JVM-runnability for testing.** Pure transitions and pure sub computations must be callable from a non-substrate harness.
 7. **Conformance corpus is the acceptance test.** Score is `passed / claimed-applicable`; a fixture you can't make pass without outside sources is a *spec gap*.
 8. **Spec gap → draft a GitHub issue against `day8/re-frame2` and ask before filing.** Don't paper, don't invent, don't extrapolate from the reference — but don't auto-file either. Show the engineer the drafted title + body, restrict the body to public spec-quoted evidence (no private port source), and wait for explicit OK before running `gh issue create`. The skill runs in the engineer's port repo; spec gaps reach the framework maintainers via the upstream repo's GitHub issues — never via `bd` (re-frame2's internal tracker, never invoked from a published skill).
 9. **Per-issue approval gate for any cross-repo side effect.** Before running `gh issue create` against a repo other than the one the engineer is working in, show the full draft (title, target repo, label set, body) and wait for explicit "yes" / "go" / "file it". Invoking the skill is consent to the workflow, not to each cross-repo write. See [`references/cardinal-rules.md` §9](references/cardinal-rules.md).
-10. **Honour the reserved `:rf/*` scheme.** Framework-owned ids live under the single root namespace `:rf/*` (and its sub-namespaces); user code MUST NOT register under `:rf/*`. Reserved fx-ids and the reserved app-db root key `:rf/runtime` (under which the framework parks `:machines`, `:routing`, `:elision`, …) are part of the contract. A port that ignores the scheme fails conformance fixtures that assert `:rf.*` operation ids. Per [`spec/Conventions.md`](../../spec/Conventions.md); the "where does each surface live" map is [`spec/Ownership.md`](../../spec/Ownership.md).
+10. **Honour the reserved `:rf/*` scheme — with the three-fx carve-out.** Framework-owned ids live under the single root namespace `:rf/*` (and its sub-namespaces); user code MUST NOT register under `:rf/*`. Reserved fx-ids and the reserved app-db root key `:rf/runtime` (under which the framework parks `:machines`, `:routing`, `:elision`, …) are part of the contract. **The one carve-out:** the fx-ids `:dispatch`, `:dispatch-later`, and `:raise` are reserved but ship **unqualified** (bare, not under `:rf/*`) as frozen pre-consolidation legacy — register and recognise them exactly as-is; do not namespace or reject them, or you break dispatch/drain and the core conformance fixtures that emit them. A port that ignores the scheme fails conformance fixtures that assert `:rf.*` operation ids. Per [`spec/Conventions.md`](../../spec/Conventions.md); the "where does each surface live" map is [`spec/Ownership.md`](../../spec/Ownership.md).
 
 ## Phase 1 — lock the decisions
 
@@ -61,7 +61,7 @@ Output of Phase 1: a single dated decision record committed to the port's own re
 
 With Phase 1 locked, walk [`references/phase-2-impl-order.md`](references/phase-2-impl-order.md) EP-by-EP. The leaf carries, for each EP: what to read first, the contract to expose, how the CLJS reference realised it (as **one** example, not normative), what the conformance fixtures check, common spec-gap traps.
 
-Dependency order is fixed: **EP 001 Registration → 002 Frames → 006 Reactive substrate → 004 Views → 009 Instrumentation**, then a first conformance pass against the `:core/*` fixtures (run by the engineer, or by the agent when asked — see [`references/conformance.md`](references/conformance.md); the agent never runs the engineer's builds unbidden). Optional EPs (010 Schemas, 008 Testing, 005 State machines, 012 Routing, 011 SSR, 013 Flows, 014 HTTP, 007 Stories) follow in the order Phase 1 declared `yes` for them — each gated by its D3 question (Q1 machines, Q2 routing, Q3 SSR, Q4 schemas, Q5 stories, Q8 Flows, Q9 HTTP; Q6 Tool-Pair and Q7 AI-Audit gate the non-EP surfaces).
+Dependency order is fixed: **EP 001 Registration → 002 Frames → 006 Reactive substrate → 004 Views → 009 Instrumentation → 015 Data Classification**, then a first conformance pass against the `:core/*` fixtures (run by the engineer, or by the agent when asked — see [`references/conformance.md`](references/conformance.md); the agent never runs the engineer's builds unbidden). **Spec 015 is v1-required, not optional** — it overlays the 009 emission boundary (and the MCP wire / Xray / log-sink consumers) with path-marked data classification, so it lands in the foundation right after 009. Optional EPs (010 Schemas, 008 Testing, 005 State machines, 012 Routing, 011 SSR, 013 Flows, 014 HTTP, 007 Stories) follow in the order Phase 1 declared `yes` for them — each gated by its D3 question (Q1 machines, Q2 routing, Q3 SSR, Q4 schemas, Q5 stories, Q8 Flows, Q9 HTTP; Q6 Tool-Pair and Q7 AI-Audit gate the non-EP surfaces).
 
 ## Source discipline
 
@@ -86,6 +86,7 @@ The corpus at [`spec/conformance/`](../../spec/conformance/) is host-agnostic da
 
 - [ ] Phase 1 decision record committed to the port's repo.
 - [ ] All in-scope EPs have a working implementation.
+- [ ] **Spec 015 Data Classification is implemented** (v1-required): the seven first-class marking sites accept `{:sensitive [paths] :large [paths]}`, `add-marks` / `set-marks` mark per-frame `app-db` paths, marks propagate across the dataflow, and the emission boundary substitutes `:rf/redacted` / `:rf/large` sentinels at every observation surface (trace bus, Xray, MCP wire, log sinks) via the wire-elision walker. No marked value leaks past the trust boundary.
 - [ ] The port exposes [`spec/API.md`](../../spec/API.md), adapted to host idiom.
 - [ ] Conformance score is `(claimed-applicable) / (claimed-applicable)`.
 - [ ] Non-spec-gap failures fixed in the port; spec-gap failures filed as GitHub issues against `day8/re-frame2`.

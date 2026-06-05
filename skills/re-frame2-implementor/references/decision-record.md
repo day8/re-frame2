@@ -76,7 +76,7 @@ Every spec citation in this record (and in subsequent code) is against the pinne
 
 - **Sync default:** <yes — fx run inline when the handler returns / no — different model>
 - **Async re-entry:** <e.g. "Promise.then → :dispatch" / "queueMicrotask → schedule dispatch">
-- **Standard fx the port ships:** <e.g. ":dispatch / :dispatch-later / :http">
+- **Reserved framework fx the port ships:** the three unqualified reserved fx-ids — `:dispatch`, `:dispatch-later`, `:raise` — registered exactly as-is (bare, not under `:rf/*`; per Conventions §Reserved fx-ids and `cardinal-rules.md` §10). `:raise` only resolves inside a machine action's `:fx`; outside one it is unbound (`:rf.error/no-such-handler`). <Any optional framework fx in scope per D3 — e.g. managed HTTP ships `:rf.http/managed` & family under `:rf.http/*` (Q9), routing ships `:rf.nav/*` (Q2). Note: there is **no** reserved bare `:http` fx — HTTP is the optional `:rf.http/*` surface, or an app-level `reg-fx` the port doesn't own.>
 
 #### F5 Concurrency model
 
@@ -142,8 +142,9 @@ Every spec citation in this record (and in subsequent code) is against the pinne
 
 #### T3 Production elision
 
-- **Mechanism:** <e.g. "Closure DCE via debug-enabled?" / "Vite define + tree-shake" / "#if !DEBUG">
-- **CI verifier:** <sentinel-string scan asserting dev-only strings absent from production bundles>
+- **Dev-trace-surface mechanism:** <e.g. "Closure DCE via debug-enabled?" / "Vite define + tree-shake" / "#if !DEBUG"> — elides the `register-listener!` registry, rich trace emit sites, ring buffer, perf bridge.
+- **Always-on substrates kept live:** <how `register-event-listener!` / `register-error-listener!` + per-frame `:on-error` survive the production build on a separate ungated path — these are NOT elided (production observability / error reporting / SSR fail-closed)>
+- **CI verifier:** <sentinel-string scan asserting dev-only strings absent from production bundles AND a positive assertion that the always-on substrates remain present (catch over-aggressive DCE)>
 
 ### Errors (E1–E2)
 
@@ -154,7 +155,8 @@ Every spec citation in this record (and in subsequent code) is against the pinne
 
 #### E2 Error reporting to tools
 
-- **Policy slot:** <the per-frame `:on-error` slot in `reg-frame` metadata> — errors flow through the trace stream (T1).
+- **Policy slot:** <the per-frame `:on-error` slot in `reg-frame` metadata — always-on (`:default` / `:swallow` / `:replacement`)>
+- **Always-on error-emit substrate:** <how `register-error-listener!` fans `:rf.error/*` records to production monitors (Sentry / Rollbar / SSR fail-closed) post-elision, exception-isolated — NOT only via the dev-elided trace stream (T1)>
 
 ## D5. Schema mechanism
 
@@ -162,6 +164,13 @@ Every spec citation in this record (and in subsequent code) is against the pinne
 - **Library (if runtime-schema):** <e.g. "Malli (CLJS)" / "Zod (TS / Squint)">
 - **Validation timing:** <e.g. "boundary-only, dev-build only, elided by Vite define" / "boundary-only, JIT-compiled to no-op in release">
 - **Open-shape verification:** <how the port enforces open shapes — additive growth, unknown-key tolerance>
+
+## D5b. Data classification (Sensitive + Large) — v1-required (not D3-gated)
+
+- **Mark storage:** <where per-frame app-db marks live — e.g. "per-frame side-table unioned with schema-attached marks at lookup time"; `add-marks` merges, `set-marks` replaces-and-clears, both preserve schema-attached marks, both return `frame-id`>
+- **Per-registration declarations:** <confirm the seven marking sites accept `{:sensitive [paths] :large [paths]}` — `reg-event-{db,fx,ctx}` / `reg-sub` / `reg-fx` / `reg-cofx` / `reg-machine` / `reg-flow` + app-db marks; subs/flows also take whole-output `:sensitive? true/false` / `:large? true/false`>
+- **Propagation mechanism:** <write-time taint-tracking OR emit-time path-graph union — both conform; covers the seven dataflow boundaries>
+- **Emission-time substitution:** <the one wire-elision walker (e.g. `elide-wire-value`) all five observation surfaces route through — trace bus, Xray, MCP wire, AI/LLM handoff, log sinks; `:rf/redacted` / `:rf/large {:bytes N}` / `:rf/redacted {:bytes N}`; real values flow through the runtime unchanged; the 009 always-on emit records run it too so no marked value crosses the trust boundary in dev OR production>
 
 ## D6. Integration story
 
