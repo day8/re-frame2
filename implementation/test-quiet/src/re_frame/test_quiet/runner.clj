@@ -60,7 +60,14 @@
   set-literal opener `#{` rather than the bare `Running tests in ` so that
   a legitimate diagnostic such as `Running tests in local fixture...`
   emitted by a test or fixture is forwarded, not silently swallowed: only
-  the runner's own banner opens a set literal here."
+  the runner's own banner opens a set literal here.
+
+  Note the leading `\\n` in cognitect's format string: the banner is
+  `\\nRunning tests in #{...}\\n` — it opens with a BLANK LINE.  That
+  leading newline is part of the banner artefact and is swallowed along
+  with the `Running tests in #{...}` text (see the pending-blank handling
+  in `banner-filtering-writer`); the text we *match* on is the
+  non-blank-line portion below."
   "Running tests in #{")
 
 (defn- banner-filtering-writer
@@ -78,15 +85,29 @@
    - the moment it reaches the full banner prefix we know it IS the banner
      and drop the remainder of the line.
 
+  cognitect's banner opens with a BLANK LINE — the format string is
+  `\"\\nRunning tests in %s\"`, so the leading `\\n` renders an empty line
+  immediately before the `Running tests in #{...}` text.  That blank line
+  is part of the same artefact and must vanish too, else a green run leaks
+  one stray leading blank line (rf2-khecvs).  We can't know a blank line
+  is the banner's lead-in until the NEXT line proves to be the banner, so
+  an empty line seen while still watching is held as a single PENDING
+  BLANK: dropped if the next line is confirmed the banner, emitted
+  otherwise (a divergent line, a short watched line, or a second blank).
+  At most one blank is ever pending — it is resolved at the next line's
+  first character.
+
   A newline resets the watch for the next line.  The crucial property
   versus a line-at-a-time buffer: non-banner text is never retained across
   the runner's `System/exit` (cognitect exits straight from the computed
   fail/error counts, so neither `flush` nor `close` runs).  An eager
   forward means a bare `(print ...)` diagnostic with no trailing newline
   still reaches stdout before exit.  The only text that can sit unflushed
-  at exit is a run that is character-for-character a strict prefix of the
-  banner and never terminates — which only the banner itself produces, and
-  the banner always ends in a newline (cognitect uses `println`).
+  at exit is a strict banner-prefix candidate or a single pending blank —
+  both of which the `finally` flush and the JVM shutdown hook forward (a
+  genuine trailing blank line therefore still survives exit), while the
+  banner itself completes and is dropped before any exit because cognitect
+  prints it with `println` and runs the suite after.
 
   Help text, parse-error diagnostics, the reporter's failure output, and
   bare test stdout all pass through untouched; only the banner line is
@@ -106,11 +127,31 @@
         ;;   :dropping    — this line IS the banner; drop to its newline.
         buf   (StringBuilder.)
         state (volatile! :watching)
+        ;; `pending-blank?` holds back a single empty line that MIGHT be
+        ;; the banner's leading newline (`\nRunning tests in #{...}`). It
+        ;; is resolved at the next line's first character: dropped if that
+        ;; line confirms the banner, emitted otherwise.
+        pending-blank? (volatile! false)
         emit! (fn [^String s] (when (pos? (.length s)) (.write target s)))
+        flush-pending-blank! (fn []
+                               ;; The held blank was NOT the banner's
+                               ;; lead-in after all — emit it as a real
+                               ;; empty line.
+                               (when @pending-blank?
+                                 (.write target (int \newline))
+                                 (vreset! pending-blank? false)))
+        drop-pending-blank! (fn []
+                              ;; The held blank WAS the banner's lead-in —
+                              ;; discard it with the banner.
+                              (vreset! pending-blank? false))
         forward-partial! (fn []
-                           ;; Forward any held candidate (only ever a
-                           ;; strict banner prefix). Called on flush/close
-                           ;; for the in-process help/return path.
+                           ;; Forward any held blank + candidate (the
+                           ;; candidate is only ever a strict banner
+                           ;; prefix). Called on flush/close for the
+                           ;; in-process help/return path and the JVM
+                           ;; shutdown hook, so a genuine trailing blank
+                           ;; line and a bare partial both survive exit.
+                           (flush-pending-blank!)
                            (when (pos? (.length buf))
                              (.write target (.toString buf))
                              (.setLength buf 0)))
@@ -121,10 +162,22 @@
                         (cond
                           (= c \newline)
                           (do (case @state
-                                ;; Short line that never reached the full
-                                ;; banner prefix — forward the held run.
-                                :watching    (do (emit! (.toString buf))
-                                                 (.write target (int \newline)))
+                                ;; Empty watched run → a blank line. It may
+                                ;; be the banner's leading newline, so hold
+                                ;; it pending instead of forwarding now. A
+                                ;; blank already pending means the prior
+                                ;; blank was NOT followed by the banner —
+                                ;; flush it and hold this one.
+                                ;; A non-empty watched run is a short line
+                                ;; that never reached the banner prefix —
+                                ;; any pending blank preceded real content,
+                                ;; so flush it, then forward the run.
+                                :watching    (if (zero? (.length buf))
+                                               (do (flush-pending-blank!)
+                                                   (vreset! pending-blank? true))
+                                               (do (flush-pending-blank!)
+                                                   (emit! (.toString buf))
+                                                   (.write target (int \newline))))
                                 ;; Diverged line — its chars already went
                                 ;; straight through; terminate it.
                                 :passthrough (.write target (int \newline))
@@ -144,16 +197,23 @@
                             (.append buf c)
                             (cond
                               ;; Reached the full prefix → confirmed banner.
+                              ;; Any pending blank was its leading newline.
                               (>= (.length buf) prefix-len)
-                              (do (.setLength buf 0)
+                              (do (drop-pending-blank!)
+                                  (.setLength buf 0)
                                   (vreset! state :dropping))
-                              ;; Still on track to be the banner — keep holding.
+                              ;; Still on track to be the banner — keep
+                              ;; holding (and keep any pending blank held;
+                              ;; it stands or falls with this line).
                               (.startsWith ^String discovery-banner-prefix
                                            (.toString buf))
                               nil
-                              ;; Diverged → this line is not the banner.
+                              ;; Diverged → this line is not the banner, so
+                              ;; the pending blank preceded real content;
+                              ;; flush it, then forward the diverged run.
                               :else
-                              (do (emit! (.toString buf))
+                              (do (flush-pending-blank!)
+                                  (emit! (.toString buf))
                                   (.setLength buf 0)
                                   (vreset! state :passthrough))))))
         consume-str! (fn [^String s]
