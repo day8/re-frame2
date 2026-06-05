@@ -48,7 +48,7 @@ A self-contained prompt that re-authors the `re-frame2-implementor` skill from t
 > *5. No core.async. Async fx via host primitives; cross-frame work serialised per frame.*
 > *6. JVM-runnability for the test surface (pure functions stay callable from non-substrate harness).*
 > *7. Conformance corpus is the acceptance test. `passed / claimed-applicable`.*
-> *8. Spec gaps file GitHub issues against `day8/re-frame2` (never `bd`, which is monorepo-internal — see L6 lock and `skills/README.md` baseline). Bodies pass via stdin/here-doc, never inline interpolation. Cross-repo filings are announced first (cardinal rule 9). Never silent extrapolation from the reference.*
+> *8. Spec gaps file GitHub issues against `day8/re-frame2` (never `bd`, which is monorepo-internal — see L6 lock and `skills/README.md` baseline). Bodies pass via `--body-file` (the body is written to a file first), never inline interpolation. Cross-repo filings are announced first (cardinal rule 9). Never silent extrapolation from the reference.*
 >
 > *Locks to preserve verbatim (from `spec/design.md`):*
 >
