@@ -77,7 +77,7 @@ Two pre-flight phases plus six phases. Each links to a leaf for the detail; the 
 
 - [`references/sequencing.md`](references/sequencing.md) — recommended order, restated so an interrupted migration can resume.
 - [`references/auto-call-site-rewrites.md`](references/auto-call-site-rewrites.md) — Type A: per-call-site mechanical rewrites (ns requires, effect-map, dispatch shapes).
-- [`references/auto-cross-cutting.md`](references/auto-cross-cutting.md) — Type A: cross-cutting renames, interceptor cleanup, view / hiccup rewrites, init wiring, per-feature artefact adds.
+- [`references/auto-cross-cutting.md`](references/auto-cross-cutting.md) — Type A: cross-cutting renames, interceptor cleanup (incl. M-70 bare-interceptor → `[vector]` wrap — mechanical but SILENT-fail), view / hiccup rewrites, init wiring, per-feature artefact adds.
 - [`references/guided-handlers-state.md`](references/guided-handlers-state.md) — Type B: handler / view / db-seeding / error-handler / machine-spawn / Reagent-surface walkthroughs (M-3, M-5, M-10, M-11, M-12, M-13, M-14, M-15, M-34, M-42).
 - [`references/guided-interceptors-subs.md`](references/guided-interceptors-subs.md) — Type B: interceptor / subscription / payload / observer walkthroughs (M-17, M-18, M-19, M-21, M-23, M-26).
 - [`references/error-events.md`](references/error-events.md) — pointer to [`spec/009-Instrumentation.md` §Error event catalogue](../../spec/009-Instrumentation.md#error-event-catalogue) as the single source of truth for `:rf.error/*` / `:rf.warning/*` / `:rf.fx/*` / `:rf.cofx/*` / `:rf.ssr/*` / `:rf.epoch/*` / `:rf.http/*` categories. Load when writing `:on-error` / `register-listener!` (M-13, M-17, M-26).
@@ -119,7 +119,7 @@ For delegating the migration to a fresh Claude session: [`references/kickoff-pro
 - [ ] Every tripped M-rule has been applied (Type A) or resolved by the author (Type B).
 - [ ] Existing test suite passes (or fails identically to pre-migration — no new failures introduced).
 - [ ] **Boot smoke-test passed (Phase 4 step 3) — "compiles" is not the done-bar.** App booted in a dev build; live `app-db` + machine snapshots read (`[:rf/runtime :machines :snapshots]` carries every expected boot/singleton machine); first-screen subs deref to real values (not `nil`); one event per feature surface dispatched and the affected slot re-read; boot trace scanned for `:rf.error/*` / `:rf.warning/*` (incl. `:rf.warning/runtime-state-dropped`). None of the silent-runtime-failure modes ([`references/runtime-smoke-test.md`](references/runtime-smoke-test.md)) present.
-- [ ] **Xray replaces 10x** — for a project that used `day8.re-frame/re-frame-10x`: 10x dep + preload dropped at M-0, Xray dep + preload + `[data-rf-xray-host]` host wired post-M-40, panel verified (`Ctrl+Shift+C`). The app is **on Xray**. (No re-frame-10x in the project ⇒ nothing to check; don't add devtools the app never had.)
+- [ ] **Xray replaces 10x** — for a project that used `day8.re-frame/re-frame-10x`: 10x dep + preload dropped at M-0, Xray dep + preload + `[data-rf-xray-host]` host + the npm peer-deps (`@xyflow/react`, `elkjs` — compile-time deps of the Machine-inspector chart) wired post-M-40, panel verified (`Ctrl+Shift+C`). The app is **on Xray**. (No re-frame-10x in the project ⇒ nothing to check; don't add devtools the app never had.)
 - [ ] Migration report (per `MIGRATION.md` Part 2 / `references/output-format.md`) produced and shared.
 - [ ] Items flagged for human review are explicitly listed in the report.
 

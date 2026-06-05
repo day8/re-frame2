@@ -16,6 +16,7 @@ The post-M-40 timing is a **sequencing detail** (Xray needs `init!` first), not 
 ## Contents
 
 - The swap (dep + preload)
+- The npm peer-deps the swap requires (`@xyflow/react`, `elkjs`)
 - The layout host (true-inline default)
 - Resizing the inline host (`--rf-xray-inline-width`)
 - Keybindings (what's actually wired)
@@ -54,6 +55,22 @@ Drop both. The `day8.re-frame/re-frame-10x` Maven coord and the `day8.re-frame-1
 While re-frame2 is in alpha, use the `:local/root` route into the same local pinned `day8/re-frame2` checkout the kickoff prompt already names as `<path-to-re-frame2>` (the one holding `MIGRATION.md`). **Do not write `:local/root "tools/xray"`** — a bare relative `tools/xray` resolves against the *target* project's directory, where no such path exists; the migration target is not the re-frame2 repo. Use `<path-to-re-frame2>/tools/xray` (absolute, or relative to this project's `deps.edn`), or whatever path the author supplies. Once Xray publishes to Clojars, the coord becomes `day8/re-frame2-xray {:mvn/version "<VERSION>"}` (tracking re-frame2's lockstep `<VERSION>`) and the `<path-to-re-frame2>` indirection drops away. The skill prints the `<path-to-re-frame2>/tools/xray` form when the author hasn't told it otherwise; if the author wants the published coord, they say so in the kickoff prompt.
 
 `day8/re-frame2-xray` declares `day8/re-frame2-epoch` as a hard dep — no separate add is required. Xray's epoch-aware panels (the time-travel scrubber, the event-detail panel) read from `re-frame.epoch`'s seed table via `rf/epoch-history` / `rf/register-epoch-listener!`; without the epoch artefact those panels render empty even when events have fired. The dep is pulled in transitively by adding Xray.
+
+### 2a. Add the npm peer-deps Xray pulls at compile time (`@xyflow/react`, `elkjs`)
+
+Xray also depends (transitively, via `day8/re-frame2-machines-viz`) on **two npm packages** its Machine-inspector chart panel imports — `@xyflow/react` (React Flow) and `elkjs` (ELK graph layout). These are *JS* deps, not CLJS coords, so the `:local/root` add above does **not** pull them. An app that follows the steps so far and rebuilds hits a hard **BUILD FAILURE** (shadow-cljs, `:deps true`):
+
+> `The required JS dependency "@xyflow/react" is not available, it was required by ...`
+
+(then `elkjs/lib/elk.bundled.js` next). This is a **LOUD-fail** (it stops the compile, so it is at least self-revealing) — but install the packages up front to save a failed-build / restart cycle:
+
+```bash
+# In the target project's npm root (where package.json lives).
+# Pin in lockstep with re-frame2's implementation/package.json.
+npm install --save-dev @xyflow/react@12.4.2 elkjs@^0.11.1
+```
+
+Keep the versions **in lockstep** with the re-frame2 checkout's `implementation/package.json` (`<path-to-re-frame2>/implementation/package.json`) — read the current `@xyflow/react` / `elkjs` versions there rather than trusting the literals above, which track a point-in-time pin (at this writing `@xyflow/react 12.4.2`, `elkjs ^0.11.1`). They are dev-only (the Machine inspector is dev-only chrome) and elide with the rest of Xray in production builds. If the project's shadow-cljs build is `:js-options {:resolve ...}`-customised or uses a non-default `node_modules` location, install into whichever root that build resolves from.
 
 Xray is **dev-only by construction** — production builds elide every byte of it through the framework's `re-frame.interop/debug-enabled?` gate (`goog.DEBUG=false`). A CI gate at `implementation/scripts/check-bundle-isolation.cjs` greps production bundles for Xray-internal sentinels; any hit is a release blocker. See [`tools/xray/README.md` §Bundle isolation](../../../tools/xray/README.md#bundle-isolation).
 
@@ -187,6 +204,6 @@ Full panel inventory: [`tools/xray/spec/000-Vision.md`](../../../tools/xray/spec
 
 For a 10x app the swap is a **standard, expected** part of the migration — report it as completed work, not as a surprise. It carries no `M-N` id (no application-code surface triggers it), so report it in the migration report's **Verification** section rather than the M-rule list. Example line:
 
-> *"Devtools (Xray replaces 10x — standard for a 10x app): dropped `day8.re-frame/re-frame-10x` + its `:preloads` entry at M-0; post-M-40 added `day8/re-frame2-xray {:local/root "..."}` + its preload + a `[data-rf-xray-host]` host in `resources/public/index.html`. `Ctrl+Shift+C` toggles the panel — app is on Xray."*
+> *"Devtools (Xray replaces 10x — standard for a 10x app): dropped `day8.re-frame/re-frame-10x` + its `:preloads` entry at M-0; post-M-40 added `day8/re-frame2-xray {:local/root "..."}` + its preload + a `[data-rf-xray-host]` host in `resources/public/index.html` + the npm peer-deps `@xyflow/react@12.4.2` and `elkjs@^0.11.1` (compile-time deps of the Machine-inspector chart). `Ctrl+Shift+C` toggles the panel — app is on Xray."*
 
 No rule id; the v1 devtools were never part of the application contract. But "no rule id" is not "skip it" — for a 10x app, the done-state is the app on Xray. (No re-frame-10x in the project ⇒ nothing to report; don't add devtools the app never had.)
