@@ -144,10 +144,11 @@
 (def extract-sensitive-paths-from-schema walker/extract-sensitive-paths-from-schema)
 (def schema-has-sensitive?            walker/schema-has-sensitive?)
 (def schema-sensitive-at?             walker/schema-sensitive-at?)
-;; rf2-ss06u.1 — `:path`-tag sanitiser (scrubs value-bearing `:set`-element
-;; segments from the failing path so a sensitive `:set` element never ships
-;; verbatim in the structural `:path` tag).
-(def sanitize-sensitive-path          walker/sanitize-sensitive-path)
+;; rf2-ss06u.1 — `walker/sanitize-sensitive-path` (the `:path`-tag sanitiser
+;; that scrubs value-bearing `:set`-element segments so a sensitive `:set`
+;; element never ships verbatim in the structural `:path` tag) is an INTERNAL
+;; redaction helper consumed only by `validate-app-schema!`; it is NOT a
+;; public facade export, so it is deliberately not re-exported here.
 
 ;; Schema digest (Spec 010 §Digest algorithm).
 (def app-schemas-digest digest/app-schemas-digest)
