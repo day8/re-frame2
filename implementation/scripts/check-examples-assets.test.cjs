@@ -34,6 +34,7 @@ const {
   REQUIRED_SHARED_ASSETS,
   SOCIAL_PREVIEW_REQUIRED,
   ALLOWLIST,
+  EXTERNAL_IMPORT_ALLOWLIST,
   isExternalRef,
   extractHtmlRefs,
   extractOgImageRefs,
@@ -162,7 +163,10 @@ const STRUCTURE = path.join(EXAMPLES_ROOT, '_shared', 'css', 'structure.css');
 const SHARED_ROOT = path.join(EXAMPLES_ROOT, '_shared');
 
 // A well-formed page that links all three shared assets, plus a style.css
-// that @imports structure.css and an external Google-Fonts URL.
+// that @imports structure.css. The shared design system loads NO remote fonts
+// (rf2-byf7y removed the Google-Fonts @import; rf2-vou5mm now REJECTS any
+// re-introduced external @import) — so the clean fixture has only the local
+// structure.css import.
 function goodHtml() {
   return [
     '<!doctype html><html><head>',
@@ -174,7 +178,6 @@ function goodHtml() {
 }
 function goodStyleCss() {
   return [
-    "@import url('https://fonts.googleapis.com/css2?family=Inter');",
     "@import url('structure.css');",
     'body { color: #1A1814; }',
   ].join('\n');
@@ -279,11 +282,125 @@ it('TEETH: a style.css @import to a missing structure.css is reported', () => {
   );
 });
 
-it('TEETH: the external Google-Fonts @import is NOT flagged as missing', () => {
-  const { errors } = scanPage(fullIo(), PAGE);
+// ---- TEETH: external @import is REJECTED unless allowlisted (rf2-vou5mm) ---
+//
+// rf2-byf7y found the scanner SKIPPED external CSS @imports, so a Google-Fonts
+// network dependency stayed green. The contract is now fail-closed: an
+// unallowlisted external @import (http/https/protocol-relative) in any scanned
+// CSS fails the gate, while still NOT being checked on disk.
+
+it('TEETH: an unallowlisted external Google-Fonts @import is REJECTED', () => {
+  // Inject a style.css with a re-introduced external @import (the exact
+  // rf2-byf7y regression) and confirm the gate fails — and never tries to
+  // resolve the remote URL on disk.
+  const io = fullIo({
+    [STYLE]: [
+      "@import url('https://fonts.googleapis.com/css2?family=Inter');",
+      "@import url('structure.css');",
+      'body { color: #1A1814; }',
+    ].join('\n'),
+  });
+  const { errors } = scanPage(io, PAGE);
   assert.ok(
-    !errors.some((e) => e.includes('fonts.googleapis.com')),
-    'an external @import URL must never be checked on disk',
+    errors.some(
+      (e) =>
+        e.includes('external @import') && e.includes('fonts.googleapis.com'),
+    ),
+    `expected the external @import to be rejected, got: ${errors.join(' | ')}`,
+  );
+  // It must be rejected as a policy violation, NOT mis-reported as a
+  // missing-on-disk file (the URL is never resolved against the filesystem).
+  assert.ok(
+    !errors.some((e) => e.includes('does not resolve to a file')),
+    `an external @import must never be checked on disk, got: ${errors.join(' | ')}`,
+  );
+});
+
+it('TEETH: a protocol-relative external @import (//host/...) is REJECTED', () => {
+  const io = fullIo({
+    [STYLE]: [
+      "@import url('//cdn.example.com/x.css');",
+      "@import url('structure.css');",
+    ].join('\n'),
+  });
+  const { errors } = scanPage(io, PAGE);
+  assert.ok(
+    errors.some(
+      (e) => e.includes('external @import') && e.includes('//cdn.example.com/x.css'),
+    ),
+    `expected the protocol-relative @import to be rejected, got: ${errors.join(' | ')}`,
+  );
+});
+
+it('an external @import whose exact URL is allowlisted (with reason) scans clean', () => {
+  // The scanner normalises @import targets by stripping ?query/#hash before
+  // the allowlist lookup, so the allowlist key is the query-stripped URL.
+  const written = 'https://fonts.googleapis.com/css2?family=Inter';
+  const allowKey = 'https://fonts.googleapis.com/css2';
+  const io = fullIo({
+    [STYLE]: [
+      `@import url('${written}');`,
+      "@import url('structure.css');",
+    ].join('\n'),
+  });
+  const { errors } = scanPage(io, PAGE, {
+    externalImportAllowlist: {
+      [allowKey]: { reason: 'deliberate remote font for this test' },
+    },
+  });
+  assert.deepStrictEqual(
+    errors,
+    [],
+    `an allowlisted external @import should scan clean, got: ${errors.join(' | ')}`,
+  );
+});
+
+it('the LIVE EXTERNAL_IMPORT_ALLOWLIST is empty (no remote CSS deps shipped)', () => {
+  assert.deepStrictEqual(
+    Object.keys(EXTERNAL_IMPORT_ALLOWLIST),
+    [],
+    'the shipped example CSS must declare NO remote @import; the external ' +
+      'import allowlist is fail-closed and starts empty (rf2-vou5mm / rf2-byf7y)',
+  );
+});
+
+it('TEETH: a data: @import is NOT treated as a network dep (not rejected)', () => {
+  // data: URIs are inlined, not a third-party network request — they are
+  // external (not resolved on disk) but must not trip the network-dep gate.
+  const io = fullIo({
+    [STYLE]: [
+      "@import url('data:text/css,body{}');",
+      "@import url('structure.css');",
+    ].join('\n'),
+  });
+  const { errors } = scanPage(io, PAGE);
+  assert.deepStrictEqual(
+    errors,
+    [],
+    `a data: @import must not be rejected as a network dep, got: ${errors.join(' | ')}`,
+  );
+});
+
+it('TEETH: an external @import in the _shared tree is rejected by checkSharedTree', () => {
+  // checkSharedTree enforces the no-remote-CSS contract directly on the
+  // _shared source, independent of any page's reference graph.
+  const io = makeIo({
+    [path.join(SHARED_ROOT, 'css', 'style.css')]:
+      "@import url('https://fonts.googleapis.com/css2?family=Inter');\n" +
+      "@import url('structure.css');",
+    [path.join(SHARED_ROOT, 'css', 'structure.css')]:
+      '.send-form input[type="text"] { min-width: 240px; }\n' +
+      '.cells-grid input { width: 56px; }',
+    [path.join(SHARED_ROOT, 'img', 'favicon.svg')]: '<svg/>',
+    [path.join(SHARED_ROOT, 'img', 'og.png')]: 'PNGDATA',
+    [path.join(SHARED_ROOT, 'img', 'og.svg')]: '<svg/>',
+  });
+  const errors = checkSharedTree(io, { sharedRoot: SHARED_ROOT });
+  assert.ok(
+    errors.some(
+      (e) => e.includes('external @import') && e.includes('fonts.googleapis.com'),
+    ),
+    `expected checkSharedTree to reject the external @import, got: ${errors.join(' | ')}`,
   );
 });
 

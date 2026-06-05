@@ -30,8 +30,20 @@
  *      og:image meta, and transitively the @import targets inside any
  *      referenced local CSS) to a real file in the repo source tree. A
  *      reference to a missing/renamed/typo'd local asset fails the gate.
- *      External URLs (http(s):// + protocol-relative //) and the build
- *      output main.js (produced by shadow-cljs, not source) are skipped.
+ *      External URLs in <link href> / <script src> (http(s):// +
+ *      protocol-relative //) and the build output main.js (produced by
+ *      shadow-cljs, not source) are skipped.
+ *
+ *      EXTERNAL CSS @import is NOT skipped (rf2-vou5mm). An external
+ *      `@import url(https://…)` (or a protocol-relative `@import url(//…)`)
+ *      inside any scanned CSS pulls a third-party network dependency into
+ *      every staged example at load time — exactly the Google-Fonts
+ *      regression rf2-byf7y removed. So the gate REJECTS any external CSS
+ *      @import unless its URL is explicitly allowlisted (with a reason) in
+ *      EXTERNAL_IMPORT_ALLOWLIST below. The allowlist starts EMPTY: the
+ *      shared design system declares zero remote fonts / hosts (see
+ *      examples/_shared/README.md §Visual identity), so the contract is
+ *      fail-closed — a re-introduced external @import turns the gate RED.
  *
  *      Staging-aware resolution: a page references _shared assets at the
  *      relative path `_shared/...`, but in the SOURCE tree _shared lives
@@ -134,6 +146,33 @@ const ALLOWLIST = {
     assetExemptions: ['_shared/css/style.css'],
     localAssets: ['base.css', 'index.css'],
   },
+};
+
+// ---------------------------------------------------------------------------
+// External CSS @import allowlist (rf2-vou5mm) — the ONE encoded place that
+// names an external `@import url(https://…|http://…|//…)` the scanner is
+// permitted to see inside scanned CSS, each with a reason. Any external CSS
+// @import NOT listed here fails the gate.
+//
+// Why this exists: an external CSS @import (e.g. Google Fonts) makes every
+// staged example fire a third-party network request at load time — the exact
+// regression rf2-byf7y removed. The shared design system deliberately loads
+// NO remote fonts/hosts (examples/_shared/README.md §Visual identity), so this
+// allowlist starts EMPTY and the contract is fail-closed: re-introducing an
+// external @import without an entry here turns the gate RED.
+//
+// Shape mirrors ALLOWLIST: key = the external URL with any ?query/#hash
+// STRIPPED (the scanner normalises @import targets that way before the lookup);
+// value = { reason } explaining why the remote dependency is intentional.
+// ---------------------------------------------------------------------------
+const EXTERNAL_IMPORT_ALLOWLIST = {
+  // (empty) — no example CSS may pull a remote stylesheet/font. Add an entry
+  // here ONLY with a deliberate decision and a reason. NB: the key is the
+  // query-stripped URL — e.g. `@import url(https://x/css2?family=Inter)` is
+  // keyed as 'https://x/css2':
+  //   'https://fonts.googleapis.com/css2': {
+  //     reason: 'why this remote font is intentionally loaded',
+  //   },
 };
 
 // Build output produced by shadow-cljs at stage time — never a repo-source
@@ -274,14 +313,32 @@ function resolveRef(ref, pageDir, sharedParent = EXAMPLES_ROOT) {
 }
 
 // Resolve + check a single local CSS file's @import targets, recursively.
-// Records an error for any local import that does not resolve to a real file.
-function checkCssImports(io, cssAbsPath, displayRef, errors, seen) {
+// Records an error for any local import that does not resolve to a real file,
+// and for any EXTERNAL @import (http/https/protocol-relative) not present in
+// the external-import allowlist (rf2-vou5mm).
+function checkCssImports(io, cssAbsPath, displayRef, errors, seen, externalAllowlist = EXTERNAL_IMPORT_ALLOWLIST) {
   if (seen.has(cssAbsPath)) return;
   seen.add(cssAbsPath);
   const css = readFileSafe(io, cssAbsPath);
   if (css == null) return; // a missing CSS file is reported by its referrer
   for (const imp of extractCssImports(css)) {
-    if (isExternalRef(imp)) continue;
+    if (isExternalRef(imp)) {
+      // An external CSS @import pulls a third-party network dependency into
+      // every staged example at load time. Reject it unless its exact URL is
+      // allowlisted with a reason (fail-closed — see EXTERNAL_IMPORT_ALLOWLIST).
+      // data:/#fragment schemes are not network deps; only http/https and the
+      // protocol-relative `//host/...` form are gated.
+      const isNetwork = /^https?:/i.test(imp) || imp.startsWith('//');
+      if (isNetwork && !Object.prototype.hasOwnProperty.call(externalAllowlist, imp)) {
+        errors.push(
+          `${displayRef}: external @import '${imp}' pulls a third-party ` +
+            `network dependency into staged examples. External CSS @imports ` +
+            `are forbidden unless explicitly allowlisted with a reason in ` +
+            `EXTERNAL_IMPORT_ALLOWLIST in check-examples-assets.cjs (rf2-vou5mm).`,
+        );
+      }
+      continue;
+    }
     const target = path.resolve(path.dirname(cssAbsPath), imp);
     if (!io.existsSync(target)) {
       errors.push(
@@ -291,13 +348,14 @@ function checkCssImports(io, cssAbsPath, displayRef, errors, seen) {
       continue;
     }
     if (target.toLowerCase().endsWith('.css')) {
-      checkCssImports(io, target, `${displayRef} -> ${imp}`, errors, seen);
+      checkCssImports(io, target, `${displayRef} -> ${imp}`, errors, seen, externalAllowlist);
     }
   }
 }
 
 function scanPage(io, indexAbsPath, opts = {}) {
   const allowlist = opts.allowlist || ALLOWLIST;
+  const externalImportAllowlist = opts.externalImportAllowlist || EXTERNAL_IMPORT_ALLOWLIST;
   const required = opts.required || REQUIRED_SHARED_ASSETS;
   const errors = [];
   const relIndex = path.relative(REPO_ROOT, indexAbsPath).split(path.sep).join('/');
@@ -333,7 +391,7 @@ function scanPage(io, indexAbsPath, opts = {}) {
     }
     // Transitively check @import targets inside any referenced local CSS.
     if (target.toLowerCase().endsWith('.css')) {
-      checkCssImports(io, target, `${relIndex} (${ref})`, errors, seenCss);
+      checkCssImports(io, target, `${relIndex} (${ref})`, errors, seenCss, externalImportAllowlist);
     }
   }
 
@@ -408,6 +466,39 @@ function checkSharedTree(io, opts = {}) {
       );
     }
   }
+  const externalImportAllowlist =
+    opts.externalImportAllowlist || EXTERNAL_IMPORT_ALLOWLIST;
+
+  // No EXTERNAL @import in the shared CSS (rf2-vou5mm). An external
+  // `@import url(https://…|//…)` here makes every staged example fire a
+  // third-party network request at load time — the Google-Fonts regression
+  // rf2-byf7y removed. Fail-closed: reject any external @import in style.css /
+  // structure.css whose exact URL is not allowlisted. Checked HERE (not only
+  // via the page reference graph) so the contract holds even if no scanned page
+  // happens to link the file.
+  for (const cssName of ['style.css', 'structure.css']) {
+    const cssPath = path.join(sharedRoot, 'css', cssName);
+    const css = readFileSafe(io, cssPath);
+    if (css == null) continue; // missing-file is reported by the mustExist loop
+    for (const imp of extractCssImports(css)) {
+      const isNetwork = /^https?:/i.test(imp) || imp.startsWith('//');
+      if (
+        isNetwork &&
+        !Object.prototype.hasOwnProperty.call(externalImportAllowlist, imp)
+      ) {
+        errors.push(
+          `examples/_shared/css/${cssName}: external @import '${imp}' pulls a ` +
+            `third-party network dependency into every staged example. The ` +
+            `shared design system loads NO remote fonts/hosts (see ` +
+            `examples/_shared/README.md §Visual identity). External CSS ` +
+            `@imports are forbidden unless explicitly allowlisted with a ` +
+            `reason in EXTERNAL_IMPORT_ALLOWLIST in ` +
+            `check-examples-assets.cjs (rf2-vou5mm).`,
+        );
+      }
+    }
+  }
+
   // structure.css reachable from style.css's @import.
   const stylePath = path.join(sharedRoot, 'css', 'style.css');
   const style = readFileSafe(io, stylePath);
@@ -477,6 +568,7 @@ module.exports = {
   SOCIAL_PREVIEW_RASTER_EXTS,
   SOCIAL_PREVIEW_REQUIRED,
   ALLOWLIST,
+  EXTERNAL_IMPORT_ALLOWLIST,
   BUILD_OUTPUTS,
   listExampleIndexHtml,
   isExternalRef,
@@ -530,10 +622,11 @@ if (require.main === module) {
     );
     for (const e of errors) console.error(`  - ${e}`);
     console.error(
-      `\nA missing/renamed _shared asset, a broken @import, or a page that ` +
-        `drops a required shared asset without an encoded ALLOWLIST ` +
-        `exception fails this gate. Fix the reference, restore the asset, or ` +
-        `encode the exception (with a reason) in ` +
+      `\nA missing/renamed _shared asset, a broken @import, an unallowlisted ` +
+        `EXTERNAL CSS @import, or a page that drops a required shared asset ` +
+        `without an encoded ALLOWLIST exception fails this gate. Fix the ` +
+        `reference, restore the asset, drop the remote @import, or encode the ` +
+        `exception (with a reason) in ALLOWLIST / EXTERNAL_IMPORT_ALLOWLIST in ` +
         `examples/scripts/check-examples-assets.cjs.`,
     );
     process.exit(1);
