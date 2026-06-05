@@ -1,0 +1,70 @@
+;; Conformance fixture: effect-map-shape/surplus-entry-field
+;; Spec 009 §:rf.error/effect-map-shape CASE (c) — surplus :fx ENTRY field.
+;;
+;; The OTHER half of the rf2-18kwf fix. A reg-event-fx handler returns an
+;; :fx vector with a 3-element entry [:shape/sink {:used true} {:dropped
+;; true}]. Per Spec-Schemas §:rf/effect-map each entry is a [:tuple :keyword
+;; :any] — exactly two elements. The runtime PROACTIVELY polices the arity:
+;; one :rf.error/effect-map-shape trace (:offending-key :fx, :value = the
+;; full over-long entry), the entry is DROPPED, sibling entries still run
+;; (recovery :logged-and-skipped).
+;;
+;; The teeth — the exact rf2-18kwf bug: a lenient walk that destructures
+;; only `[fx-id args]` SILENTLY TRUNCATES the surplus 3rd field and fires
+;; the entry as a 2-tuple [:shape/sink {:used true}] — the {:dropped true}
+;; slot vanishes with no diagnostic. The spec contract (case c) is that the
+;; 3-field entry is MALFORMED and dropped WHOLESALE, NOT silently truncated
+;; + fired. This fixture asserts the sink fx fires for the TWO well-shaped
+;; siblings only ({:k 1} and {:k 2}) and NOT for a truncated {:used true} —
+;; a lenient port that truncates+fires routes a THIRD {:used true} effect
+;; and FAILS the :effects-routed contract (plus emits no shape trace).
+;;
+;; Authored via the :return-raw DSL op. Grounded against the reference
+;; emitter re-frame.fx/fx-entry-ok? (arity >= 3 sub-case).
+
+{:fixture/id           :effect-map-shape/surplus-entry-field
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/fx :core/error :core/trace}
+ :fixture/doc          "A reg-event-fx handler returns an :fx vector with a 3-element entry. Per Spec 009 case (c) the over-arity entry is proactively policed: one :rf.error/effect-map-shape trace (:offending-key :fx, :value = the full entry, :logged-and-skipped), the entry dropped WHOLESALE (NOT silently truncated to a 2-tuple), siblings still run."
+
+ :fixture/registry
+ {:event {:shape/init {:doc "Seed [:routed] [] so the sink fx can append in order."}
+          :shape/surplus-field {:doc "Returns an :fx vector whose middle entry has a surplus 3rd field."}}
+  :fx    {:shape/sink {:doc "Appends its args to [:routed] so the runner can prove the surplus entry was NOT silently truncated + fired."}}}
+
+ :fixture/handlers
+ {:event {:shape/init [[:set [:routed] []]]
+          :shape/surplus-field
+          [[:return-raw {:fx [[:shape/sink {:k 1}]
+                              [:shape/sink {:used true} {:dropped true}]
+                              [:shape/sink {:k 2}]]}]]}
+  :fx    {:shape/sink [[:update [:routed] [:fn :conj [:event-arg 1]]]]}}
+
+ :fixture/frame-config {:on-create [:shape/init]}
+
+ :fixture/dispatches
+ [[:shape/surplus-field]]
+
+ :fixture/expect
+ ;; CRITICAL: only the two well-shaped siblings' args landed. A truncated
+ ;; {:used true} arg would prove the lenient-truncate bug.
+ {:final-app-db {:routed [{:k 1} {:k 2}]}
+
+  :trace-emissions
+  [{:operation :rf.event/run-start :tags {:rf.trace/event-id :shape/surplus-field}}
+   ;; Proactive per-entry arity policing: one trace, :value = full entry.
+   {:operation :rf.error/effect-map-shape
+    :op-type   :error
+    :recovery  :logged-and-skipped
+    :tags      {:category          :rf.error/effect-map-shape
+                :offending-key     :fx
+                :value             [:shape/sink {:used true} {:dropped true}]
+                :rf.trace/event-id :shape/surplus-field
+                :rf.event/v        [:shape/surplus-field]}}]
+
+  ;; The sink fx routed exactly twice — for the two well-shaped siblings,
+  ;; in source order. The surplus-field entry did NOT route (NOT truncated
+  ;; to [:shape/sink {:used true}] and fired).
+  :effects-routed
+  [{:fx-id :shape/sink :args {:k 1}}
+   {:fx-id :shape/sink :args {:k 2}}]}}

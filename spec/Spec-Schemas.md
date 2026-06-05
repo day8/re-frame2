@@ -454,7 +454,7 @@ The view-id attribute pairs with `data-rf2-source-coord` (`:rf/source-coord-attr
 > **Layer:** Runtime
 > **Owner:** [002-Frames §Effect resolution](002-Frames.md)
 > **Status:** v1-required (closed shape — only `:db` and `:fx`)
-> **Conformance:** `spec/conformance/fixtures/effect-map-*.edn` + `implementation/core/test/re_frame/effects_test.cljc`
+> **Conformance:** `spec/conformance/fixtures/effect-map-shape-*.edn` + `spec/conformance/fixtures/effect-handler-bad-return.edn` (the proactive fx shape-policing categories — Spec 009 §`:rf.error/effect-map-shape` cases a/b/c and §`:rf.error/effect-handler-bad-return`) + the host-side `re-frame.fx-test` / `re-frame.events-test` counterparts
 
 The return value of `reg-event-fx` handlers. **Only two keys: `:db` and `:fx`.**
 
@@ -1505,6 +1505,7 @@ Conformance-corpus event/sub/view handler bodies are described as data so any in
    [:tuple [:= :fn]                :keyword]                             ;; [:fn :inc]                -- look up an interpreter-known fn
    ;; --- control / negative cases ---
    [:tuple [:= :throw]]                                                   ;; [:throw]                   -- error-path fixtures
+   [:tuple [:= :return-raw]        :any]                                  ;; [:return-raw value]        -- (event-fx) return `value` VERBATIM as the effect-map; bypasses the well-shaped builder so a fixture can author a MALFORMED effect-map (the proactive fx shape-policing negative cases)
    [:tuple [:= :noop]]])                                                  ;; [:noop]
 
 (def HandlerBody
@@ -1527,11 +1528,12 @@ The body of a fixture event handler / sub computation is a vector of these ops, 
 | `:hiccup` | view | Returns the literal hiccup vector as the view's render-tree |
 | `:fn` | as a value inside other ops | Names a built-in fn (e.g. `:inc`, `:dec`, `:identity`) |
 | `:throw` | any | Throws — exercises `:rf.error/*` paths |
+| `:return-raw` | event-fx | Returns the literal `value` VERBATIM as the handler's effect-map (reflection forms inside it resolved), bypassing the well-shaped `{:db .. :fx ..}` builder. The ONLY op that can author a MALFORMED effect-map — used by the proactive fx shape-policing negative fixtures (`:rf.error/effect-map-shape` / `:rf.error/effect-handler-bad-return`, Spec [009 §Error contract](009-Instrumentation.md)). A body carrying it is always realised as event-fx so the raw return reaches the runtime's shape-policing site. |
 | `:noop` | any | Does nothing — used to anchor empty-body fixtures |
 
 Built-in fns the `[:fn :name]` form resolves to: `:inc`, `:dec`, `:identity`, `:not`, `:keyword?`, `:number?`, `:string?`. Hosts may extend this set additively per a corpus revision.
 
-The op vocabulary is **closed for v1** of the corpus. The conformance corpus's `:fixture/handlers` shape (per [conformance/README.md](conformance/README.md)) consumes this DSL — `:rf/handler-body-dsl` and `:rf/fixture-handler-body` are synonyms; this entry is canonical.
+The op vocabulary is **stable and additive** within a corpus version — existing ops cannot be redefined, but a new op may be introduced to express a fixture class the prior set could not (e.g. `:return-raw`, added to author the malformed effect-maps the proactive fx shape-policing categories police). The conformance corpus's `:fixture/handlers` shape (per [conformance/README.md](conformance/README.md)) consumes this DSL — `:rf/handler-body-dsl` and `:rf/fixture-handler-body` are synonyms; this entry is canonical.
 
 State-machine transition-table guards and actions are referenced by **inline fn or keyword reference into the machine's local `:guards` / `:actions` map** in `:rf/transition-table` below; those are the *runtime* grammar for machine transitions per [005-StateMachines.md](005-StateMachines.md), not part of this conformance handler-body DSL. Transition slots take fn-valued or keyword-valued `:guard` and `:action` slots — keyword values resolve **machine-locally** against the spec's `:guards` / `:actions` map (no global registry); effects emitted by an action — including the reserved fx-id `:raise` and the canonical actor-lifecycle fx-ids `:rf.machine/spawn` / `:rf.machine/destroy` — appear inside the action's returned `:fx` vector.
 

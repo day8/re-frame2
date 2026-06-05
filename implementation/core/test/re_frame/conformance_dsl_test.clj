@@ -77,3 +77,67 @@
   (testing "[:get-event-arg n :key] on a nil arg returns nil"
     (let [ctx {:event [:some-id]}]
       (is (= nil (conformance/resolve-value* [:get-event-arg 1 :foo] ctx))))))
+
+;; ---- :return-raw — verbatim (possibly-malformed) effect-map return --------
+;;
+;; Per rf2-xqt6v: the proactive fx shape-policing categories
+;; (:rf.error/effect-map-shape cases a/b/c, :rf.error/effect-handler-bad-return)
+;; need a handler that RETURNS a malformed effect-map. The :set / :update / :fx
+;; ops always build a well-shaped map, so :return-raw is the only DSL path
+;; that yields a literal value verbatim. These tests pin the realiser's
+;; contract directly (the corpus fixtures exercise it end-to-end against the
+;; runtime's policing site).
+
+(deftest return-raw-routes-through-event-fx
+  (testing "a body carrying :return-raw is realised as event-fx (so the raw
+            return reaches the fx shape-policing site, not event-db)"
+    (let [[kind _handler] (conformance/realise-event-handler
+                            [[:return-raw {:db {:x 1}}]])]
+      (is (= :fx kind)
+          ":return-raw must force the event-fx handler shape"))))
+
+(deftest return-raw-returns-value-verbatim
+  (testing "the realised event-fx handler returns the literal value verbatim"
+    (let [handler (conformance/realise-event-fx-handler [[:return-raw {:db {:x 1}}]])]
+      (is (= {:db {:x 1}}
+             (handler {:db {}} [:evt])))))
+
+  (testing "malformed shapes are preserved verbatim — NOT well-shaped away"
+    (testing "(a) bad top-level key"
+      (let [handler (conformance/realise-event-fx-handler
+                      [[:return-raw {:db {:x 1} :http {:url "/api"}}]])]
+        (is (= {:db {:x 1} :http {:url "/api"}}
+               (handler {:db {}} [:evt]))
+            "the non-:db/:fx key survives — the policing site (not the DSL) drops it")))
+
+    (testing "(b) non-sequential :fx value"
+      (let [handler (conformance/realise-event-fx-handler [[:return-raw {:fx :oops}]])]
+        (is (= {:fx :oops} (handler {:db {}} [:evt])))))
+
+    (testing "(c) malformed :fx entry — bare keyword among well-shaped tuples"
+      (let [handler (conformance/realise-event-fx-handler
+                      [[:return-raw {:fx [[:good {}] :oops [:good2 {}]]}]])]
+        (is (= {:fx [[:good {}] :oops [:good2 {}]]}
+               (handler {:db {}} [:evt])))))
+
+    (testing "(c) surplus 3-field :fx entry"
+      (let [handler (conformance/realise-event-fx-handler
+                      [[:return-raw {:fx [[:sink {:used true} {:dropped true}]]}]])]
+        (is (= {:fx [[:sink {:used true} {:dropped true}]]}
+               (handler {:db {}} [:evt])))))
+
+    (testing "non-map / non-nil return (the bad-return path)"
+      (let [vec-handler (conformance/realise-event-fx-handler
+                          [[:return-raw [[:dispatch [:other]]]]])
+            nil-handler (conformance/realise-event-fx-handler [[:return-raw nil]])]
+        (is (= [[:dispatch [:other]]] (vec-handler {:db {}} [:evt]))
+            "a vector return survives verbatim for the bad-return policing site")
+        (is (nil? (nil-handler {:db {}} [:evt]))
+            "nil survives verbatim — the documented legal no-op"))))
+
+  (testing "reflection forms inside the raw value still resolve"
+    (let [handler (conformance/realise-event-fx-handler
+                    [[:return-raw {:db {:from-event [:event-arg 1]}}]])]
+      (is (= {:db {:from-event 42}}
+             (handler {:db {}} [:evt 42]))
+          "[:event-arg n] resolves even inside a :return-raw literal"))))

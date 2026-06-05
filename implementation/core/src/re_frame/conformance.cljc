@@ -20,6 +20,11 @@
   Control:
     [:throw msg]                    throw
     [:noop]                         no-op
+    [:return-raw value]             (event-fx) return `value` VERBATIM as
+                                    the effect-map — bypasses the well-
+                                    shaped builder so a fixture can author
+                                    a MALFORMED effect-map (the proactive
+                                    fx shape-policing categories)
 
   Reflection (used as args to data ops):
     [:event-arg n]                  the n-th element of event (0-based)
@@ -334,6 +339,25 @@
   (case (first step)
     :noop      ctx
 
+    ;; :return-raw makes the realised event-fx handler return a LITERAL
+    ;; value verbatim (reflection forms inside it resolved), bypassing the
+    ;; well-shaped `{:db .. :fx ..}` builder. This is the ONLY way the
+    ;; corpus can author a handler that returns a MALFORMED effect-map —
+    ;; the effect ops (`:set` / `:update` / `:fx`) always produce a
+    ;; well-shaped map, so the proactive fx shape-policing categories
+    ;; (`:rf.error/effect-map-shape` cases a/b/c and
+    ;; `:rf.error/effect-handler-bad-return`, Spec 009 §Error contract)
+    ;; were previously unreachable from a fixture. A body carrying a
+    ;; `:return-raw` step is always realised as event-fx (see
+    ;; `needs-fx-handler?`) so the raw return reaches `commit-fx-effects`,
+    ;; the policing site. Stashed under a private sentinel key the
+    ;; realiser reads after the reduction; siblings before / after it are
+    ;; ignored (the raw return is the whole story). The value is resolved
+    ;; through `resolve-value` so `[:event-arg n]` etc. still work inside
+    ;; a malformed map.
+    :return-raw (let [[_ value] step]
+                  (assoc ctx ::return-raw (resolve-value value ctx)))
+
     :set       (let [[_ path value] step
                      v (resolve-value value ctx)]
                  ;; assoc-in with an empty path would associate at key nil
@@ -430,9 +454,16 @@
                         {:db db :event event :fx [] :cofx cofx}
                         steps)
           db-changed? (not= (:db final) db)]
-      (cond-> {}
-        db-changed?       (assoc :db (:db final))
-        (seq (:fx final)) (assoc :fx (:fx final))))))
+      ;; A `:return-raw` step short-circuits the well-shaped builder —
+      ;; the handler returns the stashed literal verbatim (which may be a
+      ;; malformed effect-map, or a non-map for the bad-return path). This
+      ;; is the only way the corpus reaches the proactive fx shape-
+      ;; policing categories (Spec 009 §Error contract).
+      (if (contains? final ::return-raw)
+        (::return-raw final)
+        (cond-> {}
+          db-changed?       (assoc :db (:db final))
+          (seq (:fx final)) (assoc :fx (:fx final)))))))
 
 (defn- walk-hiccup
   "Recursively walk a hiccup tree, replacing reflection forms with their
@@ -548,6 +579,11 @@
     (some (fn [step]
             (or (= :fx (first step))
                 (= :dispatch (first step))
+                ;; A `:return-raw` body must be event-fx so the literal
+                ;; return reaches `commit-fx-effects` — the proactive
+                ;; fx shape-policing site. An event-db handler would
+                ;; treat the return as the new db, never policing it.
+                (= :return-raw (first step))
                 (some uses-cofx? (tree-seq coll? seq step))))
           steps)))
 

@@ -1,0 +1,76 @@
+;; Conformance fixture: effect-map-shape/bad-fx-entry
+;; Spec 009 §:rf.error/effect-map-shape CASE (c) — bad :fx ENTRY.
+;;
+;; This is the PRECISE rf2-18kwf truncation case. A reg-event-fx handler
+;; returns {:fx [[:shape/good {}] :oops [:shape/good2 {}]]} — the :fx vector
+;; is well-shaped at the top level, but one individual ENTRY (:oops, a bare
+;; keyword) is NOT a [fx-id args] tuple. Per Spec-Schemas §:rf/effect-map
+;; each entry is a [:tuple :keyword :any]. The runtime PROACTIVELY polices
+;; per-entry: one :rf.error/effect-map-shape trace (:offending-key :fx,
+;; :value :oops), that entry is DROPPED, and the SIBLING entries on both
+;; sides STILL RUN (recovery :logged-and-skipped).
+;;
+;; The teeth — exactly the rf2-18kwf bug: a lenient do-fx walk guarded with
+;; `(when (and (vector? pair) (seq pair)) …)` would SILENTLY drop the :oops
+;; entry with NO diagnostic — the handler appears to fire its effects but
+;; the typo'd entry vanishes without trace. A PORT replicating that lenient
+;; guard ships GREEN against the rest of the corpus while shipping this
+;; exact bug. This fixture requires the trace AND requires both well-shaped
+;; siblings to run, so the lenient port FAILS (missing trace).
+;;
+;; Authored via the :return-raw DSL op. Grounded against the reference
+;; emitter re-frame.fx/fx-entry-ok?.
+
+{:fixture/id           :effect-map-shape/bad-fx-entry
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/fx :core/error :core/trace}
+ :fixture/doc          "A reg-event-fx handler returns {:fx [[:shape/good {}] :oops [:shape/good2 {}]]}. The bare-keyword :oops entry is proactively policed: one :rf.error/effect-map-shape trace (:offending-key :fx, :value :oops, :logged-and-skipped), that entry dropped, BOTH sibling entries still run (the rf2-18kwf truncation case)."
+
+ :fixture/registry
+ {:event {:shape/init {:doc "Seed [:good-ran?] / [:good2-ran?] false."}
+          :shape/bad-fx-entry {:doc "Returns an :fx vector whose middle entry is a bare keyword."}}
+  :sub   {:good-ran?  {:doc "Whether the first sibling fx ran."}
+          :good2-ran? {:doc "Whether the last sibling fx ran."}}
+  :fx    {:shape/good  {:doc "Sets [:good-ran?] true so the sibling-before-the-typo's run is observable."}
+          :shape/good2 {:doc "Sets [:good2-ran?] true so the sibling-after-the-typo's run is observable."}}}
+
+ :fixture/handlers
+ {:event {:shape/init [[:set [:good-ran?] false]
+                       [:set [:good2-ran?] false]]
+          :shape/bad-fx-entry
+          [[:return-raw {:fx [[:shape/good {}]
+                              :oops
+                              [:shape/good2 {}]]}]]}
+  :sub   {:good-ran?  [[:get [:good-ran?]]]
+          :good2-ran? [[:get [:good2-ran?]]]}
+  :fx    {:shape/good  [[:set [:good-ran?] true]]
+          :shape/good2 [[:set [:good2-ran?] true]]}}
+
+ :fixture/frame-config {:on-create [:shape/init]}
+
+ :fixture/dispatches
+ [[:shape/bad-fx-entry]]
+
+ :fixture/expect
+ ;; BOTH well-shaped siblings ran; only the middle typo'd entry was dropped.
+ {:final-app-db {:good-ran? true :good2-ran? true}
+  :sub-values   {[:good-ran?]  true
+                 [:good2-ran?] true}
+
+  :trace-emissions
+  [{:operation :rf.event/run-start :tags {:rf.trace/event-id :shape/bad-fx-entry}}
+   ;; Proactive per-entry shape policing: one trace for the :oops entry.
+   {:operation :rf.error/effect-map-shape
+    :op-type   :error
+    :recovery  :logged-and-skipped
+    :tags      {:category          :rf.error/effect-map-shape
+                :offending-key     :fx
+                :value             :oops
+                :rf.trace/event-id :shape/bad-fx-entry
+                :rf.event/v        [:shape/bad-fx-entry]}}]
+
+  ;; Both well-shaped sibling entries reached the fx interpreter, in source
+  ;; order. The dropped :oops entry never routed.
+  :effects-routed
+  [{:fx-id :shape/good  :args {}}
+   {:fx-id :shape/good2 :args {}}]}}
