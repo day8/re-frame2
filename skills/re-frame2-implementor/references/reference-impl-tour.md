@@ -113,7 +113,7 @@ The per-feature directories ship as **separate artefacts** in the published libr
 
 ### EP 015 — Data Classification (`core/src/re_frame/{marks,elision}.cljc`)
 
-**What you'll find.** `marks.cljc` holds the per-frame mark side-table (`add-marks` / `set-marks`, unioned with schema-attached `:sensitive?` / `:large?` marks at lookup time — NOT a registrar kind) plus the propagation logic across the seven dataflow boundaries. `elision.cljc` holds the shared wire-elision walker `elide-wire-value` — the one function the trace bus, the 009 always-on event/error-emit records, and the MCP wire all route through to substitute `:rf/redacted` / `:rf/large {:bytes N}` / `:rf/redacted {:bytes N}` at marked paths. Real values flow through the runtime unchanged; substitution happens only at emission time.
+**What you'll find.** `marks.cljc` holds the per-frame mark side-table (`add-marks` / `set-marks`, unioned with schema-attached `:sensitive?` / `:large?` marks at lookup time — NOT a registrar kind) plus the propagation logic across the seven dataflow boundaries. `elision.cljc` holds the shared wire-elision walker `elide-wire-value` — the one function the trace bus, the 009 always-on event/error-emit records, and the MCP wire all route through to substitute the Spec 009 wire markers `:rf/redacted` (sensitive) / `:rf.size/large-elided {:bytes N …}` (large) at marked paths. (`:rf/large {:bytes N :head}` / `:rf/redacted {:bytes N}` are the Spec 015 *display* renderings a tool shows for those elided values — a layer above the wire, not what the walker writes.) Real values flow through the runtime unchanged; substitution happens only at emission time.
 
 **What's CLJS-specific.**
 

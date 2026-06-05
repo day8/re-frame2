@@ -86,7 +86,7 @@ The corpus at [`spec/conformance/`](../../spec/conformance/) is host-agnostic da
 
 - [ ] Phase 1 decision record committed to the port's repo.
 - [ ] All in-scope EPs have a working implementation.
-- [ ] **Spec 015 Data Classification is implemented** (v1-required): the seven first-class marking sites accept `{:sensitive [paths] :large [paths]}`, `add-marks` / `set-marks` mark per-frame `app-db` paths, marks propagate across the dataflow, and the emission boundary substitutes `:rf/redacted` / `:rf/large` sentinels at every observation surface (trace bus, Xray, MCP wire, log sinks) via the wire-elision walker. No marked value leaks past the trust boundary.
+- [ ] **Spec 015 Data Classification is implemented** (v1-required): the seven first-class marking sites accept `{:sensitive [paths] :large [paths]}`, `add-marks` / `set-marks` mark per-frame `app-db` paths, marks propagate across the dataflow, and the wire-elision walker substitutes the Spec 009 wire markers `:rf/redacted` (sensitive) / `:rf.size/large-elided` (large) at every observation surface (trace bus, Xray, MCP wire, log sinks); `:rf/large {:bytes N :head}` is the Spec 015 *display* rendering layered on top, not the wire shape. No marked value leaks past the trust boundary.
 - [ ] The port exposes [`spec/API.md`](../../spec/API.md), adapted to host idiom.
 - [ ] Conformance score is `(claimed-applicable) / (claimed-applicable)`.
 - [ ] Non-spec-gap failures fixed in the port; spec-gap failures filed as GitHub issues against `day8/re-frame2`.

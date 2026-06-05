@@ -20,7 +20,7 @@ Each fixture carries a `:fixture/capabilities` set — the capability tags it ex
 The contract from [`spec/conformance/README.md` §How an implementation runs the corpus](https://day8.github.io/re-frame2/spec/conformance/#how-an-implementation-runs-the-corpus):
 
 1. **Read** all `.edn` files in `fixtures/`. If your host has no EDN reader, ship a small one (~200 lines for any host with hash-maps and vectors) or translate the corpus locally as part of harness bootstrap. Each fixture also declares a `:fixture/spec-version`; the harness should surface (and per the corpus README's §Versioning, reject) implementations that haven't moved with a spec-shape bump — don't silently run mismatched-version fixtures.
-2. **For each fixture**, classify its `:fixture/capabilities`. If `⊆ claimed-capabilities`, run it. Otherwise the harness MUST distinguish two out-of-claim flavours — see [§The two out-of-claim flavours](#the-two-out-of-claim-flavours) — and report "skipped (out-of-claim)" only for capabilities on the explicit `known-skipped-capabilities` allowlist; an unknown capability (in neither set) MUST FAIL the suite with a diagnostic naming it.
+2. **For each fixture**, first check host-applicability, then classify capabilities. A fixture carrying `:fixture/dynamic-host-only? true` (see [§Static hosts and dynamic-host-only fixtures](#static-hosts-and-dynamic-host-only-fixtures)) asserts a runtime-validation trace that a statically-typed host cannot produce — a static host filters those out *before* the capability check. Then classify the fixture's `:fixture/capabilities`: if `⊆ claimed-capabilities`, run it. Otherwise the harness MUST distinguish two out-of-claim flavours — see [§The two out-of-claim flavours](#the-two-out-of-claim-flavours) — and report "skipped (out-of-claim)" only for capabilities on the explicit `known-skipped-capabilities` allowlist; an unknown capability (in neither set) MUST FAIL the suite with a diagnostic naming it.
 3. **Bootstrap the runtime** per the fixture's `:fixture/registry` (the kinds + ids the fixture expects to be registered).
 4. **Realise the handler bodies** from `:fixture/handlers` via the EDN-handler-body DSL (below).
 5. **Create a frame** per `:fixture/frame-config`.
@@ -94,6 +94,29 @@ Per [`spec/conformance/README.md` §Capability tagging](https://day8.github.io/r
 - **Typo / claim-set drift** — the capability is in neither the claimed set nor the allowlist. The suite **MUST FAIL** with a diagnostic naming the unknown capability. The remedy is either to add it to `claimed-capabilities` (with runtime backing to match) or to `known-skipped-capabilities` (an explicit decision not to claim it).
 
 The reference harness keeps `known-skipped-capabilities` empty today (every corpus capability is claimed); the allowlist exists so future divergence is an explicit decision, never silent rot. A harness that silently skips unknown capabilities is the shape the spec now forbids — build the fail-on-unknown one.
+
+### Static hosts and dynamic-host-only fixtures
+
+Some fixtures carry `:fixture/dynamic-host-only? true` — at corpus HEAD the schema-validation fixtures do (`schema-event-payload-validates.edn:23`, `schema-cofx-validates.edn`, `schema-sub-return-validates.edn`, `schema-app-db-slice-validates.edn:23`, `error-schema-failure.edn:14`). The flag means the fixture asserts a **runtime** validation trace (e.g. a malformed payload emits `:rf.error/schema-validation-failure` and the handler is skipped). A statically-typed host that claims `:schemas/*` **via host types** (D5 = yes-via-host-types — the type checker rejects the malformed value at the call site before any frame exists) cannot produce that runtime trace at all: the bad value never compiles, so there's nothing to dispatch and nothing to observe.
+
+This is the one place the D7 rule "claim `:schemas/*` if D5 ≠ no, regardless of mechanism" needs a mechanism-aware refinement, because the *vocabulary* claim (shape description exists) and the *fixture* claim (runtime trace observable) diverge for a static host:
+
+- **Dynamic-host port** (runtime validator — Malli-style, or a hand-rolled predicate pass): runs every `:schemas/*` fixture normally. `:fixture/dynamic-host-only?` is a no-op for you.
+- **Static-host port** (`yes-via-host-types`): you still claim the shape-description capability you actually provide, but you do **not** claim the runtime-trace sub-capabilities the dynamic-host-only fixtures assert (`:schemas/runtime`, `:schemas/event-payload`, …). Put those runtime tags on `known-skipped-capabilities` with an explicit static-host reason — e.g. `:reason "static host — malformed values rejected at compile time; no runtime schema trace to assert"`. That records a **documented static-host conformance path**, not claim-set drift: the harness reports the dynamic-host-only schema fixtures as "skipped (out-of-claim)" rather than failing them, and a reader sees *why*.
+
+The harness honours the flag at filter time: when the host is static, drop `:fixture/dynamic-host-only?` fixtures before the capability-subset check (they can never pass, and forcing a runtime validator solely to satisfy them is misleading work the corpus explicitly marks inapplicable). When the host is dynamic, the flag changes nothing.
+
+A minimal static-host conformance manifest fragment:
+
+```clojure
+;; D5 = yes-via-host-types — shape is described by the host type system.
+{:host/dynamic?              false
+ :claimed-capabilities       #{:core/* :schemas/shape-description}   ; what the type system provides
+ :known-skipped-capabilities {:schemas/runtime       {:reason "static host — malformed values rejected at compile time; no runtime schema trace"}
+                              :schemas/event-payload {:reason "static host — malformed event payloads are a compile error; no runtime :rf.error/schema-validation-failure to assert"}}}
+```
+
+Report the static-host path explicitly in the README's conformance section (per [§Reporting conformance](#reporting-conformance)) so a downstream consumer reads the skip as a host-mechanism fact, not a missing surface.
 
 ## Diagnosis — spec gap vs implementation bug
 
