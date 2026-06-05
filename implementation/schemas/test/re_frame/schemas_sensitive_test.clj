@@ -42,11 +42,13 @@
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.schemas :as schemas]
-            ;; Per rf2-t0hq + rf2-qyfie — the Malli adapter ns must be
-            ;; required at boot to publish the late-bind hook the
-            ;; default validator routes through; absent the require,
-            ;; the validator soft-passes per Spec 010 §Recommended
-            ;; soft-pass.
+            ;; Per rf2-v96fh (schema implies validation) requiring
+            ;; `re-frame.schemas` above already loads `re-frame.schemas.malli`
+            ;; for its ns-load side effect (publishes the validate/explain
+            ;; late-bind hooks the default validator routes through), so the
+            ;; validator is LIVE without this explicit require — kept as a
+            ;; harmless, explicit statement of the Malli dependency
+            ;; (rf2-a5kzs finding 4).
             [re-frame.schemas.malli]
             [re-frame.schemas.test-fixture :as tf]))
 
@@ -715,6 +717,135 @@
         (is (= [:user/register {:email "carol@example.com" :age "no"}]
                (-> v :tags :value))
             ":value rides verbatim")))))
+
+;; ---- rf2-a5kzs (finding 1) — event-schema per-slot :sensitive? redaction --
+;; Pre-fix `validate-event!` passed `walk-schema? false`, so a per-slot
+;; `:sensitive?` inside the event schema (e.g. a `:cat` payload map) was
+;; IGNORED and the failing payload leaked verbatim via :received / :value /
+;; :explain to trace listeners / off-box consumers. The fix flips the walk on
+;; for events (the event schema's `:cat`/`:catn` payload commonly IS map-shaped)
+;; so a per-slot or container-level :sensitive? drives the redaction exactly as
+;; on app-db / cofx / fx / sub surfaces. These fail before the flip and pass
+;; after; the existing handler-meta test above pins that a NON-sensitive event
+;; schema still rides verbatim (no over-redaction).
+
+(deftest event-validation-redacts-sensitive-cat-payload-slot
+  (testing "rf2-a5kzs — a failing event whose :cat payload map carries a
+            per-slot {:sensitive? true} slot redacts :received / :value /
+            :explain and stamps :sensitive? true"
+    (let [secret "hunter2-DO-NOT-LEAK"
+          calls  (atom 0)]
+      (rf/reg-event-db :auth/login
+        {:schema [:cat [:= :auth/login]
+                  [:map
+                   [:user :string]
+                   ;; :password is sensitive AND wrong type (int) → fails.
+                   [:password {:sensitive? true} :int]]]}
+        (fn [db _] (swap! calls inc) db))
+      (let [traces (atom [])]
+        (rf/register-listener! ::login (fn [ev] (swap! traces conj ev)))
+        (rf/dispatch-sync [:auth/login {:user "ada" :password secret}])
+        (rf/unregister-listener! ::login)
+        (is (= 0 @calls) "handler skipped — validation failed")
+        (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
+                               @traces))]
+          (is (some? v) "a trace fired")
+          (is (true? (:sensitive? v))
+              "top-level :sensitive? stamp — event schema declares a sensitive slot")
+          (is (= :rf/redacted (-> v :tags :received)) ":received redacted")
+          (is (= :rf/redacted (-> v :tags :value)) ":value redacted")
+          (is (= :rf/redacted (-> v :tags :explain)) ":explain redacted")
+          (is (not (str/includes? (pr-str (:tags v)) secret))
+              "the raw secret does NOT appear anywhere in the emitted tags")
+          ;; Structural slots survive.
+          (is (= :event (-> v :tags :where)))
+          (is (= :auth/login (-> v :tags :event-id))))))))
+
+(deftest event-validation-redacts-container-level-sensitive-payload
+  (testing "rf2-a5kzs — a container-level {:sensitive? true} on the event
+            payload schema also drives redaction"
+    (let [secret "TOKEN-leak-check"]
+      (rf/reg-event-db :auth/token
+        ;; The whole payload (element 1 of the :cat) is sensitive; supply an
+        ;; int where :string is expected so it fails.
+        {:schema [:cat [:= :auth/token] [:string {:sensitive? true}]]}
+        (fn [db _] db))
+      (let [traces (atom [])]
+        (rf/register-listener! ::tok (fn [ev] (swap! traces conj ev)))
+        (rf/dispatch-sync [:auth/token 12345])
+        (rf/unregister-listener! ::tok)
+        (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
+                               @traces))]
+          (is (some? v))
+          (is (true? (:sensitive? v)) "container-level :sensitive? triggers redaction")
+          (is (= :rf/redacted (-> v :tags :received)))
+          (is (= :rf/redacted (-> v :tags :value))))))))
+
+(deftest event-validation-non-sensitive-cat-still-verbatim
+  (testing "rf2-a5kzs — no over-redaction: an event schema with a payload map
+            that has NO :sensitive? slot still rides verbatim after the walk
+            is enabled"
+    (rf/reg-event-db :user/update
+      {:schema [:cat [:= :user/update] [:map [:name :string] [:age :int]]]}
+      (fn [db _] db))
+    (let [traces (atom [])]
+      (rf/register-listener! ::upd (fn [ev] (swap! traces conj ev)))
+      (rf/dispatch-sync [:user/update {:name "bob" :age "old"}])
+      (rf/unregister-listener! ::upd)
+      (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
+                             @traces))]
+        (is (some? v))
+        (is (not (contains? v :sensitive?))
+            "no :sensitive? stamp — nothing in the event schema is sensitive")
+        (is (= [:user/update {:name "bob" :age "old"}] (-> v :tags :received))
+            ":received rides verbatim — the walk did not spuriously redact")))))
+
+;; ---- rf2-a5kzs (finding 1) — boundary-path redaction seam ----------------
+;; The production boundary interceptor (`re-frame.spec`) builds its own event-
+;; failure tags and previously emitted them verbatim. The fix routes them
+;; through the `:schemas/redact-event-tags` seam so a sensitive event payload
+;; is redacted at the boundary exactly as the dev-time step-1 path. These test
+;; the seam directly (the schemas-owned redaction surface).
+
+(deftest redact-event-tags-redacts-when-schema-sensitive
+  (testing "rf2-a5kzs — redact-event-tags scrubs the value-bearing boundary
+            tags and stamps :sensitive? when the event schema is sensitive"
+    (let [secret "boundary-secret-9f3a"
+          schema [:cat [:= :auth/login]
+                  [:map [:password {:sensitive? true} :string]]]
+          tags   {:where      :event
+                  :event-id   :auth/login
+                  :failing-id :auth/login
+                  :schema-id  :auth/login
+                  :received   [:auth/login {:password secret}]
+                  :value      [:auth/login {:password secret}]
+                  :explain    {:value secret}
+                  :source     :boundary
+                  :recovery   :no-recovery}
+          out    (schemas/redact-event-tags schema tags)]
+      (is (= :rf/redacted (:received out)) ":received redacted")
+      (is (= :rf/redacted (:value out)) ":value redacted")
+      (is (= :rf/redacted (:explain out)) ":explain redacted")
+      (is (true? (:sensitive? out)) ":sensitive? stamped")
+      (is (not (str/includes? (pr-str out) secret))
+          "the secret does not survive anywhere in the redacted boundary tags")
+      ;; Structural slots survive.
+      (is (= :event (:where out)))
+      (is (= :auth/login (:event-id out)))
+      (is (= :boundary (:source out))))))
+
+(deftest redact-event-tags-rides-verbatim-when-not-sensitive
+  (testing "rf2-a5kzs — redact-event-tags is a no-op when the event schema has
+            no :sensitive? slot (boundary parity with the dev-time path)"
+    (let [schema [:cat [:= :api/strict] :int]
+          tags   {:where    :event
+                  :event-id :api/strict
+                  :received [:api/strict "not-an-int"]
+                  :value    [:api/strict "not-an-int"]
+                  :source   :boundary}
+          out    (schemas/redact-event-tags schema tags)]
+      (is (= tags out) "tags ride back unchanged — nothing sensitive to redact")
+      (is (not (contains? out :sensitive?))))))
 
 ;; ---- redaction at cofx validation site -----------------------------------
 

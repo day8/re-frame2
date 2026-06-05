@@ -167,6 +167,12 @@
 ;; Production-side boundary-validation seam (rf2-r2uh).
 (def validate-with-registered-fn validate/validate-with-registered-fn)
 (def explain-with-registered-fn  validate/explain-with-registered-fn)
+;; rf2-a5kzs (finding 1) — the production boundary path's `:sensitive?`
+;; redaction seam: the boundary interceptor builds its own event-failure
+;; tags (in core, `re-frame.spec`) and routes them through this fn so a
+;; sensitive event payload is redacted at the boundary exactly as the
+;; dev-time `validate-event!` step-1 path redacts it.
+(def redact-event-tags           validate/redact-event-tags)
 
 ;; ---- late-bind hook registration ------------------------------------------
 ;;
@@ -198,6 +204,8 @@
 ;; Boundary-validation seam (rf2-r2uh integration).
 (late-bind/set-fn! :schemas/validate-with-registered-fn validate-with-registered-fn)
 (late-bind/set-fn! :schemas/explain-with-registered-fn  explain-with-registered-fn)
+;; rf2-a5kzs (finding 1) — boundary-path `:sensitive?` redaction hook.
+(late-bind/set-fn! :schemas/redact-event-tags           redact-event-tags)
 
 ;; Public-API re-export hooks (consumed by re-frame.core-schemas).
 (late-bind/set-fn! :schemas/reg-app-schema        reg-app-schema)

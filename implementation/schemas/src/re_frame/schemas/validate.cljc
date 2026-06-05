@@ -121,6 +121,21 @@
 ;; consults `walker/schema-has-sensitive?` to drive the failure-trace
 ;; redaction.
 
+;; The canonical value-bearing tag slots — the ones that carry the failing
+;; value (or a value-bearing lookup key) verbatim and so must be scrubbed
+;; on a `:sensitive?` failure (`redact-tags`) AND dropped entirely from a
+;; `:rf.error/malformed-schema` trace (where the validator never proved
+;; sensitivity, so we cannot redact path-targeted — omitting the value is
+;; fail-closed, mirroring `validate-app-schema!`'s malformed-schema emit).
+;; Per Spec 010 §`:sensitive?` redaction-shape list (rf2-nijom / rf2-adtp2
+;; / rf2-qhq3f). Three are per-surface conditional names carried only on a
+;; subset of emit-sites (`:rf.fx/args` on `:where :fx-args`;
+;; `:rf.sub/query-v` on `:where :sub-return`; `:explain-humanized` only when
+;; the humanize hook is installed); `contains?` guards keep the clauses
+;; no-ops on the surfaces whose tag maps don't carry the slot.
+(def ^:private value-bearing-slots
+  [:value :received :explain :explain-humanized :rf.fx/args :rf.sub/query-v])
+
 (defn- redact-tags
   "Replace value-bearing slots in a tags map with the `:rf/redacted`
   sentinel. Per Spec 010 §`:sensitive?` — privacy in schema-validation
@@ -164,14 +179,11 @@
   `:explain-humanized`, reads `:rf/redacted` rather than falling through
   to a missing slot."
   [tags]
-  (cond-> tags
-    (contains? tags :value)             (assoc :value             redacted-sentinel)
-    (contains? tags :received)          (assoc :received          redacted-sentinel)
-    (contains? tags :explain)           (assoc :explain           redacted-sentinel)
-    (contains? tags :explain-humanized) (assoc :explain-humanized redacted-sentinel)
-    (contains? tags :rf.fx/args)        (assoc :rf.fx/args        redacted-sentinel)
-    (contains? tags :rf.sub/query-v)    (assoc :rf.sub/query-v    redacted-sentinel)
-    true                                (assoc :sensitive? true)))
+  (-> (reduce (fn [t slot]
+                (cond-> t (contains? t slot) (assoc slot redacted-sentinel)))
+              tags
+              value-bearing-slots)
+      (assoc :sensitive? true)))
 
 (defn- common-prefix
   "Return the longest common prefix of two sequential collections (as a
@@ -306,9 +318,40 @@
   app-db value is NOT included — a malformed schema is a programming
   error, and including the value would re-open the very leak the per-entry
   isolation closes (the validator never proved sensitivity, so we cannot
-  redact path-targeted; omitting the value is fail-closed)."
+  redact path-targeted; omitting the value is fail-closed).
+
+  Per rf2-a5kzs the SAME emit now serves the four meta-bearing surfaces
+  (event / cofx / fx / sub) via `run-validation`: a malformed `:schema`
+  on a handler / cofx / fx / sub registration makes the validator throw
+  identically, and the runtime call-sites (`router` / `cofx` / `fx` /
+  `subs`) coerce that throw to a validation PASS via their defensive
+  `(catch … true)` — the same fail-open class. Those surfaces stamp the
+  structural slots they carry (`:where`, the surface id, `:frame`) plus
+  `:schema` / `:reason`, never a value-bearing slot."
   [tags]
   (trace/emit-error! :rf.error/malformed-schema tags))
+
+(defn- safe-explain
+  "Per rf2-a5kzs (finding 3) — invoke the registered explainer inside a
+  try/catch so a throwing custom explainer (or an explainer that itself
+  fails on a structurally degenerate schema) can never abort failure-trace
+  construction. A propagated explainer throw would unwind PAST the
+  legitimate `false` return, and the runtime call-sites
+  (`router` / `cofx` / `fx` / `subs`, and `validate-app-schema!`'s router
+  caller) coerce that throw to a validation PASS via their defensive
+  `(catch … true)` — turning a real validation FAILURE into a silent
+  catch-as-pass (for app-db: the swallowed-backstop returns true / no
+  rollback, so the invalid commit installs).
+
+  The explainer is diagnostic-only enrichment for the `:explain` slot;
+  its failure must NOT change the validation verdict. On a throw this
+  degrades to nil (the failure trace then omits / nil-fills `:explain`,
+  exactly as when no explainer is registered) and the caller continues
+  the original `false`."
+  [schema value]
+  (try
+    (validator/run-explainer schema value)
+    (catch #?(:clj Throwable :cljs :default) _ nil)))
 
 (defn- validate-entry-result
   "Run the registered validator for one `(schema, value)` entry, isolating
@@ -350,7 +393,25 @@
                      pass `false`; cofx / fx / sub-return pass `true`.
     - `build-base-tags`  `(fn [schema explanation] -> map)` — produces
                      the per-fn tag map (`:where`, `:reason`, etc.)
-                     EXCLUDING any sensitivity stamping.
+                     EXCLUDING any sensitivity stamping. Also the source
+                     of the structural locator slots for the malformed-
+                     schema trace (rf2-a5kzs): called with a nil
+                     explanation, then stripped of the value-bearing slots,
+                     so the malformed-schema trace reuses the surface's own
+                     `:where` / id / `:frame` shape without duplicating it.
+
+  Per rf2-a5kzs (findings 2 + 3) this primitive isolates BOTH failure
+  modes that previously fell open through the runtime call-sites'
+  defensive `(catch … true)`:
+
+    - A malformed registered `:schema` (childless `[:vector]`, unknown op)
+      makes the validator THROW. Caught per-call via `validate-entry-result`;
+      a distinct `:rf.error/malformed-schema` trace fires and the fn returns
+      `false`, so each caller applies its normal recovery (skip handler /
+      skip fx / replace sub return) instead of the silent throw-as-pass.
+    - A throwing explainer no longer aborts trace construction — the
+      explainer is invoked through `safe-explain`, which degrades a throw
+      to a nil explanation and preserves the `false` verdict.
 
   Reachability: every call-site lives inside the outermost
   `(if interop/debug-enabled? ...)` gate of its public wrapper.
@@ -378,21 +439,57 @@
   [reg-meta value walk-schema? build-base-tags]
   (if-let [vf @validator/validator-fn]
     (if-let [schema (:schema reg-meta)]
-      (if (vf schema value)
-        true
-        (let [explanation (validator/run-explainer schema value)
-              sensitive?  (and walk-schema?
-                               (walker/schema-has-sensitive? schema))
-              ;; Per rf2-qhq3f — humanize from the RAW explanation here,
-              ;; before redaction, and fold the slot into base-tags so
-              ;; `redact-tags` scrubs it symmetrically with `:explain`
-              ;; on sensitive failures (sentinel present, not omitted).
-              humanized   (humanize-explain explanation)
-              base-tags   (cond-> (build-base-tags schema explanation)
-                            (some? humanized) (assoc :explain-humanized humanized))
-              tags        (cond-> base-tags sensitive? redact-tags)]
-          (emit-validation-failure! tags)
-          false))
+      ;; Per rf2-a5kzs (finding 2) — isolate a malformed-schema throw HERE
+      ;; rather than let it propagate to the call-site `(catch … true)`.
+      (let [result (validate-entry-result vf schema value)]
+        (cond
+          ;; Conformed.
+          (true? result)
+          true
+
+          ;; Malformed registered schema (validator threw). Surface a
+          ;; DISTINCT `:rf.error/malformed-schema` trace built from the
+          ;; surface's own structural slots (`:where` / id / `:frame`),
+          ;; stripped of the value-bearing slots (the validator never
+          ;; proved sensitivity — omitting the value is fail-closed,
+          ;; mirroring `validate-app-schema!`). Return false so the caller
+          ;; runs its normal recovery instead of the swallowed pass.
+          (and (vector? result) (= :malformed (first result)))
+          (let [ex     (second result)
+                reason #?(:clj  (.getMessage ^Throwable ex)
+                          :cljs (ex-message ex))
+                ;; build-base-tags called with a nil explanation, then
+                ;; stripped of value-bearing slots — no value leaks into a
+                ;; malformed-schema trace.
+                base   (apply dissoc (build-base-tags schema nil)
+                              value-bearing-slots)]
+            (emit-malformed-schema!
+              (assoc base
+                     :schema    schema
+                     :reason    (str "Registered schema " (pr-str schema)
+                                     " is malformed and could not be "
+                                     "evaluated: " reason)
+                     :recovery  :no-recovery))
+            false)
+
+          ;; Legitimate validation failure — the existing emit path.
+          :else
+          (let [;; Per rf2-a5kzs (finding 3) — explainer through
+                ;; `safe-explain` so a throwing explainer can't unwind past
+                ;; this false and become a catch-as-pass at the call-site.
+                explanation (safe-explain schema value)
+                sensitive?  (and walk-schema?
+                                 (walker/schema-has-sensitive? schema))
+                ;; Per rf2-qhq3f — humanize from the RAW explanation here,
+                ;; before redaction, and fold the slot into base-tags so
+                ;; `redact-tags` scrubs it symmetrically with `:explain`
+                ;; on sensitive failures (sentinel present, not omitted).
+                humanized   (humanize-explain explanation)
+                base-tags   (cond-> (build-base-tags schema explanation)
+                              (some? humanized) (assoc :explain-humanized humanized))
+                tags        (cond-> base-tags sensitive? redact-tags)]
+            (emit-validation-failure! tags)
+            false)))
       true)
     true))
 
@@ -538,7 +635,17 @@
                  ;; vocabulary rather than minting a new enum value).
                  ;; The router consumes the loop's final boolean to
                  ;; perform the actual container restoration.
-                 (let [explanation (validator/run-explainer schema reg-slice)
+                 ;; Per rf2-a5kzs (finding 3) — the explainer is invoked
+                 ;; through `safe-explain` so a throwing custom explainer
+                 ;; (or an explainer that fails on a degenerate schema)
+                 ;; cannot abort this branch and unwind past the `false`
+                 ;; this entry contributes to the loop's conjoined result.
+                 ;; A propagated throw would reach the router's
+                 ;; swallowed-backstop `(catch … true)` and the invalid
+                 ;; commit would install with no rollback. The explainer is
+                 ;; diagnostic-only; on a throw `:explain` degrades to nil
+                 ;; and the failure verdict is preserved.
+                 (let [explanation (safe-explain schema reg-slice)
                        in-path     (failing-in-path explanation)
                        leaf-value  (if in-path
                                      (get-in reg-slice in-path)
@@ -613,14 +720,28 @@
   so the `:where :event` trace is captured in the same epoch as the
   dispatch that triggered it, exactly like the `:where :app-db` trace.
   The 3-arity stays for direct (non-router) callers (the elision probe,
-  unit tests) where there is no in-flight cascade to attribute to."
+  unit tests) where there is no in-flight cascade to attribute to.
+
+  Per rf2-a5kzs (finding 1) — event validation DOES consult the schema's
+  per-slot `:sensitive?` walker (`walk-schema? true`). An event schema is
+  not itself `:map`-shaped, but its payload commonly IS: a login schema
+  `[:cat [:= :auth/login] [:map [:password {:sensitive? true} :string]]]`
+  marks the password slot sensitive. The previous `false` ignored those
+  annotations, so a failing sensitive event payload leaked verbatim via
+  `:received` / `:value` / `:explain` to trace listeners / off-box
+  consumers — contradicting Spec 010's redaction contract. `walker/
+  schema-has-sensitive?` walks the WHOLE schema form (the `:cat` container
+  descends into its `:map` payload child), so a per-slot `:sensitive?`
+  anywhere in the event schema (incl. container-level props) now drives
+  redaction; non-sensitive event failures still ride verbatim (the walker
+  reports nothing → no redaction)."
   ([event-id event handler-meta] (validate-event! event-id event handler-meta nil))
   ([event-id event handler-meta frame]
    (if interop/debug-enabled?
      (run-validation
        handler-meta
        event
-       false  ;; event vectors aren't `:map`-shaped — no per-slot walk
+       true   ;; consult the event schema's per-slot `:sensitive?` walker
        (fn [schema explanation]
          (cond-> {:where      :event
                   :event-id   event-id
@@ -782,11 +903,11 @@
 ;; artefact is optional per rf2-p7va so the interceptor cannot
 ;; statically `:require [re-frame.schemas]`).
 ;;
-;; Contract: returns true on conform; false on fail; true (pass) when
-;; no validator is registered. Does NOT emit a trace — the boundary
-;; interceptor is responsible for emitting :rf.error/schema-validation-
-;; failure :where :event with the appropriate envelope. Pure check
-;; surface.
+;; Contract: returns true on conform; false on fail (incl. a malformed
+;; schema — fail CLOSED); true (pass) when no validator is registered.
+;; Does NOT emit a trace — the boundary interceptor is responsible for
+;; emitting :rf.error/schema-validation-failure :where :event with the
+;; appropriate envelope. Pure check surface.
 
 (defn validate-with-registered-fn
   "Apply the registered validator to `(schema, value)`. Public seam for
@@ -795,15 +916,58 @@
   call-site treats no-validator as no-validation, mirroring the hot
   path).
 
+  Per rf2-a5kzs (finding 2, boundary seam) — a structurally MALFORMED
+  registered schema makes the validator THROW. This seam isolates that
+  throw and returns `false` (fail CLOSED — the boundary interceptor then
+  skips the handler) rather than letting it propagate to the interceptor's
+  defensive `(catch … true)`, which would coerce the throw to a validation
+  PASS and run the handler on an unvalidated boundary payload. Mirrors the
+  dev-time `run-validation` / `validate-app-schema!` per-entry isolation.
+  A `nil` validator (validation disabled) still passes — `run-validator`
+  returns true and never throws.
+
   Does NOT consult `interop/debug-enabled?` — the boundary interceptor
   runs in production by design."
   [schema value]
-  (validator/run-validator schema value))
+  (try
+    (boolean (validator/run-validator schema value))
+    (catch #?(:clj Throwable :cljs :default) _ false)))
 
 (defn explain-with-registered-fn
   "Apply the registered explainer to `(schema, value)`. Companion to
   `validate-with-registered-fn` for the boundary-validation
   interceptor (rf2-r2uh). Returns the explanation map / data on fail;
-  nil when the schema conforms or no explainer is registered."
+  nil when the schema conforms or no explainer is registered.
+
+  Per rf2-a5kzs (finding 3, boundary seam) — a throwing explainer
+  degrades to nil here rather than propagating; the boundary interceptor
+  already wraps the call in its own try/catch, so this is belt-and-braces
+  symmetry with the dev-time `safe-explain` (the explainer is diagnostic-
+  only and must never change the verdict)."
   [schema value]
-  (validator/run-explainer schema value))
+  (try
+    (validator/run-explainer schema value)
+    (catch #?(:clj Throwable :cljs :default) _ nil)))
+
+(defn redact-event-tags
+  "Redaction seam for the production boundary-validation interceptor
+  (`re-frame.spec`, rf2-a5kzs finding 1). Given the registered event
+  `schema` and the failure trace `tags` the interceptor built, return the
+  tags with the value-bearing slots (`:received` / `:value` / `:explain` /
+  …) scrubbed to `:rf/redacted` and `:sensitive? true` stamped WHEN the
+  event schema declares any slot `:sensitive?` (e.g. a `:cat` payload map
+  `[:map [:password {:sensitive? true} :string]]`); otherwise the tags ride
+  back verbatim.
+
+  The dev-time step-1 path (`validate-event!`) consults the same
+  `walker/schema-has-sensitive?` predicate via `run-validation`'s
+  `walk-schema?`; this seam gives the production boundary path the SAME
+  redaction without the optional schemas artefact and the (core) `re-frame.spec`
+  interceptor coupling — the interceptor reaches it through the
+  `:schemas/redact-event-tags` late-bind hook and falls through verbatim
+  when the hook is unbound (schemas artefact absent).
+
+  Pure; `redact-tags` is idempotent so a double-call is safe."
+  [schema tags]
+  (cond-> tags
+    (walker/schema-has-sensitive? schema) redact-tags))

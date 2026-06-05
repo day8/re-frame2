@@ -84,11 +84,13 @@
             [re-frame.cofx :as cofx]
             [re-frame.frame :as frame]
             [re-frame.schemas :as schemas]
-            ;; Per rf2-t0hq + rf2-qyfie — the Malli adapter ns must be
-            ;; required at boot to publish the late-bind hook the
-            ;; default validator routes through. The conformance corpus
-            ;; expects Malli-backed validation outcomes; absent the
-            ;; require the validator soft-passes (no failure traces).
+            ;; Per rf2-v96fh (schema implies validation) requiring
+            ;; `re-frame.schemas` above already loads `re-frame.schemas.malli`
+            ;; for its ns-load side effect (publishes the validate/explain
+            ;; late-bind hooks), so the default validator is LIVE — the
+            ;; conformance corpus's Malli-backed outcomes hold without this
+            ;; explicit require. The require is kept as a harmless, explicit
+            ;; statement of the Malli dependency (rf2-a5kzs finding 4).
             [re-frame.schemas.malli]
             [re-frame.schemas.test-fixture :as tf]
             [re-frame.subs :as subs]
