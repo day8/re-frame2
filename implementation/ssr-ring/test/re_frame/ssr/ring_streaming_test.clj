@@ -962,3 +962,83 @@
           "no violation when every :body-end script host is allowlisted")
       (is (str/includes? body "https://cdn.allowed.com/ok.js")
           "the allowlisted script still streams onto the wire"))))
+
+;; ---- :html-shell is rejected at construction (rf2-oq4m5) -----------------
+;;
+;; The non-streaming `ssr-handler` honours a one-piece `:html-shell` fn;
+;; the streaming path flushes a SPLIT prefix/suffix straddling the
+;; continuation chunks, so a one-piece shell callback can never run after
+;; streaming starts. `stream-handler` MUST fail CLOSED at construction
+;; rather than silently dropping a passed `:html-shell` (a fail-open
+;; API-contract gap — a custom shell carries CSP nonces / asset URLs /
+;; root markup an app would lose switching ssr-handler → stream-handler).
+
+(deftest stream-handler-rejects-html-shell-fn-at-construction
+  (testing "rf2-oq4m5: a one-piece :html-shell fn (the non-streaming
+            contract) is REJECTED at handler-construction time — not
+            silently ignored per-request"
+    (let [custom-shell (fn [body-html payload-edn _opts]
+                         (str "<custom>" body-html payload-edn "</custom>"))
+          ex (is (thrown? clojure.lang.ExceptionInfo
+                   (ssr-ring/stream-handler
+                     {:on-create  [:rf.test.server/init]
+                      :root-view  [:test/root]
+                      :payload    :rf.ssr.payload/whole-app-db
+                      :html-shell custom-shell})))
+          data (ex-data ex)]
+      (is (= :rf.error/ssr-streaming-unsupported-opt (:rf.error/id data))
+          "structured error id names the unsupported-opt failure")
+      (is (= :html-shell (:opt-key data))
+          "ex-data names the offending opt")
+      (is (= custom-shell (:got data))
+          "ex-data carries the rejected value")
+      (is (str/includes? (str (:reason data)) ":html-shell")
+          "the reason explains :html-shell is unsupported under streaming")
+      (is (str/includes? (str (:reason data)) "ssr-handler")
+          "the reason points the caller at the non-streaming handler"))))
+
+(deftest stream-handler-rejects-non-fn-html-shell-at-construction
+  (testing "rf2-oq4m5: ANY non-nil :html-shell value is rejected — the
+            streaming path supports no one-piece shell of any shape, so a
+            string / map / vector fails closed the same way a fn does"
+    (doseq [bad ["<html>…</html>" {:shape :map} [:vector]]]
+      (let [ex (is (thrown? clojure.lang.ExceptionInfo
+                     (ssr-ring/stream-handler
+                       {:on-create  [:rf.test.server/init]
+                        :root-view  [:test/root]
+                        :payload    :rf.ssr.payload/whole-app-db
+                        :html-shell bad}))
+                 (str "stream-handler must reject :html-shell " (pr-str bad)))]
+        (is (= :rf.error/ssr-streaming-unsupported-opt
+               (:rf.error/id (ex-data ex)))
+            (str "structured rejection for :html-shell " (pr-str bad)))))))
+
+(deftest stream-handler-constructs-without-html-shell
+  (testing "rf2-oq4m5: absent OR explicit-nil :html-shell constructs
+            cleanly and streams normally — the rejection gates only a
+            non-nil override, never the no-override common path"
+    ;; Absent — the default streaming construction path.
+    (let [handler  (ssr-ring/stream-handler
+                     {:on-create [:rf.test.server/init]
+                      :root-view [:test/root]
+                      :payload   :rf.ssr.payload/whole-app-db})
+          response (handler {:uri "/" :request-method :get})
+          body     (drain-stream (:body response))]
+      (is (= 200 (:status response)) "absent :html-shell streams a 200")
+      (is (str/includes? body "<!DOCTYPE html>")
+          "the default streaming prefix opens the document")
+      (is (str/includes? body "<h1>News</h1>")
+          "the default split envelope streams the rendered shell"))
+    ;; Explicit nil — "no override requested" passes the gate.
+    (let [handler  (ssr-ring/stream-handler
+                     {:on-create  [:rf.test.server/init]
+                      :root-view  [:test/root]
+                      :payload    :rf.ssr.payload/whole-app-db
+                      :html-shell nil})
+          response (handler {:uri "/" :request-method :get})
+          body     (drain-stream (:body response))]
+      (is (= 200 (:status response)) "explicit :html-shell nil streams a 200")
+      (is (str/includes? body "<!DOCTYPE html>")
+          "explicit-nil :html-shell still opens the default document")
+      (is (str/includes? body "<h1>News</h1>")
+          "explicit-nil :html-shell still streams the default envelope"))))
