@@ -138,7 +138,49 @@ This skill scaffolds against **Reagent** (the default reference substrate). For 
     (uix-dom/render-root ($ views/counter-app) react-root))
   ```
   (Helix uses `(.render react-root ($ views/counter-app))` against a `react-dom/client` root, with `$` from `helix.core` — see the template's `_helix/core.cljs`.)
-- everything else (events, subs, schemas, Xray wiring, `dispatch-sync` seed, `:init-fn ...core/init`) is identical across substrates.
+- **views** — this is the substitution `first-counter.md` does **not** cover. The Reagent first-counter uses `reg-view` with auto-injected `dispatch`/`subscribe`; UIx and Helix have **no auto-injection** — components read subs through the adapter's `use-subscribe` hook and dispatch through `(:dispatch (rf/frame-handle))`, captured once per render (the handle closes over the render-time frame, so a closed-over `dispatch` still targets that frame from an async callback). UIx uses `defui` + `$`; Helix uses `defnc` + `helix.dom`. The events and subs are the same `reg-event-db` / `reg-sub` forms as the Reagent counter — only the view layer differs. Copy the matching `views.cljs` verbatim (verified against the template's `_uix/views.cljs` / `_helix/views.cljs`):
+
+  ```clojure
+  ;; UIx — src/your_app/views.cljs
+  (ns your-app.views
+    (:require [uix.core             :refer [$ defui]]
+              [re-frame.core        :as rf]
+              [re-frame.adapter.uix :as uix-adapter]))
+
+  (defui counter-buttons []
+    (let [value    (uix-adapter/use-subscribe [:counter/value])
+          dispatch (:dispatch (rf/frame-handle))]
+      ($ :div
+         ($ :button {:on-click #(dispatch [:counter/increment])} "+1")
+         ($ :span {:style #js {:margin "0 1em"}} value))))
+
+  (defui counter-app []
+    ($ :div
+       ($ :h1 "your-app")
+       ($ counter-buttons)))
+  ```
+
+  ```clojure
+  ;; Helix — src/your_app/views.cljs
+  (ns your-app.views
+    (:require [helix.core             :refer [$ defnc]]
+              [helix.dom              :as d]
+              [re-frame.core          :as rf]
+              [re-frame.adapter.helix :as helix-adapter]))
+
+  (defnc counter-buttons []
+    (let [value    (helix-adapter/use-subscribe [:counter/value])
+          dispatch (:dispatch (rf/frame-handle))]
+      (d/div
+        (d/button {:on-click #(dispatch [:counter/increment])} "+1")
+        (d/span {:style {:margin "0 1em"}} value))))
+
+  (defnc counter-app []
+    (d/div
+      (d/h1 "your-app")
+      ($ counter-buttons)))
+  ```
+- everything else (events, subs, schemas, Xray wiring, `dispatch-sync` seed, `:init-fn ...core/init`) is identical across substrates. **Views are not** — do not reach for the Reagent `reg-view` first-counter leaf on a UIx/Helix app; use the substrate views above (or take the complete generator route below).
 
 The fastest path for a non-Reagent greenfield is the **generator template**, which ships complete `_uix/` and `_helix/` variants — invoke `clojure -Tnew create :template io.github.day8/re-frame2-template :name acme/my-app :substrate :uix` (or `:helix`) and you get a working UIx/Helix counter without hand-wiring the substitutions above. **Pre-split:** the standalone `day8/re-frame2-template` repo isn't published yet (rf2-7jgkv), so that `io.github.day8/…` invocation can't auto-resolve today; pre-release, use the `:local/root` dev route against a checkout of this repo (`clojure -Sdeps '{:deps {day8/re-frame2-template {:local/root "tools/template"}}}' -Tnew create :template day8/re-frame2-template :name acme/my-app :substrate :uix`) or hand-wire the two substitutions above. See [the generator-template section](../README.md#relationship-to-the-generator-template).
 
