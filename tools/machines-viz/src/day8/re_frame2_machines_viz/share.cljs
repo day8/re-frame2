@@ -169,6 +169,82 @@
       bare)))
 
 ;; ---------------------------------------------------------------------------
+;; Structural definition sanitisation (rf2-m285a)
+;;
+;; `strip-meta` drops Clojure METADATA only. But a macro-stamped machine
+;; spec (Spec 005 §Source-coord stamping) carries debug/source as ordinary
+;; DATA *values* inside `:states`, NOT as metadata:
+;;
+;;   - every `:states`-tree map node (state-node / transition map / `:spawn`
+;;     map) carries `:source-coords {:ns … :file "…/login.cljs" :line … :column …}`;
+;;   - `:guards` / `:actions` / `:on-spawn-actions` entries are
+;;     `{<id> {:fn <compiled-fn> :source-coords … :source-code "(fn …)"}}`;
+;;   - inline `:guard` / `:action` / `:entry` / `:exit` slots may hold a LIVE
+;;     fn value.
+;;
+;; So `strip-meta` left local-FILESYSTEM paths + source snippets in the
+;; payload (a privacy-contract leak — Principles §No session data in shares),
+;; and a live `:fn` value can make Transit encoding FAIL outright. We sanitise
+;; the definition STRUCTURALLY before validation / Transit:
+;;
+;;   - recursively DROP `:source-coords` / `:source-code` everywhere;
+;;   - DROP executable `:fn` values (the `{<id> {:fn …}}` entry collapses to a
+;;     names-only marker — the topology reference by id survives);
+;;   - replace any remaining LIVE fn value (an inline `:guard` / `:action` /
+;;     `:entry` / `:exit`) with an opaque `:fn` LABEL marker so the viewer-safe
+;;     payload encodes (and shows the slot is fn-backed) without serialising a
+;;     body Transit cannot encode.
+
+(def ^:private source-debug-keys
+  "Reference-site debug fields the macro co-locates inside `:states` /
+  `:guards` / `:actions` / `:on-spawn-actions` (Spec 005 §Source-coord
+  stamping). Stripped wholesale from a share payload."
+  #{:source-coords :source-code})
+
+(def ^:private fn-label-marker
+  "rf2-m285a — opaque marker substituted for a LIVE fn value so the payload
+  encodes (Transit cannot serialise an arbitrary fn) and the viewer still
+  sees the slot is fn-backed. Names-only — no executable body, no source."
+  :rf.machines-viz.share/fn)
+
+(defn- fn-name-label
+  "rf2-m285a — a names-only label for a fn ref: its `:name` meta when named,
+  else the opaque `fn-label-marker`. Never serialises the body."
+  [f]
+  (or (when-let [n (some-> f meta :name)]
+        (keyword "rf.machines-viz.share" (str "fn-" (name n))))
+      fn-label-marker))
+
+(defn- sanitise-definition
+  "rf2-m285a — recursively rewrite a (possibly macro-stamped) machine
+  definition into a viewer-safe topology payload: drop `:source-coords` /
+  `:source-code`, drop executable `:fn` values, and replace any live fn slot
+  with an opaque label. Preserves all topology references (state ids,
+  targets, guard/action NAMES via their map keys). Pure structural walk."
+  [x]
+  (cond
+    (fn? x) (fn-name-label x)
+
+    (map? x)
+    (into (empty x)
+          (keep (fn [[k v]]
+                  (cond
+                    ;; Drop reference-site source/debug fields entirely.
+                    (contains? source-debug-keys k) nil
+                    ;; Drop the executable fn off a `:guards`/`:actions`/
+                    ;; `:on-spawn-actions` entry (or any co-located `:fn`):
+                    ;; the entry's KEY already carries the name the topology
+                    ;; references; the body is lossy by contract.
+                    (= :fn k)                        nil
+                    :else [k (sanitise-definition v)]))
+                x))
+
+    (set? x)    (into #{} (map sanitise-definition x))
+    (vector? x) (mapv sanitise-definition x)
+    (seq? x)    (map sanitise-definition x)
+    :else       x))
+
+;; ---------------------------------------------------------------------------
 ;; Schema validation — narrow allowlist
 ;;
 ;; ChartState:
@@ -283,12 +359,19 @@
   "Project `chart-state` onto the ChartState allowlist, dropping every
   key outside it — including any runtime `:data` riding on `:snapshot`
   and any `:source-coords` the caller passed. The definition is
-  metadata-stripped here (macro-captured source coords must not leak)."
+  metadata-stripped AND structurally sanitised here (rf2-m285a): a
+  macro-stamped spec carries `:source-coords` / `:source-code` and
+  executable `:fn` values as ordinary DATA inside `:states` / `:guards` /
+  `:actions` / `:on-spawn-actions` — `strip-meta` (metadata only) does not
+  reach them, so `sanitise-definition` recursively drops the source/debug
+  fields + executable fns (local-filesystem paths must not leak per
+  Principles §No session data in shares, and a live fn would make Transit
+  encoding fail)."
   [chart-state]
   (let [{:keys [machine-id frame-id definition snapshot]} chart-state]
     (cond-> {:machine-id machine-id
              :frame-id   frame-id
-             :definition (strip-meta definition)}
+             :definition (-> definition strip-meta sanitise-definition)}
       ;; :snapshot is allowlisted to :state ONLY — runtime :data and any
       ;; other snapshot key are dropped here structurally even if the
       ;; caller passed a full snapshot. The :state VALUE (a flat keyword,

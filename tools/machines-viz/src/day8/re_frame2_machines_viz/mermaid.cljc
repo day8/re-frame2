@@ -121,6 +121,17 @@
        (seq v)
        (every? keyword? v)))
 
+(defn- history-node?
+  "rf2-m285a — true when a node under a compound's `:states` is a
+  `:type :history` PSEUDO-STATE (Spec 005 §History states), not an
+  ordinary occupiable substate. A history pseudo-state is never active:
+  a transition *to* it resolves to the compound's recorded / default
+  leaf. Pre-fix the Mermaid emitter rendered it as a bare leaf id in
+  incoming edges with no declaration, so it read as an ordinary state."
+  [state-node]
+  (and (map? state-node)
+       (= :history (:type state-node))))
+
 (defn- escape-id-segment
   "Escape one keyword ns/name part INJECTIVELY into a Mermaid-id-safe
   string: every char outside `[A-Za-z0-9]` becomes `_<2-hex>` (the
@@ -533,13 +544,38 @@
     (str indent "state \"" (sanitise-state-label label) "\" as "
          (sanitise-id state-path))))
 
+(defn- render-history-marker
+  "rf2-m285a — declare a `:type :history` pseudo-state inside its owning
+  compound block (Spec 005 §History states). Mermaid `stateDiagram-v2`
+  has no portable native history glyph (the `[H]` form is spottily
+  rendered across Mermaid versions / consumers), so — same lossy-static
+  posture the emitter takes elsewhere — we declare a labelled alias node
+  (`H` shallow / `H*` deep) so incoming `:target :hist` edges land on a
+  node that READS as a history marker, not an ordinary state. A
+  `:default-target` rides a `%% comment` so the default config is visible
+  without re-running the machine."
+  [state-path state-node depth]
+  (let [indent (apply str (repeat depth "  "))
+        glyph  (if (:deep? state-node) "H*" "H")
+        dt     (:default-target state-node)]
+    (cond-> [(str indent "state \"" glyph "\" as " (sanitise-id state-path))]
+      (some? dt)
+      (conj (str indent "%% history default-target: "
+                 (if (vector? dt)
+                   (str/join "/" (map keyword-label dt))
+                   (label-value dt)))))))
+
 (defn- render-state-block
   "Render a compound state's `state X { ... }` block (Mermaid
   nesting). Returns a sequence of lines (indented at `depth`).
 
   Leaf states do not need an explicit declaration in Mermaid — they
   appear inline in their outbound edges. We only emit blocks for
-  compound states."
+  compound states.
+
+  rf2-m285a — a `:type :history` child is declared as a labelled history
+  marker (`render-history-marker`) so an incoming `:target :hist` edge
+  lands on a node that reads as a history pseudo-state."
   [state-path state-node depth]
   (let [indent     (apply str (repeat depth "  "))
         children   (:states state-node)
@@ -550,9 +586,12 @@
        (when sub-initial
          [(str indent "  [*] --> " (sanitise-id (conj state-path sub-initial)))])
        (mapcat (fn [[child-id child-node]]
-                 (render-state-block (conj state-path child-id)
-                                     child-node
-                                     (inc depth)))
+                 (let [child-path (conj state-path child-id)]
+                   (if (history-node? child-node)
+                     (render-history-marker child-path child-node (inc depth))
+                     (render-state-block child-path
+                                         child-node
+                                         (inc depth)))))
                children)
        [(str indent "}")]))))
 

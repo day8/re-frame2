@@ -271,6 +271,84 @@
       (is (not (str/includes? url "proj")) "the file path never reaches the bytes"))))
 
 ;; ---------------------------------------------------------------------------
+;; rf2-m285a — macro-stamped DATA (not metadata) sanitisation. A reg-machine
+;; macro co-locates `:source-coords` / `:source-code` + executable `:fn`
+;; values as ordinary DATA inside `:states` / `:guards` / `:actions` /
+;; `:on-spawn-actions` (Spec 005 §Source-coord stamping). `strip-meta` (which
+;; touches Clojure METADATA only) does NOT reach them, so the share encoder
+;; leaked local-filesystem paths + source snippets and could fail to encode a
+;; live `:fn`. `sanitise-definition` strips them structurally.
+
+(def macro-stamped-like-definition
+  "Mimics the reg-machine macro's dev-arm output: per-node `:source-coords`
+  inside `:states`, `:guards` / `:actions` entries carrying
+  `{:fn .. :source-coords .. :source-code ..}`, and inline live fns on
+  `:guard` / `:action`."
+  {:initial :idle
+   :guards  {:form-valid? {:fn            (fn [_] true)
+                           :source-coords {:ns 'app.login :file "/Users/mike/proj/login.cljs"
+                                           :line 47 :column 13}
+                           :source-code   "(fn [{data :data}] (valid? data))"}}
+   :actions {:commit      {:fn            (fn [_] {})
+                          :source-coords {:ns 'app.login :file "/Users/mike/proj/login.cljs"
+                                          :line 52 :column 13}
+                          :source-code   "(fn [{data :data}] {:fx [[:http ...]]})"}}
+   :states  {:idle {:on            {:submit {:target :done
+                                             :guard  :form-valid?
+                                             :action (fn [_] {})   ;; inline live fn
+                                             :source-coords {:ns 'app.login
+                                                             :file "/Users/mike/proj/login.cljs"
+                                                             :line 80 :column 23}}}
+                    :source-coords {:ns 'app.login :file "/Users/mike/proj/login.cljs"
+                                    :line 78 :column 11}}
+             :done {:final?        true
+                    :source-coords {:ns 'app.login :file "/Users/mike/proj/login.cljs"
+                                    :line 84 :column 11}}}})
+
+(deftest macro-stamped-source-coords-do-not-leak
+  (testing "rf2-m285a — nested :source-coords / :source-code on :states /
+            :guards / :actions are stripped before Transit (no local path leak)"
+    (let [cs   (assoc chart-state :definition macro-stamped-like-definition)
+          url  (share/encode-share-url cs)
+          back (:rf.machines-viz.share/chart (share/decode-share-url url))
+          dfn  (:definition back)]
+      ;; The encoded BYTES carry no local-filesystem path / source snippet.
+      (is (not (str/includes? url "Users")) "no local-filesystem path in the URL bytes")
+      (is (not (str/includes? url "proj"))  "no repo dir in the URL bytes")
+      ;; The decoded payload carries no debug/source fields anywhere.
+      (is (nil? (get-in dfn [:states :idle :source-coords])))
+      (is (nil? (get-in dfn [:states :idle :on :submit :source-coords])))
+      (is (nil? (get-in dfn [:states :done :source-coords])))
+      (is (nil? (get-in dfn [:guards :form-valid? :source-coords])))
+      (is (nil? (get-in dfn [:guards :form-valid? :source-code])))
+      (is (nil? (get-in dfn [:actions :commit :source-code])))
+      ;; Topology references survive: the transition target + guard NAME.
+      (is (= :done       (get-in dfn [:states :idle :on :submit :target])))
+      (is (= :form-valid? (get-in dfn [:states :idle :on :submit :guard])))
+      (is (true? (get-in dfn [:states :done :final?])))
+      ;; The guard / action ids survive (as keys) — names-only, no body.
+      (is (contains? (:guards dfn) :form-valid?))
+      (is (contains? (:actions dfn) :commit)))))
+
+(deftest macro-stamped-executable-fns-do-not-block-encoding
+  (testing "rf2-m285a — a live :fn on a guards/actions entry AND an inline-fn
+            action encode successfully (instead of crashing Transit) — the
+            executable body is dropped / labelled, not serialised"
+    (let [cs  (assoc chart-state :definition macro-stamped-like-definition)
+          url (share/encode-share-url cs)
+          dfn (:definition
+                (:rf.machines-viz.share/chart (share/decode-share-url url)))]
+      (is (string? url) "encoding succeeds")
+      ;; The :guards / :actions entries no longer carry an executable :fn.
+      (is (nil? (get-in dfn [:guards :form-valid? :fn])))
+      (is (nil? (get-in dfn [:actions :commit :fn])))
+      ;; The inline-fn :action slot was replaced by an opaque names-only label
+      ;; (not a live fn, not a source body).
+      (let [a (get-in dfn [:states :idle :on :submit :action])]
+        (is (not (fn? a)) "the inline fn was not serialised as an executable")
+        (is (keyword? a)  "it became an opaque label keyword")))))
+
+;; ---------------------------------------------------------------------------
 ;; Versioning + failure modes
 
 (deftest unknown-version-rejected

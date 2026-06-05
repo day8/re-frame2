@@ -550,3 +550,58 @@
           "compound id: hyphen → _2d, single __ is the path separator")
       (is (str/includes? out "right__child_2dnode")
           "the two same-named child-node leaves stay DISTINCT (path-qualified)"))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-m285a — `:type :history` pseudo-states render as a LABELLED history
+;; marker (`H` shallow / `H*` deep) inside the owning compound, NOT as an
+;; ordinary bare-id leaf state in incoming edges.
+
+(def shallow-history-machine
+  {:initial :off
+   :states  {:off    {:on {:resume [:player :hist]}}
+             :player {:initial :stopped
+                      :states  {:stopped {:on {:play :playing}}
+                                :playing {:on {:stop :stopped}}
+                                :hist    {:type :history :deep? false}}
+                      :on      {:power-off :off}}}})
+
+(def deep-history-machine
+  (assoc-in shallow-history-machine [:states :player :states :hist]
+            {:type :history :deep? true}))
+
+(def default-target-history-machine
+  (assoc-in shallow-history-machine [:states :player :states :hist]
+            {:type :history :deep? false :default-target :playing}))
+
+(deftest emit-history-marker-shallow
+  (testing "rf2-m285a — a SHALLOW history pseudo-state declares a labelled
+            `H` marker inside its owning compound block"
+    (let [out (m/emit shallow-history-machine {:fenced? false :header-comment? false})]
+      (is (str/includes? out "state \"H\" as player__hist")
+          "the history node is declared as a labelled `H` marker, not a bare state")
+      ;; the incoming edge still lands on the marker id
+      (is (str/includes? out "player__hist")
+          "incoming :target :hist edge targets the marker"))))
+
+(deftest emit-history-marker-deep
+  (testing "rf2-m285a — a DEEP history pseudo-state declares `H*`"
+    (let [out (m/emit deep-history-machine {:fenced? false :header-comment? false})]
+      (is (str/includes? out "state \"H*\" as player__hist")
+          "deep history renders the H* glyph"))))
+
+(deftest emit-history-default-target-note
+  (testing "rf2-m285a — a history :default-target surfaces as a documenting
+            %% comment so the default config is visible"
+    (let [out (m/emit default-target-history-machine {:fenced? false :header-comment? false})]
+      (is (str/includes? out "state \"H\" as player__hist"))
+      (is (str/includes? out "%% history default-target: playing")
+          "the default-target rides a %% comment"))))
+
+(deftest emit-history-not-an-ordinary-final-or-state-decl
+  (testing "rf2-m285a — the history node never appears as a `--> [*]` final
+            edge nor a `state X { }` compound block"
+    (let [out (m/emit shallow-history-machine {:fenced? false :header-comment? false})]
+      (is (not (str/includes? out "player__hist --> [*]"))
+          "a history pseudo-state is not a final state")
+      (is (not (str/includes? out "state player__hist {"))
+          "a history pseudo-state is not a compound block"))))
