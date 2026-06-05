@@ -83,12 +83,13 @@ const { REPO_ROOT, IMPL_ROOT } = require('./_path-policy.cjs');
 //
 //   Band        Owner                     Notes
 //   ----------  ------------------------  ----------------------------------
-//   8030-8034   Xray testbeds             :dev-http (shadow-cljs.edn):
+//   8030-8035   Xray testbeds             :dev-http (shadow-cljs.edn):
 //                                           8030 two-frame-isolation
 //                                           8031 standard-epochs
 //                                           8032 routes-epochs
 //                                           8033 machine-epochs
 //                                           8034 edn-inspector
+//                                           8035 managed-http
 //   8040-8043   Story showcases           :dev-http (shadow-cljs.edn):
 //                                           8040 nine-states-with-stories
 //                                           8041 login-with-stories
@@ -99,7 +100,7 @@ const { REPO_ROOT, IMPL_ROOT } = require('./_path-policy.cjs');
 //                                           (8050; pre-flight + forward scan).
 //   8765        Xray panel-gallery        :dev-http (shadow-cljs.edn).
 //
-// The :dev-http bands (8030-8034 / 8040-8043 / 8765) are mirrored in the
+// The :dev-http bands (8030-8035 / 8040-8043 / 8765) are mirrored in the
 // DEV_HTTP map below (READ-only — shadow-cljs.edn is hot-zone). The 805x
 // examples band is NOT a :dev-http port — it is the test-orchestrator's
 // http-server default, resolved at runtime — so it lives only here + in
@@ -117,6 +118,7 @@ const DEV_HTTP = {
   ':examples/routes-epochs': { port: 8032 },
   ':examples/machine-epochs': { port: 8033 },
   ':examples/edn-inspector': { port: 8034 },
+  ':examples/managed-http': { port: 8035 },
   ':testbeds/panel-gallery': { port: 8765 },
   ':examples/nine-states-with-stories': { port: 8040, story: true },
   ':examples/login-with-stories': { port: 8041, story: true },
