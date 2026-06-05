@@ -277,6 +277,8 @@ When a **streaming probe** seems to have gone quiet, call `mcp__re-frame2-pair__
 
 **When the bug only reproduces under real human input** — a focus race, a render-timing glitch, a value that only flips after a real mouse drag. `subscribe` / `watch-epochs` stream *epochs*; the `record` / `watch-until` family (rf2-zo4b9) observes arbitrary **signals** (an app-db path, a sub value, a DOM node's text/attribute, the focus slot) across the interaction window. All read-only — never dispatch, never mutate. See [ops.md §Signal recording](ops.md#signal-recording--blocking-waits) for the full SIGNAL / PRED vocabulary.
 
+> **Privacy:** the `{:app-db [...]}` / `{:sub [...]}` signals sampled below are app-db-derived values that `read-recording` / `watch-until` ship back to the model, so they ride the same `--allow-sensitive-reads` posture as `get-path` / `read-sub` / `snapshot` (rf2-8fin7.2). With the gate OFF (the published default), each `:app-db` / `:sub` sample is walked through `re-frame.core/elide-wire-value` server-side — declared-sensitive slots land as `:rf/redacted`, declared-large slots as `:rf.size/large-elided` — so a sensitive path (`[:auth :token]`) is safe to record by default. `{:dom ...}` / `{:focus true}` signals are host reads, not app-db slots, and pass through. To see the unmasked sample, the operator launches with `--allow-sensitive-reads` and you pass `:include-sensitive true`.
+
 **Capture across an interaction (record → read-recording).** When the user says *"watch what happens to focus and the count while I click around"*:
 
 1. Start the recorder — it returns immediately with a `:recording-id`, then runs in the background:
