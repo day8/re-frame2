@@ -1387,24 +1387,78 @@
          :body        body-text
          :headers     headers}))))
 
+(defn- prepare-body!
+  "rf2-065xo — the managed request-preparation PHASE. Realizes the
+  `:body` (re-invoking the thunk when `:body` is a `(fn body)`, per Spec
+  014 §Body encoding — each attempt obtains a fresh handle) and encodes
+  it, computing the effective request `:headers` (adding the encoder's
+  `Content-Type` when the request did not already set one).
+
+  Returns either:
+   - `{:ok {:enc-body … :headers …}}` on success, or
+   - `{:error failure}` where `failure` is a canonical `:rf.http/transport`
+     shape. `:rf.http/transport` is the spec's category for an error
+     \"before the HTTP transaction completed\" (Spec 014 §Failure
+     categories) — body realization / encoding is exactly such a
+     pre-transaction failure, so no new (spec-closed) category is minted.
+     The shape carries a `:stage :request-prep` discriminator so telemetry
+     can tell a prep failure apart from a network-transport failure, plus
+     the usual `:message` / `:cause` tags the category documents.
+
+  A throwing body thunk or a non-serialisable body (e.g. a value
+  `JSON.stringify` / form-encode rejects) is caught here rather than
+  escaping `run-attempt!` as a generic `:rf.error/fx-handler-exception`.
+  `:rf.http/transport` is in the retryable subset, so a caller with
+  `:retry {:on #{:rf.http/transport} …}` re-runs the whole attempt
+  (re-invoking the thunk for a fresh handle) — consistent with the
+  thunk-per-attempt contract."
+  [request]
+  (try
+    (let [body          (let [b (:body request)] (if (fn? b) (b) b))
+          [enc-body ct] (encoding/encode-body body (:request-content-type request))
+          headers       (cond-> (or (:headers request) {})
+                          (and ct (nil? (decode/content-type-of (:headers request))))
+                          (assoc "Content-Type" ct))]
+      {:ok {:enc-body enc-body :headers headers}})
+    (catch #?(:clj Throwable :cljs :default) e
+      {:error {:kind    :rf.http/transport
+               :stage   :request-prep
+               :message #?(:clj (.getMessage ^Throwable e)
+                           :cljs (.-message ^js e))
+               :cause   #?(:clj (.getName (class e))
+                           :cljs (some-> (.-name ^js e)))}})))
+
 (defn run-attempt!
   "Issue one HTTP attempt, then dispatch reply or retry. Platform-specific
   transport wiring (Fetch Promise on CLJS, CompletableFuture on JVM) is
   reader-conditional; the response cascade, retry decision, in-flight
   registry interaction, privacy redaction, and supersede suppression are
-  all shared."
+  all shared.
+
+  rf2-065xo — body realization + encoding run as a managed preparation
+  PHASE (`prepare-body!`) AFTER the in-flight handle is registered, so a
+  throwing body thunk / encode failure is routed through the normal
+  `maybe-retry!` → final-failure path (a `:rf.http/transport` reply to
+  `:on-failure`) rather than escaping as `:rf.error/fx-handler-exception`."
   [ctx]
   (let [{:keys [request timeout-ms request-id actor-id abort-signal]} ctx
         method   (or (:method request) :get)
         url      (encoding/merge-params (:url request) (:params request))
-        ;; rf2-sz4n0 — `:body` may be a thunk (Spec 014 §Body encoding); each
-        ;; attempt re-invokes it to obtain a fresh handle. Single call site,
-        ;; inlined per the audit.
-        body     (let [b (:body request)] (if (fn? b) (b) b))
-        [enc-body ct] (encoding/encode-body body (:request-content-type request))
-        headers  (cond-> (or (:headers request) {})
-                   (and ct (nil? (decode/content-type-of (:headers request))))
-                   (assoc "Content-Type" ct))
+        ;; rf2-065xo — body realization + encoding are DEFERRED past handle
+        ;; registration and run inside `prepare-body!` as a managed
+        ;; request-preparation PHASE (see below). Realizing a `:body` thunk
+        ;; or encoding the body here, in the binding `let`, ran them BEFORE
+        ;; `record-in-flight!` and the platform transport try/catch — a
+        ;; throwing thunk or `encode-body` failure escaped `run-attempt!`
+        ;; entirely and surfaced as a generic `:rf.error/fx-handler-exception`
+        ;; (the fx walk's catch-all in `fx.cljc`), stranding the caller with
+        ;; no `:on-failure` reply and skipping retry/abort semantics. Moving
+        ;; the work below the handle means a prep throw is caught, classified
+        ;; as `:rf.http/transport` (the spec category for an error "before the
+        ;; HTTP transaction completed" — closed set, no new category), and
+        ;; routed through the normal `maybe-retry!` path so `:on-failure`,
+        ;; retry policy, trace metadata, abort precedence, and sensitivity
+        ;; redaction all stay consistent.
         ctx-no-handle (assoc ctx :url url)
         ;; CLJS: per rf2-1jcpm always own an internal AbortController so
         ;; the per-attempt timeout fires even when the caller supplied
@@ -1569,87 +1623,102 @@
         ;; happens synchronously here, before any fetch is issued, so the
         ;; cell is always populated by the time any abort can fire.
         _        (reset! handle-holder handle)
-        ctx'     (assoc ctx-no-handle :handle handle)]
-    #?(:cljs
-       (-> (cljs-fetch {:method              method
-                        :url                 url
-                        :headers             headers
-                        :body                enc-body
-                        :credentials         (:credentials request)
-                        :mode                (:mode request)
-                        :redirect            (:redirect request)
-                        :cache               (:cache request)
-                        :referrer            (:referrer request)
-                        :integrity           (:integrity request)
-                        :timeout-ms          timeout-ms
-                        :abort-signal        abort-signal
-                        :internal-controller internal-controller
-                        ;; rf2-5zj6t — the transport picks the Fetch
-                        ;; body-reader (`.text()` vs `.blob()` /
-                        ;; `.arrayBuffer()` / `.formData()`) from the
-                        ;; resolved decode mode; pass it through.
-                        :decode              (:decode ctx)})
-           (.then (fn [result] (handle-response! ctx' result)))
-           ;; rf2-r40km — pass `url` so `classify-cljs-error` can
-           ;; distinguish `:rf.http/cors` from `:rf.http/transport`
-           ;; via the cross-origin heuristic.
-           ;; rf2-on7sj — when the abort-fn fired and dispatch-aborted!
-           ;; already replied, the Fetch promise still rejects (because
-           ;; `.abort internal-controller` rejects the underlying
-           ;; fetch); this .catch would call `maybe-retry!` →
-           ;; `finalise-failure!` for a second pass. The once-only
-           ;; `:finalised?` CAS on the handle short-circuits the second
-           ;; dispatch inside finalise-*, so this path stays as the
-           ;; natural-completion sink without a bespoke "did we abort?"
-           ;; check here.
-           (.catch (fn [err]
-                     (maybe-retry! ctx' (classify-cljs-error err url)))))
-       :clj
-       ;; rf2-a3wxe — monotonic start mark for the per-host timeout
-       ;; `:elapsed-ms`. `System/nanoTime` is the JDK's monotonic clock
-       ;; (immune to wall-clock adjustments); the delta is converted to
-       ;; whole milliseconds at the failure site. Captured BEFORE the
-       ;; request is issued so the measured elapsed spans the whole attempt.
-       (let [started-ns (System/nanoTime)
-             elapsed-ms #(quot (- (System/nanoTime) started-ns) 1000000)]
-         (try
-           (let [^CompletableFuture cf
-                 (jvm-fetch {:method     method
-                             :url        url
-                             :headers    headers
-                             :body       enc-body
-                             :timeout-ms timeout-ms
-                             ;; rf2-a3wxe — thread the resolved `:decode`
-                             ;; so `jvm-fetch` can read the response body
-                             ;; with `ofByteArray` for binary decode modes
-                             ;; (`:blob` / `:array-buffer` / `:form-data`)
-                             ;; and ride the raw bytes under `:body-binary`
-                             ;; instead of the lossy String fallback.
-                             :decode     (:decode ctx)
-                             ;; rf2-ee38b.7 — honour the spec's `:redirect`
-                             ;; envelope key on the JVM (default `:follow`).
-                             ;; Selects the redirect-policy-specific client.
-                             :redirect   (:redirect request)
-                             :sensitive? (true? (:sensitive? ctx))})]
-             ;; rf2-on7sj — publish cf to the abort-fn closure's holder
-             ;; BEFORE wiring whenComplete. A racing abort that arrives
-             ;; between `jvm-fetch` returning and `.whenComplete`
-             ;; registering still finds cf in the holder and can cancel
-             ;; it.
-             (reset! cf-holder cf)
-             ;; rf2-on7sj — the whenComplete callback fires even after
-             ;; `.cancel cf true`: the cancel completes-exceptionally
-             ;; with a CancellationException, which routes through this
-             ;; BiConsumer as `throwable`. `maybe-retry!` →
-             ;; `finalise-failure!` is then guarded by the once-only
-             ;; `:finalised?` CAS (the abort-fn already finalised), so
-             ;; the abort's reply is the only one that ever reaches the
-             ;; user.
-             (.whenComplete cf
-                            (reify java.util.function.BiConsumer
-                              (accept [_ result throwable]
-                                (if throwable
-                                  (maybe-retry! ctx' (classify-jvm-error throwable timeout-ms (elapsed-ms)))
-                                  (handle-response! ctx' result))))))
-           (catch Throwable t
-             (maybe-retry! ctx' (classify-jvm-error t timeout-ms (elapsed-ms)))))))))
+        ctx'     (assoc ctx-no-handle :handle handle)
+        ;; rf2-065xo — managed request-preparation PHASE. Runs AFTER the
+        ;; handle is registered (so abort precedence, the once-only reply
+        ;; guard, and registry cleanup all apply to a prep failure exactly
+        ;; as they do to a network failure) but BEFORE the platform fetch is
+        ;; issued. A throwing body thunk / encode failure becomes a
+        ;; `:rf.http/transport` reply routed through `maybe-retry!` rather
+        ;; than escaping as `:rf.error/fx-handler-exception`.
+        prep     (prepare-body! request)]
+    (if-let [prep-error (:error prep)]
+      ;; Body-prep failed — route through the normal retry/final-failure
+      ;; path on `ctx'` (which carries the registered `:handle`), so retry
+      ;; (when configured for `:rf.http/transport`), trace metadata, abort
+      ;; precedence, and the `:on-failure` reply shape all stay consistent.
+      (maybe-retry! ctx' prep-error)
+      (let [{:keys [enc-body headers]} (:ok prep)]
+        #?(:cljs
+           (-> (cljs-fetch {:method              method
+                            :url                 url
+                            :headers             headers
+                            :body                enc-body
+                            :credentials         (:credentials request)
+                            :mode                (:mode request)
+                            :redirect            (:redirect request)
+                            :cache               (:cache request)
+                            :referrer            (:referrer request)
+                            :integrity           (:integrity request)
+                            :timeout-ms          timeout-ms
+                            :abort-signal        abort-signal
+                            :internal-controller internal-controller
+                            ;; rf2-5zj6t — the transport picks the Fetch
+                            ;; body-reader (`.text()` vs `.blob()` /
+                            ;; `.arrayBuffer()` / `.formData()`) from the
+                            ;; resolved decode mode; pass it through.
+                            :decode              (:decode ctx)})
+               (.then (fn [result] (handle-response! ctx' result)))
+               ;; rf2-r40km — pass `url` so `classify-cljs-error` can
+               ;; distinguish `:rf.http/cors` from `:rf.http/transport`
+               ;; via the cross-origin heuristic.
+               ;; rf2-on7sj — when the abort-fn fired and dispatch-aborted!
+               ;; already replied, the Fetch promise still rejects (because
+               ;; `.abort internal-controller` rejects the underlying
+               ;; fetch); this .catch would call `maybe-retry!` →
+               ;; `finalise-failure!` for a second pass. The once-only
+               ;; `:finalised?` CAS on the handle short-circuits the second
+               ;; dispatch inside finalise-*, so this path stays as the
+               ;; natural-completion sink without a bespoke "did we abort?"
+               ;; check here.
+               (.catch (fn [err]
+                         (maybe-retry! ctx' (classify-cljs-error err url)))))
+           :clj
+           ;; rf2-a3wxe — monotonic start mark for the per-host timeout
+           ;; `:elapsed-ms`. `System/nanoTime` is the JDK's monotonic clock
+           ;; (immune to wall-clock adjustments); the delta is converted to
+           ;; whole milliseconds at the failure site. Captured BEFORE the
+           ;; request is issued so the measured elapsed spans the whole attempt.
+           (let [started-ns (System/nanoTime)
+                 elapsed-ms #(quot (- (System/nanoTime) started-ns) 1000000)]
+             (try
+               (let [^CompletableFuture cf
+                     (jvm-fetch {:method     method
+                                 :url        url
+                                 :headers    headers
+                                 :body       enc-body
+                                 :timeout-ms timeout-ms
+                                 ;; rf2-a3wxe — thread the resolved `:decode`
+                                 ;; so `jvm-fetch` can read the response body
+                                 ;; with `ofByteArray` for binary decode modes
+                                 ;; (`:blob` / `:array-buffer` / `:form-data`)
+                                 ;; and ride the raw bytes under `:body-binary`
+                                 ;; instead of the lossy String fallback.
+                                 :decode     (:decode ctx)
+                                 ;; rf2-ee38b.7 — honour the spec's `:redirect`
+                                 ;; envelope key on the JVM (default `:follow`).
+                                 ;; Selects the redirect-policy-specific client.
+                                 :redirect   (:redirect request)
+                                 :sensitive? (true? (:sensitive? ctx))})]
+                 ;; rf2-on7sj — publish cf to the abort-fn closure's holder
+                 ;; BEFORE wiring whenComplete. A racing abort that arrives
+                 ;; between `jvm-fetch` returning and `.whenComplete`
+                 ;; registering still finds cf in the holder and can cancel
+                 ;; it.
+                 (reset! cf-holder cf)
+                 ;; rf2-on7sj — the whenComplete callback fires even after
+                 ;; `.cancel cf true`: the cancel completes-exceptionally
+                 ;; with a CancellationException, which routes through this
+                 ;; BiConsumer as `throwable`. `maybe-retry!` →
+                 ;; `finalise-failure!` is then guarded by the once-only
+                 ;; `:finalised?` CAS (the abort-fn already finalised), so
+                 ;; the abort's reply is the only one that ever reaches the
+                 ;; user.
+                 (.whenComplete cf
+                                (reify java.util.function.BiConsumer
+                                  (accept [_ result throwable]
+                                    (if throwable
+                                      (maybe-retry! ctx' (classify-jvm-error throwable timeout-ms (elapsed-ms)))
+                                      (handle-response! ctx' result))))))
+               (catch Throwable t
+                 (maybe-retry! ctx' (classify-jvm-error t timeout-ms (elapsed-ms)))))))))))
