@@ -298,6 +298,71 @@
                             [:div [:style "p { margin: 0 }"]])))))
 
 ;; ===========================================================================
+;; rf2-hzttr finding 3 — raw-text + void classification is CASE-INSENSITIVE.
+;; `validate-tag-name!` admits upper/mixed-case names, but the raw-text +
+;; void element SETS are keyed lower-case. Without normalisation, `[:SCRIPT
+;; "if (a<b)"]` bypassed the body-position raw-text guard (XSS-adjacent) and
+;; `[:BR]` was emitted as a non-void <BR></BR> pair. Same void issue in the
+;; streaming walker.
+;; ===========================================================================
+
+(deftest render-to-string-raw-text-guard-is-case-insensitive
+  (testing "rf2-hzttr finding 3 — an UPPER/MIXED-case <SCRIPT>/<Style> body
+            element with a raw string child trips the SAME raw-text guard as
+            its lower-case spelling. The case-sensitive check let `[:SCRIPT
+            \"if (a<b)\"]` slip past the body-position script protection."
+    (doseq [tag [:SCRIPT :Script :sCrIpT :STYLE :Style]]
+      (testing (str tag " body string fails loud")
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                              #":rf.error/ssr-raw-text-in-body"
+                              (emit/render-to-string [tag "if (a < b) { x() }"] {}))
+            (str tag " with a raw string child must throw, not emit"))))))
+
+(deftest render-to-string-void-classification-is-case-insensitive
+  (testing "rf2-hzttr finding 3 — an UPPER/MIXED-case void tag is recognised
+            as void and self-closes; it must NOT emit a spurious closing tag.
+            HTML5 tag names are case-insensitive."
+    (testing "[:BR] self-closes (no </BR>)"
+      (let [html (emit/render-to-string [:BR] {})]
+        (is (= "<BR>" html)
+            "void classification is case-insensitive; author case preserved")
+        (is (not (str/includes? html "</BR>"))
+            "no spurious closing tag for an upper-case void element")))
+    (testing "[:Img …] self-closes with its attrs"
+      (let [html (emit/render-to-string [:Img {:src "/a.png"}] {})]
+        (is (= "<Img src=\"/a.png\">" html))
+        (is (not (str/includes? html "</Img>")))))
+    (testing "[:INPUT …] self-closes"
+      (is (= "<INPUT name=\"q\">"
+             (emit/render-to-string [:INPUT {:name "q"}] {}))))
+    (testing "a non-void upper-case tag still emits an open+close pair"
+      (is (= "<DIV>x</DIV>"
+             (emit/render-to-string [:DIV "x"] {}))
+          "case-folding only affects the void/raw-text classification, not
+           which tags are void"))))
+
+(deftest render-shell-void-classification-is-case-insensitive
+  (testing "rf2-hzttr finding 3 — the streaming walker mirrors the
+            case-insensitive void classification (streaming.cljc:284). A
+            `[:BR]` in the shell must self-close, not emit <BR></BR>."
+    (let [{:keys [shell-html]} (streaming/render-shell
+                                 [:div [:BR] [:Img {:src "/a.png"}]])]
+      (is (str/includes? shell-html "<BR>"))
+      (is (not (str/includes? shell-html "</BR>"))
+          "upper-case void element self-closes in the streaming shell")
+      (is (str/includes? shell-html "<Img src=\"/a.png\">"))
+      (is (not (str/includes? shell-html "</Img>"))))))
+
+(deftest render-shell-raw-text-guard-is-case-insensitive
+  (testing "rf2-hzttr finding 3 — the streaming walk's raw-text guard is also
+            case-insensitive (it delegates to the shared
+            `reject-raw-text-string-children!`)."
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                          #":rf.error/ssr-raw-text-in-body"
+                          (streaming/render-shell
+                            [:div [:STYLE "p { margin: 0 }"]])))))
+
+;; ===========================================================================
 ;; rf2-ee38b.10 — Reagent-native interop head `:>` cannot be statically
 ;; rendered server-side (no React on the JVM); fail loud rather than dump
 ;; the component+props as raw text.

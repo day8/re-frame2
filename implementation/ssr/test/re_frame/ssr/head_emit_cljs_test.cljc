@@ -71,3 +71,24 @@
           "</script> as a key cannot close the envelope")
       (is (str/includes? html "\\u003c/script>")
           "`<` in keys comes through escaped"))))
+
+(deftest ld-json-string-escapes-control-chars-on-both-branches
+  (testing "rf2-hzttr finding 1 — control chars (newline / tab / CR / and
+            other U+0000..U+001F) inside a string value are JSON-escaped on
+            BOTH the CLJS (JSON.stringify) AND the JVM (hand-rolled) branch.
+            This `.cljc` test runs on both runtimes, so a single assertion
+            pins CLJ/CLJS parity: a raw control char would be INVALID JSON
+            in the `<script type=\"application/ld+json\">` body, rejected by
+            search/social consumers. (`ssr_head_test.clj` exhaustively
+            covers the JVM short-escape + \\u00XX table; this is the
+            cross-branch parity guard.)"
+    (let [headline (str "line1" \newline "line2" \tab "tab" \return "cr")
+          html     (head-emit/head-model->html
+                     {:json-ld [{"@type" "Article" "headline" headline}]})]
+      (is (str/includes? html "\\n") "newline escaped on this runtime")
+      (is (str/includes? html "\\t") "tab escaped on this runtime")
+      (is (str/includes? html "\\r") "carriage return escaped on this runtime")
+      (is (not (str/includes? html (str \newline)))
+          "no raw newline survives in the JSON-LD body on either branch")
+      (is (not (str/includes? html (str \tab)))
+          "no raw tab survives in the JSON-LD body on either branch"))))

@@ -90,6 +90,83 @@
             sample-app-db
             {:payload #{:public/articles}})))))
 
+;; ---- apply-policy: malformed allowlist (rf2-hzttr finding 2) -------------
+
+(deftest apply-policy-rejects-string-allowlist-entries
+  (testing "rf2-hzttr finding 2 — a non-empty sequential :payload carrying a
+            STRING element (the classic typo `[\"public/articles\"]` for the
+            keyword `[:public/articles]`) is a malformed allowlist. The
+            prior `(and sequential? seq)` check accepted it and `select-keys`
+            then shipped an empty/wrong slice silently. It now fails loud
+            with `:rf.error/ssr-malformed-payload-allowlist`."
+    (is (thrown-with-msg?
+          #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
+          #":rf\.error/ssr-malformed-payload-allowlist"
+          (payload-policy/apply-policy
+            sample-app-db
+            {:payload ["public/articles"]})))
+    (is (thrown-with-msg?
+          #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
+          #":rf\.error/ssr-malformed-payload-allowlist"
+          (payload-policy/apply-policy
+            sample-app-db
+            {:payload [:public/articles "public/user-id"]}))
+        "a MIXED allowlist (one keyword, one string) is still malformed —
+         every entry must be a keyword")))
+
+(deftest apply-policy-rejects-nil-allowlist-entries
+  (testing "rf2-hzttr finding 2 — a stray `nil` element is malformed"
+    (is (thrown-with-msg?
+          #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
+          #":rf\.error/ssr-malformed-payload-allowlist"
+          (payload-policy/apply-policy
+            sample-app-db
+            {:payload [nil]})))
+    (is (thrown-with-msg?
+          #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
+          #":rf\.error/ssr-malformed-payload-allowlist"
+          (payload-policy/apply-policy
+            sample-app-db
+            {:payload [:public/articles nil]})))))
+
+(deftest apply-policy-rejects-nested-allowlist-entries
+  (testing "rf2-hzttr finding 2 — a nested coll element is malformed
+            (`[[:a :b]]` is not an allowlist of top-level keys)"
+    (is (thrown-with-msg?
+          #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
+          #":rf\.error/ssr-malformed-payload-allowlist"
+          (payload-policy/apply-policy
+            sample-app-db
+            {:payload [[:public/articles :public/user-id]]})))))
+
+(deftest malformed-allowlist-error-names-bad-entries
+  (testing "rf2-hzttr finding 2 — the structured error carries the offending
+            non-keyword entries under `:bad-entries` so the developer can
+            see exactly what to fix"
+    (try
+      (payload-policy/validate-policy-opts!
+        {:on-create [:init] :payload [:public/articles "user-id" nil]})
+      (is false "should have thrown")
+      (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
+        (let [data (ex-data e)]
+          (is (= :rf.error/ssr-malformed-payload-allowlist
+                 (:rf.error/id data)))
+          (is (= ["user-id" nil] (:bad-entries data))
+              ":bad-entries lists exactly the non-keyword elements")
+          (is (= :declare-payload-policy (:recovery data))))))))
+
+(deftest valid-keyword-allowlist-still-accepted
+  (testing "rf2-hzttr finding 2 — the tightened validator does NOT regress
+            valid all-keyword allowlists (vector AND list shapes)"
+    (doseq [coll-shape [[:public/articles :public/user-id]
+                        '(:public/articles :public/user-id)]]
+      (let [slice (payload-policy/apply-policy sample-app-db {:payload coll-shape})]
+        (is (= {:public/articles [:a :b :c] :public/user-id "u-42"} slice)
+            (str "all-keyword allowlist " (pr-str coll-shape) " accepted"))))
+    (testing "construction-time arm agrees"
+      (let [opts {:on-create [:init] :payload [:public/articles]}]
+        (is (= opts (payload-policy/validate-policy-opts! opts)))))))
+
 ;; ---- apply-policy: whole-app-db branch (:payload keyword) ----------------
 
 (deftest apply-policy-whole-app-db-policy-ships-everything

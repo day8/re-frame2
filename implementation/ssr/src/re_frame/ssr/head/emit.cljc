@@ -90,11 +90,43 @@
                                         :value    v
                                         :recovery :no-recovery}))
                        :else (str v)))
+                   (escape-json-control [^String s]
+                     ;; rf2-hzttr finding 1 — JSON requires every control
+                     ;; char (U+0000..U+001F) inside a string literal to be
+                     ;; escaped; a raw newline/tab/CR in a `<script
+                     ;; type="application/ld+json">` body is INVALID JSON
+                     ;; that search/social consumers reject. The CLJS branch
+                     ;; gets this for free via `JSON.stringify`; the JVM
+                     ;; hand-rolled emitter must match. Short escapes for the
+                     ;; five JSON-named controls (\b \t \n \f \r), `\u00XX`
+                     ;; for the rest of the range. Non-control chars pass
+                     ;; through untouched so the `<` hardening (applied
+                     ;; separately, after this) and ordinary content are
+                     ;; unaffected.
+                     (let [n (.length s)]
+                       (loop [i   0
+                              acc (StringBuilder.)]
+                         (if (>= i n)
+                           (.toString acc)
+                           (let [c (.charAt s i)]
+                             (recur (inc i)
+                                    (.append
+                                      acc
+                                      (case c
+                                        \backspace "\\b"
+                                        \tab       "\\t"
+                                        \newline   "\\n"
+                                        \formfeed  "\\f"
+                                        \return    "\\r"
+                                        (if (< (int c) 0x20)
+                                          (format "\\u%04x" (int c))
+                                          c)))))))))
                    (emit-string [v]
                      (str "\""
                           (-> v
                               (str/replace "\\" "\\\\")
                               (str/replace "\"" "\\\"")
+                              escape-json-control
                               ;; rf2-m5u23 — escape `<` so user-controlled
                               ;; string contents can't close the
                               ;; surrounding <script>.
