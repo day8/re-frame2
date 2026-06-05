@@ -110,7 +110,7 @@ Every `:rf.error/*` trace event emitted from inside a running handler — event,
 
 `:kind` is the registry kind (`:event` / `:sub` / `:fx` / `:cofx` / `:view` / `:interceptor` / `:late-bind`); `:id` is the registered id; `:source-coord` comes from the `reg-*` macro's capture. The field is **present** whenever a handler is currently executing and **absent** for dispatch-time errors like `:rf.error/no-such-event`, where no handler is yet in scope. It is **not elided in production** — production debugging benefits most.
 
-Tooling (Xray, re-frame2-pair) renders click-to-jump links straight to the offending handler off this field; in tests / REPL the same field surfaces in `(rf/trace-buffer {:op-type :error})`.
+Tooling (Xray, re-frame2-pair) renders click-to-jump links straight to the offending handler off this field; in tests / REPL the same field surfaces in `(rf/trace-buffer :rf/default {:flat true :op-type :error})`. `trace-buffer` is **per-frame** — the first arg is a `frame-id` (use `:rf/default`, or your explicit frame id), and the filter map is the *second* arg; `{:flat true}` returns raw trace events (filterable by `:op-type`) rather than the default cascade bundles. Passing the opts map as the first arg reads it as a frame id and returns an empty buffer.
 
 ## Common gotchas
 

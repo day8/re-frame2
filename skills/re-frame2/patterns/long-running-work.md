@@ -55,7 +55,7 @@ One parent coordinator spawns N children declaratively via `:spawn-all`. Each ch
     :processing     {:entry :process-one :always [{:target :checking-done}]}
     :checking-done  {:always [{:guard :done?      :target :done}
                               {:guard :more-work? :target :yielding}]}
-    :yielding       {:after  {(fn [snap] (-> snap :data :tick-ms)) :processing}}
+    :yielding       {:after  {(fn [{:keys [snapshot]}] (-> snapshot :data :tick-ms)) :processing}}
     :done           {:meta {:terminal? true} :entry :dispatch-done}}})
 
 ;; THE PARENT COORDINATOR
@@ -115,16 +115,16 @@ Exiting `:working` fires one `:rf.machine/destroy` fx carrying `:rf/spawn-all tr
  :processing    {:entry :process-chunk :always [{:target :checking-done}]}
  :checking-done {:always [{:guard :done? :target :complete}
                           {:guard :more-work? :target :yielding}]}
- :yielding      {:after {0 :processing} :on {:cancel :cancelled}}
+ :yielding      {:after {1 :processing} :on {:cancel :cancelled}}
  :complete      {:on {:reset :idle}}
  :cancelled     {:on {:reset :idle}}}
 ```
 
-`:after {0 :processing}` schedules the next chunk after one browser tick. `:cancel` need only be declared on `:yielding` — the user can't click while the JS thread is in `:processing`.
+`:after {1 :processing}` schedules the next chunk after one browser tick — long enough to yield the JS thread, short enough to feel instant. **Do not use `:after {0 …}` for a machine timer:** a non-positive `:after` delay never schedules (the runtime emits `:rf.warning/no-clock-configured` and skips), so a zero-delay chunk loop silently stalls. Use the smallest positive delay (`1`) for the browser yield. `:cancel` need only be declared on `:yielding` — the user can't click while the JS thread is in `:processing`.
 
 **Worker offload.** Genuinely heavy work belongs in a Web Worker via Pattern-AsyncEffect; cancellation stays epoch-based (Pattern-StaleDetection). The chunked-main-thread pattern is the fallback when worker offload isn't feasible (DOM access required, awkward-to-serialise data).
 
-**One-shot heavy block (replaces v1's `^:flush-dom`).** Render a modal before a one-shot heavy computation: `:dispatch-later {:ms 0 :dispatch ...}` gives the browser a render tick. No machine needed.
+**One-shot heavy block (replaces v1's `^:flush-dom`).** Render a modal before a one-shot heavy computation: `:dispatch-later {:ms 0 :event [:do-heavy-block]}` gives the browser a render tick. No machine needed. (The fx key is `:event`, not v1's `:dispatch`; `:ms 0` is fine here — it is a host `setTimeout` yield, not a machine `:after` timer.)
 
 **Progress UI from the machine.** Register subs on `[:rf/machine <id>]` and project `:data` fields into the view.
 
@@ -136,7 +136,7 @@ Exiting `:working` fires one `:rf.machine/destroy` fx carrying `:rf/spawn-all tr
 - **Multiple `assoc`s expecting interleaved renders.** Re-frame2 batches per drain — one render. Chunking is the only way to get intermediate renders.
 - **Manual chunk-state with `setTimeout`.** Re-derives what `:after` already provides; loses tracing and automatic teardown.
 - **Forgetting cancellation.** The exit cascade makes it trivial; omitting `:cancel` on `:working` leaves a runaway loop.
-- **`:always` cycles without `:after 0` between batches.** Hits `:rf.error/machine-always-depth-exceeded` (default 16). `:yielding`'s `:after` resets depth.
+- **`:always` cycles without a yielding `:after` between batches.** Hits `:rf.error/machine-always-depth-exceeded` (default 16). A `:yielding` state with a small positive `:after` delay (e.g. `:after {1 …}` — **not** `:after {0 …}`, which never schedules) resets depth between batches.
 - **Per-child bookkeeping in the parent's `:data`.** The runtime owns join-state at `[:rf/runtime :machines :spawned ...]`; re-implementing re-derives.
 
 ## Worked example

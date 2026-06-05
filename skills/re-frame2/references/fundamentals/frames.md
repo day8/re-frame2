@@ -15,7 +15,8 @@ Most apps never touch any of this — a single-frame app just calls `rf/dispatch
 | Create + own + destroy a frame for a scope (tests / SSR) | `with-new-frame` |
 | Scope a React subtree to a frame | `frame-provider` |
 | Hold a frame's ops as a value (async / closures) | `frame-handle` (common); `frame-bound-fn` / `frame-bound-fn*` (advanced) |
-| One-off explicit routing | `{:frame …}` opt on `dispatch` / `subscribe` |
+| One-off explicit routing (`dispatch`) | `{:frame …}` trailing opt on `dispatch` / `dispatch-sync` |
+| One-off explicit routing (`subscribe`) | leading `frame-id` arg — `(rf/subscribe :frame-id query-v)` (NOT a `{:frame …}` opt) |
 | Read a frame's app-db / its id | `app-db-value` / `current-frame-id` |
 
 A `reg-view` body needs none of these for ordinary dispatch / subscribe — the macro injects frame-aware `dispatch` and `subscribe` locals automatically. A plain (non-`reg-view`) Reagent / UIx / Helix fn that needs to dispatch asks for `(rf/frame-handle)`. An arbitrary async callback uses `frame-bound-fn`.
@@ -54,12 +55,15 @@ Three tiers (the frame-resolution chain in `re-frame.frame` / `re-frame.core`):
 2. **React context** (CLJS only) — read via the `:adapter/current-frame` late-bind hook, populated by the installed adapter under a `frame-provider`.
 3. **`:rf/default`** — fallback when neither of the above applies.
 
-`dispatch` and `subscribe` default `:frame` to `(rf/current-frame-id)`. To target an explicit frame, use the `{:frame …}` opt — the first-class explicit-routing surface (tools, tests, SSR, fx handlers), not a workaround:
+`dispatch` and `subscribe` both default the target frame to `(rf/current-frame-id)`, but their explicit-routing surfaces differ — **`dispatch` / `dispatch-sync` take a trailing `{:frame …}` opts map; `subscribe` / `subscribe-once` / `unsubscribe` take a *leading* `frame-id` argument** (no opts map). The explicit form is first-class (tools, tests, SSR, fx handlers), not a workaround:
 
 ```clojure
-(rf/dispatch  [:foo]      {:frame :stories})
-(rf/subscribe [:my-sub])                          ;; uses current-frame-id
+(rf/dispatch  [:foo] {:frame :stories})           ;; dispatch: trailing {:frame …} opt
+(rf/subscribe :stories [:my-sub])                 ;; subscribe: LEADING frame-id arg
+(rf/subscribe [:my-sub])                          ;; no frame-id → uses current-frame-id
 ```
+
+A trailing `{:frame …}` map passed to `subscribe` is **not** an opts map — it would be read as the `query-v`, silently subscribing to the wrong query. To read a non-default frame's app-db as a plain value (no reaction), use `(rf/app-db-value :frame-id)`.
 
 ## Carrying the frame into async callbacks
 
@@ -137,7 +141,7 @@ Wraps a Reagent / Helix / UIx subtree so descendants resolve `current-frame-id` 
 ## Common gotchas
 
 - **`reg-frame` is atomic and hot-reload safe.** First call creates and runs `:on-create`; subsequent calls perform a **surgical update** of metadata only — existing app-db, sub-cache, queue, machine snapshots all preserved (`reg-frame` in `re-frame.frame`). Use `reset-frame!` for a full destroy+recreate.
-- **`destroy-frame!` cascades.** Per active machine snapshot, the runtime emits *one* `:rf.machine.lifecycle/destroyed` trace carrying `:reason :parent-frame-destroyed` under `:tags` (the unified lifecycle channel — same op-type used at `reg-machine`'s `:created` emit); in-flight HTTP requests get an abort hook; sub-cache reactions all dispose. Subsequent dispatch / subscribe raises `:rf.error/frame-destroyed`. See [009 §`:op-type` vocabulary](../../../../spec/009-Instrumentation.md#op-type-vocabulary).
+- **`destroy-frame!` cascades.** Per active machine snapshot, the runtime emits *one* `:rf.machine.lifecycle/destroyed` trace carrying `:reason :parent-frame-destroyed` under `:tags` (the unified lifecycle channel — same op-type used at `reg-machine`'s `:created` emit); in-flight HTTP requests get an abort hook; sub-cache reactions all dispose. **Subsequent dispatch / subscribe does NOT throw** — the runtime recovers (a teardown / hot-reload race must not crash the caller) but still emits an observable `:rf.error/frame-destroyed` so a genuine use-after-destroy bug stays visible (the `recover-but-emit` contract). The two outcomes differ: a **dispatch** to a destroyed frame **no-ops** (the envelope is dropped, the drain continues) and emits the error; a **subscribe** **returns `nil`** (no reaction) and emits the error. Tests must assert the no-op / `nil` outcome plus the emitted trace — **never** a thrown exception or a try/catch path. See [009 §`:op-type` vocabulary](../../../../spec/009-Instrumentation.md#op-type-vocabulary).
 - **`with-frame` works on both CLJS and the JVM.** The `re-frame.core/with-frame` macro expands on both platforms — use it from JVM tests / SSR / REPL as well as CLJS. For programmatic frame-pinning where a macro is awkward, bind the current-frame dynamic var directly (see the frame-resolution chain above).
 - **Wrapping plain Reagent fns in a non-default `frame-provider` doesn't bind the frame.** Use `reg-view` so the `:contextType` wiring picks up the provider. Watch for the once-per-handler warning.
 - **`:rf/default` is implicit.** Don't re-`reg-frame :rf/default` unless you specifically want to attach metadata to it — calling it without any is a no-op.
