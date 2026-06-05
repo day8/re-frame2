@@ -9,7 +9,9 @@
 
   Each frame owns its own cascade-keyed ring. Storage shape (per frame):
 
-      {:cascades-retained N             ;; the per-frame ring depth
+      {:cascades-retained N             ;; the per-frame ring depth (cap)
+       :override?         <boolean>     ;; true iff N came from an explicit
+                                        ;; per-frame `:rf.trace/cascades-retained`
        :cascade-order [<dispatch-id> ...]  ;; oldest-first cascade slots
        :cascades {<dispatch-id> [<event> ...]}}
 
@@ -19,6 +21,12 @@
     unit.
   - `:cascades-retained` defaults to 50; per-frame override via
     `:rf.trace/cascades-retained` on `reg-frame`.
+  - `:override?` distinguishes an explicit per-frame override from an
+    inherited process default. EVERY ring stores `:cascades-retained`
+    (it is the live cap consulted on each push), so the cap value alone
+    cannot tell the two apart — `configure-trace-buffer!` keys on
+    `:override?` to decide which rings the new process default may
+    retune (rf2-va65k).
   - `:cascades-retained 0` disables retention (no slots allocated; the
     live stream still fires).
   - Frameless emits (no `:rf.trace/dispatch-id` in scope) **skip the
@@ -90,6 +98,7 @@
 ;; Storage shape (per Spec 009 §Per-frame trace rings):
 ;;
 ;;   trace-rings  = {<frame-id> {:cascades-retained N
+;;                               :override?         <boolean>
 ;;                               :cascade-order [<dispatch-id> ...]
 ;;                               :cascades       {<dispatch-id> [<event>...]}}}
 ;;
@@ -98,6 +107,9 @@
 ;; - `:cascades` is a flat map from `:dispatch-id` → trace events
 ;;   emitted under that dispatch, in arrival order.
 ;; - The slot count is bounded by `:cascades-retained` (default 50).
+;; - `:override?` true iff the cap is an explicit per-frame override
+;;   (`set-frame-cascades-retained!`); false for an inherited default.
+;;   `configure-trace-buffer!` retunes inherited rings, skips overrides.
 ;; - Frames lazily allocate slots on first emit. Apps with one frame
 ;;   pay one slot of ring overhead.
 
@@ -115,15 +127,23 @@
 ;; Per Spec 009 §Retention contract — the single knob.
 (defonce ^:private process-cascades-retained (atom default-cascades-retained))
 
-(defn- empty-ring [retained]
-  {:cascades-retained retained
-   :cascade-order     []
-   :cascades          {}})
+(defn- empty-ring
+  "A fresh ring at cap `retained`. `override?` records whether the cap is
+  an explicit per-frame override (default false = inherited process
+  default) so `configure-trace-buffer!` can tell the two apart."
+  ([retained] (empty-ring retained false))
+  ([retained override?]
+   {:cascades-retained retained
+    :override?         override?
+    :cascade-order     []
+    :cascades          {}}))
 
 (defn- effective-retained
-  "Return the cascades-retained value for `frame-id`. Honours an
-  existing per-frame override (`set-frame-cascades-retained!`'s prior
-  write) before falling back to the process default."
+  "Return the live cascades-retained cap for `frame-id`. Honours the
+  ring's stored cap (whether it came from an explicit per-frame override
+  or a previously-inherited process default — both store
+  `:cascades-retained`) before falling back to the current process
+  default for a frame that has no ring yet."
   [rings frame-id]
   (or (get-in rings [frame-id :cascades-retained])
       @process-cascades-retained))
@@ -133,6 +153,13 @@
   from `frame.cljc`'s `reg-frame` when the config carries the key).
   Trims existing slots if the new value is lower than current
   occupancy; raising keeps existing cascades and grows the slot cap.
+
+  Always writes a COMPLETE ring (`:cascade-order` + `:cascades` present)
+  and stamps `:override? true`. Registering a per-frame cap BEFORE the
+  frame's first emit therefore leaves a valid (empty) ring rather than a
+  partial `{:cascades-retained N}` map — a partial map would later make
+  `push-to-ring!` start `:cascade-order` from nil, `conj` a list, and
+  crash `subvec` once the cap was exceeded (rf2-va65k finding 2).
 
   Per Spec 009 §Lowering cascades-retained on a populated ring."
   [frame-id retained]
@@ -147,7 +174,7 @@
                  ;; so reads return [] cleanly.
                  (zero? retained)
                  (assoc rings frame-id
-                        (empty-ring 0))
+                        (empty-ring 0 true))
 
                  ;; Trim if existing order exceeds the new cap.
                  (> (count order) retained)
@@ -156,11 +183,19 @@
                        kept-order (subvec order drop-n)]
                    (assoc rings frame-id
                           {:cascades-retained retained
+                           :override?         true
                            :cascade-order     kept-order
                            :cascades          (apply dissoc cascades evicted)}))
 
+                 ;; New cap fits the current occupancy: keep the slots,
+                 ;; write a full ring (a never-emitted frame gets a valid
+                 ;; empty ring instead of a partial map — finding 2).
                  :else
-                 (assoc-in rings [frame-id :cascades-retained] retained))))))
+                 (assoc rings frame-id
+                        {:cascades-retained retained
+                         :override?         true
+                         :cascade-order     order
+                         :cascades          cascades}))))))
   nil)
 
 (defn release-frame-ring!
@@ -205,15 +240,23 @@
       (when (and dispatch-id frame-id)
         (swap! trace-rings
                (fn [rings]
-                 (let [retained (effective-retained rings frame-id)]
+                 (let [retained  (effective-retained rings frame-id)
+                       override? (true? (get-in rings [frame-id :override?]))]
                    (if (zero? retained)
                      ;; Disabled-but-live: live stream still fires
                      ;; (push-to-ring! is one step in the pipeline);
-                     ;; just don't allocate.
-                     (assoc rings frame-id (empty-ring 0))
-                     (let [existing (get rings frame-id (empty-ring retained))
-                           order    (:cascade-order existing)
-                           cascades (:cascades existing)
+                     ;; just don't allocate. Preserve the override flag so
+                     ;; a 0-cap override survives a push attempt.
+                     (assoc rings frame-id (empty-ring 0 override?))
+                     (let [existing (get rings frame-id (empty-ring retained override?))
+                           ;; Defensive nil-coercion: a ring written before
+                           ;; this frame's first emit is now always complete
+                           ;; (set-frame-cascades-retained! writes a full
+                           ;; ring), but coerce anyway so any future partial
+                           ;; ring can't make `conj` build a list / `subvec`
+                           ;; throw (rf2-va65k finding 2).
+                           order    (or (:cascade-order existing) [])
+                           cascades (or (:cascades existing) {})
                            known?   (contains? cascades dispatch-id)
                            order'   (if known? order (conj order dispatch-id))
                            cascades' (update cascades dispatch-id
@@ -227,6 +270,7 @@
                                [o c]))]
                        (assoc rings frame-id
                               {:cascades-retained retained
+                               :override?         override?
                                :cascade-order     order''
                                :cascades          cascades''}))))))))))
 
@@ -540,8 +584,12 @@
     (swap! trace-rings
            (fn [rings]
              (if (contains? rings frame-id)
-               (let [retained (effective-retained rings frame-id)]
-                 (assoc rings frame-id (empty-ring retained)))
+               (let [retained  (effective-retained rings frame-id)
+                     ;; Preserve the override flag — emptying the buffer
+                     ;; must not silently downgrade an explicit per-frame
+                     ;; override to inherited (rf2-va65k).
+                     override? (true? (get-in rings [frame-id :override?]))]
+                 (assoc rings frame-id (empty-ring retained override?)))
                rings))))
   nil)
 
@@ -601,32 +649,43 @@
              (number? cascades-retained)
              (not (neg? cascades-retained)))
     (reset! process-cascades-retained cascades-retained)
-    ;; Apply the new default to any frame whose ring did not set its own
-    ;; per-frame retention — those frames inherit the default.
+    ;; Apply the new default to every frame whose cap was INHERITED
+    ;; (`:override? false`), retuning + trimming the already-allocated
+    ;; ring. Frames carrying an explicit per-frame override
+    ;; (`:override? true`) are left untouched. Keying on `:override?`
+    ;; (not the always-present `:cascades-retained` key) is the fix for
+    ;; rf2-va65k finding 1: every allocated ring stores
+    ;; `:cascades-retained`, so the old `(some? (get-in ... :cascades-retained))`
+    ;; guard was always true and silently skipped EVERY existing ring —
+    ;; lowering the default never trimmed an already-used inherited frame.
     (swap! trace-rings
            (fn [rings]
              (reduce-kv
               (fn [acc frame-id ring]
-                (let [own-set? (some? (get-in rings [frame-id :cascades-retained]))]
-                  (if own-set?
-                    acc
-                    (let [order   (:cascade-order ring)
-                          cascades (:cascades ring)]
-                      (cond
-                        (zero? cascades-retained)
-                        (assoc acc frame-id (empty-ring 0))
+                (if (true? (:override? ring))
+                  acc
+                  (let [order    (or (:cascade-order ring) [])
+                        cascades (or (:cascades ring) {})]
+                    (cond
+                      (zero? cascades-retained)
+                      (assoc acc frame-id (empty-ring 0))
 
-                        (> (count order) cascades-retained)
-                        (let [drop-n     (- (count order) cascades-retained)
-                              kept-order (subvec order drop-n)
-                              evicted    (subvec order 0 drop-n)]
-                          (assoc acc frame-id
-                                 {:cascades-retained cascades-retained
-                                  :cascade-order     kept-order
-                                  :cascades          (apply dissoc cascades evicted)}))
+                      (> (count order) cascades-retained)
+                      (let [drop-n     (- (count order) cascades-retained)
+                            kept-order (subvec order drop-n)
+                            evicted    (subvec order 0 drop-n)]
+                        (assoc acc frame-id
+                               {:cascades-retained cascades-retained
+                                :override?         false
+                                :cascade-order     kept-order
+                                :cascades          (apply dissoc cascades evicted)}))
 
-                        :else
-                        (assoc-in acc [frame-id :cascades-retained] cascades-retained))))))
+                      :else
+                      (assoc acc frame-id
+                             {:cascades-retained cascades-retained
+                              :override?         false
+                              :cascade-order     order
+                              :cascades          cascades})))))
               rings
               rings))))
   nil)
