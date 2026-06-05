@@ -120,13 +120,29 @@
   (swap! pending-error-traces update frame-id (fnil conj []) trace-event))
 
 (defn- consume-pending-traces!
-  "Atomically pull and clear the pending error traces for frame-id."
+  "Atomically pull and clear the pending error traces for frame-id.
+
+  rf2-hzttr finding 4 — the prior shape DEREF'd the atom, read the
+  frame's traces, then `swap! dissoc`'d the frame in a SEPARATE
+  transition. A `buffer-error-trace!` append for the same frame landing
+  between the deref and the dissoc (concurrent SSR / streaming error
+  paths run many server frames simultaneously — see ssr-ring's
+  concurrency stress test) was silently dropped: the deref missed it,
+  the dissoc then deleted the whole frame key including the just-appended
+  trace. A dropped error trace can lose a fail-closed status upgrade
+  (200 shipped where a 5xx was due) or incomplete diagnostics — exactly
+  the operational path this listener is meant to harden.
+
+  `swap-vals!` performs the read and the clear in a SINGLE CAS-retried
+  state transition: it returns the `[old new]` pair where `old` is the
+  exact pre-clear value the `dissoc` was applied to, so an append that
+  races the drain either lands before the CAS (and rides in `old`,
+  returned to this caller) or after it (and survives in the atom for the
+  next drain). No trace is dropped either way. `swap-vals!` is available
+  on both the JVM (Clojure ≥1.9) and ClojureScript."
   [frame-id]
-  (let [snap @pending-error-traces
-        traces (get snap frame-id [])]
-    (when (seq traces)
-      (swap! pending-error-traces dissoc frame-id))
-    traces))
+  (let [[old _new] (swap-vals! pending-error-traces dissoc frame-id)]
+    (get old frame-id [])))
 
 (defn apply-error-projection!
   "Project an error trace event via the active projector for frame-id

@@ -289,9 +289,16 @@
   JS/CSS must not be `<`-escaped at all), so silently `escape-html`-ing it
   corrupted legit inline content while masking the lack of a real channel.
   Fail loud and point the author at the structured surfaces. Element-only
-  / empty `<script>`/`<style>` is left alone (no string child → no throw)."
+  / empty `<script>`/`<style>` is left alone (no string child → no throw).
+
+  rf2-hzttr finding 3 — the raw-text classification is CASE-INSENSITIVE:
+  `<SCRIPT>` / `<Style>` (admitted by `validate-tag-name!`) must hit the
+  same guard as their lower-case spellings, or an upper-case tag silently
+  bypasses the body-position script/style protection (XSS-adjacent). The
+  membership test lower-cases the tag; the error message keeps the
+  author's original casing."
   [tag-name children source-head]
-  (when (and (contains? raw-text-tags tag-name)
+  (when (and (contains? raw-text-tags (clojure.string/lower-case tag-name))
              (some string? children))
     (throw (ex-info ":rf.error/ssr-raw-text-in-body"
                     {:rf.error/id :rf.error/ssr-raw-text-in-body
@@ -422,7 +429,16 @@
                    attrs        (if root-attrs
                                   (merge-root-attrs merged-attrs root-attrs)
                                   merged-attrs)
-                   void?        (contains? void-elements (keyword tag-name))]
+                   ;; rf2-hzttr finding 3 — void + raw-text classification
+                   ;; must be CASE-INSENSITIVE. `validate-tag-name!` admits
+                   ;; upper/mixed-case names (`[:BR]`, `[:SCRIPT …]`), but
+                   ;; `void-elements` / `raw-text-tags` are keyed lower-case,
+                   ;; so a `[:BR]` was emitted as a non-void open+close pair
+                   ;; and a `[:SCRIPT "if (a<b)"]` bypassed the raw-text body
+                   ;; guard (XSS-adjacent). Normalise for classification while
+                   ;; preserving the author's emitted case.
+                   norm-tag     (clojure.string/lower-case tag-name)
+                   void?        (contains? void-elements (keyword norm-tag))]
                (if void?
                  (str "<" tag-name (attr-string attrs) ">")
                  (do

@@ -33,8 +33,12 @@
 
     `:payload [<kw> <kw> ...]`
       An **allowlist** of top-level `app-db` keys to ship (a non-empty
-      sequential coll). Other keys are dropped — including any keys added
-      later as the app evolves. The recommended primary mechanism.
+      sequential coll of KEYWORDS). Other keys are dropped — including any
+      keys added later as the app evolves. The recommended primary
+      mechanism. A non-empty sequential coll carrying a non-keyword element
+      (a string typo, a stray `nil`, a nested coll) fails loud at boot with
+      `:rf.error/ssr-malformed-payload-allowlist` rather than silently
+      shipping a wrong/empty slice (rf2-hzttr).
 
     `:payload :rf.ssr.payload/whole-app-db`
       An explicit opt-in to ship the whole `app-db`. Use only when the
@@ -111,10 +115,42 @@
 ;; ---- policy resolution ---------------------------------------------------
 
 (defn- valid-allowlist?
-  "An allowlist is a non-empty sequential coll of top-level keys — the
-  vector shape of the `:payload` opt."
+  "An allowlist is a non-empty sequential coll of top-level app-db keys —
+  the vector shape of the `:payload` opt. Per Spec 011 §`:rf/app-db`
+  projection the elements are *top-level app-db keys*, which in re-frame2
+  are keywords; this validator therefore requires EVERY element to be a
+  keyword.
+
+  rf2-hzttr finding 2 — the prior check was `(and (sequential? x) (seq
+  x))`, which only verified the OUTER shape. Element shape went
+  unvalidated, so a malformed allowlist — a string typo for a keyword
+  (`[\"public/articles\"]`), a stray `nil` (`[:a nil]`), or a nested coll
+  (`[[:a :b]]`) — passed construction-time validation and was caught only
+  later by `select-keys`, silently shipping an empty or wrong hydration
+  slice instead of failing closed at boot. A security-boundary policy must
+  fail loud on a malformed value, not degrade silently. Validating each
+  element to a keyword closes that gap and matches the documented
+  contract."
   [x]
-  (and (sequential? x) (seq x)))
+  (and (sequential? x)
+       (seq x)
+       (every? keyword? x)))
+
+(defn- malformed-allowlist?
+  "A `:payload` that LOOKS like an allowlist attempt — a non-empty
+  sequential coll — but carries a non-keyword element (a string typo, a
+  stray `nil`, a nested coll, …). Distinguished from `valid-allowlist?`
+  so the construction-time validator can surface a diagnostic
+  `:rf.error/ssr-malformed-payload-allowlist` (which element is bad)
+  rather than dumping the caller into the generic missing-policy bucket
+  — the developer clearly INTENDED an allowlist; telling them which entry
+  is wrong is the fail-loud, masterpiece outcome (rf2-hzttr finding 2).
+  An empty `[]` is NOT malformed — it is the documented `no-allowlist`
+  shape that falls into the missing-policy bucket per Spec 011."
+  [x]
+  (and (sequential? x)
+       (seq x)
+       (not (every? keyword? x))))
 
 (defn- valid-policy-keyword?
   "Currently the only explicit-policy keyword recognised is the
@@ -128,8 +164,14 @@
   malformed. Called at handler-construction time by the Ring host adapter
   so misconfigured deployments fail at boot, not at first request.
 
-    - `:payload [<kws>]` (non-empty sequential) → OK (allowlist)
+    - `:payload [<kws>]` (non-empty sequential of keywords) → OK (allowlist)
     - `:payload :rf.ssr.payload/whole-app-db`   → OK (whole-app-db opt-in)
+    - `:payload [<… non-keyword element …>]` (non-empty sequential with a
+      string/nil/nested entry) → `:rf.error/ssr-malformed-payload-allowlist`
+      (rf2-hzttr — a clear allowlist attempt with a bad element, surfaced
+      distinctly with the offending entries so a `\"public/articles\"`
+      string-typo fails loud at boot instead of silently shipping an empty
+      slice)
     - `:payload <other keyword>`  → `:rf.error/ssr-unknown-payload-policy`
       (a typo'd policy keyword, e.g. `:rf.ssr.payload/whole-db`, surfaced
       distinctly so it doesn't silently land in the missing bucket)
@@ -145,6 +187,28 @@
 
     (valid-policy-keyword? payload)
     opts
+
+    ;; Caller passed a non-empty sequential coll that ISN'T an all-keyword
+    ;; allowlist — a clear allowlist attempt with a malformed element
+    ;; (string typo, stray nil, nested coll). Surface the offending entries
+    ;; so the fix is obvious; do NOT let it slide into the generic
+    ;; missing-policy bucket where a `select-keys` would otherwise ship a
+    ;; wrong/empty slice (rf2-hzttr finding 2).
+    (malformed-allowlist? payload)
+    (throw (ex-info ":rf.error/ssr-malformed-payload-allowlist"
+                    {:rf.error/id   :rf.error/ssr-malformed-payload-allowlist
+                     :where         'rf.ssr/payload-policy
+                     :reason        (str "ssr-handler :payload allowlist must be a "
+                                         "non-empty sequential coll of KEYWORD "
+                                         "top-level app-db keys; got "
+                                         (pr-str payload)
+                                         " — these entries are not keywords: "
+                                         (pr-str (vec (remove keyword? payload)))
+                                         " (a string key like \"public/articles\" "
+                                         "should be the keyword :public/articles).")
+                     :got           payload
+                     :bad-entries   (vec (remove keyword? payload))
+                     :recovery      :declare-payload-policy}))
 
     ;; Caller passed a keyword that isn't the recognised whole-app-db
     ;; opt-in — surface as a distinct error so a typo (e.g.
@@ -182,10 +246,12 @@
 
   Per the contract:
 
-    - `:payload [<kws>]` (allowlist, non-empty sequential) → `select-keys`.
+    - `:payload [<kws>]` (allowlist, non-empty sequential of keywords)
+      → `select-keys`.
     - `:payload :rf.ssr.payload/whole-app-db` → ships `app-db` verbatim.
-    - Absence / malformed → throws (`:rf.error/ssr-missing-payload-policy`
-      or `:rf.error/ssr-unknown-payload-policy`) — the fail-closed default.
+    - Absence / malformed → throws (`:rf.error/ssr-missing-payload-policy`,
+      `:rf.error/ssr-malformed-payload-allowlist`, or
+      `:rf.error/ssr-unknown-payload-policy`) — the fail-closed default.
 
   This is the runtime arm of the contract; the construction-time arm
   is `validate-policy-opts!` (called by the Ring host adapter so

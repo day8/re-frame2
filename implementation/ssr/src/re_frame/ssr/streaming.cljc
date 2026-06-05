@@ -281,7 +281,14 @@
                                 [(second el) (drop 2 el)]
                                 [{} (rest el)])
         merged-attrs          (emit/merge-class-attrs tag-attrs user-attrs)
-        void?                 (contains? emit/void-elements (keyword tag-name))]
+        ;; rf2-hzttr finding 3 — case-insensitive void classification,
+        ;; mirroring the non-streaming emitter. A `[:BR]` admitted by
+        ;; `validate-tag-name!` must be recognised as void here too, or the
+        ;; shell walker emits a `<BR></BR>` open+close pair. The raw-text
+        ;; body guard below (`reject-raw-text-string-children!`) already
+        ;; lower-cases internally for the same reason.
+        void?                 (contains? emit/void-elements
+                                         (keyword (clojure.string/lower-case tag-name)))]
     (if void?
       (str "<" tag-name (emit/attr-string merged-attrs) ">")
       (do

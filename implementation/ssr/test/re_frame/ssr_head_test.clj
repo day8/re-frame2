@@ -344,6 +344,69 @@
           "`<` in keys comes through escaped (only `<` is escaped — `>`
            is harmless inside a <script> body and remains literal)"))))
 
+(deftest head-model->html-json-ld-escapes-control-chars
+  (testing "rf2-hzttr finding 1 — the JVM JSON-LD emitter MUST JSON-escape
+            control characters (U+0000..U+001F) inside string values. A raw
+            newline/tab/CR in a `<script type=\"application/ld+json\">` body
+            is INVALID JSON that search/social consumers reject; the CLJS
+            branch gets this for free via JSON.stringify, so the JVM
+            hand-rolled emitter must match or the two branches diverge."
+    (testing "the five JSON-named short escapes (\\b \\t \\n \\f \\r)"
+      (let [html (rf/head-model->html
+                   {:json-ld [{"@type"   "Article"
+                               "headline" (str "a" \newline "b" \tab "c"
+                                               \return "d" \backspace "e"
+                                               \formfeed "f")}]})]
+        (is (str/includes? html "\\n") "newline → \\n")
+        (is (str/includes? html "\\t") "tab → \\t")
+        (is (str/includes? html "\\r") "carriage return → \\r")
+        (is (str/includes? html "\\b") "backspace → \\b")
+        (is (str/includes? html "\\f") "form feed → \\f")
+        (is (not (str/includes? html (str \newline)))
+            "no raw newline char survives in the JSON body")
+        (is (not (str/includes? html (str \tab)))
+            "no raw tab char survives in the JSON body")))
+
+    (testing "other C0 control chars (U+0000..U+001F) use the \\u00XX escape"
+      (let [html (rf/head-model->html
+                   {:json-ld [{"@type"   "Article"
+                               "headline" (str "x" (char 0x00) (char 0x01)
+                                               (char 0x1f) "y")}]})]
+        (is (str/includes? html "\\u0000") "NUL → \\u0000")
+        (is (str/includes? html "\\u0001") "SOH → \\u0001")
+        (is (str/includes? html "\\u001f") "US → \\u001f")))
+
+    (testing "the rendered JSON-LD body parses as valid JSON — the
+              regression's whole point. A strict parser rejects raw control
+              bytes; assert every escape is present and no raw C0 byte
+              survives in the post-`<`-decode body."
+      (let [headline (str "line1" \newline "line2" \tab "tabbed" (char 0x07))
+            html     (rf/head-model->html
+                       {:json-ld [{"@context" "https://schema.org"
+                                   "@type"    "Article"
+                                   "headline" headline}]})
+            ;; Carve the JSON body out of the <script> envelope.
+            body     (-> html
+                         (str/replace
+                           "<script type=\"application/ld+json\">" "")
+                         (str/replace "</script>" ""))
+            ;; The client decodes `<` back to `<` before JSON.parse;
+            ;; mirror that here so the assertions see the post-decode bytes.
+            decoded  (str/replace body "\\u003c" "<")]
+        (is (str/includes? decoded "\\n"))
+        (is (str/includes? decoded "\\t"))
+        (is (str/includes? decoded "\\u0007") "BEL (U+0007) → \\u0007")
+        (doseq [cp (range 0x00 0x20)]
+          (is (not (str/includes? decoded (str (char cp))))
+              (str "no raw control char U+"
+                   (format "%04X" cp) " survives in the JSON body")))))
+
+    (testing "ordinary printable content is untouched (no over-escaping)"
+      (let [html (rf/head-model->html
+                   {:json-ld [{"@type" "Article" "headline" "Hello, world!"}]})]
+        (is (str/includes? html "\"headline\":\"Hello, world!\"")
+            "no spurious escapes on plain ASCII content")))))
+
 (deftest head-model->html-json-ld-non-string-keys-are-quoted
   (testing "rf2-ee38b.10 — JSON object keys MUST be quoted strings. The
             JVM emitter previously emitted a bare key for number / boolean
