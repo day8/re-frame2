@@ -2,11 +2,29 @@
 
 Shared stylesheet, favicon, and Open Graph imagery consumed by every
 example `index.html` across all three substrates (Reagent / UIx / Helix).
-The orchestrator
+The smoke orchestrator
 (`examples/scripts/serve-and-run-examples-tests.cjs`) stages this whole
-tree into each example's `out/examples/<name>/_shared/` directory next to
-`main.js`, so every page references assets at the same relative path
-(`_shared/css/style.css`).
+tree into each staged surface's output dir — for the adapter testbeds it
+drives, that is
+`implementation/out/examples/adapter-testbeds/<name>/_shared/`, next to
+the staged `index.html` + `main.js` — so every page references assets at
+the same relative path (`_shared/css/style.css`). (The exact output dir is
+declared per-entry as `outDir` in
+[`examples/scripts/examples-filter.cjs`](../scripts/examples-filter.cjs);
+the smoke set is the three adapter testbeds, which do not themselves link
+`_shared` — see below.)
+
+**What is actually tested.** The smoke harness stages this tree but the
+three adapter testbed pages it serves link none of `_shared`. The
+"every example index references the shared assets" contract is enforced
+**statically** by
+[`examples/scripts/check-examples-assets.cjs`](../scripts/check-examples-assets.cjs)
+(wired into `npm run test:script-policy`): for every example `index.html`
+it verifies each referenced asset — `_shared/*` css/img plus the
+transitive `@import` targets — resolves to a real file, and that every
+page carries the required shared assets unless explicitly allowlisted
+(TodoMVC opts out of the shared stylesheet; see that scanner's
+`ALLOWLIST`).
 
 ## Visual identity
 
