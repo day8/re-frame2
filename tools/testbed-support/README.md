@@ -25,11 +25,15 @@ other clone and every Mac/Linux maintainer (rf2-5dphw).
   which the dev launcher (`implementation/scripts/dev-testbed.cjs`,
   wired as the `dev` npm script) resolves from its own location using
   node's `path` module — identical on Windows, macOS, and Linux.
-- **`resolve-project-root`** — joins that build-time root with the
+- **`resolve-project-root`** — joins a checkout root with the
   tool-relative testbed subdir the caller passes (e.g.
-  `"tools/xray/testbeds"`). A `?project-root=<path>` query string wins
-  as a per-session escape hatch (CI, a reader on another machine, a
-  copied bundle). The path is used **verbatim** — paste it unencoded,
+  `"tools/xray/testbeds"`). A `?project-root=<checkout>` query string
+  wins over the build-time root as a per-session escape hatch (CI, a
+  reader on another machine, a copied bundle). It names the same thing
+  as the build-time root — a **checkout root**, not the final source-path
+  root — and the subdir is appended the same way, so the composed editor
+  URI reaches `<checkout>/tools/xray/testbeds` where the classpath-relative
+  source coords resolve (rf2-w4yw9q). Paste the checkout root unencoded,
   including a literal `+` (e.g. `?project-root=/home/dev/re-frame2+wip`);
   the parser decodes percent-escapes but preserves `+` rather than
   mapping it to a space (rf2-xdsat.1). When neither tier is present it
