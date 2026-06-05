@@ -316,12 +316,50 @@
   [a b path]
   (collect-patches-into [] a b path))
 
+(defn- dissoc-in
+  "Remove the key at `path` (a non-empty path vector) from `m`, a
+  no-op when the path's parent is absent or is not a map (rf2-ykv9a0).
+
+  The spec contract for `[<path> :dissoc]` is 'remove the key at
+  `path`; a no-op if it does not exist'. The naive
+  `(update-in m parent dissoc k)` violates this two ways when the
+  parent path doesn't resolve to a map:
+
+    - a MISSING parent manufactures nil branches —
+      `(update-in {} [:missing] dissoc :leaf)` ⇒ `{:missing nil}`,
+      `(update-in {:a {}} [:a :b] dissoc :c)` ⇒ `{:a {:b nil}}` —
+      corrupting the reconstructed `:db-after` into a shape neither
+      encoder side emitted;
+    - a SCALAR parent throws a host `ClassCastException`
+      (`(update-in {:a 1} [:a] dissoc :b)`), surfacing a raw host
+      exception at the wire decoder boundary.
+
+  `apply-patches`'s own grammar gate pins the patch SHAPE, but cannot
+  prove a patch's parent path exists in THIS `base` — a malformed /
+  corrupt / third-party diff replayed against a mismatched base is
+  exactly the case this guards. We honour the spec no-op: dissoc only
+  when the parent resolves to a map; otherwise return `m` unchanged.
+
+  `path` is always non-empty here (the root `[]` `:dissoc` is handled
+  by convention as a no-op in `apply-patches*` before this is called)."
+  [m path]
+  (let [parent-path (vec (butlast path))
+        k           (last path)]
+    (if (empty? parent-path)
+      (if (map? m) (dissoc m k) m)
+      (let [parent (get-in m parent-path)]
+        (if (map? parent)
+          (assoc-in m parent-path (dissoc parent k))
+          m)))))
+
 (defn- apply-patches*
   "Replay an already-validated patch vector against `base`, returning
   the reconstructed value. Patches are `[path :assoc v]` or
   `[path :dissoc]`. Root-path patches (path `[]`) replace `base`
   outright (for `:assoc`) or are a no-op (for `:dissoc`, by
-  convention).
+  convention). Nested `:dissoc` routes through `dissoc-in`, whose
+  missing-/scalar-parent no-op honours the spec contract (no
+  nil-branch manufacture, no host `ClassCastException` — rf2-ykv9a0).
 
   This is the non-validating core: callers that have ALREADY validated
   the patch grammar (e.g. `decode-db-after`, whose `validate-sections!`
@@ -340,11 +378,7 @@
           (= op :assoc)
           (assoc-in acc path v)
           (= op :dissoc)
-          (let [parent-path (vec (butlast path))
-                k           (last path)]
-            (if (empty? parent-path)
-              (dissoc acc k)
-              (update-in acc parent-path dissoc k)))
+          (dissoc-in acc path)
           :else acc)))
     base
     patches))
@@ -409,7 +443,13 @@
     epoch
     (let [patches  (collect-patches (:db-before epoch) (:db-after epoch) [])
           _        (validate-patches! patches 'mcp-base/diff-encode-db-after)
-          sections (sg/group-patches-into-sections patches)
+          ;; Thread `:db-before` so section classification can prove a
+          ;; container is genuinely NEW before claiming `:added` — patch
+          ;; shape alone cannot (`:assoc` covers both insert and change,
+          ;; rf2-ykv9a0). Without this an existing parent whose direct
+          ;; child changed would be mislabelled `:added` to the agent.
+          sections (sg/group-patches-into-sections
+                     patches {:db-before (:db-before epoch)})
           _        (validate-sections! sections 'mcp-base/diff-encode-db-after)]
       (assoc epoch :db-after
              {vocab/diff-from-key :db-before

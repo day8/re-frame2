@@ -55,7 +55,7 @@ Decode an opaque base64 cursor back to its EDN payload map.
 Returns:
 
 - `nil` — the cursor arg is absent (nil / undefined) or blank. The caller treats this as "start from the beginning" (offset 0 / head).
-- `::malformed` — the cursor exists but is not a well-formed, `valid?`-passing payload map: it failed to base64/EDN-decode, carried a tagged literal, exceeded `max-cursor-bytes`, or its payload map failed the consumer's `valid?` predicate. Callers treat `::malformed` exactly like a STALE cursor — drop it and restart.
+- `::malformed` — the cursor exists but is not a well-formed, `valid?`-passing payload map: it failed to base64/EDN-decode, carried a tagged literal, decoded to MORE THAN ONE EDN form (a trailing object after the payload map — rf2-ykv9a0), exceeded `max-cursor-bytes`, or its payload map failed the consumer's `valid?` predicate. Callers treat `::malformed` exactly like a STALE cursor — drop it and restart.
 
 `valid?` is the consumer's payload-shape predicate (e.g. `#(and (map? %) (integer? (:offset %)) (string? (:sig %)))` for story; `#(and (map? %) (string? (:after-id %)))` for pair).
 
@@ -87,6 +87,12 @@ The EDN reader inside `decode-cursor` rejects **every** tagged literal — custo
 - `:readers` overrides throw on the **built-in** `#inst` / `#uuid` tags. These have registered readers (`clojure.edn` / `cljs.reader` resolve them from `*data-readers*` / the tag-table), so they **bypass `:default`** and would otherwise decode to a host `java.util.Date` / `UUID` (JVM) or `js/Date` / `cljs.core/UUID` (CLJS). Because `:readers` is consulted **before** `:default` on both platforms, the override wins and the built-in tag never materialises a host object.
 
 A hostile / corrupt cursor therefore cannot smuggle any tagged literal — or the host object it would decode to — past the reader. The throw is caught by the surrounding try in `decode-cursor` and surfaces as `::malformed`. (This closes the built-in-tag hole found in the rf2-13wbe correctness review: `pair-mcp`'s permissive `some? :after-id` predicate would have let `{:v 1 :after-id 1 :junk #inst "…"}` survive validation, carrying a `Date` through the MCP cursor boundary.)
+
+## One-form requirement (rf2-ykv9a0)
+
+A cursor is **one** opaque EDN payload map. The reader requires the decoded text to be **exactly one form** and rejects any trailing form as `::malformed`. A plain `read-string` reads only the FIRST form and never checks exhaustion, so before this a token whose decoded text was a valid map followed by a second form — e.g. `{:v 1 :offset 0 :sig "s"} #inst "2024-01-01"` or `{…} {:junk 1}` — decoded as the valid map, silently ignoring the trailing object and weakening the opacity / corruption guard.
+
+The reader closes that by wrapping the decoded text in `[ … ]` and reading the WHOLE thing as one vector: a single clean form yields a one-element vector (trailing whitespace / comments absorbed), while ANY trailing form yields a 2+-element vector → rejected. This is a pure-`read-string` technique that behaves identically on the JVM (`clojure.edn`) and CLJS (`cljs.reader`) without reaching into either host's pushback-reader internals; tagged literals anywhere inside still throw via the readers above.
 
 ## Why this ns
 

@@ -180,6 +180,36 @@
              (cursor/decode-cursor (cursor/encode-cursor {:v 1 :after-id "ev-9"})
                                    permissive?))))))
 
+(deftest decode-cursor-rejects-trailing-forms
+  ;; rf2-ykv9a0 — a cursor is ONE opaque EDN payload map. Before the fix
+  ;; `read-edn-no-tags` used `read-string`, which reads only the FIRST
+  ;; form and never checks the input is exhausted: a token whose decoded
+  ;; text is a valid map FOLLOWED by a second form decoded as the valid
+  ;; map, silently IGNORING the trailing object — accepting mutated
+  ;; multi-form cursor text and weakening the opacity / corruption guard.
+  ;; The reader now requires the decoded text to be exactly one form;
+  ;; any trailing form ⇒ ::malformed.
+  (testing "valid map + trailing #inst ⇒ ::malformed (not the silently-accepted first form)"
+    (let [evil (cursor/b64-encode "{:v 1 :offset 0 :total 1 :sig \"s\"} #inst \"2024-01-01\"")]
+      (is (= ::cursor/malformed (cursor/decode-cursor evil offset-cursor?)))))
+  (testing "valid map + trailing custom tag ⇒ ::malformed"
+    (let [evil (cursor/b64-encode "{:v 1 :offset 0 :total 1 :sig \"s\"} #foo/bar 1")]
+      (is (= ::cursor/malformed (cursor/decode-cursor evil offset-cursor?)))))
+  (testing "valid map + trailing ordinary EDN ⇒ ::malformed"
+    (let [evil (cursor/b64-encode "{:v 1 :offset 0 :total 1 :sig \"s\"} {:junk 1}")]
+      (is (= ::cursor/malformed (cursor/decode-cursor evil offset-cursor?)))))
+  (testing "valid map + trailing scalar ⇒ ::malformed"
+    (let [evil (cursor/b64-encode "{:v 1 :offset 0 :total 1 :sig \"s\"} 42")]
+      (is (= ::cursor/malformed (cursor/decode-cursor evil offset-cursor?)))))
+  (testing "a single clean cursor (incl. trailing whitespace) still round-trips"
+    (let [clean (cursor/encode-cursor {:v 1 :offset 0 :total 1 :sig "s"})]
+      (is (= {:v 1 :offset 0 :total 1 :sig "s"}
+             (cursor/decode-cursor clean offset-cursor?))))
+    (let [trailing-ws (cursor/b64-encode "{:v 1 :offset 0 :total 1 :sig \"s\"}   ")]
+      (is (= {:v 1 :offset 0 :total 1 :sig "s"}
+             (cursor/decode-cursor trailing-ws offset-cursor?))
+          "trailing whitespace is absorbed — one form, valid"))))
+
 (deftest malformed?-predicate
   (is (true? (cursor/malformed? ::cursor/malformed)))
   (is (false? (cursor/malformed? nil)))

@@ -129,6 +129,33 @@
   (is (= 1000 (cap/max-tokens 1000.0)))
   (is (integer? (cap/max-tokens 1000.0))))
 
+(deftest max-tokens-non-finite-out-of-range-rejected-not-crash-not-0-cap
+  ;; rf2-ykv9a0 — `(long raw)` is UNSAFE on non-finite / out-of-range
+  ;; numerics. Pre-fix, on the JVM `##Inf` and `1.0E20` THREW
+  ;; IllegalArgumentException (a crash at the wire boundary), and `##NaN`
+  ;; truncated to a real `0` cap — the exact 0-cap lockout shape rf2-5rdit
+  ;; / rf2-li6y2.2 refused. The resolver now rejects each honestly as an
+  ;; {:rf.mcp/invalid-arg} marker, the recoverable cross-runtime posture.
+  (doseq [[label raw] [["##Inf" ##Inf]
+                       ["##NaN" ##NaN]
+                       ["1.0E20" 1.0E20]
+                       ["-1.0E20" -1.0E20]]]
+    (let [out (cap/max-tokens raw)]
+      (is (cap/invalid-arg? out)
+          (str label " resolves to an :rf.mcp/invalid-arg rejection, not a crash / cap"))
+      (is (not (number? out))
+          (str label " is NOT a (real) cap integer"))
+      (is (not= 0 out)
+          (str label " must NOT be a real 0 cap (the apply-cap lockout shape)"))
+      (is (some? out)
+          (str label " must NOT be nil (nil is the disable sentinel, distinct from a rejection)"))))
+  ;; ##-Inf is caught earlier by the (neg? raw) arm — still a rejection.
+  (is (cap/invalid-arg? (cap/max-tokens ##-Inf)) "##-Inf rejects (via the negative arm)")
+  ;; The legitimate surface is untouched.
+  (is (= 5000 (cap/max-tokens 5000)) "in-range cap still passes through")
+  (is (= 9007199254740991 (cap/max-tokens 9007199254740991))
+      "the safe-integer ceiling itself is an in-domain cap"))
+
 ;; ---------------------------------------------------------------------------
 ;; sum-text-tokens — sums every :text slot via ResultIO.
 ;; ---------------------------------------------------------------------------

@@ -109,6 +109,52 @@
   (is (= 50 (args/parse-positive-int "99999999999999999999999999" 50))))
 
 ;; ---------------------------------------------------------------------------
+;; Cross-runtime finite/range guard (rf2-ykv9a0).
+;;
+;; The numeric arm called `(long raw)` with no finite/range guard. On the
+;; JVM `(long ##Inf)` / `(long 1.0E20)` THROW IllegalArgumentException and
+;; `(long ##NaN)` truncates to a real `0` — neither the recoverable
+;; default nor a crash-free, host-consistent result. The string arm
+;; diverged across hosts at the JS safe-integer ceiling. The fix routes
+;; both arms through one safe-integer-windowed guard so an out-of-domain
+;; numeric / string DEFAULTS (never throws, never truncates to a real
+;; value) identically on JVM and CLJS. The CLJS mirror lives in
+;; cljs_branches_cljs_test.
+;; ---------------------------------------------------------------------------
+
+(deftest parse-positive-int-out-of-domain-numerics-default-not-throw
+  (is (= 50 (args/parse-positive-int ##Inf 50)) "##Inf defaults (was IllegalArgumentException)")
+  (is (= 50 (args/parse-positive-int ##-Inf 50)) "##-Inf defaults")
+  (is (= 50 (args/parse-positive-int ##NaN 50)) "##NaN defaults (was a real floor of 1)")
+  (is (= 50 (args/parse-positive-int 1.0E20 50)) "1.0E20 defaults (was IllegalArgumentException)")
+  (is (= 50 (args/parse-positive-int -1.0E20 50)) "-1.0E20 defaults"))
+
+(deftest parse-non-negative-int-out-of-domain-numerics-default-not-throw
+  (is (= 5000 (args/parse-non-negative-int ##Inf 5000)) "##Inf defaults")
+  (is (= 5000 (args/parse-non-negative-int ##NaN 5000)) "##NaN defaults (was a real floor of 0)")
+  (is (= 5000 (args/parse-non-negative-int 1.0E20 5000)) "1.0E20 defaults"))
+
+(deftest parse-positive-int-in-domain-numerics-still-parse
+  ;; The guard must not regress the legitimate small-int surface.
+  (is (= 5 (args/parse-positive-int 5 50)))
+  (is (= 2 (args/parse-positive-int 2.9 50)) "in-range fractional floors (benign)")
+  (is (= 1 (args/parse-positive-int 0.5 50)) "sub-1 positive floors to 0 then clamps to the floor 1")
+  (is (= 9007199254740991 (args/parse-positive-int 9007199254740991 50))
+      "the safe-integer ceiling itself is in-domain"))
+
+(deftest parse-positive-int-string-threshold-aligns-to-safe-integer
+  ;; rf2-ykv9a0 — the string arm previously diverged: the JVM
+  ;; `Long/parseLong` accepted "9007199254740992" (a valid long, just
+  ;; past the JS safe-integer ceiling) while CLJS rejected it via
+  ;; Number.isSafeInteger. Aligning the JVM arm to the SAME safe-integer
+  ;; window makes the two hosts agree (the cross-runtime contract). The
+  ;; CLJS mirror asserts the identical value in cljs_branches_cljs_test.
+  (is (= 50 (args/parse-positive-int "9007199254740992" 50))
+      "one past the safe-integer ceiling defaults on BOTH hosts now (was parsed on JVM)")
+  (is (= 9007199254740991 (args/parse-positive-int "9007199254740991" 50))
+      "exactly the safe-integer ceiling is still accepted on both hosts"))
+
+;; ---------------------------------------------------------------------------
 ;; fresh-keyword — positive-named intern for operator-gated write paths
 ;; (rf2-xxtrz, the successor to the retired `parse-keyword`).
 ;; ---------------------------------------------------------------------------

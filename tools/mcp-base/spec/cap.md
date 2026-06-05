@@ -10,7 +10,7 @@ This doc is one of eleven per-namespace contracts indexed from [`README.md`](REA
 `cap` owns:
 
 - The two-stage cap algorithm (sum tokens + chars in one pass → primary token gate OR secondary char gate → pass-through or replace).
-- The `max-tokens` per-call cap resolver (`0` resolves to `nil` = disabled; absent / non-number → `default-max-tokens`; **negative → `{:rf.mcp/invalid-arg {...}}` rejection**, rf2-5rdit).
+- The `max-tokens` per-call cap resolver (`0` resolves to `nil` = disabled; absent / non-number → `default-max-tokens`; **negative, fractional-in-(0,1), or non-finite / out-of-range → `{:rf.mcp/invalid-arg {...}}` rejection**, rf2-5rdit / rf2-li6y2.2 / rf2-ykv9a0).
 - The `ResultIO` protocol — the per-consumer specialisation hook.
 - The recursion-safety invariant (the overflow marker itself must fit under the cap).
 
@@ -137,11 +137,15 @@ The structural guarantee comes from the marker shape — `:limit`, `:token-count
 
 The default-ON posture matches the agent-ergonomics threat model: a stock install never accidentally floods the agent's context.
 
-## Negative `:max-tokens` is rejected (rf2-5rdit)
+## Out-of-domain `:max-tokens` is rejected (rf2-5rdit / rf2-li6y2.2 / rf2-ykv9a0)
 
-A **negative** `:max-tokens` is neither a disable signal nor a valid cap. `max-tokens` rejects it with an `{:rf.mcp/invalid-arg {:arg :max-tokens :value <n> :hint "max-tokens must be >= 0; 0 disables the cap"}}` marker; the consumer surfaces that as an `isError: true` tool-result (the agent reads it and corrects the arg). The handler is never dispatched and the rejection never reaches `apply-cap` as a `:cap`.
+An out-of-domain `:max-tokens` is neither a disable signal nor a valid cap. `max-tokens` rejects it with an `{:rf.mcp/invalid-arg {:arg :max-tokens :value <n> :hint "max-tokens must be an integer >= 1; 0 disables the cap"}}` marker; the consumer surfaces that as an `isError: true` tool-result (the agent reads it and corrects the arg). The handler is never dispatched and the rejection never reaches `apply-cap` as a `:cap`. The rejected domain:
 
-Why reject rather than clamp / treat-as-default (Mike ruled A, 2026-06-01): a negative value used to fall through to `(long raw)`, producing a negative ceiling. `over-cap?` (`(> tokens cap)`) is then true for ANY non-negative token count, so **every** response — even a 2-character one — was replaced by the `:rf.mcp/overflow` marker, locking the agent out of all tool data and emitting a nonsensical `:cap-tokens -1`. An honest, recoverable rejection at the AI/MCP boundary is the masterpiece CORRECTNESS posture: a malformed cap is an agent error worth telling the agent about, not a value to silently paper over.
+- **Negative** (rf2-5rdit) — `(long raw)` produced a negative ceiling; `over-cap?` (`(> tokens cap)`) is then true for ANY non-negative token count, so **every** response — even a 2-character one — was replaced by the `:rf.mcp/overflow` marker, locking the agent out and emitting a nonsensical `:cap-tokens -1`.
+- **Fractional positive in (0,1)** (rf2-li6y2.2) — e.g. `0.5` floored to a REAL `0` cap (non-nil, NOT the disable sentinel), reproducing the same lockout on every non-empty payload.
+- **Non-finite / out-of-range** (rf2-ykv9a0) — `##Inf` and a finite magnitude past the safe-integer window (`1.0E20`) THROW `IllegalArgumentException` on `(long raw)` (a crash at the wire boundary); `##NaN` truncated to a real `0` cap (the same lockout). The resolver routes through the shared `args/coerce-finite-long` guard BEFORE `(long raw)`, so each is rejected honestly and IDENTICALLY on JVM and CLJS rather than crashing the tool or minting a 0-cap.
+
+Why reject rather than clamp / treat-as-default (Mike ruled A, 2026-06-01): an honest, recoverable rejection at the AI/MCP boundary is the masterpiece CORRECTNESS posture — a malformed cap is an agent error worth telling the agent about, not a value to silently paper over (or crash on).
 
 Helpers (in `cap`):
 

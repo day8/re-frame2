@@ -46,34 +46,95 @@
   arms with this regex closes the divergence."
   #"[-+]?\d+")
 
+;; ---------------------------------------------------------------------------
+;; Cross-runtime finite/range guard (rf2-ykv9a0).
+;;
+;; `(long raw)` is UNSAFE on out-of-domain numerics: on the JVM `##Inf`,
+;; `##NaN`, and finite values past the long range (`1.0E20`) THROW
+;; `IllegalArgumentException`, while `##NaN` quietly truncates to `0` — a
+;; real, non-sentinel cap that locks the agent out. The string arm
+;; diverged too: a digit string above the JS safe-integer ceiling parsed
+;; on the JVM (`Long/parseLong "9007199254740992"`) but defaulted on
+;; CLJS (`Number.isSafeInteger` rejects it), so the SAME wire arg behaved
+;; differently per host.
+;;
+;; The cross-runtime-safe domain is the JS safe-integer range
+;; (`±(2^53 − 1)`). It is the strictest of the two hosts (a JVM long is
+;; wider), and the MCP arg surface only ever carries small ints
+;; (pagination limits, token caps) — so clamping the admissible domain to
+;; what BOTH hosts represent losslessly costs nothing real and makes the
+;; coercion host-independent. `coerce-finite-long` is the single guard
+;; both the numeric arm here and `cap/max-tokens` reuse: it returns a
+;; `long` for an in-domain value and `nil` for anything non-finite,
+;; non-integral-in-range, or out of the safe-integer window. Callers map
+;; the `nil` to their own out-of-domain posture (default here, reject in
+;; `cap/max-tokens`).
+
+(def ^:private max-safe-integer
+  "The JS safe-integer ceiling, `2^53 − 1` (9 007 199 254 740 991). The
+  cross-runtime domain boundary: a value strictly inside `[-max, max]`
+  round-trips losslessly through both a JS `number` and a JVM `long`."
+  9007199254740991)
+
+(defn coerce-finite-long
+  "Coerce a number to a `long` IFF it is finite and within the JS
+  safe-integer window `[-(2^53−1), 2^53−1]`; otherwise return `nil`.
+
+  This is the cross-runtime arg-boundary guard (rf2-ykv9a0). It must be
+  called BEFORE `(long raw)` on any caller-supplied numeric, because
+  `(long ##Inf)` / `(long 1.0E20)` THROW on the JVM and `(long ##NaN)`
+  truncates to a real `0`. A fractional in-range value is floored toward
+  zero via `long` (the documented benign floor — e.g. `2.9` ⇒ `2`); a
+  fractional that floors below the domain is still in-range and floors
+  normally. Returns `nil` for `##NaN`, `##Inf`, `##-Inf`, and any finite
+  magnitude `>= 2^53`.
+
+  Non-number input is a caller error — gate with `number?` first."
+  [n]
+  (when (and #?(:clj  (not (or (Double/isNaN (double n))
+                               (Double/isInfinite (double n))))
+               :cljs (and (not (js/isNaN n))
+                          (js/isFinite n)))
+             (<= (- max-safe-integer) n max-safe-integer))
+    (long n)))
+
 (defn- parse-int*
   "Shared helper for `parse-positive-int` / `parse-non-negative-int`.
   `floor` is the lower clamp (1 for positive, 0 for non-negative).
-  Two input arms: a numeric `raw` is floored directly; a string `raw`
-  is strict-parsed (must match `int-string-re` end-to-end — trailing
-  garbage falls back to `default`, identically on JVM and CLJS).
-  Every other shape falls back to `default`."
+  Two input arms: a numeric `raw` is finite/range-guarded then floored
+  (out-of-domain — `##Inf` / `##NaN` / past the safe-integer window —
+  falls back to `default` rather than throwing or truncating to a real
+  value); a string `raw` is strict-parsed (must match `int-string-re`
+  end-to-end, then sit inside the same safe-integer window — trailing
+  garbage and out-of-range magnitudes fall back to `default`, identically
+  on JVM and CLJS, rf2-ee38b.19 + rf2-ykv9a0). Every other shape falls
+  back to `default`."
   [raw default floor]
   (cond
     (nil? raw)
     default
 
     (number? raw)
-    (max floor (long raw))
+    (if-let [n (coerce-finite-long raw)]
+      (max floor n)
+      default)
 
     (string? raw)
     (let [s (str/trim raw)]
       (if-not (re-matches int-string-re s)
         default
-        #?(:clj  (try
-                   (max floor (Long/parseLong s))
-                   (catch NumberFormatException _ default))
-           ;; Match the JVM `Long/parseLong` posture: a digit string
-           ;; outside the safely-representable integer range is a parse
-           ;; failure → `default` (JVM throws NumberFormatException on
-           ;; long overflow; JS would silently coerce to a lossy float).
-           ;; `js/Number.isSafeInteger` is the CLJS analogue of "fits a
-           ;; long" for the small ints the agent surface produces.
+        ;; Parse to a number, then route through the SAME finite/range
+        ;; guard the numeric arm uses so the string and numeric arms agree
+        ;; AND the two hosts agree (rf2-ykv9a0). On the JVM a digit string
+        ;; past the long range threw `NumberFormatException`; on CLJS a
+        ;; digit string past the safe-integer ceiling silently became a
+        ;; lossy float. Reading both as a BigInteger / BigInt and feeding
+        ;; the safe-integer guard gives one cross-host rejection threshold
+        ;; (the JS safe-integer window) instead of two divergent ones.
+        #?(:clj  (let [n (try (bigint s) (catch NumberFormatException _ nil))]
+                   (if (and n (<= (- max-safe-integer) n max-safe-integer))
+                     (max floor (long n))
+                     default))
            :cljs (let [n (js/parseInt s 10)]
                    (if (and (not (js/isNaN n))
                             (js/Number.isSafeInteger n))

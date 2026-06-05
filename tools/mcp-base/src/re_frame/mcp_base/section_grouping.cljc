@@ -50,10 +50,13 @@
         :patches      [[[:checkout :state] :assoc :paying]]}]
 
   `:section-kind` summarises the cluster: `:added` when every patch
-  is `:assoc` at a path strictly deeper than the section-path
-  (newly-introduced subtree); `:removed` when every patch is
-  `:dissoc`; otherwise `:modified`. The agent uses this to skim
-  cluster intent without walking every patch.
+  is `:assoc` at a path one level under the section-path AND the
+  section-path container was ABSENT in `:db-before` (newly-introduced
+  subtree); `:removed` when every patch is `:dissoc`; otherwise
+  `:modified`. The agent uses this to skim cluster intent without
+  walking every patch. (`:added` requires `:db-before` context —
+  see §Classify each section for why patch shape alone can't prove
+  it; rf2-ykv9a0.)
 
   ## Algorithm
 
@@ -95,21 +98,32 @@
      - All `:dissoc` → `:section-kind :removed`.
      - All `:assoc` AND `:section-path` is the immediate parent of
        each patch's path (the cluster sits one level deep under the
-       header) → `:section-kind :added` (newly-introduced
-       container). Most-common case for newly-added subtrees.
+       header) AND the container was ABSENT in `:db-before` →
+       `:section-kind :added` (newly-introduced container).
      - Otherwise → `:section-kind :modified`. The conservative
        default; the agent reads `:modified` and knows the cluster
        carries a mix of inserts / changes / deletes.
 
-     A more precise `:added` vs `:modified` split would require
-     looking at `:db-before` to detect 'was this path previously
-     absent?' — patches alone can't tell. The current rule is the
-     cheapest accurate signal: a section is `:added` only when all
-     its patches insert leaves under a fresh parent. False
-     negatives (a wholly-added subtree shaped as multiple
-     `:assoc`s under the same header that actually corresponds to
-     a parent that already existed but was empty) are tagged
-     `:modified` — semantically defensible.
+     ## Why `:added` needs `:db-before` (rf2-ykv9a0)
+
+     The patch grammar uses `:assoc` for BOTH inserted and changed
+     leaves, so patch SHAPE alone cannot distinguish a newly-added
+     container from an existing one whose direct children changed.
+     `{:user {:name \"bob\"}}` → `{:user {:name \"ada\" :email \"…\"}}`
+     emits the SAME all-`:assoc` direct-child cluster under `[:user]`
+     as a genuinely new `[:user]` subtree — a patch-only classifier
+     mislabels the FIRST (a modification) as `:added`, a false skim
+     signal to the agent. So `:added` is claimed ONLY when
+     `:db-before` (threaded through `opts`, supplied by the
+     `diff-encode-db-after` caller) proves the section-path container
+     did not previously exist.
+
+     When `:db-before` is NOT supplied — the standalone projection
+     used by tests / advanced consumers diffing arbitrary structures —
+     the classifier cannot prove addition, so it conservatively errs
+     to `:modified` for every all-`:assoc` cluster rather than risk a
+     false `:added`. Concatenating sections' `:patches` still
+     round-trips losslessly regardless of the cosmetic `:section-kind`.
 
   ## Whole-DB replacement
 
@@ -232,8 +246,9 @@
 
 (defn- patches-all-direct-child?
   "True when every patch's path is exactly one segment deeper than
-  `prefix`. Together with all-`:assoc` this signals 'newly-added
-  subtree under a fresh container' — the `:added` case."
+  `prefix`. Together with all-`:assoc` AND a previously-absent container
+  this signals 'newly-added subtree under a fresh container' — the
+  `:added` case."
   [patches prefix]
   (let [prefix-len (count prefix)]
     (every? (fn [patch]
@@ -241,16 +256,47 @@
                 (= (count path) (inc prefix-len))))
             patches)))
 
+(def ^:private absent
+  "Private sentinel for `get-in` miss detection — distinguishes a stored
+  `nil` from an absent key (rf2-ykv9a0)."
+  #?(:clj (Object.) :cljs (js-obj)))
+
+(defn- path-present?
+  "True when `path` resolves to a present key in `m` (a map). Uses a
+  private sentinel so a stored `nil` counts as present and an absent key
+  counts as absent. The empty path `[]` denotes the root, always
+  present. A non-map `m` (no `:db-before` context) yields `false` only
+  via the caller's guard — this fn assumes `m` is a map."
+  [m path]
+  (or (empty? path)
+      (not (identical? absent (get-in m path absent)))))
+
 (defn- section-kind
   "Classify a cluster as `:added` / `:removed` / `:modified`. See
-  §Classify each section in the ns docstring for the rules."
-  [prefix patches]
+  §Classify each section in the ns docstring for the rules.
+
+  `container-existed?` answers 'did the cluster's section-path container
+  ALREADY exist in `:db-before`?'. The patch grammar uses `:assoc` for
+  BOTH inserted and changed leaves, so patch shape ALONE cannot tell a
+  newly-added container from an existing one whose direct children
+  changed (rf2-ykv9a0): `{:user {:name \"bob\"}}` →
+  `{:user {:name \"ada\" :email \"…\"}}` emits the SAME all-`:assoc`
+  direct-child cluster under `[:user]` as a genuinely new `[:user]`
+  subtree would. `:added` is therefore claimed ONLY when the patches are
+  all-`:assoc` direct children AND the container did NOT previously
+  exist. When the caller cannot supply that context (the
+  `db-before`-less standalone projection), `container-existed?` is
+  passed as `true` so the classifier conservatively errs to `:modified`
+  rather than a false `:added` — the masterpiece-CORRECTNESS posture
+  (a false `:added` mislabels a modification to the agent's skim signal)."
+  [prefix patches container-existed?]
   (cond
     (all-op? patches :dissoc)
     :removed
 
     (and (all-op? patches :assoc)
-         (patches-all-direct-child? patches prefix))
+         (patches-all-direct-child? patches prefix)
+         (not container-existed?))
     :added
 
     :else
@@ -290,12 +336,31 @@
   Args:
     `patches` — the flat patch vector (e.g. from
                 `re-frame.mcp-base.diff-encode/collect-patches`).
-    `opts`    — optional `{:max-coalesce-depth 3}` (default).
+    `opts`    — optional map:
+                `:max-coalesce-depth` (default 3).
+                `:db-before` — the pre-change value the patches diff
+                from. When supplied, `:section-kind :added` is claimed
+                only for an all-`:assoc` direct-child cluster whose
+                container was ABSENT in `:db-before` (rf2-ykv9a0).
+                When absent, the classifier cannot prove addition and
+                errs to `:modified` for every all-`:assoc` cluster.
 
   Pure data → data; JVM-runnable (`.cljc`)."
   ([patches] (group-patches-into-sections patches nil))
   ([patches opts]
-   (let [{:keys [max-coalesce-depth]} (merge default-opts opts)]
+   (let [{:keys [max-coalesce-depth db-before]} (merge default-opts opts)
+         ;; `:added` requires PROOF the container is newly introduced —
+         ;; patch shape alone cannot supply it (`:assoc` covers both
+         ;; insert and change, rf2-ykv9a0). When `:db-before` is threaded
+         ;; in (the `diff-encode-db-after` caller has it in hand), a
+         ;; cluster is `:added` only if its section-path was ABSENT
+         ;; before. Without it (standalone projection) every cluster's
+         ;; container counts as 'existed' so the classifier errs to the
+         ;; conservative `:modified` rather than a false `:added`.
+         container-existed?
+         (if (map? db-before)
+           (fn [prefix] (path-present? db-before prefix))
+           (constantly true))]
      (cond
        (or (nil? patches) (empty? patches))
        []
@@ -309,7 +374,8 @@
          (mapv (fn [cluster]
                  (let [{:keys [prefix patches]} (promote-singleton cluster)]
                    {:section-path prefix
-                    :section-kind (section-kind prefix patches)
+                    :section-kind (section-kind prefix patches
+                                                (container-existed? prefix))
                     :patches      patches}))
                clusters))))))
 
