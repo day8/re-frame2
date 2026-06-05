@@ -1,11 +1,11 @@
 # Managed External Effects
 
 > **Type:** Reference
-> The unifying conceptual frame for every framework-owned, lifecycle-aware effect surface in re-frame2 — HTTP requests, WebSocket connections, state-machine actors, SSR per-request fxs, and managed flows (the internal-effect cousin). Names the eight properties every conformant managed-effect surface inherits, so new surfaces (managed timers, managed background jobs, managed IndexedDB transactions) can be evaluated against a single checklist instead of re-deriving the shape each time.
+> The unifying conceptual frame for every framework-owned, lifecycle-aware effect surface in re-frame2 — HTTP requests, state-machine actors, SSR per-request fxs, and managed flows (the internal-effect cousin). Names the eight properties every conformant managed-effect surface inherits, so new surfaces (managed timers, managed background jobs, managed IndexedDB transactions) can be evaluated against a single checklist instead of re-deriving the shape each time. The same checklist also grades **app- and library-built** surfaces — re-frame2 does not ship a managed WebSocket, but [Pattern-WebSocket](Pattern-WebSocket.md) shows how an app or library builds one that satisfies all eight.
 
 ## Why this doc exists
 
-A pattern is visible in re-frame2 across five existing capability surfaces: [`:rf.http/managed`](014-HTTPRequests.md), [`:rf.ws/*`](Pattern-WebSocket.md), state-machine [`:spawn` / `:spawn-all`](005-StateMachines.md), [`:rf.server/*`](011-SSR.md), and [`:rf.flow/*`](013-Flows.md). Each Spec describes its own surface in detail; this doc names the **shared shape** so the architectural concept stops living implicitly in five places and starts being citeable as a single concept with a single anchor.
+A pattern is visible in re-frame2 across four shipped capability surfaces: [`:rf.http/managed`](014-HTTPRequests.md), state-machine [`:spawn` / `:spawn-all`](005-StateMachines.md), [`:rf.server/*`](011-SSR.md), and [`:rf.flow/*`](013-Flows.md). Each Spec describes its own surface in detail; this doc names the **shared shape** so the architectural concept stops living implicitly in four places and starts being citeable as a single concept with a single anchor. The same shape also describes app- and library-built surfaces — most notably the [WebSocket connection pattern](Pattern-WebSocket.md), which re-frame2 deliberately does **not** ship but whose recommended shape satisfies the eight properties.
 
 **A managed external effect is an effect whose entire interaction lifecycle — issuance, observability, failure classification, retry, abort, teardown, and reply addressing — is owned by the framework, not by the calling event handler.** The handler returns *data* describing what it wants; the framework owns *how* the interaction unfolds across time.
 
@@ -36,15 +36,16 @@ The framework — not the calling event handler — owns issuance, intermediate 
 
 ### 3. Structured failure taxonomy under `:rf.<surface>/*`
 
-Failures are classified into a closed, enumerable taxonomy under a single reserved namespace per surface (per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned)). Examples in re-frame2 today:
+Failures are classified into a closed, enumerable taxonomy under a single reserved namespace per surface (per [Conventions §Reserved namespaces](Conventions.md#reserved-namespaces-framework-owned)). Shipped surfaces in re-frame2 today:
 
 | Surface | Failure namespace | Spec |
 |---|---|---|
 | HTTP requests | `:rf.http/*` (eight categories: `:rf.http/transport`, `:rf.http/http-4xx`, `:rf.http/http-5xx`, `:rf.http/decode`, ...) | [014 §Failure taxonomy](014-HTTPRequests.md) |
-| WebSocket connections | `:rf.ws/*` (`:rf.ws/transport`, `:rf.ws/auth`, `:rf.ws/stale-socket`, ...) | [Pattern-WebSocket](Pattern-WebSocket.md) |
 | State-machine actors | `:rf.machine/*` (`:rf.machine/invoke-failed`, `:rf.machine/snapshot-version-mismatch`, ...) | [005 §Error contract](005-StateMachines.md) |
 | SSR per-request | `:rf.ssr/*` (`:rf.ssr/hydration-mismatch`, `:rf.ssr/render-failed`, ...) | [011 §Error contract](011-SSR.md) |
 | Managed flows | `:rf.flow/*` per-flow trace operations (`:rf.flow/failed` on `:output` throw, `:rf.flow/computed` / `:rf.flow/skip` on success); cascade-level `:rf.error/flow-eval-exception` at the router's outer catch; registration-time `:rf.error/flow-cycle` ex-info | [013 §Failure semantics](013-Flows.md#failure-semantics) |
+
+An app- or library-built surface follows the same convention. The [WebSocket pattern](Pattern-WebSocket.md), for instance, recommends classifying connection failures under an app-chosen `:rf.ws/*`-style namespace (`:rf.ws/transport`, `:rf.ws/auth`, `:rf.ws/stale-socket`, ...) — re-frame2 does not ship or reserve this namespace; it is the app/library's own.
 
 Every failure is a structured trace event with `:operation`, `:tags`, and `:recovery` per [009 §Error contract](009-Instrumentation.md#error-contract). No surface invents its own error shape.
 
@@ -70,15 +71,11 @@ Managed effects MUST honour the dispatching frame's `:fx-overrides`, `:intercept
 
 ## Instances today
 
-The five surfaces in the v1 corpus that satisfy the eight properties. Each Spec owns its own contract surface in detail; this section is informational — the spec text below points back to each canonical home.
+The four shipped surfaces in the v1 corpus that satisfy the eight properties. Each Spec owns its own contract surface in detail; this section is informational — the spec text below points back to each canonical home. (For an app/library-built surface graded against the same eight properties, see the [WebSocket note](#websocket--an-applibrary-built-surface-not-shipped) below.)
 
 ### `:rf.http/managed` — HTTP requests ([Spec 014](014-HTTPRequests.md))
 
 Single-request / single-reply HTTP. Args map shape: `:request`, `:decode`, `:accept`, `:on-success`, `:on-failure`, `:retry`. Eight-category failure taxonomy under `:rf.http/*`. Frame-aware reply addressing via co-located request-and-reply handlers (the `(:rf/reply msg)` branch). Specialises [Pattern-AsyncEffect](Pattern-AsyncEffect.md); pins [Pattern-RemoteData](Pattern-RemoteData.md)'s lifecycle slice.
-
-### `:rf.ws/*` — WebSocket / SSE / WebRTC connections ([Pattern-WebSocket](Pattern-WebSocket.md))
-
-Long-lived connection lifecycle as a state machine that owns the socket actor. Connection states: `:disconnected` / `:active{:connecting, :authenticating, :connected}` / `:reconnecting` / `:failed`. Subscription state and queued sends survive reconnects via the machine's `:data`. The connection epoch (the socket-actor's gensym'd id) gates stale replies — events from a replaced socket fail the check and surface as `:rf.ws/stale-socket`.
 
 ### `:spawn` / `:spawn-all` — state-machine actors ([Spec 005](005-StateMachines.md))
 
@@ -91,6 +88,12 @@ Six server-side response-shape fxs (`set-status`, `set-header`, `append-header`,
 ### `:rf.flow/*` — managed derived computation ([Spec 013](013-Flows.md))
 
 The internal-effect cousin. The "external system" is the framework's own scheduler — flows are registered rules that compute on input change and materialise their output into `app-db`. They satisfy the eight properties applied to a derived-state surface: effect-as-data (the registration map), framework-owned execution (the scheduler runs them as the outermost `:after` of every event's interceptor chain in topological order, transforming the pending `:db` effect before the single deferred install — see [013 §Drain integration](013-Flows.md#drain-integration) and [002 §Run-to-completion dispatch](002-Frames.md#run-to-completion-dispatch-drain-semantics)), failure taxonomy (per-flow `:rf.flow/failed` on `:output` throw under the atomicity contract at [013 §Failure semantics](013-Flows.md#failure-semantics) — a flow throw is a pre-install throw, so the pending `:db` effect is **discarded** (no partial commit; prior-flow writes do NOT land; `app-db` is unchanged; no `:rf.event/db-changed`; `:fx` is skipped), `last-inputs` is rolled back so every flow re-attempts on the next drain, the cascade halts, and the router emits `:rf.error/flow-eval-exception` onto the always-on production error-emit substrate ([009 §Error contract](009-Instrumentation.md#error-contract)); registration-time cycles throw `:rf.error/flow-cycle`), trace-bus observability (`:rf.flow/computed` and `:rf.flow/skip` per evaluation, plus `:rf.flow/registered` / `:rf.flow/cleared` lifecycle events), elision composition (`:sensitive?` on flow outputs), retry/abort/teardown (runtime-toggleable via `:rf.fx/reg-flow` / `:rf.fx/clear-flow`), in-flight registry (queryable via the registrar), per-frame scoping (flows are frame-local — see [013 §Frame-scoping](013-Flows.md#frame-scoping)).
+
+### WebSocket — an app/library-built surface (not shipped)
+
+> **re-frame2 does NOT ship a managed WebSocket** (Mike-ruled). The four surfaces above are framework-shipped and framework-enforced; the WebSocket "surface" is **not** — there is no `:rf.ws/*` fx, no reserved `:rf.ws/*` namespace, and no framework contract that anything implements. Apps and library authors supply their own connection surface (or use a community library) appropriate to their needs.
+
+[Pattern-WebSocket](Pattern-WebSocket.md) is listed here because it is the canonical worked example of the eight properties applied **by an app/library** to a long-lived connection: a state machine that owns the socket actor, with connection states `:disconnected` / `:active{:connecting, :authenticating, :connected}` / `:reconnecting` / `:failed`, subscription state and queued sends surviving reconnects via the machine's `:data`, and a connection epoch (the socket-actor's gensym'd id) gating stale replies. The eight properties describe what a *good* app/library implementation looks like — they are a quality yardstick the pattern meets, not a framework-shipped contract the runtime guarantees. Names like `:rf.ws/transport` / `:rf.ws/stale-socket` in that pattern are an app-chosen convention, not a reserved framework namespace.
 
 ## How new managed-effect surfaces inherit the contract
 

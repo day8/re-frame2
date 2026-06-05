@@ -1276,7 +1276,7 @@ The `:sensitive?` flag a `:rf.http/*` trace event carries is the one resolved fo
 | × Spec 014 §Middleware | Request-side interceptors run **before** the privacy machinery reads `:sensitive?` (the interceptor chain may itself attach an `Authorization` header). Headers added by interceptors are subject to the same denylist. |
 | × Spec 014 §Failure categories | Every category that carries body-side payload (`:rf.http/http-4xx`, `:rf.http/http-5xx`, `:rf.http/decode-failure`, `:rf.http/accept-failure`) gets the redaction treatment when sensitive. `:rf.http/aborted` carries no body so no body redaction; headers (the denylist) still apply. |
 | × Spec 005 actor-destroy abort | The in-flight handle propagates the effective `:sensitive?` flag, so the `:rf.http/aborted-on-actor-destroy` emit (issued from the registry namespace, distant from the originating fx ctx) still stamps correctly. |
-| × WebSockets (future) | When `:rf.ws/*` (per [Pattern-WebSocket](Pattern-WebSocket.md)) lands, it inherits the same denylist + per-request / per-call `:sensitive?` machinery; the per-message frame-stamping rule is its own affair, but the request-side concerns are shared. |
+| × WebSockets (app/library-built) | re-frame2 does not ship a managed WebSocket, but an app or library that builds one per [Pattern-WebSocket](Pattern-WebSocket.md) can reuse the same denylist + per-request / per-call `:sensitive?` machinery; the per-message frame-stamping rule is its own affair, but the request-side concerns are shared. |
 
 ### Production elision
 

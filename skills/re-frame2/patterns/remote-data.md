@@ -4,7 +4,7 @@ The standard request-lifecycle convention. A 5-key slice (or one machine region)
 
 > **Mental-model anchor:** this is the **SWR / React-Query "stale-while-revalidate"** shape — the `:loading` vs `:fetching` split IS the SWR distinction (show a spinner on an empty page; keep stale data visible while refreshing). Map that intuition onto the re-frame2 slice below.
 
-RemoteData is the **app-side** lifecycle slice that sits on top of a **managed external effect** — typically `:rf.http/managed`, but the shape composes with any framework-owned surface (`:rf.ws/*` request-reply messages, state-machine `:spawn`'d loaders, `:rf.server/*` per-request fxs). See [`spec/Managed-Effects.md`](../../../spec/Managed-Effects.md) for the umbrella; this leaf names what the *receiving* state looks like once the umbrella's reply lands.
+RemoteData is the **app-side** lifecycle slice that sits on top of a **managed external effect** — typically `:rf.http/managed`, but the shape composes with any managed surface, whether framework-shipped (state-machine `:spawn`'d loaders, `:rf.server/*` per-request fxs) or app/library-built (request-reply messages over a WebSocket connection you build yourself per [Pattern-WebSocket](../../../spec/Pattern-WebSocket.md) — re-frame2 does **not** ship `:rf.ws/*`). See [`spec/Managed-Effects.md`](../../../spec/Managed-Effects.md) for the umbrella; this leaf names what the *receiving* state looks like once the umbrella's reply lands.
 
 ## When to load
 

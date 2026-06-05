@@ -5,13 +5,13 @@
 
 > **Code samples are in ClojureScript** (the CLJS reference). The pattern itself is host-agnostic.
 >
-> `:rf.ws/*` (WebSocket connections) is a **managed external effect** — per [Managed-Effects](Managed-Effects.md), the surface MUST satisfy the eight properties (effect-as-data, framework-owned socket-actor lifecycle, structured failure taxonomy under `:rf.ws/*`, trace-bus observability, `:sensitive?` / `:large?` composition, built-in retry / abort / teardown via the connection state machine, in-flight socket-actor registry, per-frame interceptor scoping).
+> **re-frame2 does NOT ship a managed WebSocket** (Mike-ruled). There is no `:rf.ws/*` fx and no reserved `:rf.ws/*` namespace — apps and library authors supply their own connection surface appropriate to their needs (or use a community library). This doc is a **convention for app & library authors** building a WebSocket connection on re-frame2's [state-machine substrate](005-StateMachines.md). The recommended shape below satisfies the [eight managed-effect properties](Managed-Effects.md) when an app implements it this way — effect-as-data, app-owned socket-actor lifecycle, a structured failure taxonomy under an app-chosen `:rf.ws/*`-style namespace, trace-bus observability, `:sensitive?` / `:large?` composition, retry / abort / teardown via the connection state machine, an in-flight socket-actor registry, and per-frame interceptor scoping — but those properties describe what a *good* implementation looks like, not a framework-shipped contract the runtime guarantees.
 
 ## Role
 
-A **named pattern**, not a Spec. WebSockets do not fit [Pattern-AsyncEffect](Pattern-AsyncEffect.md): they are state-machine-shaped — a long-lived connection with retry, exponential backoff, server-pushed events, heartbeat, subscription management, message correlation, queued sends when disconnected, and re-auth on reconnect. The natural canonical answer is a **state machine that owns the connection lifecycle**.
+A **convention for app & library authors**, not a Spec and not a shipped framework surface. WebSockets do not fit [Pattern-AsyncEffect](Pattern-AsyncEffect.md): they are state-machine-shaped — a long-lived connection with retry, exponential backoff, server-pushed events, heartbeat, subscription management, message correlation, queued sends when disconnected, and re-auth on reconnect. The natural canonical answer is a **state machine that owns the connection lifecycle**.
 
-This doc names that machine's standard shape so per-app instances cite a single canonical description rather than re-deriving the lifecycle each time.
+re-frame2 deliberately does not fold a managed WebSocket into the framework; this doc instead names that machine's standard shape so an app or library that builds its own connection cites a single canonical description rather than re-deriving the lifecycle each time. (The same convention applies to **Server-Sent Events** and **WebRTC peer connections** — see below.)
 
 ## Why WebSocket is not Pattern-AsyncEffect
 
