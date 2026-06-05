@@ -89,6 +89,7 @@
             [re-frame.frame :as frame]
             [re-frame.story.canonical :as canonical]
             [re-frame.story.config :as config]
+            [re-frame.story.play :as play]
             [re-frame.story.registrar :as registrar]
             [re-frame.story.play.runner-events :as runner-events]))
 
@@ -110,14 +111,19 @@
   already ensured it when an `:adapter` was supplied), then runs the
   caller's `:install` thunks against the fresh registry."
   [install]
-  ;; Mirror `re-frame.story/clear-all!` exactly: reset the side-table,
-  ;; reset every leakable process-global config atom (rf2-6ez1u —
+  ;; Mirror `re-frame.story/clear-all!`: reset the side-table, reset every
+  ;; leakable process-global config atom (rf2-6ez1u —
   ;; global-args/global-decorators/editor/project-root/show-sensitive?/
   ;; suppressed-counters; so a `configure!` in one test cannot leak into
-  ;; the next), and reset the canonical-vocab auto-install gate.
+  ;; the next), reset the canonical-vocab auto-install gate, and clear the
+  ;; two per-process play atoms (`pending-exceptions` + `stepper-state`,
+  ;; rf2-eztym.2). Goes BEYOND `clear-all!` by ALSO wiping the per-variant
+  ;; play run-state (`runner-events/clear-all-runs!`) — the test-reset path
+  ;; tears down a frame's full play surface, not just the registry.
   (registrar/clear-all!)
   (config/reset-all!)
   (canonical/reset-installed-flag!)
+  (play/clear-all-play-state!)
   (runner-events/clear-all-runs!)
   (canonical/install!)
   (frame/ensure-default-frame!)

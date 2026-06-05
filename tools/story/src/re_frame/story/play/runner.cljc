@@ -478,21 +478,6 @@
              :results     []
              :failures    0)))
 
-(defn record-step-result
-  "Append a step-result record to `:results`, bump `:step-idx`, and
-  bump `:failures` when the record is an assertion that failed. Pure
-  data → data. The caller decides whether the run continues after a
-  failed assertion — by IMPL-SPEC §2.3 we record, never throw, so the
-  default path runs every step."
-  [state result]
-  (-> state
-      (update :results conj result)
-      (update :step-idx inc)
-      (cond->
-        (and (not (:passed? result))
-             (some? (:passed? result)))
-        (update :failures inc))))
-
 (defn- cannot-run-step?
   "True iff a step-result is a `:cannot-run` refusal — a capability /
   boundary refusal (`:cannot-run?`) or a no-DOM skip (`:skipped?`). These
@@ -500,6 +485,30 @@
   not be attempted, not a genuine fail."
   [r]
   (boolean (or (:cannot-run? r) (:skipped? r))))
+
+(defn record-step-result
+  "Append a step-result record to `:results`, bump `:step-idx`, and
+  bump `:failures` when the record is an assertion that GENUINELY failed.
+  Pure data → data. The caller decides whether the run continues after a
+  failed assertion — by IMPL-SPEC §2.3 we record, never throw, so the
+  default path runs every step.
+
+  `:failures` counts only genuine failures — a `false?` `:passed?` result
+  that is NOT a `:cannot-run` refusal. A `:cannot-run?` / `:skipped?`
+  refusal sets `:passed?` false but is the distinct THIRD status (it could
+  not be attempted, not a fail), so it must NOT bump `:failures` — otherwise
+  `finish`'s `:status :cannot-run` verdict and this `:failures` count
+  disagree, and a CI consumer keying off `:failures > 0` would flag a
+  cannot-run-only run as red (rf2-eztym.1). This uses the same predicate
+  (`cannot-run-step?`) `finish` consults for `real-failures`."
+  [state result]
+  (-> state
+      (update :results conj result)
+      (update :step-idx inc)
+      (cond->
+        (and (false? (:passed? result))
+             (not (cannot-run-step? result)))
+        (update :failures inc))))
 
 (defn finish
   "Transition `state` to the terminal `:pass` / `:fail` / `:cannot-run`

@@ -198,6 +198,51 @@
     (is (= 1 (:step-idx s1)))
     (is (zero? (:failures s1)))))
 
+(deftest record-step-result-cannot-run-refusal-does-not-bump-failures
+  ;; rf2-eztym.1 — a :cannot-run / :skipped? refusal sets :passed? false but is
+  ;; the distinct THIRD status, NOT a genuine fail. record-step-result must NOT
+  ;; count it toward :failures, else the emitted run-state's :failures and
+  ;; finish's :status :cannot-run verdict disagree and a CI consumer keying off
+  ;; :failures > 0 would flag a cannot-run-only run as red.
+  (testing "a no-DOM :skipped? refusal does NOT bump :failures"
+    (let [step  [:assert-dom "[data-test=x]" :visible]
+          s0    (-> {:script [step]}
+                    runner/parse-spec
+                    runner/initial-state
+                    (runner/start 0))
+          s1    (runner/record-step-result
+                  s0 (runner/step-fail 0 step {:skipped? true :message "no DOM"}))]
+      (is (= 1 (:step-idx s1)))
+      (is (zero? (:failures s1))
+          "a :skipped? refusal is not a genuine failure")))
+  (testing "a boundary :cannot-run? refusal does NOT bump :failures"
+    (let [step  [:assert-dom "[data-test=x]" :visible]
+          s0    (-> {:script [step]}
+                    runner/parse-spec
+                    runner/initial-state
+                    (runner/start 0))
+          s1    (runner/record-step-result
+                  s0 (runner/step-fail 0 step {:cannot-run? true :message "refused"}))]
+      (is (zero? (:failures s1))
+          "a :cannot-run? refusal is not a genuine failure"))))
+
+(deftest cannot-run-only-run-has-zero-failures-and-cannot-run-status
+  ;; rf2-eztym.1 — the report-shape invariant end to end: a run whose ONLY
+  ;; non-pass step is a refusal must emit BOTH :status :cannot-run AND
+  ;; :failures 0 so the two fields cannot disagree in the CI/JSON report.
+  (let [step  [:assert-dom "[data-test=x]" :visible]
+        state (-> {:script [[:dispatch [:a]] step]}
+                  runner/parse-spec
+                  runner/initial-state
+                  (runner/start 0)
+                  (runner/record-step-result (runner/step-pass 0 [:dispatch [:a]]))
+                  (runner/record-step-result
+                    (runner/step-fail 1 step {:skipped? true :message "no DOM"}))
+                  (runner/finish 100))]
+    (is (= :cannot-run (:status state)))
+    (is (zero? (:failures state))
+        ":failures and :status must agree — a cannot-run-only run is NOT red")))
+
 (deftest finish-transitions-by-failure-count
   (let [base (-> {:script [[:assert-db [:k] 1]]}
                  runner/parse-spec

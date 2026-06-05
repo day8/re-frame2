@@ -25,6 +25,7 @@
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.story :as story]
             [re-frame.story.config :as config]
+            [re-frame.story.play :as play]
             [re-frame.story.test-support :as story-test]
             [re-frame.story.play.runner-events :as runner-events]))
 
@@ -108,6 +109,52 @@
     ;; clean across the suite's deterministic-but-unordered test order).
     (is (contains? @runner-events/run-state :story.fixture/runs)
         "the run recorded its run-state for this frame")))
+
+;; ---- 2b. play-atom isolation (rf2-eztym.2) -------------------------------
+;;
+;; play.cljc owns two per-process defonce atoms keyed by frame-id —
+;; `pending-exceptions` and `stepper-state`. Per-frame teardown
+;; (`frames/destroy!`) evicts them one frame at a time, but a registry reset
+;; that bypasses frame teardown previously left both populated. The canonical
+;; test-reset path (`story/clear-all!` → `play/clear-all-play-state!`, and
+;; `story-reset!` via the fixture) must now wipe both, else a stepper /
+;; pending-exception session in one test leaks into the next: a stale
+;; `stepper-state` entry makes `play-stepper-active?` report a session the
+;; later test never began.
+
+(deftest clear-all-evicts-play-atoms
+  (testing "story/clear-all! wipes pending-exceptions + stepper-state — the
+            remaining un-reset per-process play state (rf2-eztym.2)"
+    ;; Dirty both atoms directly (the per-frame mutators are private; these
+    ;; are the slots a real begin-stepper! / handler-exception capture fill).
+    (reset! play/pending-exceptions {:story.leak/frame [{:op-type :error}]})
+    (reset! play/stepper-state      {:story.leak/frame {:remaining [] :ran [] :results []}})
+    (is (play/play-stepper-active? :story.leak/frame)
+        "sanity: the stale stepper session reads active before the reset")
+    (story/clear-all!)
+    (is (= {} @play/pending-exceptions)
+        "clear-all! emptied pending-exceptions")
+    (is (= {} @play/stepper-state)
+        "clear-all! emptied stepper-state")
+    (is (not (play/play-stepper-active? :story.leak/frame))
+        "the stale stepper session is gone — play-stepper-active? reads false")))
+
+(deftest story-reset-evicts-play-atoms
+  (testing "the fixture's story-reset! (run via with-clean-registry) fully
+            clears both play atoms, so no stepper / pending-exception state
+            bleeds across a reset that bypasses frame teardown (rf2-eztym.2)"
+    (reset! play/pending-exceptions {:story.leak/frame [{:op-type :error}]})
+    (reset! play/stepper-state      {:story.leak/frame {:remaining [] :ran [] :results []}})
+    (story-test/with-clean-registry
+      {:adapter plain-atom/adapter}
+      (fn []
+        (is (= {} @play/pending-exceptions)
+            "story-reset! emptied pending-exceptions inside the bracket")
+        (is (= {} @play/stepper-state)
+            "story-reset! emptied stepper-state inside the bracket")
+        (is (not (play/play-stepper-active? :story.leak/frame))
+            "no stale stepper session survives the reset")
+        nil))))
 
 ;; ---- 3. with-clean-registry — the programmatic bracket -------------------
 

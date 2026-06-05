@@ -195,6 +195,12 @@
           (is (= "alice" (:text (first type-entries)))
               "the entry carries the final typed value"))))))
 
+;; NOTE: the rf2-eztym.3 stop-before-flush regression lives in the sibling
+;; `dom-capture-stop-flush-dom-cljs-test` (the `-dom-cljs-test` suffix runs
+;; it under the `:browser-test` gate against a real DOM — the only place the
+;; post-stop-flush bug is observable; this `-cljs-test` file's bodies
+;; short-circuit on node).
+
 (deftest change-event-flushes-immediately
   (when (dom-available?)
     (testing "a `change` event drains the per-selector type buffer"

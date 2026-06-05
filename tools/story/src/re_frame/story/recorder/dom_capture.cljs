@@ -113,7 +113,11 @@
 ;; ---- per-selector type-debounce buffer ---------------------------------
 
 (defonce ^:private type-buffer
-  ;; { selector -> {:value <last-text> :timer <id-or-nil>} }
+  ;; { selector -> {:value <last-text> :t <capture-ms> :timer <id-or-nil>} }
+  ;; `:t` is the recording-relative timestamp stamped at BUFFER time (while
+  ;; `:recording?` is true), so the drain can flush the buffered keystroke
+  ;; with its capture-time `:t` even when the flush fires AFTER the recording
+  ;; was stopped (rf2-eztym.3).
   (atom {}))
 
 (defn- now-ms []
@@ -160,7 +164,17 @@
   "Force a flush for `selector` (or every selector if `selector` is
   nil). Idempotent against an empty buffer. Public so the recorder
   stop path can drain pending type entries before the recording
-  closes."
+  closes.
+
+  Each buffered entry is appended with its capture-time `:t` (stamped at
+  BUFFER time, while `:recording?` was true) via
+  `recorder/record-dom-event-buffered!` — NOT via `record-dom-type!`'s
+  `recording-now-ms` re-read (rf2-eztym.3). This is what lets the final
+  keystroke survive a flush that fires AFTER the recording was stopped: the
+  debounce timer (or the `remove!`/stop drain) can run once `:recording?` is
+  already false without the entry being silently dropped. A defensive
+  fallback to `recording-now-ms` covers the (now-unreachable) case of a
+  buffer entry that never got a stamp."
   ([] (flush-type-buffer! nil))
   ([selector]
    (let [snapshot @type-buffer
@@ -168,7 +182,8 @@
      (doseq [k keys-to-flush]
        (when-let [entry (get snapshot k)]
          (clear-buffer-timer! entry)
-         (record-dom-type! k (:value entry))))
+         (when-let [t (or (:t entry) (recording-now-ms))]
+           (recorder/record-dom-event-buffered! [:dom/type k (:value entry) t]))))
      (if selector
        (swap! type-buffer dissoc selector)
        (reset! type-buffer {})))
@@ -188,12 +203,19 @@
         (swap! type-buffer assoc-in [selector :timer] timer)))))
 
 (defn- buffer-type!
-  "Stash `value` for `selector` and (re)schedule the debounce flush."
+  "Stash `value` for `selector` and (re)schedule the debounce flush.
+
+  The capture-time `:t` is stamped HERE (while `:recording?` is true, since
+  this only runs under `should-capture?`), so the flush can append the
+  buffered keystroke with its real capture timestamp even when the flush
+  fires after the recording was stopped (rf2-eztym.3)."
   [selector value]
   (when (some? selector)
     (let [existing (get @type-buffer selector)]
       (clear-buffer-timer! existing))
-    (swap! type-buffer assoc selector {:value value :timer nil})
+    (swap! type-buffer assoc selector {:value value
+                                       :t     (recording-now-ms)
+                                       :timer nil})
     (schedule-type-flush! selector)))
 
 ;; ---- predicates ---------------------------------------------------------
