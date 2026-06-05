@@ -514,6 +514,7 @@
   ["re-frame.machines" "destroy-machine-fx"]    {:tier :internal-public :owner "005" :status "v1"}
   ["re-frame.machines" "after-schedule-fx"]     {:tier :internal-public :owner "005" :status "v1"}
   ["re-frame.machines" "after-cancel-fx"]       {:tier :internal-public :owner "005" :status "v1"}
+  ["re-frame.machines" "dispatch-to-system-fx"] {:tier :internal-public :owner "005" :status "v1"}
   ["re-frame.machines" "validate-machine!"]     {:tier :internal-public :owner "005" :status "v1"}
   ["re-frame.machines" "validate-machine-data!"] {:tier :internal-public :owner "005" :status "v1"}
   ["re-frame.machines" "validate-spawn-data!"]  {:tier :internal-public :owner "005" :status "v1"}
