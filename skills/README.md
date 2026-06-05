@@ -109,8 +109,9 @@ re-frame2 ships **eight** skills, grouped by the situation they cover:
 - **[`re-frame2-pair-retro/`](./re-frame2-pair-retro/)** — meta-skill
   for `re-frame2-pair`. Retrospects on a pair-programming session,
   identifies friction and wasted effort, and proposes improvements to
-  `re-frame2-pair` itself (or routes upstream beads to re-frame2 when
-  the friction is framework-shaped rather than tool-shaped). Activates
+  `re-frame2-pair` itself (or routes a GitHub issue upstream to
+  `day8/re-frame2` when the friction is framework-shaped rather than
+  tool-shaped). Activates
   on explicit pull ("retro on this pair session", "review my pair
   session") or on a post-error within a live re-frame2-pair session.
 
@@ -149,7 +150,7 @@ of duplicating.
 | Migrate an existing re-frame v1.x ClojureScript codebase to re-frame2 | "migrate to re-frame2", "upgrade re-frame", "v1 to v2", "what breaks under re-frame2", or any v1 surface (`re-frame.db`, `dispatch-with`, `reg-global-interceptor`, `reg-sub-raw`, `^:flush-dom`, `re-frame.alpha`, `re-frame-test`, old top-level `:dispatch` / `:dispatch-n` effect-map keys) | [`re-frame-migration/`](./re-frame-migration/) |
 | Tour the **Xray** in-app devtools panel — how to launch it (true-inline, pop-out, programmatic `init!`, hotkeys, the Dynamic ↔ Static mode toggle) or **which tab / mode surfaces X** | "open Xray", "where is X in Xray", "which Xray panel/tab shows…", "Xray Static mode", "browse registered machines/routes/schemas in Xray", "Ctrl+Shift+C", "Xray hotkey", "Xray popout", "Xray machine inspector", "Xray epoch cascade", "where do Xray issues show up" — the user wants to *read* the panel, not drive a runtime | [`re-frame2-xray/`](./re-frame2-xray/) |
 | Pair-program against a **running** re-frame2 application — attach to a live shadow-cljs nREPL, inspect a frame's `app-db`, dispatch events, hot-swap handlers, walk traces / epochs, time-travel with `restore-epoch` | live runtime is involved; user is operating on (or wants to operate on) a running local app | [`re-frame2-pair/`](./re-frame2-pair/) |
-| Retrospect on a `re-frame2-pair` session and turn it into prioritised improvement ideas for the pair-tool skill, scripts, MCP surface, or upstream `re-frame2` Tool-Pair contract | concrete `re-frame2-pair` session in the conversation **or** a user-supplied recap of one; user explicitly asks for a retro ("retro on this pair session", "review my re-frame2-pair session", "draft a bead about that"), OR a post-error post-mortem trigger fires within a live re-frame2-pair session | [`re-frame2-pair-retro/`](./re-frame2-pair-retro/) |
+| Retrospect on a `re-frame2-pair` session and turn it into prioritised improvement ideas for the pair-tool skill, scripts, MCP surface, or upstream `re-frame2` Tool-Pair contract | concrete `re-frame2-pair` session in the conversation **or** a user-supplied recap of one; user explicitly asks for a retro ("retro on this pair session", "review my re-frame2-pair session", "draft an issue about that"), OR a post-error post-mortem trigger fires within a live re-frame2-pair session | [`re-frame2-pair-retro/`](./re-frame2-pair-retro/) |
 | Build a **new re-frame2 implementation** in one of the eight in-scope JS-cross-compile-to-React+VDOM host languages (TypeScript, F# / Fable, Kotlin/JS, Squint, Scala.js, PureScript, Melange / ReScript / Reason — plus ClojureScript, the reference) — porting the pattern, not building an app on the CLJS reference | "port re-frame2", "implement re-frame2 in &lt;language&gt;", "second re-frame2 implementation", "implementor checklist", "conformance corpus", or any prompt about building re-frame2 itself | [`re-frame2-implementor/`](./re-frame2-implementor/) |
 | Critique **existing** re-frame2 ClojureScript code on explicit pull — review a body of source files (or a user-supplied snippet) against the re-frame2 anti-pattern catalogue, surface findings cross-linked to canonical idioms, and optionally propose inline fixes | "review my re-frame2 code for anti-patterns", "audit this against re-frame2 best practices", "any improvements?", "is there a better re-frame2 pattern here", "spot any anti-patterns" — **and** a body of re-frame2 source is in scope (read, edited, or supplied as a snippet) | [`re-frame2-improver/`](./re-frame2-improver/) |
 | Read re-frame2's full API reference, EP design rationale, principles, conventions, or spec corpus | spec / architecture / design discussion without a running app or active authoring task | [`SKILL-REDIRECT.md`](../SKILL-REDIRECT.md) |
@@ -166,10 +167,15 @@ of duplicating.
 
 ### Routing for friction found mid-pair retro
 
-`re-frame2-pair-retro` proposals route as follows:
+`re-frame2-pair-retro` is a **published** skill: it files **GitHub issues
+against `day8/re-frame2`**, never `bd` beads (`bd` is the monorepo's internal
+tracker and has no place in a skill shipped to consumer projects — see
+[§Published-skill `allowed-tools` baseline](#published-skill-allowed-tools-baseline-security-policy)).
+Both kinds of friction target the same repo, distinguished by the `pair-mcp`
+label:
 
-- **Pair-tool friction** (SKILL.md wording, scripts, recipes, structured-results shapes, attach/discovery, cross-platform behavior) → bead against `re-frame2-pair`.
-- **Framework / Tool-Pair contract friction** (missing trace events, gaps in `epoch-history` / `restore-epoch` failure modes, missing registrar query surfaces, source-coord annotation gaps, schema-reflection shortcomings) → bead against `re-frame2` (upstream).
+- **Pair-tool friction** (SKILL.md wording, scripts, recipes, structured-results shapes, attach/discovery, cross-platform behavior) → GitHub issue against `day8/re-frame2` **with** the `pair-mcp` label.
+- **Framework / Tool-Pair contract friction** (missing trace events, gaps in `epoch-history` / `restore-epoch` failure modes, missing registrar query surfaces, source-coord annotation gaps, schema-reflection shortcomings) → GitHub issue against `day8/re-frame2` **without** the `pair-mcp` label (upstream framework friction). Name the specific Tool-Pair surface from [`re-frame2-pair-retro/SKILL.md` §Filing improvements](./re-frame2-pair-retro/SKILL.md#filing-improvements).
 
 ## Layout convention
 

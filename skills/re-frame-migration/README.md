@@ -76,6 +76,12 @@ skills/re-frame-migration/
     └── authoring-prompt.md        # One-shot reauthor prompt
 ```
 
+## Install
+
+`re-frame-migration` ships as part of the [`day8/re-frame2`](https://github.com/day8/re-frame2) monorepo. It carries `package.json` and `.claude-plugin/plugin.json` packaging metadata for eventual Agent-Skill / Claude-Code-Plugin distribution, but the supported install today is to **link** the skill from a full monorepo clone into `~/.claude/skills/` (the repo-root `scripts/install-skills.sh` / `scripts/install-skills.ps1` link every skill at once). Link, never copy — a `cp -r` snapshot drifts from the maintained source.
+
+> **The supported install is a link from a full monorepo clone — not a standalone copy.** This skill loads the shared shell-safe filing recipe from a **sibling** directory, [`../shared/issue-filing.md`](../shared/issue-filing.md), when it files an ambiguous-rule GitHub issue. That `../shared/` path resolves **only** when the skill sits inside a full re-frame2 checkout. The npm tarball and the plugin bundle deliberately do **not** carry `shared/` (`npm pack` ships only this skill's own directory; a `files` allow-list cannot reach a sibling) — the shared leaf is a single boundary owned once under `skills/shared/`, not duplicated into each consumer package. A standalone tarball / plugin / copied install that does not also bring `skills/shared/` alongside the skill will hit a broken `../shared/issue-filing.md` link and silently lose the shell-safe `gh issue create` filing/redaction protocol. Link from a clone, or vendor `skills/shared/` as a peer.
+
 ## Source of truth
 
 `migration/from-re-frame-v1/README.md` at the repo root. Every rule the skill applies cites an `M-N` or `O-N` rule id from that doc. If the skill and the migration corpus disagree, the corpus wins.
