@@ -17,11 +17,13 @@
             [re-frame.mcp-base.vocab :as vocab]
             [re-frame.schemas :as schemas]
             [re-frame.story :as story]
+            [re-frame.story.assertions :as assertions]
             [re-frame.story.recorder :as recorder]
             [re-frame.story-mcp.config :as config]
             [re-frame.story-mcp.protocol :as proto]
             [re-frame.story-mcp.server :as server]
             [re-frame.story-mcp.tools.args :as targs]
+            [re-frame.story-mcp.tools.cljs-resolve :as cljs-resolve]
             [re-frame.story-mcp.tools.wire-pipeline :as wire-pipeline]
             [re-frame.story-mcp.tools.dev :as dev]
             [re-frame.story-mcp.tools.egress :as egress]
@@ -445,6 +447,31 @@
     (is (success? r))
     (is (vector? (-> r :structuredContent :substrates)))))
 
+;; rf2-4sgak — pin the CLJS-var resolver contract. The senior-review
+;; finding suspected the substrate bridge resolved an ALIAS symbol that
+;; `clojure.core/resolve` would not honour. In fact `resolve` DOES honour
+;; the calling ns's aliases, and the substrate var is nil on the JVM purely
+;; because it is CLJS-only (a `#?(:cljs …)` def with no JVM Var). These
+;; tests pin both facts so the contract can't silently regress.
+(deftest resolve-cljs-var-finds-fully-qualified-jvm-var
+  (testing "a fully-qualified symbol for a real JVM-side (CLJC) var resolves"
+    (is (= #'re-frame.story/canonical-assertion-ids
+           (cljs-resolve/resolve-cljs-var 're-frame.story/canonical-assertion-ids))
+        "the resolver returns the underlying Var for a JVM-resident symbol"))
+  (testing "an unresolvable symbol yields nil rather than throwing"
+    (is (nil? (cljs-resolve/resolve-cljs-var 're-frame.story/no-such-var-xyz)))
+    (is (nil? (cljs-resolve/resolve-cljs-var 'no.such.ns/whatever)))))
+
+(deftest registered-substrates-degrades-empty-on-jvm-host
+  ;; The CLJS-only `re-frame.story/registered-substrates` has no JVM Var, so
+  ;; a JVM host reads the documented empty surface (NOT an error). This is
+  ;; the correct degradation, not the "always degrades" bug the finding
+  ;; suspected — the `:cljs` accessor branch reads the live registry when
+  ;; these namespaces are hosted in a CLJS runtime.
+  (testing "the accessor + its set form both read empty on a JVM host"
+    (is (= [] (cljs-resolve/registered-substrates)))
+    (is (= #{} (cljs-resolve/registered-substrates-set)))))
+
 ;; ---------------------------------------------------------------------------
 ;; Docs tools
 ;; ---------------------------------------------------------------------------
@@ -581,6 +608,42 @@
     (is (some #(= :rf.assert/path-equals (:id %)) (:canonical s)))
     (is (some #(= :rf.assert/no-warnings (:id %)) (:canonical s)))
     (is (some #(= :rf.assert/schema-error (:id %)) (:canonical s)))))
+
+(deftest list-assertions-registered-covers-plan-compiler-vocabulary
+  ;; rf2-4sgak — :registered MUST advertise the FULL vocabulary the Story
+  ;; plan compiler accepts (`assertions/known-assertion-ids`, the SAME set
+  ;; `plan.cljc` validates authored assertion atoms against). Previously it
+  ;; mirrored only `canonical-assertion-ids`, so MCP agents could not
+  ;; discover the DOM / visual / a11y / reactive-count ids the compiler
+  ;; would accept and fell back to stale prose.
+  (testing ":registered == the plan compiler's known-assertion-ids set"
+    (let [r (invoke "list-assertions" {})
+          s (:structuredContent r)]
+      (is (success? r))
+      (is (= (set assertions/known-assertion-ids)
+             (set (:registered s)))
+          ":registered must equal the plan compiler's known-assertion-ids"))))
+
+(deftest list-assertions-registered-surfaces-browser-tier-families
+  ;; rf2-4sgak — the specific browser-tier ids the canonical doc-vec does
+  ;; NOT cover but the plan compiler accepts: DOM, visual, a11y,
+  ;; reactive-count. A regression that re-narrowed :registered to the
+  ;; canonical eight would drop these and fail here.
+  (testing ":registered carries the DOM / visual / a11y / reactive families"
+    (let [r        (invoke "list-assertions" {})
+          reg      (set (:registered (:structuredContent r)))
+          expected #{:rf.assert/dom-visible :rf.assert/dom-hidden
+                     :rf.assert/dom-text
+                     :rf.assert/visual-snapshot :rf.assert/a11y
+                     :rf.assert/a11y-structural
+                     :rf.assert/caused :rf.assert/no-cascade-rerender}]
+      (is (success? r))
+      (is (set/subset? expected reg)
+          (str ":registered missing browser-tier ids: "
+               (set/difference expected reg)))
+      ;; And every canonical id is still present in :registered.
+      (is (set/subset? (set (story/canonical-assertion-ids)) reg)
+          ":registered must remain a superset of the canonical ids"))))
 
 (deftest variant-edn-roundtrips
   (testing "variant->edn returns readable EDN text"
