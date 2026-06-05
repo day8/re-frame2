@@ -180,6 +180,63 @@ test('Xray CLJS src change runs cljs (node-test compiles tools/xray) (rf2-f79t8)
   assert.equal(result.cljs_node_test, 'true');
 });
 
+// rf2-jdj17.1 — template_expensive false-green fix. The template's
+// generated `:app` build transitively compiles against tools/xray
+// (:devtools/preloads [day8.re-frame2-xray.preload]),
+// implementation/schemas (events.cljs side-loads re-frame.schemas;
+// schema.cljs calls reg-app-schema), and tools/story (the with-story
+// scaffold requires re-frame.story). The ONLY PR-time gate that compiles
+// the emitted `:app` (emitted_test_run_test, gated on template_expensive)
+// must therefore RUN when any of those three surfaces changes — else a
+// breaking change merges GREEN at PR time and surfaces only in the
+// nightly cron. These assertions lock the classifier OR-ing
+// template_expensive into the xray/story/schemas cases.
+
+test('Xray src change arms template_expensive (generated :app preloads xray) (rf2-jdj17.1)', () => {
+  const result = classify('tools/xray/src/day8/re_frame2_xray/preload.cljs');
+  assert.equal(result.template_expensive, 'true');
+});
+
+test('Story src change arms template_expensive (with-story scaffold requires re-frame.story) (rf2-jdj17.1)', () => {
+  const result = classify('tools/story/src/re_frame/story.cljs');
+  assert.equal(result.template_expensive, 'true');
+});
+
+test('Schemas change arms template_expensive (generated events/schema compile against re-frame.schemas) (rf2-jdj17.1)', () => {
+  const result = classify('implementation/schemas/src/re_frame/schemas.cljc');
+  assert.equal(result.template_expensive, 'true');
+});
+
+test('Story spec-md-only change does NOT arm template_expensive (cannot break :app compile) (rf2-jdj17.1)', () => {
+  const result = classify('tools/story/spec/002-Runtime.md');
+  assert.equal(result.template_expensive, 'false');
+});
+
+test('Xray spec-md-only change does NOT arm template_expensive (rf2-jdj17.1)', () => {
+  const result = classify('tools/xray/spec/017-Test-Coverage-Matrix.md');
+  assert.equal(result.template_expensive, 'false');
+});
+
+test('Other per-feature artefact (machines) does NOT arm template_expensive — not in scaffold (rf2-jdj17.1)', () => {
+  const result = classify('implementation/machines/src/re_frame/machines.cljc');
+  assert.equal(result.template_expensive, 'false');
+});
+
+test('tools/template change still arms template_expensive (regression) (rf2-jdj17.1)', () => {
+  const result = classify('tools/template/src/day8/re_frame2_template/hooks.clj');
+  assert.equal(result.template_expensive, 'true');
+});
+
+test('Core change still arms template_expensive (regression) (rf2-jdj17.1)', () => {
+  const result = classify('implementation/core/src/re_frame/core.cljc');
+  assert.equal(result.template_expensive, 'true');
+});
+
+test('Adapter change still arms template_expensive (regression) (rf2-jdj17.1)', () => {
+  const result = classify('implementation/adapters/reagent/src/re_frame/adapter/reagent.cljs');
+  assert.equal(result.template_expensive, 'true');
+});
+
 // rf2-f79t8 (a) — workflow-level shape: jvm-core + cljs must be
 // job-level gated (needs + if), NOT trigger-filtered, and the
 // pull_request trigger must stay unfiltered so the aggregator is always

@@ -195,6 +195,23 @@ else
         cljs_browser=true
         cljs_prod=true
         bundle_isolation=true
+        # rf2-jdj17.1 — false-green fix. The template's generated `:app`
+        # build compiles `day8/re-frame2-schemas` (events.cljs side-loads
+        # re-frame.schemas + re-frame.schemas.malli; schema.cljs calls
+        # rf/reg-app-schema). The ONLY PR-time gate that compiles the
+        # emitted `:app` (emitted_test_run_test, RF2_TEMPLATE_RUN_EMITTED_TESTS)
+        # fires only under template_expensive. So a PR breaking the
+        # re-frame.schemas / reg-app-schema surface used to merge GREEN at
+        # PR time and surface only in the nightly cron. Fire
+        # template_expensive for an implementation/schemas/* change so
+        # jvm-tools-template runs the emitted-app compile at PR time.
+        # (The other per-feature artefacts here — machines/routing/flows/
+        # http/ssr/ssr-ring/epoch — are NOT pulled into today's scaffold,
+        # so they do not arm template_expensive; add them here if a future
+        # scaffold flag wires one in.)
+        case "$file" in
+          implementation/schemas/*) template_expensive=true ;;
+        esac
         ;;
       spec/conformance/fixtures/*)
         # rf2-qmiiz — Fixtures under spec/conformance/fixtures/*.edn
@@ -280,11 +297,29 @@ else
         # deps.edn, README, EDN, …) still fire the probes conservatively.
         case "$file" in
           tools/story/spec/*.md|tools/xray/spec/*.md)
-            : # spec doc only — no runtime/JVM/MCP/CLJS fan-out
+            : # spec doc only — no runtime/JVM/MCP/CLJS/template fan-out
             ;;
           *)
             tools_jvm=true
             mcp_conformance=true
+            # rf2-jdj17.1 — false-green fix. The template's generated
+            # `:app` build compiles against Story + Xray: the with-story
+            # scaffold's core requires re-frame.story and calls
+            # story/mount-shell! / unmount-shell!, and EVERY scaffold wires
+            # day8.re-frame2-xray.preload via :devtools/preloads in
+            # shadow-cljs.edn. The ONLY PR-time gate that compiles the
+            # emitted `:app` (emitted_test_run_test,
+            # RF2_TEMPLATE_RUN_EMITTED_TESTS) fires only under
+            # template_expensive — so a PR breaking the re-frame.story
+            # shell API or renaming/removing the xray preload ns used to
+            # merge GREEN at PR time and surface only in the nightly cron
+            # (generated apps then fail their first `shadow-cljs watch app`
+            # / `release app`). Fire template_expensive for any non-spec-md
+            # Story/Xray change so jvm-tools-template runs the emitted-app
+            # compile at PR time. Scoped exactly like tools_jvm/mcp above:
+            # a pure spec-md change can't break the generated `:app`
+            # compile, so it stays excluded.
+            template_expensive=true
             ;;
         esac
         # story_xray_browser is narrowed (rf2-k9ekz): it fires ONLY when

@@ -1,15 +1,43 @@
 (ns day8.re-frame2-template.version-lockstep-test
   "Pin-lockstep guard for the template's inline version literals
-  (rf2-0kcsu; deps-new port for rf2-c2770).
+  (rf2-0kcsu; deps-new port for rf2-c2770; substrate + clojure(script)
+  pins added rf2-jdj17.3).
 
   Principle P5 (tools/template/spec/Principles.md) declares that the
-  template's three pin literals — `:rf2-version`, `:shadow-version`,
-  `:react-version` — are bumped in lockstep with their external sources
-  of truth:
+  template's pin literals are bumped in lockstep with their external
+  sources of truth in the implementation reference tree. The guarded
+  pins:
 
     - `:rf2-version`    ↔ repo-root `VERSION`
     - `:shadow-version` ↔ `implementation/package.json` shadow-cljs
     - `:react-version`  ↔ `implementation/package.json` react (and react-dom)
+
+  rf2-jdj17.3 — the substrate-lib + clojure(script) pins are now guarded
+  too (they were latent-only before: the emitted-app smoke compiles
+  against the TEMPLATE's own pin, never the impl tree's, so a drift was
+  invisible to every gate):
+
+    - reagent/reagent          ↔ `implementation/core/deps.edn` :deps
+    - com.pitch/uix.core       ↔ `implementation/adapters/uix/deps.edn` :deps
+    - com.pitch/uix.dom        ↔ `implementation/adapters/uix/deps.edn`
+                                  :test alias :extra-deps (the shipped
+                                  uix adapter does NOT require uix.dom —
+                                  rf2-sl7ml — so the impl pin lives in
+                                  the test/testbed classpath; the
+                                  template's :app needs it for its DOM
+                                  mount)
+    - lilactown/helix          ↔ `implementation/adapters/helix/deps.edn` :deps
+    - org.clojure/clojure      ↔ `implementation/core/deps.edn` :deps
+    - org.clojure/clojurescript ↔ `implementation/core/deps.edn` :deps
+
+  Template-owned (NOT guarded — no single impl source-of-truth):
+  cljfmt, clj-kondo/clj-kondo, org.clojure/tools.namespace. The impl
+  tree pins none of these as deps.edn coords — clj-kondo is installed
+  via a script in .github/workflows/lint.yml, cljfmt is not an impl dep,
+  and tools.namespace is a template-only convenience for the generated
+  `:shadow` alias. They are intentionally template-owned; bump them
+  against upstream releases, not the impl tree. (If the impl tree ever
+  grows a canonical pin for one of these, add it to the guarded set.)
 
   The package.json reader searches both `:dependencies` and
   `:devDependencies` (first hit wins) so the guard doesn't false-fail
@@ -27,7 +55,8 @@
             [clojure.java.io :as io]
             [clojure.string :as string]
             [day8.re-frame2-template.test-support
-             :refer [tmp-dir delete-recursively repo-root run-template!]]))
+             :refer [read-edn tmp-dir delete-recursively repo-root
+                     run-template!]]))
 
 ;; --- Helpers ---------------------------------------------------------------
 ;;
@@ -90,6 +119,38 @@
                            " in :dependencies or :devDependencies of "
                            "implementation/package.json")
                       {:pkg pkg})))
+    pin))
+
+;; --- deps.edn :mvn/version readers --------------------------------------
+
+(defn- mvn-pin-in
+  "Pull the `:mvn/version` string for coord `sym` out of a deps-map
+  fragment `m` (e.g. a `:deps` map or an alias's `:extra-deps` map).
+  Returns nil when `sym` is absent or has no `:mvn/version` (a
+  :local/root / :git coord)."
+  [m sym]
+  (get-in m [sym :mvn/version]))
+
+(defn- read-impl-deps-pin
+  "Read the `:mvn/version` for coord `sym` from the deps.edn at
+  `rel-path` (relative to repo-root). Searches `:deps` first, then every
+  alias's `:extra-deps` / `:replace-deps` (first hit wins). Throws with a
+  loud message if the coord isn't found with an `:mvn/version` anywhere —
+  a shape drift in the impl tree must fail this guard, not silently
+  skip it."
+  [rel-path sym]
+  (let [deps  (read-edn (io/file (repo-root) rel-path))
+        alias-maps (->> (vals (:aliases deps))
+                        (mapcat (juxt :extra-deps :replace-deps))
+                        (remove nil?))
+        pin   (or (mvn-pin-in (:deps deps) sym)
+                  (some #(mvn-pin-in % sym) alias-maps))]
+    (when-not pin
+      (throw (ex-info (str "Couldn't find an :mvn/version pin for " sym
+                           " in :deps or any alias of " rel-path
+                           " — impl-tree shape drift; the lockstep guard "
+                           "can't read its source of truth.")
+                      {:coord sym :deps-file rel-path})))
     pin))
 
 ;; --- Template literal extraction ----------------------------------------
@@ -180,3 +241,103 @@
                    "tools/template/src/day8/re_frame2_template/hooks.clj.")))
         (finally
           (delete-recursively tmp))))))
+
+;; --- substrate + clojure(script) lockstep (rf2-jdj17.3) -----------------
+;;
+;; The emitted deps.edn is valid EDN, so we read the pin straight off the
+;; parsed map rather than regexing the text. `emit-deps-pin` generates
+;; the per-substrate scaffold once and pulls the `:mvn/version` for a
+;; coord out of its `:deps`.
+
+(defn- emit-deps-pin
+  "Generate the `substrate` scaffold into `tmp`, read its emitted
+  deps.edn, and return the `:mvn/version` string for coord `sym` (nil if
+  absent). Caller owns the tmp lifecycle so a single emission can be
+  reused for several coord assertions."
+  [tmp substrate sym]
+  (let [root (run-template! tmp "acme/my-app" substrate)
+        deps (read-edn (io/file root "deps.edn"))]
+    (get-in deps [:deps sym :mvn/version])))
+
+(deftest substrate-lib-lockstep
+  (testing "Template's substrate-lib pins match the implementation adapter tree"
+    ;; reagent/reagent — impl source of truth is core/deps.edn :deps
+    ;; (re-frame.views is Reagent-coupled, so reagent rides core).
+    (let [impl-reagent (read-impl-deps-pin "implementation/core/deps.edn"
+                                           'reagent/reagent)
+          tmp          (tmp-dir "rf2-template-lockstep-reagent-")]
+      (try
+        (let [tpl-reagent (emit-deps-pin tmp :reagent 'reagent/reagent)]
+          (is (= impl-reagent tpl-reagent)
+              (str "Template reagent/reagent pin (" tpl-reagent ") must match "
+                   "implementation/core/deps.edn (" impl-reagent ") — P5 "
+                   "lockstep. Bump reagent in the _reagent/deps.edn "
+                   "template resource.")))
+        (finally (delete-recursively tmp))))
+
+    ;; com.pitch/uix.core — impl source of truth is adapters/uix/deps.edn :deps.
+    ;; com.pitch/uix.dom — the shipped uix adapter does NOT require uix.dom
+    ;; (rf2-sl7ml), so the impl pin lives in the :test alias's :extra-deps;
+    ;; the template's :app build needs it for the DOM mount, so the template
+    ;; pins it in :deps. Both must ride the same impl pin.
+    (let [impl-uix-core (read-impl-deps-pin "implementation/adapters/uix/deps.edn"
+                                            'com.pitch/uix.core)
+          impl-uix-dom  (read-impl-deps-pin "implementation/adapters/uix/deps.edn"
+                                            'com.pitch/uix.dom)
+          tmp           (tmp-dir "rf2-template-lockstep-uix-")]
+      (try
+        (let [root         (run-template! tmp "acme/my-app" :uix)
+              tpl-deps     (read-edn (io/file root "deps.edn"))
+              tpl-uix-core (get-in tpl-deps [:deps 'com.pitch/uix.core :mvn/version])
+              tpl-uix-dom  (get-in tpl-deps [:deps 'com.pitch/uix.dom :mvn/version])]
+          (is (= impl-uix-core tpl-uix-core)
+              (str "Template com.pitch/uix.core pin (" tpl-uix-core ") must "
+                   "match implementation/adapters/uix/deps.edn (" impl-uix-core
+                   ") — P5 lockstep. Bump uix.core in the _uix/deps.edn "
+                   "template resource."))
+          (is (= impl-uix-dom tpl-uix-dom)
+              (str "Template com.pitch/uix.dom pin (" tpl-uix-dom ") must "
+                   "match implementation/adapters/uix/deps.edn :test alias ("
+                   impl-uix-dom ") — P5 lockstep. Bump uix.dom in the "
+                   "_uix/deps.edn template resource.")))
+        (finally (delete-recursively tmp))))
+
+    ;; lilactown/helix — impl source of truth is adapters/helix/deps.edn :deps.
+    (let [impl-helix (read-impl-deps-pin "implementation/adapters/helix/deps.edn"
+                                         'lilactown/helix)
+          tmp        (tmp-dir "rf2-template-lockstep-helix-")]
+      (try
+        (let [tpl-helix (emit-deps-pin tmp :helix 'lilactown/helix)]
+          (is (= impl-helix tpl-helix)
+              (str "Template lilactown/helix pin (" tpl-helix ") must match "
+                   "implementation/adapters/helix/deps.edn (" impl-helix ") — "
+                   "P5 lockstep. Bump helix in the _helix/deps.edn template "
+                   "resource.")))
+        (finally (delete-recursively tmp))))))
+
+(deftest clojure-version-lockstep
+  (testing "Template's clojure + clojurescript pins match implementation/core/deps.edn"
+    ;; Both pins ride the impl core deps.edn :deps. They are
+    ;; substrate-invariant in the template (every _<substrate>/deps.edn
+    ;; carries the same two lines), so the Reagent emission recovers them.
+    (let [impl-clj  (read-impl-deps-pin "implementation/core/deps.edn"
+                                        'org.clojure/clojure)
+          impl-cljs (read-impl-deps-pin "implementation/core/deps.edn"
+                                        'org.clojure/clojurescript)
+          tmp       (tmp-dir "rf2-template-lockstep-clj-")]
+      (try
+        (let [root      (run-template! tmp "acme/my-app" :reagent)
+              deps      (read-edn (io/file root "deps.edn"))
+              tpl-clj   (get-in deps [:deps 'org.clojure/clojure :mvn/version])
+              tpl-cljs  (get-in deps [:deps 'org.clojure/clojurescript :mvn/version])]
+          (is (= impl-clj tpl-clj)
+              (str "Template org.clojure/clojure pin (" tpl-clj ") must match "
+                   "implementation/core/deps.edn (" impl-clj ") — P5 lockstep. "
+                   "Bump clojure in every _<substrate>/deps.edn template "
+                   "resource."))
+          (is (= impl-cljs tpl-cljs)
+              (str "Template org.clojure/clojurescript pin (" tpl-cljs ") must "
+                   "match implementation/core/deps.edn (" impl-cljs ") — P5 "
+                   "lockstep. Bump clojurescript in every _<substrate>/deps.edn "
+                   "template resource.")))
+        (finally (delete-recursively tmp))))))
