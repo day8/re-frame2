@@ -62,26 +62,42 @@
 
   Per Spec 009 / Spec 010 the emit reuses the existing
   `:rf.error/schema-validation-failure` op; the new `:where` value is
-  the only schema-side extension."
+  the only schema-side extension.
+
+  Per rf2-o69h5 the value-bearing slots (`:value` / `:received` /
+  `:explain`) are routed through the SHARED schema-aware redaction seam
+  (`:schemas/redact-validation-tags`) BEFORE emit — the same redactor the
+  dev-time `validate-*!` hot path and the production boundary interceptor
+  use. A machine `:data` schema that marks any slot `:sensitive?` (e.g. an
+  auth token in machine data) therefore scrubs those slots to `:rf/redacted`
+  and stamps `:sensitive? true`, closing the a5kzs#1 class on this surface.
+  The hook is unbound only when the schemas artefact is absent — but this
+  fn is only reached when a schema is registered (validation ran), and the
+  schemas artefact owns the validator that ran it, so the hook is bound
+  whenever a failure can fire; the `(or redact ...)` fallthrough is
+  belt-and-braces."
   [machine-id phase data schema explanation rollback?]
   (let [explain-fn (late-bind/get-fn-cached :schemas/explain-with-registered-fn)
         explanation (or explanation
-                        (when explain-fn (explain-fn schema data)))]
+                        (when explain-fn (explain-fn schema data)))
+        redact     (late-bind/get-fn-cached :schemas/redact-validation-tags)
+        tags       {:where      :machine-data
+                    :failing-id machine-id
+                    :machine-id machine-id
+                    :phase      phase
+                    :value      data
+                    :received   data
+                    :schema     schema
+                    :explain    explanation
+                    :rollback?  rollback?
+                    :recovery   :no-recovery
+                    :reason     (str "Machine "
+                                     machine-id
+                                     " :data failed schema at boundary :where :machine-data "
+                                     "(phase " phase ").")}]
     (trace/emit-error! :rf.error/schema-validation-failure
-                       {:where      :machine-data
-                        :failing-id machine-id
-                        :machine-id machine-id
-                        :phase      phase
-                        :value      data
-                        :received   data
-                        :schema     schema
-                        :explain    explanation
-                        :rollback?  rollback?
-                        :recovery   :no-recovery
-                        :reason     (str "Machine "
-                                         machine-id
-                                         " :data failed schema at boundary :where :machine-data "
-                                         "(phase " phase ").")})))
+                       (cond-> tags
+                         redact (->> (redact schema))))))
 
 (defn validate-snapshot-data!
   "Validate a single machine snapshot's `:data` against the registered

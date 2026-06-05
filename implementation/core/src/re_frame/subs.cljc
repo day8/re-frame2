@@ -405,21 +405,33 @@
              (let [sub-id  (first query-v)
                    explain (when-let [exp (late-bind/get-fn-cached
                                             :schemas/explain-with-registered-fn)]
-                             (try (exp schema value) (catch :default _ nil)))]
+                             (try (exp schema value) (catch :default _ nil)))
+                   ;; rf2-o69h5 — route the value-bearing slots (`:value` /
+                   ;; `:received` / `:explain` / `:rf.sub/query-v`) through the
+                   ;; SHARED schema-aware redaction seam so a `:sub-override`
+                   ;; on a `:sensitive?`-marked sub schema scrubs identically
+                   ;; to the regular `:sub-return` path (which redacts via
+                   ;; `validate-sub!`). This override path bypasses
+                   ;; `validate-sub!`, so without the seam it leaked the
+                   ;; failing value verbatim — the a5kzs#1 class on the
+                   ;; `:sub-override` surface.
+                   redact  (late-bind/get-fn-cached :schemas/redact-validation-tags)
+                   tags    (cond-> {:where          :sub-override
+                                    :rf.sub/id      sub-id
+                                    :failing-id     sub-id
+                                    :schema-id      sub-id
+                                    :rf.sub/query-v query-v
+                                    :received       value
+                                    :value          value
+                                    :explain        explain
+                                    :reason         (str "Subscription " sub-id
+                                                         " :sub-override value failed schema "
+                                                         (pr-str schema) ".")
+                                    :recovery       :replaced-with-default}
+                             frame-id (assoc :frame frame-id))]
                (trace/emit-error! :rf.error/schema-validation-failure
-                                  (cond-> {:where          :sub-override
-                                           :rf.sub/id      sub-id
-                                           :failing-id     sub-id
-                                           :schema-id      sub-id
-                                           :rf.sub/query-v query-v
-                                           :received       value
-                                           :value          value
-                                           :explain        explain
-                                           :reason         (str "Subscription " sub-id
-                                                                " :sub-override value failed schema "
-                                                                (pr-str schema) ".")
-                                           :recovery       :replaced-with-default}
-                                    frame-id (assoc :frame frame-id)))
+                                  (cond-> tags
+                                    redact (->> (redact schema))))
                nil))
            value)
          value))))

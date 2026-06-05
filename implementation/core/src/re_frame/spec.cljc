@@ -195,17 +195,19 @@
                     (let [explanation (when explain-fn
                                         (try (explain-fn schema event)
                                              (catch #?(:clj Throwable :cljs :default) _ nil)))
-                          ;; Per rf2-a5kzs (finding 1) — route the failure
-                          ;; tags through the schemas redaction seam so a
-                          ;; sensitive event payload (a `:cat` payload map
-                          ;; carrying `{:sensitive? true}`) is scrubbed at
-                          ;; the boundary exactly as the dev-time step-1
-                          ;; `validate-event!` path scrubs it. The seam is
-                          ;; the `:schemas/redact-event-tags` late-bind hook;
-                          ;; when the schemas artefact is absent the hook is
-                          ;; nil and the tags ride verbatim (no schema =
-                          ;; nothing to redact against).
-                          redact-fn   (late-bind/get-fn-cached :schemas/redact-event-tags)
+                          ;; Per rf2-a5kzs / rf2-o69h5 — route the failure
+                          ;; tags through the SHARED schema-aware redaction
+                          ;; seam so a sensitive event payload (a `:cat`
+                          ;; payload map carrying `{:sensitive? true}`) is
+                          ;; scrubbed at the boundary exactly as the dev-time
+                          ;; step-1 `validate-event!` path scrubs it. The seam
+                          ;; is the `:schemas/redact-validation-tags` late-bind
+                          ;; hook — THE one redactor every off-schemas
+                          ;; validation-failure emit site shares; when the
+                          ;; schemas artefact is absent the hook is nil and the
+                          ;; tags ride verbatim (no schema = nothing to redact
+                          ;; against).
+                          redact-fn   (late-bind/get-fn-cached :schemas/redact-validation-tags)
                           base-tags   (cond-> {:where      :event
                                                :event-id   event-id
                                                :failing-id event-id

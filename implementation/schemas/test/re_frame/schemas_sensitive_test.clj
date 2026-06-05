@@ -800,15 +800,18 @@
         (is (= [:user/update {:name "bob" :age "old"}] (-> v :tags :received))
             ":received rides verbatim — the walk did not spuriously redact")))))
 
-;; ---- rf2-a5kzs (finding 1) — boundary-path redaction seam ----------------
+;; ---- rf2-a5kzs / rf2-o69h5 — shared validation-failure redaction seam ----
 ;; The production boundary interceptor (`re-frame.spec`) builds its own event-
 ;; failure tags and previously emitted them verbatim. The fix routes them
-;; through the `:schemas/redact-event-tags` seam so a sensitive event payload
-;; is redacted at the boundary exactly as the dev-time step-1 path. These test
-;; the seam directly (the schemas-owned redaction surface).
+;; through the `:schemas/redact-validation-tags` seam so a sensitive event
+;; payload is redacted at the boundary exactly as the dev-time step-1 path.
+;; Per rf2-o69h5 the SAME seam is now the single redactor every off-namespace
+;; validation-failure emit site shares (machine-data / sub-override /
+;; flow-output / boundary). These test the seam directly (the schemas-owned
+;; redaction surface).
 
-(deftest redact-event-tags-redacts-when-schema-sensitive
-  (testing "rf2-a5kzs — redact-event-tags scrubs the value-bearing boundary
+(deftest redact-validation-tags-redacts-when-schema-sensitive
+  (testing "rf2-a5kzs — redact-validation-tags scrubs the value-bearing boundary
             tags and stamps :sensitive? when the event schema is sensitive"
     (let [secret "boundary-secret-9f3a"
           schema [:cat [:= :auth/login]
@@ -822,7 +825,7 @@
                   :explain    {:value secret}
                   :source     :boundary
                   :recovery   :no-recovery}
-          out    (schemas/redact-event-tags schema tags)]
+          out    (schemas/redact-validation-tags schema tags)]
       (is (= :rf/redacted (:received out)) ":received redacted")
       (is (= :rf/redacted (:value out)) ":value redacted")
       (is (= :rf/redacted (:explain out)) ":explain redacted")
@@ -834,16 +837,16 @@
       (is (= :auth/login (:event-id out)))
       (is (= :boundary (:source out))))))
 
-(deftest redact-event-tags-rides-verbatim-when-not-sensitive
-  (testing "rf2-a5kzs — redact-event-tags is a no-op when the event schema has
-            no :sensitive? slot (boundary parity with the dev-time path)"
+(deftest redact-validation-tags-rides-verbatim-when-not-sensitive
+  (testing "rf2-a5kzs — redact-validation-tags is a no-op when the event schema
+            has no :sensitive? slot (boundary parity with the dev-time path)"
     (let [schema [:cat [:= :api/strict] :int]
           tags   {:where    :event
                   :event-id :api/strict
                   :received [:api/strict "not-an-int"]
                   :value    [:api/strict "not-an-int"]
                   :source   :boundary}
-          out    (schemas/redact-event-tags schema tags)]
+          out    (schemas/redact-validation-tags schema tags)]
       (is (= tags out) "tags ride back unchanged — nothing sensitive to redact")
       (is (not (contains? out :sensitive?))))))
 

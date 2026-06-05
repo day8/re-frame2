@@ -111,28 +111,43 @@
     (when-let [validate (late-bind/get-fn-cached :schemas/validate-with-registered-fn)]
       (when-not (validate schema new-output)
         (let [explain     (late-bind/get-fn-cached :schemas/explain-with-registered-fn)
-              explanation (when explain (explain schema new-output))]
+              explanation (when explain (explain schema new-output))
+              ;; rf2-o69h5 — the SHARED schema-aware redaction seam. When the
+              ;; flow's output schema marks any slot `:sensitive?` this scrubs
+              ;; the value-bearing slots (`:value` / `:explain` /
+              ;; `:explain-humanized`) to `:rf/redacted` and stamps
+              ;; `:sensitive? true`. Closes the a5kzs#1 class on `:where
+              ;; :flow-output`: the prior code path-elided `:value` (handling
+              ;; `:large?` / per-path sensitive declarations) but left
+              ;; `:explain` carrying the failing value verbatim under Malli's
+              ;; path-shaped output — a re-leak for a `:sensitive?`-marked
+              ;; output schema. The `:value` elision-walk stays the BASE
+              ;; (`:large?` handling, per-path declarations); the seam scrubs
+              ;; the rest when the schema declares sensitivity.
+              redact      (late-bind/get-fn-cached :schemas/redact-validation-tags)
+              tags        {:category   :rf.error/schema-validation-failure
+                           :where      :flow-output
+                           :rf.flow/id (:id flow)
+                           :failing-id (:id flow)
+                           :schema-id  (:id flow)
+                           :path       (:path flow)
+                           ;; Wire-bearing — ride through the elision
+                           ;; walker so a large / sensitive output value
+                           ;; does not surface raw on the trace bus
+                           ;; (symmetric with the `:rf.flow/computed`
+                           ;; `:result` slot).
+                           :value      (elision/elide-wire-value
+                                         new-output
+                                         {:frame frame-id :path (:path flow)})
+                           :explain    explanation
+                           :reason     (str "Flow " (:id flow)
+                                            " output failed schema "
+                                            (pr-str schema) ".")
+                           :recovery   :no-recovery
+                           :frame      frame-id}]
           (trace/emit-error! :rf.error/schema-validation-failure
-                             {:category   :rf.error/schema-validation-failure
-                              :where      :flow-output
-                              :rf.flow/id (:id flow)
-                              :failing-id (:id flow)
-                              :schema-id  (:id flow)
-                              :path       (:path flow)
-                              ;; Wire-bearing — ride through the elision
-                              ;; walker so a large / sensitive output value
-                              ;; does not surface raw on the trace bus
-                              ;; (symmetric with the `:rf.flow/computed`
-                              ;; `:result` slot).
-                              :value      (elision/elide-wire-value
-                                            new-output
-                                            {:frame frame-id :path (:path flow)})
-                              :explain    explanation
-                              :reason     (str "Flow " (:id flow)
-                                               " output failed schema "
-                                               (pr-str schema) ".")
-                              :recovery   :no-recovery
-                              :frame      frame-id}))))))
+                             (cond-> tags
+                               redact (->> (redact schema)))))))))
 
 (defn- evaluate-flow!
   "Evaluate one flow against the given db. Returns `[new-db dirty?]` on
