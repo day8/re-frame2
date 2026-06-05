@@ -14,7 +14,7 @@
     - The `MachineChart` Reagent component (public surface per
       `tools/machines-viz/spec/API.md` §MachineChart).
     - `xyflow-graph` — pure-data projector that turns
-      `chart.layout/parse-definition` output into the xyflow
+      `chart.layout/project-definition` output into the xyflow
       `:nodes` + `:edges` shape, with per-node/per-edge `:data`
       payloads carrying the active/from-highlight/to-highlight
       flags, event labels, tags, etc.
@@ -529,7 +529,7 @@
 
 (defn compute-layout!
   "Run elk.js layout on `parsed` (the output of
-  `chart.layout/parse-definition`); call `done-fn` with a map
+  `chart.layout/project-definition`); call `done-fn` with a map
   `{:positions {node-id {:x :y :width :height}} :edge-points {edge-id
   [{:x :y} …]}}` on success.
 
@@ -1040,7 +1040,7 @@
                  ;; values passes `:machine-data-inferred? false`.
                  machine-data-inferred? true
                  testid            "rf-mv-chart"}}]
-      (let [parsed     (layout/parse-definition definition)
+      (let [parsed     (layout/project-definition definition)
             ;; rf2-lkwev — exclude synthetic parallel-region container
             ;; nodes from the state count + aria-label (they are zone
             ;; chrome, not states).

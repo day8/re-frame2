@@ -30,15 +30,15 @@
                                        :paying   {:on {:done :browsing}}}
                              :on      {:logout :unauth}}}})
 
-;; ---- parse-definition ---------------------------------------------------
+;; ---- project-definition ---------------------------------------------------
 
-(deftest parse-definition-empty-for-nil
-  (let [g (layout/parse-definition nil)]
+(deftest project-definition-empty-for-nil
+  (let [g (layout/project-definition nil)]
     (is (= [] (:nodes g)))
     (is (= [] (:edges g)))))
 
-(deftest parse-definition-extracts-flat-machine-nodes
-  (let [{:keys [nodes initial-path]} (layout/parse-definition idle-loading-success)
+(deftest project-definition-extracts-flat-machine-nodes
+  (let [{:keys [nodes initial-path]} (layout/project-definition idle-loading-success)
         paths (set (map :path nodes))]
     (is (= [:idle] initial-path))
     (is (= #{[:idle] [:loading] [:success] [:failed]} paths))
@@ -46,36 +46,36 @@
     (is (= 2 (count (filter :final? nodes)))
         "final states are flagged")))
 
-(deftest parse-definition-flags-compound-initial
+(deftest project-definition-flags-compound-initial
   (testing "rf2-54s5a — a compound parent's :initial child is flagged
             :initial? (xstate per-level initial semantics)"
-    (let [{:keys [nodes]} (layout/parse-definition compound-machine)
+    (let [{:keys [nodes]} (layout/project-definition compound-machine)
           browsing (first (filter #(= [:authenticated :browsing] (:path %)) nodes))]
       (is (true? (:initial? browsing))))))
 
-(deftest parse-definition-wires-compound-parent-id
+(deftest project-definition-wires-compound-parent-id
   (testing "rf2-54s5a — compound substates carry :parent-id (the
             parent's node-id) for xyflow `:parentId` nesting (rf2-xh1lm
             — v12 reads `parentId`, not the pre-v12 `parentNode`);
             top-level states carry none"
-    (let [{:keys [nodes]} (layout/parse-definition compound-machine)
+    (let [{:keys [nodes]} (layout/project-definition compound-machine)
           browsing (first (filter #(= [:authenticated :browsing] (:path %)) nodes))
           unauth   (first (filter #(= [:unauth] (:path %)) nodes))]
       (is (= (layout/node-id [:authenticated]) (:parent-id browsing)))
       (is (nil? (:parent-id unauth))))))
 
-(deftest parse-definition-extracts-edges
-  (let [{:keys [edges]} (layout/parse-definition idle-loading-success)
+(deftest project-definition-extracts-edges
+  (let [{:keys [edges]} (layout/project-definition idle-loading-success)
         edge-pairs (set (map (juxt :from :to :event) edges))]
     (is (contains? edge-pairs [[:idle] [:loading] :start]))
     (is (contains? edge-pairs [[:loading] [:success] :ok]))
     (is (contains? edge-pairs [[:loading] [:failed] :err]))))
 
-(deftest parse-definition-emits-xyflow-shaped-edges
+(deftest project-definition-emits-xyflow-shaped-edges
   (testing "rf2-gpzb4 xyflow migration — every edge has :id, :source,
             :target string ids (xyflow contract) AND :from-path,
             :to-path vectors (substrate-side contract)"
-    (let [{:keys [edges]} (layout/parse-definition idle-loading-success)]
+    (let [{:keys [edges]} (layout/project-definition idle-loading-success)]
       (is (every? :id edges)         "every edge has a stable string id")
       (is (every? :source edges)     "every edge has :source (string)")
       (is (every? :target edges)     "every edge has :target (string)")
@@ -83,16 +83,16 @@
       (is (every? :to-path edges)    "every edge has :to-path (vector)")
       (is (every? :event-label edges) "every edge has the xstate label"))))
 
-(deftest parse-definition-emits-xyflow-shaped-nodes
+(deftest project-definition-emits-xyflow-shaped-nodes
   (testing "rf2-gpzb4 xyflow migration — every node has :id string
             (xyflow contract) alongside :path (vector)"
-    (let [{:keys [nodes]} (layout/parse-definition idle-loading-success)]
+    (let [{:keys [nodes]} (layout/project-definition idle-loading-success)]
       (is (every? :id nodes))
       (is (every? string? (map :id nodes)))
       (is (every? :path nodes)))))
 
-(deftest parse-definition-extracts-compound-nodes
-  (let [{:keys [nodes]} (layout/parse-definition compound-machine)
+(deftest project-definition-extracts-compound-nodes
+  (let [{:keys [nodes]} (layout/project-definition compound-machine)
         paths (set (map :path nodes))
         top   (filter #(= 1 (count (:path %))) nodes)]
     (is (contains? paths [:unauth]))
@@ -104,7 +104,7 @@
     (is (some :compound? top)
         "the compound parent carries the :compound? flag")))
 
-(deftest parse-definition-projects-every-parallel-region
+(deftest project-definition-projects-every-parallel-region
   (testing "rf2-lkwev xyflow Phase 2 — full parallel-region rendering:
             EVERY region projects (Phase 1 deferred all but the first)"
     (let [parallel {:type :parallel
@@ -112,7 +112,7 @@
                                                         :b {}}}
                               :r2 {:initial :x :states {:x {:on {:go :y}}
                                                         :y {}}}}}
-          {:keys [nodes edges parallel?]} (layout/parse-definition parallel)
+          {:keys [nodes edges parallel?]} (layout/project-definition parallel)
           paths (set (map :path (remove :region? nodes)))]
       (is parallel? "the projection flags itself as parallel")
       (is (contains? paths [:a]))
@@ -125,7 +125,7 @@
           "edges from both regions project")
       (is (= 2 (count edges)) "one :go edge per region"))))
 
-(deftest parse-definition-emits-region-container-nodes
+(deftest project-definition-emits-region-container-nodes
   (testing "rf2-lkwev — each parallel region surfaces a synthetic
             :region? compound container node with a region-prefixed id"
     (let [parallel {:type :parallel
@@ -135,7 +135,7 @@
                               :display {:initial :on
                                         :states {:on  {:on {:dim :off}}
                                                  :off {:on {:lit :on}}}}}}
-          {:keys [nodes]} (layout/parse-definition parallel)
+          {:keys [nodes]} (layout/project-definition parallel)
           regions (filter :region? nodes)]
       (is (= 2 (count regions)) "one container node per region")
       (is (every? :compound? regions) "region containers are compound")
@@ -146,14 +146,14 @@
       (is (= #{0 1} (set (map :region-index regions)))
           "region containers carry their ordinal index for boundary colour"))))
 
-(deftest parse-definition-tags-region-states-with-parent
+(deftest project-definition-tags-region-states-with-parent
   (testing "rf2-lkwev — every state inside a region carries :region +
             :parent-id so the chart projector emits xyflow `:parentId`
             sub-flow grouping (rf2-xh1lm — v12 reads `parentId`)"
     (let [parallel {:type :parallel
                     :regions {:r1 {:initial :a :states {:a {} :b {}}}
                               :r2 {:initial :x :states {:x {} :y {}}}}}
-          {:keys [nodes]} (layout/parse-definition parallel)
+          {:keys [nodes]} (layout/project-definition parallel)
           states (remove :region? nodes)]
       (is (every? :parent-id states) "every state has a parent region id")
       (is (every? :region states)    "every state knows its region")
@@ -161,13 +161,13 @@
         (is (every? #(= (layout/region-node-id :r1) (:parent-id %)) r1-states)
             ":r1 states point at the :r1 container")))))
 
-(deftest parse-definition-region-edges-stay-region-local
+(deftest project-definition-region-edges-stay-region-local
   (testing "rf2-lkwev — orthogonality: a region's edges never reference
             a sibling region's node (regions are independent zones)"
     (let [parallel {:type :parallel
                     :regions {:r1 {:initial :a :states {:a {:on {:go :b}} :b {}}}
                               :r2 {:initial :x :states {:x {:on {:go :y}} :y {}}}}}
-          {:keys [nodes edges]} (layout/parse-definition parallel)
+          {:keys [nodes edges]} (layout/project-definition parallel)
           r1-ids (set (map :id (filter #(= :r1 (:region %)) (remove :region? nodes))))
           r2-ids (set (map :id (filter #(= :r2 (:region %)) (remove :region? nodes))))]
       (doseq [e edges]
@@ -186,7 +186,7 @@
 
 ;; ---- region-scoped node-ids (rf2-wnzha) --------------------------------
 ;;
-;; BUG (P2): pre-rf2-wnzha, `parse-parallel` kept each region's in-region
+;; BUG (P2): pre-rf2-wnzha, `project-parallel` kept each region's in-region
 ;; node-id verbatim, so two regions sharing a state NAME minted IDENTICAL
 ;; ids — the canonical Spec 005 `:ingest` shape (three regions each with a
 ;; `:done {:final? true}` leaf) collided all three `:done` nodes into one:
@@ -207,7 +207,7 @@
               (layout/node-id [:done]))
         "a region-scoped id differs from the bare in-region id")))
 
-(deftest parse-definition-parallel-same-name-region-states-distinct-nodes
+(deftest project-definition-parallel-same-name-region-states-distinct-nodes
   (testing "rf2-wnzha — the Spec 005 :ingest shape: three regions each
             carrying a same-named `:done {:final? true}` leaf. All three
             `:done` nodes must be PRESENT and DISTINCT (pre-fix they
@@ -222,7 +222,7 @@
                             :index    {:initial :building
                                        :states {:building {:on {:built :done}}
                                                 :done     {:final? true}}}}}
-          {:keys [nodes]} (layout/parse-definition ingest)
+          {:keys [nodes]} (layout/project-definition ingest)
           state-nodes (remove :region? nodes)
           done-nodes  (filter #(= [:done] (:path %)) state-nodes)
           done-ids    (map :id done-nodes)]
@@ -238,7 +238,7 @@
       (is (= (count nodes) (count (set (map :id nodes))))
           "every projected node id is globally unique"))))
 
-(deftest parse-definition-parallel-same-name-region-states-edges-region-scoped
+(deftest project-definition-parallel-same-name-region-states-edges-region-scoped
   (testing "rf2-wnzha — an intra-region edge to/from a shared-name state
             resolves to that region's OWN scoped id (pre-fix the edge
             endpoints collided across regions)"
@@ -249,7 +249,7 @@
                             :validate {:initial :checking
                                        :states {:checking {:on {:ok :done}}
                                                 :done     {:final? true}}}}}
-          {:keys [nodes edges]} (layout/parse-definition ingest)
+          {:keys [nodes edges]} (layout/project-definition ingest)
           node-ids (set (map :id nodes))]
       ;; every edge endpoint is a REAL projected node (no phantom/collided id)
       (doseq [e edges]
@@ -265,10 +265,10 @@
         (is (= (count (set (map :id edges))) (count edges))
             "every edge id is distinct (no cross-region edge-id collision)")))))
 
-(deftest parse-definition-region-top-level-on-no-machine-root-node
+(deftest project-definition-region-top-level-on-no-machine-root-node
   (testing "rf2-7i7t3 — a parallel region whose def carries a TOP-LEVEL :on
             fallback must NOT project a malformed region-scoped MACHINE-ROOT
-            node. Pre-fix `parse-flat` minted a `{:path [] :machine-root?
+            node. Pre-fix `project-flat` minted a `{:path [] :machine-root?
             true}` node (rf2-vcnvj) for the region's top-level :on; the
             region-scope then mangled it to the degenerate id
             `region__fetch__` (trailing `__`, empty path segment) nested
@@ -283,7 +283,7 @@
                             :validate {:initial :checking
                                        :states {:checking {:on {:ok :done}}
                                                 :done     {:final? true}}}}}
-          {:keys [nodes edges]} (layout/parse-definition ingest)
+          {:keys [nodes edges]} (layout/project-definition ingest)
           node-ids (set (map :id nodes))]
       ;; NO synthetic machine-root node inside any region
       (is (empty? (filter :machine-root? nodes))
@@ -321,7 +321,7 @@
                             :validate {:initial :checking
                                        :states {:checking {:on {:ok :done}}
                                                 :done     {:final? true}}}}}
-          {:keys [nodes]} (layout/parse-definition ingest)
+          {:keys [nodes]} (layout/project-definition ingest)
           node-ids (set (map :id (remove :region? nodes)))
           ;; BOTH regions reached their (same-named) :done leaf
           state    {:fetch :done :validate :done}
@@ -383,7 +383,7 @@
             region-map resolves to the SET of N active leaves, one per
             region. rf2-wnzha — each region value resolves via
             `region-scoped-id` of the REGION + the in-region path
-            (parse-parallel region-scopes a state's node-id so two regions
+            (project-parallel region-scopes a state's node-id so two regions
             sharing a state NAME mint DISTINCT ids; the resolver mints the
             SAME scoped id)."
     (let [state {:data :loading :form :neutral :mode :active}
@@ -406,7 +406,7 @@
                               :video {:initial :hidden
                                       :states {:hidden {:on {:show :shown}}
                                                :shown  {:on {:hide :hidden}}}}}}
-          {:keys [nodes]} (layout/parse-definition parallel)
+          {:keys [nodes]} (layout/project-definition parallel)
           node-ids (set (map :id (remove :region? nodes)))
           ;; both regions advanced past their initial states
           state    {:audio :playing :video :shown}
@@ -598,8 +598,8 @@
     (is (= "go!"   (layout/name-of 'go!)))
     (is (= "42"    (layout/name-of 42)))))
 
-(deftest parse-definition-emits-event-label-with-guard-and-action
-  (testing "parse-definition emits the full xstate label on every edge"
+(deftest project-definition-emits-event-label-with-guard-and-action
+  (testing "project-definition emits the full xstate label on every edge"
     (let [m {:initial :idle
              :states  {:idle {:on {:submit [{:target :loading
                                              :guard  :authed?
@@ -608,7 +608,7 @@
                                              :guard  :anon?}]}}
                        :loading {}
                        :failed  {}}}
-          {:keys [edges]} (layout/parse-definition m)
+          {:keys [edges]} (layout/project-definition m)
           labels (set (map :event-label edges))]
       (is (contains? labels "submit [authed?] / log-it"))
       (is (contains? labels "submit [anon?]")))))
@@ -621,12 +621,12 @@
 ;; target). Pre-fix, `:same-state` resolved to a phantom node-id and
 ;; the internal form emitted nothing.
 
-(deftest parse-definition-external-self-transition-same-state
+(deftest project-definition-external-self-transition-same-state
   (testing "rf2-ee38b.21 — `:target :same-state` resolves to the source
             path itself (a true self-loop), NOT a phantom :same-state
             node"
     (let [m {:initial :a :states {:a {:on {:ping {:target :same-state}}} }}
-          {:keys [nodes edges]} (layout/parse-definition m)
+          {:keys [nodes edges]} (layout/project-definition m)
           node-ids (set (map :id nodes))
           self     (first (filter #(= :ping (:event %)) edges))]
       (is (some? self) "the :ping self-transition is charted")
@@ -638,12 +638,12 @@
       (is (not (contains? node-ids "same_state"))
           "no dangling :same-state node is minted"))))
 
-(deftest parse-definition-internal-self-transition-omit-target
+(deftest project-definition-internal-self-transition-omit-target
   (testing "rf2-ee38b.21 — a transition that omits :target (internal —
             runs only :action) charts as a self-anchored edge flagged
             :internal? rather than silently dropping"
     (let [m {:initial :a :states {:a {:on {:tick {:action :inc}}}}}
-          {:keys [edges]} (layout/parse-definition m)
+          {:keys [edges]} (layout/project-definition m)
           tick (first (filter #(= :tick (:event %)) edges))]
       (is (some? tick) "the internal :tick transition is charted")
       (is (= [:a] (:from tick)))
@@ -653,26 +653,26 @@
 
 ;; ---- wildcard `:*` (rf2-ee38b.21) --------------------------------------
 
-(deftest parse-definition-wildcard-event-label
+(deftest project-definition-wildcard-event-label
   (testing "rf2-ee38b.21 — the `:*` wildcard `:on` arm (Spec 005
             §Wildcard) renders as `* (any)`, not a bare `*` that reads
             like a real event"
     (let [m {:initial :a :states {:a {:on {:* :b}} :b {}}}
-          {:keys [edges]} (layout/parse-definition m)
+          {:keys [edges]} (layout/project-definition m)
           wild (first (filter #(= :* (:event %)) edges))]
       (is (some? wild) "the wildcard transition is charted")
       (is (= "* (any)" (:event-label wild))))))
 
 ;; ---- machine-level (top-level) :on fallback (rf2-ee38b.21) -------------
 
-(deftest parse-definition-machine-level-on-fallback
+(deftest project-definition-machine-level-on-fallback
   (testing "rf2-vcnvj — a top-level (machine-level) :on fallback
             (Spec 005 — `:on` valid per-state AND top-level) charts
             EXACTLY ONE edge, sourced from the synthetic MACHINE-ROOT
             node, flagged :machine-level? — NOT one back-edge per leaf
             (the pre-vcnvj per-state repetition that scrambled ordering)"
     (let [m {:initial :a :on {:logout :a} :states {:a {} :b {}}}
-          {:keys [nodes edges]} (layout/parse-definition m)
+          {:keys [nodes edges]} (layout/project-definition m)
           logout (filter #(= :logout (:event %)) edges)]
       (is (= 1 (count logout)) "ONE machine-level edge, not one per leaf")
       (is (every? :machine-level? logout) "flagged machine-level")
@@ -687,17 +687,17 @@
         (is (= layout/machine-root-id (:id root)))
         (is (= [] (:path root)))))))
 
-(deftest parse-definition-no-machine-level-on-emits-no-root-node
+(deftest project-definition-no-machine-level-on-emits-no-root-node
   (testing "rf2-vcnvj — a machine with NO top-level :on keeps the
             pre-vcnvj node set: no synthetic MACHINE-ROOT node leaks in"
     (let [m {:initial :a :states {:a {:on {:go :b}} :b {}}}
-          {:keys [nodes edges]} (layout/parse-definition m)]
+          {:keys [nodes edges]} (layout/project-definition m)]
       (is (empty? (filter :machine-root? nodes))
           "no root node when there is no machine-level fallback")
       (is (not-any? #(= layout/machine-root-id (:id %)) nodes))
       (is (not-any? :machine-level? edges)))))
 
-(deftest parse-definition-machine-level-on-targets-top-level-state
+(deftest project-definition-machine-level-on-targets-top-level-state
   (testing "rf2-vcnvj — a machine-level :on target is a TOP-LEVEL state,
             resolved at the root; the SINGLE projected edge lands on the
             top-level target regardless of which leaf inherits it at
@@ -708,7 +708,7 @@
                        :authenticated {:initial :browsing
                                        :states  {:browsing {}
                                                  :paying   {}}}}}
-          {:keys [edges]} (layout/parse-definition m)
+          {:keys [edges]} (layout/project-definition m)
           logout (filter #(= :logout (:event %)) edges)]
       (is (= 1 (count logout)) "ONE machine-level edge for the fallback")
       (is (every? #(= [:unauth] (:to %)) logout)
@@ -737,7 +737,7 @@
 
 ;; ---- edge-id collision (rf2-ee38b.21) ----------------------------------
 
-(deftest parse-definition-edge-ids-distinct-for-guarded-fork
+(deftest project-definition-edge-ids-distinct-for-guarded-fork
   (testing "rf2-ee38b.21 — a same-event/same-target fork that differs
             only by guard mints DISTINCT edge ids so xyflow keeps both
             branches (pre-fix the ids collided → one branch dropped)"
@@ -745,32 +745,32 @@
              :states  {:a {:on {:go [{:target :b :guard :g1}
                                      {:target :b :guard :g2}]}}
                        :b {}}}
-          {:keys [edges]} (layout/parse-definition m)
+          {:keys [edges]} (layout/project-definition m)
           go-edges (filter #(= :go (:event %)) edges)
           ids      (map :id go-edges)]
       (is (= 2 (count go-edges)) "both candidate edges survive")
       (is (= 2 (count (set ids))) "their xyflow ids are distinct"))))
 
-(deftest parse-definition-edge-ids-distinct-for-identical-candidates
+(deftest project-definition-edge-ids-distinct-for-identical-candidates
   (testing "rf2-ee38b.21 — even byte-identical candidates (same target,
             no guard/action) get distinct ids via the per-key ordinal"
     (let [m {:initial :a
              :states  {:a {:on {:go [{:target :b} {:target :b}]}}
                        :b {}}}
-          {:keys [edges]} (layout/parse-definition m)
+          {:keys [edges]} (layout/project-definition m)
           ids (map :id (filter #(= :go (:event %)) edges))]
       (is (= 2 (count ids)))
       (is (= 2 (count (set ids))) "ordinal disambiguates identical candidates"))))
 
 ;; ---- entry / exit state actions (rf2-ee38b.21) -------------------------
 
-(deftest parse-definition-threads-entry-exit-onto-nodes
+(deftest project-definition-threads-entry-exit-onto-nodes
   (testing "rf2-ee38b.21 — :entry / :exit state actions (Spec 005
             §State nodes) surface as name strings on the parsed node"
     (let [m {:initial :a
              :states  {:a {:entry :on-enter :exit :on-leave}
                        :b {:entry (with-meta (fn [_]) {:name 'do-thing})}}}
-          {:keys [nodes]} (layout/parse-definition m)
+          {:keys [nodes]} (layout/project-definition m)
           a (first (filter #(= [:a] (:path %)) nodes))
           b (first (filter #(= [:b] (:path %)) nodes))]
       (is (= "on-enter" (:entry a)))
@@ -778,20 +778,20 @@
       (is (= "do-thing" (:entry b)) "fn entry surfaces its :name meta")
       (is (not (contains? b :exit)) "absent exit is omitted"))))
 
-(deftest parse-definition-no-entry-exit-when-absent
+(deftest project-definition-no-entry-exit-when-absent
   (testing "rf2-ee38b.21 — a state with no :entry / :exit carries
             neither key (cond-> skips the assoc)"
-    (let [{:keys [nodes]} (layout/parse-definition idle-loading-success)
+    (let [{:keys [nodes]} (layout/project-definition idle-loading-success)
           idle (first (filter #(= [:idle] (:path %)) nodes))]
       (is (not (contains? idle :entry)))
       (is (not (contains? idle :exit))))))
 
 ;; ---- :final? is always boolean (rf2-ee38b.21) --------------------------
 
-(deftest parse-definition-final-flag-is-boolean
+(deftest project-definition-final-flag-is-boolean
   (testing "rf2-ee38b.21 — :final? is boolean-wrapped (false, not nil)
             for non-final states, matching its sibling flags"
-    (let [{:keys [nodes]} (layout/parse-definition idle-loading-success)
+    (let [{:keys [nodes]} (layout/project-definition idle-loading-success)
           idle    (first (filter #(= [:idle] (:path %)) nodes))
           success (first (filter #(= [:success] (:path %)) nodes))]
       (is (false? (:final? idle)) ":final? is false, not nil")
@@ -813,11 +813,11 @@
              :ok      {:final? true}
              :boom    {:final? true :error? true}}})
 
-(deftest parse-definition-threads-error-final-kind
+(deftest project-definition-threads-error-final-kind
   (testing "rf2-b4loj — :error? threads onto the node ONLY for an :error?
             final; a success final and every non-final node carry :error?
             false (boolean-wrapped, never nil)"
-    (let [{:keys [nodes]} (layout/parse-definition success-and-error-finals)
+    (let [{:keys [nodes]} (layout/project-definition success-and-error-finals)
           running (first (filter #(= [:running] (:path %)) nodes))
           ok      (first (filter #(= [:ok]      (:path %)) nodes))
           boom    (first (filter #(= [:boom]    (:path %)) nodes))]
@@ -828,10 +828,10 @@
       (is (true? (:final? ok)))
       (is (true? (:final? boom))))))
 
-(deftest parse-definition-error-flag-needs-final
+(deftest project-definition-error-flag-needs-final
   (testing "rf2-b4loj — a stray :error? on a NON-final node never lights the
             ring: :error? is gated on :final? so it stays false"
-    (let [{:keys [nodes]} (layout/parse-definition
+    (let [{:keys [nodes]} (layout/project-definition
                            {:initial :a
                             :states  {:a {:error? true :on {:go :b}}
                                       :b {}}})
@@ -861,12 +861,12 @@
                               :paid       {:final? true}}}
              :next {:on {:reset [:flow]}}}})
 
-(deftest parse-definition-compound-on-done-is-sibling-edge
+(deftest project-definition-compound-on-done-is-sibling-edge
   (testing "rf2-41goo — a compound `:on-done` projects ONE completion edge
             from the compound to its SIBLING target (resolved relative to
             the compound's OWN level), flagged :on-done?, carrying the
             done-path (the engine's done.state node)"
-    (let [{:keys [edges]} (layout/parse-definition checkout-on-done)
+    (let [{:keys [edges]} (layout/project-definition checkout-on-done)
           od (filter :on-done? edges)]
       (is (= 1 (count od)) "exactly one :on-done completion edge")
       (let [e (first od)]
@@ -878,13 +878,13 @@
             "renders the completion ✓ done chip, not an ordinary event arrow")
         (is (not (:internal? e)) "a targeted compound :on-done is a real sibling edge")))))
 
-(deftest parse-definition-no-on-done-emits-no-completion-edge
+(deftest project-definition-no-on-done-emits-no-completion-edge
   (testing "rf2-41goo — a machine with no :on-done emits no :on-done? edge
             (no false-positive completion arrows)"
-    (let [{:keys [edges]} (layout/parse-definition compound-machine)]
+    (let [{:keys [edges]} (layout/project-definition compound-machine)]
       (is (empty? (filter :on-done? edges))))))
 
-(deftest parse-definition-compound-on-done-guarded-candidate-vector
+(deftest project-definition-compound-on-done-guarded-candidate-vector
   (testing "rf2-41goo — an :on-done candidate-vector (guarded forks)
             projects each target-bearing arm as its own completion edge,
             mirroring the :on candidate-vector grammar"
@@ -896,7 +896,7 @@
                                         :done {:final? true}}}
                        :ok-next  {}
                        :err-next {}}}
-          {:keys [edges]} (layout/parse-definition m)
+          {:keys [edges]} (layout/project-definition m)
           od (filter :on-done? edges)]
       (is (= 2 (count od)) "both guarded completion arms project")
       (is (= #{[:ok-next] [:err-next]} (set (map :to od))))
@@ -913,12 +913,12 @@
              :validate {:initial :checking :states {:checking {:on {:ok :done}} :done {:final? true}}}
              :index    {:initial :building :states {:building {:on {:built :done}} :done {:final? true}}}}})
 
-(deftest parse-definition-parallel-root-on-done-is-terminal-affordance
+(deftest project-definition-parallel-root-on-done-is-terminal-affordance
   (testing "rf2-41goo — a PARALLEL-ROOT `:on-done` (action/fx-only, no
             :target — registration rejects one) projects a TERMINAL
             completion affordance (self-anchored, :internal?), NOT a
             sibling edge; carries the action + :parallel-root? flag"
-    (let [{:keys [edges nodes]} (layout/parse-definition ingest-parallel-on-done)
+    (let [{:keys [edges nodes]} (layout/project-definition ingest-parallel-on-done)
           od (filter :on-done? edges)]
       (is (= 1 (count od)) "one parallel-root completion affordance")
       (let [e (first od)]
@@ -935,12 +935,12 @@
         (is (= (:source (first od)) (:id root))
             "the completion edge anchors on the parallel-root node")))))
 
-(deftest parse-definition-parallel-without-on-done-emits-no-root-node
+(deftest project-definition-parallel-without-on-done-emits-no-root-node
   (testing "rf2-41goo — a parallel machine with NO :on-done leaks no
             synthetic parallel-root node + no completion edge"
     (let [m {:type :parallel
              :regions {:a {:initial :x :states {:x {:on {:go :y}} :y {}}}
                        :b {:initial :p :states {:p {:on {:go :q}} :q {}}}}}
-          {:keys [nodes edges]} (layout/parse-definition m)]
+          {:keys [nodes edges]} (layout/project-definition m)]
       (is (empty? (filter :parallel-root? nodes)))
       (is (empty? (filter :on-done? edges))))))

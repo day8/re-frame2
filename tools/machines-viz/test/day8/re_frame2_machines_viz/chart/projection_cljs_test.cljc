@@ -7,7 +7,7 @@
   and so is JVM-unloadable) precisely so this corpus can pin it at the
   cheap JVM layer instead of the slow browser-DOM layer.
 
-  Fixtures lean on `chart.layout/parse-definition` (itself pure +
+  Fixtures lean on `chart.layout/project-definition` (itself pure +
   JVM-runnable) so the projection is exercised against the SAME parsed
   shape the live chart feeds it — no hand-mocked node maps drifting
   from the parser's contract.
@@ -163,7 +163,7 @@
             canonical `transition` type (no `after` / `spawn` arms);
             `idle-loading` exercises plain `:on` + `:after` + `:always`."
     (let [graph (projection/xyflow-graph
-                  (layout/parse-definition idle-loading) {} {})]
+                  (layout/project-definition idle-loading) {} {})]
       (is (seq (:edges graph)))
       (is (every? #{"transition"} (map :type (:edges graph)))
           "all projected edges are the single canonical transition type"))))
@@ -173,7 +173,7 @@
             (`:variant \"after\"` + `:afterMs`), NOT a distinct edge type;
             the structural edges around it are plain `transition` edges."
     (let [graph      (projection/xyflow-graph
-                       (layout/parse-definition idle-loading) {} {})
+                       (layout/project-definition idle-loading) {} {})
           after-node (first (filter #(= "after" (:variant (:data %)))
                                     (:nodes graph)))]
       (is (some? after-node) "the :after timer projects as an event-node")
@@ -184,7 +184,7 @@
 
 (deftest xyflow-graph-state-node-type
   (testing "a leaf state projects as a `state`-type node"
-    (let [parsed (layout/parse-definition idle-loading)
+    (let [parsed (layout/project-definition idle-loading)
           graph  (projection/xyflow-graph parsed {} {})
           idle   (node-by-id graph (layout/node-id [:idle]))]
       (is (= "state" (:type idle))))))
@@ -192,7 +192,7 @@
 (deftest xyflow-graph-compound-node-type
   (testing "a compound parent projects as a `compound`-type node; its
             leaf children stay `state`"
-    (let [parsed (layout/parse-definition compound-machine)
+    (let [parsed (layout/project-definition compound-machine)
           graph  (projection/xyflow-graph parsed {} {})
           parent (node-by-id graph (layout/node-id [:authenticated]))
           child  (node-by-id graph (layout/node-id [:authenticated :browsing]))]
@@ -202,7 +202,7 @@
 (deftest xyflow-graph-region-node-type
   (testing "a parallel-region container projects as a
             `parallel-region`-type node"
-    (let [parsed (layout/parse-definition parallel-machine)
+    (let [parsed (layout/project-definition parallel-machine)
           graph  (projection/xyflow-graph parsed {} {})
           region (node-by-id graph (layout/region-node-id :audio))]
       (is (= "parallel-region" (:type region))))))
@@ -227,7 +227,7 @@
 (deftest xyflow-graph-history-node-type
   (testing "rf2-m285a — a `:type :history` pseudo-state projects as a
             `history-marker`-type node, NOT a `state`"
-    (let [parsed (layout/parse-definition shallow-history-machine)
+    (let [parsed (layout/project-definition shallow-history-machine)
           graph  (projection/xyflow-graph parsed {} {})
           hist   (node-by-id graph (layout/node-id [:player :hist]))]
       (is (some? hist) "the history node is present in the projection")
@@ -238,7 +238,7 @@
 
 (deftest xyflow-graph-deep-history-node
   (testing "rf2-m285a — a DEEP history pseudo-state threads :deep true"
-    (let [parsed (layout/parse-definition deep-history-machine)
+    (let [parsed (layout/project-definition deep-history-machine)
           graph  (projection/xyflow-graph parsed {} {})
           hist   (node-by-id graph (layout/node-id [:player :hist]))]
       (is (= "history-marker" (:type hist)))
@@ -247,14 +247,14 @@
 (deftest history-node-is-not-occupiable
   (testing "rf2-m285a — a history pseudo-state is NEVER occupiable: not
             initial / final / compound, and not an on-state-click target"
-    (let [parsed (layout/parse-definition shallow-history-machine)
+    (let [parsed (layout/project-definition shallow-history-machine)
           ;; the parsed node (pre-projection) carries the pseudo-state flags
           hist-n (first (filter #(= [:player :hist] (:path %)) (:nodes parsed)))]
       (is (true? (:history? hist-n)))
       (is (false? (:initial? hist-n)) "never initial")
       (is (false? (:final? hist-n))   "never final")
       (is (false? (:compound? hist-n)) "never compound"))
-    (let [graph (projection/xyflow-graph (layout/parse-definition shallow-history-machine) {} {})
+    (let [graph (projection/xyflow-graph (layout/project-definition shallow-history-machine) {} {})
           hist  (node-by-id graph (layout/node-id [:player :hist]))]
       (is (nil? (:onClick (:data hist)))
           "a history marker carries no on-state-click handler"))))
@@ -263,7 +263,7 @@
   (testing "rf2-m285a — a transition targeting the history pseudo-state keeps
             its incoming edge (the marker is a legitimate transition target),
             sourced from the off state's event node"
-    (let [parsed (layout/parse-definition shallow-history-machine)
+    (let [parsed (layout/project-definition shallow-history-machine)
           ;; one parsed edge :resume from :off → [:player :hist]
           resume (first (filter #(= [:player :hist] (:to-path %)) (:edges parsed)))]
       (is (some? resume) "the :resume → :hist edge is projected")
@@ -290,7 +290,7 @@
 (deftest xyflow-graph-threads-error-final-kind
   (testing "rf2-b4loj — :data :errorFinal is true ONLY for an :error?
             final; a success final and a non-final node carry false"
-    (let [parsed  (layout/parse-definition success-and-error-finals)
+    (let [parsed  (layout/project-definition success-and-error-finals)
           graph   (projection/xyflow-graph parsed {} {})
           running (node-by-id graph (layout/node-id [:running]))
           ok      (node-by-id graph (layout/node-id [:ok]))
@@ -307,7 +307,7 @@
             carries BOTH :active true (drives the runtime main-border) AND
             :errorFinal true (drives the static error-hue ring) on its
             :data — the two signals compose, neither clobbers the other"
-    (let [parsed (layout/parse-definition success-and-error-finals)
+    (let [parsed (layout/project-definition success-and-error-finals)
           hi     (layout/node-id [:boom])
           graph  (projection/xyflow-graph parsed {} {:highlight-id hi})
           boom   (node-by-id graph hi)]
@@ -331,7 +331,7 @@
     (let [cb (fn [_path] :clicked)]
       ;; Compound + leaf machine: both the compound parent and its leaf
       ;; children carry the callback.
-      (let [parsed (layout/parse-definition compound-machine)
+      (let [parsed (layout/project-definition compound-machine)
             graph  (projection/xyflow-graph parsed {} {:on-state-click cb})
             parent (node-by-id graph (layout/node-id [:authenticated]))
             child  (node-by-id graph (layout/node-id [:authenticated :browsing]))
@@ -345,7 +345,7 @@
             "a top-level leaf carries :onClick"))
       ;; Parallel machine: region containers must NOT carry :onClick;
       ;; their leaf children still do.
-      (let [parsed (layout/parse-definition parallel-machine)
+      (let [parsed (layout/project-definition parallel-machine)
             graph  (projection/xyflow-graph parsed {} {:on-state-click cb})
             region (node-by-id graph (layout/region-node-id :audio))
             muted  (node-by-id graph (layout/region-scoped-id :audio [:muted]))]
@@ -356,7 +356,7 @@
             "a leaf inside a region still carries :onClick"))
       ;; Machine-level :on machine: the synthetic machine-root chip must
       ;; NOT carry :onClick; the real states still do.
-      (let [parsed (layout/parse-definition machine-level-on-machine)
+      (let [parsed (layout/project-definition machine-level-on-machine)
             graph  (projection/xyflow-graph parsed {} {:on-state-click cb})
             root   (first (filter #(= "machine-root" (:type %)) (:nodes graph)))
             a      (node-by-id graph (layout/node-id [:a]))]
@@ -380,7 +380,7 @@
             `:parentId` (the region container id) + `:extent \"parent\"`
             so xyflow v12's sub-flow nests + clamps it; the region
             container itself carries NEITHER"
-    (let [parsed (layout/parse-definition parallel-machine)
+    (let [parsed (layout/project-definition parallel-machine)
           graph  (projection/xyflow-graph parsed {} {})
           region (node-by-id graph (layout/region-node-id :audio))
           muted  (node-by-id graph (layout/region-scoped-id :audio [:muted]))]
@@ -394,7 +394,7 @@
             ONLY; the pre-v12 `:parentNode` key MUST NOT appear (xyflow
             v12 silently ignores it, hiding the bug behind a green test
             suite — the regression mode this guards)"
-    (let [parsed (layout/parse-definition parallel-machine)
+    (let [parsed (layout/project-definition parallel-machine)
           graph  (projection/xyflow-graph parsed {} {})]
       (doseq [n (:nodes graph)]
         (is (not (contains? n :parentNode))
@@ -403,7 +403,7 @@
 (deftest xyflow-graph-flat-state-has-no-parent-id
   (testing "a state in a non-parallel machine carries no parentId /
             extent — those wire ONLY for region children"
-    (let [parsed (layout/parse-definition idle-loading)
+    (let [parsed (layout/project-definition idle-loading)
           graph  (projection/xyflow-graph parsed {} {})
           idle   (node-by-id graph (layout/node-id [:idle]))]
       (is (nil? (:parentId idle)))
@@ -416,7 +416,7 @@
             the nodes array BEFORE any node that references it (v12's
             `adoptUserNodes` warns otherwise). Every region container
             must precede its first child in the projected order."
-    (let [parsed   (layout/parse-definition parallel-machine)
+    (let [parsed   (layout/project-definition parallel-machine)
           graph    (projection/xyflow-graph parsed {} {})
           ids      (mapv :id (:nodes graph))
           index-of (fn [id] (.indexOf ids id))]
@@ -429,7 +429,7 @@
 (deftest xyflow-graph-region-sort-is-stable-against-shuffle
   (testing "the sort is defensive — even if upstream emits a child
             before its region, the projector re-orders regions first"
-    (let [parsed   (layout/parse-definition parallel-machine)
+    (let [parsed   (layout/project-definition parallel-machine)
           ;; Reverse the node order to simulate hostile upstream output.
           shuffled (update parsed :nodes (comp vec reverse))
           graph    (projection/xyflow-graph shuffled {} {})
@@ -445,7 +445,7 @@
 (deftest xyflow-graph-active-flag
   (testing "the node whose id == highlight-id gets `:active true`; all
             others `:active false`"
-    (let [parsed   (layout/parse-definition idle-loading)
+    (let [parsed   (layout/project-definition idle-loading)
           hi       (layout/node-id [:loading])
           graph    (projection/xyflow-graph parsed {} {:highlight-id hi})
           loading  (node-by-id graph hi)
@@ -456,7 +456,7 @@
 (deftest xyflow-graph-from-and-to-highlight-flags
   (testing "from-highlight-id / to-highlight-id flip the matching
             node's `:fromHighlight` / `:toHighlight` flags"
-    (let [parsed (layout/parse-definition idle-loading)
+    (let [parsed (layout/project-definition idle-loading)
           from   (layout/node-id [:idle])
           to     (layout/node-id [:loading])
           graph  (projection/xyflow-graph parsed {}
@@ -471,7 +471,7 @@
             an active node with sim? true gets `:sim true`; the same
             node with sim? false gets `:sim false`; an inactive node
             never gets `:sim` regardless of sim?"
-    (let [parsed   (layout/parse-definition idle-loading)
+    (let [parsed   (layout/project-definition idle-loading)
           hi       (layout/node-id [:loading])
           sim      (projection/xyflow-graph parsed {} {:highlight-id hi :sim? true})
           no-sim   (projection/xyflow-graph parsed {} {:highlight-id hi :sim? false})
@@ -492,7 +492,7 @@
   (testing "rf2-g2svr (THE PARITY CAPABILITY) — passing a SET of two
             region-leaf ids marks BOTH region states `:active`
             simultaneously (parallel multi-active highlight)"
-    (let [parsed     (layout/parse-definition parallel-machine)
+    (let [parsed     (layout/project-definition parallel-machine)
           ;; rf2-wnzha — region states are region-scoped ids now.
           playing-id (layout/region-scoped-id :audio [:playing])
           shown-id   (layout/region-scoped-id :video [:shown])
@@ -514,7 +514,7 @@
             region-map to the set, the projection lights every active
             leaf. This is the live-chart path (chart.cljs calls
             highlight-ids on :current-state)."
-    (let [parsed   (layout/parse-definition parallel-machine)
+    (let [parsed   (layout/project-definition parallel-machine)
           ;; both regions advanced past initial
           state    {:audio :playing :video :shown}
           ids      (layout/highlight-ids state)
@@ -534,7 +534,7 @@
   (testing "rf2-g2svr — the scalar `:highlight-id` is back-compat: it
             folds into the active set as a singleton, so flat/compound
             callers (and existing tests) need no set"
-    (let [parsed  (layout/parse-definition idle-loading)
+    (let [parsed  (layout/project-definition idle-loading)
           hi      (layout/node-id [:loading])
           graph   (projection/xyflow-graph parsed {} {:highlight-id hi})
           loading (node-by-id graph hi)
@@ -545,7 +545,7 @@
 (deftest xyflow-graph-highlight-id-and-ids-union
   (testing "rf2-g2svr — when BOTH `:highlight-id` and `:highlight-ids`
             are supplied the active set is their union"
-    (let [parsed (layout/parse-definition parallel-machine)
+    (let [parsed (layout/project-definition parallel-machine)
           a      (layout/region-scoped-id :audio [:playing])
           b      (layout/region-scoped-id :video [:shown])
           graph  (projection/xyflow-graph
@@ -567,7 +567,7 @@
   (testing "rf2-80rm2 (THE G4 CAPABILITY) — an active region LEAF marks its
             parallel-region CONTAINER `:active`, so the zone (not just the
             leaf inside it) reads as active"
-    (let [parsed     (layout/parse-definition parallel-machine)
+    (let [parsed     (layout/project-definition parallel-machine)
           playing-id (layout/region-scoped-id :audio [:playing])
           audio-id   (layout/region-node-id :audio)
           graph      (projection/xyflow-graph
@@ -581,7 +581,7 @@
   (testing "rf2-80rm2 — a region whose leaf is NOT in the active set keeps
             its container `:active false` (only the active region(s) get
             chrome — orthogonality of the active read)"
-    (let [parsed     (layout/parse-definition parallel-machine)
+    (let [parsed     (layout/project-definition parallel-machine)
           playing-id (layout/region-scoped-id :audio [:playing]) ; :audio leaf, active
           audio-id   (layout/region-node-id :audio)
           video-id   (layout/region-node-id :video)
@@ -596,7 +596,7 @@
   (testing "rf2-80rm2 — a parallel snapshot with an active leaf in EVERY
             region lights EVERY region container simultaneously (the
             multi-active read at the container level)"
-    (let [parsed   (layout/parse-definition parallel-machine)
+    (let [parsed   (layout/project-definition parallel-machine)
           state    {:audio :playing :video :shown}
           ids      (layout/highlight-ids state)
           graph    (projection/xyflow-graph parsed {} {:highlight-ids ids})
@@ -609,7 +609,7 @@
   (testing "rf2-80rm2 — self-consistency: a compound (non-parallel)
             container also gets active chrome when an active descendant
             leaf lit it (the same `:parent-id`-chain mechanic)"
-    (let [parsed      (layout/parse-definition compound-machine)
+    (let [parsed      (layout/project-definition compound-machine)
           browsing-id (layout/node-id [:authenticated :browsing])
           authed-id   (layout/node-id [:authenticated])
           graph       (projection/xyflow-graph
@@ -622,7 +622,7 @@
 (deftest xyflow-graph-active-chain-lights-every-enclosing-container
   (testing "rf2-80rm2 — a deep active leaf lights EVERY enclosing
             container up the `:parent-id` chain (more than one level)"
-    (let [parsed   (layout/parse-definition nested-compound-machine)
+    (let [parsed   (layout/project-definition nested-compound-machine)
           leaf-id  (layout/node-id [:outer :mid :leaf])
           mid-id   (layout/node-id [:outer :mid])
           outer-id (layout/node-id [:outer])
@@ -641,7 +641,7 @@
 (deftest xyflow-graph-flat-machine-unaffected-by-container-chrome
   (testing "rf2-80rm2 — a flat machine has no containers, so the active
             set is exactly the active leaf(s); no spurious node lights"
-    (let [parsed   (layout/parse-definition idle-loading)
+    (let [parsed   (layout/project-definition idle-loading)
           hi       (layout/node-id [:loading])
           graph    (projection/xyflow-graph parsed {} {:highlight-id hi})
           flagged  (filter #(contains? (:data %) :active) (:nodes graph))
@@ -652,7 +652,7 @@
 (deftest xyflow-graph-inactive-compound-container-stays-inactive
   (testing "rf2-80rm2 — a compound with NO active descendant keeps its
             container `:active false` (no highlight → no chrome)"
-    (let [parsed (layout/parse-definition compound-machine)
+    (let [parsed (layout/project-definition compound-machine)
           graph  (projection/xyflow-graph parsed {} {})
           authed (node-by-id graph (layout/node-id [:authenticated]))]
       (is (false? (:active (:data authed)))
@@ -664,7 +664,7 @@
             nil-comparison surprises). Initial-marker nodes carry no
             `:active` key at all (they are not states), so the check
             scopes to nodes that carry the flag."
-    (let [parsed (layout/parse-definition parallel-machine)
+    (let [parsed (layout/project-definition parallel-machine)
           graph  (projection/xyflow-graph parsed {} {})
           flagged (filter #(contains? (:data %) :active) (:nodes graph))]
       (is (seq flagged) "fixture has state/region nodes carrying :active")
@@ -674,7 +674,7 @@
   (testing "rf2-g2svr — with N active leaves, an edge touching ANY active
             leaf is `:active`. Each region's self/incident edge lights up
             independently (orthogonality preserved)."
-    (let [parsed     (layout/parse-definition parallel-machine)
+    (let [parsed     (layout/project-definition parallel-machine)
           ;; rf2-wnzha — region states are region-scoped ids now.
           playing-id (layout/region-scoped-id :audio [:playing])
           shown-id   (layout/region-scoped-id :video [:shown])
@@ -697,7 +697,7 @@
 (deftest xyflow-graph-edge-active-when-endpoint-highlighted
   (testing "an edge is `:active` when EITHER endpoint is the
             highlighted node"
-    (let [parsed (layout/parse-definition idle-loading)
+    (let [parsed (layout/project-definition idle-loading)
           hi     (layout/node-id [:loading])
           graph  (projection/xyflow-graph parsed {} {:highlight-id hi})
           ;; idle --start--> loading : target is highlighted
@@ -711,7 +711,7 @@
             transition's source/target match the from/to lens. The
             paired outbound edge (event-node → target-state) gets the
             same focused flag so the WHOLE traversal lights up."
-    (let [parsed (layout/parse-definition idle-loading)
+    (let [parsed (layout/project-definition idle-loading)
           from   (layout/node-id [:idle])
           to     (layout/node-id [:loading])
           start-edge (->> (:edges parsed)
@@ -734,7 +734,7 @@
 (deftest xyflow-graph-edge-not-focused-without-both-lens-ends
   (testing "with only ONE lens end set, no edge is focused (the
             some?/some? guard requires both)"
-    (let [parsed (layout/parse-definition idle-loading)
+    (let [parsed (layout/project-definition idle-loading)
           from   (layout/node-id [:idle])
           graph  (projection/xyflow-graph parsed {} {:from-highlight-id from})]
       (is (every? false? (map (comp :focused :data) (:edges graph)))))))
@@ -746,7 +746,7 @@
             markerEnd so React Flow draws an arrowhead at the target end
             (the custom edge component forwards the resolved url to its
             BaseEdge)."
-    (let [parsed (layout/parse-definition idle-loading)
+    (let [parsed (layout/project-definition idle-loading)
           graph  (projection/xyflow-graph parsed {} {})]
       (is (seq (:edges graph)))
       (is (every? #(= "arrowclosed" (:type (:markerEnd %))) (:edges graph))
@@ -761,7 +761,7 @@
             marker reads as part of the same line."
     ;; Highlight `:ready` (a leaf): only the loading→ready edge touches
     ;; it, so the graph has a clean active/inactive split.
-    (let [parsed   (layout/parse-definition idle-loading)
+    (let [parsed   (layout/project-definition idle-loading)
           hi       (layout/node-id [:ready])
           graph    (projection/xyflow-graph parsed {} {:highlight-id hi})
           active   (first (filter #(:active (:data %)) (:edges graph)))
@@ -779,7 +779,7 @@
             option) is threaded onto EVERY node + edge `:data {:palette}`
             so the renderers paint the active theme. Default (no
             `:palette`) resolves the dark chart-tokens."
-    (let [parsed (layout/parse-definition idle-loading)
+    (let [parsed (layout/project-definition idle-loading)
           ct     (tokens/chart-tokens tokens/light-palette)
           graph  (projection/xyflow-graph parsed {} {:palette ct})]
       (is (seq (:nodes graph)))
@@ -791,7 +791,7 @@
 (deftest xyflow-graph-palette-defaults-to-dark-chart-tokens
   (testing "rf2-az6e2 — a caller that omits `:palette` gets the dark
             chart-tokens map on every node/edge (theme-less default)."
-    (let [parsed (layout/parse-definition idle-loading)
+    (let [parsed (layout/project-definition idle-loading)
           graph  (projection/xyflow-graph parsed {} {})
           dark   (tokens/chart-tokens tokens/dark-palette)]
       (is (every? #(= dark (:palette (:data %))) (:nodes graph)))
@@ -804,7 +804,7 @@
             (`__out`) segment carries the PRIMARY full-size arrowhead
             (18px). `idle --start--> loading` is a plain external
             transition so both halves exist."
-    (let [parsed  (layout/parse-definition idle-loading)
+    (let [parsed  (layout/project-definition idle-loading)
           graph   (projection/xyflow-graph parsed {} {})
           ;; the plain :on transition edge id
           on-edge (first (filter #(= :start (:event %)) (:edges parsed)))
@@ -825,7 +825,7 @@
   (testing "rf2-az6e2 — an internal / action-only transition (no
             `:target`) emits the inbound terminal segment but NO outgoing
             target segment, so the event chip reads as a terminal route."
-    (let [parsed   (layout/parse-definition internal-self-machine)
+    (let [parsed   (layout/project-definition internal-self-machine)
           graph    (projection/xyflow-graph parsed {} {})
           internal (first (filter :internal? (:edges parsed)))]
       (when internal
@@ -848,7 +848,7 @@
             projects the inbound terminal segment but NO outbound segment,
             consistent with the internal :on form (pre-fix both were dropped
             entirely by the chart parse)"
-    (let [parsed (layout/parse-definition internal-after-always-machine)
+    (let [parsed (layout/project-definition internal-after-always-machine)
           graph  (projection/xyflow-graph parsed {} {})
           aft    (first (filter #(and (:internal? %) (:after %)) (:edges parsed)))
           alw    (first (filter #(and (:internal? %) (:always? %)) (:edges parsed)))]
@@ -873,7 +873,7 @@
 (deftest xyflow-graph-region-style-from-measured-position
   (testing "a region container's `:style {:width :height}` comes from
             its measured position entry"
-    (let [parsed    (layout/parse-definition parallel-machine)
+    (let [parsed    (layout/project-definition parallel-machine)
           rid       (layout/region-node-id :audio)
           positions {rid {:x 0 :y 0 :width 320 :height 180}}
           graph     (projection/xyflow-graph parsed positions {})
@@ -889,7 +889,7 @@
             and substates whose parent-relative elk coords were computed
             against the FULL measured extent overflow + visually escape
             the container."
-    (let [parsed    (layout/parse-definition compound-machine)
+    (let [parsed    (layout/project-definition compound-machine)
           cid       (layout/node-id [:authenticated])
           positions {cid {:x 0 :y 0 :width 328 :height 156}}
           graph     (projection/xyflow-graph parsed positions {})
@@ -906,7 +906,7 @@
             together are the containment contract: xyflow adopts the
             child against the parent's measured box, then clamps the
             parent-relative substates inside it."
-    (let [parsed    (layout/parse-definition compound-machine)
+    (let [parsed    (layout/project-definition compound-machine)
           cid       (layout/node-id [:authenticated])
           browsing  (layout/node-id [:authenticated :browsing])
           paying    (layout/node-id [:authenticated :paying])
@@ -935,7 +935,7 @@
             even with a measured size in the positions map; xyflow sizes
             leaf nodes from the rendered DOM (`state-node-min-{width,height}`)
             rather than a projector-supplied box."
-    (let [parsed    (layout/parse-definition idle-loading)
+    (let [parsed    (layout/project-definition idle-loading)
           idle-id   (layout/node-id [:idle])
           positions {idle-id {:x 0 :y 0 :width 200 :height 60}}
           graph     (projection/xyflow-graph parsed positions {})
@@ -945,7 +945,7 @@
 (deftest xyflow-graph-position-defaults-to-origin
   (testing "a node with no entry in the positions map defaults to
             {:x 0 :y 0} (the pre-layout placeholder)"
-    (let [parsed (layout/parse-definition idle-loading)
+    (let [parsed (layout/project-definition idle-loading)
           graph  (projection/xyflow-graph parsed {} {})
           idle   (node-by-id graph (layout/node-id [:idle]))]
       (is (= {:x 0 :y 0} (:position idle))))))
@@ -955,7 +955,7 @@
             (not the edge) carries the `:afterMs` + the visible event
             label. The `⌚`-prefixed segment (from chart.layout/event-
             segment) rides on the event-node's `:eventLabel`."
-    (let [parsed     (layout/parse-definition idle-loading)
+    (let [parsed     (layout/project-definition idle-loading)
           graph      (projection/xyflow-graph parsed {} {})
           after-parsed (first (filter :after (:edges parsed)))
           after-node (event-node-for graph (:id after-parsed))]
@@ -971,7 +971,7 @@
             event-segment text from chart.layout/event-segment (e.g.
             \"start\"); guard/action ride on dedicated `:guard` +
             `:action` slots of the event-node payload."
-    (let [parsed     (layout/parse-definition idle-loading)
+    (let [parsed     (layout/project-definition idle-loading)
           graph      (projection/xyflow-graph parsed {} {})
           start-parsed (->> (:edges parsed)
                             (filter #(= (:source %) (layout/node-id [:idle])))
@@ -995,7 +995,7 @@
                                             :guard  :authed?
                                             :action :log-it}}}
                        :loading {}}}
-          parsed (layout/parse-definition m)
+          parsed (layout/project-definition m)
           graph  (projection/xyflow-graph parsed {} {})
           submit-parsed (first (:edges parsed))
           ev-node       (event-node-for graph (:id submit-parsed))]
@@ -1009,7 +1009,7 @@
             event label; the every-edge-:data invariant means they
             carry `:eventLineLabel \"\"` alongside the existing
             `:eventLabel \"\"`."
-    (let [parsed   (layout/parse-definition idle-loading)
+    (let [parsed   (layout/project-definition idle-loading)
           graph    (projection/xyflow-graph parsed {} {})
           idle-id  (layout/node-id [:idle])
           marker-id (str "initial__" idle-id)
@@ -1021,7 +1021,7 @@
 (deftest xyflow-graph-region-data-carries-region-id-and-index
   (testing "a region container's `:data` carries `:regionId` +
             `:regionIndex`; a plain state's does not"
-    (let [parsed (layout/parse-definition parallel-machine)
+    (let [parsed (layout/project-definition parallel-machine)
           graph  (projection/xyflow-graph parsed {} {})
           audio  (node-by-id graph (layout/region-node-id :audio))
           video  (node-by-id graph (layout/region-node-id :video))
@@ -1043,7 +1043,7 @@
   (testing "rf2-k647w — the resolved `:chart` map rides on EVERY node's
             `:data` so the xyflow node component reads geometry off the
             payload (it is invoked outside the render binding scope)"
-    (let [parsed (layout/parse-definition idle-loading)
+    (let [parsed (layout/project-definition idle-loading)
           graph  (projection/xyflow-graph parsed {} {:chart vc/chart-compact})]
       (is (seq (:nodes graph)))
       (is (every? #(= vc/chart-compact (:chart (:data %))) (:nodes graph))
@@ -1052,7 +1052,7 @@
 (deftest xyflow-graph-threads-chart-constants-onto-edges
   (testing "rf2-k647w — the resolved `:chart` map rides on EVERY edge's
             `:data` so the edge label typography tracks the density"
-    (let [parsed (layout/parse-definition idle-loading)
+    (let [parsed (layout/project-definition idle-loading)
           graph  (projection/xyflow-graph parsed {} {:chart vc/chart-cosy})]
       (is (seq (:edges graph)))
       (is (every? #(= vc/chart-cosy (:chart (:data %))) (:edges graph))
@@ -1062,7 +1062,7 @@
   (testing "rf2-k647w — omitting `:chart` (the JVM tests, a density-less
             caller) defaults to `chart-regular` so the regular density
             stays pixel-identical to pre-rf2-k647w"
-    (let [parsed (layout/parse-definition idle-loading)
+    (let [parsed (layout/project-definition idle-loading)
           graph  (projection/xyflow-graph parsed {} {})
           idle   (node-by-id graph (layout/node-id [:idle]))]
       (is (= vc/chart-regular (:chart (:data idle)))))))
@@ -1079,7 +1079,7 @@
             visible pill row, and `:state-label-px` was removed
             (rf2-dt5b1, unread — the state-node label rides
             `:state-title-px` under the rf2-az6e2 structured grammar)."
-    (let [parsed   (layout/parse-definition idle-loading)
+    (let [parsed   (layout/project-definition idle-loading)
           idle-id  (layout/node-id [:idle])
           regular  (-> (projection/xyflow-graph parsed {} {:chart vc/chart-regular})
                        (node-by-id idle-id) :data :chart)
@@ -1106,7 +1106,7 @@
             its fireable `:eventId` for the on-chart sim path; from/to
             paths ride with it so the host can dispatch the originating
             transition."
-    (let [parsed   (layout/parse-definition idle-loading)
+    (let [parsed   (layout/project-definition idle-loading)
           graph    (projection/xyflow-graph parsed {} {})
           start    (->> (:edges parsed)
                         (filter #(= (:source %) (layout/node-id [:idle])))
@@ -1123,7 +1123,7 @@
             carry nil `:eventId` (the engine fires them automatically;
             the host filters them out for clickability). Their variant
             slot still identifies them as `:after` / `:always`."
-    (let [parsed (layout/parse-definition idle-loading)
+    (let [parsed (layout/project-definition idle-loading)
           graph  (projection/xyflow-graph parsed {} {})
           after-parsed  (first (filter :after   (:edges parsed)))
           always-parsed (first (filter :always? (:edges parsed)))
@@ -1141,7 +1141,7 @@
             on-event-click) threads onto every event-node's
             `:data {:onClick}` (the event-node component decides
             clickability from the callback + fireable eventId pair)."
-    (let [parsed   (layout/parse-definition idle-loading)
+    (let [parsed   (layout/project-definition idle-loading)
           captured (atom nil)
           cb       (fn [m] (reset! captured m))
           graph    (projection/xyflow-graph parsed {} {:on-edge-click cb})
@@ -1153,7 +1153,7 @@
 (deftest xyflow-graph-omits-on-click-when-no-callback
   (testing "rf2-u422r — omitting `:on-edge-click` leaves `:onClick` nil
             so the edge label stays inert (no wiring)"
-    (let [parsed (layout/parse-definition idle-loading)
+    (let [parsed (layout/project-definition idle-loading)
           graph  (projection/xyflow-graph parsed {} {})]
       (is (every? #(nil? (:onClick (:data %))) (:edges graph))))))
 
@@ -1164,7 +1164,7 @@
             parsed state node PLUS one synthetic event-node per parsed
             transition (events-as-nodes paradigm). All children carry
             id + width/height + label."
-    (let [parsed   (layout/parse-definition idle-loading)
+    (let [parsed   (layout/project-definition idle-loading)
           children (projection/->elk-children parsed)
           n-states (count (:nodes parsed))
           n-events (count (:edges parsed))]
@@ -1177,7 +1177,7 @@
 (deftest elk-children-compound-uses-compound-floor
   (testing "a compound node gets the compound size floor; a leaf gets
             the state floor"
-    (let [parsed   (layout/parse-definition compound-machine)
+    (let [parsed   (layout/project-definition compound-machine)
           children (projection/->elk-children parsed)
           by-id    (into {} (map (juxt :id identity)) children)
           parent   (get by-id (layout/node-id [:authenticated]))
@@ -1192,7 +1192,7 @@
             top-level child per region (regions are the only top-level
             structural containers); each region nests its states AND
             the events declared inside as `:children`."
-    (let [parsed   (layout/parse-definition parallel-machine)
+    (let [parsed   (layout/project-definition parallel-machine)
           children (projection/->elk-children parsed)
           regions  (filter #(re-find #"^region__" (:id %)) children)]
       (is (= 2 (count regions))
@@ -1209,7 +1209,7 @@
 (deftest elk-children-region-padding-leaves-header-room
   (testing "each region's elk.padding leaves top room for the header
             strip the parallel-region-node paints"
-    (let [parsed   (layout/parse-definition parallel-machine)
+    (let [parsed   (layout/project-definition parallel-machine)
           children (projection/->elk-children parsed)]
       (is (every? #(= "layered" (get-in % [:layoutOptions "elk.algorithm"]))
                   children))
@@ -1254,7 +1254,7 @@
   (testing "rf2-8q5pt — `->elk-children` threads `chart-vc` into every
             container's elk.padding so a compact chart reserves a SMALLER
             header gap than a cosy chart (was a fixed literal for both)"
-    (let [parsed       (layout/parse-definition parallel-machine)
+    (let [parsed       (layout/project-definition parallel-machine)
           compact-kids (projection/->elk-children parsed nil vc/chart-compact)
           cosy-kids    (projection/->elk-children parsed nil vc/chart-cosy)
           pad-of       (fn [child] (get-in child [:layoutOptions "elk.padding"]))]
@@ -1308,7 +1308,7 @@
 (deftest elk-child-leaf-uses-measured-dims
   (testing "rf2-d9ro2 — `elk-child` sizes a LEAF to its measured box
             (floored), looked up by node-id from the measured-dims map"
-    (let [parsed   (layout/parse-definition idle-loading)
+    (let [parsed   (layout/project-definition idle-loading)
           idle-id  (layout/node-id [:idle])
           measured {idle-id {:width 260 :height 72}}
           idle     (first (filter #(= idle-id (:id %)) (:nodes parsed)))
@@ -1317,7 +1317,7 @@
       (is (= 72  (:height child)))))
   (testing "rf2-d9ro2 — an unmeasured leaf (absent from the map) keeps
             the floor"
-    (let [parsed   (layout/parse-definition idle-loading)
+    (let [parsed   (layout/project-definition idle-loading)
           idle     (first (filter #(= (layout/node-id [:idle]) (:id %))
                                   (:nodes parsed)))
           child    (projection/elk-child idle {})]
@@ -1329,7 +1329,7 @@
             measured entry: its true extent comes from ELK laying out its
             measured children, so feeding back its `100%`-of-the-box
             self-measurement would be circular"
-    (let [parsed    (layout/parse-definition compound-machine)
+    (let [parsed    (layout/project-definition compound-machine)
           cid       (layout/node-id [:authenticated])
           measured  {cid {:width 999 :height 999}}
           compound  (first (filter #(= cid (:id %)) (:nodes parsed)))
@@ -1356,7 +1356,7 @@
   (testing "rf2-d9ro2 — `->elk-children` forwards the measured-dims map
             so every leaf + event-node in the projected tree lays out at
             its real box; an unmeasured node falls back to the floor"
-    (let [parsed     (layout/parse-definition idle-loading)
+    (let [parsed     (layout/project-definition idle-loading)
           idle-id    (layout/node-id [:idle])
           start-edge (->> (:edges parsed)
                           (filter #(= idle-id (:source %)))
@@ -1380,7 +1380,7 @@
   (testing "rf2-d9ro2 — with no measured-dims (the first pass / nil) the
             output is identical to the historical single-pass: every leaf
             at the floor. Guards that the two-pass is purely additive."
-    (let [parsed (layout/parse-definition idle-loading)]
+    (let [parsed (layout/project-definition idle-loading)]
       (is (= (projection/->elk-children parsed)
              (projection/->elk-children parsed nil))
           "the 1-arity and nil-2-arity are identical")
@@ -1396,7 +1396,7 @@
             the machine-root annotation sinks LAST; ordinary states keep
             parse order. This is the model-order half of the initial-
             state placement soft preference."
-    (let [parsed  (layout/parse-definition door-cyclic-machine)
+    (let [parsed  (layout/project-definition door-cyclic-machine)
           top     (get (group-by :parent-id (:nodes parsed)) nil)
           ordered (projection/order-state-children top)
           ids     (mapv :id ordered)]
@@ -1418,7 +1418,7 @@
   (testing "rf2-ly51l — the sort is STABLE: shuffling the non-initial /
             non-root states does not reorder them relative to each other
             (only the initial floats up + the root sinks down)."
-    (let [parsed  (layout/parse-definition door-cyclic-machine)
+    (let [parsed  (layout/project-definition door-cyclic-machine)
           top     (get (group-by :parent-id (:nodes parsed)) nil)
           init    (filter :initial? top)
           root    (filter :machine-root? top)
@@ -1445,7 +1445,7 @@
             and the machine-root annotation LAST among states, so ELK's
             DEPTH_FIRST source selection + within-layer tiebreak prefer
             the initial state. End-to-end through the production path."
-    (let [parsed   (layout/parse-definition door-cyclic-machine)
+    (let [parsed   (layout/project-definition door-cyclic-machine)
           children (projection/->elk-children parsed)
           state-children (remove #(re-find #"^event__" (:id %)) children)
           ids      (mapv :id state-children)]
@@ -1459,7 +1459,7 @@
             children (the preference applies per container, not just at
             the top level). `compound-machine`'s `:authenticated` is
             initial :browsing."
-    (let [parsed   (layout/parse-definition compound-machine)
+    (let [parsed   (layout/project-definition compound-machine)
           children (projection/->elk-children parsed)
           by-id    (into {} (map (juxt :id identity)) children)
           compound (get by-id (layout/node-id [:authenticated]))
@@ -1484,7 +1484,7 @@
             ELK edges: source-state → event-node (__in) and event-node →
             target-state (__out), so ELK routes both segments around any
             intervening node"
-    (let [parsed   (layout/parse-definition idle-loading)
+    (let [parsed   (layout/project-definition idle-loading)
           idle-id  (layout/node-id [:idle])
           start    (->> (:edges parsed)
                         (filter #(= idle-id (:source %)))
@@ -1505,7 +1505,7 @@
   (testing "rf2-rlq97 — an internal transition (no :target) feeds ONLY
             the __in ELK edge; the event-node hangs with no outgoing
             arrow (Stately convention)"
-    (let [parsed  (layout/parse-definition internal-self-machine)
+    (let [parsed  (layout/project-definition internal-self-machine)
           tick    (first (:edges parsed))
           elk-eds (projection/->elk-edge tick)]
       (is (true? (:internal? tick)) "fixture is an internal transition")
@@ -1518,7 +1518,7 @@
             on the event-NODE so the edge label text is empty + carries
             NO measured dims (feeding dims on both the node AND its edges
             would double-budget the same text)"
-    (let [parsed   (layout/parse-definition idle-loading)
+    (let [parsed   (layout/project-definition idle-loading)
           idle-id  (layout/node-id [:idle])
           start    (->> (:edges parsed)
                         (filter #(= idle-id (:source %)))
@@ -1536,7 +1536,7 @@
             its elk-edge-id) gets its MEASURED width/height fed into the
             ELK label so ELK reserves a placement channel — the edge-label
             analogue of d9ro2's node measure"
-    (let [parsed   (layout/parse-definition idle-loading)
+    (let [parsed   (layout/project-definition idle-loading)
           idle-id  (layout/node-id [:idle])
           start    (->> (:edges parsed)
                         (filter #(= idle-id (:source %)))
@@ -1561,7 +1561,7 @@
             `->elk-input` clj->js-es onto the root graph. The id set
             matches the `:edge-points` producer/consumer key scheme
             (`<spec-id>__in` / `__out`)"
-    (let [parsed   (layout/parse-definition idle-loading)
+    (let [parsed   (layout/project-definition idle-loading)
           elk-eds  (projection/->elk-edges parsed)
           ids      (set (map :id elk-eds))
           ;; idle-loading: :start (external), :after (external), :always
@@ -1586,7 +1586,7 @@
   (testing "rf2-rlq97 — when :edge-labels carries an ELK-computed
             position for an edge, the projector threads it onto that
             edge's :data {:labelPos}; an edge with no entry gets nil"
-    (let [parsed   (layout/parse-definition idle-loading)
+    (let [parsed   (layout/project-definition idle-loading)
           idle-id  (layout/node-id [:idle])
           start    (->> (:edges parsed)
                         (filter #(= idle-id (:source %)))
@@ -1607,7 +1607,7 @@
   (testing "rf2-rlq97 — omitting :edge-labels (events-as-nodes default)
             leaves every edge's :labelPos nil so the renderer keeps its
             geometric anchor"
-    (let [parsed (layout/parse-definition idle-loading)
+    (let [parsed (layout/project-definition idle-loading)
           graph  (projection/xyflow-graph parsed {} {})]
       (is (every? #(nil? (:labelPos (:data %))) (:edges graph))
           "no ELK labels fed → every edge :labelPos nil"))))
@@ -1617,7 +1617,7 @@
 (deftest xyflow-graph-emits-initial-marker-node-and-entry-edge
   (testing "rf2-54s5a — the machine's initial state gets a synthetic
             initial-marker node + an unlabelled entry edge into it"
-    (let [parsed   (layout/parse-definition idle-loading)
+    (let [parsed   (layout/project-definition idle-loading)
           graph    (projection/xyflow-graph parsed {} {})
           idle-id   (layout/node-id [:idle])
           marker-id (str "initial__" idle-id)
@@ -1635,7 +1635,7 @@
 (deftest xyflow-graph-threads-initial-flag-onto-node-data
   (testing "rf2-54s5a — node :data carries :initial (true for the
             machine's initial state, false otherwise)"
-    (let [parsed  (layout/parse-definition idle-loading)
+    (let [parsed  (layout/project-definition idle-loading)
           graph   (projection/xyflow-graph parsed {} {})
           idle    (node-by-id graph (layout/node-id [:idle]))
           loading (node-by-id graph (layout/node-id [:loading]))]
@@ -1646,7 +1646,7 @@
   (testing "rf2-54s5a + rf2-xh1lm — a compound parent's :initial substate
             also gets a marker (xstate per-level initial semantics) sharing
             the compound's coordinate frame via xyflow v12's `:parentId`"
-    (let [parsed      (layout/parse-definition compound-machine)
+    (let [parsed      (layout/project-definition compound-machine)
           graph       (projection/xyflow-graph parsed {} {})
           browsing-id (layout/node-id [:authenticated :browsing])
           marker      (node-by-id graph (str "initial__" browsing-id))]
@@ -1665,7 +1665,7 @@
             true; the events-as-nodes paradigm dissolves that special
             case (the visible loop arc is now the route around the
             event-node)."
-    (let [parsed   (layout/parse-definition self-loop-machine)
+    (let [parsed   (layout/project-definition self-loop-machine)
           graph    (projection/xyflow-graph parsed {} {})
           self     (first (filter #(= (:source %) (:target %))
                                   (:edges parsed)))
@@ -1685,7 +1685,7 @@
             v12's `:parentId` (same mechanic as parallel-region children;
             the pre-v12 `:parentNode` key is silently ignored by v12 so
             the projector MUST NOT emit it)"
-    (let [parsed   (layout/parse-definition compound-machine)
+    (let [parsed   (layout/project-definition compound-machine)
           graph    (projection/xyflow-graph parsed {} {})
           browsing (node-by-id graph (layout/node-id [:authenticated :browsing]))]
       (is (= (layout/node-id [:authenticated]) (:parentId browsing)))
@@ -1699,7 +1699,7 @@
             whose source is inside the compound. State nodes count is
             unchanged (2); event-nodes for `:checkout` (browsing → paying)
             and `:done` (paying → browsing) sit inside too."
-    (let [parsed   (layout/parse-definition compound-machine)
+    (let [parsed   (layout/project-definition compound-machine)
           children (projection/->elk-children parsed)
           by-id    (into {} (map (juxt :id identity) children))
           authed   (get by-id (layout/node-id [:authenticated]))]
@@ -1719,7 +1719,7 @@
             to source == target in the parsed graph; the projector
             routes the transition through an event-node (no phantom
             target node)."
-    (let [parsed   (layout/parse-definition same-state-machine)
+    (let [parsed   (layout/project-definition same-state-machine)
           graph    (projection/xyflow-graph parsed {} {})
           node-ids (set (map :id (:nodes graph)))
           ping     (first (:edges parsed))
@@ -1737,7 +1737,7 @@
             but NO outbound edge — the Stately convention 'runs an
             action and we hang here'. The event-node carries
             `:internal true`."
-    (let [parsed   (layout/parse-definition internal-self-machine)
+    (let [parsed   (layout/project-definition internal-self-machine)
           graph    (projection/xyflow-graph parsed {} {})
           tick     (first (:edges parsed))
           ev-node  (event-node-for graph (:id tick))
@@ -1753,7 +1753,7 @@
   (testing "rf2-ee38b.21 + rf2-qo5xy — the `:*` wildcard transition's
             event-node carries a NIL :eventId (not user-fireable on
             the chart); the real `:start` event-node stays fireable."
-    (let [parsed (layout/parse-definition wildcard-machine)
+    (let [parsed (layout/project-definition wildcard-machine)
           graph  (projection/xyflow-graph parsed {} {})
           ev-nodes (filter #(= "rf2-event" (:type %)) (:nodes graph))
           wild   (first (filter #(re-find #"\(any\)"
@@ -1770,7 +1770,7 @@
             as EXACTLY ONE event-node flagged `:machineLevel true`,
             sourced from the synthetic MACHINE-ROOT node — NOT one chip
             per inheriting leaf (the pre-vcnvj per-state repetition)."
-    (let [parsed (layout/parse-definition machine-level-on-machine)
+    (let [parsed (layout/project-definition machine-level-on-machine)
           graph  (projection/xyflow-graph parsed {} {})
           ev-nodes (filter #(= "rf2-event" (:type %)) (:nodes graph))
           logout (filter #(= :logout (:eventId (:data %))) ev-nodes)
@@ -1788,7 +1788,7 @@
             xyflow node of type `machine-root` (the quiet root-context
             chip the fallback routes FROM); it leads the node vector so
             xyflow sees the source node before the edge referencing it."
-    (let [parsed (layout/parse-definition machine-level-on-machine)
+    (let [parsed (layout/project-definition machine-level-on-machine)
           graph  (projection/xyflow-graph parsed {} {})
           root   (node-by-id graph layout/machine-root-id)
           root-idx (->> (:nodes graph)
@@ -1807,7 +1807,7 @@
 (deftest xyflow-graph-no-machine-level-emits-no-root-node
   (testing "rf2-vcnvj — a machine with no top-level :on projects no
             machine-root node (the chip is the fallback's anchor only)."
-    (let [parsed (layout/parse-definition idle-loading)
+    (let [parsed (layout/project-definition idle-loading)
           graph  (projection/xyflow-graph parsed {} {})]
       (is (nil? (node-by-id graph layout/machine-root-id)))
       (is (empty? (filter #(= "machine-root" (:type %)) (:nodes graph)))))))
@@ -1815,7 +1815,7 @@
 (deftest xyflow-graph-state-only-transitions-not-machine-level
   (testing "rf2-ee38b.21 + rf2-qo5xy — a normal state-local transition's
             event-node carries `:machineLevel false`."
-    (let [parsed  (layout/parse-definition idle-loading)
+    (let [parsed  (layout/project-definition idle-loading)
           graph   (projection/xyflow-graph parsed {} {})
           start-p (->> (:edges parsed)
                        (filter #(= :start (:event %)))
@@ -1833,7 +1833,7 @@
             `+ <name>` (entry) / `- <name>` (exit) action pills below
             the state name (Stately graph view convention; rf2-a2b55
             replaced the prior text rows with pills)"
-    (let [parsed (layout/parse-definition entry-exit-machine)
+    (let [parsed (layout/project-definition entry-exit-machine)
           graph  (projection/xyflow-graph parsed {} {})
           a      (node-by-id graph (layout/node-id [:a]))
           b      (node-by-id graph (layout/node-id [:b]))]
@@ -1861,7 +1861,7 @@
             `__in` route (source-state → event-node), the outbound edge
             gets the `__out` route (event-node → target-state). Each
             edge draws exactly the segment it represents."
-    (let [parsed     (layout/parse-definition idle-loading)
+    (let [parsed     (layout/project-definition idle-loading)
           start      (->> (:edges parsed)
                           (filter #(= (:source %) (layout/node-id [:idle])))
                           first)
@@ -1887,7 +1887,7 @@
             edge picks it up, since the contract keys on the elk
             `__in` / `__out` ids. This is the failing-before/passing-
             after guard for the dead-G2 bug."
-    (let [parsed   (layout/parse-definition idle-loading)
+    (let [parsed   (layout/project-definition idle-loading)
           start    (->> (:edges parsed)
                         (filter #(= (:source %) (layout/node-id [:idle])))
                         first)
@@ -1905,7 +1905,7 @@
   (testing "rf2-cz8v6 + rf2-qo5xy + rf2-r636q — edges with no matching
             `__in` / `__out` `:edge-points` entry carry `:points nil`
             (bezier fallback) on BOTH the inbound and the outbound edge."
-    (let [parsed (layout/parse-definition idle-loading)
+    (let [parsed (layout/project-definition idle-loading)
           start  (->> (:edges parsed)
                       (filter #(= (:source %) (layout/node-id [:idle])))
                       first)
@@ -1928,7 +1928,7 @@
   (testing "rf2-cz8v6 — omitting :edge-points entirely (the pre-layout
             render, before elk resolves) leaves EVERY edge's :points nil
             so the whole chart falls back to beziers"
-    (let [parsed (layout/parse-definition idle-loading)
+    (let [parsed (layout/project-definition idle-loading)
           graph  (projection/xyflow-graph parsed {} {})]
       (is (seq (:edges graph)))
       (is (every? #(nil? (:points (:data %))) (:edges graph))
@@ -1940,7 +1940,7 @@
             transition's outbound edge (event-node → source-state)
             is just a regular edge with elk-routed points. The visible
             loop arc is the route around the event-node sibling."
-    (let [parsed (layout/parse-definition self-loop-machine)
+    (let [parsed (layout/project-definition self-loop-machine)
           self   (->> (:edges parsed)
                       (filter #(= (:source %) (:target %)))
                       first)
@@ -1961,7 +1961,7 @@
             routing through the event-node: an outbound edge whose
             target is active carries both `:active true` and the elk
             route on its `:data`."
-    (let [parsed  (layout/parse-definition idle-loading)
+    (let [parsed  (layout/project-definition idle-loading)
           hi      (layout/node-id [:loading])
           start   (->> (:edges parsed)
                        (filter #(= (:source %) (layout/node-id [:idle])))
@@ -1991,7 +1991,7 @@
             for that transition with `:fired true` (the whole
             event-as-nodes structural fork lights up). Other edges /
             event-nodes stay `:fired false`."
-    (let [parsed   (layout/parse-definition idle-loading)
+    (let [parsed   (layout/project-definition idle-loading)
           start    (->> (:edges parsed)
                         (filter #(= (:source %) (layout/node-id [:idle])))
                         first)
@@ -2013,7 +2013,7 @@
 (deftest xyflow-graph-no-fired-edge-ids-leaves-all-unfired
   (testing "rf2-qeemm — omitting :fired-edge-ids (the viewer / Story path,
             or a non-fired epoch) leaves EVERY edge `:fired false`"
-    (let [parsed (layout/parse-definition idle-loading)
+    (let [parsed (layout/project-definition idle-loading)
           graph  (projection/xyflow-graph parsed {} {})]
       (is (seq (:edges graph)))
       (is (every? #(false? (:fired (:data %))) (:edges graph))
@@ -2024,7 +2024,7 @@
             marks N event-nodes + their inbound/outbound edges as
             fired. An epoch with two traversed arms lights two
             event-node forks."
-    (let [parsed (layout/parse-definition idle-loading)
+    (let [parsed (layout/project-definition idle-loading)
           start  (->> (:edges parsed)
                       (filter #(= (:source %) (layout/node-id [:idle])))
                       first)
@@ -2044,7 +2044,7 @@
   (testing "rf2-qeemm — a fired edge's arrowhead colour differs from a
             non-fired edge's (the FIRED hue is distinct so a traversed
             arm reads as 'what just happened')"
-    (let [parsed   (layout/parse-definition idle-loading)
+    (let [parsed   (layout/project-definition idle-loading)
           start    (->> (:edges parsed)
                         (filter #(= (:source %) (layout/node-id [:idle])))
                         first)
@@ -2063,7 +2063,7 @@
   (testing "rf2-qeemm + rf2-qo5xy — :fired + :active + :points coexist
             on the outbound edge of a fired transition that also
             touches an active node and carries an elk route."
-    (let [parsed  (layout/parse-definition idle-loading)
+    (let [parsed  (layout/project-definition idle-loading)
           hi      (layout/node-id [:loading])
           start   (->> (:edges parsed)
                        (filter #(= (:source %) (layout/node-id [:idle])))
@@ -2083,7 +2083,7 @@
             directly (via the event-node bridge), NOT endpoint node-ids
             like :focused. Passing only :fired-edge-ids (no from/to
             lens) lights the fired forks while no edge is :focused."
-    (let [parsed  (layout/parse-definition idle-loading)
+    (let [parsed  (layout/project-definition idle-loading)
           start   (->> (:edges parsed)
                        (filter #(= (:source %) (layout/node-id [:idle])))
                        first)
@@ -2099,7 +2099,7 @@
             `:fired false` (never fired). Note: these are distinct
             from the rf2-qo5xy state→event-node→state edges. The
             entry-edge is the marker→state hop."
-    (let [parsed (layout/parse-definition idle-loading)
+    (let [parsed (layout/project-definition idle-loading)
           graph  (projection/xyflow-graph parsed {} {:fired-edge-ids #{"anything"}})
           entry  (first (filter #(:entry (:data %)) (:edges graph)))]
       (is (some? entry) "fixture has an entry edge")
@@ -2142,7 +2142,7 @@
   (testing "rf2-shv82 (Issue 1) + rf2-qo5xy — `:idle --connect--> :active`
             mints an event-node + outbound edge whose target is the
             COMPOUND `:active` node-id; the projector must not drop it."
-    (let [parsed   (layout/parse-definition parent-level-transition-machine)
+    (let [parsed   (layout/project-definition parent-level-transition-machine)
           graph    (projection/xyflow-graph parsed {} {})
           active-id (layout/node-id [:active])
           connect  (first (filter #(= :connect (:event %)) (:edges parsed)))
@@ -2158,7 +2158,7 @@
 (deftest xyflow-graph-emits-edge-with-compound-as-source
   (testing "rf2-shv82 (Issue 1) + rf2-qo5xy — `:active --disconnect--> :idle`
             mints an inbound edge whose source is the COMPOUND `:active`."
-    (let [parsed (layout/parse-definition parent-level-transition-machine)
+    (let [parsed (layout/project-definition parent-level-transition-machine)
           graph  (projection/xyflow-graph parsed {} {})
           active-id (layout/node-id [:active])
           disc   (first (filter #(= :disconnect (:event %)) (:edges parsed)))
@@ -2172,7 +2172,7 @@
             just declare :action) projects as an event-node beside
             the compound with an inbound edge from the compound but
             NO outbound (internal transition convention)."
-    (let [parsed (layout/parse-definition parent-level-transition-machine)
+    (let [parsed (layout/project-definition parent-level-transition-machine)
           graph  (projection/xyflow-graph parsed {} {})
           active-id (layout/node-id [:active])
           send-e (first (filter #(= :send (:event %)) (:edges parsed)))
@@ -2193,7 +2193,7 @@
   (testing "rf2-shv82 (Issue 1) + rf2-qo5xy — every parsed edge mints
             an event-node in the projected graph; no compound-endpoint
             edge is silently dropped at the projection layer."
-    (let [parsed (layout/parse-definition parent-level-transition-machine)
+    (let [parsed (layout/project-definition parent-level-transition-machine)
           graph  (projection/xyflow-graph parsed {} {})
           parsed-ids (set (map :id (:edges parsed)))
           ev-node-ids (set (map :id (filter #(= "rf2-event" (:type %))
@@ -2227,7 +2227,7 @@
             legacy sibling-collapse (one arc, N stacked labels) is
             superseded — each event is its own first-class box, and
             the action attribution rides on the event-node itself."
-    (let [parsed (layout/parse-definition multi-self-loop-machine)
+    (let [parsed (layout/project-definition multi-self-loop-machine)
           graph  (projection/xyflow-graph parsed {} {})
           ev-nodes (filter #(= "rf2-event" (:type %)) (:nodes graph))
           on-idle  (filter (fn [e] (let [in (inbound-edge-for graph
@@ -2254,7 +2254,7 @@
   (testing "rf2-qo5xy — a transition with exactly one event maps to one
             event-node, one inbound edge, one outbound edge — the
             paradigm's minimum unit."
-    (let [parsed   (layout/parse-definition self-loop-machine)
+    (let [parsed   (layout/project-definition self-loop-machine)
           graph    (projection/xyflow-graph parsed {} {})
           ping     (first (filter #(= (:source %) (:target %))
                                   (:edges parsed)))
@@ -2275,7 +2275,7 @@
     (let [m {:initial :a
              :states  {:a {:on {:go-fast :b :go-slow :b}}
                        :b {}}}
-          parsed (layout/parse-definition m)
+          parsed (layout/project-definition m)
           graph  (projection/xyflow-graph parsed {} {})
           ev-nodes (filter #(= "rf2-event" (:type %)) (:nodes graph))]
       (is (= 2 (count ev-nodes))
@@ -2288,7 +2288,7 @@
             equals event-nodes count. No collapse, no duplication."
     (doseq [m [idle-loading compound-machine self-loop-machine
                wildcard-machine machine-level-on-machine]]
-      (let [parsed   (layout/parse-definition m)
+      (let [parsed   (layout/project-definition m)
             graph    (projection/xyflow-graph parsed {} {})
             ev-nodes (filter #(= "rf2-event" (:type %)) (:nodes graph))]
         (is (= (count (:edges parsed)) (count ev-nodes))
@@ -2314,7 +2314,7 @@
   (testing "rf2-shv82 (Issue 3) + rf2-qo5xy — an outbound edge whose
             source event-node and target state sit in DIFFERENT parent
             containers gets :crossHierarchy true."
-    (let [parsed (layout/parse-definition cross-hierarchy-machine)
+    (let [parsed (layout/project-definition cross-hierarchy-machine)
           graph  (projection/xyflow-graph parsed {} {})
           escape (first (filter #(= :escape (:event %)) (:edges parsed)))
           out-edge (outbound-edge-for graph (:id escape))]
@@ -2325,7 +2325,7 @@
 (deftest xyflow-graph-same-parent-edge-not-cross-hierarchy
   (testing "rf2-shv82 (Issue 3) + rf2-qo5xy — an outbound edge between
             two siblings under the SAME parent is NOT cross-hierarchy."
-    (let [parsed (layout/parse-definition compound-machine)
+    (let [parsed (layout/project-definition compound-machine)
           graph  (projection/xyflow-graph parsed {} {})
           checkout (first (filter #(= :checkout (:event %)) (:edges parsed)))
           out-edge (outbound-edge-for graph (:id checkout))]
@@ -2335,7 +2335,7 @@
 (deftest xyflow-graph-flat-machine-no-cross-hierarchy
   (testing "rf2-shv82 (Issue 3) + rf2-qo5xy — a flat machine has no
             containers, so no outbound edge is cross-hierarchy."
-    (let [parsed (layout/parse-definition idle-loading)
+    (let [parsed (layout/project-definition idle-loading)
           graph  (projection/xyflow-graph parsed {} {})
           out-edges (filter #(:outbound (:data %)) (:edges graph))]
       (is (seq out-edges))
@@ -2345,7 +2345,7 @@
   (testing "rf2-shv82 (Issue 3) + rf2-qo5xy — a self-routing transition
             (source == target) is never cross-hierarchy regardless of
             container nesting."
-    (let [parsed (layout/parse-definition self-loop-machine)
+    (let [parsed (layout/project-definition self-loop-machine)
           graph  (projection/xyflow-graph parsed {} {})
           ping   (first (filter #(= (:source %) (:target %)) (:edges parsed)))
           out-edge (outbound-edge-for graph (:id ping))]
@@ -2355,7 +2355,7 @@
 (deftest xyflow-graph-entry-edges-carry-cross-hierarchy-false
   (testing "rf2-shv82 — entry edges keep the every-edge :data shape
             whole: they carry :crossHierarchy false + :loopIndex nil"
-    (let [parsed (layout/parse-definition cross-hierarchy-machine)
+    (let [parsed (layout/project-definition cross-hierarchy-machine)
           graph  (projection/xyflow-graph parsed {} {})
           entry  (first (filter #(:entry (:data %)) (:edges graph)))]
       (is (some? entry))
@@ -2397,7 +2397,7 @@
   (testing "rf2-41goo — a compound `:on-done` projects an event-node with
             the ✓ done chip + :onDone true + the done.state.<id> label;
             the inbound/outbound edges wire compound → done-node → sibling"
-    (let [parsed   (layout/parse-definition checkout-on-done)
+    (let [parsed   (layout/project-definition checkout-on-done)
           od-edge  (first (filter :on-done? (:edges parsed)))
           graph    (projection/xyflow-graph parsed {} {})
           ev-node  (event-node-for graph (:id od-edge))]
@@ -2420,7 +2420,7 @@
   (testing "rf2-41goo — a parallel-root `:on-done` (action-only, internal)
             projects a TERMINAL event-node (no outbound segment) carrying
             the ✓ done chip + the action; not click-to-send"
-    (let [parsed   (layout/parse-definition ingest-on-done)
+    (let [parsed   (layout/project-definition ingest-on-done)
           od-edge  (first (filter :on-done? (:edges parsed)))
           graph    (projection/xyflow-graph parsed {} {})
           ev-node  (event-node-for graph (:id od-edge))]
@@ -2437,7 +2437,7 @@
   (testing "rf2-41goo — a machine with no :on-done projects no :onDone
             event-node (no false-positive completion chips)"
     (let [graph (projection/xyflow-graph
-                  (layout/parse-definition compound-machine) {} {})]
+                  (layout/project-definition compound-machine) {} {})]
       (is (empty? (filter #(:onDone (:data %)) (:nodes graph)))))))
 
 ;; ---- parallel-root completion ANCHOR is inert (rf2-dblqx) ---------------
@@ -2469,7 +2469,7 @@
             cannot click a phantom `parallel` state and fire on-state-click
             against the rendering sentinel path."
     (let [cb     (fn [_path] :clicked)
-          parsed (layout/parse-definition ingest-on-done)
+          parsed (layout/project-definition ingest-on-done)
           graph  (projection/xyflow-graph parsed {} {:on-state-click cb})
           anchor (parallel-root-anchor graph)]
       (is (some? anchor)
@@ -2499,7 +2499,7 @@
   (testing "rf2-bs3us — the parallel-root :on-done :doneState label is the
             non-degenerate `done.state.<id>` form (matching the SCXML
             emitter), not the empty `done.state.`"
-    (let [parsed  (layout/parse-definition ingest-on-done)
+    (let [parsed  (layout/project-definition ingest-on-done)
           od-edge (first (filter :on-done? (:edges parsed)))
           graph   (projection/xyflow-graph parsed {} {})
           ev-node (event-node-for graph (:id od-edge))

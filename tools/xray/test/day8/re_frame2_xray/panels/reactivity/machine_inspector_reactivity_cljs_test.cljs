@@ -124,7 +124,7 @@
 ;; wiring (machine_inspector → machine-canvas/Chart → MachineChart) lands
 ;; the FIRED treatment on the real chart edges. The ids agree with the
 ;; live chart by construction (extract-fired-edge-ids projects the same
-;; definition through parse-definition). This is the wiring half of G3.
+;; definition through project-definition). This is the wiring half of G3.
 
 (def ^:private toy-flow-definition
   "Two-transition flow whose edges the focused-epoch traces fire:
@@ -142,7 +142,7 @@
     (h/seed-cascades! cascades)
     (h/seed-epoch-history! epoch-history)
     ;; Seed the machine definition so extract-fired-edge-ids can project
-    ;; it through parse-definition (the canonical-id source).
+    ;; it through project-definition (the canonical-id source).
     (h/dispatch-xray!
       [:rf.xray/set-machine-definitions-override-for-test
        {:title/flow toy-flow-definition}])
@@ -151,7 +151,7 @@
           rec     (first records)
           ;; the canonical id the LIVE chart mints for idle→loading on
           ;; :title/refresh — fired ids MUST equal this (B7 agreement).
-          expected-id (->> (:edges (chart-layout/parse-definition toy-flow-definition))
+          expected-id (->> (:edges (chart-layout/project-definition toy-flow-definition))
                            (some (fn [e]
                                    (when (and (= [:idle]    (:from-path e))
                                               (= [:loading] (:to-path e))
@@ -177,7 +177,7 @@
       ;; flipping focus re-fires the lens with the NEXT epoch's fired arm
       (h/focus-cascade! :c2)
       (let [rec-2 (first (h/read-sub :rf.xray/machine-transitions-for-focused-event))
-            id-2  (->> (:edges (chart-layout/parse-definition toy-flow-definition))
+            id-2  (->> (:edges (chart-layout/project-definition toy-flow-definition))
                        (some (fn [e]
                                (when (and (= [:loading] (:from-path e))
                                           (= [:loaded]  (:to-path e))

@@ -636,7 +636,7 @@
 ;; states (shallow `H` / deep `H*`, small symbolic node inside the owning
 ;; compound, direct incoming transitions, NO normal state-box styling)
 ;; for parsed topology that ALREADY contains pseudo-state data. The
-;; current `chart.layout/parse-definition` does NOT yet emit history
+;; current `chart.layout/project-definition` does NOT yet emit history
 ;; pseudo-state nodes (no `:history` key in the parsed node shape), and
 ;; the bead is explicit that it "must not add statechart history
 ;; semantics to re-frame2". So this renderer is a HOOK: it is shaped to

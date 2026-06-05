@@ -138,7 +138,7 @@ dormant behaviour the former flat props had when passed `nil`.
 A `{:type :parallel :regions {...}}` machine renders EVERY region as a
 distinct orthogonal zone (Stately parity), superseding the Phase 1
 first-region-only projection. Each region surfaces a synthetic
-`:region?` compound container node — `chart.layout/parse-definition`
+`:region?` compound container node — `chart.layout/project-definition`
 mints a `region__<region-id>` node-id for it, tags each region state
 with `:region` + `:parent-id`, and flags the result `:parallel? true`.
 `chart.projection/xyflow-graph` projects the container as a

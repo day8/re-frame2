@@ -31,7 +31,7 @@
   the canonical id scheme (source-id `__` target-id `__` event-segment
   `__g_<guard>` `__a_<action>` + per-key ordinal tiebreak — private to
   `chart.layout`), this module PROJECTS the definition through the public
-  `chart.layout/parse-definition` and looks the ids up off the projected
+  `chart.layout/project-definition` and looks the ids up off the projected
   edges. So the ids agree with the live chart BY CONSTRUCTION — there is
   exactly one minting fn, mirroring the node-id unification (rf2-m8kod).
 
@@ -207,7 +207,7 @@
   epoch. Pure fn — JVM-runnable.
 
   The returned ids are the EXACT ids the live MachineChart mints: the
-  definition is projected through `chart.layout/parse-definition` and
+  definition is projected through `chart.layout/project-definition` and
   each transition trace's `(from-path, to-path, event)` is matched
   against the projected edges' `:from-path` / `:to-path` / `:event`.
   This is the prerequisite for wiring a fired-this-epoch edge highlight
@@ -224,7 +224,7 @@
 
   Returns `#{}` for a nil/empty definition or no matching transitions."
   [definition trace-events machine-id]
-  (let [edges (:edges (chart-layout/parse-definition definition))]
+  (let [edges (:edges (chart-layout/project-definition definition))]
     (->> (machine-transitions trace-events machine-id)
          (mapcat
            (fn [ev]

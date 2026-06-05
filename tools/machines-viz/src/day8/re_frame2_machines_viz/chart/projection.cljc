@@ -12,7 +12,7 @@
   ## What this owns
 
     - `xyflow-graph` — the central projector that turns
-      `chart.layout/parse-definition` output + a `{node-id position}`
+      `chart.layout/project-definition` output + a `{node-id position}`
       map into the xyflow `:nodes` + `:edges` shape, carrying the
       per-node / per-edge `:data` payloads (active / from-highlight /
       to-highlight / sim flags, event labels, tags). Every projected
@@ -117,7 +117,7 @@
   in the events-as-nodes paradigm. Derived from the canonical edge-id
   (`chart.layout/edge-id`) so two transitions sharing source/target/
   event/guard/action keep distinct event-node ids — the same
-  collision-tiebreak `chart.layout/parse-flat` applies."
+  collision-tiebreak `chart.layout/project-flat` applies."
   [edge]
   (str "event__" (:id edge)))
 

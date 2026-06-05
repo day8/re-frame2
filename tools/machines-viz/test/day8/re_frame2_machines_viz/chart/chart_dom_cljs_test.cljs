@@ -788,9 +788,9 @@
 (defn- canonical-edge-id
   "Resolve the canonical machines-viz edge id for the from→to via event
   in `definition` (the SAME id the projector + the host's
-  extract-fired-edge-ids mint, via parse-definition)."
+  extract-fired-edge-ids mint, via project-definition)."
   [definition from-path to-path event]
-  (->> (:edges (layout/parse-definition definition))
+  (->> (:edges (layout/project-definition definition))
        (some (fn [e]
                (when (and (= from-path (:from-path e))
                           (= to-path   (:to-path e))
@@ -880,7 +880,7 @@
       (with-mounted-chart
         {:machine-id :test/compound :definition compound-endpoint-machine}
         (fn [root _node]
-          (let [parsed    (layout/parse-definition compound-endpoint-machine)
+          (let [parsed    (layout/project-definition compound-endpoint-machine)
                 expected  (count (:edges parsed))
                 projected (-> (.getAttribute root "data-edge-count-projected")
                               js/parseInt)]

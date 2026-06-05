@@ -10,7 +10,7 @@
   ids the live MachineChart mints, so a future fired-this-epoch
   highlight (rf2-qeemm / B8) lands on real chart edges. The agreement
   tests project the SAME definition through the canonical
-  `chart.layout/parse-definition` (the live chart's edge source) and
+  `chart.layout/project-definition` (the live chart's edge source) and
   assert the fired ids are exactly the projected edges' `:id`s — mirrors
   the rf2-m8kod node-id parity approach."
   (:require [cljs.test :refer-macros [deftest is testing]]
@@ -31,11 +31,11 @@
 (defn- canonical-edge-id
   "Look up the canonical machines-viz edge id (the live-chart id) for an
   edge matching `from-path` / `to-path` / `event` in `definition` —
-  projected through the SAME public `chart.layout/parse-definition` the
+  projected through the SAME public `chart.layout/project-definition` the
   live MachineChart uses. Returns the first match (toy definitions carry
   no guard-fork ambiguity)."
   [definition from-path to-path event]
-  (->> (:edges (chart-layout/parse-definition definition))
+  (->> (:edges (chart-layout/project-definition definition))
        (some (fn [e]
                (when (and (= from-path (:from-path e))
                           (= to-path   (:to-path e))
@@ -305,7 +305,7 @@
 ;; The Xray fired-edge ids MUST equal the ids the live MachineChart
 ;; mints, or any fired-this-epoch highlight wiring (rf2-qeemm / B8)
 ;; silently mis-targets. The live chart edges come straight off
-;; `chart.layout/parse-definition`; these tests pin that the fired ids
+;; `chart.layout/project-definition`; these tests pin that the fired ids
 ;; are a SUBSET of — and individually present among — those projected
 ;; ids, including the injective-node-id collision triple (rf2-m8kod) and
 ;; namespaced events.
@@ -313,7 +313,7 @@
 (deftest fired-ids-agree-with-projected-chart-edge-ids
   (testing "every fired id is a real projected chart edge :id"
     (let [def           (toy-definition)
-          projected-ids (set (map :id (:edges (chart-layout/parse-definition def))))
+          projected-ids (set (map :id (:edges (chart-layout/project-definition def))))
           events        [{:operation :rf.machine/transition
                           :tags {:machine-id :cart}
                           :from [:empty] :to [:populated] :event :populate}
@@ -330,12 +330,12 @@
     ;; The non-injective node-id collapse (pre-rf2-m8kod) merged these
     ;; three onto one id; the canonical hex-escape scheme keeps them
     ;; distinct — and the fired-edge ids ride that same scheme via
-    ;; parse-definition, so they agree with the live chart per-arm.
+    ;; project-definition, so they agree with the live chart per-arm.
     (let [def           {:initial :a-b
                          :states  {:a-b {:on {:go :a/b}}
                                    :a/b {:on {:back :a_b}}
                                    :a_b {}}}
-          projected-ids (set (map :id (:edges (chart-layout/parse-definition def))))
+          projected-ids (set (map :id (:edges (chart-layout/project-definition def))))
           events        [{:operation :rf.machine/transition
                           :tags {:machine-id :m}
                           :from [:a-b] :to [:a/b] :event :go}
@@ -353,7 +353,7 @@
     (let [def           {:initial :idle
                          :states  {:idle    {:on {:auth/login :pending}}
                                    :pending {}}}
-          projected-ids (set (map :id (:edges (chart-layout/parse-definition def))))
+          projected-ids (set (map :id (:edges (chart-layout/project-definition def))))
           events        [{:operation :rf.machine/transition
                           :tags {:machine-id :sess}
                           :from [:idle] :to [:pending] :event :auth/login}]
@@ -383,7 +383,7 @@
                                    :closed   {:on {:door/push :open}}
                                    :open     {:on {:door/trip :alarming}}
                                    :alarming {:on {:door/reset :locked}}}}
-          projected     (:edges (chart-layout/parse-definition def))
+          projected     (:edges (chart-layout/project-definition def))
           projected-ids (set (map :id projected))
           ml-edge       (first (filter :machine-level? projected))
           ;; The runtime fired :door/audit from :alarming (which declares
@@ -406,7 +406,7 @@
                          :on      {:go :a}        ;; machine-level fallback → :a
                          :states  {:a {:on {:go :b}}  ;; state-local :go → :b
                                    :b {}}}
-          projected     (:edges (chart-layout/parse-definition def))
+          projected     (:edges (chart-layout/project-definition def))
           local-edge    (first (filter #(and (= [:a] (:from-path %))
                                              (= [:b] (:to-path %))
                                              (= :go (:event %)))
