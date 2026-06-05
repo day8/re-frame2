@@ -478,7 +478,7 @@ Story tooling makes two documented network calls to third-party endpoints:
 - **QR-code generation hits `api.qrserver.com`.** The story-tool's "share this variant" affordance posts the current URL to a public QR-rendering endpoint and inlines the returned PNG. User-triggered, off by default unless the dev clicks the action.
 - **Axe-core loads from a public CDN.** The accessibility-inspector panel pulls axe-core's runtime from a public CDN rather than bundling it into the story artefact. Story bundles stay small for the a11y-disabled majority; the a11y-using minority takes the runtime CDN hop on first open.
 
-These are **dev-tool conveniences with documented egress, not gated**. Both endpoints are unauthenticated; neither carries app-db state, framework secrets, or variant payloads. Apps that need air-gapped story tooling bundle local replacements on the user side — the story library does not ship a feature flag for swapping them out. Per and [Security.md §Pragmatic stance](Security.md#pragmatic-stance) ("third-party egress in story tooling — documented, not gated").
+These are **dev-tool conveniences with documented egress, not gated**. Both endpoints are unauthenticated; neither carries app-db state, framework secrets, or variant payloads. Apps that need air-gapped story tooling bundle local replacements on the user side — the story library does not ship a feature flag for swapping them out. Per [Security.md §Pragmatic stance](Security.md#pragmatic-stance) ("third-party egress in story tooling — documented, not gated").
 
 > Cross-reference: see [Security.md §Threat model + scope](Security.md#threat-model--scope) — "Third-party egress in dev tooling" is one of the framework's named out-of-scope categories.
 
@@ -537,18 +537,18 @@ Workspaces are *not* frames (or not necessarily — they may be ordinary frames 
 
 ## Open questions
 
-> **SA-4 classification.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): "Workspaces — generic or specialised?" classifies as **`:resolved`** (the inline `:layout`-field framing IS the answer — migrated to `## Resolved decisions` below); "Story composition across libraries" classifies as **`:resolved`** (the inline "story tool reads all registered `:story.*` ids" framing IS the answer — migrated to `## Resolved decisions` below); "Devcards / Workspaces interop" classifies as **`:post-v1 tracked`** at (adapter shim, deferred).
+> **SA-4 classification.** Per [SPEC-AUTHORING §SA-4](SPEC-AUTHORING.md): "Workspaces — generic or specialised?" classifies as **`:resolved`** (the inline `:layout`-field framing IS the answer — migrated to `## Resolved decisions` below); "Story composition across libraries" classifies as **`:resolved`** (the inline "story tool reads all registered `:story.*` ids" framing IS the answer — migrated to `## Resolved decisions` below); "Devcards / Workspaces interop" classifies as a **post-v1, untracked note** — an adapter-shim direction beyond v1 with no tracking bead filed yet (so not `:post-v1 tracked`, which requires a `rf2-<id>`); a tracking bead is filed only when the reconsideration trigger below fires.
 
 ### Devcards / Workspaces interop (post-v1)
 
-Existing CLJS projects using devcards or other workspace tools should be able to consume re-frame2 stories with adapter shims. Deferred to.
+Existing CLJS projects using devcards or other workspace tools should be able to consume re-frame2 stories with adapter shims. Deferred to a post-v1 cycle (untracked note — no bead filed yet).
 
 #### Post-v1 Tracking
 
 - **Foundation in v1.** The variant id surface (`:story.<ns>/<variant>`) is stable; the registry is readable via `rf/variants` (per the story registry shape); rendered hiccup is a plain value.
 - **Scope deferred.** A thin adapter shim per host tool — devcards (`defcard` wrapping a `story/run-variant` call) and nubank/workspaces (workspace card from variant id) are the obvious first targets. No story-side change required.
 - **Reconsideration trigger.** A downstream project migrating from devcards/workspaces asks for the shim, or the story tool's own UI needs an embeddable card form.
-- **Out of scope for the bead.** Reverse direction (rendering a devcard inside a story workspace) — devcards' macro-time registration model doesn't compose cleanly with story's variant registry.
+- **Out of scope for this note.** Reverse direction (rendering a devcard inside a story workspace) — devcards' macro-time registration model doesn't compose cleanly with story's variant registry.
 
 ## Resolved decisions
 

@@ -78,7 +78,7 @@ The middle slot of `reg-event-*` is either:
      (fn [m _] ...))
    ```
 
-The function discriminates on the type of each argument: a map is metadata, a vector is interceptors. `:interceptors` inside the metadata-map is not a valid position — the runtime emits `:rf.warning/interceptors-in-metadata-map` at registration time and the chain is silently ignored. (Form 2 in earlier drafts of this Spec accepted `:interceptors` inside the metadata-map; that path was removed per — one canonical position is simpler than two.)
+The function discriminates on the type of each argument: a map is metadata, a vector is interceptors. `:interceptors` inside the metadata-map is not a valid position — the runtime emits `:rf.warning/interceptors-in-metadata-map` at registration time and the chain is silently ignored. (Form 2 in earlier drafts of this Spec accepted `:interceptors` inside the metadata-map; that path was removed — one canonical position is simpler than two.)
 
 For `reg-sub`, `reg-fx`, `reg-cofx`, `reg-frame`, `reg-app-schema`, etc., the middle-slot is the metadata map only — there's no legacy vector form to compete with. `reg-view` is the **only registration that ships as a macro** (defn-shape — auto-defs the symbol, auto-derives the id, auto-injects `dispatch` / `subscribe` lexically); the plain-fn surface for runtime / programmatic registration is `reg-view*`. See [Cross-Spec-Interactions §21 Family asymmetry](Cross-Spec-Interactions.md#21-family-asymmetry--only-reg-view-has-a-macro-tier) for why the family is asymmetric.
 
