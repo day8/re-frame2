@@ -307,7 +307,14 @@ list browse-all surface with hermetic Simulate-URL preview.
   preview of `:on-match`'s app-db slot + the matched params, **without
   calling the host's navigation fx**. The host's current-route slice
   (at `[:rf/runtime :routing :current]`) is unchanged; this is a lens,
-  not a verb. Pure-data projection via
+  not a verb. The preview match is **row-local**: it matches the
+  SELECTED row's own compiled pattern against the entered URL — NOT the
+  global rank winner (rf2-m9rx6). For overlapping routes (e.g. an exact
+  route plus a lower-ranked splat fallback that both match
+  `/checkout/payment`), previewing the fallback row reports ITS match +
+  params even though the exact route is the global winner. (Global
+  winner status is the Simulate-URL surface's concern, not the per-row
+  preview's.) Pure-data projection via
   `routing_helpers/simulate-navigation-preview` (JVM-portable).
 - **Per-row `→ Dynamic` jump chip** — flips Xray to Dynamic mode
   (`:rf.xray/set-mode :dynamic`) and selects the Dynamic Routing
@@ -393,17 +400,33 @@ surfaces — orientation glyph.
 
 ### Detection contract — how the panel knows the cascade caused navigation
 
-The composite scans the focused cascade's trace events for a
-`:rf.route.nav-token/allocated` emit (per
-[`spec/012-Routing.md`](../../../spec/012-Routing.md) — the emit fires
-inside both `:rf.route/navigate` and `:rf.route/transitioned`). Detection:
+The composite scans the focused cascade's trace events for the routing
+lifecycle emits (per [`spec/012-Routing.md`](../../../spec/012-Routing.md)
+§Trace events — the runtime emits them in the order `nav-token/allocated`
+→ `deactivated`? → `activated`?, inside both `:rf.route/navigate` and
+`:rf.route/transitioned`). **Both ids are read off the focused cascade's
+own trace events — never the live route slice.** Detection:
 
-- The emit's `:tags :route-id` is the **TO** (the new route).
-- The current-route slice's `:id` (read at
-  `[:rf/runtime :routing :current]`) — when different from TO — is
-  the **FROM**.
-- Same-route re-navigations (different params/query, same route-id)
-  collapse FROM to nil — surfacing a FROM equal to TO is noise.
+- The `:rf.route.nav-token/allocated` emit's `:tags :route-id` is the
+  **TO** (the new route).
+- The `:rf.route/deactivated` emit's `:tags :route-id` is the **FROM**
+  (the prior route the cascade left). The runtime emits `deactivated`
+  ONLY on a cross-route navigation (prior id ≠ new id), so its absence
+  is itself the no-FROM signal.
+- Two cases leave no `deactivated` emit, both correctly collapsing FROM
+  to nil: the first navigation in the session (no prior route to
+  leave), and a same-route re-navigation (params/query/fragment changed,
+  route-id unchanged — surfacing a FROM equal to TO is noise anyway).
+
+> **Why the cascade and not the live slice (rf2-m9rx6).** The live
+> current-route slice is the route the app is on *now*, which drifts as
+> navigation continues. Deriving FROM from it made the lens
+> time-dependent: a normal navigation to B collapsed FROM (the live
+> slice was already B), and focusing an older A→B cascade after the app
+> moved on to C falsely reported C as FROM. The focused cascade carries
+> `deactivated A` / `activated B` for its epoch unconditionally, so
+> FROM A / TO B render correctly regardless of the live route. The live
+> slice's `:id` is used ONLY for the HERE / current-orientation marker.
 
 ### Simulate-URL contract
 

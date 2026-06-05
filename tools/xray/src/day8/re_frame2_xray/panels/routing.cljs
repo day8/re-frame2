@@ -299,7 +299,7 @@
   their parent rows carry a `▾` disclosure chevron (leaves get an
   aligned spacer). The FROM/TO overlay glyph paints to the right of
   the path when the focused epoch navigated to/from this route."
-  [{:keys [row depth has-children?]}]
+  [{:keys [row depth has-children? cycle-root?]}]
   (let [{:keys [route-id path doc marker]} row
         current?  (= marker :here)
         glyph     (marker-glyph marker)
@@ -331,6 +331,20 @@
      [:span {:data-testid (str testid "-path")
              :style       {:color (:text-tertiary tokens)}}
       path]
+     (when cycle-root?
+       [:span {:data-testid (str testid "-cycle-badge")
+               :title       "This route's :parent metadata forms a cycle — shown at the top level so it is not hidden."
+               :style       {:margin-left  "8px"
+                             :padding      "1px 5px"
+                             :border-radius "3px"
+                             :background   (:bg-1 tokens)
+                             :color        (:red tokens)
+                             :font-family  sans-stack
+                             :font-size    "10px"
+                             :font-weight  600
+                             :text-transform "uppercase"
+                             :letter-spacing "0.4px"}}
+        "↻ cycle"])
      (when glyph
        [:span {:data-testid (str "rf-xray-routing-table-marker-" (name marker))
                :style       {:color       (:colour glyph)

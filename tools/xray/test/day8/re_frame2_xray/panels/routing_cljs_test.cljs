@@ -126,6 +126,15 @@
    :operation :rf.route.nav-token/allocated
    :tags      {:route-id route-id :nav-token "nav-1"}})
 
+(defn- deactivated [route-id]
+  ;; The runtime's :rf.route/deactivated lifecycle emit for the PRIOR
+  ;; route on a cross-route nav (carries :tags :route-id = FROM). FROM
+  ;; is read off this emit, not the live slice (rf2-m9rx6).
+  {:id        98
+   :op-type   :rf.event
+   :operation :rf.route/deactivated
+   :tags      {:route-id route-id}})
+
 ;; ---- (1) registry wiring + tab inventory --------------------------------
 
 (deftest registry-installs-routing-subs
@@ -335,16 +344,23 @@
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/set-registered-routes-override-for-test cart-routes]
                         {:frame :rf/xray})
-      ;; Prior slice = :route/cart; navigate to :route/confirm.
+      ;; Cross-route nav cart → confirm: the cascade carries both the
+      ;; nav-token/allocated emit (TO = confirm) and the deactivated emit
+      ;; (FROM = cart). FROM is read off the deactivated emit, NOT the
+      ;; live slice (rf2-m9rx6). The live slice is left at :route/confirm
+      ;; (the post-nav value) to prove the FROM is cascade-derived.
       (rf/dispatch-sync [:rf.xray/set-current-route-slice-override-for-test
-                         {:id :route/cart :params {} :query {}}]
+                         {:id :route/confirm :params {} :query {}}]
                         {:frame :rf/xray})
       (let [nav-event (nav-allocated :route/confirm)
             buffer [{:id 99 :op-type :rf.event :operation :rf.event/dispatched
                      :tags {:rf.trace/dispatch-id 99
                             :rf.event/v [:rf.route/navigate :route/confirm]}}
                     (assoc nav-event :tags
-                           (assoc (:tags nav-event) :rf.trace/dispatch-id 99))]]
+                           (assoc (:tags nav-event) :rf.trace/dispatch-id 99))
+                    (assoc (deactivated :route/cart) :tags
+                           (assoc (:tags (deactivated :route/cart))
+                                  :rf.trace/dispatch-id 99))]]
         (rf/dispatch-sync [:rf.xray/sync-trace-buffer buffer]
                           {:frame :rf/xray})
         (rf/dispatch-sync [:rf.xray/focus-cascade 99 nil] {:frame :rf/xray}))

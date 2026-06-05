@@ -93,10 +93,13 @@
                  destination surface below the catalogue."
      :events     [[:rf.xray/set-registered-routes-override-for-test
                    fixtures/cart-routes]
+                  ;; Live slice is the post-nav value (confirm). FROM is
+                  ;; read off the cascade's :rf.route/deactivated emit
+                  ;; (prior route = cart), NOT the live slice (rf2-m9rx6).
                   [:rf.xray/set-current-route-slice-override-for-test
-                   fixtures/cart-slice]
+                   fixtures/confirm-slice]
                   [:rf.xray/sync-trace-buffer
-                   (fixtures/nav-buffer 1 :route/confirm "nav-1")]
+                   (fixtures/nav-buffer 1 :route/confirm "nav-1" :route/cart)]
                   [:rf.xray/focus-cascade 1 nil]]
      :tags       #{:dev :state/special}
      :substrates #{:reagent}})
