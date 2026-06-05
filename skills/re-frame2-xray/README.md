@@ -58,19 +58,29 @@ ln -s ~/src/re-frame2/skills/re-frame2-xray ~/.claude/skills/re-frame2-xray
 
 #### Project-local — for your whole team via the repo
 
-Copy the skill into the project's own `.claude/skills/re-frame2-xray/` and commit it. Teammates who clone the repo and open Claude Code there get the same pinned version.
+**Link, never `cp -r`.** A copy snapshots the skill and then drifts as the upstream is maintained — Claude Code keeps loading the stale copy, and fixes/evals never reach your team. Link your project's `.claude/skills/re-frame2-xray/` to the cloned re-frame2 source so the active skill is the upstream by construction:
 
 ```bash
 cd your-re-frame2-project
-cp -r /path/to/re-frame2/skills/re-frame2-xray .claude/skills/re-frame2-xray
-git add .claude/skills/re-frame2-xray
+mkdir -p .claude/skills
+ln -s ~/src/re-frame2/skills/re-frame2-xray .claude/skills/re-frame2-xray   # macOS / Linux (symlink)
 ```
+
+```powershell
+# Windows (junction, no admin):
+New-Item -ItemType Junction -Path .claude\skills\re-frame2-xray -Target $HOME\src\re-frame2\skills\re-frame2-xray
+```
+
+A symlink/junction is not committable in a portable way, so don't `git add` it; instead document the one-liner above in your project's README (or vendor with a deliberate update procedure — see below) so each teammate links on clone. This mirrors the central skill-install contract — see [`skills/README.md` §Installing (link, never copy)](../README.md#installing-link-never-copy) and the repo's `scripts/install-skills.sh` / `scripts/install-skills.ps1` installer, which links *every* skill in one idempotent pass.
+
+**If you must vendor a pinned copy** (e.g. a fully offline team that can't reference the upstream clone), treat it as a deliberate pinned fork: `cp -r` the skill, record the upstream commit you copied from, and re-run the copy whenever you pull upstream fixes. Don't reach for `cp -r` as the default — it silently drifts.
 
 #### Which to choose
 
 - **Global** if you're the only person using Claude Code here, or you want one install shared across repos.
-- **Project-local** if your team wants one pinned, shared version.
-- **Both** is fine — the project-local install takes precedence when both are present.
+- **Project-local (linked)** if your team wants one shared install tracking the upstream source.
+- **Vendored (pinned fork)** only when an offline team can't reference an upstream clone — and only with an explicit update procedure.
+- **Both global + project-local** is fine — the project-local install takes precedence when both are present.
 
 ## License
 

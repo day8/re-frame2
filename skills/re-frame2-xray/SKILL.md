@@ -2,14 +2,18 @@
 name: re-frame2-xray
 description: >
  Read-only tour of **Xray** — the re-frame2 devtools panel. Use when the
- user wants to know how to *launch* Xray (in-app inline panel, pop-out
- window, programmatic mount, or the wired hotkeys), which of its two
+ user wants to know how to *launch* Xray (in-app inline panel, the
+ overlay fallback for hosts with no layout column / full-screen-canvas /
+ no `[data-rf-xray-host]` — `open-overlay!`, pop-out window, programmatic
+ mount, or the wired hotkeys), which of its two
  modes (Dynamic event-spine / Static registry browse) and which tab
  surfaces the data they're looking for, or what each tab is *for*.
  Trigger phrases: "open Xray", "where is X in Xray",
  "which Xray panel shows…", "Xray Static mode", "browse registered
  machines/routes/schemas in Xray", "Ctrl+Shift+C", "Xray hotkey",
- "Xray mode toggle", "Xray popout", "Xray machine inspector",
+ "Xray mode toggle", "Xray popout", "Xray overlay",
+ "Xray open-overlay!", "open Xray with no layout host / no
+ [data-rf-xray-host] / full-screen canvas", "Xray machine inspector",
  "Xray epoch cascade", "where do Xray issues show up", and similar.
  **Do not use** for: driving Xray
  programmatically from a live REPL (that's `re-frame2-pair`), authoring
