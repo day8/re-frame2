@@ -131,6 +131,58 @@
               (str "green stdout must carry the summary line; got:\n" out)))))))
 
 ;; ----------------------------------------------------------------------
+;; Exact green stdout shape — no banner-leading-blank leak (rf2-khecvs).
+;;
+;; cognitect's banner is `\nRunning tests in #{...}\n` — it opens with a
+;; BLANK LINE.  Dropping only the `Running tests in #{...}` text left that
+;; leading newline behind, so a green real `-main` run started with TWO
+;; blank lines before the summary (the banner's leak + clojure.test's own
+;; leading `\n` on the `:summary` line). The line-count pins counted only
+;; NON-blank lines, so they were false-green for this.  This pin asserts
+;; the EXACT line shape: a single leading blank, then the two summary
+;; lines, and no `Running tests in` text anywhere.
+
+(deftest green-runner-exact-shape
+  (testing "a green real -main run has no leaked banner-leading blank line (rf2-khecvs)"
+    (with-fixture-dir
+      (fn [dir]
+        (write-fixture! dir "exact_green_fixture_test" "exact-green-fixture-test"
+                        "(deftest a-passing-test (is (= 1 1)))")
+        (let [{:keys [exit out err]} (run-runner dir)
+              ;; Normalise CRLF and split keeping empties so we can assert
+              ;; on leading-blank position, not just non-blank count.
+              lines (-> out (str/replace "\r" "") (str/split #"\n" -1))]
+          (is (zero? exit)
+              (str "green suite must exit 0; got " exit
+                   "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
+          (is (not (str/includes? out "Running tests in"))
+              (str "no part of the discovery banner — not even its text —"
+                   " may reach stdout; got:\n" out))
+          ;; The CORE of rf2-khecvs: the first line is the summary's own
+          ;; single leading blank; the SECOND line is already the `Ran`
+          ;; line. Pre-fix, line 0 AND line 1 were both blank (the banner's
+          ;; leaked leading newline sat above the summary's own).
+          (is (str/blank? (nth lines 0 nil))
+              (str "the canonical summary opens with one leading blank;"
+                   " got lines:\n" (pr-str lines)))
+          (is (str/starts-with? (str (nth lines 1 "")) "Ran ")
+              (str "the SECOND line must be the `Ran ...` summary — a"
+                   " second leading blank means the banner's leading"
+                   " newline leaked (rf2-khecvs); got lines:\n"
+                   (pr-str lines)))
+          ;; And the full non-blank shape is exactly the canonical two.
+          (let [non-blank (remove str/blank? lines)]
+            (is (= 2 (count non-blank))
+                (str "green stdout must be exactly the 2 non-blank summary"
+                     " lines; got:\n" (str/join "\n" non-blank)))
+            (is (str/starts-with? (first non-blank) "Ran ")
+                (str "first non-blank line must be `Ran ...`; got:\n"
+                     (str/join "\n" non-blank)))
+            (is (= "0 failures, 0 errors." (second non-blank))
+                (str "second non-blank line must be the failure tally;"
+                     " got:\n" (str/join "\n" non-blank)))))))))
+
+;; ----------------------------------------------------------------------
 ;; Red path — failure.
 
 (deftest red-runner-contract
