@@ -47,10 +47,36 @@
   (see PR Quality gates)."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])
+            [clojure.walk :as walk]
             [re-frame.mcp-base.sensitive :as sens]
             [re-frame.security.gen :as gen]))
 
 (def ^:private sentinel "S3CR3T-rf2-3cfvt-EGRESS-DO-NOT-SHIP")
+
+(defn- contains-sentinel?
+  "Deep-walk `x`; true when the sentinel string appears ANYWHERE — as a
+  value, inside a collection, in a secondary slot (`:tags :received`), or
+  inside a stringified form. Mirrors the deep-scan helper the sibling
+  security namespaces (error-slot / http-body egress) use.
+
+  Why a deep scan and not just `:tags :value` + `sensitive-event?`
+  (rf2-h2yvs finding 1): the gate-OFF contract is \"the sentinel never
+  survives,\" not merely \"no survivor is still classified sensitive in its
+  primary slot.\" The generated sensitive event also plants the sentinel in
+  `:tags :received`; a survivor with its `:sensitive?` stamp stripped (so it
+  no longer classifies sensitive) and the sentinel only in `:received` would
+  slip past the narrow checks while this property stayed green. A deep scan
+  catches that secondary-slot leak class."
+  [x]
+  (let [hit (volatile! false)]
+    (walk/postwalk
+      (fn [node]
+        (when (and (string? node) (= sentinel node))
+          (vreset! hit true))
+        node)
+      x)
+    (or @hit
+        (boolean (re-find (re-pattern sentinel) (pr-str x))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Event generators.
@@ -114,13 +140,45 @@
                    (fn [events]
                      (sens/reset-malformed-count!)
                      (let [[kept _dropped] (sens/strip-sensitive events false)]
-                       ;; No surviving event may carry the sentinel, and no
-                       ;; survivor may itself be classified sensitive.
-                       (and (not-any? #(= sentinel (-> % :tags :value)) kept)
+                       ;; Deep-scan EVERY kept event for the sentinel in ANY
+                       ;; slot (`:tags :value` AND the secondary `:tags
+                       ;; :received` slot) — the contract is "the sentinel
+                       ;; never survives," not "no primary-slot survivor is
+                       ;; still classified sensitive" (rf2-h2yvs finding 1).
+                       ;; The `not-any? sensitive-event?` check is retained as
+                       ;; the complementary classification assertion.
+                       (and (not-any? contains-sentinel? kept)
                             (not-any? sens/sensitive-event? kept)))))]
       (is (nil? result)
           (str "a sensitive event survived the gate-OFF egress: "
                (pr-str (when result (dissoc result :threw))))))))
+
+(deftest deep-scan-catches-secondary-slot-sentinel-survivor
+  (testing "rf2-h2yvs finding 1 (non-vacuity) — a SURVIVING non-sensitive
+            event that nonetheless carries the sentinel in the SECONDARY
+            `:tags :received` slot is caught by the deep `contains-sentinel?`
+            scan, even though it is NOT classified sensitive and has no
+            sentinel in `:tags :value`. This is the leak class the prior
+            (`:tags :value` + `sensitive-event?`) assertion missed; the
+            negative fixture proves the hardened assertion is non-vacuous."
+    ;; Construct the exact survivor: no :sensitive? stamp (so strip-sensitive
+    ;; KEEPS it), sentinel ONLY in :tags :received (not :value).
+    (let [survivor       {:operation :sub/recompute
+                          :tags {:value "public-data"
+                                 :received [sentinel]}}
+          [kept dropped] (sens/strip-sensitive [survivor] false)]
+      ;; The gate keeps it (it is not classified sensitive) ...
+      (is (= [survivor] kept))
+      (is (zero? dropped))
+      ;; ... so the OLD narrow checks would BOTH read clean (vacuous green):
+      (is (not-any? #(= sentinel (-> % :tags :value)) kept)
+          "old `:tags :value` check is blind to the :received slot")
+      (is (not-any? sens/sensitive-event? kept)
+          "old classification check is blind: the survivor is non-sensitive")
+      ;; ... but the NEW deep scan catches the secondary-slot leak:
+      (is (some contains-sentinel? kept)
+          "the deep scan MUST catch the sentinel hiding in :tags :received")
+      (is (contains-sentinel? survivor)))))
 
 (deftest gate-off-malformed-stamp-counts-as-dropped
   (testing "rf2-ih7g4 fail-closed - a malformed truthy stamp is dropped AND
@@ -183,12 +241,23 @@
           [acc rng])))))
 
 (defn- snapshot-leaks-sentinel?
-  "True when any frame's scrubbed :traces / :epochs slice still carries a
-  sensitive event (the sentinel)."
+  "True when any frame's scrubbed :traces / :epochs slice still carries the
+  sentinel ANYWHERE (deep scan), or still carries an event classified
+  sensitive. Deep-scans ONLY the `:traces` / `:epochs` slices — `:app-db` is
+  left alone by design (read-time scrubbing is trace/epoch-only), so a deep
+  scan of the whole frame map would over-reach into the deliberately-kept
+  app-db.
+
+  rf2-h2yvs finding 1: the prior helper only re-ran `sensitive-event?` over
+  the slices, so a survivor whose `:sensitive?` stamp was stripped but whose
+  `:tags :received` still carried the sentinel would read as clean. The deep
+  `contains-sentinel?` scan closes that secondary-slot gap."
   [scrubbed]
   (some (fn [[_frame fm]]
           (when (map? fm)
-            (some sens/sensitive-event? (concat (:traces fm) (:epochs fm)))))
+            (let [slices (concat (:traces fm) (:epochs fm))]
+              (or (some contains-sentinel? slices)
+                  (some sens/sensitive-event? slices)))))
         scrubbed))
 
 (deftest gate-off-scrub-snapshot-leaves-no-sensitive-event
@@ -209,6 +278,34 @@
       (is (nil? result)
           (str "scrub-snapshot left a sensitive event in a frame slice: "
                (pr-str (when result (dissoc result :threw))))))))
+
+(deftest snapshot-deep-scan-catches-secondary-slot-survivor
+  (testing "rf2-h2yvs finding 1 (non-vacuity, snapshot path) — a frame whose
+            scrubbed `:traces` carries a NON-sensitive event with the sentinel
+            in `:tags :received` is flagged by the hardened
+            `snapshot-leaks-sentinel?` deep scan, while `:app-db` (which carries
+            no sentinel) is left alone by design."
+    (let [survivor   {:operation :sub/recompute
+                      :tags {:value "public-data" :received [sentinel]}}
+          ;; Model a post-scrub snapshot where a secondary-slot survivor
+          ;; remained in a frame slice (the leak class the old check missed).
+          leaked     {:frame-0 {:traces [survivor]
+                                :epochs []
+                                :app-db {:public "kept"}}}
+          clean      {:frame-0 {:traces [{:operation :fx/run
+                                          :tags {:value "public-data"}}]
+                                :epochs []
+                                :app-db {:public "kept"}}}]
+      ;; The old check (sensitive-event? over the slices) is blind here —
+      ;; the survivor is non-sensitive — so it would read this as clean.
+      (is (not (some sens/sensitive-event? (-> leaked :frame-0 :traces)))
+          "old classification check is blind: the survivor is non-sensitive")
+      ;; The hardened deep scan flags the secondary-slot leak ...
+      (is (snapshot-leaks-sentinel? leaked)
+          "deep scan MUST flag the sentinel hiding in a frame's :tags :received")
+      ;; ... and does NOT false-positive on a genuinely clean snapshot.
+      (is (not (snapshot-leaks-sentinel? clean))
+          "deep scan must not flag a sentinel-free snapshot"))))
 
 ;; ---------------------------------------------------------------------------
 ;; HOSTILE CORPUS - the named fail-closed stamp variants, pinned.
