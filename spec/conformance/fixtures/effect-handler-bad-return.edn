@@ -1,0 +1,77 @@
+;; Conformance fixture: effect-handler/bad-return
+;; Spec 009 §:rf.error/effect-handler-bad-return.
+;;
+;; A reg-event-fx handler returns a value that is neither a map nor nil
+;; (here a vector — a plausible "I returned the :fx vector directly" thinko).
+;; Without a map the runtime cannot extract :db / :fx and cannot guess the
+;; handler's intent, so the dispatch is treated as a NO-OP and the runtime
+;; PROACTIVELY emits :rf.error/effect-handler-bad-return (recovery
+;; :no-recovery). The handler's bad return is dropped; app-db is unchanged.
+;;
+;; nil remains the documented LEGAL no-op — a handler returning nil does NOT
+;; trigger this trace (the control dispatch below proves it).
+;;
+;; The teeth: a lenient PORT that silently no-ops ANY non-map return (the
+;; pre-rf2-k3bj behaviour) ships GREEN against the rest of the corpus — the
+;; vector return just vanishes with no diagnostic, and a porter never learns
+;; their handler returned the wrong shape. This fixture REQUIRES the trace,
+;; so the lenient (silent) port FAILS here; and it requires the nil control
+;; to stay quiet, so a port that over-polices nil ALSO fails.
+;;
+;; Authored via the :return-raw DSL op (the only DSL path that yields a
+;; literal non-map return). :returned-type is host-specific (the runtime
+;; `type` of the value) and is therefore NOT pinned by this host-agnostic
+;; fixture — :returned (the offending value) is the normative slot. Grounded
+;; against the reference emitter re-frame.events/commit-fx-effects.
+
+{:fixture/id           :effect-handler/bad-return
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/fx :core/error :core/trace}
+ :fixture/doc          "A reg-event-fx handler returns a vector (non-map, non-nil). The runtime proactively emits :rf.error/effect-handler-bad-return (:recovery :no-recovery), drops the return, and the dispatch is a no-op (app-db unchanged). A control dispatch returning nil is the legal no-op and emits NO trace."
+
+ :fixture/registry
+ {:event {:bad-ret/init     {:doc "Seed [:value] :seeded."}
+          :bad-ret/vector   {:doc "Returns a bare vector [[:dispatch [:other]]] — a non-map return."}
+          :bad-ret/nil-ctrl {:doc "Returns nil — the documented legal no-op; must NOT trace."}}
+  :sub   {:value {:doc "The seeded value; proves app-db is unchanged after the bad return."}}}
+
+ :fixture/handlers
+ {:event {:bad-ret/init     [[:set [:value] :seeded]]
+          :bad-ret/vector   [[:return-raw [[:dispatch [:other]]]]]
+          :bad-ret/nil-ctrl [[:return-raw nil]]}
+  :sub   {:value [[:get [:value]]]}}
+
+ :fixture/frame-config {:on-create [:bad-ret/init]}
+
+ :fixture/dispatches
+ [[:bad-ret/vector]
+  [:bad-ret/nil-ctrl]]
+
+ :fixture/expect
+ ;; app-db is unchanged — the non-map return was a no-op; the seed survives.
+ {:final-app-db {:value :seeded}
+  :sub-values   {[:value] :seeded}
+
+  :trace-emissions
+  [{:operation :rf.event/run-start :tags {:rf.trace/event-id :bad-ret/vector}}
+   ;; Proactive bad-return policing: one trace, :returned = the offending
+   ;; vector, :recovery :no-recovery. :returned-type is host-specific and
+   ;; intentionally NOT asserted.
+   {:operation :rf.error/effect-handler-bad-return
+    :op-type   :error
+    :recovery  :no-recovery
+    :tags      {:category :rf.error/effect-handler-bad-return
+                :event-id :bad-ret/vector
+                :event    [:bad-ret/vector]
+                :returned [[:dispatch [:other]]]}}
+   ;; The nil-control dispatch ran AFTER — it is the legal no-op. The
+   ;; trace-emissions matcher tolerates extra actual traces; the contract
+   ;; this fixture pins is that the bad-return trace above fired exactly
+   ;; for the vector return. (A second bad-return trace for :bad-ret/nil-ctrl
+   ;; would be a regression — caught by the host-side events_test
+   ;; `reg-event-fx-nil-return-stays-silent` counterpart.)
+   {:operation :rf.event/run-start :tags {:rf.trace/event-id :bad-ret/nil-ctrl}}]
+
+  ;; No fx routed — the bad return never yielded an effect-map, and the nil
+  ;; control is a no-op.
+  :effects-routed []}}

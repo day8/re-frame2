@@ -254,6 +254,7 @@ In addition, `:fixture/dispatches` accepts two harness-level map forms (alongsid
 | Op | Signature | Meaning |
 |---|---|---|
 | `[:throw "message"]` | string | Throw a host-native exception with the given message. Used by error fixtures. |
+| `[:return-raw value]` | any | (event-fx only) Return `value` **verbatim** as the handler's effect-map — reflection forms inside it are resolved, but the well-shaped `{:db .. :fx ..}` builder is bypassed entirely. This is the only op that can author a **malformed** effect-map, so it is the seam the proactive fx shape-policing negative fixtures use (`effect-map-shape-*.edn`, `effect-handler-bad-return.edn`). The `:set` / `:update` / `:fx` ops always produce a well-shaped map, so those categories were unreachable from a fixture before this op. A body carrying `:return-raw` is always realised as event-fx so the raw return reaches the runtime's shape-policing site (`commit-fx-effects` in the CLJS reference); any sibling steps are ignored — the raw return is the whole result. |
 | `[:noop]` | — | Explicit no-op; useful for default fx registrations the fixture overrides. |
 
 **Reflection / value ops** (used as arguments to data ops; not standalone steps):
@@ -356,6 +357,11 @@ See `fixtures/` for the actual files. Each fixture is one EDN file; each exercis
 | `error-fx-handler-exception.edn` | `:error/fx-handler-exception` | `:rf.error/fx-handler-exception` (fx throws during effect resolution) |
 | `error-sub-exception.edn` | `:error/sub-exception` | `:rf.error/sub-exception` (sub computation throws) |
 | `error-override-fallthrough.edn` | `:error/override-fallthrough` | `:rf.error/override-fallthrough` (override id is not registered) |
+| `effect-map-shape-bad-top-level-key.edn` | `:effect-map-shape/bad-top-level-key` | Spec 009 §`:rf.error/effect-map-shape` case (a): a non-`:db`/`:fx` top-level key is proactively policed (`:offending-key` flagged, dropped, `:db` still applies); a fail-closed gate that never throws |
+| `effect-map-shape-bad-fx-value.edn` | `:effect-map-shape/bad-fx-value` | Spec 009 case (b): a non-sequential `:fx` value (`{:fx :oops}`) is policed + dropped, `:db` still applies, **no** raw host exception after the commit |
+| `effect-map-shape-bad-fx-entry.edn` | `:effect-map-shape/bad-fx-entry` | Spec 009 case (c): a bare-keyword `:fx` entry is policed + dropped while **sibling entries still run** — the precise rf2-18kwf silent-drop case |
+| `effect-map-shape-surplus-entry-field.edn` | `:effect-map-shape/surplus-entry-field` | Spec 009 case (c): a 3-field `:fx` entry is dropped wholesale (NOT silently truncated to a 2-tuple + fired) — the other half of the rf2-18kwf fix |
+| `effect-handler-bad-return.edn` | `:effect-handler/bad-return` | Spec 009 §`:rf.error/effect-handler-bad-return`: a non-map / non-`nil` handler return is policed + no-op'd; `nil` stays the legal no-op (control) |
 | `ssr-hydration-mismatch.edn` | `:ssr/hydration-mismatch` | `:rf.ssr/hydration-mismatch` (server-hash ≠ client-hash) |
 | `machine-transition.edn` | `:rf.machine/transition` | Pure machine-transition; canonical grammar (`{:state :data}` snapshot, single-fn `:action` slot) |
 | `hierarchical-compound-transition.edn` | `:machine/hierarchical-compound-transition` | Sibling-leaf transition inside a compound; verifies the LCA (parent) does NOT exit/re-enter |

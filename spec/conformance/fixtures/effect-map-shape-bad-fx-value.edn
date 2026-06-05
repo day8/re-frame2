@@ -1,0 +1,63 @@
+;; Conformance fixture: effect-map-shape/bad-fx-value
+;; Spec 009 §:rf.error/effect-map-shape CASE (b) — bad :fx VALUE.
+;;
+;; A reg-event-fx handler returns {:fx :oops} — a non-nil, non-sequential
+;; :fx value (the forgot-the-outer-vector typo). Per Spec-Schemas
+;; §:rf/effect-map the :fx value MUST be a vector of [fx-id args] pairs
+;; ([:vector [:tuple :keyword :any]]). The runtime PROACTIVELY polices the
+;; value at commit: one :rf.error/effect-map-shape trace (:offending-key
+;; :fx, :value :oops), the malformed :fx slot is DROPPED, and the legal :db
+;; still applies (recovery :logged-and-skipped).
+;;
+;; The teeth: this is the exact case that, UNPOLICED, throws a raw host
+;; exception INSIDE do-fx's `(doseq [pair fx-vec])` AFTER the :db commit —
+;; app-db mutated, no structured trace, the drain's downstream events
+;; abandoned. A lenient PORT that does not police the :fx value proactively
+;; either throws (no :rf.error/effect-map-shape trace) or silently drops :fx
+;; with no diagnostic; either way it FAILS this fixture. A conformant impl
+;; emits the trace AND keeps :db AND does not throw.
+;;
+;; The malformed map is authored via the :return-raw DSL op. Grounded
+;; against the reference emitter re-frame.events/fx-value-ok?.
+
+{:fixture/id           :effect-map-shape/bad-fx-value
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:core/event-handler :core/fx :core/error :core/trace}
+ :fixture/doc          "A reg-event-fx handler returns {:db ... :fx :oops}. The non-sequential :fx value is proactively policed: one :rf.error/effect-map-shape trace (:offending-key :fx, :value :oops, :logged-and-skipped), :fx dropped, :db still applied, NO raw host exception."
+
+ :fixture/registry
+ {:event {:shape/init {:doc "Seed [:seeded?] false."}
+          :shape/bad-fx-value {:doc "Returns {:db {:seeded? true} :fx :oops} — :fx is a bare keyword, not a vector of pairs."}}
+  :sub   {:seeded? {:doc "Whether the :db still committed."}}}
+
+ :fixture/handlers
+ {:event {:shape/init         [[:set [:seeded?] false]]
+          :shape/bad-fx-value [[:return-raw {:db {:seeded? true}
+                                             :fx :oops}]]}
+  :sub   {:seeded? [[:get [:seeded?]]]}}
+
+ :fixture/frame-config {:on-create [:shape/init]}
+
+ :fixture/dispatches
+ [[:shape/bad-fx-value]]
+
+ :fixture/expect
+ ;; :db still committed — only the malformed :fx value was dropped. The
+ ;; dispatch did NOT throw a raw host exception.
+ {:final-app-db {:seeded? true}
+  :sub-values   {[:seeded?] true}
+
+  :trace-emissions
+  [{:operation :rf.event/run-start :tags {:rf.trace/event-id :shape/bad-fx-value}}
+   ;; Proactive shape policing: one trace, :offending-key :fx, value :oops.
+   {:operation :rf.error/effect-map-shape
+    :op-type   :error
+    :recovery  :logged-and-skipped
+    :tags      {:category          :rf.error/effect-map-shape
+                :offending-key     :fx
+                :value             :oops
+                :rf.trace/event-id :shape/bad-fx-value
+                :rf.event/v        [:shape/bad-fx-value]}}]
+
+  ;; The malformed :fx value never reached the fx interpreter.
+  :effects-routed []}}
