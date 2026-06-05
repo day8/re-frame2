@@ -38,16 +38,88 @@
                      (interop/active-platform))]
     (= :client resolved)))
 
+(declare hydrate-event-handler*)
+
+(defn- malformed-hydration-payload!
+  "Fail-CLOSED guard for the `:rf/hydrate` boundary (rf2-gro94). The
+  payload is a DESERIALISED, UNTRUSTED transport input (the server's
+  `pr-str`'d EDN, round-tripped through `cljs.reader/read-string` at the
+  boot site). `:replace-app-db` is the locked merge policy (Spec 011 §The
+  :rf/hydrate event), so the resolved `:rf/app-db` becomes the ENTIRE
+  client app-db. Blindly installing a non-map slice (a string, vector,
+  number — a corrupt / hostile / version-skewed payload) silently coerces
+  the malformed input to a successful hydration: the same fail-OPEN class
+  the schemas / routing sweeps closed at their boundaries.
+
+  Returns a `:rf.error/*` reason string when `payload` is not a map, or
+  when the app-db slice KEY is present but its value is not a map (incl.
+  an explicit nil / false / non-collection); nil when the payload is
+  structurally acceptable (a map, with the `:rf/app-db` / `:app-db` key
+  either absent or carrying a map). A wholly-ABSENT app-db slice key is
+  NOT malformed — it is the documented client-only / no-server-slice
+  shape that falls back to the existing `db`."
+  [payload]
+  (cond
+    (not (map? payload))
+    (str "the :rf/hydrate payload is not a map (got "
+         (cond (nil? payload) "nil" :else (pr-str (type payload)))
+         "); hydration rejected — the client app-db is left unchanged")
+
+    ;; The app-db slice KEY is present but its value is not a map.
+    ;; Installing a non-map (string / number / vector / nil / false) as
+    ;; the whole app-db would corrupt the frame, so a PRESENT-but-non-map
+    ;; slice is rejected (a wholly-absent key is the legitimate
+    ;; no-server-slice fallback and is NOT flagged here). The canonical
+    ;; key is `:rf/app-db`; `:app-db` is the legacy alias.
+    (let [k (cond (contains? payload :rf/app-db) :rf/app-db
+                  (contains? payload :app-db)    :app-db)]
+      (and k (not (map? (get payload k)))))
+    (let [k (if (contains? payload :rf/app-db) :rf/app-db :app-db)]
+      (str "the :rf/hydrate payload's " k " slice is not a map (got "
+           (cond (nil? (get payload k)) "nil" :else (pr-str (type (get payload k))))
+           "); hydration rejected — the client app-db is left unchanged"))
+
+    :else nil))
+
 (defn hydrate-event-handler
   "Handler fn for the `:rf/hydrate` event. Replaces app-db with
   `(:rf/app-db payload)`, stashes server-hash + version under
   `[:rf/runtime :ssr :hydration]`, and dispatches the two
   `:rf.ssr/check-*` fxs when the resolved platform is `:client` (per
   rf2-7bcn0 — server-side `:rf/hydrate` skips them to avoid
-  `:rf.fx/skipped-on-platform` noise)."
+  `:rf.fx/skipped-on-platform` noise).
+
+  Per rf2-gro94 the handler fails CLOSED on a malformed (deserialised,
+  untrusted) payload: a non-map payload, or a present-but-non-map app-db
+  slice, is REJECTED — the existing client app-db is left unchanged and a
+  `:rf.error/malformed-hydration-payload` diagnostic is emitted (carrying
+  `:frame`). Hydration is best-effort by contract (Spec 011 §The
+  :rf/hydrate event — degraded-but-running), so a corrupt payload must
+  never silently install garbage as the whole app-db."
   [{:keys [db frame]} [_ payload]]
-  (let [new-db        (or (:rf/app-db payload) (:app-db payload) db)
-        version       (:rf/version payload)
+  (let [new-db (or (:rf/app-db payload) (:app-db payload) db)]
+    (if-let [reason (malformed-hydration-payload! payload)]
+      (do
+        (when interop/debug-enabled?
+          (trace/emit-error! :rf.error/malformed-hydration-payload
+                             {:where     'rf.ssr/hydrate
+                              :frame     frame
+                              :failing-id :rf/hydrate
+                              :reason    reason
+                              :recovery  :no-recovery}))
+        ;; Fail CLOSED: leave the client app-db untouched, fire no
+        ;; compatibility-check fxs (there is no trustworthy server slice
+        ;; to compare against).
+        {:db db})
+      (hydrate-event-handler* db frame payload new-db))))
+
+(defn- hydrate-event-handler*
+  "The structurally-valid hydration path (rf2-gro94 extracted the
+  fail-closed guard into `hydrate-event-handler`). `new-db` is the
+  resolved server slice (or the existing `db` when the payload carried no
+  app-db slice — the client-only fallback)."
+  [db frame payload new-db]
+  (let [version       (:rf/version payload)
         schema-digest (:rf/schema-digest payload)
         ;; Declarative hydration-metadata construction — additive,
         ;; nil-pruned. New keys land here as kv pairs without re-ordering

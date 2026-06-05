@@ -46,8 +46,10 @@
   `day8/re-frame2-ssr` artefact alongside the rest of the SSR surface; it
   is re-exported from the `re-frame.ssr` façade as `ssr/hydrate!` /
   `ssr/read-server-payload`."
-  (:require [re-frame.router :as router]
+  (:require [re-frame.interop :as interop]
+            [re-frame.router :as router]
             [re-frame.ssr.hydrate :as hydrate]
+            [re-frame.trace :as trace]
             ;; `constants` + `cljs.reader` are only used by the CLJS-only
             ;; `read-server-payload` (DOM read); require them on CLJS so a
             ;; JVM lint of this `.cljc` doesn't flag them unused.
@@ -73,13 +75,40 @@
      round-trips unchanged — including payloads carrying keyword/symbol
      tokens with `<`.
 
+     Per rf2-gro94 a MALFORMED payload script (truncated server output,
+     a hostile fragment that survives the `</script>` gate, mid-stream
+     corruption) fails CLOSED rather than crashing the whole client boot:
+     `cljs.reader/read-string` THROWS on malformed EDN, and an unguarded
+     throw here propagates out of `hydrate!` and aborts the mount. We
+     isolate the parse, emit a `:rf.error/malformed-hydration-payload`
+     diagnostic, and return `nil` — the SAME \"no trustworthy server
+     slice\" shape as a server-render-absent page, so the host falls back
+     to a client-only first render (degraded-but-running, the Spec 011
+     §The :rf/hydrate event posture). `cljs.reader/read-string` is the
+     SAFE EDN reader (no `#=`/eval, unlike `clojure.core/read-string`),
+     so the parse itself cannot execute injected code; this guard closes
+     the remaining denial-of-service / crash-the-boot edge.
+
      A host that overrode `:html-shell` with a custom payload id must
      read that id itself rather than calling this fn (the framework's
      bundled boot reads only the pinned id)."
      ([] (read-server-payload constants/payload-script-id))
      ([element-id]
       (when-let [el (.getElementById js/document element-id)]
-        (reader/read-string (.-textContent el))))))
+        (try
+          (reader/read-string (.-textContent el))
+          (catch :default e
+            (when interop/debug-enabled?
+              (trace/emit-error! :rf.error/malformed-hydration-payload
+                                 {:where      'rf.ssr/read-server-payload
+                                  :failing-id :rf/hydrate
+                                  :element-id element-id
+                                  :reason     (str "the __rf_payload hydration script "
+                                                   "did not parse as EDN; treating the "
+                                                   "page as client-only (no hydration). "
+                                                   (ex-message e))
+                                  :recovery   :no-recovery}))
+            nil))))))
 
 (defn hydrate!
   "Boot the client from the server's hydration payload — the symmetric
