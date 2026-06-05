@@ -72,14 +72,18 @@
   with `:explain` (present as the `:rf/redacted` sentinel on sensitive
   failures, not omitted).
 
-  Per rf2-ss06u.1 the `:path` tag's normally-structural segments have one
-  value-bearing carve-out: a `:set` failure's segment is the failing
-  ELEMENT VALUE itself (Malli has no positional index for a set). On a
-  sensitive `:set`-nested failure `validate-app-schema!` scrubs that
-  segment to `:rf/redacted` via `walker/sanitize-sensitive-path` so the
-  sensitive element (and any sibling secrets in it) never ships verbatim
-  in `:path` — navigable `:vector` / `:map-of` / `:tuple` / map segments
-  stay intact so `:path` remains a `get-in` locator for those shapes.
+  Per rf2-ss06u.1 / rf2-612mri the `:path` tag's normally-structural
+  segments have several value-bearing carve-outs that
+  `walker/sanitize-sensitive-path` scrubs to `:rf/redacted` on a sensitive
+  failure (the same scrubbed path also feeds `:reason`, so neither slot
+  leaks): a `:set` failure's segment is the failing ELEMENT VALUE itself
+  (Malli has no positional index for a set); a `:map-of` key whose KEY
+  SCHEMA declares `:sensitive?` is the secret used AS the key
+  (rf2-612mri); and any scalar in the FAIL-CLOSED tail past an ambiguous
+  wrapper (`:orn` / `:multi`) cannot be proven a locator and may be a
+  value-bearing `:set` scalar element (rf2-612mri). Navigable `:vector` /
+  `:tuple` / `:map` segments and NON-sensitive `:map-of` keys stay intact
+  so `:path` remains a `get-in` locator for those shapes.
 
   Per rf2-ss06u.3 a structurally MALFORMED registered schema (childless
   `[:vector]`, unknown op) makes the registered validator THROW at
@@ -653,18 +657,23 @@
                        sensitive?  (if in-path
                                      (walker/schema-sensitive-at? schema in-path)
                                      (walker/schema-has-sensitive? schema))
-                       ;; Per rf2-ss06u.1 — a `:set` failure's `:in`
-                       ;; segment is the failing ELEMENT VALUE itself
-                       ;; (Malli has no positional index for a set), so
-                       ;; concatenating the raw `:in` into the structural
-                       ;; `:path` tag ships the entire sensitive element
-                       ;; map (sibling secrets included) VERBATIM —
-                       ;; defeating the redaction the `:value` / `:explain`
-                       ;; slots apply. When the slot is sensitive, scrub the
-                       ;; `:set`-element value segments out of the `:path`
-                       ;; (navigable `:vector` / `:map-of` / `:tuple` / map
-                       ;; segments are kept so `:path` stays a useful
-                       ;; locator for those shapes — the bead regression).
+                       ;; Per rf2-ss06u.1 / rf2-612mri — some `:in`
+                       ;; segments are value-bearing, not structural: a
+                       ;; `:set` failure's segment is the failing ELEMENT
+                       ;; VALUE (Malli has no positional index for a set), a
+                       ;; sensitive `:map-of` KEY is the secret used as the
+                       ;; key, and a scalar in the fail-closed tail past an
+                       ;; ambiguous wrapper may be a `:set` scalar element.
+                       ;; Concatenating the raw `:in` into the structural
+                       ;; `:path` tag would ship those verbatim — defeating
+                       ;; the redaction the `:value` / `:explain` slots
+                       ;; apply, and re-leaking through `:reason` (built from
+                       ;; the same path). When the slot is sensitive, scrub
+                       ;; the value-bearing segments out of `:path` via
+                       ;; `sanitize-sensitive-path` (navigable `:vector` /
+                       ;; `:tuple` / `:map` segments + NON-sensitive `:map-of`
+                       ;; keys are kept so `:path` stays a useful locator for
+                       ;; those shapes — the bead regression).
                        path-in     (if (and in-path sensitive?)
                                      (walker/sanitize-sensitive-path schema in-path)
                                      in-path)
