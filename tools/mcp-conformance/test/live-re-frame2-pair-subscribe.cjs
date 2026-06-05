@@ -64,6 +64,26 @@
 //     is now FATAL, so a dispatch that never landed fails the gate rather
 //     than riding alongside an unrelated frame (rf2-x0pr0).
 //
+// ## Flag-gate WIRE riders (eval + writes)
+//
+// This server boots non-degraded (live nREPL) with `--no-eval` and
+// WITHOUT `--allow-writes` — the only configuration where pair-mcp's
+// default-gated refusals are reachable on the wire (degraded mode
+// short-circuits to `:nrepl-port-not-found` BEFORE the tool-body gate; a
+// gate-ON boot executes the call). So alongside the streaming surface we
+// ride two flag-gate WIRE conformance probes that have no other honest
+// home (end-to-end-flag-gates.cjs covers only story-mcp; the degraded
+// end-to-end never reaches these gates):
+//
+//   - `eval-cljs` with `--no-eval` ⇒ isError + `:rf.error/eval-cljs-disabled`
+//     (rf2-a0z0h — the opt-out post-default-ON eval gate).
+//   - `restore-epoch` / `reset-frame-db` with `--allow-writes` ABSENT ⇒
+//     isError + `:rf.error/writes-disabled` (rf2-ee38b.18 default-OFF
+//     write gate; coverage added rf2-6r5qe.1). This pins the pair-mcp
+//     half of the NAMING.md cross-server write-gate contract that was
+//     doc-only before — a default-flip / flag-rename / dropped gate-check
+//     for either state-mutating tool now ships RED.
+//
 // ## Gating
 //
 // **Skipped unless `$SHADOW_CLJS_NREPL_PORT` is set.** Same posture as
@@ -478,6 +498,90 @@ runWithWatchdog(
       'OK   eval-cljs --no-eval -> isError + ' +
         ':rf.error/eval-cljs-disabled (live, non-degraded)',
     );
+
+    // ---- Default-OFF write-gate WIRE conformance (rf2-6r5qe.1) ----
+    //
+    // The pair-mcp `--allow-writes` gate (rf2-ee38b.18) guards the two
+    // state-mutating tools `restore-epoch` (time-travel undo) and
+    // `reset-frame-db` (state injection). It is DEFAULT-OFF — the
+    // published-build posture — and this server booted WITHOUT
+    // `--allow-writes`, so the gate is closed. Each tool body checks
+    // `writes/writes-allowed?` FIRST (restore_epoch.cljs:59,
+    // reset_frame_db.cljs) and short-circuits to the canonical
+    // `{:ok? false :reason :rf.error/writes-disabled :tool "<name>"}`
+    // envelope WITHOUT touching the nREPL socket.
+    //
+    // Until this probe landed, that refusal had ZERO wire-level
+    // conformance coverage (rf2-6r5qe.1): NAMING.md §"Operator-opt-in CLI
+    // flag vocabulary" pins it as a cross-server contract (pair-mcp's
+    // half of the same gate story story-mcp's --allow-writes covers in
+    // end-to-end-flag-gates.cjs), yet no test asserted the pair-mcp
+    // envelope on the wire. The existing gates all miss it:
+    //   - end-to-end-re-frame2-pair.cjs runs DEGRADED — the
+    //     degraded-handler short-circuits every tools/call to
+    //     :nrepl-port-not-found in `ensure-connection!` BEFORE the tool
+    //     body's write-gate runs, so the writes-disabled envelope is
+    //     unreachable there (it also never calls these two tools).
+    //   - end-to-end-flag-gates.cjs covers ONLY story-mcp's --allow-writes.
+    //   - the live tests boot gate-OFF but never CALLED these tools.
+    // A regression that flipped the default to ON, renamed the gate flag,
+    // or dropped the writes.cljs gate-check for either tool would have
+    // shipped GREEN through every conformance gate.
+    //
+    // This is the SAME shape as the eval-cljs probe directly above: a
+    // non-degraded, gate-OFF live server is the ONLY configuration where
+    // the disabled envelope is reachable on the wire (degraded
+    // short-circuits before it; gate-ON executes the write). It is the
+    // honest home for the pair-mcp WRITE-gate wire check for the exact
+    // reason end-to-end-flag-gates.cjs's "Coverage boundary" comment
+    // routes the pair-mcp EVAL-gate check here. We probe BOTH gated tools
+    // — `restore-epoch` AND `reset-frame-db` — so a gate-check dropped
+    // from one tool but not the other is caught.
+    //
+    // The `arguments` are well-formed (a parseable epoch-id / db EDN
+    // string) but inert: the gate short-circuits before the arg is ever
+    // read or the nREPL touched, so neither call can mutate the live
+    // app-db. Each MUST isError + carry :rf.error/writes-disabled AND name
+    // the refused tool in the envelope.
+    const WRITE_GATE_PROBES = [
+      { name: 'restore-epoch', arguments: { 'epoch-id': '0' } },
+      { name: 'reset-frame-db', arguments: { db: '{}' } },
+    ];
+    for (const probe of WRITE_GATE_PROBES) {
+      const resp = await client.callTool(probe);
+      if (!resp.isError) {
+        throw new Error(
+          probe.name + ' MUST isError when the server booted WITHOUT ' +
+            '--allow-writes (default-OFF write gate, rf2-ee38b.18); the ' +
+            'state-mutating surface is reachable unauthorised. got: ' +
+            JSON.stringify(resp).slice(0, 300),
+        );
+      }
+      const text = resp.content?.[0]?.text || '';
+      if (!text.includes(':rf.error/writes-disabled')) {
+        throw new Error(
+          probe.name + ' default-OFF write-gate envelope MUST carry ' +
+            ':rf.error/writes-disabled (NAMING.md cross-server flag-vocabulary ' +
+            'contract; pair-mcp writes.cljs/disabled-result); got: ' +
+            text.slice(0, 300),
+        );
+      }
+      // The envelope names the refused tool (`:tool "<name>"`) so an
+      // agent's hint is specific — assert it matches the tool we called,
+      // catching a copy-paste regression that returned the wrong tool's
+      // refusal (which would still carry the reason).
+      if (!text.includes('"' + probe.name + '"')) {
+        throw new Error(
+          probe.name + ' write-gate envelope MUST name the refused tool ' +
+            '(:tool "' + probe.name + '" per writes.cljs/disabled-result); ' +
+            'got: ' + text.slice(0, 300),
+        );
+      }
+      console.log(
+        'OK   ' + probe.name + ' (no --allow-writes) -> isError + ' +
+          ':rf.error/writes-disabled (live, non-degraded)',
+      );
+    }
 
     console.log('\nRE-FRAME2-PAIR-MCP LIVE SUBSCRIBE CONFORMANCE GREEN');
   },
