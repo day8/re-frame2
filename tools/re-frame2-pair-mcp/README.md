@@ -331,7 +331,7 @@ builds ship them **DISABLED**; the operator opts in at launch with
 {
   "mcpServers": {
     "re-frame2-pair": {
-      "command": "npx",
+      "command": "re-frame2-pair-mcp",
       "args": ["--allow-writes"]
     }
   }

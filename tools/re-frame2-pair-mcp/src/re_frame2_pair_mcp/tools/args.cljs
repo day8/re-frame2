@@ -336,6 +336,90 @@
           [:err invalid]
           [:ok parsed])))))
 
+;; ---------------------------------------------------------------------------
+;; Numeric subscribe-control args (rf2-uvfph).
+;;
+;; `subscribe` forwards five integer knobs straight from the MCP args to
+;; the runtime queue budget / poll loop / termination caps. The
+;; descriptor schemas said `type: integer` with NO lower bound, so a
+;; malformed or LLM-generated value reached the runtime un-vetted:
+;;
+;;   - a negative `max-buffered-events` / `max-buffered-bytes` is truthy
+;;     and collapses the queue budget so EVERY event evicts (an apparently
+;;     healthy but永-empty probe);
+;;   - a zero / negative `poll-ms` collapses the poll loop into a
+;;     near-tight spin, burning local CPU + nREPL bandwidth;
+;;   - a negative termination cap (`max-ms` / `max-events`) is non-zero so
+;;     the `(pos? …)` guard fires, but `>=` against a negative bound is
+;;     immediately true — silently disabling the intended bound or, for
+;;     `max-ms`, scheduling a `setTimeout` with a negative delay.
+;;
+;; Two positivity contracts cover the five knobs:
+;;   - buffer caps + `poll-ms` must be POSITIVE integers (>= 1) — a zero
+;;     budget / cadence is nonsensical.
+;;   - `max-ms` / `max-events` must be NON-NEGATIVE integers (>= 0) where
+;;     0 means "unbounded" (the documented sentinel).
+;;
+;; Both return the tagged `[:ok n|nil]` / `[:err {…}]` shape so
+;; `subscribe-tool` short-circuits a bad value to an honest `:ok? false`
+;; envelope (the same one-cond-branch pattern as `:unknown-topic` /
+;; `:invalid-filter-edn`) WITHOUT touching the nREPL socket. An ABSENT
+;; arg is `[:ok nil]` — the caller falls back to the runtime / descriptor
+;; default.
+
+(defn- coerce-int
+  "Coerce an MCP numeric arg to an integer, or `::bad` if it isn't a
+  whole number. Accepts a JS/CLJS number (must be integral) or a numeric
+  string. Fractional numbers and non-numeric junk are `::bad`."
+  [raw]
+  (cond
+    (and (number? raw) (js/Number.isInteger raw)) (long raw)
+    (number? raw)                                 ::bad
+    (string? raw)                                 (or (parse-long (str/trim raw)) ::bad)
+    :else                                         ::bad))
+
+(defn- err-int
+  "Build the `[:err {…}]` envelope for an invalid numeric arg. `arg-name`
+  is a plain string (the wire key)."
+  [arg-name raw bound-hint]
+  [:err {:ok?    false
+         :reason :invalid-numeric-arg
+         :arg    arg-name
+         :given  raw
+         :hint   (str arg-name " must be " bound-hint
+                      " (got " (pr-str raw) ").")}])
+
+(defn parse-positive-int-arg
+  "Validate an OPTIONAL positive-integer MCP arg value (rf2-uvfph).
+  `raw` is the already-extracted arg value (via `wire/arg`); `arg-name`
+  is its wire key for the error message. Returns `[:ok nil]` when absent
+  (`raw` nil), `[:ok n]` for an integer `>= 1`, and `[:err {…}]` (with
+  `:reason :invalid-numeric-arg`) for a zero / negative / fractional /
+  non-numeric value."
+  [arg-name raw]
+  (cond
+    (nil? raw) [:ok nil]
+    :else
+    (let [n (coerce-int raw)]
+      (if (and (not= ::bad n) (pos? n))
+        [:ok n]
+        (err-int arg-name raw "a positive integer (>= 1)")))))
+
+(defn parse-non-negative-int-arg
+  "Validate an OPTIONAL non-negative-integer MCP arg value (rf2-uvfph)
+  where 0 is the documented unbounded sentinel. `raw` is the already-
+  extracted arg value; `arg-name` is its wire key. Returns `[:ok nil]`
+  when absent, `[:ok n]` for an integer `>= 0`, and `[:err {…}]` for a
+  negative / fractional / non-numeric value."
+  [arg-name raw]
+  (cond
+    (nil? raw) [:ok nil]
+    :else
+    (let [n (coerce-int raw)]
+      (if (and (not= ::bad n) (not (neg? n)))
+        [:ok n]
+        (err-int arg-name raw "a non-negative integer (>= 0; 0 = unbounded)")))))
+
 (defn parse-filter-arg
   "MCP-side filter arg can be either a JS object or an EDN string. We
   accept both for ergonomic parity with the bash-shim chain (`pred`

@@ -65,12 +65,15 @@
   drain. Indicator slots (`:dropped-sensitive`, `:elided-large`) feed
   `wire/with-indicators` at terminal-summary emit time.
 
-  rf2-3ijbl extends this with `:rate-dropped` — the count of ticks
-  the per-session rate-limit (resource-controls token bucket) silenced
-  to keep the wire under the operator-configured events/sec cap. The
-  count surfaces on the final summary so the operator can see whether
-  the cap was tripped (a signal to raise `--max-events-per-sec` or
-  to look at why a consumer is sending so much)."
+  rf2-3ijbl extends this with `:rate-dropped` — the count of poll
+  cycles the per-session rate-limit (resource-controls token bucket)
+  DEFERRED to keep the wire under the operator-configured events/sec
+  cap. Per rf2-uvfph a deferred cycle does NOT drain the runtime queue,
+  so its events ride a later cycle once a token refills — `:rate-dropped`
+  is a \"cap-tripped\" signal (raise `--max-events-per-sec`, or look at
+  why a consumer is sending so much), NOT a lost-event count. The count
+  surfaces on the final summary so the operator sees whether the cap
+  bit during the stream."
   ;; :elided-large counts upstream-pre-elided markers per
   ;; Spec 009 §Indicator field (rf2-8cntr) — cumulative across drains.
   {:tick              0
@@ -162,7 +165,9 @@
   `:dropped-sensitive` / `:elided-large` counters onto the envelope
   per the cross-MCP indicator-field convention. `:rate-dropped`
   surfaces only when non-zero — same suppress-when-zero discipline
-  as the indicator-field MUSTs."
+  as the indicator-field MUSTs. Per rf2-uvfph `:rate-dropped` counts
+  poll cycles DEFERRED by the rate cap (events stayed queued for a
+  later cycle), not lost events."
   [{:keys [sub-id topic state reason]}]
   (let [{:keys [tick delivered dropped-events dropped-bytes
                 overflow-reason dropped-sensitive elided-large
@@ -305,7 +310,7 @@
    :send-note   (some-> extra (j/get :sendNotification))
    :progress-tk (some-> extra (j/get :_meta) (j/get :progressToken))})
 
-(defn- make-stream-controller
+(defn make-stream-controller
   "Build the `terminate` + `poll` fns over a shared `state` atom and
   the per-call context. Returns `{:state :terminate :poll}` so the
   caller's body reads top-down — controller built, then `(poll)`
@@ -316,9 +321,14 @@
   stream slot (rf2-3ijbl — must run on EVERY exit path so the
   concurrent-stream counter doesn't leak), then `resolve`s the outer
   `tools/call` Promise with the final-summary envelope. `poll` runs
-  the drain → state-merge → progress-emit → reschedule cycle until
-  termination triggers (client abort, max-events reached, sub-gone,
-  or abuse-detected)."
+  the rate-gate → drain → state-merge → progress-emit → reschedule
+  cycle until termination triggers (client abort, max-events reached,
+  sub-gone, or abuse-detected).
+
+  Public (not `defn-`) so `subscribe_resource_controls_test.cljs` can
+  drive a single `poll` invocation with a stubbed
+  `nrepl/cljs-eval-value` to pin the rf2-uvfph rate-gate-before-drain
+  ordering (a denied cycle MUST NOT call the destructive drain)."
   [{:keys [conn build-id sub-id topic resolve state
            signal send-note progress-tk poll-ms max-events
            incl? elision? dedup?]}]
@@ -351,6 +361,32 @@
             (and (pos? max-events)
                  (>= (:delivered @state) max-events))
             (terminate :max-events-reached)
+
+            ;; rf2-uvfph — per-session rate-limit gate, checked BEFORE the
+            ;; destructive drain. The token bucket holds at most
+            ;; `max-events-per-sec` tokens; one drain-and-emit cycle
+            ;; consumes one token. When the bucket is empty THIS poll
+            ;; cycle is deferred: we do NOT call `drain-subscription!`,
+            ;; so the runtime-side queue stays intact and its events ride
+            ;; the NEXT cycle once a token refills — no event loss.
+            ;;
+            ;; Pre-rf2-uvfph the rate gate ran AFTER the drain had already
+            ;; popped + cleared the runtime queue, so a denied tick threw
+            ;; the already-drained batch away (silent data loss) despite
+            ;; the spec/comment promising "left in queue for later
+            ;; delivery". Gating the drain itself restores that contract.
+            ;;
+            ;; `:rate-dropped` now counts DEFERRED poll cycles, not lost
+            ;; ticks — it is a "the cap was tripped, consider raising
+            ;; --max-events-per-sec" signal, not a data-loss tally. Under
+            ;; normal load (poll cadence ≪ refill rate) the bucket never
+            ;; empties from cadence alone, so this only bites under
+            ;; genuine sustained event volume — exactly when the runtime
+            ;; queue is non-empty and deferral (not loss) is the right
+            ;; behaviour.
+            (not (resource/check-rate!))
+            (do (swap! state update :rate-dropped inc)
+                (js/setTimeout poll poll-ms))
 
             :else
             (-> (nrepl/cljs-eval-value conn build-id drain-src)
@@ -386,34 +422,21 @@
                                             :dropped     dropped
                                             :tick-elided tick-elided}
                             tick?          (drain-produced-output? drain-delta)
-                            ;; rf2-3ijbl — per-session rate-limit gate. The
-                            ;; token bucket holds at most `max-events-per-sec`
-                            ;; tokens; one tick (= one progress notification)
-                            ;; consumes one token. When the bucket is empty
-                            ;; the tick is dropped silently and counted as
-                            ;; `:rate-dropped` on the final summary.
-                            allow?         (or (not tick?) (resource/check-rate!))]
-                        (if allow?
-                          (let [s' (swap! state merge-drain drain-delta)]
-                            (when (and tick? send-note progress-tk)
-                              (emit-progress-tick!
-                                {:send-note   send-note
-                                 :progress-tk progress-tk
-                                 :sub-id      sub-id}
-                                dedup?
-                                {:tick         (:tick s')
-                                 :cascade?     cascade?
-                                 :dedup-events (dedup/dedup-value evts dedup?)
-                                 :ev-dropped   ev-dropped
-                                 :by-dropped   by-dropped
-                                 :ov-reason    ov-reason
-                                 :dropped      dropped
-                                 :tick-elided  tick-elided})))
-                          ;; Rate-dropped — tally and skip the emit. The
-                          ;; runtime-side queue still holds the events;
-                          ;; subsequent ticks drain them when tokens
-                          ;; refill.
-                          (swap! state update :rate-dropped inc))
+                            s'             (swap! state merge-drain drain-delta)]
+                        (when (and tick? send-note progress-tk)
+                          (emit-progress-tick!
+                            {:send-note   send-note
+                             :progress-tk progress-tk
+                             :sub-id      sub-id}
+                            dedup?
+                            {:tick         (:tick s')
+                             :cascade?     cascade?
+                             :dedup-events (dedup/dedup-value evts dedup?)
+                             :ev-dropped   ev-dropped
+                             :by-dropped   by-dropped
+                             :ov-reason    ov-reason
+                             :dropped      dropped
+                             :tick-elided  tick-elided}))
                         ;; rf2-3ijbl — abuse-detection: any drain that
                         ;; reported a queue overflow contributes to the
                         ;; session's rolling window. Sustained overflow
@@ -495,11 +518,28 @@
         ;; runtime `subscribe!` `:filter` slot as a nonsense filter that
         ;; would silently stream the wrong (likely empty) event set.
         [filter-tag filter-map] (args/parse-filter-arg (wire/arg raw-args :filter))
-        max-buf-events     (wire/arg raw-args :max-buffered-events)
-        max-buf-bytes      (wire/arg raw-args :max-buffered-bytes)
-        poll-ms            (or (wire/arg raw-args :poll-ms) default-poll-ms)
-        max-ms             (or (wire/arg raw-args :max-ms) 0)
-        max-events         (or (wire/arg raw-args :max-events) 0)
+        ;; rf2-uvfph — validate the five numeric subscribe controls
+        ;; BEFORE they reach the runtime queue budget / poll loop /
+        ;; termination caps. Buffer caps + poll cadence must be positive
+        ;; integers; the termination caps must be non-negative (0 =
+        ;; unbounded). A bad value short-circuits to an honest `:ok? false`
+        ;; envelope in the `cond` below — un-vetted negatives previously
+        ;; collapsed the queue budget (empty probe), spun the poll loop, or
+        ;; silently disabled the intended bound. Each is `[:ok n|nil]` /
+        ;; `[:err {…}]`; `nil` (absent) falls back to the default.
+        mbe-r              (args/parse-positive-int-arg "max-buffered-events" (wire/arg raw-args :max-buffered-events))
+        mbb-r              (args/parse-positive-int-arg "max-buffered-bytes"  (wire/arg raw-args :max-buffered-bytes))
+        pms-r              (args/parse-positive-int-arg "poll-ms"             (wire/arg raw-args :poll-ms))
+        mms-r              (args/parse-non-negative-int-arg "max-ms"     (wire/arg raw-args :max-ms))
+        mev-r              (args/parse-non-negative-int-arg "max-events" (wire/arg raw-args :max-events))
+        numeric-err        (->> [mbe-r mbb-r pms-r mms-r mev-r]
+                                (filter #(= :err (first %)))
+                                first)
+        max-buf-events     (second mbe-r)
+        max-buf-bytes      (second mbb-r)
+        poll-ms            (or (second pms-r) default-poll-ms)
+        max-ms             (or (second mms-r) 0)
+        max-events         (or (second mev-r) 0)
         ;; rf2-c2dtu — the `--allow-sensitive-reads` boot gate forces
         ;; `:include-sensitive false` on every streamed event when OFF
         ;; (the published-build default). `sensitive/strip-sensitive`
@@ -540,6 +580,14 @@
         (wire/err-text {:ok? false :reason :invalid-filter-edn
                         :given (wire/arg raw-args :filter)
                         :hint  "filter must be an EDN-readable map (or a JSON object), e.g. \"{:op-type :error}\"."}))
+
+      ;; rf2-uvfph — a numeric control arg failed validation (zero /
+      ;; negative / fractional / non-numeric). Surface the honest
+      ;; `:ok? false` envelope (same one-cond-branch shape as the topic /
+      ;; filter checks) BEFORE reserving a stream slot or touching the
+      ;; nREPL socket, rather than forwarding a budget-collapsing value.
+      numeric-err
+      (js/Promise.resolve (wire/err-text (second numeric-err)))
 
       :else
       ;; rf2-3ijbl — reserve a session-wide stream slot BEFORE any
