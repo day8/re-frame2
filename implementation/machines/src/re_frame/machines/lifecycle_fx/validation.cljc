@@ -215,11 +215,15 @@
       state-tree declares `:type :parallel`; nested parallel regions
       aren't supported in v1.
     - `:rf.error/machine-parallel-on-done-target` — the parallel root's
-      `:on-done` declares an in-machine `:target` (rf2-bnjb3). A root-only
-      `:type :parallel` machine has no sibling flat state to land a target
-      on; the parallel `:on-done` runs its `:action` + emits `:fx` (the
-      \"then continue\" is a dispatch/raise in that fx), never an in-machine
-      transition target.
+      `:on-done` declares an in-machine `:target` in ANY value form
+      (rf2-bnjb3 / rf2-6srk5): a bare-keyword target, a vector-path target,
+      a map with `:target`, or a candidate vector containing a target map.
+      A root-only `:type :parallel` machine has no sibling flat state to
+      land a target on; the parallel `:on-done` runs its `:action` + emits
+      `:fx` (the \"then continue\" is a dispatch/raise in that fx), never an
+      in-machine transition target. (Before rf2-6srk5 only the map / vector-
+      of-maps forms were rejected, so bare-keyword and vector-path targets
+      slipped through to a silent runtime stall.)
     - `:rf.error/machine-parallel-root-on-bad-target` — a root parallel `:on`
       transition's `:target` is NOT region-qualified (rf2-tsq6g). The root
       `:on` is the ancestor fallback; a `:target` must name one or more
@@ -252,22 +256,47 @@
                     "event the root :on (or a sibling region) handles. Per "
                     "Spec 005 §Transition broadcast §Root parallel :on.")
                {:after (:after machine)})))
-    ;; Per rf2-bnjb3: the parallel root's `:on-done` must not carry an
-    ;; in-machine `:target` (root-only parallel has no flat sibling to land
-    ;; on). Normalise the candidate(s) and reject any that declare `:target`.
-    (when-let [on-done (:on-done machine)]
-      (let [cands (cond
-                    (map? on-done)    [on-done]
-                    (vector? on-done) (filterv map? on-done)
-                    :else             [])]
+    ;; Per rf2-bnjb3 / rf2-6srk5: the parallel root's `:on-done` must not carry
+    ;; an in-machine `:target` in ANY form (root-only parallel has no flat
+    ;; sibling to land on). Normalise EVERY value-form `:on-done` admits —
+    ;; mirroring `transition/normalise-candidates` (the runtime grammar the
+    ;; parallel-root `apply-on-done-action` resolves through) — to its
+    ;; candidate map(s), then reject if any candidate declares `:target`.
+    ;;
+    ;; The pre-rf2-6srk5 check only normalised the MAP and vector-of-maps forms,
+    ;; so a bare-keyword target (`:on-done :next`) and a vector-path target
+    ;; (`:on-done [:next]`) slipped past validation, then normalised at runtime
+    ;; to a `:target`-only / action-less candidate that `apply-on-done-action`
+    ;; selected, ran no action for, marked the done signal handled (suppressing
+    ;; auto-destroy), and moved nowhere — a SILENT STALL in the all-final
+    ;; configuration. Per the loud-failure posture, every target-bearing form
+    ;; must be rejected loudly at registration. Action / fx-only `:on-done`
+    ;; (no `:target`) stays accepted.
+    (when (contains? machine :on-done)
+      (let [on-done (:on-done machine)
+            ;; Mirror transition/normalise-candidates: keyword → {:target kw};
+            ;; vector-of-maps → as-is; any other vector → {:target vec};
+            ;; map → [map]; nil/other → no target-bearing candidate.
+            cands   (cond
+                      (keyword? on-done) [{:target on-done}]
+                      (and (vector? on-done)
+                           (seq on-done)
+                           (every? map? on-done)) on-done
+                      (vector? on-done)  [{:target on-done}]
+                      (map? on-done)     [on-done]
+                      :else              [])]
         (when (some #(contains? % :target) cands)
           (throw (validation-error
                    :rf.error/machine-parallel-on-done-target
                    (str "a parallel root's :on-done cannot declare an in-machine "
-                        ":target — a :type :parallel machine is root-only (no "
-                        "sibling flat state). Express \"then continue\" as an "
-                        ":action / :fx (e.g. a dispatch to a coordinator). Per "
-                        "Spec 005 §Final states §The done-state signal.")
+                        ":target (a bare-keyword target, a vector-path target, a "
+                        "map with :target, or a candidate vector containing one) "
+                        "— a :type :parallel machine is root-only (no sibling "
+                        "flat state to land a target on; an accepted target "
+                        "would silently STALL in the all-final configuration). "
+                        "Express \"then continue\" as an :action / :fx (e.g. a "
+                        "dispatch to a coordinator). Per Spec 005 §Final states "
+                        "§The done-state signal.")
                    {:on-done on-done})))))
     ;; Per rf2-tsq6g: every root parallel `:on` transition's `:target` (if
     ;; present) MUST be region-qualified — the root ancestor fallback has no

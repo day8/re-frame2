@@ -352,6 +352,64 @@
              :on-done {:target :somewhere}
              :regions {:a {:initial :run :states {:run {} }}}})))))
 
+;; rf2-6srk5 — EVERY target-bearing :on-done value-form must be rejected
+;; LOUDLY at registration (not just the map form). Before the fix, a bare-
+;; keyword target and a vector-path target slipped past validation and then
+;; SILENTLY STALLED at runtime: apply-on-done-action normalised them to a
+;; target-only / action-less candidate, ran no action, marked the parallel
+;; done-signal handled (suppressing auto-destroy), and moved nowhere.
+(deftest parallel-on-done-bare-keyword-target-rejected
+  (testing "rf2-6srk5: a parallel root's :on-done declaring a BARE-KEYWORD
+            target (:on-done :next) is rejected at registration — it would
+            otherwise silently stall in the all-final config"
+    (is (thrown-with-msg?
+          #?(:clj Exception :cljs js/Error)
+          #":rf.error/machine-parallel-on-done-target"
+          (rf/reg-machine :rf2-6srk5/bad-kw-target
+            {:type    :parallel
+             :on-done :next
+             :regions {:a {:initial :run :states {:run {}}}}})))))
+
+(deftest parallel-on-done-vector-path-target-rejected
+  (testing "rf2-6srk5: a parallel root's :on-done declaring a VECTOR-PATH
+            target (:on-done [:next]) is rejected at registration"
+    (is (thrown-with-msg?
+          #?(:clj Exception :cljs js/Error)
+          #":rf.error/machine-parallel-on-done-target"
+          (rf/reg-machine :rf2-6srk5/bad-vec-target
+            {:type    :parallel
+             :on-done [:next]
+             :regions {:a {:initial :run :states {:run {}}}}})))))
+
+(deftest parallel-on-done-candidate-vector-target-rejected
+  (testing "rf2-6srk5: a parallel root's :on-done CANDIDATE VECTOR containing
+            a target-bearing map is rejected at registration"
+    (is (thrown-with-msg?
+          #?(:clj Exception :cljs js/Error)
+          #":rf.error/machine-parallel-on-done-target"
+          (rf/reg-machine :rf2-6srk5/bad-cand-vec-target
+            {:type    :parallel
+             :on-done [{:guard :g :target :next} {:action :a}]
+             :guards  {:g (constantly true)}
+             :actions {:a (fn [{d :data}] {:data d})}
+             :regions {:a {:initial :run :states {:run {}}}}})))))
+
+(deftest parallel-on-done-action-fx-only-accepted
+  (testing "rf2-6srk5: an :action / :fx-only parallel root :on-done (NO
+            :target) stays ACCEPTED at registration and fires exactly once"
+    (let [ran (atom 0)]
+      (rf/reg-machine :rf2-6srk5/ok-action-only
+        {:type    :parallel
+         :data    {:n 0}
+         :actions {:bump (fn [{d :data}] (swap! ran inc) {:data (update d :n inc)})}
+         :on-done {:action :bump}
+         :regions {:left  {:initial :run :states {:run {:on {:fin :done}} :done {:final? true}}}
+                   :right {:initial :run :states {:run {:on {:fin :done}} :done {:final? true}}}}})
+      (rf/dispatch-sync [:rf2-6srk5/ok-action-only [:fin]])
+      (is (= {:left :done :right :done} (:state (snapshot :rf2-6srk5/ok-action-only)))
+          "both regions reached final — action-only :on-done was accepted")
+      (is (= 1 @ran) "the action-only :on-done fired exactly once"))))
+
 (deftest compound-on-done-unresolved-action-rejected
   (testing "a compound :on-done referencing an unregistered action keyword is
             rejected at registration (fail-fast ref resolution)"
