@@ -431,6 +431,7 @@
   ["re-frame.test-support" "make-reset-runtime-fixture"] {:tier :testing :owner "008" :status "v1"}
   ["re-frame.test-support" "with-fresh-registrar"]      {:tier :testing :owner "008" :status "v1"}
   ["re-frame.test-support" "snapshot-registrar"]        {:tier :testing :owner "008" :status "v1"}
+  ["re-frame.test-support" "merge-registrar-snapshots"] {:tier :testing :owner "008" :status "v1"}
   ["re-frame.test-support" "restore-registrar!"]        {:tier :testing :owner "008" :status "v1"}
   ["re-frame.test-support" "with-trace-recorder!"]      {:tier :testing :owner "008" :status "v1"}
 
