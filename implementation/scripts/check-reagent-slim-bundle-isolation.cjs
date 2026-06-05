@@ -18,6 +18,14 @@
  *     static-markup` at boot. That's the binding claim behind the
  *     pure-CLJS SSR seam from IMPL-SPEC §8 + S3-005 (the biggest single
  *     bundle win for SSR-using apps).
+ *   - That react-dom/server-absence claim is only a NON-vacuous S3-005
+ *     proof if the SSR path is actually compiled into the bundle.
+ *     Contract 4 (rf2-t5xu3u) closes the gap with a POSITIVE presence
+ *     check: the slim SSR boot exercise + a `reagent2.dom.server`
+ *     serializer-owned literal must both be present, so removing (or
+ *     DCE-eliminating) the `render-to-static-markup` exercise FAILS the
+ *     gate instead of letting the absence check pass against a
+ *     no-longer-SSR bundle.
  *
  * Strategy mirrors scripts/check-bundle-isolation.cjs (rf2-51x5): grep,
  * not parse. The closure compiler under :advanced rewrites ns / Var
@@ -115,6 +123,55 @@ const REACT_DOM_SERVER_SENTINELS = [
     sentinel: 'renderToReadableStream' },
 ];
 
+// Pure-CLJS-SSR presence sentinels (rf2-t5xu3u). Contract 3 above proves
+// `react-dom/server` is ABSENT, but absence alone is vacuous: if the SSR
+// exercise in counter_slim_and_fast/core.cljs were removed (or DCE'd
+// away), `react-dom/server` would STILL be absent, and Contract 3 would
+// keep passing against a bundle that no longer exercises SSR at all — a
+// silent non-proof of S3-005. These sentinels turn the proof
+// non-vacuous: they assert the slim SSR path is POSITIVELY present in the
+// bundle, so removing the exercise FAILS the gate instead of slipping
+// through.
+//
+// Two complementary sentinels, both required (checkPresent):
+//
+//   1. `counterSlimPrerender` — the host-global the example boot writes
+//      the prerendered markup onto. This is the DCE-protection anchor
+//      (writes to extern-shaped `globalThis` props are side effects the
+//      closure compiler keeps under :advanced). It proves the boot still
+//      performs the SSR exercise.
+//
+//        NB: this sentinel alone is INSUFFICIENT. The host-global write
+//        survives even if the value written is a plain literal rather
+//        than `(rds/render-to-static-markup …)` — i.e. it does NOT by
+//        itself prove the serializer is compiled in. (Verified: stub the
+//        write to a literal string and `counterSlimPrerender` stays at 1
+//        while every serializer sentinel drops to 0.) Hence sentinel 2.
+//
+//   2. `static-markup-bad-tag` — a string literal `ex-info` type owned
+//      exclusively by `reagent2.dom.server`'s `emit-vector` walker. It is
+//      reachable ONLY when the SSR serializer namespace is in the bundle;
+//      removing the `render-to-static-markup` call DCEs the whole
+//      namespace and drops this to 0. It survives :advanced (string
+//      literals are not renamed) and is absent from the stock bundle
+//      (stock SSR goes through react-dom/server, not the pure-CLJS
+//      serializer). This is the sentinel that actually binds "the
+//      pure-CLJS SSR path is compiled in".
+//
+// Sentinel counts in the current release bundle (recorded for the
+// re-derivation contract — if these drop to 0 in a slim build that DOES
+// exercise SSR, re-pick from another serializer-owned literal, e.g.
+// 'static-markup-empty-vector', 'static-markup-bad-element', or the
+// 'reagent-react-component' opaque-subtree placeholder):
+//   counterSlimPrerender   : 1
+//   static-markup-bad-tag  : 3
+const SLIM_SSR_PRESENCE_SENTINELS = [
+  { source: 'counter_slim_and_fast SSR boot exercise (host-global write, DCE anchor)',
+    sentinel: 'counterSlimPrerender' },
+  { source: 'reagent2.dom.server emit-vector serializer (ex-info type string)',
+    sentinel: 'static-markup-bad-tag' },
+];
+
 // ----- helpers ---------------------------------------------------------------
 //
 // Bundle reading + the countSubstring grep primitive are shared with the
@@ -126,7 +183,7 @@ const REACT_DOM_SERVER_SENTINELS = [
 // factored out (rf2-qlk4w) and is now the shared default for the whole
 // check-*-bundle family.
 
-// ----- the three contract checks --------------------------------------------
+// ----- the four contract checks ---------------------------------------------
 
 function checkAbsent(blob, sentinels, blobLabel) {
   // Assert each sentinel's hit-count is 0. Used for the slim build's
@@ -244,12 +301,25 @@ function main() {
   const c3 = checkAbsent(slim, REACT_DOM_SERVER_SENTINELS, 'SLIM');
   report.detail('');
 
-  const allOk = c1.ok && c2.ok && c3.ok;
+  // Contract 4 (S3-005 non-vacuity, rf2-t5xu3u): the slim SSR path is
+  // POSITIVELY present in the bundle. Contract 3's react-dom/server
+  // absence is only a meaningful S3-005 proof if the bundle actually
+  // exercises SSR; without this check, removing the example's
+  // `render-to-static-markup` call (or letting it get DCE'd) would leave
+  // Contract 3 passing vacuously. Asserts the host-global boot anchor AND
+  // a serializer-owned literal are both present.
+  report.detail('Contract 4 (S3-005 non-vacuity): the pure-CLJS SSR path is PRESENT in');
+  report.detail('                          the slim bundle (the boot exercise + the');
+  report.detail('                          reagent2.dom.server serializer are compiled in).');
+  const c4 = checkPresent(slim, SLIM_SSR_PRESENCE_SENTINELS, 'SLIM');
+  report.detail('');
+
+  const allOk = c1.ok && c2.ok && c3.ok && c4.ok;
   if (allOk) {
-    const checked = c1.checked + c2.checked + c3.checked;
+    const checked = c1.checked + c2.checked + c3.checked + c4.checked;
     report.pass(
       'reagent-slim-bundle-isolation',
-      `3 contracts passed; ${checked} sentinel checks; slim=${slimDir} (${slim.length} chars); ` +
+      `4 contracts passed; ${checked} sentinel checks; slim=${slimDir} (${slim.length} chars); ` +
         `stock=${stockDir} (${stock.length} chars)`
     );
     process.exit(0);
@@ -278,6 +348,19 @@ function main() {
       console.error('cause: a `:require ["react-dom/server" ...]` slipped into a slim');
       console.error('namespace, or a downstream consumer ns imports stock');
       console.error('reagent.dom.server.');
+      console.error('Reproduce with: cd implementation && npm run test:reagent-slim:bundle-isolation');
+    }
+    if (!c4.ok) {
+      console.error('Contract 4 failed: the slim SSR path is NOT present in the bundle, so');
+      console.error('Contract 3 (react-dom/server absence) is a VACUOUS S3-005 proof — the');
+      console.error('bundle no longer exercises SSR at all. Likely cause: the');
+      console.error('`(rds/render-to-static-markup [counter-app])` boot exercise in');
+      console.error('examples/reagent-slim/counter_slim_and_fast/core.cljs was removed or');
+      console.error('let get DCE-eliminated (the host-global write is the DCE anchor — keep');
+      console.error('it writing the prerender result, not a literal). If the SSR exercise IS');
+      console.error('still present and intentional, a serializer sentinel string may have');
+      console.error('changed: re-derive from reagent2.dom.server (the ex-info type literals');
+      console.error('or the reagent-react-component placeholder). See IMPL-SPEC §8 + S3-005.');
       console.error('Reproduce with: cd implementation && npm run test:reagent-slim:bundle-isolation');
     }
     process.exit(1);
