@@ -209,6 +209,34 @@
                            "gate-on + include-sensitive true ⇒ raw passes")
                        (done)))))))))
 
+(deftest watch-epochs-gate-on-default-still-projects
+  (testing "gate ON but include-sensitive omitted (default false): records STILL projected"
+    ;; rf2-ywn27.2 — the two-key opt-in fail-safe, the watch-epochs SIBLING
+    ;; of `trace-window-gate-on-default-still-projects` /
+    ;; `snapshot-epochs-gate-on-default-still-projects`. The opt-in is
+    ;; TWO-KEY (epoch_egress.cljs:35-50): the launch flag
+    ;; --allow-sensitive-reads ALONE does NOT flip the per-call default.
+    ;; watch_epochs.cljs:61-63 computes `incl? (if (raw-state-allowed?)
+    ;; (parse-bool-arg ... :include-sensitive) false)` — gate-ON + omitted
+    ;; arg ⇒ parse-bool-arg false ⇒ incl? false ⇒ project? true. A
+    ;; regression that flipped the per-call default to true under the gate
+    ;; (e.g. `incl? (raw-state-allowed?)`, the plausible "the flag IS the
+    ;; opt-in" misreading) would leak raw epoch state on EVERY poll once an
+    ;; operator launched with the flag for ONE deliberate read. Pre-this
+    ;; the watch-epochs gate-ON coverage only asserted the
+    ;; include-sensitive:true case, so the flip shipped GREEN here while
+    ;; trace-window's identical regression WOULD be caught — asymmetric.
+    (async done
+      (raw-state/set-allow-raw-state! true)
+      (let [forms (atom [])]
+        (-> (with-capture! forms epoch-canned
+              (fn [] (we/watch-epochs-tool nil (tu/args->js {}))))
+            (.then (fn [_]
+                     (let [form (slice-form forms)]
+                       (is (str/includes? form "mapv re-frame.core/projected-record")
+                           "gate-on alone (no per-call opt-in) still projects — fail-safe default")
+                       (done)))))))))
+
 ;; ===========================================================================
 ;; rf2-f1ose — list-subscriptions :include-values sub :value egress
 ;; ===========================================================================
