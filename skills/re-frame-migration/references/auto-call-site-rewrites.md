@@ -48,11 +48,13 @@ Everything else under `re-frame.*` is off-contract. `re-frame.alpha` is **not** 
 
 ```bash
 # Every re-frame.* require that is NOT on the public surface.
-# Negative lookahead excludes core + the preserved/feature namespaces.
-rg -n '\[\s*re-frame\.(?!core\b|interop\b|std-interceptors\b|schemas\b|machines\b|routing\b|flows\b|http\b|http-managed\b|http-test-support\b|ssr\b|epoch\b|test-support\b)[a-z-]+' .
+# Stage 1: broad-scan every re-frame.* require. Stage 2: invert-filter out
+# core + the preserved/feature namespaces. Each surviving line is an M-1 site.
+rg -n '\[\s*re-frame\.[a-z-]+' . \
+  | rg -v '\[\s*re-frame\.(core|interop|std-interceptors|schemas|machines|routing|flows|http|http-managed|http-test-support|ssr|epoch|test-support)\b'
 ```
 
-(`rg` uses the Rust regex engine, which supports the `(?!…)` lookahead. Each surviving hit is an M-1 site: find a public equivalent in `re-frame.core`, or — if none — flag for human review with the call site and what it is doing.)
+(**Do not** reach for an inline negative-lookahead — `rg -n '\[\s*re-frame\.(?!core\b|…)…'` — in the *default* engine: ripgrep's default Rust `regex` engine rejects look-around and exits non-zero *before scanning* with "look-around … is not supported", so the M-1 inventory silently produces nothing and reads as a false-clean sweep. The broad-scan-then-invert-filter form above works on **any** ripgrep build; an equivalent single-command form needs `rg -P`/`--pcre2`, which only works on a ripgrep compiled with PCRE2. Each surviving hit is an M-1 site: find a public equivalent in `re-frame.core`, or — if none — flag for human review with the call site and what it is doing.)
 
 ```clojure
 ;; SEARCH (the common internals — illustrative, NOT exhaustive: the principle above governs)
