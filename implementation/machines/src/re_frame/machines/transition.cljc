@@ -1442,6 +1442,39 @@
                         :exception  e}))))
     {}))
 
+(defn enforce-db-disallow
+  "Per Spec 005 §Hard-disallow `:db` (005:463): a machine action's effect
+  map MUST NOT carry `:db`. This is the SINGLE enforcement choke-point so
+  the invariant holds UNIFORMLY across every phase that runs an action —
+  the cascade collector (`collect-actions`) and the parallel-root
+  `:on-done` path (`apply-on-done-action`) both funnel through here
+  (rf2-z522n). When `:db` is present, emit the structured error and return
+  the effects map with `:db` STRIPPED — the remaining `:data` / `:fx`
+  effects flow through. Canonical id / op-type / tags / recovery per Spec
+  009 §Error event catalogue (Ownership.md:48):
+  `:rf.error/machine-action-wrote-db`, op-type `:error`, tags
+  `{:machine-id :action-id :state-path :offending-value}`, recovery
+  `:logged-and-skipped`.
+
+  `r` is the action's plain effects map (a `result/fail` has already been
+  short-circuited by the caller, so this only ever sees a success map);
+  `action-ref` and the `:state` path ride the diagnostic so the operator
+  can locate the offending action."
+  [machine r action-ref state-path]
+  (if (and (map? r) (contains? r :db))
+    (do
+      (trace/emit-error! :rf.error/machine-action-wrote-db
+                         {:machine-id      (or (:rf/parent-id machine)
+                                               (:id machine))
+                          :action-id       action-ref
+                          :state-path      state-path
+                          :offending-value (:db r)
+                          ;; Per rf2-ko8jb: epoch-capture admission requires `:frame`.
+                          :frame           (:rf/frame machine)
+                          :recovery        :logged-and-skipped})
+      (dissoc r :db))
+    r))
+
 ;; ---- structured cascade steps (rf2-n9f4z) ---------------------------------
 ;;
 ;; Per Spec 005 §Transition cascade instrumentation: each cascade phase the
@@ -1539,39 +1572,22 @@
                                              :action action}
                                       source (assoc :source source))]
                     (if action
-                      (let [r (run-action machine snap action event emit-phase)]
-                        (if (result/fail? r)
-                          (reduced [r cascade])
-                          (do
-                            ;; Per Spec 005 §Hard-disallow `:db` (005:463): a
-                            ;; machine action's effect map MUST NOT carry `:db`.
-                            ;; When present, emit the structured error and DROP
-                            ;; the `:db` key — the remaining `:data` / `:fx`
-                            ;; effects flow through. Canonical id / op-type /
-                            ;; tags / recovery per Spec 009 §Error event
-                            ;; catalogue (Ownership.md:48):
-                            ;; `:rf.error/machine-action-wrote-db`, op-type
-                            ;; `:error`, tags `{:machine-id :action-id
-                            ;; :state-path :offending-value}`, recovery
-                            ;; `:logged-and-skipped`.
-                            (when (and (map? r) (contains? r :db))
-                              (trace/emit-error! :rf.error/machine-action-wrote-db
-                                                 {:machine-id      (or (:rf/parent-id machine)
-                                                                       (:id machine))
-                                                  :action-id       action
-                                                  :state-path      (:state snap)
-                                                  :offending-value (:db r)
-                                                  ;; Per rf2-ko8jb: epoch-capture
-                                                  ;; admission requires `:frame`.
-                                                  :frame           (:rf/frame machine)
-                                                  :recovery        :logged-and-skipped}))
-                            (let [new-data (cond-> before-data
-                                             (contains? r :data) (merge (:data r)))
-                                  new-snap (assoc snap :data new-data)
-                                  new-fx   (vec (concat fx (or (:fx r) [])))
-                                  step     (assoc base-step
-                                                  :data-delta (data-delta before-data new-data))]
-                              [(result/ok new-snap new-fx) (conj cascade step)]))))
+                      (let [r0 (run-action machine snap action event emit-phase)]
+                        (if (result/fail? r0)
+                          (reduced [r0 cascade])
+                          ;; Per Spec 005 §Hard-disallow `:db`: strip any `:db`
+                          ;; write (emitting the structured error) through the
+                          ;; shared enforcement choke-point, then thread the
+                          ;; cleaned effects map's `:data` / `:fx` forward
+                          ;; (rf2-z522n).
+                          (let [r        (enforce-db-disallow machine r0 action (:state snap))
+                                new-data (cond-> before-data
+                                           (contains? r :data) (merge (:data r)))
+                                new-snap (assoc snap :data new-data)
+                                new-fx   (vec (concat fx (or (:fx r) [])))
+                                step     (assoc base-step
+                                                :data-delta (data-delta before-data new-data))]
+                            [(result/ok new-snap new-fx) (conj cascade step)])))
                       ;; No action declared for this boundary — record the
                       ;; state-entered/exited step anyway (empty delta) so the
                       ;; cascade carries the full configuration walk, then
@@ -2096,17 +2112,30 @@
   `result/fail` if the action threw. A nil / no-candidate `:on-done` returns
   `(ok snap [])` unchanged. Invoked with the synthetic
   `[:rf.machine/done []]` event so a 3-arity action introspecting `:event`
-  sees the reserved done discriminator."
+  sees the reserved done discriminator.
+
+  Per rf2-z522n the action runs under phase `:transition` — the parallel
+  root's `:on-done` IS a transition (the XState v5 `onDone` is a transition;
+  an EMBEDDED compound's `:on-done` already runs through
+  `apply-transition-once` at phase `:transition` via `pick-done-transition`).
+  Stamping `:transition` here keeps the root path CONSISTENT with the
+  embedded path and adds NO new phase to the closed `action-ran` `:phase`
+  enum. The action's effects are filtered through the shared
+  `enforce-db-disallow` choke-point so a parallel-root `:on-done` action that
+  wrongly returns `:db` produces the SAME `:rf.error/machine-action-wrote-db`
+  diagnostic (and `:db`-strip) as every other phase — the `:db`
+  hard-disallow holds uniformly."
   [machine snap on-done]
   (let [cands (normalise-candidates on-done :rf.error/machine-bad-on-done-clause)
         event [done-event-id []]
         tspec (select-passing-candidate machine cands snap event)]
     (if (nil? tspec)
       (result/ok snap [])
-      (let [r (run-action machine snap (:action tspec) event :on-done)]
-        (if (result/fail? r)
-          r
-          (let [new-data (cond-> (:data snap)
+      (let [r0 (run-action machine snap (:action tspec) event :transition)]
+        (if (result/fail? r0)
+          r0
+          (let [r        (enforce-db-disallow machine r0 (:action tspec) (:state snap))
+                new-data (cond-> (:data snap)
                            (contains? r :data) (merge (:data r)))]
             (result/ok (assoc snap :data new-data) (vec (or (:fx r) [])))))))))
 

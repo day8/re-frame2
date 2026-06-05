@@ -404,21 +404,40 @@
               ;;
               ;; `region-machine` memoises the region-spec at REGISTRATION
               ;; time (via `build-initial-snapshot` forcing the lazy
-              ;; `base-initial`), BEFORE `prepare-machine-ctx` stamps
-              ;; `:rf/parent-id` onto the live machine — so the cached
-              ;; region-spec's `:rf/parent-id` is the registration-time nil.
+              ;; `base-initial`), BEFORE `prepare-machine-ctx` stamps the
+              ;; runtime-only dynamic keys (`:rf/parent-id`, `:rf/platform`,
+              ;; `:rf/frame`) onto the live machine — so the CACHED region-spec
+              ;; carries the registration-time values for ALL THREE: a nil
+              ;; `:rf/parent-id`, and a stale/missing `:rf/platform` /
+              ;; `:rf/frame` (whatever the parent spec held when the cache was
+              ;; first populated, which can be the unstamped registration-time
+              ;; machine if a snapshot/tag computation faulted the cache in
+              ;; before `prepare-machine-ctx` ran).
+              ;;
               ;; The live `parent-machine` threaded into this broadcast DOES
-              ;; carry the parent-id (`prepare-machine-ctx` stamps it = the
-              ;; parent's own registration / spawned id), so we re-stamp it
-              ;; here, at the single choke-point both transition callers
+              ;; carry the current runtime values (`prepare-machine-ctx`
+              ;; stamps them: `:rf/parent-id` = the parent's own
+              ;; registration / spawned id; `:rf/platform` = the frame's
+              ;; platform; `:rf/frame` = the operating frame id). We OVERLAY
+              ;; all three live dynamic keys onto the cached region-spec here,
+              ;; at the single choke-point both transition callers
               ;; (`broadcast-once`, `run-initial-cascade`'s `bootstrap-step`)
-              ;; funnel through. `(:id parent-machine)` is a defensive
-              ;; fallback for pure-fn callers that synthesise a parent spec
-              ;; with `:id` but no `:rf/parent-id`.
+              ;; funnel through, so region pure logic (`build-after-fx`'s
+              ;; server-skip gate, trace `:frame` attribution) always runs
+              ;; against the LIVE runtime context — never the cached snapshot
+              ;; (rf2-z522n). `(:id parent-machine)` is a defensive fallback
+              ;; for pure-fn callers that synthesise a parent spec with `:id`
+              ;; but no `:rf/parent-id`.
               parent-id   (or (:rf/parent-id parent-machine)
                               (:id parent-machine))
               region-spec (cond-> (region-machine parent-machine rn)
-                            (some? parent-id) (assoc :rf/parent-id parent-id))
+                            (some? parent-id) (assoc :rf/parent-id parent-id)
+                            ;; Overlay the live platform/frame unconditionally —
+                            ;; an explicit nil from the live parent is still the
+                            ;; correct current value (a `:client` / nil-frame
+                            ;; runtime) and must replace any stale cached value.
+                            true (assoc :rf/platform (:rf/platform parent-machine)
+                                        :rf/frame    (:rf/frame parent-machine)))
               region-snap (cond-> {:state (get state-map rn)
                                    :data  cur-data
                                    ;; Per rf2-46ly6 / rf2-69d1n: thread the
