@@ -97,21 +97,29 @@
   `install!` registers `:rf.xray/reactive-data` + the panel-local
   disclosure-toggle state slot. Idempotent."
   (:require [re-frame.core :as rf]
-            [re-frame.subs.tooling :as subs-tooling]))
+            [re-frame.subs.tooling :as subs-tooling]
+            [day8.re-frame2-xray.panels.shared.focus-resolver :as focus]))
 
 ;; ---- pure helpers (exposed for test) ------------------------------------
 
 (defn focused-epoch-record
-  "Locate the focused epoch record in `epoch-history`. Mirrors the
-  legacy Views panel lookup: match by `:epoch-id`, fall back to head
-  when the focus has no `:epoch-id` (LIVE / cold-start) or the focused
-  record has been evicted from the ring."
+  "Locate the focused epoch record in `epoch-history`.
+
+  Routes through the shared `panels.shared.focus-resolver/find-epoch-record`
+  (rf2-uo0rc.1) so the Views panel resolves focus identically to every
+  other L4 panel:
+
+    - NIL `epoch-id` + non-empty history → HEAD record (rf2-h0120
+      head-fallback — the natural LIVE / cold-start debugging UX).
+    - `epoch-id` MATCHES a record → that record.
+    - `epoch-id` pinned but EVICTED from the ring → nil. The composite
+      then reports `:has-cascade? false` and the panel renders its
+      empty/§10.7-evicted placeholder rather than silently falling back
+      to HEAD and showing the LATEST cascade, which lied about which
+      epoch the operator was inspecting.
+    - empty history → nil."
   [epoch-history epoch-id]
-  (when (seq epoch-history)
-    (or (when epoch-id
-          (some (fn [record] (when (= epoch-id (:epoch-id record)) record))
-                epoch-history))
-        (peek (vec epoch-history)))))
+  (focus/find-epoch-record epoch-id epoch-history))
 
 (defn- op-kw
   "Trace-event op keyword. The substrate's `:rf/*` ops carry the kw on

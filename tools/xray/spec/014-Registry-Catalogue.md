@@ -217,8 +217,8 @@ epoch-history; the body shows the focused epoch's `:db-after`
 |---|---|---|
 | `:rf.xray/focus-slice-path` | `[_ path]` | Sets the "Show me when this changed" focused path. |
 | `:rf.xray/clear-slice-focus` | `[_]` | Drops the focus. |
-| `:rf.xray/copy-value-to-clipboard` | `[_ value]` | `event-fx` — emits `{:fx [[:rf.xray.fx/copy-to-clipboard {:text (pr-str value)}]]}`. |
-| `:rf.xray/copy-path-to-clipboard` | `[_ path]` | `event-fx` — same shape, `pr-str path`. |
+| `:rf.xray/copy-value-to-clipboard` | `[_ value]` | `event-fx` — routes `value` through `runtime/egress-value` (pinned to the observed frame: `[:focus :frame]` ⇒ `:target-frame`) **before** the clipboard write, then emits `{:fx [[:rf.xray.fx/copy-to-clipboard {:text (pr-str <elided>)}]]}`. The clipboard is an off-box sink, so sensitive ⇒ `:rf/redacted`, large ⇒ `:rf.size/large-elided`, fail-closed (rf2-uo0rc.2; same class as the palette snapshot rf2-mxzgg + `get-app-db` rf2-a96xq). No raw opt-in. |
+| `:rf.xray/copy-path-to-clipboard` | `[_ path]` | `event-fx` — emits `{:fx [[:rf.xray.fx/copy-to-clipboard {:text (pr-str path)}]]}`. The path vector carries only key names (no values), so it is not a value-egress site and is not elided. |
 | `:rf.xray/open-segment-inspector` | `[_ path]` | rf2-e9tb0 — opens the segment-inspector popup at `path` (vector). |
 | `:rf.xray/close-segment-inspector` | `[_]` | rf2-e9tb0 — closes the popup. |
 

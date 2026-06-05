@@ -39,11 +39,24 @@
     (let [history [{:epoch-id :a} {:epoch-id :b} {:epoch-id :c}]]
       (is (= {:epoch-id :b} (subs/focused-epoch-record history :b))))))
 
-(deftest focused-epoch-record-falls-back-to-head-when-no-match
-  (testing "Missing :epoch-id (LIVE) or evicted id → head record"
+(deftest focused-epoch-record-nil-focus-falls-back-to-head
+  (testing "NIL :epoch-id (LIVE / cold-start) → head record (rf2-h0120
+            head-fallback — the natural debugging UX)"
     (let [history [{:epoch-id :a} {:epoch-id :b} {:epoch-id :c}]]
-      (is (= {:epoch-id :c} (subs/focused-epoch-record history nil)))
-      (is (= {:epoch-id :c} (subs/focused-epoch-record history :missing))))))
+      (is (= {:epoch-id :c} (subs/focused-epoch-record history nil))))))
+
+(deftest focused-epoch-record-nil-when-evicted
+  (testing "rf2-uo0rc.1 — a PINNED :epoch-id no longer in the buffer
+            (evicted from the per-frame ring) resolves to nil, NOT a
+            silent head-fallback. Per spec/021 §10.7 every panel renders
+            the evicted placeholder; the Views panel must not show the
+            LATEST cascade while the operator believes they are inspecting
+            the pinned (evicted) epoch. Routes through the shared
+            focus-resolver/find-epoch-record, matching Issues / Trace /
+            Epoch / App-DB."
+    (let [history [{:epoch-id :a} {:epoch-id :b} {:epoch-id :c}]]
+      (is (nil? (subs/focused-epoch-record history :missing))
+          "evicted pinned epoch must be nil (not the head record)"))))
 
 (deftest focused-epoch-record-empty-history-nil
   (testing "Empty history returns nil"

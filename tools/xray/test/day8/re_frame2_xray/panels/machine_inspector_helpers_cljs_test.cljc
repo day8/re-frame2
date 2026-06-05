@@ -799,10 +799,16 @@
       (is (= 7 (:epoch-id (h/focused-epoch-record history nil))))
       (is (= 7 (:epoch-id (h/focused-epoch-record history {:epoch-id nil})))))))
 
-(deftest focused-epoch-record-falls-back-to-head-when-evicted
-  (testing "Focused :epoch-id no longer in the buffer → fall back to head
-            so the panel renders SOMETHING rather than going silent on a
-            buffer-eviction event"
+(deftest focused-epoch-record-nil-when-evicted
+  (testing "rf2-uo0rc.1 — a PINNED focus :epoch-id no longer in the buffer
+            (evicted from the per-frame ring) resolves to nil, NOT a
+            silent head-fallback. Per spec/021 §10.7 every panel renders
+            the evicted placeholder; the Machine Inspector must not show
+            the LATEST machine state while the operator believes they are
+            inspecting the pinned (evicted) epoch. Routes through the
+            shared focus-resolver/find-epoch-record, matching Issues /
+            Trace / Epoch / App-DB."
     (let [history [{:epoch-id 5 :trace-events []}
                    {:epoch-id 7 :trace-events []}]]
-      (is (= 7 (:epoch-id (h/focused-epoch-record history {:epoch-id 99})))))))
+      (is (nil? (h/focused-epoch-record history {:epoch-id 99}))
+          "evicted pinned epoch must be nil (not the head record)"))))
