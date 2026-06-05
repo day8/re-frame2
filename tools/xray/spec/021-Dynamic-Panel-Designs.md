@@ -5292,6 +5292,16 @@ ring so the active node reads as the Stately/xstate convention the Figma
 fixes; it animates via `rf-xray-machine-pulse-active` (the accent
 counterpart of the green `rf-xray-machine-pulse`).
 
+**Parallel-machine node-ids are region-qualified (rf2-uo0rc.4).** The
+projector walks EVERY region of a `:parallel` machine, projecting each
+region's states under a path prefixed with the region-id — region `:a`'s
+`:idle` is path `[:a :idle]`, region `:b`'s `:idle` is `[:b :idle]`.
+Because `chart.layout/node-id` is injective on the path, same-named
+cross-region states mint **distinct** node-ids rather than colliding onto
+one node (which previously merged/mis-targeted the xyflow graph). The
+region segment is also what makes the grouping addressable when the
+`:region` container node-kind is surfaced.
+
 #### §17.4.3 Edge styles
 
 | Style | Stroke | Width | Animated | Meaning |

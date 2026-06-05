@@ -479,18 +479,55 @@
              :epoch-id epoch-id
              :diff     diff}))))))
 
-(defn get-machine-state
-  "Tool: `get-machine-state`. Current snapshot for a named machine —
-  routes through `rf/machine-meta` to read the registered spec. Returns
-  `{:ok? true :frame <id> :machine-id <kw> :state <edn>}` or
-  `{:ok? false :reason :no-such-machine ...}` / `:no-frame-resolved`.
+;; The live machine snapshot lives in the frame's app-db at the
+;; runtime-owned `[:rf/runtime :machines :snapshots <machine-id>]` slot
+;; (re-frame.machines.paths/snapshot-path — singleton machines key the
+;; snapshot by machine-id). The snapshot is `{:state <state-path> :data
+;; … :tags …}`; its `:state` is the LIVE FSM position (a state-path
+;; vector — a region→state map for a parallel machine, per Spec 005).
+;; The xray runtime reads it by app-db path rather than reaching into a
+;; framework internal: this is the same published slot the Machine
+;; Inspector + the framework's own resolver read.
+(def ^:private machine-snapshot-path-root
+  "Absolute app-db path of the runtime-owned machines snapshot table,
+  `[:rf/runtime :machines :snapshots]`. Singleton machines key their
+  snapshot by machine-id under this root (Spec 005 §Reserved app-db
+  keys · `re-frame.machines.paths/snapshot-path`)."
+  [:rf/runtime :machines :snapshots])
 
-  Note: the `:state` slot carries the registered machine spec
-  (transitions, initial-state, tags); per-frame runtime state (the
-  current FSM position) is a separate framework surface that lands
-  alongside the Machine Inspector panel — when that surface stabilises
-  the accessor extends; today the spec snapshot is the load-bearing
-  read."
+(defn get-machine-state
+  "Tool: `get-machine-state`. The LIVE current state of a named machine
+  in the running app — reads the machine's snapshot from the frame's
+  `app-db` at `[:rf/runtime :machines :snapshots <machine-id>]` (the
+  runtime-owned slot the Machine Inspector + the framework resolver
+  read) and returns its current FSM position. Returns
+
+      {:ok? true :frame <id> :machine-id <kw>
+       :state <live-state-path>          ; the running FSM position
+       :snapshot {:state … :data … :tags …}  ; the full live snapshot
+       :spec <registered-definition>}    ; the static reg-machine spec
+
+  or `{:ok? false :reason :no-such-machine ...}` / `:no-frame-resolved`
+  / `:missing-machine-id`.
+
+  `:state` is the machine's LIVE position — a state-path vector (e.g.
+  `[:active :authenticating]`), or a region→state map for a `:parallel`
+  machine (Spec 005). It is read off the live snapshot, NOT derived from
+  the registered spec, so an agent asking 'what state is :auth in right
+  now' gets the running answer. The static definition is available
+  separately under `:spec` for callers that want transitions /
+  initial-state / tags.
+
+  When the machine is REGISTERED but has not yet been brought to life
+  (no event has lazily synthesised its singleton snapshot), there is no
+  live snapshot: `:state` and `:snapshot` are `nil` and `:reason` is
+  `:not-yet-started` (the call still succeeds with `:ok? true` so the
+  agent can read `:spec` and see the machine is registered-but-idle).
+
+  Both `:state`/`:snapshot` (a live app-db slice) and `:spec` (a
+  registry value) route through `egress-value` before crossing the
+  off-box boundary; the snapshot egresses against its absolute app-db
+  path so schema-declared sensitive / large slots elide correctly."
   [{:keys [frame machine-id include-sensitive? include-large?] :as _opts}]
   (let [fid (resolve-frame frame)]
     (cond
@@ -503,16 +540,37 @@
        :hint "Pass :machine-id <keyword>."}
 
       :else
-      (let [m (rf/machine-meta machine-id)]
-        (if (nil? m)
+      (let [spec (rf/machine-meta machine-id)]
+        (if (nil? spec)
           {:ok? false :reason :no-such-machine
            :frame fid :machine-id machine-id
            :registered (vec (rf/machines))}
-          {:ok?        true
-           :frame      fid
-           :machine-id machine-id
-           :state      (egress-value m {:include-sensitive? include-sensitive?
-                                        :include-large?     include-large?})})))))
+          (let [snapshot-path (conj machine-snapshot-path-root machine-id)
+                snapshot      (get-in (rf/app-db-value fid) snapshot-path)
+                egress-opts   {:include-sensitive? include-sensitive?
+                               :include-large?     include-large?}
+                spec-edn      (egress-value spec egress-opts)]
+            (if (nil? snapshot)
+              ;; Registered but not yet brought to life — no live snapshot
+              ;; in app-db. Succeed with the spec so the agent can see the
+              ;; machine exists, but make the absence of a live position
+              ;; explicit (so it can't be mistaken for current state).
+              {:ok?        true
+               :frame      fid
+               :machine-id machine-id
+               :state      nil
+               :snapshot   nil
+               :spec       spec-edn
+               :reason     :not-yet-started}
+              {:ok?        true
+               :frame      fid
+               :machine-id machine-id
+               :state      (egress-value (:state snapshot)
+                                         (assoc egress-opts
+                                                :path (conj snapshot-path :state)))
+               :snapshot   (egress-value snapshot
+                                         (assoc egress-opts :path snapshot-path))
+               :spec       spec-edn})))))))
 
 (defn get-machine-list
   "Tool: `get-machine-list`. List of registered machines per frame

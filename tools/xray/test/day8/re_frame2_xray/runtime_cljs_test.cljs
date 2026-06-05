@@ -187,6 +187,95 @@
       (is (= :no-frame-resolved (:reason result))))))
 
 ;; ---------------------------------------------------------------------------
+;; (4b) get-machine-state reports the LIVE FSM position, not the spec.
+;; ---------------------------------------------------------------------------
+;;
+;; rf2-uo0rc.3: BEFORE the fix, `get-machine-state` routed `:state`
+;; through `rf/machine-meta` — the registered SPEC — even though the tool
+;; name + the `:state` key + the docstring all promise the CURRENT FSM
+;; position. An agent asking "what state is :auth in right now" got the
+;; static definition (e.g. `{:initial :idle :states {...}}`), never the
+;; live `[:active :authenticating]`. AFTER the fix `:state` is read off
+;; the live snapshot at `[:rf/runtime :machines :snapshots <machine-id>]`
+;; (the runtime-owned slot the framework writes) and the spec is returned
+;; separately under `:spec`.
+;;
+;; The machines RUNTIME artefact (`re-frame.machines` — the lifecycle-fx
+;; that synthesises snapshots) is NOT on the xray `clojure -M:test`
+;; classpath (only `machines-viz` is), so we exercise the accessor's two
+;; surfaces directly: seed the live snapshot into app-db (what the
+;; runtime would write after transitions) + stub `rf/machine-meta` (the
+;; registry) so the test is portable across both the xray-deps + shadow
+;; node-test classpaths without booting the runtime artefact.
+
+(def ^:private uo0rc3-registered-spec
+  "A registered machine SPEC — what `rf/machine-meta` returns. Its
+  `:initial` is `:idle`; if the accessor regressed to returning the spec
+  as `:state`, the assertion below would see this map (or its `:initial`)
+  rather than the live state-path."
+  {:initial :idle
+   :states  {:idle               {:on {:login :authenticating}}
+             :active             {:states {:authenticating {} :authed {}}}}})
+
+(deftest get-machine-state-reports-live-position-not-spec
+  (testing "get-machine-state returns the LIVE snapshot :state (the running
+            FSM position), NOT the registered spec — rf2-uo0rc.3"
+    (let [live-state [:active :authenticating]
+          snapshot   {:state live-state
+                      :data  {:user "ada"}
+                      :tags  #{:busy}}]
+      ;; Seed the live snapshot exactly where the machines runtime writes
+      ;; it: [:rf/runtime :machines :snapshots :auth].
+      (rf/reg-event-db :test/seed-machine-snapshot
+        (fn [db _]
+          (assoc-in db [:rf/runtime :machines :snapshots :auth] snapshot)))
+      (rf/dispatch-sync [:test/seed-machine-snapshot])
+      ;; Stub the registry surface so `machine-meta` resolves to a spec
+      ;; without the runtime artefact on the classpath.
+      (with-redefs [rf/machine-meta (fn [mid]
+                                      (when (= :auth mid) uo0rc3-registered-spec))]
+        (let [result (runtime/get-machine-state {:machine-id :auth})]
+          (is (true? (:ok? result)))
+          (is (= :auth (:machine-id result)))
+          (testing ":state is the LIVE FSM position, not the spec"
+            (is (= live-state (:state result))
+                ":state is the running state-path off the live snapshot")
+            (is (not= uo0rc3-registered-spec (:state result))
+                ":state is NOT the registered spec (the rf2-uo0rc.3 regression)")
+            (is (not= :idle (:state result))
+                ":state is NOT the spec's :initial"))
+          (testing "the full live snapshot is surfaced under :snapshot"
+            (is (= snapshot (:snapshot result))))
+          (testing "the static definition is available SEPARATELY under :spec"
+            (is (= uo0rc3-registered-spec (:spec result))
+                ":spec carries the registered machine definition")))))))
+
+(deftest get-machine-state-not-yet-started-when-no-live-snapshot
+  (testing "a registered-but-not-yet-started machine (no live snapshot in
+            app-db) succeeds with :state nil + :reason :not-yet-started so
+            the absence of a live position cannot be mistaken for a state —
+            rf2-uo0rc.3"
+    (with-redefs [rf/machine-meta (fn [mid]
+                                    (when (= :auth mid) uo0rc3-registered-spec))]
+      (let [result (runtime/get-machine-state {:machine-id :auth})]
+        (is (true? (:ok? result)) "still :ok? true so the agent can read :spec")
+        (is (nil? (:state result)) ":state is nil (no live position yet)")
+        (is (nil? (:snapshot result)))
+        (is (= :not-yet-started (:reason result)))
+        (is (= uo0rc3-registered-spec (:spec result))
+            ":spec still carries the registered definition")))))
+
+(deftest get-machine-state-no-such-machine-when-unregistered
+  (testing "an unregistered machine-id surfaces :no-such-machine — rf2-uo0rc.3
+            keeps the not-found path intact"
+    (with-redefs [rf/machine-meta (fn [_] nil)
+                  rf/machines     (fn [] [:auth :checkout])]
+      (let [result (runtime/get-machine-state {:machine-id :nope})]
+        (is (false? (:ok? result)))
+        (is (= :no-such-machine (:reason result)))
+        (is (= [:auth :checkout] (:registered result)))))))
+
+;; ---------------------------------------------------------------------------
 ;; (5) health is side-effect-free.
 ;; ---------------------------------------------------------------------------
 

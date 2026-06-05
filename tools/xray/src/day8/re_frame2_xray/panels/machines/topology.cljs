@@ -25,9 +25,14 @@
       arg).
     - `:final`   — state with `:final? true` in the definition.
     - `:standard` — every other state.
-    - `:region`  — reserved for parallel-region containers (not
-      surfaced in v1; layout walks the first region only — matches
-      the existing chart-layout posture).
+    - `:region`  — reserved for parallel-region containers (the
+      container node-kind is not surfaced in v1). The layout walks
+      EVERY region of a `:parallel` machine; each region's states are
+      REGION-QUALIFIED (path prefixed with the region-id — see
+      `parse-definition`), so same-named cross-region states stay
+      collision-free (rf2-uo0rc.4). The region prefix is also what
+      makes the grouping addressable when the `:region` container
+      node-kind is surfaced.
 
   ## Edge kinds (per spec §17.4.3)
 
@@ -340,35 +345,53 @@
   `{:nodes [...] :edges [...] :initial-path ...}`. Mirrors the
   existing `chart-layout/parse-definition`'s posture but is
   self-contained (no machines-viz dep) so the xyflow path is fully
-  isolated from the SVG chart's evolution."
-  [definition]
-  (cond
-    (nil? definition)
-    {:nodes [] :edges [] :initial-path nil}
+  isolated from the SVG chart's evolution.
 
-    (= :parallel (:type definition))
-    ;; Project EVERY region's states + edges (concatenated, flat). Each
-    ;; region's own `:initial` flags survive; the parallel root has no
-    ;; single initial path.
-    (let [per (map (fn [[_region-id region]] (parse-definition region))
-                   (:regions definition))]
-      {:nodes        (vec (mapcat :nodes per))
-       :edges        (vec (mapcat :edges per))
-       :initial-path nil})
+  The optional `parent-path` prefixes every projected node/edge path
+  (default `[]`, the machine root). The `:parallel` branch uses it to
+  REGION-QUALIFY each region's states: region `:a`'s `:idle` becomes
+  path `[:a :idle]` and region `:b`'s `:idle` becomes `[:b :idle]`, so
+  same-named cross-region states get DISTINCT node-ids
+  (`chart.layout/node-id` is injective on the path) and edges resolve
+  their targets within the right region. Without the prefix, two
+  regions' same-named states collapsed onto one node-id and the xyflow
+  graph merged/mis-targeted them (rf2-uo0rc.4). The region segment is
+  also what makes the grouping addressable for the future `:region`
+  node kind (spec/021 §17.4.2)."
+  ([definition] (parse-definition definition []))
+  ([definition parent-path]
+   (cond
+     (nil? definition)
+     {:nodes [] :edges [] :initial-path nil}
 
-    :else
-    (let [{:keys [initial states]} definition
-          base-nodes   (walk-states [] states)
-          initial-path (when initial [initial])
-          nodes        (mapv (fn [n]
-                               (if (= (:path n) initial-path)
-                                 (assoc n :initial? true)
-                                 n))
-                             base-nodes)
-          edges        (collect-edges [] states)]
-      {:nodes        nodes
-       :edges        edges
-       :initial-path initial-path})))
+     (= :parallel (:type definition))
+     ;; Project EVERY region's states + edges (concatenated, flat),
+     ;; REGION-QUALIFIED: each region is projected under `parent-path`
+     ;; extended by its region-id, so a state `:idle` in region `:a`
+     ;; (path `[:a :idle]`) is collision-free against the same-named
+     ;; `:idle` in region `:b` (path `[:b :idle]`). Each region's own
+     ;; `:initial` flags survive; the parallel root has no single
+     ;; initial path.
+     (let [per (map (fn [[region-id region]]
+                      (parse-definition region (conj (vec parent-path) region-id)))
+                    (:regions definition))]
+       {:nodes        (vec (mapcat :nodes per))
+        :edges        (vec (mapcat :edges per))
+        :initial-path nil})
+
+     :else
+     (let [{:keys [initial states]} definition
+           base-nodes   (walk-states parent-path states)
+           initial-path (when initial (conj (vec parent-path) initial))
+           nodes        (mapv (fn [n]
+                                (if (= (:path n) initial-path)
+                                  (assoc n :initial? true)
+                                  n))
+                              base-nodes)
+           edges        (collect-edges parent-path states)]
+       {:nodes        nodes
+        :edges        edges
+        :initial-path initial-path}))))
 
 ;; ---- grid layout (pure) -------------------------------------------------
 

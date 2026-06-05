@@ -435,25 +435,30 @@
       (is (nil? initial-path)
           "a parallel machine has no single initial path — the chart shows
            each region's own initial leaf")
-      ;; Both regions' leaves are present (concatenated, flat per region).
-      (is (contains? paths [:idle])    "climate :idle leaf rendered")
-      (is (contains? paths [:running]) "climate :running compound rendered")
-      (is (contains? paths [:running :conditioning])
+      ;; Both regions' leaves are present, REGION-QUALIFIED (rf2-uo0rc.4):
+      ;; each region's states are projected under its region-id prefix, so
+      ;; same-named cross-region states stay collision-free and the region
+      ;; grouping is addressable. The :climate region's leaves carry the
+      ;; [:climate ...] prefix; the :fan region's carry [:fan ...].
+      (is (contains? paths [:climate :idle])    "climate :idle leaf rendered")
+      (is (contains? paths [:climate :running]) "climate :running compound rendered")
+      (is (contains? paths [:climate :running :conditioning])
           "the mid compound level rendered")
-      (is (contains? paths [:running :conditioning :heating])
+      (is (contains? paths [:climate :running :conditioning :heating])
           "the DEEPEST compound leaf rendered — the four-level path is legible")
-      (is (contains? paths [:running :conditioning :cooling])
+      (is (contains? paths [:climate :running :conditioning :cooling])
           "its sibling leaf rendered")
-      (is (contains? paths [:off]) "fan :off leaf rendered")
-      (is (contains? paths [:on])  "fan :on leaf rendered")
+      (is (contains? paths [:fan :off]) "fan :off leaf rendered")
+      (is (contains? paths [:fan :on])  "fan :on leaf rendered")
       ;; The compound parent is flagged compound so the chart nests it.
-      (let [running (first (filter #(= [:running] (:path %)) nodes))
-            heating (first (filter #(= [:running :conditioning :heating] (:path %)) nodes))]
+      (let [running (first (filter #(= [:climate :running] (:path %)) nodes))
+            heating (first (filter #(= [:climate :running :conditioning :heating] (:path %)) nodes))]
         (is (:compound? running) ":running renders as a compound (nestable) node")
         (is (not (:compound? heating)) ":heating renders as a leaf"))
-      ;; The mode-toggle edge between the deep leaves is present + labeled.
-      (is (some (fn [e] (and (= [:running :conditioning :heating] (:from e))
-                             (= [:running :conditioning :cooling] (:to e))
+      ;; The mode-toggle edge between the deep leaves is present + labeled,
+      ;; both endpoints region-qualified within :climate.
+      (is (some (fn [e] (and (= [:climate :running :conditioning :heating] (:from e))
+                             (= [:climate :running :conditioning :cooling] (:to e))
                              (= :hvac/mode-toggle (:event e))))
                 edges)
           "the heating→cooling toggle edge renders with its event label"))))

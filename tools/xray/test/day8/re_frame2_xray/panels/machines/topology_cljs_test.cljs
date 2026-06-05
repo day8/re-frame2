@@ -73,6 +73,42 @@
       (is (= 3 (count (:nodes g)))
           "both regions' states flatten (a + b + c)"))))
 
+(deftest parse-definition-region-qualifies-cross-region-same-named-states
+  ;; rf2-uo0rc.4: BEFORE the fix, both regions' states were projected at
+  ;; parent-path [] with the region-id discarded, so a `:idle` in region
+  ;; :a and a `:idle` in region :b both got path [:idle] and the SAME
+  ;; node-id (chart-layout/node-id is injective on the PATH, but the path
+  ;; lacked the region prefix) — the xyflow graph merged/mis-targeted the
+  ;; two nodes. AFTER the fix each region's states are region-qualified
+  ;; ([:a :idle] / [:b :idle]) so the ids are distinct.
+  (testing "same-named cross-region states get region-qualified paths + distinct node-ids"
+    (let [par {:type    :parallel
+               :regions {:a {:initial :idle
+                             :states  {:idle {:on {:go :busy}}
+                                       :busy {}}}
+                         :b {:initial :idle
+                             :states  {:idle {:on {:go :done}}
+                                       :done {:final? true}}}}}
+          g     (topology/parse-definition par)
+          paths (set (map :path (:nodes g)))
+          ids   (map (comp chart-layout/node-id :path) (:nodes g))]
+      (testing "region-qualified paths are present + collision-free"
+        (is (contains? paths [:a :idle]) "region :a's :idle is path [:a :idle]")
+        (is (contains? paths [:b :idle]) "region :b's :idle is path [:b :idle]")
+        (is (contains? paths [:a :busy]))
+        (is (contains? paths [:b :done]))
+        (is (= 4 (count paths)) "four distinct state paths across the two regions"))
+      (testing "no two nodes collide on node-id"
+        (is (= (count ids) (count (set ids)))
+            "every projected node mints a DISTINCT node-id"))
+      (testing "edges resolve targets within the right region"
+        (let [edges    (:edges g)
+              by-from  (group-by :from edges)]
+          (is (= [:a :busy] (-> by-from (get [:a :idle]) first :to))
+              "region :a's :idle --:go--> :busy resolves inside region :a")
+          (is (= [:b :done] (-> by-from (get [:b :idle]) first :to))
+              "region :b's :idle --:go--> :done resolves inside region :b"))))))
+
 (deftest parse-definition-recurses-compound-substates
   (testing "compound substates are flattened, not left invisible (rf2-54s5a)"
     (let [def {:initial :unauth

@@ -461,6 +461,59 @@
       (is (= :c2 (get-in r [:focus :dispatch-id])))
       (is (= :e1 (get-in r [:focus :epoch-id]))))))
 
+(deftest preview-cascade-reducer-clear-restores-committed-selection-rf2-uo0rc5
+  (testing "rf2-uo0rc.5 — a hover-then-leave gesture in RETRO restores the
+            COMMITTED selection. Pre-fix the nil-arm cleared only
+            :previewing?, leaving :dispatch-id / :epoch-id pinned at the
+            PREVIEWED value (compose-focus honours the stored slot-id in
+            RETRO), so focus stayed on the hovered cascade rather than the
+            originally-committed one."
+    (let [committed {:dispatch-id :c1 :epoch-id :e1 :mode :retro}
+          ;; 1) user has :c1 committed; 2) hovers :c2 (preview-start);
+          ;; 3) leaves (preview-clear).
+          previewed (spine/preview-cascade-reducer {:focus committed} :c2 :e2)
+          cleared   (spine/preview-cascade-reducer previewed nil)]
+      (testing "the preview moved focus transiently"
+        (is (= :c2 (get-in previewed [:focus :dispatch-id])))
+        (is (= :e2 (get-in previewed [:focus :epoch-id])))
+        (is (true? (get-in previewed [:focus :previewing?]))))
+      (testing "preview-clear restores the COMMITTED :c1 / :e1, not the previewed :c2 / :e2"
+        (is (= :c1 (get-in cleared [:focus :dispatch-id]))
+            ":dispatch-id restored to the committed cascade")
+        (is (= :e1 (get-in cleared [:focus :epoch-id]))
+            ":epoch-id restored to the committed epoch")
+        (is (false? (get-in cleared [:focus :previewing?])))
+        (is (nil? (get-in cleared [:focus :pre-preview]))
+            "the backup slot is dropped after restore — no residue")))))
+
+(deftest preview-cascade-reducer-move-keeps-original-backup-rf2-uo0rc5
+  (testing "rf2-uo0rc.5 — moving the hover across rows within one gesture
+            keeps the ORIGINAL committed backup (not a previously-previewed
+            value), so leaving still lands on the committed selection."
+    (let [committed {:dispatch-id :c1 :epoch-id :e1 :mode :retro}
+          hover-c2  (spine/preview-cascade-reducer {:focus committed} :c2 :e2)
+          hover-c3  (spine/preview-cascade-reducer hover-c2 :c3 :e3)
+          cleared   (spine/preview-cascade-reducer hover-c3 nil)]
+      (is (= :c3 (get-in hover-c3 [:focus :dispatch-id]))
+          "the latest hover wins while previewing")
+      (is (= :c1 (get-in cleared [:focus :dispatch-id]))
+          "leaving restores the ORIGINAL committed :c1, never the intermediate :c2")
+      (is (= :e1 (get-in cleared [:focus :epoch-id]))))))
+
+(deftest preview-cascade-reducer-no-backup-when-nothing-committed-rf2-uo0rc5
+  (testing "rf2-uo0rc.5 — preview-clear with no prior gesture (no backup)
+            is a safe no-op on the committed slot (back-compat with the
+            pre-fix `nil-clears-preview` contract)."
+    (let [db {:focus {:dispatch-id :c1 :previewing? true :mode :retro}}
+          r  (spine/preview-cascade-reducer db nil)]
+      (is (false? (get-in r [:focus :previewing?])))
+      (is (= :c1 (get-in r [:focus :dispatch-id]))
+          "committed selection survives when there is no backup to restore"))))
+
+;; The handler-level cross-frame regression for rf2-uo0rc.5 lives in
+;; section (9) alongside the other `seed-cascades!`-driven handler tests
+;; (`preview-cascade-handler-does-not-persist-cross-frame-rekey-rf2-uo0rc5`).
+
 ;; -------------------------------------------------------------------------
 ;; (8) Registered :rf.xray/focus sub — reactive composition
 ;; -------------------------------------------------------------------------
@@ -792,6 +845,46 @@
       (is (= :c3 (:dispatch-id r))
           "paused LIVE pins focus through arrivals")
       (is (true? (:paused? r))))))
+
+(deftest preview-cascade-handler-does-not-persist-cross-frame-rekey-rf2-uo0rc5
+  (testing "rf2-uo0rc.5 — the :rf.xray/preview-cascade HANDLER must not
+            persist a cross-frame :target-frame / :epoch-history re-key
+            from a transient hover. Pre-fix it called
+            reseed-epoch-history-for-frame, which re-keys those slots onto
+            the previewed cascade's frame; on preview-clear (frame nil)
+            the reseed was a no-op, so the re-key was never reverted —
+            after hovering a cross-frame row and leaving, the committed
+            focus resolved its epoch against the WRONG ring."
+    (setup-xray-frame!)
+    ;; Cascades span two frames; the head (:c3) is in :rf/default. :c2
+    ;; lives in a DIFFERENT frame (:cart-frame).
+    (seed-cascades! [(cascade :c1 :rf/default)
+                     (cascade :c2 :cart-frame)
+                     (cascade :c3 :rf/default)])
+    ;; Establish a committed cross-frame axis: :target-frame :rf/default
+    ;; with a committed epoch-history ring.
+    (let [committed-history [{:epoch-id :e-committed :dispatch-id :c3}]]
+      (rf/with-frame :rf/xray
+        (rf/dispatch-sync [:rf.xray/sync-epoch-history committed-history]))
+      (let [before (rf/app-db-value :rf/xray)]
+        ;; Hover the cross-frame :c2 row, then leave (preview-clear).
+        (rf/with-frame :rf/xray
+          (rf/dispatch-sync [:rf.xray/preview-cascade :c2]))
+        (let [during (rf/app-db-value :rf/xray)]
+          (testing "the preview did NOT re-key the committed cross-frame axis"
+            (is (= (:target-frame before) (:target-frame during))
+                ":target-frame is untouched by the transient hover")
+            (is (= (:epoch-history before) (:epoch-history during))
+                ":epoch-history is untouched by the transient hover")))
+        (rf/with-frame :rf/xray
+          (rf/dispatch-sync [:rf.xray/preview-cascade nil]))
+        (let [after (rf/app-db-value :rf/xray)]
+          (testing "after hover-then-leave the committed axis is intact"
+            (is (= (:target-frame before) (:target-frame after))
+                ":target-frame survives the full preview gesture")
+            (is (= committed-history (:epoch-history after))
+                ":epoch-history still holds the committed ring — the
+                 committed focus now resolves against the RIGHT ring")))))))
 
 ;; -------------------------------------------------------------------------
 ;; (10) :epoch-id resolution — rf2-ak3ty

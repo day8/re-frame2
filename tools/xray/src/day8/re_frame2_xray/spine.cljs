@@ -631,12 +631,20 @@
   epoch. Sibling of the rf2-ug1r6 / rf2-thodq / rf2-lo28u
   attribution-gap class.
 
-  The focus handlers (`:rf.xray/focus-cascade`, `:rf.xray/focus-epoch`,
-  `:rf.xray/preview-cascade`) call this BEFORE resolving the clicked
+  The COMMITTED focus handlers (`:rf.xray/focus-cascade`,
+  `:rf.xray/focus-epoch`) call this BEFORE resolving the clicked
   cascade's epoch-id so the resolution runs against the RIGHT frame's
-  ring. It only fires the write when `frame-id` differs from the
-  current `:target-frame` — a same-frame click is a no-op (the slot
-  already holds that frame's ring, kept fresh by `epoch-recorded`).
+  ring AND the per-frame composites re-bind to the now-selected frame.
+  It only fires the write when `frame-id` differs from the current
+  `:target-frame` — a same-frame click is a no-op (the slot already
+  holds that frame's ring, kept fresh by `epoch-recorded`).
+
+  `:rf.xray/preview-cascade` deliberately DOES NOT call this (rf2-uo0rc.5):
+  a transient hover must not persist a cross-frame re-key. The preview
+  handler instead resolves the previewed cascade's epoch against that
+  frame's ring DIRECTLY (a read), leaving the committed `:target-frame`
+  / `:epoch-history` untouched so the committed focus keeps resolving
+  against the right ring after the hover ends.
   Unlike `set-frame-reducer` this DOES NOT touch the `:focus` slot:
   the focus mutation (dispatch-id / mode / epoch-id) stays the
   responsibility of `focus-cascade-reducer` et al.; this helper only
@@ -666,9 +674,11 @@
              :epoch-history (vec epoch-history-for-frame)))))
 
 (defn preview-cascade-reducer
-  "Pure reducer for `:rf.xray/preview-cascade <id>`. Sets `:previewing?
-  true` and writes `:dispatch-id` transiently. nil `id` clears the
-  preview without changing the committed selection.
+  "Pure reducer for `:rf.xray/preview-cascade <id>`. A preview is a
+  TRANSIENT hover overlay: it sets `:previewing? true` and writes the
+  previewed `:dispatch-id` / `:epoch-id`, but it must NOT leave the
+  committed selection perturbed once the hover ends. nil `id` clears the
+  preview and RESTORES the committed selection.
 
   ## rf2-yng0y — write `:epoch-id` alongside `:dispatch-id`
 
@@ -683,15 +693,45 @@
   `:dispatch-id` keeps the two axes consistent through the whole
   preview gesture, matching `focus-cascade-reducer`'s write contract.
 
-  The 1-arity arity (caller has no epoch buffer handy) leaves
-  `:epoch-id` untouched — back-compat for the pure-shape callers; the
-  2-arity (resolved `epoch-id`) is the production path the event
-  handler drives."
+  ## rf2-uo0rc.5 — preview-clear restores the committed selection
+
+  Pre-fix the nil-arm cleared ONLY `:previewing?`, leaving
+  `:dispatch-id` / `:epoch-id` pinned at the PREVIEWED value. In RETRO,
+  `compose-focus` honours the stored slot-id (LIVE+unpaused tracks head
+  so it masked the bug), so a hover-then-leave left focus on the
+  previewed cascade rather than the originally-committed one. The fix:
+  on the FIRST preview of a gesture we snapshot the committed
+  `:dispatch-id` / `:epoch-id` into `[:focus :pre-preview]`; preview-
+  clear restores them and drops the backup. A preview is now a true
+  non-destructive overlay over the committed slot.
+
+  The 1-arity (caller has no epoch buffer handy) leaves `:epoch-id`
+  untouched — back-compat for the pure-shape callers; the 2-arity
+  (resolved `epoch-id`) is the production path the event handler
+  drives."
   ([db dispatch-id] (preview-cascade-reducer db dispatch-id nil))
   ([db dispatch-id epoch-id]
    (if (nil? dispatch-id)
-     (assoc-in db [:focus :previewing?] false)
+     ;; preview-clear: restore the committed selection captured at the
+     ;; start of the hover gesture (if any), then drop the backup +
+     ;; the previewing flag. No backup → nothing to restore (the
+     ;; committed slot was never perturbed).
+     (let [backup (get-in db [:focus :pre-preview])]
+       (cond-> db
+         backup (assoc-in [:focus :dispatch-id] (:dispatch-id backup))
+         backup (assoc-in [:focus :epoch-id]    (:epoch-id backup))
+         true   (update :focus dissoc :pre-preview)
+         true   (assoc-in [:focus :previewing?] false)))
+     ;; preview-start / preview-move: on the FIRST hover of a gesture
+     ;; (not already previewing) snapshot the committed selection so
+     ;; preview-clear can restore it. Subsequent moves within the same
+     ;; gesture keep the original backup (the committed selection, not a
+     ;; previously-previewed value).
      (cond-> db
+       (not (get-in db [:focus :previewing?]))
+       (assoc-in [:focus :pre-preview]
+                 {:dispatch-id (get-in db [:focus :dispatch-id])
+                  :epoch-id    (get-in db [:focus :epoch-id])})
        true     (assoc-in [:focus :previewing?] true)
        true     (assoc-in [:focus :dispatch-id] dispatch-id)
        epoch-id (assoc-in [:focus :epoch-id] epoch-id)))))
@@ -890,19 +930,27 @@
       ;; `:dispatch-id` so the spine's two axes never desync mid-
       ;; preview (the App-DB before-image follows `:epoch-id`). nil
       ;; dispatch-id (preview-clear) resolves to nil and the reducer
-      ;; leaves the committed epoch untouched.
+      ;; restores the committed selection.
       ;;
-      ;; rf2-q8hvw — preview carries only a dispatch-id, so resolve the
-      ;; previewed cascade's frame from the cascade list and re-key
-      ;; `:epoch-history` onto it BEFORE resolving the epoch-id. Same
-      ;; whole-buffer cross-frame hazard as `:rf.xray/focus-cascade`:
-      ;; hovering a non-head-frame row with the picker untouched would
-      ;; otherwise resolve the preview epoch against the wrong ring.
-      ;; No-op on preview-clear (nil dispatch-id → nil frame).
-      (let [frame-id (:frame (cascade-by-id (db->cascades db) dispatch-id))
-            db       (reseed-epoch-history-for-frame
-                       db frame-id (rf/epoch-history frame-id))
-            epoch-id (epoch-id-for-cascade (db->epoch-history db) dispatch-id)]
+      ;; rf2-uo0rc.5 — a preview is a TRANSIENT hover, so it must NOT
+      ;; persist a cross-frame re-key. Pre-fix this handler called
+      ;; `reseed-epoch-history-for-frame`, which writes `:target-frame` +
+      ;; `:epoch-history` onto the previewed cascade's frame; on preview-
+      ;; clear (frame-id nil) that reseed was a no-op, so the re-key from
+      ;; the hover was NEVER reverted — after hovering a cross-frame L2
+      ;; row and leaving, `:target-frame` stuck on the previewed frame
+      ;; and the committed focus then resolved its epoch against the
+      ;; WRONG ring. The fix resolves the previewed cascade's epoch
+      ;; against THAT frame's ring DIRECTLY (a read, not a write) and
+      ;; leaves the committed `:target-frame` / `:epoch-history`
+      ;; untouched — the cross-frame hazard rf2-q8hvw fixes for COMMITTED
+      ;; clicks (`:rf.xray/focus-cascade`) does not apply to a transient
+      ;; preview, which never commits a frame change. nil dispatch-id
+      ;; (preview-clear) resolves frame to nil → epoch-id nil; the
+      ;; reducer's restore-arm ignores it.
+      (let [frame-id      (:frame (cascade-by-id (db->cascades db) dispatch-id))
+            frame-history (when frame-id (rf/epoch-history frame-id))
+            epoch-id      (epoch-id-for-cascade frame-history dispatch-id)]
         (preview-cascade-reducer db dispatch-id epoch-id))))
 
   nil)
