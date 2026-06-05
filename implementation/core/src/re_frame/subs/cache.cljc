@@ -48,13 +48,18 @@
   / **dispose**. The reason axis discriminates the eviction path:
   `:no-more-derefers` (synchronous fire on 1 → 0), `:hot-reload`
   (re-registration evicted), `:cache-clear` (explicit test/REPL
-  teardown). Cache-key shape is the query-vector itself
+  teardown), `:frame-destroy` (the frame's cache was torn down by
+  `destroy-frame!` — routed in via the
+  `:subs.cache/dispose-all-for-frame-destroy!` late-bind hook so
+  `frame.cljc` carries no static dep on this ns; rf2-x3m8c).
+  Cache-key shape is the query-vector itself
   (`re-frame.subs/cache-key` is identity), so the emit derives
   `:rf.sub/id` and `:rf.sub/query-v` directly from `k`. The emits ride
   `interop/debug-enabled?` so production CLJS bundles DCE them with the
   rest of the trace surface."
   (:require [re-frame.frame :as frame]
             [re-frame.interop :as interop]
+            [re-frame.late-bind :as late-bind]
             [re-frame.registrar :as registrar]
             [re-frame.trace :as trace
              #?@(:cljs [:include-macros true])]))
@@ -280,3 +285,38 @@
          (try (interop/dispose! r)
               (catch #?(:clj Throwable :cljs :default) _ nil))))
      (reset! cache {}))))
+
+;; ---- frame-destroy eviction (rf2-x3m8c) ----------------------------------
+;;
+;; `re-frame.frame/destroy-frame!` tears the destroyed frame's sub-cache
+;; down as one of its ordered steps. It MUST funnel through this helper
+;; (not dispose reactions directly) so frame-destroy evictions appear in
+;; the `:rf.sub/dispose` lifecycle stream like every other eviction path
+;; — otherwise a whole class of real evictions vanishes and tooling that
+;; audits retained subs can't tell a clean teardown from missing data.
+;;
+;; `frame.cljc` requires THIS ns transitively (subs.cache → frame), so it
+;; cannot statically require us back; the call is routed through the
+;; `:subs.cache/dispose-all-for-frame-destroy!` late-bind hook published
+;; below. Symmetric with `clear-sub-cache!` but stamps the dedicated
+;; `:frame-destroy` reason so consumers discriminate frame teardown from
+;; explicit test/REPL `:cache-clear`.
+
+(defn dispose-all-for-frame-destroy!
+  "Dispose every entry in `cache` (the destroyed frame's `:sub-cache`
+  atom), emitting one `:rf.sub/dispose` per slot with `:rf.sub/reason
+  :frame-destroy` and `:frame frame-id`, then empty the cache. Per Spec
+  009 §`:rf.sub/dispose` reason enum + Spec 006 §Disposal on frame
+  destroy. Returns nil."
+  [cache frame-id]
+  (when cache
+    (doseq [[k entry] @cache]
+      (emit-dispose! frame-id k :frame-destroy)
+      (when-let [r (:reaction entry)]
+        (try (interop/dispose! r)
+             (catch #?(:clj Throwable :cljs :default) _ nil))))
+    (reset! cache {}))
+  nil)
+
+(late-bind/set-fn! :subs.cache/dispose-all-for-frame-destroy!
+                   dispose-all-for-frame-destroy!)

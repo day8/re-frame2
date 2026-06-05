@@ -121,9 +121,9 @@ The rich-detail trace surface. **Dev-only — elided in production via Closure D
 - **Kind**: config key
 - **Signature**:
   ```clojure
-  (rf/configure! :trace-buffer {:depth N})
+  (rf/configure! :trace-buffer {:cascades-retained N})
   ```
-- **Description**: Buffer depth knob. See [01 — Core §Configure keys](01-core.md#runtime-configuration-configure).
+- **Description**: Per-frame ring cascade-slot count knob (0 disables retention). See [01 — Core §Configure keys](01-core.md#runtime-configuration-configure).
 
 ### `group-cascades`
 

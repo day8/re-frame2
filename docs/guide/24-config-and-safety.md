@@ -10,7 +10,7 @@ The first thing to understand is that the configuration surface isn't scattered 
 
 | Lifetime | Surface | Examples |
 |---|---|---|
-| Process-wide, value is data | `(rf/configure! :key opts)` | trace-buffer depth, elision threshold, epoch history |
+| Process-wide, value is data | `(rf/configure! :key opts)` | trace-buffer cascades retained, elision threshold, epoch history |
 | Process-wide, value is a fn/component | `(rf/set-x!)` / `(rf/install-x!)` | schema validator, schema explainer, substrate adapter |
 | Per-frame, lives as long as one frame | `reg-frame` / `make-frame` metadata, or `dispatch` opts | `:drain-depth`, `:on-error`, `:fx-overrides`, `:interceptors` |
 
@@ -34,15 +34,17 @@ There's a `:redact-fn` build-time hook for apps that record sensitive material i
 
 `:epoch-history` is **dev-only by status.** Under `:advanced` + `goog.DEBUG=false` the recording site dead-code-eliminates and the buffer never allocates, no matter what you configured. This is a recurring theme: the dev knobs cost nothing in production because they aren't *there* in production.
 
-**`:trace-buffer` — how many trace events sit in memory?**
+**`:trace-buffer` — how many cascades sit in memory?**
 
 ```clojure
-(rf/configure! :trace-buffer {:depth 200})        ;; the default
-(rf/configure! :trace-buffer {:depth 1000})       ;; longer trace history
-(rf/configure! :trace-buffer {:depth 0})          ;; disable the buffer
+(rf/configure! :trace-buffer {:cascades-retained 50})    ;; the default
+(rf/configure! :trace-buffer {:cascades-retained 200})   ;; longer trace history
+(rf/configure! :trace-buffer {:cascades-retained 0})     ;; disable retention
 ```
 
-This is the ring of `:rf.*/*` trace events backing your dev tooling — the same stream [chapter 16 — Observability](16-observability.md) ships off-box, the same stream re-frame2-pair-mcp reads when an agent asks "what just happened." 200 holds one complex cascade comfortably (a user action fanning out into 30+ machine transitions, an HTTP round-trip, a handful of sub-runs). Bump it when you're hunting a bug that spans multiple user actions and events are rotating out before you can read them. Set it to 0 if you've registered listeners that ship events live (they get every event regardless of the buffer; the buffer is then just wasted memory). Dev-only, same as `:epoch-history`.
+This is the per-frame ring of `:rf.*/*` trace events backing your dev tooling — the same stream [chapter 16 — Observability](16-observability.md) ships off-box, the same stream re-frame2-pair-mcp reads when an agent asks "what just happened." The unit of retention is the **cascade** (one dispatched event and everything it fans out into — handler, fx, sub-runs, renders), not the individual trace event: `:cascades-retained 50` keeps the last 50 cascades, evicting the oldest cascade slot (and every trace under it) as a whole when the 51st arrives. 50 comfortably covers an interactive debug session. Bump it when you're hunting a bug that spans more user actions than the ring holds. Set it to 0 to disable retention if you've registered listeners that ship events live (they get every event regardless of the ring; the ring is then just wasted memory) — the surface stays live, only the queryable history is suppressed. Dev-only, same as `:epoch-history`.
+
+`:cascades-retained` is the sole recognised opt. The retired `{:depth N}` shape (and any negative / non-numeric value) is a no-op that emits a `:rf.warning/trace-buffer-unrecognised-opts` trace rather than silently leaving the ring at its default.
 
 **`:elision` — how big is "big enough to elide"?**
 

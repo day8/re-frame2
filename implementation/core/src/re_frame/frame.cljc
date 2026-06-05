@@ -492,13 +492,35 @@
 ;; named helper so the body of destroy-frame! reads as a step list. Order
 ;; matters — see destroy-frame!'s docstring for the authoritative recipe.
 
+;; Frame id of the in-flight `destroy-frame!`, bound for the duration of
+;; the teardown so `safe-call-hook!` can stamp `:frame` on a hook-failure
+;; diagnostic regardless of the hook's arg shape (the cache-reset hooks
+;; take no frame arg). Per rf2-x3m8c.
+(def ^:dynamic *destroying-frame-id* nil)
+
 (defn- safe-call-hook!
-  "Fire a late-bound cleanup hook by key. No-op when unbound; exceptions
-  are swallowed so one bad hook can't block the rest of teardown."
+  "Fire a late-bound cleanup hook by key. No-op when unbound. Exceptions
+  are caught so one bad hook can't block the rest of teardown — but the
+  failure is NOT silent (rf2-x3m8c): before continuing we emit a
+  `:rf.warning/teardown-hook-exception` trace carrying the hook key, the
+  in-flight frame id (when known via `*destroying-frame-id*`), and the
+  exception, so a leaked optional-artefact cleanup (stale schemas, flow
+  rows, side-channel atoms, trace rings) leaves a causal breadcrumb in
+  long-lived SSR / test / tooling processes. Best-effort teardown
+  semantics are preserved — the throw is swallowed and teardown
+  continues. The emit rides `interop/debug-enabled?` (inside
+  `trace/emit-error!`) so production CLJS bundles DCE it."
   [hook-key & args]
   (when-let [f (late-bind/get-fn hook-key)]
     (try (apply f args)
-         (catch #?(:clj Throwable :cljs :default) _ nil))))
+         (catch #?(:clj Throwable :cljs :default) ex
+           (trace/emit-error! :rf.warning/teardown-hook-exception
+                              {:category  :rf.warning/teardown-hook-exception
+                               :hook      hook-key
+                               :frame     *destroying-frame-id*
+                               :exception ex
+                               :where     :safe-call-hook!})
+           nil))))
 
 (defn- fire-on-destroy-event!
   "Run the user-supplied `:on-destroy` event synchronously, then continue
@@ -611,13 +633,29 @@
   (swap! frames update id assoc-in [:lifecycle :destroyed?] true))
 
 (defn- tear-down-sub-cache!
-  [f]
+  "Dispose every cached subscription reaction for the destroyed frame.
+
+  Per rf2-x3m8c: route through the sub-cache-owned
+  `:subs.cache/dispose-all-for-frame-destroy!` hook so each eviction
+  emits a `:rf.sub/dispose` trace (reason `:frame-destroy`) — frame
+  teardown is a real eviction class and MUST appear in the sub-cache
+  lifecycle stream like `unsubscribe` / hot-reload / `clear-sub-cache!`
+  do (the bypass that disposed reactions directly was invisible to
+  tooling). `subs.cache` requires `frame` (this ns), so the call is
+  late-bound to keep the dependency one-directional. The fallback
+  (hook unbound — only reachable if `re-frame.subs.cache` was never
+  loaded, e.g. a frame with subs but no subscribe path) preserves the
+  best-effort direct disposal so teardown never leaks reactions."
+  [id f]
   (when-let [cache (:sub-cache f)]
-    (doseq [[_k entry] @cache]
-      (when-let [r (:reaction entry)]
-        (try (interop/dispose! r)
-             (catch #?(:clj Throwable :cljs :default) _ nil))))
-    (reset! cache {})))
+    (if-let [dispose-all! (late-bind/get-fn :subs.cache/dispose-all-for-frame-destroy!)]
+      (dispose-all! cache id)
+      (do
+        (doseq [[_k entry] @cache]
+          (when-let [r (:reaction entry)]
+            (try (interop/dispose! r)
+                 (catch #?(:clj Throwable :cljs :default) _ nil))))
+        (reset! cache {})))))
 
 (defn- emit-frame-destroyed-trace!
   [id]
@@ -658,7 +696,13 @@
                                       trace when the machines artefact is
                                       absent.
     3. mark-frame-destroyed!        — flip :lifecycle :destroyed?.
-    4. tear-down-sub-cache!         — dispose every cached reaction.
+    4. tear-down-sub-cache!         — dispose every cached reaction
+                                      via the sub-cache-owned
+                                      `:subs.cache/dispose-all-for-
+                                      frame-destroy!` hook, so each
+                                      eviction emits `:rf.sub/dispose`
+                                      with `:rf.sub/reason
+                                      :frame-destroy` (rf2-x3m8c).
     *. cleanup hooks (best-effort, no-op when artefact absent):
          :privacy/clear-suppression-cache!  — reset sensitive-without-
                                               redaction warn-once cache.
@@ -704,11 +748,12 @@
   (when-not (contains? @destroying-frames id)
     (when-let [f (frame id)]
       (swap! destroying-frames conj id)
-      (try
+      (binding [*destroying-frame-id* id]
+       (try
         (fire-on-destroy-event! id f)
         (notify-machine-destruction! id)
         (mark-frame-destroyed! id)
-        (tear-down-sub-cache! f)
+        (tear-down-sub-cache! id f)
         (safe-call-hook! :privacy/clear-suppression-cache!)
         (safe-call-hook! :elision/clear-warning-cache!)
         (safe-call-hook! :ssr/on-frame-destroyed id)
@@ -748,7 +793,7 @@
           ;; Always clear the in-flight marker — even if a downstream step
           ;; throws unexpectedly, future `destroy-frame!` calls for `id`
           ;; (after a fresh `reg-frame`) must not see a stale entry.
-          (swap! destroying-frames disj id))))))
+          (swap! destroying-frames disj id)))))))
 
 (defn reset-frame!
   "destroy-frame! followed by reg-frame with the same config. Per Spec 002
