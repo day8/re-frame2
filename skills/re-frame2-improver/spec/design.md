@@ -78,7 +78,7 @@ Commits and PR title/body read as Mike Thompson's work. No `Co-Authored-By` / ge
 | `manual-retry-loops.md` | Hand-rolled HTTP retry (`setTimeout` + counters + back-off in handlers) | Managed HTTP (`:rf.http/managed` + `:retry`), Spec 014 |
 | `boolean-discriminator-subs.md` | 3+ boolean subs on one path acting as a hand-rolled FSM | Tags query layer, Spec 005 |
 | `manual-loading-flags.md` | `assoc :loading? true` / `dissoc` scattered across terminators | Nine States, `spec/Pattern-NineStates.md` |
-| `schemaless-events.md` | Boundary handler ingests untrusted payload with no `:schema` / `reg-app-schema` | Schemas at boundaries, Spec 010 |
+| `schemaless-events.md` | Boundary handler ingests untrusted payload with no production boundary validation — no always-on gate (`rf/validate-at-boundary-interceptor`, Managed HTTP `:decode`, or equivalent always-on Malli validator); dev-only `:schema` / `reg-app-schema` are not sufficient | Schemas at boundaries, Spec 010 |
 | `imperative-effects.md` | Direct JS / DOM interop inside `reg-event-*` — effectful *writes* (storage/DOM/dispatch/timers) AND impure *reads* (`Date.now`, `Math.random`, storage reads, sub reads) | Writes → data-only fx (`reg-fx`, `spec/Conventions.md`); reads → coeffect (`reg-cofx` / `inject-cofx`, `cofx.md`) |
 | `view-side-hook-state.md` | `reagent/atom` / `useState` holding non-render-local state | Move to `app-db` + `reg-sub`, Spec 004 / `spec/Principles.md` |
 
