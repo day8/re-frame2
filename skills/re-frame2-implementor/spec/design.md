@@ -59,7 +59,7 @@ The skill frames `spec/conformance/` consistently as the **objective measure of 
 
 When implementing surfaces a spec gap — a missing surface, an inconsistency, an undocumented decision — the agent files a GitHub issue against `day8/re-frame2`. Does not silently invent an answer; does not extrapolate from the reference.
 
-**Tracker boundary**: `bd` (beads) is the re-frame2 monorepo's internal tracker. Published skills run in *consumer* repos (an engineer's port repo, in this skill's case) and must never invoke `bd` — cross-repo side effects target the *target* repo's GitHub issues. The published skill announces the cross-repo filing before it lands (cardinal rule 9), and passes the body via stdin / here-doc, never inline interpolation (shell-safety baseline in `skills/README.md`).
+**Tracker boundary**: `bd` (beads) is the re-frame2 monorepo's internal tracker. Published skills run in *consumer* repos (an engineer's port repo, in this skill's case) and must never invoke `bd` — cross-repo side effects target the *target* repo's GitHub issues. The published skill announces the cross-repo filing before it lands (cardinal rule 9), and passes the body via `gh`'s native `--body-file` flag (the body is `Write`-ten to a file first), never inline interpolation (shell-safety baseline in `skills/README.md`).
 
 **Why**: spec gaps are findings. The reference's prior solution to a spec gap was *one engineer's call at one moment*. Treating it as the contract retroactively conflates worked-example and contract — undercutting L1.
 
