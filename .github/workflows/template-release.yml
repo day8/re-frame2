@@ -105,9 +105,23 @@ jobs:
   # ─────────────────────────────────────────────────────────────────
   # 2. Pre-release test gate. Runs the template's JVM test suite end-
   #    to-end (shape + static-parse framework-surface + behavioural
-  #    emission + the rf2 / shadow / react pin-lockstep guards). A
-  #    drift in any of these blocks the release — the tagged commit
-  #    must emit the same shape the test suite asserts on.
+  #    emission + the rf2 / shadow / react pin-lockstep guards) AND the
+  #    behavioural emitted-app tier. A drift in any of these blocks the
+  #    release — the tagged commit must emit a shape that compiles,
+  #    runs, and survives an `:advanced` release build.
+  #
+  #    rf2-ek857f F1 — the emitted-app compile/run/release tier in
+  #    `emitted_test_run_test.clj` defaults OFF (opt-in via
+  #    RF2_TEMPLATE_RUN_EMITTED_TESTS=1) and needs a populated
+  #    implementation/node_modules so the emitted bundle's React imports
+  #    resolve. Without the Node + `npm ci` + env-var setup below, a
+  #    `template-v…` tag would cut a GitHub Release while skipping the
+  #    ONLY gate that compiles generated `:app` + `:test` builds, runs
+  #    the generated tests, and checks the Reagent `:advanced` release
+  #    bundle — i.e. it could publish a broken scaffold even though the
+  #    PR/nightly template gates (test.yml / expensive-tests.yml) catch
+  #    it. This job therefore mirrors that PR/nightly emitted-app setup
+  #    so the release gate is at least as strong as the PR gate.
   # ─────────────────────────────────────────────────────────────────
   test-template:
     name: Template pre-release test gate
@@ -128,6 +142,18 @@ jobs:
           cli: latest
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
+      # rf2-ek857f F1 — Node.js is required for the emitted-app smoke in
+      # `emitted_test_run_test.clj` (compiles + runs the emitted
+      # `events_test.cljs` and the Reagent `:advanced` release build via
+      # `clojure -M:shadow`). Mirrors test.yml:jvm-tools-template /
+      # expensive-tests.yml.
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: implementation/package-lock.json
+
       - name: Cache Maven / gitlibs
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
@@ -135,13 +161,30 @@ jobs:
             ~/.m2/repository
             ~/.gitlibs
             ~/.deps.clj
-          key: ${{ runner.os }}-clj-release-template-${{ hashFiles('tools/template/deps.edn') }}
+          key: ${{ runner.os }}-clj-release-template-${{ hashFiles('tools/template/deps.edn', 'implementation/package-lock.json') }}
           restore-keys: |
             ${{ runner.os }}-clj-release-template-
             ${{ runner.os }}-clj-
 
-      - name: JVM tests (template artefact)
+      # rf2-ek857f F1 — `npm ci` populates implementation/node_modules so
+      # the emitted-app's compiled :node-test + :advanced :app bundles
+      # resolve React at compile/run time. The emitted-test-run slice
+      # symlinks (or NODE_PATHs to) this tree rather than `npm install`-ing
+      # per substrate. Mirrors test.yml:1805 / expensive-tests.yml:125.
+      - name: npm install (for emitted-app smoke)
+        working-directory: implementation
+        run: npm ci
+
+      # rf2-ek857f F1 — RF2_TEMPLATE_RUN_EMITTED_TESTS=1 flips the
+      # behavioural emitted-app tier ON (default-off for the local fast
+      # loop). The release gate MUST run it, or a tag could publish a
+      # scaffold that fails to compile / run / release. Keep this env var
+      # set; removing it regresses the gate to a fast-loop-only shape
+      # check (release_gate_test.clj asserts this very step survives).
+      - name: JVM tests + emitted-app smoke (template artefact)
         working-directory: tools/template
+        env:
+          RF2_TEMPLATE_RUN_EMITTED_TESTS: "1"
         run: clojure -M:test
 
   # ─────────────────────────────────────────────────────────────────

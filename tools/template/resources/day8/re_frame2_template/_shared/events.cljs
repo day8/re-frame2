@@ -8,11 +8,22 @@
             ;; lives in `re-frame.trace.tooling`, NOT `re-frame.core` —
             ;; CLJS production bundles DCE the tooling namespace
             ;; wholesale, so the `rf/...` alias for these fns is
-            ;; deliberately JVM-only (per rf2-qwm0a). Listener
-            ;; observability in `:advanced` + `goog.DEBUG=false`
-            ;; production builds is intentionally a no-op:
-            ;; `trace/emit!` is gated on `interop/debug-enabled?` and
-            ;; elides at compile time.
+            ;; deliberately JVM-only (per rf2-qwm0a).
+            ;;
+            ;; Production elision has two halves and BOTH matter:
+            ;;   1. `trace/emit!` is gated on `interop/debug-enabled?`
+            ;;      and elides at compile time, so no trace events are
+            ;;      ever built in `:advanced` + `goog.DEBUG=false`.
+            ;;   2. The *registration call site* itself must be wrapped
+            ;;      in a `goog.DEBUG` gate, or Closure keeps the listener
+            ;;      closure (and the substituted "[{{namespace}}]" marker
+            ;;      string) in the optimized bundle even though it can
+            ;;      never fire. The framework contract is explicit on
+            ;;      this — see `re-frame.core/register-listener!`'s
+            ;;      docstring: "production CLJS bundles DCE the
+            ;;      registration site when wrapped in a `goog.DEBUG`
+            ;;      gate." That is why the `register-listener!` form
+            ;;      below sits inside `(when ^boolean goog.DEBUG ...)`.
             [re-frame.trace.tooling :as trace-tooling]
             ;; Schema artefact — required as a side-effecting load so
             ;; the late-bind hooks publish before {{namespace}}.schema
@@ -45,14 +56,25 @@
 ;; re-registration replaces the previous callback atomically (per
 ;; Spec 009 §Re-registration semantics), so hot-reload re-runs this
 ;; form without leaking listeners.
+;;
+;; The whole registration is wrapped in `(when ^boolean goog.DEBUG ...)`
+;; so Closure dead-code-eliminates it under `:advanced` +
+;; `goog.DEBUG=false` — the dev-only console-error closure and its app
+;; namespace marker never reach the production bundle (per the
+;; `register-listener!` contract; see the require comment above). In
+;; dev / `npx shadow-cljs watch app` (`goog.DEBUG=true`) it runs
+;; unchanged. When you replace this with real production error
+;; projection (toast / Sentry / etc.), register that sink OUTSIDE this
+;; gate so it ships in the optimized build.
 
-(trace-tooling/register-listener!
-  ::error-sink
-  (fn [trace-event]
-    (when (= :error (:op-type trace-event))
-      (js/console.error "[{{namespace}}]"
-                        (:operation trace-event)
-                        (clj->js (:tags trace-event))))))
+(when ^boolean goog.DEBUG
+  (trace-tooling/register-listener!
+    ::error-sink
+    (fn [trace-event]
+      (when (= :error (:op-type trace-event))
+        (js/console.error "[{{namespace}}]"
+                          (:operation trace-event)
+                          (clj->js (:tags trace-event)))))))
 
 ;; --- Initialisation --------------------------------------------------------
 ;;
