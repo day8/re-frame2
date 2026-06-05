@@ -266,6 +266,134 @@
 
 ;; ---- end rf2-3un2g block -------------------------------------------------
 
+;; ==========================================================================
+;; rf2-2hvga (= B / widen) — every widened :rf.error/* category survives
+;; production elision. THE CRUX: these categories were previously dev-trace-
+;; ONLY (`trace/emit-error!`), which DCEs under `:advanced` + `goog.DEBUG=
+;; false`, so a frame-destroyed / no-such-handler / no-such-sub / compute-sub
+;; throw lost its diagnostic entirely in production. Now they ALSO fan out
+;; through the always-on error-emit listener (axis 1 / surface #4), which
+;; survives `goog.DEBUG=false`. Each test here is the production-mode
+;; counterpart of the dev-mode test in `re-frame.on-error-test`.
+;;
+;; Axis 2 (#5 per-frame `:on-error` policy) stays NARROW: a companion test
+;; pins that the policy fn does NOT fire for these non-recovery categories
+;; under prod.
+;; ==========================================================================
+
+(deftest frame-destroyed-dispatch-listener-survives-prod
+  (testing "Per rf2-2hvga: under `:advanced` + `goog.DEBUG=false`, a
+            `dispatch` to an unknown frame RECOVERS (no-op) AND fans
+            `:rf.error/frame-destroyed` through the always-on listener —
+            the dev trace is gone, the listener record survives."
+    (let [seen (atom [])]
+      (rf/register-error-listener! :prod/recorder
+                                   (fn [record] (swap! seen conj record)))
+      (is (nil? (rf/dispatch [:whatever] {:frame :gone/frame})))
+      (is (= 1 (count @seen)) "listener fired under prod elision")
+      (let [r (first @seen)]
+        (is (= :rf.error/frame-destroyed (:error r)))
+        (is (= :gone/frame (:frame r)))
+        (is (= [:whatever] (:event r)))
+        (is (= :whatever (:event-id r)))))))
+
+(deftest frame-destroyed-dispatch-sync-listener-survives-prod
+  (testing "Per rf2-2hvga: `dispatch-sync` to an unknown frame emits
+            `:rf.error/frame-destroyed` through the always-on listener
+            under `goog.DEBUG=false`."
+    (let [seen (atom [])]
+      (rf/register-error-listener! :prod/recorder
+                                   (fn [record] (swap! seen conj record)))
+      (is (nil? (rf/dispatch-sync [:whatever] {:frame :gone/frame})))
+      (is (= 1 (count @seen)))
+      (is (= :rf.error/frame-destroyed (:error (first @seen))))
+      (is (= :gone/frame (:frame (first @seen)))))))
+
+(deftest frame-destroyed-subscribe-listener-survives-prod
+  (testing "Per rf2-2hvga: `subscribe` to an unknown / destroyed frame
+            RECOVERS (nil) AND emits `:rf.error/frame-destroyed` through
+            the always-on listener under `goog.DEBUG=false` — the
+            teardown-race shape stays observable in production."
+    (let [seen (atom [])]
+      (rf/register-error-listener! :prod/recorder
+                                   (fn [record] (swap! seen conj record)))
+      (is (nil? (rf/subscribe-once :gone/frame [:any-sub])))
+      (is (= 1 (count @seen)))
+      (let [r (first @seen)]
+        (is (= :rf.error/frame-destroyed (:error r)))
+        (is (= :gone/frame (:frame r)))
+        (is (= [:any-sub] (:event r)))))))
+
+(deftest no-such-handler-listener-survives-prod
+  (testing "Per rf2-2hvga (= B / widen): a dispatch to a never-registered
+            handler emits `:rf.error/no-such-handler` through the
+            always-on listener under `goog.DEBUG=false` (previously
+            dev-trace-only — silent in production)."
+    (let [seen (atom [])]
+      (rf/register-error-listener! :prod/recorder
+                                   (fn [record] (swap! seen conj record)))
+      (rf/dispatch-sync [:no/handler-here])
+      (let [r (some (fn [x] (when (= :rf.error/no-such-handler (:error x)) x)) @seen)]
+        (is (some? r) "listener received :rf.error/no-such-handler under prod")
+        (is (= :no/handler-here (:event-id r)))
+        (is (= :rf/default (:frame r)))))))
+
+(deftest no-such-sub-listener-survives-prod
+  (testing "Per rf2-2hvga (= B / widen): a subscribe to a never-registered
+            sub emits `:rf.error/no-such-sub` through the always-on
+            listener under `goog.DEBUG=false`."
+    (let [seen (atom [])]
+      (rf/register-error-listener! :prod/recorder
+                                   (fn [record] (swap! seen conj record)))
+      (is (nil? (rf/subscribe-once :rf/default [:no/such-sub-here])))
+      (let [r (some (fn [x] (when (= :rf.error/no-such-sub (:error x)) x)) @seen)]
+        (is (some? r) "listener received :rf.error/no-such-sub under prod")
+        (is (= :no/such-sub-here (:event-id r)))
+        (is (= :rf/default (:frame r)))))))
+
+(deftest compute-sub-exception-listener-survives-prod
+  (testing "Per rf2-2hvga (= B / widen) — SETTLES rf2-kjf3m.3: a sub that
+            throws while resolving via the PURE `compute-sub` path emits
+            `:rf.error/sub-exception` through the always-on listener
+            under `goog.DEBUG=false`. THIS is the fail-open class kjf3m.3
+            flagged: under production hardening compute-sub previously
+            recovered to nil with NO always-on emission → a silent 200
+            for an SSR harness driving subs via compute-sub. Now the
+            listener record survives elision."
+    (let [seen (atom [])]
+      (rf/register-error-listener! :prod/recorder
+                                   (fn [record] (swap! seen conj record)))
+      (rf/reg-sub :kjf3m/throwing (fn [_db _q] (throw (ex-info "compute-boom" {}))))
+      (is (nil? (rf/compute-sub [:kjf3m/throwing] {}))
+          "compute-sub still recovers to nil under prod")
+      (let [r (some (fn [x] (when (= :rf.error/sub-exception (:error x)) x)) @seen)]
+        (is (some? r)
+            "listener received :rf.error/sub-exception from compute-sub under prod")
+        (is (some? (:exception r)))))))
+
+(deftest non-recovery-categories-skip-policy-under-prod
+  (testing "Per rf2-2hvga axis-2 (NARROW) under prod: the per-frame
+            `:on-error` policy fn (#5) is NOT invoked for the widened
+            non-recovery categories even under `goog.DEBUG=false`. Only
+            the always-on listener (#4) fans out."
+    (let [policy-fires (atom 0)
+          listener-saw (atom #{})]
+      (rf/reg-frame :rf/default
+                    {:on-error (fn [_ev] (swap! policy-fires inc) nil)})
+      (rf/register-error-listener! :prod/recorder
+                                   (fn [record] (swap! listener-saw conj (:error record))))
+      (rf/dispatch-sync [:no/handler-here2])
+      (rf/subscribe-once :rf/default [:no/such-sub-here2])
+      (rf/dispatch [:x] {:frame :gone/frame2})
+      (rf/reg-sub :nrp/throwing (fn [_db _q] (throw (ex-info "boom" {}))))
+      (rf/compute-sub [:nrp/throwing] {})
+      (is (zero? @policy-fires)
+          "the :on-error policy fn did NOT fire for any non-recovery category under prod")
+      (is (contains? @listener-saw :rf.error/no-such-handler))
+      (is (contains? @listener-saw :rf.error/no-such-sub))
+      (is (contains? @listener-saw :rf.error/frame-destroyed))
+      (is (contains? @listener-saw :rf.error/sub-exception)))))
+
 ;; (removed) sensitive-handler-error-record-redacted-under-prod
 ;; The handler-meta `:sensitive?` annotation has been removed. Redaction on
 ;; the error-emit substrate is now driven exclusively by the per-path elision

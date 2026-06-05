@@ -318,6 +318,165 @@
         (is (= :err/normal-throw (first (:event r))))))))
 
 ;; ============================================================================
+;; rf2-2hvga (= B / widen) — the corpus-wide error-emit listener (#4) is BROAD
+;; ----------------------------------------------------------------------------
+;; Every catalogued production-reachable RUNTIME `:rf.error/*` fans out through
+;; the always-on listener — NOT just handler-exception. These DEV-mode tests
+;; pin that the previously dev-trace-ONLY categories now ALSO reach the listener
+;; (frame-destroyed via dispatch / dispatch-sync / subscribe; no-such-handler;
+;; no-such-sub; compute-sub sub-exception). The CLJS production-mode counterpart
+;; (under `:advanced` + `goog.DEBUG=false`) lives in
+;; `re-frame.on-error-elision-prod-test` — production-survival is the crux.
+;;
+;; Axis 2 (#5 per-frame `:on-error` policy) is NARROW: it is NOT invoked for
+;; these invalid-operation / built-in-recovery categories. A companion test
+;; asserts the policy fn does NOT fire.
+;; ============================================================================
+
+(deftest listener-fires-on-frame-destroyed-dispatch
+  (testing "Per rf2-2hvga (= B / recover-but-emit): `dispatch` to a
+            destroyed / unknown frame RECOVERS (no-op) AND fans
+            `:rf.error/frame-destroyed` out through the always-on
+            corpus-wide listener (axis 1)."
+    (let [seen (atom [])]
+      (rf/register-error-listener! :test/recorder
+                                   (fn [record] (swap! seen conj record)))
+      ;; dispatch into a frame that was never registered — recovers, emits.
+      (is (nil? (rf/dispatch [:whatever] {:frame :gone/frame}))
+          "dispatch into an unknown frame returns nil (recovers, no throw)")
+      (is (= 1 (count @seen)) "listener fired exactly once")
+      (let [r (first @seen)]
+        (is (= :rf.error/frame-destroyed (:error r)))
+        (is (= :gone/frame (:frame r)) ":frame names the target frame")
+        (is (= [:whatever] (:event r)) ":event carries the attempted vector")
+        (is (= :whatever (:event-id r)))))))
+
+(deftest listener-fires-on-frame-destroyed-dispatch-sync
+  (testing "Per rf2-2hvga: `dispatch-sync` to a destroyed / unknown
+            frame RECOVERS (no-op) AND fans `:rf.error/frame-destroyed`
+            through the always-on listener."
+    (let [seen (atom [])]
+      (rf/register-error-listener! :test/recorder
+                                   (fn [record] (swap! seen conj record)))
+      (is (nil? (rf/dispatch-sync [:whatever] {:frame :gone/frame}))
+          "dispatch-sync into an unknown frame returns nil (recovers)")
+      (is (= 1 (count @seen)))
+      (is (= :rf.error/frame-destroyed (:error (first @seen))))
+      (is (= :gone/frame (:frame (first @seen)))))))
+
+(deftest listener-fires-on-frame-destroyed-subscribe
+  (testing "Per rf2-2hvga: `subscribe` to a destroyed / unknown frame
+            RECOVERS (returns nil) AND fans `:rf.error/frame-destroyed`
+            through the always-on listener. The teardown-race shape —
+            subscribe arriving against a vanished frame — recovers
+            safely while staying observable."
+    (let [seen (atom [])]
+      (rf/register-error-listener! :test/recorder
+                                   (fn [record] (swap! seen conj record)))
+      (is (nil? (rf/subscribe-once :gone/frame [:any-sub]))
+          "subscribe-once against an unknown frame returns nil (recovers)")
+      (is (= 1 (count @seen)))
+      (let [r (first @seen)]
+        (is (= :rf.error/frame-destroyed (:error r)))
+        (is (= :gone/frame (:frame r)))
+        (is (= [:any-sub] (:event r)) ":event carries the attempted query-v")))))
+
+(deftest listener-fires-on-frame-destroyed-after-destroy-frame
+  (testing "Per rf2-2hvga + Spec 002 §Destroy: after `destroy-frame!`,
+            a subsequent dispatch / subscribe RECOVERS and emits
+            `:rf.error/frame-destroyed` through the always-on listener —
+            the genuine use-after-destroy case (not just unknown-id)."
+    (rf/reg-frame :doomed/frame {:doc "to be destroyed"})
+    (rf/destroy-frame! :doomed/frame)
+    (let [seen (atom [])]
+      (rf/register-error-listener! :test/recorder
+                                   (fn [record] (swap! seen conj record)))
+      (is (nil? (rf/dispatch [:x] {:frame :doomed/frame})))
+      (is (nil? (rf/subscribe-once :doomed/frame [:y])))
+      (is (= 2 (count @seen)) "both dispatch and subscribe emitted")
+      (is (every? #(= :rf.error/frame-destroyed (:error %)) @seen))
+      (is (every? #(= :doomed/frame (:frame %)) @seen)))))
+
+(deftest listener-fires-on-no-such-handler
+  (testing "Per rf2-2hvga (= B / widen): a dispatch to a never-registered
+            handler fans `:rf.error/no-such-handler` through the
+            always-on listener — a production-meaningful runtime error
+            that was previously dev-trace-only."
+    (let [seen (atom [])]
+      (rf/register-error-listener! :test/recorder
+                                   (fn [record] (swap! seen conj record)))
+      ;; :rf/default exists (fixture) but :no/handler-here is unregistered.
+      (rf/dispatch-sync [:no/handler-here])
+      (let [r (some (fn [x] (when (= :rf.error/no-such-handler (:error x)) x)) @seen)]
+        (is (some? r) "listener received :rf.error/no-such-handler")
+        (is (= :no/handler-here (:event-id r)))
+        (is (= [:no/handler-here] (:event r)))
+        (is (= :rf/default (:frame r)))))))
+
+(deftest listener-fires-on-no-such-sub
+  (testing "Per rf2-2hvga (= B / widen): a subscribe to a never-registered
+            sub fans `:rf.error/no-such-sub` through the always-on
+            listener (previously dev-trace-only)."
+    (let [seen (atom [])]
+      (rf/register-error-listener! :test/recorder
+                                   (fn [record] (swap! seen conj record)))
+      (is (nil? (rf/subscribe-once :rf/default [:no/such-sub-here]))
+          "subscribe-once to an unregistered sub recovers to nil")
+      (let [r (some (fn [x] (when (= :rf.error/no-such-sub (:error x)) x)) @seen)]
+        (is (some? r) "listener received :rf.error/no-such-sub")
+        (is (= :no/such-sub-here (:event-id r)))
+        (is (= [:no/such-sub-here] (:event r)))
+        (is (= :rf/default (:frame r)))))))
+
+(deftest listener-fires-on-compute-sub-exception
+  (testing "Per rf2-2hvga (= B / widen) — SETTLES rf2-kjf3m.3: a sub that
+            throws while resolving via the PURE `compute-sub` path fans
+            `:rf.error/sub-exception` through the always-on listener.
+            Previously trace-only — under production hardening it would
+            recover to nil with no always-on emission (the fail-open
+            class rf2-vvwmi closed for the reactive path)."
+    (let [seen (atom [])]
+      (rf/register-error-listener! :test/recorder
+                                   (fn [record] (swap! seen conj record)))
+      (rf/reg-sub :kjf3m/throwing (fn [_db _q] (throw (ex-info "compute-boom" {}))))
+      (is (nil? (rf/compute-sub [:kjf3m/throwing] {}))
+          "compute-sub recovers to nil on a body throw")
+      (let [r (some (fn [x] (when (= :rf.error/sub-exception (:error x)) x)) @seen)]
+        (is (some? r) "listener received :rf.error/sub-exception from compute-sub")
+        (is (some? (:exception r)) ":exception present on the record")))))
+
+(deftest non-recovery-categories-do-not-invoke-on-error-policy
+  (testing "Per rf2-2hvga axis-2 (NARROW): the per-frame `:on-error`
+            policy fn (#5) is NOT invoked for invalid-operation /
+            built-in-recovery categories — frame-destroyed,
+            no-such-handler, no-such-sub, sub-exception. Only the
+            always-on listener (#4) fans out. A `{:swallow | :replacement
+            | :default}` recovery decision is meaningless for these."
+    (let [policy-fires  (atom 0)
+          listener-saw  (atom #{})]
+      (rf/reg-frame :rf/default
+                    {:on-error (fn [_ev] (swap! policy-fires inc) nil)})
+      (rf/register-error-listener! :test/recorder
+                                   (fn [record] (swap! listener-saw conj (:error record))))
+      ;; no-such-handler on :rf/default (carries the policy).
+      (rf/dispatch-sync [:no/handler-here2])
+      ;; no-such-sub on :rf/default.
+      (rf/subscribe-once :rf/default [:no/such-sub-here2])
+      ;; frame-destroyed via dispatch into :rf/default-after-destroy?
+      ;; Use a dedicated frame so :rf/default's policy is the one under test.
+      (rf/dispatch [:x] {:frame :gone/frame2})
+      ;; compute-sub sub-exception (no frame attribution → no policy anyway).
+      (rf/reg-sub :nrp/throwing (fn [_db _q] (throw (ex-info "boom" {}))))
+      (rf/compute-sub [:nrp/throwing] {})
+      (is (zero? @policy-fires)
+          "the :on-error policy fn did NOT fire for any non-recovery category")
+      (is (contains? @listener-saw :rf.error/no-such-handler))
+      (is (contains? @listener-saw :rf.error/no-such-sub))
+      (is (contains? @listener-saw :rf.error/frame-destroyed))
+      (is (contains? @listener-saw :rf.error/sub-exception)
+          "but the always-on listener DID receive every category"))))
+
+;; ============================================================================
 ;; rf2-u0zz5 — atomicity contract: any pre-install throw aborts the event
 ;; ----------------------------------------------------------------------------
 ;; The `:db` install is the single, deferred, all-or-nothing commit

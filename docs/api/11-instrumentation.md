@@ -34,7 +34,9 @@ Record shape: `{:event :event-id :frame :time :outcome :elapsed-ms}`. The `:even
 
 Sibling of the event-emit surface above. Runs through the SAME always-on error-emit substrate as the per-frame `:on-error` slot ([002-Frames.md](../../spec/002-Frames.md)) but along an INDEPENDENT corpus-wide fan-out path. Survives `:advanced` + `goog.DEBUG=false`. Intended consumers are hosted error monitors (Sentry, Honeybadger, Rollbar).
 
-Record shape: `{:error :event :event-id :frame :time :exception :elapsed-ms}`. The `:event` slot is passed through `elide-wire-value` once before fan-out (same redaction posture as event-emit). The two paths from the substrate (corpus-wide listeners AND the per-frame `:on-error` policy fn) are mutually isolated; either may throw without affecting the other.
+This corpus-wide listener is the **BROAD** path: it delivers one record per **every catalogued production-reachable runtime `:rf.error/*`** — handler / interceptor / cofx exceptions, flow exceptions, fx / reserved-fx exceptions, reactive- and `compute-sub`-resolution exceptions, **and** the invalid-operation categories `:rf.error/frame-destroyed`, `:rf.error/no-such-handler`, `:rf.error/no-such-sub`. (Registration-time / dev-only-validation categories stay dev-trace-only by design — see [009 §Error event catalogue](../../spec/009-Instrumentation.md#error-event-catalogue).) The per-frame `:on-error` policy fn is the **NARROW**, recovery-scoped path: it fires only for the handler-exception family (where a `{:swallow / :replacement / :default}` decision is meaningful) and is NOT invoked for the invalid-operation categories or sub-exception.
+
+Record shape: `{:error :event :event-id :frame :time :exception :elapsed-ms}` (plus `:source-coord` when the failing handler was registered via the public macro path). The `:event` slot is passed through `elide-wire-value` once before fan-out (same redaction posture as event-emit). The two paths from the substrate (corpus-wide listeners AND the per-frame `:on-error` policy fn) are mutually isolated AND independently gated; either may throw without affecting the other.
 
 ### `register-error-listener!`
 
@@ -43,7 +45,7 @@ Record shape: `{:error :event :event-id :frame :time :exception :elapsed-ms}`. T
   ```clojure
   (register-error-listener! id listener-fn)
   ```
-- **Description**: Receive one error-record per `:rf.error/*` event. Re-registering the same `id` replaces. Returns `id`. **Always-on**: survives CLJS `:advanced` + `goog.DEBUG=false`.
+- **Description**: Receive one error-record per catalogued production-reachable runtime `:rf.error/*` event (the broad surface — including frame-destroyed / no-such-handler / no-such-sub / sub-exception, not just handler exceptions). Re-registering the same `id` replaces. Returns `id`. **Always-on**: survives CLJS `:advanced` + `goog.DEBUG=false`.
 
 ### `unregister-error-listener!`
 

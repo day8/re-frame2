@@ -564,7 +564,7 @@
    {:key         :error-emit/dispatch-on-error
     :producer-ns 're-frame.error-emit
     :design-bead "rf2-bacs4"
-    :description "Always-on per-`:rf.error/*` fan-out: builds the tight error-record once (elided), then fans out to BOTH the corpus-wide listener registry (rf2-bacs4 — Sentry / Honeybadger / Rollbar shippers) AND the per-frame `:on-error` policy fn (rf2-hqbeh — in-app recovery). Both fan-out paths independent and try/catch wrapped. Survives `:advanced` + `goog.DEBUG=false`. Router invokes from the handler-exception path."}
+    :description "Always-on per-`:rf.error/*` fan-out: builds the tight error-record once (elided), then fans out along two INDEPENDENTLY-gated paths (rf2-2hvga two-axis catalogue) — axis 1: the corpus-wide listener registry (rf2-bacs4 — Sentry / Honeybadger / Rollbar shippers), ALWAYS fired (BROAD); axis 2: the per-frame `:on-error` policy fn (rf2-hqbeh — in-app recovery), fired ONLY when the caller passes a non-nil `error-event` (NARROW / recovery-scoped). Both paths independent + try/catch wrapped. Survives `:advanced` + `goog.DEBUG=false`. Invoked from EVERY production-reachable `:rf.error/*` site: router (handler-exception, flow-eval, frame-destroyed), fx (reserved-fx typed throws), subs/memo + subs (reactive + compute-sub exceptions), subs (frame-destroyed, no-such-sub on subscribe), router/diagnostics (no-such-handler)."}
 
    ;; ===========================================================================
    ;; GROUP 3 — ADAPTER-INJECTION

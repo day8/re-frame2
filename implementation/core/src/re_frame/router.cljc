@@ -1001,13 +1001,55 @@
 ;;   run-handler-cascade!        sequence prepare → run → commit → trailers
 ;;                               under `trace/with-handler-scope`
 
+(defn- emit-frame-destroyed!
+  "Surface `:rf.error/frame-destroyed` through BOTH the always-on
+  error-emit listener (axis 1 / surface #4 — survives `goog.DEBUG=
+  false`) AND the dev-only trace surface. Per the rf2-2hvga ruling
+  (= B + recover-but-emit): a dispatch / subscribe to a destroyed or
+  unknown frame RECOVERS (the caller no-ops / returns nil) but the
+  diagnostic must reach production observability — the runtime cannot
+  distinguish a benign teardown / hot-reload race from a real
+  use-after-destroy bug, so it recovers (race-safe) AND emits on the
+  production-watched stream (bug stays observable).
+
+  LISTENER-ONLY (axis 2 / surface #5 NOT invoked): frame-destroyed is
+  an invalid operation with no recovery point — there is no
+  `{:swallow | :replacement | :default}` choice for dispatching into a
+  frame that no longer exists — so the per-frame `:on-error` policy fn
+  is deliberately bypassed by passing `nil` for `error-event`.
+
+  `:frame`-stampable: the record carries the target `frame-id` and the
+  attempted `event` so the 7d30s `:frame`-stamp audit + off-box
+  shippers can attribute the failure. The reactive / drain paths have
+  no triggering event-id beyond the event vector's head, which the
+  record's elided `:event` carries.
+
+  Reached via the `:error-emit/dispatch-on-error` late-bind hook — the
+  drain helper is on the same facade as the dispatch entry points and
+  router already static-requires `error-emit`, but routing all the new
+  non-recovery sites through one helper keeps the gating uniform."
+  [event-id event frame-id]
+  ;; Axis 1 — always-on listener (survives prod elision).
+  (error-emit/dispatch-on-error!
+    :rf.error/frame-destroyed
+    event
+    event-id
+    frame-id
+    nil                                   ;; no exception — invalid op, not a throw
+    0                                     ;; elapsed-ms
+    (interop/now-ms)                      ;; time
+    nil)                                  ;; LISTENER-ONLY — axis 2 not invoked
+  ;; Dev-only trace path — DCEs under `:advanced` + `goog.DEBUG=false`.
+  (trace/emit-error! :rf.error/frame-destroyed
+                     {:frame frame-id :event event :reason :frame-destroyed}))
+
 (defn- handle-frame-destroyed!
   "Per Spec 002 §Run-to-completion: a frame disposed between enqueue and
   dispatch surfaces as `:rf.error/frame-destroyed`; the drain continues
-  with the next envelope."
+  with the next envelope. Per rf2-2hvga the emit is production-survivable
+  (see [[emit-frame-destroyed!]])."
   [event frame]
-  (trace/emit-error! :rf.error/frame-destroyed
-                     {:frame frame :event event :reason :frame-destroyed}))
+  (emit-frame-destroyed! (first event) event frame))
 
 (defn- refresh-elision-from-schemas!
   "Refresh schema-owned elision registries before a handler runs. No-op
@@ -1989,13 +2031,16 @@
          frame-record (frame/frame (:frame envelope))]
      (cond
        (nil? frame-record)
-       ;; The frame-destroyed emit fires synchronously — bind the
-       ;; envelope's call-site so the error event carries it. Reading
-       ;; the call-site through the envelope (already gated) avoids a
-       ;; second `(:rf.trace/call-site opts)` keyword reference here.
+       ;; Per rf2-2hvga (= B + recover-but-emit): dispatch into a
+       ;; destroyed / unknown frame RECOVERS (no-op — the event is not
+       ;; enqueued) AND emits a production-survivable
+       ;; `:rf.error/frame-destroyed` via the always-on listener (axis 1).
+       ;; The call-site is bound so the DEV trace path inside
+       ;; `emit-frame-destroyed!` carries it; the always-on record reads
+       ;; its coords off the parallel error-coord registry, not the
+       ;; dynamic call-site.
        (trace/with-call-site (:call-site envelope)
-         (trace/emit-error! :rf.error/frame-destroyed
-                            {:frame (:frame envelope) :event event}))
+         (emit-frame-destroyed! (first event) event (:frame envelope)))
 
        :else
        (let [router (:router frame-record)]
@@ -2040,10 +2085,12 @@
          call-site    (:call-site envelope)]
      (cond
        (nil? frame-record)
+       ;; Per rf2-2hvga (= B + recover-but-emit): dispatch-sync into a
+       ;; destroyed / unknown frame RECOVERS (no-op) AND emits the
+       ;; production-survivable `:rf.error/frame-destroyed` (axis 1 /
+       ;; listener-only — no `:on-error` policy for an invalid op).
        (trace/with-call-site call-site
-         (trace/emit-error! :rf.error/frame-destroyed
-                            {:frame (:frame envelope) :event event
-                             :recovery :no-recovery}))
+         (emit-frame-destroyed! (first event) event (:frame envelope)))
 
        (let [router-state @(:router frame-record)
              ;; Per rf2-ynk7: `:in-drain?` now holds the drainer's
