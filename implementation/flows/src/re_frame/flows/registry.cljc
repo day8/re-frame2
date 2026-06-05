@@ -411,71 +411,97 @@
      ;; registration of `flow-id` on THIS frame (even if a SIBLING frame
      ;; already holds the global registrar slot).
      (let [prior-on-frame (volatile! nil)]
-       (swap! flows
-              (fn [m]
-                (let [prior-frame (get m frame-id)]
-                  (vreset! prior-on-frame (get prior-frame flow-id))
-                  (let [prospective (assoc prior-frame flow-id flow)]
-                    ;; Two registration-time rejections, both run on the
-                    ;; PROSPECTIVE map inside this update fn so they share
-                    ;; the cycle check's atomicity (rf2-qxwib): a throw
-                    ;; propagates out of `swap!`, the CAS never fires, and
-                    ;; the prior registration survives untouched.
-                    ;;
-                    ;; 1. Throws :rf.error/flow-path-overlap (rf2-um6d9) if
-                    ;;    the new flow's output :path overlaps an already-
-                    ;;    registered sibling's :path (one a prefix of the
-                    ;;    other). The topo dependency rule compares :path vs
-                    ;;    :inputs only, so overlapping outputs get no edge
-                    ;;    and their eval order is undefined — reject before
-                    ;;    any state mutates (Spec 013 §Disjoint output
-                    ;;    paths). Checked BEFORE the cycle sort so a frame
-                    ;;    with overlapping outputs reports the more specific
-                    ;;    footgun rather than whatever (or no) cycle the topo
-                    ;;    walk happens to surface.
-                    ;; 2. Throws :rf.error/flow-cycle if the prospective map
-                    ;;    is cyclic; the update fn never returns and the CAS
-                    ;;    never fires, so the atom is unchanged.
-                    (topo/detect-output-path-overlap! prospective)
-                    (topo/topo-sort prospective)
-                    (assoc m frame-id prospective)))))
-       ;; rf2-73pi1 finding 2: a same-frame re-registration that MOVES the
-       ;; output to a new `:path` must vacate the OLD path from this
-       ;; frame's app-db — otherwise the previous definition's last write
-       ;; lingers and downstream reads see stale derived state at the
-       ;; abandoned slot. Only fires on a real same-frame replacement
-       ;; (`prior-on-frame` non-nil) whose `:path` actually changed; the
-       ;; commit above already installed the new definition, so the new
-       ;; path recomputes on the next drain. First-time registration and
-       ;; same-path hot-reload leave app-db untouched.
-       (when-let [prior @prior-on-frame]
-         (let [old-path (:path prior)]
-           (when (not= old-path (:path flow))
-             (vacate-output-path! frame-id old-path))))
-       ;; Cycle check + commit done atomically above. The :flow registrar
-       ;; slot keys on flow-id only; stamp :frame into the metadata so
-       ;; introspection
-       ;; / hot-reload hooks can read the owning frame. `register!`
-       ;; returns `{:was previous :now metadata}` — `:was` is nil on
-       ;; first-time registration, non-nil on hot-reload re-registration.
-       ;; Per rf2-v5ttb: stamp `:handler-fn` so the registrar's
-       ;; `:different-fn?` calculation (registrar.cljc) can tell a real
-       ;; body change from an idempotent reload. The registrar reads
-       ;; `:handler-fn` uniformly across kinds; events / subs / fx all
-       ;; populate it at their registration sites, but flows historically
-       ;; stored the body under `:output` only — so `(not= nil nil)` was
-       ;; the answer for every flow re-registration and `:different-fn?`
-       ;; was always `false` (re-frame-10x's flow panel / Xray / re-frame2-pair
-       ;; missed every real body swap). The `:output` slot is preserved
-       ;; for the flow-eval site that reads it; the additional
-       ;; `:handler-fn` stamp aligns the cross-kind hot-reload trace
-       ;; surface Spec 001 standardises.
-       (registrar/register!
-         :flow flow-id
-         (source-coords/merge-coords
-           (assoc flow
-                  :frame      frame-id
-                  :handler-fn (:output flow))))
+       ;; rf2-2woz9 finding 2: a same-frame `reg-flow` REPLACEMENT publishes
+       ;; the new flow into `flows` (visible to a drain) in the `swap!`
+       ;; below, but the stale-`last-inputs` invalidation only fires later
+       ;; via `registrar/register!` → `invalidate-flow-on-replace!`. Pre-fix,
+       ;; a drain that started in that window saw the NEW flow with the OLD
+       ;; input cache and skipped recompute on `=`-equal inputs, so the first
+       ;; post-replacement drain kept stale output (violating Spec 013's
+       ;; re-registration contract that the new flow re-evaluates on the next
+       ;; event regardless of input equality). Serializing publish →
+       ;; path-vacate → invalidation against the frame drain (`:drain-lock`)
+       ;; makes them one indivisible step: no drain can observe the new flow
+       ;; before its stale dirty-check row is dropped. The atomic check-and-
+       ;; insert `swap!` (rf2-qxwib) is preserved verbatim INSIDE the
+       ;; serialized region — its TOCTOU cycle guarantee is unchanged; we
+       ;; only add the outer drain-exclusion. Reentrant: a mid-drain
+       ;; `:rf.fx/reg-flow` runs directly inside the single-drainer window
+       ;; (see `frame/call-serialized-with-drain!`).
+       (frame/call-serialized-with-drain!
+         frame-id
+         (fn []
+           (swap! flows
+                  (fn [m]
+                    (let [prior-frame (get m frame-id)]
+                      (vreset! prior-on-frame (get prior-frame flow-id))
+                      (let [prospective (assoc prior-frame flow-id flow)]
+                        ;; Two registration-time rejections, both run on the
+                        ;; PROSPECTIVE map inside this update fn so they share
+                        ;; the cycle check's atomicity (rf2-qxwib): a throw
+                        ;; propagates out of `swap!`, the CAS never fires, and
+                        ;; the prior registration survives untouched.
+                        ;;
+                        ;; 1. Throws :rf.error/flow-path-overlap (rf2-um6d9) if
+                        ;;    the new flow's output :path overlaps an already-
+                        ;;    registered sibling's :path (one a prefix of the
+                        ;;    other). The topo dependency rule compares :path vs
+                        ;;    :inputs only, so overlapping outputs get no edge
+                        ;;    and their eval order is undefined — reject before
+                        ;;    any state mutates (Spec 013 §Disjoint output
+                        ;;    paths). Checked BEFORE the cycle sort so a frame
+                        ;;    with overlapping outputs reports the more specific
+                        ;;    footgun rather than whatever (or no) cycle the topo
+                        ;;    walk happens to surface.
+                        ;; 2. Throws :rf.error/flow-cycle if the prospective map
+                        ;;    is cyclic; the update fn never returns and the CAS
+                        ;;    never fires, so the atom is unchanged.
+                        (topo/detect-output-path-overlap! prospective)
+                        (topo/topo-sort prospective)
+                        (assoc m frame-id prospective)))))
+           ;; rf2-73pi1 finding 2: a same-frame re-registration that MOVES the
+           ;; output to a new `:path` must vacate the OLD path from this
+           ;; frame's app-db — otherwise the previous definition's last write
+           ;; lingers and downstream reads see stale derived state at the
+           ;; abandoned slot. Only fires on a real same-frame replacement
+           ;; (`prior-on-frame` non-nil) whose `:path` actually changed; the
+           ;; commit above already installed the new definition, so the new
+           ;; path recomputes on the next drain. First-time registration and
+           ;; same-path hot-reload leave app-db untouched.
+           (when-let [prior @prior-on-frame]
+             (let [old-path (:path prior)]
+               (when (not= old-path (:path flow))
+                 (vacate-output-path! frame-id old-path))))
+           ;; Cycle check + commit done atomically above. The :flow registrar
+           ;; slot keys on flow-id only; stamp :frame into the metadata so
+           ;; introspection
+           ;; / hot-reload hooks can read the owning frame. `register!`
+           ;; returns `{:was previous :now metadata}` — `:was` is nil on
+           ;; first-time registration, non-nil on hot-reload re-registration.
+           ;; Per rf2-v5ttb: stamp `:handler-fn` so the registrar's
+           ;; `:different-fn?` calculation (registrar.cljc) can tell a real
+           ;; body change from an idempotent reload. The registrar reads
+           ;; `:handler-fn` uniformly across kinds; events / subs / fx all
+           ;; populate it at their registration sites, but flows historically
+           ;; stored the body under `:output` only — so `(not= nil nil)` was
+           ;; the answer for every flow re-registration and `:different-fn?`
+           ;; was always `false` (re-frame-10x's flow panel / Xray / re-frame2-pair
+           ;; missed every real body swap). The `:output` slot is preserved
+           ;; for the flow-eval site that reads it; the additional
+           ;; `:handler-fn` stamp aligns the cross-kind hot-reload trace
+           ;; surface Spec 001 standardises.
+           ;;
+           ;; This `register!` is what fires the `invalidate-flow-on-replace!`
+           ;; replacement hook (:759) that drops the stale `last-inputs` row —
+           ;; keeping it INSIDE the serialized region is the fix for finding
+           ;; 2 (the publish above and this invalidation are now indivisible
+           ;; to a concurrent drain).
+           (registrar/register!
+             :flow flow-id
+             (source-coords/merge-coords
+               (assoc flow
+                      :frame      frame-id
+                      :handler-fn (:output flow))))))
        ;; Per Spec 009 §:op-type vocabulary: :rf.flow/registered fires
        ;; on FIRST-TIME registration AGAINST THIS FRAME. Pre-rf2-mb9vq
        ;; this gated on the GLOBAL registrar `:was` (flow-id-scoped, not
@@ -653,31 +679,46 @@
    (let [frame-id (or frame (frame/current-frame))]
      (when-let [flow (get-in @flows [frame-id id])]
        (let [path (:path flow)]
-         (vacate-output-path! frame-id path)
-         ;; Drop the flow from `frame-id`'s per-frame slot; when that was
-         ;; the LAST flow on the frame, prune the now-empty `frame-id` key
-         ;; entirely rather than leave a `{frame-id {}}` husk (rf2-4bbaw).
-         ;; The husk was harmless (bounded by frame count, tolerated by the
-         ;; concurrency-stress invariant) but a naive `flows-snapshot`
-         ;; consumer would iterate the empty entry; pruning keeps the
-         ;; registry exactly symmetric with `teardown-on-frame-destroy!`'s
-         ;; `(swap! flows dissoc frame-id)`.
-         (swap! flows (fn [m]
-                        (let [m' (update m frame-id dissoc id)]
-                          (cond-> m'
-                            (empty? (get m' frame-id)) (dissoc frame-id)))))
-         ;; Drop the cleared flow's dirty-check row from THIS frame's own
-         ;; `last-inputs` container (rf2-94ol5). Frame-local — a sibling
-         ;; frame registering the same id keeps its own row untouched.
-         (drop-frame-flow-row! frame-id id)
-         ;; Keep the shared `:flow` registrar slot aligned with a live
-         ;; owner (rf2-73pi1): unregister when this was the LAST frame
-         ;; holding the id, or re-point the slot to a surviving owner
-         ;; when the cleared frame was the slot's current (now-stale)
-         ;; metadata writer. Pre-fix this only unregistered on
-         ;; last-owner-release, leaving the slot pointing at the cleared
-         ;; frame whenever a sibling still held the id.
-         (realign-registrar-owner! @flows id frame-id)
+         ;; rf2-2woz9 finding 1: the vacate-then-deregister sequence below
+         ;; MUST be atomic w.r.t. the frame drain. Pre-fix, `vacate-output-
+         ;; path!` ran, then a same-frame drain could start, observe the
+         ;; STILL-registered flow, recompute it, and re-commit the output
+         ;; this clear vacated — and clear-flow, having already vacated,
+         ;; never vacated again, leaving stale derived state in app-db
+         ;; (violating Spec 013's clear-flow cleanup contract). Serializing
+         ;; the whole mutation against the drain (`:drain-lock`) makes the
+         ;; flow vanish from registry + app-db as one indivisible step the
+         ;; drain can never interleave with. Reentrant: a mid-drain
+         ;; `:rf.fx/clear-flow` runs directly inside the single-drainer
+         ;; window (see `frame/call-serialized-with-drain!`).
+         (frame/call-serialized-with-drain!
+           frame-id
+           (fn []
+             (vacate-output-path! frame-id path)
+             ;; Drop the flow from `frame-id`'s per-frame slot; when that was
+             ;; the LAST flow on the frame, prune the now-empty `frame-id` key
+             ;; entirely rather than leave a `{frame-id {}}` husk (rf2-4bbaw).
+             ;; The husk was harmless (bounded by frame count, tolerated by the
+             ;; concurrency-stress invariant) but a naive `flows-snapshot`
+             ;; consumer would iterate the empty entry; pruning keeps the
+             ;; registry exactly symmetric with `teardown-on-frame-destroy!`'s
+             ;; `(swap! flows dissoc frame-id)`.
+             (swap! flows (fn [m]
+                            (let [m' (update m frame-id dissoc id)]
+                              (cond-> m'
+                                (empty? (get m' frame-id)) (dissoc frame-id)))))
+             ;; Drop the cleared flow's dirty-check row from THIS frame's own
+             ;; `last-inputs` container (rf2-94ol5). Frame-local — a sibling
+             ;; frame registering the same id keeps its own row untouched.
+             (drop-frame-flow-row! frame-id id)
+             ;; Keep the shared `:flow` registrar slot aligned with a live
+             ;; owner (rf2-73pi1): unregister when this was the LAST frame
+             ;; holding the id, or re-point the slot to a surviving owner
+             ;; when the cleared frame was the slot's current (now-stale)
+             ;; metadata writer. Pre-fix this only unregistered on
+             ;; last-owner-release, leaving the slot pointing at the cleared
+             ;; frame whenever a sibling still held the id.
+             (realign-registrar-owner! @flows id frame-id)))
          ;; Per Spec 009 §:op-type vocabulary: :rf.flow/cleared fires after
          ;; clear-flow has removed the flow from the per-frame registry
          ;; and dissoc-in'd its output path. Tools observe this to drop
