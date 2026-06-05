@@ -152,6 +152,13 @@ dl.boot-summary dd { margin: 0; }
   align-items: center;
 }
 
+/* Shared text-input baseline. Despite living under the WebSocket block this
+ * rule is the comfortable form-input default for every bare `[:input
+ * {:type "text"}]` across the examples (CRUD, Temperature, Flight Booker,
+ * Nine States, the WebSocket send form, …). The `min-width:240px`
+ * keeps those single-line forms readable. The 7GUIs Cells grid renders a
+ * deliberately compact cell editor that opts out below — see `.cells-grid
+ * input`. */
 input[type="text"] {
   padding: 8px 12px;
   flex: 1;
@@ -209,7 +216,14 @@ hr {
 }
 
 .cells-grid input {
+  /* The cell editor is a compact spreadsheet input, not a form field, so it
+   * opts out of the shared `input[type="text"]` baseline above. `min-width: 0`
+   * is load-bearing: this rule and the baseline have EQUAL specificity, so
+   * without an explicit reset here the baseline's `min-width: 240px` is the
+   * only `min-width` on the element and blows the column out to >=240px on
+   * edit, wrecking the compact A1..Z100 grid (rf2-gv5xd). */
   width: 56px;
+  min-width: 0;
   box-sizing: border-box;
 }
 

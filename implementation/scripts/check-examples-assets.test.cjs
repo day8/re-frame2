@@ -39,6 +39,9 @@ const {
   resolveRef,
   scanPage,
   checkSharedTree,
+  extractCssRuleBody,
+  blockDeclares,
+  checkCellsInputCompact,
   scanAll,
   listExampleIndexHtml,
   EXAMPLES_ROOT,
@@ -88,6 +91,15 @@ it('LIVE: the real _shared source tree is intact (style.css -> structure.css)', 
     errors,
     [],
     `_shared tree errors:\n` + errors.map((e) => `    - ${e}`).join('\n'),
+  );
+});
+
+it('LIVE: the real structure.css keeps the Cells cascade invariant (rf2-gv5xd)', () => {
+  const errors = checkCellsInputCompact(require('fs'));
+  assert.deepStrictEqual(
+    errors,
+    [],
+    `Cells-input cascade errors:\n` + errors.map((e) => `    - ${e}`).join('\n'),
   );
 });
 
@@ -394,6 +406,115 @@ it('the build-output main.js is never resolved on disk', () => {
   assert.ok(
     !errors.some((e) => e.includes('main.js')),
     'main.js (build output) must never be flagged as a missing source file',
+  );
+});
+
+// ---------------------------------------------------------------------------
+// 3) CSS-CASCADE TEETH (rf2-gv5xd) — pin the Cells-input compactness guard.
+// The static resolver can't see the cascade, so checkCellsInputCompact pins
+// one load-bearing invariant: `.cells-grid input { min-width: 0; width: 56px }`
+// resets the shared `input[type="text"]` baseline (which keeps min-width:240px
+// for the WebSocket/CRUD/etc. forms). These fixtures prove the guard has teeth.
+// ---------------------------------------------------------------------------
+
+// A structure.css with both the shared baseline and the Cells override.
+// `cells` and `base` are spliced in so each direction can be broken in turn.
+function structureCss({ cells, base } = {}) {
+  const baseBlock =
+    base != null
+      ? base
+      : 'input[type="text"] { padding: 8px 12px; flex: 1; min-width: 240px; }';
+  const cellsBlock =
+    cells != null
+      ? cells
+      : '.cells-grid input { width: 56px; min-width: 0; box-sizing: border-box; }';
+  return [
+    '/* a comment mentioning .cells-grid input must NOT be matched as a rule */',
+    baseBlock,
+    '.queue-depth { font-style: italic; }',
+    cellsBlock,
+  ].join('\n');
+}
+
+function cascadeIo(structure) {
+  return makeIo({ [STRUCTURE]: structure });
+}
+
+it('extractCssRuleBody pulls a rule body by exact selector, ignoring comments', () => {
+  const css = structureCss();
+  const cell = extractCssRuleBody(css, '.cells-grid input');
+  assert.ok(cell && cell.includes('min-width: 0'), `got: ${cell}`);
+  const base = extractCssRuleBody(css, 'input[type="text"]');
+  assert.ok(base && base.includes('min-width: 240px'), `got: ${base}`);
+  // Whitespace in the queried selector is normalised.
+  assert.ok(extractCssRuleBody(css, '.cells-grid    input') != null);
+  // A selector that only appears inside a comment is not a rule.
+  assert.strictEqual(extractCssRuleBody('/* .foo bar */ .baz {x:1}', '.foo bar'), null);
+});
+
+it('blockDeclares matches a declared prop value, up to the next semicolon', () => {
+  assert.ok(blockDeclares('width: 56px; min-width: 0;', 'min-width', /^0$/));
+  assert.ok(blockDeclares('min-width:0px', 'min-width', /^0(px)?$/));
+  assert.ok(!blockDeclares('width: 56px;', 'min-width', /^0$/));
+  assert.ok(!blockDeclares('min-width: 240px;', 'min-width', /^0$/));
+});
+
+it('a well-formed structure.css passes the Cells cascade guard', () => {
+  const errors = checkCellsInputCompact(cascadeIo(structureCss()));
+  assert.deepStrictEqual(errors, [], `expected clean, got: ${errors.join(' | ')}`);
+});
+
+it('TEETH: dropping `min-width: 0` from `.cells-grid input` fails the guard', () => {
+  // The exact regression rf2-gv5xd guards against: the cell input keeps only
+  // width:56px, so the shared baseline's min-width:240px re-wins on edit.
+  const errors = checkCellsInputCompact(
+    cascadeIo(structureCss({ cells: '.cells-grid input { width: 56px; box-sizing: border-box; }' })),
+  );
+  assert.ok(
+    errors.some((e) => e.includes('min-width: 0') && e.includes('.cells-grid input')),
+    `expected a missing min-width:0 error, got: ${errors.join(' | ')}`,
+  );
+});
+
+it('TEETH: dropping `width: 56px` from `.cells-grid input` fails the guard', () => {
+  const errors = checkCellsInputCompact(
+    cascadeIo(structureCss({ cells: '.cells-grid input { min-width: 0; box-sizing: border-box; }' })),
+  );
+  assert.ok(
+    errors.some((e) => e.includes('width: 56px')),
+    `expected a missing width:56px error, got: ${errors.join(' | ')}`,
+  );
+});
+
+it('TEETH: removing the `.cells-grid input` rule entirely fails the guard', () => {
+  const errors = checkCellsInputCompact(
+    cascadeIo(structureCss({ cells: '/* cells override deleted */' })),
+  );
+  assert.ok(
+    errors.some((e) => e.includes('no `.cells-grid input` rule found')),
+    `expected a missing-rule error, got: ${errors.join(' | ')}`,
+  );
+});
+
+it('TEETH: gutting the shared baseline min-width fails the guard (scope, do not gut)', () => {
+  // Modelling the WRONG fix (Option A taken too far): scoping the baseline so
+  // hard it loses min-width would shrink the WebSocket/CRUD/etc. inputs.
+  const errors = checkCellsInputCompact(
+    cascadeIo(structureCss({ base: 'input[type="text"] { padding: 8px 12px; }' })),
+  );
+  assert.ok(
+    errors.some((e) => e.includes('min-width') && e.includes('baseline')),
+    `expected a gutted-baseline error, got: ${errors.join(' | ')}`,
+  );
+});
+
+it('TEETH: removing the shared baseline rule entirely fails the guard', () => {
+  const errors = checkCellsInputCompact(
+    cascadeIo(structureCss({ base: '/* baseline deleted */' })),
+  );
+  assert.ok(
+    errors.some((e) => e.includes('baseline is gone')),
+    `expected a baseline-gone error, got: ${errors.join(' | ')}`,
   );
 });
 

@@ -54,6 +54,14 @@
  *      _shared files exist on disk and structure.css remains reachable from
  *      style.css's @import.
  *
+ *   4. Pins ONE load-bearing CSS-cascade invariant the static resolver can't
+ *      see (rf2-gv5xd): the 7GUIs Cells grid's compact cell editor
+ *      (`.cells-grid input`) must keep its `min-width: 0` reset so the shared
+ *      `input[type="text"]` baseline's `min-width: 240px` cannot re-expand it
+ *      — while that shared baseline still carries a `min-width` (so the
+ *      WebSocket send form + other bare text inputs keep working). See
+ *      checkCellsInputCompact below.
+ *
  * This is NOT a per-example *.spec.cjs — examples/ stays test-free
  * (rf2-8cevm). It is a pure static scanner, wired into the always-run
  * `test:script-policy` gate (see implementation/scripts/
@@ -371,14 +379,121 @@ function checkSharedTree(io, opts = {}) {
   return errors;
 }
 
+// ---------------------------------------------------------------------------
+// CSS-cascade regression guard (rf2-gv5xd). The static asset gate checks that
+// references resolve; it does NOT model the cascade. One specific cascade
+// invariant is load-bearing and easy to silently break, so we pin it here.
+//
+// structure.css ships a shared `input[type="text"]` baseline (comfortable
+// form inputs: `min-width: 240px`) consumed by every bare text input across
+// the examples — CRUD, Temperature, Flight Booker, the WebSocket send form,
+// etc. The 7GUIs Cells grid renders a *compact* cell editor (`width: 56px`)
+// as a text input inside `.cells-grid`. `input[type="text"]` and
+// `.cells-grid input` have EQUAL specificity, so the only thing stopping the
+// 240px baseline from re-expanding the cell on edit — blowing out the compact
+// A1..Z100 grid — is the explicit `min-width: 0` reset on `.cells-grid input`.
+// Drop that reset and the grid silently regresses. This guard fails the gate
+// if the reset disappears, while also asserting the shared baseline still
+// carries its `min-width` (so the WebSocket/CRUD/etc. forms keep working —
+// i.e. the fix scoped the override, it didn't gut the baseline).
+// ---------------------------------------------------------------------------
+
+// Extract the declaration block (the text between { and the next }) for the
+// FIRST rule whose selector list exactly matches `selector` (whitespace-
+// normalised). Hand-rolled to match this file's regex-not-parser philosophy;
+// structure.css is a flat, comment-light, nesting-free stylesheet so a
+// balanced-brace parser is unnecessary. Returns the inner block string, or
+// null if no such rule exists.
+function extractCssRuleBody(css, selector) {
+  // Strip block comments so a selector mentioned inside a /* ... */ comment
+  // (structure.css references `.cells-grid input` in prose) is never matched.
+  const noComments = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  const wanted = selector.replace(/\s+/g, ' ').trim();
+  const ruleRe = /([^{}]+)\{([^{}]*)\}/g;
+  let m;
+  while ((m = ruleRe.exec(noComments)) !== null) {
+    const sel = m[1].replace(/\s+/g, ' ').trim();
+    if (sel === wanted) return m[2];
+  }
+  return null;
+}
+
+// True iff the declaration block declares `prop` with a value matching
+// `valueRe` (the value text up to the next `;` or block end).
+function blockDeclares(block, prop, valueRe) {
+  const re = new RegExp(`(?:^|;)\\s*${prop}\\s*:\\s*([^;]+)`, 'i');
+  const m = block.match(re);
+  return m != null && valueRe.test(m[1].trim());
+}
+
+function checkCellsInputCompact(io, opts = {}) {
+  const sharedRoot = opts.sharedRoot || SHARED_ROOT;
+  const errors = [];
+  const structurePath = path.join(sharedRoot, 'css', 'structure.css');
+  const css = readFileSafe(io, structurePath);
+  if (css == null) {
+    // A missing structure.css is already reported by checkSharedTree; don't
+    // double-report here.
+    return errors;
+  }
+  const rel = 'examples/_shared/css/structure.css';
+
+  const cellRule = extractCssRuleBody(css, '.cells-grid input');
+  if (cellRule == null) {
+    errors.push(
+      `${rel}: no \`.cells-grid input\` rule found — the 7GUIs Cells grid ` +
+        `relies on it to override the shared text-input baseline (rf2-gv5xd).`,
+    );
+  } else {
+    if (!blockDeclares(cellRule, 'min-width', /^0(px)?$/)) {
+      errors.push(
+        `${rel}: \`.cells-grid input\` must declare \`min-width: 0\` to reset ` +
+          `the shared \`input[type="text"]\` baseline's \`min-width: 240px\` ` +
+          `(equal specificity). Without it, editing a Cells cell re-expands ` +
+          `the column to >=240px and wrecks the compact grid (rf2-gv5xd).`,
+      );
+    }
+    if (!blockDeclares(cellRule, 'width', /^56px$/)) {
+      errors.push(
+        `${rel}: \`.cells-grid input\` must keep \`width: 56px\` (the intended ` +
+          `compact cell-editor size) (rf2-gv5xd).`,
+      );
+    }
+  }
+
+  // The shared baseline must STILL carry a min-width — proof the override was
+  // scoped, not achieved by gutting the baseline (which would shrink the
+  // WebSocket send form + CRUD/Temperature/Flight-Booker inputs).
+  const baseRule = extractCssRuleBody(css, 'input[type="text"]');
+  if (baseRule == null) {
+    errors.push(
+      `${rel}: the shared \`input[type="text"]\` baseline is gone — the ` +
+        `WebSocket send form + other bare text inputs rely on it (rf2-gv5xd).`,
+    );
+  } else if (!blockDeclares(baseRule, 'min-width', /\d/)) {
+    errors.push(
+      `${rel}: the shared \`input[type="text"]\` baseline lost its ` +
+        `\`min-width\` — scope the Cells override instead of gutting the ` +
+        `shared baseline (rf2-gv5xd).`,
+    );
+  }
+
+  return errors;
+}
+
 // Run the full scan over every example index.html plus the _shared tree.
 function scanAll(opts = {}) {
   const io = opts.io || fs;
   const indexes = opts.indexes || listExampleIndexHtml();
   const pages = indexes.map((p) => scanPage(io, p, opts));
   const sharedErrors = checkSharedTree(io, opts);
-  const errors = [...sharedErrors, ...pages.flatMap((p) => p.errors)];
-  return { pages, sharedErrors, errors };
+  const cascadeErrors = checkCellsInputCompact(io, opts);
+  const errors = [
+    ...sharedErrors,
+    ...cascadeErrors,
+    ...pages.flatMap((p) => p.errors),
+  ];
+  return { pages, sharedErrors, cascadeErrors, errors };
 }
 
 module.exports = {
@@ -396,6 +511,9 @@ module.exports = {
   checkCssImports,
   scanPage,
   checkSharedTree,
+  extractCssRuleBody,
+  blockDeclares,
+  checkCellsInputCompact,
   scanAll,
 };
 
