@@ -1,6 +1,6 @@
 # Test-React adapter
 
-Maven artefact: `day8/re-frame2-test-react`. Public ns: `re-frame.adapter.test-react`. Status: **carries ported lifecycle regressions** (rf2-gqyqv skeleton, broadened under rf2-n2cuo). The headline rf2-4l7t2 sync-unmount-during-render bug is now reproduced *organically* (a child/sibling render body trips the guard), not via fabricated in-flight state.
+Packaging: **local-test-only — not a published artefact** (no Maven coordinate, no `:clein/build`; absent from the lockstep array, release matrix, and CI JVM job set by design — see this directory's `deps.edn` header). Public ns: `re-frame.adapter.test-react`. Status: **carries ported lifecycle regressions** (rf2-gqyqv skeleton, broadened under rf2-n2cuo). The headline rf2-4l7t2 sync-unmount-during-render bug is now reproduced *organically* (a child/sibling render body trips the guard), not via fabricated in-flight state.
 
 A substrate adapter that simulates React class-3 lifecycle (constructor → did-mount → did-update → will-unmount) in pure CLJC. **No React, no DOM, no jsdom** — runs on the JVM and on Node-CLJS at unit-test speed.
 

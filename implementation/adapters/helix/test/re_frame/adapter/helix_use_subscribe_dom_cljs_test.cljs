@@ -68,6 +68,29 @@
         v (helix-adapter/use-subscribe target [:rf.helix-use-subscribe-test/m])]
     (d/div (str "m=" v))))
 
+;; ---- sibling-collision probes (rf2-e4pyb) ---------------------------------
+;; Two INDEPENDENT siblings reading the SAME query under the SAME frame —
+;; they share one cached reaction. Each renders its observed value into a
+;; distinct text node so the suite reads "a=N b=N" off the parent's
+;; textContent. The bug (hash-of-reaction watch key) leaves the
+;; first-mounted sibling stale; the fix (unique per-invocation key) keeps
+;; both subscribers' useSyncExternalStore callbacks alive.
+
+(def ^:private siblings-observed-a (atom []))
+(def ^:private siblings-observed-b (atom []))
+
+(defnc ProbeSiblingA []
+  (let [target @refcount-target
+        v (helix-adapter/use-subscribe target [:rf.helix-siblings/n])]
+    (swap! siblings-observed-a conj v)
+    (d/span (str "a=" v))))
+
+(defnc ProbeSiblingB []
+  (let [target @refcount-target
+        v (helix-adapter/use-subscribe target [:rf.helix-siblings/n])]
+    (swap! siblings-observed-b conj v)
+    (d/span (str " b=" v))))
+
 ;; ---- 2-arg explicit-pin probes (rf2-y0db2 — parity with UIx's rf2-rcgsc) --
 
 (def ^:private probe-2arg-a-observed (atom []))
@@ -141,6 +164,13 @@
    :probe-refcount-element (fn [] ($ ProbeRefcount))
    :rc-frame              :rf.helix-use-subscribe-test/refcount-frame
    :rc-query              :rf.helix-use-subscribe-test/m
+   ;; sibling-collision (rf2-e4pyb) — both siblings under one parent div so
+   ;; the suite reads "a=N b=N" off textContent.
+   :probe-siblings-element (fn [] ($ :div ($ ProbeSiblingA) ($ ProbeSiblingB)))
+   :siblings-observed-a   siblings-observed-a
+   :siblings-observed-b   siblings-observed-b
+   :sib-frame             :rf.helix-siblings/frame
+   :sib-query             :rf.helix-siblings/n
    ;; stable deps key
    :probe-stable-deps-element (fn [] ($ ProbeStableDepsParent))
    :stable-deps-set-tick  stable-deps-set-tick
@@ -164,6 +194,13 @@
 
 (deftest use-subscribe-cleanup-decrements-sub-cache-refcount
   (suite/assert-use-subscribe-cleanup-decrements-refcount cfg))
+
+;; rf2-e4pyb — two sibling components subscribing to the SAME cached
+;; reaction must BOTH receive invalidation after one dispatch (the
+;; hash-of-reaction watch key let the last-mounted sibling overwrite the
+;; earlier one's useSyncExternalStore callback → stale UI).
+(deftest use-subscribe-siblings-same-query-both-invalidate
+  (suite/assert-use-subscribe-siblings-same-query-both-invalidate cfg))
 
 ;; rf2-nymuy — StrictMode double-mount: the refcount/disposal dance under
 ;; React's default-dev double-invoke (the riskiest seam, previously

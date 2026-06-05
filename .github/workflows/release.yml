@@ -170,9 +170,15 @@ jobs:
         working-directory: implementation/adapters/reagent
         run: clojure -M:test || echo "no JVM-runnable tests in reagent artefact (expected)"
 
-      - name: JVM tests (reagent-slim artefact, classpath probe)
+      # The reagent-slim artefact (rf2-5djt Stage 4, rf2-6hyy) ships a
+      # JVM-runnable test namespace — reagent2.impl.component-test (the
+      # component-shape detection contract). This is a REAL JVM surface,
+      # NOT a skip-on-empty classpath probe, so the test-runner's non-zero
+      # exit MUST stop the release — no `|| echo` fallback (mirrors the
+      # `jvm-reagent-slim` job in .github/workflows/test.yml).
+      - name: JVM tests (reagent-slim artefact)
         working-directory: implementation/adapters/reagent-slim
-        run: clojure -M:test || echo "no JVM-runnable tests in reagent-slim artefact (expected)"
+        run: clojure -M:test
 
       - name: JVM tests (uix artefact, classpath probe)
         working-directory: implementation/adapters/uix
