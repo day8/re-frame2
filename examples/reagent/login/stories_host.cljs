@@ -43,8 +43,7 @@
    the Story body carries no code into a production bundle. The
    bundle-isolation gate verifies the Story / Xray sentinel sets stay
    out of the plain `:examples/login` build."
-  (:require [reagent.dom.client :as rdc]
-            [re-frame.core  :as rf]
+  (:require [re-frame.core  :as rf]
             [re-frame.story :as story]
             [re-frame.adapter.reagent :as reagent-adapter]
             [day8.re-frame2-xray.config :as xray-config]
@@ -52,7 +51,10 @@
             ;; demo fx / subs / views) and the Story artefacts. Requiring
             ;; `login.stories` transitively requires `login.core`.
             [login.core :as core]
-            [login.stories])
+            [login.stories]
+            ;; Shared Story-host helper (rf2-tq26t / rf2-uv7sn): owns the
+            ;; live-app↔Story-shell hash router + React-root handle.
+            [re-frame.testbed.story-host :as story-host])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; -- The live-app frame ----------------------------------------------------
@@ -82,37 +84,10 @@
 
 ;; -- Routing between the live app and the Story shell ----------------------
 ;;
-;; The live app and the Story shell each own a React root on the same
-;; `#app` node, one at a time. The live app's root lives in `app-root`;
-;; the Story shell allocates and owns its own root inside `mount-shell!`.
-;; We tear one down before mounting the other (mirrors
+;; The live-app↔Story-shell hash router + React-root host handle live in the
+;; shared `re-frame.testbed.story-host` helper (rf2-tq26t / rf2-uv7sn); `run`
+;; hands it `login-app` as the live-app surface (mirrors
 ;; nine-states.stories-host).
-
-(defonce ^:private app-root (atom nil))
-
-(defn- ensure-app-root! []
-  (when (nil? @app-root)
-    (reset! app-root (rdc/create-root (js/document.getElementById "app")))))
-
-(defn- tear-down-app-root! []
-  (when-let [r @app-root]
-    (try (rdc/unmount r) (catch :default _ nil))
-    (reset! app-root nil)))
-
-(defn- mount-app! []
-  (story/unmount-shell!)
-  (ensure-app-root!)
-  (rdc/render @app-root [login-app]))
-
-(defn- mount-stories! []
-  (tear-down-app-root!)
-  (story/mount-shell! (js/document.getElementById "app")))
-
-(defn- on-hash-change! []
-  (let [hash (or (.. js/window -location -hash) "")]
-    (if (re-find #"^#/stories" hash)
-      (mount-stories!)
-      (mount-app!))))
 
 (defn ^:export run []
   ;; Keep Xray's collectors + keybinding installed but do not auto-open
@@ -124,7 +99,6 @@
   ;; `reg-*` in `login.stories` (loaded via the require above)
   ;; auto-installs the canonical Story vocabulary (rf2-p1ydc).
   (install-live-frame!)
-  ;; Wire hash-change so reloading `#/stories` lands on the shell
-  ;; without a manual click-through.
-  (.addEventListener js/window "hashchange" on-hash-change!)
-  (on-hash-change!))
+  ;; Wire the live-app↔Story-shell hash router (shared helper) so reloading
+  ;; `#/stories` lands on the shell without a manual click-through.
+  (story-host/mount-with-hash-routing! login-app))

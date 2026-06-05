@@ -1,10 +1,13 @@
 # tools/testbed-support/
 
 A small **dev-only** support library shared by the Xray and Story
-browser testbeds. One namespace — `re-frame.testbed.config` — that
-derives the on-disk project root those testbeds hand to their
-"open in editor" source-coord resolvers, cross-platform and with no
-hardcoded checkout path.
+browser testbeds. Two namespaces:
+
+- `re-frame.testbed.config` — derives the on-disk project root those
+  testbeds hand to their "open in editor" source-coord resolvers,
+  cross-platform and with no hardcoded checkout path.
+- `re-frame.testbed.story-host` — the live-app ↔ Story-shell hash-toggle
+  host harness the Story showcase testbeds share (rf2-tq26t / rf2-uv7sn).
 
 ## What it is
 
@@ -30,6 +33,26 @@ other clone and every Mac/Linux maintainer (rf2-5dphw).
   testbed configures no root — "open in editor" degrades to a graceful
   no-op rather than a broken link.
 
+## The Story host harness (`story-host`)
+
+Every Story showcase entry point hosts two surfaces on the same `#app`
+node, one React root at a time — `#/` the live app, `#/stories` the Story
+shell. The plumbing that switches between them (a `defonce` React-root
+handle, the tear-down-one-before-mounting-the-other dance, and the
+`hashchange` listener) is pure React-DOM-root juggling — identical across
+every testbed but for the live-app root view. It was copy-pasted across
+five files (`counter_with_stories`, `login_form`, the `login` and
+`nine_states` examples, plus the template scaffolding), already drifting in
+the per-testbed boot specifics they each add.
+
+`re-frame.testbed.story-host/mount-with-hash-routing!` owns that harness:
+the testbed does its own boot (Xray config, `rf/init!`, `story/configure!`,
+`:fx-overrides`, seed dispatches, CI hooks) and calls the helper LAST with
+its live-app root view. Four of the five copies now call it; the **template
+copy stays standalone by design** — it is `resources/` scaffolding emitted
+into a fresh consumer project whose classpath has no access to this
+dev-repo-internal helper.
+
 ## Layout
 
 ```
@@ -37,7 +60,8 @@ tools/testbed-support/
 ├── README.md                                 ; this file
 └── src/re_frame/testbed/
     ├── config.cljs                           ; resolve-project-root + the repo-root goog-define
-    └── config_cljs_test.cljs                 ; CLJS unit tests for the resolver
+    ├── config_cljs_test.cljs                 ; CLJS unit tests for the resolver
+    └── story_host.cljs                       ; mount-with-hash-routing! (live-app↔shell host)
 ```
 
 ## How it's wired
