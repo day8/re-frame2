@@ -69,13 +69,13 @@ One machine. Three regions. Tags on states. One selector sub. One `case` in the 
    :data {:items [] :error nil}                 ;; shared across regions
 
    :guards
-   {:empty?    (fn [d _] (zero? (count (:items d))))
-    :one?      (fn [d _] (= 1 (count (:items d))))
-    :too-many? (fn [d _] (> (count (:items d)) too-many-threshold))}
+   {:empty?    (fn [{:keys [data]}] (zero? (count (:items data))))
+    :one?      (fn [{:keys [data]}] (= 1 (count (:items data))))
+    :too-many? (fn [{:keys [data]}] (> (count (:items data)) too-many-threshold))}
 
    :actions
-   {:set-items (fn [d [_ {:keys [items]}]] {:data (assoc d :items (vec items) :error nil)})
-    :set-error (fn [d [_ {:keys [failure]}]] {:data (assoc d :error failure)})}
+   {:set-items (fn [{data :data [_ {:keys [items]}] :event}] {:data (assoc data :items (vec items) :error nil)})
+    :set-error (fn [{data :data [_ {:keys [failure]}] :event}] {:data (assoc data :error failure)})}
 
    :regions
    {:data
