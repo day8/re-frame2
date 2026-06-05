@@ -21,6 +21,7 @@
   works unchanged; out-of-test side-effect warnings are silenced."
   {:dev/always true}
   (:require
+    [clojure.string :as str]
     [re-frame.test-quiet]
     [re-frame.test-quiet.shadow-node-cli :as cli]
     [shadow.test.env :as env]
@@ -85,8 +86,21 @@
         (println "---------------------------------"))
 
       (seq test-syms)
-      (let [test-vars (find-matching-test-vars test-syms)]
-        (st/run-test-vars test-env test-vars))
+      (let [test-vars (find-matching-test-vars test-syms)
+            unmatched (cli/unmatched-selectors test-syms test-vars)]
+        ;; A `--test=` selection that matches NO test var must NOT be a
+        ;; false green: shadow's `run-test-vars` over an empty set reports
+        ;; a 0-test SUCCESS and the `:end-run-tests` defmethod exits 0, so
+        ;; a typo in `--test=<selector>` would silently "pass" with zero
+        ;; tests run (rf2-lbo79.1).  Reject any unmatched selector — print
+        ;; the offenders and exit nonzero before running anything.
+        (if (seq unmatched)
+          (do
+            (println "ERROR: no tests matched --test= selector(s):"
+                     (str/join ", " (map str unmatched)))
+            (println "Use --list to see known test names.")
+            (js/process.exit 1))
+          (st/run-test-vars test-env test-vars)))
 
       :else
       (st/run-all-tests test-env nil))))
