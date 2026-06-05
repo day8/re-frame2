@@ -111,7 +111,7 @@ debug without re-running under a debugger:
 | `tools/xray` unit gate | CLJ/CLJS helper, registry, config, shell, trace bus, and panel view tests. Intended default local/CI coverage for Xray internals. |
 | Frame-singleton guard (rf2-1w07r — EPIC closed via rf2-nesy9) | Source-text JVM guard (`frame_singleton_guard_test.clj`, in the `clojure -M:test` gate) flagging the two singleton-class anti-patterns — a bare `{:frame :rf/xray}` / `(rf/subscribe :rf/xray …)` literal, and a global `rf/dispatch` wired to an `:on-*` handler — in any file under `tools/xray/src`. The rf2-nesy9 sweep migrated EVERY panel / modal / static surface to the captured-instance-frame pattern (reg-view-injected `dispatch`, a threaded `dispatch-fn`, a render-time `(rf/current-frame-id)` capture, or a `(rf/frame-handle)` bundle for async/held ops), so the `pending-migration` allowlist is now **EMPTY** — the whole `tools/xray/src` tree is locked clean (an allowlist-honesty test keeps it empty). The few legitimate production-singleton seams (trace-collector `note-suppressed!`, share-URL on-load restore, per-feature `hydrate!` init) target the shell via the named `defaults/default-frame-id` Var, never a bare map literal. The two-instance state-isolation acceptance (distinct tab/mode/focused-epoch per shell) is pinned by the CLJS `two_instance_isolation_cljs_test.cljs`. |
 | Xray browser smoke gate | Existing lightweight browser coverage from `tools/xray/testbeds/two_frame_isolation` (the canonical multi-frame ISOLATION surface — repointed under rf2-wa8my to mount the `standard_epochs` deck twice, one app in two isolated frames `:above` + `:below`) and `tools/xray/testbeds/standard_epochs` (the single-frame deck). Intended default browser smoke coverage. |
-| Xray browser feature gate | New deterministic feature matrix gate described by this spec. It owns direct and failure paths for each matrix row. It can be sharded by panel but should report one matrix. |
+| Xray browser feature gate | New deterministic feature matrix gate described by this spec. It owns direct and failure paths for each matrix row. It can be sharded by panel but should report one matrix. Includes the `machine-epochs multi-machine frame-isolated stepper` scenario (rf2-q3lfm) over the `:examples/machine-epochs` testbed — see §The machine-epochs frame-isolated stepper below. |
 | Xray 20-event/load gate | Explicit or pre-commit/pre-PR stress gate only. It is not default CI. It reuses the feature testbed and runs the row-specific 20-event/load checks. |
 | Production elision gate | Existing implementation production-elision probes plus any Xray-specific release probe proving preload, keybinding, pill, trace collector, and shell are absent under `goog.DEBUG=false`. |
 
@@ -161,6 +161,63 @@ This closes a structural gap: today's coverage matrix tests
 **surfaces** (does the panel render? does the click work?); the
 bug-class column tests **insight delivery** (does the surface answer
 the question the user came in with?).
+
+## The machine-epochs frame-isolated stepper (rf2-q3lfm)
+
+The `:examples/machine-epochs` testbed (port 8033,
+`tools/xray/testbeds/machine_epochs/`) is the MULTI-MACHINE,
+FRAME-ISOLATED state-machine stepper. It is a testbed surface that
+CONSUMES the existing Xray frame-switcher contract
+(`:rf.xray/select-frame`, `018-Event-Spine.md` §Frame dropdown +
+`frame_switcher.cljs`) — it adds **no new Xray contract**; this section
+documents the testbed's shape so the browser feature gate's
+`machine-epochs multi-machine frame-isolated stepper` scenario has a
+normative reference.
+
+**Shape.** Eight machine domains (door · traffic · quiz · brew ·
+session · fuse · hvac · media) each run in their OWN frame
+(`:machine/<track>`) and own their OWN Xray epoch ring. A left-rail
+PICKER selects a track; selecting a track:
+
+1. sets the SHELL frame's (`:rf/default`) runner bookkeeping
+   (`:rf.runner/selected` + per-track `:rf.runner/cursors`),
+2. LAZILY creates the track's `:machine/<track>` frame on first entry
+   (`rf/reg-frame` with an `:on-create` boot event — BOOT-ON-SELECT, so
+   the first observed epoch is the machine's START cascade), and
+3. re-points Xray at that frame via the host-facing focus channel
+   (`day8.re-frame2-xray.focus/focus!` with `{:frame :machine/<track>}`,
+   which fires `:rf.xray/select-frame`), so the Epoch panel cascade,
+   the time-travel scrubber, the App-db panel, and the Machine Inspector
+   all show ONLY that machine's isolated arc.
+
+**Stepping.** A step writes the per-track cursor in the SHELL (not
+observed) and dispatches the step's machine event INTO the machine
+frame (`{:frame :machine/<track>}`) — two epochs: a shell cursor write
++ the machine cascade in the machine frame (observed). The cursor and
+selection live in app-db (events + subs), not Reagent atoms (rf2-5sjbg).
+
+**Restart** resets the selected track's machine frame
+(`rf/reset-frame!` = destroy + re-`reg-frame` with the same
+`:on-create`), so the ring clears and the machine re-arcs from boot;
+the track cursor clears. The fuse track's boot-on-select THROWS (its
+initial `:entry` action throws on boot) — that is the sole
+machine-action-exception trigger.
+
+**Isolation invariant (the lens).** Each machine's progression is a
+clean scrubbable arc in its own ring — switching switches WHICH
+isolated arc Xray shows, never interleaving, including across
+switch-and-return (pick A → step → pick B → step → return to A: A's
+ring is intact and resumes). The browser feature gate asserts this with
+a cross-frame flip + a per-track frame-snapshot read
+(`:machine/<track>` app-db, not `:rf/default`).
+
+**Localized runner.** The multi-track / frame-per-machine machinery is
+machine-epochs-LOCAL (the deck's own ns); the shared `runner.core`
+(consumed by the five single-track decks) is UNCHANGED — the deck
+reuses its host-frame + cross-frame-dispatch idiom as a building block
+only. The CLJS render-fidelity harness
+(`panels.epoch.machine-epochs-harness-cljs-test`) drives the substrate
+directly and is decoupled from this view.
 
 ## Cross-references
 

@@ -2918,16 +2918,16 @@ async function runRoutesEpochs(page, state) {
 //
 // What this scenario can / cannot assert:
 // —————————————————————————————————————————————————————————————
-// The deck OWNS its `:door/main` + `:traffic/light` machines and drives
-// them through the REAL `reg-machine` + machine-event-routing surface, so
-// every rung's machine FEATURE (plain transition · entry/exit data delta ·
-// guard pass vs fail · parallel-region broadcast · ignored event) is
-// genuinely exercised and is observable in the host's `:rf/default`
-// app-db machine snapshots, read directly via the public
-// `re-frame.core/app-db-value` accessor (rf2-5sgwn — the deck's on-page
-// status strip was removed; `readMachineStrip` now reads the substrate
-// snapshot and reconstructs the same text). We assert those snapshot
-// facts — they are the robust, non-flaky proof each machine feature fired.
+// rf2-q3lfm — the deck OWNS all 8 machine domains and drives each through the
+// REAL `reg-machine` + machine-event-routing surface, but each domain now
+// runs in its OWN frame (`:machine/<track>`). Every step's machine FEATURE
+// (plain transition · entry/exit data delta · guard pass vs fail ·
+// parallel-region broadcast · ignored event · microstep · timer · spawn ·
+// deep-compound LCA · history) is genuinely exercised and is observable in
+// THAT track's frame app-db machine snapshot, read directly via the public
+// `re-frame.core/app-db-value` accessor (`readTrackSnapshots`, scoped to
+// `:machine/<track>`). We assert those per-frame snapshot facts — they are
+// the robust, non-flaky proof each machine feature fired in its own frame.
 //
 // We additionally open the Machines tab and confirm `rf-xray-machine-
 // inspector` mounts on a focused machine event, plus that machine activity
@@ -2942,45 +2942,47 @@ async function runRoutesEpochs(page, state) {
 // deck's job is the real-machine-feature step-up surface, asserted through
 // the substrate snapshot + the panel handoff.
 
-// Drive a deck step by its (1-based) ladder rung number.
+// rf2-q3lfm — the deck was reworked into a MULTI-MACHINE, FRAME-ISOLATED
+// stepper. Each machine domain now lives in its OWN frame (`:machine/<id>`)
+// and the left rail is a PICKER: selecting a track
+// (`machine-epochs-track-<id>`) shows its step path AND re-points Xray at
+// that machine's frame. The per-track step rows are still RANDOM-ACCESS
+// RUN-THIS-STEP buttons (`machine-epochs-step-<n>-run`, n = 0-based index
+// WITHIN the selected track's path), so this scenario first selects a track,
+// then drives that track's steps by their per-track index.
 //
-// rf2-kipb5 — the deck was converted to the shared queued-step runner
-// (`runner.core`). It no longer mounts a bespoke `machine-epochs-rung-<n>`
-// button per rung; instead the runner renders one step row per step, and
-// each row's index is a RANDOM-ACCESS RUN-THIS-STEP button
-// (`machine-epochs-step-<n>-run`, n = 0-based step index). The runner's
-// per-step run affordance is exactly the random-access addressing this
-// scenario needs — it drives steps OUT OF ORDER at the end (re-driving the
-// fresh-transition / unhandled-no-op / boot-entry-throw steps for the
-// Inspector + throw/no-op-contrast handoff), which the runner's sequential
-// cursor alone could not provide.
-//
-// The scenario keeps the historical 1-based rung vocabulary (rung 1 = the
-// first step) and maps it onto the 0-based runner step index here, so every
-// call site below reads unchanged. The step ORDER is identical to the old
-// ladder (same events, same machine features); only the driving affordance
-// moved to the runner.
-async function clickMachineRung(page, n) {
-  await clickTestId(page, `machine-epochs-step-${n - 1}-run`);
+// Select a track by its id (`:door` -> `machine-epochs-track-door`). The
+// select boots the track's machine(s) into its frame (boot-on-select) and
+// re-points Xray, so the track's first observed epoch is its START cascade.
+async function selectMachineTrack(page, trackId) {
+  await clickTestId(page, `machine-epochs-track-${trackId}`);
+  // The step panel re-renders for the selected track.
+  await expectVisible(page.locator('[data-testid="machine-epochs-panel"]'), 5000);
 }
 
-// Read every machine's snapshot directly from the host's `:rf/default`
-// app-db and reconstruct a `state … · tags …` text for each machine — the
-// robust, non-flaky proof each machine feature landed its configuration.
+// Drive step `n` (0-based, within the currently-selected track's path) via
+// its RUN-THIS-STEP button.
+async function clickMachineStep(page, n) {
+  await clickTestId(page, `machine-epochs-step-${n}-run`);
+}
+
+// Restart the currently-selected track (resets its machine frame's ring +
+// re-arcs from boot).
+async function restartMachineTrack(page) {
+  await clickTestId(page, 'machine-epochs-restart');
+}
+
+// Read one machine's snapshot directly from its OWN `:machine/<track>` frame
+// app-db (rf2-q3lfm — per-machine frame isolation; snapshots no longer live
+// in `:rf/default`). Reconstructs the same `state … · tags …` text the old
+// `:rf/default` strip produced, scoped to the given track's frame, so the
+// per-machine assertions below read robustly. Returns `{ mounted, ... }`.
 //
-// rf2-5sgwn — the deck's `machine-epochs-status-strip` (and the deck subs
-// it consumed) were removed: the Xray Epoch panel + Machine Inspector are
-// the on-screen read-out, not a host strip. The snapshot is the canonical
-// machine state — `[:rf/machine <id>]` is just `(get-in db [:rf/runtime
-// :machines :snapshots <id>])` — so this helper reads it through the
-// PUBLIC `re-frame.core/app-db-value` accessor and `pr-str`s the same
-// fields the strip rendered. The reconstructed `stripText` keeps every
-// existing rung-assertion regex working unchanged; the per-machine
-// `*State` fields feed the `state.machineEpochs` record. This is the
-// robust, non-flaky proof each machine feature fired, decoupled from any
-// deck view.
-async function readMachineStrip(page) {
-  return page.evaluate(() => {
+// `trackId` is the track name (e.g. 'door', 'media'); the frame id is
+// `:machine/<trackId>`. `machineIds` is the set of machine-ids the track
+// boots into that one frame (media boots two).
+async function readTrackSnapshots(page, trackId, machineIds) {
+  return page.evaluate(({ trackId, machineIds }) => {
     const cljs = window.cljs && window.cljs.core;
     const rf = window.re_frame && window.re_frame.core;
     if (!cljs || !rf || typeof rf.app_db_value !== 'function') {
@@ -2998,9 +3000,8 @@ async function readMachineStrip(page) {
         ? cljs.keyword.call(null, trimmed)
         : cljs.keyword(trimmed);
     }
-    const db = rf.app_db_value(keyword(':rf/default'));
-    if (db == null) return { mounted: false, reason: 'no :rf/default app-db' };
-    // Snapshot path: [:rf/runtime :machines :snapshots <machine-id>].
+    const db = rf.app_db_value(keyword(`:machine/${trackId}`));
+    if (db == null) return { mounted: false, reason: `no :machine/${trackId} app-db` };
     function snapshot(machineId) {
       const path = cljs.PersistentVector.fromArray([
         keyword(':rf/runtime'), keyword(':machines'),
@@ -3019,321 +3020,317 @@ async function readMachineStrip(page) {
     function pr(v) {
       return v == null ? 'nil' : cljs.pr_str(v);
     }
-    // Reconstruct one strip row: "<label> state: <state> · tags: <tags>".
-    function row(label, machineId) {
-      const snap = snapshot(machineId);
-      const state = field(snap, ':state');
-      const tags = field(snap, ':tags');
-      return `${label} state: ${pr(state)} · tags: ${pr(tags)}`;
+    const lines = [];
+    for (const mid of machineIds) {
+      const snap = snapshot(mid);
+      lines.push(`${mid} state: ${pr(field(snap, ':state'))} · tags: ${pr(field(snap, ':tags'))}`);
+      lines.push(`${mid} data: ${pr(field(snap, ':data'))}`);
+      lines.push(`${mid} :rf/history: ${pr(field(snap, ':rf/history'))}`);
     }
-    const doorData = field(snapshot(':door/main'), ':data');
-    const quizData = field(snapshot(':quiz/scorer'), ':data');
-    const mediaDeepHistory = field(snapshot(':media/deep'), ':rf/history');
-    const mediaShallowHistory = field(snapshot(':media/shallow'), ':rf/history');
-    const lines = [
-      row(':door/main', ':door/main'),
-      `:door/main data: ${pr(doorData)}`,
-      row(':traffic/light', ':traffic/light'),
-      row(':quiz/scorer', ':quiz/scorer'),
-      `:quiz/scorer data: ${pr(quizData)}`,
-      row(':brew/machine', ':brew/machine'),
-      row(':session/flow', ':session/flow'),
-      `:session/flow data: ${pr(field(snapshot(':session/flow'), ':data'))}`,
-      row(':hvac/controller', ':hvac/controller'),
-      row(':media/deep', ':media/deep'),
-      `:media/deep :rf/history: ${pr(mediaDeepHistory)}`,
-      row(':media/shallow', ':media/shallow'),
-      `:media/shallow :rf/history: ${pr(mediaShallowHistory)}`,
-    ];
     const stripText = lines.join(' ').replace(/\s+/g, ' ').trim();
-    function stateText(label, machineId) {
-      const state = field(snapshot(machineId), ':state');
-      return `${label} state: ${pr(state)}`;
-    }
-    return {
-      mounted: true,
-      stripText,
-      doorState: stateText(':door/main', ':door/main'),
-      trafficState: stateText(':traffic/light', ':traffic/light'),
-      quizState: stateText(':quiz/scorer', ':quiz/scorer'),
-      brewState: stateText(':brew/machine', ':brew/machine'),
-      sessionState: stateText(':session/flow', ':session/flow'),
-      hvacState: stateText(':hvac/controller', ':hvac/controller'),
-      sessionData: pr(field(snapshot(':session/flow'), ':data')),
-    };
-  });
+    return { mounted: true, stripText };
+  }, { trackId, machineIds });
 }
 
+// Convenience: wait until a track's reconstructed snapshot text matches a
+// predicate.
+async function waitForTrackSnapshot(page, trackId, machineIds, pred, description) {
+  return waitForValue(
+    () => readTrackSnapshots(page, trackId, machineIds),
+    (snap) => snap.mounted && pred(snap.stripText || ''),
+    { timeoutMs: 10000, description },
+  );
+}
+
+// (rf2-q3lfm — the old single-`:rf/default` `readMachineStrip` is gone; the
+// per-machine-frame `readTrackSnapshots` above is the snapshot reader now,
+// since each machine's snapshot lives in its own `:machine/<track>` frame.)
+
 async function runMachineEpochs(page, state) {
-  // The deck's `run` bootstraps every machine, so the snapshots are
-  // populated immediately. Assert the door booted to :locked before driving
-  // the ladder. Each rung's machine FEATURE is asserted off the host's
-  // `:rf/default` app-db machine snapshot (read directly via
-  // `re-frame.core/app-db-value` in `readMachineStrip`) after each
-  // cascade; the deep RENDER-FIDELITY assertions (cascade kinds/order,
-  // microsteps, timer-cancel, spawn/destroy, set-diff, throw-as-error) live
-  // in the CLJS unit test
+  // rf2-q3lfm — the MULTI-MACHINE, FRAME-ISOLATED stepper. Each machine
+  // domain runs in its OWN frame (`:machine/<track>`); the left rail is a
+  // PICKER that, on select, boots the track's machine(s) (boot-on-select) AND
+  // re-points Xray at that frame. We SELECT a track, then drive its per-track
+  // step rows by their 0-based index WITHIN the track, asserting each step's
+  // machine FEATURE off THAT track's frame snapshot (`readTrackSnapshots`,
+  // reading `:machine/<track>`). The deep RENDER-FIDELITY assertions (cascade
+  // kinds/order, microsteps, timer-cancel, spawn/destroy, set-diff,
+  // throw-as-error) live in the CLJS unit test
   // `panels.epoch.machine-epochs-harness-cljs-test` per the Causa/Story-as-
-  // CLJS rule. Here we confirm each rung lands the expected configuration
-  // WITHOUT contradiction (the browser-side legibility sanity check) and the
-  // Machine Inspector mounts on a focused machine event.
-  await waitForValue(
-    () => readMachineStrip(page),
-    (snap) => snap.mounted && /:door\/main state: :locked/.test(snap.stripText || ''),
-    { timeoutMs: 10000, description: 'machine-epochs door machine boots to :locked' },
+  // CLJS rule. Here we confirm each step lands the expected configuration in
+  // its OWN frame, prove the per-machine frame isolation with a cross-frame
+  // flip, and confirm the Machine Inspector mounts.
+
+  // The deck auto-selects :door on boot, so its frame should already exist +
+  // be booted to :locked.
+  await waitForTrackSnapshot(
+    page, 'door', [':door/main'],
+    (t) => /:door\/main state: :locked/.test(t),
+    'machine-epochs door track auto-selected + booted to :locked',
   );
 
-  // ===== Door (FLAT) =====================================================
-  // #1 start machine — bootstrap re-fires; door stays :locked.
-  await clickMachineRung(page, 1);
+  // ===== Door (FLAT) — select the track, drive its path ==================
+  await selectMachineTrack(page, 'door');
 
-  // #2 plain transition — :locked -> :closed.
-  await clickMachineRung(page, 2);
-  await waitForValue(
-    () => readMachineStrip(page),
-    (snap) => /:door\/main state: :closed/.test(snap.stripText || ''),
-    { timeoutMs: 10000, description: '#2 insert-coin -> door :closed' },
+  // step 0 plain transition — :locked -> :closed.
+  await clickMachineStep(page, 0);
+  await waitForTrackSnapshot(
+    page, 'door', [':door/main'],
+    (t) => /:door\/main state: :closed/.test(t),
+    'door#0 insert-coin -> :closed',
   );
 
-  // #3 entry + exit actions — :closed -> :open; :open's :entry bumps
-  //    :opened-count to 1.
-  await clickMachineRung(page, 3);
-  await waitForValue(
-    () => readMachineStrip(page),
-    (snap) =>
-      /:door\/main state: :open/.test(snap.stripText || '') &&
-      /:opened-count 1/.test(snap.stripText || ''),
-    { timeoutMs: 10000, description: '#3 push -> door :open + :opened-count 1' },
+  // step 1 entry + exit actions — :closed -> :open; :open's :entry bumps
+  //   :opened-count to 1.
+  await clickMachineStep(page, 1);
+  await waitForTrackSnapshot(
+    page, 'door', [':door/main'],
+    (t) => /:door\/main state: :open/.test(t) && /:opened-count 1/.test(t),
+    'door#1 push -> :open + :opened-count 1',
   );
 
-  // #4 guard ALLOWED — :open -> :closed.
-  await clickMachineRung(page, 4);
-  await waitForValue(
-    () => readMachineStrip(page),
-    (snap) => /:door\/main state: :closed/.test(snap.stripText || ''),
-    { timeoutMs: 10000, description: '#4 close -> guard allowed, door :closed' },
+  // step 2 guard ALLOWED — :open -> :closed.
+  await clickMachineStep(page, 2);
+  await waitForTrackSnapshot(
+    page, 'door', [':door/main'],
+    (t) => /:door\/main state: :closed/.test(t),
+    'door#2 close -> guard allowed, :closed',
   );
 
-  // #5 guard BLOCKED — re-open, arm :held-open?, attempt close. Guard FAILS,
-  //    door STAYS :open + the hold flag remains set.
-  await clickMachineRung(page, 5);
-  const afterBlocked = await waitForValue(
-    () => readMachineStrip(page),
-    (snap) =>
-      /:door\/main state: :open/.test(snap.stripText || '') &&
-      /:held-open\? true/.test(snap.stripText || ''),
-    { timeoutMs: 10000, description: '#5 reopen-hold-close -> guard blocked, door STAYS :open' },
+  // step 3 guard BLOCKED — re-open, arm :held-open?, attempt close. Guard
+  //   FAILS, door STAYS :open + the hold flag remains set.
+  await clickMachineStep(page, 3);
+  const afterBlocked = await waitForTrackSnapshot(
+    page, 'door', [':door/main'],
+    (t) => /:door\/main state: :open/.test(t) && /:held-open\? true/.test(t),
+    'door#3 reopen-hold-close -> guard blocked, STAYS :open',
   );
 
-  // #6 transition-with-effect — :open -> :alarming; :enter-alarm's :fx
-  //    dispatches :alarm-acknowledged.
-  await clickMachineRung(page, 6);
-  await waitForValue(
-    () => readMachineStrip(page),
-    (snap) => /:door\/main state: :alarming/.test(snap.stripText || ''),
-    { timeoutMs: 10000, description: '#6 trip -> door :alarming' },
+  // step 4 transition-with-effect — :open -> :alarming; :enter-alarm's :fx
+  //   dispatches :alarm-acknowledged.
+  await clickMachineStep(page, 4);
+  await waitForTrackSnapshot(
+    page, 'door', [':door/main'],
+    (t) => /:door\/main state: :alarming/.test(t),
+    'door#4 trip -> :alarming',
   );
 
-  // #7 unhandled -> benign no-op — insert-coin into :alarming has no :on
-  //    entry; the door STAYS :alarming.
-  await clickMachineRung(page, 7);
-  await waitForValue(
-    () => readMachineStrip(page),
-    (snap) => /:door\/main state: :alarming/.test(snap.stripText || ''),
-    { timeoutMs: 10000, description: '#7 insert-coin into :alarming -> benign no-op' },
+  // step 5 unhandled -> benign no-op — insert-coin into :alarming has no :on
+  //   entry; the door STAYS :alarming.
+  await clickMachineStep(page, 5);
+  await waitForTrackSnapshot(
+    page, 'door', [':door/main'],
+    (t) => /:door\/main state: :alarming/.test(t),
+    'door#5 insert-coin into :alarming -> benign no-op',
   );
 
-  // #8 ROOT :on fallthrough (gap 6) — :alarming has no :door/audit; the
-  //    machine ROOT :on handles it -> :alarming -> :locked.
-  await clickMachineRung(page, 8);
-  await waitForValue(
-    () => readMachineStrip(page),
-    (snap) => /:door\/main state: :locked/.test(snap.stripText || ''),
-    { timeoutMs: 10000, description: '#8 audit -> root :on fallthrough -> door :locked' },
+  // step 6 ROOT :on fallthrough — :alarming has no :door/audit; the machine
+  //   ROOT :on handles it -> :alarming -> :locked.
+  await clickMachineStep(page, 6);
+  await waitForTrackSnapshot(
+    page, 'door', [':door/main'],
+    (t) => /:door\/main state: :locked/.test(t),
+    'door#6 audit -> root :on fallthrough -> :locked',
   );
+
+  // ===== Cross-frame flip acceptance (rf2-q3lfm de-risk) =================
+  // The linchpin of the redesign: switch A -> B -> back to A and confirm each
+  // machine's frame snapshot is ISOLATED. Pick traffic, drive it, return to
+  // door and confirm DOOR's ring/state is intact (:locked, NOT touched by the
+  // traffic steps) — the proof the two frames never interleave.
 
   // ===== Traffic (PARALLEL) =============================================
-  // #9 parallel regions — one tick broadcasts to BOTH regions.
-  await clickMachineRung(page, 9);
-  const afterParallel = await waitForValue(
-    () => readMachineStrip(page),
-    (snap) => {
-      const t = snap.stripText || '';
-      return /:vehicle :green/.test(t) && /:pedestrian :dont-walk/.test(t);
-    },
-    { timeoutMs: 10000, description: '#9 tick -> BOTH regions advanced (vehicle :green + pedestrian :dont-walk)' },
+  await selectMachineTrack(page, 'traffic');
+
+  // step 0 parallel regions — one tick broadcasts to BOTH regions.
+  await clickMachineStep(page, 0);
+  const afterParallel = await waitForTrackSnapshot(
+    page, 'traffic', [':traffic/light'],
+    (t) => /:vehicle :green/.test(t) && /:pedestrian :dont-walk/.test(t),
+    'traffic#0 tick -> BOTH regions advanced (vehicle :green + pedestrian :dont-walk)',
   );
 
-  // #10 history ribbon — a second tick advances both regions again; the
-  //     :tags member swap (gap 7) is asserted in the CLJS harness.
-  await clickMachineRung(page, 10);
-  await waitForValue(
-    () => readMachineStrip(page),
-    (snap) => {
-      const t = snap.stripText || '';
-      return /:vehicle :amber/.test(t) && /:pedestrian :walk/.test(t);
-    },
-    { timeoutMs: 10000, description: '#10 second tick -> vehicle :amber + pedestrian :walk' },
+  // step 1 history ribbon — a second tick advances both regions again.
+  await clickMachineStep(page, 1);
+  const afterTraffic = await waitForTrackSnapshot(
+    page, 'traffic', [':traffic/light'],
+    (t) => /:vehicle :amber/.test(t) && /:pedestrian :walk/.test(t),
+    'traffic#1 second tick -> vehicle :amber + pedestrian :walk',
   );
 
-  // #11 multiple machines — one cascade resets the door AND ticks traffic.
-  await clickMachineRung(page, 11);
-  const afterMulti = await waitForValue(
-    () => readMachineStrip(page),
-    (snap) => {
-      const t = snap.stripText || '';
-      return /:door\/main state: :locked/.test(t) && /:vehicle :red/.test(t);
-    },
-    { timeoutMs: 10000, description: '#11 reset door + tick traffic -> door :locked + vehicle :red' },
+  // Switch BACK to door: its frame's snapshot must be UNTOUCHED by the
+  // traffic steps (door is still :locked from its last step) — frame
+  // isolation, the core lens of rf2-q3lfm. Re-selecting resumes door's ring.
+  await selectMachineTrack(page, 'door');
+  const doorAfterReturn = await waitForTrackSnapshot(
+    page, 'door', [':door/main'],
+    (t) => /:door\/main state: :locked/.test(t),
+    'switch-and-return: door frame intact (:locked) after driving traffic — isolation proven',
+  );
+  // And traffic's frame is ALSO intact (still :amber/:walk) — not reset by
+  // returning to door.
+  await waitForTrackSnapshot(
+    page, 'traffic', [':traffic/light'],
+    (t) => /:vehicle :amber/.test(t) && /:pedestrian :walk/.test(t),
+    'switch-and-return: traffic frame intact (:amber/:walk) after returning to door',
   );
 
-  // ===== Quiz (MICROSTEP — :always eventless settle, gap 1) =============
-  // #12 answer below the mark — score climbs, quiz STAYS :asking (0
-  //     microsteps).
-  await clickMachineRung(page, 12);
-  await waitForValue(
-    () => readMachineStrip(page),
-    (snap) => /:quiz\/scorer state: :asking/.test(snap.stripText || '') &&
-              /:score 1/.test(snap.stripText || ''),
-    { timeoutMs: 10000, description: '#12 answer -> :score 1, quiz STAYS :asking (0 microsteps)' },
+  // RESTART door: resets its machine frame (ring clears, re-arcs from boot) —
+  // door returns to :locked and the cursor clears. (Door is already :locked,
+  // so we assert the restart does not crash + the frame re-boots clean.)
+  await restartMachineTrack(page);
+  await waitForTrackSnapshot(
+    page, 'door', [':door/main'],
+    (t) => /:door\/main state: :locked/.test(t),
+    'restart: door frame reset + re-arced from boot (:locked)',
   );
 
-  // #13 answer to the pass mark — the guarded :always chain SETTLES the
-  //     quiz :asking -> :passed over N>0 microsteps (THE biggest gap).
-  await clickMachineRung(page, 13);
-  await waitForValue(
-    () => readMachineStrip(page),
-    (snap) => /:quiz\/scorer state: :passed/.test(snap.stripText || ''),
-    { timeoutMs: 10000, description: '#13 answer to mark -> :always settles quiz :asking -> :passed (microsteps > 0)' },
+  // ===== Quiz (MICROSTEP — :always eventless settle) ====================
+  await selectMachineTrack(page, 'quiz');
+
+  // step 0 answer below the mark — score climbs, quiz STAYS :asking.
+  await clickMachineStep(page, 0);
+  await waitForTrackSnapshot(
+    page, 'quiz', [':quiz/scorer'],
+    (t) => /:quiz\/scorer state: :asking/.test(t) && /:score 1/.test(t),
+    'quiz#0 answer -> :score 1, STAYS :asking (0 microsteps)',
   );
 
-  // ===== Brew (TIMER — :after + cancel, gap 2) ==========================
-  // #14 start brew — schedules the :after timer; brew enters :brewing.
-  await clickMachineRung(page, 14);
-  await waitForValue(
-    () => readMachineStrip(page),
-    (snap) => /:brew\/machine state: :brewing/.test(snap.stripText || ''),
-    { timeoutMs: 10000, description: '#14 start -> :brewing (:after timer scheduled)' },
+  // step 1 answer to the pass mark — the guarded :always chain SETTLES the
+  //   quiz :asking -> :passed over N>0 microsteps.
+  await clickMachineStep(page, 1);
+  const afterQuiz = await waitForTrackSnapshot(
+    page, 'quiz', [':quiz/scorer'],
+    (t) => /:quiz\/scorer state: :passed/.test(t),
+    'quiz#1 answer to mark -> :always settles :asking -> :passed (microsteps > 0)',
   );
 
-  // #15 let the :after timer elapse — auto-fires :brewing -> :ready.
-  await clickMachineRung(page, 15);
-  await waitForValue(
-    () => readMachineStrip(page),
-    (snap) => /:brew\/machine state: :ready/.test(snap.stripText || ''),
-    { timeoutMs: 10000, description: '#15 :after-elapsed -> :brewing -> :ready (auto-fire)' },
+  // ===== Brew (TIMER — :after + cancel) =================================
+  await selectMachineTrack(page, 'brew');
+
+  // step 0 start brew — schedules the :after timer; brew enters :brewing.
+  await clickMachineStep(page, 0);
+  await waitForTrackSnapshot(
+    page, 'brew', [':brew/machine'],
+    (t) => /:brew\/machine state: :brewing/.test(t),
+    'brew#0 start -> :brewing (:after timer scheduled)',
   );
 
-  // #16 re-start then CANCEL — exit beats the timer -> :rf.machine.timer/
-  //     cancelled (:on-exit); brew returns to :idle.
-  await clickMachineRung(page, 16);
-  await waitForValue(
-    () => readMachineStrip(page),
-    (snap) => /:brew\/machine state: :idle/.test(snap.stripText || ''),
-    { timeoutMs: 10000, description: '#16 start+abort -> :after timer cancelled (:on-exit), brew :idle' },
+  // step 1 let the :after timer elapse — auto-fires :brewing -> :ready.
+  await clickMachineStep(page, 1);
+  await waitForTrackSnapshot(
+    page, 'brew', [':brew/machine'],
+    (t) => /:brew\/machine state: :ready/.test(t),
+    'brew#1 :after-elapsed -> :ready (auto-fire)',
   );
 
-  // ===== Session (LIFECYCLE — spawn/final/on-done/destroy, gaps 3,4,5) ==
-  // #17 open session — :idle -> :authenticating SPAWNS the child actor.
-  await clickMachineRung(page, 17);
-  await waitForValue(
-    () => readMachineStrip(page),
-    (snap) => /:session\/flow state: :authenticating/.test(snap.stripText || ''),
-    { timeoutMs: 10000, description: '#17 open -> :authenticating (child :session/login spawned)' },
+  // step 2 re-start then CANCEL — exit beats the timer; brew returns to :idle.
+  await clickMachineStep(page, 2);
+  await waitForTrackSnapshot(
+    page, 'brew', [':brew/machine'],
+    (t) => /:brew\/machine state: :idle/.test(t),
+    'brew#2 start+abort -> :after timer cancelled (:on-exit), :idle',
   );
 
-  // #18 child succeeds — :final + :on-done reports the token to the parent +
-  //     the child auto-destroys. The strip surfaces the parent's :session-token
-  //     (written into its :data by the :on-done callback) — the observable
-  //     proof the callback ran; the auto-destroy / :rf.machine/finished trace
-  //     is asserted in the CLJS harness.
-  await clickMachineRung(page, 18);
-  await waitForValue(
-    () => readMachineStrip(page),
-    (snap) => /:session\/flow state: :authenticating/.test(snap.stripText || '') &&
-              /:session-token/.test(snap.stripText || ''),
-    { timeoutMs: 10000, description: '#18 child :final -> :on-done ran on the parent (data carries :session-token) + child auto-destroyed' },
+  // ===== Session (LIFECYCLE — spawn/final/on-done/destroy) ==============
+  await selectMachineTrack(page, 'session');
+
+  // step 0 open session — :idle -> :authenticating SPAWNS the child actor.
+  await clickMachineStep(page, 0);
+  await waitForTrackSnapshot(
+    page, 'session', [':session/flow'],
+    (t) => /:session\/flow state: :authenticating/.test(t),
+    'session#0 open -> :authenticating (child :session/login spawned)',
   );
 
-  // ===== Fuse (WILDCARD-THROW) — asserted as the throw contrast below ====
-
-  // ===== Hvac (DEEP-COMPOUND) ===========================================
-  // #20 parallel broadcast — ONE :hvac/power-cycle moves BOTH regions;
-  //     :climate descends its deep initial cascade.
-  await clickMachineRung(page, 20);
-  const afterHvacPower = await waitForValue(
-    () => readMachineStrip(page),
-    (snap) => {
-      const t = snap.stripText || '';
-      return /:climate \[:running :conditioning :heating\]/.test(t) &&
-             /:fan :on/.test(t);
-    },
-    { timeoutMs: 10000, description: '#20 power-cycle -> BOTH regions moved (climate deep leaf + fan :on)' },
+  // step 1 child succeeds — :final + :on-done reports the token to the parent
+  //   (data carries :session-token) + the child auto-destroys.
+  await clickMachineStep(page, 1);
+  await waitForTrackSnapshot(
+    page, 'session', [':session/flow'],
+    (t) => /:session\/flow state: :authenticating/.test(t) && /:session-token/.test(t),
+    'session#1 child :final -> :on-done ran on parent (:session-token) + child auto-destroyed',
   );
 
-  // #21 multi-level LCA cascade — :heating -> :cooling crossing the LCA
-  //     :conditioning. The deep compound leaf moves to :cooling (the LCA
-  //     cascade ORDER is pinned in the CLJS harness off the structured
-  //     :cascade).
-  await clickMachineRung(page, 21);
-  await waitForValue(
-    () => readMachineStrip(page),
-    (snap) => /:climate \[:running :conditioning :cooling\]/.test(snap.stripText || ''),
-    { timeoutMs: 10000, description: '#21 mode-toggle -> deep leaf :cooling (crosses the :conditioning LCA)' },
+  // ===== HVAC (DEEP-COMPOUND) ===========================================
+  await selectMachineTrack(page, 'hvac');
+
+  // step 0 parallel broadcast — ONE :hvac/power-cycle moves BOTH regions;
+  //   :climate descends its deep initial cascade.
+  await clickMachineStep(page, 0);
+  const afterHvacPower = await waitForTrackSnapshot(
+    page, 'hvac', [':hvac/controller'],
+    (t) => /:climate \[:running :conditioning :heating\]/.test(t) && /:fan :on/.test(t),
+    'hvac#0 power-cycle -> BOTH regions moved (climate deep leaf + fan :on)',
   );
 
-  // #22 EXTERNAL self-transition (:hvac/nudge) — :target :same-state re-enters
-  //     :on (exit -> entry boundary, asserted in the CLJS harness); fan STAYS
-  //     :on.
-  await clickMachineRung(page, 22);
-  await waitForValue(
-    () => readMachineStrip(page),
-    (snap) => /:fan :on/.test(snap.stripText || ''),
-    { timeoutMs: 10000, description: '#22 nudge -> external self-transition, fan STAYS :on' },
+  // step 1 multi-level LCA cascade — :heating -> :cooling crossing the LCA
+  //   :conditioning.
+  await clickMachineStep(page, 1);
+  await waitForTrackSnapshot(
+    page, 'hvac', [':hvac/controller'],
+    (t) => /:climate \[:running :conditioning :cooling\]/.test(t),
+    'hvac#1 mode-toggle -> deep leaf :cooling (crosses the :conditioning LCA)',
   );
 
-  // #23 INTERNAL self-transition (:hvac/tweak) — its :tweak-fan action runs
-  //     (bumps :tweaks); no exit/entry boundary (asserted in the CLJS harness);
-  //     fan STAYS :on.
-  await clickMachineRung(page, 23);
-  const afterHvacTweak = await waitForValue(
-    () => readMachineStrip(page),
-    (snap) => /:fan :on/.test(snap.stripText || ''),
-    { timeoutMs: 10000, description: '#23 tweak -> internal self-transition (action-only), fan STAYS :on' },
+  // step 2 EXTERNAL self-transition (:hvac/nudge) — re-enters :on; fan STAYS :on.
+  await clickMachineStep(page, 2);
+  await waitForTrackSnapshot(
+    page, 'hvac', [':hvac/controller'],
+    (t) => /:fan :on/.test(t),
+    'hvac#2 nudge -> external self-transition, fan STAYS :on',
   );
 
-  // ===== History (gap 8 — reject-now) ===================================
-  // #24 register a :history machine — REJECTED today; the deck swallows the
-  //     throw and the door stays put. The rejection shape is asserted in the
-  //     CLJS harness; here we confirm the rung does not crash the deck.
-  await clickMachineRung(page, 24);
-  // #25 (SHALLOW history restore) / #26 (DEEP history restore) are LIVE steps
-  // (rf2-mle6e.5); their full restore-cascade render assertions live in the
-  // CLJS harness (`history-shallow-restore-...` / `history-deep-restore-...`),
-  // which drives the substrate directly. The browser scenario does not need to
-  // re-drive them here — the harness owns that coverage.
+  // step 3 INTERNAL self-transition (:hvac/tweak) — action-only; fan STAYS :on.
+  await clickMachineStep(page, 3);
+  const afterHvacTweak = await waitForTrackSnapshot(
+    page, 'hvac', [':hvac/controller'],
+    (t) => /:fan :on/.test(t),
+    'hvac#3 tweak -> internal self-transition (action-only), fan STAYS :on',
+  );
+
+  // ===== Media (HISTORY) — the placement reject + live restore steps =====
+  // The media track boots BOTH machine-ids (:media/deep + :media/shallow)
+  // into the one media frame. Step 0 drives the placement-rejection probe
+  // (advances no snapshot); steps 1/2 drive the shallow/deep restore — their
+  // full restore-cascade render assertions live in the CLJS harness. Here we
+  // confirm the steps resolve + do not crash the deck, and the two media
+  // machines both booted into the one frame.
+  await selectMachineTrack(page, 'media');
+  await waitForTrackSnapshot(
+    page, 'media', [':media/deep', ':media/shallow'],
+    (t) => /:media\/deep state:/.test(t) && /:media\/shallow state:/.test(t),
+    'media track booted BOTH machine-ids into the one media frame',
+  );
+  await clickMachineStep(page, 0); // placement rejection probe
+  await clickMachineStep(page, 1); // shallow restore
+  await clickMachineStep(page, 2); // deep restore
 
   // ===== Xray Machine Inspector handoff + the throw/no-op contrast ======
   await openXray(page);
 
-  // rf2-4yrr6 / rf2-gl588 — :fuse/box must NOT throw on boot / rungs 1-24.
-  // The reset handler DELIBERATELY does not eager-start :fuse/box (its
-  // initial `:entry` action throws on the boot cascade); rung 19 (clicked
-  // below) lazily boots it and is the SOLE machine-action-exception trigger.
+  // rf2-q3lfm — the FUSE track throws on BOOT (boot-on-select): its initial
+  // :entry action :blow-fuse throws when the fuse frame is created on select.
+  // So the SOLE machine-action-exception trigger is now SELECTING fuse (not a
+  // late "rung 19"). Before selecting fuse, NO machine-action-exception may
+  // have fired from any other track's boot-on-select.
   {
     const bootTrace = await readTrace(page);
     const bootThrow = bootTrace.filter((e) =>
       /:rf\.error\/machine-action-exception/.test(e));
     if (bootThrow.length > 0) {
       failWithDetails(
-        'rf2-4yrr6 — a machine threw on boot / rungs 1-24; rung 19 must be the '
-        + 'sole machine-action-exception trigger',
+        'rf2-q3lfm — a non-fuse track threw a machine-action-exception on its '
+        + 'boot-on-select; only SELECTING the fuse track may throw',
         { machineActionExceptions: bootThrow });
     }
   }
 
+  // Re-select door + drive a fresh transition so the Machine Inspector mounts
+  // on a focused DOOR machine event (door is its own frame).
+  await selectMachineTrack(page, 'door');
   await clearTrace(page);
-  await clickMachineRung(page, 2); // :locked -> :closed — a fresh transition
+  await clickMachineStep(page, 0); // :locked -> :closed — a fresh transition
   await waitForTraceMatch(
     page,
     /:rf\.machine\/transition|:rf\.machine\/guard-evaluated|:door\/main/,
@@ -3343,36 +3340,36 @@ async function runMachineEpochs(page, state) {
   await expectVisible(
     page.locator('[data-testid="rf-xray-machine-inspector"]'), 5000);
 
-  // rf2-ugdas / rf2-e7yhv / rf2-gl588 — the xstate-v5 unhandled-event
-  // CONTRAST. #7 (unhandled event -> benign no-op) emits the benign
-  // :rf.machine.event/unhandled-no-op trace; #19 (an initial `:entry` action
-  // that throws on the lazy boot) emits the REAL
-  // :rf.error/machine-action-exception. The Trace panel shows both; the
-  // inverse pink-wash / epoch-render assertions live in the CLJS harness.
+  // The xstate-v5 unhandled-event CONTRAST. The door's step 5 (unhandled
+  // event -> benign no-op) emits the benign :rf.machine.event/unhandled-no-op
+  // trace; SELECTING the fuse track boots :armed whose :entry action THROWS,
+  // emitting the REAL :rf.error/machine-action-exception. Drive door to
+  // :alarming first so its step-5 unhandled-no-op fires.
   await clickTab(page, 'trace', 'rf-xray-trace');
   await clearTrace(page);
-  await clickMachineRung(page, 7); // unhandled -> benign no-op
+  await clickMachineStep(page, 1); // :closed -> :open
+  await clickMachineStep(page, 4); // :open -> :alarming
+  await clickMachineStep(page, 5); // insert-coin into :alarming -> benign no-op
   await waitForTraceMatch(
     page,
     /:rf\.machine\.event\/unhandled-no-op/,
-    '#7 unhandled event emits the benign :rf.machine.event/unhandled-no-op trace',
+    'door unhandled event emits the benign :rf.machine.event/unhandled-no-op trace',
   );
   await clearTrace(page);
-  await clickMachineRung(page, 19); // initial :entry action THROWS on boot
+  await selectMachineTrack(page, 'fuse'); // boot-on-select: :armed :entry THROWS
   await waitForTraceMatch(
     page,
     /:rf\.error\/machine-action-exception|fuse blown on boot/,
-    '#19 boot :entry-action throw emits :rf.error/machine-action-exception',
+    'selecting fuse boots :armed whose :entry action THROWS -> :rf.error/machine-action-exception',
   );
 
   state.machineEpochs = {
-    blocked: { doorState: afterBlocked.doorState },
-    parallel: { trafficState: afterParallel.trafficState },
-    multi: { doorState: afterMulti.doorState, trafficState: afterMulti.trafficState },
-    // rf2-g27vv — the redesigned matrix: the microstep / timer / lifecycle
-    // rungs' landed configuration plus the hard machine's.
-    quiz:    { quizState: (await readMachineStrip(page)).quizState },
-    hard:    { powerState: afterHvacPower.hvacState, tweakState: afterHvacTweak.hvacState },
+    blocked: { doorText: afterBlocked.stripText },
+    parallel: { trafficText: afterParallel.stripText },
+    trafficFinal: { trafficText: afterTraffic.stripText },
+    isolation: { doorAfterReturn: doorAfterReturn.stripText },
+    quiz: { quizText: afterQuiz.stripText },
+    hard: { powerText: afterHvacPower.stripText, tweakText: afterHvacTweak.stripText },
     inspectorMounted: true,
   };
 }
@@ -3552,27 +3549,33 @@ const SCENARIOS = [
     run: runRoutesEpochs,
   },
   {
-    // rf2-w06op + rf2-g27vv + rf2-kipb5 — machine-epochs assertion-backed
-    // render harness, runner-shaped (driven through `runner.core`'s per-step
-    // RUN-THIS-STEP buttons). Drives the real `reg-machine` + machine-event-
-    // routing surface for the FULL feature x Xray-cascade-render matrix and
-    // asserts each step's machine FEATURE landed via the host's snapshot
-    // mirror: door (plain · entry/exit · guards allowed/blocked · internal ·
-    // effect · unhandled no-op · root-:on RESOLUTION), traffic (parallel
-    // regions · history · tag-set member swap), quiz (:always MICROSTEPS),
-    // brew (:after TIMER + cancel), session (SPAWN · child :final · :on-done ·
-    // DESTROY), fuse (boot :entry THROW), hvac (deep compound · LCA cascade ·
-    // self-transitions), history (placement reject + live shallow/deep restore
-    // — the restore-cascade render is asserted in the CLJS harness). Then opens
-    // the Xray Machine Inspector
-    // (`rf-xray-machine-inspector`) and confirms the panel mounts on a
-    // focused machine event + the no-op/throw trace contrast. The deep
+    // rf2-w06op + rf2-g27vv + rf2-kipb5 + rf2-q3lfm — machine-epochs
+    // assertion-backed render harness, reworked into the MULTI-MACHINE,
+    // FRAME-ISOLATED stepper. Each machine domain runs in its OWN frame
+    // (`:machine/<track>`); the left rail is a PICKER that, on select, boots
+    // the track's machine(s) (boot-on-select) AND re-points Xray
+    // (`:rf.xray/select-frame`) at that frame. The scenario SELECTS each track
+    // then drives its per-track step rows, asserting each step's machine
+    // FEATURE off THAT track's frame snapshot: door (plain · entry/exit ·
+    // guards allowed/blocked · internal · effect · unhandled no-op · root-:on
+    // RESOLUTION), traffic (parallel regions · history · tag-set member swap),
+    // quiz (:always MICROSTEPS), brew (:after TIMER + cancel), session (SPAWN ·
+    // child :final · :on-done · DESTROY), fuse (boot-on-select :entry THROW),
+    // hvac (deep compound · LCA cascade · self-transitions), media (placement
+    // reject + live shallow/deep restore — the restore-cascade render is
+    // asserted in the CLJS harness). It also proves the per-machine frame
+    // ISOLATION with a cross-frame flip (door -> traffic -> back to door:
+    // each frame's snapshot stays intact, never interleaved) + a Restart
+    // (frame reset + re-arc from boot). Then opens the Xray Machine Inspector
+    // (`rf-xray-machine-inspector`) and confirms the panel mounts on a focused
+    // machine event + the no-op/throw trace contrast (the fuse track's
+    // boot-on-select is the SOLE machine-action-exception trigger). The deep
     // RENDER-FIDELITY assertions (cascade kinds/order, microsteps, timer-
     // cancel, spawn/destroy, set-diff, throw-as-error) live in the CLJS unit
     // test `panels.epoch.machine-epochs-harness-cljs-test` per the Causa/
     // Story-as-CLJS rule (the chart-render shim-survival probe stays owned by
     // the `deep machine inspector substrate` scenario).
-    name: 'machine-epochs machine ladder (rf2-g27vv full feature x render matrix: start/transition/entry-exit/guards/internal/effect/unhandled-no-op/root-:on RESOLUTION; parallel regions + history + TAG-SET delta; :always MICROSTEPS; :after TIMER + cancel; SPAWN/:final/:on-done/DESTROY lifecycle; boot :entry THROW; deep-compound LCA + self-transitions; :history reject-now)',
+    name: 'machine-epochs multi-machine frame-isolated stepper (rf2-q3lfm: pick a machine -> Xray follows its own epoch ring; per-track door/traffic/quiz/brew/session/fuse/hvac/media paths; cross-frame flip isolation; restart = frame reset; boot-on-select fuse THROW)',
     url: '/testbeds/machine-epochs/',
     panels: ['machines'],
     coveredRows: ['Machines'],
