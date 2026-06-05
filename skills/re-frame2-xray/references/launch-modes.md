@@ -148,10 +148,25 @@ App dev pages should keep the default `true` posture and provide
 
 ### Disable entirely
 
-```clojure
-;; Either: remove the preload entry from :devtools/preloads
-;; Or: closure-define the disable flag in the dev build
-:closure-defines {re-frame.interop/debug-enabled? false}
+Two distinct levers — pick the one that matches your intent:
+
+- **Xray-specific disable** — remove Xray's preload entry from
+  `:devtools/preloads`. The framework's instrumentation surface (trace
+  bus, epoch history) stays live for other tools; only Xray's foundation
+  block (collector/epoch-cb registration, keybinding, browser API,
+  auto-open) is gone.
+
+- **Build-wide debug elision** — set `goog.DEBUG false`. This is the
+  canonical CLJS production flag; it gates *every* dev-only branch,
+  including Xray's. `re-frame.interop/debug-enabled?` is an alias of
+  `goog.DEBUG` (`(def ^boolean debug-enabled? "@define {boolean}"
+  ^boolean goog/DEBUG)`), so you closure-define `goog.DEBUG`, **not**
+  `re-frame.interop/debug-enabled?` directly.
+
+```edn
+;; shadow-cljs.edn — build-wide debug elision (production posture)
+{:builds {:app {:target           :browser
+                :compiler-options {:closure-defines {goog.DEBUG false}}}}}
 ```
 
 ## Overlay fallback (open-overlay!)
