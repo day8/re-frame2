@@ -3,11 +3,16 @@
   (rf2-8yvyp, split out of the former `tools.helpers`).
 
   Several Story surfaces are CLJS-only (the registered-substrates
-  registry, the in-browser a11y panel atom). The JVM-side MCP server
-  reaches them via `clojure.core/resolve` against a fully-qualified
-  symbol — when the ns hasn't been required on JVM (the standalone
-  deploy), the resolve yields nil rather than blowing up, and the
-  caller reads an empty surface (the documented correct answer).
+  registry, the in-browser a11y panel atom) — `def`s behind a
+  `#?(:cljs …)` reader conditional, so no JVM Var exists for them. The
+  JVM-side MCP server probes for them via `clojure.core/resolve` against
+  a fully-qualified symbol; on the JVM that probe yields nil (the Var
+  isn't there to find), and the caller reads an empty surface (the
+  documented correct answer for a JVM host). When the SAME `.cljc`
+  namespaces are compiled into and hosted by a CLJS runtime, the `:cljs`
+  reader branch calls the Var directly — no `resolve`, the live registry.
+  There is no JVM→browser bridge: a JVM process cannot deref a CLJS atom
+  living in a browser heap, and does not try to.
 
   ## Caching
 
@@ -21,28 +26,39 @@
   (:require [re-frame.story :as story]))
 
 (defn resolve-cljs-var
-  "Resolve a fully-qualified symbol (`ns/sym`) to the underlying var
-  on the JVM, returning `nil` on miss. Wraps `clojure.core/resolve` in
-  a try/catch so a CLJS-only `def` (whose ns hasn't been required on
-  JVM) yields nil rather than blowing up.
+  "Resolve a fully-qualified symbol (`fully.qualified.ns/sym`) to the
+  underlying var on the JVM, returning `nil` on miss. Wraps
+  `clojure.core/resolve` in a try/catch so a CLJS-only `def` (which has
+  no JVM Var) yields nil rather than blowing up.
+
+  Callers MUST pass the FULLY-QUALIFIED ns (`re-frame.story/…`), not an
+  alias-qualified symbol — even though `resolve` does honour the calling
+  ns's aliases, passing the real ns keeps the contract self-describing
+  and matches the sibling `'re-frame.story.ui.a11y/violations-by-frame`
+  resolution site (rf2-4sgak).
 
   Used by handlers that need a CLJS-side surface (the in-browser a11y
-  panel atom, the CLJS substrate registry) — the JVM-standalone deploy
-  reads an empty surface, and that's the documented correct answer."
+  panel atom, the CLJS substrate registry) — the JVM host reads an empty
+  surface, and that's the documented correct answer."
   [sym]
   (try (resolve sym) (catch Throwable _ nil)))
 
 #?(:clj
-   ;; `story/registered-substrates` is CLJS-only — resolved ONCE at ns-load,
-   ;; here, as the single resolution site for the whole story-mcp surface
-   ;; (rf2-ee38b.17 folded the duplicate `tools.dev/registered-substrates-var`
-   ;; into this one). The substrate set is stable across the process
-   ;; lifetime, so `read-run-opts` (preview/run/snapshot hot path) and
-   ;; `dev/tool-list-substrates` both deref the cached var rather than
-   ;; re-resolving per call. JVM-standalone deploy reads nil and yields an
-   ;; empty set; the nREPL-attached CLJS deploy reads the var.
+   ;; `re-frame.story/registered-substrates` is CLJS-only — probed ONCE at
+   ;; ns-load, here, as the single resolution site for the whole story-mcp
+   ;; surface (rf2-ee38b.17 folded the duplicate
+   ;; `tools.dev/registered-substrates-var` into this one). The substrate
+   ;; set is stable across the process lifetime, so `read-run-opts`
+   ;; (preview/run/snapshot hot path) and `dev/tool-list-substrates` both
+   ;; deref the cached var rather than re-probing per call. On a JVM host the
+   ;; CLJS-only Var doesn't exist, so the probe is nil and the set is empty;
+   ;; the `:cljs` accessor branch below reads the live registry directly when
+   ;; these namespaces are hosted in a CLJS runtime. (rf2-4sgak: was the
+   ;; alias-qualified `'story/registered-substrates` — `resolve` honoured the
+   ;; alias, but the fully-qualified form matches the docstring + the a11y
+   ;; site.)
    (defonce ^:private registered-substrates-var
-     (resolve-cljs-var 'story/registered-substrates)))
+     (resolve-cljs-var 're-frame.story/registered-substrates)))
 
 (defn registered-substrates
   "The sorted vec of CLJS-registered substrate ids, or `[]` on a

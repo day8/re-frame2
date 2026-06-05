@@ -195,8 +195,14 @@ as a stale cursor (different fingerprint).
 **Output.** `{:canonical [{:id :payload :semantics}] :registered [keyword ...]}`.
 The `:canonical` doc vector (the 8-assertion documentation: the seven
 dispatched canonical assertions plus the tape-evaluated
-`:rf.assert/schema-error`) is bounded and always returned in full. `:registered` (the live
-registered-assertion ids) is paginated per the contract above.
+`:rf.assert/schema-error`) is bounded and always returned in full.
+`:registered` is the FULL vocabulary the Story plan compiler accepts
+(`re-frame.story.assertions/known-assertion-ids`, rf2-4sgak) — the eight
+canonical ids plus the DOM (`:rf.assert/dom-*`), visual/a11y
+(`:rf.assert/visual-snapshot` / `:rf.assert/a11y` /
+`:rf.assert/a11y-structural`), and reactive-count
+(`:rf.assert/caused` / `:rf.assert/no-cascade-rerender`) families — and
+is paginated per the contract above.
 
 ### `get-docs-markdown` (rf2-i0kyy)
 

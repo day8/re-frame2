@@ -16,6 +16,7 @@
   (:require [clojure.set :as set]
             [re-frame.mcp-base.args :as args]
             [re-frame.story :as story]
+            [re-frame.story.assertions :as assertions]
             [re-frame.story-mcp.tools.cursor :as cursor]
             [re-frame.story-mcp.tools.args :as targs]
             [re-frame.story-mcp.tools.egress :as egress]
@@ -232,11 +233,23 @@
   retained; `:canonical` is the full 8-assertion doc vector — the seven
   dispatched canonical assertions plus the tape-evaluated
   `:rf.assert/schema-error` (bounded and constant, so the pagination MUST
-  does not apply). `:registered`
-  (project-registered + canonical ids) is paginated when the count
-  exceeds `:limit`. Small registries see no pagination metadata."
+  does not apply).
+
+  rf2-4sgak: `:registered` is the FULL vocabulary the Story plan compiler
+  accepts — `assertions/known-assertion-ids` (spec/017 §Assertions),
+  the SAME set `plan.cljc` validates authored assertion atoms against via
+  `assertion-id-known?`. That is the eight canonical ids PLUS the
+  richer-runner families the canonical doc-vec does not cover: the DOM
+  family (`:rf.assert/dom-visible|dom-hidden|dom-text`), the visual / a11y
+  oracles (`:rf.assert/visual-snapshot`, `:rf.assert/a11y`,
+  `:rf.assert/a11y-structural`), and the reactive-count assertions
+  (`:rf.assert/caused`, `:rf.assert/no-cascade-rerender`). Previously this
+  slot mirrored only `canonical-assertion-ids`, so an agent could not
+  discover the visual/a11y/DOM ids the compiler would have accepted and
+  fell back to stale prose. `:registered` is paginated when the count
+  exceeds `:limit`; small registries see no pagination metadata."
   [args]
-  (let [registered (sort-by str (story/canonical-assertion-ids))
+  (let [registered (sort-by str assertions/known-assertion-ids)
         reg-vec    (vec registered)]
     (cursor/paged-result reg-vec (set reg-vec) args "list-assertions"
                          (fn [page] {:canonical  canonical-assertion-docs
@@ -556,12 +569,12 @@
 
    {:name           "list-assertions"
     :category       :docs
-    :description    (str "The eight canonical `:rf.assert/*` events with payload arity + semantics (the seven dispatched assertions plus the tape-evaluated `:rf.assert/schema-error`), plus any project-registered assertion ids. Paginated per rf2-76sf6 — `:canonical` (the 8-entry doc vector) stays full; `:registered` slices per `:limit` / `:cursor`. "
+    :description    (str "The eight canonical `:rf.assert/*` events with payload arity + semantics (the seven dispatched assertions plus the tape-evaluated `:rf.assert/schema-error`), PLUS `:registered` — the FULL assertion vocabulary the Story plan compiler accepts (`known-assertion-ids`): the eight canonical ids, the DOM family (`:rf.assert/dom-visible|dom-hidden|dom-text`), the visual / a11y oracles (`:rf.assert/visual-snapshot`, `:rf.assert/a11y`, `:rf.assert/a11y-structural`), and the reactive-count assertions (`:rf.assert/caused`, `:rf.assert/no-cascade-rerender`). The browser-tier ids (DOM / visual / a11y) require a richer runner — a headless run refuses them with `:cannot-run`, never a silent pass. Paginated per rf2-76sf6 — `:canonical` (the 8-entry doc vector) stays full; `:registered` slices per `:limit` / `:cursor`. "
                          "Examples: "
-                         "1. Default: {} -> {:canonical [{:id :rf.assert/path-equals :payload \"[path expected]\" :semantics \"(= (get-in @app-db path) expected)\"} ...] :registered [:rf.assert/dispatched? :rf.assert/effect-emitted ...]}. "
+                         "1. Default: {} -> {:canonical [{:id :rf.assert/path-equals :payload \"[path expected]\" :semantics \"(= (get-in @app-db path) expected)\"} ...] :registered [:rf.assert/a11y :rf.assert/a11y-structural :rf.assert/caused :rf.assert/dispatched? :rf.assert/dom-hidden ...]}. "
                          "2. With budget knob: {:max-tokens 1000} -> same shape, tighter cap. "
                          "3. Pair with run-variant: discover the assertion vocab here, then write :script sequences referencing those event ids. "
-                         "4. Paginated: {:limit 5} -> {:canonical [...7...] :registered [...5...] :total 14 :limit 5 :has-more? true :next-cursor \"<base64>\"}.")
+                         "4. Paginated: {:limit 5} -> {:canonical [...8...] :registered [...5...] :total 16 :limit 5 :has-more? true :next-cursor \"<base64>\"}.")
     :typicalTokens  500
     :inputSchema    {:type "object"
                      :properties (s/with-max-tokens (s/with-pagination {}))
