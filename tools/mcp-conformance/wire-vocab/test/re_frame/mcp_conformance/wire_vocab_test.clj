@@ -141,8 +141,26 @@
    [:hint        [:or :string :keyword]]])
 
 (def Overflow
-  "`{:rf.mcp/overflow ReFrame2PairOverflowBody}` — the wrapper shape."
-  [:map [:rf.mcp/overflow ReFrame2PairOverflowBody]])
+  "`{:rf.mcp/overflow ReFrame2PairOverflowBody}` — the wrapper shape.
+
+  CLOSED single-key map (rf2-voux7 finding 2): a wire marker is ALWAYS a
+  single reserved wrapper key (see the header — agents pattern-match on
+  exactly one top-level key). A payload carrying the marker plus an
+  unrelated sibling top-level key is a mixed-envelope emission a uniform
+  cross-server client can't pattern-match; the `{:closed true}` arm
+  rejects it so the conformance gate pins the single-key contract the
+  contract documents. (The marker BODY stays open — additive body slots
+  compose; it's the top-level envelope that is single-key.)"
+  [:map {:closed true} [:rf.mcp/overflow ReFrame2PairOverflowBody]])
+
+(defn- summary-has-count-or-counts?
+  "True when a map summary carries `:count` OR `:counts` (not neither).
+  A map summary MUST report its cardinality one way or the other — the
+  documented contract (`tools.cljs/tree-summary`) never emits a map
+  marker that reports neither, and a downstream agent that can't read a
+  count can't reason about the summarised collection's size."
+  [{:keys [count counts]}]
+  (or (some? count) (some? counts)))
 
 (def SummaryBody
   "`{:rf.mcp/summary {...}}` body — the lazy tree-summary marker.
@@ -155,24 +173,69 @@
   `summary-keys-cap` (re-frame2-pair-mcp pins 64; the spec doesn't pin).
 
   `:counts` (a per-top-key map) is permitted as an alternate
-  per-key shape: a single marker MUST carry `:count` or `:counts`,
+  per-key shape: a single MAP marker MUST carry `:count` or `:counts`,
   not neither. (Originally introduced for xray-mcp's
   `Principles.md` example; preserved as a permitted schema variant
   after the rf2-bu21t drop, so a future MCP server reviving
-  per-key counts validates without a schema bump.)"
-  [:map
-   {:closed false}
-   [:type [:enum :map :vector :set :seq :scalar]]
-   [:bytes :int]                                               ;; pr-str char count
-   [:keys             {:optional true} [:sequential :any]]     ;; maps only
-   [:keys-truncated?  {:optional true} :boolean]               ;; maps only when clamped
-   [:count            {:optional true} :int]                   ;; non-scalars
-   [:counts           {:optional true} [:map-of :any :int]]    ;; per-key map variant
-   [:value            {:optional true} :any]])                 ;; scalars
+  per-key counts validates without a schema bump.)
+
+  ## Type-specific shape (rf2-voux7 finding 1)
+
+  The schema dispatches on `:type` and enforces the documented per-type
+  required slots — it no longer marks every shape-slot `{:optional true}`
+  with no type predicate. The pre-rf2-voux7 schema accepted
+  `{:type :map :bytes 1}` (a map summary carrying neither `:keys` nor a
+  count) and a `{:type :scalar :bytes 1}` (a scalar with no `:value`):
+  unusable markers a future server could ship while this gate stayed
+  green. Each arm is CLOSED to the documented slot set, so a scalar
+  carrying `:keys`, or a vector carrying `:value`, is now rejected too
+  (a cross-type slot leak is a contract break, not a tolerated extra).
+
+  - `:map`              — `:type` + `:bytes` + `:keys` + (`:count` OR
+                          `:counts`); optional `:keys-truncated?`.
+  - `:vector`/`:set`/`:seq` — `:type` + `:bytes` + `:count`.
+  - `:scalar`           — `:type` + `:bytes` + `:value`."
+  [:multi {:dispatch :type}
+   [:map
+    [:and
+     [:map
+      {:closed true}
+      [:type [:= :map]]
+      [:bytes :int]                                           ;; pr-str char count
+      [:keys [:sequential :any]]                              ;; required for maps
+      [:keys-truncated? {:optional true} :boolean]            ;; only when clamped
+      [:count  {:optional true} :int]                         ;; cardinality (scalar form)
+      [:counts {:optional true} [:map-of :any :int]]]         ;; per-key map variant
+     [:fn summary-has-count-or-counts?]]]
+   [:vector
+    [:map
+     {:closed true}
+     [:type [:= :vector]]
+     [:bytes :int]
+     [:count :int]]]
+   [:set
+    [:map
+     {:closed true}
+     [:type [:= :set]]
+     [:bytes :int]
+     [:count :int]]]
+   [:seq
+    [:map
+     {:closed true}
+     [:type [:= :seq]]
+     [:bytes :int]
+     [:count :int]]]
+   [:scalar
+    [:map
+     {:closed true}
+     [:type [:= :scalar]]
+     [:bytes :int]
+     [:value :any]]]])
 
 (def Summary
-  "`{:rf.mcp/summary SummaryBody}` — the wrapper shape."
-  [:map [:rf.mcp/summary SummaryBody]])
+  "`{:rf.mcp/summary SummaryBody}` — the wrapper shape. CLOSED single-key
+  map (rf2-voux7 finding 2 — see `Overflow`)."
+  [:map {:closed true} [:rf.mcp/summary SummaryBody]])
 
 (def root-cache-id-name
   "The de-dupe library's canonical root cache-id, as a bare name string
@@ -237,8 +300,10 @@
   rejects — the JVM contract was looser than the client-visible one.
   The `has-dedup-root?` predicate closes that gap so both encodings
   agree on the accepted cache shape (rf2-x0pr0 finding 2; acceptance
-  criteria 3 + 4)."
-  [:map [:rf.mcp/dedup-table [:and :map [:fn has-dedup-root?]]]])
+  criteria 3 + 4).
+
+  CLOSED single-key map (rf2-voux7 finding 2 — see `Overflow`)."
+  [:map {:closed true} [:rf.mcp/dedup-table [:and :map [:fn has-dedup-root?]]]])
 
 (def DiffFromBody
   "An epoch's `:db-after` slot, diff-encoded against `:db-before` and
@@ -267,8 +332,18 @@
 
   Pre-rf2-qeous shape carried a flat `:patches` slot directly under
   the marker. This is a clean break (pre-alpha, no back-compat);
-  the marker key `:rf.mcp/diff-from` is unchanged."
+  the marker key `:rf.mcp/diff-from` is unchanged.
+
+  CLOSED map (rf2-voux7 finding 2): unlike the other markers,
+  `:rf.mcp/diff-from` is NOT a single-key wrapper — the marker key and
+  its `:sections` body slot ride as TWO top-level keys (the documented
+  shape above; `diff-encode-db-after` emits exactly these two). Closing
+  the map to that pair rejects any OTHER sibling top-level key — a
+  mixed-envelope `:db-after` that smuggled an extra key past the gate.
+  The marker SHAPE is the framework's diff projection, so the closed
+  top-level pair IS the wire contract here."
   [:map
+   {:closed true}
    [:rf.mcp/diff-from [:enum :db-before]]
    [:sections [:sequential
                [:map
@@ -295,8 +370,9 @@
    [:digest  {:optional true} :string]])
 
 (def ElisionMarker
-  "`{:rf.size/large-elided ElisionMarkerBody}` — the wrapper shape."
-  [:map [:rf.size/large-elided ElisionMarkerBody]])
+  "`{:rf.size/large-elided ElisionMarkerBody}` — the wrapper shape. CLOSED
+  single-key map (rf2-voux7 finding 2 — see `Overflow`)."
+  [:map {:closed true} [:rf.size/large-elided ElisionMarkerBody]])
 
 (def CacheHitBody
   "`{:rf.mcp/cache-hit {...}}` body — per-session response-cache hit
@@ -323,8 +399,9 @@
    [:hint            [:or :string :keyword]]])
 
 (def CacheHit
-  "`{:rf.mcp/cache-hit CacheHitBody}` — the wrapper shape."
-  [:map [:rf.mcp/cache-hit CacheHitBody]])
+  "`{:rf.mcp/cache-hit CacheHitBody}` — the wrapper shape. CLOSED single-key
+  map (rf2-voux7 finding 2 — see `Overflow`)."
+  [:map {:closed true} [:rf.mcp/cache-hit CacheHitBody]])
 
 (def ReFrame2PairProgressNotificationParams
   "Canonical `notifications/progress` params shape for re-frame2-pair-mcp's
@@ -531,7 +608,12 @@
                                     :de-dupe.cache/cache-1 {:cart {:items [] :total 0}}}}}}
 
    {:key      :rf.mcp/diff-from
-    :schema   [:map [:rf.mcp/diff-from [:enum :db-before]] [:sections :any]]
+    ;; rf2-voux7 finding 2 — use the CLOSED `DiffFromBody` schema (the
+    ;; same schema the live-emission gate validates the real encoder
+    ;; output against) rather than the pre-fix loose
+    ;; `[:map [:rf.mcp/diff-from ...] [:sections :any]]`, which accepted
+    ;; ANY `:sections` value AND any extra sibling top-level key.
+    :schema   DiffFromBody
     ;; re-frame2-pair-mcp specs / emits today. The schema and the marker are
     ;; reserved in the cross-MCP family per re-frame2-pair-mcp Principles §
     ;; \"Cross-MCP vocabulary\". The body slot is the
@@ -650,6 +732,133 @@
                            :cap-tokens 5000
                            :hint       "..."}}))
         "re-frame2-pair-shape emit missing :token-count must fail")))
+
+;; ---------------------------------------------------------------------------
+;; SummaryBody per-type shape contract (rf2-voux7 finding 1).
+;;
+;; Pre-fix `SummaryBody` marked `:keys` / `:count` / `:counts` / `:value`
+;; all `{:optional true}` with no type-specific predicate, so a malformed
+;; `{:type :map :bytes 1}` (a map carrying neither `:keys` nor a count)
+;; and a scalar with no `:value` both validated — unusable markers a
+;; future server could ship while the gate stayed green. The schema is
+;; now a `[:multi {:dispatch :type} ...]` enforcing the documented per-
+;; type required slots, with each arm CLOSED to its slot set (a cross-
+;; type slot leak — a scalar carrying `:keys`, a vector carrying
+;; `:value` — is rejected too). These gates pin both the positive
+;; documented shapes and the negative malformed ones.
+;; ---------------------------------------------------------------------------
+
+(deftest summary-body-enforces-per-type-shape
+  (testing "map WITHOUT :keys fails"
+    (is (not (m/validate Summary {:rf.mcp/summary {:type :map :count 3 :bytes 10}}))
+        "a map summary MUST carry :keys"))
+  (testing "map WITHOUT :count AND WITHOUT :counts fails"
+    (is (not (m/validate Summary {:rf.mcp/summary {:type :map :keys [:a :b] :bytes 10}}))
+        "a map summary MUST carry :count or :counts (not neither)"))
+  (testing "map with ONLY :type + :bytes (the bead's malformed example) fails"
+    (is (not (m/validate Summary {:rf.mcp/summary {:type :map :bytes 1}}))
+        "the documented unusable map marker {:type :map :bytes 1} MUST fail"))
+  (testing "vector WITHOUT :count fails"
+    (is (not (m/validate Summary {:rf.mcp/summary {:type :vector :bytes 10}}))
+        "a vector summary MUST carry :count"))
+  (testing "set WITHOUT :count fails"
+    (is (not (m/validate Summary {:rf.mcp/summary {:type :set :bytes 10}}))
+        "a set summary MUST carry :count"))
+  (testing "seq WITHOUT :count fails"
+    (is (not (m/validate Summary {:rf.mcp/summary {:type :seq :bytes 10}}))
+        "a seq summary MUST carry :count"))
+  (testing "scalar WITHOUT :value fails"
+    (is (not (m/validate Summary {:rf.mcp/summary {:type :scalar :bytes 2}}))
+        "a scalar summary MUST carry :value"))
+  (testing "cross-type slot leak: scalar carrying :keys fails"
+    (is (not (m/validate Summary {:rf.mcp/summary {:type :scalar :value 1 :bytes 2 :keys [:a]}}))
+        "a scalar summary MUST NOT carry the maps-only :keys slot"))
+  (testing "cross-type slot leak: vector carrying :value fails"
+    (is (not (m/validate Summary {:rf.mcp/summary {:type :vector :count 3 :bytes 10 :value 1}}))
+        "a vector summary MUST NOT carry the scalar-only :value slot"))
+  (testing "unknown :type fails (no dispatch arm)"
+    (is (not (m/validate Summary {:rf.mcp/summary {:type :bogus :bytes 1}}))
+        "an unrecognised :type has no dispatch arm and MUST fail"))
+  (testing "positive guard: every documented shape still validates"
+    (is (m/validate Summary {:rf.mcp/summary {:type :map :keys [:a] :count 1 :bytes 10}})
+        "map with :keys + :count + :bytes validates")
+    (is (m/validate Summary {:rf.mcp/summary {:type :map :keys [:a] :counts {:a 1} :bytes 10}})
+        "map with :keys + :counts + :bytes validates (per-key variant)")
+    (is (m/validate Summary {:rf.mcp/summary {:type :map :keys [:a] :count 1 :bytes 10 :keys-truncated? true}})
+        "map with the optional :keys-truncated? slot validates")
+    (is (m/validate Summary {:rf.mcp/summary {:type :vector :count 3 :bytes 10}})
+        "vector with :count + :bytes validates")
+    (is (m/validate Summary {:rf.mcp/summary {:type :set :count 3 :bytes 10}}))
+    (is (m/validate Summary {:rf.mcp/summary {:type :seq :count 3 :bytes 10}}))
+    (is (m/validate Summary {:rf.mcp/summary {:type :scalar :value 42 :bytes 2}})
+        "scalar with :value + :bytes validates")))
+
+;; ---------------------------------------------------------------------------
+;; Single-key wrapper contract (rf2-voux7 finding 2).
+;;
+;; Every wire marker is a single reserved wrapper key (the file header:
+;; "The marker is always a single-key map keyed by the reserved keyword
+;; ... Agents pattern-match on the top-level reserved key"). Pre-fix the
+;; wrapper schemas (`Overflow` / `Summary` / `DedupTable` /
+;; `ElisionMarker` / `CacheHit`) were OPEN `[:map ...]`, so a payload
+;; carrying the marker PLUS an unrelated sibling top-level key validated
+;; — a mixed-envelope emission a uniform cross-server client can't
+;; pattern-match. The wrappers are now `{:closed true}`; these gates pin
+;; that an extra sibling key is rejected for each. (`:rf.mcp/diff-from`
+;; is the documented exception — marker key + `:sections` ride as a
+;; closed PAIR; covered by `diff-from-rejects-extra-sibling-key` below.)
+;; ---------------------------------------------------------------------------
+
+(deftest wrapper-markers-reject-extra-sibling-key
+  (testing "Overflow rejects an extra sibling top-level key"
+    (is (not (m/validate Overflow
+                         {:rf.mcp/overflow {:limit :reached :token-count 1 :cap-tokens 1
+                                            :tool "snapshot" :hint "..."}
+                          :sneaky :key}))
+        "a marker wrapper MUST be a single key — an extra sibling fails"))
+  (testing "Summary rejects an extra sibling top-level key"
+    (is (not (m/validate Summary
+                         {:rf.mcp/summary {:type :vector :count 3 :bytes 10}
+                          :sneaky :key}))))
+  (testing "DedupTable rejects an extra sibling top-level key"
+    (is (not (m/validate DedupTable
+                         {:rf.mcp/dedup-table {:de-dupe.cache/cache-0 {:a 1}}
+                          :sneaky :key}))))
+  (testing "ElisionMarker rejects an extra sibling top-level key"
+    (is (not (m/validate ElisionMarker
+                         {:rf.size/large-elided {:path [:a] :bytes 1 :type :map
+                                                 :reason :schema :hint nil
+                                                 :handle [:rf.elision/at [:a]]}
+                          :sneaky :key}))))
+  (testing "CacheHit rejects an extra sibling top-level key"
+    (is (not (m/validate CacheHit
+                         {:rf.mcp/cache-hit {:hash 1 :unchanged-since 1 :tool "snapshot"
+                                             :via :precheck :hint "..."}
+                          :sneaky :key}))))
+  (testing "positive guard: each canonical single-key wrapper still validates"
+    (is (m/validate Overflow {:rf.mcp/overflow {:limit :reached :token-count 1 :cap-tokens 1
+                                                :tool "snapshot" :hint "..."}}))
+    (is (m/validate Summary {:rf.mcp/summary {:type :vector :count 3 :bytes 10}}))
+    (is (m/validate DedupTable {:rf.mcp/dedup-table {:de-dupe.cache/cache-0 {:a 1}}}))
+    (is (m/validate CacheHit {:rf.mcp/cache-hit {:hash 1 :unchanged-since 1 :tool "snapshot"
+                                                 :via :precheck :hint "..."}}))))
+
+(deftest diff-from-rejects-extra-sibling-key
+  ;; `:rf.mcp/diff-from` is NOT a single-key wrapper — it carries the
+  ;; marker key + its `:sections` body slot as a documented PAIR. The
+  ;; closed map rejects any OTHER sibling top-level key (rf2-voux7
+  ;; finding 2): the encoder emits exactly these two keys.
+  (testing "rejects a third sibling top-level key beyond the documented pair"
+    (is (not (m/validate DiffFromBody
+                         {:rf.mcp/diff-from :db-before
+                          :sections []
+                          :sneaky :key}))
+        "a diff-from :db-after carrying a key beyond {marker, :sections} MUST fail"))
+  (testing "rejects a missing :sections slot"
+    (is (not (m/validate DiffFromBody {:rf.mcp/diff-from :db-before}))
+        "the :sections body slot is required"))
+  (testing "positive guard: the documented two-key shape validates"
+    (is (m/validate DiffFromBody {:rf.mcp/diff-from :db-before :sections []}))))
 
 ;; ---------------------------------------------------------------------------
 ;; DedupTable root-cache contract (rf2-x0pr0 finding 2).
@@ -1854,6 +2063,15 @@
 ;;      slot transparently.)
 ;; ---------------------------------------------------------------------------
 
+(defn- not-ungrouped?
+  "True for any `:dispatch-id` value EXCEPT the `:ungrouped` sentinel.
+  `:ungrouped` is `group-cascades`' marker for frameless events; the
+  runtime filters those out of cascade-bundle topics before bundling, so
+  a cascade-bundle on the wire MUST NOT carry it. Any other value (a
+  typed/numeric cascade id) is application-shaped and accepted."
+  [v]
+  (not= :ungrouped v))
+
 (def CascadeBundle
   "Cascade-bundle shape per `(rf/trace-buffer frame-id)` (spec/009
   §Cascade projection + Tool-Pair §Reading the per-frame trace ring).
@@ -1861,10 +2079,17 @@
   `:timing-ms` rollup) compose without a schema bump.
 
   Required slots:
-    :dispatch-id        — the cascade id (any). `:ungrouped` is not
-                          permitted on the wire (rf2-mscih filters
+    :dispatch-id        — the cascade id. Any value EXCEPT the
+                          `:ungrouped` sentinel (rf2-mscih filters
                           frameless events before bundling); the
                           cascade-bundle topics never ship `:ungrouped`.
+                          Enforced at the schema level by the
+                          `not-ungrouped?` predicate (rf2-voux7 finding 3):
+                          the pre-fix `[:dispatch-id :any]` let a regression
+                          that routed frameless / `:ungrouped` shapes onto
+                          a cascade-bundle topic validate, breaking the
+                          cascade-vs-frameless wire distinction this gate
+                          claims to pin.
     :trace-events       — raw events for the cascade (vector). May
                           be empty if every event was elided / dropped.
     :event              — event vector or nil (the `:rf.event/dispatched`
@@ -1879,7 +2104,7 @@
     :parent-dispatch-id — causal-parent link (nil for a root cascade)."
   [:map
    {:closed false}
-   [:dispatch-id        :any]
+   [:dispatch-id        [:and :any [:fn not-ungrouped?]]]
    [:trace-events       [:sequential :any]]
    [:event              [:maybe [:sequential :any]]]
    [:effects            [:sequential :any]]
@@ -1977,12 +2202,34 @@
   ;; An `:ungrouped` `:dispatch-id` (`:ungrouped` is the
   ;; `group-cascades` sentinel for frameless events) MUST NOT ship on
   ;; the cascade-bundle wire — the runtime filters frameless events
-  ;; out of cascade-bundle topics. The schema accepts any
-  ;; `:dispatch-id` value (a typed cascade id is application-shaped),
-  ;; so the contract is enforced upstream at the runtime gate (see
-  ;; `dispatch-trace-to-subs!`). This test pins the contract POSITIVELY
-  ;; — a frameless event flowing into the `:frameless` topic ships
-  ;; under `:events`, not `:cascades`.
+  ;; out of cascade-bundle topics. Per rf2-voux7 finding 3 the schema
+  ;; now ENFORCES this directly via the `not-ungrouped?` predicate, in
+  ;; addition to the positive topic-routing pin below: the pre-fix
+  ;; `[:dispatch-id :any]` let a regression that routed frameless /
+  ;; `:ungrouped` shapes onto a cascade-bundle topic validate, masking
+  ;; the cascade-vs-frameless distinction this gate claims to pin.
+  (testing "schema REJECTS an :ungrouped dispatch-id on a cascade-bundle"
+    (let [frameless-bundle (assoc re-frame2-pair-cascade-bundle-fixture
+                                  :dispatch-id :ungrouped)]
+      (is (not (m/validate CascadeBundle frameless-bundle))
+          (str "CascadeBundle MUST reject :dispatch-id :ungrouped — the "
+               ":ungrouped sentinel marks frameless events the runtime "
+               "filters OUT of cascade-bundle topics (rf2-mscih / "
+               "rf2-voux7 finding 3). A bundle carrying it is a "
+               "frameless-shape leak onto the cascade wire."))))
+  (testing "schema REJECTS an :ungrouped bundle inside a CascadeBundleVector"
+    (let [leaky-vec [re-frame2-pair-cascade-bundle-fixture
+                     (assoc re-frame2-pair-cascade-bundle-fixture
+                            :dispatch-id :ungrouped)]]
+      (is (not (m/validate CascadeBundleVector leaky-vec))
+          "a :cascades vector with even one :ungrouped bundle MUST fail")))
+  (testing "schema ACCEPTS a typed/numeric cascade id (guard against over-tightening)"
+    (is (m/validate CascadeBundle re-frame2-pair-cascade-bundle-fixture)
+        "the canonical numeric :dispatch-id 17 must still validate")
+    (is (m/validate CascadeBundle
+                    (assoc re-frame2-pair-cascade-bundle-fixture
+                           :dispatch-id :cart/checkout))
+        "a keyword cascade id (not :ungrouped) is application-shaped and accepted"))
   (testing "cascade-bundle topics ship under :cascades; frameless under :events"
     ;; Cascade-bundle topics: the progress payload's slot is :cascades.
     (let [cascade-tick {:sub-id "sub-1"

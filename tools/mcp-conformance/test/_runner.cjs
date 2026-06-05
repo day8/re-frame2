@@ -11,7 +11,13 @@
 //     `process.exit(0)`
 //   - on error: best-effort `client.close()`, clear the watchdog,
 //     print the failure, `process.exit(1)`
-//   - on watchdog: print the timeout, `process.exit(2)`
+//   - on watchdog: print the timeout, TEAR THE SPAWNED CHILD DOWN
+//     (`client.close()` closes its transport, killing the stdio child),
+//     then `process.exit(2)` — a hard-exit fallback fires after a short
+//     grace window so a hung close can't keep the process alive. Pre-fix
+//     the watchdog exited directly and orphaned the child (rf2-voux7
+//     finding 5; the hermetic orchestrator already fixes the same class
+//     via rf2-e6enf).
 //
 // Source: rf2-sems4. The split was originally three near-identical
 // ~40-LoC blocks of pure framing code; centralising the framing here
@@ -139,6 +145,21 @@ async function closeQuietly(client) {
 }
 
 async function runWithWatchdog({ watchdogMs, transportSpec, clientName }, body) {
+  // The watchdog must OWN the active client so a timeout tears the
+  // spawned child down instead of orphaning it (rf2-voux7 finding 5).
+  // `activeClient` is the closure handle the watchdog reads; it is
+  // assigned the moment `connectServer` returns, so a hang ANYWHERE
+  // after spawn (inside `body`, inside a slow tool call) is cleaned up.
+  //
+  // Pre-fix the watchdog called `process.exit(2)` directly, leaving the
+  // spawned MCP server (Node bundle or JVM) running — it can keep the
+  // CI step's log pipes / ports held past the node exit, the exact
+  // orphan class the hermetic orchestrator (rf2-e6enf) already fixes.
+  // `client.close()` closes its transport, which kills the stdio child
+  // (the same teardown `closeQuietly` performs on the normal paths). We
+  // hold the exit a short grace window so the close lands, then exit
+  // with code 2 regardless (a wedged child must not keep us alive).
+  let activeClient;
   // Install the watchdog FIRST so even a hang inside transport
   // construction (rare but possible: bad cwd, env corruption) gets
   // killed. The `finally` below clears the timer on every exit path —
@@ -148,7 +169,16 @@ async function runWithWatchdog({ watchdogMs, transportSpec, clientName }, body) 
   // log to a FAIL and lose the body's success state).
   const watchdog = setTimeout(() => {
     console.error('FAIL: watchdog timeout (' + watchdogMs + 'ms)');
-    process.exit(2);
+    // Tear the spawned child down before exiting (rf2-voux7 finding 5).
+    // `closeQuietly` never throws; the `.then`/`.catch` both arm the
+    // hard-exit fallback so a hung close can't keep the process alive.
+    const hardExit = setTimeout(() => process.exit(2), 2000);
+    hardExit.unref();
+    if (activeClient) {
+      closeQuietly(activeClient).finally(() => process.exit(2));
+    } else {
+      process.exit(2);
+    }
   }, watchdogMs);
 
   // Spawn + connect via the shared primitive. A throw here (bad cwd, a
@@ -160,6 +190,7 @@ async function runWithWatchdog({ watchdogMs, transportSpec, clientName }, body) 
   try {
     let transport;
     ({ client, transport } = await connectServer({ transportSpec, clientName }));
+    activeClient = client;
     await body(client, transport);
     exitCode = 0;
   } catch (err) {

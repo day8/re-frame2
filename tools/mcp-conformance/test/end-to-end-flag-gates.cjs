@@ -110,6 +110,14 @@ const WATCHDOG_MS = 180000;
 // (rf2-0ogn7) — `runWithWatchdog`'s single-boot-per-process form can't
 // serve this gate, which needs three fresh in-process JVM boots.
 // ---------------------------------------------------------------------------
+// The watchdog (module scope below) must OWN whichever story-mcp JVM is
+// currently booted so a timeout tears it down instead of orphaning it
+// (rf2-voux7 finding 5 — same orphan class the shared `_runner.cjs`
+// watchdog and the hermetic orchestrator rf2-e6enf fix). `withStoryServer`
+// publishes its connected client here for the spawn's lifetime and clears
+// it on teardown; the boots are sequential so at most one is live at once.
+let activeFlagGateClient = null;
+
 async function withStoryServer(extraArgs, body) {
   const { client } = await connectServer({
     clientName: 'mcp-conformance-flag-gates',
@@ -120,10 +128,12 @@ async function withStoryServer(extraArgs, body) {
       env: { ...process.env },
     },
   });
+  activeFlagGateClient = client;
   try {
     return await body(client);
   } finally {
     await closeQuietly(client);
+    activeFlagGateClient = null;
   }
 }
 
@@ -259,9 +269,25 @@ async function main() {
 
 // Watchdog so a hung JVM can't wedge CI. Three sequential cold boots +
 // one register round-trip each fit well under this.
+//
+// Per rf2-voux7 finding 5: tear the currently-booted story-mcp JVM down
+// BEFORE exiting. The pre-fix watchdog called `process.exit(2)` directly,
+// orphaning whichever JVM was live — a child that inherited the step's
+// stdio can keep the CI log pipes open past the node exit (the same
+// orphan class the shared `_runner.cjs` watchdog and the hermetic
+// orchestrator rf2-e6enf already fix). `closeQuietly` closes the client,
+// which closes its transport and kills the stdio JVM child; a hard-exit
+// fallback fires after a short grace window so a hung close can't keep us
+// alive.
 const watchdog = setTimeout(() => {
   console.error('FAIL: watchdog timeout (' + WATCHDOG_MS + 'ms)');
-  process.exit(2);
+  const hardExit = setTimeout(() => process.exit(2), 2000);
+  hardExit.unref();
+  if (activeFlagGateClient) {
+    closeQuietly(activeFlagGateClient).finally(() => process.exit(2));
+  } else {
+    process.exit(2);
+  }
 }, WATCHDOG_MS);
 
 main()
