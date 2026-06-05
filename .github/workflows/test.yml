@@ -137,6 +137,18 @@ jobs:
       - name: Verify skill M-id cites resolve in MIGRATION.md
         run: python scripts/check_skill_migration_cites.py --verbose --ci
 
+      # Distribution-completeness guard (rf2-f14su): a published skill that
+      # loads a sibling `../shared/<leaf>` reference in normal operation can
+      # NEVER ship that leaf in its own npm tarball / plugin bundle (a `files`
+      # allow-list cannot reach a parent dir), so a non-link install silently
+      # drops the shared protocol. The gate requires every such skill's README
+      # to carry the link-only / bring-`skills/shared/`-along caveat.
+      - name: Self-test the skill package-refs guard
+        run: python scripts/check_skill_package_refs.py --self-test
+
+      - name: Verify ../shared/-referencing skills carry the distribution caveat
+        run: python scripts/check_skill_package_refs.py --verbose --ci
+
   # PR-time gate for README link drift (rf2-br5u7). Source: the
   # rf2-oavap README sweep used a local `ai/link-sweep-v2.py` audit
   # that flagged 5 issues — 3 real, 2 false-positives caused by GitHub

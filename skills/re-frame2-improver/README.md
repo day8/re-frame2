@@ -59,6 +59,8 @@ Pre-alpha. References catalogue currently has 6 leaves at launch; expected to gr
 
 `re-frame2-improver` ships as part of the [`day8/re-frame2`](https://github.com/day8/re-frame2) monorepo. It carries `package.json` and `.claude-plugin/plugin.json` metadata for eventual Agent-Skill / plugin distribution, but it is not published separately yet — the current install path is to clone re-frame2 and **link** the skill from `skills/re-frame2-improver/`.
 
+> **The supported install is a link from a full monorepo clone — not a standalone copy.** This skill loads its retro protocol — the diagnosis-first workflow plus the redaction / untrusted-evidence / Edit-gate security boundary — from a **sibling** leaf, [`../shared/retro-protocol.md`](../shared/retro-protocol.md). That `../shared/` path resolves **only** when the skill sits inside a full re-frame2 checkout. The npm tarball and the plugin bundle deliberately do **not** carry `shared/` (`npm pack` ships only this skill's own directory; a `files` allow-list cannot reach a sibling) — the shared leaf is a single boundary owned once under `skills/shared/`, not duplicated into each consumer package. A standalone tarball / plugin / copied install that does not also bring `skills/shared/` alongside the skill will hit a broken `../shared/retro-protocol.md` link and silently lose the shared protocol. Link from a clone, or vendor `skills/shared/` as a peer.
+
 ### Install the skill in Claude Code
 
 **Link, never copy.** Claude Code loads skills from `~/.claude/skills/<name>/`. A `cp -r` copy snapshots the skill and then drifts as the repo is maintained — Claude Code keeps loading the stale copy, which silently falls behind the anti-pattern catalogue and the shared retro-protocol security boundary this skill loads. Always link the repo source.
@@ -86,7 +88,7 @@ On Windows, use a junction instead of `ln -s` (no admin required):
 New-Item -ItemType Junction -Path "$HOME\.claude\skills\re-frame2-improver" -Target "$HOME\src\re-frame2\skills\re-frame2-improver"
 ```
 
-> **Project-local copying is an explicit pinned-vendoring choice, not the default.** If your team deliberately wants a frozen snapshot committed into a project's `.claude/skills/`, you own the update burden — re-vendor on every re-frame2 release or you will silently run a skill that has fallen behind the catalogue and shared protocol. Prefer linking.
+> **Project-local copying is an explicit pinned-vendoring choice, not the default.** If your team deliberately wants a frozen snapshot committed into a project's `.claude/skills/`, you own the update burden — re-vendor on every re-frame2 release or you will silently run a skill that has fallen behind the catalogue and shared protocol. **Vendoring must also copy `skills/shared/` as a peer** so `../shared/retro-protocol.md` still resolves — vendoring this skill's directory alone drops the diagnosis / redaction / Edit-gate boundary and leaves the `../shared/` link broken. Prefer linking.
 
 ## License
 
