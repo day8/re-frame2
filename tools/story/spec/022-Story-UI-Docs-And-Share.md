@@ -204,6 +204,13 @@ Share semantics:
   `[:cell-overrides <focused-variant>]` on both mount and back/forward
   (`re-frame.story.ui.url-state/apply-parsed-to-state`), so a pasted URL
   renders the same effective args, not just the selection (rf2-j0hwf);
+- the URL is AUTHORITATIVE for the focused variant's overrides: hydrating a
+  URL that keeps that variant but carries NO overrides CLEARS any stale
+  in-memory override slice for it (not merely skipping the write), so
+  back/forward, a bookmark, or a share link captured before a control edit
+  renders WITHOUT that edit — the address bar stays the source of truth.
+  Only the focused variant's slice is touched; other variants' overrides
+  are left intact (rf2-2cpoo);
 - a shared link restores VIEW STATE (it lands the recipient on the cell);
   it does not replay a run — that is the recorder's `:play-script` export;
 - the reproducibility status is computed (purely) by

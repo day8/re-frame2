@@ -1154,7 +1154,8 @@
   ([id body lookup] (compile-body id body lookup nil))
   ([id body lookup {:keys [view-lookup validator-fns sub-lookup
                            fragment-lookup check-lookup
-                           global-decorators story-decorators] :as _opts}]
+                           global-decorators story-decorators
+                           run-args] :as _opts}]
   (let [view-lookup  (coerce-kind-lookup :view-lookup view-lookup default-view-lookup)
         sub-lookup   (coerce-kind-lookup :sub-lookup sub-lookup default-sub-lookup)
         frag-lookup  (coerce-kind-lookup :fragment-lookup fragment-lookup
@@ -1256,7 +1257,28 @@
                        (reduce (fn [m l] (args/deep-merge m (get l k)))
                                {}
                                (concat inherited frag-layers [child])))
-        arg-map      (merge-key :args)
+        ;; The `:extends`-merged variant-CHAIN args (the §Total resolution
+        ;; order variant layer). This is the ONLY arg layer the plan body
+        ;; carries; the ambient (global / story) + per-run (active-modes /
+        ;; cell-overrides) layers live OUTSIDE the body and arrive via the
+        ;; `:run-args` opt (rf2-2cpoo).
+        variant-arg-map (merge-key :args)
+        ;; rf2-2cpoo — fold the ambient + per-run layers AROUND the variant
+        ;; layer so the effective `arg-map` (and therefore every `[:arg key]`
+        ;; substitution below, `[:world :args]` / `[:world :effective-args]`,
+        ;; and the plan hash) matches `args/resolve-args` for the SAME
+        ;; `:active-modes` / `:cell-overrides`. `:run-args` is the
+        ;; `{:pre [global story mode] :post [cell-overrides]}` shape
+        ;; `re-frame.story.args/run-arg-layers` produces: `:pre` is lower
+        ;; precedence than the variant layer, `:post` higher. Absent (a pure
+        ;; plan-compile / explain / render-prep with no run opts) ⇒ the
+        ;; variant layer alone, exactly as before.
+        arg-map      (if run-args
+                       (args/deep-merge-all
+                         (concat (:pre run-args)
+                                 [variant-arg-map]
+                                 (:post run-args)))
+                       variant-arg-map)
         argtypes     (merge-key :argtypes)
         ;; ---- arg substitution ----
         subs!        (atom [])
@@ -1267,6 +1289,18 @@
         ;; misplaced verdict surfaces before any run.
         _            (reject-assert-in-setup! id setup)
         script*      (substitute-args script arg-map subs!)
+        ;; rf2-2cpoo — the RUNTIME executes `[:world :scripts]` (the named
+        ;; plays from `normalize-scripts`), NOT the top-level `:script` slot.
+        ;; `normalize-scripts` ran on the RAW body, so each play's `:script`
+        ;; still carries unresolved `[:arg key]` placeholders. Substitute them
+        ;; against the SAME `arg-map` the top-level `:script` resolved against
+        ;; (which now folds the run-opts layers), so the executed plays use the
+        ;; effective args the result reports — not the raw placeholder. (Before
+        ;; this, `[:world :scripts]` was never `[:arg]`-substituted at all, so a
+        ;; `[:arg …]` in a script reached the dispatched event verbatim.)
+        scripts*     (mapv (fn [p]
+                             (update p :script substitute-args arg-map subs!))
+                           scripts)
         ;; rf2-5x1wt.18 — every authored assertion atom (terminal
         ;; `:assertions` AND an in-script `[:assert …]` checkpoint, incl.
         ;; the folded `:assert-db` / `:assert-dom` steps) MUST name a
@@ -1441,7 +1475,7 @@
                               :args           arg-map
                               :argtypes       argtypes
                               :effective-args eff-args
-                              :scripts        scripts
+                              :scripts        scripts*
                               :platforms      platforms}
                        (some? schema)        (assoc :view-args-schema schema)
                        (some? sub-overrides) (assoc-in [:render :sub-overrides] sub-overrides)
@@ -1620,6 +1654,17 @@
     `config/get-global-decorators`, and a `(story-id) → decorators-vec`
     lookup defaulting to the Story side-table `:story` kind. Pure tests
     thread explicit values; the live runtime uses the defaults.
+  - `:run-args` — the ambient + per-run arg layers to fold AROUND the
+    `:extends`-merged variant arg layer (rf2-2cpoo), in the
+    `{:pre [global story mode] :post [cell-overrides]}` shape
+    `re-frame.story.args/run-arg-layers` produces. With it the compiled
+    `[:world :args]` / `[:world :effective-args]`, every `[:arg key]`
+    substitution in setup/script/db-seed/network/sub-overrides, and the
+    plan hash all use the SAME effective args as `args/resolve-args` for
+    those `:active-modes` / `:cell-overrides`. Absent (a bare
+    compile / `explain` / render-prep) ⇒ the variant arg layer alone, so
+    the controls/render path keeps layering its overrides on top of the
+    plan-time effective args exactly as before.
 
   Returns the normalized plan map: `:variant/id`, `:source-chain`,
   `:world` (incl. `:effective-args` and `:view-args-schema` when a view
@@ -1639,7 +1684,8 @@
    (let [lookup-fn    (coerce-kind-lookup :lookup lookup default-lookup)
          compile-opts (select-keys opts [:view-lookup :validator-fns :sub-lookup
                                          :fragment-lookup :check-lookup
-                                         :global-decorators :story-decorators])]
+                                         :global-decorators :story-decorators
+                                         :run-args])]
      (cond
        (keyword? target)
        (if-let [body (lookup-fn target)]
