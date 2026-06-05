@@ -44,7 +44,10 @@ When implementing surfaces a missing surface, an inconsistency, or an undocument
 
 **Shell safety for `gh issue create`.** Even the public-evidence-only body above — quoted `spec/` text, a fixture id, a sanitized minimal-reproduction shape — can carry shell metacharacters the user never inspects character by character (a `$`, a backtick, a `\` inside a quoted spec snippet). Never interpolate that text inline into the shell command (where `$`, `` ` ``, and `\` would expand). Instead, **write the body to a file with the `Write` tool**, then pass it with `gh`'s native `--body-file` flag — a single `gh issue create` invocation with no `cat` subshell, so it runs under the skill's `Bash(gh issue *)` permission. The `--body-file` path is a shell-safety mechanism only; it does **not** widen what the body may contain — the public-evidence-only boundary above still holds, so never let "it's in a file now" become a reason to paste private port source, logs, or transcript-derived text:
 
-1. Use the `Write` tool to create `/tmp/spec-gap.md`:
+1. Use the `Write` tool to compose the body into a **fresh, per-filing temp file in the host OS's temp directory** — never a fixed, shared, predictable name. A hard-coded `/tmp/spec-gap.md` fails on hosts without a POSIX `/tmp` (Windows consumer installs) even after the engineer approved filing, and its predictable name lets two concurrent or rapid filings overwrite each other's redacted body — filing the wrong public-evidence text to GitHub or leaving the evidence in a shared location. Pick the path for the OS and add a per-filing nonce, then **carry that exact path into `--body-file` below** (matches `skills/shared/issue-filing.md` §Shell-safety):
+
+   - **POSIX:** `${TMPDIR:-/tmp}/re-frame2-issue-$$-$RANDOM.md`
+   - **Windows (PowerShell):** `$env:TEMP\re-frame2-issue-$([guid]::NewGuid()).md`
 
    ```markdown
    ## Context
@@ -57,13 +60,15 @@ When implementing surfaces a missing surface, an inconsistency, or an undocument
    …cannot be resolved without consulting outside sources…
    ```
 
-2. File it with one `gh issue create` command:
+   The body is plain markdown — no shell escaping needed; nothing expands it.
+
+2. File it with one `gh issue create` command (`--body-file` is the exact per-filing path you wrote in step 1, never a re-typed fixed name):
 
    ```bash
    gh issue create \
      --repo day8/re-frame2 \
      --title "spec-gap(EP-NNN): <one-line>" \
-     --body-file /tmp/spec-gap.md \
+     --body-file "<the per-filing temp path you wrote in step 1>" \
      --label spec-gap,from-implementor
    ```
 
