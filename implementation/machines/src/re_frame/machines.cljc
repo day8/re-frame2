@@ -25,6 +25,9 @@
     - Declarative :spawn-all — spawn-and-join sugar over N parallel
       :spawn's plus a join condition (:all / :any / {:n N} / {:fn pred}).
     - The :raise reserved fx-id (machine-internal pre-commit dispatch).
+    - The :rf.machine/dispatch-to-system reserved fx-id — a machine
+      action sends a message to its spawned child actor by :system-id
+      (the fx counterpart to the dispatch-to-system FN).
     - Snapshot at [:rf/runtime :machines :snapshots <id>] in app-db.
     - Pure machine-transition fn (JVM- and CLJS-runnable, deterministic).
 
@@ -146,6 +149,38 @@
   ([system-id frame-id]
    (get-in (frame/frame-app-db-value frame-id) (paths/system-id-path system-id))))
 
+;; ---- :rf.machine/dispatch-to-system — action→spawned-actor messaging fx --
+;;
+;; Per Spec 005 §Cross-machine messaging by name + §Named addressing via
+;; `:system-id`: a machine ACTION addresses its spawned child actor by
+;; `:system-id`. Actions can't read app-db and `:on-spawn`'s return is
+;; dropped, so the fx form is the spec-blessed way an action sends a
+;; message to a named actor. This is the fx counterpart to the
+;; `dispatch-to-system` FN (`re-frame.core`); the fn is sugar for direct
+;; (queued) call sites, the fx is what a machine action emits from `:fx`.
+;;
+;; Args shape `[<system-id> <event-vector>]` — the framework fx contract
+;; is a 2-element `[fx-id args]` pair (the `do-fx` walk drops arity-≥3
+;; entries with `:rf.error/effect-map-shape`), so the system-id and event
+;; ride together in the single `args` slot. This mirrors `:rf.machine/spawn`
+;; (args is a single spec map) and `:dispatch` (args is a single event
+;; vector). Frame-aware: the fx-ctx's `:frame` resolves the binding in the
+;; emitting frame's `[:rf/runtime :machines :system-ids]` reverse index and
+;; targets the queued dispatch at the same frame — consistent with
+;; `spawn-fx` / `update-snapshot-fx`.
+
+(defn dispatch-to-system-fx
+  "fx handler for `:rf.machine/dispatch-to-system`. Resolves `system-id`
+  through the emitting frame's `[:rf/runtime :machines :system-ids]`
+  reverse index and dispatches `event` to the bound actor. No-op when the
+  system-id is unbound (symmetric with the `dispatch-to-system` FN's
+  no-op fall-through). Per Spec 005 §Cross-machine messaging by name."
+  [{frame-id :frame :or {frame-id :rf/default}} [system-id event]]
+  (when-let [machine-id (machine-by-system-id system-id frame-id)]
+    (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
+      (dispatch! [machine-id event] {:frame frame-id})))
+  nil)
+
 (defn reset-timers!
   "Cancel in-flight `:after` timers.
 
@@ -205,6 +240,10 @@
 (fx/reg-fx :rf.machine/update-snapshot
   {:doc "Snapshot-level escape hatch. Emit `[:rf.machine/update-snapshot {:rf/machine-id <id> :rf/patch {:errors ... :status ...}}]` from a callback's `:fx` vector to touch `:state` / `:meta` / `:errors` / `:status` / `:data` atomically. Per Spec 005 §Snapshot-level escape hatch."}
   update-snapshot/update-snapshot-fx)
+
+(fx/reg-fx :rf.machine/dispatch-to-system
+  {:doc "Dispatch an event to a spawned actor addressed by `:system-id`. Emit `[:rf.machine/dispatch-to-system [<system-id> <event-vector>]]` from a machine action's `:fx` vector. No-op when the system-id is unbound. The fx counterpart to the `dispatch-to-system` fn. Per Spec 005 §Cross-machine messaging by name."}
+  dispatch-to-system-fx)
 
 ;; ---- framework-shipped subs -----------------------------------------------
 ;;

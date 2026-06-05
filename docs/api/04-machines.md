@@ -4,7 +4,7 @@ A state machine in re-frame2 is registered with one call (`reg-machine`) and *is
 
 The point of the machine surface isn't novelty — Statecharts have been around since 1987 — it's that the same trace bus, time-travel, and override surfaces that work for plain event handlers also work for machines, *because the machine is an event handler*. There's no parallel runtime to debug, no second store to inspect, no separate event log. Xray shows the machine state alongside `app-db`; the epoch buffer captures the snapshot the same way it captures everything else.
 
-This chapter covers the registration surface (`reg-machine`, `reg-machine*`, `make-machine-handler`), the inspection / subscription surface (`sub-machine`, `machines`, `machine-meta`, `machine-by-system-id`), the dispatch sugar (`dispatch-to-system`, `:raise`), the actor-lifecycle fx (`:rf.machine/spawn`, `:rf.machine/destroy`), and the post-v1 tooling exports (`machine->xstate-json`, `machine->mermaid`).
+This chapter covers the registration surface (`reg-machine`, `reg-machine*`, `make-machine-handler`), the inspection / subscription surface (`sub-machine`, `machines`, `machine-meta`, `machine-by-system-id`), the dispatch sugar (`dispatch-to-system`, `:raise`), the actor-lifecycle fx (`:rf.machine/spawn`, `:rf.machine/destroy`, `:rf.machine/dispatch-to-system`), and the post-v1 tooling exports (`machine->xstate-json`, `machine->mermaid`).
 
 For the *why* — the design rationale, the v1 vs post-v1 split, the capability matrix — see [005-StateMachines.md](../../spec/005-StateMachines.md).
 
@@ -144,12 +144,15 @@ The snapshot lives at `[:rf/runtime :machines :snapshots :session]` in `app-db`.
 
 When a child actor spawns under a parent, the parent's `:data` often gets the child's id stamped via `:on-spawn`. `dispatch-to-system` lets the parent name the child by *role* (`:logger`, `:websocket`, `:retry-coordinator`) instead of by gensym'd id. The per-frame `[:rf/runtime :machines :system-ids]` reverse index resolves the name. See [005 §Named addressing via `:system-id`](../../spec/005-StateMachines.md).
 
+From a **machine action** (which can't read app-db and whose `:on-spawn` return is dropped), emit the fx counterpart `[:rf.machine/dispatch-to-system [system-id event]]` from the action's `:fx` vector — same name-resolution, same no-op-when-unbound semantics, expressed as an effect. See [The actor-lifecycle fx](#the-actor-lifecycle-fx).
+
 ## The actor-lifecycle fx
 
 | `[fx-id args]` | Args | Status | Spec | Intuition |
 |---|---|---|---|---|
 | `[:rf.machine/spawn spawn-spec]` | spawn-spec map (per `:rf.fx/spawn-args`) | v1 | 005 | "Spawn a dynamic actor instance." Args carry `:machine-id` (the definition to instantiate), `:id-prefix`, `:data` (initial), `:on-spawn` (event dispatched with the gensym'd id), and `:start` (events to deliver immediately). Emitted from any event handler's `:fx` (including machine actions and the `:spawn` desugar). |
 | `[:rf.machine/destroy actor-id]` | actor id (keyword) | v1 | 005 | "Tear down this actor." Runs the actor's `:exit` action, dissociates `[:rf/runtime :machines :snapshots <actor-id>]`, and clears the actor's event-handler registration. Symmetric counterpart to `:rf.machine/spawn`. |
+| `[:rf.machine/dispatch-to-system [system-id event]]` | 2-element pair `[system-id event-vector]` | v1 | 005 | "Message my spawned child actor by name." Resolves `system-id` through the emitting frame's `[:rf/runtime :machines :system-ids]` reverse index and dispatches `event` to the bound actor; no-op when unbound. The action-side counterpart to the `dispatch-to-system` fn. Args ride as a single 2-element pair (the fx contract is a `[fx-id args]` pair). |
 | `[:raise event-vec]` | event vector | v1 | 005 | **Machine-only.** Inside a machine action's `:fx`, routes the event back into the same machine atomically and pre-commit. Unbound outside machine actions. |
 
 ### Spawn pattern

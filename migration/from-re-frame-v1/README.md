@@ -2681,7 +2681,7 @@ If a codebase has any pattern of "spawn an actor and thread its id through a sib
           {:fx [[:rf.machine/spawn {:machine-id :notifier
                                     :system-id  :notifier}]]})
 :action (fn [data _]
-          {:fx [[:dispatch-to-system :notifier [:notify "..."]]]})
+          {:fx [[:rf.machine/dispatch-to-system [:notifier [:notify "..."]]]]})
 ```
 
 Apply only when the threading-via-`:data` pattern shows up in code review or when adding new spawn sites — there's no migration pressure on existing call sites that already work.
