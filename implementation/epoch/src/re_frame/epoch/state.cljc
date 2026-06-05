@@ -451,21 +451,48 @@
 
 (defn- epoch-value-changed-for-view?
   "True when epoch `record` carries a value-changed `:sub/run` belonging
-  to the view named by `render-key` — i.e. a `:sub/run` with
-  `:value-changed? true` whose `:reader-render-key` is `render-key`
-  (the synchronous in-render deref, when stamped) OR whose `:sub-id` is
-  in the view's learned read-set `deps` (the post-settle reactive
-  recompute, which carries no render-key). `deps` may be nil when the
-  view's read-set was never learned — then only the render-key match
-  applies."
+  to the view named by `render-key`.
+
+  Two evidence sources, in priority order:
+
+    1. The raw `:trace-events` (when retained — within `:trace-events-keep`):
+       a `:sub/run` with `:value-changed? true` whose `:reader-render-key` is
+       `render-key` (the synchronous in-render deref, when stamped) OR whose
+       `:sub-id` is in the view's learned read-set `deps` (the post-settle
+       reactive recompute, which carries no render-key). This is the richer
+       source — it can match by render-key even before the read-set is learned.
+
+    2. The structured `:sub-runs` projection (rf2-bhglx) — consulted ONLY when
+       the record's raw `:trace-events` were elided (the `:trace-events-keep 0`
+       memory/privacy posture drops every record's raw stream while RETAINING
+       the structured rows). A `:sub-runs` row carries `:value-changed?` and
+       `:sub-id` but NO `:reader-render-key` (see `capture/sub-run-row`), so the
+       structured match is `deps`-only: a value-changed row whose `:sub-id` is in
+       the view's learned read-set. Without this, render attribution under
+       keep-0 saw NO value-change evidence and mis-recorded genuine re-renders
+       against the mount/default epoch.
+
+  `deps` may be nil when the view's read-set was never learned — then only the
+  render-key (trace) match applies, and the structured fallback yields nothing.
+  Prefers the trace source when present so the render-key precision is kept;
+  falls back to the structured rows only when traces are absent."
   [record render-key deps]
-  (some (fn [ev]
-          (and (= :rf.sub/run (:operation ev))
-               (true? (-> ev :tags :rf.sub/value-changed?))
-               (let [tags (:tags ev)]
-                 (or (= render-key (:rf.sub/reader-render-key tags))
-                     (and deps (contains? deps (:rf.sub/id tags)))))))
-        (:trace-events record)))
+  (if (contains? record :trace-events)
+    (some (fn [ev]
+            (and (= :rf.sub/run (:operation ev))
+                 (true? (-> ev :tags :rf.sub/value-changed?))
+                 (let [tags (:tags ev)]
+                   (or (= render-key (:rf.sub/reader-render-key tags))
+                       (and deps (contains? deps (:rf.sub/id tags)))))))
+          (:trace-events record))
+    ;; rf2-bhglx — `:trace-events` elided (keep-0, or this record below the
+    ;; elision boundary). The structured `:sub-runs` rows are retained for
+    ;; every record; match a value-changed row by the view's learned read-set.
+    (and deps
+         (some (fn [row]
+                 (and (true? (:value-changed? row))
+                      (contains? deps (:sub-id row))))
+               (:sub-runs record)))))
 
 (defn- value-changed-epoch-for
   "Scan `frame-id`'s ring (most-recent first) for the newest epoch in
@@ -474,43 +501,40 @@
   epoch-id, or nil when no retained epoch shows a value-change for the
   view (a mount / mount-burst tail).
 
-  A view's subs are matched two ways (see `epoch-value-changed-for-view?`):
-  by the `:reader-render-key` stamp (synchronous in-render deref) and by
-  the view's learned read-set (`render-deps-for`) for post-settle reactive
-  recomputes that carry no render-key. The read-set is learned at mount
-  from the stamped synchronous derefs; a view's sub set is stable across
-  its life, so mount-time learning suffices.
+  A view's subs are matched (see `epoch-value-changed-for-view?`): by the
+  `:reader-render-key` stamp (synchronous in-render deref, raw-trace only) and
+  by the view's learned read-set (`render-deps-for`) for post-settle reactive
+  recomputes that carry no render-key. The read-set is learned at mount from
+  the stamped synchronous derefs; a view's sub set is stable across its life,
+  so mount-time learning suffices.
 
-  Reads only `:trace-events`, which the most-recent `:trace-events-keep`
-  records retain — exactly the window a post-settle render can target
-  (the back-fill never reaches older, projection-only records). The scan
-  is BOUNDED by the ELISION boundary: it stops at the first record (newest-
-  first) whose `:trace-events` slot is absent. A record below that boundary
-  had its `:trace-events` elided (`elide-just-crossed-trace-events`), so it
-  carries no value-changed `:sub/run` to find — it can never contribute a
-  hit, and every record older than it is likewise elided (elision is a
-  contiguous oldest-first prefix). Breaking at the boundary makes the scan
-  genuinely O(keep) rather than O(depth) per miss (the common mount /
-  mount-burst-tail case this fn exists to catch), matching the fused-walk
-  / O(keep) framing the rest of this file holds (rf2-3rg4j).
+  EVIDENCE WINDOW (rf2-bhglx). Each record is matched against its raw
+  `:trace-events` when retained (within `:trace-events-keep`), else against its
+  structured `:sub-runs` projection — which is retained for EVERY record
+  regardless of `:trace-events-keep`. The scan therefore reaches index 0:
 
-  WHY THE BOUND READS `:trace-events` PRESENCE, NOT `(- n keep)` (rf2-b2c02):
-  the steady-state elision boundary IS `(- n keep)`, but it is NOT after a
-  RUNTIME `:trace-events-keep` REDUCTION. Elision is non-retroactive (see
-  `elide-just-crossed-trace-events`'s docstring) — immediately after a
-  reduction (e.g. 50 → 5) records that were inside the OLD window but now
-  sit below `(- n new-keep)` STILL carry `:trace-events` until subsequent
-  appends re-elide them. A `(- n keep)` bound would skip those still-trace-
-  bearing records and miss a genuine value-change living in that transient
-  gap, mis-attributing the render to the mount / settling epoch. Bounding
-  on the directly-observable elision state instead tracks reality under any
-  reconfiguration: it scans EXACTLY the records that still carry traces —
-  the only records that can match — and self-heals back to O(keep) as
-  appends re-elide the gap. Cost is never worse than the pre-rf2-3rg4j
-  O(depth) and is identical O(keep) in steady state. A nil / unbounded
-  `keep` leaves every record carrying `:trace-events`, so the scan reaches
-  index 0. One pass newest-first; short-circuits at the first matching
-  epoch."
+    * keep > 0 — the genuine re-render rides one of the most-recent retained
+      cascades, so the newest-first scan short-circuits on the first hit; the
+      common mount / mount-burst-tail miss still walks at most the trace window
+      plus the structured tail. The raw-trace records are matched with full
+      render-key precision; older trace-elided records fall back to the
+      `:sub-runs` `deps`-only match (harmless — they predate the re-render).
+
+    * keep = 0 (rf2-bhglx) — no record retains raw traces, so EVERY record is
+      matched via its structured `:sub-runs`. Pre-fix the scan broke at the
+      first trace-elided record (the NEWEST one under keep-0) and returned nil,
+      so a genuine value-changing sub-run sitting in the newest epoch's
+      `:sub-runs` was never seen and the render was mis-attributed to the
+      mount/default epoch. Consulting `:sub-runs` lets the newest-first scan
+      find it and short-circuit on the current epoch.
+
+  The earlier hard break at the elision boundary (rf2-3rg4j / rf2-b2c02) is
+  GONE: it assumed a trace-elided record can never match, which the structured
+  `:sub-runs` fallback makes false. Under keep-0 the scan is O(depth) to a
+  miss; that is the necessary cost of attribution when no trace window exists,
+  and it still short-circuits on the first (newest) value-change for the common
+  genuine-re-render case. One pass newest-first; short-circuits at the first
+  matching epoch."
   [frame-id render-key]
   (let [history (history-for frame-id)
         deps    (render-deps-for frame-id render-key)
@@ -518,13 +542,9 @@
     (loop [i (dec n)]
       (when (>= i 0)
         (let [record (nth history i)]
-          ;; Elision is a contiguous oldest-first prefix: the first record
-          ;; (newest-first) that has lost its `:trace-events` marks the
-          ;; boundary — it and everything older are elided and unmatchable.
-          (when (contains? record :trace-events)
-            (if (epoch-value-changed-for-view? record render-key deps)
-              (:epoch-id record)
-              (recur (dec i)))))))))
+          (if (epoch-value-changed-for-view? record render-key deps)
+            (:epoch-id record)
+            (recur (dec i))))))))
 
 (defn resolve-render-epoch
   "Resolve the epoch a post-settle render of `render-key` should be
@@ -883,51 +903,41 @@
             (-> ev :tags :rf.trace/dispatch-id)))
         events))
 
-;; rf2-fxowr — bounded `theirs` retention. A `:event/dispatched` marker that
-;; rides a DIFFERENT dispatch-id ("theirs") is normally claimed as "mine" at
-;; the child's OWN settle — the very next harvest after the parent strands it
-;; (proven: parent harvest leaves it theirs, child run-start makes the next
-;; harvest's settling-id match, marker harvested as mine). So in the normal
-;; child-runs path a marker survives exactly ONE harvest as theirs.
+;; rf2-bhglx — claim-based `theirs` retention. A `:event/dispatched` marker
+;; that rides a DIFFERENT dispatch-id ("theirs") is a CHILD's queue-time
+;; dispatch row: it fires during the PARENT's do-fx (so it lands in the
+;; parent's window) but carries the CHILD's `:dispatch-id`. Under per-event
+;; epochs it must ride the CHILD's epoch, not the parent's (Spec 009 §Dispatch
+;; correlation: one `:dispatch-id` = one epoch), so it is LEFT in the buffer
+;; for the child's own `harvest-buffer-for-event!`, where the child's
+;; run-start makes the settling-id match and the marker is CLAIMED as "mine".
 ;;
-;; A child that NEVER runs to a settle (handler unregistered, frame
-;; destroyed / drain-interrupted before dequeue, depth-halt clears the queue
-;; with the child still pending) leaves its marker stranded: no settling-id
-;; will ever match it, so it is re-classified theirs and re-retained on EVERY
-;; subsequent genuine settle for the long-lived frame — slow UNBOUNDED
-;; accretion in the hottest atom (`capture-buffers`). This is the non-nil
-;; sibling of the rf2-ee38b nil-orphan strand: that fix made the harvest
-;; self-cleaning for nil-id orphans; this extends the same self-cleaning to
-;; cover a stranded non-nil child marker.
+;; The marker is retained until that claim — NOT for a fixed number of
+;; harvests. The earlier rf2-fxowr fix dropped an unclaimed marker after it had
+;; survived ONE intervening harvest as theirs, on the theory that the very next
+;; harvest is always the child's own settle. That theory is FALSE for a valid
+;; router interleaving: ordinary `:dispatch` fx children go to the router FIFO
+;; TAIL (`router/enqueue-envelope!` — `conj` on the PersistentQueue), so a
+;; SIBLING event already queued behind the parent settles BEFORE the child.
+;; That sibling's harvest consumed the child's one retained pass and dropped
+;; the marker before the child ever ran — the delayed child epoch then lost its
+;; queue-time dispatch/source row (parent-dispatch-id, source, source-detail,
+;; origin, call-site) and parent-child causality. The harvest-count heuristic
+;; conflated "a sibling ran ahead of the child" (legitimate — must retain) with
+;; "the child never ran" (a strand). Retaining until the matching run-start
+;; claims the marker is correct for ANY number of intervening sibling settles.
 ;;
-;; The bound: stamp each retained theirs marker with a private survival
-;; counter (`::theirs-harvests`). The FIRST time a marker is theirs it is
-;; retained with the counter at 1 (its child still has its chance to run).
-;; The SECOND time the same marker would be theirs the child has demonstrably
-;; not come to claim it within its run-to-completion window, so it is
-;; RECLAIMED (dropped) rather than re-retained. The normal child-runs path is
-;; untouched: the marker is claimed as mine at the next harvest, before it can
-;; reach the drop threshold. The private key never escapes — only stranded
-;; markers being dropped ever carry it past one harvest, and a marker harvested
-;; as mine is stripped of it (defensive; the normal path never stamps it onto a
-;; mine-classified event anyway).
-(def ^:private theirs-harvests-key ::theirs-harvests)
-
-(def ^:private theirs-retention-limit
-  ;; A theirs marker may survive at most ONE harvest as theirs (the parent's,
-  ;; which strands it); on the harvest that would make it theirs a SECOND time
-  ;; its child never ran, so it is reclaimed. 1 = "retain across one harvest,
-  ;; drop on the next."
-  1)
-
-(defn- strip-strand-stamp
-  "Drop the private rf2-fxowr survival counter from an event map so it never
-  escapes into a harvested epoch's `:trace-events`. A no-op for the
-  overwhelming majority of events (the key is absent)."
-  [ev]
-  (if (contains? ev theirs-harvests-key)
-    (dissoc ev theirs-harvests-key)
-    ev))
+;; The memory bound rf2-fxowr guarded is preserved WITHOUT the count: a child
+;; that NEVER runs to a settle has its marker cleared by the same terminal path
+;; that ends the child's life — `on-frame-destroyed!` / `discard-buffer!` drop
+;; the whole frame buffer (frame destroyed / drain-interrupted), the per-event
+;; depth-halt `commit-halt-record!` reads-and-CLEARS the whole buffer
+;; (`harvest-buffer!`), and a rejected/aborted child dispatch reaches the
+;; no-run-start branch below which clears-and-returns the whole buffer. Each of
+;; those wholesale-clears the stranded marker; none leaves it to accrete. The
+;; nil-id orphan self-cleaning rf2-ee38b established at this same seam (an
+;; orphan has no settle to ever claim it AND rides no terminal clear of its own)
+;; is unchanged — orphans are still dropped here on every harvest.
 
 (defn harvest-buffer-for-event!
   "Per rf2-nj6p7 — per-event harvest. Atomically read the frame's in-flight
@@ -950,10 +960,11 @@
       one `:dispatch-id` = one epoch). It stays buffered for the child's
       own `harvest-buffer-for-event!` at the child's settle.
 
-  Per rf2-fxowr a stranded theirs marker (its child never ran) is RECLAIMED
-  after surviving more than one harvest as theirs, so the buffer stays bounded
-  — the self-cleaning posture rf2-ee38b established for nil-id orphans, now
-  extended to the non-nil stranded-child case.
+  Per rf2-bhglx a theirs marker is RETAINED until its child's own run-start
+  claims it (any number of intervening sibling settles), not for a fixed
+  harvest count. A child that never runs is bounded by the terminal paths that
+  clear the whole buffer (frame destroy / drain-interrupt / depth-halt /
+  rejected dispatch); see the design note above this defn.
 
   Falls back to a full read-and-clear when the buffer carries no
   `:event/run-start` (a rejected / aborted dispatch) — there is no
@@ -969,9 +980,10 @@
       ;;       — a child's `:event/dispatched` marker fired during THIS event's
       ;;         do-fx carrying the CHILD's id; LEFT in the buffer for the
       ;;         child's own settle (Spec 009 §Dispatch correlation: one
-      ;;         dispatch-id = one epoch) — UNLESS it has already survived a
-      ;;         prior harvest as theirs (rf2-fxowr stranded child), in which
-      ;;         case it is reclaimed below.
+      ;;         dispatch-id = one epoch). RETAINED across every intervening
+      ;;         sibling harvest until the child's own run-start claims it as
+      ;;         mine (rf2-bhglx — siblings queued ahead of a FIFO-tail child
+      ;;         settle first, so the child's claim can be many harvests away).
       ;;   * ORPHAN (nil event-dispatch-id)
       ;;       — an out-of-cascade emit (e.g. `:frame/created`) with no
       ;;         cascade to ride. DISCARDED here.
@@ -989,35 +1001,31 @@
       ;; orphan never folds into an epoch's `:trace-events`; this only changes
       ;; whether it lingers in the buffer (no) vs. is dropped (yes).
       ;;
-      ;; Per rf2-fxowr the SAME self-cleaning now covers a stranded non-nil
-      ;; child: a theirs marker carries a private `::theirs-harvests` survival
-      ;; counter; one whose counter already reached the retention limit (its
-      ;; child never ran to a settle within its RTC window) is reclaimed rather
-      ;; than re-retained, so `capture-buffers` stays bounded.
-      (let [mine   (mapv strip-strand-stamp
-                         (filterv (fn [ev] (= (-> ev :tags :rf.trace/dispatch-id) settling-id))
-                                  buffer))
-            ;; Theirs markers that have NOT yet exhausted their retention —
-            ;; bumped one survival generation and kept for the child's settle.
-            theirs (into []
-                         (keep (fn [ev]
-                                 (let [event-dispatch-id (-> ev :tags :rf.trace/dispatch-id)]
-                                   (when (and (some? event-dispatch-id)
-                                              (not= event-dispatch-id settling-id))
-                                     (let [survived (get ev theirs-harvests-key 0)]
-                                       (when (< survived theirs-retention-limit)
-                                         (assoc ev theirs-harvests-key (inc survived))))))))
-                         buffer)]
-        ;; Leave the surviving other-event markers in the buffer for their own
-        ;; event's settle; drop orphans, ours, and stranded (retention-exhausted)
-        ;; theirs markers.
+      ;; Per rf2-bhglx a stranded non-nil child (one that never runs to a
+      ;; settle) is bounded WITHOUT a per-marker survival counter: the
+      ;; terminal path that ends the child's life clears the whole buffer (see
+      ;; the design note above this defn). A harvest-count reclaim would have
+      ;; dropped a LEGITIMATE child whose sibling merely ran ahead of it on the
+      ;; FIFO, losing the child's queue-time dispatch row — so the marker is
+      ;; retained here on every sibling harvest.
+      (let [mine   (filterv (fn [ev] (= (-> ev :tags :rf.trace/dispatch-id) settling-id))
+                            buffer)
+            ;; Other-event markers: a non-nil dispatch-id that isn't the
+            ;; settling event's. Kept verbatim for the child's own settle.
+            theirs (filterv (fn [ev]
+                              (let [event-dispatch-id (-> ev :tags :rf.trace/dispatch-id)]
+                                (and (some? event-dispatch-id)
+                                     (not= event-dispatch-id settling-id))))
+                            buffer)]
+        ;; Leave the other-event markers in the buffer for their own event's
+        ;; settle; drop orphans (nil dispatch-id) and the harvested-mine events.
         (if (seq theirs)
           (swap! capture-buffers assoc frame-id theirs)
           (swap! capture-buffers dissoc frame-id))
         mine)
       ;; No run-start — rejected/aborted dispatch. Clear and return all.
       (do (swap! capture-buffers dissoc frame-id)
-          (mapv strip-strand-stamp buffer)))))
+          buffer))))
 
 (defn drop-frame-buffer!
   "Drop the frame's in-flight capture buffer."

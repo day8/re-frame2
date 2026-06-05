@@ -615,6 +615,64 @@
                a genuine re-render rides its own cascade, never collapses back
                to the mount epoch"))))))
 
+(deftest inv-3-keep-0-render-attributed-via-sub-runs-to-current-epoch
+  (testing "rf2-bhglx — with `:trace-events-keep 0` every record's raw
+            `:trace-events` are elided while the structured `:sub-runs` rows are
+            RETAINED (the memory/privacy posture). A genuine re-render's
+            value-change evidence then lives ONLY in the newest epoch's
+            `:sub-runs`. Pre-fix `value-changed-epoch-for` scanned only
+            `:trace-events` and broke at the first trace-elided record (the
+            NEWEST one under keep-0), so it found no value-change and the render
+            was mis-attributed to the mount/default epoch. The fix consults the
+            structured `:sub-runs` (learned dep + `:value-changed? true`) when
+            the raw stream is absent, so the render lands on the CURRENT epoch."
+    (rf/configure! :epoch-history {:trace-events-keep 0})
+    (rf/reg-frame :test/main {})
+    (rf/reg-event-db :seed        (fn [_ _] {:counter 0}))
+    (rf/reg-event-db :counter-inc (fn [db _] (update db :counter inc)))
+
+    ;; Mount: seed cascade + the synchronous in-render deref that teaches the
+    ;; view's read-set (`:counter`). The render-deps learning is independent of
+    ;; `:trace-events-keep`, so the read-set is learned even under keep-0.
+    (rf/dispatch-sync [:seed] {:frame :test/main})
+    (let [mount-epoch (last-epoch :test/main)]
+      (emit-mount-sub-run! :test/main :counter cv-rk nil 0)
+      (emit-render! :test/main cv-rk)
+
+      ;; A later cascade genuinely changes the view's input. The value-changing
+      ;; sub-run back-fills into THIS cascade's `:sub-runs` (the structured row
+      ;; is appended even though the raw `:trace-events` are elided), then the
+      ;; re-render commits post-settle.
+      (rf/dispatch-sync [:counter-inc] {:frame :test/main})
+      (let [inc-epoch (last-epoch :test/main)]
+        (emit-sub-run! :test/main :counter 0 1)
+        (emit-render! :test/main cv-rk)
+
+        (let [mount-rec (epoch-by-id :test/main mount-epoch)
+              inc-rec   (epoch-by-id :test/main inc-epoch)]
+          ;; Precondition: the structured evidence the scan must consult is
+          ;; present on the current epoch, while its raw trace stream is gone.
+          (is (not (contains? inc-rec :trace-events))
+              "keep-0 elided the current epoch's raw :trace-events")
+          (is (some (fn [row] (and (= :counter (:sub-id row))
+                                   (true? (:value-changed? row))))
+                    (:sub-runs inc-rec))
+              "the value-changing :counter sub-run is in the current epoch's
+               structured :sub-runs")
+          ;; The fix: the genuine re-render lands on the CURRENT epoch (its
+          ;; cause). Pre-fix the scan found no value-change (raw traces elided,
+          ;; structured rows ignored), resolved to the mount epoch where cv-rk
+          ;; already had its mount render, and the re-render was DEDUP'd away —
+          ;; so the current epoch carried NO cv-rk render at all.
+          (is (contains? (rendered-keys inc-rec) cv-rk)
+              "rf2-bhglx — the re-render is attributed to the current epoch via
+               its :sub-runs value-change, even with raw traces elided")
+          ;; The mount epoch carries its OWN mount render (correct), but NOT a
+          ;; second one — the re-render did not also collapse onto it.
+          (is (= 1 (count (filter #(= cv-rk (:render-key %)) (:renders mount-rec))))
+              "the mount epoch carries exactly its mount render for cv-rk, not
+               the re-render too"))))))
+
 ;; ===========================================================================
 ;; INVARIANT 4 — :rf.sub/value-changed? + :rf.sub/cause-sub land on the correct epoch
 ;;                (rf2-wi900 / rf2-l1jz8)
@@ -891,18 +949,16 @@
              self-cleaning, not reliant on the upstream guard")))))
 
 (deftest inv-6b-harvest-retains-child-marker-for-its-own-settle
-  (testing "rf2-ee38b — the self-cleaning harvest must NOT discard a CHILD's
-            dispatch-id marker: a non-nil dispatch-id that differs from the
-            settling event's id is a child's `:event/dispatched` marker (fired
-            during the parent's do-fx) and stays buffered for the child's own
-            settle (Spec 009 §Dispatch correlation: one dispatch-id = one
+  (testing "rf2-ee38b / rf2-bhglx — the self-cleaning harvest must NOT discard a
+            CHILD's dispatch-id marker: a non-nil dispatch-id that differs from
+            the settling event's id is a child's `:event/dispatched` marker
+            (fired during the parent's do-fx) and stays buffered for the child's
+            own settle (Spec 009 §Dispatch correlation: one dispatch-id = one
             epoch). Only nil-id orphans are dropped.
 
-            rf2-fxowr — the retained marker carries a PRIVATE survival counter
-            so a STRANDED marker (its child never settles) can be reclaimed on a
-            later harvest (inv-6c). The counter is internal book-keeping; assert
-            on the marker's identity (its dispatch-id + operation), not bare map
-            equality, since the stamp is now present."
+            rf2-bhglx — the retained marker is kept VERBATIM (no private survival
+            counter); claim-based retention holds it until the child's run-start
+            claims it. Bare map equality is the right assertion now."
     (let [frame      :test/harvest-child
           run-start  {:op-type :rf.event :operation :rf.event/run-start
                       :tags {:rf.trace/phase :run-start :rf.trace/dispatch-id 1 :rf.trace/event-id :parent}}
@@ -919,113 +975,154 @@
             retained  (state/buffer-for frame)]
         (is (= [run-start body] harvested)
             "the parent's harvest takes only its own (dispatch-id 1) traces")
-        ;; The child marker (dispatch-id 2) is RETAINED; the orphan is DROPPED.
-        (is (= 1 (count retained))
-            "exactly the child's marker stays buffered; the nil-id orphan is dropped")
-        (is (= 2 (-> retained first :tags :rf.trace/dispatch-id))
-            "the retained marker IS the child's (dispatch-id 2) marker")
-        (is (= :rf.event/dispatched (-> retained first :operation))
-            "and it is the child's :event/dispatched marker, kept for the child's own settle")
+        ;; The child marker (dispatch-id 2) is RETAINED VERBATIM; orphan DROPPED.
+        (is (= [child-mark] retained)
+            "exactly the child's marker stays buffered, bare (no private stamp);
+             the nil-id orphan is dropped")
         (state/drop-frame-buffer! frame)))))
 
-(deftest inv-6c-harvest-reclaims-stranded-child-marker
-  (testing "rf2-fxowr — a STRANDED child `:event/dispatched` marker (its child
-            never runs to a settle: unregistered handler, frame
-            destroyed/drain-interrupted before dequeue, or depth-halt clears the
-            queue with the child still pending) must NOT accrete in the hottest
-            atom (`capture-buffers`) indefinitely.
+(deftest inv-6c-harvest-retains-child-marker-across-sibling-settles
+  (testing "rf2-bhglx — a child's `:event/dispatched` marker (fired during the
+            parent's do-fx, carrying the CHILD's id) must survive EVERY
+            intervening sibling settle until the child's own run-start claims it.
+            Ordinary `:dispatch` fx children go to the router FIFO TAIL
+            (`router/enqueue-envelope!`), so a sibling already queued behind the
+            parent settles BEFORE the child — possibly several of them. The child
+            epoch must still get its queue-time dispatch/source row (parent-
+            dispatch-id, source, origin, call-site) and parent-child causality.
 
-            inv-6b proves a child marker is RETAINED for its own settle — that
-            holds for a child that WILL run (claimed as `mine` at the very next
-            harvest). This invariant proves the complementary bound: a marker
-            whose child never settles is RECLAIMED after surviving more than one
-            harvest as `theirs`, so the buffer stays bounded. The non-nil
-            sibling of inv-6's nil-id orphan self-cleaning — the harvest is
-            self-cleaning for BOTH strand classes, not reliant on the upstream
-            terminal paths (rejected-child settle / depth-halt / drain-interrupt
-            clear) being perfect.
-
-            Pre-rf2-fxowr the marker was re-classified `theirs` and re-retained
-            on EVERY subsequent genuine settle for the long-lived frame — one
-            small residue per stranding incident, never GC'd while the frame
-            lives (slow UNBOUNDED accretion)."
-    (let [frame       :test/harvest-stranded
-          ;; A stranded child marker — its child (dispatch-id 99) never ran, so
-          ;; no settling-id will ever match it.
-          stranded    {:op-type :rf.event :operation :rf.event/dispatched
-                       :tags {:rf.trace/dispatch-id 99 :rf.trace/event-id :child-never-ran}}
-          ;; A first genuine, unrelated event settles for this long-lived frame.
-          rs-1        {:op-type :rf.event :operation :rf.event/run-start
-                       :tags {:rf.trace/phase :run-start :rf.trace/dispatch-id 7 :rf.trace/event-id :genuine-1}}
-          body-1      {:op-type :rf.event :operation :rf.event/db-changed
-                       :tags {:rf.trace/dispatch-id 7}}
-          ;; A second genuine, unrelated event settles later.
-          rs-2        {:op-type :rf.event :operation :rf.event/run-start
-                       :tags {:rf.trace/phase :run-start :rf.trace/dispatch-id 8 :rf.trace/event-id :genuine-2}}
-          body-2      {:op-type :rf.event :operation :rf.event/db-changed
-                       :tags {:rf.trace/dispatch-id 8}}]
-      ;; --- first genuine settle while the stranded marker sits in the buffer ---
-      (state/buffer-event! frame stranded)
-      (state/buffer-event! frame rs-1)
-      (state/buffer-event! frame body-1)
-      (let [h1     (state/harvest-buffer-for-event! frame)
-            after1 (state/buffer-for frame)]
-        (is (= [rs-1 body-1] h1)
-            "the first genuine event harvests ONLY its own (dispatch-id 7) traces")
-        (is (not-any? #(= 99 (-> % :tags :rf.trace/dispatch-id)) h1)
-            "the stranded marker is NOT folded into the genuine event's epoch")
-        (is (= 1 (count after1))
-            "the stranded marker survives the FIRST harvest as theirs (its child
-             still notionally has a chance to run within its RTC window)")
-
-        ;; --- second genuine settle: the child still never ran -> RECLAIM ---
-        (state/buffer-event! frame rs-2)
-        (state/buffer-event! frame body-2)
-        (let [h2     (state/harvest-buffer-for-event! frame)
-              after2 (state/buffer-for frame)]
-          (is (= [rs-2 body-2] h2)
-              "the second genuine event harvests ONLY its own (dispatch-id 8) traces")
-          (is (not-any? #(= 99 (-> % :tags :rf.trace/dispatch-id)) h2)
-              "the stranded marker is STILL not folded into a genuine epoch")
-          (is (empty? after2)
-              "rf2-fxowr — the stranded marker is RECLAIMED, not re-retained;
-               `capture-buffers` for the frame is now empty (bounded)")))
+            The earlier rf2-fxowr count-based reclaim DROPPED the marker after
+            one intervening harvest, which is exactly this legitimate
+            interleaving — the bug rf2-bhglx fixes. Memory is bounded by the
+            terminal paths that clear the whole buffer (drain-interrupt / depth-
+            halt / rejected dispatch), proven by inv-6c-bound below; it is NOT
+            bounded by a per-marker harvest count."
+    (let [frame       :test/harvest-sibling
+          child-mark  {:op-type :rf.event :operation :rf.event/dispatched
+                       :tags {:rf.trace/dispatch-id 99 :rf.trace/event-id :child
+                              :rf.trace/parent-dispatch-id 1 :source :reframe}}
+          ;; Three genuine, unrelated SIBLING events settle ahead of the child
+          ;; (queued behind the parent on the FIFO before the child's enqueue).
+          rs    (fn [id eid] {:op-type :rf.event :operation :rf.event/run-start
+                              :tags {:rf.trace/phase :run-start :rf.trace/dispatch-id id :rf.trace/event-id eid}})
+          body  (fn [id]     {:op-type :rf.event :operation :rf.event/db-changed
+                              :tags {:rf.trace/dispatch-id id}})]
+      ;; The child marker is stranded into the buffer alongside the FIRST sibling.
+      (state/buffer-event! frame child-mark)
+      (doseq [[id eid] [[7 :sib-1] [8 :sib-2] [9 :sib-3]]]
+        (state/buffer-event! frame (rs id eid))
+        (state/buffer-event! frame (body id))
+        (let [h (state/harvest-buffer-for-event! frame)]
+          (is (= [(rs id eid) (body id)] h)
+              (str "sibling " eid " harvests ONLY its own traces"))
+          (is (not-any? #(= 99 (-> % :tags :rf.trace/dispatch-id)) h)
+              "the child marker is never folded into a sibling's epoch")
+          (is (= [child-mark] (state/buffer-for frame))
+              "rf2-bhglx — the child marker survives this sibling settle, kept
+               VERBATIM for the child's own settle")))
+      ;; Finally the child itself settles — its run-start claims the marker.
+      (state/buffer-event! frame (rs 99 :child))
+      (state/buffer-event! frame (body 99))
+      (let [child-harvest (state/harvest-buffer-for-event! frame)]
+        (is (= [child-mark (rs 99 :child) (body 99)] child-harvest)
+            "the child's settle finally claims its dispatch marker + own traces —
+             the queue-time dispatch/source row survives the FIFO interleaving")
+        (is (= 1 (->> child-harvest first :tags :rf.trace/parent-dispatch-id))
+            "the claimed marker still carries its parent-dispatch-id (causality)")
+        (is (empty? (state/buffer-for frame))
+            "buffer empty after the child settle"))
       (state/drop-frame-buffer! frame))))
 
-(deftest inv-6d-harvested-child-marker-carries-no-private-stamp
-  (testing "rf2-fxowr — the private survival counter is internal book-keeping;
-            it must NEVER escape into a harvested epoch's `:trace-events`. When
-            a retained marker is finally claimed as `mine` at its child's own
-            settle, the harvested event is stripped of the private key so the
-            recorded `:trace-events` shape is unchanged (behaviour-preserving for
-            the normal child-runs path)."
-    (let [frame       :test/harvest-clean
-          ;; Parent cascade strands the child marker (stamps it).
-          parent-rs   {:op-type :rf.event :operation :rf.event/run-start
-                       :tags {:rf.trace/phase :run-start :rf.trace/dispatch-id 1 :rf.trace/event-id :parent}}
-          parent-body {:op-type :rf.event :operation :rf.event/db-changed
-                       :tags {:rf.trace/dispatch-id 1}}
-          child-mark  {:op-type :rf.event :operation :rf.event/dispatched
-                       :tags {:rf.trace/dispatch-id 2 :rf.trace/event-id :child}}
-          ;; The child then RUNS: its run-start + body land in the buffer.
-          child-rs    {:op-type :rf.event :operation :rf.event/run-start
-                       :tags {:rf.trace/phase :run-start :rf.trace/dispatch-id 2 :rf.trace/event-id :child}}
-          child-body  {:op-type :rf.event :operation :rf.event/db-changed
-                       :tags {:rf.trace/dispatch-id 2}}]
-      (state/buffer-event! frame parent-rs)
-      (state/buffer-event! frame parent-body)
-      (state/buffer-event! frame child-mark)
-      (state/harvest-buffer-for-event! frame)          ; parent settles; marker stranded+stamped
-      (state/buffer-event! frame child-rs)
-      (state/buffer-event! frame child-body)
-      (let [child-harvest (state/harvest-buffer-for-event! frame)]
-        (is (= [child-mark child-rs child-body] child-harvest)
-            "the child's settle claims the marker + its own traces, BARE — no
-             private survival key leaks into the harvested epoch")
-        (is (every? #(not (contains? % :re-frame.epoch.state/theirs-harvests)) child-harvest)
-            "no harvested event carries the private rf2-fxowr survival counter")
+(deftest inv-6c-bound-stranded-marker-cleared-by-terminal-path
+  (testing "rf2-bhglx — a child that NEVER runs to a settle (handler
+            unregistered, frame destroyed / drain-interrupted, depth-halt clears
+            the queue) leaves its marker stranded, but it does NOT accrete: the
+            terminal path that ends the child's life clears the WHOLE buffer.
+            `drop-frame-buffer!` (frame destroy / discard) and the no-run-start
+            full clear-and-return (rejected dispatch) both wipe the stranded
+            marker. This is the memory bound that replaces the rf2-fxowr harvest-
+            count reclaim — bounded by lifecycle, not by a per-marker counter."
+    (let [frame    :test/harvest-stranded-bound
+          stranded {:op-type :rf.event :operation :rf.event/dispatched
+                    :tags {:rf.trace/dispatch-id 99 :rf.trace/event-id :child-never-ran}}]
+      ;; (a) drain-interrupt / frame-destroy terminal clear.
+      (state/buffer-event! frame stranded)
+      (is (= [stranded] (state/buffer-for frame))
+          "the stranded marker is buffered")
+      (state/drop-frame-buffer! frame)
+      (is (empty? (state/buffer-for frame))
+          "drop-frame-buffer! (destroy / discard) clears the stranded marker")
+
+      ;; (b) rejected-dispatch terminal clear: a buffer with NO run-start (the
+      ;; child's dispatch was rejected) reaches the no-run-start branch, which
+      ;; clears-and-returns the whole buffer.
+      (state/buffer-event! frame stranded)
+      (let [returned (state/harvest-buffer-for-event! frame)]
+        (is (= [stranded] returned)
+            "a no-run-start harvest returns the buffer (the degenerate record is
+             suppressed downstream by settle!'s empty-buffer policy)")
         (is (empty? (state/buffer-for frame))
-            "buffer empty after the child settle (normal path fully cleared)"))
+            "and clears it — the stranded marker does not accrete")))))
+
+(deftest inv-6c-bead-sibling-queued-behind-parent-does-not-drop-child
+  (testing "rf2-bhglx (the bead's named scenario) — queue B behind parent A; A
+            dispatches child C (C's `:event/dispatched` marker rides A's window
+            but carries C's id, and C goes to the FIFO TAIL behind B). When B
+            settles BEFORE C, B's harvest must NOT consume C's marker; C must
+            still receive its `:event/dispatched` marker at its own settle, while
+            neither A nor B carries it.
+
+            Pre-rf2-bhglx the count-1 reclaim dropped C's marker on B's harvest
+            (the one allowed intervening pass), so C lost its queue-time dispatch
+            row. The harvest seam is the exact locus; this drives it directly to
+            stay deterministic (the FIFO timing is unreproducible in synchronous
+            dispatch-sync)."
+    (let [frame    :test/bead-abc
+          a-rs     {:op-type :rf.event :operation :rf.event/run-start
+                    :tags {:rf.trace/phase :run-start :rf.trace/dispatch-id :A :rf.trace/event-id :parent-a}}
+          a-body   {:op-type :rf.event :operation :rf.event/db-changed
+                    :tags {:rf.trace/dispatch-id :A}}
+          ;; C's dispatch marker fires during A's do-fx — lands in A's window.
+          c-mark   {:op-type :rf.event :operation :rf.event/dispatched
+                    :tags {:rf.trace/dispatch-id :C :rf.trace/event-id :child-c
+                           :rf.trace/parent-dispatch-id :A}}
+          b-rs     {:op-type :rf.event :operation :rf.event/run-start
+                    :tags {:rf.trace/phase :run-start :rf.trace/dispatch-id :B :rf.trace/event-id :sibling-b}}
+          b-body   {:op-type :rf.event :operation :rf.event/db-changed
+                    :tags {:rf.trace/dispatch-id :B}}
+          c-rs     {:op-type :rf.event :operation :rf.event/run-start
+                    :tags {:rf.trace/phase :run-start :rf.trace/dispatch-id :C :rf.trace/event-id :child-c}}
+          c-body   {:op-type :rf.event :operation :rf.event/db-changed
+                    :tags {:rf.trace/dispatch-id :C}}]
+      ;; A settles, stranding C's marker in the buffer.
+      (state/buffer-event! frame a-rs)
+      (state/buffer-event! frame a-body)
+      (state/buffer-event! frame c-mark)
+      (let [a-harvest (state/harvest-buffer-for-event! frame)]
+        (is (= [a-rs a-body] a-harvest) "A's epoch carries A's traces only")
+        (is (not-any? #(= :C (-> % :tags :rf.trace/dispatch-id)) a-harvest)
+            "A does NOT carry C's dispatch marker"))
+
+      ;; B settles next (it was queued ahead of FIFO-tail C). B must leave C's
+      ;; marker alone — this is the exact harvest the count-1 reclaim broke.
+      (state/buffer-event! frame b-rs)
+      (state/buffer-event! frame b-body)
+      (let [b-harvest (state/harvest-buffer-for-event! frame)]
+        (is (= [b-rs b-body] b-harvest) "B's epoch carries B's traces only")
+        (is (not-any? #(= :C (-> % :tags :rf.trace/dispatch-id)) b-harvest)
+            "B does NOT carry C's dispatch marker")
+        (is (= [c-mark] (state/buffer-for frame))
+            "rf2-bhglx — C's marker SURVIVES B's intervening settle (not dropped
+             by a harvest-count reclaim)"))
+
+      ;; C finally settles — claims its own marker (+ queue-time dispatch row).
+      (state/buffer-event! frame c-rs)
+      (state/buffer-event! frame c-body)
+      (let [c-harvest (state/harvest-buffer-for-event! frame)]
+        (is (= [c-mark c-rs c-body] c-harvest)
+            "C's epoch finally claims its :event/dispatched marker + own traces")
+        (is (= :A (-> c-harvest first :tags :rf.trace/parent-dispatch-id))
+            "C's claimed marker still names parent A (parent-child causality kept)"))
       (state/drop-frame-buffer! frame))))
 
 ;; ===========================================================================
