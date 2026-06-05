@@ -123,10 +123,10 @@ First-run failures, in roughly the order you'll hit them:
 - **Page loads but the browser console shows `main.js` 404 (`GET /js/main.js 404`)** — `:output-dir`, `:asset-path`, and `index.html`'s `<script src>` disagree. The template serves `resources/public` with `:output-dir "resources/public/js"` + `:asset-path "/js"` + `<script src="/js/main.js">`; if you changed any one, change the others to match.
 - **Blank page, no console errors** — `index.html` is missing `<main id="app">`, or the entry ns looks up a different id than `index.html` declares.
 
-If you see a blank page, open the browser console. Most failures land there with a clear error:
+If you see a blank page, open the browser console. Most failures land there with a clear error — but note the missing-sub case below is *silent* on this bare route:
 - `Cannot read property 'getElementById' of undefined` — script ran before DOM was ready; check `index.html` loads `main.js` at the *bottom* of `<body>`.
-- `Could not find frame :rf/default` — `rf/init!` didn't run before render. Check `init` is the `:init-fn` shadow-cljs is calling.
-- `No subscription handler registered for: :count` — registrations didn't run. If you split into multiple namespaces, make sure `core.cljs` `:require`s them so they load.
+- A thrown `:rf.error/no-adapter-installed` (reason: *"was called before `(rf/init! ...)`; require an adapter ns and pass its `adapter` Var"*) — a view subscribed/rendered before `(rf/init! ...)` seated an adapter. `rf/init!` didn't run before render: check `init` is the `:init-fn` shadow-cljs is calling. (There is no "frame not found" error — `:rf/default` is always auto-registered; the real failure is the absent adapter.)
+- A blank/empty subscribed value with **no console error** (e.g. the number never appears) — a subscribe to an unregistered sub builds a nil-yielding reaction and emits `:rf.error/no-such-sub`; it does **not** throw. On this bare route there's no error-sink listener wired, so the miss surfaces only as a silent `nil` render — registrations didn't run. If you split subs into multiple namespaces, make sure `core.cljs` `:require`s them so they load. (The generator template wires an error-sink in `events.cljs` that pushes `:rf.error/no-such-sub` to the console; this minimal counter doesn't, so the only tell is the blank value.)
 
 **No schema errors? That's expected.** This counter attaches no app-db schema, so even with `day8/re-frame2-schemas` on the classpath there's nothing to validate — CLJS soft-passes (Spec 010). Validation only fires once you `reg-app-schema` a schema; until then the absence of errors means "no schema attached," not "validation ran and passed."
 
