@@ -32,14 +32,19 @@ Prefer one issue per materially distinct improvement. When both a tool-side work
 
 Transcript-derived bodies can carry shell metacharacters the user never sees but the shell would expand. Never interpolate that text inline into the shell command (where `$`, `` ` ``, and `\` would expand). Instead, **write the body to a file with the `Write` tool**, then pass it with `gh`'s native `--body-file` flag:
 
-1. Use the `Write` tool to compose `/tmp/issue-body.md` (the finding body as plain markdown — no shell escaping needed; nothing expands it).
-2. File it with one `gh issue create` command:
+1. Use the `Write` tool to compose the body into a **fresh, per-filing temp file in the host OS's temp directory** — never a fixed, shared, predictable name. A hard-coded `/tmp/issue-body.md` fails on hosts without a POSIX `/tmp` (Windows consumer installs), and its predictable name lets two concurrent findings or two rapid filings overwrite each other's redacted body — filing the wrong text to GitHub or leaving sensitive evidence in a shared location. Pick the path for the OS and add a per-filing nonce, then **carry that exact path into `--body-file` below**:
+
+   - **POSIX:** `${TMPDIR:-/tmp}/re-frame2-issue-$$-$RANDOM.md`
+   - **Windows (PowerShell):** `$env:TEMP\re-frame2-issue-$([guid]::NewGuid()).md`
+
+   The body is plain markdown — no shell escaping needed; nothing expands it.
+2. File it with one `gh issue create` command (`--body-file` is the exact per-filing path you wrote in step 1, never a re-typed fixed name):
 
    ```bash
    gh issue create \
      --repo <owner/repo> \
      --title "<short title>" \
-     --body-file /tmp/issue-body.md
+     --body-file "<the per-filing temp path you wrote in step 1>"
    ```
 
 `--body-file` reads the body verbatim from disk, so no shell expansion ever touches the transcript-derived text, and the only `Bash` call is a bare `gh issue create` — runnable under the restricted `Bash(gh issue *)` permission these skills declare (a `cat > file` here-doc or a `--body "$(cat …)"` subshell is **not**, since neither is a bare `gh issue` invocation). Never interpolate transcript-derived text directly into a shell command.
