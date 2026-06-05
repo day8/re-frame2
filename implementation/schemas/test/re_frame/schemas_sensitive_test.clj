@@ -357,6 +357,184 @@
       (is (not= :rf/redacted (-> v :tags :value))
           ":value rides verbatim — only the failing :age leaf is in the path"))))
 
+;; ---- :set-element value leaks via the :path tag (rf2-ss06u.1) -------------
+;; Malli reports a :set failure's :in segment as the failing ELEMENT VALUE
+;; itself (a set has no positional index) — e.g. :in = ({:token 99 :ssn
+;; "..."} :token). validate-app-schema! concats the raw :in into the
+;; structural :path tag, which Spec 010 declares unredacted; for a :set that
+;; ships the ENTIRE failing element map (sibling secrets included) verbatim
+;; in :path, even though :value / :explain ARE correctly redacted. The fix
+;; scrubs the :set-element segment to :rf/redacted while keeping navigable
+;; :vector / :map-of / :tuple index/key segments. These fail before the fix
+;; (the secret rides in :path) and pass after.
+
+(deftest app-db-validation-set-path-carries-no-secret
+  (testing "rf2-ss06u.1 — a :set of sensitive maps emits a :path tag with NO
+            verbatim element value; the sensitive element (and its sibling
+            secrets) never ship in :path"
+    (let [v (app-db-failure-trace
+              [:members]
+              [:set [:map [:token {:sensitive? true} :string] [:ssn :string]]]
+              {:members #{{:token 123456789 :ssn "078-05-1120"}}}
+              :members/bad)]
+      (is (some? v) "a trace fired")
+      (is (true? (:sensitive? v))
+          "top-level :sensitive? stamp present")
+      (is (= :rf/redacted (-> v :tags :value)) ":value redacted")
+      (is (= :rf/redacted (-> v :tags :explain)) ":explain redacted")
+      ;; The structural :path must NOT carry the element value. The
+      ;; :set-element segment is scrubbed to the sentinel; the surrounding
+      ;; navigable segments survive.
+      (is (= [:members :rf/redacted :token] (-> v :tags :path))
+          ":path's :set-element segment is the :rf/redacted sentinel")
+      (is (not (str/includes? (pr-str (-> v :tags :path)) "078-05-1120"))
+          "the sibling :ssn secret does NOT appear in :path")
+      (is (not (str/includes? (pr-str (-> v :tags :path)) "123456789"))
+          "the sensitive :token value does NOT appear in :path")
+      ;; Belt-and-braces: NO secret anywhere in the whole tag map.
+      (is (not (str/includes? (pr-str (:tags v)) "078-05-1120"))
+          "the secret does NOT appear anywhere in the emitted tags")
+      (is (not (str/includes? (pr-str (:tags v)) "123456789"))
+          "the sensitive token does NOT appear anywhere in the emitted tags"))))
+
+(deftest app-db-validation-vector-path-stays-navigable
+  (testing "rf2-ss06u.1 regression — :vector :path keeps its integer index
+            (the navigable locator), only the value-bearing :set segment is
+            scrubbed; :path remains a get-in locator for :vector"
+    (let [v (app-db-failure-trace
+              [:items]
+              [:vector [:map [:token {:sensitive? true} :string]]]
+              {:items [{:token "ok"} {:token 99}]}
+              :items/bad)]
+      (is (some? v))
+      (is (= [:items 1 :token] (-> v :tags :path))
+          ":path keeps the navigable vector index (1)")
+      (is (= :rf/redacted (-> v :tags :value))))))
+
+(deftest app-db-validation-map-of-path-stays-navigable
+  (testing "rf2-ss06u.1 regression — :map-of :path keeps its map key (the
+            navigable locator)"
+    (let [v (app-db-failure-trace
+              [:by-id]
+              [:map-of :string [:map [:secret {:sensitive? true} :string]]]
+              {:by-id {"a" {:secret 99}}}
+              :by-id/bad)]
+      (is (some? v))
+      (is (= [:by-id "a" :secret] (-> v :tags :path))
+          ":path keeps the navigable map-of key (\"a\")")
+      (is (= :rf/redacted (-> v :tags :value))))))
+
+(deftest app-db-validation-non-sensitive-set-path-rides-verbatim
+  (testing "rf2-ss06u.1 regression — a NON-sensitive :set failure is not
+            spuriously scrubbed (sanitisation only runs on sensitive
+            failures); legacy :path behaviour preserved"
+    (let [v (app-db-failure-trace
+              [:tags2]
+              [:set [:map [:name :string]]]
+              {:tags2 #{{:name 99}}}
+              :tags2/bad)]
+      (is (some? v))
+      (is (not (contains? v :sensitive?))
+          "no :sensitive? stamp — nothing in the schema is sensitive")
+      (is (not= :rf/redacted (-> v :tags :value))
+          ":value rides verbatim — no spurious redaction"))))
+
+;; ---- ancestor-sensitive container wrapped by :and/:multi/:orn (rf2-ss06u.2)
+;; When a slot is declared {:sensitive? true} as a CONTAINER and the failing
+;; leaf lives under a transparent-but-unrecognised wrapper op
+;; (:and / :or / :multi / :orn), align-in-path's :else fallback discards the
+;; consumed-ancestor sensitivity — schema-has-sensitive? on the LEFTOVER
+;; subtree returns false, so NOTHING is redacted and the trace is NOT stamped
+;; :sensitive?. The failing value (and explain / humanized) ship VERBATIM —
+;; a direct value leak. The fix carries the consumed prefix through the
+;; fallback so a descendant failure under a sensitive ancestor is still
+;; redacted + stamped. These fail before the fix and pass after.
+
+(deftest app-db-validation-redacts-under-and-ancestor-sensitive
+  (testing "rf2-ss06u.2 — a sensitive container wrapping an :and whose inner
+            leaf fails redacts the value and stamps :sensitive?"
+    (let [secret "SECRET-AND-9f3a"
+          v (app-db-failure-trace
+              [:root]
+              [:map [:s {:sensitive? true} [:and [:map [:k :int]]]]]
+              {:root {:s {:k secret}}}
+              :and/bad)]
+      (is (some? v) "a trace fired")
+      (is (true? (:sensitive? v))
+          "top-level :sensitive? stamp present (consumed-ancestor sensitivity)")
+      (is (= :rf/redacted (-> v :tags :value)) ":value redacted")
+      (is (= :rf/redacted (-> v :tags :explain)) ":explain redacted")
+      (is (not (str/includes? (pr-str (:tags v)) secret))
+          "the raw secret does NOT appear anywhere in the emitted tags"))))
+
+(deftest app-db-validation-redacts-under-multi-ancestor-sensitive
+  (testing "rf2-ss06u.2 — sensitive container wrapping a :multi"
+    (let [secret "SECRET-MULTI-deadbeef"
+          v (app-db-failure-trace
+              [:root]
+              [:map [:s {:sensitive? true}
+                     [:multi {:dispatch :t} [:a [:map [:t :keyword] [:k :int]]]]]]
+              {:root {:s {:t :a :k secret}}}
+              :multi/bad)]
+      (is (some? v))
+      (is (true? (:sensitive? v)))
+      (is (= :rf/redacted (-> v :tags :value)))
+      (is (not (str/includes? (pr-str (:tags v)) secret))
+          "the raw secret does NOT leak"))))
+
+(deftest app-db-validation-redacts-under-orn-ancestor-sensitive
+  (testing "rf2-ss06u.2 — sensitive container wrapping an :orn"
+    (let [secret "SECRET-ORN-cafe"
+          v (app-db-failure-trace
+              [:root]
+              [:map [:s {:sensitive? true} [:orn [:a [:map [:k :int]]]]]]
+              {:root {:s {:k secret}}}
+              :orn/bad)]
+      (is (some? v))
+      (is (true? (:sensitive? v)))
+      (is (= :rf/redacted (-> v :tags :value)))
+      (is (not (str/includes? (pr-str (:tags v)) secret))))))
+
+(deftest app-db-validation-redacts-under-or-ancestor-sensitive
+  (testing "rf2-ss06u.2 — sensitive container wrapping an :or"
+    (let [secret "SECRET-OR-1234"
+          v (app-db-failure-trace
+              [:root]
+              [:map [:s {:sensitive? true} [:or [:map [:k :int]]]]]
+              {:root {:s {:k secret}}}
+              :or/bad)]
+      (is (some? v))
+      (is (true? (:sensitive? v)))
+      (is (= :rf/redacted (-> v :tags :value)))
+      (is (not (str/includes? (pr-str (:tags v)) secret))))))
+
+(deftest schema-sensitive-at-ancestor-under-and-multi-orn
+  (testing "rf2-ss06u.2 — schema-sensitive-at? returns true for a leaf under
+            a sensitive ancestor wrapped by :and/:multi/:orn (the
+            consumed-ancestor prefix must carry through align-in-path's
+            fallback)"
+    (is (true? (schemas/schema-sensitive-at?
+                 [:map [:s {:sensitive? true} [:and [:map [:k :int]]]]]
+                 [:s :k]))
+        ":and ancestor")
+    (is (true? (schemas/schema-sensitive-at?
+                 [:map [:s {:sensitive? true}
+                        [:multi {:dispatch :t} [:a [:map [:t :keyword] [:k :int]]]]]]
+                 [:s :k]))
+        ":multi ancestor")
+    (is (true? (schemas/schema-sensitive-at?
+                 [:map [:s {:sensitive? true} [:orn [:a [:map [:k :int]]]]]]
+                 [:s :k]))
+        ":orn ancestor")
+    ;; A sensitive SIBLING outside the consumed prefix must NOT taint the
+    ;; failing slot (the precise-narrowing win is preserved).
+    (is (false? (schemas/schema-sensitive-at?
+                  [:map
+                   [:s {:sensitive? true} [:and [:map [:k :int]]]]
+                   [:other [:and [:map [:j :int]]]]]
+                  [:other :j]))
+        "a sibling's sensitivity does not taint a failure under a non-sensitive sibling")))
+
 ;; ---- walker unit tests for the :in-path alignment (rf2-g5auo) -------------
 
 (deftest schema-sensitive-at-aligns-collection-index-segments

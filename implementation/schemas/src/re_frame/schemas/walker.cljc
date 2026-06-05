@@ -340,11 +340,24 @@
   index-bearing op's segment while descending re-aligns the two.
 
   Returns `[:ok aligned-path]` when the whole path resolves against
-  recognised ops, or `[:fallback subschema]` when an unrecognised /
-  opaque op is hit with path remaining — the caller then redacts
-  fail-SAFE iff that subschema carries any sensitive declaration.
-  `:map` segments are kept (real app-db keys); index-bearing-op
-  segments are dropped."
+  recognised ops, or `[:fallback subschema aligned-prefix]` when an
+  unrecognised / opaque op is hit with path remaining — the caller then
+  redacts fail-SAFE iff the leftover `subschema` OR the **already-aligned
+  prefix** carries any sensitive declaration. `:map` segments are kept
+  (real app-db keys); index-bearing-op segments are dropped.
+
+  Per rf2-ss06u.2 the fallback MUST carry `aligned-prefix` (the segments
+  consumed so far) alongside the leftover subschema: a `:sensitive?`
+  declaration on an ANCESTOR that align-in-path already consumed and
+  discarded (e.g. `[:s]` marked sensitive, the failing leaf `[:s :k]`
+  living under a transparent `:and` / `:multi` / `:orn` wrapper) is NOT
+  visible in the leftover subtree. Without the prefix the caller's
+  `schema-has-sensitive?` on the leftover returns false and the failing
+  value LEAKS verbatim — the exact data the `:sensitive?` feature exists
+  to protect. Returning the prefix lets `schema-sensitive-at?` test the
+  consumed-ancestor sensitivity (`prefix? decl-path aligned-prefix`)
+  too, so a descendant failure under a sensitive ancestor stays
+  redacted + stamped."
   [schema in-path]
   (loop [schema  schema
          in      (vec in-path)
@@ -354,8 +367,8 @@
       (if-not (and (vector? schema) (pos? (count schema)))
         ;; Path remains but the schema is a bare keyword / opaque leaf —
         ;; cannot descend further; hand the leaf to the conservative
-        ;; fallback.
-        [:fallback schema]
+        ;; fallback (carrying the consumed prefix for ancestor-sensitivity).
+        [:fallback schema aligned]
         (let [op       (nth schema 0)
               children (children-of schema)
               seg      (nth in 0)]
@@ -374,7 +387,7 @@
                                 (nth child 1))]
                 (recur tail (subvec in 1) (conj aligned seg)))
               ;; Key not found in the schema (shape drift) — fail-SAFE.
-              [:fallback schema])
+              [:fallback schema aligned])
 
             ;; Index-bearing container — drop the index/key segment and
             ;; descend into the element (or `:map-of` value) schema.
@@ -387,21 +400,145 @@
                           (nth children (if (= op :map-of) 1 0) nil))]
               (if (some? child)
                 (recur child (subvec in 1) aligned)
-                [:fallback schema]))
+                [:fallback schema aligned]))
 
             ;; Transparent wrappers contribute NO `:in` segment — descend
             ;; into the (single) inner schema without consuming a segment.
             (#{:maybe} op)
             (if-let [child (first children)]
               (recur child in aligned)
-              [:fallback schema])
+              [:fallback schema aligned])
 
             ;; Any other op (`:and`/`:or`/`:multi`/`:orn`/registry refs/
             ;; opaque values) — we can't reliably resolve the segment;
-            ;; redact fail-SAFE iff this subschema declares anything
-            ;; sensitive.
+            ;; redact fail-SAFE iff the leftover subschema OR the consumed
+            ;; ancestor prefix declares anything sensitive (rf2-ss06u.2 —
+            ;; the consumed ancestor's `:sensitive?` is invisible in the
+            ;; leftover, so the prefix MUST ride along).
             :else
-            [:fallback schema]))))))
+            [:fallback schema aligned]))))))
+
+;; The privacy sentinel substituted for a value-bearing path segment.
+;; Spec 009 §Privacy — the framework-reserved keyword. Kept as a local
+;; literal here (the walker is pure-data and does not require core's
+;; privacy ns) — `validate.cljc` already imports the canonical
+;; `privacy/redacted-sentinel`; the two agree by definition.
+(def ^:private path-redacted-sentinel :rf/redacted)
+
+(defn- scalar-locator?
+  "True when `x` is a scalar that can serve as a `get-in` path segment — a
+  keyword / string / number / symbol / boolean. A composite (map / set /
+  vector / seq) can NEVER be a navigable locator AND is exactly the shape
+  Malli reports as a `:set`-element value — so a non-scalar segment in a
+  failing `:in` path is always value-bearing, never a locator."
+  [x]
+  (or (keyword? x) (string? x) (number? x) (symbol? x) (boolean? x)))
+
+(defn sanitize-sensitive-path
+  "Return `in-path` with every VALUE-BEARING segment replaced by the
+  `:rf/redacted` sentinel, walking `schema` in lockstep with the raw
+  `in-path`. Per rf2-ss06u.1 — privacy in the `:path` trace tag.
+
+  Malli reports a `:set` failure's `:in` segment as the failing element
+  VALUE itself (not an index — sets have no positional index), e.g.
+  `:in = ({:token 99 :ssn \"...\"} :token)`. `validate-app-schema!`
+  concats the raw `:in` into the structural `:path` tag, which Spec 010
+  declares unredacted (`:path` is categorical / locator data) — so for a
+  `:set` the entire failing element map (including any sibling secrets in
+  it) ships VERBATIM in `:path`, defeating the `:sensitive?` redaction
+  the `:value` / `:explain` slots already apply.
+
+  Scrubbing rules:
+
+    - `:set` — the segment is the failing ELEMENT VALUE; ALWAYS scrub it
+      (it is both unnavigable AND value-bearing), even when scalar.
+    - `:map` keys, `:vector` / `:sequential` / `:tuple` integer indices,
+      `:map-of` keys — navigable scalar locators; KEEP them so `:path`
+      stays a useful `get-in` locator for those shapes (the bead's
+      regression requirement).
+    - Transparent wrappers (`:maybe` / `:and` / `:or` / `:multi` / `:orn`)
+      contribute NO `:in` segment — descend without consuming. For the
+      single-child wrappers (`:maybe` / `:and` / `:or`) the inner schema is
+      unambiguous so the lockstep walk continues precisely. For the
+      multi-branch wrappers (`:multi` / `:orn`) and any other / opaque op
+      the branch is ambiguous, so the walk drops to a FAIL-CLOSED tail.
+
+  FAIL-CLOSED tail (rf2-ss06u.1 / rf2-ss06u.2): once the lockstep walk
+  cannot confidently continue (a multi-branch / opaque op, or the schema
+  bottoms out before the path does), every remaining segment is scrubbed
+  UNLESS it is a scalar locator (`scalar-locator?`). A non-scalar segment
+  past an unresolvable point can only be a value-bearing collection (a
+  `:set` element map/set/vector, the exact leak shape) — never a locator —
+  so scrubbing it can never lose navigability, and keeping it would
+  under-redact. Per the bead: over-redaction on these wrapper shapes is
+  acceptable; the value-protection direction must never under-redact. This
+  closes the deep nesting the adversarial generator surfaced
+  (`{:a #{{:auth #{{:secret …}}}}}` under an `:orn`) where the prior
+  pass-through-verbatim fallback leaked the set-element maps into `:path`.
+
+  Pure; same `(schema, in-path)` always produces the same output.
+  Returns a vector."
+  [schema in-path]
+  (letfn [(fail-closed-tail [out in]
+            ;; Cannot resolve the schema further — scrub every remaining
+            ;; non-scalar segment; keep scalar locators.
+            (into out (map (fn [seg]
+                             (if (scalar-locator? seg) seg path-redacted-sentinel)))
+                  in))]
+    (loop [schema schema
+           in     (vec in-path)
+           out    []]
+      (if (empty? in)
+        out
+        (if-not (and (vector? schema) (pos? (count schema)))
+          (fail-closed-tail out in)
+          (let [op       (nth schema 0)
+                children (children-of schema)
+                seg      (nth in 0)]
+            (cond
+              ;; `:map` — real app-db key; keep it and descend into the
+              ;; named child's tail schema.
+              (contains? name-bearing-ops op)
+              (if-let [child (some (fn [c]
+                                     (when (and (vector? c) (>= (count c) 2)
+                                                (= (nth c 0) seg))
+                                       c))
+                                   children)]
+                (let [has-prop? (and (>= (count child) 2) (map? (nth child 1)))
+                      tail      (if has-prop?
+                                  (when (>= (count child) 3) (nth child 2))
+                                  (nth child 1))]
+                  (recur tail (subvec in 1) (conj out seg)))
+                ;; Key not found (shape drift) — fail-closed on the rest.
+                (fail-closed-tail (conj out seg) (subvec in 1)))
+
+              ;; `:set` — the segment is the failing ELEMENT VALUE. ALWAYS
+              ;; scrub (unnavigable + value-bearing) and descend into the
+              ;; element schema.
+              (= op :set)
+              (recur (nth children 0 nil) (subvec in 1) (conj out path-redacted-sentinel))
+
+              ;; Other index-bearing ops — the segment is a navigable index
+              ;; (`:vector` / `:sequential` / `:tuple`) or key (`:map-of`);
+              ;; keep it and descend into the element / value schema.
+              (contains? index-bearing-ops op)
+              (let [child (if (= op :tuple)
+                            (when (and (int? seg) (< seg (count children)))
+                              (nth children seg))
+                            (nth children (if (= op :map-of) 1 0) nil))]
+                (recur child (subvec in 1) (conj out seg)))
+
+              ;; Single-child transparent wrappers — no `:in` segment
+              ;; consumed; descend into the (unambiguous) inner schema.
+              (#{:maybe :and :or} op)
+              (if-let [child (first children)]
+                (recur child in out)
+                (fail-closed-tail out in))
+
+              ;; Multi-branch / opaque op — the branch is ambiguous, so the
+              ;; lockstep walk cannot continue safely. Fail CLOSED.
+              :else
+              (fail-closed-tail out in))))))))
 
 (defn schema-sensitive-at?
   "Path-targeted sensitivity check (rf2-oh4se). Returns true when the
@@ -441,19 +578,36 @@
   `:sequential` / `:set` / `:tuple` / `:map-of` is matched (and
   redacted) just like a top-level one. When the path cannot be fully
   aligned (opaque / unrecognised op with path remaining) the check is
-  fail-SAFE: it redacts iff the unresolved subschema declares anything
-  sensitive.
+  fail-SAFE: it redacts iff the leftover subschema declares anything
+  sensitive (descendant under the unresolved op) OR a sensitive
+  declaration is an ANCESTOR of the already-consumed prefix (rf2-ss06u.2
+  — a `:sensitive?` container the alignment already descended through and
+  discarded, e.g. `[:s]` sensitive with the leaf `[:s :k]` under a
+  transparent `:and` / `:multi` / `:orn` wrapper).
 
   Returns boolean. Pure; same `(schema, in-path)` always produces the
   same output."
   [schema in-path]
   (if (or (nil? in-path) (empty? in-path))
     (schema-has-sensitive? schema)
-    (let [[outcome aligned-or-sub] (align-in-path schema in-path)]
+    (let [[outcome aligned-or-sub aligned-prefix] (align-in-path schema in-path)]
       (if (= outcome :fallback)
-        ;; Couldn't prove non-sensitivity for the unresolved subtree —
-        ;; redact iff it carries any sensitive declaration.
-        (schema-has-sensitive? aligned-or-sub)
+        ;; Couldn't fully resolve the path. Redact fail-SAFE iff EITHER:
+        ;;   - the leftover subschema carries any sensitive declaration
+        ;;     (a descendant under the unresolved op), OR
+        ;;   - a sensitive declaration is an ancestor of (or equal to) the
+        ;;     prefix align-in-path already consumed (rf2-ss06u.2 — the
+        ;;     consumed-ancestor `:sensitive?` is invisible in the leftover
+        ;;     subtree; without this the failing value under a sensitive
+        ;;     ancestor wrapped by :and/:multi/:orn LEAKS verbatim).
+        ;; The ancestor check is `prefix? decl-path aligned-prefix` only —
+        ;; a sensitive SIBLING outside the consumed prefix must NOT taint
+        ;; the failing slot (preserves the precise-narrowing win).
+        (or (schema-has-sensitive? aligned-or-sub)
+            (let [decls (extract-sensitive-paths-from-schema schema [])]
+              (boolean
+                (some (fn [decl-path] (prefix? decl-path aligned-prefix))
+                      (keys decls)))))
         (let [decls   (extract-sensitive-paths-from-schema schema [])
               in-v    aligned-or-sub]
           (boolean
