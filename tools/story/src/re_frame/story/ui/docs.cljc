@@ -657,7 +657,15 @@
      in apply-order. Story-level decorators come first per
      `resolve-decorators` semantics."
      [variant-id]
-     (let [pack (decorators/resolve-decorators variant-id)
+     (let [shell @state/shell-state-atom
+           ;; rf2-eyrpr — thread the active-modes into `resolve-decorators`
+           ;; so the plan recompile substitutes `[:arg]` keys resolvable
+           ;; only through a mode layer. Mirrors `args-section` (docs is
+           ;; read-only — overrides deliberately excluded; the variant's
+           ;; declared shape, mode-aware, is what the docs surface shows).
+           pack (decorators/resolve-decorators
+                  variant-id
+                  {:active-modes (:active-modes shell) :cell-overrides nil})
            rows (decorator-rows pack)]
        [:div {:style     (:section styles)
               :data-test "story-docs-decorators-section"}

@@ -470,6 +470,20 @@ so those plays carry the resolved placeholders, not the raw `[:arg …]` forms.
 `:control-overrides` on top of the plan-time effective args and re-resolves
 sub-overrides, because rendering does not execute setup/script/db-seed.)
 
+The canvas/controls/docs **decorator-resolution** front door
+(`decorators/resolve-decorators`) likewise threads the per-run layers into the
+plan it recompiles to read `[:world :decorators]` (rf2-eyrpr). That recompile
+substitutes every `[:arg key]` in the variant body, so a key resolvable ONLY
+through a mode / cell / global / story layer (never the variant chain) must be
+supplied via the same `{:active-modes :cell-overrides}` opts — otherwise the
+decorator recompile fails `:rf.error/story-missing-arg` even though the runner
+compile (with run opts) substitutes it cleanly. The common case (every
+`[:arg]` key declared on the variant or its `:extends` chain) is unaffected;
+the threading is purely additive. The hot-reload fingerprint poll
+(`resolution-fingerprints`) threads the same opts for the same reason — the
+fingerprints are body-derived and run-layer-invariant, the opts only let the
+ref-collection compile succeed.
+
 `:effective-args` (the args after control-panel overrides) is a
 first-class plan field, and `(story/render-variant target opts)` renders
 the workshop view from the **same plan** the runner consumes. The live

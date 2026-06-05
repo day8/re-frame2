@@ -350,13 +350,16 @@
      [variant-id]
      (let [view-id        (variant-component-id variant-id)
            shell          @state/shell-state-atom
-           decorator-pack (decorators/resolve-decorators variant-id)
-           eff-args       (args/resolve-args
-                            variant-id
-                            {:active-modes   (:active-modes shell)
-                             :cell-overrides (get-in shell
-                                                     [:cell-overrides
-                                                      variant-id])})
+           ;; rf2-eyrpr — thread the per-run opts into `resolve-decorators`
+           ;; (mirrors `canvas/canvas-inner`) so the plan it recompiles to
+           ;; read `[:world :decorators]` substitutes `[:arg]` keys that
+           ;; resolve only through a mode / cell layer instead of throwing.
+           run-opts       {:active-modes   (:active-modes shell)
+                           :cell-overrides (get-in shell
+                                                   [:cell-overrides
+                                                    variant-id])}
+           decorator-pack (decorators/resolve-decorators variant-id run-opts)
+           eff-args       (args/resolve-args variant-id run-opts)
            assertions     (runtime/read-assertions variant-id)
            errors         (:errors decorator-pack)]
        ;; Per rf2-9la06: stamp `data-test-variant` on each cell so

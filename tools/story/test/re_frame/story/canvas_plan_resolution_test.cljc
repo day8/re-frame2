@@ -286,3 +286,136 @@
       (is (= :cannot-run (:status r)))
       (is (= :no-render-host (:reason r)))
       (is (= :story.norender/v (:frame r))))))
+
+;; ===========================================================================
+;; rf2-eyrpr — the canvas decorator path threads :run-args into the plan it
+;; recompiles to read [:world :decorators].
+;;
+;; rf2-2cpoo (#3248) threaded run opts into the RUNTIME plan compile
+;; (`prepare-context`), but the CANVAS decorator path
+;; (`decorators/resolve-decorators`, the front door the live canvas /
+;; controls / docs panes call) still recompiled the plan WITHOUT them. That
+;; recompile substitutes EVERY `[:arg key]` in the variant body (db-seed /
+;; sub-overrides / setup / script) against the arg-map — so a key resolvable
+;; ONLY through a mode / cell / global / story layer (never the variant
+;; chain) threw `:rf.error/story-missing-arg` at decorator-resolution time,
+;; even though the runtime compile (with run opts) substituted it cleanly.
+;; The fix threads the SAME `{:active-modes :cell-overrides}` opts the canvas
+;; already builds for `resolve-args` through `resolve-decorators` →
+;; `collect-decorator-refs` → `variant-plan {:run-args …}`.
+;;
+;; These tests register on the DEFAULT side-table and call
+;; `decorators/resolve-decorators` (the production front door) — proving the
+;; new capability resolves AND, critically, that the no-opts path STILL
+;; throws (so the test would catch a regression / proves the gap was real).
+;; ===========================================================================
+
+(defn- missing-arg-throw?
+  "True iff `thunk` throws the plan-compile `:rf.error/story-missing-arg`."
+  [thunk]
+  (try (thunk) false
+       (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e
+         (= :rf.error/story-missing-arg (:rf.error/id (ex-data e))))))
+
+(deftest canvas-decorator-resolution-threads-active-mode-arg
+  (testing "a variant whose body carries `[:arg :only-in-mode]` for a key the
+            variant chain NEVER declares (supplied ONLY by an active mode)
+            resolves its decorator stack through the canvas front door when the
+            active mode is threaded — the recompile no longer throws
+            `:rf.error/story-missing-arg` (rf2-eyrpr)"
+    (registrar/reg-decorator* :deco/mode-wrap
+                              {:kind :hiccup :wrap (fn [body _] [:div.mode body])})
+    ;; the mode supplies :only-in-mode; the variant declares NO :args, so the
+    ;; key is reachable ONLY through the mode layer (the rf2-2cpoo new
+    ;; capability — `mode < variant`, mode fills the arg the variant omits).
+    (registrar/reg-mode* :Mode.canvas/big {:args {:only-in-mode "from-mode"}})
+    (registrar/reg-variant* :story.canvas.modearg/v
+                            {:component  :views/widget
+                             :decorators [[:deco/mode-wrap]]
+                             ;; `[:arg :only-in-mode]` substitutes at PLAN
+                             ;; compile, inside the `variant-plan` the canvas
+                             ;; recompiles to read `[:world :decorators]`.
+                             :db-seed    {:seeded [:arg :only-in-mode]}
+                             :events     []})
+    (testing "the OLD no-opts front door throws — the gap rf2-2cpoo left
+              (proves the test exercises the actual failing path)"
+      (is (missing-arg-throw?
+            #(decorators/resolve-decorators :story.canvas.modearg/v))
+          "without :run-args the recompile cannot substitute the mode-only arg"))
+    (testing "threading the active mode resolves the decorator stack cleanly"
+      (let [pack (decorators/resolve-decorators
+                   :story.canvas.modearg/v
+                   {:active-modes [:Mode.canvas/big]})]
+        (is (= [:deco/mode-wrap] (mapv :id (:hiccup pack)))
+            "the variant's :hiccup decorator resolves (no throw)")
+        (is (empty? (:errors pack))
+            "no resolution errors — the mode-only [:arg] substituted")))))
+
+(deftest canvas-decorator-resolution-threads-cell-override-arg
+  (testing "a `:cell-override` supplies the SOLE source of an `[:arg key]` in
+            the variant body; the canvas front door resolves the decorator
+            stack when the override is threaded (rf2-eyrpr — the highest run
+            layer, same as a mode at `cell-override > variant`)"
+    (registrar/reg-decorator* :deco/cell-wrap
+                              {:kind :hiccup :wrap (fn [body _] [:div.cell body])})
+    (registrar/reg-variant* :story.canvas.cellarg/v
+                            {:component  :views/widget
+                             :decorators [[:deco/cell-wrap]]
+                             :db-seed    {:seeded [:arg :only-in-cell]}
+                             :events     []})
+    (testing "the no-opts front door throws (the cell key is variant-absent)"
+      (is (missing-arg-throw?
+            #(decorators/resolve-decorators :story.canvas.cellarg/v))))
+    (testing "threading the cell-override resolves the stack cleanly"
+      (let [pack (decorators/resolve-decorators
+                   :story.canvas.cellarg/v
+                   {:cell-overrides {:only-in-cell "from-cell"}})]
+        (is (= [:deco/cell-wrap] (mapv :id (:hiccup pack))))
+        (is (empty? (:errors pack)))))))
+
+(deftest canvas-decorator-resolution-unaffected-when-arg-in-variant-chain
+  (testing "the COMMON case is unchanged: when every `[:arg key]` is declared
+            on the variant itself, the no-opts front door resolves fine — the
+            run-args threading is purely ADDITIVE (rf2-eyrpr regression guard)"
+    (registrar/reg-decorator* :deco/plain-wrap
+                              {:kind :hiccup :wrap (fn [body _] [:div.plain body])})
+    (registrar/reg-variant* :story.canvas.ownarg/v
+                            {:component  :views/widget
+                             :decorators [[:deco/plain-wrap]]
+                             :args       {:in-variant "static"}
+                             :db-seed    {:seeded [:arg :in-variant]}
+                             :events     []})
+    (testing "no-opts resolves (the variant declares the key)"
+      (is (= [:deco/plain-wrap]
+             (mapv :id (:hiccup (decorators/resolve-decorators
+                                  :story.canvas.ownarg/v))))))
+    (testing "and threading run opts resolves the IDENTICAL stack"
+      (is (= (mapv :id (:hiccup (decorators/resolve-decorators
+                                  :story.canvas.ownarg/v)))
+             (mapv :id (:hiccup (decorators/resolve-decorators
+                                  :story.canvas.ownarg/v
+                                  {:active-modes [] :cell-overrides {}}))))))))
+
+(deftest resolution-fingerprints-threads-run-args-without-throwing
+  (testing "the hot-reload fingerprint poll (`resolution-fingerprints`) threads
+            the per-run opts too, so a mode-only `[:arg]` variant does not
+            throw on the 500ms poll — fingerprints are body-derived + run-layer
+            invariant, the opts only let the ref-collection compile succeed
+            (rf2-eyrpr)"
+    (registrar/reg-decorator* :deco/fp-wrap
+                              {:kind :hiccup :wrap (fn [body _] [:div.fp body])})
+    (registrar/reg-mode* :Mode.fp/on {:args {:only-in-mode "x"}})
+    (registrar/reg-variant* :story.canvas.fp/v
+                            {:component  :views/widget
+                             :decorators [[:deco/fp-wrap]]
+                             :db-seed    {:seeded [:arg :only-in-mode]}
+                             :events     []})
+    (testing "the no-opts poll throws (the gap)"
+      (is (missing-arg-throw?
+            #(decorators/resolution-fingerprints :story.canvas.fp/v))))
+    (testing "threading the active mode lets the poll capture the fingerprint"
+      (let [fps (decorators/resolution-fingerprints
+                  :story.canvas.fp/v
+                  {:active-modes [:Mode.fp/on]})]
+        (is (contains? fps :deco/fp-wrap)
+            "the decorator's fingerprint is captured (no throw)")))))

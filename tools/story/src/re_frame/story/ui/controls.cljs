@@ -966,7 +966,14 @@
   unique `key`s in a sibling list, so the row key is the `[index id]`
   tuple rather than the bare id."
   [variant-id]
-  (let [pack  (decorators/resolve-decorators variant-id)
+  (let [shell (deref state/shell-state-atom)
+        ;; rf2-eyrpr — thread the per-run opts into `resolve-decorators` so
+        ;; the plan recompile substitutes `[:arg]` keys resolvable only
+        ;; through a mode / cell layer (mirrors the args panel's resolve).
+        pack  (decorators/resolve-decorators
+                variant-id
+                {:active-modes   (:active-modes shell)
+                 :cell-overrides (get-in shell [:cell-overrides variant-id])})
         all   (concat (:hiccup pack) (:frame-setup pack) (:fx-override pack))]
     [:div {:style (:section styles)}
      [:div {:style (:section-h styles)} "Decorators"]
