@@ -226,6 +226,20 @@ Share semantics:
   a fresh mount with no URL state at all (the localStorage hydrators run first
   on mount, and `apply-parsed-to-state` only runs when the URL carries query
   params);
+- stale overrides are DROPPED AND REPORTED, not silently merged (rf2-76l69l):
+  a URL override is dropped at two stages — `parse-overrides-param*` drops an
+  UNPARSEABLE entry (malformed EDN, a non-keyword key), and
+  `drop-stale-overrides` then drops every parsed override whose arg-key the
+  CURRENTLY-SELECTED variant no longer DECLARES (the variant's args were
+  refactored, renamed, or removed since the URL was captured). The declared
+  contract is the same arg surface the controls panel exposes — the variant's
+  resolved-args keys, its (and its parent story's) `:argtypes` keys, and the
+  compiled view-args schema's top-level `:map` entry keys
+  (`re-frame.story.ui.share/declared-arg-keys`). Both drop classes feed the
+  share-import hint's `:dropped` count, so a stale override DOWNGRADES the
+  reproducibility status and surfaces the drift banner instead of being
+  installed as an orphan live arg `args/resolve-args` would merge into the
+  recipient's effective state (a partial artifact masquerading as full);
 - a shared link restores VIEW STATE (it lands the recipient on the cell);
   it does not replay a run — that is the recorder's `:play-script` export;
 - the reproducibility status is computed (purely) by

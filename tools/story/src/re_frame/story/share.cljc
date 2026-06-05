@@ -334,6 +334,40 @@
   [s]
   (:overrides (parse-overrides-param* s)))
 
+(defn drop-stale-overrides
+  "Second-stage filter over a `parse-overrides-param*` result: drop every
+  parsed override whose TOP-LEVEL arg-key is NOT in `declared-keys` —
+  the set of arg-keys the currently selected variant still declares
+  (rf2-76l69l). `parse-overrides-param*` only drops UNPARSEABLE entries
+  (malformed EDN, non-keyword keys); it has no view of the live variant
+  contract, so an override for an arg the variant RENAMED or REMOVED
+  parses fine and — without this filter — gets installed as a live arg
+  and silently merged by `args/resolve-args`, inflating the recipient's
+  state with orphan args and HIDING the share-import drift (a run/share
+  marked more reproducible than it is).
+
+  Takes `parsed` (`{:overrides <map-or-nil> :dropped [<token> ...]}`, the
+  `parse-overrides-param*` shape) and `declared-keys` (a set/coll of
+  keyword arg-keys, or nil). Returns the SAME shape with stale-key
+  overrides moved from `:overrides` into `:dropped` (as a `pr-str` token
+  `\"<k> <v>\"` matching the parser's drop-token idiom), preserving the
+  parser's own malformed-drop tokens.
+
+  `declared-keys` nil → no contract known (an unregistered / uncompilable
+  variant): every parsed override is kept verbatim, so this degrades to
+  the parser's pre-filter behaviour rather than dropping everything.
+  Pure data → data; JVM-testable."
+  [{:keys [overrides dropped] :as _parsed} declared-keys]
+  (if (nil? declared-keys)
+    {:overrides (not-empty overrides) :dropped (vec dropped)}
+    (let [declared (set declared-keys)
+          stale    (->> overrides
+                        (remove (fn [[k _]] (contains? declared k)))
+                        (mapv (fn [[k v]] (str (pr-str k) " " (pr-str v)))))
+          kept     (into {} (filter (fn [[k _]] (contains? declared k)) overrides))]
+      {:overrides (not-empty kept)
+       :dropped   (into (vec dropped) stale)})))
+
 (defn- ^:no-doc kv-pair
   "Build a `k=v` URL parameter fragment. `k` is a keyword;
   `v-encoded` is the already-percent-encoded value string."

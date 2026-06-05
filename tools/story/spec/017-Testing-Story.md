@@ -1958,7 +1958,15 @@ step (setup-phase cascades, framework bootstrap) collect under a leading
 when the runner stamps each committed epoch with `:rf.story/script-idx`
 (the per-step settle boundary), and falls back to an even forward
 partition across the dispatch steps for a bare `epoch-history` tape. Every
-epoch lands in exactly one span.
+epoch lands in exactly one span. When several `:auto-run?` plays run in
+one settle (the multi-play sequencer), the narrative spans the
+**concatenated** play scripts, so the per-step settle boundaries MUST
+ACCUMULATE across the whole sequence — the sequencer clears the boundaries
+ONCE up front and each play APPENDS its absolute boundaries (the
+append-only epoch tape is never reset between plays), keeping the
+positional boundary→script-step zip aligned. Clearing per-play would drop
+every earlier play's boundaries and mis-attribute later-play effects to
+earlier-play steps — a green run with false provenance (rf2-76l69l).
 
 **Narrative navigation (the scrub backbone).** The two-level `:narrative`
 is a *tree* (spans over beats), but a Test-mode / Docs-mode **scrub** moves

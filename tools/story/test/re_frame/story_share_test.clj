@@ -237,6 +237,59 @@
       (is (nil? overrides) "unreadable EDN payload yields no overrides")
       (is (= 1 (count dropped)) "whole token reported dropped"))))
 
+;; ---- rf2-76l69l: stale-key overrides are dropped + reported --------------
+;;
+;; `parse-overrides-param*` only drops UNPARSEABLE entries; a perfectly
+;; well-formed override for an arg the variant RENAMED / REMOVED parses fine
+;; and — without the second-stage `drop-stale-overrides` filter — would be
+;; installed as a live arg and merged by `args/resolve-args`, hiding the
+;; share-import drift. This filter splits parsed overrides against the
+;; variant's declared-key contract.
+
+(deftest drop-stale-overrides-splits-by-declared-keys
+  (testing "rf2-76l69l — drop-stale-overrides keeps overrides whose key the
+            variant still declares and moves the rest (renamed/removed args)
+            into :dropped, preserving the parser's own malformed drops"
+    (let [parsed {:overrides {:label "Hi" :gone 9 :count 3}
+                  :dropped   ["bogus"]}
+          out    (share/drop-stale-overrides parsed #{:label :count})]
+      (is (= {:label "Hi" :count 3} (:overrides out))
+          "only declared keys survive")
+      (is (= 2 (count (:dropped out)))
+          "the parser's malformed drop PLUS the one stale-key drop")
+      (is (some #(= "bogus" %) (:dropped out))
+          "the parser's malformed token is preserved")
+      (is (some #(re-find #":gone" %) (:dropped out))
+          "the stale :gone override is reported as dropped, not installed"))))
+
+(deftest drop-stale-overrides-all-stale-nils-overrides
+  (testing "rf2-76l69l — when every parsed override is stale, :overrides is
+            nil (not an empty map) and each stale key is reported"
+    (let [out (share/drop-stale-overrides
+                {:overrides {:old-a 1 :old-b 2} :dropped []}
+                #{:current})]
+      (is (nil? (:overrides out)) "all-stale collapses to nil overrides")
+      (is (= 2 (count (:dropped out)))))))
+
+(deftest drop-stale-overrides-nil-declared-keeps-all
+  (testing "rf2-76l69l — a nil declared-key set (unregistered / uncompilable
+            variant: no contract known) keeps every parsed override verbatim
+            rather than dropping all — degrades to the parser's behaviour"
+    (let [parsed {:overrides {:a 1 :b 2} :dropped ["bad"]}
+          out    (share/drop-stale-overrides parsed nil)]
+      (is (= {:a 1 :b 2} (:overrides out)))
+      (is (= ["bad"] (:dropped out))))))
+
+(deftest drop-stale-overrides-empty-declared-drops-all
+  (testing "rf2-76l69l — an EMPTY (but non-nil) declared-key set means the
+            variant declares NO args, so every override is stale (distinct
+            from the nil keep-all case)"
+    (let [out (share/drop-stale-overrides
+                {:overrides {:a 1} :dropped []}
+                #{})]
+      (is (nil? (:overrides out)))
+      (is (= 1 (count (:dropped out)))))))
+
 (deftest variant-share-url-preserves-hash-route
   (testing "variant-share-url inserts params before # so the Story route survives"
     (let [url (share/variant-share-url

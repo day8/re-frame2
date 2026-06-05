@@ -566,6 +566,61 @@
                 (fingerprint/run-hash (dissoc result :narrative)))
              "dropping the stamped :narrative does not change the run-hash")))))
 
+;; ---- rf2-76l69l: multi-play auto-run attribution spans EVERY play --------
+;;
+;; The unified result's :narrative spans the CONCATENATED auto-run play
+;; scripts. The per-play settle boundaries MUST accumulate across the whole
+;; sequence — the sequencer clears once up front and each play APPENDS its
+;; absolute boundaries (the append-only epoch tape is never reset between
+;; plays). Before the fix every `run!` cleared the boundaries on entry, so
+;; after two+ auto-run plays only the LAST play's boundaries survived; the
+;; concatenated-script narrative then mis-attributed later-play effects to
+;; earlier-play steps while earlier effects appeared as unattributed setup —
+;; a green run with false provenance.
+
+#?(:clj
+   (deftest run-variant-multi-play-narrative-attributes-every-play-step
+     (testing "two :auto-run? plays (the second re-dispatching) attribute each
+              epoch beat to its OWN step across the concatenated script —
+              earlier-play effects are NOT lost to setup, later-play effects
+              are NOT mis-credited to earlier steps (rf2-76l69l)"
+       (rf/reg-event-db :ml/a (fn [db _] (assoc db :a true)))
+       (rf/reg-event-db :ml/b (fn [db _] (assoc db :b true)))
+       ;; :ml/c re-dispatches :ml/d, so the second play's second step settles
+       ;; to two epochs — the discriminating re-dispatch the bead calls for.
+       (rf/reg-event-fx :ml/c (fn [_ _] {:fx [[:dispatch [:ml/d]]]}))
+       (rf/reg-event-db :ml/d (fn [db _] (assoc db :d true)))
+       (story/reg-variant :story.ml/two-plays
+         {:events []
+          :plays  [{:name "alpha" :auto-run? true
+                    :script [[:dispatch-sync [:ml/a]]
+                             [:dispatch-sync [:ml/b]]]}
+                   {:name "beta" :auto-run? true
+                    :script [[:dispatch-sync [:ml/c]]]}]})
+       (let [result (async/deref-blocking
+                      (story/run-variant :story.ml/two-plays) 5000)
+             by     (->> (evidence/narrative-beats (:narrative result))
+                         (reduce (fn [m {:keys [step trigger-event]}]
+                                   (update m step (fnil conj []) trigger-event))
+                                 {}))]
+         (is (= :pass (:status result)))
+         ;; alpha's two steps own exactly their own leaf epochs…
+         (is (= [[:ml/a]] (get by [:dispatch-sync [:ml/a]]))
+             "play alpha step 0 owns ONLY :ml/a")
+         (is (= [[:ml/b]] (get by [:dispatch-sync [:ml/b]]))
+             "play alpha step 1 owns ONLY :ml/b — NOT lost to the setup span")
+         ;; …and beta's re-dispatching step owns its dispatch AND its fan-out.
+         (is (= [[:ml/c] [:ml/d]] (get by [:dispatch-sync [:ml/c]]))
+             "play beta's step owns its dispatch AND its re-dispatch — EXACT")
+         ;; RED-before pin: per-play clearing kept only beta's single boundary,
+         ;; which the concatenated script (3 dispatch steps) zipped onto step 0
+         ;; (alpha's :ml/a) — so :ml/c/:ml/d effects landed under :ml/a and the
+         ;; later steps held nothing. Assert that mis-grouping is gone.
+         (is (not (contains? (set (get by [:dispatch-sync [:ml/a]])) [:ml/c]))
+             "beta's :ml/c is NOT mis-attributed to alpha's first step")
+         (is (not (contains? (set (get by [:dispatch-sync [:ml/a]])) [:ml/d]))
+             "beta's re-dispatched :ml/d is NOT mis-attributed to alpha's step")))))
+
 #?(:clj
    (deftest assert-dom-skipped-on-jvm-is-cannot-run
      (testing "a no-DOM :assert-dom step (JVM) records NO slot pass — it
