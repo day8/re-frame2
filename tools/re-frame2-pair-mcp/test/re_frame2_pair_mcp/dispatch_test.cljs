@@ -44,7 +44,13 @@
 (use-fixtures :each
   {:after (fn []
             (set! nrepl/cljs-eval-value pristine-eval)
-            (raw-state/set-allow-raw-state! false))})
+            (raw-state/set-allow-raw-state! false)
+            ;; rf2-8fin7.3 — dispatch now issues `signal-runtime!` (the
+            ;; boot-gate posture push) before its eval, which records an
+            ;; in-flight entry in the per-build `runtime-signalling` map.
+            ;; Clear it between tests so a build-id can't leak a stale
+            ;; in-flight Promise into a neighbour.
+            (raw-state/reset-runtime-signal-cache!))})
 
 ;; ---------------------------------------------------------------------------
 ;; Stub harness — capture the form string the dispatch tool would have
@@ -59,19 +65,53 @@
     conn))
 
 (defn- with-captured-eval!
-  "Install a stub `cljs-eval-value` that records the form string into
-  `captured*` and resolves to `canned-value`. Cleanup is the `:after`
-  fixture's job (rf2-wb06a) — NOT a per-call `.finally`, which fires after
-  `done` and races a neighbour's stub."
+  "Install a stub `cljs-eval-value` that records the DISPATCH form string
+  into `captured*` and resolves to `canned-value`. Cleanup is the
+  `:after` fixture's job (rf2-wb06a) — NOT a per-call `.finally`, which
+  fires after `done` and races a neighbour's stub.
+
+  rf2-8fin7.3 — dispatch now issues `configure-raw-state!`
+  (`signal-runtime!`) BEFORE the dispatch eval. That signal form is
+  resolved to nil (swallowed by signal-runtime!) and is NOT recorded
+  into `captured*`, so the single-capture tests below still see the
+  dispatch form (the one that mentions a dispatch runtime fn / the
+  await wrapper). The per-build signal cache is reset so the signal
+  always fires its eval."
   [captured* canned-value body-fn]
-  (let [stub (fn
-               ([_conn _build-id form-str]
-                (reset! captured* form-str)
-                (js/Promise.resolve canned-value))
-               ([_conn _build-id form-str _opts]
-                (reset! captured* form-str)
-                (js/Promise.resolve canned-value)))]
+  (let [run (fn [form-str]
+              ;; The boot-gate signal resolves to nil and is not captured —
+              ;; the dispatch form is what the single-capture tests assert.
+              (if (str/includes? form-str "configure-raw-state!")
+                (js/Promise.resolve nil)
+                (do (reset! captured* form-str)
+                    (js/Promise.resolve canned-value))))
+        stub (fn
+               ([_conn _build-id form-str] (run form-str))
+               ([_conn _build-id form-str _opts] (run form-str)))]
     (set! nrepl/cljs-eval-value stub)
+    (raw-state/reset-runtime-signal-cache!)
+    (-> (js/Promise.resolve nil)
+        (.then (fn [_] (body-fn))))))
+
+(defn- with-captured-forms!
+  "Like `with-captured-eval!` but records EVERY form string (the
+  `configure-raw-state!` signal AND the dispatch eval) into `forms*` in
+  order, so a test can assert their RELATIVE ordering (the rf2-8fin7.3
+  path-3 invariant: signal-runtime! fires BEFORE the dispatch eval). The
+  configure form resolves to nil; every other form resolves to
+  `canned-value`."
+  [forms* canned-value body-fn]
+  (let [run (fn [form-str]
+              (swap! forms* conj form-str)
+              (js/Promise.resolve
+                (if (str/includes? form-str "configure-raw-state!")
+                  nil
+                  canned-value)))
+        stub (fn
+               ([_conn _build-id form-str] (run form-str))
+               ([_conn _build-id form-str _opts] (run form-str)))]
+    (set! nrepl/cljs-eval-value stub)
+    (raw-state/reset-runtime-signal-cache!)
     (-> (js/Promise.resolve nil)
         (.then (fn [_] (body-fn))))))
 
@@ -363,6 +403,147 @@
                      (is (not (str/includes? form "projected-record"))
                          "sync consequence carries no raw app-db — no projection wrap"))
                    (done)))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-8fin7.3 — boot-gate signal (path 3): the DEFAULT cascade-summary
+;; `:event-vector` redaction.
+;;
+;; `redact-sensitive-event-vector` (runtime) redacts the cascade-summary's
+;; `:event-vector` (the raw `:trigger-event`) ONLY when the runtime's
+;; `raw-state-config` is at `{:allow-raw-state? false}`. That config
+;; DEFAULTS to `:allow-raw-state? true` and flips to the server's gate
+;; state ONLY when a tool calls `configure-raw-state!` via
+;; `raw-state/signal-runtime!`. Before this fix `dispatch` never signalled,
+;; so a FIRST-in-session sensitive dispatch ran with the runtime still
+;; permissive and shipped the raw event vector under the default OFF gate.
+;;
+;; These tests assert the WIRE BOUNDARY: that `dispatch` emits the
+;; `configure-raw-state!` signal BEFORE its dispatch eval, carrying the
+;; server's gate posture. The runtime-side redaction itself is exercised in
+;; the live preload runtime tests (skills/re-frame2-pair/tests/runtime/).
+;; ---------------------------------------------------------------------------
+
+(deftest default-dispatch-signals-configure-raw-state-before-eval
+  ;; Path 3, gate OFF (the published default): the default sync dispatch
+  ;; (no trace / settle) MUST signal `configure-raw-state!` with
+  ;; `:allow-raw-state? false` BEFORE the dispatch-consequence! eval — so
+  ;; the runtime flips out of its permissive default and the
+  ;; cascade-summary `:event-vector` redacts for a sensitive epoch. This is
+  ;; the rf2-8fin7.3 broadening: the leak is NOT trace-mode-only.
+  (async done
+    (let [forms (atom [])]
+      (-> (with-captured-forms! forms {:ok? true :epoch-id 7 :db-changed? false}
+            (fn []
+              (raw-state/set-allow-raw-state! false)
+              (dispatch/dispatch-tool (fresh-conn)
+                                      #js {:event "[:auth/sign-in {:password \"hunter2\"}]"})))
+          (.then (fn [_]
+                   (let [all      @forms
+                         cfg-idx  (first (keep-indexed (fn [i f] (when (str/includes? f "configure-raw-state!") i)) all))
+                         disp-idx (first (keep-indexed (fn [i f] (when (str/includes? f "dispatch-consequence!") i)) all))]
+                     (is (some? cfg-idx) "configure-raw-state! is signalled on the DEFAULT path")
+                     (is (some? disp-idx) "the dispatch eval ran")
+                     (is (< cfg-idx disp-idx)
+                         "configure-raw-state! is signalled BEFORE the dispatch eval — the cascade-summary redaction depends on it")
+                     (is (str/includes? (nth all cfg-idx) ":allow-raw-state? false")
+                         "the gate-OFF posture is pushed to the runtime so the :event-vector redacts"))
+                   (done)))))))
+
+(deftest gate-on-dispatch-signals-allow-raw-state-true
+  ;; Gate ON (--allow-sensitive-reads): the signal still fires, but pushes
+  ;; `:allow-raw-state? true` — the operator opted into raw reads, so the
+  ;; runtime leaves the cascade-summary `:event-vector` verbatim.
+  (async done
+    (let [forms (atom [])]
+      (-> (with-captured-forms! forms {:ok? true :epoch-id 7 :db-changed? false}
+            (fn []
+              (raw-state/set-allow-raw-state! true)
+              (dispatch/dispatch-tool (fresh-conn)
+                                      #js {:event "[:auth/sign-in {:password \"hunter2\"}]"})))
+          (.then (fn [_]
+                   (let [all     @forms
+                         cfg     (some #(when (str/includes? % "configure-raw-state!") %) all)]
+                     (is (some? cfg) "configure-raw-state! is signalled under gate ON too")
+                     (is (str/includes? cfg ":allow-raw-state? true")
+                         "gate ON pushes :allow-raw-state? true — the operator opted into raw reads"))
+                   (raw-state/set-allow-raw-state! false)
+                   (done)))))))
+
+(deftest settle-signals-configure-raw-state-before-eval
+  ;; Path 3 holds on the settle path too: `:settle` issues the signal
+  ;; before the dispatch-and-settle! eval (in addition to projecting the
+  ;; :epoch slots — path 2). Gate OFF.
+  (async done
+    (let [forms (atom [])]
+      (-> (with-captured-forms! forms {:ok? true :epoch-id 11 :settled? true}
+            (fn []
+              (raw-state/set-allow-raw-state! false)
+              (dispatch/dispatch-tool (fresh-conn)
+                                      #js {:event "[:auth/sign-in {:password \"hunter2\"}]"
+                                           :settle true})))
+          (.then (fn [_]
+                   (let [all      @forms
+                         cfg-idx  (first (keep-indexed (fn [i f] (when (str/includes? f "configure-raw-state!") i)) all))
+                         disp-idx (first (keep-indexed (fn [i f] (when (str/includes? f "dispatch-and-settle!") i)) all))]
+                     (is (some? cfg-idx) "configure-raw-state! is signalled on the settle path")
+                     (is (some? disp-idx) "dispatch-and-settle! ran")
+                     (is (< cfg-idx disp-idx)
+                         "the signal precedes the settle eval"))
+                   (done)))))))
+
+(deftest await-render-signals-configure-raw-state-before-eval
+  ;; Path 3 holds on the await-render path: the signal fires before the
+  ;; await-promise wrap form is eval'd, so a render-settle of a sensitive
+  ;; event redacts the cascade-summary :event-vector too.
+  (async done
+    (let [wrap-form*  (atom nil)
+          read-count* (atom 0)
+          signalled?  (atom false)]
+      ;; Thin staged-mailbox stub. The await/mailbox predicates are
+      ;; inlined (rather than the later-defined `await-wrap-form?` /
+      ;; `mailbox-read-form?` helpers) so this path-3 test stays
+      ;; co-located with the boot-gate cluster without a forward
+      ;; reference. It records whether the configure signal was emitted
+      ;; before the wrap form.
+      (let [await-wrap? (fn [f] (and (str/includes? f "__rf2pair_await__")
+                                     (str/includes? f ":rf.mcp/await-mailbox")))
+            mailbox-read? (fn [f] (and (str/includes? f "__rf2pair_await__")
+                                       (str/includes? f "cljs.reader/read-string")))
+            respond (fn [form-str]
+                      (cond
+                        (str/includes? form-str "configure-raw-state!")
+                        (do (reset! signalled? true)
+                            (js/Promise.resolve nil))
+
+                        (await-wrap? form-str)
+                        (do (is (true? @signalled?)
+                                "configure-raw-state! fired BEFORE the await-render wrap form")
+                            (reset! wrap-form* form-str)
+                            (js/Promise.resolve {:rf.mcp/await-mailbox "settle-mbx"}))
+
+                        (mailbox-read? form-str)
+                        (let [n (swap! read-count* inc)]
+                          (js/Promise.resolve
+                            (if (<= n 0)
+                              {:status :pending}
+                              {:status :resolved
+                               :value  {:ok? true :epoch-id 9 :frame :rf/default
+                                        :settled? true :cascade-summary {:renders 1}}})))
+
+                        :else (js/Promise.resolve nil)))
+            stub (fn
+                   ([_conn _build-id form-str] (respond form-str))
+                   ([_conn _build-id form-str _opts] (respond form-str)))]
+        (set! nrepl/cljs-eval-value stub)
+        (raw-state/reset-runtime-signal-cache!)
+        (raw-state/set-allow-raw-state! false)
+        (-> (dispatch/dispatch-tool (fresh-conn)
+                                    #js {:event "[:auth/sign-in {:password \"hunter2\"}]"
+                                         :await-render true})
+            (.then (fn [_]
+                     (is (true? @signalled?) "configure-raw-state! was signalled on the await-render path")
+                     (is (string? @wrap-form*) "the await wrap form was eval'd after the signal")
+                     (done))))))))
 
 (deftest settle-wins-over-other-mode-flags
   ;; `:settle` is the most complete single-call shape — it wins over
@@ -756,6 +937,10 @@
                ([_conn _build-id form-str] (respond form-str))
                ([_conn _build-id form-str _opts] (respond form-str)))]
     (set! nrepl/cljs-eval-value stub)
+    ;; rf2-8fin7.3 — the configure-raw-state! signal hits the `:else`
+    ;; branch (it is neither the await wrapper nor a mailbox read) and
+    ;; resolves to nil; reset the signal cache so it fires each test.
+    (raw-state/reset-runtime-signal-cache!)
     (-> (js/Promise.resolve nil)
         (.then (fn [_] (body-fn))))))
 
