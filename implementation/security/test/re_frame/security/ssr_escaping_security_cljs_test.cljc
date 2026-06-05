@@ -60,6 +60,7 @@
                :cljs [cljs.reader :as edn])
             [clojure.string :as str]
             [re-frame.ssr.html-helpers :as h]
+            [re-frame.ssr.emit :as emit]
             [re-frame.security.gen :as gen]))
 
 ;; ---------------------------------------------------------------------------
@@ -72,7 +73,12 @@
    "onfocus" "onblur" "onkeydown" "onkeyup" "onkeypress" "onchange"
    "oninput" "onwheel" "onscroll" "ondrag" "ondrop" "onpaste" "oncopy"
    "oncut" "onbeforeunload" "onunload" "onhashchange" "onpopstate"
-   "onmessage" "onanimationstart" "ontransitionend" "onpointerdown"])
+   "onmessage" "onanimationstart" "ontransitionend" "onpointerdown"
+   ;; W3C Touch Events Level 2 §8 GlobalEventHandlers (rf2-cv165). The
+   ;; structural regex only catches the camelCase/kebab spellings, so the
+   ;; lower-case canonical touch names are caught by the allowlist alone —
+   ;; an XSS-equivalent gap of the same class as `:onclick`.
+   "ontouchstart" "ontouchmove" "ontouchend" "ontouchcancel"])
 
 (defn- live-handler-attr?
   "True when `rendered` (the output of `attr-string` for ONE attr) contains
@@ -214,7 +220,13 @@
    :onerror :ONERROR :OnError
    :onmouseover :ONMOUSEOVER :OnMouseOver :onMouseOver
    :on-click :ON-CLICK :on-mouse-over :onCustomEvent :on-custom-event
-   :onsubmit :ONSUBMIT :onfocus :onFocus :onkeydown :onKeyDown])
+   :onsubmit :ONSUBMIT :onfocus :onFocus :onkeydown :onKeyDown
+   ;; rf2-cv165 — the lower-case W3C Touch Events L2 GlobalEventHandlers.
+   ;; The structural regex CANNOT catch these (no upper-case tail char, no
+   ;; hyphen), so the allowlist must strip them; `:ontouchstart 'alert`
+   ;; previously rode through as a live ` ontouchstart="alert"` attribute.
+   :ontouchstart :ontouchmove :ontouchend :ontouchcancel
+   :ONTOUCHSTART :OnTouchStart :onTouchStart])
 
 (deftest hostile-handler-corpus-all-stripped
   (testing "rf2-1uex4 corpus - every named hostile handler key strips to \"\""
@@ -225,6 +237,28 @@
                  (pr-str out)))
         (is (not (live-handler-attr? out))
             (str "handler key " (pr-str k) " produced a live on*= attribute"))))))
+
+(deftest touch-handler-payload-never-reaches-wire-html
+  (testing "rf2-cv165 - rendering a hiccup element whose attrs splat a
+            lower-case W3C touch GlobalEventHandler key (the realistic
+            attacker-controlled-key path) MUST emit an element with NO live
+            on* attribute and NO trace of the JS payload. The structural
+            regex cannot catch these lower-case names; the allowlist must."
+    (doseq [k [:ontouchstart :ontouchmove :ontouchend :ontouchcancel]]
+      (let [payload "alert(document.cookie)"
+            html    (emit/emit-element [:div {k payload :id "ok"} "child"])]
+        ;; The element renders (id survives, child text emitted) ...
+        (is (str/includes? html "id=\"ok\"")
+            (str "the benign attr should survive for key " (pr-str k)))
+        (is (str/includes? html "child")
+            (str "the child text should survive for key " (pr-str k)))
+        ;; ... but the handler name and its JS payload are gone from the wire.
+        (is (not (str/includes? (str/lower-case html) (name k)))
+            (str "touch handler name " (pr-str k) " leaked into wire HTML: "
+                 html))
+        (is (not (str/includes? html payload))
+            (str "touch handler JS payload reached wire HTML for key "
+                 (pr-str k) ": " html))))))
 
 (deftest non-handler-on-prefix-keys-survive
   (testing "the matcher must NOT over-strip innocuous English-word keys -

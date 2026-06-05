@@ -69,6 +69,29 @@
       (is (= "<div></div>"
              (emit/render-to-string [:div {:on-click "f"}] {}))))))
 
+(deftest render-to-string-strips-lowercase-touch-handlers
+  (testing "rf2-cv165 — the lower-case W3C Touch Events L2 GlobalEventHandlers
+            (`ontouchstart` / `ontouchmove` / `ontouchend` / `ontouchcancel`)
+            are stripped through the FULL `render-to-string` emit composition.
+            These have no upper-case tail char and no hyphen, so the structural
+            `event-handler-name-re` CANNOT catch them — the allowlist arm is
+            the only thing that strips them. Reverting the four allowlist
+            entries makes this go RED (the JVM-side counterpart of the
+            security tier's render-to-string assertion)."
+    (doseq [k [:ontouchstart :ontouchmove :ontouchend :ontouchcancel]]
+      (testing (str k " is stripped through render-to-string")
+        (let [html (emit/render-to-string
+                     [:div {k "alert(document.cookie)" :id "x"} [:p "body"]] {})]
+          (is (str/includes? html "id=\"x\"")
+              (str "the legit attr should survive for " k))
+          (is (str/includes? html "<p>body</p>")
+              (str "the child should render for " k))
+          (is (not (str/includes? (str/lower-case html) (name k)))
+              (str "touch handler name " k " leaked into wire HTML: " html))
+          (is (not (str/includes? html "alert(document.cookie)"))
+              (str "touch handler payload reached wire HTML for " k ": "
+                   html)))))))
+
 (deftest render-to-string-strips-function-valued-props
   (testing "rf2-usio0 / rf2-dwds9 — a function-valued prop has no HTML
             serialisation and is dropped through the full emit
