@@ -682,3 +682,155 @@
                       (restore)
                       (is false (str "rf2-wj8vv — unexpected: " e))
                       (done))))))))
+
+;; ---- rf2-065xo — managed body-prep failure delivery (CLJS) ----------------
+;;
+;; The JVM suite (re-frame.http-body-prep-failure-test) pins the same
+;; contract against Cheshire encode failures + real threads. This CLJS
+;; counterpart proves it on the Fetch path: a throwing `:body` thunk and a
+;; non-serialisable body (circular ref → `js/JSON.stringify` throws) are
+;; caught in the `prepare-body!` phase and delivered as ONE :on-failure
+;; reply with :rf.http/transport — NOT a generic :rf.error/fx-handler-
+;; exception — and a configured retry re-invokes the thunk per attempt.
+;;
+;; The throw happens in the prep phase BEFORE any fetch, so `js/fetch` is
+;; stubbed to FAIL the test loudly if it is ever reached (proving the
+;; request never left the prep phase).
+
+(defn- with-failing-fetch
+  "Stub `js/fetch` to reject loudly — used by the prep-failure tests where
+  the body throws BEFORE any network call, so `fetch` must never run.
+  Returns a 0-arg restore fn."
+  []
+  (let [orig (.-fetch js/globalThis)]
+    (set! (.-fetch js/globalThis)
+          (fn [_url _init]
+            (js/Promise.reject
+              (js/Error. "rf2-065xo — fetch must NOT be reached: body-prep threw before any network call"))))
+    (fn [] (set! (.-fetch js/globalThis) orig))))
+
+(deftest cljs-throwing-body-thunk-delivers-managed-transport-failure
+  (testing "rf2-065xo — a `:body` thunk that throws delivers ONE :on-failure reply with :rf.http/transport (NOT :rf.error/fx-handler-exception) and clears the registry"
+    (async done
+      (rf/init! reagent-adapter/adapter)
+      (http-managed/clear-all-in-flight!)
+      (let [replies (atom [])
+            restore (with-failing-fetch)]
+        (rf/reg-event-fx :reply/recorder
+          (fn [_ [_ payload]] (swap! replies conj payload) {}))
+        (rf/reg-event-fx :issue/throwing-thunk
+          (fn [_ _]
+            {:fx [[:rf.http/managed
+                   {:request    {:url    "/x"
+                                 :method :post
+                                 :body   (fn [] (throw (js/Error. "boom-thunk")))}
+                    :request-id :prep-thunk
+                    :on-failure [:reply/recorder]
+                    :on-success [:reply/recorder]}]]}))
+        (rf/dispatch-sync [:issue/throwing-thunk])
+        (-> (test-support/poll-until
+              #(seq @replies)
+              {:timeout-ms 2000 :label "cljs body-thunk prep failure reply"})
+            (.then (fn [_]
+                     (is (= 1 (count @replies))
+                         "exactly one reply — the prep failure is delivered once")
+                     (let [reply (first @replies)]
+                       (is (= :failure (:kind reply)))
+                       (is (= :rf.http/transport (get-in reply [:failure :kind]))
+                           "a throwing body thunk surfaces as the managed :rf.http/transport category")
+                       (is (= :request-prep (get-in reply [:failure :stage]))
+                           "the :stage discriminator marks this as a request-preparation failure"))
+                     (is (empty? (registry/in-flight-snapshot))
+                         "the in-flight registry is cleared — the failed-prep request is not pinned")
+                     (restore)
+                     (done)))
+            (.catch (fn [e]
+                      (restore)
+                      (is false (str "rf2-065xo — unexpected: " e))
+                      (done))))))))
+
+(deftest cljs-unencodable-body-delivers-managed-transport-failure
+  (testing "rf2-065xo — a non-serialisable body (circular ref → JSON.stringify throws) delivers ONE :on-failure reply with :rf.http/transport"
+    (async done
+      (rf/init! reagent-adapter/adapter)
+      (http-managed/clear-all-in-flight!)
+      (let [replies   (atom [])
+            restore   (with-failing-fetch)
+            ;; A circular JS object — `js/JSON.stringify` throws a TypeError
+            ;; converting it, exercising the encode-failure prep path.
+            circular  (let [o (js-obj)]
+                        (aset o "self" o)
+                        o)]
+        (rf/reg-event-fx :reply/recorder
+          (fn [_ [_ payload]] (swap! replies conj payload) {}))
+        (rf/reg-event-fx :issue/unencodable
+          (fn [_ _]
+            {:fx [[:rf.http/managed
+                   {:request    {:url    "/x"
+                                 :method :post
+                                 :request-content-type :json
+                                 :body   circular}
+                    :request-id :prep-encode
+                    :on-failure [:reply/recorder]
+                    :on-success [:reply/recorder]}]]}))
+        (rf/dispatch-sync [:issue/unencodable])
+        (-> (test-support/poll-until
+              #(seq @replies)
+              {:timeout-ms 2000 :label "cljs encode prep failure reply"})
+            (.then (fn [_]
+                     (is (= 1 (count @replies)))
+                     (let [reply (first @replies)]
+                       (is (= :rf.http/transport (get-in reply [:failure :kind]))
+                           "an encode failure surfaces as the managed :rf.http/transport category")
+                       (is (= :request-prep (get-in reply [:failure :stage]))))
+                     (is (empty? (registry/in-flight-snapshot)))
+                     (restore)
+                     (done)))
+            (.catch (fn [e]
+                      (restore)
+                      (is false (str "rf2-065xo — unexpected: " e))
+                      (done))))))))
+
+(deftest cljs-throwing-body-thunk-retries-when-configured
+  (testing "rf2-065xo — with `:retry {:on #{:rf.http/transport} …}` a throwing body thunk RETRIES (re-invoking the thunk per attempt) then finally fails :rf.http/transport"
+    (async done
+      (rf/init! reagent-adapter/adapter)
+      (http-managed/clear-all-in-flight!)
+      (let [replies     (atom [])
+            invocations (atom 0)
+            restore     (with-failing-fetch)]
+        (rf/reg-event-fx :reply/recorder
+          (fn [_ [_ payload]] (swap! replies conj payload) {}))
+        (rf/reg-event-fx :issue/retry-thunk
+          (fn [_ _]
+            {:fx [[:rf.http/managed
+                   {:request    {:url    "/x"
+                                 :method :post
+                                 :body   (fn []
+                                           (swap! invocations inc)
+                                           (throw (js/Error. "boom-retry")))}
+                    :retry      {:on           #{:rf.http/transport}
+                                 :max-attempts 3
+                                 :backoff      {:base-ms 1 :factor 1 :max-ms 1}}
+                    :request-id :prep-retry
+                    :on-failure [:reply/recorder]
+                    :on-success [:reply/recorder]}]]}))
+        (rf/dispatch-sync [:issue/retry-thunk])
+        (-> (test-support/poll-until
+              #(seq @replies)
+              {:timeout-ms 4000 :label "cljs prep-failure retry exhaustion reply"})
+            (.then (fn [_]
+                     (is (= 3 @invocations)
+                         "the throwing thunk was re-invoked once per attempt (max-attempts 3)")
+                     (is (= 1 (count @replies))
+                         "exactly one FINAL reply after the retries exhaust")
+                     (let [reply (first @replies)]
+                       (is (= :rf.http/transport (get-in reply [:failure :kind]))
+                           "the final reply carries the :rf.http/transport prep-failure category"))
+                     (is (empty? (registry/in-flight-snapshot)))
+                     (restore)
+                     (done)))
+            (.catch (fn [e]
+                      (restore)
+                      (is false (str "rf2-065xo — unexpected: " e))
+                      (done))))))))

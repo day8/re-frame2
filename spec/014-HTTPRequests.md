@@ -203,6 +203,8 @@ If `:body` is a Clojure collection AND `:request-content-type` is unset, the fx 
 
 Multipart upload: pass `(js/FormData.)` directly as `:body` (or as the return value of a thunk) and let the runtime not set `Content-Type` (the platform sets the boundary).
 
+**Body realization + encoding is a managed preparation phase.** Invoking the `:body` thunk and encoding the body run *inside* the managed request, after the request is registered but before the transport issues it. A thunk that throws, or a body the encoder rejects (e.g. a non-serialisable value under `:request-content-type :json`), is **not** an uncaught error — it is delivered as a `:rf.http/transport` failure (with a `:stage :request-prep` discriminator and the usual `:message` / `:cause` tags; see [§Failure categories](#failure-categories-closed-set)) routed through the normal failure path. So a prep failure dispatches the caller's `:on-failure`, honours the `:retry` policy (`:rf.http/transport` is retryable — a retry re-invokes the thunk for a fresh handle), respects abort precedence, and carries the same trace + sensitivity treatment as a network-transport failure. It never surfaces as a generic `:rf.error/fx-handler-exception`.
+
 ## Decoding
 
 The `:decode` key controls how the response body is parsed.
@@ -484,7 +486,7 @@ Every failure carries a `:kind` keyword (under the framework-reserved `:rf.http/
 
 | `:kind` | When | Tags |
 |---|---|---|
-| `:rf.http/transport` | Network / DNS / connection-refused / connection-reset error before the HTTP transaction completed | `:message`, `:cause` |
+| `:rf.http/transport` | Network / DNS / connection-refused / connection-reset error before the HTTP transaction completed — **also** a request-preparation failure (a throwing `:body` thunk or a body the encoder rejects; see [§Body encoding](#body-encoding)), which carries an extra `:stage :request-prep` tag | `:message`, `:cause`, (`:stage` on a prep failure) |
 | `:rf.http/cors` | CORS preflight rejected or response blocked by browser CORS policy. Distinct from `:transport` because CORS is a configuration error, not a network error. CLJS-only; JVM never emits this. | `:message`, `:url` |
 | `:rf.http/timeout` | Per-attempt timeout fired | `:elapsed-ms` (measured wall-clock delta, `>= :limit-ms`, same semantics on both hosts — see [§JVM transport](#jvm-transport--degraded-behaviour-for-cljs-only-options)), `:limit-ms` (the configured per-attempt budget) |
 | `:rf.http/http-4xx` | Non-2xx 4xx response | `:status`, `:status-text`, `:body` (the raw response text — decode is skipped on non-2xx; see [§Classification order](#classification-order)), `:headers` |
@@ -1230,6 +1232,8 @@ Apps extend the denylist for app-specific tokens (e.g. `shop_token` for Shopify,
 ```
 
 Names stored lower-cased; matching is case-insensitive. The default denylist is fixed at boot; the app-extended set is mutable and clearable for test ergonomics via `(rf.http/clear-sensitive-query-params!)`.
+
+Matching is **percent-decoding-aware**: a query-param name is compared against the denylist in both its raw spelling **and** its percent-decoded form, so an encoded denylisted name (`?api%5Fkey=…` for `api_key`, `?%61ccess_token=…` for `access_token`, an app-declared `?shop%5Ftoken=…`) is redacted just like its plain spelling. The decode is comparison-only — the rebuilt URL preserves the original raw name verbatim and replaces only the value. A malformed percent-escape decodes to nothing and falls back to the raw-name match; redaction is total and never throws.
 
 A query-param denylist hit **alone** (no per-request / per-call `:sensitive?`) **stamps `:sensitive? true`** on the resulting trace event — the presence of a denylisted parameter name is itself a signal that the request carries an auth secret, and downstream privacy-honouring consumers should treat the event accordingly. This is the analogue of the header denylist contract: the name is the signal.
 
