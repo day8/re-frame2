@@ -536,6 +536,36 @@
                      (restore!)
                      (done))))))))
 
+(deftest discover-port-explicit-port-file-unreadable-falls-through-to-env
+  ;; rf2-olvr5 finding 4 — a stale / typo'd explicit --port-file must NOT
+  ;; short-circuit the cascade to `{:port nil}`. When the explicit file is
+  ;; unreadable (ENOENT) the cascade falls through to step 2 ($SHADOW_CLJS_
+  ;; NREPL_PORT) — mirroring `read-port-from-fs`'s leading `or`. Pre-fix
+  ;; this resolved `{:port nil}` and stranded a live env-provided port.
+  (testing "explicit --port-file unreadable → fall through to env var"
+    (async done
+      (let [restore! (install-fs-stub! "7788" throwing-read)]
+        (-> (nrepl/discover-port* "stale/nrepl.port" nil shadow-fails roots-unsupported)
+            (.then (fn [r]
+                     (is (= 7788 (:port r))
+                         "unreadable explicit file falls through to the env var (step 2)")))
+            (.finally (fn [] (restore!) (done))))))))
+
+(deftest discover-port-explicit-port-file-unreadable-falls-through-to-roots
+  ;; rf2-olvr5 finding 4 — with no env var, the unreadable explicit file
+  ;; falls all the way through to the MCP roots/list step (step 3). The
+  ;; explicit-but-stale path is fully transparent to the rest of the cascade.
+  (testing "explicit --port-file unreadable + no env → fall through to roots discovery"
+    (async done
+      (let [restore! (install-fs-stub! nil throwing-read)]
+        (-> (nrepl/discover-port* "stale/nrepl.port" nil shadow-fails (roots-one "/abs/proj" 8799))
+            (.then (fn [r]
+                     (is (= 8799 (:port r))
+                         "unreadable explicit file falls through to roots single-candidate (step 3)")
+                     (is (= "/abs/proj" (:project-home r))
+                         "roots project-home flows through — the stale explicit path is ignored")))
+            (.finally (fn [] (restore!) (done))))))))
+
 (deftest discover-port-env-var-short-circuits-shadow-probe
   (testing "step 2 wins — env-var override skips the HTTP probe and roots discovery"
     (async done

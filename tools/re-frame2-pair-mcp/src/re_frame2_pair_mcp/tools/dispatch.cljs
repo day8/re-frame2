@@ -99,6 +99,8 @@
             [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.await-promise :as await-promise]
             [re-frame2-pair-mcp.tools.eval-form :as ef]
+            [re-frame2-pair-mcp.tools.epoch-egress :as egress]
+            [re-frame2-pair-mcp.tools.raw-state :as raw-state]
             [re-frame2-pair-mcp.tools.wire :as wire]
             [re-frame2-pair-mcp.tools.probe :as probe]))
 
@@ -299,6 +301,25 @@
         ;; `reset-frame-db` already route it.
         frame        (some-> (wire/arg args :frame) args/->frame-keyword)
         fx-overrides (when-let [o (wire/arg args :fx-overrides)] (js->clj o :keywordize-keys true))
+        ;; rf2-olvr5 finding 1 — `:trace` (`dispatch-and-collect`) and
+        ;; `:settle` (`dispatch-and-settle!`) return RAW epoch material
+        ;; (`:epoch` carrying `:db-before`/`:db-after`/`:trigger-event`/
+        ;; `:trace-events`; `:settle` also `:render-events`). Unlike the
+        ;; default sync / queued consequence shapes — which carry no raw
+        ;; app-db — these MUST route through the framework's off-box
+        ;; projection (`re-frame.core/projected-record`) before crossing
+        ;; the nREPL/MCP wire, exactly as the pull-mode `trace-window` /
+        ;; `watch-epochs` surfaces do (rf2-6wvh5). The `--allow-sensitive-
+        ;; reads` boot gate (`raw-state-allowed?`, positive sense — true
+        ;; only when the operator opted in at launch) is the single
+        ;; predicate: gate-OFF (default) ⇒ project; gate-ON + opt-in ⇒
+        ;; ship raw (the operator's deliberate choice). `:include-sensitive
+        ;; true` is honoured ONLY behind the gate, mirroring every other
+        ;; egress surface.
+        incl?        (if (raw-state/raw-state-allowed?)
+                       (boolean (wire/arg args :include-sensitive))
+                       false)
+        project?     (not incl?)
         [tag payload] (parse-event-edn event-str)]
     (case tag
       :err
@@ -349,7 +370,18 @@
                            conn build-id timeout-ms sentinel
                            (await-render-callbacks mode))))
                 (.catch (fn [err] (probe/err->result :dispatch-failed err)))))
-          (let [form (ef/emit (ef/rt-call fn-sym event-vec opts-form))]
+          (let [call-src (ef/emit (ef/rt-call fn-sym event-vec opts-form))
+                ;; rf2-olvr5 finding 1 — only the epoch-bearing modes
+                ;; (`:trace` / `:settle`) carry raw `:epoch` /
+                ;; `:render-events`; wrap their emitted form so the
+                ;; projection runs APP-SIDE (where the frame's
+                ;; `[:rf/runtime :elision]` registry is reachable, same as
+                ;; the snapshot / trace-window walkers) before the result
+                ;; crosses the wire. The sync / queued consequence shapes
+                ;; carry no raw app-db, so they emit the bare call.
+                form     (if (contains? #{:trace :settle} mode)
+                           (egress/project-dispatch-result-src call-src project?)
+                           call-src)]
             (probe/eval-after-runtime!
               conn build-id form :dispatch-failed
               (fn [v] (runtime-envelope->result mode v)))))))))

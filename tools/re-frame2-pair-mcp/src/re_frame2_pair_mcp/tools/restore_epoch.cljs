@@ -113,9 +113,11 @@
           ;; gate-OFF posture. Mirrors dispatch-dry-run's prelude shape
           ;; (which restore-epoch's primitive internally drives) — we can
           ;; not use the plain `eval-after-runtime!` prelude because that
-          ;; helper has no `signal-runtime!` step. The signal is idempotent
-          ;; per build per session, so a session that already signalled
-          ;; (e.g. via a prior snapshot/dry-run) pays no extra round-trip.
+          ;; helper has no `signal-runtime!` step. The signal reconfigures
+          ;; the posture before every state-emitting eval (rf2-olvr5
+          ;; finding 2 — the runtime's posture resets on reload, so a
+          ;; cached-delivered flag would leave a post-reload restore tapping
+          ;; raw values); it is one tiny idempotent round-trip.
           (-> (probe/ensure-runtime! conn build-id)
               (.then (fn [_] (raw-state/signal-runtime! conn build-id)))
               (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))

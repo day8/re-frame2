@@ -78,6 +78,7 @@
             [re-frame2-pair-mcp.tools.cap :as cap]
             [re-frame2-pair-mcp.tools.probe :as probe]
             [re-frame2-pair-mcp.tools.precheck :as precheck]
+            [re-frame2-pair-mcp.tools.operating-frame :as operating-frame]
             [re-frame2-pair-mcp.tools.registry :as registry]
             [re-frame2-pair-mcp.tools.descriptors :as descriptors]))
 
@@ -401,11 +402,34 @@
       ;; agent reads the actionable rejection and corrects the arg.
       (js/Promise.resolve (wire/err-text cap))
       (let [enabled? (args/parse-bool-arg args :cache)
+            ;; rf2-olvr5 finding 3 — fold the RESOLVED build into the
+            ;; cache identity so a precheck-hash collision across two
+            ;; builds on the one nREPL connection can't serve the wrong
+            ;; build's payload. `arg-build` is a pure read (runs AFTER
+            ;; `stick-build!` above so the sticky default is current);
+            ;; the build-alias canonicalisation runs in the pipeline's
+            ;; first step, but the raw resolved id is a sufficient
+            ;; discriminator for the cache key (a suffix vs canonical id
+            ;; only ever maps to ONE running build).
+            build    (wire/arg-build conn args)
             ctx      {:conn       conn
                       :name       name
                       :args       args
                       :extra      extra
                       :result     nil
-                      :cache-opts {:tool name :args args :enabled? enabled?}
+                      :cache-opts {:tool name :args args :enabled? enabled? :build build}
                       :cap-opts   {:tool name :cap cap}}]
-        (bs/run-and-extract wire-boundary-pipeline ctx)))))
+        (-> (bs/run-and-extract wire-boundary-pipeline ctx)
+            ;; rf2-olvr5 finding 3 — a successful operating-frame mutation
+            ;; (set / reset) shifts where every omitted-`:frame` read
+            ;; resolves, so any cached payload keyed only on `(tool, build,
+            ;; args)` would be served against the WRONG frame (the
+            ;; identical-app-db-hash multi-frame case). Flush the whole
+            ;; response cache here at the chokepoint — keeping the cache ns
+            ;; free of an operating-frame require cycle. Skipped on an
+            ;; error result (the pin didn't change).
+            (.then (fn [result-js]
+                     (when (and (operating-frame/operating-frame-mutating? name)
+                                (not (isError? result-js)))
+                       (cache/clear!))
+                     result-js)))))))

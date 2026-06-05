@@ -17,8 +17,11 @@
   2. FORCES `:elision true` on every snapshot / get-path call,
      regardless of what the caller passed.
   3. Signals the preload runtime to default-elide its `tap>` emissions
-     (see `runtime/configure-raw-state!`). This is one nREPL round-trip
-     issued once per session at first tool use.
+     (see `runtime/configure-raw-state!`). This is one tiny idempotent
+     nREPL round-trip issued before every state-emitting tool eval —
+     re-signalled rather than cached-as-delivered, because the runtime's
+     posture resets to its permissive default on every page/runtime
+     reload (rf2-olvr5 finding 2; see `signal-runtime!`).
 
   When `--allow-sensitive-reads` is ON, the per-call args win — the same
   behaviour re-frame2-pair-mcp shipped pre-rf2-c2dtu.
@@ -122,70 +125,76 @@
 ;; The runtime exposes `configure-raw-state!` (rf2-c2dtu) which sets a
 ;; per-runtime flag controlling whether `app-db-reset!` taps raw values or
 ;; redacts via `elide-wire-value`. The MCP server pushes its boot-gate
-;; state into the runtime once per session.
-
-(defonce ^:private runtime-signalled?
-  ;; Per-build-id flag — true once `configure-raw-state!` has RESOLVED
-  ;; against this build's runtime in the current server lifetime.
-  ;;
-  ;; rf2-z7roa — the flag is set only AFTER the configure eval resolves
-  ;; (success or swallowed-failure), never speculatively before the
-  ;; round-trip lands. Marking it eagerly let a concurrent first tool
-  ;; call short-circuit to resolved-nil and proceed to tap RAW app-db
-  ;; before `configure-raw-state!` had flipped the runtime's posture.
-  ;;
-  ;; Build-keyed because re-frame2-pair-mcp can talk to multiple shadow-cljs builds
-  ;; over the same nREPL connection; each build has its own preloaded
-  ;; runtime atom.
-  (atom #{}))
+;; state into the runtime before every state-emitting eval — the
+;; per-runtime flag resets to its permissive default on every page/runtime
+;; reload, so the posture is re-signalled rather than cached as delivered
+;; (rf2-olvr5 finding 2).
 
 (defonce ^:private runtime-signalling
   ;; Per-build-id IN-FLIGHT configure-raw-state! Promise. A second
   ;; concurrent caller for the same build awaits the SAME Promise rather
   ;; than firing a duplicate signal OR racing ahead while the first
   ;; signal is still in flight (rf2-z7roa). Cleared once resolved.
+  ;;
+  ;; Build-keyed because re-frame2-pair-mcp can talk to multiple shadow-cljs
+  ;; builds over the same nREPL connection; each build has its own
+  ;; preloaded runtime atom.
   (atom {}))
 
 (defn signal-runtime!
-  "Send the boot-gate state to the preload runtime exactly once per
-  build-id per server lifetime. The runtime's `configure-raw-state!`
-  flips its own atom — subsequent `app-db-reset!` calls then elide
-  before emitting through `tap>`.
+  "Reconfigure the preload runtime's raw-state posture before each
+  state-emitting eval. The runtime's `configure-raw-state!` flips its own
+  atom — subsequent `app-db-reset!` calls then elide before emitting
+  through `tap>`.
 
-  Idempotent: a no-op once the signal has RESOLVED for `build-id`. While
-  a signal is in flight for a build, a concurrent caller awaits the same
-  Promise (rf2-z7roa) — it never proceeds to a state-emitting eval ahead
-  of the posture landing. Failure (the runtime predates rf2-c2dtu) is
-  swallowed silently — the wire-side enforcement still holds, so a
-  degraded runtime just means `tap>` consumers see raw values (the
-  pre-rf2-c2dtu posture).
+  ## Why this re-signals on EVERY call rather than caching 'delivered'
+  per build (rf2-olvr5 finding 2)
 
-  rf2-z7roa: the per-build `runtime-signalled?` flag is set ONLY after
-  the configure eval resolves, never speculatively before the round-
-  trip. This guarantees a first state-emitting tool call (snapshot /
-  get-path / subscribe / reset-frame-db / dispatch-dry-run) can never
-  tap raw app-db ahead of `configure-raw-state!` flipping the runtime.
+  The runtime's `raw-state-config` atom defaults to `:allow-raw-state?
+  true` (the bare-CLJS-REPL posture) and is RE-MINTED on every full page
+  reload / CLJS heap reset — a fresh preload evaluation re-`defonce`s it
+  back to the permissive default, and re-mints `session-id` too. The
+  pre-fix shape recorded the signal as DELIVERED once per `build-id` per
+  server lifetime and short-circuited thereafter. So after a reload, the
+  build-id was still in the resolved set, `signal-runtime!` returned a
+  no-op, the freshly-recreated runtime stayed at its permissive default,
+  and the next state-emitting tool (snapshot / get-path / subscribe /
+  reset-frame-db / restore-epoch / dispatch-dry-run / record /
+  watch-until) could tap RAW prev/next app-db through `tap>` even with
+  `--allow-sensitive-reads` OFF.
+
+  The server can't cheaply know the current `session-id` without a
+  round-trip, and `configure-raw-state!` is idempotent + tiny (one
+  bencode round-trip on the persistent socket — same shape every call).
+  So the correct fix is to NOT cache the posture across runtime identity:
+  always reconfigure before a tap-emitting write. The per-build IN-FLIGHT
+  `runtime-signalling` dedup is preserved — a burst of concurrent
+  state-emitting calls for the same build still share ONE configure
+  Promise (the rf2-z7roa race guard: no caller proceeds to its
+  state-emitting eval ahead of the posture landing) — but once that
+  Promise resolves the next call reconfigures afresh rather than skipping.
+
+  Failure (a runtime predating rf2-c2dtu) is swallowed silently — the
+  wire-side enforcement still holds, so a degraded runtime just means
+  `tap>` consumers see raw values (the pre-rf2-c2dtu posture).
 
   Called between `ensure-runtime!` and the first state-emitting eval in
-  each tool body that taps / egresses app-db. Returns a Promise
-  resolving to nil."
+  each tool body that taps / egresses app-db. Returns a Promise resolving
+  to nil."
   [conn build-id]
-  (cond
-    (contains? @runtime-signalled? build-id)
-    (js/Promise.resolve nil)
-
-    (contains? @runtime-signalling build-id)
+  (if (contains? @runtime-signalling build-id)
+    ;; A configure is already in flight for this build — share it so a
+    ;; concurrent caller never races ahead of the posture landing
+    ;; (rf2-z7roa) and we don't fire a duplicate round-trip in the burst.
     (get @runtime-signalling build-id)
-
-    :else
     (let [form (ef/emit
                  (ef/rt-call 'configure-raw-state!
                              {:allow-raw-state? @allow-raw-state?}))
-          ;; Mark the build resolved + drop the in-flight entry. Run on
-          ;; BOTH the success and swallowed-failure arms — once the
-          ;; round-trip lands (or fails), the posture decision is final.
+          ;; Drop the in-flight entry on BOTH the success and swallowed-
+          ;; failure arms. We do NOT record a permanent 'delivered' flag:
+          ;; the runtime's posture resets on reload, so a future call must
+          ;; reconfigure (rf2-olvr5 finding 2).
           finish! (fn []
-                    (swap! runtime-signalled? conj build-id)
                     (swap! runtime-signalling dissoc build-id)
                     nil)
           p       (-> (nrepl/cljs-eval-value conn build-id form)
@@ -193,15 +202,12 @@
                       (.catch (fn [_]
                                 ;; Degraded runtime — predates rf2-c2dtu.
                                 ;; Swallow; the wire-side gate still
-                                ;; enforces. Mark resolved so we don't
-                                ;; re-probe a runtime that can't answer.
+                                ;; enforces.
                                 (finish!))))]
       (swap! runtime-signalling assoc build-id p)
       p)))
 
 (defn reset-runtime-signal-cache!
-  "Clear the per-session signal cache (resolved + in-flight). Exposed
-  for tests."
+  "Clear the per-session signal in-flight map. Exposed for tests."
   []
-  (reset! runtime-signalled? #{})
   (reset! runtime-signalling {}))

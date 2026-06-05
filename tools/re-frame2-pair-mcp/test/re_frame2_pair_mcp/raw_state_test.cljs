@@ -20,9 +20,24 @@
   End-to-end MCP-wire shape coverage lives in
   `re-frame2-pair-mcp.conformance-test` (the corpus has dedicated
   fixtures pinning the gated default and the opt-in path)."
-  (:require [cljs.test :refer-macros [deftest is testing]]
+  (:require [cljs.test :refer-macros [deftest is testing async use-fixtures]]
             [re-frame2-pair-mcp.server :as server]
+            [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.raw-state :as raw-state]))
+
+;; rf2-wb06a — the signal-runtime! tests `set!` the module-level
+;; `nrepl/cljs-eval-value`. Restore the pristine original in a
+;; fixture-scoped `:after` (NOT a per-test `.finally`, which fires after
+;; `done` and can clobber a neighbour namespace's stub mid-eval). Also
+;; clear the signal in-flight cache + reset the gate so each test starts
+;; from the published default.
+(def ^:private pristine-eval nrepl/cljs-eval-value)
+
+(use-fixtures :each
+  {:after (fn []
+            (set! nrepl/cljs-eval-value pristine-eval)
+            (raw-state/reset-runtime-signal-cache!)
+            (raw-state/set-allow-raw-state! false))})
 
 ;; ---------------------------------------------------------------------------
 ;; Default-OFF posture.
@@ -215,20 +230,66 @@
     (is (false? (:eval-allowed? flags)))))
 
 ;; ---------------------------------------------------------------------------
-;; signal-runtime! cache — fires once per (build-id, server-lifetime).
+;; signal-runtime! — re-signals before EVERY state-emitting eval
+;; (rf2-olvr5 finding 2). The runtime's raw-state posture resets to its
+;; permissive default on every page/runtime reload, so caching a per-build
+;; "delivered" flag (the pre-fix shape) left a post-reload runtime tapping
+;; RAW app-db. The signal now reconfigures each call; only a CONCURRENT
+;; in-flight configure for the same build is deduped (the rf2-z7roa race
+;; guard).
 ;; ---------------------------------------------------------------------------
 
-(deftest signal-runtime-caches-per-build
-  ;; The runtime-signal path must be a no-op after the first invocation
-  ;; per build-id — we don't want every state-emitting tool call to
-  ;; pay an extra nREPL round-trip.
-  (raw-state/reset-runtime-signal-cache!)
-  ;; A signal against a stubbed conn would require the nrepl ns; here
-  ;; we just verify the cache shape — after a fake "already-signalled"
-  ;; entry, signal-runtime! must return the cached-no-op Promise.
-  (raw-state/set-allow-raw-state! false)
-  (raw-state/reset-runtime-signal-cache!)
-  ;; Cache empty ⇒ a real signal would fire (we can't drive nrepl from
-  ;; node-tests cleanly). We exercise the cache-reset only.
-  (is (some? (raw-state/reset-runtime-signal-cache!))
-      "reset-runtime-signal-cache! is callable"))
+(deftest signal-runtime-reconfigures-each-call
+  ;; Drive `signal-runtime!` against a stubbed `cljs-eval-value` and count
+  ;; the configure round-trips. Sequential (non-overlapping) calls MUST
+  ;; each fire a fresh configure — no permanent per-build skip — so a
+  ;; post-reload runtime is re-signalled.
+  (async done
+    (let [calls (atom 0)
+          stub (fn
+                 ([_conn _build-id _form]
+                  (swap! calls inc)
+                  (js/Promise.resolve nil))
+                 ([_conn _build-id _form _opts]
+                  (swap! calls inc)
+                  (js/Promise.resolve nil)))]
+      (raw-state/reset-runtime-signal-cache!)
+      (raw-state/set-allow-raw-state! false)
+      (set! nrepl/cljs-eval-value stub)
+      (-> (raw-state/signal-runtime! nil :app)
+          (.then (fn [_] (raw-state/signal-runtime! nil :app)))
+          (.then (fn [_] (raw-state/signal-runtime! nil :app)))
+          (.then (fn [_]
+                   (is (= 3 @calls)
+                       "three sequential signals ⇒ three configure round-trips (no permanent per-build skip)")
+                   (done)))
+          (.catch (fn [_] (done)))))))
+
+(deftest signal-runtime-dedups-concurrent-in-flight
+  ;; Two CONCURRENT signals for the same build (issued before the first
+  ;; configure resolves) share ONE in-flight Promise — the rf2-z7roa race
+  ;; guard, preserved across the rf2-olvr5 re-signal change.
+  (async done
+    (let [calls (atom 0)
+          ;; A configure that only resolves when we tell it to, so both
+          ;; callers are genuinely in-flight at once.
+          resolve-fn* (atom nil)
+          stub (fn
+                 ([_conn _build-id _form]
+                  (swap! calls inc)
+                  (js/Promise. (fn [res _] (reset! resolve-fn* res))))
+                 ([_conn _build-id _form _opts]
+                  (swap! calls inc)
+                  (js/Promise. (fn [res _] (reset! resolve-fn* res)))))]
+      (raw-state/reset-runtime-signal-cache!)
+      (raw-state/set-allow-raw-state! false)
+      (set! nrepl/cljs-eval-value stub)
+      (let [p1 (raw-state/signal-runtime! nil :app)
+            p2 (raw-state/signal-runtime! nil :app)]
+        ;; Both issued before resolution — only ONE configure fired.
+        (is (= 1 @calls)
+            "concurrent in-flight signals for the same build share ONE configure round-trip")
+        (when-let [r @resolve-fn*] (r nil))
+        (-> (js/Promise.all #js [p1 p2])
+            (.then (fn [_] (done)))
+            (.catch (fn [_] (done))))))))

@@ -46,11 +46,13 @@
 
   So this tool — like the direct-read surfaces (snapshot / get-path /
   subscribe, rf2-c2dtu) — issues `raw-state/signal-runtime!` AFTER
-  `ensure-runtime!` and BEFORE the `app-db-reset!` eval. The signal is
-  idempotent + build-keyed; `signal-runtime!` only marks the cache
-  successful once the `configure-raw-state!` eval has been issued, so a
-  first reset can never tap raw values ahead of the posture landing.
-  This is why `reset-frame-db` does NOT use the plain
+  `ensure-runtime!` and BEFORE the `app-db-reset!` eval. The signal
+  reconfigures the runtime's posture before every state-emitting eval
+  (rf2-olvr5 finding 2 — the runtime's posture resets on reload, so a
+  cached 'delivered' flag would let a post-reload reset tap raw values);
+  concurrent calls for the same build still share ONE in-flight
+  configure Promise, so a reset can never tap raw values ahead of the
+  posture landing. This is why `reset-frame-db` does NOT use the plain
   `probe/eval-after-runtime!` prelude (which skips the signal step) —
   it threads `signal-runtime!` between the probe and the eval."
   (:require [re-frame2-pair-mcp.nrepl :as nrepl]

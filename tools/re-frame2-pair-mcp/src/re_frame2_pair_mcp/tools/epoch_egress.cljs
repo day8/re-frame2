@@ -58,6 +58,62 @@
   the projection single-sourced in the framework and removes the
   \"one missed slot\" leak surface the core docstring warns about.")
 
+(defn project-dispatch-result-src
+  "CLJS source that projects the epoch-bearing slots of a dispatch
+  `:trace` / `:settle` result map for off-box egress (rf2-olvr5
+  finding 1). `result-src` is a raw CLJS expression that evaluates to
+  the runtime dispatch fn's return (a map, or a non-map degraded value).
+
+  `dispatch-and-collect` (`:trace`) returns the cascade envelope PLUS a
+  full `:epoch` — the verbatim assembled `:rf/epoch-record` carrying
+  `:db-before` / `:db-after` / `:trigger-event` / `:trace-events` app-db
+  snapshots. `dispatch-and-settle!` (`:settle`) additionally returns
+  `:render-events` — the view-lifecycle trace events folded out of that
+  epoch's `:trace-events`. Both rode the nREPL/MCP wire VERBATIM before
+  this fix, bypassing the framework's off-box projection: a schema-
+  declared `:sensitive?` slot inside `:db-before`/`:db-after` (or inside
+  a render event's `:rf.event/db` tag) leaked to the MCP/LLM boundary
+  with `--allow-sensitive-reads` OFF (the published default) — the same
+  hole rf2-6wvh5 closed for the pull-mode `trace-window` / `watch-epochs`
+  surfaces.
+
+  When `project?` is true (gate-OFF / not-opted-in) the emitted source
+  routes `:epoch` through `re-frame.core/projected-record` (the single
+  normative off-box-egress emission site — Security.md §Epoch privacy
+  posture) and RE-DERIVES `:render-events` from the projected epoch's
+  now-elided `:trace-events`, so the two stay consistent and the render
+  events can't carry un-elided app-db material the `:epoch` slot already
+  redacted. `:cascade-summary` / `:epoch-id` / `:db-changed?` and the
+  other consequence slots carry no raw app-db material and pass through
+  untouched. When `project?` is false (operator opted in via
+  `--allow-sensitive-reads`) the result passes through verbatim — the
+  raw-egress opt-in, mirroring subscribe's bare-drain path.
+
+  Non-map results (a degraded runtime, or the `:ok? false` frame-
+  untargetable envelope — which carries no epoch) pass through
+  unchanged: the `when (map? ...)` guard keeps the transform total."
+  [result-src project?]
+  (if-not project?
+    result-src
+    (str "(let [r# " result-src "]"
+         "  (if-not (map? r#) r#"
+         "    (let [pe# (when (contains? r# :epoch)"
+         "                (re-frame.core/projected-record (:epoch r#)))]"
+         "      (cond-> r#"
+         "        (contains? r# :epoch)"
+         "        (assoc :epoch pe#)"
+         ;; Re-derive :render-events from the PROJECTED epoch's trace-events
+         ;; so they inherit the same elision the :epoch slot just got — the
+         ;; render events are a filtered view of :trace-events, never an
+         ;; independent payload that could leak after the epoch redacts.
+         "        (contains? r# :render-events)"
+         "        (assoc :render-events"
+         "               (filterv (fn [ev#]"
+         "                          (contains? #{:rf.view/render :rf.view/rendered"
+         "                                       :rf.view/rendered-cap-reached :rf.view/unmounted}"
+         "                                     (:operation ev#)))"
+         "                        (:trace-events pe#)))))))")))
+
 (defn project-page-src
   "CLJS source that projects a let-bound vector of epoch records for
   off-box egress. `page-sym` is the name of the let-bound page (a CLJS

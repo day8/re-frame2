@@ -439,6 +439,43 @@
     (is (some? (cache/precheck opts-a h))
         "matching key → precheck hits")))
 
+(deftest precheck-build-discriminates-key
+  ;; rf2-olvr5 finding 3 — the cache key includes the resolved BUILD. A
+  ;; precheck-hash primed for (get-path, args, build-A) MUST NOT serve a
+  ;; lookup for (get-path, args, build-B) even when the hashes collide
+  ;; (two builds on one nREPL connection with the same app-db-hash). The
+  ;; pre-fix key was `(tool, args)` only — a cross-build collision served
+  ;; the wrong build's payload.
+  (let [args   (args-js {:path "[:k]"})
+        h      22222
+        opts-a {:tool "get-path" :args args :enabled? true :build :app}
+        opts-b {:tool "get-path" :args args :enabled? true :build :other}]
+    (cache/apply-cache (mcp-result "{:k :build-a}")
+                       (assoc opts-a :precheck-hash h))
+    (is (nil? (cache/precheck opts-b h))
+        "same (tool,args)+colliding hash but DIFFERENT build → no cross-build hit")
+    (is (some? (cache/precheck opts-a h))
+        "same build → precheck hits")))
+
+(deftest apply-cache-build-discriminates-key
+  ;; The post-eval result-hash path shares the same key, so the build
+  ;; discriminator applies there too: an identical result text for two
+  ;; builds must NOT cross-pollinate.
+  (let [args   (args-js {:path "[:k]"})
+        opts-a {:tool "get-path" :args args :enabled? true :build :app}
+        opts-b {:tool "get-path" :args args :enabled? true :build :other}
+        result (mcp-result "{:k :same-text}")]
+    ;; Prime build-A.
+    (cache/apply-cache result opts-a)
+    ;; Build-B with byte-identical text — FIRST store for build-B's key,
+    ;; so it must pass through unchanged (not a cache-hit marker).
+    (let [out (cache/apply-cache result opts-b)]
+      (is (not (cache-hit-result? out))
+          "identical text under a DIFFERENT build is a fresh store, not a hit"))
+    ;; A second build-A call DOES hit (same key, same text).
+    (is (cache-hit-result? (cache/apply-cache result opts-a))
+        "same build + same text → result-hash hit")))
+
 (deftest precheck-hit-touches-lru
   ;; A precheck hit is still a use of the entry — touch the LRU so
   ;; the entry doesn't rotate out under capacity pressure.

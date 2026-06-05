@@ -53,7 +53,9 @@
             [re-frame2-pair-mcp.cache :as cache]
             [re-frame2-pair-mcp.tools :as tools]
             [re-frame2-pair-mcp.tools.precheck :as precheck]
+            [re-frame2-pair-mcp.tools.wire :as wire]
             [re-frame2-pair-mcp.tools.get-path :as get-path]
+            [re-frame2-pair-mcp.tools.operating-frame :as operating-frame]
             [re-frame2-pair-mcp.tools.snapshot :as snapshot]))
 
 ;; ---------------------------------------------------------------------------
@@ -72,11 +74,13 @@
 (def ^:private orig-fetch-precheck-hash precheck/fetch-precheck-hash)
 (def ^:private orig-get-path-tool       get-path/get-path-tool)
 (def ^:private orig-snapshot-tool       snapshot/snapshot-tool)
+(def ^:private orig-reset-operating-frame-tool operating-frame/reset-operating-frame-tool)
 
 (defn- restore-stubs! []
   (set! precheck/fetch-precheck-hash orig-fetch-precheck-hash)
   (set! get-path/get-path-tool       orig-get-path-tool)
-  (set! snapshot/snapshot-tool       orig-snapshot-tool))
+  (set! snapshot/snapshot-tool       orig-snapshot-tool)
+  (set! operating-frame/reset-operating-frame-tool orig-reset-operating-frame-tool))
 
 (use-fixtures :each
   {:before (fn [] (cache/clear!))
@@ -137,10 +141,12 @@
       :fetch-precheck-hash (set! precheck/fetch-precheck-hash stub)
       :get-path-tool       (set! get-path/get-path-tool       stub)
       :snapshot-tool       (set! snapshot/snapshot-tool       stub)
+      :reset-operating-frame-tool (set! operating-frame/reset-operating-frame-tool stub)
       (throw (ex-info (str "Unknown stub kind: " kind)
                       {:kind kind :known #{:fetch-precheck-hash
                                            :get-path-tool
-                                           :snapshot-tool}})))))
+                                           :snapshot-tool
+                                           :reset-operating-frame-tool}})))))
 
 ;; ---------------------------------------------------------------------------
 ;; Phase-1 short-circuit: precheck hit ⇒ dispatch SKIPPED.
@@ -155,10 +161,15 @@
   (async done
     (let [args        (args-js {:cache "true" :path "[:k]"})
           dispatched? (atom false)
+          ;; rf2-olvr5 finding 3 — the cache key now includes the resolved
+          ;; build, so the priming MUST use the same build the `invoke`
+          ;; pipeline will derive (`arg-build nil args` = the env / `:app`
+          ;; default here) or the lookup key won't match.
           _ (cache/apply-cache (mcp-result "{:k :v}")
                                {:tool "get-path"
                                 :args args
                                 :enabled? true
+                                :build (wire/arg-build nil args)
                                 :precheck-hash 42})]
       (set-stubs!
         {:fetch-precheck-hash (fn [_conn _args _frame] (js/Promise.resolve 42))
@@ -545,4 +556,63 @@
                           (get-in (extract-edn second-result)
                                   [:rf.mcp/cache-hit :via]))
                        "via :precheck — the sound short-circuit is preserved")
+                   (done)))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-olvr5 finding 3 — an operating-frame change FLUSHES the response
+;; cache. The cache key is `(tool, build, args)` and CANNOT include the
+;; resolved operating frame for an omitted-`:frame` call (it resolves
+;; runtime-side). So a `get-path {path X}` cached against operating frame
+;; A would be served against frame B after a frame switch if B shared A's
+;; app-db hash (multi-frame identical-initial-db). Clearing the whole
+;; cache on every operating-frame mutation closes that hole.
+;; ---------------------------------------------------------------------------
+
+(deftest operating-frame-change-flushes-cache
+  (async done
+    ;; Prime the cache with a no-`:frame` get-path entry (resolved
+    ;; against "operating frame A"). The entry exists.
+    (let [gp-args (args-js {:cache "true" :path "[:k]"})]
+      (cache/apply-cache (mcp-result "{:k :frame-a}")
+                         {:tool "get-path"
+                          :args gp-args
+                          :enabled? true
+                          :build (wire/arg-build nil gp-args)
+                          :precheck-hash 42})
+      (is (= 1 (cache/size)) "cache primed with the frame-A get-path entry")
+      ;; A successful reset-operating-frame must flush the cache.
+      (set-stubs!
+        {:reset-operating-frame-tool
+         (fn [_conn _args]
+           (js/Promise.resolve (mcp-result "{:ok? true :selected nil :operating :rf/b}")))})
+      (-> (tools/invoke nil "reset-operating-frame" (args-js {}) nil)
+          (.then (fn [result]
+                   (is (not (j/get result :isError))
+                       "reset-operating-frame succeeded")
+                   (is (zero? (cache/size))
+                       (str "the operating-frame change flushed the whole response "
+                            "cache — no stale frame-A payload can be served to frame B"))
+                   (done)))))))
+
+(deftest operating-frame-error-does-not-flush-cache
+  (async done
+    ;; A FAILED set-operating-frame (unknown frame) did NOT change the pin,
+    ;; so the cache must be preserved — only a successful mutation flushes.
+    (let [gp-args (args-js {:cache "true" :path "[:k]"})]
+      (cache/apply-cache (mcp-result "{:k :frame-a}")
+                         {:tool "get-path"
+                          :args gp-args
+                          :enabled? true
+                          :build (wire/arg-build nil gp-args)
+                          :precheck-hash 42})
+      (set-stubs!
+        {:reset-operating-frame-tool
+         (fn [_conn _args]
+           (js/Promise.resolve (mcp-result "{:ok? false :reason :boom}" :error? true)))})
+      (-> (tools/invoke nil "reset-operating-frame" (args-js {}) nil)
+          (.then (fn [result]
+                   (is (true? (j/get result :isError))
+                       "the mutation errored")
+                   (is (= 1 (cache/size))
+                       "an errored operating-frame call leaves the cache intact")
                    (done)))))))
