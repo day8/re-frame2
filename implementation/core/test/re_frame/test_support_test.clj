@@ -342,9 +342,11 @@
 (deftest destroy-frame-cleanup-hooks-receive-frame-id
   (testing "cleanup hooks that take the destroyed frame's id receive it
             correctly — :ssr / :machines / :epoch all pass the id"
-    ;; :privacy/clear-suppression-cache! is zero-arg; the other three
-    ;; receive the destroyed id. Pin that arg shape so a future refactor
-    ;; that swaps positional → varargs (or drops the id) breaks loudly.
+    ;; :privacy/clear-suppression-cache! is zero-arg; :ssr / :machines
+    ;; take the destroyed id. :epoch/on-frame-destroyed takes (id db-before
+    ;; db-after) since rf2-9neiq (the two snapshots for the :halted-destroy
+    ;; record). Pin each arg shape so a future refactor that swaps
+    ;; positional → varargs (or drops the id) breaks loudly.
     (let [snapshot   @late-bind/hooks
           captured-args (atom {})]
       (try
@@ -354,10 +356,17 @@
                                     :privacy/clear-suppression-cache!
                                     ::called-zero-arg)))
         (doseq [k [:ssr/on-frame-destroyed
-                   :machines/on-frame-destroyed!
-                   :epoch/on-frame-destroyed]]
+                   :machines/on-frame-destroyed!]]
           (late-bind/set-fn! k (fn [id]
                                  (swap! captured-args assoc k id))))
+        ;; rf2-9neiq: the epoch hook's three-arg shape — record the id
+        ;; AND that the snapshot args arrive (nil here: an out-of-cascade
+        ;; destroy carries no pre-cascade snapshot).
+        (late-bind/set-fn! :epoch/on-frame-destroyed
+                           (fn [id db-before db-after]
+                             (swap! captured-args assoc
+                                    :epoch/on-frame-destroyed id
+                                    :epoch/snapshot-args [db-before db-after])))
         (rf/reg-frame :rf2-j9phb/arg-target {})
         (frame/destroy-frame! :rf2-j9phb/arg-target)
 
@@ -373,6 +382,14 @@
         (is (= :rf2-j9phb/arg-target
                (get @captured-args :epoch/on-frame-destroyed))
             "epoch hook receives the destroyed frame id")
+        ;; rf2-9neiq: for this OUT-OF-CASCADE destroy, db-before (the
+        ;; pre-cascade snapshot from frame/*cascade-db-before*) is nil
+        ;; (no in-flight cascade), while db-after is the live container
+        ;; value read at destroy-time — the frame's initial {} app-db.
+        (is (= [nil {}] (get @captured-args :epoch/snapshot-args))
+            "epoch hook receives (db-before db-after): nil pre-cascade
+             (out-of-cascade destroy) + the destroy-time container {}
+             (rf2-9neiq)")
         (finally
           (reset! late-bind/hooks snapshot))))))
 

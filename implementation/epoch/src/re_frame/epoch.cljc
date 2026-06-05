@@ -191,38 +191,18 @@
 ;; `re-frame.epoch.listeners` (Phase-2 seam C, rf2-0wi86).
 
 (defn- on-frame-destroyed!
-  "Per Tool-Pair §Surface behaviour against destroyed frames (rf2-d656)
-  and rf2-v0jwt §Outcomes (`:halted-destroy`):
-
-    1. Mid-drain destroy detection — if `capture-buffers[frame-id]`
-       holds buffered events at destroy time, this is a mid-drain
-       destroy (the handler that called `destroy-frame!` was running
-       inside the drain; its trace events were captured into the
-       in-flight buffer). Notify epoch listeners with a partial
-       `:halted-destroy` record carrying the cascade's traces. The
-       record is NOT appended to the ring buffer — step 3 wipes the
-       ring buffer for the destroyed frame regardless. Devtools that
-       care about destroyed cascades receive the record via the
-       listener fan-out before the ring buffer is dropped.
-    2. Emit `:rf.epoch.cb/silenced-on-frame-destroy` once per cb whose
-       observed-frames set contains `frame-id`, then drop `frame-id`
-       from each cb's entry so a re-registration of a same-keyed frame
-       re-arms the silencing trace for a future destroy.
-    3. Drop the destroyed frame's per-frame ring buffer so subsequent
-       `(rf/epoch-history frame-id)` calls return the empty vector
-       (the read-empty shape the contract commits to).
-    4. Drop any in-flight capture buffer entry for `frame-id`
-       (rf2-zzper) so a mid-drain destroy can't leak its pre-destroy
-       events into the first cascade of the next same-keyed frame.
-
-  Called from `re-frame.frame/destroy-frame!` via the
-  `:epoch/on-frame-destroyed` late-bind hook. Idempotent across
-  repeated destroys of the same frame — once a cb's entry no longer
-  contains the frame-id, no further trace fires for that pair, and
-  the (already-cleared) ring-buffer / capture-buffer entries stay
-  absent."
-  [frame-id]
-  (listeners/on-frame-destroyed! frame-id))
+  "Frame-teardown epoch hook (the `:epoch/on-frame-destroyed` late-bind
+  slot `re-frame.frame/destroy-frame!` fires at step 8). Delegates the
+  full four-step destroy contract — mid-drain `:halted-destroy` commit
+  (carrying the real `:db-before` / `:db-after` snapshots `destroy-frame!`
+  threads, per rf2-9neiq), `:rf.epoch.cb/silenced-on-frame-destroy`
+  fan-out, ring-buffer drop, and capture-buffer drop — to
+  `re-frame.epoch.listeners/on-frame-destroyed!`, whose docstring is the
+  canonical pin. `db-before` / `db-after` are the pre-cascade and
+  destroy-time snapshots `destroy-frame!` captured before the frame was
+  removed (both nil for an out-of-cascade destroy)."
+  [frame-id db-before db-after]
+  (listeners/on-frame-destroyed! frame-id db-before db-after))
 
 ;; ---- per-cascade trace capture --------------------------------------------
 ;;

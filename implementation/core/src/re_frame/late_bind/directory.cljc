@@ -552,7 +552,7 @@
     :description "Clear every registered epoch-settled callback (test isolation)."}
    {:key         :epoch/on-frame-destroyed
     :producer-ns 're-frame.epoch
-    :description "Tear down a frame's epoch state when the frame is destroyed."}
+    :description "Tear down a frame's epoch state when the frame is destroyed. Invoked as (f frame-id db-before db-after): db-before is the in-flight event's pre-cascade snapshot (frame/*cascade-db-before*), db-after the destroy-time container value captured before teardown — the real :db-before/:db-after slots a mid-drain :halted-destroy epoch record carries per Spec-Schemas §:rf/epoch-record §Outcomes (rf2-9neiq). Both nil for an out-of-cascade destroy."}
    {:key         :epoch/projected-record
     :producer-ns 're-frame.epoch
     :design-bead "rf2-mrsck"

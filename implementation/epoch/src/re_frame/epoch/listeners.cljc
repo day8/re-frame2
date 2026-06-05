@@ -16,7 +16,11 @@
        destroy contract (rf2-d656 + rf2-v0jwt + rf2-zzper):
 
          (a) mid-drain destroy detection → commit a `:halted-destroy`
-             partial record to listeners (NOT to the ring buffer).
+             partial record (carrying the real pre-cascade `:db-before`
+             + destroy-time `:db-after` snapshots threaded by
+             `destroy-frame!`, per rf2-9neiq) to listeners (NOT to the
+             ring buffer — `epoch-history` is read-empty post-destroy
+             per rf2-d656).
          (b) emit `:rf.epoch.cb/silenced-on-frame-destroy` once per cb
              whose observed-frames set contained `frame-id`.
          (c) drop the per-frame ring buffer.
@@ -258,18 +262,32 @@
 
 (defn on-frame-destroyed!
   "Per Tool-Pair §Surface behaviour against destroyed frames (rf2-d656)
-  and rf2-v0jwt §Outcomes (`:halted-destroy`):
+  and rf2-v0jwt / rf2-9neiq §Outcomes (`:halted-destroy`):
 
     1. Mid-drain destroy detection — if `capture-buffers[frame-id]`
        holds buffered events at destroy time, this is a mid-drain
        destroy (the handler that called `destroy-frame!` was running
        inside the drain; its trace events were captured into the
        in-flight buffer). Notify epoch listeners with a partial
-       `:halted-destroy` record carrying the cascade's traces. The
-       record is NOT appended to the ring buffer — step 3 wipes the
-       ring buffer for the destroyed frame regardless. Devtools that
-       care about destroyed cascades receive the record via the
-       listener fan-out before the ring buffer is dropped.
+       `:halted-destroy` record carrying the cascade's traces AND the
+       real `:db-before` / `:db-after` snapshots threaded by
+       `destroy-frame!` (rf2-9neiq): `db-before` is the pre-cascade
+       snapshot (the value app-db held before the in-flight event's
+       cascade began, from the router-bound `frame/*cascade-db-before*`);
+       `db-after` is the destroy-time state (the live container value
+       read at the top of `destroy-frame!`, before teardown — the
+       partial cascade's already-committed writes survive in it). This
+       conforms the record to Spec-Schemas §`:rf/epoch-record` §Outcomes,
+       which documents `:halted-destroy` as carrying the pre-cascade
+       snapshot as `:db-before` and the destroy-time/partial state as
+       `:db-after` — NOT the prior nil / nil. The record is delivered
+       to LISTENERS ONLY — it is NOT appended to the ring buffer, because
+       step 3 drops the destroyed frame's ring and `(rf/epoch-history
+       destroyed)` returns `[]` per the rf2-d656 read-empty contract.
+       Listeners (`register-epoch-listener!`) receive every record
+       regardless of `:outcome` (Spec-Schemas §`:rf/epoch-record`
+       §Restore semantics), so the listener fan-out IS the documented
+       devtools-introspection channel for the destroyed-mid-drain halt.
     2. Emit `:rf.epoch.cb/silenced-on-frame-destroy` once per cb whose
        observed-frames set contains `frame-id`, then drop `frame-id`
        from each cb's entry so a re-registration of a same-keyed frame
@@ -281,13 +299,18 @@
        (rf2-zzper) so a mid-drain destroy can't leak its pre-destroy
        events into the first cascade of the next same-keyed frame.
 
+  `db-before` / `db-after` are the two app-db snapshots `destroy-frame!`
+  captured before the frame was removed (see `re-frame.frame/notify-epoch-
+  listeners!`). Both are nil for an out-of-cascade destroy (no in-flight
+  cascade → no `:halted-destroy` record committed at all).
+
   Called from `re-frame.frame/destroy-frame!` via the
   `:epoch/on-frame-destroyed` late-bind hook. Idempotent across
   repeated destroys of the same frame — once a cb's entry no longer
   contains the frame-id, no further trace fires for that pair, and
   the (already-cleared) ring-buffer / capture-buffer entries stay
   absent."
-  [frame-id]
+  [frame-id db-before db-after]
   (when interop/debug-enabled?
     ;; Step 1: mid-drain destroy detection. The capture-buffer holds
     ;; every emit tagged with this frame, including non-cascade emits
@@ -298,13 +321,12 @@
     ;; started inside this drain" signal. When present, commit a
     ;; partial `:halted-destroy` record so devtools (Xray,
     ;; re-frame2-pair) receive the cascade context for the destroyed-
-    ;; mid-drain case. We can't read the frame's container here
-    ;; (destroy-frame!'s step 6 already dissoc'd the frame record);
-    ;; the partial record's `:db-before` / `:db-after` slots are nil
-    ;; — the schema allows `:any`, and consumers tolerate the absent
-    ;; state given `:outcome :halted-destroy` signals the destroy
-    ;; context. The record is delivered to listeners only — the ring
-    ;; buffer gets wiped in step 3.
+    ;; mid-drain case. Per rf2-9neiq the `:db-before` / `:db-after`
+    ;; slots carry the real pre-cascade + destroy-time snapshots
+    ;; `destroy-frame!` threaded (captured before the container was
+    ;; torn down), so the record matches the documented contract rather
+    ;; than the prior nil / nil. The record is delivered to listeners
+    ;; only — the ring buffer gets dropped in step 3 (rf2-d656).
     ;; Mid-drain detection reuses the canonical
     ;; `capture/in-flight-cascade?` gate (the same predicate the
     ;; post-settle render / sub-run back-fill routing uses) so the
@@ -317,7 +339,7 @@
         ;; and listener fan-out so listener consumers see the SAME
         ;; redacted shape they would see for an :ok cascade record.
         (let [record (assembly/maybe-redact
-                       (assembly/build-record frame-id nil nil buffered-events
+                       (assembly/build-record frame-id db-before db-after buffered-events
                                               :halted-destroy
                                               {:operation :rf.frame/destroyed-mid-drain}))]
           ;; Per rf2-18g1w / rf2-jppad — the cascade-trailer pair (detailed
