@@ -55,11 +55,14 @@
     `(rf/dispatch [:run-step n])` would land on the ambient
     `(current-frame-id)` — fine for a single-frame deck, wrong for a
     two-frame mount. The Step / per-row buttons therefore dispatch the
-    run-step event with an explicit `{:frame host-frame}` opt, and the
-    handler's child `:dispatch`es target `host-frame` too. host-frame is
-    passed to the runner VIEW only so its buttons can scope their
-    `dispatch`; it is NOT threaded down to any leaf row (the leaf gets a
-    bound 0-arg thunk).
+    run-step event with an explicit `{:frame host-frame}` opt; the
+    handler then runs IN `host-frame`, and its child `:dispatch` fx
+    INHERITS `host-frame` from the handler's envelope (Spec 002 §Cascade
+    propagation) — so the step's real event lands in the inspected frame
+    without a redundant per-fx `:frame` opt (which the `:fx` per-entry
+    arity policing would reject anyway). host-frame is passed to the
+    runner VIEW only so its buttons can scope their `dispatch`; it is NOT
+    threaded down to any leaf row (the leaf gets a bound 0-arg thunk).
 
   ## Why a shared ns
 
@@ -70,12 +73,35 @@
   construction: every deck adopts it together. A deck supplies its own
   step vector + prefix + host-frame via `reg-runner!`.
 
+  ## Xray focus-pinning (the 'you see the result' contract)
+
+  A Step press should leave the embedded Xray surface SHOWING the
+  result of the step's real event. The runner restores that with a
+  per-host-frame **epoch listener** (`rf/register-epoch-listener!`,
+  registered once at `reg-runner!` load time — NOT a Reagent atom and
+  NOT a timer): each time `host-frame` settles a CHILD epoch (the
+  step's real event, NOT the `[:run-step n]` parent epoch whose only
+  delta is the `:step` write), the listener PINS Xray onto that epoch's
+  record via `day8.re-frame2-xray.focus/focus!` (epoch-id + frame only,
+  NO `:panel` — so every per-epoch panel pivots onto the step's record
+  WITHOUT flipping the operator's chosen tab). The focus must land on
+  the CHILD because the `[:run-step n]` handler dispatches the real
+  event as an async `:dispatch` fx, so the child epoch settles AFTER the
+  parent — a synchronous focus in the handler would land on the parent
+  (the `:step`-only delta). The listener fires post-settle, so it sees
+  the child and skips the parent by `:trigger-event` id. Focusing the
+  LATEST (head) epoch keeps the spine in LIVE mode (the focus-epoch
+  reducer derives `:live` for the head dispatch-id), so each step
+  re-focuses head and the spine never pins into RETRO.
+
   ## Boundaries (bundle isolation)
 
   Lives under `tools/xray/testbeds/`; `:require`s only `re-frame.core`
-  (the public API). Nothing under `implementation/` requires this; it is a
-  dev testbed surface."
-  (:require [re-frame.core :as rf])
+  (the public API) and `day8.re-frame2-xray.focus` (the host-facing
+  focus channel — already the Story→Xray focus surface). Nothing under
+  `implementation/` requires this; it is a dev testbed surface."
+  (:require [re-frame.core :as rf]
+            [day8.re-frame2-xray.focus :as xray-focus])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
 ;; ============================================================================
@@ -87,6 +113,65 @@
   when present, else the event-id (first of the event vector)."
   [{:keys [label event]}]
   (or label (pr-str (first event))))
+
+;; ============================================================================
+;; FOCUS — the pinned 'show the just-dispatched render' contract
+;; ============================================================================
+;;
+;; The one place the runner reaches into Xray, through the same host-facing
+;; focus channel Story uses. Restores the focus-pinning the rf2-5sjbg rewrite
+;; deleted, re-expressed for the app-db `:step` driver: a per-host-frame
+;; epoch listener fires AFTER each settle and focuses the just-settled CHILD
+;; epoch (not the `[:run-step]` parent), so a Step press leaves Xray showing
+;; the step's real result. No Reagent atom, no timer.
+
+(defn focus-epoch!
+  "Focus epoch `epoch-id` on `host-frame` in the embedded Xray surface,
+  so the operator sees the render the just-settled event produced. Sends
+  a `day8.re-frame2-xray.focus/focus!` command `{:frame host-frame
+  :epoch-id <id>}`.
+
+  Deliberately sends NO `:panel` — the focus PINS the epoch (and the
+  spine's frame scope) so every per-epoch panel (App-db per-epoch-delta,
+  the edn-inspector widget, Views, Routing, Machine Inspector) pivots
+  onto this step's record, but it does NOT flip the operator's chosen
+  L4 tab. Forcing `:panel :epoch` would yank an operator (or a
+  feature-matrix scenario) away from the Routing / edn-inspector tab
+  they are watching; pinning the epoch alone surfaces 'the result' in
+  whatever panel is open.
+
+  Focusing the LATEST (head) epoch keeps the spine LIVE (the focus-epoch
+  reducer derives `:live` for the head dispatch-id), so re-focusing head
+  every step never pins Xray into RETRO."
+  [host-frame epoch-id]
+  (when (some? epoch-id)
+    (xray-focus/focus! host-frame {:frame    host-frame
+                                   :epoch-id epoch-id})))
+
+(defn register-focus-listener!
+  "Register (or replace) the per-host-frame epoch listener that pins
+  Xray focus on each step's CHILD epoch. Keyed by `[::focus host-frame
+  id]` so a deck mounted in two frames (the two-frame isolation deck)
+  gets one listener per host-frame, and re-`reg-runner!`ing a deck
+  (hot reload) replaces rather than stacks.
+
+  The listener fires once per drain-settle with the assembled
+  `:rf/epoch-record`. It acts only on records whose `:frame` is THIS
+  `host-frame`, and SKIPS the `[:run-step n]` PARENT epoch (whose only
+  app-db delta is the `:step` write) by matching the record's
+  `:trigger-event` id against the deck's run-step `id` — so focus lands
+  on the real step event's CHILD epoch, which settles AFTER the parent
+  via the run-step handler's async `:dispatch` fx. `register-epoch-
+  listener!` returns nil when the epoch artefact is absent, in which
+  case focus-pinning silently degrades to a no-op (no epoch ring to
+  focus against) — the testbed still steps."
+  [id host-frame]
+  (rf/register-epoch-listener!
+    [::focus host-frame id]
+    (fn focus-listener [record]
+      (when (and (= host-frame (:frame record))
+                 (not= id (first (:trigger-event record))))
+        (focus-epoch! host-frame (:epoch-id record))))))
 
 ;; ============================================================================
 ;; THE STEP DRIVER — app-db `:step`, a run-step event, a step sub
@@ -111,29 +196,54 @@
   The registered `event-fx` handler, on `[:run-step n]`:
     - `assoc`s `:step = n` into the deck's app-db (the per-step delta the
       panels show), and
-    - dispatches step n's `:event` as one `:fx :dispatch` targeting
-      `host-frame`, so the step's machine/app event lands on the inspected
-      frame in the same cascade as the `:step` write.
+    - dispatches step n's `:event` as one `:fx :dispatch` entry. The child
+      dispatch lands in `host-frame` by ENVELOPE INHERITANCE: the views
+      dispatch the run-step event itself with `{:frame host-frame}`, so the
+      handler runs in `host-frame` and the `:dispatch` fx's child inherits
+      `:frame` per Spec 002 §Cascade propagation — the step's machine/app
+      event lands on the inspected frame in the same cascade as the `:step`
+      write. (The `:fx` entry is therefore the 2-element `[:dispatch event]`
+      form — a 3-element `[:dispatch event {:frame host-frame}]` is rejected
+      by the `:fx` per-entry arity policing and silently skipped.)
 
   Every step MUST carry an `:event` (asserted) — a step is exactly one
   event to drive into the frame. An out-of-range `n` is a no-op (no `:step`
   write, no dispatch). A deck calls this once at load (the same place it
   `def`s its steps), then mounts
   `[runner/runner {:run-step-event :<deck>/run-step :steps steps :prefix
-  \"<deck>\" :host-frame <frame>}]`."
+  \"<deck>\" :host-frame <frame>}]`.
+
+  Also registers the per-host-frame Xray focus listener (see
+  `register-focus-listener!`) so each step's CHILD epoch is pinned into
+  view — the 'you see the result' contract."
   [{:keys [id steps host-frame]}]
   (rf/reg-event-fx id
-    {:doc "Step driver: set app-db :step = n and dispatch step n's :event
-           into the deck's host-frame. The runner's Step button dispatches
-           [<this> (inc current)]; each per-row RUN button dispatches
-           [<this> n]."}
+    {:doc "Step driver: set app-db :step = n and dispatch step n's :event.
+           The child dispatch inherits host-frame from this handler's
+           envelope (the views dispatch [<this> n] {:frame host-frame}).
+           The runner's Step button dispatches [<this> (inc current)]; each
+           per-row RUN button dispatches [<this> n]."}
     (fn run-step-handler [{:keys [db]} [_ n]]
       (if (and (integer? n) (<= 0 n) (< n (count steps)))
         (let [event (:event (nth steps n))]
           (assert event (str "runner step " n " has no :event"))
           {:db (assoc db :step n)
-           :fx [[:dispatch event {:frame host-frame}]]})
-        {:db db}))))
+           ;; A 2-element `:fx :dispatch` entry — `[fx-id args]` per the
+           ;; `:fx` per-entry arity contract (rf2-18kwf / rf2-n6d3m). The
+           ;; child dispatch INHERITS `host-frame` from this handler's own
+           ;; envelope (the views dispatch `[run-step-event n] {:frame
+           ;; host-frame}`, so the handler runs in host-frame and
+           ;; `child-dispatch-opts` projects `:frame` onto the child per
+           ;; Spec 002 §Cascade propagation). A 3-element entry carrying an
+           ;; explicit `{:frame host-frame}` opts map is REJECTED by the
+           ;; arity policing (`:rf.error/effect-map-shape`) and silently
+           ;; skipped — which would drop the step's real dispatch entirely.
+           :fx [[:dispatch event]]})
+        {:db db})))
+  ;; Pin Xray focus on each step's real-change (child) epoch. Registered
+  ;; at load time alongside the event — idempotent on hot reload (same key
+  ;; replaces), one listener per host-frame for the two-frame deck.
+  (register-focus-listener! id host-frame))
 
 ;; ============================================================================
 ;; VIEWS — subscribe + dispatch only (no atom, no steps/host-frame leaf args)

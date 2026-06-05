@@ -268,6 +268,36 @@ the StoryUI render-shell work
 §2.1) and is NOT part of this contract. The command + entry point are
 the contract; how a host invokes it is the host's surface.
 
+#### Second consumer: the testbed step-driver runner
+
+The shared Xray testbed runner (`tools/xray/testbeds/runner/core.cljs`)
+is a second host-side consumer of `focus!`, beyond Story. Its
+"you-see-the-result" contract (rf2-w3ver): on each step it pins Xray
+onto the just-settled **child** epoch so whatever panel the operator is
+watching renders that step's record. Two idioms this consumer
+establishes are normative for any host doing post-step focus-pinning:
+
+- **Pin the epoch, NOT the tab.** The runner's focus command carries
+  `:frame` + `:epoch-id` and **omits `:panel`** — so every per-epoch
+  panel (App-db per-epoch-delta, the edn-inspector widget, Views,
+  Routing, Machine Inspector) pivots onto the step's record while the
+  operator's chosen L4 tab is preserved. Sending `:panel :epoch` would
+  yank the operator off the tab they are watching; a focus-pinning host
+  that wants to follow a stream of events without hijacking the tab
+  drops `:panel`.
+- **Pin the HEAD to stay LIVE.** Focusing the latest (head) epoch each
+  step keeps the spine in `:live` mode (the `:rf.xray/focus-epoch`
+  reducer derives `:live` for the head dispatch-id; see
+  [`018-Event-Spine.md`](./018-Event-Spine.md) §6) — so repeated
+  per-step focus never pins the spine into `:retro`.
+
+The runner registers the focus via `re-frame.core/register-epoch-
+listener!` (fired post-settle, so it observes the async child epoch the
+`[:run-step n]` handler's `:dispatch` fx produces, not the `:step`-only
+parent epoch) rather than calling `focus!` synchronously in the event
+handler. A focus-pinning host that wants "show me the result of what I
+just dispatched" follows the same post-settle-listener shape.
+
 ## State isolation (Option-C frame-provider)
 
 Xray's shell mounts **inside the host's React tree** so embedding is
