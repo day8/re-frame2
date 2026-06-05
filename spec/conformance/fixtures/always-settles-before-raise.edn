@@ -1,0 +1,98 @@
+;; Conformance fixture: machine/always-settles-before-raise
+;;
+;; XState v5 / SCXML microstep ORDER: after a taken transition the processor
+;; runs eventless (`:always`) transitions IMMEDIATELY — BEFORE the next raised
+;; internal event is dequeued. SCXML §3.13 `selectEventlessTransitions` runs
+;; every macrostep iteration; only when NO eventless transition is enabled does
+;; it pop one internal event. XState v5 matches this. (rf2-uv8os — re-frame2
+;; previously drained the ENTIRE `:raise` queue before checking `:always`,
+;; which the spec FALSELY claimed was XState/SCXML parity; now aligned to v5.)
+;;
+;; The runtime check that drove the bead (verified against xstate@5.32.0):
+;;   - state :a handles :go with target :b AND raises [:R]
+;;   - state :b has an `:always` target :c, AND ALSO handles :R → :d
+;;   - state :c handles :R → :e
+;; XState v5 result: final state :e — :b's `:always` fires FIRST (:b→:c),
+;; THEN the raised :R is dequeued and handled in :c (:c→:e). :R is NEVER
+;; handled by the transient :b (which would land :d under the old, wrong
+;; raise-before-always order).
+;;
+;; The processing order is recorded in `:data :log` so the assertion proves
+;; not just the final state but the ordering: go-action → b-entry →
+;; always(b→c) → c-entry → R-handled-in-c. The intermediate :b is a TRANSIENT
+;; state — never externally observed (the whole macrostep commits once).
+;;
+;; Per [005 §Eventless :always transitions §Order with :raise]
+;; (../../005-StateMachines.md#order-with-raise) and
+;; [§Why these rules](../../005-StateMachines.md#why-these-rules).
+
+{:fixture/id           :machine/always-settles-before-raise
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:fsm/flat :fsm/eventless-always}
+ :fixture/doc          "A transition action raises :R while entering a state whose `:always` is enabled. XState v5 / SCXML: the `:always` settles FIRST (b→c); the raised :R is handled AFTER, in the post-`:always` state (c→e), NOT by the transient state it entered (which would wrongly take :R→:d). Verifies the final state is the post-`:always` raise target and the recorded order is go → b-entry → always(b→c) → c-entry → R-in-c."
+
+ :fixture/registry
+ {:machine-action
+  {:order/go      {:doc "Source action — logs :go and raises [:R] while targeting :b."}
+   :order/b-entry {:doc ":b entry — logs :b-entry."}
+   :order/to-c    {:doc ":b's `:always` action — logs :always-b->c."}
+   :order/c-entry {:doc ":c entry — logs :c-entry."}
+   :order/r-in-c  {:doc ":c's :R handler action — logs :R-in-c."}
+   :order/r-in-b  {:doc ":b's :R handler action (must NOT run) — logs :R-in-b-WRONG."}}
+  :machine-guard
+  {:order/always? {:doc "Unconditionally true — :b's `:always` is enabled on entry."}}}
+
+ :fixture/handlers
+ {:machine-action
+  ;; :go logs itself then raises [:R]. The DSL `:fx` step builds the fx
+  ;; `[:raise [:R]]` (literal value vector `[:R]`); the `:set` step appends
+  ;; to the data-relative `:log`.
+  {:order/go      [[:set [:log] [:fn :conj [:get [:log]] :go]]
+                   [:fx  :raise [:R]]]
+   :order/b-entry [[:set [:log] [:fn :conj [:get [:log]] :b-entry]]]
+   :order/to-c    [[:set [:log] [:fn :conj [:get [:log]] :always-b->c]]]
+   :order/c-entry [[:set [:log] [:fn :conj [:get [:log]] :c-entry]]]
+   :order/r-in-c  [[:set [:log] [:fn :conj [:get [:log]] :R-in-c]]]
+   :order/r-in-b  [[:set [:log] [:fn :conj [:get [:log]] :R-in-b-WRONG]]]}
+  :machine-guard
+  {:order/always? [[:fn := 1 1]]}}
+
+ :fixture/calls
+ [{:call         :machine-transition
+   :definition   {:initial :a
+                  :data    {:log []}
+                  :guards  {:always? :order/always?}
+                  :actions {:go      :order/go
+                            :b-entry :order/b-entry
+                            :to-c    :order/to-c
+                            :c-entry :order/c-entry
+                            :r-in-c  :order/r-in-c
+                            :r-in-b  :order/r-in-b}
+                  :states
+                  {:a {:on {:go {:target :b :action :go}}}
+                   :b {:entry  :b-entry
+                       ;; `:always` (eventless) → :c. Enabled on entry. XState
+                       ;; v5 takes this BEFORE the raised :R is dequeued.
+                       :always [{:guard :always? :target :c :action :to-c}]
+                       ;; :R handler on the TRANSIENT :b — under the correct
+                       ;; (XState v5) order this NEVER fires (the `:always`
+                       ;; settles past :b first). Present precisely to catch a
+                       ;; regression to raise-before-always (which would land
+                       ;; :d and log :R-in-b-WRONG).
+                       :on     {:R {:target :d :action :r-in-b}}}
+                   :c {:entry :c-entry
+                       ;; :R is dequeued and handled HERE, after b→c.
+                       :on    {:R {:target :e :action :r-in-c}}}
+                   :d {}
+                   :e {}}}
+   :snapshot     {:state :a :data {:log []}}
+   :event        [:go]
+   ;; XState v5 final state: :e. The raised :R was handled in :c (post-
+   ;; `:always`), NOT in the transient :b. The recorded order proves the
+   ;; microstep sequence: the seeding transition's action, the entered :b's
+   ;; entry, :b's `:always` to :c, :c's entry, then :R dequeued in :c.
+   :expect-next-snapshot {:state :e
+                          :data  {:log [:go :b-entry :always-b->c :c-entry :R-in-c]}}
+   ;; The `:raise` drains inside the macrostep — no reserved `:raise` fx
+   ;; escapes to the outbound effect layer.
+   :expect-effects       []}]}
