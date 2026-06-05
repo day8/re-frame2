@@ -29,7 +29,7 @@ reagent/
   realworld/                   <-- the canonical multi-artefact integration test
 ```
 
-Per [`spec/Conventions.md`](../../spec/Conventions.md): all examples register their app-db slices via `reg-app-schema`; views are registered via the `reg-view` macro (Var-reference Form-1); the catalogue at [`../README.md`](../README.md) maps each example to the Specs it exercises.
+Per [`spec/Conventions.md`](../../spec/Conventions.md): schema-bearing examples register their app-db slices via `reg-app-schema`; views are registered via the `reg-view` macro (Var-reference Form-1); the catalogue at [`../README.md`](../README.md) maps each example to the Specs it exercises. The intentionally minimal examples (`counter`, `routing`, `todomvc`, `notebook`, `managed_http_counter`) are deliberately schema-free — `counter` in particular is kept dependency-light so it doubles as a bundle-isolation fixture, so adding a schema there would weaken that coverage.
 
 ## Running
 
