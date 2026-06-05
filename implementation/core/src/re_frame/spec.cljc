@@ -183,13 +183,20 @@
                 :else
                 ;; Per rf2-a5kzs (finding 2, boundary seam) — the validate
                 ;; seam now isolates a malformed-schema throw and returns
-                ;; `false` (fail CLOSED), so the defensive `(catch … true)`
-                ;; here only guards against a non-schemas validator that
-                ;; throws WITHOUT the seam's isolation. A `false` from the
-                ;; seam (legitimate failure OR malformed schema) skips the
-                ;; handler — the boundary never runs an unvalidated payload.
+                ;; `false` (fail CLOSED). Per rf2-gro94 the defensive catch
+                ;; here ALSO fails CLOSED (`false`, not `true`): the
+                ;; boundary interceptor exists precisely to gate untrusted
+                ;; system-boundary payloads (HTTP / websocket / postMessage
+                ;; / query-string), so a validator that throws — through the
+                ;; seam OR a non-schemas validator that escapes its
+                ;; isolation — must SKIP the handler, never run it on an
+                ;; unvalidated payload. Coercing the throw to a PASS was the
+                ;; same fail-OPEN class the schemas / routing sweeps closed.
+                ;; The skipped-handler recovery below already surfaces a
+                ;; `:rf.error/schema-validation-failure` trace so the throw
+                ;; is observable.
                 (let [ok? (try (validate-fn schema event)
-                               (catch #?(:clj Throwable :cljs :default) _ true))]
+                               (catch #?(:clj Throwable :cljs :default) _ false))]
                   (if ok?
                     ctx
                     (let [explanation (when explain-fn

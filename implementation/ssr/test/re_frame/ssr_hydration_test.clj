@@ -342,6 +342,88 @@
                  (pr-str (mapv :operation traces))))))))
 
 ;; ===========================================================================
+;; rf2-gro94 — fail CLOSED on a malformed / untrusted hydration payload
+;; ===========================================================================
+;;
+;; The payload is a DESERIALISED, UNTRUSTED transport input (the server's
+;; `pr-str`'d EDN). `:replace-app-db` is the locked merge policy, so a
+;; non-map payload — or a present-but-non-map app-db slice — would
+;; otherwise be installed as the ENTIRE client app-db (a fail-OPEN, the
+;; same class the schemas / routing sweeps closed). The handler now
+;; REJECTS it: existing app-db unchanged + a
+;; `:rf.error/malformed-hydration-payload` diagnostic. This drives the
+;; rejection through the REAL `dispatch-sync` router (end-to-end), the
+;; companion to the direct-handler invariant in
+;; `re-frame.security.fail-closed-invariant-security-cljs-test`.
+
+(deftest malformed-hydration-payload-fails-closed-through-router
+  (testing "rf2-gro94 — a non-map payload, or a present-but-non-map app-db
+            slice, dispatched as [:rf/hydrate …] through the router does
+            NOT replace app-db: the pre-hydration client state survives and
+            a :rf.error/malformed-hydration-payload trace fires."
+    (register-baseline-handlers!)
+    (doseq [bad-payload [nil
+                         "a string payload"
+                         42
+                         [:not :a :map]
+                         {:rf/app-db "slice-is-a-string"}
+                         {:rf/app-db [:slice :is :a :vector]}
+                         {:rf/app-db 99}
+                         {:app-db "legacy-key-non-map"}]]
+      (let [client-frame (rf/make-frame {:doc "ssr-basic client frame"
+                                         :platform :client})]
+        ;; Seed a recognisable pre-hydration client slice so we can prove
+        ;; it SURVIVES (was not replaced by the malformed payload).
+        (rf/dispatch-sync [::set-title "pre-hydration"] {:frame client-frame})
+        (rf/dispatch-sync [::inc] {:frame client-frame})  ;; count 0 → 1
+        (let [traces (capture-traces!
+                       (fn []
+                         (rf/dispatch-sync [:rf/hydrate bad-payload]
+                                           {:frame client-frame})))]
+          (is (= "pre-hydration" (rf/subscribe-once client-frame [:title]))
+              (str (pr-str bad-payload)
+                   " must NOT replace the client :title (fail closed)"))
+          (is (= 1 (rf/subscribe-once client-frame [:count]))
+              (str (pr-str bad-payload)
+                   " must NOT replace the client :count (fail closed)"))
+          (is (false? (rf/subscribe-once client-frame [:hydrated?]))
+              (str (pr-str bad-payload)
+                   " must NOT stash hydration metadata (rejected, not applied)"))
+          (is (some #(= :rf.error/malformed-hydration-payload (:operation %)) traces)
+              (str (pr-str bad-payload)
+                   " must emit :rf.error/malformed-hydration-payload; saw: "
+                   (pr-str (mapv :operation traces)))))))))
+
+(deftest wellformed-hydration-payload-still-applies-through-router
+  (testing "rf2-gro94 — the fail-closed guard is precise: a well-formed
+            payload (map with a map :rf/app-db slice) still replaces app-db
+            through the router, and a no-slice map payload preserves the
+            existing client slice (the documented client-only fallback) —
+            neither emits the malformed diagnostic."
+    (register-baseline-handlers!)
+    ;; (a) full server slice → replaces app-db, no diagnostic.
+    (let [client-frame (rf/make-frame {:doc "client frame a" :platform :client})
+          traces       (capture-traces!
+                         (fn []
+                           (rf/dispatch-sync [:rf/hydrate {:rf/app-db {:count 7 :title "seeded"}}]
+                                             {:frame client-frame})))]
+      (is (= 7 (rf/subscribe-once client-frame [:count])) "server slice installed")
+      (is (= "seeded" (rf/subscribe-once client-frame [:title])))
+      (is (not-any? #(= :rf.error/malformed-hydration-payload (:operation %)) traces)
+          "no malformed diagnostic on a well-formed payload"))
+    ;; (b) map payload with no app-db slice → existing client data survives.
+    (let [client-frame (rf/make-frame {:doc "client frame b" :platform :client})]
+      (rf/dispatch-sync [::set-title "kept"] {:frame client-frame})
+      (let [traces (capture-traces!
+                     (fn []
+                       (rf/dispatch-sync [:rf/hydrate {:rf/version 1}]
+                                         {:frame client-frame})))]
+        (is (= "kept" (rf/subscribe-once client-frame [:title]))
+            "no-slice payload preserves the existing client slice")
+        (is (not-any? #(= :rf.error/malformed-hydration-payload (:operation %)) traces)
+            "a no-slice map payload is the legitimate client-only fallback, not malformed")))))
+
+;; ===========================================================================
 ;; rf2-lq2ou — client-side hydration boot helper (ssr/hydrate!)
 ;;
 ;; The symmetric client-side counterpart of `re-frame.ssr.ring/ssr-handler`.
