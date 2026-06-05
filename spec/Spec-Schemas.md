@@ -2425,6 +2425,7 @@ These are registered under spec ids:
 | `:rf.fx/nav/scroll-args` | `:rf.nav/scroll` |
 | `:rf.fx/spawn-args` | `:rf.machine/spawn` (the canonical actor-lifecycle fx-id; emitted from any event handler's `:fx` and from machine actions; per [005](005-StateMachines.md)) |
 | `:rf.fx/destroy-machine-args` | `:rf.machine/destroy` (the canonical actor-destroy fx-id; per [005](005-StateMachines.md) and — accepts either a bare actor-id keyword or a `{:rf/parent-id :rf/spawn-id}` map) |
+| `:rf.fx/dispatch-to-system-args` | `:rf.machine/dispatch-to-system` (the action→named-actor messaging fx-id; args are the 2-element pair `[<system-id> <event-vector>]` — a `[:tuple :keyword :rf/event-vector]`; per [005 §Cross-machine messaging by name](005-StateMachines.md#cross-machine-messaging-by-name)) |
 | `:rf.fx.server/set-status-args` | `:rf.server/set-status` (per [011 §HTTP response contract](011-SSR.md#http-response-contract)) |
 | `:rf.fx.server/set-header-args` | `:rf.server/set-header` |
 | `:rf.fx.server/append-header-args` | `:rf.server/append-header` |

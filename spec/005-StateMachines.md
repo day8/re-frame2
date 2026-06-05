@@ -2261,7 +2261,7 @@ The ordering is what lets two patterns compose without surprises:
                                     :start      [:begin]}]]})
 ```
 
-After this action the actor is reachable by its `:system-id`. Subsequent transitions can `[:fx [[:dispatch-to-system :pending-request [:retry]]]]` (or `[:dispatch [(rf/machine-by-system-id :pending-request) [:retry]]]`). The `:on-spawn` callback is **not** the place to capture the id — its return is dropped (see [§Recording the spawned id user-side](#recording-the-spawned-id-user-side)).
+After this action the actor is reachable by its `:system-id`. Subsequent transitions can `[:fx [[:rf.machine/dispatch-to-system [:pending-request [:retry]]]]]` (or `[:dispatch [(rf/machine-by-system-id :pending-request) [:retry]]]`). The `:on-spawn` callback is **not** the place to capture the id — its return is dropped (see [§Recording the spawned id user-side](#recording-the-spawned-id-user-side)).
 
 ### Spawn-spec keys
 
@@ -2464,8 +2464,10 @@ The standard cross-machine pattern remains `[:fx [[:dispatch [<other-id> [:event
 
 ;; Sugar — dispatches via the lookup, no-ops when the name is unbound:
 :action (fn [_]
-          {:fx [[:dispatch-to-system :primary-request [:cancel]]]})
+          {:fx [[:rf.machine/dispatch-to-system [:primary-request [:cancel]]]]})
 ```
+
+The `:rf.machine/dispatch-to-system` fx is the action-side counterpart to the `dispatch-to-system` **fn** (`re-frame.core`): the fn is for direct call sites, the fx is what a machine action emits from `:fx`. Its args are the single 2-element pair `[<system-id> <event-vector>]` — the framework fx contract is a `[fx-id args]` pair (the `do-fx` walk drops arity-≥3 entries with `:rf.error/effect-map-shape`), so the system-id and event ride together in the one `args` slot, exactly as `:dispatch`'s args is a single event vector and `:rf.machine/spawn`'s is a single spec map. The fx-id is namespaced under `:rf.machine/*` per [Conventions §Fx-id namespacing rule](Conventions.md#fx-id-namespacing-rule--three-reserved-fx-id-sub-namespaces) (surface-specific machine fx).
 
 The sender doesn't have to capture the gensym'd id at the spawn site, doesn't have to carry it through `:data`, doesn't even have to be the spawning machine — anything in the frame that knows the name can address the actor.
 
@@ -2525,7 +2527,7 @@ The keys mirror [§Spawn-spec keys](#spawn-spec-keys), with two additions:
 
 `:on-spawn`'s return is dropped, so a callback like `(assoc data :pending id)` is a no-op — `(:pending data)` stays `nil` forever, and in a dev build the runtime emits `:rf.warning/on-spawn-return-ignored` to flag the dropped value (per rf2-dtth6). There are **three** working mechanisms for getting a user-side handle on the spawned id; pick one:
 
-1. **`:system-id` (recommended).** Declare `:system-id :my-name` on the `:spawn` / `:rf.machine/spawn` spec; resolve anywhere in the frame with `(rf/machine-by-system-id :my-name)` or dispatch with `[:dispatch-to-system :my-name [...]]`. See [§Named addressing via `:system-id`](#named-addressing-via-system-id).
+1. **`:system-id` (recommended).** Declare `:system-id :my-name` on the `:spawn` / `:rf.machine/spawn` spec; resolve anywhere in the frame with `(rf/machine-by-system-id :my-name)`, call `(rf/dispatch-to-system :my-name [...])` from a direct call site, or — from a machine action's `:fx` — emit `[:rf.machine/dispatch-to-system [:my-name [...]]]`. See [§Named addressing via `:system-id`](#named-addressing-via-system-id).
 2. **Read the runtime registry slot.** The id is always at `[:rf/runtime :machines :spawned <parent-id> <invoke-id>]` (`<invoke-id>` is the absolute prefix-path of the `:spawn`-bearing state) — read it directly when you have the parent-id and state path.
 3. **`:rf.machine/update-snapshot`.** From a regular `:action`'s `:fx` vector, emit `[:rf.machine/update-snapshot {:rf/machine-id <id> :rf/patch {:data {...}}}]` to write the id (read from the registry slot) into the parent's `:data` atomically. See the snapshot-level escape hatch in [§Path conventions in machine bodies](#path-conventions-in-machine-bodies).
 
