@@ -43,7 +43,7 @@ A self-contained prompt that re-authors the `re-frame2-implementor` skill from t
 >
 > *1. The spec is the contract. `implementation/` is one worked example, not normative.*
 > *2. Phase 1 before Phase 2. Decisions locked in writing before code is written.*
-> *3. Implement in dependency order: 001 → 002 → 006 → 004 → 009 → optional.*
+> *3. Implement in dependency order: 001 → 002 → 006 → 004 → 009 → 015 → optional. (015 Data Classification is v1-required — `spec/015-Data-Classification.md` marks it required and `spec/API.md` exposes `add-marks` / `set-marks` as v1 — so it rides the 009 emission boundary and sits inside the core gate, NOT among the optional EPs.)*
 > *4. Substrate-agnostic phrasing. Don't leak CLJS+Reagent framings as universal.*
 > *5. No core.async. Async fx via host primitives; cross-frame work serialised per frame.*
 > *6. JVM-runnability for the test surface (pure functions stay callable from non-substrate harness).*

@@ -145,6 +145,21 @@ jobs:
       - name: Verify skill M-id cites resolve in MIGRATION.md
         run: python scripts/check_skill_migration_cites.py --verbose --ci
 
+      # Foundation-order guard (rf2-708nm): the re-frame2-implementor skill must
+      # keep Spec 015 (Data Classification — v1-required, rides the 009 emission
+      # boundary) INSIDE the core-complete gate. Catches the drift where an entry
+      # point reads "001 -> 002 -> 006 -> 004 -> 009 -> optional" (the first
+      # :core/* gate BEFORE Data Classification) — which would let a fresh
+      # kickoff-prompt session declare "v1-core-complete" without the required
+      # privacy/large-payload elision surface, leaking marked data through
+      # observability. The self-test proves the guard fires on the drift shapes
+      # (not a vacuous pass) before the live scan asserts the skill is clean.
+      - name: Self-test the implementor foundation-order guard
+        run: python scripts/check_skill_implementor_order.py --self-test
+
+      - name: Verify the implementor skill keeps Spec 015 in the core gate
+        run: python scripts/check_skill_implementor_order.py --verbose --ci
+
       # Distribution-completeness guard (rf2-f14su): a published skill that
       # loads a sibling `../shared/<leaf>` reference in normal operation can
       # NEVER ship that leaf in its own npm tarball / plugin bundle (a `files`
