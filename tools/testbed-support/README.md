@@ -48,17 +48,19 @@ shell. The plumbing that switches between them (a `defonce` React-root
 handle, the tear-down-one-before-mounting-the-other dance, and the
 `hashchange` listener) is pure React-DOM-root juggling — identical across
 every testbed but for the live-app root view. It was copy-pasted across
-five files (`counter_with_stories`, `login_form`, the `login` and
-`nine_states` examples, plus the template scaffolding), already drifting in
-the per-testbed boot specifics they each add.
+six hosts (`counter_with_stories`, `login_form`, the `login` and
+`nine_states` examples, the Xray `panel_gallery` testbed, plus the template
+scaffolding), already drifting in the per-testbed boot specifics they each add.
 
 `re-frame.testbed.story-host/mount-with-hash-routing!` owns that harness:
 the testbed does its own boot (Xray config, `rf/init!`, `story/configure!`,
 `:fx-overrides`, seed dispatches, CI hooks) and calls the helper LAST with
-its live-app root view. Four of the five copies now call it; the **template
-copy stays standalone by design** — it is `resources/` scaffolding emitted
-into a fresh consumer project whose classpath has no access to this
-dev-repo-internal helper.
+its live-app root view. Five of the six hosts now call it (the four Story
+showcases above plus `panel_gallery`, which previously installed a bare
+per-`run` `hashchange` listener — rf2-x31vn); the **template copy stays
+standalone by design** — it is `resources/` scaffolding emitted into a fresh
+consumer project whose classpath has no access to this dev-repo-internal
+helper.
 
 ## Layout
 

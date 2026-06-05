@@ -73,8 +73,7 @@
   the bundle-isolation enforcement at
   `implementation/scripts/test-bundle-isolation.sh`. Production app
   code never `:requires` anything under `tools/xray/testbeds/`."
-  (:require [reagent.dom.client :as rdc]
-            [re-frame.core :as rf]
+  (:require [re-frame.core :as rf]
             [re-frame.story :as story]
             [re-frame.adapter.reagent :as reagent-adapter]
             ;; rf2-2c5xb — Xray's `configure!` to seed `:project-root`
@@ -145,7 +144,15 @@
             [panel-gallery.gallery-diff-mode-3]
             ;; Shared testbed-config helper (rf2-5dphw): derives the
             ;; open-in-editor project-root from the build env.
-            [re-frame.testbed.config :as testbed-config]))
+            [re-frame.testbed.config :as testbed-config]
+            ;; Shared live-app↔Story-shell hash-router host (rf2-tq26t /
+            ;; rf2-uv7sn). rf2-x31vn — panel-gallery adopts the helper so
+            ;; its `hashchange` listener is installed via the helper's
+            ;; remove-then-add `defonce` handle discipline rather than a
+            ;; bare per-`run` `addEventListener` (which stacks a duplicate
+            ;; listener on every CLJS hot-reload, since reload rebinds the
+            ;; `defn` to a fresh fn the browser cannot dedupe by identity).
+            [re-frame.testbed.story-host :as story-host]))
 
 ;; ============================================================================
 ;; LANDING — the URL `/` view (no `#/stories` hash)
@@ -225,32 +232,14 @@
 (defn- resolve-project-root []
   (testbed-config/resolve-project-root "tools/xray/testbeds"))
 
-(defonce ^:private app-root (atom nil))
-
-(defn- ensure-app-root! []
-  (when (nil? @app-root)
-    (reset! app-root (rdc/create-root (js/document.getElementById "app"))))
-  @app-root)
-
-(defn- tear-down-app-root! []
-  (when-let [root @app-root]
-    (try (rdc/unmount root) (catch :default _ nil))
-    (reset! app-root nil)))
-
-(defn- mount-landing! []
-  (story/unmount-shell!)
-  (ensure-app-root!)
-  (rdc/render @app-root [landing-view]))
-
-(defn- mount-stories! []
-  (tear-down-app-root!)
-  (story/mount-shell! (js/document.getElementById "app")))
-
-(defn- on-hash-change! []
-  (let [hash (or (.. js/window -location -hash) "")]
-    (if (re-find #"^#/stories" hash)
-      (mount-stories!)
-      (mount-landing!))))
+;; -- Routing between landing and Story shell ------------------------------
+;;
+;; The live-app↔Story-shell hash router + React-root host handle live in the
+;; shared `re-frame.testbed.story-host` helper (rf2-tq26t / rf2-uv7sn); `run`
+;; hands it `landing-view` as the live-app surface. The helper tears one React
+;; root down before mounting the other on the same `#app` node, and installs
+;; its `hashchange` listener via a `defonce` remove-then-add handle so a CLJS
+;; hot-reload re-`run` never stacks a duplicate (rf2-x31vn).
 
 (defn ^:export run []
   ;; rf2-2c5xb — seed `:rf.xray/project-root` BEFORE the Xray handlers
@@ -301,5 +290,10 @@
   ;; namespaces loaded before this fn ran (CLJS reload order isn't
   ;; guaranteed at the application level).
   (panel-views/register!)
-  (.addEventListener js/window "hashchange" on-hash-change!)
-  (on-hash-change!))
+  ;; Wire the live-app↔Story-shell hash router (shared helper) so reloading
+  ;; `#/stories` lands on the shell — and so the `hashchange` listener is
+  ;; installed via the helper's remove-then-add `defonce` handle rather than a
+  ;; bare per-`run` `addEventListener` that stacks duplicates across hot-reload
+  ;; (rf2-x31vn). The helper renders `[landing-view]` for any non-`#/stories`
+  ;; hash, matching the prior `mount-landing!`.
+  (story-host/mount-with-hash-routing! landing-view))
