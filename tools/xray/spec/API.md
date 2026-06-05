@@ -699,6 +699,25 @@ half of MUST-inventory rows #2 / #15 / #17 / #19; callers pass plain
 `:include-sensitive?` / `:include-large?` opts, the fns translate to the
 framework's `:rf.size/*` namespaced opt keys.
 
+**Event-level default-suppress (the envelope, not just the value).**
+`egress-value` scrubs the VALUES carried inside a trace event, but it does
+not drop a whole event that is itself marked `:sensitive? true`. The
+framework's per-frame rings RETAIN every emitted event with no
+`:sensitive?` check (a faithful record of what the runtime emitted), so a
+sensitive event's ENVELOPE — its existence, `:op-type`, timing, source,
+handler/event ids, and any non-elided `:tags` — would survive
+value-scrubbing and cross the off-box boundary. Per Spec 009 §Privacy +
+[013-Trace-Consumer.md](013-Trace-Consumer.md) a framework-published trace
+consumer default-SUPPRESSES whole `:sensitive? true` events. So the two
+flat-trace-event accessors — `get-trace-buffer` and `get-issues` — drop
+every event for which `re-frame.core/sensitive?` is true BEFORE
+value-scrubbing, unless the caller explicitly opts in with
+`{:include-sensitive? true}` (the per-call opt-back-in — distinct from the
+panel-side global `:rf.privacy/show-sensitive?` UI toggle, since the seam
+is per-call). This is the runtime/MCP-seam half of the same contract the
+panel-side trace collector + `snapshot-from-rings` honour via
+`config/suppress-sensitive?` (rf2-to36uj).
+
 `egress-value` also takes an optional `:path` — the **absolute** app-db
 path the value sits at. The framework's schema-declared sensitive / large
 declarations are keyed by absolute path, so a slice egress'd in isolation
@@ -739,13 +758,13 @@ gate is reachable only through the runtime accessors.
 
 | Accessor (fn) | Tool name | Returns | Reads |
 |---|---|---|---|
-| `get-trace-buffer` | `get-trace-buffer` | `{:ok? true :events <vec> :count <n>}` | `trace-tooling/trace-buffer` — filtered slice of the trace stream. Filter keys are the canonical Spec 009 vocabulary (`:operation` / `:op-type` / `:since` / `:frame` / `:severity` / `:event-id` / `:handler-id` / `:source` / `:origin` / `:dispatch-id` / `:since-ms` / `:between` / `:pred`). |
+| `get-trace-buffer` | `get-trace-buffer` | `{:ok? true :events <vec> :count <n>}` | `trace-tooling/trace-buffer` — filtered slice of the trace stream. Filter keys are the canonical Spec 009 vocabulary (`:operation` / `:op-type` / `:since` / `:frame` / `:severity` / `:event-id` / `:handler-id` / `:source` / `:origin` / `:dispatch-id` / `:since-ms` / `:between` / `:pred`). Whole `:sensitive? true` events are default-SUPPRESSED before value-scrubbing — the envelope is dropped unless `{:include-sensitive? true}` (rf2-to36uj). |
 | `get-epoch-history` | `get-epoch-history` | `{:ok? true :frame <id> :epochs <vec> :count <n>}` | `rf/epoch-history` per-frame vector of `:rf/epoch-record`. |
 | `get-app-db` | `get-app-db` | `{:ok? true :frame <id> :path <vec> :value <edn>}` | `rf/app-db-value` (optionally scoped by `:path`). The `:value` routes through `egress-value`; when `:path` is supplied the absolute path is threaded into the walker so a scoped slice elides against schema-declared sensitive / large paths — fail-closed, symmetric with the whole-db read and the `get-app-db-diff` slices (rf2-a96xq). |
 | `get-app-db-diff` | `get-app-db-diff` | `{:ok? true :frame <id> :epoch-id <uuid> :diff {:added [{:path :value}] :removed [{:path :value}] :changed [{:path :before :after}]}}` | Projects the changed-paths slice diff between a named epoch's `:db-before` + `:db-after` via the canonical Editscript-A* engine (`diff.engine/project`). Only the changed paths' slices egress — each `:value` / `:before` / `:after` routed through `egress-value`, never two whole app-db snapshots (rf2-uv2q2). Heavier nested-diff projection lives MCP-side. |
 | `get-machine-state` | `get-machine-state` | `{:ok? true :frame <id> :machine-id <kw> :state <live-state-path> :snapshot {:state :data :tags …} :spec <registered-definition>}` | The LIVE FSM position — reads the machine's snapshot from `app-db` at `[:rf/runtime :machines :snapshots <machine-id>]` (the runtime-owned slot the Machine Inspector + the framework resolver read). `:state` is the running state-path (a region→state map for a `:parallel` machine — Spec 005), NOT derived from the static spec; the registered definition is returned separately under `:spec`. A registered-but-not-yet-started machine has no live snapshot — `:state` / `:snapshot` are `nil` and `:reason` is `:not-yet-started` (still `:ok? true`). `:state` / `:snapshot` (a live app-db slice) and `:spec` both route through `egress-value`. |
 | `get-machine-list` | `get-machine-list` | `{:ok? true :machines <map> :count <n>}` | `rf/machines` — map keyed by machine-id. |
-| `get-issues` | `get-issues` | `{:ok? true :issues <vec> :count <n>}` | Projection over the trace buffer filtered to issue-tier op-types (`:error` / `:warning` / `:rf.schema/violation` / `:rf.hydration/mismatch`). |
+| `get-issues` | `get-issues` | `{:ok? true :issues <vec> :count <n>}` | Projection over the trace buffer filtered to issue-tier op-types (`:error` / `:warning` / `:rf.schema/violation` / `:rf.hydration/mismatch`). Whole `:sensitive? true` issue events are default-SUPPRESSED before the op-type filter — the envelope is dropped unless `{:include-sensitive? true}` (rf2-to36uj, symmetric with `get-trace-buffer`). |
 | `get-handlers` | `get-handlers` | `{:ok? true :handlers <vec> :count <n>}` | `rf/registrations` per-kind. Optional `:kind` narrows to one of `:event :sub :fx :cofx :machine :flow :reg-machine :frame :view`. |
 | `get-source-coord` | `get-source-coord` | `{:ok? true :kind <kw> :id <any> :source-coord <map>}` | `rf/handler-meta` projected to `:source-coord`, routed through `egress-value` (rf2-j8b0u — Spec 009's user-supplied `:rf.handler/source` override can stamp arbitrary values into the slot, so the accessor egresses unconditionally rather than judging per-read; `:include-sensitive?` / `:include-large?` opt back in). |
 

@@ -290,6 +290,44 @@
      (rf/projected-record record))))
 
 ;; ---------------------------------------------------------------------------
+;; Event-level default-suppress gate (rf2-to36uj)
+;; ---------------------------------------------------------------------------
+;;
+;; `egress-value` scrubs the VALUES carried inside a trace event, but it
+;; does NOT drop a whole event that is itself marked `:sensitive? true`.
+;; The framework's per-frame rings RETAIN every emitted event with no
+;; `:sensitive?` check (`re-frame.trace.tooling/push-to-ring!` is a
+;; faithful record of what the runtime emitted), so a sensitive event's
+;; ENVELOPE — its existence, `:op-type`, timing, source, handler/event
+;; ids, and any non-elided `:tags` — survives value-scrubbing and would
+;; cross the off-box AI/MCP / log boundary by default.
+;;
+;; Per Spec 009 §Privacy + spec/013-Trace-Consumer.md (the same contract
+;; the panel-side trace collector + `snapshot-from-rings` honour via
+;; `config/suppress-sensitive?`): a framework-published trace consumer
+;; default-SUPPRESSES whole `:sensitive? true` events. The runtime/MCP
+;; seam's opt-back-in is the per-call `:include-sensitive?` opt (NOT the
+;; panel's global `:rf.privacy/show-sensitive?` UI toggle — the seam is
+;; per-call, so the gate is per-call too). We compose against the ONE
+;; framework primitive `re-frame.core/sensitive?` (re-export of
+;; `re-frame.privacy/sensitive?`) rather than reimplementing the
+;; `:sensitive? true` check, exactly as `config/sensitive-event?` does.
+
+(defn- drop-sensitive-events
+  "Default-suppress whole `:sensitive? true` trace events at the
+  runtime/MCP seam. `include-sensitive?` truthy is the explicit
+  per-call opt-back-in — pass it and the sensitive ENVELOPES survive
+  (their VALUES are still routed through `egress-value` by the caller).
+  When `include-sensitive?` is false / nil (the safe default) every
+  event for which `re-frame.core/sensitive?` is true is removed before
+  the events cross the off-box boundary (rf2-to36uj — the envelope, not
+  just the value, must respect the default-suppress contract)."
+  [events include-sensitive?]
+  (if include-sensitive?
+    events
+    (into [] (remove rf/sensitive?) events)))
+
+;; ---------------------------------------------------------------------------
 ;; Inspection band (9 accessors)
 ;; ---------------------------------------------------------------------------
 
@@ -310,9 +348,13 @@
 
   Returns `{:ok? true :events <vec> :count <n> :frame <frame-id>}`
   on success, or `{:ok? false :reason :no-frame-resolved ...}` when
-  ambiguous. Each event is routed through `elide-wire-value` so
-  sensitive / large values are scrubbed at the wire boundary
-  (MUST-inventory rows #2 / #15 / #19)."
+  ambiguous. Whole `:sensitive? true` events are default-SUPPRESSED at
+  this off-box seam (`drop-sensitive-events`) — the framework rings
+  retain them, but the consumer contract (Spec 009 §Privacy) drops the
+  whole envelope unless the caller explicitly opts in with
+  `:include-sensitive? true`. Each surviving event is then routed
+  through `egress-value` so any sensitive / large VALUES are scrubbed at
+  the wire boundary (MUST-inventory rows #2 / #15 / #19)."
   ([] (get-trace-buffer {}))
   ([opts]
    (let [{:keys [frame include-sensitive? include-large?]} opts
@@ -323,7 +365,8 @@
        (let [filter-opts (-> opts
                              (dissoc :frame :include-sensitive? :include-large?)
                              (assoc :flat true))
-             events      (trace-tooling/trace-buffer fid filter-opts)
+             events      (-> (trace-tooling/trace-buffer fid filter-opts)
+                             (drop-sensitive-events include-sensitive?))
              scrubbed    (mapv #(egress-value % {:include-sensitive? include-sensitive?
                                                  :include-large?     include-large?})
                                events)]
@@ -600,8 +643,15 @@
   into the raw flat-event shape so the existing issue filter walks
   the same vocabulary.
 
-  Returns `{:ok? true :issues <vec>}`. Routes through
-  `elide-wire-value` per MUST-inventory row #2."
+  Whole `:sensitive? true` issue events are default-SUPPRESSED at this
+  off-box seam (`drop-sensitive-events`, run on the merged stream before
+  the issue-op-type filter) — symmetric with `get-trace-buffer`. The
+  envelope (existence, `:op-type`, timing, source, ids, `:tags`) of a
+  sensitive issue is dropped unless the caller explicitly opts in with
+  `:include-sensitive? true`. Surviving issues then route through
+  `egress-value` per MUST-inventory row #2.
+
+  Returns `{:ok? true :issues <vec> :count <n>}`."
   ([] (get-issues {}))
   ([opts]
    (let [{:keys [include-sensitive? include-large?]} opts
@@ -614,6 +664,9 @@
          events   (into []
                         (mapcat #(trace-tooling/trace-buffer % {:flat true}))
                         (rf/frame-ids))
+         ;; rf2-to36uj — default-suppress whole sensitive event envelopes
+         ;; at the off-box seam before the issue filter walks them.
+         events   (drop-sensitive-events events include-sensitive?)
          issues   (filterv #(contains? issue-op-types (:op-type %)) events)
          scrubbed (mapv #(egress-value % {:include-sensitive? include-sensitive?
                                           :include-large?     include-large?})

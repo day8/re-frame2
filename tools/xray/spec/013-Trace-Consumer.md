@@ -173,6 +173,20 @@ read gate covers the steady-state read while the flag stays `false`;
 the [retroactive scrub](#retroactive-scrub-on-toggle-off) covers the
 true → false transition by clearing the rings wholesale.
 
+The **runtime/MCP accessors** (`day8.re-frame2-xray.runtime/get-trace-buffer`
+and `get-issues`, [API.md §Inspection band](API.md)) read the per-frame
+rings DIRECTLY — they bypass `snapshot-from-rings` and the panel's
+`:trace-buffer` app-db slot entirely. They therefore apply the SAME
+event-level default-suppress as their OWN gate (`drop-sensitive-events`),
+dropping whole `:sensitive? true` events before value-scrubbing. The
+opt-back-in differs from the panel surface: the panel reads the global
+`:rf.privacy/show-sensitive?` UI flag, while the seam is per-call so the
+opt is the per-call `{:include-sensitive? true}` accessor option. The
+envelope — existence, `:op-type`, timing, source, handler/event ids, and
+non-elided `:tags` — is what the seam gate protects; value-scrubbing
+(`egress-value`) alone leaves the envelope intact, which is why the
+event-level gate is load-bearing (rf2-to36uj).
+
 ### The suppressed-events counter
 
 The counter is keyed `frame-id → count` with a `:global` bucket for
