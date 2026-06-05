@@ -146,11 +146,16 @@
   resulting map is the minimal shape `run-variant` / `snapshot-identity`
   / `variant-share-url` expect.
 
-  Shared by `tool-preview-variant`, `tool-run-variant`, and
-  `tool-snapshot-identity` (the latter omits `:cell-overrides`, but
-  the absent-slot-not-present rule keeps the helper general). All three
-  call sites resolve `vk` via `with-variant` / `with-variant-id` before
-  calling this, so the variant is always known here.
+  Shared by `tool-preview-variant`, `tool-run-variant`,
+  `tool-snapshot-identity`, and `tool-variant-share-url` — all four
+  advertise the same `:substrate` / `:active-modes` / `:cell-overrides`
+  tuple in their descriptors (rf2-09rfpu Finding 2 closed the
+  snapshot-identity gap: `:cell-overrides` is identity-bearing — it
+  perturbs the snapshot `:content-hash` via the resolved
+  `:effective-args`). The absent-slot-not-present rule keeps the helper
+  general. All call sites resolve `vk` via `with-variant` /
+  `with-variant-id` before calling this, so the variant is always known
+  here.
 
   rf2-lqjbk: `:substrate` and each entry in `:active-modes` are
   coerced through `args/safe-keyword` against the live registry's

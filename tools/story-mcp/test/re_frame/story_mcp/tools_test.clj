@@ -834,6 +834,32 @@
   (let [r (invoke "snapshot-identity" {:variant-id "story.nope/missing"})]
     (is (error? r))))
 
+;; rf2-09rfpu Finding 2 — `snapshot-identity` forwards `:cell-overrides`
+;; into `story/snapshot-identity`, where it perturbs the `:content-hash`
+;; via the resolved `:effective-args`. The descriptor + API now advertise
+;; the slot (it was hidden behind `additionalProperties false`, so a
+;; validating client stripped a real identity input while a non-validating
+;; client got a different hash). These tests pin: (a) the slot is in the
+;; advertised input schema, and (b) an override actually changes the hash.
+(deftest snapshot-identity-advertises-cell-overrides
+  (testing "the snapshot-identity descriptor exposes :cell-overrides in its input schema"
+    (let [desc  (first (filter #(= "snapshot-identity" (:name %)) registry/tool-registry))
+          props (-> desc :inputSchema :properties)]
+      (is (some? desc) "snapshot-identity must be in the tool registry")
+      (is (contains? props :cell-overrides)
+          "cell-overrides is an identity input and MUST be advertised, not hidden behind additionalProperties false"))))
+
+(deftest snapshot-identity-cell-overrides-changes-hash
+  (testing "a cell-override perturbs the content-hash (it is identity-bearing)"
+    (let [bare      (invoke "snapshot-identity" {:variant-id "story.button/primary"})
+          over<- (invoke "snapshot-identity" {:variant-id    "story.button/primary"
+                                              :cell-overrides {:label "Override"}})]
+      (is (success? bare))
+      (is (success? over<-))
+      (is (not= (-> bare :structuredContent :content-hash)
+                (-> over<- :structuredContent :content-hash))
+          "the same variant with a different cell-override must hash differently"))))
+
 (deftest run-a11y-jvm-returns-note
   (testing "JVM-standalone deploy returns empty violations with the documented hint"
     (let [r (invoke "run-a11y" {:variant-id "story.button/primary"})
@@ -3172,6 +3198,63 @@
         (if restore
           (System/setProperty "rf.story-mcp.allow-writes" restore)
           (System/clearProperty "rf.story-mcp.allow-writes"))))))
+
+;; ---------------------------------------------------------------------------
+;; Boot-config sysprop > env precedence (rf2-09rfpu Finding 1)
+;;
+;; `read-boot-config` resolves each gate by SOURCE PRESENCE, not by a
+;; boolean OR over parsed truthiness. The old `or` form let an inherited
+;; env `true` re-enable a gate an operator explicitly disabled with a
+;; `-D...=false` sysprop. Env vars are read-only on the JVM, so the
+;; precedence rule is unit-tested against the pure `config/resolve-gate`
+;; helper (raw source strings as args) — the exact branch the prior
+;; `read-boot-config` test (sysprop alone / CLI overrides sysprop) could
+;; never stage because it could not set env=true.
+;; ---------------------------------------------------------------------------
+
+(deftest resolve-gate-explicit-sysprop-false-overrides-env-true
+  (testing "sysprop=false + env=true ⇒ gate OFF (explicit higher-precedence false wins)"
+    (is (false? (config/resolve-gate "false" "true"))
+        "an explicit -D...=false must disable an inherited env true"))
+  (testing "sysprop unset + env=true ⇒ gate ON (falls through to env)"
+    (is (true? (config/resolve-gate nil "true"))
+        "absent sysprop falls through to the env var"))
+  (testing "sysprop=true + env=false ⇒ gate ON (sysprop wins)"
+    (is (true? (config/resolve-gate "true" "false"))
+        "an explicit sysprop true overrides an env false"))
+  (testing "sysprop=true + env unset ⇒ gate ON"
+    (is (true? (config/resolve-gate "true" nil))))
+  (testing "both sources absent ⇒ gate OFF (default-closed)"
+    (is (false? (config/resolve-gate nil nil))))
+  (testing "sysprop=false + env unset ⇒ gate OFF"
+    (is (false? (config/resolve-gate "false" nil))))
+  (testing "truthy-string vocabulary flows through unchanged"
+    (is (true?  (config/resolve-gate nil "1")))
+    (is (true?  (config/resolve-gate "yes" "false")))
+    (is (false? (config/resolve-gate "off" "true")))))
+
+(deftest read-boot-config-honours-explicit-sysprop-false-over-env
+  ;; Integration check: with the env var almost certainly unset in CI,
+  ;; an explicit `-Drf.story-mcp.allow-writes=false` keeps the gate OFF
+  ;; (it does not silently fall through to a parsed `false` that an `or`
+  ;; would have discarded). Both gates are exercised.
+  (let [restore-w (System/getProperty "rf.story-mcp.allow-writes")
+        restore-s (System/getProperty "rf.story-mcp.allow-sensitive-reads")]
+    (try
+      (System/setProperty "rf.story-mcp.allow-writes" "false")
+      (System/setProperty "rf.story-mcp.allow-sensitive-reads" "false")
+      (let [cfg (config/read-boot-config)]
+        (is (false? (:allow-writes? cfg))
+            "explicit sysprop=false keeps allow-writes? off")
+        (is (false? (:allow-sensitive-reads? cfg))
+            "explicit sysprop=false keeps allow-sensitive-reads? off"))
+      (finally
+        (if restore-w
+          (System/setProperty "rf.story-mcp.allow-writes" restore-w)
+          (System/clearProperty "rf.story-mcp.allow-writes"))
+        (if restore-s
+          (System/setProperty "rf.story-mcp.allow-sensitive-reads" restore-s)
+          (System/clearProperty "rf.story-mcp.allow-sensitive-reads"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; record-as-variant write-back failure path (rf2-36upq TE6)

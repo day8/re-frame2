@@ -14,8 +14,17 @@ A single atom: `re-frame.story-mcp.config/allow-writes?` (default
 | JVM sysprop | `-Drf.story-mcp.allow-writes=true` |
 | Env var | `RF_STORY_MCP_ALLOW_WRITES=true` |
 
-Any of the three opens the gate. Absent all three, the gate is
-closed.
+Absent all three, the gate is closed. The three sources have a strict
+**precedence: CLI flag > JVM sysprop > env var** — an explicitly set
+higher-precedence source wins outright, *including when it disables the
+gate*. So `-Drf.story-mcp.allow-writes=false` overrides an inherited
+`RF_STORY_MCP_ALLOW_WRITES=true` (the sysprop is present, so the env var
+is not consulted), letting an operator lock down a gate the environment
+would otherwise open. The env var is consulted only when the sysprop is
+absent; the boot-config read resolves by *source presence*, not by
+boolean OR over parsed truthiness (rf2-09rfpu). The CLI flag is
+presence-only (`--allow-writes`, no `=value` form) and merges on top of
+the sysprop/env result.
 
 ## What's gated
 

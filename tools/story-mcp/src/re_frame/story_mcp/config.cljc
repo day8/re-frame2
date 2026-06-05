@@ -172,20 +172,48 @@
 
 ;; ---- boot config from env / sysprop ---------------------------------------
 
+(defn resolve-gate
+  "Resolve a single boot gate from its two lower-precedence raw sources
+  by SOURCE PRESENCE, not parsed truthiness. Precedence is
+  sysprop > env (the CLI flag is the highest tier and is merged in by
+  the caller — `server/boot!`'s `(merge (read-boot-config) cli-cfg)`).
+
+  An explicitly-set higher-precedence source wins **including when it
+  parses to `false`**: a present sysprop string (non-nil — set via
+  `-Drf.story-mcp.allow-writes=...`) is parsed and used outright, so an
+  explicit `-Drf...=false` disables an inherited env `true`. Only an
+  ABSENT (nil) sysprop falls through to the env var.
+
+  `sysprop` / `env` are the raw source strings (nil when unset). This
+  helper takes them as arguments — rather than reading `System` itself —
+  so the precedence rule is unit-testable without mutating the JVM
+  environment (env vars are read-only on the JVM)."
+  [sysprop env]
+  (cond
+    (some? sysprop) (args/parse-boolean sysprop false)
+    (some? env)     (args/parse-boolean env false)
+    :else           false))
+
 (defn read-boot-config
   "Read boot-time configuration from JVM sysprops + env vars.
 
-  Recognised sources (later wins):
+  Recognised sources, with precedence **sysprop > env** (an explicitly
+  set sysprop wins, including when it is `false`; only an absent sysprop
+  falls through to the env var). The CLI flag is the highest tier — the
+  caller (`-main` / `server/boot!`) merges CLI overrides on top of this
+  map, so the full contract is CLI > sysprop > env:
 
-  - JVM sysprop `rf.story-mcp.allow-writes` — `\"true\"` / `\"1\"` enables.
-  - Env var `RF_STORY_MCP_ALLOW_WRITES` — same.
+  - JVM sysprop `rf.story-mcp.allow-writes` — `\"true\"` / `\"1\"` enables,
+    `\"false\"` / `\"0\"` disables (and overrides an inherited env `true`).
+  - Env var `RF_STORY_MCP_ALLOW_WRITES` — same vocabulary; consulted
+    only when the sysprop is absent.
   - JVM sysprop `rf.story-mcp.allow-sensitive-reads` — same shape.
   - Env var `RF_STORY_MCP_ALLOW_SENSITIVE_READS` — same shape.
 
   All sources are parsed via the cross-MCP `args/parse-boolean`
   primitive (rf2-vw4sq) so the truthy-string vocabulary
-  (`true`/`1`/`yes`/`y`/`on`, case-insensitive) is the same one an
-  agent learns once.
+  (`true`/`1`/`yes`/`y`/`on`, case-insensitive — and the `false`/`0`/
+  `no`/`n`/`off` complement) is the same one an agent learns once.
 
   Returns a map `{:allow-writes? boolean :allow-sensitive-reads? boolean}`.
   The caller (`-main`) merges in CLI overrides before calling
@@ -195,10 +223,8 @@
         writes-env        (System/getenv "RF_STORY_MCP_ALLOW_WRITES")
         sensitive-sysprop (System/getProperty "rf.story-mcp.allow-sensitive-reads")
         sensitive-env     (System/getenv "RF_STORY_MCP_ALLOW_SENSITIVE_READS")]
-    {:allow-writes?          (or (args/parse-boolean writes-sysprop false)
-                                 (args/parse-boolean writes-env false))
-     :allow-sensitive-reads? (or (args/parse-boolean sensitive-sysprop false)
-                                 (args/parse-boolean sensitive-env false))}))
+    {:allow-writes?          (resolve-gate writes-sysprop writes-env)
+     :allow-sensitive-reads? (resolve-gate sensitive-sysprop sensitive-env)}))
 
 (defn apply-config!
   "Apply a boot-config map to the runtime atoms. Returns the applied map."

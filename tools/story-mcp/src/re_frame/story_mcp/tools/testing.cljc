@@ -346,17 +346,19 @@
 
    {:name           "snapshot-identity"
     :category       :testing
-    :description    (str "Content-hash of (variant × resolved args × decorators × loaders × substrate × modes). Stable across hosts; key for visual-regression. "
+    :description    (str "Content-hash of (variant × resolved args × decorators × loaders × substrate × modes × cell-overrides). Stable across hosts; key for visual-regression. `:cell-overrides` perturbs the hash via the resolved `:effective-args` (Story's `resolve-args` merges them after mode args), so two cells differing only by an override get distinct `:content-hash` values. "
                          "Examples: "
                          "1. Bare: {:variant-id \":story.cart/full\"} -> {:variant-id :story.cart/full :active-modes [] :substrate nil :content-hash \"sha256:abcd...\"}. "
                          "2. With substrate + mode: {:variant-id \":story.cart/full\" :substrate \":uix\" :active-modes [\":mode/dark\"]} -> different :content-hash from #1 because the tuple inputs differ. "
-                         "3. Use for cache key: build a visual-regression key as `(str variant-id \"@\" content-hash)`.")
+                         "3. With cell-overrides: {:variant-id \":story.cart/full\" :cell-overrides {:qty 9}} -> different :content-hash from #1 because the override changes the resolved args. "
+                         "4. Use for cache key: build a visual-regression key as `(str variant-id \"@\" content-hash)`.")
     :typicalTokens  100
     :inputSchema {:type "object"
                   :properties (s/with-max-tokens
                                 {:variant-id s/kw-or-string
                                  :substrate s/kw-or-string
-                                 :active-modes {:type "array" :items s/kw-or-string}})
+                                 :active-modes {:type "array" :items s/kw-or-string}
+                                 :cell-overrides {:type "object"}})
                   :required ["variant-id"]
                   :additionalProperties false}
     :outputSchema s/default-output-schema
