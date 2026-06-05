@@ -34,13 +34,26 @@
 
   ## Net property (verify-by-revert)
 
-  Reverting the `event-handler-allowlist` lower-case lookup (or the
-  camelCase/kebab `event-handler-name-re`) in
-  `html_helpers.cljc` makes the generated-casing test go RED - a live
-  `onX=` attribute appears in `attr-string` output. Reverting
-  `validate-attr-name!`'s grammar throw makes the breakout-key test go
-  RED. Confirmed by temporary local revert + restore (see PR Quality
-  gates)."
+  Two INDEPENDENT generative properties pin the two `event-handler-name?`
+  matcher arms so a revert of EITHER goes RED (each canonical handler is
+  also in the allowlist, so a canonical-casing sweep alone leaves the
+  regex vacuously covered — rf2-q0a81.1):
+
+    1. Reverting the `event-handler-allowlist` lower-case lookup makes
+       `no-recased-canonical-handler-serialises` go RED — the all-
+       lowercase / mixed-lowercase canonical spellings the regex's
+       `[A-Z]`/`-` discriminator CANNOT catch leak as live `onX=`
+       attributes.
+    2. Reverting (or weakening) the camelCase/kebab `event-handler-name-re`
+       makes `no-custom-structural-handler-serialises` go RED — the
+       NON-allowlist structural handlers (`onCustomEvent` / `on-foo-bar`,
+       recased across the `on` prefix) that ONLY the regex catches leak.
+       The canonical sweep never exercises this arm because every
+       canonical handler is in the allowlist.
+
+  Reverting `validate-attr-name!`'s grammar throw makes the breakout-key
+  test go RED. Confirmed by temporary local revert + restore (see PR
+  Quality gates)."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])
             #?(:clj  [clojure.edn :as edn]
@@ -120,6 +133,73 @@
       (is (nil? result)
           (str "a recased handler leaked as a live attribute: "
                (pr-str result))))))
+
+;; ---------------------------------------------------------------------------
+;; PROPERTY 1b - no NON-ALLOWLIST structural handler ever serialises as a live
+;; attr. This independently exercises `event-handler-name-re` (rf2-q0a81.1):
+;; PROPERTY 1's generator only mints recasings of CANONICAL handlers, and every
+;; canonical handler is in `event-handler-allowlist`, whose lookup lower-cases
+;; the candidate - so the allowlist arm alone strips all 600 draws there and a
+;; revert of the regex leaves PROPERTY 1 GREEN (vacuous w.r.t. the regex). The
+;; framework-shaped CUSTOM handlers below (`:onCustomEvent` / `:on-foo-bar`)
+;; are NOT in the allowlist; ONLY the camelCase/kebab regex strips them, so
+;; reverting/weakening `event-handler-name-re` makes THIS property go RED.
+;; ---------------------------------------------------------------------------
+
+(def ^:private structural-tail-letters
+  (vec "abcdefghijklmnopqrstuvwxyz"))
+
+(defn- recase-on-prefix
+  "Recase ONLY the leading `on` (2 chars) per a 2-bit mask `[b0 b1]`; the rest
+  of the name is kept verbatim so the regex's structural discriminator (the
+  upper-case tail char for camelCase, the `-` for kebab) survives every draw.
+  This sweeps the `[Oo][Nn]` case-insensitivity of the prefix - exactly the
+  rf2-1uex4 casing axis - while keeping the name NON-canonical."
+  [s [b0 b1]]
+  (str (if (= 1 b0) (str/upper-case (subs s 0 1)) (str/lower-case (subs s 0 1)))
+       (if (= 1 b1) (str/upper-case (subs s 1 2)) (str/lower-case (subs s 1 2)))
+       (subs s 2)))
+
+(def ^:private gen-custom-structural-handler
+  "Draws a `[k v]` attribute pair whose KEY is a randomly-recased-prefix
+  NON-allowlist structural event handler - either camelCase (`on` + an
+  upper-case first tail char + a random lower-case tail, e.g. `onFooba`) or
+  kebab (`on-` + a random tail, e.g. `on-fooba`). The random 4-6-letter tail
+  makes the lower-cased name impossible to collide with a canonical allowlist
+  entry, so the ONLY matcher arm that strips it is `event-handler-name-re`.
+  The value is an attacker JS payload string."
+  (gen/gen-fmap
+    (fn [[form prefix-bits tail]]
+      (let [tail-str (apply str tail)
+            base     (case form
+                       :camel (str "on"
+                                   (str/upper-case (subs tail-str 0 1))
+                                   (subs tail-str 1))
+                       :kebab (str "on-" tail-str))]
+        [(keyword (recase-on-prefix base prefix-bits)) "alert(document.cookie)"]))
+    (fn [rng]
+      (let [[form rng1] (gen/rand-nth rng [:camel :kebab])
+            [pb0 rng2]  (gen/rand-nth rng1 [0 1])
+            [pb1 rng3]  (gen/rand-nth rng2 [0 1])
+            [tail rng4] ((gen/gen-vec (gen/gen-int 4 7)
+                                      (gen/gen-elem structural-tail-letters))
+                         rng3)]
+        [[form [pb0 pb1] tail] rng4]))))
+
+(deftest no-custom-structural-handler-serialises
+  (testing "rf2-q0a81.1 - across 600 NON-allowlist structural handler names
+            (camelCase / kebab, recased prefix), attr-string strips every one
+            via event-handler-name-re alone - the allowlist cannot catch these.
+            Reverting/weakening the regex makes this go RED."
+    (let [result (gen/for-all
+                   gen-custom-structural-handler 600 5
+                   (fn [[k v]]
+                     (let [out (h/attr-string {k v})]
+                       (and (= "" out)
+                            (not (live-handler-attr? out))))))]
+      (is (nil? result)
+          (str "a custom structural handler leaked as a live attribute "
+               "(event-handler-name-re regression): " (pr-str result))))))
 
 ;; ---------------------------------------------------------------------------
 ;; HOSTILE CORPUS - the exact rf2-1uex4 casings + structural spellings.
