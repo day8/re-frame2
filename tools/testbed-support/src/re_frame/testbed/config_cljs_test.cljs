@@ -193,8 +193,11 @@
 ;;
 ;; The override knob's parse/decode/trim/non-blank contract, exercised
 ;; off-browser by handing the pure parser literal `location.search`
-;; strings. `js/URLSearchParams` is a Node global too, so this is the
-;; same code path the browser adapter runs — no `js/window` fakery.
+;; strings — the same code path the browser adapter runs, no `js/window`
+;; fakery. The parser splits the query string manually and decodes with
+;; `js/decodeURIComponent` (rf2-xdsat.1) so a LITERAL `+` survives verbatim
+;; rather than being form-urlencoded-decoded to a space (the silent
+;; path-corruption seam that `js/URLSearchParams` introduced).
 
 (deftest query-param-from-search-reads-the-named-param
   (testing "the named param's value is returned, trimmed + non-blank"
@@ -204,7 +207,7 @@
     (is (= "/home/dev/re-frame2"
            (#'config/query-param-from-search
             "project-root=/home/dev/re-frame2" "project-root"))
-        "a leading ? is optional — URLSearchParams tolerates either form")))
+        "a leading ? is optional — the parser tolerates either form")))
 
 (deftest query-param-from-search-url-decodes-the-value
   (testing "percent-encoded path separators (and spaces) are decoded, so a
@@ -217,6 +220,30 @@
            (#'config/query-param-from-search
             "?project-root=C%3A%2FUsers%2Fme%2Fmy%20code" "project-root"))
         "a Windows drive path with an encoded space round-trips")))
+
+(deftest query-param-from-search-preserves-literal-plus
+  (testing "rf2-xdsat.1: a LITERAL `+` in the override path survives
+            verbatim — it is NOT form-urlencoded-decoded to a space. A
+            checkout at `/home/dev/re-frame2+wip` (or `C:/code/app+1`)
+            must round-trip through `?project-root=` unencoded, or every
+            open-in-editor link points at a nonexistent dir (the exact
+            cross-machine-portability failure the override exists to fix)."
+    (is (= "/home/dev/re-frame2+wip"
+           (#'config/query-param-from-search
+            "?project-root=/home/dev/re-frame2+wip" "project-root"))
+        "literal + is preserved, not turned into a space")
+    (is (= "C:/code/app+1"
+           (#'config/query-param-from-search
+            "?project-root=C:/code/app+1" "project-root"))
+        "a Windows checkout with a + in the path round-trips")
+    (is (= "/home/dev/re-frame2+wip"
+           (#'config/query-param-from-search
+            "?project-root=%2Fhome%2Fdev%2Fre-frame2%2Bwip" "project-root"))
+        "the fully %-encoded form (%2B for +) decodes to the same path")
+    (is (= "a+b"
+           (#'config/query-param-from-search
+            "?project-root=a+b" "project-root"))
+        "no + → space remapping anywhere in the value")))
 
 (deftest query-param-from-search-picks-the-right-param
   (testing "only the named param is read; other params are ignored"

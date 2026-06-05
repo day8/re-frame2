@@ -845,15 +845,24 @@
                              `chart.overlays.cancellation-cascade` waterfall
                              beneath the parent state. nil / no steps →
                              dormant.
-    :machine-data      — rf2-qo5xy. Optional CLJS map of the current
-                         machine `:data` (`:rf.machine/data`). When
-                         supplied the chart paints a small read-only
-                         panel in the top-LEFT corner of the canvas
-                         showing each `(key, value)` pair so the
-                         operator sees the live `:data` without leaving
-                         the chart (Stately graph view convention). nil
-                         → no panel. The panel is purely presentation —
-                         the host owns the data projection.
+    :machine-data      — rf2-qo5xy. Optional CLJS map fed into the root
+                         Context panel (top-LEFT corner). Two host
+                         projections feed it: the live `:data`
+                         (`:rf.machine/data`, key→value) OR — the sole
+                         production feeder today — the STATIC context
+                         shape INFERRED from the definition's `:data`
+                         (key→type-caption, via Xray's
+                         `static-context-shape`). nil / empty → no panel.
+                         The panel is purely presentation — the host owns
+                         the projection.
+    :machine-data-inferred? — rf2-5tz9p. Optional boolean (DEFAULT true).
+                         When true the Context panel shows a subtle
+                         \"inferred from :data\" badge marking its
+                         contents as a type shape INFERRED from one sample
+                         of the definition's `:data` — NOT a declared
+                         schema and NOT the live runtime `:data`. Set
+                         false when the host feeds live `:data` VALUES.
+                         Ignored when no panel renders.
     :fit-signal        — rf2-6tw7t. Optional opaque value (a nonce — any
                          `=`-comparable). When its value CHANGES between
                          renders the chart re-fits the viewport to frame
@@ -1014,6 +1023,7 @@
                  height show-minimap? show-controls? show-background?
                  overlays
                  machine-data
+                 machine-data-inferred?
                  fit-signal
                  testid]
           :or   {direction         :tb
@@ -1023,6 +1033,12 @@
                  show-minimap?     false
                  show-controls?    true
                  show-background?  true
+                 ;; rf2-5tz9p — the Context panel's sole production feeder is
+                 ;; the static INFERRED shape (Xray's `static-context-shape`,
+                 ;; key→type-caption). Default the inferred badge ON so the
+                 ;; panel reads honestly today; a host wiring live `:data`
+                 ;; values passes `:machine-data-inferred? false`.
+                 machine-data-inferred? true
                  testid            "rf-mv-chart"}}]
       (let [parsed     (layout/parse-definition definition)
             ;; rf2-lkwev — exclude synthetic parallel-region container
@@ -1555,14 +1571,33 @@
                               :border        (str "1px solid "
                                                   (tokens/with-alpha :border-default 0.6 theme-palette))
                               :border-radius "4px"}}
-                [:div {:style {:font-family    tokens/sans-stack
-                               :font-size      "9px"
-                               :font-weight    700
-                               :letter-spacing "0.06em"
-                               :text-transform "uppercase"
-                               :color          (:text-tertiary theme-palette)
+                [:div {:style {:display        "flex"
+                               :align-items    "baseline"
+                               :gap            "5px"
                                :margin-bottom  "4px"}}
-                 "Context"]
+                 [:span {:style {:font-family    tokens/sans-stack
+                                 :font-size      "9px"
+                                 :font-weight    700
+                                 :letter-spacing "0.06em"
+                                 :text-transform "uppercase"
+                                 :color          (:text-tertiary theme-palette)}}
+                  "Context"]
+                 ;; rf2-5tz9p — the panel paints the STATIC context shape
+                 ;; INFERRED from one sample of the definition's `:data`
+                 ;; (key→type-caption), NOT a declared schema and NOT the
+                 ;; live runtime `:data`. Flag it in-UI so a partial /
+                 ;; unrepresentative initial `:data` can't read as an
+                 ;; authoritative contract. Subtle, lower-case, tertiary.
+                 (when machine-data-inferred?
+                   [:span {:data-testid (str testid "-machine-data-inferred-badge")
+                           :title "Inferred from one sample of the machine's :data — not a declared schema"
+                           :style {:font-family    tokens/sans-stack
+                                   :font-size      "9px"
+                                   :font-weight    500
+                                   :font-style     "italic"
+                                   :letter-spacing "0.02em"
+                                   :color          (tokens/with-alpha :text-tertiary 0.75 theme-palette)}}
+                    "inferred from :data"])]
                 (for [[k v] (seq machine-data)]
                   ^{:key (pr-str k)}
                   [:div {:data-testid (str testid "-machine-data-key-"
