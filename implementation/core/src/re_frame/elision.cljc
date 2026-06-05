@@ -267,15 +267,29 @@
 ;; schema (the walker doesn't carry it), we thread a SET of candidate
 ;; declaration-coordinate paths alongside the concrete runtime path:
 ;;
-;;   - Descending a VECTOR / SEQ / SET element: the index/element is a
-;;     collection coordinate, NOT a declarable segment ⇒ candidate decl-
-;;     paths pass through UNCHANGED.
+;;   - Descending a VECTOR / SEQ element at index `i`: the index is
+;;     UNAMBIGUOUSLY a collection coordinate (never a named slot), so each
+;;     candidate forks into the INDEX-FREE interpretation `c` (unchanged —
+;;     matches schema decls that descend positional containers at the same
+;;     base-path) AND the LITERAL-INDEX interpretation `(conj c i)` (matches
+;;     a declaration that itself pins a concrete index, e.g. `[:tokens 0]`),
+;;     the latter pruned by `decl-prefixes` (see `fork-index-paths`).
+;;     Riding an index never floats a declaration past a NAMED slot, so the
+;;     index-free interpretation is kept for ALL candidates (incl. the empty
+;;     seed) without the map-key skip's position guard. A SET element has no
+;;     stable index ⇒ index-free pass-through only.
 ;;   - Descending a MAP key `k`: a runtime map is structurally ambiguous —
 ;;     `k` may be a NAMED `:map` slot (a real segment ⇒ `(conj c k)`) OR a
 ;;     `:map-of` key (a collection coordinate ⇒ `c` unchanged). We can't tell
 ;;     which from the value alone, so we fork each candidate into BOTH
 ;;     interpretations and let the declaration table disambiguate at the leaf
 ;;     (only the interpretation that actually matches a declared path fires).
+;;     The `:map-of`-key (skip) fork is POSITION-PRECISE: only a NON-EMPTY
+;;     candidate — one that has already consumed ≥1 declared segment — may
+;;     skip a key. The empty seed `[]` advances only via the named fork (see
+;;     `fork-decl-paths`), so a declaration cannot FLOAT past leading named
+;;     map slots and falsely match the same key-sequence at a deeper,
+;;     non-declared position.
 ;;
 ;; The fork would grow combinatorially with map depth, so we PRUNE: a
 ;; candidate that is not a prefix of ANY declared path can never match and is
@@ -285,10 +299,15 @@
 ;;
 ;; Precision: the runtime path `[:by-id "a" :secret]` matches decl
 ;; `[:by-id :secret]` only because `:secret` is a real map slot under the
-;; `:map-of` value; a sibling NON-sensitive leaf `[:by-id "a" :other]` never
-;; matches (its decl-coordinate candidates `[:by-id :other]` / `[:by-id "a"
-;; :other]` aren't declared). The concrete runtime `path` still drives marker
-;; `:path` / `:handle` and the unschema'd-large warning, so an agent's
+;; `:map-of` value (`[:by-id]` is a non-empty partial match, so it legally
+;; skips the map-of key `"a"`); a sibling NON-sensitive leaf
+;; `[:by-id "a" :other]` never matches (its decl-coordinate candidates
+;; `[:by-id :other]` / `[:by-id "a" :other]` aren't declared). And decl
+;; `[:auth :password]` does NOT match the deeper `[:tags :some-other-slot
+;; :auth :password]`: the `[]` seed cannot skip the leading `:tags` /
+;; `:some-other-slot` named slots, so it never reaches the same-named `:auth`
+;; at that non-declared position. The concrete runtime `path` still drives
+;; marker `:path` / `:handle` and the unschema'd-large warning, so an agent's
 ;; follow-up `get-path` lands on the exact indexed location.
 
 (declare walk marker?)
@@ -316,20 +335,73 @@
   Each candidate forks into the NAMED-slot interpretation `(conj c k)` and
   the `:map-of`-key interpretation `c` (key is a collection coordinate, no
   segment). Both are retained only when they remain a prefix of some
-  declared path (`decl-prefixes`), bounding the set."
+  declared path (`decl-prefixes`), bounding the set.
+
+  POSITION-PRECISE skip (rf2-wm9kp follow-up): the `:map-of`-key
+  interpretation — keeping `c` unchanged so the key is treated as a
+  collection coordinate — is only legitimate for a candidate that has
+  ALREADY consumed at least one declared segment (`(seq c)`). A non-empty
+  `c` is a partial declaration-prefix match in progress, so a map key at
+  that position can plausibly be a `:map-of` value key inside that
+  declared subtree (e.g. `[:by-id]` skips the map-of key `\"a\"` so the
+  subsequent `:secret` forms `[:by-id :secret]`). The EMPTY seed `[]` has
+  matched nothing yet: letting it skip a key would let a declaration
+  FLOAT past arbitrary leading NAMED map slots — matching decl
+  `[:auth :password]` against the deeper `[:tags :some-other-slot :auth
+  :password]` where that `:auth`/`:password` is a DIFFERENT position, not
+  the declared one. So `[]` advances only via the named-slot fork; it
+  never survives as a free-floating skip. This keeps the headline goal
+  green (`[:items 0 :token]` matches `[:items :token]`; `[:by-id \"a\"
+  :secret]` matches `[:by-id :secret]`) while sealing the over-redaction
+  of same-named slots at non-declared positions."
   [decl-paths k decl-prefixes]
   (persistent!
     (reduce (fn [acc c]
               (let [named (conj c k)
                     acc   (if (contains? decl-prefixes named) (conj! acc named) acc)]
-                ;; `:map-of`-key interpretation: `c` itself stays a live
-                ;; candidate so a LATER real `:map` segment can extend it
-                ;; (e.g. `[:by-id]` survives the map-of key `"a"` so the
-                ;; subsequent `:secret` can form `[:by-id :secret]`). `c` is
+                ;; `:map-of`-key interpretation: `c` stays a live candidate
+                ;; ONLY when it is a non-empty partial match — see the
+                ;; position-precise rationale in the docstring. `c` is
                 ;; already a known decl-prefix (it survived the round that
-                ;; produced it), except the seed `[]` which never matches a
-                ;; declaration (decls have ≥1 segment) so retaining it is
-                ;; harmless. The set thus stays bounded by `decl-prefixes`.
+                ;; produced it), so retaining it keeps the set bounded by
+                ;; `decl-prefixes`.
+                (if (seq c) (conj! acc c) acc)))
+            (transient #{})
+            decl-paths)))
+
+(defn- fork-index-paths
+  "Descend the candidate declaration-coordinate set through a VECTOR / SEQ
+  element at integer index `i`.
+
+  An element index is UNAMBIGUOUSLY a collection coordinate — unlike a map
+  key, it can never be a named app-db slot. So a vector/seq descent forks
+  each candidate into:
+
+    - the INDEX-FREE interpretation `c` (unchanged): a schema-derived decl
+      descends positional containers at the same base-path, so the
+      index-free `[:items :token]` matches the runtime `[:items 0 :token]`.
+      Retained for ALL candidates (including the empty seed `[]`): riding
+      an index through never floats a declaration past a NAMED slot, so it
+      cannot over-redact the way the map-key skip could.
+
+    - the LITERAL-INDEX interpretation `(conj c i)`: a declaration MAY
+      itself carry a concrete index (`[:tokens 0]`, declared directly
+      against the indexed runtime position rather than schema-derived).
+      Retained only while it remains a prefix of some declared path
+      (`decl-prefixes`), so it is dropped immediately when no decl pins
+      that index — keeping the set bounded.
+
+  Both interpretations are matching-safe: the index-free one matches
+  schema decls, the literal-index one matches directly-declared indexed
+  paths, and only the interpretation actually present in the declaration
+  table fires at the leaf."
+  [decl-paths i decl-prefixes]
+  (persistent!
+    (reduce (fn [acc c]
+              (let [indexed (conj c i)
+                    acc     (if (contains? decl-prefixes indexed)
+                              (conj! acc indexed) acc)]
+                ;; Index-free interpretation: pass `c` through unchanged.
                 (conj! acc c)))
             (transient #{})
             decl-paths)))
@@ -361,20 +433,28 @@
 
 (defn- walk-indexed
   [v path decl-paths ctx]
-  (let [n (count v)]
+  (let [decl-prefixes (:decl-prefixes ctx)
+        n             (count v)]
     (loop [i 0 acc (transient [])]
       (if (< i n)
         (recur (inc i)
-               (conj! acc (walk (nth v i) (conj path i) decl-paths ctx)))
+               (conj! acc (walk (nth v i)
+                                (conj path i)
+                                (fork-index-paths decl-paths i decl-prefixes)
+                                ctx)))
         (persistent! acc)))))
 
 (defn- walk-seq
   [xs path decl-paths ctx]
-  (let [idx (volatile! -1)]
+  (let [decl-prefixes (:decl-prefixes ctx)
+        idx           (volatile! -1)]
     (persistent!
       (reduce (fn [acc v]
                 (vswap! idx inc)
-                (conj! acc (walk v (conj path @idx) decl-paths ctx)))
+                (conj! acc (walk v
+                                 (conj path @idx)
+                                 (fork-index-paths decl-paths @idx decl-prefixes)
+                                 ctx)))
               (transient [])
               xs))))
 

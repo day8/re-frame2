@@ -501,6 +501,83 @@
     (is (= "Ada" (get-in out [:items 0 :name]))
         "sibling non-sensitive slot is NOT over-redacted")))
 
+(deftest collection-nested-no-over-redaction-at-non-declared-position
+  ;; rf2-wm9kp follow-up — the candidate-coordinate match must be
+  ;; POSITION-PRECISE, not a free-floating suffix/anywhere match. A decl
+  ;; `[:auth :password]` must NOT redact the SAME key-sequence
+  ;; `:auth :password` when it sits at a DIFFERENT, non-declared position
+  ;; (nested under leading named map slots `:tags :some-other-slot`). The
+  ;; empty seed candidate must not be allowed to skip the leading named
+  ;; slots and resume the declaration deeper in the tree.
+  (rf/reg-app-schema [:auth]
+                     [:map
+                      [:username :string]
+                      [:password {:sensitive? true} :string]])
+  (rf/populate-sensitive-from-schemas!)
+  (let [out (rf/elide-wire-value
+              {;; the DECLARED position — must redact
+               :auth {:username "ada" :password "shh"}
+               ;; a coincidentally same-named subtree at a NON-declared
+               ;; position — must ride through verbatim
+               :tags {:some-other-slot {:auth {:password "scoped-marker"}}}})]
+    (is (= :rf/redacted (get-in out [:auth :password]))
+        "the declared [:auth :password] position still redacts")
+    (is (= "ada" (get-in out [:auth :username]))
+        "the non-sensitive sibling at the declared position is untouched")
+    (is (= "scoped-marker"
+           (get-in out [:tags :some-other-slot :auth :password]))
+        "the same :auth :password key-sequence at a DIFFERENT position is
+         NOT over-redacted — the match is position-precise, not free-floating")))
+
+(deftest collection-nested-map-of-skip-requires-started-match
+  ;; rf2-wm9kp follow-up — the `:map-of`-key SKIP is only granted to a
+  ;; candidate that has ALREADY begun matching the declaration (a non-empty
+  ;; partial prefix). This pins that the legit map-of path keeps working
+  ;; (`[:by-id]` is a non-empty partial match, so it skips the key `"a"`),
+  ;; while a leaf at a NON-declared top-level map key never matches.
+  (rf/reg-app-schema [:by-id]
+                     [:map-of :string [:map [:secret {:sensitive? true} :string]]])
+  (rf/populate-sensitive-from-schemas!)
+  (let [out (rf/elide-wire-value
+              {:by-id   {"a" {:secret "SECRET"}}
+               ;; `:secret` here is a top-level map slot, NOT under :by-id —
+               ;; decl [:by-id :secret] must not float to match it.
+               :secret  "TOP-LEVEL-NOT-DECLARED"})]
+    (is (= :rf/redacted (get-in out [:by-id "a" :secret]))
+        "the declared map-of-nested :secret redacts (skip after started match)")
+    (is (= "TOP-LEVEL-NOT-DECLARED" (get out :secret))
+        "a same-named leaf at a non-declared position is not over-redacted")))
+
+(deftest collection-nested-literal-index-declaration-redacts
+  ;; rf2-wm9kp follow-up — a declaration may carry a CONCRETE integer index
+  ;; (`[:tokens 0]`, declared directly against the indexed runtime position
+  ;; rather than schema-derived index-free). The candidate-coordinate match
+  ;; must still fire for it: the seq/vector descent forks the literal-index
+  ;; interpretation `(conj c i)`. Pins the origin behaviour (exact indexed
+  ;; path match) that the index-free coordinate threading must not regress
+  ;; (the story-mcp derived-tree scrub relies on this exact match).
+  (let [frame-id :rf/default]
+    (re-frame.elision/swap-elision-slot!
+      frame-id
+      (fn [reg]
+        (assoc reg :sensitive-declarations
+               {[:tokens 0] {:sensitive? true :source :test}})))
+    ;; seq form (list) — the shape story-mcp's derived-tree scrub relies on
+    (let [out (rf/elide-wire-value
+                {:tokens (list "SECRET" "public") :other "x"}
+                {:frame frame-id})]
+      (is (= :rf/redacted (-> out :tokens vec (get 0)))
+          "literal-index decl [:tokens 0] redacts the indexed seq element")
+      (is (= "public" (-> out :tokens vec (get 1)))
+          "the non-declared sibling index rides through verbatim"))
+    ;; vector form — same literal-index decl matches the vector element
+    (let [out (rf/elide-wire-value
+                {:tokens ["SECRET" "public"]}
+                {:frame frame-id})]
+      (is (= :rf/redacted (get-in out [:tokens 0])))
+      (is (= "public" (get-in out [:tokens 1]))
+          "only the literally-declared index redacts"))))
+
 (deftest collection-nested-large-emits-marker-with-runtime-path
   ;; rf2-wm9kp Finding 1 (symmetry) — a `:large?` slot nested under a
   ;; collection element map emits the `:rf.size/large-elided` marker, and
