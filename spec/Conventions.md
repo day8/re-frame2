@@ -352,6 +352,8 @@ For `reg-event-db` / `reg-event-fx` / `reg-event-ctx`, the **interceptor chain l
 
 The runtime warns at registration time when `:interceptors` appears inside the metadata-map (`:rf.warning/interceptors-in-metadata-map`, per [§Reserved namespaces](#reserved-namespaces-framework-owned) — `:rf.warning/*`). Hot-reload tools and 10x surface the warning so the typo doesn't reach production.
 
+**A *bare* interceptor (one not wrapped in the positional vector) is rejected loudly, not silently dropped.** Because an interceptor is a *map* (`{:id … :before … :after …}`), `(rf/reg-event-db :id mw/some-interceptor (fn …))` — a bare interceptor where the positional `[vector]` was required — used to be read as the metadata-map and the chain never ran (field-confirmed via the rf8 migration). The runtime now throws `:rf.error/reg-event-bare-interceptor` at registration (an ERROR — the chain cannot be honoured and there is no safe continue): a map carrying `:before` / `:after` in the middle slot, or any non-vector in the positional interceptors slot, is the tell. The chain is **not** coerced `bare → [bare]`; the caller wraps it — `(rf/reg-event-db :id [mw/some-interceptor] (fn …))`. (rf2-3ut12; the loud-failure sibling of the warning above, per [§No silent swallow](#no-silent-swallow--recognised-input-must-signal).)
+
 This rule is `reg-event-*`-specific. `reg-frame`'s metadata-map *does* recognise `:interceptors` (per [Spec 002 §`:interceptors` — *add* interceptors to a frame's events](002-Frames.md#interceptors--add-interceptors-to-a-frames-events)) — frames have no positional middle slot, so frame-level interceptors live on the metadata-map by necessity.
 
 **The three-form family is deliberately preserved.** The three-form family (`reg-event-db`, `reg-event-fx`, `reg-event-ctx`) is deliberately preserved from re-frame v1 for migration ergonomics. The noise is acknowledged; the cost of breaking v1 muscle memory exceeds the readability win of collapsing.
@@ -385,6 +387,7 @@ The rule is cross-cutting; each surface applies it in its own spec and registrar
 | State machines | `:on-spawn` callback return silently dropped while the teaching surface implied it was recorded | rf2-g72p8 |
 | pair-mcp | `:unknown-tool` error envelope that dead-ended an agent with no `:hint` / `tools/list` pointer | rf2-tkmik |
 | Schemas | `reg-app-schema` silently accepting a bare keyword as opts and registering against the default frame | rf2-52dfy |
+| Core registration | `reg-event-*` silently dropping a BARE interceptor (a map handed where the positional `[vector]` was required — an interceptor is a map, so it read as the metadata-map and the chain never ran); now rejected loudly with `:rf.error/reg-event-bare-interceptor` (ERROR — the chain cannot be honoured, no `:allow-unknown?` carve-out applies, and the call is not coerced `bare → [bare]`) | rf2-3ut12 |
 
 New surfaces apply the rule by mechanism: if a recognised input cannot be honoured, signal it — and reach for the extension-key carve-out only when the dropped key is a user-namespaced key in an explicitly open map. A surface that seems to *need* silent-ignore of a recognised input is evidence of a missing warning, not an exception to the rule — file a bead against the owning spec rather than swallowing.
 

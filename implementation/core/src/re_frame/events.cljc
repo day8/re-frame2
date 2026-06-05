@@ -346,18 +346,86 @@
 
 ;; ---- registration ---------------------------------------------------------
 
+;; ---- bare-interceptor detection (rf2-3ut12) -------------------------------
+;;
+;; The `reg-event-*` interceptor chain is POSITIONAL and MUST be a VECTOR
+;; (per Spec 001 §Allowed forms of the middle slot). A BARE interceptor —
+;; `(reg-event-db id mw/some-interceptor handler)` rather than
+;; `(reg-event-db id [mw/some-interceptor] handler)` — used to be SILENTLY
+;; dropped: an interceptor built by `->interceptor` / `->interceptor*` is a
+;; *map* (`{:id … :before … :after …}`), so `normalise-args`' two-arg branch
+;; read it as the metadata-map, the chain never reached the registrar, and
+;; the interceptor never ran — no error, no warning (field-confirmed via the
+;; rf8 migration). This is the same silent-drop class as
+;; `:rf.warning/runtime-state-dropped` (p806o), the fail-closed work (gro94),
+;; and the M-8 silent no-op (cxo1h).
+;;
+;; Per Conventions §No silent swallow — recognised input MUST signal: a
+;; bare interceptor is a recognised-but-unhonourable input, and the cascade
+;; cannot continue meaningfully (the user's chain is simply absent). We
+;; therefore FAIL LOUD at registration with `:rf.error/reg-event-bare-interceptor`
+;; — an ERROR, not a warning, consistent with the sibling registration-time
+;; throws (`:rf.error/reg-event-bad-middle-slot`, `:rf.error/reg-event-bad-arity`,
+;; `:rf.error/at-boundary-missing-schema`). We do NOT silently coerce
+;; `bare → [bare]`: that would be magic; the caller wraps it.
+
+(defn- bare-interceptor-map?
+  "True when `x` is a map carrying interceptor fn keys (`:before` / `:after`)
+  — i.e. a bare interceptor passed where the metadata-map / interceptors
+  slot was expected. A legitimate registration metadata-map (`:doc`,
+  `:schema`, `:tags`, `:platforms`, …) never carries `:before` / `:after`,
+  so those keys are an unambiguous bare-interceptor tell. Detection is by
+  shape (not by `->interceptor` provenance) so it catches HoF / hand-rolled
+  interceptor maps too."
+  [x]
+  (and (map? x)
+       (or (contains? x :before)
+           (contains? x :after))))
+
+(defn- throw-bare-interceptor!
+  "Raise `:rf.error/reg-event-bare-interceptor` (ex-info) for a bare
+  interceptor handed to `reg-event-*` where a `[vector]` was required.
+  Loud-fail at registration per Conventions §No silent swallow — the
+  interceptor would otherwise be silently dropped and never run."
+  [reg-fn-name slot offending args]
+  (throw (ex-info
+           ":rf.error/reg-event-bare-interceptor"
+           {:rf.error/id :rf.error/reg-event-bare-interceptor
+            :where       'rf/reg-event-db
+            :reg-fn      reg-fn-name
+            :slot        slot
+            :recovery    :fix-registration
+            :reason
+            (str reg-fn-name " received a BARE interceptor in the " (name slot)
+                 " slot; the interceptor chain is positional and MUST be a "
+                 "vector. A bare interceptor map would be silently dropped "
+                 "(never run). Wrap it: `(" reg-fn-name " id [the-interceptor] "
+                 "handler)` — not `(" reg-fn-name " id the-interceptor handler)`.")
+            :got         offending
+            :expected    "interceptor-vector (e.g. [(path :a)])"
+            :args        args})))
+
 (defn- normalise-args
   "Accept the three documented shapes for the variadic tail of reg-event-*:
     (handler)                          — bare handler
     (metadata-or-interceptors handler) — middle slot is one or the other
     (metadata interceptors handler)    — explicit pair
   Per Spec 001 §Allowed forms of the middle slot. Returns
-  `[metadata interceptors handler]`."
-  [args]
+  `[metadata interceptors handler]`.
+
+  Loud-fails on a BARE interceptor (rf2-3ut12): an interceptor map handed
+  where a metadata-map or `[vector]` was expected is rejected with
+  `:rf.error/reg-event-bare-interceptor` rather than silently dropped — the
+  two-arg branch catches `(reg-event-* id bare-icpt handler)` (a map with
+  `:before` / `:after`), and the three-arg branch catches a non-vector
+  positional interceptors slot."
+  [reg-fn-name args]
   (case (count args)
     1 [{} [] (first args)]
     2 (let [[middle handler] args]
         (cond
+          (bare-interceptor-map? middle)
+          (throw-bare-interceptor! reg-fn-name :middle middle args)
           (map? middle)    [middle [] handler]
           (vector? middle) [{} middle handler]
           :else            (throw (ex-info
@@ -370,6 +438,11 @@
                                      :got         middle
                                      :expected    "metadata-map (e.g. {:doc \"...\"}) OR interceptor-vector (e.g. [(path :a)])"}))))
     3 (let [[meta interceptors handler] args]
+        (when (and (some? interceptors) (not (vector? interceptors)))
+          ;; The positional interceptors slot must be a vector. A bare
+          ;; interceptor map (or any other non-vector) here would be
+          ;; `(into [] …)`'d into MapEntries / corruption — reject it loud.
+          (throw-bare-interceptor! reg-fn-name :interceptors interceptors args))
         [meta (or interceptors []) handler])
     (throw (ex-info
              ":rf.error/reg-event-bad-arity"
@@ -425,7 +498,7 @@
 
   Returns the event id."
   [kind reg-fn-name id args]
-  (let [[meta interceptors handler-fn] (normalise-args args)
+  (let [[meta interceptors handler-fn] (normalise-args reg-fn-name args)
         wrapped (wrap-event-handler kind handler-fn)]
     (warn-interceptors-in-meta! reg-fn-name id meta)
     ;; Per Spec 010 §Production builds + rf2-iftj4: reject the
