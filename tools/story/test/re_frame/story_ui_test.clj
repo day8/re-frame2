@@ -642,6 +642,70 @@
       (is (= isolated shared))
       (is (= 2 (count shared))))))
 
+;; ---- rf2-ugmrg :for anchor + :columns template --------------------------
+
+(deftest variants-grid-for-anchor-is-read
+  (testing ":variants-grid reads the spec-authoritative :for anchor
+            (rf2-ugmrg — previously :for was silently ignored and only
+            :story / the namespace derivation worked)"
+    (story/reg-variant :story.for-anchor/a {:events []})
+    (story/reg-variant :story.for-anchor/b {:events []})
+    (story/reg-variant :story.other-anchor/x {:events []})
+    (let [cells (workspace/resolve-layout
+                  ;; deliberately a NON-matching workspace ns so the
+                  ;; namespace derivation cannot supply the anchor — only
+                  ;; :for can. (`:Workspace.unrelated/grid` derives
+                  ;; `:story.unrelated`, which has no variants.)
+                  :Workspace.unrelated/grid
+                  {:layout :variants-grid :for :story.for-anchor})]
+      (is (= 2 (count cells))
+          ":for MUST drive the enumeration anchor")
+      (is (every? #(= :variant (:type %)) cells))
+      (is (= #{:story.for-anchor/a :story.for-anchor/b}
+             (set (map :variant-id cells)))))))
+
+(deftest variants-grid-for-takes-precedence-over-story
+  (testing "when both :for and :story are present, :for wins (the
+            spec-authoritative spelling — rf2-ugmrg). NOTE: the closed
+            schema rejects co-declaring them on a real reg-workspace; this
+            pins resolve-layout's precedence directly."
+    (story/reg-variant :story.prec-for/a {:events []})
+    (story/reg-variant :story.prec-for/b {:events []})
+    (story/reg-variant :story.prec-story/x {:events []})
+    (let [cells (workspace/resolve-layout
+                  :Workspace.prec/grid
+                  {:layout :variants-grid
+                   :for    :story.prec-for
+                   :story  :story.prec-story})]
+      (is (= #{:story.prec-for/a :story.prec-for/b}
+             (set (map :variant-id cells)))
+          ":for MUST take precedence over :story"))))
+
+(deftest variants-grid-story-still-honoured-without-for
+  (testing ":story remains a back-compat synonym when :for is absent"
+    (story/reg-variant :story.syn/a {:events []})
+    (story/reg-variant :story.syn/b {:events []})
+    (let [cells (workspace/resolve-layout
+                  :Workspace.unrelated2/grid
+                  {:layout :variants-grid :story :story.syn})]
+      (is (= 2 (count cells))))))
+
+(deftest grid-template-columns-honours-columns
+  (testing "grid-template-columns emits a fixed repeat(N, …) template when
+            :columns is a positive int (rf2-ugmrg)"
+    (is (= "repeat(3, minmax(280px, 1fr))"
+           (workspace/grid-template-columns 3)))
+    (is (= "repeat(1, minmax(280px, 1fr))"
+           (workspace/grid-template-columns 1))))
+  (testing "absent / nil / non-positive :columns keeps the responsive
+            auto-fit default"
+    (is (= "repeat(auto-fit, minmax(280px, 1fr))"
+           (workspace/grid-template-columns nil)))
+    (is (= "repeat(auto-fit, minmax(280px, 1fr))"
+           (workspace/grid-template-columns 0)))
+    (is (= "repeat(auto-fit, minmax(280px, 1fr))"
+           (workspace/grid-template-columns -2)))))
+
 ;; ---- docs mode (rf2-rodx) -----------------------------------------------
 
 ;; rf2-ee38b.3: the `docs/parent-story-id` re-export was dropped; the

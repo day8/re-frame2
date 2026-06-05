@@ -1082,17 +1082,16 @@
   (rf2-mantt per-key triage). They are declared optional here so closing
   does NOT drop intended authoring:
 
-  - `:columns` — `:grid` / `:variants-grid` column-count hint
-    (spec/001-Authoring.md:561). NOTE: declared + documented but NOT yet
-    honoured by the renderer — the grid CSS uses `auto-fit`. Filed as a
-    spec/impl-divergence follow-up; declared (not dropped) so authoring
-    that already sets it keeps validating.
-  - `:for` — `:variants-grid` auto-enumerate anchor story-id
-    (spec/001-Authoring.md:560, 573-602). Same divergence note: the
-    renderer reads the `:story` anchor slot, not `:for`.
-  - `:story` — the `:variants-grid` anchor slot the renderer ACTUALLY
-    reads (`re-frame.story.ui.workspace/resolve-layout`); declared so a
-    body that names the anchor explicitly validates.
+  - `:columns` — `:grid` / `:variants-grid` fixed column-count
+    (spec/001-Authoring.md §`:columns`). rf2-ugmrg: renderer-honoured —
+    when present the grid emits `repeat(N, minmax(280px,1fr))`; absent it
+    keeps the responsive `auto-fit` default.
+  - `:for` — `:variants-grid` auto-enumerate anchor story-id; the
+    spec-authoritative spelling (spec/001-Authoring.md §`:variants-grid`).
+    rf2-ugmrg: `resolve-layout` reads `:for` first, then `:story`, then
+    the namespace derivation.
+  - `:story` — `:for` back-compat synonym; the renderer reads it when
+    `:for` is absent (`re-frame.story.ui.workspace/resolve-layout`).
   - `:tags` — workspace tag set (the canonical testbed + examples author
     `:tags #{:docs}`).
 
@@ -1103,12 +1102,14 @@
     [:source    {:optional true} SourceCoords]
     [:layout    [:enum :grid :prose :variants-grid :tabs :custom]]
     [:variants  {:optional true} [:vector :keyword]]
-    ;; rf2-mantt — `:for` (spec name) + `:story` (renderer-read anchor)
-    ;; both name the `:variants-grid` auto-enumerate parent story.
+    ;; rf2-mantt + rf2-ugmrg — `:for` (spec-authoritative spelling) +
+    ;; `:story` (back-compat synonym) both name the `:variants-grid`
+    ;; auto-enumerate parent story; the renderer reads `:for` first,
+    ;; then `:story` (see `re-frame.story.ui.workspace/resolve-layout`).
     [:for       {:optional true} :keyword]
     [:story     {:optional true} :keyword]
-    ;; rf2-mantt — `:columns` is a documented `:grid` / `:variants-grid`
-    ;; column-count hint (not yet renderer-honoured; see docstring).
+    ;; rf2-mantt + rf2-ugmrg — `:columns` is a `:grid` / `:variants-grid`
+    ;; fixed column-count (renderer-honoured; see docstring).
     [:columns   {:optional true} [:int {:min 1}]]
     [:content   {:optional true} [:vector WorkspaceContentItem]]
     [:render    {:optional true} :keyword]
