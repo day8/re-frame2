@@ -97,17 +97,28 @@ Do NOT hardcode runtime values in the fx registration's options map — registra
 
 **Listener registered at boot.** When the reply channel is a single broadcast surface (a Web Worker's `onmessage`, a Service Worker `MessageChannel`, a native bridge), register the listener once at boot — it dispatches a correlation-keyed event; the fx-handler just posts and includes a correlation id in the payload.
 
+A boot-registered listener has **no ambient frame** when the reply fires — it is not inside the originating fx's closure — so the reply would land in `:rf/default` unless the originating frame round-trips through the posted message. The fx-handler reads `:frame` off its first-arg map and posts it as `:reply-frame`; the listener threads it back into the reply dispatch.
+
 ```clojure
 (defn install-worker-listener! [worker]
   (set! (.-onmessage worker)
         (fn [msg-event]
-          (let [{:keys [reply-event payload]} (js->clj (.-data msg-event) :keywordize-keys true)]
-            (rf/dispatch (conj reply-event payload))))))
+          (let [{:keys [reply-event payload reply-frame]}
+                (js->clj (.-data msg-event) :keywordize-keys true)]
+            ;; reply-frame came back from the posted message; without it the
+            ;; reply would silently land in :rf/default (see anti-patterns).
+            (rf/dispatch (conj reply-event payload)
+                         {:frame (keyword reply-frame)})))))   ;; "rf/default" → :rf/default
 
 (rf/reg-fx :worker/post
-  (fn fx-worker-post [_ {:keys [op args reply-event]}]
-    (.postMessage @worker-instance #js {:op op :args args :reply-event reply-event})))
+  (fn fx-worker-post [m {:keys [op args reply-event]}]
+    ;; subs/str preserves the namespace: (subs (str :rf/default) 1) => "rf/default"
+    (.postMessage @worker-instance
+                  #js {:op op :args args :reply-event reply-event
+                       :reply-frame (subs (str (:frame m)) 1)})))   ;; carry the originating frame
 ```
+
+(`(keyword "rf/default")` reconstructs the namespaced id, so the namespace survives the worker boundary. For a non-keyword or gensym'd frame id, capture an `(rf/frame-handle (:frame m))` at fx time instead and dispatch through `(:dispatch handle)`.)
 
 **Streaming / multi-reply.** LLM-style or SSE-style where each chunk is a separate dispatch. Each emission is a normal dispatched event; the receiving handler appends to a buffer slice. The fx posts once; the reply channel fires N events. Pattern-RemoteData's `:streaming` lifecycle layers on top.
 

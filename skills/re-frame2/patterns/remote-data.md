@@ -40,11 +40,14 @@ The dominant shape; used wherever an explicit `:status` keyword and Pattern-Remo
 
 (rf/reg-event-fx :articles/load
   (fn [{:keys [db]} _]
+    ;; First load runs against an EMPTY db — reg-app-schema validates app-db, it
+    ;; does NOT materialise schema :default values into it, so (:attempt) is nil
+    ;; on the first dispatch. Use (fnil inc 0), never bare inc, or it throws.
     (let [has-data? (some? (get-in db [:articles :data]))]
       {:db (-> db
                (assoc-in  [:articles :status] (if has-data? :fetching :loading))
                (assoc-in  [:articles :error]  nil)
-               (update-in [:articles :attempt] inc))
+               (update-in [:articles :attempt] (fnil inc 0)))
        :fx [[:rf.http/managed
              {:request    {:method :get :url "/api/articles"}
               :on-success [:articles/loaded]
@@ -63,6 +66,13 @@ The dominant shape; used wherever an explicit `:status` keyword and Pattern-Remo
     (-> db
         (assoc-in [:articles :status] :error)
         (assoc-in [:articles :error]  failure))))
+
+;; The fourth lifecycle event: seed (or re-seed) the whole slice explicitly.
+;; This is the supported way to initialise the slice — :default schema props
+;; are validation hints, not an app-db seed, so the slice must be written.
+(rf/reg-event-db :articles/reset
+  (fn [db _]
+    (assoc db :articles {:status :idle :data nil :error nil :loaded-at nil :attempt 0})))
 
 (rf/reg-sub :articles            (fn [db _] (get db :articles)))
 (rf/reg-sub :articles/status     :<- [:articles] :status)

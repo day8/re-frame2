@@ -71,20 +71,22 @@ When the parent destroys the child, the child's exit cascade fires `:ws/close` b
 
 ### Parent-side `:exit` on the `:spawn`-bearing state
 
-If the parent needs to capture the child's last reported value before tearing it down, declare a parent `:exit` action — it runs **before** the auto-destroy (Spec 005 §Composition with explicit `:entry` / `:exit`, `spec/005-StateMachines.md:1889`):
+If the parent needs to capture the child's last reported value before tearing it down, declare a parent `:exit` action — it runs **before** the auto-destroy (Spec 005 §Composition with explicit `:entry` / `:exit`, `spec/005-StateMachines.md:1889`). A machine action receives **only its context map** `(fn [{:keys [data event state meta]}] …)` — `app-db` is **not** in scope, and a direct `@app-db` read would both fail to compile and cross the frame / encapsulation boundary. The supported shape is: the child *reports* the value the parent needs (an ordinary event the parent folds into its own `:data`), then the parent `:exit` reads it straight off the context map's `:data`.
 
 ```clojure
 {:authenticating
  {:spawn {:machine-id :auth-flow}
-  :exit   (fn [{:keys [data]}]
-            ;; The child's snapshot is still at [:rf/runtime :machines :snapshots <id>]; read it.
-            {:fx [[:analytics/record [:auth-attempt
-                                      (get-in @app-db [:rf/runtime :machines :snapshots :auth-flow#1 :data])]]]})
-  :on     {:succeeded :authenticated
-           :failed    :auth-failed}}}
+  ;; Fold the child's progress reports into the parent's own :data as they arrive.
+  :on   {:auth-flow/progress {:action (fn [{data :data [_ report] :event}]
+                                        {:data (assoc data :last-auth-report report)})}
+         :succeeded :authenticated
+         :failed    :auth-failed}
+  ;; :exit reads the last report from the context map — never @app-db.
+  :exit (fn [{:keys [data]}]
+          {:fx [[:analytics/record [:auth-attempt (:last-auth-report data)]]]})}}
 ```
 
-The auto-destroy runs after the user's `:exit` — wire-level concatenation, not nesting.
+If the value lives only in the child's `:data` and the child never reported it up, the supported reads are an ordinary (non-machine) `reg-event-fx` with a cofx — which sees `app-db` through the proper frame API — or `(rf/app-db-value frame-id)` from outside any machine action. The auto-destroy runs after the user's `:exit` — wire-level concatenation, not nesting.
 
 ## Common gotchas
 

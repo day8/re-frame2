@@ -64,7 +64,9 @@ For trivial boots (≤3 steps, no error states, no progress UI), use the chained
       :authenticating
       {:entry  :phase-auth
        :spawn {:machine-id :auth/restore-session
-                :data       (fn [{:keys [data]} _] {:auth-url (-> data :config :auth-url)})}
+                ;; :spawn :data fn takes ONE context-map arg {:keys [snapshot event]};
+                ;; the parent's data lives at (:data snapshot), not the top-level arg.
+                :data       (fn [{:keys [snapshot]}] {:auth-url (-> snapshot :data :config :auth-url)})}
        :on     {:succeeded {:target :loading-profile}
                 :failed    [{:guard :under-retry-limit? :target :retrying-auth :action :bump-attempt}
                             {:target :auth-failed :action :record-error}]}}
@@ -74,8 +76,8 @@ For trivial boots (≤3 steps, no error states, no progress UI), use the chained
       :loading-profile
       {:entry  :phase-profile
        :spawn {:machine-id :rf.http/managed
-                :data       (fn [{:keys [data]} _]
-                              {:request {:method :get :url (-> data :config :profile-url)}
+                :data       (fn [{:keys [snapshot]}]
+                              {:request {:method :get :url (-> snapshot :data :config :profile-url)}
                                :decode  :json})}
        :on     {:succeeded {:target :hydrating :action :record-user}
                 :failed    {:target :profile-failed :action :record-error}}}

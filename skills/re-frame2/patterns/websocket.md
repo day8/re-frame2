@@ -125,9 +125,11 @@ The pattern below uses `:cred-ref` as the placeholder; substitute whatever opaqu
 
       :reconnecting
       {:always [{:guard :max-retries-exceeded? :target :failed}]
-       ;; fn-form delay — re-evaluated each :reconnecting entry against the entering snapshot.
-       :after  {(fn [snap] (let [{:keys [retries base-ms max-backoff-ms]} (:data snap)]
-                             (min (* base-ms (Math/pow 2 retries)) max-backoff-ms)))
+       ;; fn-form delay — ONE context-map arg {:keys [snapshot]}; the snapshot's
+       ;; :data is at (:data snapshot). Re-evaluated each :reconnecting entry.
+       :after  {(fn [{:keys [snapshot]}]
+                  (let [{:keys [retries base-ms max-backoff-ms]} (:data snapshot)]
+                    (min (* base-ms (Math/pow 2 retries)) max-backoff-ms)))
                 {:target [:active]}}
        :on     {:ws/connect     {:target [:active] :action :record-connection-opts}
                 :ws/rotate-cred {:action :rotate-cred}
