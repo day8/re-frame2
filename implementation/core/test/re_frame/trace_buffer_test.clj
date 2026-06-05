@@ -198,6 +198,95 @@
       (is (seq @recv)
           "live stream continues firing under cascades-retained 0"))))
 
+;; ---- 1e-bis. Re-configuring the process default retunes inherited rings ---
+;; (rf2-va65k finding 1)
+
+(deftest configure-lowers-already-used-inherited-frame
+  (testing "lowering the process default trims an ALREADY-USED inherited ring"
+    ;; The frame's ring is allocated (it emitted cascades) and inherits
+    ;; the process default — no per-frame override. Lowering the default
+    ;; afterwards must retune + trim it. The pre-fix bug: every allocated
+    ;; ring stores :cascades-retained, so the inherited/override guard was
+    ;; always true and configure! silently skipped this ring.
+    (rf/reg-event-db :ping (fn [db _] db))
+    (dotimes [_ 10] (rf/dispatch-sync [:ping]))
+    (is (= 10 (count (rf/trace-buffer :rf/default)))
+        ":rf/default retained all 10 cascades at the default cap")
+    (rf/configure! :trace-buffer {:cascades-retained 1})
+    (is (<= (count (rf/trace-buffer :rf/default)) 1)
+        "lowering the default trimmed the already-used inherited ring")
+    ;; A subsequent emit also respects the lowered cap.
+    (rf/dispatch-sync [:ping])
+    (is (<= (count (rf/trace-buffer :rf/default)) 1)
+        "post-reconfigure emits stay within the lowered cap")))
+
+(deftest configure-retunes-inherited-but-preserves-override
+  (testing "a re-configured default retunes inherited frames; explicit overrides survive"
+    (rf/configure! :trace-buffer {:cascades-retained 50})
+    ;; :tb/inherit takes the process default; :tb/pinned pins its own cap.
+    (rf/reg-frame :tb/inherit {:doc "inherits the default"})
+    (rf/reg-frame :tb/pinned  {:rf.trace/cascades-retained 8
+                               :doc "explicit per-frame override"})
+    (rf/reg-event-db :spam (fn [db _] db))
+    (dotimes [_ 10] (rf/dispatch-sync [:spam] {:frame :tb/inherit}))
+    (dotimes [_ 10] (rf/dispatch-sync [:spam] {:frame :tb/pinned}))
+    (is (= 10 (count (rf/trace-buffer :tb/inherit))))
+    (is (= 8  (count (rf/trace-buffer :tb/pinned)))
+        ":tb/pinned capped at its own override (8)")
+    ;; Lower the process default: inherited frame is retuned, override is not.
+    (rf/configure! :trace-buffer {:cascades-retained 2})
+    (is (<= (count (rf/trace-buffer :tb/inherit)) 2)
+        "inherited frame trimmed to the new default")
+    (is (= 8 (count (rf/trace-buffer :tb/pinned)))
+        "explicit per-frame override is NOT clobbered by the new default")))
+
+(deftest configure-zero-disables-inherited-ring-only
+  (testing "configure! 0 disables inherited rings but leaves overrides alone"
+    (rf/reg-frame :tb/inherit {:doc "inherits"})
+    (rf/reg-frame :tb/pinned  {:rf.trace/cascades-retained 4 :doc "override"})
+    (rf/reg-event-db :spam (fn [db _] db))
+    (dotimes [_ 6] (rf/dispatch-sync [:spam] {:frame :tb/inherit}))
+    (dotimes [_ 6] (rf/dispatch-sync [:spam] {:frame :tb/pinned}))
+    (rf/configure! :trace-buffer {:cascades-retained 0})
+    (is (= [] (rf/trace-buffer :tb/inherit))
+        "inherited ring disabled by the new 0 default")
+    (is (= 4 (count (rf/trace-buffer :tb/pinned)))
+        "override frame keeps its retained cascades")))
+
+;; ---- 1e-ter. Per-frame override registered BEFORE first emit -------------
+;; (rf2-va65k finding 2)
+
+(deftest per-frame-override-before-first-emit-does-not-crash
+  (testing "reg-frame with a low cap BEFORE first dispatch survives a cap-exceeding burst"
+    ;; Pre-fix: set-frame-cascades-retained! wrote a partial
+    ;; {:cascades-retained N} map (no :cascade-order). push-to-ring!
+    ;; started :cascade-order from nil → conj built a PersistentList →
+    ;; subvec threw ClassCastException once the cap was exceeded.
+    (rf/reg-frame :tb/early {:rf.trace/cascades-retained 3
+                             :doc "cap registered before first emit"})
+    (rf/reg-event-db :tb/ev (fn [db _] db))
+    ;; Four dispatches: the fourth pushes past the cap of 3.
+    (is (nil? (dotimes [_ 4] (rf/dispatch-sync [:tb/ev] {:frame :tb/early})))
+        "dispatch past the cap does not throw")
+    (let [cs (rf/trace-buffer :tb/early)]
+      (is (= 3 (count cs))
+          "ring caps at the per-frame override of 3")
+      ;; Oldest-first retained order: the FIRST cascade was evicted, so
+      ;; the three retained dispatch-ids are strictly increasing and the
+      ;; earliest retained is greater than the very first emitted id.
+      (let [ids (mapv :dispatch-id cs)]
+        (is (apply < ids) "retained cascades are in oldest-first order")
+        (is (= ids (vec (sort ids))) "oldest-first preserved after eviction")))))
+
+(deftest per-frame-override-zero-before-first-emit-disables-cleanly
+  (testing "a 0 per-frame override before first emit disables the ring without crashing"
+    (rf/reg-frame :tb/silent {:rf.trace/cascades-retained 0 :doc "disabled"})
+    (rf/reg-event-db :tb/ev (fn [db _] db))
+    (is (nil? (dotimes [_ 5] (rf/dispatch-sync [:tb/ev] {:frame :tb/silent})))
+        "dispatches against a 0-cap override frame do not throw")
+    (is (= [] (rf/trace-buffer :tb/silent))
+        "0-cap override retains nothing")))
+
 ;; ---- 1f. clear-trace-buffer! and frame-destroy --------------------------
 
 (deftest clear-trace-buffer-clears-only-the-named-frame
