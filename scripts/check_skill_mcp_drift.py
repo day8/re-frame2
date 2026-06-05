@@ -151,6 +151,58 @@ MAPPINGS: list[Mapping] = [
     # The host prefix is `re-frame2-story-mcp` per both skills' allowed-tools
     # entries (the MCP server's advertised name).
     Mapping(
+        # rf2-ia7qf finding 3: re-frame2-pair-retro is transcript-first and
+        # grants exactly ONE re-frame2-pair MCP tool — the read-only
+        # `discover-app` — use-gated to its opt-in live-runtime probe
+        # (SKILL.md §Guard rails + references/known-frictions.md
+        # §Tool-catalogue). Every OTHER pair-mcp tool is intentionally NOT
+        # consumed by this skill (deeper live work routes to the
+        # re-frame2-pair skill instead). Marking them server-only here turns
+        # the MCP axis into the structural check finding 3 asks for: the
+        # MISSING-IN-SERVER direction fails if the skill ever allow-lists a
+        # phantom (e.g. names an opt-in tool the server dropped), and the
+        # MISSING-IN-SKILL direction is silenced ONLY for the deliberately
+        # un-consumed tools — so adding a new opt-in tool to the prose
+        # without allow-listing it surfaces as drift the moment it is also
+        # dropped from this set.
+        name="re-frame2-pair-mcp <-> re-frame2-pair-retro",
+        server_src=(REPO_ROOT / "tools" / "re-frame2-pair-mcp" / "src" / "re_frame2_pair_mcp" / "tools" / "descriptors_data.cljs",),
+        host_prefix="re-frame2-pair",
+        skill_md=REPO_ROOT / "skills" / "re-frame2-pair-retro" / "SKILL.md",
+        intentional_server_only=frozenset({
+            # Everything except the single opt-in read-only probe
+            # `discover-app`. This skill operates on a transcript / recap;
+            # all live-operation tools belong to the re-frame2-pair skill.
+            "orient",
+            "eval-cljs",
+            "dispatch",
+            "dispatch-dry-run",
+            "restore-epoch",
+            "reset-frame-db",
+            "trace-window",
+            "watch-epochs",
+            "tail-build",
+            "snapshot",
+            "get-path",
+            "read-sub",
+            "read-dom",
+            "read-ui",
+            "record",
+            "read-recording",
+            "watch-until",
+            "subscribe",
+            "unsubscribe",
+            "list-subscriptions",
+            "list-streams",
+            "handler-meta",
+            "list-handlers",
+            "set-operating-frame",
+            "reset-operating-frame",
+            "get-operating-frame",
+            "get-re-frame2-pair-instructions",
+        }),
+    ),
+    Mapping(
         name="story-mcp <-> re-frame2",
         server_src=_STORY_MCP_LEAVES,
         host_prefix="re-frame2-story-mcp",

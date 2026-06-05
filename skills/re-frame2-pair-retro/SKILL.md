@@ -26,6 +26,21 @@ allowed-tools:
  - Bash(gh issue list *)
  - Bash(gh issue view *)
  - Bash(gh issue create *)
+ # Read-only: detect which optional labels the target repo actually
+ # defines, so a `gh issue create --label …` only ever passes labels that
+ # exist (an unknown label fails the whole create). Filing degrades to a
+ # no-label baseline when absent — see references/issue-template.md.
+ - Bash(gh label list *)
+ # Opt-in live-runtime probe (NOT default). Read-only discovery — the
+ # single re-frame2-pair MCP tool the skill may reach for, and only when
+ # the retro is tied to an in-conversation live re-frame2-pair session
+ # whose runtime is already attached AND the user has confirmed a probe.
+ # Captures the live build id / health / session sentinel and, with the
+ # server's `tools/list` (an MCP protocol method, available implicitly
+ # when any MCP tool is granted), sanity-checks tool availability. Recap-
+ # only and offline retros never probe — see §Guard rails "Live-runtime
+ # probes are opt-in" and references/known-frictions.md §Tool-catalogue.
+ - mcp__re-frame2-pair__discover-app
 ---
 
 # re-frame2-pair-retro
@@ -47,7 +62,7 @@ Deliver:
 - **Friction points before root causes.** Let the user pick which ones to dig into.
 - **Default to diagnosis, not contribution.** Do not assume the user wants to file a GitHub issue or propose a patch. The default tool grant is read-only — `Read`, `Grep`, `Glob`, plus `gh issue list` / `gh issue view` for searching existing issues. Mutation (`gh issue create`) is granted but gated by the approval rule below.
 - **Never file a GitHub issue without explicit user approval.** Drafting issue text is fine; running `gh issue create` is not, until the user has seen the draft and said go. The skill does NOT carry `Edit` in its tool grant, and its only `Write` use is composing the issue body to a temp file (`/tmp/issue-body.md`) for `gh issue create --body-file` — proposing source rewrites in another repo is out of scope; route those as issue suggestions, not edits. The `--title` has no `--body-file` equivalent, so author it from a safe alphabet and never paste evidence text into it (see [`../shared/issue-filing.md`](../shared/issue-filing.md) §Shell-safety: the title is an inline argument).
-- **Live-runtime probes are opt-in.** The skill operates on a session transcript or a user-supplied recap — it does not probe the live re-frame2 runtime by default. `mcp__re-frame2-pair__discover-app` and other re-frame2-pair MCP tools are NOT in the default tool grant; reach for them only when the retro is explicitly tied to an in-conversation live re-frame2-pair session whose runtime is already attached and the user has confirmed a runtime probe is wanted. Recap-only and offline retros never probe.
+- **Live-runtime probes are opt-in.** The skill operates on a session transcript or a user-supplied recap — it does not probe the live re-frame2 runtime by default. The allow-list grants exactly one re-frame2-pair MCP tool — the read-only `mcp__re-frame2-pair__discover-app` — and that grant is **use-gated, not default**: reach for it only when the retro is explicitly tied to an in-conversation live re-frame2-pair session whose runtime is already attached and the user has confirmed a runtime probe is wanted. No other re-frame2-pair MCP tool is in the grant — if the probe needs more than `discover-app` + the server's `tools/list` (e.g. dispatching, reading app-db, walking epochs), that is live pair-programming, not a retro: route the user to the `re-frame2-pair` skill (which carries the full live allow-list) and reason from the transcript here. Recap-only and offline retros never probe.
 - **Stay focused on improving `re-frame2-pair`.** If the right fix is upstream in `re-frame2` — a gap in one of the Tool-Pair surfaces enumerated in [`../shared/tool-pair-surfaces.md`](../shared/tool-pair-surfaces.md) (trace stream, registrar query API, epoch-history / restore, schema reflection, source-coord annotation) — say so and route the proposal to a GitHub issue against the `re-frame2` repo, not `re-frame2-pair`. Name the specific surface from that leaf rather than gesturing at "the contract."
 - **Tracker boundary — file GitHub issues, never `bd` beads.** `bd` is the re-frame2 monorepo's internal tracker; skills consumed downstream file against the target repo's GitHub issues via `gh issue create`. The full filing recipe (tracker boundary, file-after-approval, search-before-file, shell-safe `--body-file`, redaction reminder, body shape) lives in [`../shared/issue-filing.md`](../shared/issue-filing.md); §Filing improvements below is the re-frame2-pair-retro specialisation of it.
 - **Do not propose fixes via `re-frame-10x`.** v2's pair tooling does not depend on it. Time-travel and trace-stream consumption ride directly on `re-frame2`'s Tool-Pair surfaces — the canonical surface enumeration and the "supersedes re-frame-10x" claim live in [`../shared/tool-pair-surfaces.md`](../shared/tool-pair-surfaces.md).
@@ -64,11 +79,11 @@ When in doubt, ask: *"Was there a `re-frame2-pair` session you want me to retros
 
 ## Working style
 
-Diagnostic posture rules (evidence over vibes; symptom vs cause; direct/indirect friction; positive gaps; creatively ambitious *after* diagnosis) live in [`spec/design.md` §8 Working style](spec/design.md#8-working-style-meta-process). Apply them per finding.
+Diagnostic posture rules (evidence over vibes; symptom vs cause; direct/indirect friction; positive gaps; creatively ambitious *after* diagnosis) live in [`references/working-style.md`](references/working-style.md). Apply them per finding.
 
 ## Analysis workflow
 
-Load [`../shared/retro-protocol.md`](../shared/retro-protocol.md) — the seven-step diagnosis-first workflow, evidence-citation discipline, layer-routing rules, and opt-in issue-filing protocol shared with `re-frame2-improver`. The protocol leaf is the normative source for the workflow shape; the six steps below are the re-frame2-pair-retro specialisation — the protocol's step 3 "route to detection rule" is inlined via the lens cross-links (steps 4-5 below) and its step 7 "voice" via [`spec/design.md` §8 Working style](spec/design.md#8-working-style-meta-process).
+Load [`../shared/retro-protocol.md`](../shared/retro-protocol.md) — the seven-step diagnosis-first workflow, evidence-citation discipline, layer-routing rules, and opt-in issue-filing protocol shared with `re-frame2-improver`. The protocol leaf is the normative source for the workflow shape; the six steps below are the re-frame2-pair-retro specialisation — the protocol's step 3 "route to detection rule" is inlined via the lens cross-links (steps 4-5 below) and its step 7 "voice" via [`references/working-style.md`](references/working-style.md).
 
 1. **Reconstruct the session goal.** The user's intended outcome, plus environment facts (platform, target repo, live runtime state, tooling constraints).
 2. **Build a short timeline.** Turns where progress stalled, restarted, detoured, required a workaround. Tool errors, empty/stale outputs, retries, clarification loops.
@@ -104,7 +119,7 @@ Filing is a **two-step, approval-gated** mode — distinct from the default diag
 
 After presenting the retrospective, offer filing work only if useful: draft issue text, file via `gh issue create` against the appropriate repo, or split into multiple focused issues.
 
-**Routing.** Both kinds of friction file against `day8/re-frame2` (the monorepo that ships the pair tool), distinguished by the `pair-mcp` label. **Pair-tool friction** (`--label pair-mcp`) — friction in the pair tool itself (SKILL.md, scripts, recipes, structured results, attach/discovery, cross-platform). **Framework friction** (no `pair-mcp` label) — friction caused by the framework's Tool-Pair contract; name the specific surface from [`../shared/tool-pair-surfaces.md`](../shared/tool-pair-surfaces.md) (trace stream, registrar query API, epoch-history / restore, schema reflection, source-coord annotation) rather than re-spelling the list here.
+**Routing.** Both kinds of friction file against `day8/re-frame2` (the monorepo that ships the pair tool), distinguished — *when the labels exist* — by the `pair-mcp` label. **Pair-tool friction** (optional `--label pair-mcp`) — friction in the pair tool itself (SKILL.md, scripts, recipes, structured results, attach/discovery, cross-platform). **Framework friction** (no `pair-mcp` label) — friction caused by the framework's Tool-Pair contract; name the specific surface from [`../shared/tool-pair-surfaces.md`](../shared/tool-pair-surfaces.md) (trace stream, registrar query API, epoch-history / restore, schema reflection, source-coord annotation) rather than re-spelling the list here. **Labels are optional taxonomy, not a filing precondition** — `gh issue create` fails the whole command on an unknown `--label`, and the target repo may not define `retro` / `pair-mcp` / `upstream-from-re-frame2-pair`. Always carry the tool-vs-framework distinction in the title + body; pass a `--label` only after confirming the repo defines it (detect with `gh label list`), and fall back to a no-label `gh issue create` so the handoff lands regardless. See [`references/issue-template.md` §Filing with `gh issue create`](references/issue-template.md).
 
 **Filing mechanics — shared recipe.** The procedural rules (redact secrets / tokens / internal URLs / unnecessary local paths, don't dump the raw transcript, search for an existing issue before filing, one issue per materially distinct improvement, the shell-safe `Write`-tool + `--body-file` pattern for the body, and the shell-safe **title** rule — author `--title` from a safe alphabet, never paste an evidence-derived string into it, since `gh` has no `--title-file`) live once in [`../shared/issue-filing.md`](../shared/issue-filing.md). Follow it; this skill adds the routing above and the body skeleton in [`references/issue-template.md`](references/issue-template.md) (the worked `gh issue create` example with re-frame2-pair-retro's label scheme).
 
@@ -124,3 +139,4 @@ After presenting the retrospective, offer filing work only if useful: draft issu
 - [`references/analysis-lenses.md`](references/analysis-lenses.md) — friction signals (generic + re-frame2-specific), root-cause categories, improvement patterns, routing decisions, prioritization.
 - [`references/known-frictions.md`](references/known-frictions.md) — recurring classes of `re-frame2-pair` pain; sanity-check one-off vs pattern.
 - [`references/issue-template.md`](references/issue-template.md) — GitHub-issue body template (+ shell-safety pattern for transcript-derived bodies).
+- [`references/working-style.md`](references/working-style.md) — diagnostic-posture rules (evidence over vibes, symptom vs cause, direct/indirect friction, positive gaps, creativity after diagnosis). Applied per finding; cross-linked from §Working style and the analysis workflow.
