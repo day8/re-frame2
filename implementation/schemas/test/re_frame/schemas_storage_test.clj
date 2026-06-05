@@ -327,6 +327,79 @@
     (is (true? (validate/validate-app-schema! {:n 0} :test))
         "a conforming value at the valid path passes")))
 
+;; ---- malformed-schema fail-closed invariant (rf2-ss06u.3) ----------------
+;;
+;; Same fail-OPEN class as the sk0ql PATH bypass, but via a malformed SCHEMA
+;; value. Malli validates schema FORMS lazily (at validate-time), so a
+;; childless `[:vector]` / unknown op registers fine and then makes the
+;; validator THROW on the first post-commit validation. Before the fix the
+;; throw aborted the whole validate-app-schema! loop and the router's
+;; `(catch ... true)` swallowed it as a validation PASS — installing an
+;; unvalidated commit with no trace and no rollback, AND disabling validation
+;; (incl. the privacy redaction traces) frame-wide for the bad schema's
+;; lifetime. The fix isolates the throw per-entry: a distinct
+;; :rf.error/malformed-schema trace fires, validate-app-schema! returns
+;; FALSE (fail-closed → router rolls back — does NOT install blind), and the
+;; frame's sibling schemas are still validated.
+
+(defn- malformed-trace
+  "Validate `db` against the named frame, capturing the schema-validation /
+  malformed-schema traces. Returns {:result <bool> :traces [...]}. Does NOT
+  swallow throws — a regression that re-introduces the throw fails the
+  `:result` assertion loudly."
+  [db failing-id frame]
+  (let [traces (atom [])
+        kw     (keyword "ss06u.3" (name (gensym "l")))]
+    (rf/register-listener! kw (fn [ev] (swap! traces conj ev)))
+    (let [result (validate/validate-app-schema! db failing-id frame)]
+      (rf/unregister-listener! kw)
+      {:result result :traces @traces})))
+
+(deftest malformed-schema-no-silent-pass-childless-vector
+  (testing "rf2-ss06u.3 — a childless [:vector] registered schema does NOT
+            yield a silent commit-pass: validate-app-schema! returns false
+            (fail-closed → rollback) without THROWING, and a distinct
+            :rf.error/malformed-schema trace fires."
+    (rf/reg-app-schema [:x] [:vector] {:frame :ss06u.3/a})
+    (let [{:keys [result traces]} (malformed-trace {:x [1 2 3]} :bad/ev :ss06u.3/a)
+          mal (filter #(= :rf.error/malformed-schema (:operation %)) traces)]
+      (is (false? result)
+          "fail-closed: false (rollback), NOT the swallowed silent true")
+      (is (= 1 (count mal)) "exactly one malformed-schema trace fired")
+      (let [m (first mal)]
+        (is (= :app-db (-> m :tags :where)))
+        (is (= [:x] (-> m :tags :path)) ":path is the structural registration root")
+        (is (= [:vector] (-> m :tags :schema)) ":schema carries the malformed form to fix")
+        (is (string? (-> m :tags :reason)))))))
+
+(deftest malformed-schema-no-silent-pass-unknown-op
+  (testing "rf2-ss06u.3 — an unknown-op registered schema also fails closed
+            with a distinct trace, no throw."
+    (rf/reg-app-schema [:y] [:not-a-real-op :int] {:frame :ss06u.3/b})
+    (let [{:keys [result traces]} (malformed-trace {:y 1} :bad/ev :ss06u.3/b)
+          mal (filter #(= :rf.error/malformed-schema (:operation %)) traces)]
+      (is (false? result) "fail-closed: false, no throw")
+      (is (= 1 (count mal)) "one malformed-schema trace fired"))))
+
+(deftest malformed-schema-does-not-poison-sibling-validation
+  (testing "rf2-ss06u.3 — a malformed schema at one path does NOT silently
+            disable validation for OTHER paths in the same frame. Register a
+            good schema + a malformed schema; commit a value that violates
+            the GOOD schema; the good schema's rollback/trace STILL fires."
+    (rf/reg-app-schema [:good]   [:int]    {:frame :ss06u.3/c})
+    (rf/reg-app-schema [:broken] [:vector] {:frame :ss06u.3/c}) ; childless — malformed
+    (let [{:keys [result traces]} (malformed-trace
+                                    {:good "not-an-int" :broken [1]}
+                                    :bad/ev :ss06u.3/c)
+          good-fail (filter #(and (= :rf.error/schema-validation-failure (:operation %))
+                                  (= [:good] (-> % :tags :path)))
+                            traces)
+          mal       (filter #(= :rf.error/malformed-schema (:operation %)) traces)]
+      (is (false? result) "fail-closed: false (rollback)")
+      (is (= 1 (count good-fail))
+          "the GOOD schema's validation-failure STILL fires — not poisoned by the malformed sibling")
+      (is (= 1 (count mal)) "the malformed schema surfaces its own distinct trace"))))
+
 ;; ---- snapshot / restore / clear (test-support seam) ----------------------
 
 (deftest snapshot-and-restore-roundtrip

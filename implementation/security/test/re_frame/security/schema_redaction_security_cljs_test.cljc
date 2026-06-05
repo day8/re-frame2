@@ -104,7 +104,15 @@
     (fn [rng]
       [[[:string {:sensitive? true}] [sentinel]] rng])
     (fn [rng]
-      (let [[wrap rng1] (gen/rand-nth rng [:map :vector :sequential :map-of :tuple])
+      (let [[wrap rng1] (gen/rand-nth rng [:map :vector :sequential :map-of :tuple
+                                           ;; rf2-ss06u.1 / rf2-ss06u.2 — the
+                                           ;; set-element-value `:path` leak
+                                           ;; and the consumed-ancestor
+                                           ;; transparent-wrapper leaks. These
+                                           ;; reach align-in-path's :else
+                                           ;; fallback (or carry the element
+                                           ;; value into :path for :set).
+                                           :set :and :or :multi :orn])
             [[inner-schema inner-val] rng2] ((gen-shape (dec depth)) rng1)]
         (case wrap
           :map
@@ -122,7 +130,43 @@
 
           :tuple
           ;; sensitive slot is element 1; element 0 is an int filler.
-          [[[:tuple :int inner-schema] [0 inner-val]] rng2])))))
+          [[[:tuple :int inner-schema] [0 inner-val]] rng2]
+
+          ;; rf2-ss06u.1 — a :set wraps a MAP carrying the sensitive inner
+          ;; slot (so the set element is a navigable map, mirroring the bead
+          ;; repro) under a random key. Malli reports the element VALUE as the
+          ;; :in segment, so the failing element (incl. the sentinel) would
+          ;; ride verbatim in :path absent the sanitiser.
+          :set
+          (let [[k rng3] (gen-key rng2)]
+            [[[:set [:map [k inner-schema]]] #{{k inner-val}}] rng3])
+
+          ;; rf2-ss06u.2 — transparent single-child wrappers that
+          ;; align-in-path cannot resolve. We make the WRAPPER slot the
+          ;; sensitive container (props on the named :map slot) so the
+          ;; sensitivity is on a CONSUMED ANCESTOR; the failing leaf lives
+          ;; under the :and/:or/:multi/:orn. Absent the prefix-carry fix the
+          ;; leftover subtree shows no sensitivity and the value leaks.
+          :and
+          (let [[k rng3] (gen-key rng2)]
+            [[[:map [k {:sensitive? true} [:and inner-schema]]] {k inner-val}] rng3])
+
+          :or
+          (let [[k rng3] (gen-key rng2)]
+            [[[:map [k {:sensitive? true} [:or inner-schema]]] {k inner-val}] rng3])
+
+          :multi
+          (let [[k rng3] (gen-key rng2)]
+            ;; :multi needs a dispatch; wrap the inner under a single branch
+            ;; keyed by a fixed dispatch value carried in the value map.
+            [[[:map [k {:sensitive? true}
+                     [:multi {:dispatch :rf2/d}
+                      [:x [:map [:rf2/d :keyword] [:v inner-schema]]]]]]
+              {k {:rf2/d :x :v inner-val}}] rng3])
+
+          :orn
+          (let [[k rng3] (gen-key rng2)]
+            [[[:map [k {:sensitive? true} [:orn [:x inner-schema]]]] {k inner-val}] rng3]))))))
 
 (def ^:private gen-nested-sensitive
   "Draw a `[schema db-value]` with a sentinel-bearing :sensitive? slot at a
@@ -201,6 +245,60 @@
         (is (not (contains-sentinel? v))
             (str label ": sentinel leaked into the trace: "
                  (pr-str (:tags v))))))))
+
+;; ---------------------------------------------------------------------------
+;; HOSTILE CORPUS - the rf2-ss06u.1 / rf2-ss06u.2 egress leaks, pinned.
+;;   ss06u.1: a :set failure ships the failing ELEMENT VALUE in the
+;;            structural :path tag (Malli reports the value, not an index).
+;;   ss06u.2: a sensitive CONTAINER wrapped by :and/:or/:multi/:orn drops the
+;;            consumed-ancestor sensitivity in align-in-path's fallback, so
+;;            the failing value (and :explain) ride verbatim, unstamped.
+;; The :set case asserts BOTH the value-bearing slots AND the :path tag carry
+;; no sentinel; the wrapper cases assert the value-bearing slots are redacted
+;; and stamped. One escaped shape = one egress leak.
+;; ---------------------------------------------------------------------------
+
+(deftest ss06u-set-path-tag-carries-no-secret
+  (testing "rf2-ss06u.1 - a :set of sensitive maps must not ship the failing
+            element value in ANY slot, including the structural :path tag"
+    ;; The sentinel rides as a sibling :ssn (a plain string) so a leak would
+    ;; surface it verbatim in :path even though the :token value is redacted.
+    (let [v (failure-trace
+              [:set [:map [:token {:sensitive? true} :string] [:ssn :string]]]
+              #{{:token [sentinel] :ssn (str "ssn-" sentinel)}})]
+      (is (some? v) "a trace fired")
+      (is (true? (:sensitive? v)) "top-level :sensitive? stamp")
+      (is (= :rf/redacted (-> v :tags :value)) ":value redacted")
+      (is (= :rf/redacted (-> v :tags :explain)) ":explain redacted")
+      ;; The crux: NO sentinel anywhere, AND specifically not in :path.
+      (is (not (contains-sentinel? (-> v :tags :path)))
+          (str "the sentinel leaked into the :path tag: " (pr-str (-> v :tags :path))))
+      (is (not (contains-sentinel? v))
+          (str "the sentinel leaked somewhere in the trace: " (pr-str (:tags v)))))))
+
+(deftest ss06u-ancestor-sensitive-wrapper-corpus-all-redacted
+  (testing "rf2-ss06u.2 - a sensitive container whose failing leaf is under a
+            transparent :and/:or/:multi/:orn wrapper redacts + stamps"
+    (doseq [[label schema db]
+            [["and-ancestor"
+              [:map [:s {:sensitive? true} [:and [:map [:k :int]]]]]
+              {:s {:k sentinel}}]
+             ["or-ancestor"
+              [:map [:s {:sensitive? true} [:or [:map [:k :int]]]]]
+              {:s {:k sentinel}}]
+             ["multi-ancestor"
+              [:map [:s {:sensitive? true}
+                     [:multi {:dispatch :t} [:a [:map [:t :keyword] [:k :int]]]]]]
+              {:s {:t :a :k sentinel}}]
+             ["orn-ancestor"
+              [:map [:s {:sensitive? true} [:orn [:a [:map [:k :int]]]]]]
+              {:s {:k sentinel}}]]]
+      (let [v (failure-trace schema db)]
+        (is (some? v) (str label ": a trace fired"))
+        (is (true? (:sensitive? v)) (str label ": top-level :sensitive? stamp"))
+        (is (= :rf/redacted (-> v :tags :value)) (str label ": :value redacted"))
+        (is (not (contains-sentinel? v))
+            (str label ": sentinel leaked into the trace: " (pr-str (:tags v))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; NO OVER-REDACTION - a failure at a NON-sensitive slot must NOT be redacted

@@ -72,6 +72,25 @@
   with `:explain` (present as the `:rf/redacted` sentinel on sensitive
   failures, not omitted).
 
+  Per rf2-ss06u.1 the `:path` tag's normally-structural segments have one
+  value-bearing carve-out: a `:set` failure's segment is the failing
+  ELEMENT VALUE itself (Malli has no positional index for a set). On a
+  sensitive `:set`-nested failure `validate-app-schema!` scrubs that
+  segment to `:rf/redacted` via `walker/sanitize-sensitive-path` so the
+  sensitive element (and any sibling secrets in it) never ships verbatim
+  in `:path` — navigable `:vector` / `:map-of` / `:tuple` / map segments
+  stay intact so `:path` remains a `get-in` locator for those shapes.
+
+  Per rf2-ss06u.3 a structurally MALFORMED registered schema (childless
+  `[:vector]`, unknown op) makes the registered validator THROW at
+  validate-time (Malli validates schema forms lazily). `validate-app-schema!`
+  isolates that throw PER-ENTRY, emits the distinct
+  `:rf.error/malformed-schema` category, fails CLOSED (in-band `false` →
+  the router rolls back; it does NOT install the unvalidated commit), and
+  keeps validating the frame's sibling schemas — so one bad schema can
+  never masquerade as a clean validate (the prior router `(catch … true)`
+  swallow) nor disable post-commit validation frame-wide.
+
   Per rf2-4fbsd the emit-sites carry two slots for the failing value
   (`:value` and `:received`, per Spec 010 §`:sensitive?`) and one slot
   for the registered explainer's output (`:explain`). The earlier
@@ -264,6 +283,53 @@
   [tags]
   (trace/emit-error! :rf.error/schema-validation-failure tags))
 
+(defn- emit-malformed-schema!
+  "Single emit seam for `:rf.error/malformed-schema` traces (rf2-ss06u.3).
+
+  A malformed REGISTERED schema (a childless `[:vector]`, an unknown op,
+  etc.) registers without error — Malli validates schema FORMS lazily, at
+  validate-time — then makes the registered validator THROW on the first
+  post-commit validation. Before this fix the throw aborted the whole
+  `validate-app-schema!` loop and was swallowed by the router's defensive
+  `(catch ... true)` as a validation PASS: the offending commit installed
+  unvalidated with no trace and no rollback, AND every OTHER registered
+  schema for the frame went unvalidated for as long as the bad schema
+  stayed registered (the privacy-bearing redaction traces never fired
+  frame-wide). Same fail-open class as the rf2-sk0ql path bypass, via the
+  SCHEMA vector instead of the PATH vector.
+
+  This emit surfaces the structural error as its OWN distinct category so
+  it can never masquerade as a clean validate. `:path` / `:registered-path`
+  / `:frame` are structural locator slots (no user value). The schema FORM
+  itself rides under `:schema` (the offending registration the developer
+  must fix); the throwing-validator message rides under `:reason`. The
+  app-db value is NOT included — a malformed schema is a programming
+  error, and including the value would re-open the very leak the per-entry
+  isolation closes (the validator never proved sensitivity, so we cannot
+  redact path-targeted; omitting the value is fail-closed)."
+  [tags]
+  (trace/emit-error! :rf.error/malformed-schema tags))
+
+(defn- validate-entry-result
+  "Run the registered validator for one `(schema, value)` entry, isolating
+  a malformed-schema throw (rf2-ss06u.3). Returns:
+    - `true`               — the value conformed.
+    - `false`              — a legitimate validation failure.
+    - `[:malformed ex]`    — the validator THREW (a malformed registered
+                             schema: childless `[:vector]`, unknown op, …).
+
+  Per rf2-ss06u.3 the throw MUST be caught HERE (per-entry) rather than
+  propagate to the router's `(catch ... true)` — otherwise one malformed
+  schema aborts the whole frame's validation loop and is swallowed as a
+  silent commit-PASS. Catching per-entry lets the caller emit a distinct
+  `:rf.error/malformed-schema` trace, fail CLOSED (roll back — do not
+  install blind), AND continue validating the frame's sibling schemas."
+  [vf schema value]
+  (try
+    (boolean (vf schema value))
+    (catch #?(:clj Throwable :cljs :default) ex
+      [:malformed ex])))
+
 (defn- run-validation
   "Shared core of the four meta-bearing validate-*! fns (event / cofx /
   fx / sub). Performs the registered-validator deref, the
@@ -394,9 +460,43 @@
               ok?     true]
          (if-let [[reg-path schema-meta] (first entries)]
            (let [reg-slice (get-in db reg-path)
-                 schema    (:schema schema-meta)]
-             (if (vf schema reg-slice)
+                 schema    (:schema schema-meta)
+                 ;; Per rf2-ss06u.3 — isolate a malformed-schema throw per
+                 ;; entry so it can never abort the loop (which would skip
+                 ;; every sibling schema) NOR propagate to the router's
+                 ;; `(catch ... true)` (which swallows a throw as a silent
+                 ;; validation PASS — installing an unvalidated commit).
+                 result    (validate-entry-result vf schema reg-slice)]
+             (cond
+               ;; Conformed — carry the running pass-state forward.
+               (true? result)
                (recur (next entries) ok?)
+
+               ;; Malformed registered schema (validator threw). Surface a
+               ;; DISTINCT `:rf.error/malformed-schema` trace and fail
+               ;; CLOSED (`ok? false` → the router rolls back; we do NOT
+               ;; install blind). Continue to the sibling entries so one
+               ;; bad schema does not disable validation frame-wide.
+               (and (vector? result) (= :malformed (first result)))
+               (let [ex     (second result)
+                     reason #?(:clj  (.getMessage ^Throwable ex)
+                               :cljs (ex-message ex))]
+                 (emit-malformed-schema!
+                   (cond-> {:where           :app-db
+                            :path            reg-path
+                            :registered-path reg-path
+                            :schema          schema
+                            :frame           frame-id
+                            :reason          (str "Registered app-db schema at path "
+                                                  reg-path " is malformed and could "
+                                                  "not be evaluated: " reason)
+                            :rollback?       true
+                            :recovery        :no-recovery}
+                     event-id (assoc :failing-id event-id)))
+                 (recur (next entries) false))
+
+               ;; Legitimate validation failure — the existing emit path.
+               :else
                (do
                  ;; Per rf2-oh4se — make the failure path precise and
                  ;; the sensitivity decision path-targeted.
@@ -440,15 +540,30 @@
                  ;; perform the actual container restoration.
                  (let [explanation (validator/run-explainer schema reg-slice)
                        in-path     (failing-in-path explanation)
-                       leaf-path   (if in-path
-                                     (vec (concat reg-path in-path))
-                                     reg-path)
                        leaf-value  (if in-path
                                      (get-in reg-slice in-path)
                                      reg-slice)
                        sensitive?  (if in-path
                                      (walker/schema-sensitive-at? schema in-path)
                                      (walker/schema-has-sensitive? schema))
+                       ;; Per rf2-ss06u.1 — a `:set` failure's `:in`
+                       ;; segment is the failing ELEMENT VALUE itself
+                       ;; (Malli has no positional index for a set), so
+                       ;; concatenating the raw `:in` into the structural
+                       ;; `:path` tag ships the entire sensitive element
+                       ;; map (sibling secrets included) VERBATIM —
+                       ;; defeating the redaction the `:value` / `:explain`
+                       ;; slots apply. When the slot is sensitive, scrub the
+                       ;; `:set`-element value segments out of the `:path`
+                       ;; (navigable `:vector` / `:map-of` / `:tuple` / map
+                       ;; segments are kept so `:path` stays a useful
+                       ;; locator for those shapes — the bead regression).
+                       path-in     (if (and in-path sensitive?)
+                                     (walker/sanitize-sensitive-path schema in-path)
+                                     in-path)
+                       leaf-path   (if path-in
+                                     (vec (concat reg-path path-in))
+                                     reg-path)
                        ;; Per rf2-qhq3f — humanize from the RAW
                        ;; explanation, before redaction, so the
                        ;; `:explain-humanized` slot is scrubbed

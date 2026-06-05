@@ -607,9 +607,38 @@
   treated as `true` (no rollback) — the validator is failing on
   itself, not on a user schema, and a hard abort here would mask the
   actual app-db state from the rest of the cascade. Real schema
-  failures route through the in-band false return."
+  failures route through the in-band false return.
+
+  Per rf2-ss06u.3 the swallowed throw is NO LONGER SILENT: the catch
+  emits a `:rf.error/malformed-schema` trace before coercing to `true`,
+  so a thrown validator is always observable (the prior bare `(catch …
+  true)` installed an unvalidated commit with NO trace — a fail-OPEN
+  bypass of the same class as the rf2-sk0ql path leak). A MALFORMED
+  REGISTERED SCHEMA (childless `[:vector]`, unknown op) no longer reaches
+  this catch at all — `validate-app-schema!` now isolates that throw
+  per-entry (rf2-ss06u.3), surfaces its own `:rf.error/malformed-schema`
+  trace, fails CLOSED (in-band `false` → rollback), and keeps validating
+  the frame's sibling schemas. So a throw THAT STILL REACHES THIS CATCH
+  is the validator/late-bind machinery itself failing wholesale — the
+  trace makes that visible without masking app-db from the rest of the
+  cascade."
   [db-after event-id frame]
-  (let [app-ok?
+  (let [emit-swallow!
+        ;; Surface a swallowed validator throw so it is never invisible
+        ;; (rf2-ss06u.3). DCE-gated inside `trace/emit-error!`.
+        (fn [where ex]
+          (trace/emit-error!
+            :rf.error/malformed-schema
+            (cond-> {:where     where
+                     :frame     frame
+                     :reason    (str "Post-commit validator threw and was "
+                                     "swallowed (treated as pass, no rollback): "
+                                     #?(:clj  (.getMessage ^Throwable ex)
+                                        :cljs (ex-message ex)))
+                     :rollback? false
+                     :recovery  :no-recovery}
+              event-id (assoc :failing-id event-id))))
+        app-ok?
         ;; Sticky hook (rf2-f72pd) — fires per-dispatch.
         (if-let [validate (late-bind/get-fn-cached :schemas/validate-app-schema!)]
           (try
@@ -618,7 +647,9 @@
             ;; clean validate keeps working.
             (let [result (validate db-after event-id frame)]
               (if (nil? result) true result))
-            (catch #?(:clj Throwable :cljs :default) _ true))
+            (catch #?(:clj Throwable :cljs :default) ex
+              (emit-swallow! :app-db ex)
+              true))
           true)
         machines-ok?
         ;; Per rf2-jbbp7 — the machine-data boundary (Spec 005 §Schema
@@ -630,7 +661,9 @@
           (try
             (let [result (validate-md db-after event-id frame)]
               (if (nil? result) true result))
-            (catch #?(:clj Throwable :cljs :default) _ true))
+            (catch #?(:clj Throwable :cljs :default) ex
+              (emit-swallow! :machine-data ex)
+              true))
           true)]
     ;; Both must conform for the cascade to keep its commit; the per-
     ;; failure traces have already been emitted independently so the

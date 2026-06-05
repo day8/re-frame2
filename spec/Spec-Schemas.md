@@ -766,6 +766,35 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:phase           {:optional true} [:enum :macrostep :bootstrap :spawn]] ;; (:where :machine-data only) lifecycle position of the violation: :macrostep (post-transition commit), :bootstrap (initial :data install on the first dispatch), :spawn (pre-install spawn rejection).
    [:received        {:optional true} :any]            ;; (:where :machine-data / :app-db / :event / :cofx / :sub-return / :fx-args) parallel to :value; the value the validator received.
    [:schema          {:optional true} :any]])          ;; (:where :machine-data only) the registered schema verbatim, so consumers can render it inline next to the failing :data.
+
+(def MalformedSchemaTags
+  ;; Per Spec 010 §App-db schemas + rf2-ss06u.3 — a REGISTERED schema is
+  ;; structurally malformed (a childless `[:vector]`, an unknown op, …) so
+  ;; the registered validator THROWS at validate-time rather than returning
+  ;; true/false. `validate-app-schema!` isolates the throw per-entry, emits
+  ;; this DISTINCT category (so it can never masquerade as a clean validate
+  ;; — the prior fail-OPEN bypass swallowed it as a silent pass and
+  ;; disabled validation frame-wide), fails CLOSED (`:rollback? true` →
+  ;; rollback), and keeps validating the frame's sibling schemas. The
+  ;; router's defensive catch emits the SAME category (with `:rollback?
+  ;; false`) when a wholesale validator-machinery throw still reaches it,
+  ;; so a swallowed throw is never invisible. The app-db value is NOT
+  ;; carried — the validator never proved the slot's sensitivity, so
+  ;; omitting the value is fail-closed (no path-targeted redaction is
+  ;; possible). `:schema` carries the offending registration form the
+  ;; developer must fix.
+  [:map
+   [:category        [:= :rf.error/malformed-schema]]
+   [:where           [:enum :app-db :machine-data]]
+   [:reason          :string]
+   [:failing-id      {:optional true} :keyword]
+   [:frame           {:optional true} :keyword]
+   [:path            {:optional true} [:vector :any]]   ;; registration root (structural locator; no user value)
+   [:registered-path {:optional true} [:vector :any]]
+   [:schema          {:optional true} :any]             ;; the malformed registration form to fix
+   [:rollback?       {:optional true} :boolean]
+   [:recovery        {:optional true} :keyword]])
+
 (def DrainDepthExceededTags
   [:map
    [:category   :keyword]
