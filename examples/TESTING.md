@@ -220,12 +220,28 @@ runs against a fresh frame — but the *registrations* themselves are
 shared across the whole bundle. Prefix discipline is what keeps them
 non-overlapping.
 
-### Named exception — the stock/slim counter `:counter/*` id share
+### Named exceptions — deliberate parity id-shares
 
-The prefix convention has **exactly one blessed exception** in the
-example tree (parallel to how [`spec/Conventions.md`](../spec/Conventions.md)
-names `:rf.fx/reg-flow` its single principled carve-out from a general
-rule). It is deliberate, narrow, and load-bearing — not an oversight:
+The prefix convention has **two blessed exceptions** in the example tree,
+both instances of a single principle (parallel to how
+[`spec/Conventions.md`](../spec/Conventions.md) names `:rf.fx/reg-flow`
+its principled carve-out from a general rule). In each, sibling fixtures
+register the **same** registry ids *on purpose*, because the id-identity
+*is* the demonstration — byte-for-byte identical dataflow proves parity
+across a boundary the fixtures exist to compare. Both are deliberate,
+narrow, and load-bearing — not oversights — and both are made safe by the
+**same four bounding conditions** (standalone-build-only; prefix-before-
+any-co-load; ids-not-views; bundle-isolation is the regression surface):
+
+1. the **stock/slim counter `:counter/*`** share, comparing two Reagent
+   bridges (§[Exception 1](#exception-1--the-stockslim-counter-counter-id-share)); and
+2. the **cross-substrate Reagent/UIx/Helix** share, comparing one dataflow
+   across three reactive substrates (§[Exception 2](#exception-2--the-cross-substrate-reagentuixhelix-id-share)).
+
+#### Exception 1 — the stock/slim counter `:counter/*` id share
+
+The stock vs slim Reagent fixtures are the first such carve-out. It is
+deliberate, narrow, and load-bearing — not an oversight:
 
 > **[`examples/reagent/counter`](reagent/counter/) and
 > [`examples/reagent-slim/counter_slim_and_fast`](reagent-slim/counter_slim_and_fast/)
@@ -277,6 +293,65 @@ Framing note: the **stock** `:counter/*` ids do **not** violate the
 convention even in spirit — `:counter/*` *is* `examples/reagent/counter`'s
 own kebab-folder stem. Only the **slim** fixture is the exception, by
 borrowing the canonical counter's feature namespace rather than its own.
+
+#### Exception 2 — the cross-substrate Reagent/UIx/Helix id share
+
+The second carve-out is the same principle applied across reactive
+*substrates* rather than across two Reagent bridges. The UIx and Helix
+counter + login examples deliberately register the **same app-global
+registry ids** as their Reagent siblings — and, like Exception 1, the
+id-identity *is* the cross-substrate parity demonstration, not an
+oversight (this carve-out also originates in the per-example
+[`examples/uix/README.md` §Shared registry ids](uix/README.md#shared-registry-ids--deliberate-build-isolated),
+which now defers here as the canonical statement):
+
+> **[`examples/reagent/counter`](reagent/counter/) +
+> [`examples/reagent/login`](reagent/login/),
+> [`examples/uix/counter_uix`](uix/counter_uix/) +
+> [`examples/uix/login_uix`](uix/login_uix/), and
+> [`examples/helix/counter_helix`](helix/counter_helix/) +
+> [`examples/helix/login_helix`](helix/login_helix/) intentionally register
+> the *same* app-global ids** across all three substrates — the `:counter/*`
+> event + sub ids (`:counter/initialise`, `:counter/inc`, `:counter/dec`,
+> `:counter/value`), the `:auth.login/flow` machine event, the
+> `:auth.login.demo/managed-stub` fx, the `:auth.login/state` /
+> `:auth.login/error` subs, and the
+> `[:rf/runtime :machines :snapshots :auth.login/flow]` app-schema path. It
+> proves **substrate parity**: byte-for-byte identical events, subs,
+> schemas, machine, and managed-HTTP stub driving three different reactive
+> view layers (Reagent `reg-view`, UIx `defui` + `use-subscribe`, Helix
+> `defnc` + `use-subscribe`). Renaming the UIx/Helix ids to a
+> `:counter-uix/*` / `:auth.login-helix/*` stem would conform to the prefix
+> rule but *weaken* the parity claim these fixtures exist to make, so it is
+> not done — the same trade-off Exception 1 resolves the same way.
+
+The exception is bounded by the **same four conditions**, all of which
+must hold:
+
+1. **Scope is the shared event/sub/fx/machine/schema ids only — never
+   views.** Each substrate's views carry their own namespace
+   (Reagent `reg-view` auto-namespaces as `(keyword *ns* sym)`; UIx `defui`
+   and Helix `defnc` are plain function vars in their own `*-uix.core` /
+   `*-helix.core` namespaces). There is no shared view registration to
+   collide; do not read the carve-out as "shared views".
+2. **Allowed *only* because each example is a separate standalone build
+   that MUST NOT be co-required into one runtime.** Each substrate's
+   counter/login is its own `:browser` build with a distinct build-id and
+   namespace — `examples/counter` / `examples/counter-uix` /
+   `examples/counter-helix` (and the `login-*` triplet) — so the byte-
+   identical ids never share a JS runtime and never collide. The collision
+   is purely theoretical *and already prevented by the build split*.
+3. **If any of these examples is ever folded into a shared wrapper /
+   showcase / `test:browser` bundle alongside a sibling substrate, the ids
+   MUST be revisited and prefixed first.** Because the twins start byte-
+   identical, a co-load would overwrite the shared events/subs/fx/machine/
+   schema in the single registry *silently* — until one substrate's
+   handlers diverge. This exception does not survive co-loading.
+4. **The bundle-isolation gate is the regression surface that keeps the
+   build split honest.** Each per-substrate build is released as its own
+   advanced bundle and grepped in isolation (CI confirms a Reagent
+   `main.js` carries no UIx/Helix code, and vice versa), which is precisely
+   what makes the shared ids safe.
 
 ## Adding a new browser-test example
 

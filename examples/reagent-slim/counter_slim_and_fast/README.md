@@ -48,10 +48,10 @@ ids as the canonical [`examples/reagent/counter/`](../../reagent/counter/)
 — `:counter/initialise`, `:counter/inc`, `:counter/dec`, and
 `:counter/value`. That id-identity is **intentional**: it is how the two
 fixtures demonstrate **adapter parity** (byte-for-byte identical dataflow
-on a different reactive substrate). It is the one blessed exception to the
-example-tree id-prefix convention, narrowed and justified in
-[`examples/TESTING.md` § Named exception — the stock/slim counter
-`:counter/*` id share](../../TESTING.md#named-exception--the-stockslim-counter-counter-id-share).
+on a different reactive substrate). It is one of two blessed parity
+exceptions to the example-tree id-prefix convention, narrowed and justified
+in [`examples/TESTING.md` § Exception 1 — the stock/slim counter
+`:counter/*` id share](../../TESTING.md#exception-1--the-stockslim-counter-counter-id-share).
 
 The share is safe **only** because stock and slim build as two separate
 standalone bundles that must never be co-required into one runtime; the
