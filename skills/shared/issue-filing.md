@@ -1,8 +1,14 @@
 # Shared issue-filing recipe
 
-The consumer-facing recipe for filing a GitHub issue out of a retro / improvement finding. Both retro-style skills that grant a `gh issue` surface share this layer; this leaf is its single home so consumers stop re-pasting the shell block.
+The consumer-facing recipe for filing a GitHub issue out of a finding (a retro, a migration ambiguity, an implementor spec-gap, …). Every published skill that grants a `gh issue` surface shares this **shell-safety core**; this leaf is its single home so consumers stop re-pasting the shell block and so a future redaction / injection hardening lands in one place rather than across divergent local copies.
 
-**Scope.** This recipe applies only to consumers whose `allowed-tools` grant `Bash(gh issue *)` (currently [`re-frame2-pair-retro`](../re-frame2-pair-retro/SKILL.md)). Improver-style consumers delegate filing and never reach this branch. The security-policy single source for the shell-safety pattern is [`../README.md` §Published-skill `allowed-tools` baseline](../README.md#published-skill-allowed-tools-baseline-security-policy); this leaf is the consumer-facing recipe that cites it.
+**Scope.** This recipe applies to every consumer whose `allowed-tools` grant a `Bash(gh issue …)` surface that can write (i.e. `Bash(gh issue *)` or `Bash(gh issue create *)`). The current consumers are:
+
+- [`re-frame2-pair-retro`](../re-frame2-pair-retro/SKILL.md) — links this leaf as the canonical recipe (§Filing improvements is its specialisation).
+- [`re-frame-migration`](../re-frame-migration/SKILL.md) — cardinal rule 7 files an upstream `day8/re-frame2` issue on an ambiguous migration rule; links this leaf and the README baseline.
+- [`re-frame2-implementor`](../re-frame2-implementor/SKILL.md) — cardinal rule 8 files an upstream `day8/re-frame2` spec-gap issue; carries its own `--body-file` recipe in `references/cardinal-rules.md`, kept deliberately in sync with the shell-safety core here.
+
+Improver-style consumers (e.g. [`re-frame2-improver`](../re-frame2-improver/SKILL.md)) delegate filing and grant no write surface, so they never reach this branch. A new published skill that grants a `gh issue` write surface either links this leaf or carries the same title/body shell-safety clauses intentionally — the `skills-structural` MCP-drift gate (`scripts/check_skill_mcp_drift.py`, the `BASH_RULES` table) is the structural check that a `gh issue`-writing skill's body and allow-list agree. The security-policy single source for the shell-safety pattern is [`../README.md` §Published-skill `allowed-tools` baseline](../README.md#published-skill-allowed-tools-baseline-security-policy); this leaf is the consumer-facing recipe that cites it.
 
 ## File only after explicit user approval
 
@@ -10,7 +16,7 @@ Drafting issue text is always fine; running `gh issue create` is gated on a fres
 
 ## Tracker boundary
 
-Skills file **GitHub issues** against the target repo via `gh issue create`. `bd` (beads) is the re-frame2 monorepo's internal tracker and is **never** invoked from these skills. For the re-frame2-pair tool both kinds of friction file against `day8/re-frame2` (the monorepo that ships the tool), distinguished by label: pair-tool friction carries the `pair-mcp` label, upstream Tool-Pair friction does not.
+Skills file **GitHub issues** against the appropriate target repo via `gh issue create`. `bd` (beads) is the re-frame2 monorepo's internal tracker and is **never** invoked from these skills — a published skill runs in a *consumer* repo and must not assume the monorepo's tracker exists. Which repo a finding files against is consumer-specific: `re-frame-migration` and `re-frame2-implementor` file *upstream* findings against `day8/re-frame2` (the repo that ships the spec / migration doc they consume); `re-frame2-pair-retro` files both pair-tool and upstream Tool-Pair friction against `day8/re-frame2`, distinguished by label (pair-tool friction carries the `pair-mcp` label, upstream Tool-Pair friction does not). The shell-safety core below is identical regardless of target repo.
 
 ## Search before filing
 
@@ -56,4 +62,10 @@ Issue bodies are one consumer of the universal-redaction rule, not a special cas
 
 ## Body shape
 
-The consuming skill's `references/issue-template.md` is the body skeleton — currently [`re-frame2-pair-retro/references/issue-template.md`](../re-frame2-pair-retro/references/issue-template.md) (problem / evidence / why-the-tool-was-not-enough / proposed-improvement / expected-impact / open-questions).
+The body skeleton is **consumer-specific** — the shell-safety core above is shared, the body template is not. Each consuming skill owns its own template shaped to its finding kind:
+
+- `re-frame2-pair-retro` — [`references/issue-template.md`](../re-frame2-pair-retro/references/issue-template.md) (problem / evidence / why-the-tool-was-not-enough / proposed-improvement / expected-impact / open-questions).
+- `re-frame2-implementor` — the spec-gap body in [`references/cardinal-rules.md` §8](../re-frame2-implementor/references/cardinal-rules.md) (cites `spec/`, names the EP / fixture / capability; **public evidence only** — no private port source).
+- `re-frame-migration` — the ambiguous-rule body in [cardinal rule 7](../re-frame-migration/SKILL.md) (names the unmatched call site shape and the candidate `M-`/`O-` rule).
+
+Whatever the template, it MUST be composed with the `Write` tool and passed via `--body-file` per §Shell-safety above; never inline transcript-/evidence-derived text.

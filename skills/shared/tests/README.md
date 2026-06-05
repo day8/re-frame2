@@ -1,19 +1,31 @@
 # skills/shared/tests/
 
-Regression suite for [`../retro-protocol.md`](../retro-protocol.md) —
-the shared retro protocol consumed by `re-frame2-improver` and
-`re-frame2-pair-retro`.
+Regression suite for the shared skill leaves —
+[`../retro-protocol.md`](../retro-protocol.md) (the retro protocol
+consumed by `re-frame2-improver` and `re-frame2-pair-retro`) and
+[`../tool-pair-surfaces.md`](../tool-pair-surfaces.md) (the Tool-Pair
+direct-read privacy / surface enumeration).
 
 Closes audit Finding 4 from
 `ai/findings/skills-shared-audit-verification-2026-05-15.md`. Findings
 1, 2, 3 of that audit landed as prose-only locks; this suite is the
 regression backstop.
 
-## Two surfaces
+## Structural surfaces
+
+Two structural tests, both plain `clojure.test` over file contents,
+both CI-eligible. The CI step loops `skills/shared/tests/*_test.clj`,
+so a new structural test added here is gated automatically.
+
+| Test | Leaf under test | What it catches |
+|---|---|---|
+| [`retro_protocol_test.clj`](./retro_protocol_test.clj) | [`../retro-protocol.md`](../retro-protocol.md) | Prose-weakening: a section renamed, an attacker class dropped, a "MUST" softened to "should", the stable-placeholder convention removed |
+| [`tool_pair_surfaces_test.clj`](./tool_pair_surfaces_test.clj) | [`../tool-pair-surfaces.md`](../tool-pair-surfaces.md) | Direct-read privacy drift: the fail-closed `rf/elide-wire-value` egress MUST stripped, the suppress-by-default opts / sentinels / `--allow-sensitive-reads` gate dropped, or the current re-frame2-pair-mcp direct-read tool names (`snapshot` / `get-path` / `read-sub` / `list-subscriptions` / `dispatch-dry-run`) going stale (rf2-c9xgp) |
+
+## Behavioural surface
 
 | Surface | File | Runner | What it catches |
 |---|---|---|---|
-| Structural | [`retro_protocol_test.clj`](./retro_protocol_test.clj) | `bb` | Prose-weakening: a section renamed, an attacker class dropped, a "MUST" softened to "should", the stable-placeholder convention removed |
 | Behavioural | [`fixtures/`](./fixtures/) | human / AI replay | Agent compliance: refusing injected `gh issue create`, masking JWTs in inline output, gating evidence-shaped Edits |
 
 The structural test is CI-eligible (it's plain `clojure.test` over
@@ -35,25 +47,30 @@ three landed prose-only fixes. The audit's Finding 4 explicitly called
 for a regression suite so a future drift of the prose doesn't silently
 re-open the boundary.
 
-The structural test is the cheap class of drift detector (would catch
-"someone deleted §Untrusted-evidence boundary"); the document
-fixtures are the expensive but high-fidelity assertion (would catch
-"agent obeys an injected `gh issue create`"). Together they cover
-both axes.
+The structural tests are the cheap class of drift detector (would catch
+"someone deleted §Untrusted-evidence boundary" or "the direct-read MUST
+was downgraded"); the document fixtures are the expensive but
+high-fidelity assertion (would catch "agent obeys an injected
+`gh issue create`"). Together they cover both axes.
 
 ## Running
 
 ```bash
-# From the repo root, or from skills/shared/.
+# Run every shared structural test (the shape CI uses):
+for f in skills/shared/tests/*_test.clj; do bb "$f"; done
+
+# Or run one at a time — from the repo root, or from skills/shared/:
 bb tests/retro_protocol_test.clj
+bb tests/tool_pair_surfaces_test.clj
 
 # Or absolute:
 bb skills/shared/tests/retro_protocol_test.clj
+bb skills/shared/tests/tool_pair_surfaces_test.clj
 ```
 
 Exit code 0 = all structural locks pass. Non-zero = drift detected;
 the failing assertion's message names which lock loosened and points
-at the relevant retro-protocol.md section + audit finding.
+at the relevant leaf section + audit / bead finding.
 
 The behavioural fixtures don't have a runner — see
 [`fixtures/README.md`](./fixtures/README.md) for the manual replay
@@ -61,11 +78,13 @@ protocol.
 
 ## Wiring into CI
 
-The structural test is wired into `.github/workflows/test.yml` through
-the `skills-structural` job, but only when `skills/shared/**` or the
-shared skill-test workflow surface changes. Behavioural replay fixtures
-remain manual/diagnostic; they are intentionally not required PR
-coverage.
+The structural tests are wired into `.github/workflows/test.yml`
+through the `skills-structural` job, but only when `skills/shared/**`
+or the shared skill-test workflow surface changes. The job's "Run
+shared structural tests" step loops `skills/shared/tests/*_test.clj`,
+so every `*_test.clj` added here is gated automatically — no per-file
+workflow edit needed (rf2-c9xgp). Behavioural replay fixtures remain
+manual/diagnostic; they are intentionally not required PR coverage.
 
 ## Cross-references
 
