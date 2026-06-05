@@ -153,6 +153,15 @@
     (let [[a b] (=parity [:div {:class "c" :id "i" :title "t"}])]
       (is (= a b)))))
 
+(deftest parity-native-keyword-attr-values
+  (testing "rf2-ygknv finding 1: keyword DOM-attr values stringify on the
+            LIVE React path the same way the server serializer does —
+            [:button {:type :button}] / [:a {:target :_blank}]"
+    (let [[a b] (=parity [:button {:type :button}])]
+      (is (= a b)))
+    (let [[a b] (=parity [:a {:target :_blank :rel :noopener}])]
+      (is (= a b)))))
+
 ;; ---------------------------------------------------------------------------
 ;; Boolean attributes
 ;; ---------------------------------------------------------------------------
@@ -304,10 +313,79 @@
 
 (deftest style-custom-property-verbatim
   (testing "CSS custom property (--foo) passes through verbatim, no px"
-    ;; Direct (non-parity) assertion: the React-element path's `kv-conv`
-    ;; camelCases every style key (incl. `--foo` → `Foo`), so it can't
-    ;; serve as a custom-property reference. The rewrite's standalone
-    ;; behaviour (verbatim name, no px) matches React's `pushStyleAttribute`
-    ;; custom-property branch.
+    ;; rf2-ygknv finding 2: the React-element path now preserves `--foo`
+    ;; style keys verbatim (dash-to-prop-name short-circuits `--` names),
+    ;; so the live path and the pure serializer AGREE — a real parity
+    ;; assertion replaces the old documents-the-bug comment.
+    (let [[a b] (=parity [:div {:style {:--gap "8px"}}])]
+      (is (= a b) "live React path and pure serializer agree on --gap"))
     (is (= "<div style=\"--gap:8\"></div>"
            (via-rewrite [:div {:style {:--gap 8}}])))))
+
+;; ---------------------------------------------------------------------------
+;; SVG attribute-name casing parity (rf2-ygknv finding 3)
+;;
+;; `react-dom/server` is case-sensitive about SVG attribute names: it
+;; preserves `viewBox`/`preserveAspectRatio`/`gradientUnits`/`stdDeviation`,
+;; dasherizes `clipPath`→`clip-path` / `strokeWidth`→`stroke-width` /
+;; `fillOpacity`→`fill-opacity` / `stopColor`→`stop-color`, and lowercases
+;; plain HTML camelCase (`tabIndex`→`tabindex`). The pure serializer used
+;; to blanket-lowercase, turning `viewBox` into the broken `viewbox`. The
+;; =parity assertions pin the serializer against the live React reference;
+;; the explicit-string assertions document the target independently.
+;; ---------------------------------------------------------------------------
+
+(deftest parity-svg-viewbox
+  (testing ":viewBox preserved (case-sensitive SVG attribute)"
+    (let [[a b] (=parity [:svg {:viewBox "0 0 10 10"}])]
+      (is (= a b)))
+    (is (= "<svg viewBox=\"0 0 10 10\"></svg>"
+           (via-rewrite [:svg {:viewBox "0 0 10 10"}])))))
+
+(deftest parity-svg-preserve-aspect-ratio
+  (testing ":preserveAspectRatio preserved verbatim"
+    (let [[a b] (=parity [:svg {:preserveAspectRatio "xMidYMid"}])]
+      (is (= a b)))
+    (is (= "<svg preserveAspectRatio=\"xMidYMid\"></svg>"
+           (via-rewrite [:svg {:preserveAspectRatio "xMidYMid"}])))))
+
+(deftest parity-svg-clip-path-dasherized
+  (testing ":clipPath dasherizes to clip-path (React's output)"
+    (let [[a b] (=parity [:rect {:clipPath "url(#c)"}])]
+      (is (= a b)))
+    (is (= "<rect clip-path=\"url(#c)\"></rect>"
+           (via-rewrite [:rect {:clipPath "url(#c)"}])))))
+
+(deftest parity-svg-stroke-width-dasherized
+  (testing ":strokeWidth dasherizes to stroke-width"
+    (let [[a b] (=parity [:path {:strokeWidth 2 :d "M0 0"}])]
+      (is (= a b)))
+    (is (= "<path stroke-width=\"2\" d=\"M0 0\"></path>"
+           (via-rewrite [:path {:strokeWidth 2 :d "M0 0"}])))))
+
+(deftest parity-svg-tree-with-children
+  (testing "realistic SVG tree: viewBox root + clipPath/strokeWidth children"
+    (let [[a b] (=parity
+                 [:svg {:viewBox "0 0 100 100"
+                        :preserveAspectRatio "xMidYMid meet"}
+                  [:defs [:clipPath {:id "clip"}
+                          [:circle {:cx 50 :cy 50 :r 40}]]]
+                  [:path {:d "M10 10 L90 90"
+                          :strokeWidth 3
+                          :stroke "black"
+                          :clipPath "url(#clip)"}]])]
+      (is (= a b)))))
+
+(deftest parity-svg-fill-stop-color-dasherized
+  (testing ":fillOpacity / :stopColor dasherize like React"
+    (let [[a b] (=parity [:circle {:fillOpacity 0.5}])]
+      (is (= a b)))
+    (let [[a b] (=parity [:stop {:stopColor "red"}])]
+      (is (= a b)))))
+
+(deftest parity-html-tab-index-lowercased
+  (testing ":tab-index still lowercases to tabindex (HTML camelCase)"
+    (let [[a b] (=parity [:div {:tab-index 3}])]
+      (is (= a b)))
+    (is (= "<div tabindex=\"3\"></div>"
+           (via-rewrite [:div {:tab-index 3}])))))

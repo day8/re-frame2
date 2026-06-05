@@ -127,24 +127,215 @@
 ;;   :className       → "class"
 ;;   :for             → "for"
 ;;   :htmlFor         → "for"
-;;   :tab-index       → "tabIndex"  (kebab→camel for React-style names)
+;;   :tab-index       → "tabindex" (kebab→camel via cached-prop-name,
+;;                                  then React lowercases for HTML5)
 ;;   :data-foo        → "data-foo"  (data-* untouched)
 ;;   :aria-label      → "aria-label" (aria-* untouched)
 ;;
-;; React-shape camelCased names (`tabIndex`, `colSpan`) reach the HTML
-;; output already in their React form. `react-dom/server` lowercases
-;; some (`tabindex`, `colspan`) but preserves SVG attrs (`viewBox`,
-;; `clipPath`). For parity simplicity the rewrite emits the React name
-;; as-is for camelCase tokens — the parity test allow-lists this in
-;; the known-difference set per §8.7.
+;; CASE-SENSITIVE SVG ATTRIBUTES (rf2-ygknv finding 3). The previous
+;; rule blanket-lowercased every camelCase token, turning case-SENSITIVE
+;; SVG attribute names into broken markup:
+;;
+;;   :viewBox     → "viewbox"     (WRONG — must stay "viewBox")
+;;   :clipPath    → "clippath"    (WRONG — React emits "clip-path")
+;;   :strokeWidth → "strokewidth" (WRONG — React emits "stroke-width")
+;;
+;; `react-dom/server.renderToStaticMarkup` does NOT lowercase blindly —
+;; it consults a fixed attribute-name table. Three observed shapes for a
+;; camelCase hiccup name (the React-camelCase form `cached-prop-name`
+;; produces):
+;;
+;;   1. PRESERVED camelCase — `viewBox`, `preserveAspectRatio`,
+;;      `gradientUnits`, `stdDeviation`, `colSpan`, `readOnly`, …
+;;   2. DASHERIZED — `clipPath`→`clip-path`, `strokeWidth`→`stroke-width`,
+;;      `fillOpacity`→`fill-opacity`, `stopColor`→`stop-color`,
+;;      `httpEquiv`→`http-equiv`, `acceptCharset`→`accept-charset`, …
+;;   3. LOWERCASED — plain HTML camelCase like `tabIndex`→`tabindex`.
+;;
+;; `react-attr-name-overrides` below pins shapes 1 + 2 exactly to
+;; React 19's emitted output (extracted from `renderToStaticMarkup` —
+;; see `parity_cljs_test.cljs` for the round-trip pin). Any camelCase
+;; token NOT in the map falls through to the lowercase rule (shape 3),
+;; which is correct for the residual HTML attributes. This restores
+;; SVG parity with the React-element path (React itself remaps SVG
+;; names at the DOM layer, so the live path was already correct; only
+;; this pure serializer diverged).
 ;; ---------------------------------------------------------------------------
+
+(def ^:private react-attr-name-overrides
+  "React's canonical HTML/SVG output name for each camelCase hiccup
+  attribute whose serialized form is NOT a plain `lower-case` of the
+  name. Keyed on the React-camelCase token `cached-prop-name` produces;
+  value is the exact string `react-dom/server.renderToStaticMarkup`
+  emits (React 19). Covers the case-sensitive SVG attributes (`viewBox`,
+  `preserveAspectRatio`, …), the dasherized SVG presentation attributes
+  (`clipPath`→`clip-path`, `strokeWidth`→`stroke-width`, …), and the
+  hyphenated HTML specials (`httpEquiv`→`http-equiv`). Pinned against
+  the live React reference in `parity_cljs_test.cljs` per §8.7."
+  {"accentHeight" "accent-height"
+   "acceptCharset" "accept-charset"
+   "accessKey" "accessKey"
+   "alignmentBaseline" "alignment-baseline"
+   "allowReorder" "allowReorder"
+   "arabicForm" "arabic-form"
+   "attributeName" "attributeName"
+   "attributeType" "attributeType"
+   "autoComplete" "autoComplete"
+   "autoPlay" "autoPlay"
+   "autoReverse" "autoReverse"
+   "baseFrequency" "baseFrequency"
+   "baseProfile" "baseProfile"
+   "baselineShift" "baseline-shift"
+   "calcMode" "calcMode"
+   "capHeight" "cap-height"
+   "cellPadding" "cellPadding"
+   "cellSpacing" "cellSpacing"
+   "clipPath" "clip-path"
+   "clipPathUnits" "clipPathUnits"
+   "clipRule" "clip-rule"
+   "colSpan" "colSpan"
+   "colorInterpolation" "color-interpolation"
+   "colorInterpolationFilters" "color-interpolation-filters"
+   "colorProfile" "color-profile"
+   "colorRendering" "color-rendering"
+   "contentEditable" "contentEditable"
+   "contentScriptType" "contentScriptType"
+   "contentStyleType" "contentStyleType"
+   "dateTime" "dateTime"
+   "diffuseConstant" "diffuseConstant"
+   "dominantBaseline" "dominant-baseline"
+   "edgeMode" "edgeMode"
+   "enableBackground" "enable-background"
+   "encType" "encType"
+   "externalResourcesRequired" "externalResourcesRequired"
+   "fillOpacity" "fill-opacity"
+   "fillRule" "fill-rule"
+   "filterRes" "filterRes"
+   "filterUnits" "filterUnits"
+   "floodColor" "flood-color"
+   "floodOpacity" "flood-opacity"
+   "fontFamily" "font-family"
+   "fontSize" "font-size"
+   "fontSizeAdjust" "font-size-adjust"
+   "fontStretch" "font-stretch"
+   "fontStyle" "font-style"
+   "fontVariant" "font-variant"
+   "fontWeight" "font-weight"
+   "formAction" "formAction"
+   "formMethod" "formMethod"
+   "glyphName" "glyph-name"
+   "glyphOrientationHorizontal" "glyph-orientation-horizontal"
+   "glyphOrientationVertical" "glyph-orientation-vertical"
+   "glyphRef" "glyphRef"
+   "gradientTransform" "gradientTransform"
+   "gradientUnits" "gradientUnits"
+   "horizAdvX" "horiz-adv-x"
+   "horizOriginX" "horiz-origin-x"
+   "httpEquiv" "http-equiv"
+   "imageRendering" "image-rendering"
+   "kernelMatrix" "kernelMatrix"
+   "kernelUnitLength" "kernelUnitLength"
+   "keyPoints" "keyPoints"
+   "keySplines" "keySplines"
+   "keyTimes" "keyTimes"
+   "lengthAdjust" "lengthAdjust"
+   "letterSpacing" "letter-spacing"
+   "lightingColor" "lighting-color"
+   "limitingConeAngle" "limitingConeAngle"
+   "markerEnd" "marker-end"
+   "markerHeight" "markerHeight"
+   "markerMid" "marker-mid"
+   "markerStart" "marker-start"
+   "markerUnits" "markerUnits"
+   "markerWidth" "markerWidth"
+   "maskContentUnits" "maskContentUnits"
+   "maskUnits" "maskUnits"
+   "maxLength" "maxLength"
+   "minLength" "minLength"
+   "noValidate" "noValidate"
+   "numOctaves" "numOctaves"
+   "overlinePosition" "overline-position"
+   "overlineThickness" "overline-thickness"
+   "paintOrder" "paint-order"
+   "pathLength" "pathLength"
+   "patternContentUnits" "patternContentUnits"
+   "patternTransform" "patternTransform"
+   "patternUnits" "patternUnits"
+   "pointerEvents" "pointer-events"
+   "pointsAtX" "pointsAtX"
+   "pointsAtY" "pointsAtY"
+   "pointsAtZ" "pointsAtZ"
+   "preserveAlpha" "preserveAlpha"
+   "preserveAspectRatio" "preserveAspectRatio"
+   "primitiveUnits" "primitiveUnits"
+   "readOnly" "readOnly"
+   "refX" "refX"
+   "refY" "refY"
+   "renderingIntent" "rendering-intent"
+   "repeatCount" "repeatCount"
+   "repeatDur" "repeatDur"
+   "requiredExtensions" "requiredExtensions"
+   "requiredFeatures" "requiredFeatures"
+   "shapeRendering" "shape-rendering"
+   "specularConstant" "specularConstant"
+   "specularExponent" "specularExponent"
+   "spellCheck" "spellCheck"
+   "spreadMethod" "spreadMethod"
+   "srcSet" "srcSet"
+   "startOffset" "startOffset"
+   "stdDeviation" "stdDeviation"
+   "stitchTiles" "stitchTiles"
+   "stopColor" "stop-color"
+   "stopOpacity" "stop-opacity"
+   "strikethroughPosition" "strikethrough-position"
+   "strikethroughThickness" "strikethrough-thickness"
+   "strokeDasharray" "stroke-dasharray"
+   "strokeDashoffset" "stroke-dashoffset"
+   "strokeLinecap" "stroke-linecap"
+   "strokeLinejoin" "stroke-linejoin"
+   "strokeMiterlimit" "stroke-miterlimit"
+   "strokeOpacity" "stroke-opacity"
+   "strokeWidth" "stroke-width"
+   "surfaceScale" "surfaceScale"
+   "systemLanguage" "systemLanguage"
+   "tableValues" "tableValues"
+   "targetX" "targetX"
+   "targetY" "targetY"
+   "textAnchor" "text-anchor"
+   "textDecoration" "text-decoration"
+   "textLength" "textLength"
+   "textRendering" "text-rendering"
+   "underlinePosition" "underline-position"
+   "underlineThickness" "underline-thickness"
+   "unicodeBidi" "unicode-bidi"
+   "unicodeRange" "unicode-range"
+   "unitsPerEm" "units-per-em"
+   "useMap" "useMap"
+   "vAlphabetic" "v-alphabetic"
+   "vHanging" "v-hanging"
+   "vIdeographic" "v-ideographic"
+   "vMathematical" "v-mathematical"
+   "vectorEffect" "vector-effect"
+   "vertAdvY" "vert-adv-y"
+   "vertOriginX" "vert-origin-x"
+   "vertOriginY" "vert-origin-y"
+   "viewBox" "viewBox"
+   "viewTarget" "viewTarget"
+   "wordSpacing" "word-spacing"
+   "writingMode" "writing-mode"
+   "xChannelSelector" "xChannelSelector"
+   "xHeight" "x-height"
+   "yChannelSelector" "yChannelSelector"
+   "zoomAndPan" "zoomAndPan"})
 
 (defn- attr-name
   "Hiccup keyword/string → HTML attribute name string. Honours React
-  aliases (`:class` → \"class\", `:for` → \"for\"). Lowercases
-  camelCased tokens for HTML5 conformance (`tabIndex` → `tabindex`,
-  `colSpan` → `colspan`); preserves kebab-case `data-*` / `aria-*`
-  verbatim."
+  aliases (`:class` → \"class\", `:for` → \"for\"). For camelCase
+  tokens, consults `react-attr-name-overrides` to emit React 19's exact
+  output (`viewBox` preserved, `clipPath`→`clip-path`, …); any camelCase
+  token not in the table lowercases for HTML5 conformance
+  (`tabIndex` → `tabindex`). Kebab-case `data-*` / `aria-*` pass through
+  verbatim. Per rf2-ygknv finding 3."
   [k]
   (let [n (cond
             (keyword? k) (template/cached-prop-name k)
@@ -155,12 +346,13 @@
       "htmlFor"   "for"
       ;; data-*/aria-* stay verbatim — cached-prop-name doesn't
       ;; camelCase them. Other non-camel tokens stay verbatim too.
-      (if (or (str/starts-with? n "data-")
-              (str/starts-with? n "aria-")
-              ;; All-lowercase already.
-              (= n (str/lower-case n)))
-        n
-        (str/lower-case n)))))
+      (or (get react-attr-name-overrides n)
+          (if (or (str/starts-with? n "data-")
+                  (str/starts-with? n "aria-")
+                  ;; All-lowercase already.
+                  (= n (str/lower-case n)))
+            n
+            (str/lower-case n))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Attribute value serialisation
@@ -379,17 +571,26 @@
       (.append sb "\""))
 
     (true? v)
-    (let [n (attr-name k)]
-      (when (contains? boolean-attrs n)
+    (let [n      (attr-name k)
+          ;; HTML5 boolean attributes are lowercase (`readonly`,
+          ;; `disabled`, …); `attr-name` may preserve React's casing
+          ;; (`readOnly`), so the boolean-attr membership test + the
+          ;; emitted short-form use the lowercased name (rf2-ygknv
+          ;; finding 3 follow-on: the case-preserving override must not
+          ;; defeat the lowercase boolean-attr set).
+          bool-n (str/lower-case n)]
+      (when (contains? boolean-attrs bool-n)
         (.append sb " ")
-        (.append sb n)))
+        (.append sb bool-n)))
 
     :else
-    (let [n (attr-name k)]
-      (if (contains? boolean-attrs n)
-        ;; Boolean attribute with non-true truthy value: emit the name.
+    (let [n      (attr-name k)
+          bool-n (str/lower-case n)]
+      (if (contains? boolean-attrs bool-n)
+        ;; Boolean attribute with non-true truthy value: emit the
+        ;; (lowercase HTML5) name.
         (do (.append sb " ")
-            (.append sb n))
+            (.append sb bool-n))
         (do (.append sb " ")
             (.append sb n)
             (.append sb "=\"")

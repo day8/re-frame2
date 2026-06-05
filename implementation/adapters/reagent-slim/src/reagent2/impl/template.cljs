@@ -175,11 +175,20 @@
 (defn- dash-to-prop-name [dashed]
   (if (string? dashed)
     dashed
-    (let [name-str (name dashed)
-          [start & parts] (str/split name-str #"-")]
-      (if (dont-camel-case start)
+    (let [name-str (name dashed)]
+      ;; CSS custom properties (`--gap`) are case-sensitive and must NOT
+      ;; be camelCased — `--gap` split on `-` would yield `"Gap"`,
+      ;; silently dropping the variable. React's style handling preserves
+      ;; `--`-prefixed names verbatim; the pure server serializer already
+      ;; does too, so preserving here closes the live-vs-server style
+      ;; parity gap (rf2-ygknv finding 2). Guarded on the `--` prefix so
+      ;; only custom properties are exempted from kebab→camel.
+      (if (str/starts-with? name-str "--")
         name-str
-        (apply str start (map capitalize parts))))))
+        (let [[start & parts] (str/split name-str #"-")]
+          (if (dont-camel-case start)
+            name-str
+            (apply str start (map capitalize parts))))))))
 
 (def ^:private prop-name-cache
   (doto #js {}
@@ -288,6 +297,14 @@
 (defn- kv-conv
   "Reduce-kv step: convert one [k v] pair into the JS props object `o`.
 
+  Used for NESTED maps (style objects, custom-component prop sub-maps)
+  reached via `convert-prop-value`'s `map?` branch — there is no
+  native-DOM-tag context at this depth, so per-key conversion uses the
+  2-arg `convert-prop-value` (interop) rule. The TOP-LEVEL prop map is
+  converted by `convert-props` with the native-aware `top-prop-conv`
+  step instead, which is the seam that makes native-DOM keyword
+  attributes stringify (per rf2-ygknv finding 1).
+
   Per rf2-dwds9 MEDIUM: reserved JS keys (`__proto__`, `prototype`,
   `constructor`) are dropped silently. `aset o \"__proto__\" v` would
   invoke the prototype-setter on the props object — replacing its
@@ -302,14 +319,50 @@
         (aset o k' v')
         o))))
 
+(defn- top-prop-conv
+  "Reduce-kv step for the TOP-LEVEL prop map of a hiccup element. `o`
+  is the JS props object; `[k v]` the prop pair; `native?` whether the
+  element is a native DOM/string tag (vs a `:>` interop / custom React
+  component).
+
+  For native DOM tags, keyword/symbol values stringify for ANY prop
+  name — every prop on a real DOM element is an HTML attribute that
+  takes a string value, and the pure server serializer already
+  stringifies them unconditionally; so `[:button {:type :button}]`
+  must reach React with `props.type === \"button\"` (rf2-ygknv finding
+  1). For custom/interop components, the narrowed (interop) rule
+  applies via the 2-arg `convert-prop-value` — a keyword like
+  `:rf/foo` on a React-context Provider's `:value` is preserved.
+
+  Reserved-key dropping (rf2-dwds9 MEDIUM) is unchanged."
+  [native? o k v]
+  (let [k' (cached-prop-name k)]
+    (if (and (string? k') (reserved-prop-key? k'))
+      o
+      (let [v' (convert-prop-value k v native?)]
+        (aset o k' v')
+        o))))
+
 (defn convert-prop-value
   "Convert a hiccup prop-map value `v` for prop-name `k` to a React-
   shaped JS value.
 
-  Per IMPL-SPEC §7.2 (DECISION-2): narrowed keyword stringification.
-  Keywords stringify only for HTML-attribute prop names
-  (`:class`, `:id`, `:role`, `:data-*`, `:aria-*`).
-  Other named values pass through unchanged.
+  Per IMPL-SPEC §7.2 (DECISION-2) + rf2-ygknv finding 1: keyword/symbol
+  stringification is TARGET-AWARE.
+
+    - NATIVE DOM/string tags (the 3-arg form with `native?` true):
+      keyword/symbol values stringify for ANY prop name — every prop on
+      a real DOM element is an HTML attribute taking a string value, and
+      the pure server serializer stringifies them unconditionally, so
+      the live React path must agree (`[:button {:type :button}]` →
+      `props.type \"button\"`).
+
+    - CUSTOM/INTEROP components (the 2-arg form, or `native?` false):
+      keyword/symbol values stringify only for documented HTML-attribute
+      prop names (`:class`, `:id`, `:role`, `:data-*`, `:aria-*`); other
+      named values pass through unchanged (with a one-shot dev warning),
+      so a keyword like `:rf/foo` on a React-context Provider's `:value`
+      is preserved.
 
   Other rules:
 
@@ -345,6 +398,8 @@
      (ifn? v)     (fn [& args] (apply v args))
      :else        v))
   ([k v]
+   ;; 2-arg form: CUSTOM/INTEROP semantics (the `:>` path + the public
+   ;; Var's documented contract). Narrowed stringification per §7.2.
    (cond
      (js-val? v)  v
      (named? v)  (if (html-attr-name? k)
@@ -357,7 +412,15 @@
      (coll? v)    (clj->js v)
      (fn? v)      v                ; pass through — preserves identity
      (ifn? v)     (fn [& args] (apply v args))
-     :else        v)))
+     :else        v))
+  ([k v native?]
+   ;; 3-arg form: TARGET-AWARE. For a native DOM tag every prop is an
+   ;; HTML attribute, so keyword/symbol values stringify regardless of
+   ;; the prop name — matching the pure server serializer and React DOM.
+   ;; For non-native targets we defer to the 2-arg interop semantics.
+   (if (and native? (named? v) (not (js-val? v)))
+     (name v)
+     (convert-prop-value k v))))
 
 ;; ---------------------------------------------------------------------------
 ;; set-id-class — merge :div.foo#bar parts into the prop map
@@ -442,15 +505,27 @@
   "Convert a hiccup prop map `props` to a React-shape JS props object.
   `parsed` is the HiccupTag with id/class shorthand merged in.
 
+  Target-awareness (rf2-ygknv finding 1): when `parsed`'s tag is a
+  string the element is a NATIVE DOM tag — keyword/symbol prop values
+  stringify for every attribute (HTML attributes are string-valued,
+  matching the pure server serializer + React DOM). When the tag is a
+  fn/class (`:>` interop / custom component) keyword values follow the
+  narrowed interop rule and pass through unchanged. The discriminator
+  is `(string? (.-tag parsed))`: `cached-parse` yields a string tag for
+  DOM elements, while `interop-element`'s synthetic HiccupTag carries
+  the component (fn/class) in the tag slot.
+
   Returns nil for empty input."
   [props ^HiccupTag parsed]
-  (let [collapsed   (collapse-class-keys props)
+  (let [native?     (string? (.-tag parsed))
+        collapsed   (collapse-class-keys props)
         class       (:class collapsed)
         normalised  (cond-> collapsed
                       class (assoc :class (class-names class)))
         with-shorthand (set-id-class normalised parsed)
         ^js js-props (when (seq with-shorthand)
-                       (reduce-kv kv-conv #js {} with-shorthand))]
+                       (reduce-kv (fn [o k v] (top-prop-conv native? o k v))
+                                  #js {} with-shorthand))]
     js-props))
 
 ;; ---------------------------------------------------------------------------

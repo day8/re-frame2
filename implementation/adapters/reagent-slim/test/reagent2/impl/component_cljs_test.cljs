@@ -477,6 +477,63 @@
       (is (= "commit" (:phase @caught)))
       (is (= err (:error @caught))))))
 
+(deftest error-boundary-derived-state-syncs-into-reagent-atom-rf2-ygknv
+  (testing "rf2-ygknv finding 4: the default getDerivedStateFromError
+            marker (React this.state.cljsHasError) is bridged into the
+            public Reagent state atom at render entry, so a boundary
+            render reading (state-atom this) sees the marker and can
+            show its fallback."
+    (let [render-calls (atom [])
+          ^js klass (component/create-class*
+                      {:reagent-render
+                       (fn [_]
+                         ;; The boundary branches on the PUBLIC state API
+                         ;; (the same cell reagent2.core/state derefs).
+                         ;; A Form-1 render fn reads `this` via
+                         ;; current-component (it does NOT receive it as
+                         ;; an arg) — mirrors the production contract.
+                         (let [this (component/current-component)
+                               s    @(component/state-atom this)]
+                           (swap! render-calls conj s)
+                           (if (:cljsHasError s)
+                             [:div.fallback "Something went wrong"]
+                             [:div.ok "child"])))
+                       :component-did-catch (fn [_ _ _])})
+          inst  (new klass #js {:__rfArgv [(fn [_] nil)]})]
+      (set! (.-forceUpdate inst) (fn [] nil))
+      ;; Initial render — no error yet; state atom empty → ok branch.
+      (let [^js el (.call (.. klass -prototype -render) inst)]
+        (is (= "div" (.-type el)))
+        (is (= "ok" (.-className (.-props el)))
+            "before any error, the boundary renders its normal child"))
+      ;; React applies the derived-state patch after a child throws:
+      ;; getDerivedStateFromError returns #js {:cljsHasError true}, which
+      ;; React merges into this.state. Replicate that here.
+      (let [patch (.call (.-getDerivedStateFromError klass) nil (js/Error. "boom"))]
+        (set! (.-state inst)
+              (js/Object.assign #js {} (.-state inst) patch)))
+      ;; React re-renders the boundary. The render-entry sync must now
+      ;; surface the marker through the public state atom.
+      (let [^js el (.call (.. klass -prototype -render) inst)]
+        (is (true? (:cljsHasError @(component/state-atom inst)))
+            "marker bridged into the Reagent state atom")
+        (is (= "fallback" (.-className (.-props el)))
+            "boundary render reading (state-atom this) shows the fallback UI"))
+      (.call (.. klass -prototype -componentWillUnmount) inst))))
+
+(deftest error-boundary-no-spurious-marker-without-error-rf2-ygknv
+  (testing "rf2-ygknv finding 4: a boundary that never caught an error
+            keeps an empty public state atom (the sync writes only on
+            the error-state transition)"
+    (let [^js klass (component/create-class*
+                      {:reagent-render      (fn [_] [:div])
+                       :component-did-catch (fn [_ _ _])})
+          inst  (new klass #js {:__rfArgv [(fn [_] nil)]})]
+      (set! (.-forceUpdate inst) (fn [] nil))
+      (.call (.. klass -prototype -render) inst)
+      (is (nil? @(component/state-atom inst))
+          "no error → state atom untouched (no spurious :cljsHasError)"))))
+
 (deftest error-boundary-rethrow-bubbles-via-cDC
   (testing "a :component-did-catch fn that throws cascades — the rethrow is the user's choice"
     ;; Per IMPL-SPEC §6.5: re-throwing from cDC bubbles to the next
