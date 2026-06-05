@@ -24,9 +24,11 @@
 
   This namespace owns the React-root handle and the hash router ONLY — the
   documented mount-handle exception to the app-db+events+subs rule
-  (rf2-5sjbg). The root atom is a `defonce` here so a testbed's hot-reload
-  re-`run` reuses the same root rather than leaking one per reload, exactly
-  as the per-file copies did. Everything else (Xray config, `rf/init!`,
+  (rf2-5sjbg). Both the React-root atom and the installed-`hashchange`-listener
+  handle are `defonce` atoms here, so a testbed's hot-reload re-`run` reuses
+  the one root and replaces the one listener rather than leaking a fresh root
+  or STACKING a duplicate listener per reload (the explicit store/remove
+  discipline below). Everything else (Xray config, `rf/init!`,
   `story/configure!`, per-frame `:fx-overrides`, seed dispatches, CI hooks)
   stays inline in each testbed's `run` — those are the genuinely per-testbed
   boot specifics, not host boilerplate.
@@ -55,12 +57,25 @@
 (defonce ^:private app-root (atom nil))
 
 ;; The live-app root view in play, set by `mount-with-hash-routing!`. Held
-;; in an atom so the single stable `hashchange` listener (below) reads the
-;; current view rather than closing over a per-`run` value — this keeps the
-;; listener reference identical across hot-reload re-`run`s, so
-;; `addEventListener` deduplicates it (the browser no-ops a repeat add of the
-;; same fn reference), exactly as the per-file copies' named-fn listener did.
+;; in an atom so the `hashchange` listener (below) reads the current view
+;; rather than closing over a per-`run` value — a re-`run` after hot-reload
+;; just `reset!`s the new view and the already-installed listener picks it up.
 (defonce ^:private root-view* (atom nil))
+
+;; The currently-installed `hashchange` listener handle, or nil when none is
+;; installed. A `defonce` atom so its value SURVIVES hot-reload — exactly the
+;; same explicit store/remove discipline `app-root` / `tear-down-app-root!`
+;; use for the React root. We need the *handle*, not just the fn, because
+;; `removeEventListener` deduplicates by reference identity, and a plain
+;; top-level `defn` listener does NOT keep that identity across a CLJS
+;; hot-reload: re-compiling the namespace rebinds the `defn` to a FRESH
+;; function object. Relying on the browser to no-op a repeat `addEventListener`
+;; of "the same fn" is therefore unsound — the post-reload re-`run` would pass
+;; a different reference and STACK a second listener (each later hash change
+;; then running the mount switch twice, churning the React root on `#app`).
+;; Storing the exact handle we installed lets us remove THAT one before
+;; installing the next, so at most one listener is ever active.
+(defonce ^:private hash-listener* (atom nil))
 
 (defn- app-node []
   (js/document.getElementById "app"))
@@ -102,10 +117,20 @@
   `rf/init!`, `story/configure!`, `:fx-overrides`, seed dispatches, …).
 
   Idempotent across hot-reload: the React root is a `defonce` here, and the
-  `hashchange` listener is `on-hash-change!` (a stable top-level fn), so a
-  re-`run` reuses the root and `addEventListener` deduplicates the listener
-  — matching the per-file named-fn listener the copies installed."
+  `hashchange` listener installed on the *previous* `run` is explicitly
+  REMOVED (by the handle stashed in the `defonce` `hash-listener*`) before the
+  new one is installed. We do NOT rely on `addEventListener` to dedupe a
+  repeat add of \"the same fn\": a CLJS hot-reload rebinds the top-level
+  `on-hash-change!` `defn` to a fresh function object, so the post-reload
+  re-`run` would otherwise pass a different reference and STACK a second
+  listener. Remove-then-add keeps exactly one listener active across any
+  number of re-`run`s, however the listener fn's identity churns."
   [root-view]
   (reset! root-view* root-view)
+  ;; Remove the listener we installed last time (if any) before installing
+  ;; the new one, so a hot-reload re-`run` never stacks a duplicate.
+  (when-let [prev @hash-listener*]
+    (.removeEventListener js/window "hashchange" prev))
   (.addEventListener js/window "hashchange" on-hash-change!)
+  (reset! hash-listener* on-hash-change!)
   (on-hash-change!))
