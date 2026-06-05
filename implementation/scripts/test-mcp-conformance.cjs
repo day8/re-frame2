@@ -82,7 +82,30 @@ const WIRE_VOCAB = path.join(CONFORMANCE, 'wire-vocab');
 // dispatches the `.cmd` correctly without re-introducing the shell, so
 // `resolveTrustedExe` + `cross-spawn` is the only combination that is
 // both hardened and cross-platform (Windows / macOS / Linux).
-const crossSpawn = require('cross-spawn');
+// rf2-ocfiq — `cross-spawn` is an `implementation/` devDependency added
+// by rf2-1irs7. It is required at module-load (before any STEP runs), so
+// a STALE `implementation/node_modules` (one that predates the 1irs7
+// install — e.g. an operator who pulled the change but didn't re-run
+// `npm install`) would otherwise crash here with a raw loader stack
+// (`Error: Cannot find module 'cross-spawn'`) that gives NO hint the fix
+// is a one-time `npm install`. The script's own prep STEPS install deps
+// for the TOOLS packages, not for `implementation/` itself, so they
+// can't cover this. Fail LOUD with an actionable hint instead.
+let crossSpawn;
+try {
+  crossSpawn = require('cross-spawn');
+} catch (err) {
+  if (err && err.code === 'MODULE_NOT_FOUND') {
+    process.stderr.write(
+      "\ntest:mcp-conformance: 'cross-spawn' is not installed.\n" +
+        '  This entry-point requires the implementation/ devDependencies.\n' +
+        '  Fix: run `npm install` in implementation/ first ' +
+        '(rf2-1irs7 added cross-spawn as a devDependency).\n\n',
+    );
+    process.exit(1);
+  }
+  throw err;
+}
 const { resolveTrustedExe } = require(
   path.join(CONFORMANCE, 'lib', 'exec-safety.cjs'),
 );

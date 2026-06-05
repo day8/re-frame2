@@ -2084,8 +2084,15 @@ operating frame for `:app-db` / `:sub` signals), `build` (string).
 
 **Returns**: `{:ok? true :recording-id "rec-<uuid>" :signals [...]
 :frame <id> :stop {...}}`. `:reason :no-signals` when `signals` is empty;
-`:reason :ambiguous-frame` when an `:app-db` / `:sub` signal needs a
-frame but none resolves (multi-frame session, no selection).
+`:reason :invalid-stop-edn` when the `stop` arg was supplied as an EDN
+string that failed to parse — or read clean but was not a map, e.g.
+`"[:ms 5000]"` (rf2-e2i29). Surfaced as `isError: true` WITHOUT touching
+the nREPL socket; the error echoes the offending `:given` string. A
+malformed `stop` is rejected up front rather than silently collapsing to
+the default wall-clock window — the same honest-error posture
+`subscribe`'s `:invalid-filter-edn` adopts. `:reason :ambiguous-frame`
+when an `:app-db` / `:sub` signal needs a frame but none resolves
+(multi-frame session, no selection).
 
 ## read-recording
 
