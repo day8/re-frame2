@@ -75,6 +75,9 @@
   (delay (slurp-rel skills-root
                     "re-frame2-pair-retro/references/issue-template.md")))
 
+(def ^:private readme-md
+  (delay (slurp-rel skills-root "README.md")))
+
 ;; ---------------------------------------------------------------------------
 ;; Section extraction — like the re-frame2-pair prompt-regression substrate, each
 ;; assertion targets the *section* the lock belongs in, so a sloppy edit
@@ -437,6 +440,99 @@
                "time, not just in the linked leaf.")))))
 
 ;; ---------------------------------------------------------------------------
+;; Lock 4c — Per-filing OS-temp body path (rf2-de7pqw → rf2-ca5v9s)
+;;
+;; The `--body-file` target must be a FRESH, per-filing temp file in the
+;; host OS's temp directory — never a fixed, predictable name like
+;; `/tmp/issue-body.md`. A hard-coded `/tmp/issue-body.md` (a) fails on
+;; hosts without a POSIX `/tmp`, notably Windows consumer installs, even
+;; after the user approved filing; and (b) is predictable, so two
+;; concurrent retros / two rapid filings overwrite each other's redacted
+;; body — filing the WRONG redacted text to GitHub or leaving sensitive
+;; evidence in a shared location longer than intended. rf2-de7pqw fixed
+;; the in-lane re-frame2-pair-retro/** leaves and deferred this structural
+;; regression + the shared-recipe propagation to rf2-ca5v9s. These
+;; assertions lock the fix in the SHARED canonical recipe and its consumer
+;; template: the published recipe MUST NOT prescribe `/tmp/issue-body.md`
+;; as the `--body-file` target, and MUST name a per-filing OS-temp path
+;; (TMPDIR / $env:TEMP). The "never a fixed /tmp/issue-body.md" PROHIBITION
+;; strings are tolerated — the regression fires only on the prescriptive
+;; command form (`--body-file /tmp/issue-body.md`) or the prescriptive
+;; "compose /tmp/issue-body.md" Write step, never on a prohibition that
+;; merely names the banned literal.
+;; ---------------------------------------------------------------------------
+
+(defn- prescribes-fixed-body-path?
+  "True if `md` still PRESCRIBES the fixed `/tmp/issue-body.md` as the
+   --body-file target (the antipattern), as opposed to merely naming the
+   literal inside a prohibition (e.g. \"never a fixed /tmp/issue-body.md\").
+   The prescriptive forms are the worked `--body-file /tmp/issue-body.md`
+   command argument and the `compose /tmp/issue-body.md` / `Write … to
+   /tmp/issue-body.md` step; prohibition prose contains neither."
+  [md]
+  (boolean
+    (or (re-find #"--body-file\s+/tmp/issue-body\.md" md)
+        (re-find #"(?i)(?:compose|create|write[^\n]*?to)\s+`?/tmp/issue-body\.md`?" md))))
+
+(defn- names-per-filing-os-temp-path?
+  "True if `md` explicitly requires a fresh per-filing temp file in the
+   host OS's temp directory — both the 'per-filing' intent and at least
+   one OS-temp token (POSIX TMPDIR or Windows $env:TEMP)."
+  [md]
+  (and (str/includes? md "per-filing")
+       (contains-any? md ["TMPDIR" "$env:TEMP" "env:TEMP"])))
+
+(deftest issue-filing-recipe-uses-per-filing-os-temp-body-path
+  (testing "the SHARED canonical recipe (issue-filing.md) no longer prescribes a fixed /tmp/issue-body.md"
+    (is (not (prescribes-fixed-body-path? @issue-filing-md))
+        (str "skills/shared/issue-filing.md again prescribes the fixed, "
+             "predictable `/tmp/issue-body.md` as the `--body-file` "
+             "target. That path breaks on hosts without a POSIX `/tmp` "
+             "(Windows consumer installs) even after the user approved "
+             "filing, and its predictable name lets two concurrent / two "
+             "rapid filings overwrite each other's redacted body — filing "
+             "the wrong text to GitHub. Compose a fresh, per-filing temp "
+             "file in the host OS's temp dir instead (rf2-de7pqw/ca5v9s)."))
+    (is (names-per-filing-os-temp-path? @issue-filing-md)
+        (str "skills/shared/issue-filing.md no longer names a fresh, "
+             "per-filing temp file in the host OS's temp directory "
+             "(needs both 'per-filing' and an OS-temp token — `${TMPDIR:"
+             "-/tmp}/…` on POSIX or `$env:TEMP\\…` on Windows). The "
+             "positive requirement is the constructive half of the lock; "
+             "without it the recipe can degrade back to a fixed path."))))
+
+(deftest readme-baseline-uses-per-filing-os-temp-body-path
+  (testing "the README §allowed-tools baseline canonical shape uses a per-filing OS-temp path"
+    (is (not (prescribes-fixed-body-path? @readme-md))
+        (str "skills/README.md §Published-skill `allowed-tools` baseline "
+             "again prescribes the fixed `/tmp/issue-body.md` as the "
+             "`--body-file` target in the canonical shape the per-consumer "
+             "recipes point at. Fix the canonical source so every consumer "
+             "inherits the cross-platform per-filing path (rf2-ca5v9s)."))
+    (is (names-per-filing-os-temp-path? @readme-md)
+        (str "skills/README.md no longer names a fresh, per-filing temp "
+             "file in the host OS's temp directory (needs both "
+             "'per-filing' and an OS-temp token). The canonical shape is "
+             "what consumers copy; it must carry the positive rule."))))
+
+(deftest issue-template-uses-per-filing-os-temp-body-path
+  (testing "the consumer template (re-frame2-pair-retro/issue-template.md) uses a per-filing OS-temp path"
+    (is (not (prescribes-fixed-body-path? @issue-template-md))
+        (str "re-frame2-pair-retro/references/issue-template.md again "
+             "prescribes the fixed `/tmp/issue-body.md` in its worked `gh "
+             "issue create --body-file …` examples. The template's command "
+             "is exactly the recipe an agent follows, so the per-filing "
+             "OS-temp path must live in the worked examples, not only in "
+             "the shared leaf (rf2-de7pqw landed this in-lane; ca5v9s "
+             "locks it)."))
+    (is (names-per-filing-os-temp-path? @issue-template-md)
+        (str "re-frame2-pair-retro/references/issue-template.md no longer "
+             "names a fresh, per-filing temp file in the host OS's temp "
+             "directory (needs both 'per-filing' and an OS-temp token). "
+             "The worked example must show the per-filing path, not assume "
+             "the reader infers it from the shared leaf."))))
+
+;; ---------------------------------------------------------------------------
 ;; Cross-consumer adoption — both consuming skills must actually load
 ;; the shared leaf. A future edit that decouples a consumer (dropping
 ;; the link, copy-pasting the prose inline, …) breaks the single-source
@@ -512,12 +608,12 @@
     (let [fm (frontmatter @pair-retro-skill-md)]
       (is (re-find #"(?m)^\s*-\s*Write\s*$" fm)
           (str "re-frame2-pair-retro's allowed-tools no longer grants "
-               "`Write`. `Write` is required SOLELY to compose "
-               "/tmp/issue-body.md so `gh issue create --body-file` reads "
-               "the transcript-derived body verbatim (no shell expansion). "
-               "Removing it breaks the only documented no-shell-"
-               "interpolation filing path — see ../issue-filing.md "
-               "§Shell-safety.")))))
+               "`Write`. `Write` is required SOLELY to compose a fresh, "
+               "per-filing OS-temp body file so `gh issue create "
+               "--body-file` reads the transcript-derived body verbatim "
+               "(no shell expansion). Removing it breaks the only "
+               "documented no-shell-interpolation filing path — see "
+               "../issue-filing.md §Shell-safety.")))))
 
 (deftest pair-retro-frontmatter-grants-gh-issue-create
   (testing "allowed-tools grants Bash(gh issue create *)"

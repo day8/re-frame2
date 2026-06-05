@@ -247,12 +247,23 @@ rather than theoretical attacks.
   expand). Write the body to a file with the **`Write` tool**, then
   pass it with `gh`'s native `--body-file` flag. Canonical shape:
 
-  1. `Write` the body to `/tmp/issue-body.md` (transcript-derived
-     markdown — no shell escaping needed; nothing expands it).
-  2. File it with one `gh issue create` command:
+  1. `Write` the body to a **fresh, per-filing temp file in the host
+     OS's temp directory** — never a fixed, shared, predictable name. A
+     hard-coded `/tmp/issue-body.md` fails on hosts without a POSIX
+     `/tmp` (Windows consumer installs), and its predictable name lets
+     two concurrent filings overwrite each other's redacted body. Pick
+     the path for the OS and add a per-filing nonce — e.g.
+     `${TMPDIR:-/tmp}/re-frame2-issue-$$-$RANDOM.md` on POSIX or
+     `$env:TEMP\re-frame2-issue-$([guid]::NewGuid()).md` on Windows
+     (PowerShell) — then carry that exact path into `--body-file`. The
+     body is transcript-derived markdown — no shell escaping needed;
+     nothing expands it.
+  2. File it with one `gh issue create` command (the `--body-file` value
+     is the exact per-filing path you wrote in step 1, never a re-typed
+     fixed name):
 
      ```bash
-     gh issue create --title "<short title>" --body-file /tmp/issue-body.md
+     gh issue create --title "<short title>" --body-file "<the per-filing temp path you wrote in step 1>"
      ```
 
   `--body-file` reads the body verbatim from disk, so no shell
