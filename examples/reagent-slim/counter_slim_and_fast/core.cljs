@@ -98,8 +98,26 @@
   ;; property. The closure compiler treats writes to extern-shaped
   ;; properties on `globalThis` as side effects; the call survives
   ;; `:advanced`. (A no-op like `js/console.log` would be elided.)
-  (set! (.-counterSlimPrerender js/globalThis)
-        (rds/render-to-static-markup [counter-app]))
+  ;;
+  ;; SUB-CACHE TEARDOWN: `render-to-static-markup` is the pure-CLJS
+  ;; static walker — it invokes `counter-app`/`counter-buttons` as plain
+  ;; fns and walks the resulting hiccup, but mounts NO Reagent component
+  ;; lifecycle. The view derefs `@(subscribe [:counter/value])`, so the
+  ;; static render builds and caches that reactive subscription in the
+  ;; default frame's sub-cache with ref-count 1, and nothing ever
+  ;; auto-unsubscribes it (there is no component to unmount). Left as-is
+  ;; the boot would carry a headless `[:counter/value]` reaction into the
+  ;; live runtime — a hidden leak the browser mount can't reclaim (its
+  ;; unmount only drops the browser-owned reference). Bracket the
+  ;; prerender so the orphaned SSR subscription is disposed before the
+  ;; client mount builds its own; `try`/`finally` guarantees teardown even
+  ;; if the static render throws. The browser mount below then starts from
+  ;; a clean cache and owns the only `[:counter/value]` reaction.
+  (try
+    (set! (.-counterSlimPrerender js/globalThis)
+          (rds/render-to-static-markup [counter-app]))
+    (finally
+      (rf/clear-sub-cache!)))
   (when (exists? js/document)
     (when-not @react-root
       (reset! react-root (rdc/create-root (js/document.getElementById "app"))))
