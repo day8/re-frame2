@@ -137,7 +137,7 @@
                           :fx-overrides {:rf.http/managed
                                          :boot.test/canned-boot-success}})]
       ;; The :on-create cofx fires :boot/initialise during make-frame,
-      ;; which dispatches [:app/boot [:rf/start]]. The synchronous
+      ;; which dispatches [:app/boot [:rf.machine/start]]. The synchronous
       ;; drain runs all four canned-success stubs to completion.
       (let [db    (rf/app-db-value f)
             state (rf/compute-sub [:app.boot/state] db)]
