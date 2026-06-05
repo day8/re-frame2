@@ -221,8 +221,8 @@ implementation/                CLJS reference implementation — per-artefact su
                                semantics, smaller footprint, capped Form-3 surface
     uix/                       day8/re-frame2-uix — the UIx adapter
     helix/                     day8/re-frame2-helix — the Helix adapter
-    test-react/                day8/re-frame2-test-react — pure-CLJC React-lifecycle simulator;
-                               catches lifecycle bugs at unit-test speed (no React/DOM/jsdom)
+    test-react/                local-test-only (no Maven coord) — pure-CLJC React-lifecycle
+                               simulator; catches lifecycle bugs at unit-test speed (no React/DOM/jsdom)
   schemas/                     day8/re-frame2-schemas — Malli boundary-validation artefact
   machines/                    day8/re-frame2-machines — state-machine artefact (xstate-flavoured)
   flows/                       day8/re-frame2-flows — registered computed-state declarations
