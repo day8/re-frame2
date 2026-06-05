@@ -216,16 +216,19 @@ signature matches, and no further pass fires. Position-only
 `onNodesChange` events never reach the comparison (the signature keys on
 measured dimensions, not position), so xyflow applying the new ELK
 positions cannot re-trigger. A new layout-key (new `:definition` /
-`:direction` / `:layout-options`) clears the signature so the new
-topology gets its own single relayout.
+`:direction` / `:layout-options` / `:density`) clears the signature so
+the new topology gets its own single relayout.
 
 This second pass is keyed on the SAME `[:definition :direction
-:layout-options]` layout-key as the first — it does not introduce a new
-layout-invalidation trigger (it is the completion of the existing pass
-once real sizes are known), so the load-bearing
+:layout-options :density]` layout-key as the first — it does not
+introduce a new layout-invalidation trigger (it is the completion of the
+existing pass once real sizes are known), so the load-bearing
 [layout-invalidation boundary](#layout-invalidation-boundary-is-load-bearing)
 below is unchanged: a decoration-prop change still never reaches the
-relayout path.
+relayout path. (`:density` is a STRUCTURAL prop — it sizes ELK's
+container `elk.padding` from the active density's title-strip + body-pad
+constants, rf2-8q5pt — so it legitimately joins the layout-key; see the
+boundary section below.)
 
 ### Sub-flow nesting — `:parentId` (NOT `:parentNode`) (rf2-xh1lm)
 
@@ -1108,10 +1111,17 @@ prop groups:
 
 - **Topology / layout plane.** The node positions, edge routes, and
   compound-state nesting. Derived solely from the structural props
-  `:definition`, `:direction`, and `:layout-options` (the host pulls
-  `:definition` from `(rf/machine-meta machine-id)`). This plane is
-  **structural**: changing it requires re-laying out the graph via
-  elkjs.
+  `:definition`, `:direction`, `:layout-options`, and `:density` (the
+  host pulls `:definition` from `(rf/machine-meta machine-id)`;
+  `:density` sizes ELK container padding per rf2-8q5pt — see the
+  [layout-invalidation boundary](#layout-invalidation-boundary-is-load-bearing)).
+  This plane is **structural**: changing it requires re-laying out the
+  graph via elkjs. The parser that walks `:definition` into the
+  `{:nodes :edges}` graph (`layout/project-definition`) is itself a
+  topology-plane computation — implementations MUST cache its result
+  keyed ONLY on `:definition` (rf2-jl72i), so a decoration-only render
+  never re-walks the definition (see §Highlight / overlay prop changes
+  below).
 - **Runtime-highlight plane.** The active-state affordance (static
   tint + bolder stroke; pulse retired 2026-05-20 per rf2-2sez0), the
   focused-event lens tint, the `:after` countdown-ring overlay, the
@@ -1141,6 +1151,11 @@ descriptor `:tick` bump, a new / changed `:overlays` descriptor `:spec` /
 
 Such a render MUST NOT:
 
+- Re-parse / re-project the topology. The definition→graph parse
+  (`layout/project-definition`) MUST be cached keyed only on
+  `:definition` (rf2-jl72i); a decoration-prop change reuses the cached
+  parsed graph (and thus the downstream layout / projection caches keyed
+  on it), never re-walking the definition.
 - Re-run layout (no `elk`/`dagre`/custom layout call).
 - Re-measure topology nodes (no `getBBox`, no `getBoundingClientRect`
   in any code path reached by a decoration-prop change — overlay
@@ -1158,10 +1173,11 @@ on the chart's hot path.
 ### Layout-invalidation boundary is load-bearing
 
 `MachineChart` keys its elkjs layout pass on the
-`[:definition :direction :layout-options]` tuple (per `chart.cljs`): a
-new layout runs **only** when that tuple changes, and the previous
-positions are kept in-flight to avoid an empty-chart flash. The **only**
-triggers permitted to invalidate the topology / layout plane are:
+`[:definition :direction :layout-options :density]` tuple (per
+`chart.cljs`): a new layout runs **only** when that tuple changes, and
+the previous positions are kept in-flight to avoid an empty-chart flash.
+The **only** triggers permitted to invalidate the topology / layout
+plane are:
 
 1. **A new `:definition`.** A changed definition map — including a
    `reg-machine` hot-reload re-registration the host re-pulls via
@@ -1169,7 +1185,16 @@ triggers permitted to invalidate the topology / layout plane are:
 2. **A `:direction` change** (`:tb` ⇄ `:lr`).
 3. **A `:layout-options` change** — host-side elkjs `layoutOptions`
    overrides.
-4. **Container resize** of the chart's bounding box (xyflow's own
+4. **A `:density` change** (`:compact` ⇄ `:regular` ⇄ `:cosy`).
+   `:density` is **structural for layout**: the ELK pass sizes each
+   compound / region container's `elk.padding` from the active density's
+   title-strip + body-pad constants (rf2-8q5pt), so a density switch
+   changes the geometry ELK must lay out — not merely the painted size.
+   It therefore re-runs layout (and re-fits), unlike `:theme` — which is
+   purely a colour swap and stays decorative. Highlight / overlay props
+   likewise stay decorative; only `:density` among the visual knobs is
+   load-bearing for layout.
+5. **Container resize** of the chart's bounding box (xyflow's own
    fit/measure; the elk pass itself is keyed on the tuple above).
 
 No other code path may invalidate layout. In particular:
@@ -1190,8 +1215,8 @@ this section and DESIGN-RATIONALE Lock #9 and Lock #11.
 
 `MachineChart` MUST re-fit the xyflow viewport **once** after each
 successful elkjs layout settle whose layout-key (the
-`[:definition :direction :layout-options]` tuple above) differs from
-the last key that was fit. xyflow's `:fitView true` prop fires only
+`[:definition :direction :layout-options :density]` tuple above) differs
+from the last key that was fit. xyflow's `:fitView true` prop fires only
 on the initial mount, but mount happens BEFORE the async elk pass
 resolves — every node sits at the default `{x 0 y 0}` and the
 one-shot fitView would frame the operator on a degenerate cluster
@@ -1211,7 +1236,7 @@ The auto-fit MUST be gated:
 - The xyflow Controls' built-in `Fit` button remains the manual
   re-fit escape hatch.
 
-A layout invalidation (any of the four triggers above) implicitly
+A layout invalidation (any of the five triggers above) implicitly
 re-fits, by design — the topology shape has changed and the
 operator's prior framing is no longer meaningful.
 

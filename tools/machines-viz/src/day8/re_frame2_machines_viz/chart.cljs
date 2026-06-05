@@ -497,6 +497,24 @@
   [^js instance ^js opts]
   (.fitView instance opts))
 
+(defn invoke-project-definition!
+  "rf2-jl72i — indirection over `(layout/project-definition definition)`,
+  the topology parser. Same test-seam shape as `invoke-elk-layout!` /
+  `invoke-fit-view!` above: the per-chart parse-cache regression rebinds
+  this via `set!` to SPY parser calls (counting how many renders actually
+  walk the definition) without re-stubbing the whole `layout` ns — the
+  rest of the suite calls `layout/project-definition` directly and must
+  keep seeing the real fn.
+
+  `MachineChart` routes its single topology projection through THIS seam,
+  behind the per-chart parsed-topology cache (keyed only on `:definition`),
+  so decoration-only re-renders (`:current-state` / `:from-highlight` /
+  `:to-highlight` / overlay `:tick` / `:fit-signal` / a parent re-render)
+  reuse the cached parse instead of re-walking the definition. No
+  production code outside `MachineChart` calls it."
+  [definition]
+  (layout/project-definition definition))
+
 (defn read-measured-dims
   "rf2-d9ro2 — read xyflow's measured node boxes off a captured
   ReactFlowInstance as a pure CLJS `{node-id {:width :height}}` map.
@@ -1002,6 +1020,42 @@
         ;; per-chart-instance and disposed with the component. The shape is
         ;; `{:key <input-vec> :js-nodes #js[…] :js-edges #js[…]}`.
         graph-cache   (atom nil)
+        ;; rf2-jl72i — per-chart parsed-topology cache.
+        ;;
+        ;; The topology parser (`layout/project-definition`, the e0emp
+        ;; rename of the former `parse-definition`) walks the WHOLE
+        ;; definition and rebuilds the `{:nodes :edges :initial-path}`
+        ;; graph. rf2-dnmbs gated the DOWNSTREAM `xyflow-graph` projection
+        ;; + `clj->js` marshalling behind `graph-cache`, but the parse
+        ;; itself still ran at the TOP of EVERY render — so a decoration-
+        ;; only re-render (`:current-state` / `:from-highlight` /
+        ;; `:to-highlight` change, an overlay `:tick`, a `:fit-signal`
+        ;; bump, a bare parent re-render) paid the full O(topology)
+        ;; parse + allocation cost despite the API (spec/API.md §Lock #11,
+        ;; §Performance invariants) marking the topology and runtime-
+        ;; highlight planes as STRICTLY separate: decoration props must
+        ;; not reach the layout/topology pipeline.
+        ;;
+        ;; This cache memoises the parse keyed ONLY on `:definition`
+        ;; (identity-or-value `=`). A render with the same `:definition`
+        ;; reuses the cached `parsed` map (so `graph-cache`, the layout-
+        ;; key tuple, and the relayout signature all see the SAME parsed
+        ;; identity — their own `=`-keys then short-circuit too); a NEW
+        ;; `:definition` reparses ONCE and replaces the entry, which in
+        ;; turn busts every downstream cache (their keys embed `parsed`).
+        ;; Density / direction / layout-options / theme / highlight
+        ;; changes never reparse — they don't change `:definition`.
+        ;; Closure-held in the Form-2 outer scope: per-chart-instance,
+        ;; disposed with the component. Shape `{:definition <d> :parsed <p>}`.
+        parse-cache   (atom nil)
+        parse-topology!
+        (fn [definition]
+          (let [cached @parse-cache]
+            (if (and cached (= (:definition cached) definition))
+              (:parsed cached)
+              (let [parsed (invoke-project-definition! definition)]
+                (reset! parse-cache {:definition definition :parsed parsed})
+                parsed))))
         project+convert!
         (fn [cache-key project-fn]
           ;; `project-fn` is a thunk that returns `{:nodes :edges}` (the
@@ -1040,7 +1094,14 @@
                  ;; values passes `:machine-data-inferred? false`.
                  machine-data-inferred? true
                  testid            "rf-mv-chart"}}]
-      (let [parsed     (layout/project-definition definition)
+      (let [;; rf2-jl72i — route the SINGLE topology parse through the
+            ;; per-chart parse-cache (keyed only on `:definition`). A
+            ;; decoration-only re-render reuses the cached `parsed`
+            ;; identity, so neither the parser nor the downstream
+            ;; graph/layout/relayout caches (whose keys embed `parsed`)
+            ;; recompute. A changed `:definition` reparses once here and
+            ;; busts every downstream cache.
+            parsed     (parse-topology! definition)
             ;; rf2-lkwev — exclude synthetic parallel-region container
             ;; nodes from the state count + aria-label (they are zone
             ;; chrome, not states).
