@@ -23,9 +23,13 @@ in one file, kept compact for AI-readability.
   stub, so the example runs without a backend.
 - **CP-4 registered view** — Var reference, Form-1 (canonical).
 - **State tags** (Spec 005) — `:auth/busy` on `:submitting`,
-  `:auth/authenticated` on `:authed`. Views query them via
-  `(rf/machine-has-tag? :auth.login/flow ...)` instead of
-  boolean-discriminator subs.
+  `:auth/authenticated` on `:authed`, `:auth/locked` on `:locked-out`.
+  Views query them via `(rf/machine-has-tag? :auth.login/flow ...)`
+  instead of boolean-discriminator subs. The terminal `:locked-out`
+  state (reached after the fourth failed submit) is surfaced as a
+  non-interactive locked-account panel rather than a dead-but-enabled
+  form — same tag + locked-panel pattern as the state-machines
+  walkthrough.
 - **Open-map idiom** — every shape on the wire is an open map.
 - **Headless test** — browserless smoke test demonstrating the full
   test seam.

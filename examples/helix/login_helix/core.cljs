@@ -9,10 +9,11 @@
    substrate-agnostic — only the view layer differs across substrates.
 
    Cross-substrate parity is exercised end-to-end: machine states carry
-   Spec 005 `:tags` (`:auth/busy`, `:auth/authenticated`) and views read
-   them via the `:rf/machine-has-tag?` framework sub — same tag taxonomy
-   as the Reagent reference example, only the substrate's hook idiom
-   differs.
+   Spec 005 `:tags` (`:auth/busy`, `:auth/authenticated`, `:auth/locked`)
+   and views read them via the `:rf/machine-has-tag?` framework sub —
+   same tag taxonomy as the state-machines walkthrough, only the
+   substrate's hook idiom differs. The terminal `:locked-out` state is
+   surfaced as a non-interactive locked-account panel (rf2-q6bm7d).
 
    `reg-view` stays Reagent-only; Helix components are plain `defnc`.
    There is no auto-injection."
@@ -193,7 +194,15 @@
        :meta {:terminal? true}}
 
       :locked-out
-      {:meta {:terminal? true}}}}))
+      ;; :auth/locked tag — after the fourth failed submit the flow lands
+      ;; in this terminal state. Views query
+      ;; [:rf/machine-has-tag? :auth.login/flow :auth/locked] to swap the
+      ;; form for a locked-account panel and refuse further submits — same
+      ;; tag + locked-panel pattern as the state-machines walkthrough. A
+      ;; terminal lockout must be visible and non-interactive, not a live
+      ;; form (rf2-q6bm7d).
+      {:tags #{:auth/locked}
+       :meta {:terminal? true}}}}))
 
 ;; ============================================================================
 ;; SUBSCRIPTIONS
@@ -229,9 +238,10 @@
         :data-testid "login-form"
         :on-submit (fn [e]
                      (.preventDefault e)
-                     (dispatch [:auth.login/flow
-                                [:auth.login/submit {:email email
-                                                     :password password}]]))}
+                     (when-not busy?
+                       (dispatch [:auth.login/flow
+                                  [:auth.login/submit {:email email
+                                                       :password password}]])))}
        (d/input  {:type        "email"
                   :placeholder "Email"
                   :disabled    busy?
@@ -247,15 +257,28 @@
           (if busy? "Signing in…" "Sign in"))
        (when err (d/p {:class "error" :data-testid "login-error"} err)))))
 
+;; Terminal lockout panel — rendered once the flow reaches :locked-out
+;; (tagged :auth/locked). The state has no transitions, so the form is
+;; swapped out entirely rather than left enabled-but-dead.
+(defnc locked-panel []
+  (d/div
+     {:class "locked"
+      :data-testid "locked-panel"}
+     (d/h2 "Account locked")
+     (d/p "Three failed attempts. Contact support to unlock.")))
+
 (defnc login-banner []
   (let [authed? (helix-adapter/use-subscribe [:rf/machine-has-tag?
-                                              :auth.login/flow :auth/authenticated])]
+                                              :auth.login/flow :auth/authenticated])
+        locked? (helix-adapter/use-subscribe [:rf/machine-has-tag?
+                                              :auth.login/flow :auth/locked])]
     (d/div
        {:class "banner"
         :data-testid "login-banner"}
-       (if authed?
-         (d/span "Welcome!")
-         ($ login-form)))))
+       (cond
+         authed? (d/span "Welcome!")
+         locked? ($ locked-panel)
+         :else   ($ login-form)))))
 
 (defnc root-view []
   (d/div
