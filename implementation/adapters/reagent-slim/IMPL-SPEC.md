@@ -647,6 +647,8 @@ Stage 4 ships these tests:
 
 The error-boundary path is React-19-stable; no special-casing needed beyond plumbing `:component-did-catch` to `componentDidCatch`.
 
+**Default-marker state sync (rf2-ygknv finding 4).** The auto-installed default `getDerivedStateFromError` is a *static* method (React's contract) — it receives only the error and returns a state patch React merges into `this.state` (`#js {:cljsHasError true}`). But the advertised public state API (`reagent2.core/state` → derefs the per-instance `.-cljsState` RAtom) reads a *separate* cell, so a boundary render checking `(reagent2.core/state this)` for the marker would never see the React-state patch — the fallback would not render and the boundary could rethrow on every render. The render method bridges this: at render entry (after React has applied the derived-state patch and re-rendered) `sync-error-state!` copies the `cljsHasError` marker from `this.state` into the Reagent state atom additively (leaving user-managed keys intact), guarded so it writes only on the error-state transition and outside the render Reaction (so the write is not captured as a dependency). After the sync, `(reagent2.core/state this)` returns `{:cljsHasError true}` and the user's `:reagent-render` can branch to the fallback.
+
 ### §6.6 `:get-snapshot-before-update` pairing
 
 This is the React-blessed lifecycle that pairs with `:component-did-update`. The contract:
@@ -703,37 +705,43 @@ as-element
 
 The dispatch is small and concrete. Stage 4 references `reagent.impl.template:vec-to-elem` for the canonical shape and re-implements without the compiler-customisation indirection (Stage 1 §2.4 + Stage 2 §2.2).
 
-### §7.2 Narrowed `convert-prop-value`
+### §7.2 Target-aware `convert-prop-value`
 
-Per DECISION-2 + S3-002: stringify named values only for documented HTML-attribute prop names. The static set:
+Per DECISION-2 + S3-002 + rf2-ygknv finding 1: keyword/symbol prop-value stringification is **target-aware**. `convert-props` discriminates on whether the element is a native DOM/string tag (the HiccupTag's `tag` slot is a string) or a custom React component (`:>` interop — the tag slot carries a fn/class):
+
+- **Native DOM/string tags** — every prop on a real DOM element is an HTML attribute whose value is a string, so keyword/symbol values stringify for **any** prop name. `[:button {:type :button}]` reaches React with `props.type === "button"`; `[:a {:target :_blank}]` → `props.target === "_blank"`. This matches both React DOM and the pure server serializer (`dom/server.cljs`), which stringifies every attribute value — closing the SSR/static-vs-client parity gap where the live path used to pass a raw keyword into React DOM.
+
+- **Custom/interop components** — keyword/symbol values stringify only for the documented HTML-attribute prop names (`:class`, `:id`, `:role`, `:data-*`, `:aria-*`); other named values pass through unchanged (with a one-shot dev warning). So `[:> Provider {:value :rf/foo}]` preserves the `:rf/foo` keyword for the React-context Provider.
+
+The static HTML-attribute set (used for the interop/non-native path):
 
 ```clojure
 (def html-attr-names #{:class :id :role})
 ;; Plus prefix-matched: :data-* / :aria-*
 ```
 
-Implementation:
+Implementation (target threaded from `convert-props` as `native?`):
 
 ```clojure
-(defn- html-attr-name? [k]
-  (or (contains? html-attr-names k)
-      (let [n (name k)]
-        (or (str/starts-with? n "data-")
-            (str/starts-with? n "aria-")))))
-
-(defn convert-prop-value [k v]
-  (cond
-    (named? v) (if (html-attr-name? k)
-                 (name v)                ; stringify for HTML attrs
-                 (do                     ; non-HTML: pass through; warn in dev
-                   (when ^boolean js/goog.DEBUG
-                     (warn-once-keyword-prop! k v))
-                   v))
-    (and (map? v) (= :style k)) (clj->js v)
-    :else v))
+(defn convert-prop-value
+  ;; 2-arg: custom/interop semantics (also the public Var's contract).
+  ([k v]
+   (cond
+     (named? v) (if (html-attr-name? k)
+                  (name v)               ; stringify for HTML attrs
+                  (do                     ; non-HTML: pass through; warn in dev
+                    (when ^boolean js/goog.DEBUG
+                      (warn-once-keyword-prop! k v))
+                    v))
+     ...))
+  ;; 3-arg: target-aware. Native DOM tag → stringify every named value.
+  ([k v native?]
+   (if (and native? (named? v) (not (js-val? v)))
+     (name v)
+     (convert-prop-value k v))))
 ```
 
-The dev-mode warn-once cache is a `defonce`-d atom keyed by `[k (name v)]` to avoid spamming. Stage 4 implements the cache + the warning text; the warning includes the prop key, the keyword value, and the migration: "if you intended a string, call (name v) at the call site; if you intended a keyword as a React-context value or a custom prop, the value is now passed through unchanged."
+The dev-mode warn-once cache (interop path only) is a `defonce`-d atom keyed by `[k (name v)]` to avoid spamming. The warning includes the prop key, the keyword value, and the migration: "if you intended a string, call (name v) at the call site; if you intended a keyword as a React-context value or a custom prop, the value is now passed through unchanged."
 
 ### §7.3 Tag parsing — `:div.cls#id` shorthand
 
@@ -839,11 +847,13 @@ Lift the existing implementation from `re-frame.ssr/escape-html` (`ssr.cljc:50-5
 
 The same narrowed `convert-prop-value` rules apply (per S3-005): the static-markup path stringifies keyword values only for HTML-attribute names. (Inside an HTML attribute serialisation, every prop name IS by definition an HTML attribute name — this layer doesn't see React-component props, only DOM-element attrs.)
 
+**Attribute-name casing (`attr-name`) — SVG case-sensitivity (rf2-ygknv finding 3).** `react-dom/server` does NOT blanket-lowercase camelCase attribute names; it consults a fixed attribute-name table. Three observed output shapes for a camelCase hiccup name (the React-camelCase form `cached-prop-name` produces): **preserved** (`viewBox`, `preserveAspectRatio`, `gradientUnits`, `stdDeviation`, `colSpan`, `readOnly`, …), **dasherized** (`clipPath`→`clip-path`, `strokeWidth`→`stroke-width`, `fillOpacity`→`fill-opacity`, `stopColor`→`stop-color`, `httpEquiv`→`http-equiv`, `acceptCharset`→`accept-charset`, …), and **lowercased** (plain HTML camelCase like `tabIndex`→`tabindex`). `reagent2.dom.server` carries `react-attr-name-overrides` — an explicit map pinning the preserved + dasherized shapes to React 19's exact output, extracted from the live `renderToStaticMarkup`. Any camelCase token not in the map falls through to the lowercase rule (correct for the residual HTML attributes). The earlier blanket-lowercase turned case-sensitive SVG names (`:viewBox`→`viewbox`, `:clipPath`→`clippath`, `:strokeWidth`→`strokewidth`) into broken markup. The React-element (client) path was already correct — React itself remaps SVG names at the DOM layer — so only this pure serializer needed the fix; parity is pinned in `parity_cljs_test.cljs` per §8.7.
+
 **Inline-style value serialisation (`emit-style-attr` / `style-string`)** must match `react-dom/server.renderToStaticMarkup`'s `pushStyleAttribute` (rf2-9nyg6):
 
 - A *numeric* value gets a `px` suffix unless the value is `0` or the property is in React's `unitlessNumber` set (`flex`, `flex-grow`, `z-index`, `opacity`, `line-height`, `font-weight`, `order`, the vendor-prefixed entries, …). `{:width 10}` → `width:10px`; `{:flex-grow 1}` → `flex-grow:1`. The `unitless-style-props` set in `reagent2.dom.server` mirrors React 19.2.0's set verbatim — keyed on the *camelCase* property name (the same form the React-element path hands React via `cached-prop-name`), so the hiccup key is camelCased before the lookup, then converted to the kebab CSS name with React's own rule (`([A-Z]) → -$1`, lower-case, `^ms- → -ms-`).
 - An entry whose value is `nil`, a boolean, or `""` is **omitted entirely** (no empty `prop:` declaration).
-- CSS custom properties (`--foo`) are emitted name-and-value verbatim with no `px` logic. (The React-element path's `kv-conv` camelCases all style keys, so it does not itself round-trip `--foo`; the static-markup path handles them directly.)
+- CSS custom properties (`--foo`) are emitted name-and-value verbatim with no `px` logic. The React-element path agrees: `dash-to-prop-name` short-circuits `--`-prefixed names so a style key like `:--gap` is preserved (not camelCased to `Gap`), matching React's style handling and this serializer (rf2-ygknv finding 2 — previously the live path camelCased `--gap` → `Gap`, silently dropping the variable and breaking SSR/client parity).
 
 These rules are pinned by `parity_cljs_test.cljs` against `react-dom/server` (numeric→px, unitless→bare, zero→bare, nil→omitted, string→untouched) per §8.7.
 

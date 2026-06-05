@@ -113,12 +113,17 @@
     (is (= "<div aria-label=\"close\"></div>"
            (server/render-to-static-markup [:div {:aria-label "close"}])))))
 
-(deftest attr-camelcase-lowercased
-  (testing "camelCased prop names lowercase to HTML conventional form"
-    ;; tabIndex → tabindex; colSpan → colspan
+(deftest attr-camelcase-react-canonical-name
+  (testing "camelCased prop names emit React 19's canonical output name"
+    ;; rf2-ygknv finding 3: `attr-name` is no longer a blanket lowercase.
+    ;; React's attribute-name table governs the output:
+    ;;   :tab-index → "tabindex"  (plain HTML camelCase → lowercased)
+    ;;   :col-span  → "colSpan"   (React PRESERVES this camelCase token)
+    ;; The previous "<td colspan>" assertion pinned a divergence from
+    ;; react-dom/server; the corrected expectation matches React exactly.
     (is (= "<div tabindex=\"0\"></div>"
            (server/render-to-static-markup [:div {:tab-index "0"}])))
-    (is (= "<td colspan=\"2\"></td>"
+    (is (= "<td colSpan=\"2\"></td>"
            (server/render-to-static-markup [:td {:col-span "2"}])))))
 
 ;; ---------------------------------------------------------------------------

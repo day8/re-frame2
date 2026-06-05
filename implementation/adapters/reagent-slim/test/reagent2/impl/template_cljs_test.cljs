@@ -157,6 +157,23 @@
     (is (= :primary
            (template/convert-prop-value :type :primary)))))
 
+(deftest convert-prop-value-3-arg-native-stringifies-any-name
+  (testing "rf2-ygknv finding 1: 3-arg form with native?=true stringifies
+            keyword values for ANY prop name (every DOM attr is a string)"
+    (is (= "button" (template/convert-prop-value :type :button true)))
+    (is (= "_blank" (template/convert-prop-value :target :_blank true)))
+    (is (= "noopener" (template/convert-prop-value :rel :noopener true)))
+    ;; symbol value too
+    (is (= "x" (template/convert-prop-value :name 'x true)))))
+
+(deftest convert-prop-value-3-arg-non-native-narrowed
+  (testing "rf2-ygknv finding 1: 3-arg form with native?=false defers to
+            the interop (narrowed) rule — non-HTML keyword preserved"
+    (is (= :button (template/convert-prop-value :type :button false)))
+    (is (= :rf/foo (template/convert-prop-value :value :rf/foo false)))
+    ;; HTML-attr name still stringifies even on the non-native path
+    (is (= "primary" (template/convert-prop-value :class :primary false)))))
+
 (deftest convert-prop-value-string-passthrough
   (testing "string value passes through unchanged"
     (is (= "hello"
@@ -458,6 +475,83 @@
     (let [my-view (fn [_n] [:div])
           ^js el (template/as-element [my-view 1])]
       (is (component/reagent-class? (.-type el))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-ygknv finding 1: target-aware keyword/symbol DOM-attr stringification
+;;
+;; convert-props is shared by native DOM tags and :> custom React
+;; components. For native DOM tags every prop is an HTML attribute, so
+;; keyword/symbol values must stringify (matching the pure server
+;; serializer + React DOM). For custom/interop components the keyword
+;; is preserved (e.g. :rf/foo on a React-context Provider's :value).
+;; ---------------------------------------------------------------------------
+
+(deftest as-element-native-button-type-keyword-stringifies
+  (testing "[:button {:type :button}] → props.type === \"button\""
+    (let [^js el (template/as-element [:button {:type :button}])]
+      (is (= "button" (-> el .-props .-type))))))
+
+(deftest as-element-native-anchor-keyword-attrs-stringify
+  (testing "[:a {:target :_blank :rel :noopener}] → string DOM attrs"
+    (let [^js el (template/as-element [:a {:target :_blank :rel :noopener}])]
+      (is (= "_blank" (-> el .-props .-target)))
+      (is (= "noopener" (-> el .-props .-rel))))))
+
+(deftest as-element-native-symbol-attr-stringifies
+  (testing "native DOM tag stringifies a symbol attr value too"
+    (let [^js el (template/as-element [:input {:name 'q}])]
+      (is (= "q" (-> el .-props .-name))))))
+
+(deftest as-element-interop-preserves-keyword-value
+  (testing "[:> Provider {:value :rf/foo}] preserves the CLJS keyword
+            (custom React component — NOT a native DOM tag)"
+    (let [Provider (fn FakeProvider [_props] nil)
+          ^js el   (template/as-element [:> Provider {:value :rf/foo}])]
+      (is (= Provider (.-type el)))
+      (is (= :rf/foo (-> el .-props .-value))
+          "keyword preserved for the interop component, not stringified"))))
+
+(deftest as-element-interop-non-html-keyword-preserved-html-stringified
+  (testing "interop: HTML-attr keyword stringifies, non-HTML keyword preserved"
+    (let [Comp   (fn FakeComp [_props] nil)
+          ^js el (template/as-element [:> Comp {:role :button :kind :primary}])]
+      (is (= "button" (-> el .-props .-role))
+          ":role is an HTML-attr name → stringified even on interop")
+      (is (= :primary (-> el .-props .-kind))
+          ":kind is a custom prop → keyword preserved on interop"))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-ygknv finding 2: CSS custom properties (--foo) not camelCased
+;;
+;; The live React-element path's style-map conversion ran every key
+;; through cached-prop-name, camelCasing `--gap` → `Gap` and silently
+;; dropping the variable (while the pure server serializer preserved
+;; it → parity break). dash-to-prop-name now short-circuits `--` names.
+;; ---------------------------------------------------------------------------
+
+(deftest as-element-style-css-var-preserved
+  (testing "[:div {:style {:--gap \"8px\"}}] → props.style[\"--gap\"] === \"8px\""
+    (let [^js el (template/as-element [:div {:style {:--gap "8px"}}])
+          style  (.. el -props -style)]
+      (is (= "8px" (aget style "--gap"))
+          "CSS custom property name preserved verbatim")
+      (is (or (nil? (aget style "Gap")) (= js/undefined (aget style "Gap")))
+          "NO camelCased 'Gap' replacement key created"))))
+
+(deftest as-element-style-css-var-alongside-normal-prop
+  (testing "CSS var coexists with a normal camelCased style prop"
+    (let [^js el (template/as-element [:div {:style {:--accent "red"
+                                                     :font-size "12px"}}])
+          style  (.. el -props -style)]
+      (is (= "red" (aget style "--accent"))
+          "custom property preserved")
+      (is (= "12px" (aget style "fontSize"))
+          "regular kebab style key still camelCased to fontSize"))))
+
+(deftest cached-prop-name-css-var-not-camelcased
+  (testing "rf2-ygknv finding 2: cached-prop-name preserves --foo verbatim"
+    (is (= "--gap" (template/cached-prop-name :--gap)))
+    (is (= "--my-custom-prop" (template/cached-prop-name :--my-custom-prop)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Sequence-as-children + key warnings

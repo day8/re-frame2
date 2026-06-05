@@ -416,7 +416,11 @@
     ;; getDerivedStateFromError: React-19 requires it (paired with
     ;; componentDidCatch) for the boundary to catch at all. Default
     ;; flips a :cljsHasError marker user :reagent-render can check.
-    ;; Per IMPL-SPEC §6.5.
+    ;; Per IMPL-SPEC §6.5. This is a STATIC method (no `this`), so it
+    ;; can only patch React's own this.state; `sync-error-state!`
+    ;; (called at render entry) bridges the marker into the public
+    ;; Reagent state atom so `(reagent2.core/state this)` sees it too
+    ;; (rf2-ygknv finding 4 — the React-state/Reagent-atom desync).
     (when (:component-did-catch spec)
       (set! (.-getDerivedStateFromError klass)
             (fn [_error]
@@ -435,6 +439,32 @@
 ;; method delegates to wrap-render and runs inside a per-component
 ;; Reaction (reactive-subscription wiring, IMPL-SPEC §4.4 path 1).
 ;; ---------------------------------------------------------------------------
+
+(defn- sync-error-state!
+  "Bridge React's error-boundary state into the public Reagent state
+  atom (rf2-ygknv finding 4).
+
+  The default `getDerivedStateFromError` (installed by
+  `install-lifecycle!`) is a STATIC method — it cannot reach the
+  instance, so it can only patch React's own `this.state` with
+  `#js {:cljsHasError true}`. But the advertised public state API
+  (`reagent2.core/state` → derefs `.-cljsState`) reads a SEPARATE
+  RAtom, so a boundary render checking `(r/state this)` for the marker
+  would never see the patch and the fallback would not render.
+
+  This runs at render entry — AFTER React has applied the derived-state
+  patch and re-rendered — and copies the `cljsHasError` marker from
+  `this.state` into the Reagent state atom (additively, leaving any
+  user-managed keys intact). Guarded so it writes the atom only on the
+  error-state transition: the write happens OUTSIDE the render Reaction
+  (before the capture below), so it neither registers as a render
+  dependency nor churns on subsequent renders once the marker is set."
+  [^js this]
+  (let [react-state (.-state this)]
+    (when (and react-state (true? (.-cljsHasError react-state)))
+      (let [a (state-atom this)]
+        (when-not (:cljsHasError @a)
+          (swap! a assoc :cljsHasError true))))))
 
 (defn- make-render-method
   "Build the React `render` method. Runs the user's render fn inside a
@@ -455,6 +485,10 @@
       ;; getDerivedStateFromProps cannot side-effect on the instance,
       ;; so the copy happens here.
       (copy-argv-from-props! this (.-props this))
+      ;; Bridge the error-boundary marker from React's this.state into
+      ;; the public Reagent state atom (rf2-ygknv finding 4). Outside
+      ;; the render Reaction so it is not captured as a dependency.
+      (sync-error-state! this)
       (binding [*current-component* this]
         (batching/mark-rendered this)
         (let [^js cached-rea (.-cljsRenderRea this)
