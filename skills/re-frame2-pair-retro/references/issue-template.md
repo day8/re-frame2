@@ -68,7 +68,12 @@ Once the body is drafted and the user has approved, file via the GitHub CLI. Two
 
 This is the canonical shape from [`../../README.md` §Published-skill `allowed-tools` baseline](../../README.md#published-skill-allowed-tools-baseline-security-policy):
 
-1. Use the `Write` tool to compose `/tmp/issue-body.md` (the drafted body as plain markdown — no shell escaping needed; nothing expands it):
+1. Use the `Write` tool to compose the body into a **fresh, per-filing temp file in the host OS's temp directory** — never a fixed, shared, predictable name. A hard-coded `/tmp/issue-body.md` fails on hosts without a POSIX `/tmp` (Windows consumer installs), and its predictable name lets two concurrent retros or two rapid filings overwrite each other's redacted body — filing the wrong text to GitHub or leaving sensitive evidence in a shared location. Pick the path for the OS and add a per-filing nonce, then **carry that exact path into `--body-file` below**:
+
+   - **POSIX:** `${TMPDIR:-/tmp}/re-frame2-pair-retro-$$-$RANDOM.md`
+   - **Windows (PowerShell):** `$env:TEMP\re-frame2-pair-retro-$([guid]::NewGuid()).md`
+
+   The body is plain markdown — no shell escaping needed; nothing expands it:
 
    ```markdown
    ## Problem
@@ -84,8 +89,10 @@ This is the canonical shape from [`../../README.md` §Published-skill `allowed-t
    gh issue create \
      --repo day8/re-frame2 \
      --title "<short title>" \
-     --body-file /tmp/issue-body.md
+     --body-file "<the per-filing temp path you wrote in step 1>"
    ```
+
+   `<the per-filing temp path …>` is the exact OS-appropriate, nonce-carrying path the `Write` tool produced in step 1 — never re-type a fixed name like `/tmp/issue-body.md`.
 
    Encode the tool-vs-framework routing in the **title and body** (it is also stated in §Proposed improvement → layer), not solely in a label. The label is a nicety on top.
 
@@ -105,7 +112,7 @@ This is the canonical shape from [`../../README.md` §Published-skill `allowed-t
    gh issue create \
      --repo day8/re-frame2 \
      --title "<short title>" \
-     --body-file /tmp/issue-body.md \
+     --body-file "<the per-filing temp path you wrote in step 1>" \
      --label retro,pair-mcp
    ```
 
@@ -119,7 +126,7 @@ Always run `gh issue list --repo <owner/repo> --search "<keywords>"` first to ch
 
 - File only after explicit user approval.
 - **Labels are optional; never let a missing label block filing.** `gh issue create` fails the whole command on an unknown `--label`, and the target repo may not define `retro` / `pair-mcp` / `upstream-from-re-frame2-pair`. File the no-label baseline command by default; add a `--label` only after confirming it exists (`gh label list`), passing only the present tokens. If a labelled create fails, re-run the no-label command — the issue must land.
-- **Never interpolate transcript-derived text directly into a shell command.** Use the `Write` tool + `--body-file /tmp/issue-body.md` pattern for the body, and **author the `--title` from the safe alphabet** (§Title patterns) — never paste evidence text into `--title`, `--label`, or `--repo`.
+- **Never interpolate transcript-derived text directly into a shell command.** Use the `Write` tool + `--body-file` pattern for the body — writing to a **fresh, per-filing temp file in the host OS's temp directory** (a nonce-carrying `$env:TEMP\…` on Windows or `${TMPDIR:-/tmp}/…` on POSIX), never a fixed `/tmp/issue-body.md` — and **author the `--title` from the safe alphabet** (§Title patterns) — never paste evidence text into `--title`, `--label`, or `--repo`.
 - Redact secrets, tokens, and internal-only details.
 - Prefer one issue per distinct improvement.
 - Search for an existing issue first: `gh issue list --repo <owner/repo> --search "<keywords>"`.
