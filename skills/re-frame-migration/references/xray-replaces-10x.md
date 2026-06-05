@@ -1,8 +1,17 @@
 # xray-replaces-10x
 
-The devtools swap. v1 ships `day8.re-frame-10x`; v2 ships **Xray** (`day8/re-frame2-xray`). Xray is a from-scratch reimplementation against re-frame2's own trace bus and epoch-history surfaces — not a port of 10x. The mental model (events, subs, app-db diff, time-travel) carries over; the wiring underneath does not. See [`docs/guide/25-from-re-frame-v1.md` §The devtools moved house](../../../docs/guide/25-from-re-frame-v1.md#the-devtools-moved-house) for the narrative version of this swap.
+The devtools swap. v1 ships `day8.re-frame-10x`; v2 ships **Xray** (`day8/re-frame2-xray`). **Xray IS the v2 devtools replacement for re-frame-10x** — a from-scratch reimplementation against re-frame2's own trace bus and epoch-history surfaces, not a port of 10x. The mental model (events, subs, app-db diff, time-travel) carries over; the wiring underneath does not. See [`docs/guide/25-from-re-frame-v1.md` §The devtools moved house](../../../docs/guide/25-from-re-frame-v1.md#the-devtools-moved-house) for the narrative version of this swap.
 
-**This is not an M-rule.** No application code triggers it; it's a dev-build hygiene step the author runs alongside the M-0 coord swap. The skill performs it when the codebase's dep file holds a `day8.re-frame-10x` coord or a `day8.re-frame-10x.preload` `:preloads` entry.
+**This is a STANDARD, first-class, EXPECTED migration step — not an optional adjunct.** If a v1 app uses re-frame-10x, the migration's **done-state is the app ON Xray**, not merely the dead 10x preload removed. 10x is the v1 devtools; Xray is its v2 successor; a migration that drops 10x without restoring Xray leaves the author worse off than they started.
+
+**The rule: 10x present ⇒ swap to Xray (standard); no 10x ⇒ Xray optional.** The swap is triggered, and carried to completion, whenever the codebase's dep file holds a `day8.re-frame-10x` coord or a `day8.re-frame-10x.preload` `:preloads` entry. If the app **never** had re-frame-10x, do **not** force devtools on it — Xray is then a genuine offer the author can decline, not a step in their migration. Don't introduce devtools an app didn't ask for.
+
+**"Not an M-rule" ≠ "optional."** No *application code* triggers this swap (M-rules key off application-code surfaces), so it carries no `M-N` id and stays out of the M-rule list. That is a *taxonomy* fact, not a priority signal: for a 10x app the swap is as expected as any M-rule. It runs as a **two-stage swap straddling the M-rule sweep**:
+
+1. **M-0 — neutralize the dead preload (now).** Excluding v1 `re-frame` at M-0 makes `day8.re-frame-10x.preload` uncompilable, so the dead preload blocks the post-M-0 "stop and compile" gate. Remove the 10x dep coord + its `:preloads` entry (+ any 10x `closure-defines` flag) in the same M-0 dep-file edit so the gate is reachable. → [`setup.md` §Neutralize the re-frame-10x preload as part of M-0](setup.md#neutralize-the-re-frame-10x-preload-as-part-of-m-0).
+2. **Post-M-40 — mount Xray (the restore).** The Xray preload auto-opens *after* `(rf/init!)` runs, so it can't mount until boot wiring is in place. Once the M-rule sweep reaches M-40 and a clean reload is verified, add the Xray dep + preload + `[data-rf-xray-host]` layout host — completing the swap and landing the app on Xray.
+
+The post-M-40 timing is a **sequencing detail** (Xray needs `init!` first), not a downgrade to optional. Stage 1 unblocks the compile gate; stage 2 is the point of the whole swap.
 
 ## Contents
 
@@ -174,8 +183,8 @@ Full panel inventory: [`tools/xray/spec/000-Vision.md`](../../../tools/xray/spec
 
 ## Reporting
 
-Mention the devtools swap in the migration report's **Anything unexpected** or **Verification** section — not in the M-rule list (it is not an M-rule). Example line:
+For a 10x app the swap is a **standard, expected** part of the migration — report it as completed work, not as a surprise. It carries no `M-N` id (no application-code surface triggers it), so report it in the migration report's **Verification** section rather than the M-rule list. Example line:
 
-> *"Dev-deps: dropped `day8.re-frame/re-frame-10x` + its `:preloads` entry; added `day8/re-frame2-xray {:local/root "..."}` + its preload. Added `[data-rf-xray-host]` host to `resources/public/index.html`. `Ctrl+Shift+C` toggles the panel."*
+> *"Devtools (Xray replaces 10x — standard for a 10x app): dropped `day8.re-frame/re-frame-10x` + its `:preloads` entry at M-0; post-M-40 added `day8/re-frame2-xray {:local/root "..."}` + its preload + a `[data-rf-xray-host]` host in `resources/public/index.html`. `Ctrl+Shift+C` toggles the panel — app is on Xray."*
 
-That's it. No rule id; the v1 devtools were never part of the application contract.
+No rule id; the v1 devtools were never part of the application contract. But "no rule id" is not "skip it" — for a 10x app, the done-state is the app on Xray. (No re-frame-10x in the project ⇒ nothing to report; don't add devtools the app never had.)

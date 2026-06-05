@@ -93,7 +93,7 @@ So, in the same M-0 dep-file edit:
 - **Remove the `:preloads` entry** `day8.re-frame-10x.preload` (and any 10x dev-module / `closure-defines` 10x flag).
 - The 10x **Maven dev-dep coord** itself (`day8.re-frame/re-frame-10x`) also goes — see [`xray-replaces-10x.md`](xray-replaces-10x.md) for the full dep+preload drop and the Xray replacement.
 
-The devtools are **restored later, not now**: the re-frame2 Xray panel is swapped in as a **post-M-40** devtools adjunct (its preload auto-opens *after* `(rf/init!)` runs, so it can't mount until boot wiring is in place). Cross-ref [`xray-replaces-10x.md`](xray-replaces-10x.md) for the post-M-40 restore. The point at M-0 is narrow: clear the dead 10x preload **now** so the post-M-0 compile gate is actually reachable — don't leave it blocking the immediate "stop and compile" step while waiting for the post-M-40 Xray swap.
+The devtools are **restored later, not now** — but restored they are: for a 10x app, swapping in the re-frame2 Xray panel is a **standard, expected** migration step (Xray IS the v2 devtools replacement for 10x), whose done-state is the app on Xray. The restore is **post-M-40** purely as a sequencing detail — the Xray preload auto-opens *after* `(rf/init!)` runs, so it can't mount until boot wiring is in place. That timing is **not** a downgrade to optional. Cross-ref [`xray-replaces-10x.md`](xray-replaces-10x.md) for the post-M-40 restore and the 10x-present/no-10x rule. The point at M-0 here is narrow: clear the dead 10x preload **now** so the post-M-0 compile gate is actually reachable — don't leave it blocking the immediate "stop and compile" step while waiting for the post-M-40 Xray mount.
 
 ## Per-build-tool shapes
 
