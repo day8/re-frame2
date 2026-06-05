@@ -2609,6 +2609,165 @@
           (is (= :rf/redacted (get-in s [:explain :effective-args :api-key]))
               "gate closed: the opt-in cannot exfiltrate the declared-sensitive value"))))))
 
+;; ---------------------------------------------------------------------------
+;; rf2-q8ebq.1 — explain-variant value-bearing slot COMPOSITION GAP.
+;;
+;; rf2-12f2q scrubbed only [:effective-args :args :substitutions :network
+;; :db-seed], but the SAME `substitute-args` that feeds the scrubbed
+;; `:substitutions` also resolves arg values into `:sub-overrides` override
+;; values (plan.cljc:1297) and the `:setup-order` / `:script-order` step
+;; sequences (plan.cljc:1263/1269). A declared-sensitive arg substituted
+;; into any of those crossed the AI/MCP boundary RAW by default — leaving
+;; `:setup-order`/`:script-order` unscrubbed is a clean BYPASS of the
+;; `:substitutions` scrub (the secret rides the unscrubbed sibling).
+;;
+;; These tests plant a DISTINCTIVE secret in each of the three newly-scrubbed
+;; slots and assert it is redacted on the wire by default. RED before the
+;; fix (the slot was absent from `explain-value-bearing-slots` so the literal
+;; crossed verbatim); GREEN after.
+;; ---------------------------------------------------------------------------
+
+(deftest explain-variant-redacts-sensitive-sub-overrides-and-step-order-by-default
+  (testing "a declared-sensitive value resolved into :sub-overrides / :setup-order / :script-order is redacted at egress (rf2-q8ebq.1)"
+    (with-clean-frame [vid :story.button/primary]
+      ;; The frame app-db carries the secret at a declared-sensitive path;
+      ;; the plan re-surfaces the SAME VALUE in each plan-RESOLVED value slot
+      ;; (override values + step payloads run the same substitute-args that
+      ;; feeds the scrubbed :substitutions). value-redaction matches by VALUE.
+      (seed-app-db! vid {:auth {:token "DISTINCTIVE-SUBOVR-SECRET"}})
+      (declare-sensitive! vid [:auth :token])
+      (with-redefs [story/explain
+                    (fn [_vk & _]
+                      {:source-chain  [:story.button/primary]      ; structure — public
+                       :sub-overrides {:overrides  {[:current-user] {:token "DISTINCTIVE-SUBOVR-SECRET"}}
+                                       :validation {:status :ok :violations []}}
+                       :setup-order   [[:dispatch [:auth/login {:token "DISTINCTIVE-SUBOVR-SECRET"}]]]
+                       :script-order  [[:dispatch [:api/call {:key "DISTINCTIVE-SUBOVR-SECRET"}]]]})]
+        (let [r (invoke "explain-variant" {:variant-id "story.button/primary"})
+              s (:structuredContent r)]
+          (is (success? r))
+          (is (not (tree-contains? (get-in s [:explain :sub-overrides]) "DISTINCTIVE-SUBOVR-SECRET"))
+              "WITHOUT the fix the secret crosses verbatim in :sub-overrides; it MUST NOT by default")
+          (is (not (tree-contains? (get-in s [:explain :setup-order]) "DISTINCTIVE-SUBOVR-SECRET"))
+              "WITHOUT the fix the secret crosses verbatim in :setup-order — the substitute-args sibling of :substitutions")
+          (is (not (tree-contains? (get-in s [:explain :script-order]) "DISTINCTIVE-SUBOVR-SECRET"))
+              "WITHOUT the fix the secret crosses verbatim in :script-order — the same bypass")
+          (is (= :rf/redacted (get-in s [:explain :sub-overrides :overrides [:current-user] :token]))
+              ":sub-overrides override value matching a declared-sensitive value is redacted")
+          (is (= [[:dispatch [:auth/login {:token :rf/redacted}]]] (get-in s [:explain :setup-order]))
+              "value-only redaction preserves the public step STRUCTURE while scrubbing the embedded secret")
+          (is (= [[:dispatch [:api/call {:key :rf/redacted}]]] (get-in s [:explain :script-order]))
+              "ditto for :script-order — fx ids + ordering survive, only the value leaf is redacted")
+          (is (= [:story.button/primary] (get-in s [:explain :source-chain]))
+              "plan-STRUCTURE slots remain author-published discovery metadata — untouched")
+          (is (= :ok (get-in s [:explain :sub-overrides :validation :status]))
+              "the non-value :validation structure inside :sub-overrides is preserved"))))))
+
+(deftest explain-variant-includes-sensitive-sub-overrides-when-opted-in
+  (testing ":include-sensitive true forwards the raw :sub-overrides / step-order value slots (gate open, rf2-q8ebq.1)"
+    (config/set-allow-sensitive-reads! true)
+    (with-clean-frame [vid :story.button/primary]
+      (seed-app-db! vid {:auth {:token "DISTINCTIVE-SUBOVR-SECRET"}})
+      (declare-sensitive! vid [:auth :token])
+      (with-redefs [story/explain
+                    (fn [_vk & _]
+                      {:sub-overrides {:overrides {[:current-user] {:token "DISTINCTIVE-SUBOVR-SECRET"}}}
+                       :setup-order   [[:dispatch [:auth/login {:token "DISTINCTIVE-SUBOVR-SECRET"}]]]})]
+        (let [r (invoke "explain-variant" {:variant-id "story.button/primary"
+                                           :include-sensitive true})
+              s (:structuredContent r)]
+          (is (success? r))
+          (is (= "DISTINCTIVE-SUBOVR-SECRET" (get-in s [:explain :sub-overrides :overrides [:current-user] :token]))
+              "the documented opt-in surfaces the raw override value")
+          (is (= "DISTINCTIVE-SUBOVR-SECRET" (get-in s [:explain :setup-order 0 1 1 :token]))
+              "and the raw setup-step value crosses too"))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-q8ebq.2 — run-a11y shipped raw axe-core violation nodes (incl. node
+;; :html outerHTML) with NO egress scrub. A sensitive value rendered into
+;; the DOM (e.g. `<input value="<token>">`) lands verbatim in node :html and
+;; crossed the AI/off-box MCP boundary unredacted — and run-a11y is
+;; :readOnlyHint true (agent hosts AUTO-APPROVE it), so an unscrubbed runtime
+;; read here is the wrong shape. The fix routes :violations through
+;; `egress/scrub-frame-value` (the same value-based primitive explain/record
+;; use), fail-closed by default + the :include-sensitive opt-in.
+;;
+;; The helpers (`seed-app-db!` / `declare-sensitive!`) establish the frame's
+;; declared-sensitive value; `scrub-frame-value` reads that frame's live
+;; app-db itself to collect the secret-candidate set, then redacts any
+;; matching leaf in the violations tree. The co-hosted violations atom is
+;; supplied via the same var-of-atom stand-in the populated-path test uses.
+;; ---------------------------------------------------------------------------
+
+(defn- a11y-stand-in
+  "A var-of-atom mirror for `violations-by-frame-var`: the handler does
+  `(deref @violations-by-frame-var)`, so `@stand-in` is the inner atom and
+  `(deref inner)` is the by-frame violations map."
+  [by-frame]
+  (atom (atom by-frame)))
+
+(deftest run-a11y-redacts-sensitive-violation-html-by-default
+  (testing "a declared-sensitive value rendered into an axe-core node :html is redacted at egress (rf2-q8ebq.2)"
+    (with-clean-frame [vid :story.button/primary]
+      ;; The frame app-db carries the secret at a declared-sensitive path;
+      ;; the rendered DOM (axe-core node :html) embeds the SAME literal.
+      ;; value-redaction matches by VALUE, so the leaf carrying it is scrubbed.
+      (seed-app-db! vid {:auth {:token "DISTINCTIVE-A11Y-SECRET"}})
+      (declare-sensitive! vid [:auth :token])
+      (let [vios     [{:id    "label"
+                       :impact "critical"
+                       :help  "Form elements must have labels"
+                       :nodes [{:html           "DISTINCTIVE-A11Y-SECRET"
+                                :target         ["#api-key-input"]
+                                :failureSummary "Fix any of the following: element has no label"}]}]
+            stand-in (a11y-stand-in {:story.button/primary vios})]
+        (with-redefs [re-frame.story-mcp.tools.testing/violations-by-frame-var stand-in]
+          (let [r (invoke "run-a11y" {:variant-id "story.button/primary"})
+                s (:structuredContent r)]
+            (is (success? r))
+            (is (not (tree-contains? (:violations s) "DISTINCTIVE-A11Y-SECRET"))
+                "WITHOUT the fix the secret rides node :html verbatim; it MUST NOT cross by default")
+            (is (= :rf/redacted (get-in s [:violations 0 :nodes 0 :html]))
+                "the node :html leaf matching a declared-sensitive value is redacted")
+            (is (= "label" (get-in s [:violations 0 :id]))
+                "the public axe-core finding STRUCTURE (id/impact/help/target) survives — only the value leaf is scrubbed")
+            (is (= ["#api-key-input"] (get-in s [:violations 0 :nodes 0 :target]))
+                "non-sensitive node fields (CSS target selectors) pass through")
+            (is (nil? (:note s))
+                "the atom resolved, so this is the co-hosted path, not JVM-standalone")))))))
+
+(deftest run-a11y-includes-sensitive-violation-html-when-opted-in
+  (testing ":include-sensitive true forwards the raw axe-core node :html (gate open, rf2-q8ebq.2)"
+    (config/set-allow-sensitive-reads! true)
+    (with-clean-frame [vid :story.button/primary]
+      (seed-app-db! vid {:auth {:token "DISTINCTIVE-A11Y-SECRET"}})
+      (declare-sensitive! vid [:auth :token])
+      (let [vios     [{:id "label" :nodes [{:html "DISTINCTIVE-A11Y-SECRET"}]}]
+            stand-in (a11y-stand-in {:story.button/primary vios})]
+        (with-redefs [re-frame.story-mcp.tools.testing/violations-by-frame-var stand-in]
+          (let [r (invoke "run-a11y" {:variant-id        "story.button/primary"
+                                      :include-sensitive true})
+                s (:structuredContent r)]
+            (is (success? r))
+            (is (= "DISTINCTIVE-A11Y-SECRET" (get-in s [:violations 0 :nodes 0 :html]))
+                "the documented opt-in surfaces the raw node :html")))))))
+
+(deftest run-a11y-gate-closed-ignores-opt-in
+  (testing "gate closed: :include-sensitive true is silently ignored — violation :html stays redacted (rf2-q8ebq.2)"
+    (is (false? (config/sensitive-reads-allowed?)))
+    (with-clean-frame [vid :story.button/primary]
+      (seed-app-db! vid {:auth {:token "DISTINCTIVE-A11Y-SECRET"}})
+      (declare-sensitive! vid [:auth :token])
+      (let [vios     [{:id "label" :nodes [{:html "DISTINCTIVE-A11Y-SECRET"}]}]
+            stand-in (a11y-stand-in {:story.button/primary vios})]
+        (with-redefs [re-frame.story-mcp.tools.testing/violations-by-frame-var stand-in]
+          (let [r (invoke "run-a11y" {:variant-id        "story.button/primary"
+                                      :include-sensitive true})
+                s (:structuredContent r)]
+            (is (success? r))
+            (is (= :rf/redacted (get-in s [:violations 0 :nodes 0 :html]))
+                "gate closed: the opt-in cannot exfiltrate the declared-sensitive value")))))))
+
 (deftest record-as-variant-redacts-sensitive-captured-event-by-default
   (testing "a captured event carrying a declared-sensitive value is redacted in :captured AND :play-snippet"
     (with-clean-frame [vid :story.button/primary]
@@ -2770,10 +2929,11 @@
 ;; / assertions OR a non-live runtime/captured value) and so must accept
 ;; the `:include-sensitive` opt-in. The live three (rf2-73wuj) plus the
 ;; non-live two closed in rf2-12f2q (`explain-variant`'s plan-resolved
-;; value slots, `record-as-variant`'s captured events).
+;; value slots, `record-as-variant`'s captured events), plus `run-a11y`'s
+;; runtime DOM `:violations` (rf2-q8ebq.2).
 (def ^:private include-sensitive-tools
   ["preview-variant" "run-variant" "read-failures"
-   "explain-variant" "record-as-variant"])
+   "explain-variant" "record-as-variant" "run-a11y"])
 
 (deftest egress-tools-input-schema-carries-include-sensitive
   (testing "every tool surfacing a value-bearing slot accepts :include-sensitive"

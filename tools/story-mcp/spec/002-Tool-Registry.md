@@ -111,8 +111,8 @@ data, so each payload is one of two classes:
 
 | Class | Tools / slots | Egress |
 |---|---|---|
-| **Runtime / captured VALUE** (scrubbed by default) | `preview-variant` / `run-variant` / `read-failures` (`:app-db`, `:rendered-hiccup`, `:snapshot`, evidence slots, assertion records); `explain-variant` (`:effective-args` / `:args` / `:substitutions` / `:network` / `:db-seed`); `record-as-variant` (`:captured` + `:play-snippet`) | path-based `elide-wire-value` for `:app-db`; value-based `egress/scrub-frame-value` (declared-`:sensitive?` values of the variant frame) for derived / non-live trees. `--allow-sensitive-reads` + per-call `:include-sensitive` is the one opt-in. |
-| **Author-published STATIC metadata** (intentionally public) | `get-story` / `get-variant` / `variant->edn` bodies; `list-stories` / `list-modes` / `list-decorators` / `list-tags` / `list-assertions`; `get-docs-markdown`; `explain`'s plan-STRUCTURE slots (`:source-chain` / `:parent-chain` / `:compose` / `:merge` / `:strict-conflicts` / `:setup-order` / `:script-order` / `:tags` / `:platforms` / …) | none — registration-time authoring prose, not runtime/user state; scrubbing would only degrade the discovery UX without protecting a secret. Registry-wide enumerations (modes/decorators) are not frame-keyed and carry no runtime values; their `:args` / `:app-db-patch` / `:response` slots are the author's own published fixtures. |
+| **Runtime / captured VALUE** (scrubbed by default) | `preview-variant` / `run-variant` / `read-failures` (`:app-db`, `:rendered-hiccup`, `:snapshot`, evidence slots, assertion records); `run-a11y` (`:violations` — axe-core node `:html` is rendered runtime DOM); `explain-variant` (`:effective-args` / `:args` / `:substitutions` / `:network` / `:db-seed` / `:sub-overrides` override values / `:setup-order` + `:script-order` step payloads); `record-as-variant` (`:captured` + `:play-snippet`) | path-based `elide-wire-value` for `:app-db`; value-based `egress/scrub-frame-value` (declared-`:sensitive?` values of the variant frame) for derived / non-live trees. `:sub-overrides` / `:setup-order` / `:script-order` carry resolved arg VALUES (the SAME `substitute-args` that feeds `:substitutions`); the value-only redaction scrubs the embedded secrets while preserving their public step structure — leaving them raw would be a clean bypass of the `:substitutions` scrub (rf2-q8ebq.1). `--allow-sensitive-reads` + per-call `:include-sensitive` is the one opt-in. |
+| **Author-published STATIC metadata** (intentionally public) | `get-story` / `get-variant` / `variant->edn` bodies; `list-stories` / `list-modes` / `list-decorators` / `list-tags` / `list-assertions`; `get-docs-markdown`; `explain`'s plan-STRUCTURE slots (`:source-chain` / `:parent-chain` / `:compose` / `:merge` / `:strict-conflicts` / `:tags` / `:platforms` / …) | none — registration-time authoring prose, not runtime/user state; scrubbing would only degrade the discovery UX without protecting a secret. NOTE: `:setup-order` / `:script-order` are NOT here — their step structure is discovery metadata but `substitute-args` injects resolved arg values into the step payloads, so the post-substitution sequences are value-bearing and scrubbed (above, rf2-q8ebq.1). Registry-wide enumerations (modes/decorators) are not frame-keyed and carry no runtime values; their `:args` / `:app-db-patch` / `:response` slots are the author's own published fixtures. |
 
 The value-bearing tools (`preview-variant` / `run-variant` /
 `read-failures` / `explain-variant` / `record-as-variant`) advertise the
@@ -372,12 +372,18 @@ view-arg schema + validation, `:network` route stubs + their lowered fx,
 Plan-derived data — no run, no live `:app-db` slice — but the plan
 RESOLVES author args into runtime VALUES. The runtime-resolved value
 slots (`:effective-args` / `:args` / `:substitutions` / `:network` route
-replies / `:db-seed`) are value-redacted against the variant frame's
-declared-`:sensitive?` values at egress (rf2-12f2q) via the shared
-`egress/scrub-frame-value` step — the SAME value-based redaction the
-live tools apply to their derived trees. The plan-STRUCTURE slots
+replies / `:db-seed` / `:sub-overrides` override values / `:setup-order` +
+`:script-order` step payloads) are value-redacted against the variant
+frame's declared-`:sensitive?` values at egress (rf2-12f2q,
+rf2-q8ebq.1) via the shared `egress/scrub-frame-value` step — the SAME
+value-based redaction the live tools apply to their derived trees.
+`:sub-overrides` / `:setup-order` / `:script-order` carry resolved arg
+values (the SAME `substitute-args` that feeds `:substitutions`), so they
+are scrubbed too; the value-only redaction preserves their public step
+STRUCTURE — leaving them raw would be a clean bypass of the
+`:substitutions` scrub. The remaining plan-STRUCTURE slots
 (`:source-chain` / `:parent-chain` / `:compose` / `:merge` /
-`:strict-conflicts` / `:setup-order` / `:script-order` / `:tags` /
+`:strict-conflicts` / `:tags` /
 `:platforms` / …) are author-published discovery metadata and cross
 unredacted. The `:extends`-resolved variant body is already public via
 `get-variant` / `variant->edn`; this adds the plan compiler's
@@ -438,6 +444,23 @@ axe-core results (delegates to
 Stage 6). JVM-standalone hosts return an empty list + a documented
 hint that axe-core requires the in-browser panel.
 
+Wire-egress posture (rf2-q8ebq.2): the `:violations` vec is LIVE RUNTIME
+observed state — the rendered DOM of the variant frame, normalised from
+axe-core's JS violation objects. Each violation NODE carries `:html` (the
+violating element's outerHTML), `:target` (CSS selectors) and
+`:failureSummary`; a sensitive value rendered into the DOM (e.g.
+`<input value="<token>">`, a `data-*` attribute, a PII text node) lands
+verbatim in node `:html`. So `:violations` is value-redacted against the
+variant frame's declared-`:sensitive?` values via the shared
+`egress/scrub-frame-value` step — the SAME value-based redaction
+`explain-variant` / `record-as-variant` and the live tools apply. The
+value-only redaction preserves the public finding structure (`:id` /
+`:impact` / `:help` / `:target`) while scrubbing the embedded secret.
+Fail-closed by default; `:include-sensitive true` (gated by
+`--allow-sensitive-reads`) opts out. `run-a11y` is `:readOnlyHint true`
+(agent hosts auto-approve it), so an unscrubbed runtime read here would be
+the wrong shape.
+
 ### `read-failures`
 
 Diagnostic for the variant's accumulated `:rf.story/assertions`
@@ -464,8 +487,9 @@ same `--allow-sensitive-reads` boot gate as `preview-variant` /
 
 ## Sensitive-read boot gate (`--allow-sensitive-reads`, rf2-g9fje)
 
-The three tools that surface live frame state (`preview-variant`,
-`run-variant`, `read-failures`) all accept a per-call
+The tools that surface live or plan-resolved frame VALUES
+(`preview-variant`, `run-variant`, `read-failures`, `run-a11y`,
+`explain-variant`, `record-as-variant`) all accept a per-call
 `:include-sensitive` boolean to opt out of the default redaction
 posture (see [`tools/Tool-Pair.md`](../../../spec/Tool-Pair.md)
 §Direct-read privacy posture). Per the rf2-uaymx (b) decision that
