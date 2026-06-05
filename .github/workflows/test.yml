@@ -892,6 +892,23 @@ jobs:
       - name: npm install
         run: npm ci
 
+      # rf2-0vav5.1 + rf2-cn6kc.1 — compile-coverage gate over EVERY declared
+      # standalone :examples/* shadow-cljs build (the list is derived from
+      # shadow-cljs.edn, so a newly-declared example build is swept
+      # automatically). Several example builds (login-uix, dashboard-uix,
+      # login-helix, process-monitor-helix) were declared browser targets that
+      # NO gate compiled — a ns / init-fn / :require / form regression in any
+      # shipped GREEN until a human manually ran it. This `compile` (not
+      # release) step closes that gap and fails on any compile warning too
+      # (a typo'd init-fn surfaces as an :undeclared-var warning, and
+      # `compile` exits 0 on warnings). Lives in the cljs_browser surface
+      # because a generic examples/** source edit (the regression source) AND
+      # a shadow-cljs.edn build-decl change both fire cljs_browser. Runs
+      # BEFORE the Playwright install so a broken example fails fast without
+      # the ~120 MB Chromium download.
+      - name: Compile every declared standalone example build (coverage gate)
+        run: npm run test:examples-compile
+
       # rf2-f79t8 — cache the Playwright browser binary across runs/jobs.
       # Every PR-time Playwright job previously re-downloaded Chromium
       # (~120 MB) on each run. The binary is keyed on the locked

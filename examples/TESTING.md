@@ -14,12 +14,13 @@ CI tiering is defined in [`../TESTING.md`](../TESTING.md). Example browser
 gates are not part of the always-on PR spine; they run when example/browser
 surfaces change and in the scheduled/manual expensive workflow.
 
-## The two surfaces
+## The surfaces
 
 | Command                            | What it runs                                                                                                        | Where the orchestrator lives                                                                                                |
 |------------------------------------|---------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------|
 | `npm run test:browser`             | The shadow-cljs `:browser-test` bundle — every `*-cljs-test` namespace, including example wrappers (`re-frame.nine-states-cljs-test`, `re-frame.realworld-cljs-test`, ...). All of them load into a single Chromium page. | [`implementation/scripts/serve-and-run-browser-tests.cjs`](../implementation/scripts/serve-and-run-browser-tests.cjs)        |
 | `npm run test:examples`            | The three adapter-level smokes at `implementation/adapters/{reagent,uix,helix}/testbed/spec.cjs` — mount + dispatch + assert per substrate. The `examples/` tree itself is test-free; this orchestrator drives the adapter smokes only. | [`scripts/serve-and-run-examples-tests.cjs`](scripts/serve-and-run-examples-tests.cjs)                                       |
+| `npm run test:examples-compile`    | **Compile-coverage gate.** `shadow-cljs compile` over EVERY declared standalone `:examples/*` build (the list is derived from `shadow-cljs.edn`, so a new example build is swept automatically). Fails on any compile-time error AND on any warning (a typo'd init-fn surfaces as an `:undeclared-var` warning, and `compile` exits 0 on warnings). NOT a Playwright/runtime check — no `spec.cjs` involved. | [`implementation/scripts/check-examples-compile.cjs`](../implementation/scripts/check-examples-compile.cjs) |
 
 The two surfaces are independent:
 
@@ -30,6 +31,48 @@ The two surfaces are independent:
 - `test:examples` is **N bundles, N pages, N specs** — one per adapter
   testbed. Each adapter owns its own runtime; no cross-adapter
   interaction is possible.
+- `test:examples-compile` is **compile-only** — it never serves a page or
+  runs a spec. It exists to close a coverage gap, described next.
+
+## Compile-coverage gate (`test:examples-compile`)
+
+Most `:examples/*` builds are standalone shadow-cljs `:browser` targets
+with their own `:init-fn` but **no `spec.cjs`** (the `examples/` tree is
+test-free — see below). Before this gate, only the counter trio
+(`:examples/counter` / `-uix` / `-helix`) was compiled by any automated
+check (release-built by `test:bundle-isolation`). Every other standalone
+example — `login-uix`, `dashboard-uix`, `login-helix`,
+`process-monitor-helix`, and the rest — was declared but compiled by
+nothing, so a namespace / `:init-fn` / `:require` / schema / machine /
+substrate-form regression in any of them shipped **green** until a human
+manually opened the page (rf2-0vav5.1 + rf2-cn6kc.1).
+
+`test:examples-compile` closes that gap with the lightest possible check:
+
+- It **derives** the build list from `shadow-cljs.edn` (`:examples/*`
+  build ids) rather than hardcoding it, so a newly-declared example build
+  is swept the moment it lands — no second edit, no drift. `shadow-cljs.edn`
+  is read-only here (it is a hot-zone file).
+- It runs a single `shadow-cljs compile` (not `release`) over the whole
+  set; shadow shares the compilation cache across builds, so the cost is
+  far below N independent compiles, and `compile` does no Closure externs
+  prebuild (no shared-`externs.zip` race).
+- It **fails on warnings as well as errors.** `shadow-cljs compile` exits
+  0 even when a build emits warnings, and `:warnings-as-errors` only bites
+  on `release` — so a typo'd `:init-fn` (an `:undeclared-var` warning)
+  would otherwise ship green. The gate parses each build's summary line and
+  fails on any non-zero warning count. All example builds compile with zero
+  warnings today, so this is a clean, real-teeth bar.
+
+This is **not** a Playwright spec and does **not** add anything under
+`examples/` — it preserves the test-free examples policy. The teeth (the
+derived list can't silently under-count; a warning turns the gate red) are
+pinned by
+[`implementation/scripts/check-examples-compile.test.cjs`](../implementation/scripts/check-examples-compile.test.cjs),
+which runs in the always-on `test:script-policy` suite. The compile gate
+itself runs in the `cljs-browser` CI job (the `cljs_browser` changed
+surface, which fires on both `examples/**` source edits and
+`shadow-cljs.edn` build-decl changes).
 
 ## Server-ownership contract (`test:browser`)
 
@@ -202,12 +245,21 @@ reconciles the manifest against the `spec.cjs` files on disk and fails
 loudly on drift. To add a smoke, append an entry there (build + htmlSrc +
 outDir + specPath) and add the build to `implementation/shadow-cljs.edn`.
 
+A new standalone `:examples/*` build needs **no** test wiring to get
+compile coverage: `test:examples-compile` derives its build list from
+`shadow-cljs.edn`, so declaring the build there is enough — the next CI
+run compiles it (and fails on any compile error or warning). See
+[Compile-coverage gate](#compile-coverage-gate-testexamples-compile)
+above. You only touch `examples-filter.cjs` when the build also needs a
+Playwright *runtime* smoke (the three adapter testbeds), which the
+test-free examples policy reserves for adapter-level surfaces.
+
 If a new framework contract needs end-to-end browser coverage that
 the existing gates (`test:cljs`, `test:xray-feature-gate`,
-`test:bundle-isolation`, `test:perf-bundle`, mcp-conformance) don't
-already provide, extend the appropriate gate — or, for a genuinely
-new cross-cutting surface, add a top-level `testbeds/<surface>/`
-with its own `spec.cjs`.
+`test:bundle-isolation`, `test:perf-bundle`, `test:examples-compile`,
+mcp-conformance) don't already provide, extend the appropriate gate — or,
+for a genuinely new cross-cutting surface, add a top-level
+`testbeds/<surface>/` with its own `spec.cjs`.
 
 The `(defonce react-root (atom nil))` mount-isolation shape above is
 still the convention for any example's `core.cljs` so it can be
