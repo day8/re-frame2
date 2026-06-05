@@ -50,7 +50,7 @@ github.com/day8/re-frame2-template/        ; external repo (NEW)
 ├── template.edn                           ; deps-new declarative config (placeholder)
 ├── src/day8/re_frame2_template/
 │   └── hooks.clj                          ; :data-fn / :template-fn / :post-process-fn
-├── resources/day8/re_frame2_template/
+├── resources/io/github/day8/re_frame2_template/  ; RETARGETED from day8/… — see §2.1
 │   ├── template.edn                       ; the in-tree template config (resource-side)
 │   ├── root/                              ; bulk-copied content (README, lefthook, dev/, resources/public/)
 │   ├── _shared/                           ; substrate-agnostic content (dotfiles, src/test sources, build configs shadow-cljs.edn + package.json)
@@ -58,12 +58,12 @@ github.com/day8/re-frame2-template/        ; external repo (NEW)
 │   ├── _uix/                              ; UIx-specific (core.cljs / views.cljs / deps.edn)
 │   └── _helix/                            ; Helix-specific (core.cljs / views.cljs / deps.edn)
 ├── spec/                                  ; the spec/ tree (000-Vision, 001-Substrate-Variants, ...)
-├── test/day8/re_frame2_template/
+├── test/day8/re_frame2_template/            ; monorepo-coupled — needs §3.2.1 framework-root setup to run standalone
 │   ├── template_test.clj
 │   ├── template_emission_test.clj
 │   ├── emitted_test_run_test.clj
 │   ├── version_lockstep_test.clj            ; pin-lockstep guard (all coords ride one version)
-│   └── test_support.clj                     ; shared test harness (extracted)
+│   └── test_support.clj                     ; shared test harness (extracted); repo-root needs §3.2.1 retarget
 └── .github/workflows/
     └── template-release.yml               ; tag-on-release CI (moved from re-frame2 monorepo)
 
@@ -71,11 +71,60 @@ github.com/day8/re-frame2/                 ; monorepo (current)
 └── tools/template/                        ; STUB or DELETED after the split (see §6)
 ```
 
-The on-disk path inside the external repo is **identical** to the
-in-monorepo path under `tools/template/`. deps-new's `find-root`
-resolves `:template io.github.day8/re-frame2-template` against the
-cloned external repo's `resources/day8/re_frame2_template/`
-directory; the on-disk shape doesn't need to change.
+The external repo's layout drops the `tools/template/` prefix — the
+template lives at the repo root. But the template-body resource path
+is **not** identical to the in-monorepo path: it must be retargeted
+from `resources/day8/re_frame2_template/` to
+`resources/io/github/day8/re_frame2_template/`. See §2.1.
+
+### §2.1 Template-body resource retarget (REQUIRED for the published coord)
+
+deps-new's resolver (`org.corfield.new.impl/find-root`) derives the
+template-body path from the **full** `:template` symbol — dots to
+slashes, hyphens to underscores — and looks for `<path>/template.edn`
+on the cloned repo's classpath:
+
+| `:template` symbol | Derived `template.edn` path |
+|---|---|
+| `day8/re-frame2-template` | `day8/re_frame2_template/template.edn` |
+| `io.github.day8/re-frame2-template` | `io/github/day8/re_frame2_template/template.edn` |
+
+The published production invocation is
+`io.github.day8/re-frame2-template` (the `io.github.*` prefix is what
+triggers deps-new's auto-git-clone — see §1). So the cloned external
+repo **must** ship the template body at
+`resources/io/github/day8/re_frame2_template/`, not the in-monorepo
+`resources/day8/re_frame2_template/`. (The in-monorepo path matches
+the local-dev coord `day8/re-frame2-template`, whose `day8` qualifier
+deliberately bypasses auto-clone for `:local/root` smoke — see §4.)
+
+Concrete retarget step, run after §3.1's `git subtree split`:
+
+```bash
+# In the external repo (post-subtree-split, at the repo root)
+mkdir -p resources/io/github/day8
+git mv resources/day8/re_frame2_template resources/io/github/day8/re_frame2_template
+git commit -m "chore: retarget template body to io/github/day8 for published coord"
+```
+
+The hooks ns (`src/day8/re_frame2_template/hooks.clj`) and its
+`day8.re-frame2-template.hooks` symbol stay put — deps-new resolves
+the hook fns by the `:data-fn` / `:template-fn` / `:post-process-fn`
+ns-qualified symbols inside `template.edn` (independent of the
+template-body path), so only the `resources/` body moves.
+
+**Single canonical path, no second copy.** Pre-alpha posture: the
+external repo ships the `io/github/day8/…` body *only*. The local-dev
+`:local/root` smoke (§4) resolves that same single body **without**
+auto-clone by using deps-new's `repo%root%template-sym` override form
+(`day8/re-frame2-template%%io.github.day8/re-frame2-template`): the
+`day8/re-frame2-template` repo part bypasses `auto-git-url` (no
+`io.github.*` prefix → no clone, the `:local/root` override stands),
+while the `io.github.day8/re-frame2-template` template-sym part drives
+`find-root` to the canonical `io/github/day8/…` body. There is no
+second on-disk copy and no compatibility alias to keep in sync. The
+test harness (`run-template!`) updates in lockstep with this retarget
+(see §3.4.1).
 
 ## §3 Migration sequence (operator-side)
 
@@ -139,6 +188,68 @@ edits:
   `tools/template/**` prefix (every change in the external repo
   touches the template).
 
+### §3.2.1 Post-split test architecture (the monorepo-coupled suite)
+
+Dropping path prefixes is **not** sufficient: the template's JVM test
+suite is deeply monorepo-coupled and cannot run from a standalone
+external-repo layout as-is. Concretely (all relative to the monorepo
+root, which the external repo no longer has):
+
+- `test_support.clj`'s `repo-root` walks up until it finds an
+  `implementation/core/src/re_frame` child — the framework source
+  tree, which does not exist in the standalone template repo.
+- `version_lockstep_test.clj` reads `implementation/package.json`
+  (react / shadow-cljs pins) and `implementation/core/deps.edn` +
+  `implementation/adapters/{uix,helix}/deps.edn` (substrate pins) to
+  assert the template's literal version pins ride lockstep with the
+  framework.
+- `template_emission_test.clj` resolves emitted re-frame symbols
+  against `implementation/core/src/`, the per-substrate adapter
+  sources, and `tools/story/src/` (the surface/compile coverage).
+- `emitted_test_run_test.clj` rewrites the generated app's deps.edn
+  to `:local/root` paths under `implementation/*`, `tools/xray`, and
+  `tools/story`, then junctions `implementation/node_modules` — the
+  behavioural compile/run/release tier.
+
+If those framework references are dropped ad hoc during the split, the
+external repo loses its strongest pin / surface / compile coverage; if
+they are left untouched, `clojure -M:test` fails outright from the
+standalone layout. **Decide and document the architecture before the
+first external release.** Two viable shapes:
+
+**Shape A — Monorepo as a checked-out test fixture (recommended).**
+Parameterize the framework root. `repo-root` (and every
+`implementation/*` / `tools/*` reference derived from it) reads an
+env var, e.g. `RF2_FRAMEWORK_ROOT`, that points at a checkout of the
+re-frame2 monorepo. The external-repo CI checks out `day8/re-frame2`
+as a sibling, exports `RF2_FRAMEWORK_ROOT`, and runs the suite
+unchanged. This preserves the full pin-lockstep + surface + emitted
+tiers verbatim. The cost is a second checkout in CI (and a documented
+local-dev prerequisite). When the env var is unset, the suite either
+skips the framework-coupled tiers with a loud message (matching the
+existing `RF2_TEMPLATE_RUN_EMITTED_TESTS` gating idiom) or fails fast
+with a setup hint — pick fail-fast for CI, skip-with-message for the
+fast local loop.
+
+**Shape B — Consume published/git coords + frozen fixture data.**
+Rewrite the coupled tests to consume the framework via its **published
+git-coords** (the same coords the generated app ships) instead of
+`:local/root` into a monorepo, and replace the live
+`implementation/package.json` / `deps.edn` reads with **frozen fixture
+data** committed into the template repo's `test/resources/`. This
+removes the monorepo dependency entirely but trades live lockstep for
+a fixture that must be refreshed on each framework-pin bump (the
+lockstep guard becomes "template pins == fixture pins == last-known
+framework pins", one hop weaker). Use only if the second-checkout cost
+in Shape A proves unworkable.
+
+The chosen shape is the operator's call (file the decision bead at the
+handoff). Whichever wins, the external-repo release workflow (§5) MUST
+run the chosen test set green from the standalone layout before the
+first `template-v…` tag — a release that skips these tiers is the
+exact false-green the in-monorepo gates (rf2-jdj17, rf2-ek857f) were
+hardened against, reintroduced post-split.
+
 ### §3.3 Pin the initial release tag
 
 The git-coord distribution (rf2-h0w5y §3.1) cuts a tag per release.
@@ -170,6 +281,38 @@ cat deps.edn  # should reference re-frame2 alpha coords
 If deps-new resolves the template via the git-coord and the
 generated tree matches the in-monorepo template's emit set, the
 external repo is live.
+
+This smoke is the canonical check for the §2.1 retarget: it exercises
+the **full published path** (`io.github.day8/…` → auto-clone →
+`find-root` against `resources/io/github/day8/re_frame2_template/`).
+If the body were left at the in-monorepo `resources/day8/…` path,
+this command fails with `Unable to find template.edn for
+io.github.day8/re-frame2-template` — so it doubles as the regression
+guard for the retarget. The external-repo release workflow (§5) runs
+the same published-coord scaffold as a pre-release gate so the
+published path can never go green while broken.
+
+#### §3.4.1 Update the local-dev test harness for the retarget
+
+The in-repo test harness drives `org.corfield.new/create` in-process
+(`tools/template/test/day8/re_frame2_template/test_support.clj`'s
+`run-template!`). Pre-split it passes `:template 'day8/re-frame2-template`
+with `:src-dirs [<resources>]`, which `find-root` resolves to
+`<resources>/day8/re_frame2_template/template.edn`. After the §2.1
+retarget the body lives at `io/github/day8/…`, so `run-template!`
+updates to the override form:
+
+```clojure
+;; post-retarget run-template! opts
+{:template 'day8/re-frame2-template%%io.github.day8/re-frame2-template
+ ...}
+```
+
+(`day8/re-frame2-template` repo part bypasses auto-clone; the
+`io.github.day8/re-frame2-template` template-sym part drives
+`find-root` to the single canonical body — see §2.1.) This keeps the
+suite resolving one canonical path with no second on-disk copy. The
+retarget commit (§2.1) and this harness edit land together.
 
 ### §3.5 Retire the in-monorepo `tools/template/`
 
@@ -231,23 +374,32 @@ the split:
 |---|---|---|
 | Pre-split (development) | `day8/re-frame2-template` | `:local/root "tools/template"` in the consuming `deps.edn`. Used by tests + manual smoke. Does NOT trigger deps-new's auto-git-clone. |
 | Pre-split (via published-shape coord) | `io.github.day8/re-frame2-template` | deps-new clones the **re-frame2 monorepo** (because the `day8/re-frame2-template` GitHub repo doesn't exist yet), then fails to find `resources/day8/re_frame2_template/template.edn` at the cloned repo root (it's under `tools/template/` in the monorepo). Not a viable production path; only `:local/root` works pre-split. |
-| Post-split (published) | `io.github.day8/re-frame2-template` | deps-new clones from `https://github.com/day8/re-frame2-template.git` via `auto-git-url`, then resolves the template body inside the cloned tree at `resources/day8/re_frame2_template/`. |
+| Post-split (published) | `io.github.day8/re-frame2-template` | deps-new clones from `https://github.com/day8/re-frame2-template.git` via `auto-git-url`, then `find-root` resolves the template body inside the cloned tree at `resources/io/github/day8/re_frame2_template/` (the path `->file` derives from the full `io.github.day8/…` symbol — see §2.1). |
 | Post-split (pinned to tag) | `io.github.day8/re-frame2-template#template-v<version>` | Same as above, but pinned to a specific git tag (matches the `template-v…` tag space from rf2-h0w5y §3.1). |
 
 The local-dev fallback (`:local/root` against a checkout of the
-external repo) continues to work post-split:
+external repo) continues to work post-split, but the coord changes
+shape: it uses the `repo%root%template-sym` override form so it both
+bypasses auto-clone **and** resolves the canonical `io/github/day8/…`
+body (see §2.1):
 
 ```bash
 git clone https://github.com/day8/re-frame2-template.git
 cd /path/to/consumer
 clojure -Sdeps '{:deps {day8/re-frame2-template
                         {:local/root "/path/to/re-frame2-template"}}}' \
-        -Tnew create :template day8/re-frame2-template :name acme/my-app
+        -Tnew create \
+        :template day8/re-frame2-template%%io.github.day8/re-frame2-template \
+        :name acme/my-app
 ```
 
-(Note: `day8/re-frame2-template`, not `io.github.day8/re-frame2-template`,
-for the `:local/root` path — the `io.github.*` prefix triggers
-auto-clone before classpath lookup, which loses the local override.)
+(Note: the `day8/re-frame2-template` repo part — not
+`io.github.day8/re-frame2-template` — bypasses auto-clone: the
+`io.github.*` prefix would trigger a git-clone before classpath
+lookup, losing the local override. The trailing
+`%%io.github.day8/re-frame2-template` template-sym part drives
+`find-root` to the single canonical `io/github/day8/…` body that the
+published coord also uses, so there is no second on-disk copy.)
 
 ## §5 CI workflow (lives in the external repo post-split)
 
@@ -256,15 +408,26 @@ lives in the re-frame2 monorepo at
 `.github/workflows/template-release.yml`. Post-split it lives **in
 the external repo**, not the monorepo.
 
-Shape (unchanged across the split, modulo path adjustments per §3.2):
+Shape (unchanged across the split, modulo path adjustments per §3.2
+and the test-architecture setup per §3.2.1):
 
 - Trigger: push of a tag matching
   `template-v[0-9]+.[0-9]+.[0-9]+*`.
 - Steps:
-  1. `clojure -M:test` — runs the template's own JVM test suite.
-  2. Read the `VERSION` file.
-  3. Verify the tag matches `template-v<VERSION>`.
-  4. Cut a GitHub Release pointing at the tagged commit.
+  1. Set up the chosen test architecture (§3.2.1): for Shape A, check
+     out `day8/re-frame2` as a sibling, `npm ci` in its
+     `implementation/`, and export `RF2_FRAMEWORK_ROOT` (+
+     `RF2_TEMPLATE_RUN_EMITTED_TESTS=1` so the behavioural
+     compile/run/release tier runs — the gate rf2-ek857f / rf2-jdj17
+     hardened must not regress to a fast-loop-only release).
+  2. `clojure -M:test` — runs the template's JVM test suite (the
+     pin-lockstep, emission/surface, and emitted compile/run/release
+     tiers all green from the standalone layout).
+  3. Run the §3.4 published-coord scaffold smoke against the tagged
+     commit (the §2.1 retarget guard).
+  4. Read the `VERSION` file.
+  5. Verify the tag matches `template-v<VERSION>`.
+  6. Cut a GitHub Release pointing at the tagged commit.
 - Secrets needed: `GITHUB_TOKEN` (default; for push-tag permission).
   **No Clojars credentials** — git-coord distribution has no
   artefact-upload step.
@@ -301,3 +464,8 @@ post-split; the monorepo carries a pointer at most.
 - rf2-h0w5y — git-coord release pipeline (the
   `template-release.yml` workflow, which moves into the external
   repo as part of the split).
+- rf2-4bs7k — senior review that prescribed §2.1 (the published-coord
+  resource retarget) and §3.2.1 (the post-split test architecture).
+- rf2-ek857f / rf2-jdj17 — the in-monorepo false-green release gates;
+  §3.2.1 + §5 carry their hardening forward so the post-split release
+  gate cannot regress to a fast-loop-only test.
