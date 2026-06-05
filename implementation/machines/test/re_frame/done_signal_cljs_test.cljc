@@ -249,6 +249,69 @@
         "machine alive — :b still pending")))
 
 ;; ===========================================================================
+;; rf2-z522n — parallel-root :on-done honours the :db hard-disallow + phase
+;; ===========================================================================
+
+(deftest parallel-on-done-action-returning-db-emits-error-and-drops-db
+  (testing "rf2-z522n: a parallel-root :on-done action that wrongly returns
+            :db emits :rf.error/machine-action-wrote-db (the same uniform
+            hard-disallow every other phase enforces) and DROPS the :db key —
+            its :data still flows. Previously the parallel-root path bypassed
+            the validation and silently ignored the :db write."
+    (let [traces (record-traces! ::db-disallow)]
+      (rf/reg-machine :rf2-z522n/par-on-done-db
+        {:type    :parallel
+         :data    {:completions 0}
+         ;; :on-done action wrongly returns :db AND a legit :data write.
+         :actions {:complete (fn [{d :data}]
+                               {:db   {:hacked true}
+                                :data (update d :completions inc)})}
+         :on-done {:action :complete}
+         :regions {:left  {:initial :run :states {:run {:on {:fin :done}} :done {:final? true}}}
+                   :right {:initial :run :states {:run {:on {:fin :done}} :done {:final? true}}}}})
+      (rf/dispatch-sync [:rf2-z522n/par-on-done-db [:fin]])
+      (let [errs (traces-for traces :rf.error/machine-action-wrote-db)]
+        (is (= 1 (count errs))
+            "exactly one wrote-db hard-disallow error from the parallel :on-done action")
+        (is (= :complete (-> errs first :tags :action-id))
+            "the diagnostic names the offending :on-done action")
+        (is (= {:hacked true} (-> errs first :tags :offending-value))
+            "the diagnostic carries the offending :db value"))
+      ;; The :data write STILL flowed through (the :db key was stripped, not
+      ;; the whole effects map).
+      (is (= 1 (get-in (snapshot :rf2-z522n/par-on-done-db) [:data :completions]))
+          ":on-done :data write flowed through; only :db was dropped")
+      ;; The snapshot was NOT clobbered with the offending :db key.
+      (is (not (contains? (snapshot :rf2-z522n/par-on-done-db) :db))
+          "no :db key leaked onto the snapshot"))))
+
+(deftest parallel-on-done-action-ran-stamps-transition-phase
+  (testing "rf2-z522n: the parallel-root :on-done action's :rf.machine/action-ran
+            trace carries phase :transition — consistent with an embedded
+            compound :on-done (which runs through apply-transition-once) and
+            within the documented closed MachineActionRanTags phase enum (NO
+            undocumented :on-done phase)."
+    (let [traces (record-traces! ::phase)]
+      (rf/reg-machine :rf2-z522n/par-on-done-phase
+        {:type    :parallel
+         :data    {:completions 0}
+         :actions {:complete (fn [{d :data}] {:data (update d :completions inc)})}
+         :on-done {:action :complete}
+         :regions {:left  {:initial :run :states {:run {:on {:fin :done}} :done {:final? true}}}
+                   :right {:initial :run :states {:run {:on {:fin :done}} :done {:final? true}}}}})
+      (rf/dispatch-sync [:rf2-z522n/par-on-done-phase [:fin]])
+      (let [runs (->> (traces-for traces :rf.machine/action-ran)
+                      (filter #(= :complete (-> % :tags :action-id))))]
+        (is (= 1 (count runs))
+            "the parallel :on-done action ran exactly once")
+        (is (= :transition (-> runs first :tags :phase))
+            "phase is :transition — the documented phase, not an undocumented :on-done")
+        (is (contains? #{:exit :transition :entry :always
+                         :after-action :initial-entry :destroy-exit}
+                       (-> runs first :tags :phase))
+            "phase is a member of the closed MachineActionRanTags enum")))))
+
+;; ===========================================================================
 ;; Composed — compound-inside-parallel-region done propagation
 ;; ===========================================================================
 
