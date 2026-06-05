@@ -83,7 +83,8 @@
         res (dm/check m edn edn)]
     (is (true? (:ok? res)))
     (is (empty? (:added res)))
-    (is (empty? (:removed res)))))
+    (is (empty? (:removed res)))
+    (is (empty? (:changed res)) "an in-sync manifest reports no changed rows")))
 
 (deftest check-detects-missing-file
   (let [m   (dm/build-manifest :test sample-descriptors)
@@ -114,6 +115,51 @@
       (is (false? (:ok? res)))
       (is (empty? (:added res)))
       (is (= ["beta"] (:removed res)) "beta was dropped"))))
+
+(deftest check-detects-changed-existing-tool
+  ;; rf2-y3qpv: when an EXISTING tool's catalogue row drifts (here alpha
+  ;; gains an input key) the identity sets stay empty — neither :added
+  ;; nor :removed names it. The CI guard previously went red with no
+  ;; row-level identity of WHAT changed, forcing a manual whole-manifest
+  ;; diff. `:changed` now names the drifted tool and carries old/new rows.
+  (testing "an existing tool that gains an input key is :changed, not :added/:removed"
+    (let [committed-m   (dm/build-manifest :test sample-descriptors)
+          committed-edn (dm/render-edn committed-m)
+          ;; alpha gains a :force input property; beta is untouched.
+          alpha+        (assoc-in (second sample-descriptors)
+                                  [:inputSchema :properties :force]
+                                  {:type "boolean"})
+          gen-m         (dm/build-manifest :test [(first sample-descriptors) alpha+])
+          gen-edn       (dm/render-edn gen-m)
+          res           (dm/check gen-m gen-edn committed-edn)]
+      (is (false? (:ok? res)))
+      (is (= [] (:added res)) "no tool entered the catalogue")
+      (is (= [] (:removed res)) "no tool left the catalogue")
+      (is (= ["alpha"] (mapv :name (:changed res)))
+          "alpha's row drifted; it is named in :changed")
+      (let [{:keys [old new]} (first (:changed res))]
+        (is (= ["event"] (:input-keys old)) "old row carries the committed input-keys")
+        (is (= ["event" "force"] (:input-keys new))
+            "new row carries the regenerated input-keys — the maintainer sees the delta")))))
+
+(deftest check-changed-detects-each-drifting-row-shape
+  ;; The four catalogue-surface slots the manifest governs each trip
+  ;; :changed in isolation (description / output? / annotations, plus the
+  ;; input-keys case above). One row mutated per case; beta untouched.
+  (let [base (second sample-descriptors)] ; alpha
+    (doseq [[label mutate] [["description" #(assoc % :description "Changed prose.")]
+                            ["output?"     #(assoc % :outputSchema {:type "object"})]
+                            ["annotations" #(assoc-in % [:annotations :readOnlyHint] true)]]]
+      (testing (str "a changed :" label " trips :changed")
+        (let [committed-m   (dm/build-manifest :test sample-descriptors)
+              committed-edn (dm/render-edn committed-m)
+              gen-m         (dm/build-manifest :test [(first sample-descriptors) (mutate base)])
+              gen-edn       (dm/render-edn gen-m)
+              res           (dm/check gen-m gen-edn committed-edn)]
+          (is (false? (:ok? res)))
+          (is (= [] (:added res)))
+          (is (= [] (:removed res)))
+          (is (= ["alpha"] (mapv :name (:changed res)))))))))
 
 (deftest check-tolerates-crlf-committed
   (testing "a CRLF working-tree checkout does not trip a spurious drift"

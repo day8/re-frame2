@@ -425,7 +425,7 @@
   input unchanged when `:db-after` isn't a diff). Provided for
   agent-host round-trip parity and for the unit tests.
 
-  ## Decoder-boundary section validation (rf2-j6oay)
+  ## Decoder-boundary section validation (rf2-j6oay / rf2-y3qpv)
 
   Mirrors the encoder's `validate-sections!` gate. `sections->patches`
   is a permissive `mapcat :patches` — a section with malformed
@@ -438,6 +438,19 @@
   slots through to an agent-host UI that paints them as truth. The
   ex-info names `'mcp-base/decode-db-after` as the decode-side boundary
   (rf2-4ypau).
+
+  The gate validates the RAW `:sections` slot — it does NOT default a
+  missing / `nil` / `false` slot to `[]` (rf2-y3qpv). A diff marker
+  always carries an explicit `:sections` vector; coercing an absent or
+  falsey slot to an empty vector before the gate let a malformed
+  `{:rf.mcp/diff-from :db-before}` marker decode to a no-op (an empty
+  seq satisfies `[:sequential section-schema]`), silently ERASING the
+  epoch's real `:db-after` change in diagnostics — the exact silent
+  pass-through this boundary posture forbids. `sections-schema`
+  rejects `nil` / `false` (neither is sequential), so wire drift now
+  trips `:rf.error/bad-diff-sections` when Malli is present. An
+  explicit `:sections []` — a genuine no-change diff — still validates
+  and replays to `:db-before` unchanged.
 
   Soft-pass + `goog-define`-elidable by construction — reuses the
   same `validate-sections!` helper as the encoder.
@@ -456,9 +469,21 @@
     (if-not (and (map? db-after)
                  (= :db-before (get db-after vocab/diff-from-key)))
       epoch
+      ;; Validate the RAW `:sections` value — do NOT default a
+      ;; missing / nil / false slot to `[]` before the gate (rf2-y3qpv).
+      ;; A diff marker carries an EXPLICIT `:sections` vector; coercing
+      ;; an absent or falsey slot to an empty vector slipped a malformed
+      ;; `{:rf.mcp/diff-from :db-before}` marker past `validate-sections!`
+      ;; (an empty seq satisfies `[:sequential section-schema]`) and
+      ;; replayed it as a no-op, silently ERASING the epoch's real
+      ;; `:db-after` change in diagnostics. `sections-schema` rejects
+      ;; `nil` / `false` (neither is sequential) so the decoder-boundary
+      ;; gate now trips `:rf.error/bad-diff-sections` on wire drift, while
+      ;; an explicit `:sections []` (a genuine no-change diff) still
+      ;; validates and replays to `:db-before` unchanged.
       (let [sections  (:sections db-after)
-            _         (validate-sections! (or sections []) 'mcp-base/decode-db-after)
-            patches   (sg/sections->patches (or sections []))
+            _         (validate-sections! sections 'mcp-base/decode-db-after)
+            patches   (sg/sections->patches sections)
             db-before (:db-before epoch)
             rebuilt   (apply-patches* db-before patches)]
         (assoc epoch :db-after rebuilt)))))

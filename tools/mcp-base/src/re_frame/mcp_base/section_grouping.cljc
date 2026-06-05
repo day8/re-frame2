@@ -319,6 +319,17 @@
   "Flatten sections back into the patch list.
   `(apply-patches db-before (sections->patches sections))`
   reproduces the original `:db-after`. Lossless inverse of
-  `group-patches-into-sections`."
+  `group-patches-into-sections`.
+
+  `sections` that is not sequential (a `nil` / `false` / scalar slot on
+  a malformed diff marker) flattens to `[]` rather than throwing an
+  opaque `Don't know how to create ISeq` error. The decoder-boundary
+  Malli gate (`diff-encode/validate-sections!`) is the LOUD guard that
+  trips `:rf.error/bad-diff-sections` on such a marker; this fn only
+  runs after that gate (or its soft-pass when Malli is absent), so the
+  non-sequential branch is the soft-pass safety net, not the primary
+  validation (rf2-y3qpv)."
   [sections]
-  (vec (mapcat :patches sections)))
+  (if (sequential? sections)
+    (vec (mapcat :patches sections))
+    []))

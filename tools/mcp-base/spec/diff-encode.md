@@ -95,6 +95,8 @@ The `:db-after` marker carries `:sections`, so the decoder first flattens the pe
 
 The shipped decoder (`decode-db-after`) Malli-validates `:sections` at the decode boundary (`validate-sections!`, symmetric with the encoder's gate) then replays via the non-validating `apply-patches*` to avoid a redundant second Malli walk on the JVM decode hot path. Both story-mcp and re-frame2-pair-mcp consume this shape; the agent-host decoder is small.
 
+The decoder validates the **raw** `:sections` slot — it does NOT default a missing / `nil` / `false` slot to `[]` (rf2-y3qpv). A diff marker always carries an explicit `:sections` vector; a malformed `{:rf.mcp/diff-from :db-before}` marker (no / falsey `:sections`) therefore trips `:rf.error/bad-diff-sections` when Malli is present rather than decoding to a silent no-op that erases the epoch's real `:db-after` change. An explicit `:sections []` — a genuine no-change diff — stays valid and replays to `:db-before` unchanged.
+
 > **Note** root-path patches: an `[[] :assoc <full>]` patch replaces `base` outright (whole-DB replacement, e.g. `reset-frame-db!`); an `[[] :dissoc]` is a no-op by convention.
 
 ## Cross-platform

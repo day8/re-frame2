@@ -11,7 +11,15 @@
   (is (= :rf.mcp/diff-from     vocab/diff-from-key))
   (is (= :rf.mcp/cursor-stale  vocab/cursor-stale-reason))
   (is (= :rf.mcp/cache-hit     vocab/cache-hit-key))
-  (is (= :rf.mcp/summary       vocab/summary-key)))
+  (is (= :rf.mcp/summary       vocab/summary-key))
+  ;; rf2-y3qpv: the test stopped at :summary and omitted these two
+  ;; reserved wire-vocabulary markers, so a rename could slip past the
+  ;; base unit gate. :rf.mcp/invalid-arg is the per-call arg-rejection
+  ;; wrapper (rf2-5rdit); :rf.mcp/result is the wire-fidelity typed
+  ;; eval/handler result envelope (rf2-qobqy) that pair-mcp actively
+  ;; emits — both are cross-MCP convention an agent learns once.
+  (is (= :rf.mcp/invalid-arg   vocab/invalid-arg-key))
+  (is (= :rf.mcp/result        vocab/result-key)))
 
 (deftest rf-size-elision-keys-pinned
   (is (= :rf.size/large-elided        vocab/large-elided-key))
