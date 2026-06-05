@@ -53,6 +53,18 @@
                      (-> manifest :meta :tool-count)))
     manifest))
 
+(defn- row-slot-deltas
+  "Seq of `[slot old-val new-val]` for the catalogue slots that differ
+  between a tool's committed `old` row and regenerated `new` row. Names
+  exactly which of the manifest's governed slots drifted so a descriptor-
+  only change is actionable without a manual whole-manifest diff."
+  [old new]
+  (for [slot [:description :input-keys :output? :annotations]
+        :let [o (get old slot)
+              n (get new slot)]
+        :when (not= o n)]
+    [slot o n]))
+
 (defn check!
   "Regenerate in memory + compare to the committed file. Returns true
   when in sync, false (with a printed diff summary) when drifted."
@@ -61,7 +73,7 @@
         edn       (dm/render-edn manifest)
         f         (manifest-file)
         committed (when (.exists ^java.io.File f) (slurp f))
-        {:keys [ok? added removed missing-file?]} (dm/check manifest edn committed)]
+        {:keys [ok? added removed changed missing-file?]} (dm/check manifest edn committed)]
     (if ok?
       (do (println (format "OK: tool-descriptors.edn in sync (%d tools)."
                            (-> manifest :meta :tool-count)))
@@ -73,15 +85,23 @@
             (println "Regenerate with: clojure -M:gen (from tools/story-mcp/)")
             (when (seq added)
               (println "  Tools the registry has that the committed file lacks"
-                       "(new/renamed tool, or changed catalogue shape):")
+                       "(new/renamed tool):")
               (doseq [n added] (println "    +" n)))
             (when (seq removed)
               (println "  Tools in the committed file the registry no longer has"
                        "(removed/renamed tool):")
               (doseq [n removed] (println "    -" n)))
-            (when (and (empty? added) (empty? removed))
-              (println "  (tool set identical; a descriptor's input-keys / output? /"
-                       "annotations changed — regenerate)")))
+            (when (seq changed)
+              (println "  Existing tools whose descriptor catalogue row changed"
+                       "(input-keys / output? / annotations / description):")
+              (doseq [{:keys [name old new]} changed]
+                (println "    ~" name)
+                (doseq [[slot o n] (row-slot-deltas old new)]
+                  (println (format "        %s: %s -> %s" (clojure.core/name slot)
+                                   (pr-str o) (pr-str n))))))
+            (when (and (empty? added) (empty? removed) (empty? changed))
+              (println "  (tool set identical; the committed file is structurally"
+                       "broken or its provenance banner/meta drifted — regenerate)")))
           false))))
 
 (defn -main [& args]
