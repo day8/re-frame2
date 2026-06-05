@@ -1,6 +1,6 @@
 # guided-handlers-state
 
-Type B walkthroughs covering event handlers, registration shape, view-under-frame routing, render-count test re-baselining, error handlers, routing fallbacks, top-level db seeding, machine spawn-id tracking, and the React-19-removed Reagent surfaces. Each section gives the **identification** (how to find the call sites), the **risk explanation** (what to tell the author), and the **decision shape** (what the author must choose between). The agent identifies and explains; the author decides; the agent then applies.
+Type B walkthroughs covering event handlers, registration shape, view-under-frame routing, render-count test re-baselining, error handlers, routing fallbacks, top-level db seeding, the full-`app-db`-replace `:rf/runtime`-clobber footgun, machine spawn-id tracking, and the React-19-removed Reagent surfaces. Each section gives the **identification** (how to find the call sites), the **risk explanation** (what to tell the author), and the **decision shape** (what the author must choose between). The agent identifies and explains; the author decides; the agent then applies.
 
 For interceptor- / subscription- / payload- / observer-shaped Type B rewrites, see [`guided-interceptors-subs.md`](guided-interceptors-subs.md). For Type A patterns, see [`auto-call-site-rewrites.md`](auto-call-site-rewrites.md) and [`auto-cross-cutting.md`](auto-cross-cutting.md). For full rule rationale, see [`MIGRATION.md`](../../../migration/from-re-frame-v1/README.md).
 
@@ -14,6 +14,7 @@ For interceptor- / subscription- / payload- / observer-shaped Type B rewrites, s
 - M-13 — `reg-event-error-handler`
 - M-14 — `:rf.route/not-found` requirement (only if adopting Spec 012)
 - M-15 — top-level `app-db` seeding
+- M-15b — full-`app-db`-replace boot drops `:rf/runtime`
 - M-34 — spawn-id tracking moved to runtime-owned slot
 - M-42 — React-19-removed Reagent surfaces (`dom-node` / `force-update-all` half)
 
@@ -154,6 +155,39 @@ If the author declines, document the warning in the report.
 2. **Move the seed to test fixtures only** if the seed is test-specific. Seed the test frame the same way — via `:on-create` — never a top-level `app-db` poke: `(rf/with-new-frame [f (rf/make-frame {:on-create [:test/seed initial]})] ...)`.
 
 Present the seed value and the proposed rewrite; confirm with the author; apply both the M-1 require-removal and the M-15 `:on-create` rewrite together.
+
+---
+
+## M-15b — Full-`app-db`-replace boot drops `:rf/runtime`
+
+**Identify**: any event handler that returns a *wholesale* `app-db` value — `(reg-event-db :initialize-db (fn [_ _] fresh-db))`, `{:db fresh-db}` from `:bootstrap` / `:app/reset` / a logout-to-clean-state event — where `fresh-db` is built from scratch rather than threaded from the incoming `db`. The tell: the returned map carries **no `:rf/runtime`** key.
+
+**Risk**: in v1 framework runtime did **not** live in `app-db`, so the ubiquitous full-db-replace boot idiom was safe. In v2 **all** framework runtime lives in `app-db` under the single reserved root `:rf/runtime` — machine snapshots at `[:rf/runtime :machines :snapshots <id>]`, the current route at `[:rf/runtime :routing :current]`, plus elision and SSR state. The same wholesale-replace now **wipes** it. The failure is **silent and runtime-only** (it compiles clean): a boot machine starts (its `:entry` runs), then a beat later the replace commits and its snapshot vanishes — every subsequent `[:machine …]` dispatch is a no-op and the app hangs on its loading spinner with no error. This is one of the canonical [silent-runtime-failure modes](runtime-smoke-test.md#the-silent-runtime-failure-checklist) (checklist #3). The clobber is *intended* — `:rf/runtime` lives in `app-db` precisely so machine/routing/SSR state reverts atomically with `app-db` on `restore-epoch` / `reset-frame-db!` / hydration — so the fix is to stop replacing the slot, not to teach `:db` to retain reserved keys.
+
+**Decision shape** (per wholesale-replace handler):
+
+1. **Reorder — replace BEFORE any machine starts (preferred).** Seed the fresh db, then eager-start the boot machine in the same handler's `:fx` so there is no live snapshot to clobber:
+
+   ```clojure
+   (rf/reg-event-fx :app/init
+     (fn [_ _]
+       {:db fresh-db                                          ; wholesale reset — no machine alive yet
+        :fx [[:dispatch [:app/boot [:rf.machine/start]]]]}))  ; THEN bring the boot machine alive
+   ```
+
+2. **Merge not replace — `assoc` the live `:rf/runtime` across (stopgap).** When reordering isn't practical (a re-bootstrap fired *while* a machine is running), preserve the slot explicitly:
+
+   ```clojure
+   (rf/reg-event-fx :bootstrap
+     (fn [{:keys [db]} _]
+       {:db (assoc fresh-db :rf/runtime (:rf/runtime db))}))
+   ```
+
+   Treat (2) as a stopgap — carrying `:rf/runtime` forward across a from-scratch db is exactly the retention that breaks the revertibility invariant if it leaks into a restore path. Reach for (1) wherever the boot structure allows.
+
+In dev, the framework now emits a **loud diagnostic** — `:rf.warning/runtime-state-dropped` (per [Spec 009 §Error event catalogue](../../../spec/009-Instrumentation.md#error-event-catalogue)) — naming the dropped subsystem and the offending event, so this no longer has to be diagnosed by hand. It is dev-only (production DCE-elides it), so run the boot smoke-test in a dev build to see it fire.
+
+Present the categorisation and the proposed rewrite; confirm with the author; apply. Full rationale and the canonical before→after: [`MIGRATION.md` §M-15b](../../../migration/from-re-frame-v1/README.md#m-15b-a-full-app-db-replace-boot--initialise-event-silently-drops-rfruntime-kills-live-machines-routing-). The end-to-end boot recipe that gets the ordering right: [`spec/Pattern-Boot.md` §Worked example — the singleton boot machine](../../../spec/Pattern-Boot.md#worked-example--the-singleton-boot-machine-that-survives-the-initial-db-build).
 
 ---
 
