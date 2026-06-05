@@ -291,10 +291,17 @@ special-case payload.
 **Input.**
 
 ```clojure
-{:variant-id   keyword (required)
- :substrate    keyword (optional)
- :active-modes [keyword] (optional)}
+{:variant-id     keyword (required)
+ :substrate      keyword (optional)
+ :active-modes   [keyword] (optional)
+ :cell-overrides {keyword any} (optional)}
 ```
+
+`:cell-overrides` is identity-bearing: it perturbs the `:content-hash`
+via the resolved `:effective-args` (Story's `resolve-args` merges
+overrides after mode args). Two cells differing only by an override
+produce distinct hashes — the same tuple input `run-variant` /
+`preview-variant` / `variant-share-url` accept.
 
 **Output.**
 
