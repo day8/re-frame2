@@ -2773,6 +2773,86 @@
            (routing/route-url :route/articles2 {:id "intro" :slug "welcome"}))
         "all inner params present → group emits")))
 
+;; ---- rf2-8zvajk: slash-OWNED INLINE optional group ({:base}?) ------------
+;;
+;; The grammar permits TWO optional-group shapes (Spec 012 §Path-pattern
+;; grammar rule 2 + `validate-optional-group!`): the group either OWNS its
+;; leading slash (`{/:id}?` — exercised by `route-url-optional-group-elision`
+;; above) or is SLASH-OWNED INLINE (`{:base}?` — bracketed by LITERAL `/`s
+;; in the surrounding pattern). Spec 012's own ranking-rule-5 example uses
+;; the inline shape — "`/about` beats `/{:base}?/about` for `/about`" — so it
+;; is spec-endorsed and cannot be rejected at registration.
+;;
+;; Pre-fix the emitter elided only the group body, leaving BOTH bracketing
+;; slashes, so absent params produced a DOUBLE slash: `//about` (a
+;; PROTOCOL-RELATIVE / external-looking URL — `route-link` renders
+;; `href="//about"`, a modifier-click escapes the app, and programmatic
+;; `pushState` skips it so slice and address bar diverge). The emitter now
+;; owns separator elision so an absent inline group collapses to a single
+;; separator and the URL round-trips through `match-url` without `//`.
+
+(deftest route-url-inline-optional-group-no-double-slash
+  (testing "rf2-8zvajk: a slash-OWNED inline optional group ({:base}?) emits
+            a single separator when absent — never `//`"
+    (rf/reg-route :route/inline-about {:path "/{:base}?/about"})
+    (is (= "/about"
+           (routing/route-url :route/inline-about {}))
+        "absent :base → single leading separator, NOT the protocol-relative `//about`")
+    (is (= "/docs/about"
+           (routing/route-url :route/inline-about {:base "docs"}))
+        "present :base → /docs/about")
+    (is (not (clojure.string/includes? (subs (routing/route-url :route/inline-about {}) 1) "//"))
+        "no protocol-relative double slash anywhere in the absent emission")
+    ;; Round-trip: emitted absent URL re-parses to the same route, no params.
+    (let [m (routing/match-url (routing/route-url :route/inline-about {}))]
+      (is (= :route/inline-about (:route-id m))
+          "absent emission round-trips through match-url to the same route")
+      (is (= {} (:params m))
+          "no :base param survives the round-trip")))
+
+  (testing "rf2-8zvajk: a MID-PATH inline optional group (/docs/{:section}?/about)
+            collapses the orphaned separator on both sides"
+    (rf/reg-route :route/docs-about {:path "/docs/{:section}?/about"})
+    (is (= "/docs/about"
+           (routing/route-url :route/docs-about {}))
+        "absent :section → /docs/about, NOT /docs//about")
+    (is (= "/docs/api/about"
+           (routing/route-url :route/docs-about {:section "api"}))
+        "present :section → /docs/api/about"))
+
+  (testing "rf2-8zvajk: a TRAILING inline optional group (/articles/{:id}?)
+            does not leave a dangling slash"
+    (rf/reg-route :route/articles-id {:path "/articles/{:id}?"})
+    (is (= "/articles"
+           (routing/route-url :route/articles-id {}))
+        "absent :id → /articles, NOT the dangling /articles/")
+    (is (= "/articles/5"
+           (routing/route-url :route/articles-id {:id "5"}))
+        "present :id → /articles/5"))
+
+  (testing "rf2-8zvajk: a ROOT-only inline optional group (/{:base}?) stays `/`
+            when absent — the lone root slash is never popped"
+    (rf/reg-route :route/root-base {:path "/{:base}?"})
+    (is (= "/"
+           (routing/route-url :route/root-base {}))
+        "absent :base → root `/`, never the empty string")
+    (is (= "/x"
+           (routing/route-url :route/root-base {:base "x"}))
+        "present :base → /x"))
+
+  (testing "rf2-8zvajk: the slash-OWNING form ({/:id}?) is UNCHANGED — its
+            leading slash lives inside the group body and elides cleanly"
+    (rf/reg-route :route/owning {:path "/articles{/:id}?"})
+    (is (= "/articles" (routing/route-url :route/owning {})))
+    (is (= "/articles/5" (routing/route-url :route/owning {:id "5"}))))
+
+  (testing "rf2-8zvajk: a splat value carrying embedded `//` is PRESERVED —
+            the fix collapses elision separators, NOT every `//` globally"
+    (rf/reg-route :route/files {:path "/files/*rest"})
+    (is (= "/files/a//b"
+           (routing/route-url :route/files {:rest "a//b"}))
+        "an embedded double slash inside a splat value survives untouched")))
+
 ;; ---- T4b: match-url optional-group param is ABSENT, not nil-valued ------
 ;;
 ;; Regression for rf2-yejde. Per Spec 012 §Path-pattern grammar (Optional
