@@ -175,6 +175,44 @@
                    (is (= :invalid-event-edn (:reason edn))))
                  (done))))))
 
+;; ---------------------------------------------------------------------------
+;; rf2-wz66k7 — `:timeout-ms` (the `:await-render` deadline) is validated
+;; as a positive-millisecond integer BEFORE the dispatch eval. A
+;; non-numeric value (`"bogus"`) made `await-promise/poll-mailbox!`'s
+;; `(>= elapsed timeout-ms)` deadline `(>= n NaN)` — never true — so the
+;; render-settle mailbox poll loop ran FOREVER. The tool now short-circuits
+;; to an honest validation error WITHOUT touching nREPL (the validation is
+;; the first `cond` branch, ahead of the event-parse + eval).
+;; ---------------------------------------------------------------------------
+
+(deftest bogus-timeout-ms-rejected-before-touching-nrepl
+  ;; A VALID event with a bogus :timeout-ms must surface the numeric-arg
+  ;; error, not reach the (never-stubbed) eval. The fresh-conn has no live
+  ;; socket; if the validation didn't short-circuit, this would fail
+  ;; differently (a probe/eval failure), so the assertion is load-bearing.
+  (async done
+    (-> (dispatch/dispatch-tool (fresh-conn)
+                                #js {:event "[:cart/add]" :await-render true
+                                     :timeout-ms "bogus"})
+        (.then (fn [r]
+                 (is (err? r) "malformed :timeout-ms surfaces as :isError true")
+                 (let [edn (read-result-text r)]
+                   (is (= :invalid-numeric-arg (:reason edn)))
+                   (is (= "timeout-ms" (:arg edn))))
+                 (done))))))
+
+(deftest negative-timeout-ms-rejected
+  (async done
+    (-> (dispatch/dispatch-tool (fresh-conn)
+                                #js {:event "[:cart/add]" :await-render true
+                                     :timeout-ms -50})
+        (.then (fn [r]
+                 (is (err? r))
+                 (let [edn (read-result-text r)]
+                   (is (= :invalid-numeric-arg (:reason edn)))
+                   (is (= "timeout-ms" (:arg edn))))
+                 (done))))))
+
 (deftest rejects-blank-event
   (async done
     (-> (dispatch/dispatch-tool (fresh-conn) #js {:event "   "})

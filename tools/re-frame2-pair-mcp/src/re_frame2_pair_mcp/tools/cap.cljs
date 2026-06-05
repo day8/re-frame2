@@ -201,3 +201,43 @@
                          :cap      cap
                          :hint     (get overflow-hints tool)
                          :strategy strategy})))
+
+(defn cap-message
+  "Per-notification wire-cap for a single serialised EDN message string
+  (rf2-wz66k7). Returns `message` unchanged when under the cap (or the
+  cap is disabled via `nil`), else the `pr-str` of the same
+  `{:rf.mcp/overflow {...}}` marker the result path emits.
+
+  Unlike `apply-cap` — which walks an MCP result's `:content` / structured
+  slots — this caps the ONE pre-serialised `:message` string the
+  `subscribe` streaming loop ships in a `notifications/progress`
+  notification. The MCP `tools/call` RESULT path is capped at the `invoke`
+  chokepoint (`apply-cap`), but a progress NOTIFICATION never crosses that
+  chokepoint, so the per-tick payload would otherwise egress un-capped —
+  busting the per-notification token budget the spec pins
+  (`spec/Principles.md` §Streaming over batch: \"the cap applies per
+  notification\"; §Subscribe streaming: progress frames apply the same
+  wrap per-tick; `003-Tool-Catalogue.md` §Universal dedup: the per-tick
+  `:events` vector participates in the wire-cap discipline). This is the
+  same cap-completeness class as rf2-ycfu1 (count `:structuredContent`
+  toward the cap) — a wire-bearing payload that bypassed the gate.
+
+  Uses the SAME two-stage gate (`base-cap/over-cap?` — token sum OR the
+  secondary char gate) and the SAME `overflow/overflow-payload` shape as
+  the result path, so an agent that learned the `:rf.mcp/overflow` marker
+  on a `tools/call` result recognises it identically on the progress
+  channel. The overflow marker carries the `subscribe` per-tool hint so
+  the agent's next step (tighten `filter`, lower the buffer caps, set
+  `max-events`) is specific."
+  [message {:keys [tool cap]}]
+  (if (or (nil? cap) (nil? message))
+    message
+    (let [tokens (base-overflow/token-estimate message)
+          chars  (count message)]
+      (if-not (base-cap/over-cap? tokens chars cap)
+        message
+        (pr-str (base-overflow/overflow-payload
+                  {:tool        tool
+                   :token-count (base-cap/reported-count tokens chars cap)
+                   :cap         cap
+                   :hint        (get overflow-hints tool)}))))))

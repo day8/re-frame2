@@ -81,3 +81,45 @@
      :hint   (str "State-mutating tools (restore-epoch, reset-frame-db) are "
                   "disabled by default; pass --allow-writes at server launch "
                   "to opt in. Read tools and dispatch are unaffected.")}))
+
+;; ---------------------------------------------------------------------------
+;; Server-boundary pre-dispatch gate (rf2-wz66k7).
+;;
+;; The write-tool BODIES (`restore-epoch-tool` / `reset-frame-db-tool`)
+;; each refuse `:rf.error/writes-disabled` as their first action without
+;; touching the nREPL socket — correct AT THE TOOL LAYER. But the real MCP
+;; server handler (`server.cljs/handle-call`) calls `ensure-connection!`
+;; for EVERY tool BEFORE the tool body runs. On a stock install with no
+;; nREPL port available, that connection step REJECTS (`:nrepl-port-not-
+;; found`) and the tool body — and thus its write gate — NEVER fires. So a
+;; disabled `restore-epoch` / `reset-frame-db` returned a misleading
+;; discovery error instead of the intended destructive-tool refusal, and
+;; (when discovery WAS available) performed unnecessary connect /
+;; elicitation work for a request that should be refused locally.
+;;
+;; This set + predicate let the server refuse the gated writes at the
+;; pre-dispatch boundary — BEFORE `ensure-connection!` — when writes are
+;; off, restoring the "default-safe write posture is observably true at
+;; the MCP boundary" contract (spec/Tool-Pair.md §Pair-tool writes;
+;; tools/writes.cljs §Default-safe). The tool-body gates STAY (defence in
+;; depth + the direct-call test surface); this is the missing outer ring.
+
+(def gated-write-tools
+  "Tool names refused at the server boundary when `--allow-writes` is OFF
+  (rf2-wz66k7). These two MUTATE app-db wholesale and can be refused with
+  NO runtime connection — the gate is a pure function of the boot flag."
+  #{"restore-epoch" "reset-frame-db"})
+
+(defn refuse-pre-connection
+  "Server-boundary pre-dispatch guard (rf2-wz66k7). Returns the
+  `:rf.error/writes-disabled` result when `tool` is a gated write tool
+  AND `--allow-writes` is OFF — so `server.cljs/handle-call` can refuse it
+  locally BEFORE `ensure-connection!` runs (no nREPL socket touched, no
+  discovery / elicitation triggered). Returns `nil` for any tool that
+  must proceed to normal dispatch (a non-write tool, or a write tool when
+  writes are enabled — the latter falls through to its body, which then
+  needs the connection). The tool-body gates remain as defence in depth."
+  [tool]
+  (when (and (contains? gated-write-tools tool)
+             (not (writes-allowed?)))
+    (disabled-result tool)))

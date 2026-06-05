@@ -13,6 +13,7 @@
             [applied-science.js-interop :as j]
             [re-frame2-pair-mcp.test-utils :as tu]
             [re-frame2-pair-mcp.tools.args :as args]
+            [re-frame2-pair-mcp.tools.cap :as cap]
             [re-frame2-pair-mcp.tools.eval-form :as ef]
             [re-frame2-pair-mcp.tools.subscribe :as sub]))
 
@@ -753,6 +754,85 @@
     (is (every? #(nil? (get-in % [:tags :rf.trace/dispatch-id]))
                 (:events frameless-tick))
         "frameless events MUST carry no :rf.trace/dispatch-id tag")))
+
+;; ---------------------------------------------------------------------------
+;; rf2-wz66k7 — the per-tick progress notification is wire-capped.
+;;
+;; `emit-progress-tick!` ships its per-tick payload as the `:message` of a
+;; `notifications/progress` notification. That notification NEVER crosses
+;; the `invoke` chokepoint where `apply-cap` runs on `tools/call` RESULTS,
+;; so before this fix an oversized drain shipped a multi-megabyte progress
+;; message un-capped — busting the per-notification token budget the spec
+;; pins. The fix runs the `:message` through `cap/cap-message` with the
+;; per-call cap threaded down from `subscribe-tool`.
+;; ---------------------------------------------------------------------------
+
+(defn- capture-progress-message
+  "Drive `emit-progress-tick!` with a capturing `send-note`, returning the
+  `:message` string the notification carried. `cap` is the resolved
+  per-notification budget."
+  [dedup-events cap]
+  (let [captured (atom nil)
+        send-note (fn [note]
+                    (reset! captured
+                            (j/get-in note [:params :message])))]
+    (sub/emit-progress-tick!
+      {:send-note   send-note
+       :progress-tk "tok-1"
+       :sub-id      "sub-1"
+       :cap         cap}
+      false
+      {:tick         1
+       :cascade?     false
+       :dedup-events dedup-events
+       :ev-dropped   0
+       :by-dropped   0
+       :ov-reason    nil
+       :dropped      0
+       :tick-elided  0})
+    @captured))
+
+(deftest emit-progress-tick-small-payload-rides-verbatim
+  ;; A small tick ships its EDN message unchanged — the gate must not
+  ;; over-trip a genuinely small notification.
+  (let [msg (capture-progress-message [{:id 1} {:id 2}] cap/default-max-tokens)
+        edn (cljs.reader/read-string msg)]
+    (is (not (contains? edn :rf.mcp/overflow))
+        "a small progress tick is not capped")
+    (is (= "sub-1" (:sub-id edn)))
+    (is (= [{:id 1} {:id 2}] (:events edn))
+        "the flat-topic payload rides under :events")))
+
+(deftest emit-progress-tick-oversized-payload-is-overflow-marked
+  ;; THE Finding-1 acceptance test (rf2-wz66k7): an oversized per-tick
+  ;; drain MUST emit an overflow marker on the progress channel, NOT a
+  ;; multi-megabyte raw message. FAILS before the fix (the notification
+  ;; bypassed the cap); PASSES after.
+  (let [fat (apply str (repeat 4000 "x"))
+        big-events (vec (repeat 50 {:payload fat}))
+        msg (capture-progress-message big-events 500)
+        edn (cljs.reader/read-string msg)]
+    (is (contains? edn :rf.mcp/overflow)
+        "an oversized progress tick MUST be replaced with the overflow marker")
+    (let [marker (:rf.mcp/overflow edn)]
+      (is (= :reached (:limit marker)))
+      (is (= "subscribe" (:tool marker)))
+      (is (= 500 (:cap-tokens marker)))
+      (is (> (:token-count marker) 500)))
+    (is (<= (cap/token-estimate msg) 500)
+        "the overflow-marker message itself stays under the cap")))
+
+(deftest emit-progress-tick-nil-cap-disables-gate
+  ;; `max-tokens 0` resolves to a nil cap — the caller opted out of the
+  ;; budget; even a fat tick ships raw (the documented escape hatch).
+  (let [fat (apply str (repeat 4000 "x"))
+        big-events (vec (repeat 50 {:payload fat}))
+        msg (capture-progress-message big-events nil)
+        edn (cljs.reader/read-string msg)]
+    (is (not (contains? edn :rf.mcp/overflow))
+        "nil cap (max-tokens 0) disables the per-notification gate")
+    (is (= 50 (count (:events edn)))
+        "the full fat payload rides when the cap is disabled")))
 
 (deftest cursor-stale-does-not-apply-to-subscribe-streams
   ;; rf2-mscih clarification — `:rf.mcp/cursor-stale` is a cursor-

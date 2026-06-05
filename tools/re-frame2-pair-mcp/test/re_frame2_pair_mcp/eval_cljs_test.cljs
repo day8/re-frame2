@@ -226,6 +226,41 @@
                  (done))))))
 
 ;; ---------------------------------------------------------------------------
+;; rf2-wz66k7 — `:timeout-ms` is validated as a positive-millisecond
+;; integer BEFORE the await-mailbox poll loop. A non-numeric value
+;; (`"bogus"`) made `await-promise/poll-mailbox!`'s `(>= elapsed
+;; timeout-ms)` deadline `(>= n NaN)` — never true — so an `:await` over a
+;; pending Promise polled FOREVER. The tool now short-circuits to an honest
+;; validation error WITHOUT touching nREPL (validation is the first `cond`
+;; branch, ahead of the eval).
+;; ---------------------------------------------------------------------------
+
+(deftest bogus-timeout-ms-rejected-before-touching-nrepl
+  (async done
+    ;; No runtime stub installed; if validation didn't short-circuit, the
+    ;; tool would reach the nREPL preflight and fail differently. A
+    ;; fresh-conn with no live socket would NOT surface :invalid-numeric-arg.
+    (-> (eval-cljs/eval-cljs-tool (fresh-conn)
+                                  #js {:form "(+ 1 2)" :await true :timeout-ms "bogus"})
+        (.then (fn [r]
+                 (is (err? r) "malformed :timeout-ms surfaces as :isError true")
+                 (let [edn (read-edn r)]
+                   (is (= :invalid-numeric-arg (:reason edn)))
+                   (is (= "timeout-ms" (:arg edn))))
+                 (done))))))
+
+(deftest negative-timeout-ms-rejected
+  (async done
+    (-> (eval-cljs/eval-cljs-tool (fresh-conn)
+                                  #js {:form "(+ 1 2)" :await true :timeout-ms -1})
+        (.then (fn [r]
+                 (is (err? r))
+                 (let [edn (read-edn r)]
+                   (is (= :invalid-numeric-arg (:reason edn)))
+                   (is (= "timeout-ms" (:arg edn))))
+                 (done))))))
+
+;; ---------------------------------------------------------------------------
 ;; Typed result envelope (rf2-qobqy) — the default (non-await) path wraps
 ;; the form so a genuine nil, an eval-error, and an unserializable value
 ;; are DISTINCT outcomes instead of collapsing to a bare null. The stub

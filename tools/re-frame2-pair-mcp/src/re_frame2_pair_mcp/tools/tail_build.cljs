@@ -24,6 +24,7 @@
   with no value information returned the operator had to manually call
   `handler-meta` to confirm the rebuild had actually landed."
   (:require [re-frame2-pair-mcp.nrepl :as nrepl]
+            [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.wire :as wire]))
 
 (def ^:private default-wait-ms
@@ -65,10 +66,20 @@
 
 (defn tail-build-tool [conn args]
   (let [build-id (wire/arg-build conn args)
-        wait-ms  (or (wire/arg args :wait-ms) default-wait-ms)
+        ;; rf2-wz66k7 — validate `:wait-ms` as a positive-millisecond
+        ;; integer BEFORE it reaches the `(>= elapsed wait-ms)` poll
+        ;; comparison. A non-numeric value (`"never"`) makes `(>= n NaN)`
+        ;; never true ⇒ the probe-change loop polls the nREPL socket
+        ;; FOREVER; a zero / negative value times out immediately. Absent
+        ;; ⇒ the documented `default-wait-ms`.
+        wait-r   (args/parse-timeout-arg "wait-ms" (wire/arg args :wait-ms))
+        wait-ms  (or (second wait-r) default-wait-ms)
         probe    (wire/arg args :probe)
         poll-ms  probe-poll-ms]
     (cond
+      (= :err (first wait-r))
+      (js/Promise.resolve (wire/err-text (second wait-r)))
+
       (nil? probe)
       ;; Soft delay — matches the bash version's behaviour when no probe
       ;; is supplied. We just resolve after a short sleep.

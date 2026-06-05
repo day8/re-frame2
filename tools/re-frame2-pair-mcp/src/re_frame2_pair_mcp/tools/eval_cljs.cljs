@@ -218,13 +218,23 @@
         build-id   (wire/arg-build conn args)
         explicit?  (wire/arg-build-explicit? conn args)
         await?     (boolean (wire/arg args :await))
-        timeout-ms (or (wire/arg args :timeout-ms) await-promise/default-timeout-ms)
+        ;; rf2-wz66k7 — validate `:timeout-ms` as a positive-millisecond
+        ;; integer BEFORE it threads into `await-promise/poll-mailbox!`'s
+        ;; `(>= elapsed timeout-ms)` deadline. A non-numeric value
+        ;; (`"never"`) makes `(>= n NaN)` never true ⇒ the mailbox poll
+        ;; loop runs FOREVER on a pending await; a zero / negative value
+        ;; times out immediately. Absent ⇒ the documented default.
+        timeout-r  (args/parse-timeout-arg "timeout-ms" (wire/arg args :timeout-ms))
+        timeout-ms (or (second timeout-r) await-promise/default-timeout-ms)
         ;; rf2-ntuzf — optional `:frame` arg targets a named frame for
         ;; the form's lexical scope. Same coercion as dispatch/
         ;; snapshot/get-path: bare names (\"rf/default\") and EDN-
         ;; shaped strings (\":rf/default\") both accepted.
         frame      (some-> (wire/arg args :frame) args/->frame-keyword)]
     (cond
+      (= :err (first timeout-r))
+      (js/Promise.resolve (wire/err-text (second timeout-r)))
+
       (not @eval-allowed?)
       (js/Promise.resolve
         (wire/err-text

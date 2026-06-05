@@ -149,3 +149,46 @@
                              (is (string? (:note edn))))
                            (done))))))
           (.catch (fn [e] (is false (str "rejected: " (.-message e))) (done)))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-wz66k7 — `:wait-ms` is validated as a positive-millisecond integer
+;; BEFORE the poll loop. A non-numeric value (`"bogus"`) made the
+;; `(>= elapsed wait-ms)` comparison `(>= n NaN)` — never true — so a
+;; stuck probe polled the nREPL socket FOREVER. The tool now short-circuits
+;; to an honest validation error WITHOUT touching nREPL.
+;; ---------------------------------------------------------------------------
+
+(deftest bogus-wait-ms-errors-honestly-without-polling
+  (testing "a non-numeric :wait-ms returns a validation error, not an unbounded poll"
+    (async done
+      ;; A rejecting eval-stub would surface as :probe-errored IF the tool
+      ;; reached the nREPL call. It must NOT — the validation short-circuits
+      ;; first, so this resolves to the validation error regardless of the
+      ;; (never-invoked) eval surface.
+      (-> (with-rejecting-eval! "should-not-be-called"
+            (fn []
+              (-> (tail/tail-build-tool nil (tu/args->js {:probe "(some-form)"
+                                                          :wait-ms "bogus"}))
+                  (.then (fn [result]
+                           (is (tu/error? result)
+                               "malformed :wait-ms surfaces as :isError true")
+                           (let [edn (tu/extract-edn result)]
+                             (is (false? (:ok? edn)))
+                             (is (= :invalid-numeric-arg (:reason edn)))
+                             (is (= "wait-ms" (:arg edn)))
+                             (is (not= :probe-errored (:reason edn))
+                                 "validation runs BEFORE the nREPL probe eval"))
+                           (done))))))
+          (.catch (fn [e] (is false (str "rejected: " (.-message e))) (done)))))))
+
+(deftest negative-wait-ms-errors-honestly
+  (testing "a negative :wait-ms (immediate timeout / negative setTimeout) is rejected"
+    (async done
+      (-> (tail/tail-build-tool nil (tu/args->js {:probe "(some-form)" :wait-ms -5}))
+          (.then (fn [result]
+                   (is (tu/error? result))
+                   (let [edn (tu/extract-edn result)]
+                     (is (= :invalid-numeric-arg (:reason edn)))
+                     (is (= "wait-ms" (:arg edn))))
+                   (done)))
+          (.catch (fn [e] (is false (str "rejected: " (.-message e))) (done)))))))
