@@ -313,7 +313,9 @@ or two edges, with these structural rules:
 | `:on {:e :same-state}` — external self-transition | yes | state → ev-node | ev-node → state |
 | `:on {:e {:action :a}}` — INTERNAL (no `:target`) | yes (`:internal true`) | state → ev-node | **none** |
 | `:after {1000 ...}` — timer | yes (`:variant "after"`, `:afterMs 1000`) | state → ev-node | ev-node → target |
+| `:after {1000 {:action :a}}` — INTERNAL timer (no `:target`) (rf2-mnp93.4) | yes (`:variant "after"`, `:internal true`) | state → ev-node | **none** |
 | `:always [{:target ...}]` | yes (`:variant "always"`) | state → ev-node | ev-node → target |
+| `:always [{:action :a}]` — INTERNAL (no `:target`) (rf2-mnp93.4) | yes (`:variant "always"`, `:internal true`) | state → ev-node | **none** |
 | Wildcard `:*` | yes (`:eventId nil`, not user-fireable) | state → ev-node | ev-node → target |
 
 The event-node carries everything the legacy edge `:data` used to

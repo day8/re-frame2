@@ -771,6 +771,40 @@
         (is (nil? (outbound-edge-for graph (:id internal)))
             "internal transition has NO event→target segment")))))
 
+(def internal-after-always-machine
+  "rf2-mnp93.4 — a state carrying an internal (action-only, no `:target`)
+  `:after` AND `:always`. Both project as terminal event-nodes (no outbound
+  segment), exactly like the internal `:on` form — pre-fix BOTH were silently
+  dropped by the chart's `:after` / `:always` branches."
+  {:initial :a
+   :states  {:a {:after  {1000 {:action :timeout-log}}
+                 :always [{:action :poll}]}}})
+
+(deftest xyflow-graph-internal-after-always-no-outbound-segment
+  (testing "rf2-mnp93.4 — an internal (action-only) :after / :always
+            projects the inbound terminal segment but NO outbound segment,
+            consistent with the internal :on form (pre-fix both were dropped
+            entirely by the chart parse)"
+    (let [parsed (layout/parse-definition internal-after-always-machine)
+          graph  (projection/xyflow-graph parsed {} {})
+          aft    (first (filter #(and (:internal? %) (:after %)) (:edges parsed)))
+          alw    (first (filter #(and (:internal? %) (:always? %)) (:edges parsed)))]
+      (is (some? aft) "the internal :after edge is parsed (not dropped)")
+      (is (some? alw) "the internal :always edge is parsed (not dropped)")
+      ;; both keep the inbound terminal segment + an event-node, and have NO
+      ;; outbound target segment (terminal route — the action-only chip).
+      (is (some? (event-node-for graph (:id aft))) "internal :after gets an event-node")
+      (is (some? (inbound-edge-for graph (:id aft))) "internal :after keeps source→event")
+      (is (nil? (outbound-edge-for graph (:id aft))) "internal :after has NO event→target")
+      (is (some? (event-node-for graph (:id alw))) "internal :always gets an event-node")
+      (is (some? (inbound-edge-for graph (:id alw))) "internal :always keeps source→event")
+      (is (nil? (outbound-edge-for graph (:id alw))) "internal :always has NO event→target")
+      ;; the event-node carries the variant (after / always) AND the internal flag.
+      (is (= "after" (:variant (:data (event-node-for graph (:id aft))))))
+      (is (true? (:internal (:data (event-node-for graph (:id aft))))))
+      (is (= "always" (:variant (:data (event-node-for graph (:id alw))))))
+      (is (true? (:internal (:data (event-node-for graph (:id alw)))))))))
+
 ;; ---- xyflow-graph misc payload + style ---------------------------------
 
 (deftest xyflow-graph-region-style-from-measured-position

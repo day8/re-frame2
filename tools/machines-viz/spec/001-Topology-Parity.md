@@ -561,12 +561,29 @@ that diverged between chart + SCXML (rf2-bs3us). With F2–F4 the three-emitter
 `:on-done` projection is faithful across every reachable Spec 005 shape, and
 the parallel-root anchor is inert.
 
+A 2026-06-05 R3 faithfulness review (rf2-mnp93) surfaced the F5–F7
+follow-ons below — the SAME cross-emitter-asymmetry class as F2, generalised
+to the ORDINARY internal transition (not just `:on-done`): an INTERNAL
+(action-only, no-`:target`) `:on` / `:after` / `:always` candidate (Spec 005
+§Transition slots: "omit for internal") was projected INCONSISTENTLY — the
+chart charted internal `:on` but silently dropped internal `:after` /
+`:always`; mermaid dropped ALL three; SCXML kept all three (rf2-mnp93.4). The
+SAME SCXML internal action transition also round-tripped into a Spec 005
+FORBIDDEN BLOCK — a semantic inversion (rf2-mnp93.5) — and the mermaid
+node-id sanitiser was non-injective (rf2-mnp93.6, the same collision class
+the chart's `node-id` was fixed for in rf2-ee38b.21). With F5–F7 every
+internal transition is surfaced consistently across all three emitters, the
+SCXML codec round-trips it faithfully, and the mermaid id is injective.
+
 | Step | Bead | New? | Hot-zone | Notes |
 |---|---|---|---|---|
 | F1 | **rf2-41goo** ✅ — `feat(machines-viz): project :on-done (XState onDone) completion transition (chart + mermaid + scxml)` | existing | isolated (`chart/layout.cljc`, `chart/projection.cljc`, `mermaid.cljc`, `scxml.cljc`, + JVM tests + this doc) | **Closes G9.** `:on-done` was never parsed/projected (zero matches across the three emitters). Now: the COMPOUND completion edge resolves to the SIBLING (`✓ done` chip); the PARALLEL-ROOT completion (action/fx-only) renders as a terminal affordance / mermaid note; the SCXML emitter round-trips the W3C `done.state.<id>` transition. Parses + projects faithfully to the engine's `[:rf.machine/done <path>]` raise. |
 | F2 | **rf2-ay42f** ✅ — `fix(machines-viz): render compound action-only :on-done in mermaid` | new | isolated (`mermaid.cljc` + JVM tests + this doc) | **G9 faithfulness completion.** A COMPOUND whose `:on-done` is ACTION-ONLY (no `:target` — the engine runs an action when the sub-flow completes; the machine stays in the all-final config; a documented Spec 005 shape) surfaced in chart + SCXML but was SILENTLY DROPPED in mermaid (`collect-on-done-edges` kept only target-bearing candidates; the note path covered only the parallel-root). Now mermaid renders a `note right of <compound>` carrying `on-done: ✓ done / <action>` — the same affordance the parallel-root action-only `:on-done` uses — so the completion is visible across **all three** emitters. The G9 "faithful across all three emitters" claim is now accurate for the action-only compound shape. (`collect-compound-on-done-notes` walks the state tree incl. region-nested + deeply-nested compounds.) |
 | F3 | **rf2-dblqx** ✅ — `fix(machines-viz): parallel-root :on-done anchor is inert (not a clickable phantom state)` | new | isolated (`chart/projection.cljc` + JVM tests + this doc) | The synthetic parallel-root completion anchor (F1) fell through the node-`:type` cond to `"state"` AND through the `:onClick` guard (which excluded only `:machine-root?` + region), so it projected as a CLICKABLE `parallel` state box — clicking it dispatched on-state-click against the rendering-sentinel path. The SAME inert-synthetic-chip class **rf2-34ff3** ruled for the machine-root chip + region containers. Fix: type the parallel-root anchor `"machine-root"` (the quiet root-context chip) AND exclude `:parallel-root?` from the `:onClick` guard, mirroring 34ff3. The anchor is now INERT. |
 | F4 | **rf2-bs3us** ✅ — `fix(machines-viz): align chart parallel-root done-state label to SCXML` | new | isolated (`chart/layout.cljc`, `chart/projection.cljc`, `scxml.cljc` + JVM tests + this doc) | The chart's parallel-root `:doneState` label was the degenerate `"done.state."` (the root sentinel path `[]` has an EMPTY `node-id`), diverging from the SCXML emitter's `"done.state.rf2_parallel_root"`. Fix: a shared canonical sentinel id (`layout/parallel-root-done-state-id` = `"rf2_parallel_root"`) is the SINGLE SOURCE OF TRUTH both the chart `:doneState` renderer label and the SCXML `<parallel id=...>` / `done.state.<id>` event read from, so the two emitters agree. Pure label fix (not load-bearing for topology / round-trip). |
+| F5 | **rf2-mnp93.4** ✅ — `fix(machines-viz): surface internal action-only :on/:after/:always consistently across chart + mermaid + scxml` | new | isolated (`chart/layout.cljc`, `mermaid.cljc` + JVM/CLJS tests + this doc) | **G9 faithfulness — generalised from `:on-done` (F2) to the ordinary internal transition.** An INTERNAL (action-only, no-`:target`) `:on` / `:after` / `:always` candidate was projected INCONSISTENTLY: the CHART charted internal `:on` (self-anchored, `:internal?`) but SILENTLY DROPPED internal `:after` / `:always` (the `resolve-target-path` inside `keep` returned nil for a target-less candidate — inconsistent even WITHIN the chart); MERMAID dropped ALL three; SCXML kept all three. Three emitters, three projections of one machine. Fix: `chart/layout.cljc`'s `:after` / `:always` branches now detect the target-less candidate and self-anchor it (`:internal? true`), matching the `:on` branch; `mermaid.cljc` renders each internal candidate as a `note right of <state>` line (`<descriptor> [guard] / <action>`) — the SAME action-only-note affordance F2 introduced for `:on-done`. SCXML was already faithful. A new `cross_emitter_agreement_cljs_test` pins the three-emitter count agreement (chart 3 / mermaid 3 / scxml 3 for the bead repro). |
+| F6 | **rf2-mnp93.5** ✅ — `fix(machines-viz): SCXML round-trips an internal action transition (not a forbidden block)` | new | isolated (`scxml.cljc` + JVM/CLJS tests + this doc) | **SCXML round-trip semantic inversion.** An internal action `:on {:tick {:action :log}}` emitted `<transition event="tick"><!-- action: log --></transition>`; the decoder's `strip-comments` discarded the action comment BEFORE tokenizing, so the candidate decoded to the EMPTY map `{}` — which Spec 005 §Forbidden transitions defines as a FORBIDDEN BLOCK (consume-the-event-and-block-inheritance). 'Run an action' → 'block the event entirely' is a SEMANTIC INVERSION, not lossy detail. Fix: a `lift-action-comments` pre-pass folds each `<!-- action: NAME -->` into a synthetic `data_rf_action` attribute on its own `<transition>` BEFORE comments are stripped, and the decoder recovers it into the candidate's `:action`. An internal action transition now round-trips as `{:action :log}` — a VALID Spec-005 internal action transition (the distinguishing feature is the PRESENCE of `:action`, Spec 005 §Forbidden L1346). A genuine `{}` forbidden block still round-trips to `{}` (the lift-pass only recovers a PRESENT action). |
+| F7 | **rf2-mnp93.6** ✅ — `fix(machines-viz): mermaid sanitise-id is injective` | new | isolated (`mermaid.cljc` + JVM/CLJS tests + this doc) | **Mermaid node-id collision.** `sanitise-id` mapped every non-`[a-zA-Z0-9_]` char to `_`, so `:a/b`, `:a-b`, and `:a_b` all collapsed to `a_b`: two distinct states became ONE Mermaid node, mis-wiring every edge to/from either (hyphens are pervasive in re-frame keywords). The SAME collision class the chart's `node-id` was fixed for in rf2-ee38b.21. Fix: port the chart's injective hex-escape scheme (`:a/b` → `a_2fb`, `:a-b` → `a_2db`, `:a_b` → `a_5fb`; `/` ns/name marker → `_2f`, `__` path separator) into `sanitise-id`, so distinct keywords map to distinct mermaid nodes AND the chart + mermaid emitters mint the SAME id for the same path (a tool reading both addresses every node identically). Mermaid node-ids are internal — the visible label comes from `render-state-alias` — so the injective encoding costs no legibility. |
 
 > **Sibling note (rf2-wnzha — same review pass, NOT a parity row):**
 > parallel regions sharing a state NAME minted COLLIDING node-ids (the
@@ -594,14 +611,20 @@ the parallel-root anchor is inert.
    (`chart/edges-cljs-test`: nested/parallel ⇒ switch present, flat ⇒
    absent, G2 routing keys pinned). Isolated (`chart.cljs` + test).
 
-> **Parity verdict after Phases A–F (incl. G9):** `MachineChart` reaches
-> **full topology parity** with Stately Studio on all nine concerns
-> (transition scoping now includes the `:on-done` / XState `onDone`
-> completion transition — rf2-41goo / G9) except the three **intentional
-> divergences** (no code↔diagram sync, trace-driven not sandbox sim, no
-> history pseudo-states) — and remains **above** the bar on the
-> re-frame2-native overlays (`:after` rings, microstep replay,
-> `:spawn-all` join, cancellation cascade).
+> **Parity verdict after Phases A–F (incl. G9 + the F5–F7 internal-
+> transition faithfulness pass):** `MachineChart` reaches **full topology
+> parity** with Stately Studio on all nine concerns (transition scoping now
+> includes the `:on-done` / XState `onDone` completion transition — rf2-41goo
+> / G9 — AND the ordinary INTERNAL action-only `:on` / `:after` / `:always`
+> transition surfaced consistently across all three emitters — rf2-mnp93.4)
+> except the three **intentional divergences** (no code↔diagram sync,
+> trace-driven not sandbox sim, no history pseudo-states) — and remains
+> **above** the bar on the re-frame2-native overlays (`:after` rings,
+> microstep replay, `:spawn-all` join, cancellation cascade). The three
+> emitters agree on internal-transition projection (rf2-mnp93.4), the SCXML
+> codec round-trips an internal action transition faithfully without
+> inverting it to a forbidden block (rf2-mnp93.5), and the mermaid node-id
+> is injective like the chart's (rf2-mnp93.6).
 
 ## See also
 
