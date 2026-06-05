@@ -46,6 +46,8 @@
             [re-frame2-pair-mcp.tools.eval-form :as ef]
             [re-frame2-pair-mcp.tools.wire :as wire]
             [re-frame2-pair-mcp.tools.probe :as probe]
+            [re-frame2-pair-mcp.tools.elision :as elision]
+            [re-frame2-pair-mcp.tools.raw-state :as raw-state]
             [re-frame2-pair-mcp.tools.record :as record]))
 
 (def ^:private default-timeout-ms
@@ -67,11 +69,23 @@
   `{:held? bool :sample {...} :t <ms>}`. `pred-src` is the predicate fn
   source (from `record/pred-source`); when nil the form reports
   `:held? false` every tick (a no-predicate watch can only time out — the
-  refusal is enforced at the tool boundary, so this is defensive)."
-  [signals frame pred-src]
-  (let [sample-call (if frame
-                      (ef/rt-call 'sample-signals signals frame)
-                      (ef/rt-call 'sample-signals signals))]
+  refusal is enforced at the tool boundary, so this is defensive).
+
+  rf2-8fin7.2 — `elision-opts` (the rendered `elision-opts-edn` walker
+  map) rides as the 3rd `sample-signals` arg so each sampled `:app-db` /
+  `:sub` value is elided for off-box egress (the `:sample` slot is what
+  the tool egresses on a hold AND the `:last-sample` on timeout). When no
+  explicit `frame` is supplied the form resolves the operating frame via
+  the runtime's `current-frame` so the 3-arity (which carries the elision
+  opts) is always reached — the bare 1-arity would skip the redaction."
+  [signals frame pred-src elision-opts]
+  (let [frame-src   (if frame
+                      (ef/emit frame)
+                      (ef/emit (ef/rt-call 'current-frame)))
+        sample-call (ef/rt-call 'sample-signals
+                                signals
+                                (ef/rt-raw frame-src)
+                                (ef/rt-raw elision-opts))]
     (ef/emit
       (ef/rt-let
         ['r       sample-call
@@ -100,7 +114,20 @@
                        :else nil))
         timeout-ms (let [t (wire/arg raw-args :timeout-ms)]
                      (if (and (number? t) (pos? t)) (long t) default-timeout-ms))
-        pred-src   (record/pred-source pred)]
+        pred-src   (record/pred-source pred)
+        ;; rf2-8fin7.2 — the `:sample` (on hold) and `:last-sample` (on
+        ;; timeout) slots ship raw `:app-db` / `:sub` values back to the
+        ;; model. Elide them for off-box egress under the same gate posture
+        ;; as snapshot / get-path / record (rf2-c2dtu / rf2-p1qli): gate
+        ;; OFF (the published default) forces `:include-sensitive false`
+        ;; + `:elision true`; gate ON honours the per-call args.
+        elision?   (if (raw-state/raw-state-allowed?)
+                     (args/parse-bool-arg raw-args :elision)
+                     true)
+        incl?      (if (raw-state/raw-state-allowed?)
+                     (args/parse-bool-arg raw-args :include-sensitive)
+                     false)
+        elision-opts (elision/elision-opts-edn (not elision?) incl?)]
     (cond
       (or (nil? signals) (empty? signals))
       (js/Promise.resolve
@@ -117,8 +144,14 @@
                       "or {:signal 0 :changed true}. Without one it can only time out.")}))
 
       :else
-      (let [form (watch-form signals frame pred-src)]
+      (let [form (watch-form signals frame pred-src elision-opts)]
         (-> (probe/ensure-runtime! conn build-id)
+            ;; rf2-8fin7.2 — flip the runtime's raw-state gate to the OFF
+            ;; posture before the first poll (the raw-state tap gate,
+            ;; rf2-c2dtu) so the sampler is fail-closed even if the eval
+            ;; form's threaded opts were somehow bypassed — same prelude
+            ;; step snapshot / get-path / record use.
+            (.then (fn [_] (raw-state/signal-runtime! conn build-id)))
             (.then
               (fn [_]
                 (js/Promise.

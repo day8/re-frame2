@@ -44,13 +44,36 @@
   dispatches, never mutates app-db, never writes the DOM. The descriptors
   carry the read-only annotation (with `:openWorldHint` — the recording
   reaches the browser runtime and has an observable side-effect on the
-  runtime's recording registry, but no app-state mutation)."
+  runtime's recording registry, but no app-state mutation).
+
+  ## Off-box-egress redaction (rf2-8fin7.2)
+
+  Read-only addresses no-MUTATION, NOT sensitive-VALUE egress. The
+  `{:app-db [path]}` / `{:sub [query-v]}` signals sample raw app-db-derived
+  values that `read-recording` ships back to the model — a declared-
+  sensitive slot would cross the AI/off-box boundary verbatim, exactly the
+  leak class `get-path` / `read-sub` / `snapshot` / `list-subscriptions`
+  close. `record` mirrors their posture: the `--allow-sensitive-reads`
+  boot gate (`raw-state/raw-state-allowed?`) + the per-call
+  `:include-sensitive` / `:elision` args resolve an elision-opts map that
+  is threaded into the runtime's `start-recording!` as `:elide-opts`, so
+  every `:app-db` / `:sub` sample is walked through
+  `re-frame.core/elide-wire-value` server-side (app-side, where the
+  per-frame elision registry lives) BEFORE it lands in the change-log.
+  Gate OFF (the published default) forces `:include-sensitive false` ⇒
+  declared-sensitive slots redact to `:rf/redacted`. The tool also issues
+  `raw-state/signal-runtime!` before `start-recording!` so the runtime's
+  own gate is flipped to the OFF posture (a belt-and-suspenders backstop
+  the background sampler tick re-consults each frame)."
   (:require [cljs.reader]
             [clojure.string :as str]
+            [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools.args :as args]
             [re-frame2-pair-mcp.tools.eval-form :as ef]
             [re-frame2-pair-mcp.tools.wire :as wire]
-            [re-frame2-pair-mcp.tools.probe :as probe]))
+            [re-frame2-pair-mcp.tools.probe :as probe]
+            [re-frame2-pair-mcp.tools.elision :as elision]
+            [re-frame2-pair-mcp.tools.raw-state :as raw-state]))
 
 ;; ---------------------------------------------------------------------------
 ;; Signal-arg parsing — shared with watch-until.
@@ -197,10 +220,18 @@
   emitted as explicit source: `:signals` / `:frame` / `:max-entries` are
   EDN data literals; `:stop` is built by `stop-map-src` (its `:pred-fn`
   slot carries synthesised CLJS source, which can't ride the EDN-literal
-  arg path)."
-  [signals stop frame max-entries]
+  arg path).
+
+  rf2-8fin7.2 — `elision-opts` is the rendered `elision-opts-edn` walker
+  map (the `--allow-sensitive-reads` gate + per-call `:include-sensitive`
+  posture). It rides as `:elide-opts` so the runtime's sampler elides
+  each `:app-db` / `:sub` value for off-box egress before it lands in the
+  change-log. The map is a plain EDN literal (no synthesised source), so
+  it inlines verbatim."
+  [signals stop frame max-entries elision-opts]
   (let [opts-pairs (cond-> [(str ":signals " (pr-str (vec signals)))
-                            (str ":stop " (stop-map-src stop))]
+                            (str ":stop " (stop-map-src stop))
+                            (str ":elide-opts " elision-opts)]
                      frame       (conj (str ":frame " (pr-str frame)))
                      max-entries (conj (str ":max-entries " (pr-str max-entries))))]
     (ef/emit
@@ -217,7 +248,22 @@
         signals     (parse-signals-arg (wire/arg raw-args :signals))
         stop        (parse-stop-arg (wire/arg raw-args :stop))
         max-entries (let [m (wire/arg raw-args :max-entries)]
-                      (when (and (number? m) (pos? m)) (long m)))]
+                      (when (and (number? m) (pos? m)) (long m)))
+        ;; rf2-8fin7.2 — the `:app-db` / `:sub` samples this recorder ships
+        ;; back via `read-recording` must be elided for off-box egress.
+        ;; Same gate posture as snapshot / get-path / trace-window
+        ;; (rf2-c2dtu / rf2-p1qli): the `--allow-sensitive-reads` boot gate
+        ;; forces `:include-sensitive false` + `:elision true` when OFF
+        ;; (the published default); gate ON honours the per-call args.
+        elision?    (if (raw-state/raw-state-allowed?)
+                      (args/parse-bool-arg raw-args :elision)
+                      true)
+        incl?       (if (raw-state/raw-state-allowed?)
+                      (args/parse-bool-arg raw-args :include-sensitive)
+                      false)
+        ;; rf2-suoj2 polarity — MCP `elision` true = emit markers =
+        ;; `:include-large?` false, hence `(not elision?)`.
+        elision-opts (elision/elision-opts-edn (not elision?) incl?)]
     (cond
       (or (nil? signals) (empty? signals))
       (js/Promise.resolve
@@ -227,10 +273,18 @@
                       "{:app-db [:cart :items]}]' [stop {:ms 30000}] [frame :rf/default]}")}))
 
       :else
-      (let [form (start-recording-form signals stop frame max-entries)]
-        (probe/eval-after-runtime!
-          conn build-id form :record-failed
-          (fn [envelope] (wire/ok-text envelope)))))))
+      (let [form (start-recording-form signals stop frame max-entries elision-opts)]
+        ;; rf2-8fin7.2 — insert `signal-runtime!` between `ensure-runtime!`
+        ;; and the eval (the raw-state tap gate, rf2-c2dtu) so the runtime
+        ;; is in the OFF posture before the background sampler ticks —
+        ;; same prelude shape snapshot / get-path / subscribe use. The
+        ;; plain `eval-after-runtime!` skips this step, so the chain is
+        ;; spelled out here.
+        (-> (probe/ensure-runtime! conn build-id)
+            (.then (fn [_] (raw-state/signal-runtime! conn build-id)))
+            (.then (fn [_] (nrepl/cljs-eval-value conn build-id form)))
+            (.then (fn [envelope] (wire/ok-text envelope)))
+            (.catch (fn [err] (probe/err->result :record-failed err))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; read-recording — read back the change-log.

@@ -111,7 +111,9 @@
                [{:focus true} {:app-db [:cart]}]
                {:ms 15000 :pred {:signal 0 :equals :done}}
                :rf/default
-               2000)]
+               2000
+               ;; rf2-8fin7.2 — the rendered elision-opts walker map.
+               "{:rf.size/include-large? false :rf.size/include-sensitive? false}")]
     (testing "calls the runtime start-recording! with the signals + stop"
       (is (str/includes? form "re-frame2-pair.runtime/start-recording!"))
       (is (str/includes? form ":signals"))
@@ -121,14 +123,19 @@
       (is (str/includes? form ":max-entries 2000")))
     (testing "the data predicate compiles into a :pred-fn slot (not raw :pred)"
       (is (str/includes? form ":pred-fn"))
-      (is (not (str/includes? form ":pred {")) "the data :pred key must not ride verbatim"))))
+      (is (not (str/includes? form ":pred {")) "the data :pred key must not ride verbatim"))
+    (testing "the elision-opts ride as :elide-opts (rf2-8fin7.2)"
+      (is (str/includes? form ":elide-opts"))
+      (is (str/includes? form ":rf.size/include-sensitive? false")))))
 
 (deftest record-and-watch-forms-are-read-only
   ;; READ-ONLY by construction — neither form may carry an app-mutation
   ;; host-form. The whole point of the recorder is observation.
-  (let [rec-form   (#'record/start-recording-form [{:focus true}] {:ms 1000} nil nil)
+  (let [rec-form   (#'record/start-recording-form [{:focus true}] {:ms 1000} nil nil
+                                                   "{:rf.size/include-large? false :rf.size/include-sensitive? false}")
         watch-form (watch-until/watch-form [{:app-db [:x]}] :rf/default
-                                           (record/pred-source {:signal 0 :equals 1}))]
+                                           (record/pred-source {:signal 0 :equals 1})
+                                           "{:rf.size/include-large? false :rf.size/include-sensitive? false}")]
     (doseq [form [rec-form watch-form]
             mutator ["pair-dispatch" "reset-frame-db" "app-db-reset"
                      ".setAttribute" ".dispatchEvent" ".innerHTML"
@@ -291,7 +298,8 @@
   ;; not the whole sample-set re-tested client-side.
   (let [form (watch-until/watch-form
                [{:app-db [:x]}] :rf/default
-               (record/pred-source {:signal 0 :equals 1}))]
+               (record/pred-source {:signal 0 :equals 1})
+               "{:rf.size/include-large? false :rf.size/include-sensitive? false}")]
     (is (str/includes? form "re-frame2-pair.runtime/sample-signals"))
     (is (str/includes? form ":held?"))
     (is (str/includes? form ":sample"))))
