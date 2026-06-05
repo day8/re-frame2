@@ -3,20 +3,36 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <!-- Default-safe Content Security Policy. The scaffold only loads
-         same-origin JS/CSS and has no inline script/style, so this
-         strict baseline holds without weakening. `connect-src` admits
-         the same origin plus ws:/wss: so shadow-cljs's hot-reload
-         websocket connects in dev (it can route to a different port
-         than the page, which 'self' alone would block). For
-         production, prefer serving the same policy via a
-         Content-Security-Policy response header AND tighten
-         `connect-src` to your real API origin(s) — drop `ws: wss:`
-         unless you use websockets in production (see README
-         "Production hardening"). The meta tag here is the fall-back
-         when no server-side header is set. -->
+    <!-- Development-flavoured Content Security Policy. This meta tag is
+         the dev fall-back when no server-side header is set; it is tuned
+         to the RUNTIME the scaffold actually produces, not an aspirational
+         strict baseline.
+
+         - `style-src 'self' 'unsafe-inline'` — the generated views use
+           inline `:style` props, and the default-on Xray devtools surface
+           injects `<style>` blocks and inline styles. Without
+           `'unsafe-inline'` the first page would emit CSP violations and
+           Xray's styling would be blocked. (To run with a strict
+           `style-src 'self'`, move all inline styles to external CSS /
+           a nonce and drop Xray — see README "Production hardening".)
+         - `connect-src` admits the same origin plus ws:/wss: so
+           shadow-cljs's hot-reload websocket connects in dev (it can
+           route to a different port than the page, which 'self' alone
+           would block).
+         - NO `frame-ancestors` here: browsers IGNORE `frame-ancestors`
+           delivered via a `<meta>` tag — it only takes effect from a
+           response header. Putting it here would imply anti-clickjacking
+           protection the scaffold does not actually have. The
+           anti-clickjacking contract lives in the README's response-header
+           snippets ("Production hardening").
+
+         For production, serve a Content-Security-Policy RESPONSE HEADER
+         (see README "Production hardening"): drop `'unsafe-inline'` once
+         you've externalised styles, drop `ws: wss:` (no dev hot-reload),
+         tighten `connect-src` to your real API origin(s), and add
+         `frame-ancestors 'none'` THERE (where it works). -->
     <meta http-equiv="Content-Security-Policy"
-          content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self' ws: wss:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'">
+          content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:; object-src 'none'; base-uri 'none'">
     <title>{{name}} — re-frame2</title>
     <link rel="stylesheet" href="/css/app.css">
   </head>

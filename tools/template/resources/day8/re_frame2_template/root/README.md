@@ -84,10 +84,29 @@ The story registrations live in `src/{{nested-dirs}}/stories.cljs`
 the four shipped `reg-*` macros — `reg-story`, `reg-variant`,
 `reg-tag`, `reg-workspace` — referencing the counter's existing
 event / sub / view ids. Add more `reg-variant` / `reg-tag` /
-`reg-decorator` / `reg-mode` calls there as your app grows. Under a
-`release` build the Story body code elides via
-`:closure-defines {re-frame.story.config/enabled? false}`, so it
-costs nothing in production.
+`reg-decorator` / `reg-mode` calls there as your app grows.
+
+### Eliding Story from your production bundle (opt-in)
+
+Story body code can elide entirely under an `:advanced` release build
+via the `re-frame.story.config/enabled?` closure-define — every `reg-*`
+form collapses to `nil`, `mount-shell!` short-circuits, and Closure
+DCE drops the registration-side namespace graph. **This elision is
+opt-in, not automatic.** The define defaults to `true`, and the
+scaffolded `shadow-cljs.edn` does **not** set it — so a plain
+`npx shadow-cljs release app` SHIPS the Story shell, the `#/stories`
+route, and every registration to production (a bundle-size cost and a
+possible internal-state exposure). To elide Story from release, add a
+`:release` block to the `:app` build in `shadow-cljs.edn`:
+
+```clojure
+;; shadow-cljs.edn :builds :app
+:release {:compiler-options
+          {:closure-defines {re-frame.story.config/enabled? false}}}
+```
+
+Leave it out (keep `enabled?` true in release) only when you want a
+release-flavoured Story build for visual regression.
 
 Story is Reagent-only in this template release; UIx + Helix variants
 follow once Story's adapter coverage matches Reagent's. If you did
@@ -106,20 +125,39 @@ from any static host.
 ## Production hardening
 
 The generated `resources/public/index.html` ships a `<meta http-equiv="Content-Security-Policy" ...>`
-tag so an unconfigured static host still gets a strict default-safe
-baseline. **Prefer setting the same policy as a real response header**
-on your server — meta-tag CSPs are evaluated late (some directives are
-ignored entirely, e.g. `frame-ancestors`) and can be removed by an
-upstream proxy that rewrites HTML.
+tag so an unconfigured static host still gets a baseline. **Prefer
+setting CSP as a real response header** on your server — meta-tag CSPs
+are evaluated late, some directives are ignored entirely when delivered
+via `<meta>` (notably **`frame-ancestors`**, which is why the meta tag
+omits it), and a meta CSP can be removed by an upstream proxy that
+rewrites HTML.
 
-The scaffold loads only same-origin JS/CSS and has no inline
-script/style, so the strict default policy holds without weakening:
+**The shipped meta CSP is development-flavoured.** It sets
+`style-src 'self' 'unsafe-inline'` because the generated views use
+inline `:style` props and the default-on Xray devtools surface injects
+`<style>` blocks and inline styles — a strict `style-src 'self'` would
+emit CSP violations on the first page and block Xray styling. The meta
+tag also drops `frame-ancestors` (browsers ignore it from `<meta>`).
+
+For production, serve the **stricter** policy below as a response
+header. It tightens three things relative to the dev meta tag:
+**drops `'unsafe-inline'`** (do this only after you have externalised
+all inline styles — move the views' `:style` props to `css/app.css`
+classes, and either drop the dev-only Xray preload from your release
+build [it already is — see "In-app devtools" above] or serve Xray under
+a nonce); **drops `ws: wss:`** (no dev hot-reload in production); and
+**adds `frame-ancestors 'none'`** — which is where anti-clickjacking
+protection actually takes effect (NOT the meta tag):
 
 ```
 Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'
 X-Content-Type-Options: nosniff
 Referrer-Policy: strict-origin-when-cross-origin
 ```
+
+If you have not externalised inline styles, keep `style-src 'self'
+'unsafe-inline'` in the production header too — but prefer a nonce or
+hash over wholesale `'unsafe-inline'` for a public deployment.
 
 **`connect-src` — tighten it in production.** The shipped
 `index.html` meta CSP sets `connect-src 'self' ws: wss:` so
@@ -133,9 +171,14 @@ origin), `'self'` will block it — add that origin explicitly, e.g.
 silently forbids any cross-origin request you haven't whitelisted, so
 add API origins here as you wire them up.
 
-If you add a CDN, embed in an iframe, inline a `<style>` block, or
-load an analytics snippet, **explicitly widen the policy** for that
-origin / hash — don't drop it to `'unsafe-inline'` wholesale.
+`script-src` stays strict (`'self'`, no `'unsafe-inline'`) in both the
+dev meta tag and the production header — the scaffold has no inline
+`<script>`. If you add a CDN, embed in an iframe, inline a `<script>`,
+or load an analytics snippet, **explicitly widen the policy** for that
+origin / hash — don't drop it to `'unsafe-inline'` wholesale. (For
+inline *styles*, see the `style-src` note above: the dev meta tag
+allows them; externalise to `css/app.css` to tighten the production
+header.)
 
 Example **nginx** server block:
 
