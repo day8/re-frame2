@@ -36,6 +36,7 @@ A one-page index keyed to v1 trigger surfaces. The author asks *"is `X` covered 
 | `^:flush-dom` event-vector metadata | **M-16** | A | Replace with `:dispatch-later {:ms 0 :dispatch <event-vec>}`. |
 | `(rf/reg-global-interceptor ...)` / `(rf/clear-global-interceptor ...)` | **M-17** | A/B | Single-frame: move to default-frame `:interceptors`. Multi-frame: ask (each-frame / trace-listener / default-frame-only). |
 | `(rf/reg-sub-raw ...)` | **M-18** | B | Four rewrite paths depending on body: read-only-app-db → `reg-sub`; non-app-db source → fx-driven; lifecycle-managing → state machine; side-effecting → anti-pattern, move side effect to handler. |
+| `(rf/reg-sub :id signal-fn computation-fn)` — the **v1 3-arity signal-function form**, where the middle fn returns the input subs and may make them **query-dependent** (`(fn [[_ id]] [(subscribe [:item id])])`) | **M-18** | B | **`reg-sub` is NOT fully preserved.** v2 `reg-sub` accepts only layer-1 `(fn [db q])` or **static** `:<-` chains and **throws `:rf.error/reg-sub-bad-args` at registration** for the signal-fn form (compiles clean, fails at runtime/load). Static `:<-` cannot encode a query-dependent input. Rewrite per M-18's four paths — most fold to one layer-1 `reg-sub`; the query-dependent case threads the arg through the query-vector. See [`guided-interceptors-subs.md` §M-18, signal-fn case](guided-interceptors-subs.md#m-18-signal-fn-case--the-v1-signal-function-reg-sub-form-3-arity). |
 | Multi-positional event vectors `[:user/login email password]` | **M-19** | B | Opt-in. Map-payload form is canonical (`[:user/login {:email ... :password ...}]`). Multi-positional continues to work; linter nudges. |
 | `:re-frame/*`, `:machine/*`, `:route/*`, `:nav/*`, `:registry/*` framework keywords | **M-20** | A | Closed mechanical rename table to `:rf/*` / `:rf.machine/*` / `:rf.route/*` / `:rf.nav/*` / `:rf.registry/*`. User-defined `:route/<name>` ids preserved or rewritten to feature prefix per codebase convention. |
 | `rf/debug`, `rf/trim-v`, `rf/on-changes`, `rf/enrich`, `rf/after` interceptors | **M-21** | A/B | `debug` / `trim-v` mechanical drop (the trace surface and M-19 cover them). `on-changes` → flow. `enrich` / `after` → flow OR schema OR `->interceptor` OR registered fx — depends on the body. |
@@ -164,11 +165,12 @@ It carries no `M-N` id (no *application code* triggers it — M-rules key off ap
 
 [`MIGRATION.md`](../../../migration/from-re-frame-v1/README.md) has a fully-enumerated *"What stays the same"* section near the end of Part 1. The headline non-changes:
 
-- `reg-event-db` / `reg-event-fx` / `reg-event-ctx` / `reg-sub` / `reg-fx` / `reg-cofx` direct invocation — same names, same call shapes.
+- `reg-event-db` / `reg-event-fx` / `reg-event-ctx` / `reg-fx` / `reg-cofx` direct invocation — same names, same call shapes.
+- `reg-sub` direct invocation — same name, but **only** the layer-1 `(fn [db q])` and static `:<-`-chain shapes. The v1 **3-arity signal-function form** `(reg-sub :id signal-fn computation-fn)` is **NOT preserved** — it throws `:rf.error/reg-sub-bad-args` at registration; it is an M-18 Type-B rewrite (see the table row and [`guided-interceptors-subs.md` §M-18, signal-fn case](guided-interceptors-subs.md#m-18-signal-fn-case--the-v1-signal-function-reg-sub-form-3-arity)).
 - Handler signatures `(fn [db [_ args]] ...)` and `(fn [{:keys [db]} event] ...)`.
 - `dispatch` / `dispatch-sync` (optional second `opts` arg is additive).
 - `subscribe`; `@(subscribe [...])` deref-to-read pattern.
-- `:<-` chained subs and `reg-sub` sugar variants.
+- `:<-` chained subs and `reg-sub` sugar variants — the **static** `:<-` chain and the layer-1 fn-tail. (The dynamic signal-function form is the one carve-out: see the `reg-sub` line above.)
 - `path`, `inject-cofx` interceptors; `->interceptor` primitive. (Note: v1's `unwrap` Var is renamed to `unwrap-interceptor` per M-59 — only the name moves; the `:unwrap` interceptor `:id` is unchanged.)
 - The `:fx` slot in effect maps (the inner shape `[[fx-id args] ...]`).
 - `reg-fx` / `reg-cofx` without `:platforms` (defaults to universal).

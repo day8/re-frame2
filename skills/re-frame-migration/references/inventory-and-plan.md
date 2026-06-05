@@ -61,6 +61,7 @@ Separately from the add-ons, grep the **app's own source** for the v1 feature su
 | Direct `re-frame.db` / `re-frame.utils` / other off-contract `re-frame.*` requires; `@re-frame.db/app-db` | **M-1** |
 | `reg-global-interceptor` / `clear-global-interceptor` | **M-17** |
 | `reg-sub-raw` | **M-18** |
+| `reg-sub` with **two trailing fns** (the v1 3-arity signal-function form) — throws `:rf.error/reg-sub-bad-args` at registration | **M-18** (signal-fn case) |
 | `^:flush-dom` event metadata | **M-16** |
 | top-level `:dispatch` / `:dispatch-n` / `:http` / user-fx keys in effect maps | **M-8** |
 | `(reset! re-frame.db/app-db ...)` top-level seeding | **M-15** |

@@ -23,7 +23,7 @@ The rule engine and the FSM are structurally different. async-flow is **temporal
 | async-flow construct | `reg-machine` construct | Notes |
 |---|---|---|
 | `:id` (flow id) | the `machine-id` arg to `reg-machine` | async-flow's `:id` defaulted to a gensym; the machine-id is the addressing primitive (events dispatch as `[<machine-id> <event-vec>]`, the snapshot lives at `[:rf/runtime :machines :snapshots <machine-id>]`). Pick a meaningful feature-prefixed keyword — `:app/boot`, `:wizard/checkout`. |
-| `:first-dispatch [:e]` | the `:initial` state + its `:entry` action emitting the kickoff via `:fx` | `{:entry (fn [_] {:fx [[:dispatch [:e]]]})}` on the initial state. The machine bootstraps on its first received event; the parent starts it with `(rf/dispatch [<machine-id> [:start]])`. |
+| `:first-dispatch [:e]` | the `:initial` state + its `:entry` action emitting the kickoff via `:fx` | `{:entry (fn [_] {:fx [[:dispatch [:e]]]})}` on the initial state. The parent eager-starts the machine with the **reserved synthetic creation kick** `(rf/dispatch [<machine-id> [:rf.machine/start]])` — xstate's `createActor(m).start()` — which runs the initial-entry cascade (firing the `:entry`) then stops. Do **NOT** use a plain `[:start]`: `[:rf.machine/start]` is reserved framework lifecycle traffic (per [§Reserved synthetic events](../../../spec/005-StateMachines.md#reserved-synthetic-events)); a bare `[:start]` is just a **user event** that reaches the `:on` map — with no `:on {:start …}` clause it resolves to a benign-but-spurious `:rf.machine.event/unhandled-no-op`, and a catch-all (`:*`) transition would fire on it unintentionally. |
 | one rule `{:when (seen? :e) :dispatch [:f]}` | a **state** + a **transition** on its `:on` map gated on the awaited event `:e` | the rule's `:when` event becomes the `:on` key; the rule's `:dispatch` becomes the transition's `:action` `:fx`. "While waiting for `:e`, then go next, dispatching `:f`." |
 | `:when (seen-both? :a :b)` / `:seen-all-of?` (ALL must arrive) | a state whose `:on` **records each event in `:data`**, plus an `:always` transition gated by a `:guard` that fires once all are present | the canonical multi-await shape: each contributing `:on` action sets a flag in `:data`; an eventless `:always {:guard :both-seen? :target ...}` advances when the guard reads all flags true (per [§Eventless `:always`](../../../spec/005-StateMachines.md#eventless-always-transitions)). For the boot fan-out where each await is its own child actor, `:spawn-all` with `:join :all` is the declarative alternative (see below). |
 | `:when (seen-any-of? :a :b :c)` (ANY arrival triggers) | each event listed in the state's `:on` map with the **same** `:target` | `{:on {:a :failed :b :failed :c :failed}}`. |
@@ -119,8 +119,11 @@ A representative async-flow: dispatch `[:fetch-config]` first; when `[:config-lo
     :failed {:final? true
              :entry  (fn [_] {:fx [[:dispatch [:app-boot-failed]]]})}}})
 
-;; Start the machine from the app's entry point (replaces the :app/boot event):
-(rf/dispatch [:app/boot [:start]])
+;; Start the machine from the app's entry point (replaces the :app/boot event).
+;; [:rf.machine/start] is the reserved eager-creation kick (xstate createActor(m).start()):
+;; it runs the initial-entry cascade (firing :starting's :entry) then stops.
+;; A plain [:start] would be an unhandled user event (no :on {:start ...}) → spurious no-op.
+(rf/dispatch [:app/boot [:rf.machine/start]])
 ```
 
 What changed:

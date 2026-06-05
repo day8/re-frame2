@@ -8,6 +8,7 @@ For handler- / view- / db-seeding- / error-handler-shaped Type B rewrites, see [
 
 - M-17 — `reg-global-interceptor` in a multi-frame app
 - M-18 — `reg-sub-raw` rewrite-path picking
+- M-18, signal-fn case — the v1 signal-function `reg-sub` form (3-arity)
 - M-19 — opt-in map-payload migration (only if user asked)
 - M-21 — `on-changes` / `enrich` / `after`
 - M-23 — `:re-frame/lifecycle` annotation drop
@@ -67,6 +68,71 @@ For handler- / view- / db-seeding- / error-handler-shaped Type B rewrites, see [
 4. **Body has side effects** (writes to `app-db`, fires `dispatch`, mutates external state): anti-pattern. Move the side effect into an event handler; the sub reads the resulting `app-db` state. **Flag as a code-quality finding** alongside the rewrite.
 
 Present the categorisation per call site with the proposed rewrite; the author confirms before each is applied.
+
+---
+
+## M-18, signal-fn case — the v1 signal-function `reg-sub` form (3-arity)
+
+(This is an extension of **M-18**, not a separate rule — `MIGRATION.md` M-18 owns the architectural answer for subs whose inputs aren't a static read. It is cited as **M-18** in reports.)
+
+**`reg-sub` is NOT a fully-preserved API.** The breaking-changes "what stays the same" list keeps `reg-sub`'s **layer-1** `(fn [db q])` shape and the **static** `:<-` chains — but v1 had a third shape that v2 dropped: the **3-arity signal-function form**.
+
+```clojure
+;; v1 — the signal-function (a.k.a. "signal-fn") form. The MIDDLE fn returns
+;; the input subscriptions; the LAST fn is the computation over their values.
+(rf/reg-sub :item-detail
+  (fn [[_ id] _]            ;; signal-fn — returns the input subs
+    [(rf/subscribe [:item id])
+     (rf/subscribe [:selected])])
+  (fn [[item selected] [_ id]]  ;; computation-fn — over the deref'd inputs
+    (assoc item :selected? (= selected id))))
+```
+
+**Why this is a runtime trap (not a compile error).** v2 `reg-sub` accepts **only** the layer-1 `(fn [db q])` form or **static** `:<-` chains. Its arg-parser (`re-frame.subs/parse-reg-sub-args`) sees the signal-fn form as *two trailing fns with no `:<-`* and **throws `:rf.error/reg-sub-bad-args` at registration time** (`:recovery :fix-registration`). Because the throw is at *registration / namespace-load*, the code **compiles clean** and only blows up when the namespace loads at runtime — exactly the failure a real migration hit. A blind sweep that treats every `reg-sub` as "preserved, no rewrite" produces this.
+
+**Identify**: every `reg-sub` call with **two trailing fn forms** (a signal-fn followed by a computation-fn) — i.e. the arity that does NOT match `(reg-sub :id (fn [db q] …))` or `(reg-sub :id :<- […] … (fn […] …))`. Grep target: `reg-sub` sites where the form after the id is `(fn …)` and there is a *second* `(fn …)` after it with no intervening `:<-`.
+
+**Risk — the two sub-cases differ sharply:**
+
+- **Static inputs** (the signal-fn's returned subs don't depend on the query vector): mechanical. Maps **1:1 onto a static `:<-` chain** — list each input sub as a `:<-`, keep the computation-fn as-is.
+- **Query-DEPENDENT inputs** (the signal-fn closes over the query args to *build* the input subs — `(rf/subscribe [:item id])` where `id` came from `[_ id]`): **there is NO static `:<-` equivalent.** v2's `:input-signals` are fixed query-vectors resolved at registration (per [`spec/006-ReactiveSubstrate.md` §Subscription cache](../../../spec/006-ReactiveSubstrate.md#subscription-cache--contract-and-operational-semantics)); they never receive the consuming sub's query args, and reaching across to another frame's subs is an anti-pattern ([`spec/002-Frames.md`](../../../spec/002-Frames.md)). This is the case M-18 owns architecturally — same gap as `reg-sub-raw` (inputs that aren't a static read), so it takes the **same rewrite paths**.
+
+**Decision shape** (per call site):
+
+1. **Static-inputs signal-fn → static `:<-` chain** (mechanical; author confirms it's truly static):
+
+   ```clojure
+   (rf/reg-sub :dashboard
+     :<- [:totals]
+     :<- [:alerts]
+     (fn [[totals alerts] _]
+       {:totals totals :alerts alerts}))
+   ```
+
+2. **Query-dependent signal-fn → fold to a single layer-1 `reg-sub`** (the common case; the inputs ultimately read `app-db`). Read the query arg in the body and index `db` directly — the whole signal chain collapses:
+
+   ```clojure
+   (rf/reg-sub :item-detail
+     (fn [db [_ id]]
+       (let [item     (get-in db [:items id])
+             selected (:selected db)]
+         (assoc item :selected? (= selected id)))))
+   ```
+
+3. **Query-dependent signal-fn where an input must stay a sub → static `:<-` to the WHOLE collection, index in the body.** Chain `:<-` to a sub that returns the full collection (a fixed query-vector — no query arg), then index by the consuming sub's query arg inside the computation-fn:
+
+   ```clojure
+   ;; :all-items is an ordinary layer-1 sub returning the id→item map.
+   (rf/reg-sub :item-detail
+     :<- [:all-items]
+     :<- [:selected]
+     (fn [[items selected] [_ id]]
+       (assoc (get items id) :selected? (= selected id))))
+   ```
+
+4. **The input was a non-app-db reactive source / managed a reaction lifecycle / had side effects**: this is not really a `reg-sub` concern at all — route to the matching **M-18** path (fx-driven, state machine, or anti-pattern-move-to-handler).
+
+Path 2 is the default recommendation for the query-dependent case; path 3 when a genuinely shared, separately-cached intermediate sub must be preserved. **Flag rather than auto-apply** — the agent cannot tell statically whether the signal-fn's inputs are query-dependent, nor whether a preserved intermediate sub is worth keeping. Present the categorisation and the proposed path; the author confirms before each is applied.
 
 ---
 
