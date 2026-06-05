@@ -31,10 +31,11 @@
   standard). A flat / compound machine drains its own `:raise` queue FIFO
   inside `re-frame.machines.transition`. A PARALLEL machine owns the
   macrostep's single internal-event queue HERE: each region DEFERS its
-  raises (its `machine-transition-single` leaves `:raise` fx un-drained —
-  `transition/drain-or-defer-raises`), and `parallel-machine-transition`
-  re-broadcasts each surfaced raise across EVERY region against the full
-  evolving snapshot, FIFO, until the queue settles — then commits once.
+  raises (its `machine-transition-single` settles `:always` locally but
+  leaves `:raise` fx un-drained — `transition/drain-to-fixed-point` in
+  `defer?` mode), and `parallel-machine-transition` re-broadcasts each
+  surfaced raise across EVERY region against the full evolving snapshot,
+  FIFO, until the queue settles — then commits once.
   A region's `:raise` is therefore NOT region-local; it re-enters the
   parent macrostep, matching what a self-`[:dispatch [<self-id> …]]` would
   broadcast (pre-commit, in one macrostep)."
@@ -530,8 +531,9 @@
 ;; sees the raise; the originating region also re-sees it).
 ;;
 ;; Mechanism: each per-region step DEFERS its raises (the region's
-;; `machine-transition-single` leaves `:raise` fx un-drained — see
-;; `transition/drain-or-defer-raises`). `parallel-machine-transition`
+;; `machine-transition-single` settles `:always` locally but leaves `:raise`
+;; fx un-drained — see `transition/drain-to-fixed-point` in `defer?` mode).
+;; `parallel-machine-transition`
 ;; harvests those surfaced raises off the merged broadcast result, splits
 ;; them from the real (do-fx-bound) fx, and feeds them — FIFO — back through
 ;; another full broadcast. The loop terminates at the parent
@@ -821,10 +823,11 @@
    1. Pick the matching transition for the event using deepest-wins
       resolution along the state path.
    2. Run the exit cascade → transition's action → entry cascade.
-   3. Drain the local :raise queue FIFO (rf2-nr434 — XState/SCXML parity).
-   4. :always microstep loop — walk path leaf→root for any matching
-      :always; apply, drain raises, loop.
-   5. Commit (return) the snapshot once :always reaches fixed point.
+   3-5. Settle in the unified SCXML microstep loop — after the taken
+      transition PREFER enabled :always (eventless) transitions and only
+      dequeue the next raised internal event (FIFO) once :always is
+      quiescent; commit at the fixed point (rf2-uv8os ordering, rf2-nr434
+      FIFO).
 
   Bounded by :raise-depth-limit and :always-depth-limit (both default 16).
   Parallel-region machines (`:type :parallel`) are dispatched into
