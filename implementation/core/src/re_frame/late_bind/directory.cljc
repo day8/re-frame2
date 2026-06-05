@@ -186,6 +186,14 @@
    {:key         :flows/reset-last-inputs!
     :producer-ns 're-frame.flows
     :description "Reset memoised last-input snapshots (test isolation)."}
+   {:key         :flows/snapshot-last-inputs
+    :producer-ns 're-frame.flows
+    :design-bead "rf2-4wqu6"
+    :description "Snapshot a frame's dirty-check (`last-inputs`) rows as a plain `{flow-id inputs}` map. The router's flows-after-interceptor captures this BEFORE the flow transform advances the rows so a post-commit schema/machine-data rollback can roll the dirty-check bookkeeping back in lock-step with app-db (paired with `:flows/restore-last-inputs!`)."}
+   {:key         :flows/restore-last-inputs!
+    :producer-ns 're-frame.flows
+    :design-bead "rf2-4wqu6"
+    :description "Restore a frame's dirty-check (`last-inputs`) rows to a previously-captured snapshot. Invoked by `commit-db-effect!` when post-commit validation rolls app-db back to its pre-handler value — without it the eagerly-advanced rows survive a rollback and the next clean drain skips the flow on `=`-equal inputs, never re-materialising the output. Frame-scoped (rf2-94ol5)."}
    {:key         :flows/reset-flows!
     :producer-ns 're-frame.flows
     :description "Clear the per-frame flow registry (test isolation)."}
