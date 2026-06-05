@@ -5,18 +5,40 @@ The recommended order to walk the migration rules. Restated so a partial migrati
 ## Top-level shape
 
 ```
+Phase 0a — Inventory-and-plan  (incl. the SILENT-fail app-source grep)
+ │
+ ▼
 Phase 2 — Bump (M-0)
  │
  └──> compile + tests
- │
- ├── all green ────> Phase 6 (report). Done.
- │
- └── failures ────> Phase 3 (sweep) ───> compile + tests ───> Phase 6
+       │
+       ├── failures ──> Phase 3 (sweep) ─┐
+       │                                  │
+       └── clean compile ─────────────────┤
+                                          ▼
+                          Apply / triage the Phase-0a SILENT-fail plan
+                          (these don't surface at compile — applied
+                           regardless of whether the compile failed)
+                                          │
+                                          ▼
+                          Phase 4 — compile + tests + BOOT SMOKE-TEST
+                                          │
+                          ┌── smoke fails ─┘
+                          │  (back to the relevant sweep group)
+                          ▼
+                  all green AND smoke clean ──> Phase 6 (report). Done.
 ```
 
-[`MIGRATION.md`](../../../migration/from-re-frame-v1/README.md) Part 2 §"Your task" makes the headline expectation explicit: *most codebases require no changes at all beyond M-0*. Verify that against this project before doing anything else.
+**"All green" is not "clean compile."** Phase 4's done-bar is compile + tests + a clean **boot smoke-test** with live `app-db` introspection, with every Type B decision resolved — *not* a clean compile (see [`../SKILL.md`](../SKILL.md) Phase 4 + Done checklist, and [`runtime-smoke-test.md`](runtime-smoke-test.md)). v2 moves a large class of v1 failures from compile-time to **runtime**; a clean compile means "the rewrites parse," not "the app boots and runs."
 
-The sweep order below is for the failures a compile *surfaces*. But the **forced** removals/conversions — broken add-ons, off-contract requires, classpath-colliding transitives — should already be known and planned from **Phase 0a** ([`inventory-and-plan.md`](inventory-and-plan.md)): the inventory scans each add-on's source up front so those breakages are fixed in one sweep rather than one-per-recompile. Use the Phase-0a plan's ordering to clear the forced compile-blockers (so the post-M-0 compile gate is reachable); use the sweep order below for whatever the compile then surfaces.
+[`MIGRATION.md`](../../../migration/from-re-frame-v1/README.md) Part 2 §"Your task" makes the headline expectation explicit: *most codebases require no changes at all beyond M-0*. That holds for the **forced/loud** axis — but the silent-fail rules still need applying, so verify *and* run the smoke-test before calling it done.
+
+The sweep order below is for the failures a compile *surfaces*. Two classes of breakage are **not** in that bucket and must be carried in regardless of whether the compile fails:
+
+- **Forced removals/conversions** — broken add-ons, off-contract requires, classpath-colliding transitives — are known and planned from **Phase 0a** ([`inventory-and-plan.md`](inventory-and-plan.md)): the inventory scans each add-on's source up front so they're fixed in one sweep rather than one-per-recompile. Use the Phase-0a plan's ordering to clear the forced compile-blockers (so the post-M-0 compile gate is reachable).
+- **SILENT-fail rules** ([`breaking-changes.md` §Failure-visibility axis](breaking-changes.md#failure-visibility-axis--loud-fail-vs-silent-fail-orthogonal-to-type-ab)) — `{:db fresh}` boots (M-15b), top-level `:dispatch` keys (M-8), the signal-fn `reg-sub` (M-18), `^:flush-dom` (M-16) — **compile clean** and never appear as a compile failure. They're caught by the Phase-0a app-source grep and **applied/triaged whether or not the compile failed**; the [boot smoke-test](runtime-smoke-test.md) is the only thing that confirms the fix landed. A clean compile does NOT route you straight to the report — the planned silent-fail hits still apply, and the smoke-test still runs.
+
+Use the sweep order below for whatever the compile surfaces.
 
 ## When failures land — the sweep order
 
@@ -153,4 +175,4 @@ The groups are self-contained — finishing a group before starting the next mea
 
 ## Verification is the author's loop
 
-Every "compile + tests" arrow in the diagram above is **the author running compile + tests**, not the skill. The skill prints the exact command for the project's build tool (`shadow-cljs compile <build>` / `clj -M:test` / `npm run test` / etc.) and waits for the author to paste the output. See [`../SKILL.md`](../SKILL.md) cardinal rule 5 — the trust boundary that excludes arbitrary code execution from this skill's loop, even on a long-standing repo.
+Every "compile + tests" and "boot smoke-test" arrow in the diagram above is **the author running** compile / tests / the booted-app smoke-test, not the skill. The skill prints the exact command for the project's build tool (`shadow-cljs compile <build>` / `clj -M:test` / `npm run test` / etc.) and the smoke-test loop (`re-frame2-pair` MCP / a shadow-cljs nREPL reading live `app-db`), then waits for the author to paste the output. See [`../SKILL.md`](../SKILL.md) cardinal rule 5 — the trust boundary that excludes arbitrary code execution from this skill's loop, even on a long-standing repo.

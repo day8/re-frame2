@@ -19,7 +19,7 @@ Two pre-flight phases plus a six-phase migration workflow:
 1. **Orient** — read the project's dep file; identify the substrate; skim `migration/from-re-frame-v1/README.md` for the rule index.
 2. **Bump (M-0)** — swap `re-frame/re-frame` for `day8/re-frame2` + a substrate-adapter artefact. **Try a compile.** Most codebases require nothing more.
 3. **Sweep** — if Phase 2 surfaced failures, walk the M-rules in order. Apply Type A (mechanical) without asking; flag Type B (judgment-call) for the author.
-4. **Verify** — author runs their tests; iterate per surfaced failures.
+4. **Verify** — author runs compile + tests **plus a booted-app smoke-test** (live `app-db` / machine-snapshot introspection). "Compiles" is not the done-bar: v2 moves a large class of v1 failures to runtime, so the planned silent-fail fixes apply whether or not the compile failed, and the smoke-test must come back clean. Iterate per surfaced failures.
 5. **Opt-in modernisations** (only if requested) — walk the O-rules.
 6. **Report** — produce the migration summary per `migration/from-re-frame-v1/README.md` Part 2.
 

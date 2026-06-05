@@ -8,13 +8,13 @@ The design rationale and locked decisions for the `re-frame-migration` skill. A 
 
 Help a programmer migrate an existing re-frame v1.x ClojureScript codebase to re-frame2 with the smallest correct diff. The skill is **guidance + workflow** layered on top of `migration/from-re-frame-v1/README.md` (the authoritative breaking-change list). The skill does not duplicate MIGRATION.md; it structures the migration around it.
 
-The skill's success criterion: the author runs the migration, ends up on `day8/re-frame2`, the project compiles and tests pass, and every Type B decision the author had to make is documented in the final report.
+The skill's success criterion: the author runs the migration, ends up on `day8/re-frame2`, the project compiles and tests pass, **the booted app passes a live-introspection smoke-test** (compiling is not the done-bar — v2 moves a large class of v1 failures to runtime), and every Type B decision the author had to make is documented in the final report.
 
 ## 2. Pillars (locked)
 
 The same four pillars as the `re-frame2` skill, adapted to the migration domain. (The original derivation lived in a local-only `ai/findings/` exploration doc, which is gitignored and not in-repo; the pillars and the Q14 lock are reproduced in full below and in §3 so this `spec/` folder is self-contained — a future reauthor needs nothing outside it.)
 
-1. **Correctness** — recipes over explanations. The agent applies the M-rule it cites; it doesn't synthesise novel rewrites. **Q14 lock applies: NO verification module.** The agent doesn't run the author's tests; running tests is general software practice, not migration-specific.
+1. **Correctness** — recipes over explanations. The agent applies the M-rule it cites; it doesn't synthesise novel rewrites. **Q14 lock applies (refined — see L3):** the skill never *executes* the author's builds / tests / smoke-tests (cardinal rule 5 — arbitrary-code-execution trust boundary). It *does* teach + gate "done" on a read-only **boot smoke-test** (live `app-db` introspection), because v2 moves a large class of v1 failures from compile-time to runtime and a clean compile is not the done-bar.
 2. **Idiomaticness** — verified against `migration/from-re-frame-v1/README.md` (which is itself verified against `implementation/**`). The skill is downstream of MIGRATION.md; if MIGRATION.md is authoritative, the skill is correct by construction.
 3. **Context economy** — SKILL.md is a router; leaves are loaded on demand. The leaves point at MIGRATION.md for the per-rule full text; they don't quote it.
 4. **Assume training knowledge** — the agent knows what re-frame is, what a Maven coord is, what a Reagent root is, what a state machine is. The skill teaches the **v1→v2 binding**: which v1 surface becomes which v2 surface, when the rewrite is automatic vs. when it needs human judgment.
@@ -33,15 +33,17 @@ The skill does **not** duplicate the rule content. Leaves point at MIGRATION.md 
 
 Type A is applied automatically; Type B halts and asks. This dichotomy comes from MIGRATION.md and the skill enforces it. The agent never silently applies a Type B rewrite. Pre-authorised batch decisions ("apply X to every Y") are allowed but get banked in the report so the author can audit.
 
-### L3 — Q14 — NO verification module
+### L3 — Q14 — the skill never *executes* builds/tests/smoke (refined)
 
-**Q14 lock (reproduced here so this folder is self-contained; original rationale lived in a local-only `ai/findings/` doc, gitignored):** the skill does not teach the agent to verify its own output. No `references/verify.md`, no "verification mandatory before done" hard rule. The agent applies the rules; the author runs the tests. This matches the `re-frame2` skill's lock — consistent across the skill family.
+**Q14 lock, refined (reproduced here so this folder is self-contained; original rationale lived in a local-only `ai/findings/` doc, gitignored):** the skill never **executes** the author's builds, tests, or smoke-tests itself — that is cardinal rule 5, the arbitrary-code-execution trust boundary (a v1 project may pull a compromised transitive dep at compile time). The skill **prints** the exact command and waits for the pasted result. This matches the `re-frame2` skill's lock — consistent across the skill family.
 
-**Why**: running tests is general software practice. Pillar 4 says don't teach what the AI already knows.
+**What the lock does NOT forbid (the original "NO verification module" wording was too broad and is superseded):** the skill *does* teach the agent a verification step and *does* gate "done" on it — Phase 4's **boot smoke-test** ([`references/runtime-smoke-test.md`](../references/runtime-smoke-test.md)) is a mandatory, read-only **live-`app-db`-introspection** loop, because v2 moves a large class of v1 failures from compile-time to runtime (signal-fn `reg-sub`, missing per-feature artefacts, a `{:db fresh}` boot clobbering `:rf/runtime`, a dropped M-8 top-level key). "Compiles" is explicitly **not** the done-bar. The lock governs *who runs the command* (the author, always), not *whether verification is taught* (it is). The maintainer-side counterpart of the same distinction is spelled out in [`improving.md` §3](improving.md).
 
-### L4 — No verification claim of "done"; the author confirms
+**Why**: *running* arbitrary build/test commands is an execution trust boundary the skill must not cross (cardinal rule 5). *Reading* the live runtime is the only way to catch the compile-invisible silent failures v2 introduces, so the skill teaches it and gates the done-bar on it.
 
-The "Done checklist" in SKILL.md lists the conditions for completion. The skill does not assert completion; it presents the checklist and the author confirms. This is consistent with L3.
+### L4 — The author confirms "done"; the boot smoke-test is part of that bar
+
+The "Done checklist" in SKILL.md lists the conditions for completion — including the **passed boot smoke-test** (Phase 4 step 3). The skill does not assert completion or *run* the smoke-test; it presents the checklist + prints the smoke-test loop, and the author runs it and confirms. This is consistent with L3 (the author executes; the skill teaches + gates).
 
 ### L5 — Migration prompt = `migration/from-re-frame-v1/README.md` Part 2
 
@@ -95,18 +97,21 @@ skills/re-frame-migration/
 ├── package.json                   (npm metadata for distribution)
 ├── .claude-plugin/plugin.json     (Claude Code plugin metadata)
 ├── references/
-│   ├── kickoff-prompt.md           (~75 lines)
-│   ├── inventory-and-plan.md       (~115 lines; Phase 0a — inventory add-ons + features, scan source, per-item plan)
-│   ├── setup.md                    (~215 lines; incl. the React-19 / Reagent-2 floor pre-flight gate)
-│   ├── xray-replaces-10x.md        (~240 lines; devtools swap — re-frame-10x → Xray)
-│   ├── breaking-changes.md         (~150 lines)
-│   ├── sequencing.md               (~150 lines)
-│   ├── auto-call-site-rewrites.md  (~250 lines; Type A — ns / effect-map / dispatch)
-│   ├── auto-cross-cutting.md       (~290 lines; Type A — keywords / interceptors / views / init / artefacts)
-│   ├── guided-handlers-state.md    (~160 lines; Type B — handler / view / db-seeding / error-handler)
-│   ├── guided-interceptors-subs.md (~155 lines; Type B — interceptor / sub / payload / observer)
+│   ├── kickoff-prompt.md           (~80 lines)
+│   ├── inventory-and-plan.md       (~95 lines; Phase 0a — inventory add-ons + features, scan source, per-item plan)
+│   ├── setup.md                    (~250 lines; incl. the React-19 / Reagent-2 floor pre-flight gate)
+│   ├── xray-replaces-10x.md        (~210 lines; devtools swap — re-frame-10x → Xray)
+│   ├── breaking-changes.md         (~215 lines; rule index + the loud/silent failure-visibility axis)
+│   ├── async-flow-to-machines.md   (~190 lines; O-16 — async-flow-fx → reg-machine state machines)
+│   ├── http-fx-to-managed-http.md  (~180 lines; O-17 — http-fx / :http-xhrio → :rf.http/managed)
+│   ├── sequencing.md               (~180 lines)
+│   ├── auto-call-site-rewrites.md  (~280 lines; Type A — ns / effect-map / dispatch)
+│   ├── auto-cross-cutting.md       (~350 lines; Type A — keywords / interceptors / views / init / artefacts)
+│   ├── guided-handlers-state.md    (~255 lines; Type B — handler / view / db-seeding / error-handler / machine-spawn / Reagent-surface)
+│   ├── guided-interceptors-subs.md (~240 lines; Type B — interceptor / sub / payload / observer)
+│   ├── runtime-smoke-test.md       (~55 lines; Phase 4 — "compiles" is not the done-bar; the silent-fail checklist + live-app-db boot smoke-test loop)
 │   ├── output-format.md            (~115 lines)
-│   └── error-events.md             (~95 lines; pointer to Spec 009's error-event catalogue)
+│   └── error-events.md             (~125 lines; pointer to Spec 009's error-event catalogue)
 └── spec/
     ├── design.md                  (this file)
     ├── inputs.md                  (the canonical inputs the skill leans on)
@@ -114,18 +119,18 @@ skills/re-frame-migration/
     └── authoring-prompt.md        (one-shot reauthor prompt)
 ```
 
-**Totals**: SKILL.md (~125) + 12 reference leaves (~1,965) + 4 spec files (~425) ≈ ~2,515 LoC across 17 markdown files. (The 4th `spec/` file, `improving.md`, is the maintenance-methodology meta-doc — the friction-loop + quality-bar for *finding* skill improvements, distinct from `inputs.md` §6's mechanical update procedure for *applying a known* corpus change.) Most leaves sit under the 250-line soft ceiling; the two Type A catalogues (`auto-call-site-rewrites.md` ~250, `auto-cross-cutting.md` ~290) run to the cap or just over because their shape-catalogue content resists further splitting. SKILL.md is well under the 500-line Anthropic guideline.
+**Totals**: SKILL.md (~160) + 15 reference leaves (~2,840) + 4 spec files (~430) ≈ ~3,430 LoC across 20 markdown files. (The 4th `spec/` file, `improving.md`, is the maintenance-methodology meta-doc — the friction-loop + quality-bar for *finding* skill improvements, distinct from `inputs.md` §6's mechanical update procedure for *applying a known* corpus change.) Most leaves sit at or under the 250-line soft ceiling; the two Type A catalogues (`auto-call-site-rewrites.md` ~280, `auto-cross-cutting.md` ~350) run over because their shape-catalogue content resists further splitting. SKILL.md is well under the 500-line Anthropic guideline. *(Line counts are approximate — they drift as leaves are edited; the authoritative count is `wc -l skills/re-frame-migration/{references,spec}/*.md`.)*
 
 **Type A / Type B split into two leaves each.** The 365L `automated-transforms.md` and 300L `guided-checklist.md` originals violated the 250-line soft ceiling. They've been split along natural cluster boundaries: Type A divides into per-call-site rewrites (ns / effect-map / dispatch shapes) and cross-cutting (keyword renames / interceptor cleanup / views / init / artefact adds); Type B divides into handler-state-shaped (M-3, M-5, M-10, M-11, M-12, M-13, M-14, M-15) and interceptor-sub-payload-shaped (M-17, M-18, M-19, M-21, M-23, M-26). All four leaves remain one level deep from SKILL.md — no SKILL → A → B chains.
 
 ## 6. Why the leaf split
 
-The twelve reference leaves are sized to load on demand without spending context budget on irrelevant detail. Typical migration session loads:
+The fifteen reference leaves are sized to load on demand without spending context budget on irrelevant detail. Typical migration session loads:
 
 - **Phase 0a + 0b + Phase 2 (bump-only success)**: `inventory-and-plan.md` (the inventory umbrella) + `setup.md` (floor gate + coord swap) + `output-format.md`. ~445 LoC.
 - **Phase 3 (sweep with Type A only)**: `auto-call-site-rewrites.md` + `auto-cross-cutting.md` + `breaking-changes.md` + `sequencing.md` + `output-format.md`. ~960 LoC.
 - **Phase 3 (sweep with Type A + Type B)**: add the relevant `guided-*.md` (typically one; both for cross-surface migrations). ~1,120–1,280 LoC.
-- **Full migration (rare)**: all twelve reference leaves. ~1,965 LoC.
+- **Full migration (rare)**: all fifteen reference leaves. ~2,840 LoC.
 
 Even the worst case is well under any reasonable context budget; the median case is ~25% of the total skill content. The Type A split lets a Phase-3 sweep that only trips per-call-site rules load `auto-call-site-rewrites.md` (~250L) without dragging in the cross-cutting catalogue (and vice versa). Likewise the Type B split lets a sub-only migration load just `guided-interceptors-subs.md`.
 
