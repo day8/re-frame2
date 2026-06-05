@@ -603,3 +603,148 @@
            (rf/reg-event-fx :test.iftj4/just-meta
              {:doc "no boundary, no schema"}
              (fn [_ _] {}))))))
+
+;; ---- rf2-3ut12 — a BARE interceptor is rejected loudly at registration ----
+;;
+;; Field-confirmed via the rf8 migration: `reg-event-db` / `reg-event-fx`
+;; require the interceptors arg to be a VECTOR. A bare interceptor —
+;; `(reg-event-db id mw/some-interceptor handler)` — used to be SILENTLY
+;; dropped: an interceptor is a map (`{:id … :before … :after …}`), so the
+;; two-arg branch of `normalise-args` read it as the metadata-map, the chain
+;; never reached the registrar, and the interceptor never ran (no error, no
+;; warning). Same silent-drop class as p806o / gro94 / cxo1h.
+;;
+;; The fix raises `:rf.error/reg-event-bare-interceptor` at registration
+;; (ERROR, not warn — the chain cannot be honoured and a silent drop is a
+;; dishonest signal; see Conventions §No silent swallow). We do NOT coerce
+;; `bare → [bare]`; the caller must wrap it. These tests assert: (1) a bare
+;; interceptor on BOTH the two-arg and three-arg forms, across db / fx / ctx,
+;; throws; (2) a `[vector]` interceptors arg still works; (3) empty / absent
+;; interceptors still works.
+
+(def ^:private bare-icpt
+  ;; A bare interceptor map — what `(->interceptor :after …)` returns. This
+  ;; is exactly the shape that used to be silently dropped.
+  {:id     :test.3ut12/bare
+   :before identity
+   :after  identity})
+
+(deftest bare-interceptor-rejected-at-registration
+  (testing "Per rf2-3ut12 — a bare interceptor (not in a vector) throws
+            :rf.error/reg-event-bare-interceptor rather than being silently
+            dropped."
+    (testing "two-arg form: (reg-event-db id bare-icpt handler)"
+      (is (thrown-with-msg?
+            clojure.lang.ExceptionInfo
+            #":rf\.error/reg-event-bare-interceptor"
+            (rf/reg-event-db :test.3ut12/db-bare-2
+              bare-icpt
+              (fn [db _] db)))))
+
+    (testing "two-arg form covers reg-event-fx"
+      (is (thrown-with-msg?
+            clojure.lang.ExceptionInfo
+            #":rf\.error/reg-event-bare-interceptor"
+            (rf/reg-event-fx :test.3ut12/fx-bare-2
+              bare-icpt
+              (fn [_ _] {})))))
+
+    (testing "two-arg form covers reg-event-ctx"
+      (is (thrown-with-msg?
+            clojure.lang.ExceptionInfo
+            #":rf\.error/reg-event-bare-interceptor"
+            (rf/reg-event-ctx :test.3ut12/ctx-bare-2
+              bare-icpt
+              (fn [ctx] ctx)))))
+
+    (testing "three-arg form: (reg-event-db id metadata bare-icpt handler) —
+              non-vector positional interceptors slot is rejected"
+      (is (thrown-with-msg?
+            clojure.lang.ExceptionInfo
+            #":rf\.error/reg-event-bare-interceptor"
+            (rf/reg-event-db :test.3ut12/db-bare-3
+              {:doc "metadata + bare interceptor in the positional slot"}
+              bare-icpt
+              (fn [db _] db)))))
+
+    (testing "three-arg form covers reg-event-fx"
+      (is (thrown-with-msg?
+            clojure.lang.ExceptionInfo
+            #":rf\.error/reg-event-bare-interceptor"
+            (rf/reg-event-fx :test.3ut12/fx-bare-3
+              {:doc "metadata + bare interceptor"}
+              bare-icpt
+              (fn [_ _] {})))))
+
+    (testing "a bare interceptor that carries ONLY :before is still caught"
+      (is (thrown-with-msg?
+            clojure.lang.ExceptionInfo
+            #":rf\.error/reg-event-bare-interceptor"
+            (rf/reg-event-db :test.3ut12/before-only
+              {:id :test.3ut12/before-only :before identity}
+              (fn [db _] db)))))
+
+    (testing "ex-data carries actionable diagnostic slots"
+      (let [data (try (rf/reg-event-db :test.3ut12/data-probe
+                        bare-icpt
+                        (fn [db _] db))
+                      (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+        (is (= :rf.error/reg-event-bare-interceptor (:rf.error/id data))
+            ":rf.error/id matches the catalogued :rf.error/* category")
+        (is (= "reg-event-db" (:reg-fn data)))
+        (is (= :middle (:slot data)))
+        (is (= :fix-registration (:recovery data)))
+        (is (string? (:reason data)))
+        (is (re-find #"BARE interceptor" (:reason data)))
+        (is (re-find #"vector" (:reason data)))))
+
+    (testing "rejection happens BEFORE the registry slot is written"
+      (try (rf/reg-event-db :test.3ut12/no-side-effect
+             bare-icpt
+             (fn [db _] db))
+           (catch clojure.lang.ExceptionInfo _ nil))
+      (is (nil? (registrar/lookup :event :test.3ut12/no-side-effect))
+          "registry slot is untouched when the bare-interceptor check throws"))))
+
+(deftest legitimate-interceptor-forms-still-work
+  (testing "Per rf2-3ut12 — the fix must NOT regress the legitimate shapes."
+    (testing "a [vector] interceptors arg registers cleanly and the chain runs"
+      (is (= :test.3ut12/good-vector
+             (rf/reg-event-db :test.3ut12/good-vector
+               [bare-icpt]
+               (fn [db _] db))))
+      (let [{:keys [interceptors]} (rf/handler-meta :event :test.3ut12/good-vector)
+            ids (set (map :id interceptors))]
+        (is (contains? ids :test.3ut12/bare)
+            "the wrapped interceptor reached the registered chain (NOT dropped)")))
+
+    (testing "metadata-map + [vector] interceptors three-arg form still works"
+      (is (= :test.3ut12/good-3
+             (rf/reg-event-fx :test.3ut12/good-3
+               {:doc "metadata + interceptor vector"}
+               [bare-icpt]
+               (fn [_ _] {}))))
+      (let [{:keys [interceptors]} (rf/handler-meta :event :test.3ut12/good-3)]
+        (is (contains? (set (map :id interceptors)) :test.3ut12/bare))))
+
+    (testing "absent interceptors (bare handler) still works"
+      (is (= :test.3ut12/no-icpt
+             (rf/reg-event-db :test.3ut12/no-icpt
+               (fn [db _] db)))))
+
+    (testing "metadata-map alone (no interceptors anywhere) still works"
+      (is (= :test.3ut12/meta-only
+             (rf/reg-event-db :test.3ut12/meta-only
+               {:doc "plain metadata"}
+               (fn [db _] db)))))
+
+    (testing "an empty [] interceptors vector (legitimate) still works"
+      (is (= :test.3ut12/empty-vec
+             (rf/reg-event-db :test.3ut12/empty-vec
+               []
+               (fn [db _] db))))
+      (is (= :test.3ut12/empty-vec-3
+             (rf/reg-event-fx :test.3ut12/empty-vec-3
+               {:doc "meta + empty interceptor vector"}
+               []
+               (fn [_ _] {})))))))
