@@ -38,7 +38,7 @@ From `implementation/`, the adapter smokes run via:
 npm run test:examples
 ```
 
-That compiles the three adapter testbeds (`adapters/reagent-testbed`, `adapters/uix-testbed`, `adapters/helix-testbed`), stages each `index.html`, serves them, and drives the three `spec.cjs` smokes; the example builds in this directory are not staged because nothing tests them. Bundle isolation is verified separately (each per-substrate shadow-cljs build lets CI confirm a Reagent bundle's `main.js` carries no UIx code and vice versa, and likewise for UIx ↔ Helix).
+That compiles the three adapter testbeds (`adapters/reagent-testbed`, `adapters/uix-testbed`, `adapters/helix-testbed`), stages each `index.html`, serves them, and drives the three `spec.cjs` smokes; the example builds in this directory carry no `spec.cjs` (the `examples/` tree is test-free). They do, however, get **compile coverage**: `npm run test:examples-compile` (from `implementation/`) `shadow-cljs compile`s every declared standalone `:examples/*` build — including `examples/login-uix` and `examples/dashboard-uix` — and fails on any compile error or warning, so a namespace / `:init-fn` / `:require` / UIx-form regression in these builds can no longer ship green. See [`examples/TESTING.md`](../TESTING.md#compile-coverage-gate-testexamples-compile). Bundle isolation is verified separately (each per-substrate shadow-cljs build lets CI confirm a Reagent bundle's `main.js` carries no UIx code and vice versa, and likewise for UIx ↔ Helix).
 
 To iterate on one UIx example interactively, from `implementation/`:
 
