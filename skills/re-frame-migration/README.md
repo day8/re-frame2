@@ -12,9 +12,10 @@ This is the **migration** companion to the main [`re-frame2`](../re-frame2/) ski
 
 ## What it covers
 
-A pre-flight floor gate plus a six-phase migration workflow:
+Two pre-flight phases plus a six-phase migration workflow:
 
-0. **Pre-flight — the React-19 / Reagent-2 floor gate** — before any dep edit, audit downstream React-coupled deps, confirm the UI component library has a React-19 (Reagent-2 if Reagent-based) release, scan for legacy `ReactDOM.render` call sites, and make an explicit go/no-go. A component library with no React-19 build is a hard blocker surfaced here, not mid-compile.
+0a. **Pre-flight — inventory-and-plan** — before everything, inventory the v1 re-frame add-on libraries (incl. transitives / git-source / vendored) and app features used, scan each add-on's **source** for removed/moved v2 surfaces (off-contract `re-frame.*`, the removed `re-frame.core/console`, `unwrap`→`unwrap-interceptor`, React-19 coupling, classpath collision), and produce a per-item migration plan (rule(s) + forced-vs-optional + disposition + replacement target + ordering). Collapses the "march the wall" whack-a-mole into one planned sweep; the umbrella that drives the floor gate, the off-contract-namespace principle, the add-on compile-gate, and the classpath-clean verification.
+0b. **Pre-flight — the React-19 / Reagent-2 floor gate** — before any dep edit, audit downstream React-coupled deps, confirm the UI component library has a React-19 (Reagent-2 if Reagent-based) release, scan for legacy `ReactDOM.render` call sites, and make an explicit go/no-go. A component library with no React-19 build is a hard blocker surfaced here, not mid-compile.
 1. **Orient** — read the project's dep file; identify the substrate; skim `migration/from-re-frame-v1/README.md` for the rule index.
 2. **Bump (M-0)** — swap `re-frame/re-frame` for `day8/re-frame2` + a substrate-adapter artefact. **Try a compile.** Most codebases require nothing more.
 3. **Sweep** — if Phase 2 surfaced failures, walk the M-rules in order. Apply Type A (mechanical) without asking; flag Type B (judgment-call) for the author.
@@ -58,6 +59,7 @@ skills/re-frame-migration/
 │   └── plugin.json
 ├── references/
 │   ├── kickoff-prompt.md          # Paste-ready prompt for a fresh session
+│   ├── inventory-and-plan.md      # Phase 0a: inventory add-ons + features, scan source, per-item plan
 │   ├── setup.md                   # M-0 detail: dep-coord swap, substrate adapter picker
 │   ├── xray-replaces-10x.md       # Devtools swap: re-frame-10x → Xray (preload, host, keybindings, parity)
 │   ├── breaking-changes.md        # Rule index keyed to v1 trigger surfaces

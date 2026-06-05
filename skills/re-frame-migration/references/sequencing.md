@@ -16,6 +16,8 @@ Phase 2 — Bump (M-0)
 
 [`MIGRATION.md`](../../../migration/from-re-frame-v1/README.md) Part 2 §"Your task" makes the headline expectation explicit: *most codebases require no changes at all beyond M-0*. Verify that against this project before doing anything else.
 
+The sweep order below is for the failures a compile *surfaces*. But the **forced** removals/conversions — broken add-ons, off-contract requires, classpath-colliding transitives — should already be known and planned from **Phase 0a** ([`inventory-and-plan.md`](inventory-and-plan.md)): the inventory scans each add-on's source up front so those breakages are fixed in one sweep rather than one-per-recompile. Use the Phase-0a plan's ordering to clear the forced compile-blockers (so the post-M-0 compile gate is reachable); use the sweep order below for whatever the compile then surfaces.
+
 ## When failures land — the sweep order
 
 The M-rule numbering in [`MIGRATION.md`](../../../migration/from-re-frame-v1/README.md) *is* the sweep order. Walk them low-to-high. Later rules sometimes depend on earlier ones being resolved (M-1 surfaces private-namespace requires; M-15's seeding rewrite assumes the M-1 fix has run; M-21's `on-changes` rewrite assumes the flows artefact M-30 has been added).

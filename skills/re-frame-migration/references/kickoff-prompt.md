@@ -10,7 +10,7 @@ Steps:
 
 1. The author installs this skill in the project (project-level `.claude/skills/re-frame-migration/`) or globally (`~/.claude/skills/re-frame-migration/`).
 2. The author opens a fresh Claude Code session in the project root.
-3. The author pastes the prompt below verbatim. The session loads the `re-frame-migration` skill on its own (the description triggers it) and walks the pre-flight gate plus the six phases from `SKILL.md`.
+3. The author pastes the prompt below verbatim. The session loads the `re-frame-migration` skill on its own (the description triggers it) and walks the two pre-flight phases plus the six phases from `SKILL.md`.
 
 ---
 
@@ -22,7 +22,9 @@ Steps:
 >
 > *Target v2 version (load-bearing). The v2 release I want to land on is `<v2-version>`. Use that exact string in every dep coord. Do not auto-select "latest from GitHub"; if `<v2-version>` is unset, stop and ask me.*
 >
-> *Phase 0 — Pre-flight: the React-19 / Reagent-2 floor gate. Before touching ANY dep coord, clear this gate (re-frame2's adapters target React 19; the Reagent bridge runs on Reagent 2.x). Run four read-only checks and report each: (1) downstream React-lib compat audit — bucket each `package.json` dep with a `react`/`react-dom` peer dependency as React-19-ready / needs-bump / needs-replacement; (2) component/substrate-library check — confirm my UI component library has a React-19 (Reagent-2 if Reagent-based) release; if it does NOT, STOP and tell me — that's a go/no-go BLOCKER, not a mid-compile surprise; (3) legacy-API scan — flag surviving `ReactDOM.render` / `react-dom` legacy call sites; (4) go/no-go — GO carries the React/Reagent bump into Phase 2's M-0 pass, NO-GO stops until I resolve the blocker. I run any `npm install`/upgrade. Already on React 19 with a React-19-ready component library? Fast pass — confirm and move on.*
+> *Phase 0a — Pre-flight: INVENTORY-AND-PLAN. Before everything else — before any dep edit, before any compile, before the floor gate — produce a written inventory + plan. (1) Inventory every v1 re-frame add-on library on the FULL resolved dep tree (run `clojure -Stree` / `lein deps :tree` / `npx shadow-cljs classpath` under each build alias; I run it, you read the output) — including transitives, git/source deps, and vendored code, not just the top-level dep file — and inventory the v1 re-frame features my own app uses. (2) Scan each add-on's SOURCE (the jar / git checkout / vendored files) for removed-or-moved v2 surfaces using the generic principles: off-contract `re-frame.*` requires outside `re-frame.core` + the artefact namespaces (M-1), the removed `re-frame.core/console` symbol (compile-blocker), `unwrap`→`unwrap-interceptor` (M-59), React-19/Reagent-2 coupling for view-shipping add-ons, and any transitive `re-frame/re-frame` coord (classpath collision). (3) Produce a per-item table: item → what breaks → governing M-N/O-N rule(s) → forced-vs-optional (does it compile unchanged?) → disposition (CONVERT / PATCH / DROP / REPLACE / UPSTREAM / FIX-IN-PLACE) → replacement target → recommended ordering (which removals unblock the compile). This collapses the "swap coord, compile, hit one broken namespace, fix, recompile, hit the next" whack-a-mole into one planned sweep — the breakages live in dependency source a compile reaches one namespace at a time. Do NOT add a bespoke migration path per library; the generic rules drive every add-on, recognised or not. See the `inventory-and-plan` reference. This phase feeds Phase 0b (the floor gate) and the M-rule sweep.*
+>
+> *Phase 0b — Pre-flight: the React-19 / Reagent-2 floor gate. Before touching ANY dep coord, clear this gate (re-frame2's adapters target React 19; the Reagent bridge runs on Reagent 2.x). Run four read-only checks and report each: (1) downstream React-lib compat audit — bucket each `package.json` dep with a `react`/`react-dom` peer dependency as React-19-ready / needs-bump / needs-replacement; (2) component/substrate-library check — confirm my UI component library has a React-19 (Reagent-2 if Reagent-based) release; if it does NOT, STOP and tell me — that's a go/no-go BLOCKER, not a mid-compile surprise; (3) legacy-API scan — flag surviving `ReactDOM.render` / `react-dom` legacy call sites; (4) go/no-go — GO carries the React/Reagent bump into Phase 2's M-0 pass, NO-GO stops until I resolve the blocker. I run any `npm install`/upgrade. Already on React 19 with a React-19-ready component library? Fast pass — confirm and move on.*
 >
 > *Phase 1 — Orient. Read the dep file (whichever exists: `deps.edn` / `project.clj` / `shadow-cljs.edn` / `bb.edn`), confirm we're actually on `re-frame/re-frame` today, and identify the substrate (assume Reagent unless the codebase shows otherwise). Then load the pinned [`MIGRATION.md`](../../../migration/from-re-frame-v1/README.md) from the local checkout above and skim Part 1's rule index so you know what's available.*
 >
@@ -63,10 +65,11 @@ Two common amendments the author may add:
 
 ## Why a kickoff prompt at all
 
-The skill description triggers on a wide range of v1→v2 phrasings, but the **opening shape of the migration** is identical regardless of phrasing — the pre-flight floor gate plus the six phases above. Giving the author a paste-ready prompt:
+The skill description triggers on a wide range of v1→v2 phrasings, but the **opening shape of the migration** is identical regardless of phrasing — the two pre-flight phases plus the six phases above. Giving the author a paste-ready prompt:
 
 - Locks the workflow shape the first time, so the session doesn't drift mid-migration.
-- Puts the React-19 / Reagent-2 floor gate first, so the blocking component-library case is a go/no-go decision *before* any dep edit — not a surprise mid-compile.
+- Puts the inventory-and-plan first, so the full set of v2-broken add-on/app surfaces is known before the first compile — collapsing the "march the wall" whack-a-mole into one planned sweep.
+- Puts the React-19 / Reagent-2 floor gate next, so the blocking component-library case is a go/no-go decision *before* any dep edit — not a surprise mid-compile.
 - Makes the Type B "ask first" rule explicit upfront — the session can't silently rewrite timing-sensitive code.
 - Frames the migration as "bump and verify first" — matching [`MIGRATION.md`](../../../migration/from-re-frame-v1/README.md)'s headline expectation that most codebases need no further changes.
 - Reuses the report format from [`MIGRATION.md`](../../../migration/from-re-frame-v1/README.md) Part 2 so the report stays consistent across migrations.
