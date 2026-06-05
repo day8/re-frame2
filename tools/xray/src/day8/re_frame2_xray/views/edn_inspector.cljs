@@ -13,7 +13,7 @@
 
   ## What replaces what
 
-  - `views/edn-widget/widget` — superseded for current-state browse
+  - `views/edn-widget` — superseded for current-state browse
     (phase 1 wires the App-DB panel here directly; phases 2-5 migrate
     the remaining call sites).
   - `theme/data-inspector` — sentinels (`:rf/redacted`,

@@ -57,7 +57,8 @@
   anywhere (the trace collector, the `:rf.xray/cascades` sub, the
   pre-mount seed in `mount.cljs`). The CLJC shape keeps them JVM-
   runnable so the JVM test corpus can drive every axis."
-  (:require [clojure.string :as str]))
+  (:require [clojure.string :as str]
+            [re-frame.trace.projection :as projection]))
 
 ;; ---- predicates ---------------------------------------------------------
 
@@ -123,3 +124,27 @@
   (let [ev (:event cascade)]
     (and (vector? ev)
          (xray-internal-event-id? (first ev)))))
+
+;; ---- the canonical filtered cascade projection (rf2-y2h6y) ---------------
+
+(defn filtered-cascades
+  "Group `buffer` (a flat trace-event vector) into cascades via
+  `projection/group-cascades`, then strip every Xray-internal cascade
+  (`xray-internal-cascade?`). The ONE home for the 'group + drop
+  self-noise' pairing.
+
+  rf2-qlvq8 closed a divergence bug by making the event-side spine walk
+  (`spine/db->cascades`) match the reactive `:rf.xray/cascades` sub
+  (registry.cljs) and the first-mount seed (mount.cljs) — all three must
+  produce the SAME user-facing cascade set. Previously the
+  `(into [] (remove xray-internal-cascade?) (group-cascades buffer))`
+  expression was copied verbatim at all three sites, so a future change
+  to the projection/filter pairing had to be applied in lockstep or the
+  divergence re-opened (exactly the bug class rf2-qlvq8 fixed). This
+  helper makes the agreement structural rather than maintained-by-
+  discipline: every site reads through one definition.
+
+  Pure-data + JVM-runnable; matches the other self-noise predicates'
+  shape so the JVM test corpus can drive it directly."
+  [buffer]
+  (into [] (remove xray-internal-cascade?) (projection/group-cascades buffer)))

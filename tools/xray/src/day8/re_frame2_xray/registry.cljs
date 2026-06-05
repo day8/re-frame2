@@ -31,7 +31,6 @@
   reads them. Sub-registration order is purely cosmetic — re-frame
   resolves `:<-` chains lazily at subscribe time, not register time."
   (:require [re-frame.core :as rf]
-            [re-frame.trace.projection :as projection]
             [day8.re-frame2-xray.config :as config]
             ;; Load the first-class edn-inspector widget ns so its
             ;; top-level `reg-sub` / `reg-event-db` calls land in
@@ -413,8 +412,7 @@
     (rf/reg-sub :rf.xray/cascades
       :<- [:rf.xray/trace-buffer]
       (fn [buffer _query]
-        (let [cascades (projection/group-cascades buffer)]
-          (into [] (remove self-noise/xray-internal-cascade?) cascades))))
+        (self-noise/filtered-cascades buffer)))
 
     ;; ---- Focused-cascade composite (rf2-5gl5r — relocated from the
     ;; retired event-detail panel) -----------------------------------

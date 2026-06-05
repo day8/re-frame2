@@ -53,7 +53,6 @@
   every production consumer had migrated to the spine focus epoch via
   rf2-70tkv) — there is no longer any dual-write."
   (:require [re-frame.core :as rf]
-            [re-frame.trace.projection :as projection]
             [day8.re-frame2-xray.config :as config]
             [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.panels.common-helpers :as common]
@@ -766,8 +765,7 @@
   side reading the same set."
   [db]
   (let [buffer (or (get db :trace-buffer) (trace-collector/snapshot-from-rings))]
-    (into [] (remove self-noise/xray-internal-cascade?)
-          (projection/group-cascades buffer))))
+    (self-noise/filtered-cascades buffer)))
 
 (defn- db->epoch-history
   "Read the Xray app-db's `:epoch-history` slot — the per-frame
