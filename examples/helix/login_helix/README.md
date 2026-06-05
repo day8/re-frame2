@@ -15,9 +15,13 @@ layer differs.
   unchanged under Helix. The same registrations, the same machine
   transitions, the same canned-stub seam.
 - **Cross-substrate parity at the tag layer** — machine states
-  carry Spec 005 `:tags` (`:auth/busy`, `:auth/authenticated`); the
-  view reads them via the `:rf/machine-has-tag?` framework sub. Same
-  tag taxonomy as the Reagent reference; only the hook idiom differs.
+  carry Spec 005 `:tags` (`:auth/busy`, `:auth/authenticated`,
+  `:auth/locked`); the view reads them via the `:rf/machine-has-tag?`
+  framework sub. The terminal `:locked-out` state (reached after the
+  fourth failed submit) is surfaced as a non-interactive
+  locked-account panel rather than a dead-but-enabled form — same
+  tag + locked-panel pattern as the state-machines walkthrough; only
+  the hook idiom differs.
 - **No auto-injection** — Helix components take `dispatch` off a
   `(rf/frame-handle)` and call `use-subscribe` directly. The component
   layer is explicit; the artefact layer beneath is identical.

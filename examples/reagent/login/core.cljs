@@ -14,11 +14,17 @@
    - State machine (CP-5)                  — login flow as a transition table
                                               read via [:rf/runtime :machines :snapshots :auth.login/flow]
    - State tags (Spec 005 §State tags)     — :auth/busy on :submitting,
-                                              :auth/authenticated on :authed.
+                                              :auth/authenticated on :authed,
+                                              :auth/locked on :locked-out.
                                               Views query them via
                                               `(rf/machine-has-tag? :auth.login/flow ...)`
                                               instead of boolean-discriminator
-                                              subs.
+                                              subs. The terminal :locked-out
+                                              state (reached after the fourth
+                                              failed submit) is surfaced as a
+                                              non-interactive locked-account
+                                              panel rather than a dead-but-enabled
+                                              form (rf2-q6bm7d).
    - Open-map idiom                        — every shape on the wire is an open map
 
    Test-free per the examples policy (no inline test fn, no sibling
@@ -29,9 +35,8 @@
    `implementation/core/test/re_frame/examples_test.clj` drives the
    happy-path / retry-then-lockout / pure machine-transition scenarios. The walkthrough
    registers its OWN parallel `:auth.login/flow` variant (same states,
-   guards, actions; it adds an `:auth/locked` tag on `:locked-out`
-   because its root-view renders a dedicated lockout panel — this file
-   omits that tag since its view never branches on lockout). That is a
+   guards, actions; like this file it tags `:locked-out` with
+   `:auth/locked` and renders a dedicated locked-account panel). That is a
    deliberate pedagogical variant, not the literal same registration:
    a machine id is a per-frame registry key, never a global handle, so
    two examples may name-share without colliding (and they never co-load
@@ -305,7 +310,15 @@
        :meta {:terminal? true}}
 
       :locked-out
-      {:meta {:terminal? true}}}}))
+      ;; :auth/locked tag — after the fourth failed submit the flow lands
+      ;; in this terminal state. Views query
+      ;; (rf/machine-has-tag? :auth.login/flow :auth/locked) to swap the
+      ;; form for a locked-account panel and refuse further submits — same
+      ;; tag + locked-panel pattern as the state-machines walkthrough. A
+      ;; terminal lockout must be visible and non-interactive, not a live
+      ;; form (rf2-q6bm7d).
+      {:tags #{:auth/locked}
+       :meta {:terminal? true}}}}))
 
 ;; ============================================================================
 ;; EVENTS  (CP-1)
@@ -364,7 +377,8 @@
          {:data-testid "login-form"
           :on-submit (fn [e]
                        (.preventDefault e)
-                       (dispatch [:auth.login/flow [:auth.login/submit @state]]))}
+                       (when-not busy?
+                         (dispatch [:auth.login/flow [:auth.login/submit @state]])))}
          [:input  {:type        "email"
                    :placeholder "Email"
                    :disabled    busy?
@@ -380,13 +394,24 @@
           (if busy? "Signing in…" "Sign in")]
          (when err [:p.error {:data-testid "login-error"} err])]))))
 
+;; Terminal lockout panel — rendered once the flow reaches :locked-out
+;; (tagged :auth/locked). The state has no transitions, so the form is
+;; swapped out entirely rather than left enabled-but-dead.
+(reg-view ^{:doc "Locked-account panel shown when the login flow reaches :locked-out."}
+          locked-panel []
+  [:div.locked {:data-testid "locked-panel"}
+   [:h2 "Account locked"]
+   [:p "Three failed attempts. Contact support to unlock."]])
+
 (reg-view ^{:doc "Shows the user's logged-in state and a sign-out button."}
           login-banner []
-  (let [authed? @(rf/machine-has-tag? :auth.login/flow :auth/authenticated)]
+  (let [authed? @(rf/machine-has-tag? :auth.login/flow :auth/authenticated)
+        locked? @(rf/machine-has-tag? :auth.login/flow :auth/locked)]
     [:div.banner {:data-testid "login-banner"}
-     (if authed?
-       [:span "Welcome!"]
-       [login-form])]))
+     (cond
+       authed? [:span "Welcome!"]
+       locked? [locked-panel]
+       :else   [login-form])]))
 
 (reg-view root-view []
   [:div.app
