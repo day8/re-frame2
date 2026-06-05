@@ -387,7 +387,30 @@
                                 " (:devtools/preloads is dev-only). Found "
                                 "'day8.re_frame2_xray.preload' in "
                                 "resources/public/js/main.js — the "
-                                "cut-from-release invariant is broken."))))))))))
+                                "cut-from-release invariant is broken."))
+                       ;; rf2-ek857f F2 — events.cljs registers the
+                       ;; default error-sink trace listener behind
+                       ;; `(when ^boolean goog.DEBUG ...)`, so Closure
+                       ;; must DCE both the listener closure AND its
+                       ;; substituted "[acme.my-app]" console marker out
+                       ;; of the `:advanced` + `goog.DEBUG=false` bundle.
+                       ;; If the gate is dropped (or someone re-registers
+                       ;; the listener ungated), the marker string
+                       ;; survives verbatim — assert its absence so a
+                       ;; dev-only console listener can't leak into the
+                       ;; production bundle and ship green.
+                       (is (not (string/includes?
+                                  bundle-text
+                                  "[acme.my-app]"))
+                           (str "The dev-only error-sink listener marker "
+                                "\"[acme.my-app]\" must be DCE'd from the "
+                                ":advanced release bundle for " label
+                                ". Its presence means the "
+                                "`(when ^boolean goog.DEBUG ...)` gate "
+                                "around events.cljs's register-listener! "
+                                "is gone — a dev-only console listener "
+                                "closure is leaking into the production "
+                                "bundle (rf2-ek857f F2)."))))))))))
        (finally
          (delete-recursively tmp))))))
 
