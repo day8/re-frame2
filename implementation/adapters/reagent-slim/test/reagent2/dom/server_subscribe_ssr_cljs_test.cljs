@@ -88,6 +88,29 @@
   (reg-view counter-app []
     [counter-buttons]))
 
+;; A FORM-2 subscribing reg-view (rf2-o3hqr): the body's last form is a
+;; literal `(fn ...)`, so `reg-view` classifies it Form-2 — the outer body
+;; runs once as setup, the inner closure is the live render. The inner
+;; closure derefs `@(subscribe ...)`. Before the fix the static renderer
+;; called the view head once, got the inner render fn back, and recursed
+;; on that bare fn — throwing `:rf.error/static-markup-bad-element` before
+;; the subscribe ever ran. Now the inner closure is recalled and its
+;; subscribing hiccup rides into the markup.
+(defn- register-form2-counter! []
+  (rf/reg-event-db :counter/initialise
+    (fn [_db _event] {:counter/value 5}))
+  (rf/reg-event-db :counter/inc
+    (fn [db _event] (update db :counter/value inc)))
+  (rf/reg-sub :counter/value
+    (fn [db _query] (:counter/value db)))
+  ;; Form-2: outer setup returns the inner render closure.
+  (reg-view counter-buttons-f2 []
+    (fn []
+      [:div
+       [:span {:data-testid "counter-value"} @(subscribe [:counter/value])]]))
+  (reg-view counter-app-f2 []
+    [counter-buttons-f2]))
+
 ;; ---- tests ----------------------------------------------------------------
 
 (deftest subscribing-reg-view-renders-through-slim-ssr-without-throwing
@@ -137,3 +160,34 @@
                  (pr-str after)))
         (is (not (re-find #">5<" after))
             "the stale value 5 no longer appears — the subscription re-read, not froze")))))
+
+;; ---- Form-2 reg-view SSR (rf2-o3hqr) --------------------------------------
+
+(deftest form2-subscribing-reg-view-renders-through-slim-ssr
+  (testing "rf2-o3hqr: a FORM-2 reg-view (outer setup returns an inner
+            render closure that derefs @(subscribe ...)) renders through
+            render-to-static-markup without throwing, and the subscribed
+            value rides into the markup"
+    (register-form2-counter!)
+    (rf/dispatch-sync [:counter/initialise])
+    (let [markup (server/render-to-static-markup [counter-app-f2])]
+      (is (string? markup)
+          "Form-2 reg-view rendered to a string (no static-markup-bad-element throw)")
+      (is (re-find #">5<" markup)
+          (str "subscribed :counter/value (5) from the Form-2 inner closure "
+               "appears in the markup — got: " (pr-str markup))))))
+
+(deftest form2-ssr-deref-reads-live-app-db
+  (testing "rf2-o3hqr: after [:counter/inc], the Form-2 SSR re-render
+            reflects live app-db (6), proving the inner closure re-ran and
+            re-read the subscription"
+    (register-form2-counter!)
+    (rf/dispatch-sync [:counter/initialise])
+    (is (re-find #">5<" (server/render-to-static-markup [counter-app-f2]))
+        "precondition: first Form-2 render shows 5")
+    (rf/dispatch-sync [:counter/inc])
+    (let [after (server/render-to-static-markup [counter-app-f2])]
+      (is (re-find #">6<" after)
+          (str "Form-2 SSR re-render reflects live app-db (6) — got: " (pr-str after)))
+      (is (not (re-find #">5<" after))
+          "stale 5 no longer appears — the inner closure re-read, not froze"))))
