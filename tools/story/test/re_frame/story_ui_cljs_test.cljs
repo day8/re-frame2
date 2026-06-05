@@ -394,9 +394,9 @@
     ;; inner fn (same `[fn cells]` shape as tabs) to get the rendered
     ;; cell tree, then walk for variant-id keys.
     (let [render  (fn [ws-id]
-                    (let [{renderer :fn cells :cells}
+                    (let [{renderer :fn cells :cells args :args}
                           (find-tabs-renderer-call (workspace/workspace-view ws-id))]
-                      (renderer cells)))
+                      (apply renderer cells args)))
           keys-a  (collect-cell-keys (render :Workspace.rf2-kgn0c.a/grid))
           keys-b  (collect-cell-keys (render :Workspace.rf2-kgn0c.b/grid))]
       (is (= 2 (count keys-a)) "workspace-a yields one key per cell")
@@ -424,9 +424,9 @@
     ;; rf2-ba86n.18 — isolated `:variants-grid` also mounts the capped-grid
     ;; renderer; extract + invoke its inner fn to reach the cell tree.
     (let [render  (fn [ws-id]
-                    (let [{renderer :fn cells :cells}
+                    (let [{renderer :fn cells :cells args :args}
                           (find-tabs-renderer-call (workspace/workspace-view ws-id))]
-                      (renderer cells)))
+                      (apply renderer cells args)))
           keys-a  (collect-cell-keys (render :Workspace.rf2-kgn0c-vg.a/all))
           keys-b  (collect-cell-keys (render :Workspace.rf2-kgn0c-vg.b/all))]
       (is (seq keys-a))
@@ -472,26 +472,30 @@
 ;; so we can walk the rendered output.
 
 (defn- find-tabs-renderer-call
-  "Walk `tree` for a hiccup vector of the shape `[fn cells-vec]` where
-  cells-vec is a non-empty vector of cell maps. Returns
-  `{:fn renderer :cells cells}` or nil. The workspace-view mounts
-  `:tabs` as `[tabs-renderer cells]` AND `:grid` / isolated
-  `:variants-grid` as `[capped-grid-renderer cells]` (rf2-ba86n.18) —
-  both share this `[fn cells]` shape, so this helper extracts either
-  renderer's inner call. Callers invoke `(renderer cells)` to get the
-  rendered hiccup tree they walk."
+  "Walk `tree` for a hiccup vector of the shape `[fn cells-vec & args]`
+  where cells-vec is a non-empty vector of cell maps. Returns
+  `{:fn renderer :cells cells :args trailing-args}` or nil. The
+  workspace-view mounts `:tabs` as `[tabs-renderer cells]` AND `:grid` /
+  isolated `:variants-grid` as `[capped-grid-renderer cells columns]`
+  (rf2-ba86n.18; rf2-ugmrg added the trailing `:columns` arg) — both
+  share the `[fn cells …]` shape, so this helper extracts either
+  renderer's inner call regardless of trailing args. Callers invoke
+  `(apply renderer cells args)` (or `(renderer cells)` for the
+  no-trailing-arg tabs case) to get the rendered hiccup tree they walk."
   [tree]
   (->> (tree-seq coll? seq tree)
        (filter (fn [node]
                  (and (vector? node)
-                      (= 2 (count node))
+                      (>= (count node) 2)
                       (fn? (first node))
                       (vector? (second node))
                       (seq (second node))
                       (every? map? (second node))
                       (every? #(contains? % :type) (second node)))))
        first
-       (#(when % {:fn (first %) :cells (second %)}))))
+       (#(when % {:fn    (first %)
+                  :cells (second %)
+                  :args  (vec (drop 2 %))}))))
 
 (defn- count-variant-cells-in
   "Count `[variant-cell vid]` invocations in a hiccup tree —
@@ -696,10 +700,10 @@
     ;; rf2-ba86n.18 — `:grid` mounts the capped-grid renderer; invoke its
     ;; inner fn to reach the rendered cells (3 variants < the 100 visible
     ;; cap, so all three render and the layout-difference contract holds).
-    (let [{grid-fn :fn grid-cells :cells}
+    (let [{grid-fn :fn grid-cells :cells grid-args :args}
                      (find-tabs-renderer-call
                        (workspace/workspace-view :Workspace.rf2-ktnl8.gt/grid))
-          grid-tree  (grid-fn grid-cells)
+          grid-tree  (apply grid-fn grid-cells grid-args)
           grid-n     (count-variant-cells-in grid-tree)
           {tabs-fn :fn tabs-cells :cells}
                      (find-tabs-renderer-call
@@ -712,6 +716,93 @@
       (is (= 1 tabs-n)
           (str ":tabs layout MUST mount exactly one cell at a time "
                "(got " tabs-n ")")))))
+
+;; ---- workspace :columns grid template (rf2-ugmrg) -----------------------
+;;
+;; The workspace body's `:columns` slot pins the CSS grid's column count.
+;; Pre-fix it was declared + documented but the renderer ignored it — the
+;; grid CSS hardcoded `repeat(auto-fit, minmax(280px, 1fr))`. Post-fix the
+;; capped-grid renderer emits `repeat(N, minmax(280px, 1fr))` when
+;; `:columns` is present and keeps the `auto-fit` default when absent.
+;;
+;; These tests walk the rendered grid div's inline `grid-template-columns`
+;; style — the load-bearing render output an author observes.
+
+(defn- grid-div-style
+  "Find the workspace grid container div in `tree` and return its inline
+  style map. The grid div carries `:data-test-grid-columns` (rf2-ugmrg)."
+  [tree]
+  (->> (tree-seq coll? seq tree)
+       (filter (fn [node]
+                 (and (vector? node)
+                      (= :div (first node))
+                      (map? (second node))
+                      (contains? (second node) :data-test-grid-columns))))
+       first
+       second
+       :style))
+
+(defn- render-grid-tree
+  "Mount `ws-id`'s workspace-view, extract the capped-grid renderer call,
+  and invoke it to get the rendered hiccup tree."
+  [ws-id]
+  (let [{renderer :fn cells :cells args :args}
+        (find-tabs-renderer-call (workspace/workspace-view ws-id))]
+    (apply renderer cells args)))
+
+(deftest workspace-grid-columns-pins-fixed-template-rf2-ugmrg
+  (testing ":grid with :columns N emits a fixed repeat(N, …) template —
+            pre-fix this slot was silently ignored (rf2-ugmrg)"
+    (story/reg-variant :story.ugmrg-cols/a {:events []})
+    (story/reg-variant :story.ugmrg-cols/b {:events []})
+    (story/reg-variant :story.ugmrg-cols/c {:events []})
+    (story/reg-workspace :Workspace.ugmrg-cols/grid
+      {:layout   :grid
+       :columns  3
+       :variants [:story.ugmrg-cols/a
+                  :story.ugmrg-cols/b
+                  :story.ugmrg-cols/c]})
+    (let [style (grid-div-style
+                  (render-grid-tree :Workspace.ugmrg-cols/grid))]
+      (is (= "repeat(3, minmax(280px, 1fr))"
+             (:grid-template-columns style))
+          (str ":columns 3 MUST pin a 3-column grid template; got "
+               (pr-str (:grid-template-columns style)))))))
+
+(deftest workspace-grid-without-columns-keeps-auto-fit-rf2-ugmrg
+  (testing ":grid without :columns keeps the responsive auto-fit default
+            (rf2-ugmrg — :columns is opt-in; absent it must not change
+            existing behaviour)"
+    (story/reg-variant :story.ugmrg-auto/a {:events []})
+    (story/reg-variant :story.ugmrg-auto/b {:events []})
+    (story/reg-workspace :Workspace.ugmrg-auto/grid
+      {:layout   :grid
+       :variants [:story.ugmrg-auto/a
+                  :story.ugmrg-auto/b]})
+    (let [style (grid-div-style
+                  (render-grid-tree :Workspace.ugmrg-auto/grid))]
+      (is (= "repeat(auto-fit, minmax(280px, 1fr))"
+             (:grid-template-columns style))
+          (str "absent :columns MUST keep the auto-fit default; got "
+               (pr-str (:grid-template-columns style)))))))
+
+(deftest workspace-variants-grid-columns-pins-fixed-template-rf2-ugmrg
+  (testing "isolated :variants-grid honours :columns too (same capped-grid
+            renderer; rf2-ugmrg)"
+    (story/reg-variant :story.ugmrg-vg/a {:events []})
+    (story/reg-variant :story.ugmrg-vg/b {:events []})
+    (story/reg-workspace :Workspace.ugmrg-vg/all
+      {:layout  :variants-grid
+       :for     :story.ugmrg-vg
+       :columns 2})
+    (let [tree  (render-grid-tree :Workspace.ugmrg-vg/all)
+          style (grid-div-style tree)]
+      (is (= "repeat(2, minmax(280px, 1fr))"
+             (:grid-template-columns style))
+          ":columns 2 MUST pin a 2-column variants-grid template")
+      ;; also pins that :for drove the enumeration (2 variants rendered)
+      (is (= 2 (count-variant-cells-in tree))
+          ":for anchor MUST enumerate both variants (rf2-ugmrg)"))))
 
 ;; ---- workspace cells re-run on full run-key (rf2-c56hr) -----------------
 ;;

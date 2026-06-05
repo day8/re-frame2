@@ -113,8 +113,16 @@
   Cell ordering matches the workspace's declared `:variants` (for `:grid`
   / `:tabs`) or `:content` (for `:prose`). For `:variants-grid` the
   cells enumerate the registry's variants for the workspace's anchor
-  story; the workspace body's `:story` slot names that anchor (defaults
-  to the workspace id's namespace path stripped of `Workspace.`)."
+  story. The anchor is read in precedence order (rf2-ugmrg):
+
+    1. `:for`   — the spec-authoritative auto-enumerate spelling
+                  (spec/001-Authoring.md §`:variants-grid`);
+    2. `:story` — a back-compat synonym for `:for`;
+    3. otherwise the workspace id's namespace path stripped of
+       `Workspace.` (e.g. `:Workspace.counter/x` → `:story.counter`).
+
+  `:for` and `:story` are mutually exclusive with `:variants` on a
+  `:variants-grid` (enforced by the schema, spec/001-Authoring.md)."
   [workspace-id workspace-body]
   (case (:layout workspace-body)
     :grid
@@ -126,7 +134,8 @@
            {:type :variant :variant-id vid}))
 
     :variants-grid
-    (let [anchor (or (:story workspace-body)
+    (let [anchor (or (:for workspace-body)
+                     (:story workspace-body)
                      ;; Derive `:story.<path>` from `:Workspace.<path>/<name>`.
                      (when-let [ns (namespace workspace-id)]
                        (when (and (>= (count ns) 10)
@@ -196,6 +205,35 @@
      :warn?          (budgets/matrix-warn? [total])
      :over-hard-cap? over?}))
 
+;; ---- pure: :columns grid template (rf2-ugmrg) ---------------------------
+;;
+;; The workspace body's optional `:columns` integer pins the grid's column
+;; count. Absent, the grid uses the responsive `auto-fit` default (fit as
+;; many 280px-min columns as the canvas width allows). Present, it pins a
+;; fixed `repeat(N, minmax(280px, 1fr))` template. Pure string → string so
+;; the JVM test suite covers the template selection without a DOM.
+
+(def ^:private grid-min-cell-width
+  "Minimum cell width in the grid track template (px). Shared between the
+  responsive `auto-fit` default and the fixed `:columns` template."
+  "280px")
+
+(defn grid-template-columns
+  "Return the CSS `grid-template-columns` value for a workspace grid given
+  its body's `:columns` slot (or nil).
+
+  - `:columns N` (a positive int) → `repeat(N, minmax(280px, 1fr))` —
+    a fixed N-column track template (rf2-ugmrg).
+  - absent / nil / non-positive → `repeat(auto-fit, minmax(280px, 1fr))`
+    — the responsive default (fit as many columns as fit at 280px min).
+
+  Pure; JVM-testable."
+  [columns]
+  (let [track (str "minmax(" grid-min-cell-width ", 1fr)")]
+    (if (and (integer? columns) (pos? columns))
+      (str "repeat(" columns ", " track ")")
+      (str "repeat(auto-fit, " track ")"))))
+
 ;; ---- styling -------------------------------------------------------------
 
 #?(:cljs
@@ -208,8 +246,12 @@
                       :color (:info colors/tokens)
                       :font-family mono-stack
                       :margin-bottom "12px"}
+      ;; rf2-ugmrg — `:grid-template-columns` is set per-render from the
+      ;; workspace body's `:columns` slot via `grid-template-columns`
+      ;; (responsive `auto-fit` default; fixed `repeat(N, …)` when
+      ;; `:columns` is present). The static base carries only the display
+      ;; + gap; the renderer merges the computed template in.
       :grid          {:display "grid"
-                      :grid-template-columns "repeat(auto-fit, minmax(280px, 1fr))"
                       :gap "12px"}
       :cell          {:background (:bg-2 colors/tokens)
                       :border "1px solid #3c3c3c"
@@ -716,8 +758,13 @@
 
      Cells render in a CSS grid; the expander + advisory sit outside it so
      they read as page chrome, not cells. Per spec/018 §10 the grid fails by
-     summarizing + offering expansion, never by flooding the canvas."
-     [cells]
+     summarizing + offering expansion, never by flooding the canvas.
+
+     `columns` (rf2-ugmrg) is the workspace body's `:columns` slot (or
+     nil). When a positive int it pins a fixed `repeat(N, …)` grid track
+     template; otherwise the grid uses the responsive `auto-fit` default.
+     See `grid-template-columns`."
+     [cells columns]
      (r/with-let [expanded? (r/atom false)]
        (let [{:keys [shown hidden total warn? over-hard-cap?]}
              (bound-grid-cells cells @expanded?)]
@@ -736,7 +783,10 @@
                (str "⚠ dense matrix: " total " cells (≥ "
                     budgets/matrix-warn-threshold
                     "). Consider narrowing the variants axis."))])
-          [:div {:style (:grid styles)}
+          [:div {:style (assoc (:grid styles)
+                               :grid-template-columns
+                               (grid-template-columns columns))
+                 :data-test-grid-columns (str (or columns "auto-fit"))}
            (for [[i cell] (map-indexed vector shown)]
              (grid-cell-hiccup i cell))]
           ;; G1 — the cap-and-page expander. Reveals the elided cells up to
@@ -829,5 +879,8 @@
               ;; offers a `+N more` expander rather than freezing the canvas
               ;; (spec/018 §10). Cells stay variant-id-keyed inside it, so
               ;; the rf2-kgn0c frame-allocation invariant is preserved.
+              ;; rf2-ugmrg — the body's `:columns` slot pins a fixed grid
+              ;; track template; absent it keeps the responsive `auto-fit`
+              ;; default. Threaded into the capped-grid renderer.
               :else
-              [capped-grid-renderer cells])])))))
+              [capped-grid-renderer cells (:columns body)])])))))
