@@ -28,14 +28,15 @@
 
   emit-vector dispatches on the head:
 
-    | head      | meaning                                |
-    |-----------|----------------------------------------|
-    | :<>       | React Fragment: emit children only     |
-    | :>        | React component interop                |
-    | :r>       | raw React.createElement passthrough    |
-    | :f>       | function-component dispatch            |
-    | DOM tag   | parse-tag + DOM element                |
-    | user fn   | invoke fn-with-args; recurse on result |
+    | head           | meaning                                     |
+    |----------------|---------------------------------------------|
+    | :<>            | React Fragment: emit children only          |
+    | :>             | React component interop                     |
+    | :r>            | raw React.createElement passthrough         |
+    | :f>            | function-component dispatch                 |
+    | DOM tag        | parse-tag + DOM element                     |
+    | reagent class  | Form-3: render :reagent-render via fn path  |
+    | user fn        | invoke fn-with-args (Form-1/Form-2); recurse|
 
   React-component heads (`:>`, `:r>`, `:f>`) emit a placeholder HTML
   comment (`<!--reagent-react-component-->`) and don't walk into the
@@ -45,6 +46,23 @@
   Stage 4 picks the user-fn-call path for plain-fn heads to match
   stock Reagent's `render-to-static-markup` behaviour and preserve
   Dash8/rf8 HTML-export compatibility.
+
+  COMPONENT-SHAPE PARITY (rf2-o3hqr). The static path must render the
+  same Form-1/Form-2/Form-3 view shapes the live renderer does — a
+  view that renders correctly in the browser must render to HTML, not
+  throw. The previous user-fn path called the head once and recursed
+  on the result, which is correct ONLY for Form-1 (the body IS hiccup).
+  A Form-2 head `(fn [x] (fn [x] [:li x]))` returns its inner render
+  closure; recursing on that bare fn hit `emit-element` and threw
+  `:rf.error/static-markup-bad-element`. The fix mirrors the live
+  `reagent2.impl.component/wrap-render` Form-1/Form-2 detection: invoke
+  the head; if it returns a fn, that is the Form-2 inner render closure —
+  call it with the SAME args and recurse on its hiccup. Form-3
+  (`create-class`) heads are React classes carrying their user
+  `:reagent-render` fn under `.-cljsReagentRender`; we render that fn
+  through the same Form-1/Form-2 path. A generic React class (no
+  reagent render fn) stays opaque — emitting the placeholder comment,
+  matching `:>`.
 
   HTML escaping (per §8.2): lifted by intent (not require — bundle
   isolation forbids `:require` between artefacts; per rf2-6phn the
@@ -60,6 +78,7 @@
   elide."
   (:require [clojure.string :as str]
             [goog.string :refer [StringBuffer]]
+            [reagent2.impl.component :as component]
             [reagent2.impl.template :as template]))
 
 ;; ---------------------------------------------------------------------------
@@ -698,12 +717,48 @@
     (when (< children-pos n)
       (emit-children sb (subvec argv children-pos)))))
 
+(defn- emit-render-fn
+  "Invoke a Form-1/Form-2 render fn `f` with `args` and emit the
+  resulting hiccup. Mirrors the live `reagent2.impl.component/wrap-render`
+  Form-1/Form-2 detection (rf2-o3hqr):
+
+    - Form-1: `f` returns hiccup directly → recurse on it.
+    - Form-2: `f` returns a fn (the inner render closure produced by the
+      one-shot setup call) → call that inner fn with the SAME args and
+      recurse on its hiccup.
+
+  A static render has no instance, so there is no inner-fn cache (the
+  live path caches on `.-cljsRenderFn`); each static render re-runs the
+  setup. That is correct for static markup — output is a function of the
+  args only."
+  [^StringBuffer sb f args]
+  (let [out (apply f args)]
+    (if (fn? out)
+      ;; Form-2: `out` is the inner render closure. Recall with the same
+      ;; args (matches wrap-render's `(apply inner args)`).
+      (emit-element sb (apply out args))
+      (emit-element sb out))))
+
 (defn- emit-user-fn
-  "Invoke `f` with the rest of `argv` and recurse on the result. Per
-  §8.1 — Stage 4 follows stock Reagent's function-call path so apps
-  using `render-to-static-markup` for HTML export get the same shape."
+  "Emit a plain user-fn head (Form-1 or Form-2). Per §8.1 — Stage 4
+  follows stock Reagent's function-call path so apps using
+  `render-to-static-markup` for HTML export get the same shape. Form-2
+  detection (rf2-o3hqr) is delegated to `emit-render-fn`."
   [^StringBuffer sb f argv]
-  (emit-element sb (apply f (rest argv))))
+  (emit-render-fn sb f (rest argv)))
+
+(defn- emit-reagent-class
+  "Emit a Form-3 (`create-class`) head (rf2-o3hqr). A reagent-slim class
+  carries its user `:reagent-render` fn under `.-cljsReagentRender` (set
+  by `create-class*`). Static markup has no React lifecycle, so we render
+  the `:reagent-render` fn directly through the Form-1/Form-2 path — the
+  cap's lifecycle methods (`:component-did-mount`, error boundaries, …)
+  have no static-HTML meaning and are skipped, matching `react-dom/
+  server.renderToStaticMarkup` (lifecycle hooks don't fire under static
+  markup). Reagent's `:reagent-render` is itself a Form-1/Form-2 render
+  fn, so the same setup/inner-fn detection applies."
+  [^StringBuffer sb klass argv]
+  (emit-render-fn sb (.-cljsReagentRender ^js klass) (rest argv)))
 
 (defn- emit-vector
   [^StringBuffer sb argv]
@@ -720,6 +775,16 @@
       (or (keyword? head)
           (symbol? head)
           (string? head))         (emit-dom-vector sb argv)
+      ;; Form-3 head: a reagent-slim class made by `create-class*`. It
+      ;; is a JS fn (so `fn?` would be true), but calling it would invoke
+      ;; the class constructor, not render — so detect it BEFORE the
+      ;; plain-fn path and render its `:reagent-render` fn (rf2-o3hqr).
+      (component/reagent-class? head) (emit-reagent-class sb head argv)
+      ;; A generic React class (not made by `create-class*`) has no
+      ;; CLJS render fn to walk — treat it as opaque foreign content,
+      ;; same as `:>` (rf2-o3hqr).
+      (component/react-class? head)   (react-component-comment sb)
+      ;; Plain user fn head — Form-1 or Form-2 (rf2-o3hqr).
       (fn? head)                  (emit-user-fn sb head argv)
       :else
       (throw (ex-info ":rf.error/static-markup-bad-tag"

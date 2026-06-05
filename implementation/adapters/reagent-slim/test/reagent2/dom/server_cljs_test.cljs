@@ -20,6 +20,7 @@
 
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing]]
+            [reagent2.core :as r]
             [reagent2.dom.server :as server]))
 
 ;; ---------------------------------------------------------------------------
@@ -322,6 +323,95 @@
     (let [greet (fn [name punct] [:span name punct])]
       (is (= "<span>Mike!</span>"
              (server/render-to-static-markup [greet "Mike" "!"]))))))
+
+;; ---------------------------------------------------------------------------
+;; Form-2 user-fn heads (rf2-o3hqr)
+;;
+;; A Form-2 component's outer fn is a one-shot setup that returns the
+;; inner render closure: `(fn [x] (fn [x] [:li x]))`. The static path
+;; previously invoked the head once and recursed on the returned inner
+;; FN, which reached `emit-element` as a bare fn and threw
+;; `:rf.error/static-markup-bad-element`. The fix mirrors the live
+;; `wrap-render` Form-1/Form-2 detection: when the head returns a fn,
+;; recall it with the same args and recurse on its hiccup.
+;; ---------------------------------------------------------------------------
+
+(deftest form-2-user-fn-head-renders
+  (testing "rf2-o3hqr: a Form-2 head (outer setup fn returning an inner
+            render closure) renders its inner hiccup, not a thrown bad-element"
+    (let [item (fn [_x] (fn [x] [:li x]))]
+      (is (= "<ul><li>a</li><li>b</li></ul>"
+             (server/render-to-static-markup
+              [:ul [item "a"] [item "b"]]))))))
+
+(deftest form-2-inner-closure-receives-same-args
+  (testing "rf2-o3hqr: the Form-2 inner closure is recalled with the SAME
+            args as the outer setup (matches wrap-render's `(apply inner args)`)"
+    ;; The outer fn ignores its args; the inner fn consumes them. If the
+    ;; fix passed no args (or wrong args) to the inner closure the span
+    ;; would render empty / throw on arity.
+    (let [greet (fn [_n _p] (fn [n p] [:span n p]))]
+      (is (= "<span>Mike!</span>"
+             (server/render-to-static-markup [greet "Mike" "!"]))))))
+
+(deftest form-2-closes-over-setup-state
+  (testing "rf2-o3hqr: the Form-2 inner closure can close over a value
+            computed in the outer setup (the canonical Form-2 reason)"
+    (let [labelled (fn [prefix]
+                     (fn [_prefix v]
+                       [:div (str prefix ": " v)]))]
+      (is (= "<div>n: 7</div>"
+             (server/render-to-static-markup [labelled "n" 7]))))))
+
+(deftest form-2-nested-in-form-1
+  (testing "rf2-o3hqr: a Form-2 head nested inside a Form-1 head renders"
+    (let [inner (fn [_x] (fn [x] [:em x]))
+          outer (fn [x] [:p [inner x]])]
+      (is (= "<p><em>hi</em></p>"
+             (server/render-to-static-markup [outer "hi"]))))))
+
+;; ---------------------------------------------------------------------------
+;; Form-3 class heads (rf2-o3hqr)
+;;
+;; A `create-class` head is a React class carrying its user
+;; `:reagent-render` fn under `.-cljsReagentRender`. The static path
+;; detects the reagent-class via `reagent-class?` (BEFORE the plain-fn
+;; branch — calling the class directly would invoke its constructor, not
+;; render) and renders the `:reagent-render` fn through the same
+;; Form-1/Form-2 path. Lifecycle keys have no static-HTML meaning.
+;; ---------------------------------------------------------------------------
+
+(deftest form-3-reagent-class-renders
+  (testing "rf2-o3hqr: a create-class (Form-3) head renders its
+            :reagent-render fn to HTML"
+    (let [box (r/create-class
+                {:display-name "box"
+                 :reagent-render (fn [x] [:div.box x])})]
+      (is (= "<div class=\"box\">hello</div>"
+             (server/render-to-static-markup [box "hello"]))))))
+
+(deftest form-3-reagent-render-is-form-2
+  (testing "rf2-o3hqr: a create-class whose :reagent-render is itself
+            Form-2 (returns an inner closure) renders the inner hiccup"
+    (let [box (r/create-class
+                {:display-name "box2"
+                 :reagent-render (fn [_x] (fn [x] [:section x]))})]
+      (is (= "<section>x</section>"
+             (server/render-to-static-markup [box "x"]))))))
+
+(deftest form-3-lifecycle-keys-ignored-in-static-markup
+  (testing "rf2-o3hqr: Form-3 lifecycle callbacks do not fire under
+            static markup (matches react-dom/server); only :reagent-render
+            contributes to the HTML"
+    (let [fired (atom false)
+          box (r/create-class
+                {:display-name "lifecycle-box"
+                 :component-did-mount (fn [_this] (reset! fired true))
+                 :reagent-render (fn [x] [:span x])})]
+      (is (= "<span>z</span>"
+             (server/render-to-static-markup [box "z"])))
+      (is (false? @fired)
+          ":component-did-mount must NOT fire during static markup rendering"))))
 
 ;; ---------------------------------------------------------------------------
 ;; Edge cases — empty / malformed
