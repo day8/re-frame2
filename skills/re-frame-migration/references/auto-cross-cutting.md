@@ -267,6 +267,32 @@ rf/trace-api-version → drop (no replacement)
 
 The adapter value is the `adapter` Var from the substrate adapter ns (e.g. `(:require [re-frame.adapter.reagent :as reagent])` → `reagent/adapter`), verified against `re-frame.core/init!`'s docstring (`implementation/core/src/re_frame/core.cljc` — "Pass the adapter spec map directly"). Pair with M-38's substrate-ns rename so the symbol resolves; non-map / nil args raise `:rf.error/no-adapter-specified`.
 
+#### Boot-sequence invariant — `init!` must run *before* the first dispatch and the first render
+
+> **A v1 app has no `init!` call site to "find". You must ADD one — and ADD it in the right place.** The `SEARCH` shape above assumes a `(rf/init!)` already exists (the v2-pre-rename case). A genuine v1 app has **no `init!` at all**: in v1 the registry is populated by `reg-event-*` at namespace-load and the global `app-db` ratom exists immediately, so v1 boot code dispatches freely — the canonical v1 boot is `(dispatch-sync [:initialize-db])` *then* `(reagent.dom/render …)`. M-40-as-a-rename does not cover this; for a v1 app, M-40 is an **add**, governed by this invariant.
+
+**The invariant:** `(rf/init! <adapter>)` MUST execute **before the first `dispatch` / `dispatch-sync` AND before the first render**. `init!` is what creates the `:rf/default` frame (it calls `frame/ensure-default-frame!` — verified at `implementation/core/src/re_frame/core.cljc`, the `init!` fn body). Until it runs, the default frame does not exist.
+
+**The failure is SILENT — there is no compile error.** A `dispatch` / `dispatch-sync` issued before `init!` targets a `:rf/default` frame that does not yet exist; the router takes the missing-frame early-exit and surfaces **`:rf.error/frame-destroyed`** (verified: `re-frame.router/process-event!` early-exits via `handle-frame-destroyed!` when the frame record is `nil`, at `implementation/core/src/re_frame/router.cljc`). The dispatch **no-ops** — the event never runs, `app-db` is never seeded, the drain continues to the next envelope. The app simply does nothing at boot, with no error thrown to the console call site. This is among the hardest v2 failures to diagnose; cross-link the `:rf.error/frame-destroyed` symptom from the error catalogue ([`error-events.md`](error-events.md) → [Spec 009 §Error event catalogue](../../../spec/009-Instrumentation.md#error-event-catalogue)).
+
+> **Field failure mode:** placing `(rf/init! adapter)` *inside* the render fn (e.g. a `mount-gui` defn) runs it **after** the boot code's seed `dispatch-sync` and any bootstrap dispatch — faithfully matching the rename shape and the examples, yet producing a non-booting app. Put `init!` at the **top of the boot function**, ahead of every boot-time dispatch and the render call.
+
+**Corrected canonical v2 boot order** (the `init!` line is the ADD for a v1 app):
+
+```clojure
+(ns my-app.core
+  (:require [re-frame.core :as rf]
+            [re-frame.adapter.reagent :as reagent]   ; the adapter ns (M-38)
+            [reagent.dom.client :as rdomc]))         ; React-19 createRoot path
+
+(defn ^:export init []                ; the boot entry point
+  (rf/init! reagent/adapter)          ; 1. ADD THIS FIRST — creates :rf/default
+  (rf/dispatch-sync [:initialize-db]) ; 2. seed dispatch — now the frame exists
+  (mount-root))                        ; 3. render LAST
+```
+
+If the v1 boot used `(reagent.dom/render …)`, that mount call is itself a React-19 rewrite (M-42 mount-path half → `react-dom/client` `createRoot` + `render`); the **ordering** rule here is independent of which mount API the app lands on — `init!` precedes whatever the render call becomes.
+
 ---
 
 ## Per-feature artefact adds (M-27 through M-33)
