@@ -270,29 +270,68 @@
   observability without a 500 (Spec 011 §Failure semantics — inline
   fallback).
 
-  `seen` is an atom of the id-strings already processed so a chunk is
-  applied at most once even if the observer fires twice for the same
-  node (defensive — MutationObserver batching + the initial sweep can
-  both surface the same node). Idempotent."
+  `seen` is an atom of the id-strings already SUCCESSFULLY processed so a
+  chunk is applied at most once even if the observer fires twice for the
+  same node (defensive — MutationObserver batching + the initial sweep
+  can both surface the same node). Idempotent.
+
+  rf2-58zvy1 finding 4 — an id is marked `seen` ONLY after a successful
+  swap, and the swapped-in content is re-scanned for fallback templates
+  before later resolved templates are processed. Two coupled corners for
+  a NESTED boundary whose inner chunk is ALREADY present when the client
+  installs late:
+
+    1. The inner fallback `<template>` lives INSIDE the outer resolved
+       `<template>`'s content, so the one-shot `materialise-fallbacks!`
+       at sweep start cannot see it (it is still inert template content,
+       not live DOM). It only enters the live tree when the outer mount
+       is swapped. If we processed the (already-present) inner resolved
+       chunk before its mount existed, `replace-mount-content!` would
+       return false. Previously the id was marked seen FIRST, so that
+       failed inner swap was skipped permanently and no later sweep could
+       recover it → the nested boundary stuck on fallback forever.
+       Fix: after a successful outer swap, immediately materialise any
+       fallbacks the new content introduced, so the inner mount exists
+       before the inner resolved template is processed later in the
+       SAME `doseq`.
+    2. Mark `seen` only on a successful swap. A resolved template whose
+       mount does not exist yet (raced ahead of its fallback) stays
+       un-`seen` and is retried on the next sweep instead of being burned.
+       Idempotency is still guaranteed: a successful swap REMOVES the
+       resolved template node (`replace-mount-content!`), so a re-fire
+       cannot re-process it even before consulting `seen`.
+
+  Returns `true` when this call made PROGRESS (a swap happened, or a
+  failed-boundary fallback was applied) so the sweep can iterate to a
+  fixpoint — a nested inner chunk whose mount only appeared after the
+  outer swap is recovered within the same sweep even when document order
+  put the inner resolved template before the outer one."
   [root frame-id seen resolved-tmpl]
   (let [id-str  (.getAttribute resolved-tmpl attr-suspense-id)
         failed? (= "1" (.getAttribute resolved-tmpl attr-suspense-failed))]
-    (when (and id-str (not (contains? @seen id-str)))
-      (swap! seen conj id-str)
-      ;; Ensure a live mount exists even if the fallback template was not
-      ;; materialised yet (a resolved chunk that raced ahead of its own
-      ;; fallback in the same observer batch) — materialise-fallbacks!
-      ;; runs first in the sweep, so this is the belt-and-braces path.
+    (if (and id-str (not (contains? @seen id-str)))
       (let [swapped? (replace-mount-content! root id-str resolved-tmpl)]
-        (if failed?
+        (when swapped?
+          ;; Mark seen ONLY on success — an unresolved mount is retryable
+          ;; on the next pass rather than permanently skipped (finding 4).
+          (swap! seen conj id-str)
+          ;; The just-swapped content may carry NESTED fallback templates
+          ;; that were inert inside the resolved <template> and are now
+          ;; live DOM. Materialise them so a nested resolved chunk found
+          ;; later in this same sweep has a mount to swap into (finding 4).
+          (materialise-fallbacks! root))
+        (cond
+          failed?
           (trace/emit-error! :rf.ssr/suspense-boundary-failed
                              {:id        (read-boundary-id id-str)
                               :frame     frame-id
                               :where     'rf.ssr/streaming-client
                               :reason    "Server-side continuation render failed; client swapped the fallback HTML, no delta applied."
                               :recovery  :inline-fallback})
-          (when swapped?
-            (apply-delta-script! root frame-id id-str)))))))
+          swapped?
+          (apply-delta-script! root frame-id id-str))
+        (boolean swapped?))
+      false)))
 
 (defn- sweep!
   "One full sweep: materialise any un-mounted fallback `<template>`s into
@@ -300,19 +339,63 @@
   `<template>` (swap + delta-merge). Called once on install (chunks that
   streamed in before the bundle ran) and again whenever the observer
   reports new nodes. Fallback materialisation runs FIRST so a resolved
-  chunk in the same batch always finds a live mount to swap into."
+  chunk in the same batch always finds a live mount to swap into.
+
+  rf2-58zvy1 finding 4 — the resolved-processing pass iterates to a
+  FIXPOINT. A nested boundary whose inner resolved chunk is already in
+  the DOM when the client installs late only gets its live mount AFTER
+  the outer mount is swapped (the inner fallback was inert template
+  content inside the outer resolved <template>). A single document-order
+  pass can therefore visit the inner resolved template before its mount
+  exists; gating `seen` on success (above) keeps it retryable, and this
+  loop re-runs the pass while any swap is still making progress, so the
+  inner chunk lands within the same sweep instead of being stranded on
+  fallback until the final payload. The loop terminates because every
+  iteration that continues swapped at least one boundary (monotone:
+  boundaries only move resolved-ward, never back), and the total boundary
+  count is finite."
   [root frame-id seen]
   (materialise-fallbacks! root)
-  (doseq [t (query-by-attr root attr-suspense-resolved)]
-    (process-resolved-template! root frame-id seen t)))
+  (loop []
+    (let [progress? (reduce (fn [acc t]
+                              (or (process-resolved-template! root frame-id seen t)
+                                  acc))
+                            false
+                            (query-by-attr root attr-suspense-resolved))]
+      (when progress?
+        (recur)))))
+
+(defn- element-by-id
+  "Find an element with id `id` under `root` WITHOUT building a raw `#id`
+  CSS selector. Per rf2-58zvy1 finding 3 — a `:payload-id` override that
+  is a VALID HTML id but contains CSS-selector-significant chars (`.`,
+  `:`, `[`, space, …) makes `(.querySelector root (str \"#\" id))` either
+  select the wrong element or throw a `SyntaxError`, breaking `install!`.
+  HTML ids are matched by exact string, not by CSS grammar, so:
+
+    - Document / DocumentFragment roots have native `getElementById`
+      (the same exact-string lookup the DOM-read bootstrap uses) — use it.
+    - Element roots have no `getElementById`; scan `[id]`-bearing
+      descendants and compare `.id` exactly. `[id]` (presence) is a
+      structurally-fixed selector — it never embeds the user-supplied id —
+      so it cannot be poisoned by a CSS-special payload-id."
+  [root id]
+  (if (some? (.-getElementById root))
+    (.getElementById root id)
+    (->> (array-seq (.querySelectorAll root "[id]"))
+         (some #(when (= id (.-id %)) %)))))
 
 (defn- final-payload-present?
   "True once the canonical `__rf_payload` `<script>` has parsed into the
   DOM — the signal that streaming is complete and the observer should
   disconnect (the final `:rf/hydrate` is the reconciliation point;
-  deltas after it would race the canonical replace)."
+  deltas after it would race the canonical replace).
+
+  Per rf2-58zvy1 finding 3 — matches the payload by EXACT id string via
+  `element-by-id`, never a raw `#id` CSS selector, so a documented
+  `:payload-id` override with CSS-special chars cannot throw or mis-match."
   [root payload-id]
-  (some? (.querySelector root (str "#" payload-id))))
+  (some? (element-by-id root payload-id)))
 
 ;; ---- public surface --------------------------------------------------------
 

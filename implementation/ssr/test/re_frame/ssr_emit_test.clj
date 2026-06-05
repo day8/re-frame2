@@ -400,6 +400,37 @@
     (is (= "<p>a</p><p>b</p>"
            (emit/render-to-string [:<> [:p "a"] [:p "b"]] {})))))
 
+(deftest render-hash-threads-through-fragment-root
+  (testing "rf2-58zvy1 finding 2 — root-attrs (the render-hash marker)
+            thread through a `:<>` fragment ROOT onto the first DOM-tag
+            child exactly once. The prior plain `emit-children` on the
+            fragment branch dropped root-attrs, so a fragment-rooted SSR
+            tree lost the `data-rf-render-hash` the emitter docstring
+            promises (and that the emitter/Ring hash contract depends on)."
+    (testing ":emit-hash? lands data-rf-render-hash on the fragment's first child"
+      (is (re-matches #"<div data-rf-render-hash=\"[0-9a-f]+\">x</div>"
+                      (emit/render-to-string [:<> [:div "x"]] {:emit-hash? true}))
+          "single-child fragment root gets the marker on the div"))
+    (testing "the marker lands on the FIRST DOM child only, not every child"
+      (let [html (emit/render-to-string [:<> [:div "a"] [:div "b"]] {:emit-hash? true})]
+        (is (re-matches #"<div data-rf-render-hash=\"[0-9a-f]+\">a</div><div>b</div>"
+                        html)
+            (str "exactly one data-rf-render-hash, on the first div; got: " html))
+        (is (= 1 (count (re-seq #"data-rf-render-hash=" html)))
+            "marker appears exactly once across the fragment's children")))
+    (testing "an explicit :render-hash threads through the fragment root"
+      (is (= "<div data-rf-render-hash=\"deadbeef\">x</div>"
+             (emit/render-to-string [:<> [:div "x"]] {:render-hash "deadbeef"}))
+          "the supplied hash drives the root-attr marker through the fragment"))
+    (testing "nested fragments keep threading the marker down to the first DOM tag"
+      (is (re-matches #"<div data-rf-render-hash=\"[0-9a-f]+\">y</div>"
+                      (emit/render-to-string [:<> [:<> [:div "y"]]] {:emit-hash? true}))
+          "a fragment whose first child is a fragment still places the marker"))
+    (testing "no opts → no marker (fragment branch unchanged when root-attrs nil)"
+      (is (= "<div>x</div>"
+             (emit/render-to-string [:<> [:div "x"]] {}))
+          "without :emit-hash?/:render-hash the fragment root emits no marker"))))
+
 ;; ===========================================================================
 ;; rf2-bee5i — :rf/suspense-boundary is a streaming-only marker. The standard
 ;; emitter must REJECT it (fail loud, parallel to :>) rather than emit a

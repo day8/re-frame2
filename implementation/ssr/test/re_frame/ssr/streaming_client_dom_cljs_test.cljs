@@ -304,6 +304,111 @@
             (trace-tooling/unregister-listener! k)
             (remove-root! host)))))))
 
+(deftest css-special-payload-id-does-not-throw
+  (testing "rf2-58zvy1 finding 3 — a documented :payload-id override that is
+            a VALID HTML id but carries CSS-selector-significant chars
+            (`.`, `:`) must not make install! throw or mis-detect the
+            final payload. The prior `(.querySelector root (str \"#\" id))`
+            built a raw CSS selector, so `#rf:payload` / `#rf.payload`
+            either threw a SyntaxError or selected the wrong element.
+            install! now matches by exact id (getElementById on a Document
+            root / id-scan on an element root)."
+    (if-not (browser?)
+      (is true ":node-test: no DOM")
+      (doseq [pid ["rf:payload" "rf.payload" "rf payload" "rf[0]"]]
+        (let [fid  (make-client-frame!)
+              host (make-root! [:card.x])]
+          (try
+            ;; A resolved chunk AND a final payload using the CSS-special id
+            ;; are already present — the stream-complete case for a custom
+            ;; shell. install! must sweep the chunk and DETECT completion
+            ;; without throwing on the selector.
+            (append-chunk!
+              host
+              (resolved-chunk-html :card.x
+                                   "<div class=\"card resolved-x\">x</div>"
+                                   {:cards {:x {:value 1}}}))
+            ;; Append a final-payload script carrying the CSS-special id.
+            (append-chunk!
+              host
+              (str "<script id=\"" pid "\" type=\"application/edn\">"
+                   "{:rf/version 1 :rf/app-db {} :rf/render-hash \"00000000\"}"
+                   "</script>"))
+            (let [stop! (streaming-client/install! {:frame fid :root host :payload-id pid})]
+              (try
+                ;; No throw is the headline assertion; the chunk still
+                ;; swapped (the sweep ran before completion-detection).
+                (is (= 1 (card-count host "resolved-x"))
+                    (str "chunk swapped despite CSS-special payload-id " (pr-str pid)))
+                (is (= 1 (:value @(rf/subscribe fid [:sct/card :x])))
+                    "delta merged")
+                (finally (stop!))))
+            (finally (remove-root! host))))))))
+
+(deftest nested-resolved-chunks-recover-on-late-install
+  (testing "rf2-58zvy1 finding 4 — when an OUTER and a NESTED INNER resolved
+            chunk are both already in the DOM at install (a late-loading
+            client), and the outer resolved HTML contains the inner
+            FALLBACK template, install! must leave BOTH outer and inner
+            content live with the inner delta merged. The prior code marked
+            the inner id seen BEFORE its mount existed (the inner mount only
+            appears once the outer swap moves the inner fallback into live
+            DOM), so the inner swap failed and was skipped permanently —
+            the nested boundary stuck on fallback. The sweep now marks seen
+            only on a successful swap, re-materialises fallbacks introduced
+            by a swap, and iterates to a fixpoint."
+    (if-not (browser?)
+      (is true ":node-test: no DOM")
+      (let [fid  (make-client-frame!)
+            ;; Only the OUTER boundary has an inline shell fallback. The
+            ;; INNER boundary's fallback lives INSIDE the outer resolved
+            ;; chunk's HTML — it is inert template content until the outer
+            ;; mount swaps, exactly the nested wire shape.
+            host (make-root! [:card.outer])
+            ;; The outer resolved content embeds the inner fallback template.
+            inner-fallback (ssr/streaming-fallback-template
+                             :card.inner "<div class=\"card skeleton inner-skel\">loading inner</div>")
+            outer-resolved-html (str "<section class=\"card resolved-outer\">outer "
+                                     inner-fallback "</section>")]
+        (try
+          ;; Both chunks already present at install, NO final payload.
+          ;; Append inner FIRST so document order puts the inner resolved
+          ;; template before the outer one — the worst case for a single
+          ;; document-order pass (inner processed before its mount exists).
+          ;; Per the server contract each delta ships the FULL after-value
+          ;; for the changed top-level key (`:cards`), so the client's
+          ;; top-level `(into existing delta)` merge is lossless regardless
+          ;; of which delta the fixpoint applies last (Spec 011 §Hydration
+          ;; interleaving — same property the lossless-across-chunks test
+          ;; pins). Using distinct nested values for outer/inner here proves
+          ;; BOTH nested boundaries hydrated, not just one.
+          (append-chunk!
+            host
+            (resolved-chunk-html :card.inner
+                                 "<div class=\"card resolved-inner\">inner 99</div>"
+                                 {:cards {:outer {:value 7} :inner {:value 99}}}))
+          (append-chunk!
+            host
+            (resolved-chunk-html :card.outer
+                                 outer-resolved-html
+                                 {:cards {:outer {:value 7} :inner {:value 99}}}))
+          (is (nil? (.querySelector host "#__rf_payload"))
+              "no final payload — recovery is purely the sweep's doing")
+          (let [stop! (streaming-client/install! {:frame fid :root host})]
+            (try
+              (is (= 1 (card-count host "resolved-outer"))
+                  "outer resolved content is live")
+              (is (= 1 (card-count host "resolved-inner"))
+                  "inner resolved content is live — the nested boundary recovered")
+              (is (= 0 (card-count host "inner-skel"))
+                  "the inner skeleton fallback was replaced, not stranded")
+              (is (= 7 (:value @(rf/subscribe fid [:sct/card :outer])))
+                  "outer delta merged")
+              (is (= 99 (:value @(rf/subscribe fid [:sct/card :inner])))
+                  "inner delta merged — progressive hydration of the nested boundary")
+              (finally (stop!))))
+          (finally (remove-root! host)))))))
+
 (deftest async-observer-applies-late-chunk
   (testing "A resolved chunk that arrives AFTER install (the observer-driven
             path) is swapped + merged too. Proves the MutationObserver
