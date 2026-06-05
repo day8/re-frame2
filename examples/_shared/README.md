@@ -42,6 +42,15 @@ The pairing nods to the rest of the project (Xray uses Inter + JBM,
 Story uses IBM Plex on a similarly light surface) so examples, dev
 tools, and docs all sit naturally next to one another.
 
+**No remote fonts.** The stylesheet states Inter / JetBrains Mono as the
+first-preference families but loads **no** web fonts — there is no
+`@import` of Google Fonts (or any other host). The font stacks resolve
+through their declared system fallbacks (`system-ui` / `Segoe UI` /
+`-apple-system`; `ui-monospace` / `SF Mono` / `Menlo`), so a staged
+example makes **zero** third-party network requests for styling. Offline,
+firewalled, and privacy-sensitive local runs render the same, and
+screenshots stay reproducible. (rf2-byf7y)
+
 ## Files
 
 - `css/style.css` — the shared design system. Linked by

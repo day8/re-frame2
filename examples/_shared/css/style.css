@@ -25,9 +25,15 @@
  * @imports structure.css for layout-only class shapes
  *          (forms, banners, pills, boot, navbar, cards, cells grid,
  *          testbed shell). Stays substrate-agnostic.
+ *
+ * No remote fonts. The Inter / JetBrains Mono families below are stated as
+ * the first preference but resolve entirely through the declared system
+ * fallbacks (system-ui / Segoe UI / -apple-system; ui-monospace / SF Mono /
+ * Menlo). A staged example therefore makes ZERO third-party network
+ * requests for styling — offline, firewalled, and privacy-sensitive local
+ * runs render identically and screenshots stay reproducible. (rf2-byf7y)
  * ========================================================================== */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
 @import url('structure.css');
 
 :root {
