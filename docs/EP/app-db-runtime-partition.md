@@ -6,10 +6,10 @@ Date: 2026-06-06
 
 Related:
 
-- [Guide 02 - app-db](../../guide/02-app-db.md)
-- [Guide 04 - Events and the cascade](../../guide/04-events-and-the-cascade.md)
-- [Guide 18 - Frames](../../guide/18-frames.md)
-- [Guide 21 - Runtime model](../../guide/21-dynamic-model.md)
+- [Guide 02 - app-db](../guide/02-app-db.md)
+- [Guide 04 - Events and the cascade](../guide/04-events-and-the-cascade.md)
+- [Guide 18 - Frames](../guide/18-frames.md)
+- [Guide 21 - Runtime model](../guide/21-dynamic-model.md)
 - [Spec 002 - Frames](https://github.com/day8/re-frame2/blob/main/spec/002-Frames.md)
 - [Spec 005 - State Machines](https://github.com/day8/re-frame2/blob/main/spec/005-StateMachines.md)
 - [Spec 006 - Reactive Substrate](https://github.com/day8/re-frame2/blob/main/spec/006-ReactiveSubstrate.md)
