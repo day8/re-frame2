@@ -48,9 +48,13 @@ That keeps the design inside the re-frame2 ethos:
 The initial implementation should be a read-resource MVP: registration,
 explicit ensure/refetch/invalidate events, passive subscriptions, active owners,
 stale/fresh policy, dedupe, GC, route integration, SSR preload/hydration, and
-Xray/tool visibility. Mutations, optimistic updates, polling, infinite resources,
-generic transports, and normalized caches are important follow-on slices, but
-should not make the first artifact too wide.
+Xray/tool visibility. It should also define timer policy for stale/GC behavior
+and resolve background-refresh error semantics up front.
+
+Mutations and focus/reconnect revalidation should be the first post-MVP slices,
+not distant future work. Optimistic updates, polling, infinite resources,
+generic transports, and normalized caches are important later slices, but should
+not make the first artifact too wide.
 
 ## Problem
 
@@ -240,6 +244,7 @@ The target frame-state shape is:
      :status        :loaded
      :data          {:title "Welcome"}
      :error         nil
+     :refresh-error nil
      :loaded-at     1780752000000
      :stale-at      1780752060000
      :generation    3
@@ -381,7 +386,7 @@ Every resource instance has a lifecycle:
 
 :fetching
   success -> :loaded
-  failure -> :error, preserving last-known-good data
+  failure -> :loaded with :refresh-error, preserving last-known-good data
   superseded reply -> previous stable state
 
 :error
@@ -424,15 +429,22 @@ V1 should include:
 - SSR preload and hydration for route resources;
 - managed HTTP as the only built-in transport;
 - exact tag invalidation;
+- timer policy for stale/fresh and inactive GC;
+- explicit `:refresh-error` semantics for failed background refresh;
 - Xray/tool summaries with redaction;
 - conformance tests.
 
-V1 should defer:
+First post-MVP slices:
 
 - `reg-mutation`;
+- focus and reconnect revalidation for active stale resources;
+- mutation invalidation integration.
+
+Later slices:
+
 - optimistic rollback;
 - generic transport extension;
-- polling, focus, and reconnect revalidation;
+- polling and interval revalidation;
 - infinite resources;
 - normalized entity caches;
 - automatic graph-derived invalidation;
@@ -514,6 +526,10 @@ Subscriptions are passive:
 [:rf.resource/error
  {:resource :article/by-slug
   :params   {:slug "welcome"}}]
+
+[:rf.resource/refresh-error
+ {:resource :article/by-slug
+  :params   {:slug "welcome"}}]
 ```
 
 Introspection:
@@ -582,11 +598,14 @@ Deferred keys:
 - `:poll-ms`;
 - `:revalidate`;
 - `:placeholder`;
-- `:select`;
 - `:transport` extension protocols;
 - `:cache-key`;
 - `:infinite`;
 - mutation-only keys such as `:invalidates`, `:optimistic`, and `:rollback`.
+
+Do not add a TanStack-style `:select` key in v1. In re-frame2, projections are
+ordinary subscriptions layered over `[:rf.resource/data ...]`. That is not a
+missing feature; it is a structural advantage of the subscription graph.
 
 ### Status Semantics
 
@@ -596,7 +615,8 @@ flags:
 ```clojure
 {:status     :idle | :loading | :fetching | :loaded | :error | :stale
  :data       <last-known-good-or-nil>
- :error      <last-error-or-nil>
+ :error      <first-load-error-or-nil>
+ :refresh-error <background-refresh-error-or-nil>
  :loaded-at  <ms-or-nil>
  :stale-at   <ms-or-nil>
  :attempt    <int>
@@ -613,15 +633,57 @@ The important invariant:
 
 - `:loading` means first load with no usable data;
 - `:fetching` means work is in flight while prior data stays visible;
-- `:error` means the last resource operation failed;
-- `:error` may still carry last-known-good `:data`;
-- views must use `:has-data?`, `:loading?`, `:fetching?`, and `:error` rather
-  than assuming `:status :error` means `:data` is nil.
+- `:error` means the resource has no usable data because the first load failed;
+- a failed background refresh keeps the prior `:data`, returns to `:loaded`, and
+  records the failure in `:refresh-error`;
+- `:refresh-error` is cleared by the next successful load or refresh;
+- views should not have to infer "error with stale data" from
+  `(:status state)` plus `(:has-data? state)`.
 
-This makes background refresh failures visible without forcing a blank screen.
-If that proves too subtle in practice, a later decision can split refresh
-failures into an explicit `:refresh-error`, but v1 should be consistent with
-Pattern-RemoteData.
+First-load failure:
+
+```clojure
+{:status :error
+ :data nil
+ :error {:category :http/status :status 503}
+ :refresh-error nil
+ :has-data? false}
+```
+
+Background-refresh failure:
+
+```clojure
+{:status :loaded
+ :data {:title "Welcome"}
+ :error nil
+ :refresh-error {:category :http/status :status 503}
+ :has-data? true
+ :fetching? false}
+```
+
+This keeps the `:loading` / `:fetching` promise intact: views do not guess
+whether they are looking at a blank first-load failure or stale data with a
+refresh warning.
+
+### Stale And GC Scheduling
+
+Because `:stale-after-ms` and `:gc-after-ms` are v1 features, their scheduling
+rules are part of v1 too. They have the same hidden-tab and event-drain concerns
+as later polling.
+
+Rules:
+
+- freshness is computed from durable timestamps such as `:loaded-at` and
+  `:stale-at`, not from trusting that a timer fired exactly on time;
+- a stale timer may enqueue a resource event, but the handler must re-check the
+  current entry before writing;
+- inactive GC may use host timers, but GC must re-check owner sets and entry
+  generation after wake;
+- timers and host handles live in side tables, not in frame-state;
+- frame destroy cancels all resource timers for that frame;
+- a hidden tab can delay timers without corrupting correctness; on focus or
+  reconnect, the first post-MVP revalidation slice should scan active stale
+  entries and refetch by event.
 
 ### Route Integration
 
@@ -779,9 +841,51 @@ Later, Xray can add lint:
 Do not pretend invalidation can always be derived. The server is the source of
 truth and the client often lacks enough semantic information.
 
+### Focus And Reconnect Revalidation
+
+Focus and reconnect revalidation should be the first post-MVP slice.
+
+TanStack Query's most visible magic is that stale active data refreshes when
+the user returns to the tab or the network reconnects. re-frame2 should provide
+the same user-facing behavior, but through events rather than subscription
+lifecycle.
+
+The implementation should reuse v1 primitives:
+
+- active owners decide which entries are worth refetching;
+- stale/fresh timestamps decide whether refetch is needed;
+- generation checks suppress stale replies;
+- managed HTTP owns transport retry and abort;
+- Xray and traces show why the refresh happened.
+
+Likely public/internal events:
+
+```clojure
+:rf.resource/window-focused
+:rf.resource/network-reconnected
+```
+
+Algorithm:
+
+1. receive focus or reconnect signal;
+2. scan active resource entries;
+3. refetch entries that are stale or policy-marked for revalidation;
+4. leave fresh entries alone;
+5. emit trace records explaining the decision.
+
+This is deliberately not subscription-driven fetching. The browser event causes
+resource events; views remain passive reads.
+
 ### Mutations
 
-Mutations should be the second slice, not the read-resource MVP.
+Mutations should be the second slice, not the read-resource MVP. They should
+follow quickly, alongside focus/reconnect revalidation, because a read cache
+without a write/invalidation story feels incomplete next to TanStack Query,
+RTK Query, SWR, and `re-frame-query`.
+
+Until the mutation slice lands, apps can still dispatch
+`:rf.resource/invalidate-tags` manually after their own write events. That is
+coherent, but it is not the full value proposition.
 
 Example shape:
 
@@ -851,14 +955,16 @@ Xray should expose:
 - status and freshness;
 - loaded-at/stale-at;
 - in-flight request ids;
+- first-load errors and refresh errors;
 - provided tags and invalidation history;
 - stale-suppressed replies;
 - SSR preload/hydration status;
 - redaction and sensitivity markers.
 
 Tool APIs should prefer summaries and metadata over raw values. AIs usually
-need to know "this route owns `:article/by-slug`, it is stale, and it last
-failed with a 503", not the full article body or user profile payload.
+need to know "this route owns `:article/by-slug`, it is stale, and the latest
+background refresh failed with a 503", not the full article body or user
+profile payload.
 
 ## Examples
 
@@ -907,8 +1013,8 @@ failed with a 503", not the full article body or user profile payload.
        [:article-view {:article (:data state)}]
        (when (:fetching? state)
          [refresh-indicator])
-       (when (:error state)
-         [refresh-error (:error state)])])))
+       (when (:refresh-error state)
+         [refresh-error (:refresh-error state)])])))
 ```
 
 The view is passive. The route caused the resource ensure. The runtime owns
@@ -1138,6 +1244,7 @@ Register passive subscriptions:
 :rf.resource/data
 :rf.resource/status
 :rf.resource/error
+:rf.resource/refresh-error
 :rf.resource/loading?
 :rf.resource/fetching?
 :rf.resource/stale?
@@ -1172,13 +1279,13 @@ Tools should receive summaries:
 
 ```clojure
 {:resource-key [:article/by-slug {:slug "welcome"}]
- :status       :error
+ :status       :loaded
  :has-data?    true
  :stale?       true
  :owners       #{[:route :route/article nav-token]}
  :tags         #{[:article "welcome"]}
- :last-error   {:category :http/status
-                :status   503}
+ :refresh-error {:category :http/status
+                 :status   503}
  :data-summary {:schema :app/article
                 :redacted? true
                 :size 14231}}
@@ -1195,7 +1302,7 @@ Initial conformance fixtures should cover:
 - params canonicalization;
 - first load `:loading`;
 - background refresh `:fetching`;
-- background refresh failure preserving data;
+- background refresh failure records `:refresh-error` and preserves data;
 - success and failure transitions;
 - stale/fresh behavior;
 - inactive GC;
@@ -1269,17 +1376,24 @@ The v1 artifact should include:
 - exact tag invalidation;
 - stale/fresh policy;
 - inactive GC;
+- stale/GC timer policy;
 - dedupe;
 - stale reply suppression;
+- `:refresh-error` for background-refresh failures;
 - SSR preload/hydration;
 - Xray/tool metadata.
 
-Defer:
+First post-MVP slices:
 
 - `reg-mutation`;
+- focus/reconnect revalidation;
+- mutation invalidation integration.
+
+Defer beyond those first slices:
+
 - optimistic rollback;
 - generic transports;
-- polling/focus/reconnect revalidation;
+- polling/interval revalidation;
 - infinite resources;
 - normalized caches;
 - automatic graph-derived invalidation;
@@ -1308,6 +1422,8 @@ Structural advantages inside re-frame2:
 - runtime-owned state that ordinary app-db writes cannot clobber;
 - managed HTTP as the default transport;
 - schema-aware params and decoded data;
+- derived projections through ordinary subscriptions instead of a query-local
+  `:select` hook;
 - time-travel and SSR through frame-state;
 - Xray visibility;
 - AI-readable metadata and redacted values;
@@ -1344,9 +1460,10 @@ re-frame2 runtime process.
    Recommendation: no in v1. Canonical params are the identity.
 6. Should subscription-driven fetching exist?
    Recommendation: not in v1. Reconsider later as explicit convenience.
-7. Should errors with prior data use `:status :error` or `:refresh-error`?
-   Recommendation: use Pattern-RemoteData `:status :error` with preserved data
-   and explicit `:has-data?`, then revisit if confusing.
+7. What exact shape should `:refresh-error` carry?
+   Recommendation: use the same error envelope shape as `:error`, plus
+   timestamp/attempt metadata if useful. `:status :error` is reserved for
+   first-load failure with no usable data.
 8. Should generic transports be part of v1?
    Recommendation: no. Managed HTTP first.
 
@@ -1360,16 +1477,18 @@ re-frame2 runtime process.
 4. Managed HTTP bead: ensure/refetch/success/failure over `:rf.http/managed`,
    dedupe, generation checks, and stale reply suppression.
 5. Invalidation/GC bead: tags, active owners, owner indexes, stale marking,
-   active refetch, and inactive GC.
+   active refetch, stale/GC timer policy, and inactive GC.
 6. Route integration bead: `:resources`, nav-token owners, blocking resources,
    release on leave, and preserved `:on-match` behavior.
 7. SSR/hydration bead: blocking resource drain, resource projection, redaction,
    and hydration no-double-fetch.
 8. Xray/tool/privacy bead: resource registry panel, route/resource graph,
    summaries, egress policy, and redacted accessors.
-9. Mutation bead: `reg-mutation`, execution, invalidation, and snapshot
+9. Focus/reconnect bead: active-stale scan on browser focus and network
+   reconnect, expressed as resource events with trace records.
+10. Mutation bead: `reg-mutation`, execution, invalidation, and snapshot
    rollback.
-10. Docs/examples bead: guide chapter, API docs, migration notes from
+11. Docs/examples bead: guide chapter, API docs, migration notes from
     `shipclojure/re-frame-query`, route-driven example, SSR example, and
     machine-owned resource example.
 

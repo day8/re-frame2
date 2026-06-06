@@ -244,7 +244,7 @@ nav:
     - "Frame State":
       - "App/Runtime Partition": EP/FrameState/app-db-runtime-partition.md
     - "Resource Management":
-      - "Resource Queries": EP/ResouceManagement/resource-queries.md
+      - "Resource Queries": EP/ResourceManagement/resource-queries.md
 
   - API:
     # Section label IS the API overview page (navigation.indexes, rf2-qgpkm).
