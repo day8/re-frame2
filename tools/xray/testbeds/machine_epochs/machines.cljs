@@ -420,6 +420,70 @@
   exit-leaf restores only to the child's `:initial`)."
   (media-player-spec false))
 
+;; ============================================================================
+;; MACHINE 9 — :modal/main  (MULTI-EVENT transition — the events-as-nodes case)
+;; ============================================================================
+;;
+;; THE events-as-nodes divergence (rf2-vilpfa). One target, `:closed`, reached
+;; from `:open` on THREE distinct events (`:modal/cancel`, `:modal/submit` [+a
+;; `:save` action], `:modal/escape`). xstate v5 STACKS the three event labels
+;; on ONE edge `:open ──► :closed`; re-frame2's events-as-nodes render draws
+;; THREE event-nodes fanning INTO the single `:closed` node. Driving all three
+;; lands `:closed` every time — the behaviour is identical to xstate (the gold
+;; standard); only the CHART topology diverges, which is the whole point of the
+;; comparison. The `:submit` path additionally runs the `:save` action so the
+;; fan-in carries a data-bearing branch alongside the two plain ones.
+
+(defmachine modal-machine
+  {:initial :closed
+   :actions
+   {:save (fn save [{data :data}]
+            {:data (assoc data :saved? true)})}
+   :states
+   {:closed
+    {:tags #{:modal/closed}
+     :on   {:modal/open :open}}
+    :open
+    {:tags #{:modal/open}
+     :on   {:modal/cancel :closed
+            :modal/submit {:target :closed :action :save}
+            :modal/escape :closed}}}})
+
+;; ============================================================================
+;; MACHINE 10 — :gate/main  (MULTI-BRANCH GUARDED fork — the guard-fork case)
+;; ============================================================================
+;;
+;; THE guard-fork divergence (rf2-vilpfa). `:gate/check` FORKS from `:idle` by
+;; a guarded candidate VECTOR: first guard-pass wins — `:gate-high?` → `:high`,
+;; `:gate-low?` → `:low`, else the unguarded fallback `{:target :rejected}`.
+;; `:gate/set` arms `:level` first (an internal `:action`-only transition,
+;; reading the level off the event payload `(second event)`). xstate v5 draws
+;; ONE labelled edge per branch from `:idle` (the guard in the label); the
+;; re-frame2 render diverges in HOW the fork is drawn, but the BEHAVIOUR is
+;; faithful — each `:check` lands the branch its guard selects. Driving all
+;; three branches (high 7 → :high, low 2 → :low, none 0 → :rejected) exercises
+;; the full first-guard-pass-wins + unguarded-fallback resolution.
+
+(defmachine gate-machine
+  {:initial :idle
+   :data    {:level 0}
+   :actions
+   {:set-level (fn set-level [{data :data event :event}]
+                {:data (assoc data :level (second event))})}  ;; event: [:gate/set <n>]
+   :guards
+   {:gate-high? (fn gate-high? [{data :data}] (>= (:level data) 5))
+    :gate-low?  (fn gate-low?  [{data :data}] (and (pos? (:level data)) (< (:level data) 5)))}
+   :states
+   {:idle
+    {:tags #{:gate/idle}
+     :on   {:gate/set   {:action :set-level}
+            :gate/check [{:guard :gate-high? :target :high}
+                         {:guard :gate-low?  :target :low}
+                         {:target :rejected}]}}
+    :low      {:tags #{:gate/low}      :on {:gate/reset :idle}}
+    :high     {:tags #{:gate/high}     :on {:gate/reset :idle}}
+    :rejected {:tags #{:gate/rejected} :on {:gate/reset :idle}}}})
+
 ;; ----------------------------------------------------------------------------
 ;; HISTORY PLACEMENT probe — the misplaced-history rejection (rung #24).
 ;; ----------------------------------------------------------------------------
@@ -471,4 +535,6 @@
   (rf/reg-machine :fuse/box         fuse-machine)
   (rf/reg-machine :hvac/controller  hvac-controller-machine)
   (rf/reg-machine :media/deep       media-deep-machine)
-  (rf/reg-machine :media/shallow    media-shallow-machine))
+  (rf/reg-machine :media/shallow    media-shallow-machine)
+  (rf/reg-machine :modal/main       modal-machine)
+  (rf/reg-machine :gate/main        gate-machine))
