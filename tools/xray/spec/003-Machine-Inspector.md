@@ -91,44 +91,63 @@ below; the three render states are:
    quiet centered empty-state per the design system. (See
    [§Dynamic mode — single-instance, event-driven (rf2-8og3k)](#dynamic-mode--single-instance-event-driven-rf2-8og3k)
    for the full rule.)
-3. **Focused event targets a machine instance** → one section for that
-   one instance (chosen per the rf2-8og3k selection rule below). A
-   machine **birth** (`:rf.machine/started`) is a first-class member of
-   this set per [§Machine birth — the start / initial-entry case
-   (rf2-eldze)](#machine-birth--the-start--initial-entry-case-rf2-eldze)
-   below: it has no from-state (it is an entry INTO the initial state,
-   not a from→to transition), so the section renders a `[START]` marker
-   in place of the from-state and highlights the resulting initial state.
-    - Header: `<from-state> → <to-state>` with the event vector right-
-      aligned (for a birth: `[START] → <initial-state>`).
-    - Topology chart (**xyflow + elkjs** primitive — rf2-gpzb4 xyflow
-      migration; the prior host-side ELK+SVG render is gone) with the
-      FROM state drawn dashed/accent-violet and the TO state bold/cyan;
-      connecting edges emphasised. Custom Stately/xstate-style nodes
-      (initial-state marker with `↳`, compound-state nesting,
-      events-as-nodes per rf2-qo5xy — each transition projects as its
-      own `rf2-event` box between the source and target state, with
-      `[guard]` chip + `+ <action>` pills inside the event box; `⌚`
-      glyph for `:after`, `∞` for `:always`). `:after` countdown
-      rings overlay armed timer states.
-    - Guards list (when the trace carried guard-evaluated events for
-      this transition).
-    - Actions list (when the trace carried action-ran events).
-    - **Snapshot drill-in** (rf2-lxvn6 · phase 4 of rf2-oqa60). The
-      BEFORE / AFTER snapshot maps (`{:state X :data Y}`) for the
-      focused transition render via the first-class edn-inspector
-      widget. Per-machine `:panel-id` qualifier keeps two machines'
-      expansion state independent; the `:before` / `:after` phase
-      suffix scopes the two sibling mounts on the same machine. See
-      [`021-Dynamic-Panel-Designs.md` §10](021-Dynamic-Panel-Designs.md#10-shared-edn-inspector-renderer)
-      for the widget contract — distinct per-type colours, distinct
-      brackets per collection kind, inline preview of collapsed
-      collections, click-to-toggle, per-call-site isolation. The
-      block renders nothing when the trace tags lack the
-      commit-or-finalize snapshot pair (legacy fixtures).
-    - Cancellation cascade (inline, via the existing
-      `[cancellation-cascade/SidePanel]` reg-view — dormant when no
-      cancellation lands in the trace window).
+3. **Focused event targets a machine instance** → the Machine tab
+   renders **EXACTLY THREE elements, in order** (rf2-g2axio), for the one
+   instance chosen per the rf2-8og3k selection rule below. A machine
+   **birth** (`:rf.machine/started`) and a guard-blocked **no-op**
+   (`:rf.machine.event/unhandled-no-op`) are first-class members of this
+   set (per [§Machine birth (rf2-eldze)](#machine-birth--the-start--initial-entry-case-rf2-eldze)
+   and [§Guard-blocked / no-op (rf2-skmc7)](#guard-blocked--unhandled-no-op--the-no-transition-case-rf2-skmc7)).
+
+    1. **Prev/Next epoch nav** — the per-machine epoch walker (in the
+       panel header; `rf-xray-machine-inspector-prev` /
+       `rf-xray-machine-inspector-next`). Walks the spine's epoch history
+       to the prior/next epoch whose cascade ALSO touched the focused
+       machine (see the header-nav note below). Prev/Next moves the
+       focused epoch, which re-feeds **both** the mini-pipeline and the
+       chart highlights together.
+    2. **The SHARED EVENT HANDLER mini-pipeline** — the **same** renderer
+       the Epoch panel's EVENT HANDLER step uses
+       (`epoch.view/machine-cascade-mini-pipeline`, over the **same**
+       `epoch.projection/machine-cascade-rows` projection). It renders
+       the numbered machine-cascade for the focused epoch: the structured
+       EVENT HANDLER orientation line plus the microstep / exit / action /
+       entry / guard / `[START]` / `[NO OP]` rows, each with its KIND+PHASE
+       badge, verb link (click-to-source), interleaved source body, and
+       per-row outcome / data-write. Both surfaces consume the **one**
+       renderer (extract-and-reuse, rf2-g2axio) so they cannot diverge.
+       The mini-pipeline mounts under
+       `rf-xray-machine-event-handler-mini-pipeline` and carries the
+       Epoch panel's own cascade testids verbatim
+       (`rf-xray-epoch-handler-machine`,
+       `rf-xray-epoch-machine-cascade-row-N`, `-ordinal-N`, `-kind-*`,
+       `-phase-*`, `-verb-link-N`, `-source-body-N`, `-outcome-N`,
+       `-data-write-N`, and `rf-xray-epoch-event-handler-orientation`).
+    3. **The topology chart** (**xyflow + elkjs** primitive — rf2-gpzb4
+       xyflow migration) with the focused epoch's highlights: the FROM
+       state drawn dashed/accent-violet, the TO state bold/cyan,
+       connecting edges emphasised, the focused epoch's traversed edges
+       painting the FIRED treatment (rf2-qeemm), and `:after` countdown
+       rings overlaying armed timer states. The chart carries its **own**
+       toolbar (view-mode toggle + zoom/pan/fit controls) supplied by
+       `machine-canvas/Chart`; the per-machine view-mode and the chart
+       are chart-owned concerns, not tab chrome.
+
+   **Removed (rf2-g2axio):** everything else the pre-redesign section
+   carried is gone — the bespoke **focused-transition lens** (the
+   `Target Machine Instance:` · `TRANSITION` · `GUARDS RUN` ·
+   `ACTIONS RUN` forensic block, formerly rf2-99rhe / rf2-2n34o), the
+   per-machine **header ribbon** (`from → to` / `[START]` / `[NO-OP]`
+   header badges), the **list/canvas view-mode wrapper**, the
+   **chart-collapse** toggle + summary, the **snapshot drill-in**
+   (rf2-lxvn6), and the **inline cancellation cascade**. The lens's
+   forensic content is subsumed by the richer mini-pipeline cascade
+   (which carries the SAME guard pass/fail, action source, and microstep
+   detail in the SAME row stream the Epoch panel shows); timer
+   cancellations surface as the mini-pipeline's `:timer` cascade rows.
+   The redesign's purpose: the Machine tab had drifted into a thinner,
+   bespoke summary that diverged from the Epoch panel's richer microstep
+   view — sharing the one renderer fixes that permanently.
 
 The header carries:
 - A **prev/next nav** (`◀ Prev` / `Next ▶`) that walks the spine's
@@ -182,8 +201,26 @@ below; that lens is the surface a developer reads when they ask
 
 ## Focused-transition lens — above the chart (rf2-99rhe)
 
-The **focused-transition lens** is a forensic per-transition detail
-panel that lives ABOVE the chart in the Machines panel. It answers
+> **SUPERSEDED — the bespoke lens was REMOVED by rf2-g2axio.** The
+> Machine tab no longer renders this bespoke `Target Machine Instance:`
+> · `TRANSITION` · `GUARDS RUN` · `ACTIONS RUN` forensic block. The
+> Machine tab now shows EXACTLY THREE elements — Prev/Next, the
+> **SHARED EVENT HANDLER mini-pipeline** (the same renderer + projection
+> the Epoch panel uses), and the chart — see
+> [§Post-collapse Dynamic panel shape](#post-collapse-dynamic-panel-shape-rf2-y9xmf-rf2-8og3k)
+> above. The forensic question this lens answered ("this transition
+> fired — show me everything about it: which guards decided how, which
+> actions ran and what `:fx` they returned") is now answered MORE richly
+> by the mini-pipeline's per-row cascade (guard pass/fail rows, action
+> source bodies + outcomes + `:fx` data-writes, and every microstep) —
+> the SAME rows the Epoch panel's EVENT HANDLER step renders, so the two
+> surfaces cannot diverge. The §Data sources table below remains
+> accurate as the trace-contract reference the mini-pipeline's projection
+> reads; the §Selection sources and §Rendered shape subsections describe
+> the retired bespoke surface and are kept only for design history.
+
+The **focused-transition lens** was a forensic per-transition detail
+panel that lived ABOVE the chart in the Machines panel. It answered
 the question "this transition fired — show me everything about it":
 which instance, which states it moved between, which guards
 evaluated and how they decided, which actions ran and what `:fx`
@@ -191,7 +228,8 @@ they returned, and which downstream `:dispatch`es cascaded from
 those actions.
 
 The chart shows the **topology** of the transition (FROM dashed,
-TO bold, edge emphasised); the lens shows the **forensics**.
+TO bold, edge emphasised); the (now-retired) lens showed the
+**forensics** — content the shared mini-pipeline now carries.
 
 ### Selection sources
 

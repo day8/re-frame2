@@ -1606,8 +1606,10 @@ state change", then the verb **`staying in {state}`** — the machine matched
 no transition, so its state is unchanged. The qualifier is an OUTLINED muted
 (`:text-tertiary`) chip — a refinement on the solid badge beside it, not a
 second filled kind pill — reusing the `badge/cascade-kind-label :no-op`
-string (`NO OP`, space not hyphen — rf2-iu3no) and the same outlined-marker
-grammar skmc7's `[NO-OP]` uses in the Machine tab's focused-event header. It
+string (`NO OP`, space not hyphen — rf2-iu3no). Since rf2-g2axio the
+Machine tab renders this SAME shared cascade row (its bespoke
+focused-event header + `[NO-OP]` badge were removed), so this qualifier
+is now the single no-op grammar across both surfaces. It
 carries the testid `rf-xray-epoch-machine-cascade-no-op-qualifier` (distinct
 from a kind pill — it qualifies the transition step, it is NOT the row's
 kind). The earlier rf2-yueoa-predecessor (rf2-iu3no) rendered a BARE `[NO
@@ -4472,7 +4474,7 @@ signal to render plainly. None set any mode flag:
 | Epoch HANDLER step `:db`             | `panels/epoch/view.cljs` — `handler-db-diff-block` (effective post-handler db `:db-post-handler` = t1, else `db-before` when no-`:db`-with-flow, else fallback `:db-after`; `:before db-before` · rf2-4wywy / rf2-48oc4) | `data-testid="rf-xray-epoch-handler-db-full-with-diff"`                     |
 | Epoch FLOW step `:db`                | `panels/epoch/view.cljs` — `render-flow-step` (path-scoped pre→post diff `:db-pre-flow` (effective post-handler db) → `:db-post-flow` (t2) · rf2-4wywy / rf2-48oc4) | `data-testid="rf-xray-epoch-flow-db-diff-<name>"`                           |
 | App-DB panel (per `:rf/*` section)   | `panels/app_db_diff_state.cljs` — `value-body` (one mount; `:before` via `cond->` for a real pre-image; `:added? true` via `cond->` for a slice absent in the focused epoch's pre-image, i.e. the `h/added` sentinel — rf2-227cz §4.3) | App-DB panel-gallery story fixtures + segment-inspector tests               |
-| Machine Inspector snapshot drill-in  | `panels/machine_inspector.cljs` — `snapshot-block` (`:before` via `cond->` when captured)  | `data-testid="rf-xray-machine-snapshot-block-<id>"` with `data-rf-xray-diff-mode="full+diff"` |
+| ~~Machine Inspector snapshot drill-in~~ (REMOVED — rf2-g2axio) | ~~`panels/machine_inspector.cljs` — `snapshot-block`~~ — the Machine tab's snapshot drill-in was removed when the tab was reduced to Prev/Next + the SHARED EVENT HANDLER mini-pipeline + the chart (see [`003-Machine-Inspector.md` §Post-collapse Dynamic panel shape](003-Machine-Inspector.md#post-collapse-dynamic-panel-shape-rf2-y9xmf-rf2-8og3k)). `:data` mutations now read off the mini-pipeline cascade rows' inline data-writes. | — |
 | Epoch SUBSCRIPTIONS step value cells | `panels/epoch/view.cljs` — `subs-value-cell` container branch (`:before` / `:added?`)      | `data-testid="rf-xray-epoch-sub-row-*"` mount                               |
 
 **Why the input is the value, not a flag** — the widget is a pure-
