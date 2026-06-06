@@ -10,14 +10,14 @@ Related:
 - [Guide 04 - Events and the cascade](../../guide/04-events-and-the-cascade.md)
 - [Guide 18 - Frames](../../guide/18-frames.md)
 - [Guide 21 - Runtime model](../../guide/21-dynamic-model.md)
-- [Spec 002 - Frames](../../spec/002-Frames.md)
-- [Spec 005 - State Machines](../../spec/005-StateMachines.md)
-- [Spec 006 - Reactive Substrate](../../spec/006-ReactiveSubstrate.md)
-- [Spec 009 - Instrumentation](../../spec/009-Instrumentation.md)
-- [Spec 011 - SSR](../../spec/011-SSR.md)
-- [Spec 012 - Routing](../../spec/012-Routing.md)
-- [Runtime Architecture](../../spec/Runtime-Architecture.md)
-- [Conventions](../../spec/Conventions.md)
+- [Spec 002 - Frames](https://github.com/day8/re-frame2/blob/main/spec/002-Frames.md)
+- [Spec 005 - State Machines](https://github.com/day8/re-frame2/blob/main/spec/005-StateMachines.md)
+- [Spec 006 - Reactive Substrate](https://github.com/day8/re-frame2/blob/main/spec/006-ReactiveSubstrate.md)
+- [Spec 009 - Instrumentation](https://github.com/day8/re-frame2/blob/main/spec/009-Instrumentation.md)
+- [Spec 011 - SSR](https://github.com/day8/re-frame2/blob/main/spec/011-SSR.md)
+- [Spec 012 - Routing](https://github.com/day8/re-frame2/blob/main/spec/012-Routing.md)
+- [Runtime Architecture](https://github.com/day8/re-frame2/blob/main/spec/Runtime-Architecture.md)
+- [Conventions](https://github.com/day8/re-frame2/blob/main/spec/Conventions.md)
 
 ## Summary
 
