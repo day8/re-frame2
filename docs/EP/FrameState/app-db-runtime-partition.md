@@ -267,6 +267,39 @@ Avoid ambiguous names such as `:runtime`, `:frame`, or `:rf/frame` where the
 value might be an id, object, state map, or context. Prefer attribute names such
 as `:rf.frame/id`.
 
+### Pre-Alpha Keyword Cleanup
+
+This EP deliberately chooses the correct keyword vocabulary now, while
+re-frame2 is pre-alpha.
+
+The migration cost is real: implementation code, tests, examples, docs, skills,
+and migration rules that mention old framework-owned keys must be updated. That
+cost is preferable to permanently teaching ambiguous names or carrying
+compatibility aliases into the public language.
+
+The compatibility stance is:
+
+- keep the inherited re-frame keys unqualified;
+- rename new framework-owned context facts to qualified, attribute-shaped keys;
+- do not add long-lived aliases such as `:runtime`, `:rf/runtime`, or
+  `:rf/frame`;
+- use migration diagnostics, lint rules, and codemods to help pre-alpha users
+  move to the final names;
+- let legacy-key diagnostics point at the replacement vocabulary instead of
+  silently normalizing old names.
+
+Concrete replacements:
+
+| Old / ambiguous shape | Replacement |
+|---|---|
+| app-db root `:rf/runtime` | runtime-db coeffect/effect `:rf.db/runtime` |
+| full snapshot app partition `:db` | frame-state key `:rf.db/app` |
+| frame id facts such as `:frame` or `:rf/frame` | `:rf.frame/id` |
+| runtime child `:machines` | `:rf.runtime/machines` |
+| runtime child `:routing` | `:rf.runtime/routing` |
+| runtime child `:elision` | `:rf.runtime/elision` |
+| runtime child `:ssr` | `:rf.runtime/ssr` |
+
 ### Event Context Shape
 
 The standard interceptor context should thread both partitions:
@@ -789,6 +822,12 @@ Do not make the EP depend on storing both partitions inside one physical map.
 That can be an implementation choice. The contract is the partition boundary,
 the coeffect/effect keys, and the atomic frame commit.
 
+Adopt the qualified-key vocabulary in the same change. This is pre-alpha, so
+the project should pay the migration cost now rather than preserve old
+framework-owned names as compatibility aliases. The stable public vocabulary is:
+`:db` and `:event` for inherited re-frame inputs; `:rf.db/runtime`,
+`:rf.db/app`, `:rf.frame/id`, and `:rf.runtime/*` for new re-frame2-owned data.
+
 The current `:rf.warning/runtime-state-dropped` diagnostic remains useful until
 the partition lands. After the partition lands, the warning should either
 disappear or become a legacy-path diagnostic for code still trying to write
@@ -803,7 +842,8 @@ Update the normative docs:
 - Frames: a frame owns app-db and runtime-db partitions.
 - Conventions: remove `:rf/runtime` as a reserved app-db key; introduce
   `:db`, `:rf.db/runtime`, `:rf.db/app`, `:rf.frame/id`, and
-  `:rf.runtime/*` vocabulary.
+  `:rf.runtime/*` vocabulary; explicitly forbid long-lived aliases for old
+  framework-owned names.
 - Runtime Architecture: show app-db and runtime-db as frame-owned partitions
   committed by one cascade.
 - Reactive Substrate: clarify whether adapter containers physically hold one
@@ -841,6 +881,8 @@ Change the ordinary dispatch pipeline:
 - inject `:db` coeffect as app-db;
 - inject `:rf.db/runtime` coeffect as runtime-db;
 - inject `:rf.frame/id` instead of ambiguous frame keys;
+- remove internal uses of ambiguous frame/runtime context keys instead of
+  supporting them as parallel spellings;
 - interpret ordinary `:db` effect as replacement of app-db;
 - interpret reserved `:rf.db/runtime` effects as replacement/update of
   runtime-db only for framework-owned code paths;
@@ -915,6 +957,9 @@ Add diagnostics for:
 - user code registering schemas under runtime-db paths;
 - ordinary app `:db` effects returning a frame-state wrapper;
 - non-framework handlers returning `:rf.db/runtime` effects;
+- old framework-owned coeffect/effect/context keys such as `:rf/runtime`,
+  `:runtime`, `:rf/frame`, or bare `:frame` when they are used to mean
+  runtime-db or frame id;
 - raw reads of `[:rf/runtime ...]` in examples, docs, tests, or skills;
 - full-frame install attempted through ordinary dispatch.
 
@@ -950,6 +995,8 @@ Add tests for:
 - ordinary `:db` effect replaces only app-db;
 - `:rf.db/runtime` is present in coeffects;
 - `:rf.frame/id` is present in coeffects;
+- ambiguous framework-owned context keys such as `:rf/frame`, `:runtime`, and
+  `:rf/runtime` are not emitted as compatibility aliases;
 - runtime-db survives fresh app-db returns;
 - non-framework app handlers cannot write `:rf.db/runtime` without the planned
   diagnostic;
@@ -986,10 +1033,12 @@ Add tests for:
 ## Bead Structure
 
 1. Decision bead: adopt app-db/runtime-db as two durable frame partitions and
-   settle key names: `:db`, `:rf.db/runtime`, `:rf.db/app`,
-   `:rf.frame/id`, and `:rf.runtime/*`.
+   record the final key vocabulary: keep inherited `:db` / `:event`, and use
+   `:rf.db/runtime`, `:rf.db/app`, `:rf.frame/id`, and `:rf.runtime/*` for new
+   framework-owned data.
 2. Spec bead: update Frames, Conventions, Runtime Architecture, Reactive
-   Substrate, Machines, Routing, SSR, Instrumentation, Schemas, and API docs.
+   Substrate, Machines, Routing, SSR, Instrumentation, Schemas, and API docs,
+   including the no-long-lived-aliases naming stance.
 3. Helper bead: introduce app-db/runtime-db/frame-state helper functions
    without changing behavior.
 4. Event context bead: inject `:rf.db/runtime` and `:rf.frame/id` into
@@ -1002,8 +1051,8 @@ Add tests for:
    semantics to use frame-state projections.
 8. Subscriptions/tooling bead: update framework subs, Xray, pair tools, and
    egress surfaces to distinguish app-db, runtime-db, and frame-state.
-9. Guardrail/migration bead: reject or warn on legacy `:rf/runtime` access and
-   unauthorized `:rf.db/runtime` effects.
+9. Guardrail/migration bead: reject or warn on legacy `:rf/runtime` access,
+   ambiguous context-key use, and unauthorized `:rf.db/runtime` effects.
 10. Docs/examples/skills bead: rewrite human docs, AI specs, examples, and
     skills to teach the new model.
 
