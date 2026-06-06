@@ -174,10 +174,17 @@ documents the testbed's shape so the browser feature gate's
 `machine-epochs multi-machine frame-isolated stepper` scenario has a
 normative reference.
 
-**Shape.** Eight machine domains (door · traffic · quiz · brew ·
-session · fuse · hvac · media) each run in their OWN frame
-(`:machine/<track>`) and own their OWN Xray epoch ring. A left-rail
-PICKER selects a track; selecting a track:
+**Shape.** Ten machine domains (door · traffic · quiz · brew ·
+session · fuse · hvac · media · modal · gate) each run in their OWN
+frame (`:machine/<track>`) and own their OWN Xray epoch ring. The
+final two — `modal` (a MULTI-EVENT transition: one edge `:open ──►
+:closed` reached on THREE distinct events, the events-as-nodes
+divergence) and `gate` (a MULTI-BRANCH GUARDED fork: `:gate/check`
+forks from `:idle` by a guarded candidate vector — `:high` / `:low` /
+unguarded-fallback `:rejected`, the guard-fork divergence) — were added
+under rf2-vilpfa to cover the two xstate-render-divergence cases the
+original eight miss. A left-rail PICKER selects a track; selecting a
+track:
 
 1. sets the SHELL frame's (`:rf/default`) runner bookkeeping
    (`:rf.runner/selected` + per-track `:rf.runner/cursors`),

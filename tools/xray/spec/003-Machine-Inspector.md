@@ -1759,7 +1759,11 @@ action-attribution half.
   member-level tag-set delta; `:always` microsteps; `:after` timer + cancel;
   spawn / `:final?` / `:on-done` / destroy lifecycle; `:*` wildcard throw;
   deep-compound LCA + self-transitions; `:history` placement-reject + live
-  shallow/deep restore). Each step is
+  shallow/deep restore; the two xstate-render-divergence cases — MULTI-EVENT
+  transition (`modal`: one edge `:open ──► :closed` reached on three events,
+  events-as-nodes) + MULTI-BRANCH GUARDED fork (`gate`: `:gate/check` forks by
+  a guarded candidate vector to `:high` / `:low` / unguarded `:rejected`),
+  added under rf2-vilpfa). Each step is
   backed by a CLJS-unit assertion in
   `day8.re-frame2-xray.panels.epoch.machine-epochs-harness-cljs-test` (BOTH
   the machine outcome AND the cascade-render projection it lights up — cascade

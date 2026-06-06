@@ -339,6 +339,18 @@
          domain (rf2-q3lfm). Both start at :tray."}
   (fn [_ _] {:fx (boot-machines-fx [:media/deep :media/shallow])}))
 
+(rf/reg-event-fx :machine-epochs/boot-modal
+  {:doc "Boot the modal machine to :closed — the multi-event-transition machine
+         whose :open ──► :closed edge is reached on THREE distinct events
+         (the events-as-nodes divergence, rf2-vilpfa)."}
+  (fn [_ _] {:fx (boot-machines-fx [:modal/main])}))
+
+(rf/reg-event-fx :machine-epochs/boot-gate
+  {:doc "Boot the gate machine to :idle — the multi-branch guarded-fork machine
+         whose :gate/check forks by guard (:high / :low / :rejected) from :idle
+         (the guard-fork divergence, rf2-vilpfa)."}
+  (fn [_ _] {:fx (boot-machines-fx [:gate/main])}))
+
 ;; ============================================================================
 ;; THE TRACK CATALOGUE — code data (the single source of truth)
 ;; ============================================================================
@@ -353,9 +365,13 @@
 ;;   the track's machine frame. The explicit 'start machine' rows of the old
 ;;   deck were DROPPED — boot-on-select produces the START epoch for free.
 ;;
-;; The 8 domains are the same clean machine features the old flat deck drove;
-;; the cross-machine fan-out steps ('Reset door + tick traffic' and the
-;; multi-machine no-op) were DROPPED (Mike ruling 5).
+;; The first 8 domains are the same clean machine features the old flat deck
+;; drove; the cross-machine fan-out steps ('Reset door + tick traffic' and the
+;; multi-machine no-op) were DROPPED (Mike ruling 5). Two later domains —
+;; :modal (multi-event transition) + :gate (multi-branch guarded fork) — were
+;; ADDED (rf2-vilpfa) to cover the two xstate-render-divergence cases the
+;; original 8 miss: events-as-nodes (one edge reached on N events) and the
+;; guard-fork (one :check forking by guarded candidate).
 
 (def tracks
   [{:id       :door
@@ -484,7 +500,73 @@
       :watch "Epoch: the :rf.machine.history/restored banner (source :recorded, SHALLOW); restored :entry steps chip 'from history'; restores the CHILD then its :initial."}
      {:label "DEEP restore (:media/deep eject → re-insert)"
       :event [:machine-epochs/history-deep-restore]
-      :watch "Epoch: the banner reads DEEP; the :entry steps descend to the EXACT recorded leaf [:player :playing :mid-track], each chipped 'from history'."}]}])
+      :watch "Epoch: the banner reads DEEP; the :entry steps descend to the EXACT recorded leaf [:player :playing :mid-track], each chipped 'from history'."}]}
+
+   {:id       :modal
+    :label    "Modal"
+    :blurb    "MULTI-EVENT — one edge (:open ──► :closed) reached on THREE events; events-as-nodes draws 3 event-nodes fanning into :closed."
+    :machines #{:modal/main}
+    :boot     :machine-epochs/boot-modal
+    :path
+    ;; Drive all THREE multi-event paths into :closed (cancel / submit / escape),
+    ;; re-opening before each. The events-as-nodes divergence is THE point: xstate
+    ;; stacks 3 labels on one edge; re-frame2 draws 3 event-nodes into :closed.
+    [{:label "Open (:closed ──► :open)"
+      :event [:modal/main [:modal/open]]
+      :watch "Plain transition opening the modal; the next three steps each close it via a DIFFERENT event — the fan-in source nodes."}
+     {:label "Cancel (:open ──► :closed) — fan-in event #1"
+      :event [:modal/main [:modal/cancel]]
+      :watch "Multi-event: :modal/cancel lands :closed. Events-as-nodes draws a :modal/cancel node fanning INTO :closed (xstate stacks it on one edge)."}
+     {:label "Re-open (:closed ──► :open)"
+      :event [:modal/main [:modal/open]]
+      :watch "Re-open so the SUBMIT path can be driven; the chart's :open node is the shared fan-OUT source for the three close events."}
+     {:label "Submit (:open ──► :closed, runs :save) — fan-in event #2"
+      :event [:modal/main [:modal/submit]]
+      :watch "Multi-event WITH action: :modal/submit runs :save (snapshot :saved? true) then lands :closed — the data-bearing branch of the fan-in."}
+     {:label "Re-open (:closed ──► :open)"
+      :event [:modal/main [:modal/open]]
+      :watch "Re-open once more so the ESCAPE path can be driven — the third fan-in source node into :closed."}
+     {:label "Escape (:open ──► :closed) — fan-in event #3"
+      :event [:modal/main [:modal/escape]]
+      :watch "Multi-event: :modal/escape lands :closed. All THREE events (cancel/submit/escape) now proven to fan into the single :closed node."}]}
+
+   {:id       :gate
+    :label    "Gate"
+    :blurb    "GUARDED FORK — :gate/check forks by guard (high?→:high, low?→:low, else→:rejected); xstate draws one labelled edge per branch from :idle."
+    :machines #{:gate/main}
+    :boot     :machine-epochs/boot-gate
+    :path
+    ;; Drive all THREE guard branches (high / low / rejected). :gate/set arms
+    ;; :level (internal action-only transition); :gate/check forks by the guarded
+    ;; candidate vector (first guard-pass wins; unguarded fallback → :rejected);
+    ;; :gate/reset returns to :idle so the next branch can be armed.
+    [{:label "Set level HIGH (:gate/set 7) — arm :level 7"
+      :event [:gate/main [:gate/set 7]]
+      :watch "Internal action-only transition: :set-level reads (second event)=7 into :data :level; stays :idle. Watch the snapshot :level."}
+     {:label "Check (──► :high) — :gate-high? branch"
+      :event [:gate/main [:gate/check]]
+      :watch "Guarded fork: the candidate vector's FIRST pass wins — :gate-high? (level>=5) passes → :high. xstate draws this as one labelled edge from :idle."}
+     {:label "Reset (──► :idle)"
+      :event [:gate/main [:gate/reset]]
+      :watch "Plain transition back to :idle so the LOW branch can be armed next."}
+     {:label "Set level LOW (:gate/set 2) — arm :level 2"
+      :event [:gate/main [:gate/set 2]]
+      :watch "Internal action-only transition: :level → 2; stays :idle. The next :check will take the :gate-low? branch (high fails, low passes)."}
+     {:label "Check (──► :low) — :gate-low? branch"
+      :event [:gate/main [:gate/check]]
+      :watch "Guarded fork: :gate-high? FAILS (2<5), :gate-low? passes (0<2<5) → :low. The candidate walk advanced past the first guard to the second."}
+     {:label "Reset (──► :idle)"
+      :event [:gate/main [:gate/reset]]
+      :watch "Plain transition back to :idle so the REJECTED branch can be armed next."}
+     {:label "Set level NONE (:gate/set 0) — arm :level 0"
+      :event [:gate/main [:gate/set 0]]
+      :watch "Internal action-only transition: :level → 0; stays :idle. Both guards will FAIL on the next :check → the unguarded fallback fires."}
+     {:label "Check (──► :rejected) — unguarded fallback"
+      :event [:gate/main [:gate/check]]
+      :watch "Guarded fork: BOTH guards fail (0 is neither >=5 nor 0<x<5) → the unguarded fallback candidate {:target :rejected} fires. The else branch."}
+     {:label "Reset (──► :idle)"
+      :event [:gate/main [:gate/reset]]
+      :watch "Plain transition back to :idle — all three guard branches (:high/:low/:rejected) now proven."}]}])
 
 (def track-by-id
   "Index `tracks` by `:id` for O(1) lookup in handlers + subs."

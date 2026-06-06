@@ -3306,6 +3306,86 @@ async function runMachineEpochs(page, state) {
   await clickMachineStep(page, 1); // shallow restore
   await clickMachineStep(page, 2); // deep restore
 
+  // ===== Modal (MULTI-EVENT transition — events-as-nodes, rf2-vilpfa) ====
+  // ONE edge (:open ──► :closed) reached on THREE distinct events
+  // (cancel/submit/escape). Drive all three (re-opening between) and confirm
+  // each lands :closed; the submit branch also runs :save (:saved? true). The
+  // events-as-nodes fan-in render is asserted in the CLJS harness; here we
+  // confirm the behaviour (all three events close the modal) off the snapshot.
+  await selectMachineTrack(page, 'modal');
+  await waitForTrackSnapshot(
+    page, 'modal', [':modal/main'],
+    (t) => /:modal\/main state: :closed/.test(t),
+    'modal track booted to :closed',
+  );
+  await clickMachineStep(page, 0); // open → :open
+  await waitForTrackSnapshot(
+    page, 'modal', [':modal/main'],
+    (t) => /:modal\/main state: :open/.test(t),
+    'modal#0 open -> :open',
+  );
+  await clickMachineStep(page, 1); // cancel → :closed (fan-in event #1)
+  await waitForTrackSnapshot(
+    page, 'modal', [':modal/main'],
+    (t) => /:modal\/main state: :closed/.test(t),
+    'modal#1 cancel -> :closed (multi-event fan-in #1)',
+  );
+  await clickMachineStep(page, 2); // re-open → :open
+  await clickMachineStep(page, 3); // submit → :closed + :save (fan-in event #2)
+  await waitForTrackSnapshot(
+    page, 'modal', [':modal/main'],
+    (t) => /:modal\/main state: :closed/.test(t) && /:saved\? true/.test(t),
+    'modal#3 submit -> :closed + :save ran (:saved? true) (multi-event fan-in #2)',
+  );
+  await clickMachineStep(page, 4); // re-open → :open
+  await clickMachineStep(page, 5); // escape → :closed (fan-in event #3)
+  const afterModal = await waitForTrackSnapshot(
+    page, 'modal', [':modal/main'],
+    (t) => /:modal\/main state: :closed/.test(t),
+    'modal#5 escape -> :closed (multi-event fan-in #3 — all 3 events land :closed)',
+  );
+
+  // ===== Gate (MULTI-BRANCH GUARDED fork — guard-fork, rf2-vilpfa) ========
+  // :gate/check forks from :idle by a guarded candidate vector (high?→:high,
+  // low?→:low, else→:rejected); :gate/set arms :level first. Drive all three
+  // guard branches; the fork's guard-predicate render is asserted in the CLJS
+  // harness, here we confirm each :check lands its guard-selected target.
+  await selectMachineTrack(page, 'gate');
+  await waitForTrackSnapshot(
+    page, 'gate', [':gate/main'],
+    (t) => /:gate\/main state: :idle/.test(t),
+    'gate track booted to :idle',
+  );
+  await clickMachineStep(page, 0); // set 7 — arm :level 7
+  await waitForTrackSnapshot(
+    page, 'gate', [':gate/main'],
+    (t) => /:gate\/main state: :idle/.test(t) && /:level 7/.test(t),
+    'gate#0 set 7 -> :level 7, STAYS :idle (internal action-only transition)',
+  );
+  await clickMachineStep(page, 1); // check → :high (gate-high? branch)
+  await waitForTrackSnapshot(
+    page, 'gate', [':gate/main'],
+    (t) => /:gate\/main state: :high/.test(t),
+    'gate#1 check -> :high (:gate-high? branch, first-guard-pass-wins)',
+  );
+  await clickMachineStep(page, 2); // reset → :idle
+  await clickMachineStep(page, 3); // set 2 — arm :level 2
+  await clickMachineStep(page, 4); // check → :low (gate-low? branch)
+  await waitForTrackSnapshot(
+    page, 'gate', [':gate/main'],
+    (t) => /:gate\/main state: :low/.test(t),
+    'gate#4 check -> :low (:gate-high? fails, :gate-low? passes)',
+  );
+  await clickMachineStep(page, 5); // reset → :idle
+  await clickMachineStep(page, 6); // set 0 — arm :level 0
+  await clickMachineStep(page, 7); // check → :rejected (unguarded fallback)
+  const afterGate = await waitForTrackSnapshot(
+    page, 'gate', [':gate/main'],
+    (t) => /:gate\/main state: :rejected/.test(t),
+    'gate#7 check -> :rejected (both guards fail -> unguarded fallback)',
+  );
+  await clickMachineStep(page, 8); // reset → :idle
+
   // ===== Xray Machine Inspector handoff + the throw/no-op contrast ======
   await openXray(page);
 
@@ -3370,6 +3450,8 @@ async function runMachineEpochs(page, state) {
     isolation: { doorAfterReturn: doorAfterReturn.stripText },
     quiz: { quizText: afterQuiz.stripText },
     hard: { powerText: afterHvacPower.stripText, tweakText: afterHvacTweak.stripText },
+    modal: { modalText: afterModal.stripText },
+    gate: { gateText: afterGate.stripText },
     inspectorMounted: true,
   };
 }
@@ -3563,7 +3645,11 @@ const SCENARIOS = [
     // child :final · :on-done · DESTROY), fuse (boot-on-select :entry THROW),
     // hvac (deep compound · LCA cascade · self-transitions), media (placement
     // reject + live shallow/deep restore — the restore-cascade render is
-    // asserted in the CLJS harness). It also proves the per-machine frame
+    // asserted in the CLJS harness), modal (MULTI-EVENT transition: one edge
+    // :open ──► :closed reached on THREE events — the events-as-nodes
+    // divergence, rf2-vilpfa), gate (MULTI-BRANCH GUARDED fork: :gate/check
+    // forks by guard high?/low?/else → :high/:low/:rejected — the guard-fork
+    // divergence, rf2-vilpfa). It also proves the per-machine frame
     // ISOLATION with a cross-frame flip (door -> traffic -> back to door:
     // each frame's snapshot stays intact, never interleaved) + a Restart
     // (frame reset + re-arc from boot). Then opens the Xray Machine Inspector
@@ -3575,7 +3661,7 @@ const SCENARIOS = [
     // test `panels.epoch.machine-epochs-harness-cljs-test` per the Causa/
     // Story-as-CLJS rule (the chart-render shim-survival probe stays owned by
     // the `deep machine inspector substrate` scenario).
-    name: 'machine-epochs multi-machine frame-isolated stepper (rf2-q3lfm: pick a machine -> Xray follows its own epoch ring; per-track door/traffic/quiz/brew/session/fuse/hvac/media paths; cross-frame flip isolation; restart = frame reset; boot-on-select fuse THROW)',
+    name: 'machine-epochs multi-machine frame-isolated stepper (rf2-q3lfm: pick a machine -> Xray follows its own epoch ring; per-track door/traffic/quiz/brew/session/fuse/hvac/media/modal/gate paths; cross-frame flip isolation; restart = frame reset; boot-on-select fuse THROW)',
     url: '/testbeds/machine-epochs/',
     panels: ['machines'],
     coveredRows: ['Machines'],
