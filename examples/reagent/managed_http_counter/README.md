@@ -16,11 +16,22 @@ The compact worked example for [Spec 014
   view subscribes to that path.
 - **Mixed real / stubbed traffic** — the **+1** and **Fail** buttons
   exercise a REAL round-trip (Fetch hits a static asset or 404s); the
-  **Retry-recover** and **Cancel** buttons exercise the canned-stub
-  seam, which lets the example demonstrate the contract without
-  needing a stub HTTP server.
+  **Retry-recover** button exercises the canned-stub seam, which lets
+  the example demonstrate the success/retry contract without needing a
+  stub HTTP server.
 - **`:rf.http/managed-abort`** — cancelling an in-flight request by
-  `:request-id`.
+  `:request-id`, demonstrated for real. **Start long** records a
+  genuine request-id-keyed handle in the framework in-flight registry
+  (the same atom the live transport's `run-attempt!` records into),
+  whose `:abort-fn` dispatches the canonical `:rf.http/aborted` reply
+  and clears the slot. **Cancel** fires the LIVE `:rf.http/managed-abort`
+  fx, which resolves that handle and fires its `:abort-fn` — so the
+  cancel path exercises the actual abort semantics, in-flight registry
+  cleanup, and aborted classification end-to-end. Seeding a
+  deterministic pending handle (rather than a real Fetch against a
+  static dev-http server, which resolves instantly leaving nothing
+  observably in-flight) is the proven testbed pattern — see
+  [`tools/xray/testbeds/managed_http/core.cljs`](../../../tools/xray/testbeds/managed_http/core.cljs).
 - **Substrate** — stock Reagent (`re-frame.adapter.reagent`), like the rest of the `examples/reagent/` catalogue.
 
 ## Why this shape
@@ -32,15 +43,17 @@ is the cross-substrate sanity check: the same fx, the same reply
 shape, end-to-end through Reagent + Fetch in a compact, browseable
 demo.
 
-The four buttons (success / failure / retry / cancel) cover the full
-managed-HTTP surface in ~50 lines of dispatch logic — small enough to
-keep in your head, complete enough to drive every code path.
+The five buttons (success / failure / retry / start-long / cancel)
+cover the full managed-HTTP surface — small enough to keep in your
+head, complete enough to drive every code path, including a real abort
+of a real in-flight request.
 
 ## Files
 
 ```
 managed_http_counter/
-  core.cljs       — events, sub, view, mount, canned-stub override.
+  core.cljs       — events, sub, view, mount, canned-stub seam, and the
+                    seed-in-flight + live-abort demo.
   index.html      — minimal host page.
   api/inc.json    — `{"delta": 1}` static asset the +1 happy path fetches.
 ```
