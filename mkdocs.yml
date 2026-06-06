@@ -241,6 +241,8 @@ nav:
     - re-frame2-pair-retro: skills/re-frame2-pair-retro.md
 
   - EP:
+    - "Frame State":
+      - "App/Runtime Partition": EP/FrameState/app-db-runtime-partition.md
     - "Resource Management":
       - "Resource Queries": EP/ResouceManagement/resource-queries.md
 
