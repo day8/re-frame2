@@ -6,9 +6,9 @@ Date: 2026-06-06
 
 Related:
 
-- [Guide 10 - HTTP](../../guide/10-http.md)
-- [Guide 19 - Routing](../../guide/19-routing.md)
-- [Guide 21 - Runtime model](../../guide/21-dynamic-model.md)
+- [Guide 10 - HTTP](../guide/10-http.md)
+- [Guide 19 - Routing](../guide/19-routing.md)
+- [Guide 21 - Runtime model](../guide/21-dynamic-model.md)
 - [Pattern - Remote Data](https://github.com/day8/re-frame2/blob/main/spec/Pattern-RemoteData.md)
 - [Spec 014 - HTTP Requests](https://github.com/day8/re-frame2/blob/main/spec/014-HTTPRequests.md)
 - [Spec 012 - Routing](https://github.com/day8/re-frame2/blob/main/spec/012-Routing.md)
