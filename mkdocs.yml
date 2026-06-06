@@ -240,6 +240,10 @@ nav:
     - re-frame2-pair: skills/re-frame2-pair.md
     - re-frame2-pair-retro: skills/re-frame2-pair-retro.md
 
+  - EP:
+    - "Resource Management":
+      - "Resource Queries": EP/ResouceManagement/resource-queries.md
+
   - API:
     # Section label IS the API overview page (navigation.indexes, rf2-qgpkm).
     - api/README.md
