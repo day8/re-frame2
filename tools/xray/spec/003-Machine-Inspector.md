@@ -147,6 +147,25 @@ The header carries:
   > `compose-focus`'s LIVE+unpaused head-tracking, which is why the
   > buttons previously appeared dead on the live panel.
 
+  > **Topology stability across Prev/Next (rf2-un3gfo).** Prev/Next
+  > navigation within the SAME machine MUST preserve the topology
+  > chart's node positions: only the per-transition highlights
+  > (`from`/`to`/`current`/fired-edge) re-paint as the operator steps
+  > through epochs — the chart is NOT re-laid-out. This is a structural
+  > guarantee, not an emergent one: the per-machine focused-event
+  > section's React `:key` is keyed on the STRUCTURAL identity
+  > `[target-frame machine-id]` only — never on the epoch/record id,
+  > the from/to-state, the fired-edge ids, or any highlight value — so
+  > React preserves the section (and the nested `MachineChart`) instance
+  > across navigation, keeping the chart's per-instance parse + ELK
+  > layout caches warm. A genuinely different machine (different
+  > topology) or a frame switch still produces a distinct key → a clean
+  > instance + its own layout. Highlights remain a pure visual overlay
+  > orthogonal to `MachineChart`'s ELK layout-key
+  > (`[definition direction layout-options density]`, see
+  > `tools/machines-viz/spec/API.md`); re-fitting the viewport on
+  > navigation rides the orthogonal `:fit-signal` nonce, never a remount.
+
 The header previously also carried a right-aligned **Share button**;
 **rf2-nugvv (2026-06-04) removed it** along with the whole Xray share
 surface (see [§Share affordance](#share-affordance) below) — the Machine

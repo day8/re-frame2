@@ -998,6 +998,52 @@
   [transition-records]
   (first transition-records))
 
+(defn focused-event-section-key
+  "rf2-un3gfo — the STRUCTURAL React `:key` for the per-machine
+  focused-event section. Keyed ONLY on the chart's topology identity —
+  the inspected `target-frame` id + the record's `:machine-id` — so
+  ordinary Prev/Next epoch navigation WITHIN the same machine preserves
+  the section (and the nested MachineChart) React instance.
+
+  ### Why structural, not per-epoch
+
+  The pre-fix key embedded `(:id record)` (epoch/record id) +
+  `(:from-state record)` + `(:to-state record)`, all of which change on
+  every Prev/Next. React therefore treated each navigation as a
+  different element → unmount + remount the section + the chart → the
+  chart's per-instance `parse-cache` / `layout-state` / `layout-key`
+  caches were discarded → a full topology re-parse + a fresh ELK relayout
+  ran on every Prev/Next → the topology flickered.
+
+  The per-epoch visuals do NOT need the key to change: the from/to/
+  current/fired highlights flow into the chart as REACTIVE PROPS
+  (`:from-highlight` / `:to-highlight` / `:current-state` /
+  `:fired-edge-ids`), and the section's own `:data-*` attrs are recomputed
+  from `record` on each ordinary re-render. With the instance preserved,
+  ELK runs once per topology (`[definition direction layout-options
+  density]`) and Prev/Next only re-paints highlights at stable positions.
+
+  ### What IS in the key
+
+  - `target-frame` — the inspected frame id. Switching the L1 frame
+    picker re-seeds the panel against a DIFFERENT runtime, where the same
+    `machine-id` may name a different machine instance; a fresh instance
+    there is correct (and the chart's own layout-key would relayout
+    anyway, but a clean remount avoids carrying stale per-instance state
+    across frames).
+  - `machine-id` — the topology identity. A genuinely different machine
+    (different topology) STILL gets a distinct key → a clean instance +
+    its own ELK layout, exactly as before.
+
+  Highlight values, epoch/record id, from/to-state, and fired-edge ids
+  are deliberately EXCLUDED. Re-fitting the viewport on navigation rides
+  the orthogonal `:fit-signal` nonce (rf2-6tw7t), never a remount.
+
+  Pure fn — JVM-runnable. `target-frame` may be nil (single-frame /
+  pre-seed); the key tolerates it."
+  [target-frame {:keys [machine-id]}]
+  (str target-frame "::" machine-id))
+
 (def empty-state-text
   "The Dynamic Machines panel's empty-state placeholder text, rendered
   verbatim per spec/003 §Empty state — focused event does not target a
