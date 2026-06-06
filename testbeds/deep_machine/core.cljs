@@ -193,7 +193,15 @@
                :entry  :bump-tick
                :spawn {:machine-id :helper/tick
                         :data       (fn [_snap _ev] {:ticked? false})}
-               :on    {:work/done {:target :resolving
+               ;; :resolving is a sibling of :phase-a at the :work region
+               ;; root, five compound levels ABOVE this leaf — a keyword
+               ;; target only names a sibling of the declaring state, so
+               ;; the cross-level lift to :resolving must be an absolute
+               ;; vector path from the region root ([:resolving]). Per
+               ;; Spec-Schemas §TransitionTarget + Spec 005 §Transition
+               ;; resolution; XState v5 likewise reaches a non-sibling
+               ;; target by absolute (id-rooted) path, not a bare key.
+               :on    {:work/done {:target [:resolving]
                                    :action :mark-phase-a-ran}}}}}}}}}}}
 
       :resolving
