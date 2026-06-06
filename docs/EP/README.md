@@ -17,8 +17,11 @@ EPs are *proposals*, not normative specification. The normative artefact remains
 | EP | Status | Summary |
 |----|--------|---------|
 | [App/Runtime Partition](app-db-runtime-partition.md) | proposal | A frame owns two durable partitions — user-owned **app-db** (`:db`) and framework-owned **runtime-db** (`:rf.db/runtime`) — committed coherently by one cascade. Removes the footgun where an ordinary `:db` return silently clobbers machine / routing / elision / SSR runtime state, while preserving one coherent app+runtime snapshot for time-travel and SSR. |
+| [Explicit Frame Target Resolution](frame-target-resolution.md) | proposal | Remove ambient `:rf/default` fallback. Frame-scoped operations must resolve their target from explicit frame context (frame id/handle, provider, cascade, lexical binding, or tool/session target), and missing context fails instead of mutating or reading the wrong frame. |
 | [Resource Queries](resource-queries.md) | proposal | An optional `day8/re-frame2-resources` artefact for declarative server-state — the re-frame2 answer to TanStack Query / RTK Query / SWR / `shipclojure/re-frame-query`. Resource identity, caching, staleness, dedupe, tag invalidation, active-owner lifecycle/GC, route + SSR preload, built on managed-HTTP (Spec 014) and the runtime partition. |
 
 ## Relationships
 
 The **App/Runtime Partition** EP is foundational: **Resource Queries** stores its cache in the framework-owned runtime partition (`:rf.runtime/resources`) that EP introduces, so the partition should land (or its key vocabulary be fixed) before resources rely on it.
+
+The **Explicit Frame Target Resolution** EP is a cross-cutting safety proposal. It should be resolved before large frame-aware features such as resource queries, Xray control surfaces, SSR hydration helpers, and work-ledger tooling harden their public APIs.
