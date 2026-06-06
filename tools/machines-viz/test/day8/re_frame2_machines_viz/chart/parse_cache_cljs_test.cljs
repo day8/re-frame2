@@ -212,3 +212,49 @@
                 "density / direction / layout-options changes do NOT reparse")
             (is (> (:layout @counts) layouts-after-mount)
                 "but they DO re-run layout (the layout-key includes them)")))))))
+
+(deftest prev-next-highlight-deltas-do-not-rerun-elk-rf2-un3gfo
+  (testing "rf2-un3gfo — the chart end of the no-flicker contract. When the
+            Xray Machine panel's section key is STABLE across Prev/Next (the
+            panel-side fix, pinned in
+            `machine-inspector-helpers-cljs-test/section-key-is-stable-…`),
+            the SAME MachineChart instance receives the per-epoch highlight
+            deltas as prop changes — `:from-highlight` / `:to-highlight` /
+            `:current-state` / `:fired-edge-ids` — with the `:definition`
+            (hence the layout-key) UNCHANGED. Those deltas MUST NOT re-run
+            ELK: the topology positions stay put and only the highlights
+            re-paint. (Before the key fix, each Prev/Next REMOUNTED the
+            chart, so ELK re-ran from scratch every navigation → the
+            flicker.) This simulates the exact prop sequence the preserved
+            instance now sees."
+    (with-seam-spies
+      (fn [counts]
+        ;; Mount on the focused machine's first transition (idle → loading).
+        (let [rfn (chart/MachineChart
+                    {:machine-id     :m :definition machine-a
+                     :from-highlight :idle :to-highlight :loading
+                     :fired-edge-ids ["idle->loading"]})]
+          (render! rfn {:machine-id     :m :definition machine-a
+                        :from-highlight :idle :to-highlight :loading
+                        :fired-edge-ids ["idle->loading"]})
+          (is (= 1 (:parse @counts)) "mount parses once")
+          (is (= 1 (:layout @counts)) "mount runs ELK once (new layout-key)")
+          ;; --- Next → the loading → done transition ---
+          (render! rfn {:machine-id     :m :definition machine-a
+                        :from-highlight :loading :to-highlight :done
+                        :fired-edge-ids ["loading->done"]})
+          ;; --- Next again → a no-op resting in :done (current-state grammar) ---
+          (render! rfn {:machine-id    :m :definition machine-a
+                        :current-state :done})
+          ;; --- Prev → back to loading → done ---
+          (render! rfn {:machine-id     :m :definition machine-a
+                        :from-highlight :loading :to-highlight :done
+                        :fired-edge-ids ["loading->done"]})
+          (is (= 1 (:parse @counts))
+              "Prev/Next highlight deltas (same definition) NEVER reparse")
+          (is (= 1 (:layout @counts))
+              "Prev/Next highlight deltas NEVER re-run ELK — positions stay
+               put, only highlights re-paint (the no-flicker guarantee)")
+          (is (>= (:project @counts) 1)
+              "highlight deltas DO re-project (decorative re-tint) — that is
+               the cheap repaint, not a relayout"))))))

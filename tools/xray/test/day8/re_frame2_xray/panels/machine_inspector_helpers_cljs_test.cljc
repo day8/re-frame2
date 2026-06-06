@@ -32,6 +32,7 @@
     9. **format-* helpers**      — display formatters."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test    :refer-macros [deftest is testing]])
+            [clojure.string :as str]
             [day8.re-frame2-xray.panels.machine-inspector-helpers :as h]))
 
 ;; ---- (1) transition-event? ---------------------------------------------
@@ -812,3 +813,91 @@
                    {:epoch-id 7 :trace-events []}]]
       (is (nil? (h/focused-epoch-record history {:epoch-id 99}))
           "evicted pinned epoch must be nil (not the head record)"))))
+
+;; ---- focused-event-section-key (rf2-un3gfo) -----------------------------
+;;
+;; The per-machine focused-event section's React `:key` must be
+;; STRUCTURAL (target-frame + machine-id) so ordinary Prev/Next epoch
+;; navigation within the SAME machine preserves the section + nested
+;; MachineChart instance (keeping the chart's parse/layout caches warm,
+;; so ELK does NOT re-run and the topology does not flicker). A genuinely
+;; different machine — or a frame switch — must still produce a distinct
+;; key so the new topology gets a clean instance + its own ELK layout.
+
+(deftest section-key-is-stable-across-prev-next-for-same-machine
+  (testing "rf2-un3gfo — Prev/Next walks records for the SAME machine
+            whose epoch id + from/to-state change every navigation. The
+            structural key must NOT change across those records — only the
+            machine-id (and inspected frame) are load-bearing, so React
+            preserves the chart instance and ELK is not re-run."
+    (let [frame :rf/default
+          ;; Three records the operator walks via Prev/Next: same machine,
+          ;; different epoch ids + transition endpoints each time.
+          rec-1 {:machine-id :auth/login :id 1
+                 :from-state :idle    :to-state :authing}
+          rec-2 {:machine-id :auth/login :id 2
+                 :from-state :authing :to-state :done}
+          rec-3 {:machine-id :auth/login :id 3
+                 :from-state :done    :to-state :idle}
+          k1 (h/focused-event-section-key frame rec-1)
+          k2 (h/focused-event-section-key frame rec-2)
+          k3 (h/focused-event-section-key frame rec-3)]
+      (is (= k1 k2 k3)
+          "the section key is identical across Prev/Next records of the
+           same machine — no remount, so the chart instance + its
+           parse/layout caches survive and ELK does not re-run")
+      ;; Pin that the per-epoch fields are NOT in the key — a regression
+      ;; that folded epoch id / from-state / to-state back into the key
+      ;; would reintroduce the per-nav remount + ELK relayout flicker.
+      (is (not (str/includes? k1 "1"))
+          "the record/epoch id is NOT in the key")
+      (is (not (str/includes? k1 "idle"))
+          "from-state is NOT in the key")
+      (is (not (str/includes? k1 "authing"))
+          "to-state is NOT in the key"))))
+
+(deftest section-key-changes-for-a-different-machine-topology
+  (testing "rf2-un3gfo — switching to a genuinely different machine
+            (different topology) MUST change the key so React mounts a
+            fresh section + chart, and the new topology gets its own ELK
+            layout. This is the half of the contract that must NOT
+            regress in pursuit of stability."
+    (let [frame :rf/default
+          auth  (h/focused-event-section-key
+                  frame {:machine-id :auth/login :id 1
+                         :from-state :idle :to-state :authing})
+          door  (h/focused-event-section-key
+                  frame {:machine-id :door/main :id 1
+                         :from-state :idle :to-state :authing})]
+      (is (not= auth door)
+          "a different machine yields a different key (clean instance +
+           its own ELK layout)"))))
+
+(deftest section-key-changes-across-inspected-frames
+  (testing "rf2-un3gfo — the L1 frame picker re-seeds the panel against a
+            DIFFERENT runtime, where the same machine-id may name a
+            different machine instance. Including the target-frame in the
+            key gives that frame switch a clean section instance."
+    (let [rec {:machine-id :auth/login :id 1
+               :from-state :idle :to-state :authing}]
+      (is (not= (h/focused-event-section-key :rf/default rec)
+                (h/focused-event-section-key :rf/checkout rec))
+          "the same machine in a different inspected frame yields a
+           different key")
+      ;; Same frame + same machine collapses to one key (the steady case).
+      (is (= (h/focused-event-section-key :rf/default rec)
+             (h/focused-event-section-key :rf/default rec))
+          "same frame + same machine is one stable key"))))
+
+(deftest section-key-tolerates-nil-target-frame
+  (testing "rf2-un3gfo — a single-frame / pre-seed render may have a nil
+            target-frame. The key must still build (not throw) and remain
+            stable across Prev/Next."
+    (let [k1 (h/focused-event-section-key
+               nil {:machine-id :auth/login :id 1
+                    :from-state :idle :to-state :authing})
+          k2 (h/focused-event-section-key
+               nil {:machine-id :auth/login :id 2
+                    :from-state :authing :to-state :done})]
+      (is (string? k1) "key builds with a nil target-frame")
+      (is (= k1 k2) "still stable across Prev/Next when frame is nil"))))

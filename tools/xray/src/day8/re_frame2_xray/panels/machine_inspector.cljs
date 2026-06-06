@@ -1088,7 +1088,13 @@
         ;; single-instance, event-driven, rf2-8og3k): pick the first
         ;; transition by trace order. The upstream projection already
         ;; sorts cascade-document-order, so `first` is the tiebreaker.
-        record (h/pick-focused-transition records)]
+        record (h/pick-focused-transition records)
+        ;; rf2-un3gfo — the inspected frame id. Part of the STRUCTURAL
+        ;; section key below so the L1 frame picker (which re-seeds the
+        ;; panel against a different runtime) gets a clean section
+        ;; instance, while ordinary Prev/Next within one frame+machine
+        ;; preserves it.
+        target-frame @(rf/subscribe [:rf.xray/target-frame])]
     (when record
       [:div {:data-testid "rf-xray-machine-focused-event"
              ;; The host carries the count of records the cascade
@@ -1098,11 +1104,20 @@
              :data-section-count "1"
              :data-cascade-transition-count (str (count records))
              :style focused-event-view-host-style}
+       ;; rf2-un3gfo — STRUCTURAL key (target-frame + machine-id), NOT
+       ;; per-epoch. The old key embedded `(:id)` / `(:from-state)` /
+       ;; `(:to-state)`, all of which change on every Prev/Next, so React
+       ;; remounted the whole section + the nested MachineChart on each
+       ;; navigation — discarding the chart's per-instance parse/layout
+       ;; caches and re-running ELK every time (the topology flicker).
+       ;; Highlights flow as reactive props (`:from-highlight` /
+       ;; `:to-highlight` / `:current-state` / `:fired-edge-ids`) and the
+       ;; section's `:data-*` attrs recompute from `record` on each
+       ;; ordinary re-render, so the per-epoch repaint needs no remount.
+       ;; Re-fitting on navigation rides the orthogonal `:fit-signal`
+       ;; nonce (rf2-6tw7t). See `h/focused-event-section-key`.
        (with-meta (focused-event-section record)
-         {:key (str (:machine-id record) "-"
-                    (:id record) "-"
-                    (:from-state record) "-"
-                    (:to-state record))})])))
+         {:key (h/focused-event-section-key target-frame record)})])))
 
 (defn- blank-state
   "Rendered when the focused event has no machine activity in its
