@@ -671,9 +671,11 @@
       (is (every? #(false? (:active (:data %))) flagged)))))
 
 (deftest xyflow-graph-multi-active-edges-active-in-each-region
-  (testing "rf2-g2svr — with N active leaves, an edge touching ANY active
-            leaf is `:active`. Each region's self/incident edge lights up
-            independently (orthogonality preserved)."
+  (testing "rf2-g2svr + rf2-vd3q1i — with N active leaves, an edge SOURCED
+            FROM any active leaf is `:active`. Each region's outgoing edge
+            lights up independently (orthogonality preserved). Here
+            :playing (audio) sources `mute` (playing→muted) and :shown
+            (video) sources `hide` (shown→hidden)."
     (let [parsed     (layout/project-definition parallel-machine)
           ;; rf2-wnzha — region states are region-scoped ids now.
           playing-id (layout/region-scoped-id :audio [:playing])
@@ -681,7 +683,7 @@
           ids        #{playing-id shown-id}
           graph      (projection/xyflow-graph parsed {} {:highlight-ids ids})
           active-e   (filter #(:active (:data %)) (:edges graph))
-          ;; edges incident to :playing (audio) and :shown (video)
+          ;; edges sourced from :playing (audio) and :shown (video)
           regions    (set (map (fn [e]
                                  (cond
                                    (or (= (:source e) playing-id)
@@ -694,16 +696,31 @@
       (is (contains? regions :audio) "an :audio-region edge is active")
       (is (contains? regions :video) "a :video-region edge is active"))))
 
-(deftest xyflow-graph-edge-active-when-endpoint-highlighted
-  (testing "an edge is `:active` when EITHER endpoint is the
-            highlighted node"
-    (let [parsed (layout/project-definition idle-loading)
-          hi     (layout/node-id [:loading])
-          graph  (projection/xyflow-graph parsed {} {:highlight-id hi})
-          ;; idle --start--> loading : target is highlighted
-          e      (first (filter #(= (:source %) (layout/node-id [:idle]))
-                                (:edges graph)))]
-      (is (true? (:active (:data e)))))))
+(deftest xyflow-graph-edge-active-only-when-source-highlighted
+  (testing "rf2-vd3q1i — an edge is `:active` ONLY when its SOURCE is the
+            highlighted (active) state. An INCOMING edge whose only active
+            endpoint is its TARGET is NOT lit — `from-active?` is
+            source-active, not incident-to-active."
+    ;; idle --start--> loading. Highlight the TARGET (:loading): the
+    ;; incoming idle→loading edge must stay quiet (its source :idle is
+    ;; not active). Highlight the SOURCE (:idle): the same edge lights.
+    (let [parsed       (layout/project-definition idle-loading)
+          idle-id      (layout/node-id [:idle])
+          loading-id   (layout/node-id [:loading])
+          edge-from-idle (fn [graph]
+                           ;; the __out half (event-node → loading) carries
+                           ;; the canonical edge id with a "__out" suffix;
+                           ;; either half reflects the same from-active? flag.
+                           (first (filter #(= (:source %) idle-id)
+                                          (:edges graph))))
+          ;; TARGET active → incoming edge stays quiet.
+          tgt-active   (projection/xyflow-graph parsed {} {:highlight-id loading-id})
+          ;; SOURCE active → outgoing edge lights.
+          src-active   (projection/xyflow-graph parsed {} {:highlight-id idle-id})]
+      (is (false? (:active (:data (edge-from-idle tgt-active))))
+          "incoming edge (only its target is active) is NOT lit")
+      (is (true? (:active (:data (edge-from-idle src-active))))
+          "outgoing edge (its source is active) IS lit"))))
 
 (deftest xyflow-graph-edge-focused-when-source-and-target-match-lens
   (testing "rf2-qo5xy — events-as-nodes paradigm: an inbound edge
@@ -756,13 +773,14 @@
 
 (deftest xyflow-graph-marker-end-colour-tracks-active-edge
   (testing "rf2-5qsxo — the arrowhead colour tracks the edge stroke: an
-            edge touching the highlighted node uses the active (cyan)
+            edge SOURCED FROM the highlighted node uses the active (cyan)
             colour, idle edges use the default border colour, so the
             marker reads as part of the same line."
-    ;; Highlight `:ready` (a leaf): only the loading→ready edge touches
-    ;; it, so the graph has a clean active/inactive split.
+    ;; rf2-vd3q1i — highlight `:idle` (a SOURCE state): its outgoing
+    ;; idle→start→loading edge lights (source-active), while the rest of
+    ;; the graph stays idle, giving a clean active/inactive split.
     (let [parsed   (layout/project-definition idle-loading)
-          hi       (layout/node-id [:ready])
+          hi       (layout/node-id [:idle])
           graph    (projection/xyflow-graph parsed {} {:highlight-id hi})
           active   (first (filter #(:active (:data %)) (:edges graph)))
           inactive (first (filter #(not (:active (:data %))) (:edges graph)))]
@@ -1982,12 +2000,14 @@
              (:points (:data out-edge)))))))
 
 (deftest xyflow-graph-routed-edge-keeps-active-highlight
-  (testing "rf2-cz8v6 + rf2-qo5xy — G1's active-edge styling survives
-            routing through the event-node: an outbound edge whose
-            target is active carries both `:active true` and the elk
+  (testing "rf2-cz8v6 + rf2-qo5xy + rf2-vd3q1i — G1's active-edge styling
+            survives routing through the event-node: an outbound edge whose
+            SOURCE is active carries both `:active true` and the elk
             route on its `:data`."
     (let [parsed  (layout/project-definition idle-loading)
-          hi      (layout/node-id [:loading])
+          ;; rf2-vd3q1i — highlight the SOURCE (:idle); the source→…→loading
+          ;; transition is then source-active and lights both halves.
+          hi      (layout/node-id [:idle])
           start   (->> (:edges parsed)
                        (filter #(= (:source %) (layout/node-id [:idle])))
                        first)
@@ -1998,6 +2018,67 @@
           out-edge (outbound-edge-for graph (:id start))]
       (is (true? (:active (:data out-edge))))
       (is (= route (:points (:data out-edge)))))))
+
+;; ---- source-active edge highlight (rf2-vd3q1i) -------------------------
+;;
+;; `from-active?` (rendered as the edge `:active` flag, the bright-blue
+;; stroke) is SOURCE-active only: an edge lights iff its SOURCE state is
+;; active. It is NOT incident-to-active — an INCOMING edge whose only
+;; active endpoint is its TARGET stays quiet. This pins the live-repro
+;; defect (the door machine: focusing the :door/close no-op at :open used
+;; to paint the INCOMING push (closed→open) edge blue). The genuinely-
+;; traversed edge of a real transition still lights via `:fired` (matched
+;; by edge-id, direction-agnostic — see the fired-edge section below), so
+;; dropping the incoming-edge highlight loses no "what just happened" cue.
+
+(deftest xyflow-graph-from-active-is-source-active-only
+  (testing "rf2-vd3q1i — door machine, active-ids {:open}: the OUTGOING
+            fan from :open (close / hold / trip) is `:active`, while the
+            INCOMING push (closed→open) edge is NOT — even though :open is
+            push's TARGET. `from-active?` is source-active, not incident."
+    (let [parsed     (layout/project-definition door-cyclic-machine)
+          open-id    (layout/node-id [:open])
+          closed-id  (layout/node-id [:closed])
+          locked-id  (layout/node-id [:locked])
+          graph      (projection/xyflow-graph parsed {} {:highlight-id open-id})
+          ;; A projected transition is split into __in (src→event) and
+          ;; __out (event→tgt) halves that share the from-active? flag.
+          ;; Identify each parsed transition by its source/target node-ids
+          ;; (unique per pair in this fixture), then look up BOTH projected
+          ;; halves by the canonical parsed-edge id.
+          active-of  (fn [src-node-id tgt-node-id]
+                       (let [pe (first
+                                  (filter #(and (= (:source %) src-node-id)
+                                                (= (:target %) tgt-node-id))
+                                          (:edges parsed)))]
+                         {:in  (when pe (inbound-edge-for  graph (:id pe)))
+                          :out (when pe (outbound-edge-for graph (:id pe)))}))]
+      ;; push: closed → open. Source :closed is NOT in active-ids {:open};
+      ;; :open is only its TARGET → the incoming edge stays quiet.
+      (let [push (active-of closed-id open-id)]
+        (is (some? (:in push)) "fixture sanity: push (closed→open) projects")
+        (is (= open-id (:target (:out push)))
+            "push's outbound half lands on :open (it IS an incoming edge to :open)")
+        (is (false? (:active (:data (:in push))))
+            "push (closed→open) is NOT from-active? — :open is only its target")
+        (is (false? (:active (:data (:out push))))
+            "neither half of the incoming push edge lights"))
+      ;; close / hold / trip: all sourced from :open → from-active? true.
+      ;; close → closed, trip → alarming, hold is internal (self at :open).
+      (let [close (active-of open-id closed-id)
+            trip  (active-of open-id (layout/node-id [:alarming]))]
+        (is (some? (:in close)) "fixture sanity: close (open→closed) projects")
+        (is (true? (:active (:data (:in close))))
+            "close (open→closed) IS from-active? — sourced from active :open")
+        (is (some? (:in trip)) "fixture sanity: trip (open→alarming) projects")
+        (is (true? (:active (:data (:in trip))))
+            "trip (open→alarming) IS from-active? — sourced from active :open"))
+      ;; The :open-sourced outgoing fan all lights; control: an edge with
+      ;; neither endpoint active (insert-coin: locked→closed) stays quiet.
+      (let [coin (active-of locked-id closed-id)]
+        (is (some? (:in coin)) "fixture sanity: insert-coin (locked→closed) projects")
+        (is (false? (:active (:data (:in coin))))
+            "insert-coin (locked→closed) — neither endpoint active — stays quiet")))))
 
 ;; ---- fired-this-epoch edge highlight (rf2-qeemm, G3) -------------------
 ;;
@@ -2085,11 +2166,13 @@
           "fired vs non-fired arrowheads are distinct colours"))))
 
 (deftest xyflow-graph-fired-coexists-with-active-and-routing
-  (testing "rf2-qeemm + rf2-qo5xy — :fired + :active + :points coexist
-            on the outbound edge of a fired transition that also
-            touches an active node and carries an elk route."
+  (testing "rf2-qeemm + rf2-qo5xy + rf2-vd3q1i — :fired + :active + :points
+            coexist on the outbound edge of a fired transition that is
+            ALSO sourced from an active node and carries an elk route."
     (let [parsed  (layout/project-definition idle-loading)
-          hi      (layout/node-id [:loading])
+          ;; rf2-vd3q1i — highlight the SOURCE (:idle) so the transition is
+          ;; source-active (not merely incident to the active target).
+          hi      (layout/node-id [:idle])
           start   (->> (:edges parsed)
                        (filter #(= (:source %) (layout/node-id [:idle])))
                        first)

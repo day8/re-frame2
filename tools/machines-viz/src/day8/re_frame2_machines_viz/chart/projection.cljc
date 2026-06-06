@@ -888,8 +888,19 @@
         (mapv (fn [e]
                 (let [src          (:source e)
                       tgt          (:target e)
-                      from-active? (or (contains? active-ids src)
-                                       (contains? active-ids tgt))
+                      ;; rf2-vd3q1i — SOURCE-active only. The name is now
+                      ;; honest: an edge is `from-active?` iff its SOURCE
+                      ;; is an active state (the outgoing "available
+                      ;; transitions from here" fan). The dropped
+                      ;; `(contains? active-ids tgt)` clause used to also
+                      ;; light INCOMING edges (target active) — noise that
+                      ;; misrepresented what a focused event did (e.g. a
+                      ;; rejected no-op guard lit every way you COULD have
+                      ;; arrived at the resting state). The actually-
+                      ;; traversed edge of a real transition still lights
+                      ;; via `fired?` (matched by edge-id, direction-
+                      ;; agnostic), so no fired arm relies on this clause.
+                      from-active? (contains? active-ids src)
                       focused?     (and (some? from-highlight-id)
                                         (some? to-highlight-id)
                                         (= src from-highlight-id)

@@ -402,7 +402,7 @@ fill), and colours resolved through the active-theme **chart-tokens**
 | **Parallel region (ACTIVE) — G1/G4** | region boundary firms to **solid** + header carries an **active affordance**; **every** active leaf inside lights **simultaneously** | ✅ shipped (rf2-80rm2 / rf2-az6e2): solid `:active` boundary + `:active-wash` header + `:glow` ring |
 | **Edge (source→event — quiet half)** | **thinner** stroke + **small** arrowhead in the quiet colour | *`:edge-quiet`, ~−0.5 stroke, 10px arrowhead* |
 | **Edge (event→target — primary half)** | standard stroke + **full** arrowhead — the pair reads as ONE route | *`:edge-quiet` resting, 18px arrowhead* |
-| **Edge (active — touches active state)** | mid-weight stroke + arrow tinted to active hue | *`:edge-active`, midweight* |
+| **Edge (active — SOURCED FROM an active state) — rf2-vd3q1i** | mid-weight stroke + arrow tinted to active hue. **Source-active only**: an edge lights iff its SOURCE state is active (the outgoing fan); an INCOMING edge whose only active endpoint is its target stays quiet (the traversed edge lights via the separate *fired* row instead) | *`:edge-active`, midweight* |
 | **Edge (focused — the fired FROM→TO)** | **emphasised** stroke + **animated glow**; lights **both** segments together | *`:edge-active` + `mv-chart-transition-glow`* |
 | **Edge (fired THIS epoch) — G3** | matched by **edge-id** (not endpoint), **heaviest** stroke + **animated glow** + a hue distinct from focused/active; `data-fired` hook; both segments | *`:edge-fired` + `mv-chart-transition-glow`* |
 | **Edge (self-loop)** | a small loop off the node edge (not a degenerate bezier) | shipped path |

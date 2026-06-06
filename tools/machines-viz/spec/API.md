@@ -648,8 +648,14 @@ The resolution is pure and JVM-tested, in two layers:
   `:highlight-ids` option; a node is `:active` when its id ∈ the set.
   The scalar `:highlight-id` option remains as a convenience that folds
   into the set as a singleton (both supplied → the union). An edge is
-  `:active` when **either** endpoint is in the active set, so each
-  region's incident edges light independently (orthogonality preserved).
+  `:active` when its **source** state is in the active set (rf2-vd3q1i —
+  **source-active only**, not incident-to-active): the outgoing
+  "transitions available from here" fan lights, while an **incoming**
+  edge whose only active endpoint is its target stays quiet. Each
+  region's outgoing edges light independently (orthogonality preserved).
+  The actually-traversed edge of a transition lights separately via
+  `:fired` (matched by edge-id, direction-agnostic), so the source-active
+  rule loses no "what just happened" cue.
 
 The chart root surfaces the full active set as `data-highlight-ids` (a
 sorted, space-joined list of node-ids); `data-highlight-id` is kept as a
