@@ -47,14 +47,23 @@ That keeps the design inside the re-frame2 ethos:
 
 The initial implementation should be a read-resource MVP: registration,
 explicit ensure/refetch/invalidate events, passive subscriptions, active owners,
-stale/fresh policy, dedupe, GC, route integration, SSR preload/hydration, and
-Xray/tool visibility. It should also define timer policy for stale/GC behavior
-and resolve background-refresh error semantics up front.
+cache scopes, stale/fresh policy, dedupe, GC, route integration, SSR
+preload/hydration, and Xray/tool visibility. It should also define timer policy
+for stale/GC behavior and resolve background-refresh error semantics up front.
 
-Mutations and focus/reconnect revalidation should be the first post-MVP slices,
-not distant future work. Optimistic updates, polling, infinite resources,
-generic transports, and normalized caches are important later slices, but should
-not make the first artifact too wide.
+Two distinctions are important enough to be part of the first specification:
+
+- owners keep resources alive; causes explain why work happened;
+- params identify the remote read inside a cache scope; scopes prevent
+  `/api/me`, tenant, locale, impersonation, and SSR cache leaks.
+
+Mutations and focus/reconnect revalidation should be the first public-beta gate,
+not distant future work. A read-resource MVP is useful for route and SSR data,
+but the artifact should not be presented as complete resource management until
+minimal mutation invalidation and active-stale revalidation are in place.
+Optimistic updates, polling, infinite resources, generic transports, and
+normalized caches are important later slices, but should not make the first
+artifact too wide.
 
 ## Problem
 
@@ -73,6 +82,9 @@ Every substantial SPA repeats the same server-state machinery:
 - mutate remote data and invalidate affected reads;
 - prefetch for routes and SSR;
 - hydrate without double-fetching;
+- keep auth-, tenant-, locale-, and user-scoped caches from bleeding into each
+  other;
+- keep paginated and filtered tables from blanking on every param change;
 - show tools which page, event, machine, or route is waiting on which data.
 
 re-frame2 already has strong primitives for pieces of this:
@@ -90,7 +102,8 @@ The gap is policy and bookkeeping: resource identity, active ownership, stale
 policy, dedupe, invalidation, route graphs, hydration, GC, and tool-readable
 state. Apps can build those by hand, but that produces hidden conventions and
 bugs in the exact places users notice: flickering loaders, stale screens,
-duplicate requests, route waterfalls, and optimistic UI races.
+duplicate requests, route waterfalls, cross-user cache leaks, invalidation
+storms, and optimistic UI races.
 
 ## Developer and AI Use Cases
 
@@ -105,6 +118,8 @@ questions:
 - Did the stale response win a race, or was it suppressed?
 - Why did this request happen: route entry, manual event, invalidation, focus,
   reconnect, polling, or SSR preload?
+- Is this cache entry scoped to the current user, tenant, locale, impersonation,
+  or SSR request?
 - Which remote values are safe for tools and AIs to inspect?
 - Can this app be server-rendered without leaking another user's cache?
 
@@ -216,8 +231,10 @@ or explicit resource events should cause resource work:
 ```clojure
 [:rf.resource/ensure
  {:resource :article/by-slug
+  :scope    [:rf.scope/session {:user-id "u-42" :tenant-id "acme"}]
   :params   {:slug "welcome"}
-  :owner    [:route :route/article nav-token]}]
+  :owner    [:route :route/article nav-token]
+  :cause    [:route-entry :route/article nav-token]}]
 ```
 
 A future ergonomic `:rf.resource/live` subscription can be reconsidered after
@@ -238,26 +255,35 @@ The target frame-state shape is:
  :rf.db/runtime
  {:rf.runtime/resources
   {:entries
-   {[:article/by-slug {:slug "welcome"}]
-    {:resource/id   :article/by-slug
-     :params        {:slug "welcome"}
-     :status        :loaded
-     :data          {:title "Welcome"}
-     :error         nil
-     :refresh-error nil
-     :loaded-at     1780752000000
-     :stale-at      1780752060000
-     :generation    3
-     :request-id    [:rf.resource :article/by-slug {:slug "welcome"} 3]
-     :tags          #{[:article "welcome"]}
-     :active-owners #{[:route :route/article nav-token]}}}
+   {[[:rf.scope/session {:user-id "u-42" :tenant-id "acme"}]
+     :article/by-slug
+     {:slug "welcome"}]
+    {:resource/id    :article/by-slug
+     :scope          [:rf.scope/session {:user-id "u-42" :tenant-id "acme"}]
+     :params         {:slug "welcome"}
+     :status         :loaded
+     :data           {:title "Welcome"}
+     :error          nil
+     :refresh-error  nil
+     :loaded-at      1780752000000
+     :stale-at       1780752060000
+     :gc-at          nil
+     :generation     3
+     :request-id     [:rf.resource :article/by-slug {:slug "welcome"} 3]
+     :tags           #{[:article "welcome"]}
+     :active-owners  #{[:route :route/article nav-token]}}}
 
    :tag-index
-   {[:article "welcome"] #{[:article/by-slug {:slug "welcome"}]}}
+   {[:article "welcome"]
+    #{[[:rf.scope/session {:user-id "u-42" :tenant-id "acme"}]
+       :article/by-slug
+       {:slug "welcome"}]}}
 
    :owner-index
    {[:route :route/article nav-token]
-    #{[:article/by-slug {:slug "welcome"}]}}}}}
+    #{[[:rf.scope/session {:user-id "u-42" :tenant-id "acme"}]
+       :article/by-slug
+       {:slug "welcome"}]}}}}}
 ```
 
 Until the frame-state partition lands, the interim implementation can use:
@@ -271,20 +297,30 @@ The specification should still be written toward `:rf.db/runtime`, so ordinary
 
 ### Resource Identity Is Data
 
-A resource instance is identified by:
+A resource instance is identified by a cache scope, a resource id, and canonical
+params:
 
 ```clojure
-[resource-id canonical-params]
+[cache-scope resource-id canonical-params]
 ```
 
 For example:
 
 ```clojure
-[:article/by-slug {:slug "welcome"}]
+[[:rf.scope/session {:user-id "u-42" :tenant-id "acme"}]
+ :article/by-slug
+ {:slug "welcome"}]
 ```
 
 Rules:
 
+- cache scope must be serializable EDN data;
+- the default scope is `[:rf.scope/global]` for data that is genuinely
+  process-independent;
+- user-, tenant-, locale-, permission-, impersonation-, and session-dependent
+  reads must use an explicit scope or put those values in params;
+- logout, account switch, tenant switch, and impersonation changes must have a
+  causal way to clear or replace the affected scope;
 - params must conform to `:params-schema`;
 - params must be serializable EDN data;
 - maps are canonicalized so key order does not affect identity;
@@ -295,33 +331,93 @@ Rules:
 - avoid a separate `:cache-key` escape hatch in v1 unless it is validated,
   visible in tools, and tested heavily.
 
+### Scope Resolution
+
+Scope resolution must be explicit and deterministic. The precedence should be:
+
+1. `:scope` supplied on the resource event or subscription payload;
+2. route-resource `:scope` resolver;
+3. resource spec `:scope` resolver;
+4. `[:rf.scope/global]`.
+
+The global default should be treated as a deliberate choice, not a convenient
+place to hide user-specific data. Xray should warn when a resource with no
+scope resolver calls a request that looks session-dependent, such as `/me`,
+`/current-user`, tenant-local URLs, or requests with auth-derived params.
+
+`clear-scope` is a causal operation. It should:
+
+- remove or mark unusable every entry in that scope;
+- release owners in that scope;
+- abort in-flight requests that have no remaining owner outside that scope;
+- suppress late replies by scope + generation checks;
+- emit trace rows explaining which entries were removed, aborted, or left alone.
+
+Auth token refresh does not necessarily require clearing scope if the user,
+tenant, permissions, and impersonation state are unchanged. Login, logout,
+account switch, tenant switch, permission-set change, locale switch when it
+affects wire data, and impersonation enter/exit do require either a new scope or
+an explicit clear/replace operation.
+
+Invalidation is scoped by default. A cross-scope invalidation must opt in
+explicitly and be visible in Xray because it can refetch or stale data for
+multiple users, tenants, story frames, or SSR requests.
+
 ### Active Owners, Not Component Observers
 
 TanStack Query and RTK Query talk about active observers or subscriptions.
 re-frame2 should talk about active owners.
 
-Owners answer:
+Owners are liveness leases. They answer:
 
 - should invalidation refetch now, or only mark stale?
 - should polling continue?
 - may the entry be garbage-collected?
-- who caused this work?
 - what should route leave release?
-- what should Xray show in the route/resource graph?
+- which workflows are intentionally keeping this resource active?
 
 Examples:
 
 ```clojure
 [:route :route/article nav-token]
 [:machine :checkout/flow machine-instance-id]
-[:event :dashboard/opened event-trace-id]
-[:tool :xray frame-id]
 [:ssr request-id nav-token]
 ```
 
 Route owners must include the navigation token. `[:route :route/article]` is
 not precise enough because the same route can be entered multiple times with
 different params, pending work, or SSR request frames.
+
+Do not use ordinary event ids as durable owners unless the event creates a
+releaseable lease. A manual refresh, a button click, or a one-shot dashboard
+open should usually be a cause, not an owner.
+
+### Causes Explain Why Work Happened
+
+Causes are trace and diagnostic metadata. They answer "why did this happen?"
+without changing liveness, GC, polling, or refetch decisions.
+
+Examples:
+
+```clojure
+[:route-entry :route/article nav-token]
+[:manual :article/refresh]
+[:invalidate {:tags #{[:article "welcome"]}}]
+:focus
+:reconnect
+:ssr-preload
+:hydration
+```
+
+Ensure/refetch events should accept both `:owner` and `:cause`. `:owner`
+changes the active-owner set. `:cause` is recorded in trace/resource history.
+Trace dispatch ids, event trace ids, and Xray focus state belong in cause/trace
+metadata, not in durable owners.
+
+Xray must not become an owner by observing. Opening a devtool must not pin a
+resource, refetch it, extend GC, or alter polling. A future "pin this resource"
+debug action would be an explicit tool mutation with its own trace, not normal
+inspection.
 
 ### Sub-Resources Are Ordinary Resources
 
@@ -382,7 +478,7 @@ Every resource instance has a lifecycle:
 
 :loaded
   stale/refetch -> :fetching
-  invalidate inactive -> :stale
+  invalidate inactive -> :loaded with stale timestamps/invalidated-at
 
 :fetching
   success -> :loaded
@@ -419,6 +515,8 @@ V1 should include:
 - passive resource subscriptions;
 - explicit ensure/refetch/invalidate/remove events;
 - active owners;
+- non-liveness causes/reasons for traceability;
+- explicit cache scopes and scope clearing;
 - canonical params;
 - stale/fresh policy;
 - in-flight dedupe;
@@ -429,12 +527,13 @@ V1 should include:
 - SSR preload and hydration for route resources;
 - managed HTTP as the only built-in transport;
 - exact tag invalidation;
+- conditional route resources and clear params-failure behavior;
 - timer policy for stale/fresh and inactive GC;
 - explicit `:refresh-error` semantics for failed background refresh;
 - Xray/tool summaries with redaction;
 - conformance tests.
 
-First post-MVP slices:
+First public-beta gate:
 
 - `reg-mutation`;
 - focus and reconnect revalidation for active stale resources;
@@ -472,22 +571,32 @@ Events use map payloads, not positional argument vectors:
 ```clojure
 [:rf.resource/ensure
  {:resource :article/by-slug
+  :scope    [:rf.scope/session {:user-id "u-42" :tenant-id "acme"}]
   :params   {:slug "welcome"}
-  :owner    [:route :route/article nav-token]}]
+  :owner    [:route :route/article nav-token]
+  :cause    [:route-entry :route/article nav-token]}]
 
 [:rf.resource/refetch
  {:resource :article/by-slug
+  :scope    [:rf.scope/session {:user-id "u-42" :tenant-id "acme"}]
   :params   {:slug "welcome"}
-  :owner    [:event :article/refresh trace-id]}]
+  :cause    [:manual :article/refresh]}]
 
 [:rf.resource/invalidate-tags
- {:tags #{[:article "welcome"]}}]
+ {:scope [:rf.scope/session {:user-id "u-42" :tenant-id "acme"}]
+  :tags  #{[:article "welcome"]}
+  :cause [:mutation :article/save mutation-id]}]
 
 [:rf.resource/release-owner
  {:owner [:route :route/article nav-token]}]
 
+[:rf.resource/clear-scope
+ {:scope [:rf.scope/session {:user-id "u-42" :tenant-id "acme"}]
+  :cause :logout}]
+
 [:rf.resource/remove
  {:resource :article/by-slug
+  :scope    [:rf.scope/session {:user-id "u-42" :tenant-id "acme"}]
   :params   {:slug "welcome"}}]
 
 ;; Later slice:
@@ -501,34 +610,42 @@ Subscriptions are passive:
 ```clojure
 [:rf.resource/state
  {:resource :article/by-slug
+  :scope    [:rf.scope/session {:user-id "u-42" :tenant-id "acme"}]
   :params   {:slug "welcome"}}]
 
 [:rf.resource/data
  {:resource :article/by-slug
+  :scope    [:rf.scope/session {:user-id "u-42" :tenant-id "acme"}]
   :params   {:slug "welcome"}}]
 
 [:rf.resource/status
  {:resource :article/by-slug
+  :scope    [:rf.scope/session {:user-id "u-42" :tenant-id "acme"}]
   :params   {:slug "welcome"}}]
 
 [:rf.resource/loading?
  {:resource :article/by-slug
+  :scope    [:rf.scope/session {:user-id "u-42" :tenant-id "acme"}]
   :params   {:slug "welcome"}}]
 
 [:rf.resource/fetching?
  {:resource :article/by-slug
+  :scope    [:rf.scope/session {:user-id "u-42" :tenant-id "acme"}]
   :params   {:slug "welcome"}}]
 
 [:rf.resource/stale?
  {:resource :article/by-slug
+  :scope    [:rf.scope/session {:user-id "u-42" :tenant-id "acme"}]
   :params   {:slug "welcome"}}]
 
 [:rf.resource/error
  {:resource :article/by-slug
+  :scope    [:rf.scope/session {:user-id "u-42" :tenant-id "acme"}]
   :params   {:slug "welcome"}}]
 
 [:rf.resource/refresh-error
  {:resource :article/by-slug
+  :scope    [:rf.scope/session {:user-id "u-42" :tenant-id "acme"}]
   :params   {:slug "welcome"}}]
 ```
 
@@ -590,6 +707,8 @@ Optional v1 keys:
 - `:transport`, fixed initially to `:rf.http/managed`;
 - `:stale-after-ms`;
 - `:gc-after-ms`;
+- `:scope`, a function or declarative resolver for the cache scope when the
+  caller does not supply one explicitly;
 - `:tags`;
 - `:sensitive?` / `:large?` / schema-based classification.
 
@@ -597,7 +716,7 @@ Deferred keys:
 
 - `:poll-ms`;
 - `:revalidate`;
-- `:placeholder`;
+- arbitrary `:placeholder`;
 - `:transport` extension protocols;
 - `:cache-key`;
 - `:infinite`;
@@ -609,24 +728,22 @@ missing feature; it is a structural advantage of the subscription graph.
 
 ### Status Semantics
 
-Resource state should use Pattern-RemoteData semantics with explicit derived
-flags:
+Resource state should use Pattern-RemoteData semantics, but durable entries
+should store facts rather than derived booleans:
 
 ```clojure
-{:status     :idle | :loading | :fetching | :loaded | :error | :stale
+{:status     :idle | :loading | :fetching | :loaded | :error
  :data       <last-known-good-or-nil>
  :error      <first-load-error-or-nil>
  :refresh-error <background-refresh-error-or-nil>
  :loaded-at  <ms-or-nil>
  :stale-at   <ms-or-nil>
+ :invalidated-at <ms-or-nil>
  :attempt    <int>
  :generation <int>
+ :request-id <request-id-or-nil>
  :tags       <set>
- :owners     <set>
- :loading?   <boolean>
- :fetching?  <boolean>
- :has-data?  <boolean>
- :stale?     <boolean>}
+ :owners     <set>}
 ```
 
 The important invariant:
@@ -634,9 +751,13 @@ The important invariant:
 - `:loading` means first load with no usable data;
 - `:fetching` means work is in flight while prior data stays visible;
 - `:error` means the resource has no usable data because the first load failed;
+- freshness is orthogonal to load status. A `:loaded` entry may be stale, and a
+  `:fetching` entry may be refreshing stale data;
 - a failed background refresh keeps the prior `:data`, returns to `:loaded`, and
   records the failure in `:refresh-error`;
 - `:refresh-error` is cleared by the next successful load or refresh;
+- `:stale?`, `:loading?`, `:fetching?`, and `:has-data?` are public derived
+  subscription values, not durable stored facts;
 - views should not have to infer "error with stale data" from
   `(:status state)` plus `(:has-data? state)`.
 
@@ -665,6 +786,17 @@ This keeps the `:loading` / `:fetching` promise intact: views do not guess
 whether they are looking at a blank first-load failure or stale data with a
 refresh warning.
 
+### Structural Sharing
+
+Successful resource loads should preserve the old `:data` value when the newly
+decoded data is `=` to the previous data. This keeps downstream subscriptions
+and views quiet when a background refresh returns identical EDN.
+
+Large or non-EDN values may need a later explicit merge/structural-sharing hook,
+but the v1 default should be the re-frame2 value model: compare values, preserve
+the old value when nothing changed, and make equality decisions observable in
+trace rows when they affect a resource transition.
+
 ### Stale And GC Scheduling
 
 Because `:stale-after-ms` and `:gc-after-ms` are v1 features, their scheduling
@@ -682,7 +814,7 @@ Rules:
 - timers and host handles live in side tables, not in frame-state;
 - frame destroy cancels all resource timers for that frame;
 - a hidden tab can delay timers without corrupting correctness; on focus or
-  reconnect, the first post-MVP revalidation slice should scan active stale
+  reconnect, the first public-beta revalidation slice should scan active stale
   entries and refetch by event.
 
 ### Route Integration
@@ -699,30 +831,36 @@ Add `:resources` as route metadata:
    [{:resource  :article/by-slug
      :params    (fn [route]
                   {:slug (get-in route [:params :slug])})
-     :blocking? true}
+      :scope     (fn [_route ctx]
+                   (:current-session-scope ctx))
+      :blocking? true}
 
-    {:resource  :comments/list
-     :params    (fn [route]
-                  {:slug (get-in route [:params :slug])})
-     :blocking? false}]})
+     {:resource  :comments/list
+      :params    (fn [route]
+                   {:slug (get-in route [:params :slug])})
+      :when      (fn [route _ctx]
+                   (some? (get-in route [:params :slug])))
+      :blocking? false
+      :keep-previous? true}]})
 ```
 
 On route entry:
 
 1. routing resolves the route and nav-token;
-2. route resource params are computed and validated;
-3. each resource is marked active with owner `[:route route-id nav-token]`;
-4. each resource is ensured;
-5. blocking resources are tracked under the nav-token;
-6. non-blocking resources fetch in the background;
-7. failures in blocking resources update route transition/error state;
-8. Xray can display the route/resource graph without parsing handlers.
+2. route resource `:when` predicates are evaluated;
+3. route resource scopes and params are computed and validated;
+4. each resource is marked active with owner `[:route route-id nav-token]`;
+5. each resource is ensured with cause `[:route-entry route-id nav-token]`;
+6. blocking resources are tracked under the nav-token;
+7. non-blocking resources fetch in the background;
+8. failures in blocking resources update route transition/error state;
+9. Xray can display the route/resource graph without parsing handlers.
 
 On route leave or superseded navigation:
 
 1. route-owned resources are released by owner token;
 2. polling for owners that went away stops in later slices;
-3. in-flight work is aborted when possible;
+3. in-flight work is aborted only when no remaining owner still needs it;
 4. stale replies are suppressed by generation/nav-token even if abort is not
    available;
 5. inactive resources become eligible for `:gc-after-ms` cleanup.
@@ -739,6 +877,17 @@ Existing `:on-match` remains canonical for arbitrary route-entry work.
 `:resources` is declarative server-state metadata layered beside it, not a
 second router.
 
+Route resources should define params-failure behavior explicitly. A failed
+params schema should be a route/resource planning error visible in route state
+and Xray, not a silent cache miss. Conditional resources should use `:when`
+rather than sentinel nil params.
+
+Dependent route resources should be modeled as a route plan, not a hidden view
+effect. The simple v1 rule can be conservative: compute independent resources
+in parallel; let a resource declare `:after` another route-resource key when its
+params depend on the first resource's data; show the dependency and any
+waterfall in Xray.
+
 Routes are not required. An app can use resources entirely from events and
 machines:
 
@@ -750,7 +899,8 @@ machines:
            [:rf.resource/ensure
             {:resource :dashboard/summary
              :params   {:user-id user-id}
-             :owner    [:event :dashboard/opened]}]]]}))
+             :owner    [:lease :dashboard/opened user-id]
+             :cause    [:event :dashboard/opened]}]]]}))
 ```
 
 This still gets canonical identity, stale/fresh policy, dedupe, invalidation,
@@ -758,6 +908,51 @@ GC, passive subscriptions, and Xray visibility. What it does not get
 automatically is route ownership, route leave release, route transition
 blocking, or SSR route preload. Those can be supplied explicitly with owners
 and server entry events if the app is not route-driven.
+
+If an event only wants to refresh data and does not intend to keep it active, it
+should omit `:owner` and supply only `:cause`. Event-created owners must have a
+matching release path.
+
+### Paginated and Previous Data
+
+Paginated tables, filtered lists, search results, and cursor feeds are ordinary
+resources in v1. They should not wait for the later "infinite resources" slice.
+
+The v1 pattern is:
+
+- include every filter, sort, page, cursor, and server-visible option in params;
+- tag both the list identity and any returned item identities;
+- keep old data visible while a new page/filter resource is first-loading when
+  the route/resource declaration opts into `:keep-previous?`;
+- mark previous data as previous/placeholder in the public resource state, not
+  as cached data for the new key;
+- let Xray show the previous key and the new key so near-duplicate params,
+  nil-vs-missing mistakes, and accidental request duplication are obvious.
+
+The public `:rf.resource/state` projection for a `:keep-previous?` load should
+make the distinction explicit:
+
+```clojure
+{:status :loading
+ :data nil
+ :previous? true
+ :previous-key [scope :articles/list {:page 1 :filter "recent"}]
+ :previous-data [{:id 1 :title "Old page"}]
+ :placeholder? false}
+```
+
+`previous-data` is a projection from the prior key; it is not inserted into the
+new cache entry and must not provide tags for the new key. The new entry becomes
+ordinary `:loaded` data only after its own request succeeds.
+
+Cache growth for table/list params is controlled by the same owner and GC rules
+as other resources. `:keep-previous?` must not pin old pages beyond their
+owners; it only allows the current view to project the previous entry while the
+new key is loading.
+
+This keeps the common "page 2 of an admin table" case small while still
+reserving infinite scrolling, max-page retention, and cursor-window policies for
+a later dedicated slice.
 
 ### SSR and Hydration
 
@@ -771,7 +966,14 @@ Server route handling should:
 3. enqueue blocking resource ensures;
 4. drain until blocking resources for the current nav-token settle;
 5. render with the settled resource state;
-6. serialize only the allowed resource runtime projection.
+6. serialize only the allowed resource runtime projection;
+7. record projection metadata: serialized, redacted, omitted, fresh, stale, and
+   refetch-on-client decisions.
+
+Blocking SSR resources need a timeout policy. A timeout should settle the
+resource as a structured first-load failure for that SSR frame, record the route
+blocking failure, and let the renderer choose between error markup, a skeleton,
+or an application-specific fallback. It must not hang the request indefinitely.
 
 Client hydration should:
 
@@ -783,6 +985,20 @@ Client hydration should:
 
 Do not serialize all of `:rf.db/runtime` by default. Resource hydration needs an
 explicit projection hook that can redact or omit sensitive and large data.
+Hydration should never cross scopes: request-local SSR frames and serialized
+resource scopes must agree before a client treats hydrated data as usable.
+
+Hydration rules:
+
+- `loaded-at`, `stale-at`, and `invalidated-at` are absolute timestamps; server
+  clock skew should be surfaced in trace/hydration diagnostics when it makes
+  freshness ambiguous;
+- omitted or redacted entries hydrate as metadata only and refetch on the client
+  if the route still needs them;
+- stale hydrated entries may render their data immediately, then refetch by
+  resource event according to policy;
+- `refresh-error` should serialize only when the error envelope is allowed by
+  the same privacy/size projection as data.
 
 ### Transport
 
@@ -799,11 +1015,13 @@ The resource runtime lowers an ensure/refetch into managed HTTP:
  {:request-id request-id
   :request    request-map
   :on-success [:rf.resource.internal/succeeded
-               {:resource-key resource-key
-                :generation   generation}]
+                {:resource-key resource-key
+                 :scope        scope
+                 :generation   generation}]
   :on-failure [:rf.resource.internal/failed
-               {:resource-key resource-key
-                :generation   generation}]}]
+                {:resource-key resource-key
+                 :scope        scope
+                 :generation   generation}]}]
 ```
 
 Success and failure events must verify generation before writing. Cancellation
@@ -813,13 +1031,37 @@ Generic transport is desirable, and `re-frame-query` demonstrates that demand,
 but it should be a later extension protocol after the managed HTTP semantics
 are solid.
 
+### Race and In-Flight Semantics
+
+These cases should be specified before implementation:
+
+- `ensure` while the same scoped resource key is already in flight joins the
+  existing request, attaches any supplied owner, records the new cause, and emits
+  a dedupe trace;
+- `refetch` may force a new generation. If a prior request is still in flight,
+  abort it when possible; otherwise suppress its late reply by generation;
+- invalidation while a request is in flight marks the entry stale and records
+  the invalidation. If the in-flight request is for the current generation, its
+  success may satisfy the invalidation only when policy says the request covered
+  the invalidated identity; otherwise schedule a follow-up refetch;
+- owner release while a request is in flight aborts only when no remaining owner
+  needs that request. Shared requests must not be cancelled just because one
+  route, machine, or lease went away;
+- route supersession uses both nav-token owner release and generation checks.
+  The old nav-token may not write into the new route's resource state;
+- stale/GC timers are advisory. A timer handler must re-read the current entry,
+  scope, owners, and generation before writing because a newer event may already
+  have refreshed, invalidated, removed, or re-owned the entry.
+
 ### Invalidation
 
 V1 should support exact tag invalidation:
 
 ```clojure
 [:rf.resource/invalidate-tags
- {:tags #{[:article "welcome"] [:article-list]}}]
+ {:scope [:rf.scope/session {:user-id "u-42" :tenant-id "acme"}]
+  :tags  #{[:article "welcome"] [:article-list]}
+  :cause [:mutation :article/save mutation-id]}]
 ```
 
 Algorithm:
@@ -828,7 +1070,30 @@ Algorithm:
 2. mark entries stale;
 3. refetch entries with active owners;
 4. leave inactive entries stale or eligible for GC;
-5. emit trace records explaining the decision.
+5. emit trace records explaining matched keys and decisions.
+
+On successful resource load, the tag index for that scoped resource key is
+replaced with the tags produced by the new data. Old tags must be removed so
+that stale list/detail relationships do not keep receiving invalidations after
+the data has changed.
+
+Invalidation can be batched. A single event may carry many tags, but it should
+emit one decision summary plus per-entry details so Xray can show broad-tag
+storms without flooding the trace. Broad invalidations are allowed, but they
+should be visible and lintable.
+
+Scoped invalidation is the default. If an invalidation has no matches, Xray
+should distinguish "no match in this scope" from "no resource provides this tag
+in any scope." That distinction catches tenant/user scope mistakes.
+
+Invalidation traces should distinguish:
+
+- no matching resource;
+- matching inactive resource marked stale;
+- matching active resource refetched;
+- matching resource already stale;
+- matching resource skipped by policy;
+- broad tag matched many entries.
 
 Later, Xray can add lint:
 
@@ -843,7 +1108,7 @@ truth and the client often lacks enough semantic information.
 
 ### Focus And Reconnect Revalidation
 
-Focus and reconnect revalidation should be the first post-MVP slice.
+Focus and reconnect revalidation should be part of the first public-beta gate.
 
 TanStack Query's most visible magic is that stale active data refreshes when
 the user returns to the tab or the network reconnects. re-frame2 should provide
@@ -887,6 +1152,28 @@ Until the mutation slice lands, apps can still dispatch
 `:rf.resource/invalidate-tags` manually after their own write events. That is
 coherent, but it is not the full value proposition.
 
+The minimal mutation slice should include:
+
+- `reg-mutation` and `:rf.mutation/execute`;
+- mutation pending/error/result state;
+- a generated or caller-supplied mutation instance id;
+- scoped execution, using the same cache-scope rules as resources;
+- concurrency semantics for multiple submissions of the same mutation id;
+- tag invalidation from success and, when useful, failure;
+- explicit invalidation timing: before request, after success, after failure, or
+  after settle;
+- controlled resource patch/populate APIs for mutation responses;
+- abort and retry policy inherited from managed HTTP, with write retries opt-in;
+- failure-state lifetime and a causal clear/reset event;
+- trace-visible mutation instance ids;
+- instrumentation hooks for later optimistic snapshots and rollback.
+
+Mutation runtime state should be keyed by mutation instance id, not only by
+mutation id, so two concurrent `:comment/add` submissions do not overwrite each
+other's pending/error/result state. Xray should group those instances under the
+registered mutation id while still showing each request, invalidation, patch,
+and result separately.
+
 Example shape:
 
 ```clojure
@@ -918,9 +1205,12 @@ Dispatch:
   :params   article}]
 ```
 
-Optimistic updates should initially use snapshot rollback of affected resource
-entries. Epoch-diff rollback can be researched later if the epoch subsystem
-becomes production-safe for this purpose.
+Optimistic updates are deferred beyond the first public-beta gate, but the
+mutation trace shape should reserve room for them now: affected resource keys,
+patch summaries, snapshot ids, rollback result, and reconciliation refetches.
+When optimistic updates land, they should initially use snapshot rollback of
+affected resource entries. Epoch-diff rollback can be researched later if the
+epoch subsystem becomes production-safe for this purpose.
 
 ### Machines
 
@@ -949,22 +1239,79 @@ read caching heavier without improving correctness.
 
 Xray should expose:
 
-- registered resources and later mutations;
-- active resource instances;
-- route owners and machine owners;
-- status and freshness;
-- loaded-at/stale-at;
-- in-flight request ids;
-- first-load errors and refresh errors;
-- provided tags and invalidation history;
-- stale-suppressed replies;
-- SSR preload/hydration status;
-- redaction and sensitivity markers.
+- a static resource registry: resource id, source coordinates, params/data
+  schemas, request summary, stale/GC policy, tag producer, scope resolver,
+  sensitivity/large classification, and declaring routes;
+- a live resource instance table per frame: resource key, scope, status,
+  loaded-at, stale-at, gc-at, generation, request id, attempt, owners, tags,
+  errors, data summary, and GC eligibility;
+- a route/resource graph: current route/nav-token, blocking vs non-blocking
+  resources, SSR wait points, hydrated/fresh/stale state;
+- a lifecycle timeline: ensure, owner attach, cache hit, dedupe, request
+  issued, success/failure, refresh failure, invalidation, refetch decision,
+  owner release, GC schedule/fire/skip, stale suppression, hydration;
+- an invalidation/mutation graph: invalidated tags, matched entries, active
+  refetches, inactive stale marks, no-match invalidations, broad-tag warnings,
+  mutation source coordinates;
+- a cache growth view: counts by resource/status/scope/owner/tag, inactive
+  entries, entries past GC time, largest elided data summaries, orphaned owners,
+  and retained side-table handles.
 
 Tool APIs should prefer summaries and metadata over raw values. AIs usually
 need to know "this route owns `:article/by-slug`, it is stale, and the latest
 background refresh failed with a 503", not the full article body or user
 profile payload.
+
+This needs a trace/accessor contract, not only panel UI. Add a `:rf.resource/*`
+trace family with operations such as:
+
+```clojure
+:rf.resource/registered
+:rf.resource/ensure
+:rf.resource/owner-attached
+:rf.resource/cache-hit
+:rf.resource/deduped
+:rf.resource/fetch-started
+:rf.resource/succeeded
+:rf.resource/failed
+:rf.resource/refresh-failed
+:rf.resource/invalidated
+:rf.resource/refetch-decision
+:rf.resource/owner-released
+:rf.resource/gc-scheduled
+:rf.resource/gc-fired
+:rf.resource/gc-skipped
+:rf.resource/removed
+:rf.resource/stale-suppressed
+:rf.resource/hydrated
+:rf.resource/hydrate-refetch
+```
+
+Every resource trace should carry, where applicable, frame, scope, resource key,
+resource id, params summary, generation, request id, owner, cause, status
+before/after, resource tags, invalidated tags, freshness timestamps, and
+redaction/size markers.
+
+Trace and history retention are part of the tool contract. Resource history must
+be bounded, and params/scopes need the same privacy and size elision treatment
+as data because scopes can contain user ids, tenant ids, locale, or
+impersonation markers. Xray should display elided summaries for sensitive or
+large params/scopes and keep enough retained history to explain recent races,
+invalidations, and GC decisions without becoming its own unbounded cache.
+
+Candidate tool accessors:
+
+```clojure
+(list-resources opts)
+(list-resource-instances opts)
+(get-resource-state opts)
+(get-resource-history opts)
+(list-resource-invalidations opts)
+```
+
+They should filter by frame, scope, resource id, tag, owner, status, stale?,
+request id, and nav-token. Raw data access continues to go through existing
+egress and elision rules.
 
 ## Examples
 
@@ -994,12 +1341,16 @@ profile payload.
    [{:resource  :article/by-slug
      :params    (fn [route]
                   {:slug (get-in route [:params :slug])})
+      :scope     (fn [_route ctx]
+                   (:current-session-scope ctx))
      :blocking? true}]})
 
 (rf/reg-view article-page []
   (let [slug  @(rf/subscribe [:rf.route/param :slug])
+        scope @(rf/subscribe [:session/resource-scope])
         state @(rf/subscribe [:rf.resource/state
                               {:resource :article/by-slug
+                               :scope    scope
                                :params   {:slug slug}}])]
     (cond
       (:loading? state)
@@ -1030,7 +1381,8 @@ the resource state.
            [:rf.resource/ensure
             {:resource :dashboard/summary
              :params   {:user-id user-id}
-             :owner    [:event :dashboard/opened]}]]]}))
+             :owner    [:lease :dashboard/opened user-id]
+             :cause    [:event :dashboard/opened]}]]]}))
 ```
 
 ### Manual Refresh
@@ -1043,7 +1395,7 @@ the resource state.
            [:rf.resource/refetch
             {:resource :article/by-slug
              :params   {:slug slug}
-             :owner    [:event :article/refresh-clicked]}]]]}))
+             :cause    [:event :article/refresh-clicked]}]]]}))
 ```
 
 ### Mutation With Invalidation
@@ -1086,10 +1438,11 @@ the resource state.
     {:target :loading
      :actions
      [{:fx [[:dispatch
-             [:rf.resource/ensure
-              {:resource :checkout/quote
-               :params   {:cart-id [:data :cart-id]}
-               :owner    [:machine :checkout/flow [:data :instance-id]]}]]]}]}}}
+              [:rf.resource/ensure
+               {:resource :checkout/quote
+                :params   {:cart-id [:data :cart-id]}
+                :owner    [:machine :checkout/flow [:data :instance-id]]
+                :cause    [:machine-action :checkout/quote.requested]}]]]}]}}}
 
   :loading
   {:on
@@ -1172,6 +1525,8 @@ Store serializable state in frame-state:
 - timestamps;
 - generations;
 - owners;
+- scopes;
+- causes/history summaries;
 - tags;
 - indexes.
 
@@ -1194,6 +1549,7 @@ Implement public events:
 :rf.resource/refetch
 :rf.resource/invalidate-tags
 :rf.resource/release-owner
+:rf.resource/clear-scope
 :rf.resource/remove
 ```
 
@@ -1211,13 +1567,16 @@ Implement internal events:
 
 1. resolve resource metadata;
 2. validate and canonicalize params;
-3. compute `[resource-id canonical-params]`;
-4. attach owner if supplied;
-5. if entry is fresh, no-op after owner update;
-6. if request is in flight, no-op after owner update;
-7. transition to `:loading` or `:fetching`;
-8. issue managed HTTP effect;
-9. record generation, request id, and trace data.
+3. resolve and validate cache scope;
+4. compute `[cache-scope resource-id canonical-params]`;
+5. attach owner if supplied;
+6. record cause if supplied;
+7. if entry is fresh, no-op after owner update and emit cache-hit trace;
+8. if request is in flight, join/dedupe after owner update and emit dedupe
+   trace;
+9. transition to `:loading` or `:fetching`;
+10. issue managed HTTP effect;
+11. record generation, request id, and trace data.
 
 ### 5. Managed HTTP Integration
 
@@ -1228,6 +1587,7 @@ The reply event must carry enough data to verify generation and frame:
 ```clojure
 [:rf.resource.internal/succeeded
  {:resource-key resource-key
+  :scope        scope
   :generation   generation
   :frame        frame-id}]
 ```
@@ -1248,6 +1608,8 @@ Register passive subscriptions:
 :rf.resource/loading?
 :rf.resource/fetching?
 :rf.resource/stale?
+:rf.resource/has-data?
+:rf.resource/previous-data
 ```
 
 No v1 subscription should fetch. If a future `:rf.resource/live` is added, it
@@ -1260,11 +1622,13 @@ Routing changes:
 
 1. reserve `:resources` in route metadata;
 2. compute route resource plans after match;
-3. attach owners with `[:route route-id nav-token]`;
-4. dispatch ensures;
-5. track blocking resources by nav-token;
-6. release owners on route leave or superseded nav-token;
-7. keep existing `:on-match` behavior.
+3. evaluate `:when` and dependency ordering;
+4. resolve scopes and params;
+5. attach owners with `[:route route-id nav-token]`;
+6. dispatch ensures with route-entry causes;
+7. track blocking resources by nav-token;
+8. release owners on route leave or superseded nav-token;
+9. keep existing `:on-match` behavior.
 
 SSR changes:
 
@@ -1278,11 +1642,15 @@ SSR changes:
 Tools should receive summaries:
 
 ```clojure
-{:resource-key [:article/by-slug {:slug "welcome"}]
+{:resource-key [[:rf.scope/session {:user-id "u-42" :tenant-id "acme"}]
+                :article/by-slug
+                {:slug "welcome"}]
+ :scope        [:rf.scope/session {:user-id "u-42" :tenant-id "acme"}]
  :status       :loaded
  :has-data?    true
  :stale?       true
  :owners       #{[:route :route/article nav-token]}
+ :causes       [[:route-entry :route/article nav-token]]
  :tags         #{[:article "welcome"]}
  :refresh-error {:category :http/status
                  :status   503}
@@ -1300,24 +1668,44 @@ Initial conformance fixtures should cover:
 - registration and metadata;
 - params schema validation;
 - params canonicalization;
+- cache scope validation and clearing;
+- scope switch/clear while requests are in flight;
 - first load `:loading`;
 - background refresh `:fetching`;
 - background refresh failure records `:refresh-error` and preserves data;
 - success and failure transitions;
 - stale/fresh behavior;
+- derived status flags do not drift from durable facts;
+- structural sharing preserves unchanged data values;
 - inactive GC;
 - duplicate ensure dedupe;
+- dedupe traces joined owners and request id;
+- forced refetch supersedes or suppresses older in-flight generations;
 - stale reply suppression;
 - active owner release;
+- cause does not create liveness;
+- Xray/tool inspection does not create an owner;
 - exact tag invalidation;
+- invalidation trace records matched keys and decisions;
+- invalidation while a matching request is in flight;
+- tag index replacement after successful reload;
 - active invalidated resource refetch;
 - inactive invalidated resource only marked stale;
 - route entry ensure;
+- route `:when` skips without sentinel params;
+- dependent route resource ordering;
+- route `:keep-previous?` reports previous data without polluting new-key cache;
 - route leave owner release;
 - route supersession via nav-token;
+- blocking route resource failure and timeout behavior;
 - SSR preload;
 - hydration no-double-fetch;
+- hydration omitted/redacted-data refetch behavior;
+- hydration scope isolation;
 - frame isolation;
+- mutation patch/populate then invalidation;
+- cache growth and GC limits for list resources;
+- trace redaction and pruning for params/scopes;
 - redacted tool summaries.
 
 ## Options Considered
@@ -1370,6 +1758,8 @@ The v1 artifact should include:
 - passive resource state subscriptions;
 - map-payload ensure/refetch/invalidate/remove events;
 - active owners;
+- non-liveness causes;
+- explicit cache scopes and scope clearing;
 - route `:resources`;
 - managed HTTP transport;
 - canonical params;
@@ -1380,10 +1770,13 @@ The v1 artifact should include:
 - dedupe;
 - stale reply suppression;
 - `:refresh-error` for background-refresh failures;
+- conditional route resources;
+- previous-data support for ordinary paginated/filter resources;
+- structural sharing for equal decoded data;
 - SSR preload/hydration;
-- Xray/tool metadata.
+- Xray/tool metadata and resource trace operations.
 
-First post-MVP slices:
+First public-beta gate:
 
 - `reg-mutation`;
 - focus/reconnect revalidation;
@@ -1419,13 +1812,15 @@ Structural advantages inside re-frame2:
   frames;
 - route-declared data dependencies;
 - event-causal traces;
+- explicit owner/cause separation, so liveness and causality do not blur;
+- cache scopes for auth, tenant, locale, impersonation, and SSR correctness;
 - runtime-owned state that ordinary app-db writes cannot clobber;
 - managed HTTP as the default transport;
 - schema-aware params and decoded data;
 - derived projections through ordinary subscriptions instead of a query-local
   `:select` hook;
 - time-travel and SSR through frame-state;
-- Xray visibility;
+- Xray visibility over decisions, not just final state;
 - AI-readable metadata and redacted values;
 - FSM escalation for lifecycles that deserve it.
 
@@ -1449,7 +1844,9 @@ re-frame2 runtime process.
    Recommendation: API says resources; docs can use "resource queries" when
    comparing to prior art.
 2. Should `reg-mutation` land with v1 or as the next slice?
-   Recommendation: next slice.
+   Recommendation: read-resource MVP first, but do not call the artifact
+   complete until minimal mutation invalidation lands in the first public-beta
+   gate.
 3. What exact route `blocking?` behavior should client navigation expose?
    Recommendation: route transition pending and SSR wait; do not block URL
    commit.
@@ -1466,28 +1863,45 @@ re-frame2 runtime process.
    first-load failure with no usable data.
 8. Should generic transports be part of v1?
    Recommendation: no. Managed HTTP first.
+9. What is the cache scope shape?
+   Recommendation: make scope explicit EDN and part of the resource key, with
+   `[:rf.scope/global]` as the default and `clear-scope` for logout/account
+   changes.
+10. Should owners also represent causes?
+    Recommendation: no. Owners are liveness leases; causes are trace metadata.
+11. Should Xray ever become an owner?
+    Recommendation: no for inspection. A future explicit debug pin may be a
+    tool mutation with trace evidence.
+12. How much previous-data support belongs in v1?
+    Recommendation: support `:keep-previous?` for ordinary route/list churn;
+    keep arbitrary placeholder data deferred.
 
 ## Bead Structure
 
 1. EP/spec bead: turn this proposal into a normative spec.
 2. Artifact skeleton bead: create `day8/re-frame2-resources`, facade wrappers,
    feature probes, and `:resource` registrar metadata.
-3. Resource runtime bead: entries, canonical params, status transitions,
-   passive subscriptions, and frame-local state.
+3. Resource runtime bead: entries, cache scopes, canonical params, status
+   transitions, structural sharing, passive subscriptions, and frame-local
+   state.
 4. Managed HTTP bead: ensure/refetch/success/failure over `:rf.http/managed`,
    dedupe, generation checks, and stale reply suppression.
 5. Invalidation/GC bead: tags, active owners, owner indexes, stale marking,
-   active refetch, stale/GC timer policy, and inactive GC.
+   active refetch, causes, stale/GC timer policy, scope clearing, and inactive
+   GC.
 6. Route integration bead: `:resources`, nav-token owners, blocking resources,
-   release on leave, and preserved `:on-match` behavior.
+   `:when`, dependent route resources, `:keep-previous?`, release on leave, and
+   preserved `:on-match` behavior.
 7. SSR/hydration bead: blocking resource drain, resource projection, redaction,
-   and hydration no-double-fetch.
+   scope isolation, projection metadata, and hydration no-double-fetch.
 8. Xray/tool/privacy bead: resource registry panel, route/resource graph,
-   summaries, egress policy, and redacted accessors.
+   lifecycle timeline, invalidation graph, cache growth view, summaries, trace
+   operations, egress policy, and redacted accessors.
 9. Focus/reconnect bead: active-stale scan on browser focus and network
    reconnect, expressed as resource events with trace records.
-10. Mutation bead: `reg-mutation`, execution, invalidation, and snapshot
-   rollback.
+10. Mutation bead: `reg-mutation`, mutation instance state, execution,
+    patch/populate APIs, invalidation, and trace hooks for later optimistic
+    rollback.
 11. Docs/examples bead: guide chapter, API docs, migration notes from
     `shipclojure/re-frame-query`, route-driven example, SSR example, and
     machine-owned resource example.
