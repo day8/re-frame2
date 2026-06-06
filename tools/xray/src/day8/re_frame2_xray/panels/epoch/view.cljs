@@ -3423,42 +3423,43 @@
              :style orientation-value-style}
       (fmt/orientation-value state)]]))
 
-(defn- machine-block
-  "Render the machine-handler section as a SINGLE TIME-ORDERED CASCADE
-  (rf2-u69j7). Replaces the pre-rf2-u69j7 category-grouped layout
-  (TRANSITION / GUARDS / LIFECYCLE / AFTER-TIMERS / DATA REDUCTION /
-  SNAPSHOT DIFF / FX) with one cascade view: each row interleaves
-  source code with the row's phase + duration + outcome (per Mike's
-  authority — Bead rf2-u69j7).
+(defn machine-cascade-mini-pipeline
+  "SHARED EVENT HANDLER machine-cascade mini-pipeline (rf2-g2axio).
 
-  Order comes from the substrate's `:rf.machine/action-ran` /
-  `:rf.machine/guard-evaluated` / `:rf.machine/transition` /
-  `:rf.machine.timer/cancelled` trace events' INSERTION ORDER in the
-  epoch buffer — the substrate already emits them in cascade order
-  (Spec 005 §Trace events + rf2-82a0u). The projection's
-  `machine-cascade-rows` is a pure-data walk over the events; this
-  view layer is a faithful render of that vector.
+  The single renderer for the numbered machine-cascade rows (the
+  microstep cascade with KIND+PHASE badges, guard pass/fail rows, verb
+  links, source bodies, outcomes / data-writes) plus the structured
+  EVENT HANDLER orientation line above them. It is consumed by BOTH:
 
-  The legacy category-grouped sub-sections (TRANSITION / GUARDS /
-  LIFECYCLE / AFTER-TIMERS / DATA REDUCTION / SNAPSHOT DIFF / FX) are
-  REPLACED, not augmented (per Mike: 'pre-alpha; no back-compat
-  shim'). The full state-change story is now told inline by the
-  cascade — transitions render their `from → to` state vectors;
-  actions render their data-write + fx attribution + source code
-  body."
-  [{:keys [cascade] :as _machine-row} event-id]
+    - the Epoch panel's EVENT HANDLER step (via `machine-block`, which
+      passes the already-projected `:cascade`), and
+    - the Xray Machine tab (`panels.machine-inspector`), which passes
+      the focused epoch's projected cascade (off the SAME
+      `projection/machine-cascade-rows`).
+
+  Extract-and-reuse, NOT copy-paste: a future change to the cascade-row
+  rendering updates both surfaces at once. This was the whole point of
+  rf2-g2axio — before the extraction the Machine tab carried its OWN,
+  thinner forensic block (`focused-transition-lens`) that diverged from
+  this richer microstep view.
+
+  `cascade` is the projected cascade-row vector (see
+  `projection/machine-cascade-rows`); `event-id` is the machine handler
+  id used to resolve the registration meta (`rf/handler-meta :event …`)
+  so guard / action source-coords resolve. Returns the same
+  `rf-xray-epoch-handler-machine` host the Epoch panel always rendered,
+  so every cascade-row testid (`rf-xray-epoch-machine-cascade-row-N`,
+  `-ordinal-N`, `-kind-*`, `-phase-*`, `-verb-link-N`, `-source-body-N`,
+  `-outcome-N`, `-data-write-N`, …) is identical on both surfaces."
+  [cascade event-id]
   ;; rf2-ge6uj ISSUE 2 — read the registration meta under the `:event`
   ;; kind, NOT a (non-existent) `:machine` kind. A machine is registered
   ;; as a `reg-event-fx` carrying `:rf/machine? true` + the stamped spec
   ;; under `:rf/machine` (with co-located `:guards` / `:actions` entries
   ;; carrying `:source-coords` / `:source-code`, plus reference-site
   ;; `:source-coords` co-located on each `:states`-tree map node,
-  ;; rf2-npvsx / rf2-vqja2). The prior
-  ;; `:machine` lookup resolved nil, so `cascade-row-source-form` /
-  ;; `cascade-row-coord` saw no spec → every exit / entry action + guard
-  ;; row rendered the `<source not yet captured>` placeholder. Reading
-  ;; under `:event` surfaces the spec so the interleaved source code +
-  ;; click-to-source coords resolve.
+  ;; rf2-npvsx / rf2-vqja2). Reading under `:event` surfaces the spec so
+  ;; the interleaved source code + click-to-source coords resolve.
   (let [machine-meta (when (some? event-id)
                        (try (rf/handler-meta :event event-id)
                             (catch :default _ nil)))
@@ -3469,6 +3470,22 @@
      ;; numbered cascade pipeline below.
      (event-handler-orientation-line cascade event-id)
      (machine-cascade-view machine-meta cascade)]))
+
+(defn- machine-block
+  "Render the machine-handler section as a SINGLE TIME-ORDERED CASCADE
+  (rf2-u69j7). Delegates to the SHARED `machine-cascade-mini-pipeline`
+  (rf2-g2axio) — the SAME renderer the Xray Machine tab consumes, so the
+  two surfaces cannot diverge. The Epoch panel arrives here with the
+  cascade ALREADY projected (off the HANDLER row's `:machine {:cascade
+  …}` slot, built by `projection/machine-cascade-rows`).
+
+  Each row interleaves source code with the row's phase + duration +
+  outcome (per Mike's authority — Bead rf2-u69j7). The legacy
+  category-grouped sub-sections (TRANSITION / GUARDS / LIFECYCLE /
+  AFTER-TIMERS / DATA REDUCTION / SNAPSHOT DIFF / FX) are REPLACED, not
+  augmented (per Mike: 'pre-alpha; no back-compat shim')."
+  [{:keys [cascade] :as _machine-row} event-id]
+  (machine-cascade-mini-pipeline (or cascade []) event-id))
 
 ;; ---- handler source --------------------------------------------------
 ;;

@@ -17,7 +17,6 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.core-machines :as core-machines]
             [re-frame.frame :as frame]
             ;; Boot the optional machines artefact's late-bind hooks so
             ;; `reg-machine*` resolves rather than throwing
@@ -289,9 +288,15 @@
             "the initial state is highlighted via to-highlight")
         (is (= "" (:data-from-highlight-id (second chart)))
             "a birth has no from-highlight — there was no prior state")
+        ;; rf2-g2axio — the birth story is now told by the SHARED
+        ;; mini-pipeline's `:start` cascade row (carrying the `[START]`
+        ;; kind pill), not the removed header badge.
         (is (some? (find-by-testid
-                     tree "rf-xray-machine-focused-event-start-badge"))
-            "the header renders a [START] badge rather than a (uninit) → path")
+                     tree "rf-xray-epoch-machine-cascade-kind-start"))
+            "the mini-pipeline renders a [START] cascade-row pill for the birth")
+        (is (nil? (find-by-testid
+                    tree "rf-xray-machine-focused-event-start-badge"))
+            "the removed header [START] badge no longer renders (rf2-g2axio)")
         (is (nil? (find-by-testid tree "rf-xray-machine-inspector-blank"))
             "the blank-state is suppressed — the bug was an empty tab here")))))
 
@@ -343,22 +348,24 @@
             "no to-highlight — a no-op is not a from→to landing")
         (is (= "" (:data-from-highlight-id (second chart)))
             "no from-highlight — a no-op is not a from→to origin")
-        (is (some? (find-by-testid
-                     tree "rf-xray-machine-focused-event-no-op-badge"))
-            "the header renders a [NO-OP] badge rather than a state→state path")
-        (is (nil? (find-by-testid
-                    tree "rf-xray-machine-focused-event-start-badge"))
-            "a no-op is NOT a birth — no [START] badge")
         (is (nil? (find-by-testid tree "rf-xray-machine-inspector-blank"))
             "the blank-state is suppressed — the bug was an empty tab here")
-        ;; The lens reads NO TRANSITION (not a misleading self-transition).
-        (let [lens (find-by-testid
-                     tree "rf-xray-machine-focused-transition-lens")]
-          (is (= "true" (:data-no-op (second lens)))
-              "the forensic lens is flagged no-op")
-          (is (some? (find-by-testid
-                       tree "rf-xray-machine-lens-no-op-state"))
-              "the lens renders the unchanged current state, no → edge"))))))
+        ;; rf2-g2axio — the no-op story now reads off the SHARED
+        ;; mini-pipeline's `:no-op` cascade row (the `[NO OP]` qualifier
+        ;; chip), not a bespoke header badge / forensic lens. The pipeline
+        ;; host mounts; the removed header badge + lens are gone.
+        (is (some? (find-by-testid
+                     tree "rf-xray-machine-event-handler-mini-pipeline"))
+            "the SHARED mini-pipeline mounts for a no-op")
+        (is (some? (find-by-testid
+                     tree "rf-xray-epoch-machine-cascade-no-op-qualifier"))
+            "the mini-pipeline renders a [NO OP] cascade-row qualifier")
+        (is (nil? (find-by-testid
+                    tree "rf-xray-machine-focused-event-no-op-badge"))
+            "the removed header [NO-OP] badge no longer renders (rf2-g2axio)")
+        (is (nil? (find-by-testid
+                    tree "rf-xray-machine-focused-transition-lens"))
+            "the bespoke forensic lens is removed (rf2-g2axio)")))))
 
 (deftest gate-reads-the-migrated-rf-machine-transition-op-only
   (testing "the machine-relatedness gate keys on the `:rf.*` migrated op
@@ -479,28 +486,165 @@
                (mapv #(:data-machine-id (second %)) sections))
             "the first-by-trace-order machine wins (lowest :id wins)")))))
 
-;; ---- (4b) focused-transition lens (rf2-2n34o · spec/003 §Focused-transition lens) -----
+;; ---- (4b) the SHARED EVENT HANDLER mini-pipeline (rf2-g2axio) -----------
+;;
+;; rf2-g2axio redesigned the Machine tab to render EXACTLY THREE elements:
+;; Prev/Next + the SHARED EVENT HANDLER mini-pipeline + the chart. The
+;; mini-pipeline is the SAME renderer + projection the Epoch panel's EVENT
+;; HANDLER step uses — `epoch-view/machine-cascade-mini-pipeline` over the
+;; focused epoch's `machine-cascade-rows` projection — so the two surfaces
+;; cannot diverge. These tests pin: the bespoke forensic lens / snapshot
+;; drill-in / chart-collapse chrome is GONE, the mini-pipeline mounts, and
+;; it carries the SAME `rf-xray-epoch-machine-cascade-*` testids the Epoch
+;; panel renders.
 
-;; Per rf2-ftrcv: `:machine-guard` / `:machine-action` are NOT registrar
-;; kinds — `(rf/handler-meta :machine-guard [mid gid])` DERIVES the
-;; fn-source from the machine's `:event` registration spec's co-located
-;; `:guards` / `:actions` entries. So the lens fixtures register a real
-;; machine via `core-machines/reg-machine*` with a PRE-STAMPED spec
-;; (co-located `{:fn .. :source-code ..}` entries — the shape the
-;; `reg-machine` macro emits in dev), letting the test control the exact
-;; `:rf.handler/source` string the lens renders without depending on the
-;; macro's `pr-str` output.
-(defn- register-machine-guard-meta! [machine-id guard-id source]
-  (core-machines/reg-machine* machine-id
-    {:initial :idle
-     :guards  {guard-id {:fn (fn [_] true) :source-code source}}
-     :states  {:idle {:on {:e {:target :idle :guard guard-id}}}}}))
+(deftest machine-tab-renders-exactly-three-elements-rf2-g2axio
+  (testing "rf2-g2axio: the Machine tab renders EXACTLY THREE elements —
+            the Prev/Next nav, the SHARED EVENT HANDLER mini-pipeline,
+            and the chart — and NONE of the removed bespoke chrome (the
+            focused-transition lens, the per-machine header ribbon, the
+            list/canvas view-mode wrapper, the chart-collapse toggle/
+            summary, the snapshot drill-in, the inline cancellation
+            cascade)."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (override-machines!    [:auth/login])
+      (override-definitions! {:auth/login fixture-definition})
+      (override-epoch-history!
+        [{:epoch-id 1
+          :trace-events
+          [{:id 1 :time 10 :operation :rf.machine/transition
+            :tags {:machine-id :auth/login
+                   :before     {:state :idle    :data {}}
+                   :after      {:state :authing :data {}}
+                   :event      [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}])
+      (focus-epoch! 1)
+      (let [tree (machine-inspector/Panel)]
+        ;; ELEMENT 1 — Prev/Next nav (in the header).
+        (is (some? (find-by-testid tree "rf-xray-machine-inspector-prev"))
+            "element 1: Prev nav")
+        (is (some? (find-by-testid tree "rf-xray-machine-inspector-next"))
+            "element 1: Next nav")
+        ;; ELEMENT 2 — the SHARED mini-pipeline.
+        (is (some? (find-by-testid
+                     tree "rf-xray-machine-event-handler-mini-pipeline"))
+            "element 2: the SHARED EVENT HANDLER mini-pipeline host")
+        ;; ELEMENT 3 — the chart.
+        (is (some? (find-by-testid
+                     tree "rf-xray-machine-focused-event-chart"))
+            "element 3: the topology chart")
+        ;; REMOVED chrome — none of it renders.
+        (is (nil? (find-by-testid
+                    tree "rf-xray-machine-focused-transition-lens"))
+            "the bespoke forensic lens is removed")
+        (is (nil? (find-by-testid
+                    tree "rf-xray-machine-focused-event-header"))
+            "the per-machine header ribbon is removed")
+        (is (nil? (find-by-testid
+                    tree "rf-xray-machine-snapshot-drill-in"))
+            "the snapshot drill-in is removed")
+        (is (nil? (find-by-testid
+                    tree "rf-xray-machine-focused-event-list"))
+            "the list/canvas view-mode wrapper is removed")
+        (is (nil? (find-by-testid
+                    tree "rf-xray-machine-chart-toggle-auth/login"))
+            "the chart-collapse toggle is removed")
+        (is (nil? (find-by-testid
+                    tree "rf-xray-machine-cancellation-cascade"))
+            "the inline cancellation cascade is removed")))))
 
-(defn- register-machine-action-meta! [machine-id action-id source]
-  (core-machines/reg-machine* machine-id
-    {:initial :idle
-     :actions {action-id {:fn (fn [_] nil) :source-code source}}
-     :states  {:idle {:on {:e {:target :idle :action action-id}}}}}))
+(deftest machine-tab-mini-pipeline-is-the-shared-renderer-rf2-g2axio
+  (testing "rf2-g2axio: the Machine tab's mini-pipeline IS the SAME
+            renderer the Epoch panel's EVENT HANDLER step uses — it
+            carries the SAME `rf-xray-epoch-handler-machine` cascade host
+            + the SAME `rf-xray-epoch-machine-cascade-row-N` /
+            `-ordinal-N` testids (no second bespoke renderer)."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (override-machines!    [:auth/login])
+      (override-definitions! {:auth/login fixture-definition})
+      (override-epoch-history!
+        [{:epoch-id 1
+          :trace-events
+          [{:id 1 :time 10 :operation :rf.machine/transition
+            :tags {:machine-id :auth/login
+                   :before     {:state :idle    :data {}}
+                   :after      {:state :authing :data {}}
+                   :event      [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}])
+      (focus-epoch! 1)
+      (let [tree (machine-inspector/Panel)]
+        ;; The SHARED cascade host the Epoch panel renders.
+        (is (some? (find-by-testid
+                     tree "rf-xray-epoch-handler-machine"))
+            "the shared `rf-xray-epoch-handler-machine` cascade host mounts")
+        (is (some? (find-by-testid
+                     tree "rf-xray-epoch-handler-machine-cascade-rows"))
+            "the shared cascade rows host mounts")
+        ;; The numbered cascade rows the Epoch panel renders — same testids.
+        (is (some? (find-by-testid
+                     tree "rf-xray-epoch-machine-cascade-row-1"))
+            "the first numbered cascade row carries the SHARED testid")
+        (is (some? (find-by-testid
+                     tree "rf-xray-epoch-machine-cascade-ordinal-1"))
+            "the cascade row's left-rail ordinal carries the SHARED testid")
+        ;; The EVENT HANDLER orientation line the Epoch panel renders.
+        (is (some? (find-by-testid
+                     tree "rf-xray-epoch-event-handler-orientation"))
+            "the SHARED EVENT HANDLER orientation line renders")))))
+
+(deftest machine-tab-prev-next-moves-mini-pipeline-and-chart-together-rf2-g2axio
+  (testing "rf2-g2axio: Prev/Next moves the focused epoch, so BOTH the
+            SHARED mini-pipeline AND the chart highlights re-paint to the
+            newly-focused epoch together (both read the same focus)."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (override-machines!    [:auth/login])
+      (override-definitions! {:auth/login fixture-definition})
+      ;; Two epochs that BOTH touch :auth/login with DIFFERENT transitions
+      ;; so Prev visibly changes the chart highlights + the cascade rows.
+      (override-epoch-history!
+        [{:epoch-id 1
+          :trace-events
+          [{:id 1 :time 10 :operation :rf.machine/transition
+            :tags {:machine-id :auth/login
+                   :before     {:state :idle    :data {}}
+                   :after      {:state :authing :data {}}
+                   :event      [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}
+         {:epoch-id 2
+          :trace-events
+          [{:id 2 :time 20 :operation :rf.machine/transition
+            :tags {:machine-id :auth/login
+                   :before     {:state :authing :data {}}
+                   :after      {:state :done    :data {}}
+                   :event      [:auth/ok] :rf.trace/dispatch-id "d-2"}}]}])
+      ;; Focus the LATER epoch (authing → done).
+      (focus-epoch! 2)
+      (let [tree  (machine-inspector/Panel)
+            chart (find-by-testid tree "rf-xray-machine-focused-event-chart")]
+        (is (= "authing" (:data-from-highlight-id (second chart)))
+            "chart highlights the focused (later) epoch's from-state")
+        (is (= "done" (:data-to-highlight-id (second chart)))
+            "chart highlights the focused (later) epoch's to-state")
+        (is (some? (find-by-testid
+                     tree "rf-xray-machine-event-handler-mini-pipeline"))
+            "the mini-pipeline renders for the focused epoch"))
+      ;; Prev → the earlier epoch (idle → authing). Both re-read the focus.
+      (rf/dispatch-sync [:rf.xray/machine-focus-prev])
+      (let [tree  (machine-inspector/Panel)
+            chart (find-by-testid tree "rf-xray-machine-focused-event-chart")]
+        (is (= "idle" (:data-from-highlight-id (second chart)))
+            "after Prev, the chart re-paints to the earlier epoch's from-state")
+        (is (= "authing" (:data-to-highlight-id (second chart)))
+            "after Prev, the chart re-paints to the earlier epoch's to-state")
+        ;; The mini-pipeline reads the SAME focus, so it moved too — the
+        ;; orientation line now reads the earlier epoch's pre-state (:idle).
+        (let [orient (find-by-testid
+                       tree "rf-xray-epoch-event-handler-orientation-state")]
+          (is (some? orient)
+              "the mini-pipeline's orientation state line renders")
+          (is (str/includes? (pr-str orient) "idle")
+              "after Prev, the mini-pipeline orientation reads the earlier
+               epoch's pre-transition state — it moved WITH the chart"))))))
 
 (deftest blank-state-renders-verbatim-empty-state-text-rf2-8og3k
   (testing "spec/003 §Empty state — focused event does not target a state
@@ -527,290 +671,6 @@
             "no lens in the empty state")
         (is (nil? (find-by-testid tree "rf-xray-machine-focused-event-chart"))
             "no chart in the empty state")))))
-
-(deftest lens-renders-target-instance-and-transition-rf2-2n34o
-  (testing "spec/003 §Focused-transition lens — rendered shape: the lens
-            block sits above the chart and carries Target Machine
-            Instance: + TRANSITION (from → to) lines."
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (override-machines!    [:auth/login])
-      (override-definitions! {:auth/login fixture-definition})
-      (override-epoch-history!
-        [{:epoch-id 1
-          :trace-events
-          [{:id 1 :time 10 :operation :rf.machine/transition
-            :tags {:machine-id :auth/login
-                   :before     {:state :idle    :data {}}
-                   :after      {:state :authing :data {}}
-                   :event      [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}])
-      (focus-epoch! 1)
-      (let [tree   (machine-inspector/Panel)
-            lens   (find-by-testid tree "rf-xray-machine-focused-transition-lens")
-            target (find-by-testid tree "rf-xray-machine-lens-target-instance")
-            transition (find-by-testid tree "rf-xray-machine-lens-transition")]
-        (is (some? lens)        "the focused-transition lens mounts above the chart")
-        (is (= ":auth/login" (:data-machine-id (second lens))))
-        (is (some? target)      "Target Machine Instance: line present")
-        (is (some? transition)  "TRANSITION line present")))))
-
-(deftest lens-renders-guard-source-and-return-rf2-2n34o
-  (testing "spec/003 §Focused-transition lens — GUARDS RUN: id + fn-source
-            (from `rf/handler-meta :machine-guard`) + return value
-            rendered. The trace's `:rf.machine/guard-evaluated` event
-            carries the outcome :pass / :fail; the lens prints
-            `→ return true` / `→ return false`."
-    (setup-xray-frame!)
-    (register-machine-guard-meta! :auth/login :token?
-      "(fn [data] (get-in data [:session :token]))")
-    (rf/with-frame :rf/xray
-      (override-machines!    [:auth/login])
-      (override-definitions! {:auth/login fixture-definition})
-      (override-epoch-history!
-        [{:epoch-id 1
-          :trace-events
-          [{:id 1 :time 10 :operation :rf.machine/transition
-            :tags {:machine-id :auth/login
-                   :before     {:state :idle    :data {}}
-                   :after      {:state :authing :data {}}
-                   :event      [:auth/submit] :rf.trace/dispatch-id "d-1"}}
-           {:id 2 :time 11 :operation :rf.machine/guard-evaluated
-            :tags {:machine-id :auth/login :guard-id :token? :outcome :pass}}]}])
-      (focus-epoch! 1)
-      (let [tree    (machine-inspector/Panel)
-            guard   (find-by-testid tree "rf-xray-machine-lens-guard-token?")
-            guards-run (find-by-testid tree "rf-xray-machine-lens-guards-run")
-            hiccup-strs (->> guard flatten (filter string?) (str/join " "))]
-        (is (some? guards-run) "GUARDS RUN section present")
-        (is (some? guard) "guard block rendered for :token?")
-        (is (= "pass" (:data-outcome (second guard))))
-        (is (str/includes? hiccup-strs ":token?")
-            "guard id rendered")
-        (is (str/includes?
-              hiccup-strs "(fn [data] (get-in data [:session :token]))")
-            "guard fn-source rendered from handler-meta")
-        (is (str/includes? hiccup-strs "→ return true")
-            "return value rendered as `→ return true`")))))
-
-(deftest lens-renders-action-source-and-dispatch-follow-on-rf2-2n34o
-  (testing "spec/003 §Focused-transition lens — ACTIONS RUN: id + fn-source
-            + `:fx :dispatch → [<event>]` follow-on rendered. The action's
-            `:outcome` slot on the trace carries the returned `{:fx [...]}`
-            map; the lens extracts the `:dispatch` entries."
-    (setup-xray-frame!)
-    (register-machine-action-meta! :auth/login :fetch!
-      "(fn [data] {:fx [[:dispatch [:loading/complete]]]})")
-    (rf/with-frame :rf/xray
-      (override-machines!    [:auth/login])
-      (override-definitions! {:auth/login fixture-definition})
-      (override-epoch-history!
-        [{:epoch-id 1
-          :trace-events
-          [{:id 1 :time 10 :operation :rf.machine/transition
-            :tags {:machine-id :auth/login
-                   :before     {:state :idle    :data {}}
-                   :after      {:state :authing :data {}}
-                   :event      [:auth/submit] :rf.trace/dispatch-id "d-1"}}
-           {:id 2 :time 11 :operation :rf.machine/action-ran
-            :tags {:machine-id :auth/login
-                   :action-id :fetch!
-                   :outcome   {:fx [[:dispatch [:loading/complete]]]}}}]}])
-      (focus-epoch! 1)
-      (let [tree        (machine-inspector/Panel)
-            actions-run (find-by-testid tree "rf-xray-machine-lens-actions-run")
-            action      (find-by-testid tree "rf-xray-machine-lens-action-fetch!")
-            dispatch    (find-by-testid
-                          tree "rf-xray-machine-lens-action-dispatch-fetch!-0")
-            hiccup-strs (->> action flatten (filter string?) (str/join " "))]
-        (is (some? actions-run) "ACTIONS RUN section present")
-        (is (some? action) "action block rendered for :fetch!")
-        (is (= "1" (:data-dispatch-count (second action))))
-        (is (some? dispatch) "downstream :dispatch line rendered")
-        (is (str/includes? hiccup-strs ":fetch!"))
-        (is (str/includes?
-              hiccup-strs "(fn [data] {:fx [[:dispatch [:loading/complete]]]})")
-            "action fn-source rendered from handler-meta")
-        (is (str/includes?
-              hiccup-strs ":fx :dispatch → [:loading/complete]")
-            "downstream dispatch event rendered after `→ :fx :dispatch →`")))))
-
-(deftest lens-falls-back-to-placeholder-when-source-absent-rf2-2n34o
-  (testing "spec/003 §Focused-transition lens — when no handler-meta is
-            registered (programmatic `reg-machine*` path, or production-
-            elided), the lens renders a muted '(fn source unavailable)'
-            line instead of crashing."
-    (setup-xray-frame!)
-    ;; No register-machine-guard-meta! call — handler-meta returns nil.
-    (rf/with-frame :rf/xray
-      (override-machines!    [:auth/login])
-      (override-definitions! {:auth/login fixture-definition})
-      (override-epoch-history!
-        [{:epoch-id 1
-          :trace-events
-          [{:id 1 :time 10 :operation :rf.machine/transition
-            :tags {:machine-id :auth/login
-                   :before     {:state :idle    :data {}}
-                   :after      {:state :authing :data {}}
-                   :event      [:auth/submit] :rf.trace/dispatch-id "d-1"}}
-           {:id 2 :time 11 :operation :rf.machine/guard-evaluated
-            :tags {:machine-id :auth/login :guard-id :token? :outcome :pass}}]}])
-      (focus-epoch! 1)
-      (let [tree  (machine-inspector/Panel)
-            guard (find-by-testid tree "rf-xray-machine-lens-guard-token?")
-            hiccup-strs (->> guard flatten (filter string?) (str/join " "))]
-        (is (some? guard) "guard block rendered without crashing")
-        (is (str/includes? hiccup-strs "(fn source unavailable)")
-            "muted fallback rendered when handler-meta is absent")))))
-
-;; ---- (4c) snapshot drill-in (rf2-lxvn6 · spec/021 §10 widget contract) ----
-
-(deftest snapshot-drill-in-renders-before-and-after-snapshots
-  (testing "the focused-event section's snapshot drill-in surface mounts
-            the BEFORE and AFTER snapshots through the first-class
-            edn-inspector widget (rf2-oqa60 phase 1 · rf2-lxvn6 phase 4).
-            Per spec/021 §10 the per-machine `:panel-id` qualifier keeps
-            two machines' expansion state independent; the `:before` /
-            `:after` phase suffix scopes the two sibling mounts on the
-            same machine."
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (override-machines!    [:auth/login])
-      (override-definitions! {:auth/login fixture-definition})
-      (override-epoch-history!
-        [{:epoch-id 1
-          :trace-events
-          [{:id 1 :time 10 :operation :rf.machine/transition
-            :tags {:machine-id :auth/login
-                   :before     {:state :idle
-                                :data  {:user nil :retries 0}}
-                   :after      {:state :authing
-                                :data  {:user "alice" :retries 1}}
-                   :event      [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}])
-      (focus-epoch! 1)
-      (let [tree   (machine-inspector/Panel)
-            drill  (find-by-testid tree "rf-xray-machine-snapshot-drill-in")
-            block  (find-by-testid
-                     tree "rf-xray-machine-snapshot-block-auth/login")]
-        (is (some? drill)
-            "drill-in section mounts when before/after snapshots are present")
-        (is (= ":auth/login" (:data-machine-id (second drill)))
-            "drill-in carries the per-machine id so tests can scope assertions")
-        (is (= "true" (:data-has-before (second drill)))
-            "before snapshot presence surfaced on the host")
-        (is (= "true" (:data-has-after (second drill)))
-            "after snapshot presence surfaced on the host")
-        ;; rf2-yqjrd — the side-by-side Before/After grid retired; a
-        ;; SINGLE mount renders the AFTER snapshot with the three-mode
-        ;; toggle controlling whether BEFORE is threaded as the diff
-        ;; pre-image. The two `-before` / `-after` blocks collapse to
-        ;; one `rf-xray-machine-snapshot-block-<machine-id>` mount.
-        (is (some? block)
-            "single snapshot block renders post-rf2-yqjrd (replaces
-             the prior Before/After side-by-side grid)")))))
-
-(defn- find-popup-affordance-containers
-  "Walk hiccup (already expand-tree'd by the find-by-testid helper) and
-  collect every edn-inspector container that carries
-  `:data-rf-popup-affordance \"1\"` (the widget surfaces the opt as a
-  data-attr on its outer `:div`)."
-  [tree]
-  (filter (fn [n]
-            (and (vector? n) (map? (second n))
-                 (= "1" (:data-rf-popup-affordance (second n)))))
-          (tree-seq (some-fn vector? seq?) seq tree)))
-
-(deftest snapshot-drill-in-edn-inspector-carries-popup-affordance
-  (testing "rf2-l4625 — every snapshot drill-in edn-inspector mount in
-            the Machine Inspector panel passes
-            `:popup-affordance? true` so the operator can pop the
-            snapshot into the popup overlay. After expansion the widget's
-            outer `:div` surfaces the opt as a `data-rf-popup-affordance`
-            attribute."
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (override-machines!    [:auth/login])
-      (override-definitions! {:auth/login fixture-definition})
-      (override-epoch-history!
-        [{:epoch-id 1
-          :trace-events
-          [{:id 1 :time 10 :operation :rf.machine/transition
-            :tags {:machine-id :auth/login
-                   :before     {:state :idle
-                                :data  {:user nil :retries 0}}
-                   :after      {:state :authing
-                                :data  {:user "alice" :retries 1}}
-                   :event      [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}])
-      (focus-epoch! 1)
-      (let [tree       (machine-inspector/Panel)
-            drill      (find-by-testid tree "rf-xray-machine-snapshot-drill-in")
-            containers (find-popup-affordance-containers drill)]
-        (is (some? drill) "drill-in section mounts")
-        (is (seq containers)
-            "drill-in surfaces the popup-affordance attr on its
-             edn-inspector containers")))))
-
-(deftest snapshot-drill-in-suppressed-when-legacy-trace-lacks-snapshots
-  (testing "legacy trace fixtures that pre-date the commit-or-finalize
-            snapshot pair (only `:from`/`:to` keys, no `:before`/`:after`
-            maps) suppress the drill-in entirely — the section renders
-            nothing rather than empty blocks. This keeps the M.10 surface
-            from showing 'snapshot · (uninitialised)' chrome on legacy
-            traces."
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (override-machines!    [:auth/login])
-      (override-definitions! {:auth/login fixture-definition})
-      (override-epoch-history!
-        ;; Only legacy `:from`/`:to` tags — no `:before`/`:after` snapshots.
-        [{:epoch-id 1
-          :trace-events
-          [{:id 1 :time 10 :operation :rf.machine/transition
-            :tags {:machine-id :auth/login
-                   :from       :idle
-                   :to         :authing
-                   :event      [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}])
-      (focus-epoch! 1)
-      (let [tree (machine-inspector/Panel)]
-        ;; The focused-event surface still mounts (the lens uses the
-        ;; from/to legacy slots), but the snapshot drill-in is hidden.
-        (is (some? (find-by-testid tree "rf-xray-machine-focused-event"))
-            "focused-event surface still mounts on a legacy trace")
-        (is (nil? (find-by-testid tree "rf-xray-machine-snapshot-drill-in"))
-            "snapshot drill-in is suppressed when before/after snapshots
-             are absent")))))
-
-(deftest snapshot-drill-in-renders-when-only-after-snapshot-present
-  (testing "an epoch that carries only an `:after` snapshot (e.g. machine
-            initialisation events emit no `:before`) still surfaces the
-            drill-in — the surface degrades gracefully, rendering only
-            the present block."
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (override-machines!    [:auth/login])
-      (override-definitions! {:auth/login fixture-definition})
-      (override-epoch-history!
-        [{:epoch-id 1
-          :trace-events
-          [{:id 1 :time 10 :operation :rf.machine/transition
-            :tags {:machine-id :auth/login
-                   :after      {:state :idle :data {}}
-                   :event      [:auth/init] :rf.trace/dispatch-id "d-1"}}]}])
-      (focus-epoch! 1)
-      (let [tree  (machine-inspector/Panel)
-            drill (find-by-testid tree "rf-xray-machine-snapshot-drill-in")]
-        (is (some? drill)
-            "drill-in renders when at least one snapshot is present")
-        (is (= "false" (:data-has-before (second drill)))
-            "before-presence surface reflects the missing :before slot")
-        (is (= "true" (:data-has-after (second drill)))
-            "after-presence surface reflects the present :after slot")
-        ;; rf2-yqjrd — single mount; the AFTER snapshot's block paints
-        ;; even when BEFORE is missing. Mode-3 (`:full+diff`, the
-        ;; default) gracefully degrades to plain browse when no
-        ;; pre-image is threaded.
-        (is (some? (find-by-testid
-                     tree "rf-xray-machine-snapshot-block-auth/login"))
-            "AFTER-only path renders the single snapshot block")))))
 
 ;; ---- (5) per-machine prev/next nav -------------------------------------
 
@@ -1168,11 +1028,11 @@
     (:style (second node))))
 
 (deftest rf2-3d987-issue-1-focused-event-section-has-gap
-  (testing "rf2-3d987 issue #1: focused-event-section's children must
-            sit on a flex column with a non-zero :gap so sibling sub-
-            panels (lens / chart / snapshot drill-in / cascade) get
-            visible breathing room rather than reading as one wall of
-            grey."
+  (testing "rf2-3d987 issue #1 (preserved through rf2-g2axio): the
+            focused-event-section's children sit on a flex column with a
+            non-zero :gap so the two surviving sub-panels (the SHARED
+            mini-pipeline + the chart) get visible breathing room rather
+            than reading as one wall of grey."
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (override-machines!    [:auth/login])
@@ -1196,162 +1056,6 @@
             "section is a flex column")
         (is (some? (:gap style))
             "section carries a :gap so siblings get breathing room")))))
-
-(deftest rf2-3d987-issue-2-snapshot-drill-in-flat-no-second-card
-  (testing "rf2-3d987 issue #2 (option b): snapshot-drill-in matches
-            the outer section's `bg-2` so it reads as a continuation
-            of the body, not as a nested white card. The bordered
-            outer section already provides the card chrome."
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (override-machines!    [:auth/login])
-      (override-definitions! {:auth/login fixture-definition})
-      (override-epoch-history!
-        [{:epoch-id 1
-          :trace-events
-          [{:id 1 :time 10 :operation :rf.machine/transition
-            :tags {:machine-id :auth/login
-                   :before {:state :idle :data {}}
-                   :after  {:state :authing :data {}}
-                   :event [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}])
-      (focus-epoch! 1)
-      (let [tree  (machine-inspector/Panel)
-            drill (find-by-testid tree "rf-xray-machine-snapshot-drill-in")
-            style (style-of drill)
-            ;; bg-2 token resolves to the var(--rf-xray-bg-2) CSS string.
-            expected-bg "var(--rf-xray-bg-2)"]
-        (is (some? drill)   "drill-in mounts")
-        (is (= expected-bg (:background style))
-            "drill-in body uses :bg-2 — same as outer section, no card-in-card")))))
-
-(deftest rf2-vv3m6-snapshot-drill-in-full-diff-only
-  (testing "rf2-vv3m6 (2026-05-29) — the prior
-            `[diff][full][full+diff]` toggle (rf2-yqjrd) retired. The
-            snapshot drill-in mounts a SINGLE FULL+DIFF rendering: the
-            AFTER snapshot with the BEFORE snapshot threaded as the
-            diff pre-image. No toggle UI; the testid
-            `rf-xray-machine-inspector-diff-mode` no longer renders."
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (override-machines!    [:auth/login])
-      (override-definitions! {:auth/login fixture-definition})
-      (override-epoch-history!
-        [{:epoch-id 1
-          :trace-events
-          [{:id 1 :time 10 :operation :rf.machine/transition
-            :tags {:machine-id :auth/login
-                   :before {:state :idle :data {:user nil}}
-                   :after  {:state :authing :data {:user "alice"}}
-                   :event [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}])
-      (focus-epoch! 1)
-      (let [tree   (machine-inspector/Panel)
-            drill  (find-by-testid tree "rf-xray-machine-snapshot-drill-in")]
-        (is (some? drill)
-            "drill-in section mounts")
-        (is (nil? (find-by-testid
-                    tree "rf-xray-machine-inspector-diff-mode"))
-            "the three-mode toggle is retired (rf2-vv3m6)")
-        ;; The grid container retired with the side-by-side layout.
-        (is (nil? (find-by-testid
-                    tree "rf-xray-machine-snapshot-drill-in-grid"))
-            "the side-by-side grid container is retired")))))
-
-(deftest rf2-3d987-issue-4-chart-collapsible-toggle-and-state
-  (testing "rf2-3d987 issue #4: the chart sub-panel carries a collapse
-            toggle button + the chart wrapper surfaces the per-machine
-            `:data-chart-collapsed` flag. Default state is expanded
-            (`false`); the toggle event flips the persisted slot."
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (override-machines!    [:auth/login])
-      (override-definitions! {:auth/login fixture-definition})
-      (override-epoch-history!
-        [{:epoch-id 1
-          :trace-events
-          [{:id 1 :time 10 :operation :rf.machine/transition
-            :tags {:machine-id :auth/login
-                   :before {:state :idle :data {}}
-                   :after  {:state :authing :data {}}
-                   :event [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}])
-      (focus-epoch! 1)
-      ;; Default state — chart is expanded.
-      (let [tree    (machine-inspector/Panel)
-            wrapper (find-by-testid
-                      tree "rf-xray-machine-focused-event-chart")
-            toggle  (find-by-testid
-                      tree "rf-xray-machine-chart-toggle-auth/login")]
-        (is (some? wrapper)   "chart wrapper mounts")
-        (is (some? toggle)    "collapse toggle button mounts")
-        (is (= "false" (:data-chart-collapsed (second wrapper)))
-            "default state — chart is expanded")
-        (is (= "false" (:data-collapsed (second toggle)))
-            "toggle reflects expanded state")
-        (is (nil? (find-by-testid
-                    tree
-                    "rf-xray-machine-chart-collapsed-summary-auth/login"))
-            "collapsed summary is hidden while expanded"))
-      ;; Toggle → collapsed.
-      (rf/dispatch-sync
-        [:rf.xray.machine-canvas/set-chart-collapsed
-         {:machine-id :auth/login :mode :collapsed}])
-      (let [tree    (machine-inspector/Panel)
-            wrapper (find-by-testid
-                      tree "rf-xray-machine-focused-event-chart")
-            summary (find-by-testid
-                      tree
-                      "rf-xray-machine-chart-collapsed-summary-auth/login")]
-        (is (= "true" (:data-chart-collapsed (second wrapper)))
-            "wrapper reflects collapsed state after dispatch")
-        (is (some? summary)
-            "collapsed summary renders when chart is collapsed")))))
-
-(deftest rf2-3d987-issue-7-nested-header-differentiated-from-outer
-  (testing "rf2-3d987 issue #7: nested headers (chart-header,
-            snapshot-drill-in-header) use lighter chrome than the outer
-            focused-event-header. Pinned by: nested headers DO NOT carry
-            the outer `bg-3` ribbon background; they use a transparent
-            background + bottom-border separator + smaller font."
-    (setup-xray-frame!)
-    (rf/with-frame :rf/xray
-      (override-machines!    [:auth/login])
-      (override-definitions! {:auth/login fixture-definition})
-      (override-epoch-history!
-        [{:epoch-id 1
-          :trace-events
-          [{:id 1 :time 10 :operation :rf.machine/transition
-            :tags {:machine-id :auth/login
-                   :before {:state :idle :data {}}
-                   :after  {:state :authing :data {}}
-                   :event [:auth/submit] :rf.trace/dispatch-id "d-1"}}]}])
-      (focus-epoch! 1)
-      (let [tree    (machine-inspector/Panel)
-            outer   (find-by-testid
-                      tree "rf-xray-machine-focused-event-header")
-            nested-chart  (find-by-testid
-                            tree
-                            "rf-xray-machine-focused-event-chart-header")
-            nested-snap   (find-by-testid
-                            tree
-                            "rf-xray-machine-snapshot-drill-in-header")
-            outer-bg   (-> outer style-of :background)
-            chart-bg   (-> nested-chart style-of :background)
-            snap-bg    (-> nested-snap style-of :background)
-            outer-fs   (-> outer style-of :font-size)
-            chart-fs   (-> nested-chart style-of :font-size)
-            snap-fs    (-> nested-snap style-of :font-size)]
-        (is (some? outer)         "outer header mounts")
-        (is (some? nested-chart)  "chart nested header mounts")
-        (is (some? nested-snap)   "snapshot nested header mounts")
-        (is (= "var(--rf-xray-bg-3)" outer-bg)
-            "outer header keeps the ribbon background")
-        (is (= "transparent" chart-bg)
-            "chart nested header uses transparent background")
-        (is (= "transparent" snap-bg)
-            "snapshot nested header uses transparent background")
-        (is (not= outer-fs chart-fs)
-            "chart nested header font-size differs from outer")
-        (is (not= outer-fs snap-fs)
-            "snapshot nested header font-size differs from outer")))))
 
 (deftest rf2-3d987-issue-8-section-has-panel-breathing-room
   (testing "rf2-3d987 issue #8: focused-event-section's outer margin

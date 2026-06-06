@@ -228,6 +228,10 @@
    ;; rf2-a9cke — focused-event lens composite consumed by the
    ;; Machine Inspector + the cancellation-cascade SidePanel.
    :rf.xray/machine-transitions-for-focused-event
+   ;; rf2-g2axio — the focused epoch's projected machine-cascade rows
+   ;; for the SHARED EVENT HANDLER mini-pipeline (the Machine tab
+   ;; consumes the SAME renderer the Epoch panel does).
+   :rf.xray/machine-focused-epoch-cascade
    ;; rf2-y9xmf — scrubber-position slot survives the collapse; the
    ;; `:after`-rings overlay reads it to gate ring rendering to the
    ;; `:present` position. (rf2-nugvv removed the share-URL surface that
