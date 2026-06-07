@@ -1198,3 +1198,155 @@ constraints:
   trace rings, and mount attribution outside app-db. This EP's "tool state"
   language must therefore mean explicit frame-state projections, not every
   tool-side cache.
+
+## Appendix A — Design review: elegance, simplicity, sophistication
+
+*Review notes (2026-06-07). Commentary on the proposal above; not normative. Each item is a "consider", not a mandate, and several interlock.*
+
+The destination is right and the document is unusually complete. This review does not re-argue the partition (it is correct) — it asks where the design could be **more elegant, simpler, more rigorous, or more sophisticated**. Those four lenses *are* re-frame2's own primary lenses (ELEGANCE + CLARITY + CORRECTNESS + GOOD PRACTICE), so the review weighs each push against the project's distinctive ethos: AI-first / spec-is-the-artefact, effects-as-data, loud-failure / reject-misuse, reserved-namespace discipline, the value-oriented reactive substrate, and re-frame2's habit of *naming a recurring contract* (Managed-Effects, Ownership) rather than re-deriving it. Several pushes below are simply that ethos pointed back at the EP.
+
+One framing the EP itself undersells: the partition is also an **AI-legibility / CLARITY win**, not only a correctness patch. Once app-db holds nothing but app data, `reg-app-schema` describes a *pure* application contract an agent can read without framework noise — the spec-is-the-artefact payoff. The Motivation sells the footgun fix; it should sell the legibility win too.
+
+Five substantive pushes, then minor notes, then what should be left alone.
+
+### 1. Elegance vs namespace discipline — give app-db one name, *or* own the two
+
+The one aesthetic wart is that **app-db has two names**: `:db` in the event context, `:rf.db/app` in the frame-state projection. But this is a genuine collision between *two* re-frame2 values, not a simple miss:
+
+```clojure
+;; EP's projection                ;; alternative — one name for app-db
+{:rf.db/app     <app-db>          {:db            <app-db>
+ :rf.db/runtime <runtime-db>}      :rf.db/runtime <runtime-db>}
+```
+
+- **CLARITY (one concept, one name)** favours reusing `:db` in the projection, so `:db` *always* means app-db with nothing to keep in sync. The asymmetry (`:db` unqualified, `:rf.db/runtime` qualified) then *mirrors the ownership asymmetry* the EP is built on, and rides re-frame2's blessed exception: `:db` / `:event` / `:fx` are the inherited unqualified keys, and app-db is exactly that inherited concept.
+- **Reserved-namespace discipline** favours `:rf.db/app`: the frame-state projection is itself a *new framework-owned structure*, and the EP's own rule is that new framework-owned surfaces are qualified. By that rule `:rf.db/app` is the EP applying its own discipline — not the "cosmetic symmetry" I first took it for.
+
+So the EP's choice is principled. The cost it pays is real (two spellings for the one concept users live in); the cost the alternative pays is an unqualified key inside a framework projection. I lean mildly toward one-name `:db` — app-db is *the* inherited exception and the surface users touch most — but it is close, and which way it should go is genuinely an ethos-internal call. The actionable point is therefore smaller than "change it": **the EP should state which value it is prioritising and why** (§Partition Keys currently asserts `:rf.db/app` without naming the CLARITY cost it is trading away). Owning the tension is the re-frame2 move; leaving it implicit is the only real defect here.
+
+### 2. Rigour — pin the write-authority mechanism; it is load-bearing
+
+The headline guarantee is "accidental runtime deletion is **structurally impossible**." But the mechanism that makes app-writers distinguishable from framework-writers is deferred (Open Issue 4; §Guardrails: "the implementation must define how… namespace heuristics alone are too weak"). **Until that mechanism is named, the guarantee is only as strong as a diagnostic** — i.e. no stronger than today's `:rf.warning/runtime-state-dropped`, which the Motivation rightly rejects. The EP's strongest claim currently rests on its least-specified part.
+
+Pin it, and pin it at the cleanest altitude: **authority is conferred at registration, by which registrar created the handler.** `reg-event-db` / `reg-event-fx` mint *app-authority* handlers; the framework's own registrars (machines, routing, resources, SSR) mint *framework-authority* handlers. Then:
+
+- an app-authority handler that emits `:rf.db/runtime` is **rejected at the commit boundary** (a hard `:rf.error/*`), not "warned" — the footgun cannot fire;
+- `:rf.db/runtime` need not be a freely-writable key in the app-facing effect map at all (it widens the closed effect set only for framework-authority handlers);
+- the "user land / kernel space" analogy becomes a real capability boundary rather than a convention with diagnostics bolted on.
+
+This also resolves the question §5's plugin work raises: **a library (e.g. Hasura owning `:rf.runtime/resources`) gets runtime-write authority by registering through a framework-blessed registrar** — not by namespace luck. Authority-at-registration is the one mechanism that makes both the guarantee and the extension story principled.
+
+It is also the more on-ethos posture in two further ways. **Loud-failure / reject-misuse:** the EP hedges "warn *or* fail" (§Guardrails, §7), but pre-alpha re-frame2 rejects misuse rather than tolerating it — authority-at-registration lets these be hard `:rf.error/*` rejections, not warnings (the warning posture is a back-compat reflex the project has disowned elsewhere). **AI-legibility:** authority conferred by registrar is *enumerable registration metadata* — an agent or the AI-Audit can ask "is this handler app- or framework-authority?" exactly as it queries registrar kind today — rather than an opaque runtime check. It extends the registrar-kind model (`:event`, `:resource`, `:mutation`, machine handlers) that already exists, instead of inventing a parallel notion of trust.
+
+### 3. Simplicity — commit to one physical frame-state value, and partition-invalidation falls out for free
+
+The EP keeps representation open (one container / two containers / dirty flags — Open Issues 3 & 7) on the principle "contract over representation." That principle is right in general, but here it **defers the single hardest sub-problem** — partition-aware reactive invalidation — into "implementation detail", and the reactive substrate is exactly what must not be hand-waved.
+
+Committing to **one frame-state value in the reactive container, with two cached projection reactions** collapses the problem into the *existing* reaction machinery:
+
+```clojure
+frame-state  (one signal: {:db <app-db> :rf.db/runtime <runtime-db>})
+   ├── app-db     = (reaction (:db @frame-state))            ; layer-1 input for app subs
+   └── runtime-db = (reaction (:rf.db/runtime @frame-state)) ; layer-1 input for framework subs
+```
+
+A runtime-only commit bumps `frame-state`; the `app-db` projection reaction recomputes, finds `(:db …)` `identical?`, and **does not propagate** — app subs neither re-render nor recompute. An app-only commit is symmetric. The EP's four invalidation requirements (§Subscriptions And Flows) are then satisfied by reaction-deref equality that re-frame already has, instead of new "partition-aware dirty flags." This is both **simpler** (no new invalidation machinery) and **more concrete** (Open Issue 7 mostly disappears). The "two coherent containers" option, by contrast, multiplies the substrate plumbing for no contract benefit. I would commit to single-container in the spec and demote the alternatives to "ports may differ if they preserve the projection-equality semantics."
+
+### 4. Simplicity (document) — state the durable/transient boundary once
+
+The durable-vs-transient line is re-derived per subsystem in at least four places (Motivation, §Runtime Write Semantics, §4 Move runtime subsystems, Test Plan, Source Findings), each re-listing machines / routing / elision / ssr / HTTP / epoch. It compresses to **one principle plus one table**:
+
+> A fact lives in runtime-db **iff it must survive epoch-restore and SSR-hydration**. Everything else (host handles, request-lifetime accumulators, caches, in-flight registries, trace rings) is transient: frame-scoped, torn down on destroy, never serialized.
+
+State that once; make every "what moves / what stays" passage a row in a single table keyed by subsystem. The EP shrinks materially and stops risking drift between its own enumerations.
+
+### 5. Sophistication — name the "runtime subsystem" as a contract (it is already latent)
+
+The EP treats runtime-db's children as an ad-hoc list (`:rf.runtime/machines`, `:rf.runtime/routing`, `:rf.runtime/elision`, `:rf.runtime/ssr`, `:rf.runtime/resources`). But every one of them already shares the **same five properties**:
+
+1. a reserved sub-tree of runtime-db;
+2. a write-authority (its framework code) — §2;
+3. a read API (subs: `sub-machine`, `:rf.route/*`, `:rf.resource/state`) — never raw paths;
+4. a serialization / elision / projection policy (what hydrates, what redacts);
+5. a teardown contract (durable facts vs transient handles).
+
+That recurring shape is a **runtime-subsystem contract**, and naming it is the deepest available altitude. The payoff is threefold: it turns the ad-hoc list into *instances of one contract* (de-duplicating §4/§6/Test-Plan — see #4); it gives the §5 plugin seam and the Resource/Hasura work a **principled home** (a Hasura library registering `:rf.runtime/hasura` is "a new runtime subsystem", first-class, not a special case); and it makes the per-subsystem serialization/elision/teardown rules a single conformance checklist instead of prose repeated five times.
+
+Crucially this is **not** the "generic N-partition database" the EP rightly rejects: that was *user-facing arbitrary top-level partitions*. This is an *internal organizing contract for runtime-db's own children* plus a blessed-extension seam — the same distinction as "the framework has subsystems" vs "users get arbitrary partitions." The EP rejected the wrong neighbour; this is the one worth adopting.
+
+And it is not an imported abstraction — it is **re-frame2's own organising habit**. `Managed-Effects.md` already names a recurring shape (the eight properties) so new *effect* surfaces grade against one checklist; `Ownership.md` already maps every contract surface to its owning spec. A runtime-subsystem contract is the **durable-state analogue of Managed-Effects** — the identical "name the shape once, grade instances against it" move, applied to runtime-db's children instead of to effects. Because the AI-Audit already grades surfaces against the Managed-Effects checklist, this contract slots straight into existing tooling: machines / routing / resources / Hasura become enumerable, audit-gradeable instances rather than prose. That is spec-is-the-artefact doing what it is for.
+
+### Minor notes
+
+- **Two prefixes for one area.** The parent is `:rf.db/runtime` but its children are `:rf.runtime/*`. Either justify the split (the children are globally greppable when detached — a real tooling benefit) or align them; right now it reads as two naming schemes for the same region.
+- **Scope creep of `:rf.frame/id`.** The `:frame` → `:rf.frame/id` *context-key* rename is really the frame-target-resolution EP's concern riding along because both touch the event context. Consider splitting it out so this EP is purely the partition; coupling two renames makes both harder to land and review.
+- **Cost of threading runtime-db every event.** Confirm the runtime-db coeffect is injected **by reference** (persistent structure, no copy) and that an app-only commit performs **no** runtime re-commit — otherwise every pure app event pays for a partition it never touches. Worth one sentence in §Event Context.
+
+### What I would not change
+
+- **Two partitions, not N** — correct; resist generalizing the *partition* even while naming the *subsystem* contract (#5).
+- **`:db` stays app-db for handlers** — the load-bearing ergonomic invariant; keep it (and extend it to the projection per #1).
+- **Contract-over-representation as a principle** — right; #3 argues only to *commit* the representation in the reference impl, not to over-specify it for all ports.
+- **Rejecting the overlay-protect stopgap as the destination** — correct; it is containment, not ownership.
+
+### Net
+
+The EP lands on the right design (the findings' "A2 → frame-state split"). The four pushes that would make it more elegant / simpler / more rigorous / more sophisticated, in priority order: **(2)** pin authority-at-registration so "structurally impossible" is earned; **(1)** give app-db one name (`:db` in the projection too); **(3)** commit to single-container frame-state and get partition invalidation from projection-equality; **(5)** name the runtime-subsystem contract — which also unblocks the extension/plugin and Resource/Hasura work cleanly. (3) and (5) interlock with the resource-queries and Hasura EPs; landing the authority model (2) is the prerequisite that makes all of them honest.
+
+None of these are imports. Each argues *from* re-frame2's own values — loud-failure (2), name-the-recurring-contract (5), the value-oriented equality substrate (3), and spec-as-artefact / AI-legibility (3, 4, 5, and the partition itself). The single genuine *ethos-internal* tension is (1) — CLARITY vs namespace discipline — and the right resolution there is not for this review to crown a winner but for the EP to **name the value it trades and why**, which is the move the rest of the document already models well.
+
+## Appendix B — Questioning the premises
+
+*Review notes (2026-06-07). Appendix A reviewed the design **within** the EP's accepted frame ("given a partition, do it well"). This appendix steps **outside** it: is the partition the right shape at all, or a well-built workaround for an assumption that should be questioned first? Not normative — a challenge to the premises, raised because pre-alpha is the only time it is cheap to raise. The two appendices are complementary: Appendix A is safe to adopt regardless; Appendix B is a decision to make **before** the partition is locked, because the partition's shape depends on the answer.*
+
+Separate two things that get conflated. re-frame2's **native** values — the causal model (events cause, views are passive), effects-as-data, frames as isolated contexts, AI-first / spec-is-the-artefact, loud-failure toward correctness — are right, and they *are* the elegance. This appendix does not touch them. The blockers are two **inherited** v1 assumptions that the native values quietly protect from scrutiny, and that the EP treats as fixed points while redesigning everything around them.
+
+### Premise 1 — "a handler returns the whole db"
+
+This is the root cause of the entire partition, and the EP is a workaround for it, not a fix of it. The chain is mechanical: handlers return a whole map → the framework needs somewhere to keep runtime state → "one value" puts it in app-db → a fresh-map return clobbers it → so we need a partition, an authority model, and reject-rules. **None of that apparatus exists if a handler never holds the whole map.**
+
+And the partition fixes only the **framework-vs-app** instance of a **general** flaw. "Whole-map-return clobbers co-located owners" is still live *inside* app-db: in a large app, feature A's `(fn [_ _] {:fresh})` handler still wipes feature B's state. The partition fences the framework's slice and leaves the general problem standing — so it is, by Appendix A's own altitude test, a special case layered on shared infrastructure rather than a deepening of it. The general fix is the **handler contract**: a handler sees and returns *its scoped view*, or *describes* its writes, instead of replacing a shared map. Illustrative shapes (the point is the contract, not the spelling):
+
+```clojure
+;; today — replaces everything in the handler's (whole-db) scope
+(rf/reg-event-db :session/reset (fn [_db _] {:session/status :anonymous}))
+
+;; scoped view — handler only ever sees/returns its declared slice
+(rf/reg-event-db :session/reset
+  {:owns [:session]}
+  (fn [session _] {:status :anonymous}))   ; cannot touch anything it does not own
+
+;; change-describing — handler never holds the map at all
+(rf/reg-event :session/reset
+  (fn [_ _] {:db/set {[:session :status] :anonymous}}))
+```
+
+Under either, the clobber-co-located-owners bug is **structurally impossible** — for the framework *and* for app features — and the partition collapses to a degenerate case (the framework is just one more "owner"). re-frame2 already ships the seed of this: the `path` interceptor scopes a handler to a sub-tree. The elegant move is to make scoping the *model*, not opt-in plumbing. Notably, this alternative is **absent from the EP's Rejected Ideas** — not because it was weighed and dropped, but because it lives one level up from the frame the Rejected Ideas section reasons within.
+
+The honest cost: the whole-db model's appeal is `(fn [db ev] (assoc db …))` — the cleanest possible "pure function from old state to new state." A scoped or change-describing contract is more composable and isolation-safe but adds a declaration or a small write-DSL, which is friction in the 95% case. That trade is the real decision — but it is a *different and more fundamental* decision than "how do we partition," and it should be made first.
+
+### Premise 2 — "all rewindable state is one co-located snapshot"
+
+Every findings doc and this EP treat the unified time-travel snapshot as a constraint to preserve — it is *why* runtime must live with app-db. But co-location is **assumed necessary, not shown to be**. If runtime state were a *fold over the event log* rather than a stored value, app-db could be purely the app's, no partition needed, and time-travel would be replay-to-N with runtime falling out for free.
+
+This lever is weaker, and the EP should not chase it: replay collides with irreversible effects (a machine that already fired an HTTP request cannot be cleanly re-folded) — the same constraint that correctly killed full fx-rollback (see [013 §Why this asymmetry](https://github.com/day8/re-frame2/blob/main/spec/013-Flows.md)). So pure event-sourcing is not the answer. But it is worth naming, because the co-location premise is currently *assumed away* rather than *decided*, and the decision ("runtime is snapshotted, not derived, because effects make derivation unsound") is a stronger foundation than treating co-location as axiomatic.
+
+### The real blocker is a value-precedence, not a value
+
+Underneath both premises is an unresolved precedence between two re-frame2 values that point opposite ways here:
+
+> **"Pre-alpha masterpiece — no back-compat shims, question everything for elegance"** vs **"preserve the re-frame mental model."**
+
+The partition sits exactly on that fault line, and **heritage is winning by default, not by decision**: `:db` ergonomics and `reg-event-db`-returns-the-db are treated as immovable while everything else is up for redesign. The "no back-compat shims" value explicitly *grants permission* to question the handler contract; the "preserve the mental model" value is what holds it in place. Neither is wrong — but right now the conflict is being resolved silently, which is the one thing a spec-is-the-artefact project should not do with a load-bearing choice.
+
+### What this means for this EP
+
+The partition is a **sound local fix** and Appendix A's improvements stand. But adopting it **commits to the whole-db contract** and forecloses the general fix — so the sequencing matters:
+
+1. The **handler-contract question is upstream of the partition.** Settle it (or consciously defer it) *before* locking the partition, because if scoped/change-describing handlers are ever adopted, this EP shrinks to a footnote.
+2. If the answer is "keep the whole-db model" (a legitimate outcome), the EP should **say so, and say why** — i.e. record that the partition exists because re-frame2 chose to preserve `reg-event-db`'s whole-db return over the more general scoped contract. That turns an unexamined default into a decision.
+3. This deserves its own page — a sibling `scoped-event-handlers` EP — rather than a buried decision, because it is bigger than the partition and several other surfaces (feature isolation, interceptors, flows) depend on the same contract.
+
+### The honest counterweight
+
+There is a real argument for keeping the heritage: the re-frame mental model is *the reason re-frame exists*. A "more elegant" framework that nobody recognizes as re-frame may win the design and lose the audience. Familiarity is itself a value, and `(fn [db ev] …)` is a large part of why people reach for re-frame at all. So preserving the whole-db contract is **defensible** — possibly even correct. The critique is not "the heritage is wrong." It is: **right now the heritage is winning by inertia, and the partition is the elaborate cost of a premise no one has decided to keep.** Decide it on purpose.
