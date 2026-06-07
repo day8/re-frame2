@@ -307,6 +307,24 @@ convergence loop. Self-loops are already dissolved by events-as-nodes
 (a spec self-transition is `state → event-node → state`, two ordinary
 ELK-routed edges), so the renderer-side self-loop fan is fallback-only.
 
+> **rf2-6v4ci5 — measure-read accessor fix (implementation defect, not a
+> behavioural change).** The d9ro2 two-pass relies on reading xyflow's
+> DOM-measured box back per node (`read-measured-dims`). In xyflow v12 that
+> box is merged onto the **internal** node (`instance.getInternalNode(id)
+> .measured`), NOT onto the user-facing `instance.getNodes()` objects — and
+> this non-interactive chart deliberately never syncs dimension changes back
+> into its controlled `:nodes` array, so `getNodes()` always reported
+> `measured = nil`. The read therefore returned an empty map, the relayout
+> gate never reached `ready?`, and the *second* pass **never fired**: every
+> node — leaf states AND event-nodes — laid out at its ELK floor, so a
+> guard- or action-widened event chip (which renders at its true content
+> width, e.g. `door/close IF may-close?` ≈ 148px vs the 96px event floor)
+> overran its floor-spaced same-layer neighbour (`door/hold`). Reading via
+> `getInternalNode` feeds ELK each node's real box, so the documented
+> two-pass behaviour (above) actually takes effect and guarded/long event
+> chips get correctly-spaced slots. General across the corpus — door, gate,
+> hvac all had floor-spacing overlaps that this closes.
+
 ## §3 — Gap analysis + deliberate divergences
 
 ### 3.1 Gaps to close for parity

@@ -532,13 +532,28 @@
   "rf2-d9ro2 — read xyflow's measured node boxes off a captured
   ReactFlowInstance as a pure CLJS `{node-id {:width :height}}` map.
 
-  xyflow v12 populates `node.measured {width height}` once it has
-  measured each rendered node's DOM box (after React commits + the
-  ResizeObserver fires). `instance.getNodes()` returns the current node
-  array; we keep only nodes that carry a positive measured width AND
-  height — a node still awaiting measurement (measured nil / 0) is
-  omitted, so the `measured-then-relayout` caller can tell whether the
-  WHOLE topology has been measured yet (`= (count dims) (count nodes)`).
+  rf2-6v4ci5 — the measured box lives on the INTERNAL node, reached via
+  `instance.getInternalNode(id)`, NOT on the user-facing `instance
+  .getNodes()` objects. In xyflow v12 the store merges the DOM-measured
+  `{width height}` onto its internal node representation after React
+  commits + the ResizeObserver fires; the user-facing nodes (the array
+  we feed in as a controlled `:nodes` prop, returned unchanged by
+  `getNodes()`) only carry `.measured` when dimension changes are
+  applied back into that array — which this non-interactive chart
+  deliberately does NOT do (positions are ELK-owned). Reading
+  `(.-measured n)` off `getNodes()` therefore always saw nil, so the
+  whole measure-then-relayout pass never reached `ready?` and every node
+  laid out at its ELK floor — guard/action-widened event chips overran
+  their floor-spaced same-layer neighbours (`door/close IF may-close?`
+  over `door/hold`). Reading via `getInternalNode` feeds the REAL
+  rendered box (incl. guard + action row) back to ELK.
+
+  We iterate `getNodes()` for the id set and look each id's measured box
+  up via `getInternalNode`; we keep only ids that carry a positive
+  measured width AND height — a node still awaiting measurement (measured
+  nil / 0) is omitted, so the `measured-then-relayout` caller can tell
+  whether the WHOLE topology has been measured yet
+  (`= (count dims) (count nodes)`).
 
   Public-by-convention as a test seam (mirrors `invoke-fit-view!` /
   `invoke-elk-layout!`): the relayout-lifecycle regression rebinds this
@@ -549,7 +564,8 @@
     (persistent!
       (reduce
         (fn [acc ^js n]
-          (let [m (.-measured n)
+          (let [^js internal (.getInternalNode instance (.-id n))
+                m (some-> internal .-measured)
                 w (and m (.-width m))
                 h (and m (.-height m))]
             (if (and (number? w) (number? h) (pos? w) (pos? h))

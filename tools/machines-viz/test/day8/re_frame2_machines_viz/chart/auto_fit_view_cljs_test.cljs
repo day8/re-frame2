@@ -376,25 +376,39 @@
 ;; auto-fit lifecycle above is a -cljs-test and not a DOM test.
 
 (defn- fake-instance-with-measured
-  "A stand-in ReactFlowInstance whose `.getNodes()` returns nodes
-  carrying `.measured {width height}` — the shape `read-measured-dims`
-  reads. `node-specs` is a vector of `[id width height]` (width/height
-  nil → that node is still awaiting measurement)."
+  "A stand-in ReactFlowInstance modelling xyflow v12's measured-box shape
+  (rf2-6v4ci5): `.getNodes()` returns the user-facing nodes WITHOUT
+  `.measured` (this non-interactive chart never applies dimension changes
+  back into its controlled `:nodes`, so xyflow leaves the user nodes
+  unmeasured), while `.getInternalNode(id)` returns the INTERNAL node the
+  store merges the DOM-measured `{width height}` onto. `read-measured-dims`
+  must read the latter. `node-specs` is a vector of `[id width height]`
+  (width/height nil → that node is still awaiting measurement, so its
+  internal node carries no `.measured`)."
   [node-specs]
-  #js {:getNodes
-       (fn []
-         (clj->js
-           (mapv (fn [[id w h]]
-                   (cond-> {:id id}
-                     (and w h) (assoc :measured {:width w :height h})))
-                 node-specs)))})
+  (let [internal-by-id (into {}
+                             (map (fn [[id w h]]
+                                    [id (cond-> #js {:id id}
+                                          (and w h)
+                                          (doto (aset "measured"
+                                                      #js {:width w :height h})))]))
+                             node-specs)]
+    #js {:getNodes
+         (fn []
+           ;; User-facing nodes: id only, NO `.measured` — mirrors what
+           ;; getNodes() returns for an unsynced controlled `:nodes` prop.
+           (clj->js (mapv (fn [[id _ _]] {:id id}) node-specs)))
+         :getInternalNode
+         (fn [id] (get internal-by-id id))}))
 
 (deftest read-measured-dims-keeps-only-fully-measured-nodes
-  (testing "rf2-d9ro2 — `read-measured-dims` lifts xyflow's `node.measured`
-            into `{id {:width :height}}`, KEEPING only nodes with a
-            positive measured w AND h. A node still awaiting measurement
-            (measured nil / 0) is omitted so the caller can tell when the
-            whole topology has been measured."
+  (testing "rf2-d9ro2 / rf2-6v4ci5 — `read-measured-dims` lifts xyflow's
+            measured box (read off the INTERNAL node via `getInternalNode`,
+            NOT the user-facing `getNodes()` objects) into
+            `{id {:width :height}}`, KEEPING only nodes with a positive
+            measured w AND h. A node still awaiting measurement (measured
+            nil / 0) is omitted so the caller can tell when the whole
+            topology has been measured."
     (let [inst (fake-instance-with-measured
                  [["idle" 200 60]
                   ["loading" 260 72]
