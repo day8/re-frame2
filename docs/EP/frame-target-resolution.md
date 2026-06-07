@@ -1326,3 +1326,97 @@ reauthored.
 - [React Redux: Provider](https://react-redux.js.org/api/provider)
 - [Apollo Client: ApolloProvider](https://www.apollographql.com/docs/react/api/react/ApolloProvider)
 - [Relay: RelayEnvironmentProvider](https://relay.dev/docs/api-reference/relay-environment-provider/)
+
+---
+
+## Appendix: Design-Review Commentary — Toward a Smaller, More *Carried* Rule
+
+*Added 2026-06-07. This is a review of the EP above, not a change to its recommendation. Option C is the right call and a clean pre-alpha break is the right courage. The notes below argue that the **same rule** can be stated more elegantly, carried more simply, and made more unmistakably re-frame2 — mostly by leaning on vocabulary and contracts the project has **already shipped** elsewhere.*
+
+### A. Reframe the rule positively: frame identity is *carried*, not *found*
+
+The EP is written subtractively — "remove the `:rf/default` fallback," "delete the fallthrough vocabulary," "remove defensive defaults." That states the *fix* but hides the *principle*. The principle is positive and singular:
+
+> Frame identity is a value that travels with every causal token — a dispatch, an fx context, a captured callback, an epoch record, an SSR payload. An operation reads its frame from the token it is holding. It never *discovers* one from the ambient world.
+
+"Absence is an error" is then a **corollary**, not the headline: a token with no frame stamp cannot be honoured. This is worth doing because it (1) gives an agent or programmer *one* thing to learn instead of a ban-list; (2) explains *why* async / tooling / SSR are the danger zones (they are exactly where a token crosses a boundary and can lose its stamp); and (3) makes every site in the 12-bead migration the *same* edit — "stamp the token / read the stamp" — rather than thirty special cases. The masterpiece sentence is currently on line 62; it should be the thing you cannot miss.
+
+### B. Don't invent a sixth-source list — reuse the published *scope / hold / override* taxonomy
+
+§Frame Target Invariant introduces six resolution sources. That is still a *fallback chain* — the old four-tier chain with its worst rung amputated; the architecture of "search a priority list of ambient places" survived the surgery. It is also a *new* vocabulary, when [`docs/api/02-views.md`](../api/02-views.md) already organises the multi-frame surface into three intents:
+
+- **scope** — `frame-provider`, `with-frame` / `with-new-frame`;
+- **hold** — `frame-handle`, `frame-bound-fn` / `frame-bound-fn*`;
+- **override** — the per-call `{:frame …}`.
+
+The EP's six sources are just instances of these three (explicit arg → *override*; `with-frame` / provider → *scope*; captured handle / dispatch envelope → *hold*; harness selection → *override*). Re-expressing the resolver in the **already-taught** triad — rather than a bespoke priority list — means one vocabulary across views, resolution, and migration. And the triad collapses further into the only distinction that matters at a boundary: **carried as a value** (*hold* + *override*) vs **ambient in an established scope** (*scope*). The danger was never "ambient"; it was "ambient *with an invented floor*." Remove the floor and ambient-from-an-explicit-scope is honest.
+
+### C. One carrier, one name: unify frame-identity-as-data
+
+The EP disciplines *resolution* but leaves *naming* fragmented. Frame identity already travels under at least `:frame` (dispatch opt), `:rf.frame/id` (cofx, post-partition), `:rf/frame-id` (SSR payload), plus `url-owner-frame-id`, `:target-frame`, `:own-frame`, and `default-target-frame` (tools). For a project whose ethos is *data-first* with a *single reserved root*, that is vocabulary sprawl at precisely the boundary this EP is trying to make rigorous.
+
+The masterpiece move is to make the *carrier* of frame identity one canonical, inspectable shape — call it the **frame stamp** — that appears identically wherever a causal token flows: dispatch metadata, fx cofx, captured handle, epoch record, trace event, SSR payload. Then *resolution* = "read the stamp on the token I hold," *no-frame-context* = "this token carries no stamp," and the genuinely distinct **roles** (URL *owner* vs inspected *target* vs Xray's *own*) become *qualified* stamps rather than unrelated keys. This folds the partition-EP's `:frame → :rf.frame/id` rename into a larger, principled unification, and it makes the conformance check trivial: every causal token either carries a well-formed stamp or is explicitly classified frameless. One key to teach, one shape to validate, one thing for Xray to render.
+
+### D. The closure *is* the frame — foreground *hold*, demote `with-frame`
+
+The EP lists `with-frame` as resolution-source #2, ahead of captured handles. But its own §Async Boundaries concedes that `with-frame` "supplies a frame only for the synchronous evaluation"; it evaporates at the first `.then` / `setTimeout`. That is **the same failure family the EP exists to abolish** — a context that looks present and silently isn't.
+
+re-frame2 already has the more honest primitive: the *hold* intent **reifies the frame into a value**. `frame-handle` hands you `{:dispatch :subscribe …}` bound to a frame; `frame-bound-fn*` captures one; `reg-view` injects frame-bound `dispatch` / `subscribe` as lexical bindings. In that model the frame is **the functions you are holding** — nothing ambient, nothing to evaporate, identity carried by construction. That is exactly what async and tooling need, and it is more functional (values over dynamic scope).
+
+So invert the teaching hierarchy: the captured handle (*hold*) is the robust carrier and the primary mental model; `with-frame` (*scope*) is convenience sugar for a synchronous lexical block, used inside roots and never near an async hop. The EP currently needs a special async rule *because* it put the fragile primitive first; foreground *hold* and the special case largely dissolves.
+
+### E. You are revoking far less than the EP claims
+
+§Backwards Compatibility frames this as surrendering the prized goal *"frame plurality is invisible to single-frame apps."* It doesn't. A single-frame app under Option C still has exactly **one** root `frame-provider`; *inside that tree* every call stays ambient and ergonomic — no `{:frame}` typing, no ceremony. What dies is not in-tree invisibility but **rootless** invisibility: bare calls with *no* established scope at all — which are exactly the async-callback, tool, test-fixture, and SSR-helper cases the EP rightly calls dangerous.
+
+Reframing the revocation this way is more honest *and* more elegant: the conceptual change shrinks to "you need a root; inside it, nothing changes," the migration reads as far less violent, and the goal is *refined* rather than *revoked* — "plurality is invisible inside a frame's scope; the absence of any scope is the only thing made loud." Rewriting §Backwards Compatibility around that sentence will lower resistance without weakening the rule.
+
+### F. Unique resolution is *not* synthesis — and the tool layer already proved the elegant answer
+
+This is the EP's biggest under-argued move, and the audit makes it sharper than the EP admits. The EP rejects Option B (sole-live-frame fallback) as "more policy" that "still lets missing context proceed." But [`spec/Tool-Pair.md`](../spec/Tool-Pair.md) **already ships a four-tier operating-frame contract** that is more sophisticated than either the status quo or Option C:
+
+1. explicit override → 2. session-pinned selection → 3. **sole registered *app* frame** (reserved `:rf/*` tool frames excluded from the count) → 4. **`:ambiguous-frame`** when two or more app frames remain.
+
+Tool-Pair explicitly **rejects** the `:rf/default` fallback ("a common naïve implementation would fall back to `:rf/default` at tier 4 … the hybrid contract rejects that … silently landing reads or writes there masks the ambiguity"). So the project has *already converged*, where it meets real operators, on the genuinely elegant rule: **resolve when the answer is unique; refuse when it is plural; never synthesise.** The core EP wants to outlaw tier 3 — and Audit §1 lists it as a "collision to reconcile."
+
+The distinction the EP never draws is that **resolving a unique answer is not synthesising `:rf/default`.** Inventing a frame from nothing is unsound; observing that exactly one registered app frame *is* the answer is a total, honest function. The real objection to tier-3-in-the-core is not impurity — it is **temporal non-locality**: "sole frame" is true *until a second frame appears*, so adding Xray, Story, or an SSR frame silently changes the meaning of distant, untouched application code, with no operator present to prompt and replay-determinism (below) at stake. *That* is the argument for "always explicit in embedded code," and it is strong — but it is a different and better argument than "more policy."
+
+The resolution is not to reconcile tier 3 away; it is to **scope the two contracts to where each is correct**:
+
+- **Embedded app/runtime path** (no operator, silent non-locality, must replay) → Option C, strict: absence is `:rf.error/no-frame-context`. Justify it explicitly with non-locality + replay, *not* with purity.
+- **Interactive discovery layer** (Tool-Pair, Xray, pair-MCP — an operator or agent is driving, ambiguity can prompt) → keep the four-tier contract, including tier-3 unique resolution. It already works and it preserves the "identical to single-frame re-frame" operator UX Tool-Pair deliberately guarantees.
+
+Then reconcile `:rf.error/no-frame-context`, `:ambiguous-frame`, and `:rf.tool/no-frame-selected` into **one ladder** (absent → ambiguous → unselected), rather than three vocabularies that meet awkwardly. An agent reading this EP *will* notice that the core forbids what the tools rely on; the EP should answer that out loud, and the answer is "different layer, different operator-presence, same stamp."
+
+### G. Make the rationale, the detection, and the error more re-frame2
+
+Three sharpenings that use machinery the project already has:
+
+- **Lead with replay determinism, not the benchmark libraries.** TanStack / Redux / Apollo justify explicit providers for *view hooks*. re-frame2's decisive argument is one none of them can make: a silently-defaulted frame **poisons replay**. If an operation's target frame cannot be reconstructed *from data*, then epoch replay, `restore-epoch`, time-travel, and Story / Causa determinism are unsound — the same record can re-run against a different frame. "Frames must be *carried* so history is *replayable*" is the re-frame2 sentence; the benchmark table is supporting, not central.
+- **Shift detection left.** The EP makes every failure a *runtime* error and adds a *grep* as the regression guard. The best error is the one that cannot be written. Promote the static sweep to a first-class **conformance lint** in CI (part of the contract, not a regex in prose), and let `reg-view` / macro expansion flag a bare `rf/dispatch` in a view body where the injected frame-bound `dispatch` was the intended call. Catch at compile / registration where the shape allows; reserve runtime errors for the genuinely dynamic async case.
+- **Attribute the frameless error causally.** The suggested payload is *static* (`:operation :where :event-id`). re-frame2 already threads `:rf.trace/dispatch-id` / `:rf.trace/parent-dispatch-id`. A no-frame error should carry its *capture-site ancestry* — "this callback was captured at handler X in frame Y; the cascade ended; the continuation fired with no stamp" — so the hardest case (the EP's own "brutal to debug" async clobber) becomes fully attributed through the existing correlation graph, even though the error itself is frameless.
+
+### H. Let the artefact embody the rule
+
+A meta-point, since the spec *is* the product. The idea here is one sentence and a short derivation; the document runs ~1300 lines because the *invariant* and the *migration inventory* are interleaved. Split them: a tight normative core (the carried invariant, the scope/hold/override triad, the one stamp, the absent→ambiguous→unselected ladder — a page an agent can hold entirely) and a companion carrying the 12 beads and 11 audit tables. The very thing the EP argues *for* — a load-bearing boundary enforced by the **shape** of the API rather than by accumulated diagnostics — should be visible in the EP's **own** shape.
+
+### Net
+
+The direction is right and the courage is right. The opportunity is to state it as *one carried invariant*, reuse the *scope/hold/override* vocabulary the Views chapter already teaches, unify frame-identity into *one stamp*, foreground the *hold* primitive that is async-safe by construction, scope the strict core against Tool-Pair's already-proven tiered discovery layer instead of "reconciling it away," and let **replay determinism** — re-frame2's true differentiator — be the reason. Same rule; smaller to state, harder to misuse, and unmistakably re-frame2.
+
+### Coda: The Values Tension Underneath
+
+Every tactical note above circles one structural fact worth stating plainly: **two of re-frame2's stated values are mutually exclusive by construction, and this EP inherits the contradiction rather than resolving it.**
+
+- *Ambient ergonomics* — `(rf/dispatch [:foo])`, callable with no receiver — is implicit context.
+- *Loud failure / no silent swallow* is the demand that a wrong target never pass unnoticed.
+
+Implicit context fails **silently** — that is what *implicit* means. The two cannot both hold at full strength, and this EP is the seam where they tear. So is the `{:db fresh-map}` boot handler that silently drops a live machine's `:rf/runtime` snapshot — a sibling hazard in the same family: an **implicit singleton** (the ambient frame; the ambient app-db a wholesale `:db` overwrites), bought for ergonomics and paid for with a silent-wrong-target bug, then patched with a diagnostic. re-frame2's recurring failure mode is the implicit singleton, and the cure it keeps reaching for — *more diagnostics* — treats the symptom. The cure that treats the cause is **no ambient target to get wrong**, which satisfies *both* values at once: wrong-target stops being *caught* and becomes *unrepresentable*.
+
+The EP travels ~90% of that road and halts at the call shape. `rf/dispatch` survives as a free function that *throws* when frameless — rather than a call that simply **is not reachable** without a frame source. That final 10% is held by exactly one value: **fidelity to v1's call shape.** That is the value foreclosing the more elegant design, and releasing it makes the framework *smaller* — delete the bare function and the central resolver, the `:rf.error/no-frame-context` path, the six-source list, and the retired fallthrough vocabulary all have nothing left to resolve.
+
+None of this repudiates the values. It asks for a one-time **ranking** of two that currently sit unranked:
+
+> Explicit, carried frame identity outranks v1 call-shape fidelity.
+
+Make that ranking once and the rest is mechanical: keep *bounded* ambient (`with-frame`) for synchronous call trees, mandate *held* handles across async, and delete only the *world-level default* and the *bare-function shape*. Decline it and you are choosing "v1, but multi-frame-safe" over "the most principled isolation model, v1-shaped only where that shape is free." Both are legitimate products — but only one is the masterpiece this codebase keeps saying it wants, and pre-alpha is the last moment the choice is cheap.
