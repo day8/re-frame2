@@ -388,11 +388,11 @@
 
 ;; ---- transition-edge ----------------------------------------------------
 
-(defn transition-edge
-  "Reagent component for a transition edge. xyflow invokes this with
-  source/target coords + a `:data` payload carrying the event label
-  + state flags. Returns a `<BaseEdge>` + a label renderer in a
-  React fragment."
+(defn- transition-edge*
+  "The non-entry transition-edge body (rf2-i9d2ob split). Renders the
+  routed path + label for a real transition edge. `transition-edge`
+  dispatches here for every edge except the initial-marker entry edge
+  (which now paints nothing — the glyph lives on the marker node)."
   [^js props]
   (let [src-x      (.-sourceX props)
         src-y      (.-sourceY props)
@@ -615,6 +615,27 @@
                            :line-height      "1"
                            :white-space      "nowrap"}}
             (str "+ " action-str)])]])])))
+
+(defn transition-edge
+  "Reagent component for a transition edge. xyflow invokes this with
+  source/target coords + a `:data` payload carrying the event label
+  + state flags. Returns a `<BaseEdge>` + a label renderer in a
+  React fragment.
+
+  rf2-i9d2ob — the initial-marker ENTRY edge (`entry?`) paints NOTHING:
+  the whole initial-state glyph (filled dot + Q-hook + triangle arrow)
+  is now a FIXED node-local shape drawn by `chart.nodes/initial-marker`,
+  independent of ELK / xyflow edge routing (which bent the old bezier
+  entry edge oddly when the initial sat at an odd position). The edge is
+  retained in the projection ONLY for the every-edge `:data` invariants;
+  here it short-circuits to an empty fragment so no second arrow / curve
+  competes with the node glyph. Every other edge dispatches to
+  `transition-edge*` (the routed-path body)."
+  [^js props]
+  (let [data0 (.-data props)]
+    (if (and data0 (.-entry data0))
+      (r/as-element [:<>])
+      (transition-edge* props))))
 
 ;; ---- edge-types map -----------------------------------------------------
 
