@@ -346,12 +346,21 @@
   quiet colour even when the route is otherwise resting so the pair reads
   as one transition with the primary arrowhead on the event→target half.
 
-  rf2-dt5b1 — delegates to the shared `tokens/edge-color`, the SINGLE
-  source the projector's arrowhead-`:markerEnd` colour also routes
+  G-START — the initial-marker entry edge (`entry?`) is the SCXML/Stately
+  initial-state icon (filled dot + short arrow into the state's near
+  edge). It paints the SAME neutral `:pseudo-marker` hue as the dot — NOT
+  the near-invisible `:edge-quiet` resting hue — so the dot + arrow read
+  as one clearly-visible unit, matching the projector's arrowhead
+  `:markerEnd :color` (`:pseudo-marker`) for the same edge.
+
+  rf2-dt5b1 — otherwise delegates to the shared `tokens/edge-color`, the
+  SINGLE source the projector's arrowhead-`:markerEnd` colour also routes
   through, so a stroke and its arrowhead can never resolve different
   colours for the same edge state."
-  [ct flags]
-  (tokens/edge-color ct flags))
+  [ct {:keys [entry?] :as flags}]
+  (if entry?
+    (:pseudo-marker ct)
+    (tokens/edge-color ct flags)))
 
 (defn- edge-stroke-width
   "rf2-k647w — edge stroke widths read off the resolved density. The
@@ -438,6 +447,11 @@
         ;; Render it WITHOUT the re-entry arrowhead + with a dashed loop
         ;; so it reads as "no exit/entry re-trigger" (Stately parity).
         internal?  (boolean (.-internal d))
+        ;; G-START — the initial-marker entry edge (dot → initial state).
+        ;; Paints the neutral `:pseudo-marker` hue (matching the dot +
+        ;; the projector's arrowhead) so the dot + short arrow read as
+        ;; one clearly-visible unit, the SCXML/Stately initial icon.
+        entry?     (boolean (.-entry d))
         ;; rf2-cz8v6 (G2) — elk's routed bend-points (absolute coords),
         ;; a JS array of `#js {:x :y}`. Present only when elk computed a
         ;; multi-point route; nil for a simple edge (bezier fallback)
@@ -472,7 +486,8 @@
                     ;; rf2-rlq97 — elk's computed label placement (nil →
                     ;; geometric heuristic fallback).
                     :label-pos label-pos})
-        stroke  (edge-stroke ct {:active? active? :focused? focused? :fired? fired?})
+        stroke  (edge-stroke ct {:active? active? :focused? focused? :fired? fired?
+                                 :entry? entry?})
         stroke-w (edge-stroke-width {:active? active? :focused? focused?
                                      :fired? fired? :quiet? quiet? :chart vc})]
     (r/as-element
