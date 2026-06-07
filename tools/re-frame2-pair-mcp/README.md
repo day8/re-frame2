@@ -561,11 +561,6 @@ ClojureScript compiled via shadow-cljs to a `:node-script` target.
 End users install Node only; the compiled output is plain JS. The
 language pick is locked — see the bead notes on the implementing PR.
 
-`pilot/` contains the original toolchain pilot — a minimal MCP server
-with two tools (`ping` and `nrepl-ping`) used to verify the
-shadow-cljs + npm MCP SDK + bencode round-trip worked before the full
-port. Kept for reference and as a stripped-down smoke harness.
-
 ## File layout
 
 ```
@@ -574,7 +569,6 @@ tools/re-frame2-pair-mcp/
 ├── package.json                              ; npm package
 ├── shadow-cljs.edn                           ; build config
 ├── spec/                                     ; contract
-├── pilot/                                    ; pre-port toolchain pilot
 ├── bin/
 │   └── probe-mcp-path.cjs                    ; read-only ~/.claude.json drift probe (rf2-vsxgz)
 └── src/re_frame2_pair_mcp/
