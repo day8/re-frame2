@@ -195,9 +195,9 @@
     (is (< (:arrow-width-quiet vc/chart)
            (:arrow-width-entry vc/chart)
            (:arrow-width vc/chart)))
-    (is (= 18 (:arrow-width vc/chart)))
-    (is (= 10 (:arrow-width-quiet vc/chart)))
-    (is (= 12 (:arrow-width-entry vc/chart)))))
+    (is (= 12 (:arrow-width vc/chart)))
+    (is (= 8 (:arrow-width-quiet vc/chart)))
+    (is (= 10 (:arrow-width-entry vc/chart)))))
 
 ;; ---- density variants (rf2-32gw5) --------------------------------------
 ;;
