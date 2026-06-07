@@ -142,6 +142,86 @@
   [edge]
   (str "event__" (:id edge)))
 
+;; ---- guarded-fork branch-order (rf2-uw3vmi) -----------------------------
+;;
+;; Stately renders a guarded multi-branch fork — the gate machine's
+;; `:gate/check` 3-way (`[{:guard :gate-high? …} {:guard :gate-low? …}
+;; {:target :rejected}]`) — with NUMBERED PRIORITY BADGES (①②③) on each
+;; branch chip, communicating the DETERMINISTIC ORDER the engine evaluates
+;; the guards in (first-pass-wins). re-frame2's candidate vector IS
+;; deterministically ordered (the vector index is the priority), and the
+;; parse (`chart.layout/collect-state-edges` → `project-flat`) PRESERVES
+;; that order in the `:edges` vector — so the branch-order index is simply
+;; the candidate's position among its same-source / same-trigger siblings.
+;;
+;; This helper derives, from the ORDERED `:edges` vector, a
+;; `{edge-id → 1-based-priority}` map for every edge that is one branch of
+;; a GENUINE guarded fork. The numbered badge is the additive Stately
+;; affordance; the per-branch `IF <guard>` wording is the SETTLED IF-guard
+;; divergence (parity spec §3.2) and is untouched.
+
+(defn fork-trigger-key
+  "rf2-uw3vmi — the grouping key that decides whether two edges leaving
+  the SAME source belong to the SAME guarded fork: they must share the
+  same TRIGGER. A trigger is one of:
+
+    - an `:on` event keyword (`:gate/check`)         → `[:on <event>]`
+    - an `:after` timer delay (`5000`)               → `[:after <ms>]`
+    - an eventless `:always` continuation            → `[:always]`
+
+  Two same-source candidates under the SAME trigger form an ordered
+  candidate vector (first-guard-pass-wins); under DIFFERENT triggers they
+  are independent transitions, never a fork. `:gate/set` and `:gate/check`
+  both leave `:idle` but carry different `:event`s, so they never group —
+  only the three `:gate/check` candidates do.
+
+  Pure data → key vector."
+  [edge]
+  (cond
+    (:after edge)   [:after (:after edge)]
+    (:always? edge) [:always]
+    :else           [:on (:event edge)]))
+
+(defn fork-order-by-edge-id
+  "rf2-uw3vmi — map each edge-id to its 1-based branch-priority index
+  WHEN that edge is one branch of a genuine guarded multi-branch fork.
+
+  A guarded fork is a group of edges sharing the SAME source AND the SAME
+  `fork-trigger-key` with:
+
+    - 2+ members (a multi-branch fork; a single transition is NOT a fork
+      and gets NO badge), AND
+    - at least one member carrying a `:guard` (it is a GUARDED fork — the
+      branch order is meaningful precisely because the guards are tried in
+      priority order; a guardless same-trigger group has no ordered
+      evaluation semantics to communicate).
+
+  Within a qualifying group the priority is the candidate's position in
+  the ORDERED `:edges` vector — which `chart.layout` preserves from the
+  source candidate vector (the engine's first-pass-wins order). So the
+  gate fork yields `gate-high? → 1`, `gate-low? → 2`, `rejected → 3`.
+
+  `:internal?` self-transitions (action-only, no `:target`) are still
+  candidates of their trigger group and counted in the order — an internal
+  guarded branch is a real evaluated candidate. (`:on-done` / `:machine-
+  level?` edges never share a source with a normal trigger group, so they
+  fall out naturally as singletons.)
+
+  Returns `{edge-id 1-based-index}` for fork branches only; non-fork edges
+  are absent. Pure data → map."
+  [edges]
+  (->> edges
+       ;; group-by preserves the per-group order of first appearance, and
+       ;; the parse already lays a source's candidates down contiguously
+       ;; in vector order — so `map-indexed` over a group yields the
+       ;; first-pass-wins priority directly.
+       (group-by (juxt :source fork-trigger-key))
+       (into {}
+             (mapcat (fn [[_ group]]
+                       (when (and (>= (count group) 2)
+                                  (some :guard group))
+                         (map-indexed (fn [i e] [(:id e) (inc i)]) group)))))))
+
 ;; ---- elk.js children projection ----------------------------------------
 
 (def event-node-elk-width
@@ -693,6 +773,17 @@
         ;; caller keeps the dark surface). Threaded onto every node/edge
         ;; `:data {:palette}` so the renderers paint the active theme.
         ct (or palette (tokens/chart-tokens))
+        ;; rf2-uw3vmi — guarded-fork branch-order. Derived ONCE from the
+        ;; ordered `:edges` vector (the parse preserves the source
+        ;; candidate vector order, which IS the engine's first-pass-wins
+        ;; priority); `{edge-id 1-based-index}` for every edge that is one
+        ;; branch of a genuine guarded multi-branch fork (2+ same-source /
+        ;; same-trigger candidates with at least one guard). Threaded onto
+        ;; each event-node's `:data {:forkOrder}` so `event-node` paints
+        ;; the numbered priority badge Stately shows on the gate `:check`
+        ;; 3-way; absent (→ nil) for every non-fork event, so a single
+        ;; transition carries no badge.
+        fork-order (fork-order-by-edge-id edges)
         ;; rf2-g2svr (G1) — the active set unifies the single-active
         ;; (`:highlight-id`) and multi-active (`:highlight-ids`) cases.
         ;; A PARALLEL machine's snapshot has N simultaneously-active
@@ -1063,6 +1154,16 @@
                                        :afterMs     (:after edge)
                                        :guard       (layout/name-of (:guard edge))
                                        :action      (layout/name-of (:action edge))
+                                       ;; rf2-uw3vmi — 1-based priority index
+                                       ;; WHEN this event-node is one branch of
+                                       ;; a genuine guarded multi-branch fork
+                                       ;; (gate's `:gate/check` 3-way → 1/2/3);
+                                       ;; nil for every non-fork event so a
+                                       ;; single transition carries no badge.
+                                       ;; `event-node` paints the numbered
+                                       ;; priority badge Stately shows on the
+                                       ;; fork branches.
+                                       :forkOrder   (get fork-order (:id edge))
                                        :focused     focused?
                                        :fired       fired?
                                        :internal    internal?

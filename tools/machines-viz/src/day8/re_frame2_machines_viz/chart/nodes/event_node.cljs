@@ -56,6 +56,48 @@
     :always "∞"
     event-label))
 
+(defn- fork-badge
+  "rf2-uw3vmi — the numbered PRIORITY badge for one branch of a guarded
+  multi-branch fork. Stately renders a guarded fork (the gate machine's
+  `:gate/check` 3-way) with a small circled number (①②③) on each branch
+  chip, communicating the DETERMINISTIC ORDER the engine evaluates the
+  guards in (first-pass-wins). The projector
+  (`chart.projection/fork-order-by-edge-id`) derives the 1-based index
+  from the source candidate vector's order and threads it onto the
+  event-node `:data {:forkOrder}`; this renders it.
+
+  A small rounded/circular chip leading the header line — neutral and
+  unobtrusive (the chip border colour, quiet fill), so it reads as an
+  order annotation, not a second event. Sized off the resolved density's
+  `:event-chip-px` so the badge scales with the chip's typography across
+  the compact / regular / cosy densities. Returns nil when `order` is
+  nil (a non-fork event carries NO badge) so a single transition is
+  unchanged.
+
+  `id` is the host node id (for the `data-testid`); `ct` is the resolved
+  theme token map; `event-chip-px` the density font-size."
+  [id order ct event-chip-px]
+  (when order
+    (let [diam (+ event-chip-px 5)]
+      [:span {:data-testid    (str "rf-mv-chart-event-fork-badge-" id)
+              :data-fork-order (str order)
+              :title          (str "guard priority " order
+                                   " (evaluated in order, first pass wins)")
+              :style {:display          "inline-flex"
+                      :align-items      "center"
+                      :justify-content  "center"
+                      :flex             "0 0 auto"
+                      :width            (str diam "px")
+                      :height           (str diam "px")
+                      :margin-right     "5px"
+                      :border-radius    "50%"
+                      :background       (:event-chip-border ct)
+                      :color            (:text-primary ct)
+                      :font-size        (str (max 8 (- event-chip-px 2)) "px")
+                      :font-weight      700
+                      :line-height      "1"}}
+       order])))
+
 (defn event-node
   "Reagent component for an event-node. The xyflow chart projector
   emits ONE event-node per spec transition (event-as-node paradigm,
@@ -103,6 +145,7 @@
         action      (.-action d)
         focused?    (boolean (.-focused d))
         fired?      (boolean (.-fired d))
+        fork-order  (.-forkOrder d)
         internal?   (boolean (.-internal d))
         reenter?    (boolean (.-reenter d))
         machine-level? (boolean (.-machineLevel d))
@@ -149,6 +192,7 @@
              :data-variant-always (str (= :always variant))
              :data-internal (str internal?)
              :data-reenter (str reenter?)
+             :data-fork-order (when fork-order (str fork-order))
              :data-machine-level (str machine-level?)
              :data-fired (str fired?)
              :data-focused (str focused?)
@@ -194,13 +238,19 @@
                      :animation      (when fired?
                                        "mv-chart-transition-glow 720ms ease-out infinite")
                      :transition     "border-color 120ms ease, background 120ms ease"}}
-       ;; First line: event name / ⌚ <ms> / ∞ + optional `IF <guard>`.
+       ;; First line: optional fork priority-badge + event name / ⌚ <ms> /
+       ;; ∞ + optional `IF <guard>`. rf2-uw3vmi — the numbered badge LEADS
+       ;; the line (Stately convention) so a guarded-fork branch reads as
+       ;; "branch N: event IF guard"; nil for non-fork events.
        [:span {:data-testid (str "rf-mv-chart-event-header-" (.-id props))
                :data-event-line (cond-> header
                                   guard (str " IF " guard))
-               :style {:white-space "nowrap"
+               :style {:display "inline-flex"
+                       :align-items "center"
+                       :white-space "nowrap"
                        :line-height "1.1"
                        :color (:text-primary ct)}}
+        (fork-badge (.-id props) fork-order ct event-chip-px)
         header
         (when guard
           [:span {:data-testid (str "rf-mv-chart-event-guard-" (.-id props))
