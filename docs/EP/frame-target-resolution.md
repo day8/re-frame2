@@ -251,6 +251,13 @@ sources:
 If no source is available, the operation fails with
 `:rf.error/no-frame-context`.
 
+For this EP, "frame-scoped operation" means an API that reads, writes, clears,
+registers, projects, or dispatches against frame-local app-db, runtime-db,
+subscription cache, route, machine, HTTP, SSR, trace, epoch, mark, or elision
+state. Process-global registrar queries such as `frame-ids`, `frame-meta`, and
+`registrations` remain frame-neutral enumeration surfaces; they must not invent
+a current frame, and they must not be forced through this resolver.
+
 ### `:rf/default`
 
 `:rf/default` remains a valid keyword and can remain useful in tests, examples,
@@ -420,6 +427,36 @@ Server request frames are already naturally explicit. Client hydration should
 match that discipline so duplicate fetches, head projection, hydration deltas,
 and error projection all land on the intended frame.
 
+Hydration payloads may carry `:rf/frame-id`, but that value is payload metadata
+and validation evidence, not a no-opts target resolver. A host that wants the
+payload frame to be the client target must pass that frame explicitly to
+`hydrate!`, the root provider, streaming `install!`, resource preload, and Xray.
+If an explicit client target conflicts with the payload's frame id, hydration
+should surface a structured mismatch instead of silently choosing either side.
+
+### Routes And URL Ownership
+
+Routing has two frame identities:
+
+- the event target frame for route handlers, route subscriptions, nav tokens,
+  can-leave checks, and scroll restoration;
+- the browser URL owner frame that receives popstate and is allowed to run
+  `:rf.nav/push-url` or `:rf.nav/replace-url`.
+
+Today the URL-owner contract has a structural `:rf/default` anchor: the default
+frame owns the URL unless it opts out, and history listeners dispatch URL
+changes to `url-owner-frame-id`. Under this EP, URL ownership must become an
+explicit host/bootstrap policy, not another absence repair. An app bootstrap may
+declare one URL-owning frame, but the routing runtime must not infer
+`:rf/default` when no owner is declared.
+
+Route transitions, `:rf.route/handle-url-change`, `:rf.route/transitioned`,
+navigation tokens, can-leave restoration, scroll fxs, and history listeners
+must all thread the selected frame. A missing URL owner should be a routing
+configuration error or `:rf.error/no-frame-context`, and browser-originated
+callbacks must capture the owner frame at listener installation or resolve it
+through an explicit routing owner policy.
+
 ### Machines And Managed Effects
 
 Framework effects that run inside a cascade should inherit the frame from the
@@ -478,6 +515,14 @@ The central frame APIs should have these semantics:
 repair absence. Call sites that require a frame must call a require helper or
 otherwise produce a structured error.
 
+The low-level readers may return nil so detection, frame pickers, and tooling
+can model "no context" without throwing while they decide how to present the
+state. Public frame-scoped operations are not low-level readers. `rf/dispatch`,
+`rf/subscribe`, `rf/current-frame-id`, no-arg `rf/frame-handle`, no-arg
+`rf/frame-bound-fn*`, and context-defaulting read/clear helpers should call the
+require helper and fail outside context. This keeps the nil-returning resolver
+from becoming a second, softer fallback contract.
+
 Suggested error payload:
 
 ```clojure
@@ -491,6 +536,12 @@ Suggested error payload:
 Resolution must fail before frame registry lookup. A missing frame context must
 not be misreported as `:rf.error/frame-destroyed` for a synthesized
 `:rf/default`.
+
+The distinct explicit-but-missing case stays distinct: when a caller supplies
+`{:frame :ghost}` or `:ghost` explicitly, resolution has succeeded and the
+registry lookup may report `:rf.error/frame-destroyed` or another no-such-frame
+shape. `:rf.error/no-frame-context` is reserved for absence of a target, not for
+a bad explicit target.
 
 ### Dispatch And Router
 
@@ -553,6 +604,8 @@ Remove defensive `:or {frame-id :rf/default}` defaults and literal
 - managed HTTP request and reply paths;
 - route and navigation fxs;
 - URL-owner resolution;
+- history listener popstate dispatch;
+- nav-token, can-leave, and scroll-restoration helpers;
 - flows;
 - resource query fxs;
 - runtime partition writes.
@@ -567,6 +620,8 @@ Update SSR APIs:
 - `hydrate!` requires `:frame`;
 - streaming client `install!` requires `:frame`;
 - `active-head` no-arg form is removed or made context-required;
+- payload `:rf/frame-id` is validated against the explicit target, not used as
+  an implicit fallback;
 - server examples create request frames explicitly;
 - client examples pass the same frame into hydrate, root provider, resources,
   and Xray.
@@ -580,9 +635,15 @@ Tooling needs explicit own-frame and target-frame semantics:
   policy selects it;
 - Xray `init!` migrates from `:default-frame` toward distinct `:own-frame` and
   `:target-frame` vocabulary;
+- Xray's own singleton `default-frame-id` (`:rf/xray`) remains separate from
+  the inspected-host `default-target-frame` migration;
 - Xray `target-frame` and `set-target-frame! nil` stop resetting through
   `default-target-frame`;
 - pair-MCP operating-frame resolution must be reconciled with this EP;
+- the pair CLI shim and preflight/discover hints must stop teaching
+  `rf/init!` as a way to create `:rf/default`;
+- pair precheck caches keyed on omitted frame must invalidate when a frame is
+  explicitly selected;
 - `eval-cljs` no-frame behavior must stop documenting `:rf/default` as the
   target;
 - `eval-cljs {:frame ...}` remains a synchronous lexical binding only; async
@@ -779,6 +840,7 @@ Create beads for:
 - React context and adapter migration;
 - registration-time frame-local surfaces;
 - framework fx migration;
+- route URL-owner migration;
 - SSR/head/hydration migration;
 - Xray/Story/tool target-frame migration;
 - trace/elision projection migration;
@@ -876,7 +938,8 @@ Remove defensive defaults from framework fxs and runtime helpers:
   `:rf.machine/dispatch-to-system` fx;
 - managed HTTP request initiation and reply delivery;
 - route and navigation fxs;
-- URL-owner declaration;
+- URL-owner declaration, history listener dispatch, nav tokens, can-leave, and
+  scroll restoration;
 - flows;
 - resource query fxs;
 - runtime partition writes.
@@ -891,6 +954,8 @@ Update SSR APIs:
 - `hydrate!` requires `:frame`;
 - streaming client `install!` requires `:frame`;
 - `active-head` no-arg form is removed or made context-required;
+- payload `:rf/frame-id` is validated against the explicit target, not used as
+  an implicit fallback;
 - server examples create request frames explicitly;
 - client examples pass the same frame into hydrate, root provider, resources,
   and Xray.
@@ -946,6 +1011,12 @@ Update:
 - `docs/guide/09*`, `14*`, `16*`, `19*`, `23*`, `25*` where they teach
   default frame convenience;
 - `docs/xray/api/mount-control.md`;
+- `docs/xray/api/config-keys.md`, `docs/xray/api/reference.md`, and
+  `docs/xray/api/runtime-seam.md`;
+- `docs/api/01-core.md`, `docs/api/04-machines.md`,
+  `docs/api/05-flows.md`, `docs/api/07-http.md`,
+  `docs/api/09-ssr.md`, `docs/api/13-lifecycle.md`, and
+  `docs/api/14-adapters.md`;
 - `docs/migration/from-re-frame-v1/README.md`;
 - `spec/002-Frames.md`;
 - `spec/004-Views.md`;
@@ -1047,7 +1118,8 @@ across the same spec and core-runtime files without a coordinator.
    examples, and adapter tests.
 6. Registration bead: classify and migrate frame-local `reg-*` surfaces.
 7. Fx/runtime bead: remove fallback defaults from machines, HTTP, route, flow,
-   resource-related fxs, and URL-owner logic.
+   resource-related fxs, URL-owner logic, history listener dispatch, nav-token
+   helpers, can-leave restoration, and scroll restoration.
 8. SSR bead: require frame in hydration, streaming, head, and request examples.
 9. Elision/trace bead: remove default-frame attribution from projection and
    fail closed for frameless egress.
@@ -1152,11 +1224,14 @@ rule.
 
 Feature-specific sites that need explicit migration:
 
-- routing URL ownership currently has a structural `:rf/default` anchor;
+- routing URL ownership currently has a structural `:rf/default` anchor in
+  `url-owner-frame-id`, `url-bound?` exclusivity, history listener dispatch,
+  nav-token finalization, can-leave restoration, and scroll restoration;
 - literal `(or ... :rf/default)` idioms outnumber `:or {frame-id :rf/default}`;
 - shared substrate spine has a frame-provider fallback used by multiple React
   adapters;
-- managed HTTP replies have a frameless late-bind branch;
+- managed HTTP request/reply paths, interceptor registration/clearing, and test
+  stubs have frame defaults that must be migrated together;
 - `machine-by-system-id` uses `frame/current-frame` in its one-arity form and
   feeds `dispatch-to-system`;
 - `sub-machine` and `machine-has-tag?` delegate to no-frame subscribe paths.
@@ -1172,6 +1247,8 @@ and use `:rf.frame/id` in examples and implementation.
 Tooling surfaces to enumerate:
 
 - Xray `default-target-frame`;
+- Xray `defaults/default-frame-id` for the shell frame, which must stay distinct
+  from inspected-target migration;
 - Xray target-frame subscriptions and reset behavior;
 - Xray `init! {:default-frame ...}` versus proposed `:target-frame`;
 - Xray mount and spine defaults;
@@ -1179,6 +1256,7 @@ Tooling surfaces to enumerate:
 - `eval-cljs {:frame ...}` Promise/async documentation;
 - pair-MCP conformance snapshots that bake in `:rf/default`;
 - `discover-app` hint that says `init!` registers `:rf/default`;
+- pair CLI shim hints in `skills/re-frame2-pair/scripts/ops.clj`;
 - pair-MCP precheck cache keyed on omitted frame.
 
 ### 10. Docs And Skills
@@ -1187,7 +1265,11 @@ Docs and skills to update beyond the obvious specs:
 
 - `docs/guide/18-frames.md`;
 - `docs/guide/09*`, `14*`, `16*`, `19*`, `23*`, `25*`;
+- `docs/api/01-core.md`, `04-machines.md`, `05-flows.md`, `07-http.md`,
+  `09-ssr.md`, `13-lifecycle.md`, and `14-adapters.md`;
 - `docs/xray/api/mount-control.md`;
+- `docs/xray/api/config-keys.md`, `reference.md`, and `runtime-seam.md`;
+- `skills/re-frame-migration/SKILL.md`;
 - `skills/re-frame2-setup`;
 - `skills/re-frame2-pair`;
 - `skills/re-frame2-implementor`;
@@ -1218,12 +1300,28 @@ reauthored.
 - Local source: `implementation/core/src/re_frame/subs.cljc`
 - Local source: `implementation/core/src/re_frame/core_machines.cljc`
 - Local source: `implementation/machines/src/re_frame/machines.cljc`
+- Local source: `implementation/routing/src/re_frame/routing/nav_fx.cljc`
+- Local source: `implementation/routing/src/re_frame/routing/history.cljc`
+- Local source: `implementation/routing/src/re_frame/routing/url_change.cljc`
+- Local source: `implementation/routing/src/re_frame/routing/nav_token.cljc`
+- Local source: `implementation/routing/src/re_frame/routing/can_leave.cljc`
+- Local source: `implementation/routing/src/re_frame/routing/scroll.cljc`
+- Local source: `implementation/http/src/re_frame/http_handlers.cljc`
+- Local source: `implementation/http/src/re_frame/http_managed.cljc`
+- Local source: `implementation/flows/src/re_frame/flows/registry.cljc`
 - Local source: `implementation/ssr/src/re_frame/ssr/boot.cljc`
 - Local source: `implementation/ssr/src/re_frame/ssr/streaming/client.cljs`
+- Local source: `implementation/ssr/src/re_frame/ssr/head/registry.cljc`
 - Local source: `tools/xray/src/day8/re_frame2_xray/core.cljs`
 - Local source: `tools/xray/src/day8/re_frame2_xray/defaults.cljs`
 - Local source: `skills/re-frame2-pair/preload/re_frame2_pair/runtime.cljs`
+- Local source: `skills/re-frame2-pair/scripts/ops.clj`
 - Local source: `tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/eval_cljs.cljs`
+- Local docs: `docs/api/01-core.md`
+- Local docs: `docs/api/07-http.md`
+- Local docs: `docs/api/13-lifecycle.md`
+- Local docs: `docs/xray/api/mount-control.md`
+- Local docs: `skills/re-frame-migration/SKILL.md`
 - [TanStack Query: QueryClientProvider](https://tanstack.com/query/latest/docs/framework/react/reference/QueryClientProvider)
 - [React Redux: Provider](https://react-redux.js.org/api/provider)
 - [Apollo Client: ApolloProvider](https://www.apollographql.com/docs/react/api/react/ApolloProvider)
