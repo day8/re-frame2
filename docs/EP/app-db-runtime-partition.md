@@ -1,8 +1,12 @@
 # EP: Frame App/Runtime Partitions
 
 Status: proposal
-
+Type: Standards Track
 Date: 2026-06-06
+Created: 2026-06-06
+Topic: frame state ownership
+Requires: explicit frame identity, coherent frame transitions
+Impacts: frames, events, subscriptions, machines, routing, SSR, schemas, Xray, pair tools, docs, skills
 
 Related:
 
@@ -18,16 +22,17 @@ Related:
 - [Spec 012 - Routing](https://github.com/day8/re-frame2/blob/main/spec/012-Routing.md)
 - [Runtime Architecture](https://github.com/day8/re-frame2/blob/main/spec/Runtime-Architecture.md)
 - [Conventions](https://github.com/day8/re-frame2/blob/main/spec/Conventions.md)
+- [Explicit Frame Target Resolution EP](frame-target-resolution.md)
+- [Resource Queries EP](resource-queries.md)
 
-## Summary
+## Abstract
 
-This enhancement proposes that every frame owns two durable state partitions:
+This proposal defines a frame as owning two durable state partitions:
 
-1. **app-db**: user-owned application state.
-2. **runtime-db**: framework-owned durable runtime state.
+1. **app-db**: user-owned application data.
+2. **runtime-db**: framework-owned durable runtime data.
 
-The event pipeline threads both partitions through the normal interceptor,
-handler, flow, and effect machinery:
+The event pipeline threads both partitions through one coherent cascade:
 
 ```clojure
 {:coeffects
@@ -41,76 +46,40 @@ handler, flow, and effect machinery:
   :rf.db/runtime  <next-runtime-db>}}
 ```
 
-The ordinary `:db` key remains the user app-db partition. The reserved
-`:rf.db/runtime` key is the managed runtime partition. Both are present in the
-event context, but ordinary application code treats `:rf.db/runtime` as
-framework-owned.
-
-This replaces the current model where framework-owned durable state sits inside
-the user app-db under `:rf/runtime`. That model keeps snapshots coherent, but it
-creates a serious ownership footgun: an ordinary `reg-event-db` handler that
-returns a fresh map can accidentally delete live machine, routing, elision, or
-SSR runtime state.
-
-The target design keeps the good property:
-
-> A frame transition still commits one coherent app/runtime state change.
-
-But removes the bad property:
-
-> User app code no longer owns or replaces framework runtime state through
-> ordinary `:db` returns.
-
-## Key Decision
-
-The important decision is **not** that re-frame2 must store everything inside
-one physical map.
-
-The important decision is:
-
-> A frame has two durable partitions, and the cascade commits them coherently.
-
-An implementation may store the partitions as two maps, two containers, or one
-internal aggregate. The public and internal contract should be expressed through
-partition keys in the event context:
-
-```clojure
-:db             ;; user app state
-:rf.db/runtime  ;; managed runtime state
-```
-
-When tools, SSR, epoch restore, or tests need a full durable snapshot, they can
-project those two partitions into a **frame-state** value:
+The ordinary `:db` key remains the app-facing app-db partition. The reserved
+`:rf.db/runtime` key is the framework-owned runtime partition. Full-frame tools
+such as SSR hydration, epoch restore, time travel, and Xray may project both
+partitions as a single **frame-state** value:
 
 ```clojure
 {:rf.db/app     <app-db>
  :rf.db/runtime <runtime-db>}
 ```
 
-`frame-state` is therefore the coherent snapshot/projection of a frame's durable
-state. It is not necessarily the physical storage shape used by the runtime.
+The purpose is to remove the current ownership footgun where framework runtime
+state is stored under `:rf/runtime` inside the user app-db map, allowing an
+ordinary fresh `:db` return to delete machine, routing, elision, SSR, or tool
+state.
 
-## Problem
+## Motivation
 
-Today, re-frame2 stores framework-owned per-frame runtime state inside app-db
-under `:rf/runtime`.
+Today, re-frame2 stores per-frame runtime state inside app-db under
+`:rf/runtime`.
 
-That means this ordinary app handler:
+That means this ordinary handler:
 
 ```clojure
 (rf/reg-event-db
-  :something
+  :session/reset
   (fn [_db _event]
-    {:new 1}))
+    {:session/status :anonymous}))
 ```
 
-does not only replace user app state. It replaces the entire app-db map,
-including `:rf/runtime`.
-
-If the old app-db contained:
+does not only replace user state. It replaces the whole app-db map, including
+runtime state. If the previous value was:
 
 ```clojure
-{:todo/items []
+{:session/status :authenticated
  :rf/runtime
  {:machines {:snapshots {:door/main {:state :open :data {}}}}
   :routing  {:current {:id :route/home}}}}
@@ -119,81 +88,64 @@ If the old app-db contained:
 the handler commits:
 
 ```clojure
-{:new 1}
+{:session/status :anonymous}
 ```
 
-and the runtime state is gone.
+and the runtime state disappears.
 
-This is worse than ordinary data loss. Machine snapshots are live runtime state.
-Timers, spawn registries, route state, elision declarations, SSR hydration
-metadata, tooling, and epoch records all rely on the durable runtime value being
-coherent. Dropping it can leave the system with a torn invariant: external
-handles and queued work still exist, but the durable state they reference has
-vanished.
+This is worse than ordinary data loss. Machine snapshots, route state, elision
+declarations, SSR hydration metadata, epoch records, resource caches, and tool
+state are live framework facts. Dropping them can leave external handles,
+queued work, timers, subscriptions, and traces pointing at durable state that no
+longer exists.
 
-The current implementation emits `:rf.warning/runtime-state-dropped` when a
-durable `:db` commit drops a live runtime subsystem. That diagnostic is useful,
-but it is not the right final shape. A warning still asks ordinary application
-code to know about and preserve framework internals.
+The existing `:rf.warning/runtime-state-dropped` diagnostic is useful, but it is
+not the right final boundary. A warning still asks app code to preserve
+framework internals. The design should make ordinary app code unable to delete
+runtime state by returning app data.
 
-## Design Goals
+## Goals
 
-1. Ordinary app handlers must not be able to accidentally delete framework
-   runtime state.
-2. `reg-event-db` and ordinary `:db` effects should remain ergonomic: app code
-   receives and returns the app's data.
-3. Runtime state must remain per-frame, inspectable, subscribable through
-   framework APIs, and revertible with epochs/time-travel.
-4. SSR hydration and frame restore must install one coherent app/runtime
-   snapshot.
-5. The event pipeline must be able to thread runtime state through interceptors,
-   handlers, flows, and framework effects.
-6. User code should not write runtime state directly except through explicit
-   extension APIs.
-7. Tools and AI agents must be able to inspect app state, runtime state, or the
-   whole frame-state intentionally.
-8. Namespacing should make ownership visible: inherited re-frame keys can remain
-   unqualified, new framework-owned keys must be qualified.
-9. The terminology should be simple enough to teach: app-db is user land;
-   runtime-db is framework-owned; frame-state is the coherent snapshot of both.
+This proposal aims to:
 
-## Current Contract To Supersede
+1. Make accidental runtime-state deletion structurally impossible for ordinary
+   app handlers.
+2. Preserve the ergonomic re-frame meaning of `:db`: app handlers receive and
+   return the app's data.
+3. Keep app-db and runtime-db committed, restored, hydrated, and inspected as
+   one coherent frame transition.
+4. Make framework ownership visible through qualified names.
+5. Preserve time travel, SSR, Xray, pair tooling, schema elision, machines,
+   routing, and future resource caches.
+6. Give tools and AI agents intentional access to app-db, runtime-db, or the
+   whole frame-state.
+7. Avoid compatibility aliases while re-frame2 is pre-alpha.
 
-The current specs say:
+## Non-Goals
 
-- a frame owns an `:app-db` container;
-- `:rf/runtime` is the single reserved app-db root;
-- machines store snapshots under `[:rf/runtime :machines :snapshots]`;
-- routing stores the route slice under `[:rf/runtime :routing :current]`;
-- elision and SSR also store durable metadata under `:rf/runtime`;
-- `app-db-value` returns the whole map, including `:rf/runtime`;
-- epoch records use `:db-before` and `:db-after` to snapshot that whole map.
+This proposal does not:
 
-This is coherent, but it conflates snapshot coherence with ownership.
+- require a particular physical storage layout;
+- define a generic N-partition database system;
+- change ordinary app subscriptions into runtime-db readers;
+- authorize application handlers to write runtime-db directly;
+- settle every epoch record field name;
+- redesign machine snapshot internals;
+- define the resource query API, except by reserving a runtime partition for it.
 
-The key design correction is:
-
-> One coherent transition does not require one user-owned map.
-
-The frame can own app-db and runtime-db as separate durable partitions while
-still committing, restoring, hydrating, and inspecting them as one coherent
-frame state.
-
-## Proposed Solution
+## Specification
 
 ### Terminology
 
-Use these terms consistently:
-
 | Term | Meaning |
 |---|---|
-| frame | The runtime boundary: id, router, queue, reactive container, sub-cache, lifecycle, config, trace ring, epoch history. |
+| frame | The runtime boundary: id, router, queue, reactive container, sub-cache, lifecycle, config, trace ring, epoch history, and durable state partitions. |
 | app-db | The user-owned application data partition. It is exposed as the ordinary `:db` coeffect/effect. |
 | runtime-db | The framework-owned durable runtime partition. It is exposed internally as the reserved `:rf.db/runtime` coeffect/effect. |
-| frame-state | A coherent durable snapshot/projection containing app-db and runtime-db. |
-| runtime handles | Non-serializable host handles outside frame-state: timers, AbortControllers, listeners, promises, substrate objects. |
+| frame-state | A coherent snapshot/projection containing both app-db and runtime-db. |
+| runtime handles | Non-serializable host handles outside frame-state, such as timers, AbortControllers, listeners, promises, and substrate objects. |
 
-Public docs should stop saying `:rf/runtime` is an app-db key. Instead:
+Public docs should teach:
 
 ```text
 app-db is your data.
@@ -203,7 +155,7 @@ frame-state is the coherent snapshot containing both.
 
 ### Partition Keys
 
-Use these keys for the event pipeline:
+The event pipeline uses these keys:
 
 | Key | Location | Owner | Meaning |
 |---|---|---|---|
@@ -212,7 +164,7 @@ Use these keys for the event pipeline:
 | `:rf.db/runtime` | coeffects/effects | framework | Managed durable runtime partition. |
 | `:rf.frame/id` | coeffects | framework | Current frame id. |
 
-The full-frame snapshot projection uses:
+The full-frame projection uses:
 
 | Key | Meaning |
 |---|---|
@@ -220,16 +172,14 @@ The full-frame snapshot projection uses:
 | `:rf.db/runtime` | Runtime-db inside a frame-state value. |
 
 `:rf.db/app` is not the ordinary app handler key. Ordinary handlers continue to
-use `:db`. `:rf.db/app` exists so full-frame snapshots can name both partitions
-without ambiguity.
+use `:db`. `:rf.db/app` exists so full-frame snapshots can name both
+partitions without overloading `:db`.
 
-### Namespacing Rule
+### Namespacing
 
-The namespacing rule should be explicit:
-
-> Unqualified keys are allowed only where they are inherited from the public
-> re-frame contract. New framework-owned facts, coeffects, and effects must be
-> qualified.
+Unqualified keys are allowed only where they are inherited from the established
+re-frame contract. New framework-owned facts, coeffects, effects, and durable
+paths must be qualified.
 
 Keep inherited keys such as:
 
@@ -245,6 +195,7 @@ Use qualified names for new framework-owned facts:
 
 ```clojure
 :rf.db/runtime
+:rf.db/app
 :rf.frame/id
 :rf.frame/epoch
 :rf.route/match
@@ -263,34 +214,22 @@ Use qualified names for runtime-db children:
  :rf.runtime/resources <resource-runtime>}
 ```
 
-Avoid ambiguous names such as `:runtime`, `:frame`, or `:rf/frame` where the
-value might be an id, object, state map, or context. Prefer attribute names such
-as `:rf.frame/id`.
+Avoid ambiguous names such as `:runtime`, `:frame`, or `:rf/frame`, where the
+value might be an id, object, state map, or context. Prefer attribute-shaped
+names such as `:rf.frame/id`.
 
 ### Pre-Alpha Keyword Cleanup
 
-This EP deliberately chooses the correct keyword vocabulary now, while
-re-frame2 is pre-alpha.
+This proposal intentionally chooses final vocabulary now.
 
 The migration cost is real: implementation code, tests, examples, docs, skills,
-and migration rules that mention old framework-owned keys must be updated. That
-cost is preferable to permanently teaching ambiguous names or carrying
-compatibility aliases into the public language.
-
-The compatibility stance is:
-
-- keep the inherited re-frame keys unqualified;
-- rename new framework-owned context facts to qualified, attribute-shaped keys;
-- do not add long-lived aliases such as `:runtime`, `:rf/runtime`, or
-  `:rf/frame`;
-- use migration diagnostics, lint rules, and codemods to help pre-alpha users
-  move to the final names;
-- let legacy-key diagnostics point at the replacement vocabulary instead of
-  silently normalizing old names.
+MCP tools, and migration rules that mention old framework-owned keys must be
+updated. That cost is preferable to carrying compatibility aliases into the
+public language.
 
 Concrete replacements:
 
-| Old / ambiguous shape | Replacement |
+| Old or ambiguous shape | Replacement |
 |---|---|
 | app-db root `:rf/runtime` | runtime-db coeffect/effect `:rf.db/runtime` |
 | full snapshot app partition `:db` | frame-state key `:rf.db/app` |
@@ -299,10 +238,14 @@ Concrete replacements:
 | runtime child `:routing` | `:rf.runtime/routing` |
 | runtime child `:elision` | `:rf.runtime/elision` |
 | runtime child `:ssr` | `:rf.runtime/ssr` |
+| future runtime child `:resources` | `:rf.runtime/resources` |
 
-### Event Context Shape
+Legacy-key diagnostics should point to the replacement vocabulary. They should
+not silently normalize the old names.
 
-The standard interceptor context should thread both partitions:
+### Event Context
+
+A standard event context threads both partitions:
 
 ```clojure
 {:coeffects
@@ -310,13 +253,13 @@ The standard interceptor context should thread both partitions:
   :event          [:todo/add "Write EP"]
   :rf.db/runtime  {:rf.runtime/machines {}
                    :rf.runtime/routing  {}}
-  :rf.frame/id    :rf/default}
+  :rf.frame/id    :app/main}
 
  :effects
  {}}
 ```
 
-An ordinary app handler can destructure only what it needs:
+An ordinary app handler may destructure only the app data it needs:
 
 ```clojure
 (rf/reg-event-fx
@@ -334,10 +277,9 @@ Framework interceptors and framework handlers may read or write
           route-match)
 ```
 
-The runtime partition is present in the event context because it is part of the
-causal input and output of a frame transition. It is not hidden from the
-interceptor system. The contract is that ordinary app code treats it as
-reserved.
+The runtime partition is in the context because it is part of the causal input
+and output of a frame transition. It is not hidden from the interceptor system.
+The contract is that ordinary application code treats it as reserved.
 
 ### User Handler Semantics
 
@@ -347,7 +289,6 @@ reserved.
 (rf/reg-event-db
   :something
   (fn [db _event]
-    ;; db is the user app-db partition
     {:new 1}))
 ```
 
@@ -384,7 +325,7 @@ The same rule applies to ordinary `:db` effects from `reg-event-fx`:
 ```
 
 The `:db` coeffect is app-db, not frame-state. That keeps the user handler
-mental model unchanged: `db` means the app's data.
+mental model stable: `db` means the app's data.
 
 ### Runtime Write Semantics
 
@@ -395,23 +336,23 @@ ordinary app `:db` effects.
 Examples:
 
 - machine handlers read and write snapshots under
-  `[:rf.runtime/machines :snapshots <id>]` inside `:rf.db/runtime`;
-- route events write the route slice under
-  `[:rf.runtime/routing :current]` inside `:rf.db/runtime`;
+  `[:rf.runtime/machines :snapshots <id>]` inside runtime-db;
+- route events write current route state under
+  `[:rf.runtime/routing :current]` inside runtime-db;
 - SSR hydration writes metadata under
-  `[:rf.runtime/ssr :hydration]` inside `:rf.db/runtime`;
+  `[:rf.runtime/ssr :hydration]` inside runtime-db;
 - schema-derived elision writes declarations under
-  `[:rf.runtime/elision]` inside `:rf.db/runtime`;
-- future resources write under
-  `[:rf.runtime/resources]` inside `:rf.db/runtime`.
+  `[:rf.runtime/elision]` inside runtime-db;
+- future resource queries write cache state under
+  `[:rf.runtime/resources]` inside runtime-db.
 
-These writes still participate in one atomic event commit. A cascade can produce
-both app-db changes and runtime-db changes, and the frame installs the combined
-result as one new coherent transition.
+These writes still participate in one atomic event commit. A cascade can
+produce both app-db changes and runtime-db changes, and the frame installs the
+combined result as one coherent transition.
 
-### Convention And Guardrails
+### Guardrails
 
-Because `:rf.db/runtime` is part of `:coeffects`, app code can technically see
+Because `:rf.db/runtime` is part of `:coeffects`, app code can technically read
 it:
 
 ```clojure
@@ -424,34 +365,34 @@ it:
 That visibility is acceptable. Interceptors, flows, extension APIs, tests, and
 tools need a uniform context model.
 
-The rule is social and architectural:
+The rule is:
 
 > Application code does not mutate `:rf.db/runtime` directly.
 
-In pre-alpha, re-frame2 can strengthen that convention with diagnostics:
+re-frame2 should strengthen that rule with diagnostics:
 
 - warn or fail when a non-framework handler returns `:rf.db/runtime`;
 - warn or fail when ordinary app code registers effects under
   `:rf.db/runtime`;
 - warn when app schemas try to describe runtime-db paths;
 - warn when examples or skills teach raw runtime path access;
-- offer explicit extension APIs for code that is intentionally participating in
+- provide explicit extension APIs for code that intentionally participates in
   runtime behavior.
 
-This is similar to kernel space and user land. The data is in the same running
-system, but the ownership boundary is real.
+This is the "user land / kernel space" analogy. The data lives in the same
+running system, but ownership is real.
 
 ### Full-Frame Operations
 
 Some operations must install or inspect the whole app/runtime snapshot:
 
 - epoch restore;
-- time-travel;
+- time travel;
 - SSR hydration;
-- reset-frame;
+- frame reset;
 - test fixture install;
 - tool-driven replay;
-- frame destroy epoch records.
+- frame destroy records.
 
 Those operations use explicit full-frame APIs, not ordinary app `:db` effects.
 
@@ -469,9 +410,9 @@ Possible surfaces:
 ;;     :rf.db/runtime <runtime-db>}
 ```
 
-Names are proposed, not final. The important split is that app-facing APIs
-default to app-db, while tools and privileged runtime code can request
-runtime-db or frame-state explicitly.
+Names are illustrative. The required distinction is that app-facing APIs return
+app-db by default, while tools and privileged runtime code request runtime-db or
+frame-state explicitly.
 
 ### Subscriptions And Flows
 
@@ -492,21 +433,21 @@ Framework subscriptions read runtime-db through framework helpers:
 [:rf.route/params]
 ```
 
-App code should not reach into runtime-db directly to ask for machine or route
-state. It should use public framework subscriptions.
+App code should not reach into runtime-db directly for machine or route state.
+It should use public framework subscriptions.
 
-Flows should follow the same partition rule as events:
+Flows follow the same partition rule:
 
 - ordinary flow inputs over app data read app-db;
 - framework flows may read runtime-db through explicit qualified inputs;
-- any flow-produced `:db` write updates only app-db;
-- any flow-produced runtime write uses `:rf.db/runtime` and remains reserved.
+- flow-produced `:db` writes update only app-db;
+- flow-produced runtime writes use `:rf.db/runtime` and remain reserved.
 
 ### App Schemas
 
 App schemas validate app-db, not the whole frame-state.
 
-The old `:rf/runtime` schema should become a runtime-db schema:
+The old `:rf/runtime` schema becomes a runtime-db schema:
 
 ```clojure
 :rf/frame-state
@@ -515,10 +456,10 @@ The old `:rf/runtime` schema should become a runtime-db schema:
  [:rf.db/runtime :rf/runtime-db]]
 ```
 
-Applications can still register schemas for their app paths. They do not
-register app schemas under `:rf.db/runtime`.
+Applications can still register schemas for app paths. They do not register app
+schemas under `:rf.db/runtime`.
 
-### Mental Model: User Land And Kernel Space
+### Mental Model
 
 The explanatory analogy is:
 
@@ -527,25 +468,24 @@ The explanatory analogy is:
  :rf.db/runtime  <kernel-space runtime-db>}
 ```
 
-App handlers, ordinary `:db` effects, app subscriptions, and app schemas operate
-in user land.
+App handlers, ordinary `:db` effects, app subscriptions, and app schemas
+operate in user land.
 
 Machines, routing, SSR, elision, traces, future resources, and runtime
 bookkeeping live in framework-owned runtime-db.
 
 The frame is the whole running system. Epochs, SSR hydration, reset, and
 time-travel operate on the whole frame-state because app-db and runtime-db are
-causally linked. But normal app code crosses into runtime-db only through
-syscall-like public APIs, not raw map writes.
+causally linked. Normal application code crosses into runtime-db only through
+public framework APIs, not raw map writes.
 
-This analogy should stay explanatory. The formal public terms should be
-`frame-state`, `app-db`, and `runtime-db`.
+The formal terms remain `frame-state`, `app-db`, and `runtime-db`.
 
 ## Examples
 
-### Ordinary Fresh App-db Return
+### Fresh app-db return
 
-Current behavior:
+Before this proposal, a fresh app-db return could drop `:rf/runtime`:
 
 ```clojure
 (rf/reg-event-db
@@ -554,12 +494,10 @@ Current behavior:
     {:session/status :anonymous}))
 ```
 
-If machines or routes were live, this could drop `:rf/runtime`.
-
-Proposed behavior:
+After this proposal, the handler replaces only app-db:
 
 ```clojure
-;; before frame-state projection
+;; before
 {:rf.db/app
  {:session/status :authenticated
   :user/id 42}
@@ -568,10 +506,10 @@ Proposed behavior:
  {:rf.runtime/machines {...}
   :rf.runtime/routing  {...}}}
 
-;; handler returns ordinary app-db
+;; handler return
 {:session/status :anonymous}
 
-;; after frame-state projection
+;; after
 {:rf.db/app
  {:session/status :anonymous}
 
@@ -580,12 +518,11 @@ Proposed behavior:
   :rf.runtime/routing  {...}}}
 ```
 
-No special preservation code is needed in the app handler.
+No preservation code is needed in the application handler.
 
-### Event Updating App And Runtime State
+### App and runtime update in one cascade
 
-A route transition may update app data and runtime route state in the same
-cascade:
+A route transition may update app data and runtime route state in one commit:
 
 ```clojure
 {:db
@@ -600,13 +537,12 @@ cascade:
             :nav-token nav-token})}
 ```
 
-The exact internal effect shape is illustrative. The requirement is that the
-commit installs one coherent app/runtime transition, not two independently
-visible writes.
+The exact internal effect shape is illustrative. The requirement is one
+coherent app/runtime transition, not two independently visible writes.
 
-### Machine Snapshot Read
+### Machine snapshot read
 
-App code should use:
+Application code should use public machine subscriptions:
 
 ```clojure
 @(rf/sub-machine :door/main)
@@ -624,15 +560,13 @@ The machine runtime reads:
 [:rf.runtime/machines :snapshots :door/main]
 ```
 
-inside the `:rf.db/runtime` partition.
-
-The application no longer reaches into app-db to find:
+inside runtime-db. Application code no longer reaches into app-db at:
 
 ```clojure
 [:rf/runtime :machines :snapshots :door/main]
 ```
 
-### Full-Frame Restore
+### Full-frame restore
 
 Epoch restore installs both partitions:
 
@@ -647,217 +581,104 @@ Epoch restore installs both partitions:
 It does not go through ordinary `:db` effect semantics, because ordinary `:db`
 effects replace only app-db.
 
-## Options Considered
+## Rationale
 
-### A. Documentation Only
+The core decision is not that re-frame2 must store everything in one physical
+map.
 
-Keep `:rf/runtime` inside app-db and document that app handlers must preserve it
-when returning a fresh map.
+The core decision is:
 
-Pros:
+> A frame has two durable partitions, and the cascade commits them coherently.
 
-- no implementation churn;
-- preserves the current physical state shape.
+An implementation may store the partitions as two maps, two containers, or one
+internal aggregate. The public and internal contract is expressed through
+partition keys in the event context and frame-state projection.
 
-Cons:
+This design preserves the useful property of the current model:
 
-- leaves the footgun active;
-- requires app authors to preserve framework internals;
-- a warning is not enough for a destructive production path;
-- fails the pre-alpha correctness/elegance bar.
+> A frame transition remains one coherent app/runtime state change.
 
-Verdict: not acceptable as the final design.
+It removes the harmful property:
 
-### B. Preserve `:rf/runtime` At The Commit Boundary
+> User app code can no longer own or replace framework runtime state through
+> ordinary `:db` returns.
 
-Keep the physical shape, but ordinary app `:db` commits automatically carry
-forward the previous `:rf/runtime`.
+The result is simpler to teach:
 
-Pros:
+- app-db is user data;
+- runtime-db is framework bookkeeping;
+- frame-state is the coherent snapshot of both;
+- ordinary app code uses `:db`;
+- framework code uses `:rf.db/runtime`;
+- tools can ask for either partition or both.
 
-- small change;
-- fixes the common accidental drop;
-- keeps most existing tooling paths stable.
+## Backwards Compatibility
 
-Cons:
+This is a breaking change.
 
-- keeps runtime state inside the user-owned app-db value;
-- makes `:db` no longer literally mean "the app map";
-- needs careful privileged bypasses for restore/hydration;
-- still exposes runtime internals as if they are app state.
+re-frame2 is pre-alpha, and the project posture favors elegance and correctness
+over compatibility shims. The proposal therefore rejects long-lived aliases
+such as `:rf/runtime`, `:runtime`, `:rf/frame`, or bare `:frame` for new
+framework-owned facts.
 
-Verdict: useful as a temporary containment strategy if needed, but not the
-destination.
+Compatibility work should be limited to:
 
-### C. Reject Writes That Drop Or Modify `:rf/runtime`
+- migration diagnostics;
+- lint rules;
+- codemods;
+- clear docs;
+- tests that catch legacy path usage;
+- short-lived warnings during implementation.
 
-Keep the current shape but turn the warning into an error when ordinary app
-handlers drop or modify runtime state.
+The stable vocabulary should be the final vocabulary.
 
-Pros:
+## Security And Privacy Considerations
 
-- prevents silent corruption;
-- keeps the existing one-map shape.
+The current `:rf/runtime` location is not only a machine/routing correctness
+problem. It is also a privacy problem.
 
-Cons:
+Data-classification and elision state can live under runtime state. If a fresh
+app-db return drops the mark set, later trace or tool egress may fail to redact
+values that should be hidden. Moving elision state into runtime-db makes it part
+of the protected framework partition.
 
-- common fresh-map handlers now fail;
-- users must still know about `:rf/runtime`;
-- safe reset code becomes awkward;
-- this protects the conflation rather than removing it.
+Privacy-sensitive projection should still fail closed:
 
-Verdict: better than a warning, but still poor ergonomics.
+- off-box egress should not default to raw values when mark state is absent;
+- runtime-db should be redacted or selectively projected for SSR and tools;
+- Xray and pair tools should distinguish human-local inspection from AI/log
+  egress;
+- app schemas should not authorize application code to write runtime-db.
 
-### D. Two Frame-Owned Partitions Threaded Through Context
+The App/Runtime Partition EP should be coordinated with data-classification and
+Xray egress work so elision state is treated as privacy-load-bearing runtime
+state, not incidental tooling state.
 
-The proposed solution:
+## Reference Implementation
 
-```clojure
-{:coeffects {:db            <app-db>
-             :rf.db/runtime <runtime-db>}
- :effects   {:db            <next-app-db>
-             :rf.db/runtime <next-runtime-db>}}
-```
+The implementation should proceed in stages.
 
-and, when a full snapshot is needed:
-
-```clojure
-{:rf.db/app     <app-db>
- :rf.db/runtime <runtime-db>}
-```
-
-Pros:
-
-- corruption is structurally impossible for ordinary `reg-event-db` returns;
-- app-db means app data again;
-- runtime-db is available to interceptors, flows, framework machinery, and
-  extension APIs;
-- frame-state remains one coherent snapshot/projection;
-- tools can inspect app state, runtime state, or both intentionally;
-- runtime reads move through framework APIs instead of raw app-db paths.
-
-Cons:
-
-- broad implementation and spec change;
-- many current paths mention `[:rf/runtime ...]`;
-- epoch, SSR, Xray, schemas, subs, machines, routes, and tests must be updated;
-- requires careful terminology migration.
-
-Verdict: recommended.
-
-### E. Frame-State Wrapper As The Physical Store
-
-Physically store:
-
-```clojure
-{:rf.db/app     <app-db>
- :rf.db/runtime <runtime-db>}
-```
-
-inside the frame's reactive container.
-
-Pros:
-
-- simple representation;
-- snapshots and app/runtime coherence are obvious;
-- tooling can inspect one value.
-
-Cons:
-
-- risks over-teaching "one wrapper map" as the design instead of "two
-  partitions";
-- ordinary app paths need projection on every handler/subscription boundary;
-- not necessary if the runtime can commit two containers coherently.
-
-Verdict: acceptable implementation strategy, but not the core contract.
-
-### F. Fully Separate Runtime Store Outside Frame State
-
-Move runtime state outside the frame's durable state and do not include it in
-frame-state snapshots.
-
-Pros:
-
-- clean ownership boundary.
-
-Cons:
-
-- loses the simple "frame-state is one coherent snapshot" property;
-- epoch restore must coordinate two stores without a single snapshot value;
-- SSR hydration must coordinate two stores without a single snapshot value;
-- easier to create torn app/runtime restore behavior.
-
-Verdict: worse than two durable frame-owned partitions.
-
-### G. Generic N-Partition Frame Db
-
-Generalize the frame into arbitrary named durable partitions beyond app/runtime.
-
-Pros:
-
-- future-proof;
-- explicit.
-
-Cons:
-
-- more ceremony than the current problem needs;
-- risks making ordinary app code think about partition names;
-- less teachable than app/runtime.
-
-Verdict: do not start here. The two-partition design is enough.
-
-## Recommendation
-
-Adopt Option D: a frame owns two durable partitions, `app-db` and `runtime-db`,
-and the event context threads both as `:db` and `:rf.db/runtime`.
-
-Use `frame-state` as the name for a coherent snapshot/projection:
-
-```clojure
-{:rf.db/app     <app-db>
- :rf.db/runtime <runtime-db>}
-```
-
-Do not make the EP depend on storing both partitions inside one physical map.
-That can be an implementation choice. The contract is the partition boundary,
-the coeffect/effect keys, and the atomic frame commit.
-
-Adopt the qualified-key vocabulary in the same change. This is pre-alpha, so
-the project should pay the migration cost now rather than preserve old
-framework-owned names as compatibility aliases. The stable public vocabulary is:
-`:db` and `:event` for inherited re-frame inputs; `:rf.db/runtime`,
-`:rf.db/app`, `:rf.frame/id`, and `:rf.runtime/*` for new re-frame2-owned data.
-
-The current `:rf.warning/runtime-state-dropped` diagnostic remains useful until
-the partition lands. After the partition lands, the warning should either
-disappear or become a legacy-path diagnostic for code still trying to write
-`[:rf/runtime ...]`.
-
-## Implementation Plan
-
-### 1. Spec The New Contract
+### 1. Specify the new contract
 
 Update the normative docs:
 
 - Frames: a frame owns app-db and runtime-db partitions.
 - Conventions: remove `:rf/runtime` as a reserved app-db key; introduce
   `:db`, `:rf.db/runtime`, `:rf.db/app`, `:rf.frame/id`, and
-  `:rf.runtime/*` vocabulary; explicitly forbid long-lived aliases for old
-  framework-owned names.
+  `:rf.runtime/*`.
 - Runtime Architecture: show app-db and runtime-db as frame-owned partitions
   committed by one cascade.
 - Reactive Substrate: clarify whether adapter containers physically hold one
   frame-state value or two coherent partition containers.
 - State Machines: snapshots move to
-  `[:rf.db/runtime :rf.runtime/machines :snapshots]` in frame-state projection,
-  or `[:rf.runtime/machines :snapshots]` inside runtime-db.
-- Routing: route slice moves to
-  `[:rf.db/runtime :rf.runtime/routing :current]` in frame-state projection.
+  `[:rf.runtime/machines :snapshots]` inside runtime-db.
+- Routing: the route slice moves to
+  `[:rf.runtime/routing :current]` inside runtime-db.
 - SSR: hydration installs a coherent frame-state.
 - Instrumentation/Epoch: records distinguish app-db and frame-state.
 - Schemas: app schemas validate app-db; runtime schemas validate runtime-db.
 
-### 2. Introduce Partition Helpers
+### 2. Introduce partition helpers
 
 Add internal helpers before moving all call sites:
 
@@ -874,25 +695,25 @@ Add internal helpers before moving all call sites:
 Names are illustrative. The design point is to stop making every call site know
 the physical storage shape.
 
-### 3. Change Event Context And Commit Semantics
+### 3. Change event context and commit semantics
 
-Change the ordinary dispatch pipeline:
+Change the dispatch pipeline:
 
 - inject `:db` coeffect as app-db;
 - inject `:rf.db/runtime` coeffect as runtime-db;
-- inject `:rf.frame/id` instead of ambiguous frame keys;
-- remove internal uses of ambiguous frame/runtime context keys instead of
-  supporting them as parallel spellings;
-- interpret ordinary `:db` effect as replacement of app-db;
-- interpret reserved `:rf.db/runtime` effects as replacement/update of
-  runtime-db only for framework-owned code paths;
+- inject `:rf.frame/id`;
+- remove ambiguous frame/runtime context keys instead of supporting them as
+  parallel spellings;
+- interpret ordinary `:db` effect as app-db replacement;
+- interpret reserved `:rf.db/runtime` effects as runtime-db writes only for
+  framework-owned code paths;
 - reject or warn if user code returns a frame-state-shaped value under `:db`;
-- preserve the existing pre-install atomicity rule: handler/interceptor/flow
-  throws still leave both partitions unchanged.
+- preserve pre-install atomicity: handler/interceptor/flow throws leave both
+  partitions unchanged.
 
-### 4. Move Runtime Subsystems
+### 4. Move runtime subsystems
 
-Move each durable runtime subsystem from the old app-db paths:
+Move durable runtime subsystems:
 
 | Old path | New path inside runtime-db |
 |---|---|
@@ -902,32 +723,32 @@ Move each durable runtime subsystem from the old app-db paths:
 | `[:rf/runtime :ssr]` | `[:rf.runtime/ssr]` |
 | future `[:rf/runtime :resources]` | `[:rf.runtime/resources]` |
 
-In a full frame-state projection, those same paths appear under
-`:rf.db/runtime`.
+In a frame-state projection, those paths appear under `:rf.db/runtime`.
 
 Machine snapshot-internal keys such as `:rf/history`, `:rf/after-epoch`, and
-`:rf/machine-type` can remain inside machine snapshots. The partition change is
-about where snapshots live, not their internal open-map shape.
+`:rf/machine-type` can remain inside machine snapshots. This proposal changes
+where snapshots live, not their internal open-map shape.
 
-### 5. Update Subscriptions, Flows, And Cofx
+### 5. Update subscriptions, flows, and coeffects
 
 Audit:
 
 - layer-1 sub execution;
 - `inject-cofx :db`;
-- any new `inject-cofx :rf.db/runtime` path;
+- any new `inject-cofx :rf.db/runtime`;
 - path interceptors;
 - app-db schema validation;
-- flow input resolution and flow write effects;
+- flow input resolution;
+- flow write effects;
 - `sub-machine`;
 - route subs;
 - elision lookup during trace and wire projection;
 - test helpers that assert app-db shape.
 
-Ordinary app subs should continue to see app-db. Framework subs and framework
-flows should read runtime-db through internal helpers or qualified inputs.
+Ordinary app subscriptions continue to see app-db. Framework subs and framework
+flows read runtime-db through internal helpers or qualified inputs.
 
-### 6. Update Epoch, SSR, Reset, And Tools
+### 6. Update epoch, SSR, reset, and tools
 
 Epoch records should make the snapshot unit clear.
 
@@ -940,16 +761,17 @@ Possible shape:
  :app-db-after       <app-db>}
 ```
 
-Alternatively keep `:db-before` / `:db-after` as app-db projections and add
-`:frame-state-before` / `:frame-state-after` for full restore. The EP does not
-settle the exact epoch record shape, but implementation must avoid ambiguity.
+Alternatively, keep `:db-before` / `:db-after` as app-db projections and add
+`:frame-state-before` / `:frame-state-after` for full restore. This proposal
+does not settle the exact epoch record shape, but the implementation must avoid
+ambiguity.
 
-SSR hydration should serialize and install a redacted/allowed frame-state
-projection, not a raw runtime dump.
+SSR hydration should serialize and install an allowed frame-state projection,
+not a raw runtime dump.
 
-Xray should show app-db and runtime-db as separate panels inside one frame.
+Xray should show app-db and runtime-db as separate views inside one frame.
 
-### 7. Add Guardrails
+### 7. Add guardrails
 
 Add diagnostics for:
 
@@ -958,23 +780,32 @@ Add diagnostics for:
 - ordinary app `:db` effects returning a frame-state wrapper;
 - non-framework handlers returning `:rf.db/runtime` effects;
 - old framework-owned coeffect/effect/context keys such as `:rf/runtime`,
-  `:runtime`, `:rf/frame`, or bare `:frame` when they are used to mean
-  runtime-db or frame id;
+  `:runtime`, `:rf/frame`, or bare `:frame` when they mean runtime-db or frame
+  id;
 - raw reads of `[:rf/runtime ...]` in examples, docs, tests, or skills;
 - full-frame install attempted through ordinary dispatch.
 
-The guardrails should teach the new model:
+The diagnostics should teach:
 
 ```text
 app-db is user data. runtime-db lives in the frame runtime partition.
 Use sub-machine / route subs / tool APIs instead of raw runtime paths.
 ```
 
-### 8. Update Docs, Examples, Skills, Migration
+### 8. Update docs, examples, skills, and migration
 
-Rewrite examples that currently seed machine snapshots under `:rf/runtime`.
-Update migration rules so direct `[:rf/runtime ...]` access becomes a migration
-error or rewrite target.
+Rewrite examples that seed machine snapshots under `:rf/runtime`.
+
+Update:
+
+- human guides;
+- API docs;
+- specs;
+- examples and testbeds;
+- Xray docs;
+- pair-MCP docs;
+- re-frame2 skills;
+- migration rules.
 
 The human guide should teach:
 
@@ -985,14 +816,12 @@ framework machinery and explicit extension points. Time travel restores the
 whole frame.
 ```
 
-The AI/spec track should pin exact paths, namespacing, and commit semantics.
+## Test Plan
 
-## Conformance Tests
-
-Add tests for:
+Conformance tests should verify:
 
 - `reg-event-db` receives only app-db;
-- ordinary `:db` effect replaces only app-db;
+- ordinary `:db` effects replace only app-db;
 - `:rf.db/runtime` is present in coeffects;
 - `:rf.frame/id` is present in coeffects;
 - ambiguous framework-owned context keys such as `:rf/frame`, `:runtime`, and
@@ -1005,14 +834,70 @@ Add tests for:
 - route state moves with epoch restore;
 - SSR hydration installs both partitions without double-initializing runtime;
 - `app-db-value` returns only user app-db;
-- tool/full-frame API returns the frame-state projection;
+- tool/full-frame APIs return the frame-state projection;
 - app schemas validate only app-db;
 - runtime schemas validate runtime-db;
 - legacy `:rf/runtime` writes emit the planned diagnostic;
 - Xray can inspect app-db and runtime-db separately;
 - frame destroy still records coherent before/after state.
 
-## Open Decisions
+## Rejected Ideas
+
+### Documentation only
+
+Keep `:rf/runtime` inside app-db and document that app handlers must preserve it
+when returning a fresh map.
+
+This leaves the footgun active, requires app authors to preserve framework
+internals, and fails the pre-alpha correctness bar.
+
+### Preserve `:rf/runtime` at the commit boundary
+
+Keep the physical shape, but ordinary app `:db` commits automatically carry
+forward the previous `:rf/runtime`.
+
+This fixes the common accidental drop, but keeps runtime state inside the
+user-owned app-db value and makes `:db` no longer literally mean "the app map".
+It may be useful as temporary containment, but it is not the destination.
+
+### Reject writes that drop or modify `:rf/runtime`
+
+Keep the current shape but turn the warning into an error when ordinary app
+handlers drop or modify runtime state.
+
+This prevents silent corruption, but it makes common fresh-map handlers fail and
+still asks users to know about `:rf/runtime`.
+
+### Physical frame-state wrapper as the public design
+
+Physically store:
+
+```clojure
+{:rf.db/app     <app-db>
+ :rf.db/runtime <runtime-db>}
+```
+
+inside the frame's reactive container.
+
+This is an acceptable implementation strategy, but the public design should be
+"two durable partitions committed coherently", not "one wrapper map".
+
+### Fully separate runtime store outside frame state
+
+Move runtime state outside frame durable state and omit it from frame-state
+snapshots.
+
+This gives a clean ownership boundary but loses the simple property that
+time-travel, SSR, and reset operate on one coherent frame-state.
+
+### Generic N-partition frame database
+
+Generalize frames into arbitrary named durable partitions.
+
+This is more ceremony than the current problem needs and is harder to teach
+than app-db/runtime-db.
+
+## Open Issues
 
 1. Exact public names for runtime-db and frame-state accessors.
 2. Exact epoch record shape: replace `:db-before` / `:db-after`, or add
@@ -1030,15 +915,12 @@ Add tests for:
 8. Whether app-db schemas should be renamed in docs to "app partition schemas"
    while keeping the public API name `reg-app-schema`.
 
-## Bead Structure
+## Bead Plan
 
 1. Decision bead: adopt app-db/runtime-db as two durable frame partitions and
-   record the final key vocabulary: keep inherited `:db` / `:event`, and use
-   `:rf.db/runtime`, `:rf.db/app`, `:rf.frame/id`, and `:rf.runtime/*` for new
-   framework-owned data.
+   record the final key vocabulary.
 2. Spec bead: update Frames, Conventions, Runtime Architecture, Reactive
-   Substrate, Machines, Routing, SSR, Instrumentation, Schemas, and API docs,
-   including the no-long-lived-aliases naming stance.
+   Substrate, Machines, Routing, SSR, Instrumentation, Schemas, and API docs.
 3. Helper bead: introduce app-db/runtime-db/frame-state helper functions
    without changing behavior.
 4. Event context bead: inject `:rf.db/runtime` and `:rf.frame/id` into
@@ -1058,10 +940,11 @@ Add tests for:
 
 ## Source Findings
 
-This EP synthesizes:
+This proposal synthesizes:
 
 - `ai/findings/2026-06-06.app-db-claude.md`
 - `ai/findings/2026-06-06.app-db-codex.md`
 
-Both findings agree on the destination: app code owns app-db, re-frame2 owns
-runtime state, and the frame owns both as one coherent frame-state snapshot.
+Both findings agree on the destination: application code owns app-db,
+re-frame2 owns runtime state, and the frame owns both as one coherent
+frame-state snapshot.
