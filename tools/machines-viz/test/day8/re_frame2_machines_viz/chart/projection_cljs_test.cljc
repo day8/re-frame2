@@ -2889,3 +2889,117 @@
           "the guarded branch leads (candidate 1)")
       (is (= 2 (get fmap (:id (first (remove :guard gos)))))
           "the unguarded fallback is candidate 2"))))
+
+;; ---- guarded-fork dotted evaluation-order connector (rf2-o3rkq1) -------
+;;
+;; FOLLOW-ON to the numbered badges (rf2-uw3vmi): Stately joins the
+;; branches of a guarded multi-branch fork with a DOTTED connector linking
+;; the numbered branches IN ORDER (1→2→3), reinforcing the first-pass-wins
+;; evaluation order. The projector emits N-1 DECORATIVE connector edges per
+;; fork group, linking each branch's EVENT-NODE to the next in priority
+;; order. These are RENDER-ONLY: appended to the xyflow `:edges` AFTER the
+;; ELK layout pass, never fed to ELK (`->elk-edges` drives ELK off the
+;; parsed graph alone), so the connector cannot move a single node. These
+;; pins guard:
+;;   - the gate fork emits exactly two connector edges (1→2, 2→3) between
+;;     the three branch event-nodes, in priority order;
+;;   - they carry `:forkConnector true` + the full every-edge `:data` shape
+;;     (so the projection invariants hold) with no route `:points`;
+;;   - NO connector edge appears in the ELK input (`->elk-edges`), so the
+;;     layout is untouched;
+;;   - a non-fork machine emits NO connector edges.
+
+(defn- connector-edges-of
+  "The decorative fork-connector edges a projected graph emitted
+  (`fork-connector__…` ids / `:forkConnector` data flag)."
+  [graph]
+  (filter #(:forkConnector (:data %)) (:edges graph)))
+
+(deftest fork-connector-edges-link-branches-in-priority-order
+  (testing "rf2-o3rkq1 — the gate `:gate/check` 3-way emits a dotted
+            evaluation-order connector linking branch 1→2 and 2→3 (N-1
+            connectors for an N-branch fork), each from one branch's
+            event-node to the next in priority order."
+    (let [parsed   (layout/project-definition gate-fork-machine)
+          edges    (:edges parsed)
+          conns    (projection/fork-connector-edges
+                     edges (tokens/chart-tokens) vc/chart-regular)
+          checks   (filter #(= :gate/check (:event %)) edges)
+          by-guard (into {} (map (juxt :guard identity) checks))
+          c1 (:id (get by-guard :gate-high?))   ;; priority 1
+          c2 (:id (get by-guard :gate-low?))    ;; priority 2
+          c3 (:id (get by-guard nil))           ;; priority 3
+          ev #(str "event__" %)]
+      (is (= 2 (count conns)) "3-branch fork → 2 connector edges (1→2, 2→3)")
+      (let [pairs (set (map (juxt :source :target) conns))]
+        (is (contains? pairs [(ev c1) (ev c2)])
+            "connector links branch-1 event-node → branch-2 event-node")
+        (is (contains? pairs [(ev c2) (ev c3)])
+            "connector links branch-2 event-node → branch-3 event-node")
+        (is (not (contains? pairs [(ev c1) (ev c3)]))
+            "no connector skips a branch (1→3) — the chain is consecutive")))))
+
+(deftest fork-connector-edges-carry-decorative-data-shape
+  (testing "rf2-o3rkq1 — each connector edge carries `:forkConnector true`,
+            no route `:points` (a straight dotted handle-to-handle line),
+            and the full every-edge `:data` shape so the projection
+            invariants hold."
+    (let [parsed (layout/project-definition gate-fork-machine)
+          conns  (projection/fork-connector-edges
+                   (:edges parsed) (tokens/chart-tokens) vc/chart-cosy)]
+      (is (seq conns) "the gate fork yields connector edges")
+      (doseq [e conns]
+        (is (true? (:forkConnector (:data e))) "flagged as a fork connector")
+        (is (nil? (:points (:data e))) "no ELK route — straight dotted line")
+        (is (= "transition" (:type e)) "the canonical transition edge type")
+        (is (= vc/chart-cosy (:chart (:data e))) "carries the resolved density")
+        (is (false? (:fired (:data e))) "decorative, never a fired arm")
+        (is (false? (:active (:data e))) "decorative, never an active arm")
+        (is (re-find #"^fork-connector__" (:id e))
+            "stable fork-connector id prefix")))))
+
+(deftest xyflow-graph-appends-fork-connector-edges
+  (testing "rf2-o3rkq1 — `xyflow-graph` appends the decorative connector
+            edges to its `:edges` output (alongside the route + entry
+            edges) for a guarded fork."
+    (let [parsed (layout/project-definition gate-fork-machine)
+          graph  (projection/xyflow-graph parsed {} {})
+          conns  (connector-edges-of graph)]
+      (is (= 2 (count conns))
+          "the projected graph carries the gate fork's two connector edges")
+      ;; the connector edges reference the SAME branch event-node ids the
+      ;; graph emits as `\"rf2-event\"` nodes — so xyflow can wire them.
+      (let [ev-node-ids (set (map :id (filter #(= "rf2-event" (:type %))
+                                              (:nodes graph))))]
+        (doseq [e conns]
+          (is (contains? ev-node-ids (:source e))
+              "connector source is a real event-node in the graph")
+          (is (contains? ev-node-ids (:target e))
+              "connector target is a real event-node in the graph"))))))
+
+(deftest fork-connector-edges-never-reach-elk-layout
+  (testing "rf2-o3rkq1 — the decorative connector is RENDER-ONLY: it is
+            NEVER fed to ELK. The ELK input edges (`->elk-edges`) carry
+            only the events-as-nodes `__in` / `__out` route halves, so no
+            connector can perturb a node position."
+    (let [parsed   (layout/project-definition gate-fork-machine)
+          elk-eds  (projection/->elk-edges parsed)
+          elk-ids  (map :id elk-eds)]
+      (is (seq elk-eds) "the fork machine feeds ELK its route edges")
+      (is (not-any? #(re-find #"^fork-connector__" %) elk-ids)
+          "NO fork-connector edge appears in the ELK input graph")
+      (is (every? #(or (re-find #"__in$" %) (re-find #"__out$" %)) elk-ids)
+          "every ELK edge is a route half — the connector is absent"))))
+
+(deftest no-fork-no-connector-edges
+  (testing "rf2-o3rkq1 — a machine with no guarded multi-branch fork emits
+            NO connector edges (a single transition / distinct triggers /
+            a guardless multi-target group are not forks)."
+    (doseq [m [self-loop-machine compound-machine idle-loading]]
+      (let [parsed (layout/project-definition m)
+            graph  (projection/xyflow-graph parsed {} {})]
+        (is (empty? (connector-edges-of graph))
+            (str "fixture " m " has no guarded fork → no connector edges"))
+        (is (empty? (projection/fork-connector-edges
+                      (:edges parsed) (tokens/chart-tokens) vc/chart-regular))
+            (str "fixture " m " yields no connector edges directly"))))))
