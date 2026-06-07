@@ -495,11 +495,26 @@
              :data-node-id (.-id props)
              :data-state-path (when path (pr-str (js->clj path)))
              :data-active (str active?)
+             ;; rf2-44v8lq — the painted box FILLS the xyflow node box ELK
+             ;; sized (`width/height:100%`); it carries NO `min-width` /
+             ;; `min-height`. The compound size floor lives in the ELK input
+             ;; (`projection/elk-child` seeds every compound at
+             ;; `compound-node-min-{width,height}`, and ELK grows the box to
+             ;; enclose its laid-out children), so the xyflow box delivered via
+             ;; `:style {:width :height}` is already authoritative. A CSS `min-*`
+             ;; here SECOND-GUESSED that box: when ELK legitimately shrinks a
+             ;; deeply-nested compound below the 260×150 seed to HUG its narrow
+             ;; children (hvac `running`/`conditioning`, media `playing`), the
+             ;; `min-*` re-inflated the PAINTED div past its allocated box, so
+             ;; the border overflowed the box — and visually escaped the parent
+             ;; container — while the children (positioned in the real box) sat
+             ;; inside. Dropping the `min-*` lets the painted border track the
+             ;; box exactly, matching the parallel-region node (which never
+             ;; carried a `min-*`, which is why regions always enclosed) and
+             ;; Stately's full-enclosure nesting.
              :style {:position         "relative"
                      :width            "100%"
                      :height           "100%"
-                     :min-width        (str projection/compound-node-min-width "px")
-                     :min-height       (str projection/compound-node-min-height "px")
                      :background       (:container-body-bg ct)
                      :border           (str border-w "px solid " border-col)
                      :border-radius    (str compound-radius "px")
