@@ -7,8 +7,7 @@
 ;;   :server      — the MCP server (stdio JSON-RPC ↔ persistent nREPL).
 ;;   :server-test — node-test build for the unit tests.
 ;;
-;; Source for the pilot lives under pilot/ (kept for reference and as
-;; an end-to-end smoke harness). Production source lives under src/.
+;; Production source lives under src/.
 ;; `:deps true` routes classpath resolution through deps.edn (rf2-obpa9).
 ;; The earlier shape duplicated `:dependencies` here AND `:deps` in
 ;; deps.edn — the deps.edn comment-block already declared that file the
