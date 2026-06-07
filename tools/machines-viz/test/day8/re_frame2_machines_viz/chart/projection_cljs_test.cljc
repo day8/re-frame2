@@ -2723,3 +2723,136 @@
           "rf2-bs3us — NOT the degenerate empty-suffix label")
       (is (str/ends-with? done "rf2_parallel_root")
           "matches the SCXML emitter's done.state.rf2_parallel_root form"))))
+
+;; ---- guarded-fork branch-order priority badge (rf2-uw3vmi) -------------
+;;
+;; Stately renders a guarded multi-branch fork — the gate machine's
+;; `:gate/check` 3-way (`[{:guard :gate-high? :target :high}
+;; {:guard :gate-low? :target :low} {:target :rejected}]`) — with NUMBERED
+;; priority badges (①②③) communicating the deterministic first-pass-wins
+;; evaluation order. re-frame2's candidate vector IS ordered and the parse
+;; preserves it, so the projector threads each fork branch's 1-based index
+;; onto the event-node `:data {:forkOrder}`. These pins guard:
+;;   - the gate fork's three branches badge 1 / 2 / 3 in candidate order;
+;;   - a SINGLE transition (and ordinary multi-event states) carry NO badge;
+;;   - DISTINCT triggers on one source never merge into a fork;
+;;   - a guardless same-trigger group is NOT badged (no ordered evaluation).
+
+(def ^:private gate-fork-machine
+  "rf2-uw3vmi — the gate testbed shape (machine 10 in the machine-epochs
+  testbed): `:gate/check` FORKS from `:idle` by a guarded candidate VECTOR
+  — first guard-pass wins (`:gate-high?` → :high, `:gate-low?` → :low, else
+  the unguarded fallback → :rejected). `:gate/set` is a SEPARATE internal
+  action-only transition on the SAME source — a DIFFERENT trigger, so it is
+  never part of the fork."
+  {:initial :idle
+   :data    {:level 0}
+   :states  {:idle     {:on {:gate/set   {:action :set-level}
+                             :gate/check [{:guard :gate-high? :target :high}
+                                          {:guard :gate-low?  :target :low}
+                                          {:target :rejected}]}}
+             :low      {:on {:gate/reset :idle}}
+             :high     {:on {:gate/reset :idle}}
+             :rejected {:on {:gate/reset :idle}}}})
+
+(defn- fork-order-of
+  "The `:forkOrder` the projected event-node carries for a parsed-edge id
+  (nil when un-badged)."
+  [graph parsed-edge-id]
+  (:forkOrder (:data (event-node-for graph parsed-edge-id))))
+
+(deftest fork-order-by-edge-id-badges-guarded-fork-in-candidate-order
+  (testing "rf2-uw3vmi — the gate `:gate/check` 3-way's branches carry
+            1-based priorities in candidate-vector order (gate-high? → 1,
+            gate-low? → 2, unguarded fallback → 3); the SEPARATE
+            `:gate/set` trigger on the same source is NOT a fork branch."
+    (let [parsed (layout/project-definition gate-fork-machine)
+          checks (filter #(= :gate/check (:event %)) (:edges parsed))
+          fmap   (projection/fork-order-by-edge-id (:edges parsed))
+          by-guard (into {} (map (juxt :guard identity) checks))]
+      (is (= 3 (count checks)) "fixture forks `:gate/check` three ways")
+      (is (= 1 (get fmap (:id (get by-guard :gate-high?))))
+          "gate-high? is the first candidate → priority 1")
+      (is (= 2 (get fmap (:id (get by-guard :gate-low?))))
+          "gate-low? is the second candidate → priority 2")
+      (is (= 3 (get fmap (:id (get by-guard nil))))
+          "the unguarded fallback is the third candidate → priority 3")
+      ;; `:gate/set` (a different trigger on :idle) is never a fork branch.
+      (let [set-edge (first (filter #(= :gate/set (:event %)) (:edges parsed)))]
+        (is (nil? (get fmap (:id set-edge)))
+            "the separate `:gate/set` trigger carries no fork priority"))
+      ;; `:gate/reset` leaves three DIFFERENT sources, one each — no fork.
+      (doseq [reset (filter #(= :gate/reset (:event %)) (:edges parsed))]
+        (is (nil? (get fmap (:id reset)))
+            "each single `:gate/reset` transition is un-badged")))))
+
+(deftest xyflow-graph-threads-fork-order-onto-event-nodes
+  (testing "rf2-uw3vmi — the projector threads each fork branch's 1-based
+            priority onto the event-node `:data {:forkOrder}`; non-fork
+            event-nodes carry nil."
+    (let [parsed (layout/project-definition gate-fork-machine)
+          graph  (projection/xyflow-graph parsed {} {})
+          checks (filter #(= :gate/check (:event %)) (:edges parsed))
+          by-guard (into {} (map (juxt :guard identity) checks))]
+      (is (= 1 (fork-order-of graph (:id (get by-guard :gate-high?)))))
+      (is (= 2 (fork-order-of graph (:id (get by-guard :gate-low?)))))
+      (is (= 3 (fork-order-of graph (:id (get by-guard nil)))))
+      ;; the three branch event-nodes carry the FULL set of priorities
+      (is (= #{1 2 3}
+             (set (keep #(fork-order-of graph (:id %)) checks)))
+          "all three branches badged exactly once each, 1..3"))))
+
+(deftest xyflow-graph-single-transition-has-no-fork-badge
+  (testing "rf2-uw3vmi — a single (non-fork) transition carries NO
+            :forkOrder. The `self-loop-machine` / `compound-machine`
+            fixtures have only one candidate per (source,trigger)."
+    (doseq [m [self-loop-machine compound-machine idle-loading]]
+      (let [parsed (layout/project-definition m)
+            graph  (projection/xyflow-graph parsed {} {})
+            ev-nodes (filter #(= "rf2-event" (:type %)) (:nodes graph))]
+        (is (every? #(nil? (:forkOrder (:data %))) ev-nodes)
+            (str "fixture " m " has no guarded fork → no fork badges"))))))
+
+(deftest fork-order-distinct-triggers-not-merged
+  (testing "rf2-uw3vmi — two transitions leaving one source under DIFFERENT
+            triggers are independent, never a fork (no shared candidate
+            order to communicate)."
+    (let [m {:initial :a
+             :states {:a {:on {:go-x {:guard :gx? :target :b}
+                               :go-y {:guard :gy? :target :c}}}
+                      :b {} :c {}}}
+          parsed (layout/project-definition m)
+          fmap   (projection/fork-order-by-edge-id (:edges parsed))]
+      (is (empty? fmap)
+          "go-x and go-y are distinct events → two singleton groups, no fork"))))
+
+(deftest fork-order-guardless-multi-target-not-badged
+  (testing "rf2-uw3vmi — a guardless same-trigger group (no ordered
+            evaluation semantics to surface) is NOT badged; the fork
+            affordance keys on a GUARDED fork."
+    (let [m {:initial :a
+             ;; two candidates, same event, NEITHER guarded
+             :states {:a {:on {:go [{:target :b} {:target :c}]}}
+                      :b {} :c {}}}
+          parsed (layout/project-definition m)
+          fmap   (projection/fork-order-by-edge-id (:edges parsed))]
+      (is (empty? fmap)
+          "a guardless same-event group has no priority badges"))))
+
+(deftest fork-order-partial-guarded-fork-badges-all-branches
+  (testing "rf2-uw3vmi — a fork where only SOME branches carry a guard (the
+            gate shape: two guarded + an unguarded fallback) badges EVERY
+            branch in order — the fallback is the last candidate evaluated."
+    (let [m {:initial :a
+             :states {:a {:on {:go [{:guard :g1? :target :b}
+                                    {:target :c}]}}
+                      :b {} :c {}}}
+          parsed (layout/project-definition m)
+          fmap   (projection/fork-order-by-edge-id (:edges parsed))
+          gos    (filter #(= :go (:event %)) (:edges parsed))]
+      (is (= 2 (count fmap)) "both branches of the partial-guarded fork badged")
+      (is (= #{1 2} (set (vals fmap))) "priorities 1 and 2")
+      (is (= 1 (get fmap (:id (first (filter :guard gos)))))
+          "the guarded branch leads (candidate 1)")
+      (is (= 2 (get fmap (:id (first (remove :guard gos)))))
+          "the unguarded fallback is candidate 2"))))
