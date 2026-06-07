@@ -259,7 +259,7 @@
   vector, or nil when absent (evicted, or the epoch never landed). The
   one shared 'where is this epoch in the ring?' primitive — the
   back-fills `assoc` at the returned index, and `render-key-already-in-
-  epoch?` reuses it for its record lookup. `write/find-epoch-in` answers
+  epoch?` reuses it for its record lookup. `tool-pair/find-epoch-in` answers
   the sibling 'give me the record' question off a deref'd history."
   [history epoch-id]
   (some (fn [i]
