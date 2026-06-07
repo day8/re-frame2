@@ -201,45 +201,138 @@
     (:always? edge) [:always]
     :else           [:on (:event edge)]))
 
-(defn fork-order-by-edge-id
-  "rf2-uw3vmi — map each edge-id to its 1-based branch-priority index
-  WHEN that edge is one branch of a genuine guarded multi-branch fork.
+(defn fork-groups
+  "rf2-uw3vmi — the SHARED definition of a genuine guarded multi-branch
+  fork, returned as a seq of ORDERED candidate-edge groups (each group is
+  the same-source / same-trigger candidate vector, in first-pass-wins
+  order). The single source of truth `fork-order-by-edge-id` (the numbered
+  badges) AND `fork-connector-edges` (rf2-o3rkq1 — the dotted evaluation-
+  order connector) both build on.
 
   A guarded fork is a group of edges sharing the SAME source AND the SAME
   `fork-trigger-key` with:
 
-    - 2+ members (a multi-branch fork; a single transition is NOT a fork
-      and gets NO badge), AND
+    - 2+ members (a multi-branch fork; a single transition is NOT a fork),
+      AND
     - at least one member carrying a `:guard` (it is a GUARDED fork — the
       branch order is meaningful precisely because the guards are tried in
       priority order; a guardless same-trigger group has no ordered
       evaluation semantics to communicate).
+
+  The per-group order is the candidates' position in the ORDERED `:edges`
+  vector — which `chart.layout` preserves from the source candidate vector
+  (the engine's first-pass-wins order). `group-by` preserves the per-group
+  order of first appearance, and the parse lays a source's candidates down
+  contiguously in vector order, so each returned group is already in
+  priority order (no re-sort needed).
+
+  `:internal?` self-transitions (action-only, no `:target`) are still
+  candidates of their trigger group and counted in the order — an internal
+  guarded branch is a real evaluated candidate. (`:on-done` / `:machine-
+  level?` edges never share a source with a normal trigger group, so they
+  fall out naturally as singletons and are filtered.)
+
+  Returns a seq of edge-vectors (one per qualifying fork). Pure data."
+  [edges]
+  (->> edges
+       (group-by (juxt :source fork-trigger-key))
+       vals
+       (filter (fn [group]
+                 (and (>= (count group) 2)
+                      (some :guard group))))))
+
+(defn fork-order-by-edge-id
+  "rf2-uw3vmi — map each edge-id to its 1-based branch-priority index
+  WHEN that edge is one branch of a genuine guarded multi-branch fork
+  (`fork-groups`).
 
   Within a qualifying group the priority is the candidate's position in
   the ORDERED `:edges` vector — which `chart.layout` preserves from the
   source candidate vector (the engine's first-pass-wins order). So the
   gate fork yields `gate-high? → 1`, `gate-low? → 2`, `rejected → 3`.
 
-  `:internal?` self-transitions (action-only, no `:target`) are still
-  candidates of their trigger group and counted in the order — an internal
-  guarded branch is a real evaluated candidate. (`:on-done` / `:machine-
-  level?` edges never share a source with a normal trigger group, so they
-  fall out naturally as singletons.)
-
   Returns `{edge-id 1-based-index}` for fork branches only; non-fork edges
   are absent. Pure data → map."
   [edges]
   (->> edges
-       ;; group-by preserves the per-group order of first appearance, and
-       ;; the parse already lays a source's candidates down contiguously
-       ;; in vector order — so `map-indexed` over a group yields the
-       ;; first-pass-wins priority directly.
-       (group-by (juxt :source fork-trigger-key))
+       (fork-groups)
        (into {}
-             (mapcat (fn [[_ group]]
-                       (when (and (>= (count group) 2)
-                                  (some :guard group))
-                         (map-indexed (fn [i e] [(:id e) (inc i)]) group)))))))
+             (mapcat (fn [group]
+                       (map-indexed (fn [i e] [(:id e) (inc i)]) group))))))
+
+(defn fork-connector-edges
+  "rf2-o3rkq1 — DECORATIVE dotted evaluation-order connector edges across
+  the branches of a guarded multi-branch fork (`fork-groups`).
+
+  Stately joins the branches of a guarded fork (the gate machine's
+  `:gate/check` 3-way) with a DOTTED connector linking the numbered
+  branches IN ORDER (1→2→3), visually reinforcing the first-pass-wins
+  evaluation order the numbered badges (`fork-order-by-edge-id`) already
+  annotate. This is the connector half of that affordance.
+
+  For each fork group of N branches it emits N-1 connector edges, linking
+  each branch's EVENT-NODE (`event-node-id`) to the next in priority order
+  (branch 1's event-node → branch 2's, branch 2's → branch 3's, …). The
+  edges are RENDER-ONLY: they are appended to the xyflow `:edges` array by
+  `xyflow-graph` AFTER the ELK layout pass, and are NEVER fed to ELK
+  (ELK's input edges come from `->elk-edges`, driven by the parsed graph
+  alone), so the connector cannot perturb a single node position. They
+  carry no route `:points` (so the renderer draws a straight dotted line
+  between the two event-node handles), no arrowhead, and no label —
+  `edges.cljs` paints them as a quiet dotted line off the `:forkConnector`
+  flag.
+
+  `ct` is the resolved chart-token map so the connector picks up the
+  active theme's neutral hue (an order annotation, matching the badge's
+  posture — not a runtime edge); `chart` is the resolved density map,
+  threaded onto `:data {:chart}` like every other edge for shape parity
+  (the connector paints no label, so the typography it carries is inert).
+
+  Returns a vector of xyflow edge maps (empty when no guarded fork
+  exists). Pure data."
+  [edges ct chart]
+  (->> (fork-groups edges)
+       (mapcat
+         (fn [group]
+           (map (fn [[from to]]
+                  {:id     (str "fork-connector__"
+                                (:id from) "__" (:id to))
+                   :source (event-node-id from)
+                   :target (event-node-id to)
+                   :type   "transition"
+                   ;; The connector is a quiet order chain, NOT a
+                   ;; transition: the renderer suppresses the arrowhead off
+                   ;; the `:forkConnector` flag (same as an internal self-
+                   ;; transition). The `:markerEnd` map is kept present —
+                   ;; matching the every-edge `arrowclosed` markerEnd
+                   ;; invariant — but never drawn (in the neutral
+                   ;; `:pseudo-marker` hue so a stray render is unobtrusive).
+                   :markerEnd {:type   "arrowclosed"
+                               :color  (:pseudo-marker ct)
+                               :width  (:arrow-width-quiet chart)
+                               :height (:arrow-width-quiet chart)}
+                   :data   {:eventLabel ""
+                            :eventLineLabel ""
+                            ;; rf2-o3rkq1 — the decorative-connector flag
+                            ;; `edges.cljs` keys the dotted, arrowhead-less,
+                            ;; label-less render off.
+                            :forkConnector true
+                            :active false :focused false :fired false
+                            :afterMs nil :guard nil :action nil
+                            :selfLoop false :loopIndex nil
+                            :crossHierarchy false
+                            ;; Straight handle-to-handle dotted line — no
+                            ;; ELK route (the connector was never in the ELK
+                            ;; graph), so :points nil keeps the every-edge
+                            ;; :data shape whole and the renderer draws the
+                            ;; bezier/straight fallback dotted.
+                            :points nil :labelPos nil
+                            :internal false :machineLevel false
+                            :eventId nil :fromPath nil :toPath nil
+                            :quietSegment false :onClick nil
+                            :chart chart :palette ct}})
+                (partition 2 1 group))))
+       vec))
 
 ;; ---- elk.js children projection ----------------------------------------
 
@@ -1424,7 +1517,17 @@
                                :eventId nil :fromPath nil :toPath nil
                                :quietSegment false
                                :onClick on-edge-click :chart chart :palette ct}})
-              initial-nodes)]
+              initial-nodes)
+        ;; rf2-o3rkq1 — DECORATIVE dotted evaluation-order connector across
+        ;; the branches of a guarded multi-branch fork (gate's `:gate/check`
+        ;; 3-way), linking each branch's event-node to the next IN PRIORITY
+        ;; ORDER (1→2→3). RENDER-ONLY: emitted HERE, after the ELK layout
+        ;; pass, and NEVER fed to ELK (ELK's input edges come from
+        ;; `->elk-edges`, the parsed graph alone), so the connector cannot
+        ;; move a single node — it reinforces the first-pass-wins order the
+        ;; numbered badges already annotate (the Stately dotted order chain).
+        ;; Empty when no guarded fork exists.
+        connector-edges (fork-connector-edges edges ct chart)]
     ;; rf2-qo5xy — order matters for xyflow: parent containers must
     ;; precede any node that references them via `:parentId`. State /
     ;; region / compound nodes are already sorted parent-first; the
@@ -1432,4 +1535,4 @@
     ;; the source state's parent), so appending them AFTER `proj-nodes`
     ;; keeps the parent-before-child invariant.
     {:nodes (vec (concat proj-nodes marker-nodes event-nodes))
-     :edges (into proj-edges entry-edges)}))
+     :edges (-> proj-edges (into entry-edges) (into connector-edges))}))

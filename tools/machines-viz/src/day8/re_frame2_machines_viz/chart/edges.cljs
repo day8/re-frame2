@@ -447,6 +447,15 @@
         ;; Render it WITHOUT the re-entry arrowhead + with a dashed loop
         ;; so it reads as "no exit/entry re-trigger" (Stately parity).
         internal?  (boolean (.-internal d))
+        ;; rf2-o3rkq1 — the DECORATIVE dotted evaluation-order connector
+        ;; across a guarded fork's branches (gate's `:gate/check` 3-way).
+        ;; Render as a QUIET DOTTED line with NO arrowhead + NO label so it
+        ;; reads as the order annotation Stately draws between the numbered
+        ;; branches (1→2→3) — never a transition. The projector emits it
+        ;; render-only (post-ELK, never in the layout graph), so it carries
+        ;; no route `:points` and falls back to a straight handle-to-handle
+        ;; line painted dotted.
+        fork-connector? (boolean (.-forkConnector d))
         ;; G-START — the initial-marker entry edge (dot → initial state).
         ;; Paints the neutral `:pseudo-marker` hue (matching the dot +
         ;; the projector's arrowhead) so the dot + short arrow read as
@@ -486,8 +495,14 @@
                     ;; rf2-rlq97 — elk's computed label placement (nil →
                     ;; geometric heuristic fallback).
                     :label-pos label-pos})
-        stroke  (edge-stroke ct {:active? active? :focused? focused? :fired? fired?
-                                 :entry? entry?})
+        ;; rf2-o3rkq1 — the decorative fork connector paints the neutral
+        ;; `:pseudo-marker` hue (the same quiet order-annotation hue the
+        ;; numbered badge uses), NOT a runtime edge colour; every other
+        ;; edge resolves its hue from its runtime flags.
+        stroke  (if fork-connector?
+                  (:pseudo-marker ct)
+                  (edge-stroke ct {:active? active? :focused? focused? :fired? fired?
+                                   :entry? entry?}))
         stroke-w (edge-stroke-width {:active? active? :focused? focused?
                                      :fired? fired? :quiet? quiet? :chart vc})]
     (r/as-element
@@ -498,11 +513,22 @@
        [:> BaseEdge {:id (.-id props)
                      :path path
                      ;; Internal self-transitions suppress the arrowhead
-                     ;; (no exit/entry re-trigger to point back at).
-                     :markerEnd (when-not internal? marker-end)
+                     ;; (no exit/entry re-trigger to point back at);
+                     ;; rf2-o3rkq1 — the decorative fork connector likewise
+                     ;; carries NO arrowhead (it is an order annotation, not
+                     ;; a transition).
+                     :markerEnd (when-not (or internal? fork-connector?) marker-end)
                      :style #js {:stroke stroke
                                  :strokeWidth stroke-w
-                                 :strokeDasharray (when internal? "4 3")
+                                 ;; rf2-o3rkq1 — the fork connector is DOTTED
+                                 ;; (a tight 1·3 dot pattern, distinct from
+                                 ;; the internal self-transition's 4·3 dash)
+                                 ;; matching Stately's dotted order chain.
+                                 :strokeDasharray (cond
+                                                    fork-connector? "1 3"
+                                                    internal?       "4 3"
+                                                    :else           nil)
+                                 :strokeLinecap (when fork-connector? "round")
                                  ;; rf2-qeemm (G3) — the fired-this-epoch edge
                                  ;; animates the same glow as the focused lens
                                  ;; (it traversed), so a fired arm that is NOT
