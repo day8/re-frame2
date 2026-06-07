@@ -396,7 +396,11 @@ The target frame-state shape is:
      :stale-at       1780752060000
      :gc-at          nil
      :generation     3
-     :request-id     [:rf.resource :article/by-slug {:slug "welcome"} 3]
+     :request-id     [:rf.resource
+                      [[:rf.scope/session {:user-id "u-42" :tenant-id "acme"}]
+                       :article/by-slug
+                       {:slug "welcome"}]
+                      3]
      :tags           #{[:article "welcome"]}
      :active-owners  #{[:route :route/article nav-token]}}}
 
@@ -460,6 +464,9 @@ Rules:
   and JS objects are rejected;
 - nil vs missing must be schema-defined, not accidental;
 - every variable that affects remote identity must be represented in params;
+- resource request ids must include the full scoped resource key, or an
+  equivalent scope-bearing value, so same params in different user/tenant scopes
+  cannot supersede each other;
 - avoid a separate `:cache-key` escape hatch in v1 unless it is validated,
   visible in tools, and tested heavily.
 
@@ -569,8 +576,8 @@ Model it as an ordinary resource whose params include the parent identity:
 
    :request
    (fn [{:keys [slug]} _]
-     {:method :get
-      :url    (str "/api/articles/" slug "/comments")
+     {:request {:method :get
+                :url    (str "/api/articles/" slug "/comments")}
       :decode [:vector :app/comment]})
 
    :tags
@@ -645,6 +652,7 @@ applications that do not load those optional artifacts do not carry their code.
 V1 should include:
 
 - `reg-resource`;
+- `clear-resource`;
 - passive resource subscriptions;
 - explicit ensure/refetch/invalidate/remove events;
 - active owners;
@@ -669,6 +677,7 @@ V1 should include:
 First public-beta gate:
 
 - `reg-mutation`;
+- `clear-mutation`;
 - focus and reconnect revalidation for active stale resources;
 - mutation invalidation integration.
 
@@ -698,6 +707,17 @@ Registration:
 (rf/reg-mutation mutation-id mutation-spec)
 (rf/clear-mutation mutation-id)
 ```
+
+`clear-resource` is a registration-lifecycle operation, not the normal cache
+invalidation API. Application code should use `:rf.resource/invalidate-tags`,
+`:rf.resource/remove`, or `:rf.resource/clear-scope` for data lifecycle work.
+When a resource registration is cleared, the implementation must also dispose
+resource-runtime state for that resource id in each affected frame: release owner
+indexes, cancel timers/host handles, abort in-flight requests where possible,
+suppress late replies by generation, remove tag-index rows, and emit a trace.
+`clear-mutation` should follow the same distinction when the mutation slice
+lands: clear the mutation registration and its runtime instances, not masquerade
+as a form-level error reset.
 
 Events use map payloads, not positional argument vectors:
 
@@ -811,8 +831,8 @@ Example:
 
    :request
    (fn [{:keys [slug]} _ctx]
-     {:method :get
-      :url    (str "/api/articles/" slug)
+     {:request {:method :get
+                :url    (str "/api/articles/" slug)}
       :decode :app/article})
 
    :transport
@@ -835,8 +855,11 @@ Example:
 Required keys:
 
 - `:params-schema` validates and canonicalizes params;
-- `:request` returns managed HTTP request data, or GraphQL operation metadata is
-  supplied through the GraphQL transport keys;
+- for `:transport :rf.http/managed`, `:request` returns a Spec 014
+  managed-HTTP args map, including the nested `:request` child and top-level
+  keys such as `:decode`, `:accept`, `:retry`, and sensitivity metadata;
+- for `:transport :rf.graphql/query`, operation metadata is supplied through the
+  GraphQL transport keys;
 - `:data-schema` validates successful data when transport decode supports it.
 
 Optional v1 keys:
@@ -867,6 +890,13 @@ not an already-shipped core effect. Its implementation may lower to managed HTTP
 or a configured GraphQL client, but the resource lifecycle remains the owner of
 identity, staleness, dedupe, invalidation, SSR hydration, and tool metadata.
 
+For HTTP resources, the runtime owns reply addressing and request correlation.
+The managed-HTTP args returned by `:request` must not supply `:request-id`,
+`:on-success`, or `:on-failure`; resource lowering supplies those from the
+scoped resource key and current generation. Implementations should reject those
+reserved keys at registration or dispatch rather than silently accepting a
+handler that can bypass stale-suppression checks.
+
 Do not add a TanStack-style `:select` key in v1. In re-frame2, projections are
 ordinary subscriptions layered over `[:rf.resource/data ...]`. That is not a
 missing feature; it is a structural advantage of the subscription graph.
@@ -888,7 +918,7 @@ should store facts rather than derived booleans:
  :generation <int>
  :request-id <request-id-or-nil>
  :tags       <set>
- :owners     <set>}
+ :active-owners <set>}
 ```
 
 This deliberately refines Pattern-RemoteData's broad `:error` state. In resource
@@ -996,6 +1026,12 @@ Add `:resources` as route metadata:
       :blocking? false
       :keep-previous? true}]})
 ```
+
+Spec 012 currently rejects unknown bare route metadata keys at registration.
+The resources artifact must therefore extend the routing accepted-key set, via a
+late-bound framework extension, so `:resources` is treated like the existing
+cross-feature `:head` key. Without that integration, a route containing
+`:resources` is correctly rejected by the current routing artifact.
 
 On route entry:
 
@@ -1132,7 +1168,8 @@ or an application-specific fallback. It must not hang the request indefinitely.
 
 Client hydration should:
 
-1. install frame-state;
+1. install the allowed resource projection into the target frame-state, or into
+   the interim app-db resource slice until the App/Runtime Partition lands;
 2. preserve hydrated resource entries;
 3. avoid duplicate immediate fetches for fresh entries;
 4. background-refetch stale entries according to policy;
@@ -1181,18 +1218,18 @@ For HTTP, the resource runtime lowers an ensure/refetch into managed HTTP:
 
 ```clojure
 [:rf.http/managed
- {:request-id request-id
-  :request    request-map
-  :on-success [:rf.resource.internal/succeeded
-                {:resource-key resource-key
-                 :scope        scope
-                 :frame        frame-id
-                 :generation   generation}]
-  :on-failure [:rf.resource.internal/failed
-                {:resource-key resource-key
-                 :scope        scope
-                 :frame        frame-id
-                 :generation   generation}]}]
+ (assoc http-args
+        :request-id request-id
+        :on-success [:rf.resource.internal/succeeded
+                     {:resource-key resource-key
+                      :scope        scope
+                      :frame        frame-id
+                      :generation   generation}]
+        :on-failure [:rf.resource.internal/failed
+                     {:resource-key resource-key
+                      :scope        scope
+                      :frame        frame-id
+                      :generation   generation}])]
 ```
 
 The managed HTTP reply dispatch is already frame-targeted by Spec 014. The
@@ -1356,7 +1393,7 @@ coherent, but it is not the full value proposition.
 
 The minimal mutation slice should include:
 
-- `reg-mutation` and `:rf.mutation/execute`;
+- `reg-mutation`, `clear-mutation`, and `:rf.mutation/execute`;
 - mutation pending/error/result state;
 - a generated or caller-supplied mutation instance id;
 - scoped execution, using the same cache-scope rules as resources;
@@ -1386,9 +1423,9 @@ Example shape:
 
    :request
    (fn [{:keys [slug] :as article} _ctx]
-     {:method :put
-      :url    (str "/api/articles/" slug)
-      :body   article
+     {:request {:method :put
+                :url    (str "/api/articles/" slug)
+                :body   article}
       :decode :app/article})
 
    :transport
@@ -1446,7 +1483,8 @@ Xray should expose:
   schemas, request summary, stale/GC policy, tag producer, scope resolver,
   sensitivity/large classification, and declaring routes;
 - a live resource instance table per frame: resource key, scope, status,
-  loaded-at, stale-at, gc-at, generation, request id, attempt, owners, tags,
+  loaded-at, stale-at, gc-at, generation, request id, attempt, active owners,
+  tags,
   errors, data summary, and GC eligibility;
 - a route/resource graph: current route/nav-token, blocking vs non-blocking
   resources, SSR wait points, hydrated/fresh/stale state;
@@ -1527,8 +1565,8 @@ egress and elision rules.
    :data-schema   :app/article
    :request
    (fn [{:keys [slug]} _]
-     {:method :get
-      :url    (str "/api/articles/" slug)
+     {:request {:method :get
+                :url    (str "/api/articles/" slug)}
       :decode :app/article})
    :stale-after-ms 60000
    :gc-after-ms    (* 5 60 1000)
@@ -1660,9 +1698,9 @@ Rules:
 
    :request
    (fn [{:keys [slug body]} _]
-     {:method :post
-      :url    (str "/api/articles/" slug "/comments")
-      :body   {:body body}
+     {:request {:method :post
+                :url    (str "/api/articles/" slug "/comments")
+                :body   {:body body}}
       :decode :app/comment})
 
    :invalidates
@@ -1772,7 +1810,8 @@ Facade integration:
 - expose `reg-resource`, `clear-resource`, `resource-meta`,
   `resource-state`, and `resources`;
 - add feature probe `:resources/reg-resource`;
-- add optional `reg-mutation` only when the mutation slice lands.
+- add optional `reg-mutation` and `clear-mutation` only when the mutation slice
+  lands.
 
 ### 2. Registrar Kinds
 
@@ -1819,7 +1858,7 @@ Store serializable state in frame-state:
 - errors after elision policy;
 - timestamps;
 - generations;
-- owners;
+- active owners;
 - scopes;
 - causes/history summaries;
 - tags;
@@ -1980,7 +2019,7 @@ Tools should receive summaries:
  :status       :loaded
  :has-data?    true
  :stale?       true
- :owners       #{[:route :route/article nav-token]}
+ :active-owners #{[:route :route/article nav-token]}
  :causes       [[:route-entry :route/article nav-token]]
  :tags         #{[:article "welcome"]}
  :refresh-error {:kind   :rf.http/http-5xx
@@ -2000,6 +2039,10 @@ Initial conformance fixtures should cover:
 - params schema validation;
 - params canonicalization;
 - cache scope validation and clearing;
+- managed HTTP resource requests keep Spec 014 keys such as `:decode`,
+  `:accept`, and `:retry` at the top level of the managed-HTTP args map;
+- managed HTTP resource requests reject caller-supplied `:request-id`,
+  `:on-success`, and `:on-failure`;
 - scope switch/clear while requests are in flight;
 - first load `:loading`;
 - background refresh `:fetching`;
@@ -2023,6 +2066,8 @@ Initial conformance fixtures should cover:
 - active invalidated resource refetch;
 - inactive invalidated resource only marked stale;
 - route entry ensure;
+- route metadata validation accepts the framework-owned `:resources` key only
+  when the resources route integration is loaded;
 - route `:when` skips without sentinel params;
 - dependent route resource ordering;
 - route `:keep-previous?` reports previous data without polluting new-key cache;
@@ -2088,6 +2133,7 @@ removes boilerplate from current examples.
 The v1 artifact should be considered acceptable when it includes:
 
 - `reg-resource`;
+- `clear-resource`;
 - passive resource state subscriptions;
 - map-payload ensure/refetch/invalidate/remove events;
 - active owners;
@@ -2112,6 +2158,7 @@ The v1 artifact should be considered acceptable when it includes:
 The first public-beta gate should add:
 
 - `reg-mutation`;
+- `clear-mutation`;
 - focus/reconnect revalidation;
 - mutation invalidation integration.
 
