@@ -1597,6 +1597,84 @@
           "every ELK edge id ends in __in or __out (the route key scheme)")
       (is (= (count elk-eds) (count ids)) "no duplicate edge ids"))))
 
+;; ---- rf2-k504af — initial-edge flow-start priority ---------------------
+;;
+;; The INITIAL state's outgoing `__in` edge carries
+;; `elk.layered.priority.direction 1` (paired with the root
+;; `considerModelOrder NODES_AND_EDGES`) so ELK pulls the initial to the
+;; START of its region's flow — fixing the parallel / pure-cyclic regions
+;; (traffic `red`/`walk`) where the soft DEPTH_FIRST + model-order
+;; preference slips and the initial sinks to the bottom layer. Every other
+;; edge leaves the option unset (the ELK default 0).
+
+(defn- in-edge-priority
+  "The `elk.layered.priority.direction` layoutOption on an ELK `__in`
+  edge map (nil when unset)."
+  [elk-edge]
+  (get-in elk-edge [:layoutOptions "elk.layered.priority.direction"]))
+
+(deftest elk-edge-sets-direction-priority-on-initial-source
+  (testing "rf2-k504af — the `__in` edge LEAVING an `:initial?` state
+            carries `elk.layered.priority.direction 1`; a non-initial
+            source's `__in` edge leaves it unset"
+    (let [parsed     (layout/project-definition idle-loading)
+          ;; idle-loading: :idle is initial, :loading is not.
+          idle-id    (layout/node-id [:idle])
+          loading-id (layout/node-id [:loading])
+          init-set   #{idle-id}
+          ;; :idle --:start--> :loading  (the initial state's outgoing arm)
+          start-e    (first (filter #(= (:source %) idle-id) (:edges parsed)))
+          ;; :loading --:always--> :ready (a non-initial source)
+          loading-e  (first (filter #(= (:source %) loading-id) (:edges parsed)))
+          start-in   (first (projection/->elk-edge start-e nil init-set))
+          loading-in (first (projection/->elk-edge loading-e nil init-set))]
+      (is (re-find #"__in$" (:id start-in)) "first elk edge is the __in half")
+      (is (= projection/initial-edge-priority-direction
+             (in-edge-priority start-in))
+          "the initial state's outgoing __in edge gets direction priority 1")
+      (is (nil? (in-edge-priority loading-in))
+          "a non-initial source's __in edge leaves the priority unset"))))
+
+(deftest elk-edge-omits-priority-when-no-initial-set
+  (testing "rf2-k504af — with no `initial-ids` (the pre-bead 2-arity
+            path), NO edge carries the direction-priority option"
+    (let [parsed  (layout/project-definition idle-loading)
+          elk-eds (projection/->elk-edges parsed)] ;; 2-arity → no initial set...
+      ;; ->elk-edges DOES derive the set, so assert via the bare ->elk-edge.
+      (is (every? #(nil? (in-edge-priority %))
+                  (mapcat #(projection/->elk-edge % nil nil) (:edges parsed)))
+          "the nil initial-ids arity leaves every edge unset"))))
+
+(deftest elk-edges-derives-initial-set-and-prioritises-each-region-initial
+  (testing "rf2-k504af — `->elk-edges` derives the `:initial?` node-id set
+            from `:nodes` and tags EACH region's initial `__in` edge — the
+            parallel pure-cyclic case (traffic-shaped). Both region
+            initials (:muted, :hidden) get the priority; their cycle
+            partners (:playing, :shown) do not."
+    (let [parsed    (layout/project-definition parallel-machine)
+          ;; Derive the actual node-ids from the parse (region states carry
+          ;; a `region__<region>__<state>` id scheme, not the bare
+          ;; `node-id`), so the test is robust to the id form.
+          nodes     (:nodes parsed)
+          init-ids  (into #{} (comp (filter :initial?) (map :id)) nodes)
+          non-init  (into #{} (comp (remove #(or (:initial? %)
+                                                 (:region? %)))
+                                    (map :id)) nodes)
+          elk-eds   (projection/->elk-edges parsed)
+          ;; the `__in` edge whose SOURCE is the given state.
+          in-for    (fn [sid]
+                      (first (filter #(and (re-find #"__in$" (:id %))
+                                           (= [sid] (:sources %)))
+                                     elk-eds)))]
+      (is (= 2 (count init-ids)) "both region initials present")
+      (doseq [iid init-ids]
+        (is (= projection/initial-edge-priority-direction
+               (in-edge-priority (in-for iid)))
+            (str "region initial " iid " gets flow-start priority")))
+      (doseq [nid non-init]
+        (is (nil? (in-edge-priority (in-for nid)))
+            (str "non-initial " nid " leaves the priority unset"))))))
+
 ;; ---- :edge-labels → :data {:labelPos} (rf2-rlq97) ----------------------
 ;;
 ;; ELK owns edge-label PLACEMENT now (the edge-label analogue of ELK
@@ -1654,6 +1732,27 @@
       (is (= "left" (:targetHandle entry)))
       (is (= "" (:eventLabel (:data entry)))
           "entry edge has no event label"))))
+
+(deftest xyflow-graph-positions-initial-marker-at-fixed-offset
+  (testing "rf2-i9d2ob — the initial-marker node sits at a FIXED offset
+            LEFT of (and slightly below) its state, so the fixed glyph
+            (`chart.nodes/initial-marker`) drawn in node-local coords
+            reliably meets the state's near edge regardless of where ELK
+            placed the state"
+    (let [parsed    (layout/project-definition idle-loading)
+          idle-id   (layout/node-id [:idle])
+          ;; place the initial state at a known position so the offset is
+          ;; observable on the marker.
+          positions {idle-id {:x 300 :y 120}}
+          graph     (projection/xyflow-graph parsed positions {})
+          marker    (node-by-id graph (str "initial__" idle-id))]
+      (is (pos? projection/initial-marker-x-offset))
+      (is (= (- 300 projection/initial-marker-x-offset)
+             (get-in marker [:position :x]))
+          "marker x = state.x - initial-marker-x-offset (glyph arm reaches the state)")
+      (is (= (+ 120 projection/initial-marker-y-offset)
+             (get-in marker [:position :y]))
+          "marker y = state.y + initial-marker-y-offset (title-row anchor)"))))
 
 (deftest xyflow-graph-threads-initial-flag-onto-node-data
   (testing "rf2-54s5a — node :data carries :initial (true for the

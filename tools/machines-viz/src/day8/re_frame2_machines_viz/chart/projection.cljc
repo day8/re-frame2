@@ -89,6 +89,27 @@
   band do not crowd the nested children."
   150)
 
+;; ---- initial-marker glyph offsets (rf2-i9d2ob) -------------------------
+;;
+;; The initial-state marker node is positioned at a FIXED offset from its
+;; state so the fixed glyph (`chart.nodes/initial-marker` — dot + Q-hook +
+;; triangle arrow) reliably meets the state's near (left) edge regardless
+;; of where ELK placed the state. `initial-marker-x-offset` MUST equal the
+;; renderer's `initial-glyph-arm` so the arrow tip lands flush on the
+;; state's left edge.
+
+(def initial-marker-x-offset
+  "rf2-i9d2ob — horizontal offset (px) of the initial-marker node LEFT of
+  its state. Equals the glyph arm span (`chart.nodes/initial-glyph-arm`)
+  so the fixed glyph's arrow tip lands flush on the state's left edge."
+  48)
+
+(def initial-marker-y-offset
+  "rf2-i9d2ob — vertical offset (px) of the initial-marker node BELOW its
+  state's top edge — roughly the title-strip centre, so the glyph's arrow
+  points into the state's near edge near its title row."
+  14)
+
 ;; ---- synthetic event-node helpers --------------------------------------
 ;;
 ;; rf2-qo5xy events-as-nodes paradigm: each parsed transition emits ONE
@@ -429,6 +450,25 @@
      (and dims (pos? (:width dims 0)) (pos? (:height dims 0)))
      (assoc :width (:width dims) :height (:height dims)))])
 
+(def initial-edge-priority-direction
+  "rf2-k504af — the `elk.layered.priority.direction` value set on an
+  INITIAL state's outgoing `__in` edge (every other edge is unset / the
+  ELK default 0). xstate-viz uses this lever (with ELK's default GREEDY
+  cycle-breaking + root `considerModelOrder NODES_AND_EDGES`) to anchor
+  the initial state at the START of its region's flow. A higher
+  direction-priority edge is preferred when ELK orders layers, pulling
+  the edge's SOURCE (the initial state) toward the first layer — which
+  fixes the parallel/pure-cyclic regions (traffic's `red` / `walk`)
+  where the soft DEPTH_FIRST + model-order preference SLIPS and the
+  initial sinks to the bottom layer.
+
+  General, not traffic-specific: it biases EVERY machine's initial
+  state(s) toward flow-start. For an already-spine-ordered machine
+  (door / brew / session) the initial is ALREADY first, so the extra
+  pull is a no-op on its rank; it only rescues the cases where the weak
+  preference loses."
+  "1")
+
 (defn ->elk-edge
   "rf2-rlq97 — project ONE parsed transition into its elk edge
   descriptor(s) under the events-as-nodes paradigm (rf2-qo5xy):
@@ -445,16 +485,34 @@
   the same way `->elk-children` threads node `measured-dims`. Keyed by
   the elk edge id (`<spec-id>__in` / `__out`). Under events-as-nodes the
   visible text is on the event-NODE so these entries are normally absent
-  and the edges carry empty labels — see the section comment above."
-  ([e] (->elk-edge e nil))
-  ([e label-dims]
-   (let [ev-id  (event-node-id e)
-         in-id  (str (:id e) "__in")
-         out-id (str (:id e) "__out")]
-     (cond-> [{:id      in-id
-               :sources [(:source e)]
-               :targets [ev-id]
-               :labels  (elk-edge-label "" (get label-dims in-id))}]
+  and the edges carry empty labels — see the section comment above.
+
+  rf2-k504af — `initial-ids` is the optional SET of state node-ids that
+  are `:initial?`. When the `__in` edge LEAVES an initial state, it
+  carries `elk.layered.priority.direction = 1` (the
+  `initial-edge-priority-direction` lever) so ELK pulls the initial
+  state toward flow-start — fixing the parallel/pure-cyclic regions
+  where the soft initial-on-top preference slips. Empty / nil leaves
+  every edge unset (the pre-rf2-k504af behaviour)."
+  ([e] (->elk-edge e nil nil))
+  ([e label-dims] (->elk-edge e label-dims nil))
+  ([e label-dims initial-ids]
+   (let [ev-id     (event-node-id e)
+         in-id     (str (:id e) "__in")
+         out-id    (str (:id e) "__out")
+         ;; rf2-k504af — the `__in` edge LEAVES the source state; when
+         ;; that state is initial, pull it to flow-start via ELK's
+         ;; direction priority. Only the OUTGOING edge from the initial
+         ;; gets it (the `__out` event→target edge is unaffected).
+         from-initial? (contains? (or initial-ids #{}) (:source e))]
+     (cond-> [(cond-> {:id      in-id
+                       :sources [(:source e)]
+                       :targets [ev-id]
+                       :labels  (elk-edge-label "" (get label-dims in-id))}
+                from-initial?
+                (assoc :layoutOptions
+                       {"elk.layered.priority.direction"
+                        initial-edge-priority-direction}))]
        (not (:internal? e))
        (conj {:id      out-id
               :sources [ev-id]
@@ -466,10 +524,15 @@
   `chart.cljs/->elk-input` `clj->js`-es onto the elk root graph. The
   events-as-nodes split (`->elk-edge`) means N parsed transitions emit
   up to 2N elk edges. `label-dims` (optional measured-label map) is
-  forwarded to every `->elk-edge`."
+  forwarded to every `->elk-edge`.
+
+  rf2-k504af — the set of `:initial?` node-ids is derived once from
+  `:nodes` and forwarded to every `->elk-edge` so an initial state's
+  outgoing `__in` edge carries ELK's flow-start direction priority."
   ([parsed] (->elk-edges parsed nil))
-  ([{:keys [edges]} label-dims]
-   (vec (mapcat #(->elk-edge % label-dims) edges))))
+  ([{:keys [edges nodes]} label-dims]
+   (let [initial-ids (into #{} (comp (filter :initial?) (map :id)) nodes)]
+     (vec (mapcat #(->elk-edge % label-dims initial-ids) edges)))))
 
 ;; ---- graph projection (parsed + positions → xyflow nodes/edges) ---------
 
@@ -1164,8 +1227,8 @@
                       pos (get positions sid {:x 0 :y 0})]
                   (cond-> {:id        (str "initial__" sid)
                            :type      "initial-marker"
-                           :position  {:x (- (:x pos) 48)
-                                       :y (+ (:y pos) 14)}
+                           :position  {:x (- (:x pos) initial-marker-x-offset)
+                                       :y (+ (:y pos) initial-marker-y-offset)}
                            :data      {:targetPath (:path n) :chart chart
                                        :palette ct}
                            :draggable false

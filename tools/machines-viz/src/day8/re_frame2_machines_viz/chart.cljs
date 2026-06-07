@@ -195,6 +195,21 @@
    ;; reversed to acyclic-ise; layer-sweep + node-placement still run.
    ;; Identical to GREEDY for already-acyclic graphs. See the docstring.
    "elk.layered.cycleBreaking.strategy"         "DEPTH_FIRST"
+   ;; rf2-k504af — make ELK honour the input MODEL ORDER (nodes AND
+   ;; edges) as a tiebreaker through layering + crossing-minimisation,
+   ;; not just within-layer. Pairs with the per-edge
+   ;; `elk.layered.priority.direction` lever the projector sets on an
+   ;; INITIAL state's outgoing `__in` edge (`projection/->elk-edge`):
+   ;; together they pull the initial state to the START of its region's
+   ;; flow even in a PURE-CYCLIC parallel region (traffic's `red` /
+   ;; `walk`), where the soft DEPTH_FIRST + child-model-order preference
+   ;; alone SLIPS and the initial sinks to the bottom layer. This is the
+   ;; xstate-viz recipe (`considerModelOrder NODES_AND_EDGES` +
+   ;; per-initial-edge priority). General, not traffic-specific: a
+   ;; spine-ordered machine (door / brew / session) already ranks its
+   ;; initial first, so model-order agrees with the layout and nothing
+   ;; moves.
+   "elk.layered.considerModelOrder"             "NODES_AND_EDGES"
    "elk.edgeRouting"                            "ORTHOGONAL"
    "elk.json.edgeCoords"                        "ROOT"
    ;; rf2-rlq97 — edge-to-node + edge-to-edge clearance so ORTHOGONAL

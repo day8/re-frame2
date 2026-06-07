@@ -570,32 +570,131 @@
 
 ;; ---- initial marker node ------------------------------------------------
 
-(defn initial-marker
-  "rf2-az6e2 — Reagent component for the machine's initial-state pseudo-
-  state marker. A small NEUTRAL filled dot (the SCXML/xstate initial
-  pseudo-state convention), NOT an accent-blue runtime marker: the
-  initial pseudo-state is STATIC topology, so it reads in the neutral
-  pseudo-state colour (`:pseudo-marker`), reserving accent/active for
-  runtime state. Rendered as a tiny xyflow node with an outgoing edge
-  into the initial state.
+;; rf2-i9d2ob — fixed initial-state glyph geometry.
+;;
+;; xstate-viz draws the start glyph as a SINGLE FIXED glyph anchored to
+;; the node, NOT routed by ELK (`src/InitialEdgeViz.tsx`) — which is
+;; exactly why it reads clean in every position. Before this bead xray
+;; emitted the dot as one node + a SEPARATE `transition` entry edge that
+;; the renderer drew as a `getBezierPath` curve between the dot's source
+;; handle and the state's left handle; that bezier bends oddly when the
+;; initial lands in an odd position (e.g. traffic's bottom-anchored
+;; initials). The fix folds the WHOLE glyph (filled dot + single
+;; quadratic Q-hook + a small filled triangle arrowhead) into THIS node's
+;; own SVG, drawn in the node's local coordinate frame, so the geometry
+;; no longer depends on ELK / xyflow edge routing. The companion entry
+;; edge still exists in the projection (every-edge `:data` invariants)
+;; but `chart.edges/transition-edge` paints NO visible path for it
+;; (`entry?` short-circuit) — the dot + hook + arrow you see is this
+;; node alone.
+;;
+;; The marker node is positioned by `chart.projection` at a FIXED offset
+;; from its state — `(state.x - initial-marker-x-offset, state.y +
+;; initial-marker-y-offset)` — so the glyph's right edge reliably meets
+;; the state's near (left) edge regardless of where ELK placed the state.
 
-  Geometry reads off the resolved density (`:pseudo-size` /
-  `:pseudo-radius`)."
+(def ^:private initial-glyph-arm
+  "Horizontal span (px) of the initial glyph in its node-local frame:
+  the arrow tip lands at this x, flush on the state's left edge. Matches
+  `chart.projection/initial-marker-x-offset` so the glyph reaches the
+  state."
+  48)
+
+(def ^:private initial-glyph-hook-drop
+  "Vertical drop (px) of the Q-hook: the dot sits this far ABOVE the
+  arrow row so the single quadratic curve hooks DOWN into the state's
+  edge (the xstate-viz down-hook signature). Small + fixed so the glyph
+  reads identically in every position."
+  9)
+
+(defn initial-marker
+  "rf2-az6e2 / rf2-i9d2ob — Reagent component for the machine's initial-
+  state pseudo-state marker. The SCXML/xstate UML initial pseudo-state
+  glyph: a small NEUTRAL FILLED dot + a short hooked arrow into the
+  state's near edge. NOT an accent-blue runtime marker — the initial
+  pseudo-state is STATIC topology, so it reads in the neutral pseudo-
+  state colour (`:pseudo-marker`), reserving accent/active for runtime
+  state.
+
+  rf2-i9d2ob — the ENTIRE glyph (dot + Q-hook + triangle arrowhead) is
+  drawn here, in the node's own local SVG frame, as ONE fixed shape:
+
+    - a FILLED circle (radius `:pseudo-radius`) on the left;
+    - a single quadratic Bezier (`Q`) hook from the dot, control point
+      at `(dot.x, arrow.y)` (the xstate-viz recipe), then a 1px straight
+      run into the arrowhead;
+    - a small filled triangle arrowhead (the shared `M0,0 L0,10 L10,5 z`
+      shape, scaled by `:arrow-width-entry`) whose tip lands flush on the
+      state's left edge.
+
+  Because the geometry is node-local + fixed, the glyph reads as one
+  tidy unit in EVERY position — it never depends on ELK edge routing
+  (the bezier-routed entry edge it replaced bent wonky when the initial
+  sat at an odd position). The companion entry edge (`chart.projection`)
+  is kept for the every-edge `:data` invariants but paints nothing
+  (`chart.edges/transition-edge` `entry?` short-circuit).
+
+  Geometry reads off the resolved density (`:pseudo-radius` /
+  `:arrow-width-entry`); the hue is the `:pseudo-marker` token."
   [^js props]
-  (let [d   (.-data props)
-        vc  (chart-constants d)
-        ct  (palette-of d)
-        {:keys [pseudo-size]} vc]
+  (let [d        (.-data props)
+        vc       (chart-constants d)
+        ct       (palette-of d)
+        {:keys [pseudo-radius arrow-width-entry]} vc
+        stroke   (:pseudo-marker ct)
+        ;; Glyph in node-local coords. Row y=0 is the marker origin
+        ;; (== state.y + offset). The arrow tip lands at (arm, 0), flush
+        ;; on the state's left edge; the dot sits `hook-drop` above so the
+        ;; single Q hooks DOWN into it (xstate-viz signature).
+        arm      initial-glyph-arm
+        drop     initial-glyph-hook-drop
+        dot-r    pseudo-radius
+        ;; Triangle arrowhead, scaled by the entry arrow width. Drawn as a
+        ;; filled triangle pointing RIGHT, tip at (arm, 0) — the
+        ;; `M0,0 L0,10 L10,5 z` shape from `chart.edges`'s shared marker.
+        ah       (max 6 arrow-width-entry)
+        ah-half  (/ ah 2.0)
+        dot-x    (+ dot-r 1)         ;; inset so the dot's left edge clears x=0
+        dot-y    (- drop)            ;; dot above the arrow row
+        ;; The stroked hook runs from the dot to just shy of the arrowhead
+        ;; base so the filled triangle (not the stroke) forms the tip.
+        end-x    (- arm ah)
+        end-y    0
+        hook     (str "M " dot-x "," dot-y
+                      ;; xstate-viz recipe: control point at (dot.x, end.y).
+                      " Q " dot-x "," end-y " " end-x "," end-y
+                      ;; a 1px straight run into the arrowhead base.
+                      " L " (+ end-x 1) "," end-y)
+        ;; Triangle: base at x = arm-ah spanning ±ah-half, tip at (arm, 0).
+        tri      (str "M " (- arm ah) "," (- ah-half)
+                      " L " (- arm ah) "," ah-half
+                      " L " arm "," 0 " z")
+        ;; Padding so the dot (top, dot-y - dot-r) and the arrowhead
+        ;; (±ah-half) are not clipped; SVG y origin shifts by `pad-top`.
+        pad-top  (+ drop dot-r 1)
+        pad-bot  (+ ah-half 1)
+        svg-h    (+ pad-top pad-bot)]
     (r/as-element
       [:div {:data-testid "rf-mv-chart-initial-marker"
              :data-pseudo-kind "initial"
              :style {:display     "inline-flex"
                      :align-items "center"}}
-       [:div {:data-testid "rf-mv-chart-initial-marker-dot"
-              :style {:width         (str pseudo-size "px")
-                      :height        (str pseudo-size "px")
-                      :border-radius "50%"
-                      :background    (:pseudo-marker ct)}}]
+       [:svg {:data-testid "rf-mv-chart-initial-marker-glyph"
+              :width  arm
+              :height svg-h
+              ;; viewBox shifted up by pad-top so node-local y=0 (the
+              ;; arrow row) sits at the marker origin; `overflow visible`
+              ;; lets the arrow tip reach exactly the state's edge.
+              :viewBox (str "0 " (- pad-top) " " arm " " svg-h)
+              :style {:overflow "visible"}}
+        ;; FILLED dot — the UML initial pseudo-state.
+        [:circle {:data-testid "rf-mv-chart-initial-marker-dot"
+                  :cx dot-x :cy dot-y :r dot-r
+                  :fill stroke}]
+        ;; single Q hook into the arrowhead base.
+        [:path {:d hook :stroke stroke :stroke-width 2 :fill "none"}]
+        ;; filled triangle arrowhead, tip flush on the state's left edge.
+        [:path {:d tri :fill stroke}]]
        [:> Handle {:type "source" :position pos-right
                    :style {:opacity 0}}]])))
 
