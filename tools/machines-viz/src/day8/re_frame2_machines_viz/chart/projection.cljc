@@ -1181,12 +1181,20 @@
                  :target      (:id n)
                  :targetHandle "left"
                  :type        "transition"
-                 ;; rf2-dt5b1 — the entry-edge arrowhead is a resting
-                 ;; quiet marker (`tokens/edge-color` with all flags
-                 ;; false ⇒ `:edge-quiet`) sized off the resolved density
-                 ;; (`:arrow-width-entry`) like the route arrowheads.
+                 ;; G-START — the initial-marker entry edge is the
+                 ;; SCXML/Stately initial-state icon: a filled dot PLUS a
+                 ;; short arrow whose head lands flush on the initial
+                 ;; state's near edge. It paints the SAME neutral
+                 ;; `:pseudo-marker` hue as the dot (NOT the near-invisible
+                 ;; `:edge-quiet` resting hue the route halves use) so the
+                 ;; dot + arrow read as one unit, clearly visible against the
+                 ;; dark canvas, matching Stately's initial marker. Sized off
+                 ;; the resolved density (`:arrow-width-entry`) like the route
+                 ;; arrowheads. The renderer (`chart.edges/edge-stroke`)
+                 ;; routes the PATH stroke to the same hue off the `:entry`
+                 ;; flag so stroke + arrowhead never disagree.
                  :markerEnd   {:type "arrowclosed"
-                               :color (tokens/edge-color ct {})
+                               :color (:pseudo-marker ct)
                                :width  (:arrow-width-entry chart)
                                :height (:arrow-width-entry chart)}
                  ;; Entry edges are non-interactive, but carry the full
