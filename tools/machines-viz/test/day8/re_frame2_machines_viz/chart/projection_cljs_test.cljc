@@ -817,11 +817,14 @@
 
 (deftest xyflow-graph-event-route-arrowhead-split
   (testing "rf2-az6e2 — the two-edge event route reads as ONE transition:
-            the source→event (`__in`) segment carries a SMALL arrowhead
-            (10px) + the quiet-segment flag, while the event→target
-            (`__out`) segment carries the PRIMARY full-size arrowhead
-            (18px). `idle --start--> loading` is a plain external
-            transition so both halves exist."
+            the source→event (`__in`) segment carries the SMALLER quiet
+            arrowhead (`:arrow-width-quiet`) + the quiet-segment flag,
+            while the event→target (`__out`) segment carries the PRIMARY
+            arrowhead (`:arrow-width`). Both sizes ride the resolved
+            density map (trimmed toward Stately's small/thin heads); the
+            head sizes are asserted off the constants, not baked literals.
+            `idle --start--> loading` is a plain external transition so
+            both halves exist."
     (let [parsed  (layout/project-definition idle-loading)
           graph   (projection/xyflow-graph parsed {} {})
           ;; the plain :on transition edge id
@@ -830,10 +833,12 @@
           out-e   (outbound-edge-for graph (:id on-edge))]
       (is (some? in-e) "inbound (__in) segment exists")
       (is (some? out-e) "outbound (__out) segment exists")
-      (is (= 10 (:width (:markerEnd in-e)))
-          "quiet source→event arrowhead is small (10px)")
-      (is (= 18 (:width (:markerEnd out-e)))
-          "primary event→target arrowhead is full size (18px)")
+      (is (= (:arrow-width-quiet vc/chart) (:width (:markerEnd in-e)))
+          "quiet source→event arrowhead is the small quiet head")
+      (is (= (:arrow-width vc/chart) (:width (:markerEnd out-e)))
+          "primary event→target arrowhead is the primary head")
+      (is (< (:width (:markerEnd in-e)) (:width (:markerEnd out-e)))
+          "quiet __in head is smaller than the primary __out head")
       (is (true? (:quietSegment (:data in-e)))
           "the inbound half is flagged the quiet segment")
       (is (false? (:quietSegment (:data out-e)))

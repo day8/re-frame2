@@ -1086,9 +1086,11 @@
              :target    (if in? ev-node-id (:target edge))
              :type      "transition"
              ;; rf2-az6e2 — the `__in` (source→event) half is the QUIET
-             ;; segment: a SMALL 10px arrowhead in the quiet colour so the
-             ;; PRIMARY 18px arrowhead reads on the `__out` (event→target)
-             ;; half and the pair reads as ONE transition route.
+             ;; segment: a SMALLER `:arrow-width-quiet` head in the quiet
+             ;; colour so the PRIMARY `:arrow-width` head reads on the
+             ;; `__out` (event→target) half and the pair reads as ONE
+             ;; transition route. Both sizes ride the resolved density map
+             ;; (trimmed toward Stately's small/thin heads).
              :markerEnd {:type   "arrowclosed"
                          :color  (marker-color desc)
                          :width  w

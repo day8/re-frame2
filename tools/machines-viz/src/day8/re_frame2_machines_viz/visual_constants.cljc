@@ -139,10 +139,12 @@
    :edge-label-px          11
 
    ;; ── edge arrowheads (rf2-dt5b1 — ride the density so the head
-   ;;    scales with the stroke; quiet `__in` < primary `__out`) ───
-   :arrow-width            18
-   :arrow-width-quiet      10
-   :arrow-width-entry      12
+   ;;    scales with the stroke; quiet `__in` < entry < primary `__out`).
+   ;;    Primary trimmed 18→12 toward Stately's small/thin heads; quiet
+   ;;    + entry follow down to preserve the ordering invariant. ───────
+   :arrow-width            12
+   :arrow-width-quiet      8
+   :arrow-width-entry      10
 
    ;; ── state-tag pills (rf2-m1b88; rf2-a2b55 restored — sit BELOW
    ;;    the state name per Stately graph view convention) ─────────
@@ -188,7 +190,9 @@
    :event-chip-min-h       32
    :event-chip-pad-x       10
    :event-chip-pad-y       4
-   :event-chip-radius      5
+   :event-chip-radius      16    ;; capsule pill — ≈ half :event-chip-min-h
+                                 ;; (32) so the chip reads as a Stately-style
+                                 ;; rounded pill, not a near-rectangle
    :event-chip-px          11    ;; event label / guard font-size
    :event-chip-action-px   9     ;; action-row font-size
    ;; Pseudo-state markers (initial dot, history H/H* hook).
@@ -231,10 +235,11 @@
    ;; ── typography (rf2-gg7ws refused-floor revisited for thumbnails)
    :edge-label-px          9
 
-   ;; ── edge arrowheads (rf2-dt5b1 — ~25% tighter than regular) ──
-   :arrow-width            14
-   :arrow-width-quiet      8
-   :arrow-width-entry      10
+   ;; ── edge arrowheads (rf2-dt5b1 — tighter than regular; primary
+   ;;    trimmed toward Stately's small/thin heads) ─────────────────
+   :arrow-width            10
+   :arrow-width-quiet      7
+   :arrow-width-entry      9
 
    ;; ── state-tag pills (tighter than the regular 16/6/9/8) ──────
    :tag-pill-height        13
@@ -273,7 +278,7 @@
    :event-chip-min-h       26
    :event-chip-pad-x       8
    :event-chip-pad-y       3
-   :event-chip-radius      4
+   :event-chip-radius      13    ;; capsule pill — ≈ half compact :event-chip-min-h (26)
    :event-chip-px          9
    :event-chip-action-px   7
    :pseudo-size            10
@@ -312,10 +317,11 @@
    ;; ── typography (walked up one notch from the regular floor) ──
    :edge-label-px          13
 
-   ;; ── edge arrowheads (rf2-dt5b1 — ~25% looser than regular) ───
-   :arrow-width            22
-   :arrow-width-quiet      12
-   :arrow-width-entry      15
+   ;; ── edge arrowheads (rf2-dt5b1 — looser than regular; primary
+   ;;    trimmed toward Stately's small/thin heads) ─────────────────
+   :arrow-width            14
+   :arrow-width-quiet      10
+   :arrow-width-entry      12
 
    ;; ── state-tag pills (looser than the regular 16/6/9/8) ───────
    :tag-pill-height        19
@@ -354,7 +360,7 @@
    :event-chip-min-h       38
    :event-chip-pad-x       12
    :event-chip-pad-y       5
-   :event-chip-radius      6
+   :event-chip-radius      18    ;; capsule pill — ≈ half cosy :event-chip-min-h (38)
    :event-chip-px          13
    :event-chip-action-px   11
    :pseudo-size            14
