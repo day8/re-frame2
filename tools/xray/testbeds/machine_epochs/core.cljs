@@ -123,6 +123,16 @@
             ;; (`:rf.xray/select-frame`) without the deck reaching into Xray's
             ;; own `:rf/xray` frame.
             [day8.re-frame2-xray.focus :as xray-focus]
+            ;; Capture-enabling require (ai/topology/capture.cjs): pulling
+            ;; the machines-viz export ns onto THIS testbed's build graph
+            ;; exposes `window.day8.re_frame2_machines_viz.export.chart_as_svg`
+            ;; so the off-line capture harness can serialise each rendered
+            ;; chart to SVG alongside the PNG screenshot. The export ns is
+            ;; otherwise only on the standalone-viewer + test build graphs;
+            ;; it is bundle-isolated from production (tools/ never ships in a
+            ;; prod build), and this is a TEST surface, so the extra weight
+            ;; here is inert. Drop this require to opt out of SVG capture.
+            [day8.re-frame2-machines-viz.export]
             [re-frame.testbed.config :as testbed-config]
             [machine-epochs.machines :as machines])
   (:require-macros [re-frame.core :refer [reg-view]]))

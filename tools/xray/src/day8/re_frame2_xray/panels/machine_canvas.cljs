@@ -69,6 +69,31 @@
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens sans-stack mono-stack]]))
 
+;; ---- default chart theme (rf2-az6e2 follow-on) --------------------------
+;;
+;; Xray's surface is dark, so the chart's `:theme` default is `:dark`. It is
+;; held in a module-level atom (rather than a literal `:or` default) so a
+;; host / capture harness can flip the WHOLE chart palette to `:light`
+;; without threading a prop through every call site. The `:or` default in
+;; `Chart` reads this atom, so both render paths (the focused-transition
+;; canvas + the static topology) honour the override. No UI toggle is built
+;; in — this is the seam a future host theme switch (or an off-line capture
+;; run) writes through `set-default-theme!`.
+(defonce ^:private default-chart-theme (atom :dark))
+
+(defn ^:export set-default-theme!
+  "Set the default chart `:theme` (`:dark` / `:light`). Accepts a keyword
+  or its name string (`\"light\"`), so a JS caller (capture harness /
+  page.evaluate) can flip the palette with no CLJS interop. Returns the
+  normalised keyword now in effect. Unknown values fall back to `:dark`."
+  [theme]
+  (let [kw (cond
+             (keyword? theme)          theme
+             (= "light" (str theme))   :light
+             (= "dark"  (str theme))   :dark
+             :else                      :dark)]
+    (reset! default-chart-theme (if (#{:light :dark} kw) kw :dark))))
+
 ;; ---- app-db slots -------------------------------------------------------
 
 (def slot-root
@@ -401,11 +426,13 @@
     :or   {show-after-rings?       true
            show-view-mode-toggle?  true
            show-controls?          true
-           ;; rf2-az6e2 — Xray's surface is dark; pass `:theme :dark`
-           ;; through to the chart. No light/dark toggle UI in this bead
-           ;; (the chart reads the active-theme tokens for real now, so a
-           ;; future host toggle just flips this prop).
-           theme                   :dark
+           ;; rf2-az6e2 — Xray's surface is dark; the chart `:theme`
+           ;; defaults to `@default-chart-theme` (`:dark`). Held in a
+           ;; module-level atom (not a literal) so a host / capture run can
+           ;; flip the WHOLE palette to `:light` via `set-default-theme!`
+           ;; without threading a prop through every call site. An explicit
+           ;; `:theme` prop still wins. No toggle UI is built in.
+           theme                   @default-chart-theme
            testid                  "rf-xray-machine-canvas-host"
            inner-testid            "rf-mv-chart"}}]
   [:div
