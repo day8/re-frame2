@@ -1,10 +1,16 @@
 # EP: Resource Management - Resources
 
-Status: proposal
+Status: Draft
 
-Date: 2026-06-06
+Type: Standards Track
 
-Related:
+Created: 2026-06-06
+
+Target Artifact: `day8/re-frame2-resources`
+
+Target API: `reg-resource`, `reg-mutation`
+
+Requires:
 
 - [Guide 10 - HTTP](../guide/10-http.md)
 - [Guide 19 - Routing](../guide/19-routing.md)
@@ -14,10 +20,28 @@ Related:
 - [Spec 012 - Routing](https://github.com/day8/re-frame2/blob/main/spec/012-Routing.md)
 - [Spec 005 - State Machines](https://github.com/day8/re-frame2/blob/main/spec/005-StateMachines.md)
 
-## Summary
+Benchmark References:
+
+- TanStack Query
+- RTK Query
+- SWR
+- Apollo Client and Relay
+- `shipclojure/re-frame-query`
+
+## Abstract
 
 This enhancement proposes an optional `day8/re-frame2-resources` artifact for
-server-state and external-resource management.
+server-state and external-resource management. The proposal is deliberately
+benchmarked against TanStack Query, RTK Query, SWR, Apollo Client, Relay, and
+`shipclojure/re-frame-query`. Those libraries set the baseline for credible
+resource management in modern SPA development.
+
+The goal is not to imitate those libraries. The goal is to implement
+best-in-class resource capabilities for re-frame2, matching the mature
+server-state semantics that users now expect, and exceeding the benchmark where
+re-frame2's architecture gives it structural advantages: event causality,
+frames, route metadata, managed HTTP, SSR, state machines, Xray, trace/epoch
+evidence, privacy elision, and AI-readable contracts.
 
 The public vocabulary should be:
 
@@ -36,7 +60,7 @@ The core rule is:
 
 > Resources are remote server-state as runtime-managed read models.
 
-That keeps the design inside the re-frame2 ethos:
+That keeps the proposal inside the re-frame2 ethos:
 
 - views are declarative reads;
 - subscriptions and flows are materialized views over state;
@@ -65,7 +89,7 @@ Optimistic updates, polling, infinite resources, generic transports, and
 normalized caches are important later slices, but should not make the first
 artifact too wide.
 
-## Problem
+## Motivation
 
 Every substantial SPA repeats the same server-state machinery:
 
@@ -105,6 +129,56 @@ bugs in the exact places users notice: flickering loaders, stale screens,
 duplicate requests, route waterfalls, cross-user cache leaks, invalidation
 storms, and optimistic UI races.
 
+Resource management is therefore no longer an optional convenience layer. For a
+framework that wants to be best-in-class for SPAs, server state must be part of
+the application model rather than a set of hand-rolled effects and subscriptions
+per feature.
+
+TanStack Query has made stale/fresh state, background revalidation, dedupe,
+inactive cache retention, mutation invalidation, optimistic updates, hydration,
+and router prefetching table stakes. RTK Query has shown how endpoint
+definitions, subscription reference counts, cache tags, and mutation-driven
+refetching fit into a centralized state model. SWR has made
+stale-while-revalidate behavior feel natural. Apollo and Relay have shown what a
+normalized graph cache can provide when the transport model warrants it.
+`re-frame-query` shows that re-frame applications also need this class of
+abstraction.
+
+re-frame2 should treat those as a benchmark suite. If the resource artifact does
+not reach that level of capability, it will merely be another local convention.
+If it reaches that level while preserving re-frame2's causal, inspectable,
+frame-aware architecture, it can be better than the benchmark for re-frame2
+applications.
+
+## Goals
+
+The resource artifact should:
+
+- make server state an explicit, named, frame-local runtime process;
+- match the expected baseline from TanStack Query, RTK Query, SWR, Apollo/Relay,
+  and `re-frame-query` where those semantics apply;
+- preserve re-frame2's event-causal model by keeping views passive and making
+  route/event/machine causes explicit;
+- integrate resource ownership with frames, routes, SSR, managed HTTP, schemas,
+  Xray, traces, privacy elision, and AI tooling;
+- make cache identity, scope, staleness, invalidation, liveness, and causality
+  visible as data;
+- support route and SSR data loading without component-tree request waterfalls;
+- keep the MVP narrow enough to ship, while naming the public-beta and later
+  slices required for a complete resource-management story.
+
+## Non-Goals
+
+The initial artifact should not:
+
+- make subscription-driven fetching the default causal model;
+- replace ordinary `reg-sub`, `reg-flow`, `:rf.http/managed`, or state machines;
+- start with a normalized graph cache;
+- start with generic transports before managed HTTP has proven the core model;
+- promise offline persistence, cross-tab broadcast, infinite resources, polling,
+  or optimistic rollback in the first slice;
+- hide server-state behavior inside React/Reagent component lifecycle.
+
 ## Developer and AI Use Cases
 
 The feature should help programmers and AI maintainers answer concrete
@@ -126,12 +200,35 @@ questions:
 Features that do not answer questions like these should be treated as later
 research rather than MVP requirements.
 
-## Prior Art
+## Benchmark Standard And Prior Art
+
+This proposal uses prior art as a benchmark, not as decoration. The resource
+artifact should be designed with the assumption that users will compare it to
+the best existing server-state tools. The first stable version does not need to
+match every advanced plugin or years of ecosystem hardening, but the
+architecture must be capable of reaching and then exceeding that bar.
+
+The benchmark dimensions are:
+
+- identity: stable, serializable resource keys and params;
+- freshness: stale/fresh policy, active-stale revalidation, and background
+  refresh;
+- liveness: active owners, inactive retention, and garbage collection;
+- concurrency: in-flight dedupe, cancellation/suppression, generation checks,
+  and race safety;
+- mutation: invalidation, patch/populate APIs, and optimistic-update foundation;
+- routing and SSR: prefetch, blocking data, hydration, and no double-fetch;
+- pagination: previous data, page identity, and later infinite resources;
+- cache shape: document/resource cache first, graph normalization later;
+- tooling: inspectable cache entries, causes, owners, timings, and privacy
+  state;
+- extensibility: a path from managed HTTP to later transports without weakening
+  the core semantics.
 
 ### TanStack Query
 
-TanStack Query is the main external gold standard for server-state cache
-semantics. The parts re-frame2 should learn from are:
+TanStack Query is the primary external benchmark for general server-state cache
+semantics. The parts re-frame2 should match are:
 
 - structured, serializable identity keys;
 - deterministic key hashing where map/object key order does not change
@@ -148,6 +245,11 @@ semantics. The parts re-frame2 should learn from are:
 The part re-frame2 should not copy is the React hook as the causal boundary.
 In re-frame2, views read and events cause.
 
+The opportunity to exceed TanStack is not raw maturity. It is architectural
+integration: resources can be frame-local, route-declared, SSR-aware,
+trace-explained, Xray-visible, privacy-filtered, and machine-escalatable in a
+way that a view-hook library cannot provide as its default model.
+
 ### RTK Query
 
 RTK Query shows a Redux-oriented version of the same design:
@@ -162,6 +264,11 @@ RTK Query shows a Redux-oriented version of the same design:
 The tag model is the useful lesson. Tags are explicit, simple, and proven. They
 are also fallible, so re-frame2 should later add Xray or contract-graph lint
 for broad, missing, or ineffective tags.
+
+The opportunity to exceed RTK Query is stronger causal evidence and clearer
+runtime ownership. RTK Query stores server-state cache in Redux state; re-frame2
+resources should live in the runtime partition, with public reads and explicit
+resource events rather than app handlers editing cache internals.
 
 ### SWR
 
@@ -180,7 +287,10 @@ resource artifact.
 
 re-frame2 should start with a document/resource cache keyed by resource identity
 and canonical params. Normalized entity storage or relational materialized views
-can become a later scale-gated enhancement.
+can become a later scale-gated enhancement. This keeps the MVP closer to
+TanStack Query and RTK Query than to a full GraphQL client, while leaving room
+for a future graph-cache or incremental-view artifact where the app's data model
+justifies it.
 
 ### shipclojure/re-frame-query
 
@@ -213,7 +323,7 @@ runtime/app-db partitioning, managed HTTP, Xray, privacy egress, and AI-readable
 metadata. It should also avoid making subscription-driven fetching the default
 because that weakens event causality and makes route behavior harder to inspect.
 
-## Design Principles
+## Design Rationale
 
 ### Passive Read, Explicit Causal Fetch
 
@@ -496,7 +606,7 @@ streaming, and workflow-coupled reads can graduate to explicit machines.
 
 Transport retry belongs to HTTP. Semantic retry belongs to machines.
 
-## Proposed Solution
+## Specification
 
 Ship an optional artifact:
 
@@ -1453,7 +1563,7 @@ the resource state.
 The machine remains the semantic workflow. The resource runtime handles cached
 read mechanics.
 
-## Implementation Plan
+## Reference Implementation Plan
 
 ### 1. Artifact and Namespaces
 
@@ -1708,7 +1818,7 @@ Initial conformance fixtures should cover:
 - trace redaction and pruning for params/scopes;
 - redacted tool summaries.
 
-## Options Considered
+## Alternatives Considered
 
 ### A. Pattern Only
 
@@ -1748,11 +1858,13 @@ conventions.
 This is useful as an Xray bead and can reveal app patterns, but it does not
 replace the runtime primitive.
 
-## Recommendation
+## Acceptance Criteria And Rollout
 
-Build Option C in slices, starting with a read-resource MVP.
+Build Option C in slices, starting with a read-resource MVP. The artifact should
+be judged against the benchmark dimensions above, not only against whether it
+removes boilerplate from current examples.
 
-The v1 artifact should include:
+The v1 artifact should be considered acceptable when it includes:
 
 - `reg-resource`;
 - passive resource state subscriptions;
@@ -1776,13 +1888,13 @@ The v1 artifact should include:
 - SSR preload/hydration;
 - Xray/tool metadata and resource trace operations.
 
-First public-beta gate:
+The first public-beta gate should add:
 
 - `reg-mutation`;
 - focus/reconnect revalidation;
 - mutation invalidation integration.
 
-Defer beyond those first slices:
+The following capabilities are explicitly deferred beyond those first slices:
 
 - optimistic rollback;
 - generic transports;
@@ -1794,17 +1906,25 @@ Defer beyond those first slices:
 - offline persistence;
 - cross-tab broadcast.
 
-## Why This Can Be Better Than TanStack Query
+## Benchmark Positioning
 
 It should not be sold as "TanStack Query but more mature." It will not be more
 mature on day one.
 
-The honest claim is narrower:
+The honest claim is:
 
 > TanStack Query is the gold standard for general server-state cache behavior.
 > re-frame2 can match the core semantics that apply, and be better for
 > re-frame2 apps because resources live inside the same event, frame, route,
 > SSR, schema, trace, Xray, and privacy model as the rest of the application.
+
+That is the standard this EP sets. Matching the benchmark means users get the
+expected resource-management capabilities: stale/fresh state, cache keys,
+dedupe, refetch triggers, invalidation, inactive retention, hydration, mutations,
+and later optimistic and infinite-query support. Exceeding the benchmark means
+the same behavior is causally explained, route-aware, frame-local, SSR-safe,
+privacy-aware, AI-inspectable, and integrated with state machines rather than
+hidden inside view lifecycle.
 
 Structural advantages inside re-frame2:
 
