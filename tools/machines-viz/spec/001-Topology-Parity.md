@@ -245,7 +245,7 @@ parse (`chart/layout.cljc`) + pure projection (`chart/projection.cljc`)
 | **History** | 🪝 **Render-hook only (rf2-az6e2, §1.4) — NOT yet emitted.** The `history-marker` renderer (shallow `H` / deep `H*`) is registered in the node-types map, but `chart.layout/project-definition` emits **no** history pseudo-state node today (the parsed node shape carries no history data), so the projector never produces one. First-class `:history` is NOT shipped; the hook is shaped to the grammar awaiting parsed history topology (and Spec 005 history semantics). | `nodes.cljs` `history-marker` (registered hook); `layout.cljc` (no history emission). |
 | **Event labels** | ✅ `event [guard] / action` composed label; `after(<ms>)`, `always`, `* (any)` wildcard segments; opaque chart-bg backplate (rf2-j10sm Phase 1) for legibility against overlapping ink; label is clickable when a fireable event-id + host callback are present. **Multi-event collapse SUPERSEDED + RETIRED** (rf2-j10sm Phase 2 → rf2-qo5xy → rf2-o6vh7): the old collapse rendered N transitions on one `[source target]` pair as ONE arrow + N stacked labels (`:siblingIndex` / `:siblingCount`). Under events-as-nodes (rf2-qo5xy) each event is its OWN event-node, so same-`[source target]` transitions stay DISTINCT event-nodes (no collapse); rf2-o6vh7 removed the dead `:siblingIndex` / `:siblingCount` + `data-sibling-*` machinery. (The rf2-r7vsr post-render collision-avoidance overlay was **retired** in rf2-0xbgx: events-as-nodes moved labels onto event-nodes and left the in/out edges label-less, so the edge-label sweep was inert; elk layout + events-as-nodes makes label-on-node-body collisions a non-issue.) | `layout.cljc` `edge-label`/`event-segment`; `edges.cljs` `transition-edge`; `projection.cljc` `xyflow-graph` (one event-node per parsed transition). |
 | **Guards / actions** | ✅ Guard in `[...]`, action after `/`; entry/exit state actions render as `entry / <name>` / `exit / <name>` rows under the label; state-tag pills above. | `layout.cljc` `edge-label`, `name-of`; `nodes.cljs` `state-node` (entry/exit rows, tag pills). |
-| **Layout** | ✅ elk Layered, `DOWN`/`RIGHT` direction, `INCLUDE_CHILDREN` when nested (G5, rf2-gpa9k), per-container padding for header strips; async + cached pass; xyflow `fitView`. **Initial-state placement soft preference** (rf2-ly51l): `elk.layered.cycleBreaking.strategy DEPTH_FIRST` breaks a cyclic statechart's loops by a depth-first walk **from the sources** (the initial state) rather than GREEDY min-reversed-count, so the forward spine starting at the initial state ranks near the top (`:tb`) / left (`:lr`) — fixing the door's `open`-on-top / `locked`-third mis-rank. The initial state also **leads its container's model order** (`order-state-children`; machine-root annotation sinks last), biasing DEPTH_FIRST's source selection + the within-layer tiebreak toward it. **Soft, not invariant**: only the cycle-reversal SET changes; full layer-sweep crossing-min + node-placement still run, so a state can land off the initial-on-top ideal when crossings demand. Acyclic graphs are layout-identical to GREEDY. | `chart.cljs` `compute-layout!`/`default-elk-options` (`cycleBreaking.strategy DEPTH_FIRST`)/`elk-layout-options` (root `layoutOptions` + cross-hierarchy switch); `projection.cljc` `order-state-children` + `->elk-children` (initial-leads model order + per-container `layoutOptions`). |
+| **Layout** | ✅ elk Layered, `DOWN`/`RIGHT` direction, `INCLUDE_CHILDREN` when nested (G5, rf2-gpa9k), per-container padding for header strips; async + cached pass; xyflow `fitView`. **Initial-state placement soft preference** (rf2-ly51l): `elk.layered.cycleBreaking.strategy DEPTH_FIRST` breaks a cyclic statechart's loops by a depth-first walk **from the sources** (the initial state) rather than GREEDY min-reversed-count, so the forward spine starting at the initial state ranks near the top (`:tb`) / left (`:lr`) — fixing the door's `open`-on-top / `locked`-third mis-rank. The initial state also **leads its container's model order** (`order-state-children`; machine-root annotation sinks last), biasing DEPTH_FIRST's source selection + the within-layer tiebreak toward it. **Soft, not invariant**: only the cycle-reversal SET changes; full layer-sweep crossing-min + node-placement still run, so a state can land off the initial-on-top ideal when crossings demand. Acyclic graphs are layout-identical to GREEDY. **G-SHAPE compaction:** `elk.layered.spacing.nodeNodeBetweenLayers` is `50` (was `70`) so a flat cyclic statechart reads as a tighter vertical column closer to the Stately reference (door / gate visibly less stretched); the value stays comfortably above the ORTHOGONAL route-channel reserve (`edgeNodeBetweenLayers 24`) and only shrinks inter-layer whitespace (no node re-ranking), so nested / parallel / acyclic machines are visually unchanged. **G-ROUTE (the residual gap — DOCUMENT, not close; §4.3):** a cyclic statechart's back-edges (door's `alarming → reset → locked`, gate's `* → reset → idle`, brew's `ready → start → brewing`) sink their synthetic event-node to the DEEPEST layer, so the return route reads as a long detour rather than Stately's compact mid-height return. This is STRUCTURAL — see §4.3. | `chart.cljs` `compute-layout!`/`default-elk-options` (`cycleBreaking.strategy DEPTH_FIRST` + `nodeNodeBetweenLayers 50`)/`elk-layout-options` (root `layoutOptions` + cross-hierarchy switch); `projection.cljc` `order-state-children` + `->elk-children` (initial-leads model order + per-container `layoutOptions`). |
 | **Edge routing through nesting** | ✅ **Closed (rf2-cz8v6; key-scheme fixed rf2-r636q).** elk runs `ORTHOGONAL` routing with `elk.json.edgeCoords ROOT`; `compute-layout!` lifts each edge's `sections` bend-points (absolute coords) into an `{elk-edge-id [{:x :y} …]}` map keyed by the `<spec-edge-id>__in` / `<spec-edge-id>__out` ids (the two segments the events-as-nodes split mints, rf2-qo5xy), and the projector attaches each segment's route to the matching xyflow edge's `:data {:points}` — `__in` to the inbound edge, `__out` to the outbound edge. `transition-edge` then draws a smooth poly-path THROUGH the bends, so a deeply-nested transition routes **around** a container instead of cutting across it. Self-loops keep their dedicated loop path; an edge with no elk route falls back to the bezier. *(rf2-r636q: the consumer formerly looked up the bare `<spec-edge-id>` the producer never emits → the feature was silently dead until the producer/consumer key scheme was reconciled.)* | `chart.cljs` `default-elk-options` (`ORTHOGONAL` + `edgeCoords ROOT`) / `elk-edge-points` / `elk-result->positions`; `projection.cljc` `xyflow-graph` (`:edge-points` `__in`/`__out` → `:data {:points}`); `edges.cljs` `edge-path` (poly-path). |
 | **Fired-this-epoch edge highlight** | ✅ **Closed (rf2-8jzm1 + rf2-qeemm / G3).** The Xray inspector resolves the focused epoch's traversed edges via `extract-fired-edge-ids` (CANONICAL machines-viz edge-ids, B7) and threads them as `:fired-edge-ids` (set) into `MachineChart`; the projector marks each matching edge `:fired` and `transition-edge` paints the FIRED treatment (emphasised + animated stroke + `data-fired`) along the routed path — coexisting with G2's bend-points + G1's active styling. Matches the EDGE directly (not the from/to ENDPOINT lens), so every microstep / guard-fork arm lights up. **Colour delegated to Figma** (`:accent` baseline, distinct from the focused/active `:info`). | `projection.cljc` `xyflow-graph` (`:fired-edge-ids` → `:data {:fired}`); `chart.cljs` (`:fired-edge-ids` prop); `edges.cljs` `transition-edge` (FIRED stroke + `data-fired`); Xray `trace_state/extract-fired-edge-ids` + `machine_inspector` / `machine_canvas` wiring. |
 | **Simulation** | ✅ (host-side, trace-driven + hermetic sim) — live highlight off `[:rf/runtime :machines :snapshots <id>]` + the Spec 009 bus; the Static-Machines Sim sub-mode is a hermetic what-if walker. Edge labels carry `:eventId` + `:onClick` so a host wires "click to send". | `projection.cljc` (`:on-edge-click`/`:eventId`); Xray `static/machines/sim.cljs` (per 003). |
@@ -472,6 +472,52 @@ fill), and colours resolved through the active-theme **chart-tokens**
   container it does not enter (no overlap of edge path and a
   non-incident region/compound box). Figma owns stroke style; the
   **routing geometry** is the contract.
+
+#### 4.3.1 G-ROUTE — back-edge return-route detour (DOCUMENTED structural residual, NOT closeable via an ELK option)
+
+A close-the-gap layout-fidelity pass (rf2 layout-fidelity) compared the
+full dark corpus against the Stately/xstate references and isolated a
+residual divergence in the **return route** of a cyclic statechart's
+back-edges. On the Stately reference, a loop-closing transition (door's
+`alarming → reset → locked`, gate's `{high,low,rejected} → reset → idle`,
+brew's `ready → start → brewing`) places its **event chip at mid-height**
+and routes the return compactly up one side. On `MachineChart` the
+synthetic event-node of that back-edge sinks to the **deepest layer** (the
+very bottom), so the return reads as a long vertical detour up the canvas
+edge.
+
+**Root cause — structural, not a missing option.** Under the
+events-as-nodes paradigm (rf2-qo5xy) the back transition
+`alarming → locked` is two ELK edges through a node:
+`alarming → reset → locked`. ELK's Layered algorithm ranks `reset` one
+layer **below** `alarming` because `alarming → reset` is a forward edge
+and `alarming` is already the deepest state — so `reset` is forced to the
+bottom regardless of the layering / node-placement strategy. Stately
+avoids this because it keeps the transition as a **single** edge with the
+chip ON the (reversed) back-edge, so the chip floats to the edge midpoint;
+the events-as-nodes split (an intentional, Stately-parity design lock —
+§Event labels) gives the chip its own layer instead.
+
+**Empirically confirmed dead ends** (each captured + compared corpus-wide):
+
+- `elk.layered.nodePlacement.strategy NETWORK_SIMPLEX` — tidies columns
+  but does NOT lift the back-edge node (placement is within-layer).
+- `elk.layered.layering.strategy COFFMAN_GRAHAM` — no lift; risks worse
+  crossings elsewhere.
+- `elk.layered.cycleBreaking.strategy GREEDY` — DOES lift the back-edge
+  node to mid-height BUT **inverts the spine** (door renders `open` on top
+  and the initial `locked` in the middle), a hard REGRESSION that
+  re-breaks the rf2-ly51l initial-on-top guarantee. The DEPTH_FIRST ⇄
+  GREEDY trade is mutually exclusive: you get the compact return OR the
+  initial-on-top spine, never both.
+
+**Verdict:** closing G-ROUTE without regressing initial-state placement
+would require either abandoning the events-as-nodes split for back-edges
+(a Stately-parity lock, out of scope) or a custom post-ELK reroute of
+back-edge event-nodes (new machinery, not an ELK option). It is therefore
+DOCUMENTED here as a known residual rather than closed. The shipped pass
+took the **G-SHAPE** win only (`nodeNodeBetweenLayers 70 → 50`, the
+inter-layer compaction in §2 Layout), which is non-regressing corpus-wide.
 
 ### 4.4 G3 — fired-edge id consistency ✅ CLOSED
 
