@@ -1,16 +1,23 @@
-# EP: Resource Management - Resources
+# EP: Resource Queries
 
-Status: Draft
+Status: proposal
 
 Type: Standards Track
+
+Date: 2026-06-06
 
 Created: 2026-06-06
 
 Target Artifact: `day8/re-frame2-resources`
 
-Target API: `reg-resource`, `reg-mutation`
+Target API Surface:
 
-Requires:
+- MVP: `reg-resource`, `clear-resource`, resource subscriptions, resource
+  events, and resource introspection
+- First public-beta gate: `reg-mutation`, `clear-mutation`, and mutation
+  execution events
+
+Related:
 
 - [Guide 10 - HTTP](../guide/10-http.md)
 - [Guide 19 - Routing](../guide/19-routing.md)
@@ -19,6 +26,8 @@ Requires:
 - [Spec 014 - HTTP Requests](https://github.com/day8/re-frame2/blob/main/spec/014-HTTPRequests.md)
 - [Spec 012 - Routing](https://github.com/day8/re-frame2/blob/main/spec/012-Routing.md)
 - [Spec 005 - State Machines](https://github.com/day8/re-frame2/blob/main/spec/005-StateMachines.md)
+- [App/Runtime Partition EP](app-db-runtime-partition.md)
+- [Explicit Frame Target Resolution EP](frame-target-resolution.md)
 
 Benchmark References:
 
@@ -404,14 +413,19 @@ The target frame-state shape is:
        {:slug "welcome"}]}}}}}
 ```
 
+In a full frame-state projection, the resource path is
+`[:rf.db/runtime :rf.runtime/resources]`. Inside runtime-db itself, framework
+code reads and writes `[:rf.runtime/resources]`.
+
 Until the frame-state partition lands, the interim implementation can use:
 
 ```clojure
 [:rf/runtime :resources]
 ```
 
-The specification should still be written toward `:rf.db/runtime`, so ordinary
-`:db` event handlers cannot accidentally wipe resource state.
+The specification should still be written toward `:rf.runtime/resources` inside
+`:rf.db/runtime`, so ordinary `:db` event handlers cannot accidentally wipe
+resource state.
 
 ### Resource Identity Is Data
 
@@ -604,8 +618,7 @@ Every resource instance has a lifecycle:
   superseded reply -> previous stable state
 
 :error
-  refetch without data -> :loading
-  refetch with data -> :fetching
+  refetch -> :loading
 ```
 
 The default implementation should be a compact transition function, not a
@@ -624,7 +637,8 @@ day8/re-frame2-resources
 ```
 
 Requiring `re-frame.resources` wires the artifact into the core facade, feature
-registry, routing integration, SSR support, and tool metadata.
+registry, and tool metadata. Routing and SSR integration should be late-bound so
+applications that do not load those optional artifacts do not carry their code.
 
 ### MVP Scope
 
@@ -772,7 +786,11 @@ Introspection:
 
 ```clojure
 (rf/resource-meta :article/by-slug)
-(rf/resource-state :article/by-slug {:slug "welcome"} {:frame :rf/default})
+(rf/resource-state
+ {:resource :article/by-slug
+  :scope    [:rf.scope/session {:user-id "u-42" :tenant-id "acme"}]
+  :params   {:slug "welcome"}
+  :frame    :rf/default})
 (rf/resources {:frame :rf/default})
 ```
 
@@ -843,6 +861,12 @@ Deferred keys:
 - `:infinite`;
 - mutation-only keys such as `:invalidates`, `:optimistic`, and `:rollback`.
 
+`:rf.http/managed` is the existing Spec 014 effect surface.
+`:rf.graphql/query` is a proposed transport supplied by the resources artifact,
+not an already-shipped core effect. Its implementation may lower to managed HTTP
+or a configured GraphQL client, but the resource lifecycle remains the owner of
+identity, staleness, dedupe, invalidation, SSR hydration, and tool metadata.
+
 Do not add a TanStack-style `:select` key in v1. In re-frame2, projections are
 ordinary subscriptions layered over `[:rf.resource/data ...]`. That is not a
 missing feature; it is a structural advantage of the subscription graph.
@@ -867,6 +891,11 @@ should store facts rather than derived booleans:
  :owners     <set>}
 ```
 
+This deliberately refines Pattern-RemoteData's broad `:error` state. In resource
+projections, `:error` is reserved for a failed first load with no usable data.
+A failed background refresh returns to `:loaded`, preserves the prior data, and
+records the failure in `:refresh-error`.
+
 The important invariant:
 
 - `:loading` means first load with no usable data;
@@ -882,12 +911,15 @@ The important invariant:
 - views should not have to infer "error with stale data" from
   `(:status state)` plus `(:has-data? state)`.
 
+The examples below show public `:rf.resource/state` projections. Durable entries
+do not store derived booleans such as `:has-data?` or `:fetching?`.
+
 First-load failure:
 
 ```clojure
 {:status :error
  :data nil
- :error {:category :http/status :status 503}
+ :error {:kind :rf.http/http-5xx :status 503}
  :refresh-error nil
  :has-data? false}
 ```
@@ -898,7 +930,7 @@ Background-refresh failure:
 {:status :loaded
  :data {:title "Welcome"}
  :error nil
- :refresh-error {:category :http/status :status 503}
+ :refresh-error {:kind :rf.http/http-5xx :status 503}
  :has-data? true
  :fetching? false}
 ```
@@ -1005,9 +1037,11 @@ rather than sentinel nil params.
 
 Dependent route resources should be modeled as a route plan, not a hidden view
 effect. The simple v1 rule can be conservative: compute independent resources
-in parallel; let a resource declare `:after` another route-resource key when its
-params depend on the first resource's data; show the dependency and any
-waterfall in Xray.
+in parallel; let a route resource declare a local `:id`, and let another route
+resource declare `:after #{local-id}` when its params depend on the first
+resource's data. `:after` must target route-local ids rather than resource ids
+because the same resource can appear more than once with different params. Xray
+should show the dependency and any waterfall.
 
 Routes are not required. An app can use resources entirely from events and
 machines:
@@ -1108,6 +1142,9 @@ Do not serialize all of `:rf.db/runtime` by default. Resource hydration needs an
 explicit projection hook that can redact or omit sensitive and large data.
 Hydration should never cross scopes: request-local SSR frames and serialized
 resource scopes must agree before a client treats hydrated data as usable.
+Until the App/Runtime Partition EP lands, the same projection rule applies to
+the interim `[:rf/runtime :resources]` app-db slice: serialize only the resource
+projection, not unrelated runtime state.
 
 Hydration rules:
 
@@ -1130,6 +1167,10 @@ V1 should ship with two built-in transports:
 :transport :rf.graphql/query
 ```
 
+`:rf.graphql/query` is new resources-artifact API, not an existing core fx.
+Spec 014 currently defines managed HTTP; GraphQL-specific batching, persisted
+queries, and client-cache behavior all layer above that transport boundary.
+
 The resource lifecycle, cache identity, owner model, stale/fresh policy,
 invalidation, SSR hydration, and Xray surfaces must be transport-neutral. The
 core should not assume a URL, HTTP method, status code, or request body. Those
@@ -1145,15 +1186,20 @@ For HTTP, the resource runtime lowers an ensure/refetch into managed HTTP:
   :on-success [:rf.resource.internal/succeeded
                 {:resource-key resource-key
                  :scope        scope
+                 :frame        frame-id
                  :generation   generation}]
   :on-failure [:rf.resource.internal/failed
                 {:resource-key resource-key
                  :scope        scope
+                 :frame        frame-id
                  :generation   generation}]}]
 ```
 
-Success and failure events must verify generation before writing. Cancellation
-is an optimization; stale suppression is the correctness boundary.
+The managed HTTP reply dispatch is already frame-targeted by Spec 014. The
+resource metadata should still carry the intended frame id for assertion,
+stale-suppression diagnostics, and trace rows. Success and failure events must
+verify frame and generation before writing. Cancellation is an optimization;
+stale suppression is the correctness boundary.
 
 For GraphQL, the resource runtime lowers an ensure/refetch into a GraphQL query
 operation:
@@ -1167,10 +1213,12 @@ operation:
   :on-success     [:rf.resource.internal/succeeded
                    {:resource-key resource-key
                     :scope        scope
+                    :frame        frame-id
                     :generation   generation}]
   :on-failure     [:rf.resource.internal/failed
                    {:resource-key resource-key
                     :scope        scope
+                    :frame        frame-id
                     :generation   generation}]}]
 ```
 
@@ -1501,7 +1549,7 @@ egress and elision rules.
      :blocking? true}]})
 
 (rf/reg-view article-page []
-  (let [slug  @(rf/subscribe [:rf.route/param :slug])
+  (let [slug  (:slug @(rf/subscribe [:rf.route/params]))
         scope @(rf/subscribe [:session/resource-scope])
         state @(rf/subscribe [:rf.resource/state
                               {:resource :article/by-slug
@@ -1528,9 +1576,9 @@ the resource state.
 
 ### GraphQL Resource
 
-GraphQL reads use the same resource lifecycle as HTTP reads. The transport
-metadata describes the operation; cache identity still comes from scope,
-resource id, and canonical params.
+GraphQL reads use the same resource lifecycle as HTTP reads. The proposed
+resources-artifact transport `:rf.graphql/query` describes the operation; cache
+identity still comes from scope, resource id, and canonical params.
 
 ```clojure
 (rf/reg-resource
@@ -1632,8 +1680,9 @@ Rules:
 
 ### GraphQL Mutation
 
-When the mutation slice lands, GraphQL mutations should use the same mutation
-runtime, invalidation, and trace semantics as HTTP mutations.
+When the mutation slice lands, the proposed `:rf.graphql/mutation` transport
+should use the same mutation runtime, invalidation, and trace semantics as HTTP
+mutations.
 
 ```clojure
 (rf/reg-mutation
@@ -1665,18 +1714,22 @@ runtime, invalidation, and trace semantics as HTTP mutations.
 ### Machine-Owned Resource
 
 ```clojure
-{:states
+{:actions
+ {:ensure-quote
+  (fn [{:keys [data]}]
+    {:fx [[:dispatch
+           [:rf.resource/ensure
+            {:resource :checkout/quote
+             :params   {:cart-id (:cart-id data)}
+             :owner    [:machine :checkout/flow (:instance-id data)]
+             :cause    [:machine-action :checkout/quote.requested]}]]]})}
+
+ :states
  {:idle
   {:on
    {:quote.requested
     {:target :loading
-     :actions
-     [{:fx [[:dispatch
-              [:rf.resource/ensure
-               {:resource :checkout/quote
-                :params   {:cart-id [:data :cart-id]}
-                :owner    [:machine :checkout/flow [:data :instance-id]]
-                :cause    [:machine-action :checkout/quote.requested]}]]]}]}}}
+     :action :ensure-quote}}}
 
   :loading
   {:on
@@ -1740,7 +1793,13 @@ collision with route query params and with prior-art implementation names.
 
 ### 3. Runtime State
 
-Use target path:
+Use target runtime-db child path:
+
+```clojure
+[:rf.runtime/resources]
+```
+
+In a full frame-state projection, that appears at:
 
 ```clojure
 [:rf.db/runtime :rf.runtime/resources]
@@ -1924,8 +1983,8 @@ Tools should receive summaries:
  :owners       #{[:route :route/article nav-token]}
  :causes       [[:route-entry :route/article nav-token]]
  :tags         #{[:article "welcome"]}
- :refresh-error {:category :http/status
-                 :status   503}
+ :refresh-error {:kind   :rf.http/http-5xx
+                 :status 503}
  :data-summary {:schema :app/article
                 :redacted? true
                 :size 14231}}
