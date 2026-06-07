@@ -1770,6 +1770,30 @@
     (is (< projection/initial-marker-tip-gap projection/initial-marker-x-offset)
         "tip-gap < offset ⇒ arrow tip (local x = offset - gap) is OUTSIDE the edge, not at/through it")))
 
+(deftest initial-marker-glyph-hook-flows-forward
+  (testing "rf2-wwyx1u — the initial glyph reads as ONE clean unit pointing
+            AT the edge: the small Stately-sized arrowhead leaves the hook
+            base (`end-x`) RIGHT of the dot (`dot-x`), so the single Q-hook
+            flows dot → down-and-RIGHT into the arrowhead (NOT backwards).
+            Pins the FORWARD-FLOW invariant the renderer paints across every
+            density, so the oversized-arrowhead regression cannot return."
+    (doseq [density vc/densities]
+      (let [{:keys [pseudo-radius]} (vc/chart-for-density density)
+            {:keys [ah tip-x dot-x end-x]}
+            (projection/initial-marker-glyph pseudo-radius)]
+        ;; the arrowhead is SMALL (Stately ~5×5), never the oversized
+        ;; ~10-13px head the regression produced.
+        (is (<= 4 ah 5)
+            (str density ": arrowhead is Stately-small (4–5px), not oversized"))
+        ;; the hook base sits RIGHT of the dot ⇒ the curve flows FORWARD
+        ;; (down-and-right) into the arrowhead, not backwards into the dot.
+        (is (> end-x dot-x)
+            (str density ": end-x > dot-x ⇒ hook flows FORWARD into the arrowhead"))
+        ;; the tip still lands a clean positive gap OUTSIDE the edge
+        ;; (edge is at local x=offset), pointing AT it.
+        (is (< 0 tip-x projection/initial-marker-x-offset)
+            (str density ": arrow tip is OUTSIDE the edge, pointing at it"))))))
+
 (deftest xyflow-graph-nested-initial-marker-has-no-extent-clamp
   (testing "rf2-d5s7yg — a NESTED initial-marker (compound/region substate)
             carries `:parentId` for the coordinate frame but NO `:extent
@@ -3003,3 +3027,69 @@
         (is (empty? (projection/fork-connector-edges
                       (:edges parsed) (tokens/chart-tokens) vc/chart-regular))
             (str "fixture " m " yields no connector edges directly"))))))
+
+;; ---- guarded-fork branch LAYOUT ORDER (rf2-p75kbg) ----------------------
+
+(deftest fork-branch-event-positions-maps-event-nodes-to-priority
+  (testing "rf2-p75kbg — each guarded-fork branch EVENT-NODE id maps to its
+            1-based priority index (re-keyed from the spec edge-id via
+            `event-node-id`), so the `elk.position` within-layer hint stacks
+            the gate fork 1,2,3."
+    (let [edges    (:edges (layout/project-definition gate-fork-machine))
+          pos      (projection/fork-branch-event-positions edges)
+          checks   (filter #(= :gate/check (:event %)) edges)
+          by-guard (into {} (map (juxt :guard identity) checks))
+          ev       #(projection/event-node-id (get by-guard %))]
+      (is (= 3 (count pos)) "all three fork branches get a position")
+      (is (= 1 (get pos (ev :gate-high?))) "gate-high? → 1 (priority 1)")
+      (is (= 2 (get pos (ev :gate-low?)))  "gate-low? → 2 (priority 2)")
+      (is (= 3 (get pos (ev nil)))         "rejected fallback → 3 (priority 3)")
+      ;; the non-fork `:gate/set` (a different trigger) gets NO position hint.
+      (let [set-edge (first (filter #(= :gate/set (:event %)) edges))]
+        (is (not (contains? pos (projection/event-node-id set-edge)))
+            "the non-fork :gate/set event-node carries no position hint")))))
+
+(deftest fork-branch-container-ids-flags-only-fork-holders
+  (testing "rf2-p75kbg — the holding-container set carries the root (nil) for
+            the gate fork (its branches leave the top-level :idle), and is
+            EMPTY for a machine without a guarded fork (so semiInteractive is
+            never enabled where there is nothing to order)."
+    (is (= #{nil} (projection/fork-branch-container-ids
+                    (layout/project-definition gate-fork-machine)))
+        "gate fork's branches lay out at the root → #{nil}")
+    (doseq [m [self-loop-machine compound-machine idle-loading]]
+      (is (empty? (projection/fork-branch-container-ids
+                    (layout/project-definition m)))
+          (str "non-fork fixture " m " flags no fork container")))))
+
+(deftest elk-children-pin-fork-branches-in-priority-order
+  (testing "rf2-p75kbg — `->elk-children` tags each gate-fork branch
+            event-node with the `elk.position` KVector hint == its priority
+            index (x = order, y = 0, for the DOWN-direction cross-axis), and
+            leaves every non-fork node unpinned."
+    (let [parsed   (layout/project-definition gate-fork-machine)
+          edges    (:edges parsed)
+          kids     (projection/->elk-children parsed)
+          opts-of  (fn [id] (-> (filter #(= id (:id %)) kids) first :layoutOptions))
+          checks   (filter #(= :gate/check (:event %)) edges)
+          by-guard (into {} (map (juxt :guard identity) checks))
+          ev       #(projection/event-node-id (get by-guard %))]
+      (is (= {"elk.position" "(1,0)"} (opts-of (ev :gate-high?)))
+          "branch 1 pinned at cross-axis x=1")
+      (is (= {"elk.position" "(2,0)"} (opts-of (ev :gate-low?)))
+          "branch 2 pinned at cross-axis x=2")
+      (is (= {"elk.position" "(3,0)"} (opts-of (ev nil)))
+          "branch 3 pinned at cross-axis x=3")
+      ;; the non-fork :gate/set event-node carries NO position pin.
+      (let [set-edge (first (filter #(= :gate/set (:event %)) edges))]
+        (is (nil? (opts-of (projection/event-node-id set-edge)))
+            "non-fork event-node is unpinned")))))
+
+(deftest elk-children-no-fork-no-position-pins
+  (testing "rf2-p75kbg — a machine with no guarded fork carries NO
+            `elk.position` pins on any child (the ordering machinery is a
+            no-op where there is no fork to straighten)."
+    (doseq [m [self-loop-machine compound-machine idle-loading]]
+      (let [kids (projection/->elk-children (layout/project-definition m))]
+        (is (not-any? #(contains? (:layoutOptions %) "elk.position") kids)
+            (str "non-fork fixture " m " pins no node position"))))))

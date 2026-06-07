@@ -260,7 +260,17 @@
       (assoc "elk.direction" (elk-direction-str direction))
       (cond-> (or (:parallel? parsed)
                   (some :parent-id (:nodes parsed)))
-        (assoc "elk.hierarchyHandling" "INCLUDE_CHILDREN"))))
+        (assoc "elk.hierarchyHandling" "INCLUDE_CHILDREN"))
+      ;; rf2-p75kbg — a guarded fork whose branches lay out at the ROOT (the
+      ;; gate machine's `:gate/check` 3-way leaves the top-level `:idle`)
+      ;; enables root `crossingMinimization.semiInteractive` so the branch
+      ;; event-nodes' `elk.position` hints (projection/->elk-children) are
+      ;; honoured and the dotted evaluation-order connector reads as a clean
+      ;; monotonic line instead of weaving. Only nodes carrying a position
+      ;; hint are constrained, so this never perturbs a non-fork root layout;
+      ;; absent (the default) for any machine without a root-level fork.
+      (cond-> (contains? (projection/fork-branch-container-ids parsed) nil)
+        (assoc "elk.layered.crossingMinimization.semiInteractive" "true"))))
 
 (defn- ->elk-input
   "Build an elk.js JS-side input graph for the given parsed nodes +

@@ -655,7 +655,10 @@
   (let [d        (.-data props)
         vc       (chart-constants d)
         ct       (palette-of d)
-        {:keys [pseudo-radius arrow-width-entry]} vc
+        ;; rf2-wwyx1u — only `:pseudo-radius` is read now; the small glyph
+        ;; arrowhead is sized off it (the prior `:arrow-width-entry` read
+        ;; produced an oversized head — see the `ah` binding below).
+        {:keys [pseudo-radius]} vc
         stroke   (:pseudo-marker ct)
         ;; Glyph in node-local coords. Row y=0 is the marker origin
         ;; (== state.y + offset). rf2-d5s7yg — the marker node sits `offset`
@@ -665,23 +668,20 @@
         ;; edge; the dot sits near x≈`dot-r` (≈15px outside) and `hook-drop`
         ;; ABOVE the arrow row so the single Q hooks DOWN into the tip
         ;; (xstate-viz signature).
-        offset   projection/initial-marker-x-offset
-        gap      projection/initial-marker-tip-gap
         drop     initial-glyph-hook-drop
         dot-r    pseudo-radius
-        ;; Triangle arrowhead, scaled by the entry arrow width. Drawn as a
-        ;; filled triangle pointing RIGHT, tip at (tip-x, 0) — the
-        ;; `M0,0 L0,10 L10,5 z` shape from `chart.edges`'s shared marker.
-        ah       (max 6 arrow-width-entry)
+        ;; rf2-wwyx1u — the glyph geometry is single-sourced from the pure
+        ;; `projection/initial-marker-glyph` (so the renderer + the projection
+        ;; test agree on the FORWARD-FLOW invariant). It returns a SMALL
+        ;; Stately-sized arrowhead (`:ah` ≈ dot diameter / 2, 4px floor) — the
+        ;; prior `(max 6 arrow-width-entry)` produced a ~10–13px head that, on
+        ;; the SHORTENED glyph, pushed `end-x` LEFT of `dot-x`, ran the hook
+        ;; BACKWARDS and let the oversized triangle dominate. With the small
+        ;; head + bumped offset `end-x > dot-x`: the single Q hooks dot →
+        ;; down-and-RIGHT into the head, which points RIGHT into the edge.
+        {:keys [ah tip-x dot-x end-x]} (projection/initial-marker-glyph dot-r)
         ah-half  (/ ah 2.0)
-        ;; The arrow tip ends a clean `gap` px OUTSIDE the state's left edge
-        ;; (edge is at local x=`offset`), so absolute tip = state.x - gap.
-        tip-x    (- offset gap)
-        dot-x    (+ dot-r 1)         ;; inset so the dot's left edge clears x=0
         dot-y    (- drop)            ;; dot above the arrow row
-        ;; The stroked hook runs from the dot to just shy of the arrowhead
-        ;; base so the filled triangle (not the stroke) forms the tip.
-        end-x    (- tip-x ah)
         end-y    0
         hook     (str "M " dot-x "," dot-y
                       ;; xstate-viz recipe: control point at (dot.x, end.y).
