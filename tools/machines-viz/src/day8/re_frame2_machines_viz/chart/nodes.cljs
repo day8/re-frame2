@@ -645,30 +645,30 @@
                    :id "right"
                    :style {:opacity 0}}]])))
 
-;; ---- history pseudo-state renderer (rf2-az6e2 — HOOK ONLY) --------------
+;; ---- history pseudo-state renderer (rf2-m285a — WIRED END-TO-END) -------
 ;;
-;; rf2-az6e2 — the bead defines the VISUAL rendering of history pseudo-
-;; states (shallow `H` / deep `H*`, small symbolic node inside the owning
-;; compound, direct incoming transitions, NO normal state-box styling)
-;; for parsed topology that ALREADY contains pseudo-state data. The
-;; current `chart.layout/project-definition` does NOT yet emit history
-;; pseudo-state nodes (no `:history` key in the parsed node shape), and
-;; the bead is explicit that it "must not add statechart history
-;; semantics to re-frame2". So this renderer is a HOOK: it is shaped to
-;; the grammar + wired into the node-types map below, but the projector
-;; never emits a `history-marker` node today. When the parse + Spec 005
-;; history semantics land (follow-on bead rf2-az6e2-history-render),
-;; flip the projector to emit `{:type "history-marker" :data {:deep?
-;; …}}` and this renderer paints it. Constants (`:pseudo-*`) already
-;; carry the variant.
+;; rf2-az6e2 defined the VISUAL rendering of history pseudo-states
+;; (shallow `H` / deep `H*`, small symbolic node inside the owning
+;; compound, direct incoming transitions, NO normal state-box styling).
+;; rf2-m285a then WIRED first-class history END-TO-END (Spec 005 §History
+;; states): `chart.layout/collect-nodes` detects a `:type :history` node
+;; and emits a single `{:history? true :deep? <bool> :default-target …}`
+;; marker (NEVER occupiable — layout.cljc:360-375); `chart.projection/
+;; xyflow-graph` maps a `:history?` node to xyflow type `"history-marker"`
+;; and threads `:data {:deep …}` (projection.cljc:731/785); this renderer
+;; paints `H` / `H*` (below, :696). History topology is therefore PARSED,
+;; EMITTED, and PAINTED — no longer a render-hook awaiting data. Constants
+;; (`:pseudo-*`) carry the shallow/deep variant.
 
 (defn history-marker
-  "rf2-az6e2 — small symbolic pseudo-state node for a history marker.
-  Shallow history renders `H`; deep history renders `H*`. Reads
-  `:data {:deep? <bool>}`. NOT a normal state box — a small neutral
+  "rf2-az6e2 / rf2-m285a — small symbolic pseudo-state node for a history
+  marker. Shallow history renders `H`; deep history renders `H*`. Reads
+  `:data {:deep <bool>}`. NOT a normal state box — a small neutral
   rounded square so it reads as a pseudo-state inside its owning
-  compound. HOOK ONLY today (see the section comment above): no
-  projector path emits it until history topology data exists."
+  compound. WIRED END-TO-END (see the section comment above): the
+  projector emits `{:type \"history-marker\" :data {:deep …}}` for every
+  parsed `:type :history` node (Spec 005 §History states) and this
+  renderer paints it."
   [^js props]
   (let [d   (.-data props)
         vc  (chart-constants d)
@@ -727,8 +727,8 @@
        ;; (top-level `:on`) fallback routes from (projected once, not
        ;; per-state).
        "machine-root"    machine-root-node
-       ;; rf2-az6e2 — history pseudo-state renderer registered as a HOOK
-       ;; (the projector emits no `history-marker` node until history
-       ;; topology data lands; see `history-marker` docstring).
+       ;; rf2-m285a — history pseudo-state renderer; the projector emits a
+       ;; `history-marker` node for every parsed `:type :history` pseudo-
+       ;; state (wired end-to-end; see `history-marker` docstring).
        "history-marker"  history-marker
        "rf2-event"       event-node/event-node})
