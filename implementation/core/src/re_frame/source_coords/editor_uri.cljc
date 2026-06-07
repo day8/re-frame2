@@ -225,12 +225,6 @@
     (when-let [scheme (uri-scheme uri)]
       (contains? allowed-editor-uri-schemes scheme))))
 
-(def ^:private default-editor
-  "Default editor when no `:editor` config key is set. VS Code is the
-  most-installed editor in 2026 (Stack Overflow Developer Survey 2025
-  + JetBrains DevEcosystem 2025 both put it >70%)."
-  :vscode)
-
 ;; ---- pure: source-coord normalisation -----------------------------------
 
 (defn- coord-line

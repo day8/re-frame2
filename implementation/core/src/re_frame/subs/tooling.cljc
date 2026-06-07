@@ -25,8 +25,7 @@
   §Subscription topology vs subscription tracking."
   (:require [re-frame.registrar :as registrar]
             [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]))
+            [re-frame.interop :as interop]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
