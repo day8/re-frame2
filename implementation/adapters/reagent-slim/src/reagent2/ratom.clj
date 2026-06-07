@@ -12,8 +12,7 @@
       10x / Dash8 / rf8 (per §2.3 \"Symbols not shipped\" list).
 
   No CLJ-side runtime code lives here; only the macros consumed by CLJS
-  build sites via `:require-macros`."
-  (:refer-clojure :exclude [run!]))
+  build sites via `:require-macros`.")
 
 (defmacro reaction
   "Sugar for (make-reaction (fn [] body)). The body executes inside a

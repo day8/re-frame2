@@ -7,7 +7,7 @@
     Protocols:  IReactiveAtom, IDisposable
     Functions:  atom, make-reaction, dispose!, add-on-dispose!,
                 reactive?, flush!
-    Macros:     reaction, run!  (in reagent2/ratom.clj)
+    Macros:     reaction  (in reagent2/ratom.clj)
 
   Symbols deliberately NOT shipped (audit-confirmed zero usage across
   re-com / 10x / Dash8 / rf8 — see IMPL-SPEC §2.3 + §2.3a):
@@ -48,7 +48,7 @@
   on each commit boundary to drain the reactive queue synchronously.
   ratom itself never names `batching` — the edge is one-way (batching
   → ratom), keeping this ns DOM/component-free."
-  (:refer-clojure :exclude [atom run!])
+  (:refer-clojure :exclude [atom])
   (:require-macros [reagent2.ratom])
   (:require [clojure.set :as set]))
 
