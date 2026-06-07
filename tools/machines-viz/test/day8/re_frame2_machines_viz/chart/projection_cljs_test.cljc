@@ -1734,11 +1734,11 @@
           "entry edge has no event label"))))
 
 (deftest xyflow-graph-positions-initial-marker-at-fixed-offset
-  (testing "rf2-i9d2ob — the initial-marker node sits at a FIXED offset
-            LEFT of (and slightly below) its state, so the fixed glyph
-            (`chart.nodes/initial-marker`) drawn in node-local coords
-            reliably meets the state's near edge regardless of where ELK
-            placed the state"
+  (testing "rf2-i9d2ob / rf2-d5s7yg — the initial-marker node sits at a
+            FIXED, SMALL offset LEFT of (and slightly below) its state, so
+            the fixed glyph (`chart.nodes/initial-marker`) drawn in node-
+            local coords reads as a SHORT hook ending just OUTSIDE the
+            state's near edge regardless of where ELK placed the state"
     (let [parsed    (layout/project-definition idle-loading)
           idle-id   (layout/node-id [:idle])
           ;; place the initial state at a known position so the offset is
@@ -1749,10 +1749,43 @@
       (is (pos? projection/initial-marker-x-offset))
       (is (= (- 300 projection/initial-marker-x-offset)
              (get-in marker [:position :x]))
-          "marker x = state.x - initial-marker-x-offset (glyph arm reaches the state)")
+          "marker x = state.x - initial-marker-x-offset (dot sits left of the edge)")
       (is (= (+ 120 projection/initial-marker-y-offset)
              (get-in marker [:position :y]))
           "marker y = state.y + initial-marker-y-offset (title-row anchor)"))))
+
+(deftest initial-marker-short-hook-ends-outside-the-edge
+  (testing "rf2-d5s7yg — the offset is a SMALL short-hook span and the
+            tip-gap is decoupled from it: the arrow tip (drawn at node-local
+            x = offset - tip-gap) lands a clean gap OUTSIDE the state's left
+            edge (absolute state.x - tip-gap), never on/through it"
+    ;; offset is a SHORT hook span (Stately ~15px dot offset), not the old 48.
+    (is (<= 12 projection/initial-marker-x-offset 26)
+        "offset is a short-hook span (dot ~15px left of the edge)")
+    ;; the tip-gap is a small positive gap, strictly less than the offset so
+    ;; the tip lands OUTSIDE the edge (local x = offset - gap > 0).
+    (is (pos? projection/initial-marker-tip-gap))
+    (is (<= 4 projection/initial-marker-tip-gap 12)
+        "tip-gap is a small visible gap (~6-10px)")
+    (is (< projection/initial-marker-tip-gap projection/initial-marker-x-offset)
+        "tip-gap < offset ⇒ arrow tip (local x = offset - gap) is OUTSIDE the edge, not at/through it")))
+
+(deftest xyflow-graph-nested-initial-marker-has-no-extent-clamp
+  (testing "rf2-d5s7yg — a NESTED initial-marker (compound/region substate)
+            carries `:parentId` for the coordinate frame but NO `:extent
+            \"parent\"`. The clamp would shove a marker sitting just outside
+            the container's left padding back INSIDE — the root cause of the
+            nested-initial overshoot (`red`/`walk` penetrated, top-level
+            `door` did not)"
+    (let [parsed      (layout/project-definition compound-machine)
+          graph       (projection/xyflow-graph parsed {} {})
+          browsing-id (layout/node-id [:authenticated :browsing])
+          marker      (node-by-id graph (str "initial__" browsing-id))]
+      (is (some? marker) "the compound's initial substate gets a marker")
+      (is (= (layout/node-id [:authenticated]) (:parentId marker))
+          "marker keeps the container coordinate frame via :parentId")
+      (is (not (contains? marker :extent))
+          "marker carries NO :extent — the clamp that drove the nested overshoot is gone"))))
 
 (deftest xyflow-graph-threads-initial-flag-onto-node-data
   (testing "rf2-54s5a — node :data carries :initial (true for the
