@@ -563,7 +563,11 @@ Stately (`quiz` ≈ 1.03, `modal` ≈ 1.04) and **inverts BOTH parallel axes**
    ranking, initial-on-top, and ORTHOGONAL cross-hierarchy routing — out
    of scope). The only option through which a target aspect influences
    Layered is `elk.layered.wrapping.strategy`, which **cuts a long layer
-   chain into stacked rows**. But the machines that read too-narrow are
+   chain into stacked rows**. (Pairing `aspectRatio` *with* wrapping — the
+   verbatim xstate-viz root combo, on the hypothesis that `aspectRatio`
+   only binds once wrapping is enabled — was re-tested 2026-06-08 and is
+   the same wall, only worse: see the `aspectRatio "2"` dead-end below.)
+   But the machines that read too-narrow are
    precisely the genuinely-**linear** ones (`door`, `brew` are chains),
    and wrapping a chain is the exact REGRESSION the parity bar forbids —
    it shatters the clean vertical column and mangles initial-on-top.
@@ -608,6 +612,36 @@ corpus-wide via `ai/topology/capture.cjs`):
   1.31 and `brew` 0.59 → 1.56 into scrambled landscape blocks (chain
   broken, `open`/`alarming` thrown to the upper-right, initial-on-top
   mangled). This is the exact non-regression the parity bar forbids.
+- **`elk.aspectRatio "2"` + `elk.layered.wrapping.strategy MULTI_EDGE`
+  (+ `elk.layered.compaction.postCompaction.strategy LEFT`) — the
+  VERBATIM xstate-viz root pairing, RE-TESTED 2026-06-08 (rf2-lamdfl).**
+  The lead (`ai/topology/xstate-viz-research.md`): `aspectRatio` was
+  suspected a no-op *alone* because it only binds when `wrapping.strategy`
+  is enabled, so the PAIR was never properly evaluated. It was — the
+  worker re-built the `:examples/machine-epochs` bundle with the pair and
+  re-captured all 9 machines × both themes against a clean before/after
+  baseline (`capture.cjs`, dark+light identical since aspect is layout,
+  not palette). Result: **the pair is the SAME hard regression, only
+  worse than the `"1.4"` row above** — it inflates the wrapping that
+  shatters every genuinely-vertical / linear machine. Per-machine
+  before → after diagram aspect (content-bbox `width/height`):
+  `door` 0.52 → **2.02**, `brew` 0.59 → **1.52**, `session` 0.68 →
+  **2.32**, `media` 0.68 → **1.53** — all four columns flipped to
+  scrambled landscape blocks with the forward spine broken and the
+  initial state no longer on top (verified visually: door's `closed`
+  thrown to upper-centre, `alarming`/`door/reset` flung to the far
+  upper-right, the `insert-coin → locked` back-loop a tangled knot). The
+  branchy machines OVERSHOOT, not match, the Stately target:
+  `quiz` 1.20 → **2.84** (target ≈ 1.45), `modal` 1.18 → **3.35**
+  (target ≈ 1.31). The nested / parallel machines are UNCHANGED
+  (`gate` 1.71→1.75, `hvac` 1.13→1.13, `traffic` 1.07→1.07) — confirming
+  wall 2: `INCLUDE_CHILDREN` (mandatory for those) discards the wrapping
+  just as it discards a per-region `elk.direction`, so the pair cannot
+  even reach a parallel machine. NO machine moved CLOSER to its Stately
+  target; four genuinely-vertical machines REGRESSED hard. There is no
+  `aspectRatio`-binds-wrapping win to recover — the pairing simply turns
+  wrapping ON, and wrapping a chain *is* the regression (wall 1). The
+  combo was REVERTED; `default-elk-options` is unchanged.
 - per-region `elk.direction "RIGHT"` on every `:region?` container — the
   projection emits it (JVM-verified), but the render is unchanged because
   `INCLUDE_CHILDREN` discards it (see wall 2).
@@ -616,8 +650,13 @@ corpus-wide via `ai/topology/capture.cjs`):
 axis are BOTH structural, not reachable via an ELK direction / aspect /
 region-axis option without regressing the genuinely-vertical machines
 (`door`, `brew`), the rf2-ly51l initial-on-top guarantee, or the G5
-cross-hierarchy edge routing. Like G-ROUTE (§4.3.1), this is DOCUMENTED as
-a known residual rather than forced. A future, deliberately-scoped pass
+cross-hierarchy edge routing. The verbatim xstate-viz `aspectRatio "2"`
++ `wrapping.strategy MULTI_EDGE` pairing — the most credible remaining
+"maybe ELK can do it" lead — was re-tested in full (2026-06-08,
+before/after capture of all 9 machines × both themes) and **confirmed
+the residual**: it regressed four vertical machines hard and moved none
+closer to target (the `aspectRatio "2"` dead-end above). Like G-ROUTE
+(§4.3.1), this is DOCUMENTED as a known residual rather than forced. A future, deliberately-scoped pass
 could close it only via NEW machinery — a custom post-ELK transform
 (per-region axis flip for parallel; selective beside-the-source event-node
 placement for the flat branchy machines) — not an option tweak.
