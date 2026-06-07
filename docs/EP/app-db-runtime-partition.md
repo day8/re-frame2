@@ -135,6 +135,8 @@ This proposal does not:
 - define a generic N-partition database system;
 - change ordinary app subscriptions into runtime-db readers;
 - authorize application handlers to write runtime-db directly;
+- move every framework-private cache, listener, in-flight handle, or tool buffer
+  into runtime-db;
 - settle every epoch record field name;
 - redesign machine snapshot internals;
 - define the resource query API, except by reserving a runtime partition for it.
@@ -147,8 +149,9 @@ This proposal does not:
 |---|---|
 | frame | The runtime boundary: id, router, queue, reactive container, sub-cache, lifecycle, config, trace ring, epoch history, and durable state partitions. |
 | app-db | The user-owned application data partition. It is exposed as the ordinary `:db` coeffect/effect. |
-| runtime-db | The framework-owned durable runtime partition. It is exposed internally as the reserved `:rf.db/runtime` coeffect/effect. |
+| runtime-db | The framework-owned durable, serializable runtime partition. It is exposed internally as the reserved `:rf.db/runtime` coeffect/effect. |
 | frame-state | A coherent snapshot/projection containing both app-db and runtime-db. |
+| transient runtime state | Framework-owned state outside frame-state because it is host-specific, cache-like, or lifecycle-only, such as HTTP in-flight registries, SSR request/response slots, trace listeners, epoch capture buffers, and sub-cache entries. |
 | runtime handles | Non-serializable host handles outside frame-state, such as timers, AbortControllers, listeners, promises, and substrate objects. |
 
 Public docs should teach:
@@ -158,6 +161,10 @@ app-db is your data.
 runtime-db is re-frame2's durable bookkeeping.
 frame-state is the coherent snapshot containing both.
 ```
+
+Transient runtime state is implementation/tooling machinery, not part of
+frame-state unless a future design deliberately promotes a serializable fact into
+runtime-db.
 
 ### Partition Keys
 
@@ -395,6 +402,17 @@ not serializable runtime-db values. The runtime-db records enough durable facts
 to reconstitute or clean up those handles, but it does not store the handles
 themselves.
 
+The durability boundary is intentional. Framework-owned state that is
+cache-like, host-specific, or request-lifetime remains outside runtime-db unless
+the design deliberately promotes a serializable fact into frame-state. Examples
+include SSR request/response accumulators, pending error buffers, head snapshots,
+streaming continuation registries, HTTP in-flight registries, AbortControllers,
+retry timers, epoch capture buffers, epoch listeners, trace rings, sub-cache
+entries, and flow registries or last-inputs dirty-check caches. These surfaces
+must still be frame-scoped and torn down correctly, but full-frame
+serialization, hydration, restore, and time travel must not pull them in by
+accident.
+
 ### Guardrails
 
 Because `:rf.db/runtime` is part of `:coeffects`, app code can technically read
@@ -474,6 +492,11 @@ Names are illustrative. The required distinction is that app-facing APIs return
 app-db by default, while tools and privileged runtime code request runtime-db or
 frame-state explicitly.
 
+Full-frame APIs must state which projection they use: app-db only, runtime-db
+only, frame-state, or frame diagnostics including transient runtime state. The
+default for serialization, SSR, and time travel is frame-state only; transient
+side channels require an explicit trusted-local tooling API.
+
 ### Subscriptions And Flows
 
 Ordinary layer-1 app subscriptions receive app-db:
@@ -522,6 +545,13 @@ Flows follow the same partition rule:
 If a flow or framework derivation reads both partitions, its dirty-check must
 key on both input sets. A runtime-db write cannot be hidden from a flow merely
 because the app-db partition was value-identical.
+
+Flow materialized outputs that model app state remain app-db values; this EP
+does not move ordinary flow output paths into runtime-db. Flow definitions,
+topological order, and last-inputs dirty-check caches are runtime bookkeeping.
+Unless a future design intentionally makes them durable frame-state,
+restore/replay/rollback must recompute or clear these caches from the restored
+app/runtime partitions so stale dirty-check rows cannot suppress recomputation.
 
 ### App Schemas
 
@@ -843,6 +873,15 @@ that includes `:current`, `:pending-navigation`, navigation-token counters,
 scroll restoration caches, and other per-frame routing internals. For elision
 that includes both large-value declarations and sensitive-value declarations.
 
+For SSR, only durable hydration metadata and serializable SSR facts move under
+`:rf.runtime/ssr`. Server-only request/response accumulators, pending-error
+buffers, head snapshots, streaming continuation queues, and host adapter state
+remain transient side-channel state; they are cleared on frame destroy and
+excluded from hydration payloads and epoch restores. Managed-HTTP in-flight
+registries, abort controllers, retry/backoff timers, and transport promises
+follow the same transient rule unless a future resource-cache design promotes a
+serializable fact into `:rf.runtime/resources`.
+
 ### 5. Update subscriptions, flows, and coeffects
 
 Audit:
@@ -853,11 +892,14 @@ Audit:
 - path interceptors;
 - app-db schema validation;
 - flow input resolution;
+- flow registry and last-input cache alignment;
 - flow write effects;
 - `sub-machine`;
 - route subs;
 - partition-aware sub-cache invalidation;
 - elision lookup during trace and wire projection;
+- transient SSR, HTTP, epoch, trace, and sub-cache side-channel teardown and
+  projection;
 - test helpers that assert app-db shape.
 
 Ordinary app subscriptions continue to see app-db. Framework subs and framework
@@ -894,7 +936,17 @@ slice plus runtime metadata stashed during `:rf/hydrate`; the partitioned
 design should make the app/runtime split explicit on the wire and should
 validate both partitions fail-closed before installation.
 
+SSR hydration allowlists operate over app-db plus the serializable runtime-db
+projection. They must not serialize server-only request/response accumulators,
+head snapshots, streaming continuation registries, pending error buffers, or
+host handles. If the client needs one SSR fact, such as a server render hash,
+project that fact into `[:rf.runtime/ssr :hydration]` and validate it there.
+
 Xray should show app-db and runtime-db as separate views inside one frame.
+Xray, pair-MCP, and epoch egress should treat runtime-db as its own redactable
+projection. Off-box projection must redact or omit both app-db and runtime-db
+according to policy, while transient side-channel state is absent by default and
+available only through explicit trusted-local diagnostic APIs.
 
 ### 7. Add guardrails
 
@@ -908,9 +960,11 @@ Add diagnostics for:
   `:runtime`, `:rf/frame`, or bare `:frame` when they mean runtime-db or frame
   id;
 - raw reads of `[:rf/runtime ...]` in examples, docs, tests, or skills;
-- full-frame install attempted through ordinary dispatch.
+- full-frame install attempted through ordinary dispatch;
 - durable runtime writes performed through raw app-db container swaps instead
-  of partition helpers.
+  of partition helpers;
+- transient runtime side-channel state serialized into frame-state, SSR
+  payloads, or epoch records without an explicit projection.
 
 The diagnostics should teach:
 
@@ -965,8 +1019,18 @@ Conformance tests should verify:
 - machine snapshots move with epoch restore;
 - route state moves with epoch restore;
 - SSR hydration installs both partitions without double-initializing runtime;
+- SSR hydration payloads exclude request/response/head/streaming side channels
+  and host handles while preserving explicit hydration metadata such as a server
+  render hash;
+- HTTP in-flight handles, abort controllers, retry timers, epoch capture
+  buffers, trace rings, flow dirty-check caches, and sub-cache entries are not
+  serialized into frame-state;
+- flow materialized outputs remain app-db values while dirty-check caches are
+  recomputed or cleared on rollback and restore;
 - `app-db-value` returns only user app-db;
 - tool/full-frame APIs return the frame-state projection;
+- off-box epoch, Xray, and pair projections redact or omit runtime-db according
+  to projection policy;
 - app schemas validate only app-db;
 - runtime schemas validate runtime-db;
 - legacy `:rf/runtime` writes emit the planned diagnostic;
@@ -1051,9 +1115,16 @@ than app-db/runtime-db.
 9. Whether `reset-frame!` resets both partitions by default or only app-db with
    a separate full reset surface.
 10. Whether `reset-frame-db!` remains app-db-only, gains a frame-state sibling,
-   or is renamed before public stabilization.
+    or is renamed before public stabilization.
 11. Whether app-db schemas should be renamed in docs to "app partition schemas"
-   while keeping the public API name `reg-app-schema`.
+    while keeping the public API name `reg-app-schema`.
+12. Whether flow definitions and last-input caches remain transient runtime
+    bookkeeping that is recomputed or cleared, or any part becomes durable
+    runtime-db.
+13. The exact durable/transient boundary for SSR, HTTP, epoch, trace, and tooling
+    side channels.
+14. Off-box projection policy for runtime-db: default redaction, elision, and
+    whether trusted local tools can request transient diagnostics.
 
 ## Bead Plan
 
@@ -1113,3 +1184,17 @@ constraints:
 - Current epoch records store `:db-before` and `:db-after` as app-db values.
   A partitioned restore needs an explicit frame-state snapshot or an
   unambiguous sibling shape.
+- The SSR artefact deliberately keeps request slots, response accumulators,
+  pending error buffers, head snapshots, and streaming continuation registries in
+  side-channel atoms so they do not ride hydration payloads. The partition
+  migration must keep that privacy and lifecycle boundary.
+- Managed HTTP keeps in-flight request handles, abort controllers, retry timers,
+  and actor indexes in registries outside app-db. These are host handles or
+  transient runtime state, not durable runtime-db values.
+- Flows materialize outputs into app-db but keep registrations and `last-inputs`
+  dirty-check rows in per-frame registries. Restore and rollback semantics must
+  keep those caches aligned or recompute them.
+- Epoch, Xray, and pair tooling store histories, capture buffers, listeners,
+  trace rings, and mount attribution outside app-db. This EP's "tool state"
+  language must therefore mean explicit frame-state projections, not every
+  tool-side cache.
