@@ -91,7 +91,7 @@ tools/story-mcp/
         ├── result.cljc                           ; result-envelope builders (pr-edn, text-result, error-result)
         ├── args.cljc                             ; arg readers + bounded-allowlist coercions (with-variant, read-run-opts, include-sensitive?)
         ├── cljs_resolve.cljc                     ; cross-platform CLJS var resolution (registered-substrates)
-        ├── egress.cljc                           ; wire-egress scrubbers (elide-app-db, scrub-assertions, scrub-rendered)
+        ├── egress.cljc                           ; wire-egress scrubbers (elide-app-db, scrub-assertions+count, scrub-rendered)
         ├── schemas.cljc                          ; recurring JSON-schema fragments
         ├── dev.cljc                              ; get-story-instructions, preview-variant, list-substrates
         ├── docs.cljc                             ; list-stories, get-story, get-variant, list-tags, list-modes, list-decorators, list-assertions, variant->edn, get-docs-markdown
