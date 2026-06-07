@@ -72,8 +72,9 @@ That keeps the proposal inside the re-frame2 ethos:
 The initial implementation should be a read-resource MVP: registration,
 explicit ensure/refetch/invalidate events, passive subscriptions, active owners,
 cache scopes, stale/fresh policy, dedupe, GC, route integration, SSR
-preload/hydration, and Xray/tool visibility. It should also define timer policy
-for stale/GC behavior and resolve background-refresh error semantics up front.
+preload/hydration, built-in HTTP and GraphQL read transports, and Xray/tool
+visibility. It should also define timer policy for stale/GC behavior and
+resolve background-refresh error semantics up front.
 
 Two distinctions are important enough to be part of the first specification:
 
@@ -85,9 +86,9 @@ Mutations and focus/reconnect revalidation should be the first public-beta gate,
 not distant future work. A read-resource MVP is useful for route and SSR data,
 but the artifact should not be presented as complete resource management until
 minimal mutation invalidation and active-stale revalidation are in place.
-Optimistic updates, polling, infinite resources, generic transports, and
-normalized caches are important later slices, but should not make the first
-artifact too wide.
+Optimistic updates, polling, infinite resources, generic transport extension
+protocols, and normalized caches are important later slices, but should not make
+the first artifact too wide.
 
 ## Motivation
 
@@ -115,6 +116,9 @@ re-frame2 already has strong primitives for pieces of this:
 
 - `:rf.http/managed` owns transport mechanics such as retry, abort, timeout,
   schema decode, frame-aware replies, test stubs, and structured failure data.
+- GraphQL is common enough, and different enough from endpoint-shaped HTTP, to
+  deserve a first-class v1 transport rather than being treated as a later
+  generic-transport proof of concept.
 - Pattern-RemoteData gives the canonical `:loading` vs `:fetching` distinction.
 - Routing owns route metadata, `:on-match`, nav-tokens, route transition state,
   and SSR route entry.
@@ -159,8 +163,8 @@ The resource artifact should:
   and `re-frame-query` where those semantics apply;
 - preserve re-frame2's event-causal model by keeping views passive and making
   route/event/machine causes explicit;
-- integrate resource ownership with frames, routes, SSR, managed HTTP, schemas,
-  Xray, traces, privacy elision, and AI tooling;
+- integrate resource ownership with frames, routes, SSR, managed HTTP, GraphQL,
+  schemas, Xray, traces, privacy elision, and AI tooling;
 - make cache identity, scope, staleness, invalidation, liveness, and causality
   visible as data;
 - support route and SSR data loading without component-tree request waterfalls;
@@ -174,7 +178,7 @@ The initial artifact should not:
 - make subscription-driven fetching the default causal model;
 - replace ordinary `reg-sub`, `reg-flow`, `:rf.http/managed`, or state machines;
 - start with a normalized graph cache;
-- start with generic transports before managed HTTP has proven the core model;
+- start with a general transport plugin protocol;
 - promise offline persistence, cross-tab broadcast, infinite resources, polling,
   or optimistic rollback in the first slice;
 - hide server-state behavior inside React/Reagent component lifecycle.
@@ -222,8 +226,8 @@ The benchmark dimensions are:
 - cache shape: document/resource cache first, graph normalization later;
 - tooling: inspectable cache entries, causes, owners, timings, and privacy
   state;
-- extensibility: a path from managed HTTP to later transports without weakening
-  the core semantics.
+- extensibility: a transport-neutral core with v1 built-ins for managed HTTP and
+  GraphQL, plus a path to later transports without weakening the core semantics.
 
 ### TanStack Query
 
@@ -286,11 +290,14 @@ GraphQL and entity-heavy applications, but it is too much for the first
 resource artifact.
 
 re-frame2 should start with a document/resource cache keyed by resource identity
-and canonical params. Normalized entity storage or relational materialized views
-can become a later scale-gated enhancement. This keeps the MVP closer to
-TanStack Query and RTK Query than to a full GraphQL client, while leaving room
-for a future graph-cache or incremental-view artifact where the app's data model
-justifies it.
+and canonical params. V1 should still include a GraphQL operation transport, so
+GraphQL applications get route-owned reads, SSR hydration, stale/fresh policy,
+dedupe, invalidation, and Xray visibility immediately. What is deferred is the
+normalized graph cache, entity identity policy, fragment store, and automatic
+graph-derived invalidation associated with a full GraphQL client. This keeps the
+MVP closer to TanStack Query and RTK Query than to Apollo or Relay, while
+leaving room for a future graph-cache or incremental-view artifact where the
+app's data model justifies it.
 
 ### shipclojure/re-frame-query
 
@@ -319,9 +326,10 @@ pure.
 
 The re-frame2 artifact should learn from `re-frame-query`, but not clone it.
 re-frame2 needs tighter integration with frames, route metadata, SSR,
-runtime/app-db partitioning, managed HTTP, Xray, privacy egress, and AI-readable
-metadata. It should also avoid making subscription-driven fetching the default
-because that weakens event causality and makes route behavior harder to inspect.
+runtime/app-db partitioning, managed HTTP, GraphQL, Xray, privacy egress, and
+AI-readable metadata. It should also avoid making subscription-driven fetching
+the default because that weakens event causality and makes route behavior harder
+to inspect.
 
 ## Design Rationale
 
@@ -604,7 +612,8 @@ The default implementation should be a compact transition function, not a
 spawned machine per resource entry. Semantic retry, multi-step negotiation,
 streaming, and workflow-coupled reads can graduate to explicit machines.
 
-Transport retry belongs to HTTP. Semantic retry belongs to machines.
+Transport retry belongs to the transport adapter, whether that adapter is
+managed HTTP or GraphQL over HTTP. Semantic retry belongs to machines.
 
 ## Specification
 
@@ -635,7 +644,7 @@ V1 should include:
 - route `:resources`;
 - blocking and non-blocking route resources;
 - SSR preload and hydration for route resources;
-- managed HTTP as the only built-in transport;
+- managed HTTP and GraphQL query as built-in read transports;
 - exact tag invalidation;
 - conditional route resources and clear params-failure behavior;
 - timer policy for stale/fresh and inactive GC;
@@ -652,7 +661,7 @@ First public-beta gate:
 Later slices:
 
 - optimistic rollback;
-- generic transport extension;
+- generic transport extension protocol;
 - polling and interval revalidation;
 - infinite resources;
 - normalized entity caches;
@@ -808,13 +817,15 @@ Example:
 Required keys:
 
 - `:params-schema` validates and canonicalizes params;
-- `:request` returns managed HTTP request data;
+- `:request` returns managed HTTP request data, or GraphQL operation metadata is
+  supplied through the GraphQL transport keys;
 - `:data-schema` validates successful data when transport decode supports it.
 
 Optional v1 keys:
 
 - `:doc`;
-- `:transport`, fixed initially to `:rf.http/managed`;
+- `:transport`, one of `:rf.http/managed` or `:rf.graphql/query` for
+  resources;
 - `:stale-after-ms`;
 - `:gc-after-ms`;
 - `:scope`, a function or declarative resolver for the cache scope when the
@@ -1112,13 +1123,20 @@ Hydration rules:
 
 ### Transport
 
-V1 should be HTTP-first:
+V1 should ship with two built-in transports:
 
 ```clojure
 :transport :rf.http/managed
+:transport :rf.graphql/query
 ```
 
-The resource runtime lowers an ensure/refetch into managed HTTP:
+The resource lifecycle, cache identity, owner model, stale/fresh policy,
+invalidation, SSR hydration, and Xray surfaces must be transport-neutral. The
+core should not assume a URL, HTTP method, status code, or request body. Those
+are HTTP transport details. It also should not assume a normalized entity graph,
+fragment store, or GraphQL client cache. Those are GraphQL-client details.
+
+For HTTP, the resource runtime lowers an ensure/refetch into managed HTTP:
 
 ```clojure
 [:rf.http/managed
@@ -1137,9 +1155,35 @@ The resource runtime lowers an ensure/refetch into managed HTTP:
 Success and failure events must verify generation before writing. Cancellation
 is an optimization; stale suppression is the correctness boundary.
 
-Generic transport is desirable, and `re-frame-query` demonstrates that demand,
-but it should be a later extension protocol after the managed HTTP semantics
-are solid.
+For GraphQL, the resource runtime lowers an ensure/refetch into a GraphQL query
+operation:
+
+```clojure
+[:rf.graphql/query
+ {:request-id     request-id
+  :operation-name "UserProfile"
+  :document       user-profile-query
+  :variables      {:id "u-42"}
+  :on-success     [:rf.resource.internal/succeeded
+                   {:resource-key resource-key
+                    :scope        scope
+                    :generation   generation}]
+  :on-failure     [:rf.resource.internal/failed
+                   {:resource-key resource-key
+                    :scope        scope
+                    :generation   generation}]}]
+```
+
+GraphQL support in v1 means operation-level resource caching, route ownership,
+SSR hydration, stale/fresh policy, dedupe, invalidation, redaction, and Xray
+visibility for GraphQL reads. It does not mean Apollo/Relay-style normalized
+entity caching. Normalized graph storage is a later artifact because it needs
+entity identity policy, fragment semantics, cache writes, partial data rules,
+and graph-derived invalidation.
+
+Generic transport extension is still desirable, and `re-frame-query`
+demonstrates that demand, but it should be a later extension protocol after the
+HTTP and GraphQL built-ins have proven the resource semantics.
 
 ### Race and In-Flight Semantics
 
@@ -1230,7 +1274,7 @@ The implementation should reuse v1 primitives:
 - active owners decide which entries are worth refetching;
 - stale/fresh timestamps decide whether refetch is needed;
 - generation checks suppress stale replies;
-- managed HTTP owns transport retry and abort;
+- the selected transport adapter owns transport retry and abort;
 - Xray and traces show why the refresh happened.
 
 Likely public/internal events:
@@ -1273,7 +1317,8 @@ The minimal mutation slice should include:
 - explicit invalidation timing: before request, after success, after failure, or
   after settle;
 - controlled resource patch/populate APIs for mutation responses;
-- abort and retry policy inherited from managed HTTP, with write retries opt-in;
+- abort and retry policy inherited from the selected transport adapter, with
+  write retries opt-in;
 - failure-state lifetime and a causal clear/reset event;
 - trace-visible mutation instance ids;
 - instrumentation hooks for later optimistic snapshots and rollback.
@@ -1481,6 +1526,53 @@ egress and elision rules.
 The view is passive. The route caused the resource ensure. The runtime owns
 the resource state.
 
+### GraphQL Resource
+
+GraphQL reads use the same resource lifecycle as HTTP reads. The transport
+metadata describes the operation; cache identity still comes from scope,
+resource id, and canonical params.
+
+```clojure
+(rf/reg-resource
+  :user/profile
+  {:params-schema
+   [:map [:user-id :string]]
+
+   :data-schema
+   :app/user-profile
+
+   :transport
+   :rf.graphql/query
+
+   :operation-name
+   "UserProfile"
+
+   :document
+   user-profile-query
+
+   :variables
+   (fn [{:keys [user-id]} _ctx]
+     {:id user-id})
+
+   :stale-after-ms
+   30000
+
+   :tags
+   (fn [_params {:keys [user]}]
+     #{[:user/id (:id user)]})})
+```
+
+Rules:
+
+- every variable that changes the remote identity must be represented in
+  resource params;
+- operation name, document hash, variables, and GraphQL endpoint/client id are
+  transport evidence, not a replacement for resource identity;
+- `{data ..., errors ...}` is a distinct GraphQL partial-success case, not
+  automatically the same as HTTP failure;
+- v1 caches the operation result as a resource document. It does not maintain a
+  normalized entity graph.
+
 ### Event-Driven Ensure
 
 ```clojure
@@ -1538,6 +1630,38 @@ the resource state.
              :params   params}]]]}))
 ```
 
+### GraphQL Mutation
+
+When the mutation slice lands, GraphQL mutations should use the same mutation
+runtime, invalidation, and trace semantics as HTTP mutations.
+
+```clojure
+(rf/reg-mutation
+  :user/update-name
+  {:params-schema
+   [:map
+    [:id :string]
+    [:name :string]]
+
+   :transport
+   :rf.graphql/mutation
+
+   :operation-name
+   "UpdateUserName"
+
+   :document
+   update-user-name-mutation
+
+   :variables
+   (fn [{:keys [id name]} _ctx]
+     {:id id
+      :name name})
+
+   :invalidates
+   (fn [{:keys [id]} _result]
+     #{[:user/id id]})})
+```
+
 ### Machine-Owned Resource
 
 ```clojure
@@ -1581,6 +1705,8 @@ re_frame.resources.registry
 re_frame.resources.state
 re_frame.resources.events
 re_frame.resources.transport
+re_frame.resources.transport.http
+re_frame.resources.transport.graphql
 re_frame.resources.subs
 re_frame.resources.route
 re_frame.resources.ssr
@@ -1645,7 +1771,7 @@ Store host handles in side tables keyed by frame, resource key, and generation:
 - AbortControllers;
 - timeout handles;
 - polling timers;
-- transport-specific subscriptions;
+- transport-specific handles;
 - promise handles.
 
 Frame destroy must clean side tables.
@@ -1685,10 +1811,10 @@ Implement internal events:
 8. if request is in flight, join/dedupe after owner update and emit dedupe
    trace;
 9. transition to `:loading` or `:fetching`;
-10. issue managed HTTP effect;
+10. issue the selected built-in transport effect;
 11. record generation, request id, and trace data.
 
-### 5. Managed HTTP Integration
+### 5. Managed HTTP and GraphQL Integration
 
 For `:transport :rf.http/managed`, lower a resource request into managed HTTP.
 
@@ -1704,6 +1830,42 @@ The reply event must carry enough data to verify generation and frame:
 
 If generation does not match, suppress the reply and emit trace metadata. A
 stale reply must never overwrite newer data.
+
+For `:transport :rf.graphql/query`, lower the resource to a GraphQL operation
+over the configured GraphQL client or endpoint:
+
+```clojure
+{:operation-kind :query
+ :operation-name "UserProfile"
+ :document       user-profile-query
+ :variables      {:id "u-42"}
+ :request-id     request-id
+ :on-success     [:rf.resource.internal/succeeded
+                  {:resource-key resource-key
+                   :scope        scope
+                   :generation   generation
+                   :frame        frame-id}]
+ :on-failure     [:rf.resource.internal/failed
+                  {:resource-key resource-key
+                   :scope        scope
+                   :generation   generation
+                   :frame        frame-id}]}
+```
+
+The GraphQL adapter must preserve the same resource invariants as HTTP:
+
+- generation checks are the correctness boundary;
+- abort is best-effort;
+- stale suppression is mandatory;
+- route and SSR ownership are unchanged;
+- scopes and params still define resource identity;
+- operation/document/variable summaries are visible to Xray with the same
+  privacy and size elision as HTTP request metadata.
+
+GraphQL partial success needs explicit policy. A response with both `data` and
+`errors` may become loaded data plus a transport warning, a `:refresh-error`
+while preserving prior data, or a first-load `:error`, depending on resource
+policy. It must not be silently treated as ordinary success.
 
 ### 6. Subscriptions
 
@@ -1873,7 +2035,7 @@ The v1 artifact should be considered acceptable when it includes:
 - non-liveness causes;
 - explicit cache scopes and scope clearing;
 - route `:resources`;
-- managed HTTP transport;
+- managed HTTP and GraphQL query transports;
 - canonical params;
 - exact tag invalidation;
 - stale/fresh policy;
@@ -1897,7 +2059,7 @@ The first public-beta gate should add:
 The following capabilities are explicitly deferred beyond those first slices:
 
 - optimistic rollback;
-- generic transports;
+- generic transport extension protocol;
 - polling/interval revalidation;
 - infinite resources;
 - normalized caches;
@@ -1935,7 +2097,8 @@ Structural advantages inside re-frame2:
 - explicit owner/cause separation, so liveness and causality do not blur;
 - cache scopes for auth, tenant, locale, impersonation, and SSR correctness;
 - runtime-owned state that ordinary app-db writes cannot clobber;
-- managed HTTP as the default transport;
+- built-in managed HTTP and GraphQL transports over a transport-neutral resource
+  lifecycle;
 - schema-aware params and decoded data;
 - derived projections through ordinary subscriptions instead of a query-local
   `:select` hook;
@@ -1981,8 +2144,10 @@ re-frame2 runtime process.
    Recommendation: use the same error envelope shape as `:error`, plus
    timestamp/attempt metadata if useful. `:status :error` is reserved for
    first-load failure with no usable data.
-8. Should generic transports be part of v1?
-   Recommendation: no. Managed HTTP first.
+8. Should GraphQL be part of v1, or deferred behind a generic transport
+   protocol?
+   Recommendation: GraphQL query should be a v1 built-in alongside managed
+   HTTP. The generic transport extension protocol should still be deferred.
 9. What is the cache scope shape?
    Recommendation: make scope explicit EDN and part of the resource key, with
    `[:rf.scope/global]` as the default and `clear-scope` for logout/account
@@ -2006,25 +2171,28 @@ re-frame2 runtime process.
    state.
 4. Managed HTTP bead: ensure/refetch/success/failure over `:rf.http/managed`,
    dedupe, generation checks, and stale reply suppression.
-5. Invalidation/GC bead: tags, active owners, owner indexes, stale marking,
+5. GraphQL transport bead: `:rf.graphql/query`, operation metadata, variables,
+   partial-success policy, SSR hydration, trace summaries, and parity with the
+   resource lifecycle used by HTTP.
+6. Invalidation/GC bead: tags, active owners, owner indexes, stale marking,
    active refetch, causes, stale/GC timer policy, scope clearing, and inactive
    GC.
-6. Route integration bead: `:resources`, nav-token owners, blocking resources,
+7. Route integration bead: `:resources`, nav-token owners, blocking resources,
    `:when`, dependent route resources, `:keep-previous?`, release on leave, and
    preserved `:on-match` behavior.
-7. SSR/hydration bead: blocking resource drain, resource projection, redaction,
+8. SSR/hydration bead: blocking resource drain, resource projection, redaction,
    scope isolation, projection metadata, and hydration no-double-fetch.
-8. Xray/tool/privacy bead: resource registry panel, route/resource graph,
+9. Xray/tool/privacy bead: resource registry panel, route/resource graph,
    lifecycle timeline, invalidation graph, cache growth view, summaries, trace
    operations, egress policy, and redacted accessors.
-9. Focus/reconnect bead: active-stale scan on browser focus and network
+10. Focus/reconnect bead: active-stale scan on browser focus and network
    reconnect, expressed as resource events with trace records.
-10. Mutation bead: `reg-mutation`, mutation instance state, execution,
-    patch/populate APIs, invalidation, and trace hooks for later optimistic
-    rollback.
-11. Docs/examples bead: guide chapter, API docs, migration notes from
+11. Mutation bead: `reg-mutation`, HTTP and GraphQL mutation execution,
+    mutation instance state, patch/populate APIs, invalidation, and trace hooks
+    for later optimistic rollback.
+12. Docs/examples bead: guide chapter, API docs, migration notes from
     `shipclojure/re-frame-query`, route-driven example, SSR example, and
-    machine-owned resource example.
+    HTTP, GraphQL, and machine-owned resource examples.
 
 ## Sources Consulted
 
