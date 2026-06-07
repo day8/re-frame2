@@ -8,8 +8,13 @@
   ...}` map registered via `rf/reg-machine`), an optional
   current-state path (the `:to` of the most recent transition trace
   in the focused epoch), and an optional set of `:fired-this-epoch`
-  edge-keys; returns `{:nodes [...] :edges [...]}` suitable for
-  handing to the xyflow wrapper.
+  edge-keys; returns `{:nodes [...] :edges [...]}` in xyflow's
+  node/edge shape.
+
+  NOTE: this projector + its grid layout are a self-contained,
+  JVM-portable fallback (still unit-tested); they are NOT on the
+  live render path. The Machines panel renders through the shared
+  machines-viz `MachineChart` (elkjs layout) — see `topology-view`.
 
   ## Pure
 
