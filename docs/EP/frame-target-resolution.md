@@ -1,8 +1,10 @@
 # EP: Explicit Frame Target Resolution
 
-Status: Draft
+Status: proposal
 
 Type: Standards Track
+
+Date: 2026-06-06
 
 Created: 2026-06-06
 
@@ -324,6 +326,11 @@ delays, route listeners, and future resource-query callbacks must capture the
 frame at initiation. They must not rediscover a frame after the cascade has
 ended.
 
+Tool eval surfaces follow the same rule. Wrapping an `eval-cljs` form in
+`with-frame` supplies a frame only for the synchronous evaluation of that form.
+If the evaluated form returns a Promise or installs a callback, the continuation
+must capture a frame handle or frame-bound function explicitly.
+
 ### Registration-Time Resolution
 
 Registration-time frame resolution is distinct from operation-time resolution.
@@ -378,13 +385,21 @@ Xray may mount its own frame lazily, but it should not default the inspected
 host target to `:rf/default`. A host can pass a target:
 
 ```clojure
-(xray/init! {:target-frame :app/main})
+(xray/init! {:own-frame    :rf/xray
+             :target-frame :app/main})
 ```
 
 or Xray can show an unselected-target state until the frame picker chooses one.
 If Xray wants to auto-select a sole app frame, that should be modeled as an
 explicit discovery policy in Xray or Tool-Pair, not as core `:rf/default`
 fallback.
+
+This is a deliberate vocabulary change from today's Xray facade, where
+`init!` accepts `:default-frame`, `target-frame` reads through
+`default-target-frame`, and `set-target-frame! nil` resets to `:rf/default`.
+The migration should split Xray's own frame from the inspected target frame and
+make `nil` mean unselected unless a host or discovery policy explicitly selects
+a target.
 
 Pair-MCP and AI tool APIs should reject mutating operations when no target frame
 is selected. Reads may return structured `:rf.tool/no-frame-selected` data for
@@ -502,14 +517,16 @@ Update:
 - one-arity `unsubscribe`;
 - `snapshot-of`;
 - no-arg `sub-cache`;
+- zero-arity `clear-sub-cache!`;
 - `current-frame-id`;
 - no-arg `frame-handle`;
 - no-arg `frame-bound-fn*`;
+- one-arity `machine-by-system-id`;
 - `sub-machine`;
 - `machine-has-tag?`.
 
-The no-arg forms can remain only as context readers. They should fail when used
-outside context.
+Context-defaulting forms can remain only as context readers or operations. They
+should fail when used outside context.
 
 ### Root, View, And Adapter Surfaces
 
@@ -530,7 +547,8 @@ Remove defensive `:or {frame-id :rf/default}` defaults and literal
 `(or ... :rf/default)` fallbacks from framework fxs and runtime helpers:
 
 - machine spawn/destroy/update-snapshot/timers;
-- `dispatch-to-system`;
+- `machine-by-system-id`, `dispatch-to-system`, and
+  `:rf.machine/dispatch-to-system`;
 - HTTP interceptor registration and clearing;
 - managed HTTP request and reply paths;
 - route and navigation fxs;
@@ -560,11 +578,20 @@ Tooling needs explicit own-frame and target-frame semantics:
 - Xray own frame is explicit, commonly `:rf/xray`;
 - Xray target frame starts unselected unless host config or explicit discovery
   policy selects it;
+- Xray `init!` migrates from `:default-frame` toward distinct `:own-frame` and
+  `:target-frame` vocabulary;
+- Xray `target-frame` and `set-target-frame! nil` stop resetting through
+  `default-target-frame`;
 - pair-MCP operating-frame resolution must be reconciled with this EP;
 - `eval-cljs` no-frame behavior must stop documenting `:rf/default` as the
   target;
+- `eval-cljs {:frame ...}` remains a synchronous lexical binding only; async
+  continuations inside the evaluated form still need explicit frame capture;
 - AI mutation tools require an operating frame;
-- read tools may return structured no-target data;
+- read tools may return structured no-target data. Existing pair-MCP
+  `:ambiguous-frame` shapes may remain tool-local, but they must be mapped
+  deliberately against `:rf.tool/no-frame-selected` and
+  `:rf.error/no-frame-context`;
 - tool specs and conformance fixtures must change in the same work as the
   implementation.
 
@@ -800,10 +827,11 @@ Update read surfaces:
 - one-arity `subscribe`, `subscribe-once`, and `unsubscribe`;
 - `snapshot-of`;
 - no-arg `sub-cache`;
+- zero-arity `clear-sub-cache!`;
 - `current-frame-id`;
 - no-arg `frame-handle`;
 - no-arg `frame-bound-fn*`;
-- machine read helpers that delegate to subscribe.
+- `machine-by-system-id`, `sub-machine`, and `machine-has-tag?`.
 
 Tests should cover wrong-frame prevention for reads as well as writes.
 
@@ -844,7 +872,8 @@ Each surface must be classified as one of:
 Remove defensive defaults from framework fxs and runtime helpers:
 
 - machine lifecycle fxs;
-- `dispatch-to-system`;
+- `machine-by-system-id`, `dispatch-to-system`, and the
+  `:rf.machine/dispatch-to-system` fx;
 - managed HTTP request initiation and reply delivery;
 - route and navigation fxs;
 - URL-owner declaration;
@@ -888,6 +917,9 @@ Update tool surfaces:
 - Xray mounts `:rf/xray` explicitly;
 - Xray target frame starts as unselected unless host config or explicit
   discovery policy selects it;
+- Xray `:default-frame`, `default-target-frame`, `target-frame`, and
+  `set-target-frame! nil` are migrated together so there is no hidden
+  `:rf/default` reset path;
 - Xray frame picker drives target selection;
 - panels that need host data refuse to read until selected;
 - Xray runtime and pair-MCP mutation tools require explicit `:frame`;
@@ -940,6 +972,8 @@ Add a conformance sweep:
 - no bare app operation outside frame context succeeds;
 - no React context default equals `:rf/default`;
 - no framework fx defaults missing frame to `:rf/default`;
+- no zero-arity or one-arity read/clear helper repairs missing context with
+  `:rf/default`;
 - no SSR convenience API mutates `:rf/default` when `:frame` is absent;
 - no Xray panel writes to the host frame because its own context was lost;
 - no off-box egress redacts against `:rf/default` by fallback;
@@ -1123,6 +1157,8 @@ Feature-specific sites that need explicit migration:
 - shared substrate spine has a frame-provider fallback used by multiple React
   adapters;
 - managed HTTP replies have a frameless late-bind branch;
+- `machine-by-system-id` uses `frame/current-frame` in its one-arity form and
+  feeds `dispatch-to-system`;
 - `sub-machine` and `machine-has-tag?` delegate to no-frame subscribe paths.
 
 ### 8. App/Runtime Partition Sequencing
@@ -1137,8 +1173,10 @@ Tooling surfaces to enumerate:
 
 - Xray `default-target-frame`;
 - Xray target-frame subscriptions and reset behavior;
+- Xray `init! {:default-frame ...}` versus proposed `:target-frame`;
 - Xray mount and spine defaults;
 - `eval-cljs` no-frame documentation;
+- `eval-cljs {:frame ...}` Promise/async documentation;
 - pair-MCP conformance snapshots that bake in `:rf/default`;
 - `discover-app` hint that says `init!` registers `:rf/default`;
 - pair-MCP precheck cache keyed on omitted frame.
@@ -1165,6 +1203,8 @@ Existing positive assertions need inversion:
 - `implementation/core/test/re_frame/dispatch_fallthrough_warn_test.clj`;
 - `implementation/core/test/re_frame/dispatch_fallthrough_warn_dom_cljs_test.cljs`;
 - `implementation/core/test/re_frame/views_current_component_cljs_test.cljs`;
+- `implementation/core/test/re_frame/sub_cache_test.clj` zero-arity
+  default-frame fixture expectations;
 - conformance fixtures that stamp or expect `:frame :rf/default`.
 
 Every conformance fixture must explicitly register and select its target frame.
@@ -1173,6 +1213,17 @@ reauthored.
 
 ## Sources Consulted
 
+- Local source: `implementation/core/src/re_frame/frame.cljc`
+- Local source: `implementation/core/src/re_frame/router.cljc`
+- Local source: `implementation/core/src/re_frame/subs.cljc`
+- Local source: `implementation/core/src/re_frame/core_machines.cljc`
+- Local source: `implementation/machines/src/re_frame/machines.cljc`
+- Local source: `implementation/ssr/src/re_frame/ssr/boot.cljc`
+- Local source: `implementation/ssr/src/re_frame/ssr/streaming/client.cljs`
+- Local source: `tools/xray/src/day8/re_frame2_xray/core.cljs`
+- Local source: `tools/xray/src/day8/re_frame2_xray/defaults.cljs`
+- Local source: `skills/re-frame2-pair/preload/re_frame2_pair/runtime.cljs`
+- Local source: `tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/eval_cljs.cljs`
 - [TanStack Query: QueryClientProvider](https://tanstack.com/query/latest/docs/framework/react/reference/QueryClientProvider)
 - [React Redux: Provider](https://react-redux.js.org/api/provider)
 - [Apollo Client: ApolloProvider](https://www.apollographql.com/docs/react/api/react/ApolloProvider)
