@@ -89,20 +89,39 @@
   band do not crowd the nested children."
   150)
 
-;; ---- initial-marker glyph offsets (rf2-i9d2ob) -------------------------
+;; ---- initial-marker glyph offsets (rf2-i9d2ob / rf2-d5s7yg) -------------
 ;;
-;; The initial-state marker node is positioned at a FIXED offset from its
-;; state so the fixed glyph (`chart.nodes/initial-marker` — dot + Q-hook +
-;; triangle arrow) reliably meets the state's near (left) edge regardless
-;; of where ELK placed the state. `initial-marker-x-offset` MUST equal the
-;; renderer's `initial-glyph-arm` so the arrow tip lands flush on the
-;; state's left edge.
+;; The initial-state marker node is positioned at a FIXED, SMALL offset from
+;; its state so the fixed glyph (`chart.nodes/initial-marker` — dot + Q-hook
+;; + triangle arrow) reads as a SHORT hook that ends JUST OUTSIDE the state's
+;; near (left) edge — the Stately/xstate-viz `InitialEdgeViz` signature (a
+;; visible gap pointing AT the edge, NOT penetrating it).
+;;
+;; rf2-d5s7yg — the dot offset is DECOUPLED from the arrow-tip position. The
+;; node sits `initial-marker-x-offset` px left of the state (so the dot
+;; lands ~15px outside the edge), but the glyph's arrowhead tip is drawn at
+;; node-local x = `(offset - initial-marker-tip-gap)`, so the absolute tip
+;; lands at `state.x - gap` — a clean ~`gap`px gap OUTSIDE the edge. Before
+;; rf2-d5s7yg the offset (48) equalled the glyph arm and the tip landed at
+;; `state.x` (the edge) — overshooting INTO nested states once xyflow's
+;; `:extent "parent"` clamped the deeply-negative marker position rightward.
 
 (def initial-marker-x-offset
-  "rf2-i9d2ob — horizontal offset (px) of the initial-marker node LEFT of
-  its state. Equals the glyph arm span (`chart.nodes/initial-glyph-arm`)
-  so the fixed glyph's arrow tip lands flush on the state's left edge."
-  48)
+  "rf2-i9d2ob / rf2-d5s7yg — horizontal offset (px) of the initial-marker
+  node LEFT of its state. SMALL (the Stately short-hook span): the filled
+  dot lands ~15px outside the state's left edge. The arrow tip is drawn
+  further right in the glyph (`offset - initial-marker-tip-gap`) so the tip
+  ends just OUTSIDE the edge, not on/through it."
+  20)
+
+(def initial-marker-tip-gap
+  "rf2-d5s7yg — the visible GAP (px) between the initial-glyph arrow tip and
+  the state's left edge. The tip is drawn at node-local x =
+  `(initial-marker-x-offset - initial-marker-tip-gap)`, so its ABSOLUTE x is
+  `state.x - initial-marker-tip-gap` — a small clean gap OUTSIDE the edge,
+  the Stately/xstate-viz `endPoint.x = node.x - 10` signature. The glyph
+  points AT the edge; it never penetrates the state."
+  8)
 
 (def initial-marker-y-offset
   "rf2-i9d2ob — vertical offset (px) of the initial-marker node BELOW its
@@ -1334,11 +1353,27 @@
                                        :palette ct}
                            :draggable false
                            :selectable false}
-                    ;; rf2-xh1lm — see compound substate :parentId
-                    ;; comment above. xyflow v12 reads `parentId`.
+                    ;; rf2-xh1lm — see compound substate :parentId comment
+                    ;; above. xyflow v12 reads `parentId`, which gives the
+                    ;; marker the container's coordinate frame so it sits
+                    ;; just left of a NESTED initial inside its box.
+                    ;;
+                    ;; rf2-d5s7yg — but NO `:extent "parent"` on the marker.
+                    ;; The marker is a decorative glyph that sits a few px to
+                    ;; the LEFT of (and slightly outside) the state; for a
+                    ;; nested initial near its container's left padding the
+                    ;; marker's `state.x - offset` position is legitimately
+                    ;; just outside the container content area. `:extent
+                    ;; "parent"` would CLAMP that position rightward (so the
+                    ;; node box stays inside the parent), shoving the whole
+                    ;; glyph — dot, hook AND arrow tip — INTO the state. That
+                    ;; clamp is the root cause of the nested-initial overshoot
+                    ;; (`red`/`walk` penetrated while top-level `door` did
+                    ;; not): only nested markers carry a parent to clamp
+                    ;; against. Dropping `:extent` lets the short hook end the
+                    ;; same clean gap outside the edge at every nesting level.
                     (:parent-id n)
-                    (assoc :parentId (:parent-id n)
-                           :extent   "parent"))))
+                    (assoc :parentId (:parent-id n)))))
               initial-nodes)
         entry-edges
         (mapv (fn [n]
