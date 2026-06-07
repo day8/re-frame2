@@ -104,6 +104,12 @@ not the right final boundary. A warning still asks app code to preserve
 framework internals. The design should make ordinary app code unable to delete
 runtime state by returning app data.
 
+The current diagnostic also fires only after a durable ordinary `:db` commit
+has dropped a live `:rf/runtime` subsystem. Legitimate full replacements such
+as epoch restore and tool db reset bypass that commit path today, and direct
+runtime writes can bypass it as well. This confirms the warning is a
+containment measure for the current layout, not the ownership model.
+
 ## Goals
 
 This proposal aims to:
@@ -218,6 +224,14 @@ Avoid ambiguous names such as `:runtime`, `:frame`, or `:rf/frame`, where the
 value might be an id, object, state map, or context. Prefer attribute-shaped
 names such as `:rf.frame/id`.
 
+This rename is about event context, framework fx/cofx context, and other
+runtime-owned maps that carry a frame id as data. It does not, by itself,
+rename every existing public `:frame` option or trace tag. The current
+specification deliberately keeps `:frame` as the public dispatch/subscribe
+option and as the canonical trace routing tag. If those surfaces are renamed,
+that is a coordinated Frames/Instrumentation change, not an accidental side
+effect of this partition.
+
 ### Pre-Alpha Keyword Cleanup
 
 This proposal intentionally chooses final vocabulary now.
@@ -233,7 +247,7 @@ Concrete replacements:
 |---|---|
 | app-db root `:rf/runtime` | runtime-db coeffect/effect `:rf.db/runtime` |
 | full snapshot app partition `:db` | frame-state key `:rf.db/app` |
-| frame id facts such as `:frame` or `:rf/frame` | `:rf.frame/id` |
+| event-context or fx-context frame id facts such as `:frame` or `:rf/frame` | `:rf.frame/id` |
 | runtime child `:machines` | `:rf.runtime/machines` |
 | runtime child `:routing` | `:rf.runtime/routing` |
 | runtime child `:elision` | `:rf.runtime/elision` |
@@ -280,6 +294,13 @@ Framework interceptors and framework handlers may read or write
 The runtime partition is in the context because it is part of the causal input
 and output of a frame transition. It is not hidden from the interceptor system.
 The contract is that ordinary application code treats it as reserved.
+
+Existing ancillary coeffects such as dispatch source, trace id, call-site
+metadata, and other instrumentation inputs may continue to ride in the context.
+They are orthogonal to the partition split. The load-bearing change is that the
+state-bearing inputs are no longer conflated: `:db` is app-db,
+`:rf.db/runtime` is runtime-db, and `:rf.frame/id` names the frame whose
+transition is running.
 
 ### User Handler Semantics
 
@@ -333,6 +354,14 @@ Framework code writes runtime-db through `:rf.db/runtime` effects, privileged
 runtime APIs, or internal interceptors. It does not write runtime state through
 ordinary app `:db` effects.
 
+The top-level event effect map must therefore be widened from the current
+closed `#{:db :fx}` shape to a closed set that includes the reserved
+`:rf.db/runtime` state effect. Shape policing, schema descriptions, docs, and
+diagnostics must be updated together. Unknown top-level effect keys should
+remain errors or logged-and-skipped according to the existing effect-map
+contract; `:rf.db/runtime` is the only new state-bearing top-level key this EP
+introduces.
+
 Examples:
 
 - machine handlers read and write snapshots under
@@ -349,6 +378,22 @@ Examples:
 These writes still participate in one atomic event commit. A cascade can
 produce both app-db changes and runtime-db changes, and the frame installs the
 combined result as one coherent transition.
+
+Durable runtime writes must not bypass that transition boundary by directly
+swapping the app-db container after `:db` has already committed. Existing
+direct container-write sites, such as machine lifecycle fxs, schema-derived
+elision population, SSR hydration helpers, epoch restore/reset helpers, and
+test fixtures, must be classified and moved to one of three explicit surfaces:
+
+- an app-db-only replacement;
+- a runtime-db-only replacement;
+- a full frame-state replacement.
+
+Host handles remain outside frame-state. For example, timers,
+AbortControllers, listeners, and promise handles are still teardown resources,
+not serializable runtime-db values. The runtime-db records enough durable facts
+to reconstitute or clean up those handles, but it does not store the handles
+themselves.
 
 ### Guardrails
 
@@ -379,6 +424,12 @@ re-frame2 should strengthen that rule with diagnostics:
 - provide explicit extension APIs for code that intentionally participates in
   runtime behavior.
 
+The implementation must define how it distinguishes framework-owned writers
+from application writers. Acceptable mechanisms include reserved handler ids,
+registration metadata stamped by framework registrars, or a small explicit
+extension marker. Namespace heuristics alone are too weak for plugins, tests,
+and optional artefacts.
+
 This is the "user land / kernel space" analogy. The data lives in the same
 running system, but ownership is real.
 
@@ -395,6 +446,15 @@ Some operations must install or inspect the whole app/runtime snapshot:
 - frame destroy records.
 
 Those operations use explicit full-frame APIs, not ordinary app `:db` effects.
+
+Current names should be audited rather than mechanically preserved. In the
+existing implementation, `reset-frame!` is a lifecycle operation
+(`destroy-frame!` followed by `reg-frame`), while `reset-frame-db!` is a
+dev/tool app-db replacement that bypasses dispatch and records a synthetic
+epoch. After the partition split, those names must either keep their narrower
+meaning in documentation or be paired with explicit full-frame replacement
+surfaces. A tool API named as a db replacement should not silently replace
+runtime-db.
 
 Possible surfaces:
 
@@ -436,12 +496,32 @@ Framework subscriptions read runtime-db through framework helpers:
 App code should not reach into runtime-db directly for machine or route state.
 It should use public framework subscriptions.
 
+The subscription invalidation contract must follow the partition boundary:
+
+- app subscriptions depending on app-db rerun when app-db changes;
+- framework subscriptions depending on runtime-db rerun when runtime-db
+  changes;
+- subscriptions composed from both partitions rerun when either input changes;
+- a runtime-only commit must still update views that read route or machine
+  subscriptions;
+- an app-only commit must not require app authors to carry runtime paths in
+  their schemas or subscription code.
+
+This can be implemented with one physical frame-state container, two coherent
+containers, or partition-aware dirty flags. The observable requirement is that
+runtime-only changes are not invisible to framework subs, and app-only changes
+do not make `:db` mean frame-state.
+
 Flows follow the same partition rule:
 
 - ordinary flow inputs over app data read app-db;
 - framework flows may read runtime-db through explicit qualified inputs;
 - flow-produced `:db` writes update only app-db;
 - flow-produced runtime writes use `:rf.db/runtime` and remain reserved.
+
+If a flow or framework derivation reads both partitions, its dirty-check must
+key on both input sets. A runtime-db write cannot be hidden from a flow merely
+because the app-db partition was value-identical.
 
 ### App Schemas
 
@@ -458,6 +538,16 @@ The old `:rf/runtime` schema becomes a runtime-db schema:
 
 Applications can still register schemas for app paths. They do not register app
 schemas under `:rf.db/runtime`.
+
+Current specs and source model the runtime shape as `reg-app-schema
+[:rf/runtime]`. That registration must move out of the application schema
+surface. Runtime-db schemas may still exist, but they are framework-owned
+validators over runtime-db, not application-owned validators over app-db.
+
+Schema-derived elision remains app-schema-driven: applications mark app paths
+with `:large?` or `:sensitive?`. The extracted declaration records are runtime
+bookkeeping and should be written under `:rf.runtime/elision` in runtime-db,
+not under an app-db path the app can accidentally replace.
 
 ### Mental Model
 
@@ -676,7 +766,10 @@ Update the normative docs:
   `[:rf.runtime/routing :current]` inside runtime-db.
 - SSR: hydration installs a coherent frame-state.
 - Instrumentation/Epoch: records distinguish app-db and frame-state.
-- Schemas: app schemas validate app-db; runtime schemas validate runtime-db.
+- Schemas and Spec-Schemas: app schemas validate app-db; runtime schemas
+  validate runtime-db; the `:rf/effect-map` shape allows reserved
+  `:rf.db/runtime` effects; flow-output validation language is reconciled with
+  the current pre-install flow-throw atomicity contract.
 
 ### 2. Introduce partition helpers
 
@@ -695,6 +788,11 @@ Add internal helpers before moving all call sites:
 Names are illustrative. The design point is to stop making every call site know
 the physical storage shape.
 
+These helpers should become the only durable state write boundary. Existing
+uses of raw `adapter/replace-container!` and `frame/swap-frame-db!` should be
+audited and either rewritten through the helpers or documented as host-handle
+teardown that deliberately does not alter frame-state.
+
 ### 3. Change event context and commit semantics
 
 Change the dispatch pipeline:
@@ -704,12 +802,21 @@ Change the dispatch pipeline:
 - inject `:rf.frame/id`;
 - remove ambiguous frame/runtime context keys instead of supporting them as
   parallel spellings;
+- widen the closed top-level effect-map shape from `:db` / `:fx` to include
+  reserved `:rf.db/runtime`, and update the bad-effect-map diagnostic
+  accordingly;
 - interpret ordinary `:db` effect as app-db replacement;
 - interpret reserved `:rf.db/runtime` effects as runtime-db writes only for
   framework-owned code paths;
 - reject or warn if user code returns a frame-state-shaped value under `:db`;
 - preserve pre-install atomicity: handler/interceptor/flow throws leave both
   partitions unchanged.
+
+The commit path must emit enough change information for both subscriptions and
+tools. A runtime-only commit should be visible to framework route/machine subs
+and to Xray or pair tooling even when app-db is unchanged. An app-only commit
+should preserve the existing app-facing `:db` semantics and should not require
+tools to infer runtime changes from `:rf.event/db-changed` alone.
 
 ### 4. Move runtime subsystems
 
@@ -729,6 +836,13 @@ Machine snapshot-internal keys such as `:rf/history`, `:rf/after-epoch`, and
 `:rf/machine-type` can remain inside machine snapshots. This proposal changes
 where snapshots live, not their internal open-map shape.
 
+The migration must move the whole runtime-owned subsystem, not only the most
+visible leaf. For machines that includes `:snapshots`, `:system-ids`,
+`:spawned`, and `:spawn-counter` or any successor allocator slots. For routing
+that includes `:current`, `:pending-navigation`, navigation-token counters,
+scroll restoration caches, and other per-frame routing internals. For elision
+that includes both large-value declarations and sensitive-value declarations.
+
 ### 5. Update subscriptions, flows, and coeffects
 
 Audit:
@@ -742,6 +856,7 @@ Audit:
 - flow write effects;
 - `sub-machine`;
 - route subs;
+- partition-aware sub-cache invalidation;
 - elision lookup during trace and wire projection;
 - test helpers that assert app-db shape.
 
@@ -766,8 +881,18 @@ Alternatively, keep `:db-before` / `:db-after` as app-db projections and add
 does not settle the exact epoch record shape, but the implementation must avoid
 ambiguity.
 
+Existing epoch code records `:db-before` / `:db-after` as app-db values and
+`restore-epoch` rewinds to `:db-after`. Under this proposal, a restore that is
+meant to revive machines, routes, elision state, or resources must restore
+frame-state, not just the app-db projection. If `:db-before` / `:db-after`
+remain in the record for tool diff ergonomics, they should be named and
+documented as app-db projections.
+
 SSR hydration should serialize and install an allowed frame-state projection,
-not a raw runtime dump.
+not a raw runtime dump. The current hydration payload shape uses an app-db
+slice plus runtime metadata stashed during `:rf/hydrate`; the partitioned
+design should make the app/runtime split explicit on the wire and should
+validate both partitions fail-closed before installation.
 
 Xray should show app-db and runtime-db as separate views inside one frame.
 
@@ -784,6 +909,8 @@ Add diagnostics for:
   id;
 - raw reads of `[:rf/runtime ...]` in examples, docs, tests, or skills;
 - full-frame install attempted through ordinary dispatch.
+- durable runtime writes performed through raw app-db container swaps instead
+  of partition helpers.
 
 The diagnostics should teach:
 
@@ -824,11 +951,16 @@ Conformance tests should verify:
 - ordinary `:db` effects replace only app-db;
 - `:rf.db/runtime` is present in coeffects;
 - `:rf.frame/id` is present in coeffects;
+- the top-level effect-map shape accepts reserved `:rf.db/runtime` and still
+  rejects unrelated unknown keys;
 - ambiguous framework-owned context keys such as `:rf/frame`, `:runtime`, and
   `:rf/runtime` are not emitted as compatibility aliases;
 - runtime-db survives fresh app-db returns;
 - non-framework app handlers cannot write `:rf.db/runtime` without the planned
   diagnostic;
+- runtime-only commits invalidate framework route and machine subscriptions;
+- app-only commits do not force ordinary app subscriptions to read or preserve
+  runtime-db;
 - full-frame restore restores both app-db and runtime-db;
 - machine snapshots move with epoch restore;
 - route state moves with epoch restore;
@@ -838,6 +970,7 @@ Conformance tests should verify:
 - app schemas validate only app-db;
 - runtime schemas validate runtime-db;
 - legacy `:rf/runtime` writes emit the planned diagnostic;
+- direct runtime writes cannot bypass the partition commit helper unnoticed;
 - Xray can inspect app-db and runtime-db separately;
 - frame destroy still records coherent before/after state.
 
@@ -908,11 +1041,18 @@ than app-db/runtime-db.
    `:rf.db/runtime`, or whether that requires a registered extension marker.
 5. Whether framework runtime writes should use whole-value `:rf.db/runtime`
    effects, operation effects, or both.
-6. How strict the legacy `:rf/runtime` diagnostic should be during pre-alpha:
+6. The trace/change-event vocabulary for partition commits: keep
+   `:rf.event/db-changed` app-db-only and add runtime/frame-state siblings, or
+   widen it with partition tags.
+7. How partition-aware sub-cache invalidation is represented in the substrate:
+   one frame-state container, two containers, or explicit dirty flags.
+8. How strict the legacy `:rf/runtime` diagnostic should be during pre-alpha:
    warning, error, or migration-only lint.
-7. Whether `reset-frame!` resets both partitions by default or only app-db with
+9. Whether `reset-frame!` resets both partitions by default or only app-db with
    a separate full reset surface.
-8. Whether app-db schemas should be renamed in docs to "app partition schemas"
+10. Whether `reset-frame-db!` remains app-db-only, gains a frame-state sibling,
+   or is renamed before public stabilization.
+11. Whether app-db schemas should be renamed in docs to "app partition schemas"
    while keeping the public API name `reg-app-schema`.
 
 ## Bead Plan
@@ -924,9 +1064,10 @@ than app-db/runtime-db.
 3. Helper bead: introduce app-db/runtime-db/frame-state helper functions
    without changing behavior.
 4. Event context bead: inject `:rf.db/runtime` and `:rf.frame/id` into
-   coeffects while preserving `:db` as app-db.
+   coeffects while preserving `:db` as app-db; update effect-map schemas and
+   shape policing for reserved `:rf.db/runtime`.
 5. Event commit bead: scope ordinary `:db` effects to app-db and add privileged
-   runtime/full-frame commit paths.
+   runtime/full-frame commit paths; emit partition-aware change signals.
 6. Runtime migration bead: move machines, routing, elision, SSR, and related
    schemas from `:rf/runtime` to runtime-db.
 7. Epoch/SSR bead: update snapshot, restore, hydration, reset, and destroy
@@ -948,3 +1089,27 @@ This proposal synthesizes:
 Both findings agree on the destination: application code owns app-db,
 re-frame2 owns runtime state, and the frame owns both as one coherent
 frame-state snapshot.
+
+This review also checked the local implementation and specs. Important
+constraints:
+
+- `implementation/core/src/re_frame/router.cljc` currently builds event
+  contexts with `:db`, `:event`, and bare `:frame`; emits
+  `:rf.warning/runtime-state-dropped` only after durable ordinary `:db`
+  commits; and treats `:db` as the single app-db container write boundary.
+- `implementation/core/src/re_frame/events.cljc` and
+  `spec/Spec-Schemas.md` currently define the top-level event effect map as
+  closed to `:db` and `:fx`, so `:rf.db/runtime` must be added there as a
+  deliberate reserved key.
+- Machines, routing, schemas, SSR, and epoch code all still read or write
+  `[:rf/runtime ...]` paths under app-db. Some write through ordinary `:db`
+  effects, while others use direct container helpers such as
+  `frame/swap-frame-db!` or `adapter/replace-container!`; the implementation
+  must classify those call sites before the partition is real.
+- Instrumentation and schema specs deliberately use bare `:frame` in public
+  opts and trace tags today. This EP's `:rf.frame/id` rename must therefore be
+  applied to runtime context/fx context first, with any public `:frame` rename
+  left to the owning Frames and Instrumentation specs.
+- Current epoch records store `:db-before` and `:db-after` as app-db values.
+  A partitioned restore needs an explicit frame-state snapshot or an
+  unambiguous sibling shape.
