@@ -306,11 +306,11 @@
   resolves to the SAME canonical running id. An un-aliased id passes
   through unchanged (so a typo still reaches the diagnostic ladder).
 
-  1-arity (`(arg-build args)`) is the legacy entry — used by call sites
-  that have no `conn` in scope (notably `args.cljs`'s frame/build
-  parsing). It SKIPS the conn cache and falls straight through to the
-  env-var default. Production tool dispatch threads `conn` and uses the
-  2-arity."
+  1-arity (`(arg-build args)`) is the no-`conn` entry — it SKIPS the
+  conn cache and falls straight through to the env-var default, for any
+  caller with no `conn` in scope. Production tool dispatch threads
+  `conn` and uses the 2-arity; the 1-arity is exercised directly by the
+  build-id cache tests."
   ([args] (arg-build nil args))
   ([conn args]
    (->> (or (base-args/fresh-keyword (arg args :build))
@@ -366,8 +366,10 @@
       to the resolved build instead of being auto-detect-rejected on a
       multi-build workspace.
 
-  1-arity (`(arg-build-explicit? args)`) is the legacy form for callers
-  with no `conn` in scope; it sees only the per-call arg."
+  1-arity (`(arg-build-explicit? args)`) is the no-`conn` fallback —
+  it sees only the per-call arg. Kept symmetric with `arg-build`'s
+  no-`conn` arity; production dispatch threads `conn` and uses the
+  2-arity."
   ([args] (arg-build-explicit? nil args))
   ([conn args]
    (or (some? (arg args :build))
