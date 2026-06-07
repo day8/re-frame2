@@ -109,7 +109,7 @@
 
   Internal helper; exposed (with `^:no-doc`) so the sibling
   `re-frame.marks` ns — which mutates the SAME slot from its
-  `add-marks` / `set-marks` / `clear-app-db-marks!` / `write-marks!`
+  `add-marks` / `set-marks` / `clear-app-db-marks!`
   paths — can share a single source of truth for the read-transform-
   write skeleton. Not part of the public API."
   [frame-id f]
