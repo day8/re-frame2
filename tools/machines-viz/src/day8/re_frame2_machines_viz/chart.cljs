@@ -173,7 +173,20 @@
   {"elk.algorithm"                              "layered"
    "elk.direction"                              "DOWN"
    "elk.spacing.nodeNode"                       "40"
-   "elk.layered.spacing.nodeNodeBetweenLayers"  "70"
+   ;; G-SHAPE compaction (rf2 layout-fidelity pass) — the between-layer
+   ;; gap was 70; tightened to 50 so a flat cyclic statechart reads as a
+   ;; tighter vertical column closer to the Stately/xstate reference
+   ;; (door / gate noticeably less stretched). Stays comfortably above the
+   ;; ORTHOGONAL route channel reserve (`edgeNodeBetweenLayers` 24 below)
+   ;; so routes don't crowd, and it only SHRINKS inter-layer whitespace —
+   ;; no node re-ranking — so nested / parallel / acyclic machines are
+   ;; visually unchanged (the inner ELK pass + container padding dominate
+   ;; those). It does NOT close the G-ROUTE back-edge detour (door/reset,
+   ;; gate/reset, brew back-edges sink to the deepest layer): that is
+   ;; STRUCTURAL to the events-as-nodes split + the DEPTH_FIRST initial-
+   ;; on-top preference and is not reachable via an ELK option — see the
+   ;; §Layout / G-ROUTE note in `001-Topology-Parity.md`.
+   "elk.layered.spacing.nodeNodeBetweenLayers"  "50"
    "elk.layered.crossingMinimization.strategy"  "LAYER_SWEEP"
    ;; rf2-ly51l — break cycles by a depth-first walk from the sources
    ;; (the initial state) rather than GREEDY min-reversed-count, so a
