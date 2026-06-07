@@ -82,7 +82,6 @@
             [re-frame.http-encoding        :as encoding]
             [re-frame.http-handlers        :as handlers]
             [re-frame.http-machine-wrapper :as machine-wrapper]
-            [re-frame.http-middleware      :as middleware]
             [re-frame.late-bind            :as late-bind]
             [re-frame.router               :as router]))
 
