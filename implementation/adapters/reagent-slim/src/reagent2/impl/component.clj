@@ -23,8 +23,7 @@
   `defn`s (the classification logic is pure-data), so any macro that
   wants to amortise the runtime detection — `re-frame.core/reg-view`
   or otherwise — can call them directly. No CLJS-side runtime code
-  lives in this ns."
-  (:refer-clojure :exclude [fn?]))
+  lives in this ns.")
 
 ;; ---------------------------------------------------------------------------
 ;; Compile-time form classification
