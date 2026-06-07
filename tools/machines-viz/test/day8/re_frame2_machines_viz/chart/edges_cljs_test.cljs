@@ -168,6 +168,37 @@
     (is (not (contains? (chart/elk-layout-options (flat-parsed) nil :tb)
                         "elk.hierarchyHandling")))))
 
+;; ---- elk-layout-options: root guarded-fork ordering (rf2-p75kbg) --------
+
+(defn- root-fork-parsed
+  "A parsed graph with a guarded multi-branch fork whose branches leave the
+  TOP-LEVEL source `:idle` (so the fork's container is the root, nil) — the
+  gate machine's shape. The fork pins `crossingMinimization.semiInteractive`
+  on the ROOT so the branch event-nodes' `elk.position` hints order them."
+  []
+  {:parallel? false
+   :nodes [{:id "idle"} {:id "high"} {:id "low"} {:id "rejected"}]
+   :edges [{:id "e1" :source "idle" :target "high"     :event :chk :guard :hi?}
+           {:id "e2" :source "idle" :target "low"      :event :chk :guard :lo?}
+           {:id "e3" :source "idle" :target "rejected" :event :chk}]})
+
+(deftest elk-layout-options-root-fork-enables-semi-interactive
+  (testing "rf2-p75kbg — a guarded fork whose branches lay out at the ROOT
+            enables root crossingMinimization.semiInteractive so the branch
+            event-nodes' elk.position hints order them 1,2,3 (the dotted
+            evaluation-order connector then reads monotonic, not weaving)."
+    (is (= "true"
+           (get (chart/elk-layout-options (root-fork-parsed) nil :tb)
+                "elk.layered.crossingMinimization.semiInteractive")))))
+
+(deftest elk-layout-options-no-root-fork-omits-semi-interactive
+  (testing "rf2-p75kbg — a machine with no root-level guarded fork does NOT
+            set semiInteractive, so the default full crossing-minimisation
+            stands and no non-fork layout is perturbed."
+    (doseq [parsed [(nested-parsed) (parallel-parsed) (flat-parsed)]]
+      (is (not (contains? (chart/elk-layout-options parsed nil :tb)
+                          "elk.layered.crossingMinimization.semiInteractive"))))))
+
 (deftest elk-layout-options-pins-g2-routing-keys
   (testing "rf2-cz8v6 (G2) — the routing keys cross-hierarchy bend-points
             depend on are present on every graph: elk.edgeRouting

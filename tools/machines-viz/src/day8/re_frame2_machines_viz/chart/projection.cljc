@@ -107,27 +107,69 @@
 ;; `:extent "parent"` clamped the deeply-negative marker position rightward.
 
 (def initial-marker-x-offset
-  "rf2-i9d2ob / rf2-d5s7yg — horizontal offset (px) of the initial-marker
-  node LEFT of its state. SMALL (the Stately short-hook span): the filled
-  dot lands ~15px outside the state's left edge. The arrow tip is drawn
-  further right in the glyph (`offset - initial-marker-tip-gap`) so the tip
-  ends just OUTSIDE the edge, not on/through it."
-  20)
+  "rf2-i9d2ob / rf2-d5s7yg / rf2-wwyx1u — horizontal offset (px) of the
+  initial-marker node LEFT of its state. SMALL (the Stately short-hook
+  span): the filled dot lands ~15px outside the state's left edge. The
+  arrow tip is drawn further right in the glyph (`offset -
+  initial-marker-tip-gap`) so the tip ends just OUTSIDE the edge, not
+  on/through it.
+
+  rf2-wwyx1u — bumped 20 → 22 so the glyph has room for a SMALL Stately-
+  sized arrowhead AND a short FORWARD-flowing hook (dot → down-right curve
+  → arrowhead). At 20 with the old oversized arrowhead the hook ran
+  BACKWARDS; the extra 2px (paired with the small arrowhead in
+  `chart.nodes/initial-marker`) restores a clean dot → forward-hook →
+  small-arrow-into-edge unit. Dot lands at absolute `state.x - 15`
+  (`offset - dot-x`), matching Stately's `startPoint.x = node.x - 15`."
+  22)
 
 (def initial-marker-tip-gap
-  "rf2-d5s7yg — the visible GAP (px) between the initial-glyph arrow tip and
-  the state's left edge. The tip is drawn at node-local x =
+  "rf2-d5s7yg / rf2-wwyx1u — the visible GAP (px) between the initial-glyph
+  arrow tip and the state's left edge. The tip is drawn at node-local x =
   `(initial-marker-x-offset - initial-marker-tip-gap)`, so its ABSOLUTE x is
   `state.x - initial-marker-tip-gap` — a small clean gap OUTSIDE the edge,
   the Stately/xstate-viz `endPoint.x = node.x - 10` signature. The glyph
   points AT the edge; it never penetrates the state."
-  8)
+  7)
 
 (def initial-marker-y-offset
   "rf2-i9d2ob — vertical offset (px) of the initial-marker node BELOW its
   state's top edge — roughly the title-strip centre, so the glyph's arrow
   points into the state's near edge near its title row."
   14)
+
+(defn initial-marker-glyph
+  "rf2-wwyx1u — PURE geometry of the initial-state glyph (filled dot +
+  single Q-hook + small triangle arrowhead), in the marker node's LOCAL
+  coordinate frame, given the active density's `pseudo-radius` (the dot
+  radius). Single-sources the math the `chart.nodes/initial-marker`
+  renderer paints AND the projection test asserts, so the FORWARD-FLOW
+  invariant (`end-x > dot-x`) cannot silently regress again.
+
+  Layout (node-local x; the state's left edge is at x=`initial-marker-x-
+  offset`, since the node sits that far LEFT of the state):
+
+    - `dot-x` — the filled dot's centre, inset so its left edge clears x=0;
+    - `tip-x` — the arrowhead tip, at `offset - tip-gap`, so its ABSOLUTE x
+      is `state.x - tip-gap` (a small gap OUTSIDE the edge, pointing AT it);
+    - `ah`    — the SMALL Stately-sized arrowhead side (≈ dot diameter / 2,
+      4px floor) — NOT the oversized `arrow-width-entry` that drove the
+      backwards-hook regression;
+    - `end-x` — the arrowhead BASE (`tip-x - ah`), where the stroked hook
+      meets the triangle. The glyph reads as ONE clean unit IFF
+      `end-x > dot-x` (the hook flows dot → down-and-RIGHT into the head).
+
+  Returns a map of the resolved local-frame coordinates. Pure."
+  [pseudo-radius]
+  (let [;; SMALL Stately-sized head: ≈ dot diameter / 2, but CLAMPED to a
+        ;; 4–5px band so it stays Stately-small in EVERY density (Stately's
+        ;; marker is a fixed ~5×5 regardless of node size). An uncapped
+        ;; `pseudo-radius`-scaled head squeezed the forward hook run in cosy.
+        ah    (-> (dec pseudo-radius) (max 4) (min 5))
+        tip-x (- initial-marker-x-offset initial-marker-tip-gap)
+        dot-x (+ pseudo-radius 1)
+        end-x (- tip-x ah)]
+    {:ah ah :tip-x tip-x :dot-x dot-x :end-x end-x}))
 
 ;; ---- synthetic event-node helpers --------------------------------------
 ;;
@@ -259,6 +301,60 @@
        (into {}
              (mapcat (fn [group]
                        (map-indexed (fn [i e] [(:id e) (inc i)]) group))))))
+
+;; ---- guarded-fork branch LAYOUT ORDER (rf2-p75kbg) ----------------------
+;;
+;; rf2-p75kbg — Stately stacks a guarded fork's branches in PRIORITY ORDER
+;; (1, 2, 3) so the dotted evaluation-order connector (rf2-o3rkq1) reads as
+;; a clean monotonic line. ELK's LAYER_SWEEP crossing-minimisation, by
+;; contrast, freely REORDERS the same-rank branch event-nodes (the gate
+;; fork lands 3,1,2 left-to-right), so the connector — which links the
+;; branches in priority order 1→2→3 — has to cross over itself (a bow-tie
+;; weave).
+;;
+;; The fix pins each fork-branch EVENT-NODE's within-layer order to its
+;; priority index via the `elk.position` hint, paired with the container's
+;; `elk.layered.crossingMinimization.semiInteractive` (`fork-branch-
+;; container-ids` flags the holding containers). semiInteractive constrains
+;; ONLY the nodes that carry an `elk.position` — every other node is still
+;; freely crossing-minimised — so the pin is SURGICAL: it orders the three
+;; branches and touches nothing else.
+
+(defn fork-branch-event-positions
+  "rf2-p75kbg — map each GUARDED-FORK branch EVENT-NODE id to its 1-based
+  priority index, for the `elk.position` within-layer ordering hint. Reuses
+  `fork-order-by-edge-id` (the single source of fork-branch priority — same
+  index as the numbered badge + the dotted connector) and re-keys it from
+  the spec edge-id to the synthetic event-node id ELK actually lays out.
+
+  Returns `{event-node-id 1-based-index}` for fork branches only. Pure."
+  [edges]
+  (let [by-id (into {} (map (juxt :id identity)) edges)]
+    (reduce-kv (fn [m edge-id idx]
+                 (assoc m (event-node-id (get by-id edge-id)) idx))
+               {}
+               (fork-order-by-edge-id edges))))
+
+(defn fork-branch-container-ids
+  "rf2-p75kbg — the SET of container ids (the `:parent-id` each fork's
+  branch event-nodes lay out under; `nil` == the root container) that hold
+  at least one guarded multi-branch fork. A container in this set gets
+  `elk.layered.crossingMinimization.semiInteractive = true` so the
+  `elk.position` hints on its fork-branch event-nodes are honoured; every
+  other container keeps the default (full crossing-minimisation), so the
+  semi-interactive constraint never touches a non-fork layout.
+
+  A fork's branches share the SAME source state, and the event-nodes lay
+  out under the SOURCE state's parent (`->elk-children`'s `events-by-parent`
+  keys on the source's `:parent-id`) — so the container is that source's
+  `:parent-id`. Pure."
+  [{:keys [nodes edges]}]
+  (let [node-by-id (into {} (map (juxt :id identity)) nodes)]
+    (->> (fork-groups edges)
+         (map (fn [group]
+                (let [src (:source (first group))]
+                  (:parent-id (get node-by-id src)))))
+         (into #{}))))
 
 (defn fork-connector-edges
   "rf2-o3rkq1 — DECORATIVE dotted evaluation-order connector edges across
@@ -539,20 +635,52 @@
   (regular)."
   ([parsed] (->elk-children parsed nil nil))
   ([parsed measured-dims] (->elk-children parsed measured-dims nil))
-  ([{:keys [nodes edges]} measured-dims chart-vc]
+  ([{:keys [nodes edges] :as parsed} measured-dims chart-vc]
   (let [container-pad (container-elk-padding (or chart-vc vc/chart))
         node-by-id (into {} (map (juxt :id identity)) nodes)
+        ;; rf2-p75kbg — the guarded-fork branch within-layer ORDER pins.
+        ;; `fork-positions` maps each fork-branch EVENT-NODE id to its
+        ;; 1-based priority index (the `elk.position` hint); `fork-containers`
+        ;; is the set of holding containers (`:parent-id`; nil == root) that
+        ;; therefore enable `crossingMinimization.semiInteractive`. Empty for
+        ;; any machine without a guarded fork — the pins are then a no-op.
+        fork-positions (fork-branch-event-positions edges)
+        fork-containers (fork-branch-container-ids parsed)
         ;; The event-node's parent container == the source state's
         ;; parent. Top-level when the source has no `:parent-id`.
         event-children
         (mapv (fn [e]
                 (let [src (get node-by-id (:source e))
-                      pid (:parent-id src)]
+                      pid (:parent-id src)
+                      ev-id (event-node-id e)
+                      ;; rf2-p75kbg — a fork-branch event-node carries an
+                      ;; `elk.position` ordering hint == its priority index,
+                      ;; so (under the container's semiInteractive) ELK stacks
+                      ;; the branches 1,2,3 and the dotted connector reads
+                      ;; monotonic instead of weaving.
+                      pos   (get fork-positions ev-id)]
                   (cond-> (elk-event-child e measured-dims)
-                    pid (assoc ::event-parent pid))))
+                    pid (assoc ::event-parent pid)
+                    ;; rf2-p75kbg — `elk.position` is a KVector `(x,y)`. With
+                    ;; the chart's DOWN direction the layers stack vertically,
+                    ;; so the WITHIN-LAYER (cross) axis is X — the priority
+                    ;; index goes in x; y is left 0. semiInteractive reads this
+                    ;; to order the branches 1,2,3 left-to-right.
+                    pos (assoc :layoutOptions
+                               {"elk.position" (str "(" pos ",0)")}))))
               edges)
         by-parent (group-by :parent-id nodes)
         events-by-parent (group-by ::event-parent event-children)
+        ;; rf2-p75kbg — container `layoutOptions`, with semiInteractive added
+        ;; ONLY when this container holds a guarded fork (so the branch
+        ;; `elk.position` hints are honoured; non-fork containers are
+        ;; untouched and keep full crossing-minimisation).
+        container-opts (fn [parent-id]
+                         (cond-> {"elk.algorithm" "layered"
+                                  "elk.padding"   container-pad}
+                           (contains? fork-containers parent-id)
+                           (assoc "elk.layered.crossingMinimization.semiInteractive"
+                                  "true")))
         build (fn build [n]
                 (let [;; rf2-ly51l — the local initial state leads its
                       ;; container's model order (machine-root sinks last);
@@ -579,9 +707,9 @@
                            ;; `:container-body-pad` inset. Density-derived
                            ;; via `container-elk-padding` (was a regular-only
                            ;; literal `top=44,…16` — wrong gap in
-                           ;; compact/cosy).
-                           :layoutOptions {"elk.algorithm" "layered"
-                                           "elk.padding"   container-pad}))))
+                           ;; compact/cosy). rf2-p75kbg adds semiInteractive
+                           ;; when this container holds a guarded fork.
+                           :layoutOptions (container-opts (:id n))))))
         ;; rf2-ly51l — top-level model order: initial state first,
         ;; machine-root annotation last (see `order-state-children`).
         top-state-children (mapv build (order-state-children

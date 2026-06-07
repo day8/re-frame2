@@ -159,7 +159,8 @@
                                     :event-label event-label})
         {:keys [event-chip-min-w event-chip-min-h event-chip-pad-x
                 event-chip-pad-y event-chip-radius event-chip-px
-                event-chip-action-px stroke-width stroke-width-emphasis]} vc
+                event-chip-action-px action-pill-height action-pill-pad-x
+                action-pill-radius stroke-width stroke-width-emphasis]} vc
         emphasised? (or focused? fired?)
         stroke-w    (if emphasised? stroke-width-emphasis stroke-width)
         ;; rf2-az6e2 — the route chip is SUBORDINATE to states: a quiet
@@ -272,19 +273,34 @@
                           :color (:text-tertiary ct)
                           :font-weight 600}}
            "↻"])]
-       ;; Action row — appears ONLY when an action exists. Subdued bolt
-       ;; chip, subordinate to the event line.
+       ;; Action row — appears ONLY when an action exists. rf2-fokezq —
+       ;; render the bolt + action name as a subdued ENCLOSED action CHIP
+       ;; (subtle fill + border + padding + rounding), matching the
+       ;; state-node entry/exit action chip (`nodes/action-row`) and
+       ;; Stately's quiet action treatment, so it reads as a contained
+       ;; annotation subordinate to the event line — NOT loose free-floating
+       ;; text inside the trigger box. Geometry reads off the density's
+       ;; `:action-pill-*` constants (shared with the state-node chip);
+       ;; font-size keeps the density-aware `:event-chip-action-px`. Colour
+       ;; is the neutral container-header fill + structural border + tertiary
+       ;; text (the quietest tier — subordinate to the event name's primary).
        (when action
          [:span {:data-testid (str "rf-mv-chart-event-action-" (.-id props))
                  :data-action action
-                 :style {:display      "inline-flex"
-                         :align-items  "center"
-                         :gap          "3px"
-                         :font-size    (str event-chip-action-px "px")
-                         :font-weight  500
-                         :color        (:text-tertiary ct)
-                         :line-height  "1"
-                         :white-space  "nowrap"}}
+                 :style {:display       "inline-flex"
+                         :align-items   "center"
+                         :gap           "3px"
+                         :align-self    "flex-start"
+                         :height        (str action-pill-height "px")
+                         :padding       (str "0 " action-pill-pad-x "px")
+                         :background    (:container-header-bg ct)
+                         :border        (str "1px solid " (:state-border ct))
+                         :border-radius (str action-pill-radius "px")
+                         :font-size     (str event-chip-action-px "px")
+                         :font-weight   500
+                         :color         (:text-tertiary ct)
+                         :line-height   "1"
+                         :white-space   "nowrap"}}
           [:span {:style {:opacity 0.7}} "⚡"]
           action])
        ;; xyflow attachment points. Handles on every side so elkjs can
