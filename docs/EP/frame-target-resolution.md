@@ -1,10 +1,23 @@
 # EP: Explicit Frame Target Resolution
 
-Status: proposal
+Status: Draft
 
-Date: 2026-06-06
+Type: Standards Track
 
-Related:
+Created: 2026-06-06
+
+Target Artifact: `day8/re-frame2-core`
+
+Target API Surface:
+
+- frame resolution
+- dispatch and subscribe
+- root frame providers
+- framework effects
+- SSR and hydration
+- Xray, Story, pair tooling, and AI tool accessors
+
+Requires:
 
 - [Spec 002 - Frames](https://github.com/day8/re-frame2/blob/main/spec/002-Frames.md)
 - [Spec 004 - Views](https://github.com/day8/re-frame2/blob/main/spec/004-Views.md)
@@ -13,10 +26,19 @@ Related:
 - [Spec 011 - SSR](https://github.com/day8/re-frame2/blob/main/spec/011-SSR.md)
 - [Spec 014 - HTTP Requests](https://github.com/day8/re-frame2/blob/main/spec/014-HTTPRequests.md)
 - [Runtime Architecture](https://github.com/day8/re-frame2/blob/main/spec/Runtime-Architecture.md)
+- [Tool Pair](https://github.com/day8/re-frame2/blob/main/spec/Tool-Pair.md)
 - [Xray API](../xray/api/index.md)
 - [App/Runtime Partition EP](app-db-runtime-partition.md)
 
-## Summary
+Benchmark References:
+
+- TanStack Query `QueryClientProvider`
+- React Redux `Provider`
+- Apollo Client `ApolloProvider`
+- Relay `RelayEnvironmentProvider`
+- re-frame2 frames, SSR request frames, Xray, Story, and pair tools
+
+## Abstract
 
 This enhancement proposes removing the ambient `:rf/default` fallback from
 frame-scoped operations.
@@ -30,8 +52,8 @@ explicit frame -> dynamic frame -> React context -> :rf/default
 That preserves re-frame v1 ergonomics, but it makes frame isolation depend on
 absence. A call that loses its frame context does not fail; it silently targets
 the host's default app frame. That is especially dangerous around async
-callbacks, React portals, Xray, Story, SSR request frames, test fixtures, and
-multi-frame applications.
+callbacks, React portals, Xray, Story, SSR request frames, test fixtures, pair
+tools, AI tools, and multi-frame applications.
 
 The proposed rule is:
 
@@ -39,49 +61,31 @@ The proposed rule is:
 > Absence is an error. No operation may synthesize `:rf/default` from missing
 > context.
 
-`:rf/default` can remain a legal frame id for applications that explicitly
-choose it. It is no longer a fallback target, no longer created just because
-`init!` ran, and no longer the bottom tier of `current-frame` resolution.
+`:rf/default` remains a legal explicit frame id. It is not a fallback target,
+not created just because `init!` ran, and not the bottom tier of
+`current-frame` resolution.
 
-## Why This EP Exists
+The goal is not to make re-frame2 more ceremonial. The goal is to make frame
+identity a best-in-class isolation capability: explicit, inspectable,
+tool-safe, SSR-safe, replayable, and easy for programmers and AI agents to
+reason about at scale.
 
-The design reviews in `ai/findings/2026-06-06.design-review-codex.md` and
-`ai/findings/2026-06-06.design-review-claude.md` identified default-frame
-fallback as a frame-isolation fault line.
-
-The first formulation was compatibility-preserving:
-
-> If `:rf/default` is the only app frame, keep implicit fallback even when
-> Xray or tool frames also exist.
-
-That formulation required a frame taxonomy:
-
-- app frames count for ambiguity;
-- tool frames such as `:rf/xray` do not;
-- SSR, Story, and test frames need their own classification;
-- `:rf/default` remains the compatibility anchor.
-
-The follow-up decision is stronger and cleaner:
-
-> re-frame2 is pre-alpha; prefer correctness and clarity over compatibility.
-> Remove the compatibility fallback instead of refining it.
-
-That means the issue is not "multiple non-default frames are ambiguous." The
-issue is that a missing frame target is allowed to proceed at all.
-
-## Problem
+## Motivation
 
 Frames are the public isolation primitive for:
 
 - app-db;
+- runtime-db;
 - event routing;
 - subscription caches;
 - machine snapshots;
 - route state;
+- managed HTTP and future resource state;
 - SSR request state;
+- Story and test frames;
 - Xray/tool state;
 - trace and epoch history;
-- runtime-owned partitions.
+- privacy and elision policy.
 
 If a frame-scoped operation falls through to `:rf/default`, isolation can fail
 silently.
@@ -99,6 +103,8 @@ Examples:
   actual client app frame is request- or mount-specific.
 - A machine lifecycle fx runs without a frame in its fx context and mutates the
   default frame's machine table instead of failing as a malformed internal fx.
+- An AI tool invokes a mutating operation without a selected target frame and
+  accidentally changes the default app instead of refusing the request.
 
 The current code has diagnostics for some cases, but they are partial:
 
@@ -106,54 +112,125 @@ The current code has diagnostics for some cases, but they are partial:
 - they only cover a subset of dispatch paths;
 - subscribe fallthrough has a separate plain-function warning path;
 - a handler that happens to exist on `:rf/default` can hide the bug;
-- production builds keep the fallback behavior after warnings are elided.
+- production builds keep the fallback behavior after warnings are elided;
+- tool and SSR surfaces need stronger refusal semantics than a warning.
 
 The smell is the same family as the app/runtime partition EP: a load-bearing
 boundary is protected by convention and late diagnostics rather than by the
 shape of the API.
 
-## What We Learned In This Session
+## Goals
 
-The `:rf/default` fallback is broader than dispatch.
+The frame target resolution work should:
 
-The central resolver lives in `implementation/core/src/re_frame/frame.cljc`:
+- make frame identity explicit at every frame-scoped boundary;
+- remove implicit fallback from missing context to `:rf/default`;
+- preserve ergonomic ambient use when a real frame context exists;
+- make async callbacks carry frame identity deliberately;
+- make SSR request frames and client hydration impossible to confuse with a
+  conventional process-global frame;
+- make Xray, Story, pair tools, and AI tools distinguish their own frame from
+  the target frame they inspect or mutate;
+- make no-frame failures structured, traceable, and visible even though the
+  error itself is frameless;
+- keep privacy/elision fail-closed when no frame policy is available;
+- update docs, skills, migration advice, examples, and conformance fixtures so
+  agents and humans learn the same rule.
 
-```clojure
-(defn current-frame []
-  (or *current-frame* :rf/default))
+## Non-Goals
 
-(defn resolve-current-frame []
-  ;; CLJS: adapter/current-frame hook, then current-frame
-  ;; CLJ:  current-frame
-  ...)
-```
+This EP should not:
 
-On CLJS, React-shaped adapters add the middle tier:
+- remove frames;
+- ban `:rf/default` as an explicit user-selected frame id;
+- require every in-view call to pass `{:frame ...}` when a valid root/provider
+  context already exists;
+- make Xray or pair tools unable to discover frames;
+- solve app/runtime partitioning by itself;
+- introduce backwards-compatibility shims for v1-style frameless calls.
 
-```clojure
-dynamic frame -> React context -> :rf/default
-```
+## Developer And AI Use Cases
 
-The discovered fallback surfaces are:
+The feature should help programmers and AI maintainers answer concrete
+questions:
 
-| Area | Current fallback shape | Why it matters |
-|---|---|---|
-| Dispatch / dispatch-sync | Router envelope computes default frame through `frame/resolve-current-frame`; missing context can enqueue work on `:rf/default`. | Wrong-frame writes are the highest-risk failure. |
-| Subscriptions | One-arity `subscribe`, `subscribe-once`, and `unsubscribe` call `frame/resolve-current-frame`. | Wrong-frame reads can hide state bugs and render the wrong app. |
-| Current-frame helpers | `current-frame-id`, no-arg `frame-handle`, no-arg `frame-bound-fn*`, `snapshot-of`, and no-arg `sub-cache` can capture or read `:rf/default`. | Async helpers can accidentally preserve the wrong target. |
-| React context | The shared React context is created with default value `:rf/default`; corrupted or missing context recovers to `:rf/default`. | Absence is encoded as a real frame id. |
-| Reagent views | `provider/current-frame` falls through to `:rf/default`; plain-function warnings detect one subcase. | View code can silently escape a provider. |
-| Elision | No-arg declarations and schema-population helpers target `:rf/default`; `elide-wire-value` falls back to current frame / default. | Privacy redaction can read the wrong mark registry. |
-| HTTP | HTTP interceptor registration and clearing default to `:rf/default` when no frame is supplied. | Request middleware can attach to the wrong app frame. |
-| SSR | `hydrate!`, streaming client install, and `active-head` have default-frame convenience forms. | Hydration must be tied to the actual app frame, not a conventional id. |
-| Machines | Several machine lifecycle fxs defensively default missing `:frame` to `:rf/default`. | Internal malformed fx context should fail, not mutate another frame. |
-| Trace / marks projection | Some legacy or frameless trace projection assumes `:rf/default` for grouping or elision. | Tooling can misattribute events or redact with the wrong frame policy. |
-| Xray | Xray state lives in `:rf/xray`, but its observed host target defaults to `:rf/default`. | Xray needs an explicit observed target distinct from its own frame. |
-| Docs / skills / migration | API docs, migration docs, Xray docs, and skills teach default-frame fallback in many places. | The implementation change must be paired with a documentation and agent-training change. |
+- Which frame does this operation target?
+- Did this event mutate the frame that rendered the view?
+- Did an async callback preserve frame identity across the boundary?
+- Is this SSR render using a request-local frame?
+- Is Xray reading its host frame or its own UI frame?
+- Can an AI tool mutate without an explicit selected target?
+- When a value crosses an egress boundary, which frame's elision policy applies?
+- Can replay, epoch inspection, and conformance tests prove that no operation
+  silently repaired absence by selecting `:rf/default`?
 
-This is why the fix should be a cross-repo EP rather than a small router patch.
+Features that do not improve those answers should be treated as secondary.
 
-## Proposed Contract
+## Benchmark Standard And Prior Art
+
+This EP uses mature SPA libraries as a benchmark for explicit runtime
+ownership. The comparison is not one-to-one; re-frame2 frames are broader than a
+React context provider. The useful prior-art pattern is that serious runtime
+containers are selected deliberately at the root or request boundary, then made
+available to descendants through explicit context.
+
+### TanStack Query
+
+TanStack Query uses a `QueryClient` supplied through `QueryClientProvider`.
+Queries and mutations do not guess a process-global query client when the
+provider is absent. That explicit client boundary is part of why a query cache
+can be scoped, hydrated, tested, and inspected.
+
+The frame-target lesson for re-frame2 is:
+
+- root-owned runtime containers should be explicit;
+- provider context is valid ambient context;
+- missing provider context should be a configuration error, not a silent write
+  to a conventional global target.
+
+re-frame2 should exceed the benchmark by making the target frame visible not
+only to views, but also to events, fxs, SSR, Xray, Story, pair tools, trace
+records, and AI tool contracts.
+
+### React Redux
+
+React Redux uses a `Provider` to make a store available to descendants. That
+model makes store ownership explicit at the application root while preserving
+ergonomic reads and dispatches inside the tree.
+
+The frame-target lesson for re-frame2 is that root ceremony is acceptable when
+it buys a durable boundary. The re-frame2 version should go further by allowing
+multiple independent app, story, test, SSR, and tool frames in one process.
+
+### Apollo And Relay
+
+Apollo's `ApolloProvider` supplies a configured client through React context.
+Relay's environment provider supplies a Relay environment to descendant hooks.
+Both libraries treat cache/network ownership as an explicit environment, not as
+an accidental global fallback.
+
+The frame-target lesson for re-frame2 is that request/client/environment
+identity is part of correctness. For SSR and hydration, choosing the wrong
+runtime container can leak data, double-fetch, or render stale state.
+
+### re-frame2 Opportunity
+
+The benchmark libraries make provider ownership explicit mostly for view-layer
+hooks. re-frame2 can make frame ownership stronger:
+
+- event-causal operations can carry frame ids in dispatch envelopes;
+- framework fxs can reject malformed frameless execution;
+- SSR request frames can be naturally isolated;
+- Xray can distinguish its own frame from the inspected host frame;
+- privacy and elision can fail closed without borrowing another frame's policy;
+- AI tool access can require an operating frame before mutation;
+- epoch records and replay can verify the target frame as data.
+
+That is the standard this EP sets. Matching the benchmark means no accidental
+global fallback. Exceeding the benchmark means frame identity is part of the
+whole runtime and tool model, not just the React provider tree.
+
+## Design Rationale
 
 ### Frame Target Invariant
 
@@ -169,7 +246,8 @@ sources:
 6. A tool, Story, SSR, or test harness target selected explicitly by that
    harness.
 
-If no source is available, the operation fails with `:rf.error/no-frame-context`.
+If no source is available, the operation fails with
+`:rf.error/no-frame-context`.
 
 ### `:rf/default`
 
@@ -178,6 +256,7 @@ or small applications that explicitly choose that id:
 
 ```clojure
 (rf/reg-frame :rf/default {:doc "The app frame for this program."})
+
 (rf/with-frame :rf/default
   (rf/dispatch [:app/boot]))
 ```
@@ -186,13 +265,13 @@ But the runtime must not create or select it implicitly.
 
 In particular:
 
-- `init!` installs the adapter and runtime capabilities; it does not guarantee
-  `:rf/default` exists.
-- React context default is absence, not `:rf/default`.
-- missing `:frame` in framework fx context is an internal error, not a request
-  to use `:rf/default`.
-- docs should stop describing `:rf/default` as "the frame you get when no frame
-  is supplied."
+- `init!` installs adapters and runtime capabilities; it does not guarantee
+  `:rf/default` exists;
+- React context default is absence, not `:rf/default`;
+- missing `:rf.frame/id` in framework fx context is an internal error, not a
+  request to use `:rf/default`;
+- docs should stop describing `:rf/default` as the frame you get when no frame
+  is supplied.
 
 ### Public API Shape
 
@@ -226,8 +305,6 @@ That must fail immediately.
 
 Async code must carry frame identity explicitly.
 
-Existing helpers already point in the right direction:
-
 ```clojure
 (let [dispatch (:dispatch (rf/frame-handle :app/main))]
   (.then promise #(dispatch [:loaded %])))
@@ -242,11 +319,32 @@ The no-arg capture forms should only work when a real frame context exists at
 capture time. If capture happens outside a frame, they should fail with
 `:rf.error/no-frame-context` instead of capturing `:rf/default`.
 
+Managed HTTP replies, timers, browser callbacks, websocket callbacks, machine
+delays, route listeners, and future resource-query callbacks must capture the
+frame at initiation. They must not rediscover a frame after the cascade has
+ended.
+
+### Registration-Time Resolution
+
+Registration-time frame resolution is distinct from operation-time resolution.
+
+Some current registration surfaces resolve their target frame at namespace load
+or boot time through `(or frame (frame/current-frame))`. Under this EP, a
+registration that writes frame-local metadata must either:
+
+- receive an explicit frame;
+- run inside `with-frame`;
+- run inside a frame `:on-create` hook;
+- be classified as a genuinely global registration rather than frame-local
+  state.
+
+This rule applies to frame-local schemas, flows, elision declarations, HTTP
+interceptors, and any future frame-local registrar side table. Boot-time
+namespace loading is not a valid reason to select `:rf/default`.
+
 ### Views And Root Mounts
 
 Application roots must establish a frame provider deliberately.
-
-Example:
 
 ```clojure
 (def app-frame :app/main)
@@ -276,21 +374,21 @@ Xray has two distinct frame concepts:
 
 Both must be explicit.
 
-Xray should still be able to mount its own frame lazily, but it should not
-default the inspected host target to `:rf/default`. A host can pass a target:
+Xray may mount its own frame lazily, but it should not default the inspected
+host target to `:rf/default`. A host can pass a target:
 
 ```clojure
 (xray/init! {:target-frame :app/main})
 ```
 
-or Xray can show an "unselected target" state until the frame picker chooses
-one. If Xray wants to auto-select a sole app frame, that should be modelled as
-an explicit discovery policy in Xray, not as core `:rf/default` fallback.
+or Xray can show an unselected-target state until the frame picker chooses one.
+If Xray wants to auto-select a sole app frame, that should be modeled as an
+explicit discovery policy in Xray or Tool-Pair, not as core `:rf/default`
+fallback.
 
-Tool APIs such as pair-MCP and Xray runtime accessors should reject mutating
-operations when no target frame is selected. Reads may return structured
-`:rf.tool/no-frame-selected` data for UX, but they should not read
-`:rf/default` by convention.
+Pair-MCP and AI tool APIs should reject mutating operations when no target frame
+is selected. Reads may return structured `:rf.tool/no-frame-selected` data for
+UX, but they should not read `:rf/default` by convention.
 
 ### SSR
 
@@ -305,7 +403,7 @@ SSR request and hydration APIs should require a frame.
 
 Server request frames are already naturally explicit. Client hydration should
 match that discipline so duplicate fetches, head projection, hydration deltas,
-and error projection all land on the same intended frame.
+and error projection all land on the intended frame.
 
 ### Machines And Managed Effects
 
@@ -313,13 +411,14 @@ Framework effects that run inside a cascade should inherit the frame from the
 fx context. Missing frame context in a lifecycle-critical fx is malformed
 runtime state.
 
-For example:
-
 ```clojure
 {:rf.machine/spawn {...}} ;; frame comes from the dispatch envelope
 ```
 
-If the fx handler is called without `{:frame ...}`, it should emit or throw
+After the app/runtime partition EP's coeffect rename, this inherited key should
+be `:rf.frame/id`, not legacy `:frame`.
+
+If an fx handler is called without a frame id, it should emit or throw
 `:rf.error/no-frame-context`; it should not repair the call by mutating
 `:rf/default`.
 
@@ -340,72 +439,310 @@ When a value is crossing an off-box boundary and no frame policy is available,
 the safe default is to redact conservatively or report that the value cannot be
 projected safely.
 
-## Options Considered
+No-frame errors are themselves frameless. They need an always-on error-emission
+path, not only per-frame epoch capture.
 
-### Option A: Keep Status Quo
+## Specification
+
+### Central Resolver
+
+The central frame APIs should have these semantics:
+
+```clojure
+(frame/current-frame)
+;; lexical dynamic frame, or nil
+
+(frame/resolve-current-frame)
+;; dynamic frame, adapter/React-context frame, or nil
+
+(frame/require-current-frame! operation payload)
+;; frame id, or raises/emits :rf.error/no-frame-context
+```
+
+`frame/current-frame` and `frame/resolve-current-frame` are readers. They do not
+repair absence. Call sites that require a frame must call a require helper or
+otherwise produce a structured error.
+
+Suggested error payload:
+
+```clojure
+{:rf.error/id :rf.error/no-frame-context
+ :operation   :dispatch
+ :where       're-frame.router/dispatch!
+ :event-id    :todo/add
+ :recovery    :supply-frame}
+```
+
+Resolution must fail before frame registry lookup. A missing frame context must
+not be misreported as `:rf.error/frame-destroyed` for a synthesized
+`:rf/default`.
+
+### Dispatch And Router
+
+Router envelope construction should follow this order:
+
+1. explicit `{:frame ...}` wins;
+2. otherwise require a resolved current frame;
+3. no frame means no enqueue;
+4. cross-frame dispatch diagnostics remain separate from missing-frame errors.
+
+Remove:
+
+- `:fell-through-to-default?`;
+- the async-callback fallthrough warning category;
+- the schema and instrumentation vocabulary that describes fallback as a
+  successful routed state.
+
+### Subscriptions And Read Helpers
+
+Update:
+
+- one-arity `subscribe`;
+- one-arity `subscribe-once`;
+- one-arity `unsubscribe`;
+- `snapshot-of`;
+- no-arg `sub-cache`;
+- `current-frame-id`;
+- no-arg `frame-handle`;
+- no-arg `frame-bound-fn*`;
+- `sub-machine`;
+- `machine-has-tag?`.
+
+The no-arg forms can remain only as context readers. They should fail when used
+outside context.
+
+### Root, View, And Adapter Surfaces
+
+Update React context and view providers:
+
+- shared React context default becomes a no-provider sentinel, not
+  `:rf/default`;
+- corrupted context reports corruption or no-frame context deliberately;
+- `frame-provider` requires `:frame`;
+- the shared substrate spine must not repair missing frame props with
+  `:rf/default`;
+- `reg-view` continues to wire context;
+- plain Reagent function warning becomes a sharper no-frame-context path.
+
+### Framework Effects And Runtime Subsystems
+
+Remove defensive `:or {frame-id :rf/default}` defaults and literal
+`(or ... :rf/default)` fallbacks from framework fxs and runtime helpers:
+
+- machine spawn/destroy/update-snapshot/timers;
+- `dispatch-to-system`;
+- HTTP interceptor registration and clearing;
+- managed HTTP request and reply paths;
+- route and navigation fxs;
+- URL-owner resolution;
+- flows;
+- resource query fxs;
+- runtime partition writes.
+
+Framework fxs invoked from a cascade should already receive the envelope frame.
+If they do not, that is an invariant failure worth surfacing.
+
+### SSR And Head
+
+Update SSR APIs:
+
+- `hydrate!` requires `:frame`;
+- streaming client `install!` requires `:frame`;
+- `active-head` no-arg form is removed or made context-required;
+- server examples create request frames explicitly;
+- client examples pass the same frame into hydrate, root provider, resources,
+  and Xray.
+
+### Tooling
+
+Tooling needs explicit own-frame and target-frame semantics:
+
+- Xray own frame is explicit, commonly `:rf/xray`;
+- Xray target frame starts unselected unless host config or explicit discovery
+  policy selects it;
+- pair-MCP operating-frame resolution must be reconciled with this EP;
+- `eval-cljs` no-frame behavior must stop documenting `:rf/default` as the
+  target;
+- AI mutation tools require an operating frame;
+- read tools may return structured no-target data;
+- tool specs and conformance fixtures must change in the same work as the
+  implementation.
+
+### Privacy And Egress
+
+Frame-qualified elision policy may be used only when a frame is known.
+
+Frameless egress should:
+
+- redact conservatively;
+- omit values that require frame policy;
+- or return structured data saying projection cannot be done safely.
+
+It must not borrow `:rf/default` marks.
+
+## Examples
+
+### Explicit Application Root
+
+```clojure
+(def app-frame :app/main)
+
+(rf/reg-frame app-frame
+  {:on-create [:app/boot]})
+
+(rf/init! reagent/adapter)
+
+(mount-root!
+  [rf/frame-provider {:frame app-frame}
+   [app]])
+```
+
+### Async Callback
+
+```clojure
+(rf/reg-event-fx
+  :profile/load-clicked
+  (fn [cofx _]
+    (let [frame-id (:rf.frame/id cofx)
+          dispatch (:dispatch (rf/frame-handle frame-id))]
+      {:fx [[:promise
+             {:work       #(fetch-profile)
+              :on-success #(dispatch [:profile/loaded %])}]]]})))
+```
+
+### SSR Hydration
+
+```clojure
+(ssr/hydrate!
+  {:frame :app/main
+   :render-tree-fn
+   (fn []
+     [rf/frame-provider {:frame :app/main}
+      [app]])})
+```
+
+### Xray Host Target
+
+```clojure
+(xray/init!
+  {:own-frame    :rf/xray
+   :target-frame :app/main})
+```
+
+### Missing Context
+
+```clojure
+(rf/dispatch [:todo/add "Milk"])
+;; => :rf.error/no-frame-context
+```
+
+## Alternatives Considered
+
+### A. Keep Status Quo
 
 Keep `:rf/default` as the universal bottom tier and rely on warnings.
 
 Pros:
 
-- Lowest short-term churn.
-- Preserves re-frame v1 style examples.
+- lowest short-term churn;
+- preserves re-frame v1 style examples.
 
 Cons:
 
-- Wrong-frame writes remain possible.
-- Diagnostics are partial and often dev-only.
-- Tool and SSR boundaries inherit app-frame convenience semantics.
-- This conflicts with the pre-alpha "build it right" posture.
+- wrong-frame writes remain possible;
+- diagnostics are partial and often dev-only;
+- tool and SSR boundaries inherit app-frame convenience semantics;
+- this conflicts with the pre-alpha "build it right" posture.
 
-### Option B: Role-Aware Compatibility Fallback
+### B. Role-Aware Compatibility Fallback
 
 Keep fallback to `:rf/default` when it is the only live app frame, excluding
 tool frames such as `:rf/xray` from ambiguity.
 
 Pros:
 
-- Preserves single-app ergonomics.
-- Handles the common "app plus Xray" case.
+- preserves single-app ergonomics;
+- handles the common "app plus Xray" case.
 
 Cons:
 
-- Requires frame roles before solving the immediate problem.
-- Still lets missing context proceed.
-- Creates more policy: app frame vs tool frame vs Story vs SSR vs test.
-- Harder to teach than "no frame context, no operation."
+- requires frame roles before solving the immediate problem;
+- still lets missing context proceed;
+- creates more policy: app frame vs tool frame vs Story vs SSR vs test;
+- harder to teach than "no frame context, no operation."
 
-### Option C: Explicit Frame Context, No Default Fallback
+### C. Explicit Frame Context, No Default Fallback
 
 Remove fallback completely. A frame may be ambient, but only when a root,
 provider, cascade, or lexical binding supplied it explicitly.
 
 Pros:
 
-- Strongest frame isolation.
-- Easiest rule to teach.
-- Makes async and tooling boundaries honest.
-- Fits pre-alpha no-compatibility posture.
+- strongest frame isolation;
+- easiest rule to teach;
+- makes async and tooling boundaries honest;
+- matches explicit provider/client/environment patterns in benchmark libraries;
+- fits pre-alpha no-compatibility posture.
 
 Cons:
 
-- Large repo-wide migration.
-- Many tests, docs, examples, tools, and skills currently assume `:rf/default`.
-- Requires better root/bootstrap examples.
+- large repo-wide migration;
+- many tests, docs, examples, tools, and skills currently assume
+  `:rf/default`;
+- requires better root/bootstrap examples;
+- revokes the earlier single-frame invisibility goal.
 
 Recommendation: **Option C**.
 
-## Implementation Plan
+## Backwards Compatibility
 
-*See also the Audit Addendum below for additional surfaces, files, and call
-sites found by a 2026-06-07 codebase sweep — several of the plan steps below are
-extended there.*
+This is an intentionally breaking pre-alpha change.
+
+The EP revokes this earlier goal from Spec 002 and the frame guide:
+
+> Frame plurality is invisible to single-frame apps.
+
+That goal was valuable while re-frame2 was optimizing for migration comfort. It
+is less valuable than frame correctness once SSR, Story, Xray, pair tools, AI
+tooling, resource management, managed effects, and runtime partitions all depend
+on frame isolation.
+
+Migration should be mechanical:
+
+- choose an application frame id;
+- register it explicitly;
+- install a root provider;
+- wrap tests in `with-frame` or pass `{:frame ...}`;
+- capture frame handles for async callbacks;
+- select an operating frame for tools;
+- replace docs and skills that teach implicit `:rf/default`.
+
+A migration may choose `:rf/default` as the explicit id. The runtime will not
+infer it.
+
+## Security And Privacy
+
+This EP is security-relevant because frame target resolution controls which
+runtime policy applies to egress, logs, traces, and AI tool payloads.
+
+The security rule is:
+
+> When no frame policy is available, do not borrow another frame's policy.
+
+For human-facing tools, this prevents misleading attribution and wrong-frame
+inspection. For AI or off-box egress, it prevents sensitive values from being
+projected under the wrong elision registry.
+
+No-frame errors must use an always-on error path so they are observable without
+requiring a per-frame epoch target.
+
+## Reference Implementation Plan
 
 This should be implemented as a planned migration, not one giant patch. The
 order matters because the fallback is embedded in docs, tests, tooling, and
 developer education.
 
-### 1. Contract And Inventory Beads
+### 1. Contract And Inventory
 
 Create beads for:
 
@@ -413,6 +750,7 @@ Create beads for:
 - dispatch/router migration;
 - subscription/read API migration;
 - React context and adapter migration;
+- registration-time frame-local surfaces;
 - framework fx migration;
 - SSR/head/hydration migration;
 - Xray/Story/tool target-frame migration;
@@ -425,23 +763,14 @@ sites, updates tests, or updates documentation.
 
 ### 2. Central Frame Resolver
 
-Change the central frame APIs before touching callers:
+Change central frame APIs before touching callers:
 
-- `frame/current-frame` returns the lexical dynamic frame or nil.
-- `frame/resolve-current-frame` returns the dynamic or React-context frame, or
-  nil.
-- add a helper such as `frame/require-current-frame!` that raises or emits
-  `:rf.error/no-frame-context`.
-- remove `ensure-default-frame!` as an `init!` side effect.
-- define the structured error payload for missing context:
-
-```clojure
-{:rf.error/id :rf.error/no-frame-context
- :operation   :dispatch
- :where       're-frame.router/dispatch!
- :event-id    :todo/add
- :recovery    :supply-frame}
-```
+- `frame/current-frame` returns the lexical dynamic frame or nil;
+- `frame/resolve-current-frame` returns dynamic or React-context frame, or nil;
+- add `frame/require-current-frame!`;
+- remove `ensure-default-frame!` as an `init!` side effect;
+- decide whether any test-only default-frame fixture survives;
+- define the structured error payload for missing context.
 
 ### 3. Dispatch And Router
 
@@ -452,7 +781,8 @@ Update router envelope construction:
 - no frame means no enqueue;
 - remove `:fell-through-to-default?`;
 - replace fallthrough warnings with missing-frame errors;
-- preserve cross-frame dispatch diagnostics separately.
+- preserve cross-frame dispatch diagnostics separately;
+- emit no-frame errors before frame registry lookup.
 
 Tests should cover:
 
@@ -465,19 +795,15 @@ Tests should cover:
 
 ### 4. Subscriptions And Read Helpers
 
-Update:
+Update read surfaces:
 
-- one-arity `subscribe`;
-- one-arity `subscribe-once`;
-- one-arity `unsubscribe`;
+- one-arity `subscribe`, `subscribe-once`, and `unsubscribe`;
 - `snapshot-of`;
 - no-arg `sub-cache`;
 - `current-frame-id`;
 - no-arg `frame-handle`;
-- no-arg `frame-bound-fn*`.
-
-The no-arg forms can remain, but only as context readers. They should fail when
-used outside context.
+- no-arg `frame-bound-fn*`;
+- machine read helpers that delegate to subscribe.
 
 Tests should cover wrong-frame prevention for reads as well as writes.
 
@@ -486,31 +812,50 @@ Tests should cover wrong-frame prevention for reads as well as writes.
 Update React context and view providers:
 
 - shared React context default becomes nil or a sentinel, not `:rf/default`;
-- corrupted context reports absence rather than recovering to default;
+- corrupted context reports absence or corruption deliberately;
 - `frame-provider` requires `:frame`;
+- shared substrate spine and adapter provider code stop repairing missing props;
 - `reg-view` continues to wire context;
-- plain Reagent function warning can become a sharper no-frame-context path.
+- plain Reagent function warning becomes a sharper no-frame-context path.
 
 Docs and examples should teach root frame declaration first, then normal app
 views.
 
-### 6. Framework Effects And Runtime Subsystems
+### 6. Registration-Time Frame-Local Surfaces
 
-Remove defensive `:or {frame-id :rf/default}` defaults from framework fxs and
-runtime helpers:
+Update no-frame `reg-*` forms that currently resolve a frame at registration
+time:
 
-- machine spawn/destroy/update-snapshot/timers;
-- `dispatch-to-system`;
+- `reg-flow`;
+- `reg-app-schema`;
+- schema population helpers;
+- elision declaration helpers;
 - HTTP interceptor registration and clearing;
+- future frame-local resource registrations.
+
+Each surface must be classified as one of:
+
+- global registration;
+- explicit frame-local registration;
+- context-required frame-local registration.
+
+### 7. Framework Effects And Runtime Subsystems
+
+Remove defensive defaults from framework fxs and runtime helpers:
+
+- machine lifecycle fxs;
+- `dispatch-to-system`;
+- managed HTTP request initiation and reply delivery;
 - route and navigation fxs;
+- URL-owner declaration;
 - flows;
-- future resource query fxs;
+- resource query fxs;
 - runtime partition writes.
 
-Framework fxs invoked from a cascade should already receive the envelope frame.
-If not, that is an invariant failure worth surfacing.
+Sequence this with the app/runtime partition EP so framework fxs use
+`:rf.frame/id` as the inherited frame key.
 
-### 7. SSR And Head
+### 8. SSR And Head
 
 Update SSR APIs:
 
@@ -518,76 +863,77 @@ Update SSR APIs:
 - streaming client `install!` requires `:frame`;
 - `active-head` no-arg form is removed or made context-required;
 - server examples create request frames explicitly;
-- client examples pass the same frame into hydrate, root provider, and Xray.
+- client examples pass the same frame into hydrate, root provider, resources,
+  and Xray.
 
-### 8. Trace, Marks, And Elision
+### 9. Trace, Marks, And Elision
 
 Update projection rules:
 
 - no default frame for old or frameless trace events;
 - redaction against a frame requires a frame-qualified policy;
 - off-box egress without a frame policy fails closed;
-- frame-less boot/registration events are labelled as frameless rather than
+- frameless boot/registration events are labelled as frameless rather than
   attributed to `:rf/default`;
-- Xray can display frameless events separately.
+- Xray can display frameless events separately;
+- no-frame errors are emitted through the always-on error axis.
 
-This step should coordinate with the App/Runtime Partition EP because elision
+This step should coordinate with the app/runtime partition EP because elision
 state is moving into runtime-db.
 
-### 9. Xray, Story, Pair Tools, And Skills
+### 10. Xray, Story, Pair Tools, And Skills
 
 Update tool surfaces:
 
-- Xray mounts `:rf/xray` explicitly.
-- Xray target frame starts as unselected unless the host supplies
-  `:target-frame` or Xray applies an explicit discovery policy.
-- Xray frame picker drives target selection; panels that need host data refuse
-  to read until selected.
-- Xray runtime / pair-MCP mutation tools require explicit `:frame`.
-- `discover-app` may report available frames and suggest a target, but should
-  not mutate or read by falling back.
-- Story variant frames and Story->Xray handoff pass explicit frame ids.
+- Xray mounts `:rf/xray` explicitly;
+- Xray target frame starts as unselected unless host config or explicit
+  discovery policy selects it;
+- Xray frame picker drives target selection;
+- panels that need host data refuse to read until selected;
+- Xray runtime and pair-MCP mutation tools require explicit `:frame`;
+- `discover-app` reports available frames and suggests a target, but does not
+  mutate or read by falling back;
+- Story variant frames and Story-to-Xray handoff pass explicit frame ids;
+- Tool-Pair operating-frame resolution is reconciled with this contract.
 
 Update skills:
 
-- `skills/re-frame2`
-- `skills/re-frame2-xray`
-- `skills/re-frame-migration`
-- `docs/skills/re-frame2-xray.md`
-- any pair-MCP or Story skill references that tell agents bare
-  `dispatch`/`subscribe` targets `:rf/default`.
+- `skills/re-frame2`;
+- `skills/re-frame2-setup`;
+- `skills/re-frame2-xray`;
+- `skills/re-frame2-pair`;
+- `skills/re-frame2-implementor`;
+- `skills/re-frame-migration`;
+- docs skills that mention default frame behavior.
 
-Agents should be taught the new preflight:
+### 11. Docs, API, Migration, And Examples
 
-> What frame am I operating on? If none is explicit, do not dispatch, subscribe,
-> restore, inspect app-db, or read sensitive data.
+Update:
 
-### 10. Docs, API, Migration, And Examples
-
-Update all references that teach default-frame fallback:
-
-- `docs/api/01-core.md`
-- `docs/api/02-views.md`
-- `docs/api/04-machines.md`
-- `docs/api/07-http.md`
-- `docs/api/09-ssr.md`
-- `docs/api/13-lifecycle.md`
-- `docs/xray/api/*`
-- `docs/migration/from-re-frame-v1/README.md`
-- `spec/002-Frames.md`
-- `spec/004-Views.md`
-- `spec/006-ReactiveSubstrate.md`
-- `spec/011-SSR.md`
-- `spec/014-HTTPRequests.md`
+- `docs/guide/18-frames.md`;
+- `docs/guide/09*`, `14*`, `16*`, `19*`, `23*`, `25*` where they teach
+  default frame convenience;
+- `docs/xray/api/mount-control.md`;
+- `docs/migration/from-re-frame-v1/README.md`;
+- `spec/002-Frames.md`;
+- `spec/004-Views.md`;
+- `spec/006-ReactiveSubstrate.md`;
+- `spec/009-Instrumentation.md`;
+- `spec/011-SSR.md`;
+- `spec/014-HTTPRequests.md`;
+- `spec/Runtime-Architecture.md`;
+- `spec/Conventions.md`;
+- `spec/Spec-Schemas.md`;
+- `spec/Tool-Pair.md`;
 - examples and testbeds.
 
-The migration guide should stop saying "today's re-frame is re-frame2 with
-only `:rf/default` in play." The new story is:
+The migration guide should stop saying "today's re-frame is re-frame2 with only
+`:rf/default` in play." The new story is:
 
 > re-frame2 requires an application frame. A migration may choose
 > `:rf/default` as the explicit id, but the runtime will not infer it.
 
-### 11. Tests And Conformance
+### 12. Tests And Conformance
 
 Add a conformance sweep:
 
@@ -599,51 +945,17 @@ Add a conformance sweep:
 - no off-box egress redacts against `:rf/default` by fallback;
 - explicit `:rf/default` still works when a test or app registers it.
 
-Add static checks where useful:
+Broaden static checks beyond the current narrow regex:
 
 ```powershell
-rg ":or \\{frame-id :rf/default\\}|or \\(:frame|resolve-current-frame|current-frame\\)" implementation
-rg ":rf/default" docs skills tools implementation
+rg ":or \\{frame-id :rf/default\\}|\\(or [^)]*:rf/default\\)" implementation
+rg ":rf/default" docs skills tools implementation spec
 ```
 
 The goal is not to ban the keyword. The goal is to ban using it as an absence
 repair.
 
-## Bead Plan
-
-Suggested beads:
-
-| Bead | Scope |
-|---|---|
-| Decision bead | Accept explicit frame target resolution and remove ambient default fallback. |
-| Resolver bead | Change `frame/current-frame`, `resolve-current-frame`, React context default, and missing-frame error shape. |
-| Router bead | Remove dispatch fallback and fallthrough diagnostics; add no-frame dispatch tests. |
-| Subs bead | Remove subscribe/read fallback; add no-frame read tests. |
-| Root/view bead | Update frame-provider, reg-view docs, examples, and adapter tests. |
-| Fx bead | Remove fallback defaults from machines, HTTP, route, flow, and resource-related fxs. |
-| SSR bead | Require frame in hydration, streaming, head, and request examples. |
-| Elision/trace bead | Remove default-frame attribution from projection and fail closed for frameless egress. |
-| Xray/Story/tool bead | Require explicit own-frame and target-frame selection; update pair-MCP accessors. |
-| Docs/skills bead | Update API docs, specs, migration guide, examples, and skills. |
-| Conformance bead | Add static/dynamic checks that prevent regression. |
-
-## Open Questions
-
-*See also the Audit Addendum below for additional open questions found by a
-2026-06-07 codebase sweep.*
-
-1. Should `init!` stop creating any frame, or should a separate app bootstrap
-   helper create a frame explicitly from opts?
-2. Should missing frame context throw synchronously everywhere, or should some
-   read/tool surfaces return structured error data?
-3. Should Xray auto-select the sole non-tool frame as an explicit discovery
-   policy, or should it always start with no selected target?
-4. Should `:rf/default` remain reserved as a framework-known conventional id,
-   or become just another explicit user-selected keyword?
-5. Should migration tooling rewrite bare v1 calls into a `with-frame` root, or
-   into explicit `{:frame :rf/default}` call sites?
-
-## Acceptance Criteria
+## Acceptance Criteria And Rollout
 
 This EP is implemented when:
 
@@ -651,270 +963,217 @@ This EP is implemented when:
 - dispatch, subscribe, SSR, framework fx, Xray, and tool accessors require a
   real frame target;
 - `:rf/default` remains usable only when explicitly registered and selected;
+- no-frame errors are structured and visible through an always-on error path;
+- privacy and elision fail closed when no frame policy is available;
 - docs and skills teach explicit frame context;
 - tests prove that losing frame context fails rather than mutating or reading
   another frame.
 
-## Audit Addendum (2026-06-07): Implications Surfaced By A Codebase Sweep
+Rollout should be sequential because hot-zone specs, tools, docs, and tests all
+reference the old contract. Do not dispatch implementation beads in parallel
+across the same spec and core-runtime files without a coordinator.
 
-Four read-only audits (core runtime; per-feature artefacts + framework fxs;
-tooling/Tool-Pair/Xray/pair-MCP; spec/docs/skills/tests) cross-checked this EP
-against the current codebase. The EP's direction and problem statement are sound
-and well-grounded. The following implications were **missing or
-under-specified** and should be folded into the plan. Citations are `file:line`
-as of the sweep.
+## Open Decisions
 
-### 1. Reconcile With The Shipped Tool-Pair Operating-Frame Contract (highest priority — currently unaddressed)
+1. Should `init!` stop creating any frame, or should a separate app bootstrap
+   helper create a frame explicitly from opts?
+   Recommendation: `init!` should not create `:rf/default`; an app bootstrap
+   helper may create a named frame explicitly.
+2. Should missing frame context throw synchronously everywhere, or should some
+   read/tool surfaces return structured error data?
+   Recommendation: mutating operations throw or emit structured errors; tool
+   reads may return structured no-target data.
+3. Should Xray or Tool-Pair auto-select the sole non-tool app frame?
+   Recommendation: only as an explicit discovery policy outside the core
+   resolver.
+4. Should `:rf/default` remain reserved as a framework-known conventional id,
+   or become just another explicit user-selected keyword?
+   Recommendation: keep it reserved only if the reservation buys migration or
+   docs clarity; otherwise make it ordinary.
+5. Should migration tooling rewrite bare v1 calls into a `with-frame` root, or
+   into explicit `{:frame :rf/default}` call sites?
+   Recommendation: prefer root/provider wrapping; use explicit call-site frames
+   for async callbacks, tests, tools, and SSR.
+6. How does `:rf.error/no-frame-context` route so a frameless error is still
+   surfaced?
+   Recommendation: always-on error emission, not per-frame epoch only.
+7. Do boot-time frame-local `reg-*` forms require explicit `:frame`?
+   Recommendation: yes, unless the surface is classified as globally registered.
 
-re-frame2 already has a **4-tier operating-frame resolution** contract for tools
-([`spec/Tool-Pair.md:394-409`](https://github.com/day8/re-frame2/blob/main/spec/Tool-Pair.md);
-`skills/re-frame2-pair/preload/re_frame2_pair/runtime.cljs:264-312`). Two parts
-of it directly collide with this EP and must be reconciled, not broken anew:
+## Bead Structure
 
-- **Tier 3 auto-selects the *sole* app frame from absence**
-  (`runtime.cljs:292-312`; guaranteed at `Tool-Pair.md:403`) — itself "ambient
-  resolution from absence," exactly what the EP bans. Decide explicitly whether
-  tier-3 survives.
-- **`:rf/default` is a *privileged app frame*** — the named carve-out from the
-  `:rf/*`-tool-frame exclusion (`Tool-Pair.md:407`; `runtime.cljs:264-282`
-  `reserved-tool-frame?`). The EP's "`:rf/default` is no longer special / not
-  created by `init!`" makes that carve-out dead code; rule on it.
-- Already-aligned (note it): the **pin layer** `reset-operating-frame` does NOT
-  fall back to `:rf/default` — it re-resolves tiers 3→4 and refuses with
-  `:ambiguous-frame` (`runtime.cljs:170-185`). So only tier-3 + the carve-out
-  collide.
-- Reconcile `:rf.error/no-frame-context` with the existing `:ambiguous-frame`
-  refusal and `:rf.tool/no-frame-selected`.
+1. Decision/spec bead: accept explicit frame target resolution and update the
+   normative spec language.
+2. Resolver bead: change `frame/current-frame`, `resolve-current-frame`,
+   React context default, and missing-frame error shape.
+3. Router bead: remove dispatch fallback and fallthrough diagnostics; add
+   no-frame dispatch tests.
+4. Subs/read bead: remove subscribe/read fallback; add no-frame read tests.
+5. Root/view bead: update frame-provider, reg-view docs, shared substrate spine,
+   examples, and adapter tests.
+6. Registration bead: classify and migrate frame-local `reg-*` surfaces.
+7. Fx/runtime bead: remove fallback defaults from machines, HTTP, route, flow,
+   resource-related fxs, and URL-owner logic.
+8. SSR bead: require frame in hydration, streaming, head, and request examples.
+9. Elision/trace bead: remove default-frame attribution from projection and
+   fail closed for frameless egress.
+10. Xray/Story/tool bead: require explicit own-frame and target-frame selection;
+    update pair-MCP accessors and Tool-Pair specs.
+11. Docs/skills bead: update API docs, specs, migration guide, examples, and
+    skills.
+12. Conformance bead: add static and dynamic checks that prevent regression.
 
-**Action:** add
-[`spec/Tool-Pair.md`](https://github.com/day8/re-frame2/blob/main/spec/Tool-Pair.md)
-(hot-zone) to plan step #9; this resolves EP Open-Question 3 (it's already
-answered by the tier-3 discovery policy).
+## Audit Evidence
 
-### 2. Decision To Surface: This EP Revokes A Stated Design Goal (the single-frame ergonomic)
+Four read-only audits on 2026-06-07 cross-checked this EP against the current
+codebase. The EP's direction is sound, but the following implications must stay
+visible in implementation beads.
 
-The EP silently overrides a stated design goal and a headline teaching promise:
+### 1. Tool-Pair Operating-Frame Contract
 
-- [`spec/002-Frames.md:21`](https://github.com/day8/re-frame2/blob/main/spec/002-Frames.md)
-  — design goal: "Frame plurality is invisible to single-frame apps. No new API
-  surfaces in user code unless the user opts in."
-- `docs/guide/18-frames.md:51,82` — "You will write whole real applications and
-  never type the word `frame`… `:rf/default` is invisible scaffolding… costs you
-  **nothing**."
+re-frame2 already has a four-tier operating-frame resolution contract for tools:
 
-The EP's "bare dispatch must fail" revokes both for every single-frame app.
-**The EP's Recommendation should state which goal it overrides**, OR consider a
-**differentiated stance**: require an explicit frame for framework / tool / SSR
-/ internal-fx code (clearly correct, low ergonomic cost), but for *user*
-`dispatch`/`subscribe` keep ambient resolution and error only once a **second
-app frame** exists (ambient-to-the-sole-frame is unambiguous and safe in a
-single-app program; the wrong-frame bug it prevents cannot occur there — the
-residual risk is tool/SSR code losing context, which the framework/tool
-requirement already covers).
+- [`spec/Tool-Pair.md:394-409`](https://github.com/day8/re-frame2/blob/main/spec/Tool-Pair.md)
+- `skills/re-frame2-pair/preload/re_frame2_pair/runtime.cljs:264-312`
 
-Conversely, the EP's **strongest unused ally**:
-[`spec/Principles.md`](https://github.com/day8/re-frame2/blob/main/spec/Principles.md)
-§"Low hidden context" (P8) +
-[`spec/AI-Audit.md:112,272`](https://github.com/day8/re-frame2/blob/main/spec/AI-Audit.md)
-already grade the plain-fn `:rf/default` routing as a gap whose resolution is
-"remove the footgun or make it loud" — cite this as principled backing.
+Two parts collide with this EP:
 
-### 3. Normative "always present" Statements Missing From The Plan
+- tier 3 auto-selects the sole app frame from absence;
+- `:rf/default` is a privileged app frame carved out from the `:rf/*` tool-frame
+  exclusion.
 
-These assert the contract the EP removes and are NOT all in the EP's file list —
-add to plan step #10 (hot-zone files sequential):
+The pin layer `reset-operating-frame` is already closer to the desired behavior:
+it re-resolves and refuses ambiguity rather than falling back.
 
-| File:line | Statement to rewrite |
+Implementation must reconcile `:rf.error/no-frame-context`,
+`:ambiguous-frame`, and `:rf.tool/no-frame-selected`.
+
+### 2. Revoked Single-Frame Ergonomic Goal
+
+The EP overrides a stated design goal:
+
+- `spec/002-Frames.md:21`: frame plurality is invisible to single-frame apps;
+- `docs/guide/18-frames.md:51,82`: most users never type `frame` and
+  `:rf/default` costs nothing.
+
+This revocation should be explicit. The strongest principled support is
+`spec/Principles.md` low-hidden-context guidance and `spec/AI-Audit.md`, which
+already treats plain-function `:rf/default` routing as a gap to remove or make
+loud.
+
+### 3. Normative Always-Present Statements
+
+These files contain normative statements that `:rf/default` always exists or is
+the deliberate fallback:
+
+| File | Statements to rewrite |
 |---|---|
-| `spec/Runtime-Architecture.md:125, 235` | "`:rf/default` is always present… lands here"; boot step 5 "`:rf/default` frame is guaranteed present" — **file entirely absent from EP** |
-| `spec/006-ReactiveSubstrate.md:890-893` | "Default value is `:rf/default` — the Spec **guarantees this frame always exists**" |
-| `spec/006-ReactiveSubstrate.md:1120, 1122` | the **normative adapter-conformance table** ("dynamic-var → React-context → `:rf/default`"; "Missing/nil `:frame` → falls through to `:rf/default` (deliberate default)") — adapters are graded against this |
-| `spec/002-Frames.md:15, 39/43, 219-221, 396, 403/647, 525-568 (ref-impl block), 787-799` | the headline frame-model framing, the "defaults to `:rf/default`" API-at-a-glance, the frame-attachment priority list ending "4. Default", the "falls through… not a bug" (which the EP inverts to a bug), and the `read-frame-from-context` reference impl + edge-case table |
-| `spec/Conventions.md:18, 206` | "the **universal default frame id**" reservation — ties to EP Open-Question 4 (hot-zone) |
-| `spec/Tool-Pair.md:403, 407, 409` | "always pre-registered" premises (see §1) |
-| `spec/Ownership.md:23`, `spec/README.md:61` | index/ownership rows literally naming "`:rf/default` fallback" as an owned contract |
+| `spec/Runtime-Architecture.md` | `:rf/default` always present; boot guarantees it. |
+| `spec/006-ReactiveSubstrate.md` | React context default and adapter conformance require fallback. |
+| `spec/002-Frames.md` | frame model, API-at-a-glance, priority list, reference implementation, and edge-case table. |
+| `spec/Conventions.md` | universal default frame id reservation. |
+| `spec/Tool-Pair.md` | always-pre-registered premises. |
+| `spec/Ownership.md`, `spec/README.md` | ownership/index rows naming fallback as a contract. |
 
-### 4. The Fallthrough-Warning Vocabulary Is *deleted*, Not Edited — Retire It Coherently
+### 4. Fallthrough Warning Vocabulary
 
-Plan step #3 removes `:fell-through-to-default?` and the async-callback
-fallthrough warning. That warning is a **reserved vocabulary term** with
-downstream definitions that must be retired together (Spec-ulation: reserved
-vocab can't vanish silently):
+The fallthrough warning vocabulary is deleted, not edited. Retire it coherently
+from:
 
-- `spec/Spec-Schemas.md:1312` — `DispatchFromAsyncCallbackFellThroughTags`
-  (`[:routed-to [:= :rf/default]]`); also envelope-promotion rule
-  `Spec-Schemas.md:127` (`(merge {:event event :frame :rf/default …} opts)`) and
-  `118, 376, 1399`.
-- `spec/Conventions.md:84, 326` (reserved-vocabulary entries for
-  `:rf.warning/dispatch-from-async-callback-fell-through-to-default`);
-  `spec/Security.md:200`; the `spec/009-Instrumentation.md` warning/error
-  catalogue.
+- `spec/Spec-Schemas.md`;
+- `spec/Conventions.md`;
+- `spec/Security.md`;
+- `spec/009-Instrumentation.md`;
+- implementation warning tests.
 
-**Action:** add these to plan steps #3/#11 as "retire the warning category + its
-schema + reserved-vocab + catalogue rows."
+The old vocabulary includes
+`:rf.warning/dispatch-from-async-callback-fell-through-to-default` and schema
+terms that describe routing to `:rf/default` as an expected outcome.
 
-### 5. Core-Runtime Gaps (add to the named plan steps)
+### 5. Core Runtime Gaps
 
-- **React-context corruption detector depends on `:rf/default`**
-  (`adapter/context.cljs:36, 129-141, 188-198`): the detector uses "value is a
-  keyword (`:rf/default`)" to tell *corrupted* from *no-provider*. A nil
-  sentinel breaks that — need a distinct non-frame sentinel (nil = corruption,
-  sentinel = no-provider) OR fold `:rf.error/frame-context-corrupted` into
-  `:rf.error/no-frame-context`. Add to plan step #5 + an open question.
-- **`:rf.error/no-frame-context` emission is itself frameless**
-  (`router.cljc:387-393` drops untagged traces from per-frame epoch capture;
-  `frame.cljc:74` trace-ring routing returns nil with no in-flight frame;
-  `cofx.cljc:330-341`): the error announcing "no frame" risks being invisible to
-  per-frame tooling → must route through the **always-on error-emit axis**, not
-  the per-frame epoch axis. Reconcile with the Spec 009 catalogue. Add an open
-  question.
-- **Disambiguate `:rf.error/no-frame-context` from `:rf.error/frame-destroyed`**
-  (`router.cljc:2284-2297, 2334-2347`): with `init!` no longer creating
-  `:rf/default`, a fall-through that previously hit a live `:rf/default` now
-  resolves to `:rf/default` and hits the *frame-destroyed* branch. Resolution
-  must fail **before** the registry lookup so no-frame-context fires first. Add
-  to plan step #3.
-- **Redaction chokepoints synthesize `:rf/default`** (security-sensitive — add
-  to plan step #8): `marks/project-trace-event` `marks.cljc:842`
-  `(or (:frame tags) :rf/default)` selects the elision registry for a frameless
-  trace; `elision/elide-wire-value` `elision.cljc:524` is a **double** fallback
-  `(or (:frame opts) (frame/current-frame) :rf/default)`; plus
-  `elision/declarations` & `sensitive-declarations` no-arg
-  (`elision.cljc:126, 132`). All must **fail closed** (redact conservatively /
-  skip projection), not borrow `:rf/default` marks.
-- **`ensure-default-frame!` has a second caller — the test fixture**
-  (`core.cljc:1681` init!; `test_support.cljc:423`
-  `make-reset-runtime-fixture`; ~12 test files call it directly): the fixture is
-  the larger consumer. Plan step #2 / Open-Q1 must decide: delete outright
-  (every test registers `:rf/default` explicitly) or keep test-only.
+Core runtime issues to handle:
 
-### 6. Registration-Time Vs Operation-Time Resolution (new subsection needed)
+- React-context corruption detector currently depends on `:rf/default` being a
+  keyword-like default;
+- no-frame errors are frameless and need always-on error emission;
+- missing context must fail before registry lookup so it does not become
+  `:rf.error/frame-destroyed`;
+- elision and marks projection synthesize `:rf/default` and must fail closed;
+- `ensure-default-frame!` is called by both `init!` and the test fixture.
 
-`reg-flow` (`flows/registry.cljc:518`), `reg-app-schema`
-(`schemas/storage.cljc:42-45, 471`), and the elision `populate-*-from-schemas!`
-no-arg forms (`elision.cljc:169, 180, 189`) resolve the target frame at
-**registration** time via `(or frame (frame/current-frame))` — and
-registrations typically run at namespace-load/boot, when there is no frame
-context, so they would error under the EP.
+### 6. Registration-Time Resolution
 
-Add a "Registration-time frame resolution" subsection ruling that no-`:frame`
-`reg-*` forms either require explicit `:frame` or are legal only inside a
-`with-frame`/`:on-create` context — distinct from the operation-time rule.
+These registration-time surfaces resolve frame at namespace load or boot:
 
-### 7. Feature-Artefact Specifics (the plan lists these only generically)
+- `flows/registry.cljc`;
+- `schemas/storage.cljc`;
+- elision schema-population helpers;
+- elision declaration helpers.
 
-- **Routing URL ownership is a structural `:rf/default` anchor**, independent of
-  the resolver: `url-owner-frame-id` returns `:rf/default` as the implicit URL
-  owner (`nav_fx.cljc:43-52, 59`; `history.cljc:64, 88, 93`). Needs explicit
-  URL-owner declaration; the generic "route fxs inherit the cascade frame" rule
-  does not cover it.
-- **The literal-`:rf/default` idiom defeats the EP's conformance regex.** The
-  EP's `rg ":or \{frame-id :rf/default\}"` catches only ~6 machine sites; ~16
-  sites use `(or … :rf/default)` literally (`http_middleware.cljc:168,198,200`;
-  `http_managed.cljc:220`;
-  `routing/{can_leave:268,navigate:391,nav_token:108,url_change:255,283,scroll:150}`;
-  `machines/lifecycle_fx/registration.cljc:313,586,749`; `elision.cljc:524`;
-  `marks.cljc:842`; `substrate/spine.cljs:856`). **Broaden the conformance
-  regex** to also match `\(or [^)]*:rf/default\)`. Name
-  `reg-http-interceptor`/`clear-http-interceptor` as *registration* surfaces
-  (not cascade fxs).
-- **The frame-provider default lives in the substrate-shared spine**, not just
-  Reagent: `substrate/spine.cljs:856` `(or frame-kw :rf/default)` is the single
-  site all three React adapters route through (Reagent `provider.cljs:112` is a
-  second, "defensive default for tooling-generated trees that elide the prop").
-  Plan step #5 should name the spine core.
-- **Managed-HTTP reply has a frameless branch**: `dispatch-reply-via-late-bind!`
-  omits `:frame` when nil → re-resolves post-cascade
-  (`http_encoding.cljc:261-265`; `http_transport.cljc:738-754`;
-  `http_handlers.cljc:208,247`). Frame must be required-and-captured at request
-  initiation; no frameless reply branch. Add to "Async Boundaries."
-- **`sub-machine`/`machine-has-tag?`** (`core_machines.cljc:200,217`) delegate
-  to `subscribe` with no explicit-frame arity — they need one post-migration.
+They need the registration-time rule in this EP, not only the operation-time
+rule.
 
-### 8. Cross-EP Sequencing With The App/Runtime Partition EP
+### 7. Feature Artifact Specifics
 
-The partition EP renames the cofx frame key `:frame`/`:rf/frame` →
-`:rf.frame/id` (`docs/EP/app-db-runtime-partition.md:213, 297, 313, 883`). This
-EP's framework-fx step (#6) and its `:rf.machine/spawn` example read `:frame`.
+Feature-specific sites that need explicit migration:
 
-**Sequence step #6 after/with the partition EP's `:rf.frame/id` cofx rename, and
-use `:rf.frame/id` as the inherited frame key**; align examples across the two
-EPs (the partition EP's examples still show `:rf.frame/id :rf/default`).
+- routing URL ownership currently has a structural `:rf/default` anchor;
+- literal `(or ... :rf/default)` idioms outnumber `:or {frame-id :rf/default}`;
+- shared substrate spine has a frame-provider fallback used by multiple React
+  adapters;
+- managed HTTP replies have a frameless late-bind branch;
+- `sub-machine` and `machine-has-tag?` delegate to no-frame subscribe paths.
 
-### 9. Tooling Surfaces To Enumerate (beyond the Xray two-frame split the EP already covers)
+### 8. App/Runtime Partition Sequencing
 
-- Xray hard-defaults the **inspected host target** to `:rf/default` across ~7
-  sites the plan (#9) doesn't name: `defaults/default-target-frame`
-  (`defaults.cljs:30-39`), the `:rf.xray/target-frame` sub default
-  (`epoch.cljs:44`), the `:rf.xray/set-target-frame` nil-reset (`epoch.cljs:106`;
-  `core.cljs:199`), `epoch.cljs:123`, `mount.cljs:488`, `spine.cljs:653/667`,
-  `core/target-frame` (`core.cljs:177-193`). Need an "unselected" sentinel.
-  (xray spec-pair-update rule: `tools/xray/spec/*` move in the same PR.)
-- **`eval-cljs`** no-`:frame` path is *documented* to target `:rf/default`
-  (`tools/re-frame2-pair-mcp/.../eval_cljs.cljs:200-261`; catalogue
-  `003-Tool-Catalogue.md:729, 733-744`) — a bare `(rf/dispatch …)`/
-  `(rf/subscribe …)` in an unwrapped form would now raise
-  `:rf.error/no-frame-context`. Add to plan #9 + fix the catalogue default-doc.
-- The **mcp-conformance corpus bakes `:rf/default`** as the resolved frame
-  across dozens of fixtures (`conformance_test.cljs` snapshot/reset-frame-db/
-  dispatch/dispatch-dry-run/operating-frame fixtures) and `discover-app`'s
-  `:no-frames-registered` hint says "Call `(rf/init!)` to register `:rf/default`"
-  (`discover_app.cljs:182-185`) — which the EP invalidates. Plan #11 must be
-  "**invert/retire the existing fixtures + rewrite the hint**," not just "add a
-  new sweep."
-- The pair-MCP **precheck cache** keys an omitted-`:frame` hash on the
-  runtime-resolved operating frame (`precheck.cljs:119-150`,
-  `[:operating-frame nil]`) — must change in lockstep with the resolver.
+The app/runtime partition EP renames the cofx frame key toward
+`:rf.frame/id`. This EP's framework-fx work should sequence with that rename
+and use `:rf.frame/id` in examples and implementation.
 
-### 10. Docs & Skills The Plan (#9/#10) Omits
+### 9. Tooling Surfaces
 
-- Docs: **`docs/guide/18-frames.md`** (the entire `:rf/default` teaching chapter
-  — priority; line 187 teaches async-callback fallthrough as expected
-  behaviour), plus `docs/guide/{25,16,14,19,23,09}*`, and
-  **`docs/xray/api/mount-control.md:90,98`** ("Most apps run one host frame
-  (`:rf/default`) and Xray observes it **implicitly**").
-- Skills: **`skills/re-frame2-setup`** ("`:rf/default` is always
-  auto-registered"), **`skills/re-frame2-pair`** ("eval helpers warn-and-default
-  to `:rf/default`"), **`skills/re-frame2-implementor`** ("views run in the
-  context of a default frame"), and
-  **`skills/re-frame-migration/references/auto-cross-cutting.md:301,316`** which
-  **actively instructs agents to call `frame/ensure-default-frame!`** — the
-  function the EP deletes (will generate broken migration advice). Add all to
-  plan #9.
+Tooling surfaces to enumerate:
 
-### 11. Tests/Conformance To Invert (plan #11 lists abstract checks, not the existing positive assertions)
+- Xray `default-target-frame`;
+- Xray target-frame subscriptions and reset behavior;
+- Xray mount and spine defaults;
+- `eval-cljs` no-frame documentation;
+- pair-MCP conformance snapshots that bake in `:rf/default`;
+- `discover-app` hint that says `init!` registers `:rf/default`;
+- pair-MCP precheck cache keyed on omitted frame.
 
-- `implementation/core/test/re_frame/dispatch_fallthrough_warn_test.clj` +
-  `…_dom_cljs_test.cljs` — assert dispatch falls through to `:rf/default` + the
-  warning fires → invert to "raises `:rf.error/no-frame-context`."
-- `implementation/core/test/re_frame/views_current_component_cljs_test.cljs:49,68`
-  — assert `(= :rf/default (views/current-frame))` for no-hook/nil-hook →
-  invert.
-- ~20+ fixtures under `spec/conformance/fixtures/` stamp `:frame :rf/default`
-  (dispatch-envelope, drain-depth-limit, epoch-record-shape, frame-lifecycle,
-  http-interceptor-*, ssr-*, …). State the migration rule: **every conformance
-  fixture must explicitly register its target frame**; any that dispatch
-  frame-lessly and expect default-stamping must be reauthored.
+### 10. Docs And Skills
 
-### New Open Questions (add to the EP's Open Questions)
+Docs and skills to update beyond the obvious specs:
 
-- How does `:rf.error/no-frame-context` route so a *frameless* error is still
-  surfaced (always-on axis vs per-frame epoch)?
-- Does tier-3 sole-app auto-resolution (Tool-Pair) survive, and is `:rf/default`
-  still carved out of the tool-frame filter once it is no longer auto-created?
-- Is the contract uniform across all frame-scoped ops, or differentiated
-  (framework/tool/SSR require-explicit; user dispatch/subscribe
-  ambient-until-2nd-app-frame)? (See §2.)
-- Registration-time: do boot-time `reg-*` no-`:frame` forms require explicit
-  `:frame`? (See §6.)
+- `docs/guide/18-frames.md`;
+- `docs/guide/09*`, `14*`, `16*`, `19*`, `23*`, `25*`;
+- `docs/xray/api/mount-control.md`;
+- `skills/re-frame2-setup`;
+- `skills/re-frame2-pair`;
+- `skills/re-frame2-implementor`;
+- `skills/re-frame-migration/references/auto-cross-cutting.md`.
 
-## Recommendation
+The migration skill currently instructs agents to call
+`frame/ensure-default-frame!`; that advice will become actively wrong.
 
-Adopt explicit frame target resolution now, while re-frame2 is still pre-alpha.
+### 11. Tests And Conformance To Invert
 
-This is a large migration, but the rule is simple:
+Existing positive assertions need inversion:
 
-> If code cannot say which frame it means, it is not allowed to touch a frame.
+- `implementation/core/test/re_frame/dispatch_fallthrough_warn_test.clj`;
+- `implementation/core/test/re_frame/dispatch_fallthrough_warn_dom_cljs_test.cljs`;
+- `implementation/core/test/re_frame/views_current_component_cljs_test.cljs`;
+- conformance fixtures that stamp or expect `:frame :rf/default`.
 
-That rule makes frames a real isolation primitive for applications, SSR, Story,
-Xray, pair tooling, and future resource/work-ledger features.
+Every conformance fixture must explicitly register and select its target frame.
+Any fixture that dispatches framelessly and expects default stamping must be
+reauthored.
+
+## Sources Consulted
+
+- [TanStack Query: QueryClientProvider](https://tanstack.com/query/latest/docs/framework/react/reference/QueryClientProvider)
+- [React Redux: Provider](https://react-redux.js.org/api/provider)
+- [Apollo Client: ApolloProvider](https://www.apollographql.com/docs/react/api/react/ApolloProvider)
+- [Relay: RelayEnvironmentProvider](https://relay.dev/docs/api-reference/relay-environment-provider/)
