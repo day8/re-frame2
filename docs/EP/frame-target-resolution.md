@@ -1373,7 +1373,7 @@ Reframing the revocation this way is more honest *and* more elegant: the concept
 
 ### F. Unique resolution is *not* synthesis — and the tool layer already proved the elegant answer
 
-This is the EP's biggest under-argued move, and the audit makes it sharper than the EP admits. The EP rejects Option B (sole-live-frame fallback) as "more policy" that "still lets missing context proceed." But [`spec/Tool-Pair.md`](../spec/Tool-Pair.md) **already ships a four-tier operating-frame contract** that is more sophisticated than either the status quo or Option C:
+This is the EP's biggest under-argued move, and the audit makes it sharper than the EP admits. The EP rejects Option B (sole-live-frame fallback) as "more policy" that "still lets missing context proceed." But [`spec/Tool-Pair.md`](https://github.com/day8/re-frame2/blob/main/spec/Tool-Pair.md) **already ships a four-tier operating-frame contract** that is more sophisticated than either the status quo or Option C:
 
 1. explicit override → 2. session-pinned selection → 3. **sole registered *app* frame** (reserved `:rf/*` tool frames excluded from the count) → 4. **`:ambiguous-frame`** when two or more app frames remain.
 
