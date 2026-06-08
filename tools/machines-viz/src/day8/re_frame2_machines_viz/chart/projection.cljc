@@ -1822,8 +1822,10 @@
                  :type        "transition"
                  ;; G-START — the initial-marker entry edge is the
                  ;; SCXML/Stately initial-state icon: a filled dot PLUS a
-                 ;; short arrow whose head lands flush on the initial
-                 ;; state's near edge. It paints the SAME neutral
+                 ;; short arrow whose head points AT the initial state's near
+                 ;; edge and stops just OUTSIDE it with a small visible gap
+                 ;; (the `initial-marker-glyph` tip-gap) — it does NOT land
+                 ;; flush on or penetrate the state. It paints the SAME neutral
                  ;; `:pseudo-marker` hue as the dot (NOT the near-invisible
                  ;; `:edge-quiet` resting hue the route halves use) so the
                  ;; dot + arrow read as one unit, clearly visible against the

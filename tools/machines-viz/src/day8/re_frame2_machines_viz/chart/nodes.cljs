@@ -727,7 +727,10 @@
                   :fill stroke}]
         ;; single Q hook into the arrowhead base.
         [:path {:d hook :stroke stroke :stroke-width 2 :fill "none"}]
-        ;; filled triangle arrowhead, tip flush on the state's left edge.
+        ;; filled triangle arrowhead — its tip points AT the state's left
+        ;; edge and stops just OUTSIDE it with a small visible gap (the
+        ;; `initial-marker-tip-gap`); it never lands flush or penetrates the
+        ;; state (see `chart.projection/initial-marker-glyph`).
         [:path {:d tri :fill stroke}]]
        [:> Handle {:type "source" :position pos-right
                    :style {:opacity 0}}]])))

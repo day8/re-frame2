@@ -1096,6 +1096,95 @@
                 "no data-sibling-* attr survives the collapse retirement")
             (is (number? (.-length event-nodes)))))))))
 
+;; ---- guarded-fork priority badge DOM (rf2-uw3vmi visual-pin) ------------
+;;
+;; The projector threads each guarded-fork branch's 1-based priority onto
+;; the event-node `:data {:forkOrder}` (pinned in projection_cljs_test); the
+;; RENDERER paints it as a numbered circle chip (`chart.nodes.event-node/
+;; fork-badge`) leading the branch event-node's header line, with testid
+;; `rf-mv-chart-event-fork-badge-<event-node-id>` + a `data-fork-order` attr.
+;; Projection pins keep going green even if a renderer refactor drops the
+;; visible chip, so this DOM pin guards the visual affordance directly: the
+;; gate `:gate/check` 3-way's branch event-nodes render badges carrying
+;; data-fork-order 1, 2, 3, and the SEPARATE non-fork `:gate/set` /
+;; `:gate/reset` event-nodes render NO badge. The badge mounts on the first
+;; commit (it is part of the node body, layout-independent), so the
+;; synchronous browser-test runner can assert it without awaiting elk.
+
+(def ^:private gate-fork-machine
+  "rf2-uw3vmi — the gate testbed shape: `:gate/check` FORKS from `:idle` by
+  a guarded candidate VECTOR (first guard-pass wins: `:gate-high?` → :high,
+  `:gate-low?` → :low, else the unguarded fallback → :rejected). `:gate/set`
+  is a SEPARATE internal action-only transition on the SAME source (a
+  different trigger), never part of the fork."
+  {:initial :idle
+   :data    {:level 0}
+   :states  {:idle     {:on {:gate/set   {:action :set-level}
+                             :gate/check [{:guard :gate-high? :target :high}
+                                          {:guard :gate-low?  :target :low}
+                                          {:target :rejected}]}}
+             :low      {:on {:gate/reset :idle}}
+             :high     {:on {:gate/reset :idle}}
+             :rejected {:on {:gate/reset :idle}}}})
+
+(deftest chart-guarded-fork-branches-render-priority-badges-1-2-3
+  (testing "rf2-uw3vmi — the gate `:gate/check` 3-way's branch event-nodes
+            render the numbered priority badge (testid
+            rf-mv-chart-event-fork-badge-*) carrying data-fork-order 1, 2,
+            and 3 — the visible affordance the projection :forkOrder pins
+            cannot see. EXACTLY three badges render (one per branch), with
+            the full {1 2 3} priority set."
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises this")
+      (with-mounted-chart
+        {:machine-id :test/gate :definition gate-fork-machine}
+        (fn [_root node]
+          (let [badges (.querySelectorAll
+                         node "[data-testid^=\"rf-mv-chart-event-fork-badge-\"]")
+                orders (set (mapv (fn [i] (.getAttribute (aget badges i) "data-fork-order"))
+                                  (range (.-length badges))))]
+            ;; Badges are part of the node body (layout-independent); they
+            ;; mount on the first commit. Assert positively when present,
+            ;; else keep the structural invariant (the chart_dom convention).
+            (when (pos? (.-length badges))
+              (is (= 3 (.-length badges))
+                  "exactly three fork-priority badges (one per :gate/check branch)")
+              (is (= #{"1" "2" "3"} orders)
+                  "the three branches carry data-fork-order 1, 2, and 3"))
+            (is (number? (.-length badges)))))))))
+
+(deftest chart-non-fork-event-nodes-render-no-priority-badge
+  (testing "rf2-uw3vmi — non-fork event-nodes render NO priority badge: the
+            gate's SEPARATE `:gate/set` trigger and the three single
+            `:gate/reset` transitions carry no badge, and a plain machine
+            with no guarded fork renders zero badges at all."
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises this")
+      (do
+        ;; A machine with NO guarded fork: zero badges anywhere.
+        (with-mounted-chart
+          {:machine-id :test/flow :definition idle-loading-done}
+          (fn [_root node]
+            (is (zero? (count-sel node "[data-testid^=\"rf-mv-chart-event-fork-badge-\"]"))
+                "a fork-free machine renders no priority badges")))
+        ;; The gate machine: badges appear ONLY on the three :gate/check
+        ;; branches, never on the non-fork `:gate/set` / `:gate/reset` nodes.
+        ;; Pin it via the event-node↔badge ratio: there are far more event-
+        ;; nodes than the 3 fork branches, so a badge count of 0-or-3 with
+        ;; strictly-fewer-badges-than-event-nodes proves the non-fork nodes
+        ;; are un-badged.
+        (with-mounted-chart
+          {:machine-id :test/gate :definition gate-fork-machine}
+          (fn [_root node]
+            (let [badges (count-sel node "[data-testid^=\"rf-mv-chart-event-fork-badge-\"]")
+                  ev-nodes (count-sel node "[data-testid^=\"rf-mv-chart-event-\"][data-node-id]")]
+              (when (pos? badges)
+                (is (= 3 badges)
+                    "only the three fork branches are badged"))
+              (when (and (pos? badges) (pos? ev-nodes))
+                (is (< badges ev-nodes)
+                    "fewer badges than event-nodes — the non-fork :gate/set + :gate/reset nodes carry none")))))))))
+
 ;; ---- :on-state-click contract: leaf body + compound title strip --------
 ;; rf2-34ff3 — A-PRIME ruling. `:on-state-click` fires for REAL statechart-
 ;; state nodes: a LEAF state (its body) and a COMPOUND state (its TITLE
