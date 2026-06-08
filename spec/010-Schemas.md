@@ -61,6 +61,20 @@ Machines (per [005 §Schema validation](005-StateMachines.md#schema-validation))
 
 A failure emits `:rf.error/schema-validation-failure :where :machine-data` and rolls back the cascade (per [§Per-step recovery row 7](#per-step-recovery)).
 
+### App schemas validate the app-db partition only
+
+> **The public API name stays `reg-app-schema`, and the term stays "app-db schema"** (Mike ruling #11). What changes is precision: an app-db schema validates **only the app-db partition** of a frame — the user-owned application data. It does **not** describe, validate, or authorise the framework-owned **runtime-db** partition (machine snapshots, route slice, elision declarations, SSR metadata — per [002 §The two-partition frame contract](002-Frames.md#the-two-partition-frame-contract)).
+
+Concretely:
+
+- App-db schema paths are `get-in`/`assoc-in` paths **into app-db** (`[:user]`, `[:cart :items]`, `[]` for the whole app-db partition). They are never `:rf.runtime/*` paths.
+- A user-registered app schema whose path reaches into runtime-db (`[:rf.runtime/* …]`) is a **Type-B migration error** (per [Conventions §Reserved runtime-db keys](Conventions.md#reserved-runtime-db-keys)); the migration agent flags it and the runtime emits `:rf.warning/app-schema-runtime-path`.
+- The framework registers a separate **runtime-db** validator (`reg-runtime-schema` — `:rf/runtime-db`, per [Spec-Schemas §`:rf/runtime-db`](Spec-Schemas.md#rfruntime-db)) over the runtime-db partition. That is a framework-owned validator, NOT an application-owned app schema. The old "`reg-app-schema [:rf/runtime]`" registration is gone — runtime-db is validated as a partition, not as an app-db slice.
+- Because app-db now holds nothing but app data, `(rf/app-schema)` describes a **pure application contract** an AI agent can read without framework noise — the AI-legibility payoff of the partition (per [Principles.md](Principles.md)).
+- The whole-`app-db` root schema `(rf/reg-app-schema [] …)` validates the whole **app-db partition** — never frame-state, never runtime-db.
+
+The validation timing, rollback, and per-step recovery rules below apply unchanged; they operate over the app-db partition.
+
 ### `app-db` schemas — path-based
 
 Rather than one giant schema for the whole `app-db`, schemas are registered **at paths**:
@@ -145,7 +159,7 @@ For a single dispatched event, schema checks fire in this order:
 2. Cofx schemas (from `reg-cofx` `:schema`) — after each cofx injects, before the handler sees the merged context.
 3. Handler runs.
 4. `app-db` path schemas — at the single deferred `:db` install, validating the **flow-augmented** pending `:db` effect. By this point the flow transform has already rewritten the pending `:db` effect as the outermost `:after` (per [013 §Drain integration](013-Flows.md#drain-integration)), so the value validated and installed is the flow-augmented db, not the handler's raw `:db`.
-4a. Machine-`:data` schemas (from `reg-machine` `:data-schema`) — alongside step 4 the runtime walks `[:rf/runtime :machines :snapshots]` and validates each snapshot's `:data` against its registered machine's `:data-schema`. Both validators AND-conjoin: a `false` from either rolls back the `:db` commit. Per [005 §Schema validation](005-StateMachines.md#schema-validation).
+4a. Machine-`:data` schemas (from `reg-machine` `:data-schema`) — alongside step 4 the runtime walks runtime-db `[:rf.runtime/machines :snapshots]` and validates each snapshot's `:data` against its registered machine's `:data-schema`. Both validators AND-conjoin: a `false` from either rolls back the frame-state commit. Per [005 §Schema validation](005-StateMachines.md#schema-validation).
 5. Effect schemas (from `reg-fx` `:schema`) — before each fx handler runs.
 6. Sub return-value schemas — after each materialisation/recompute that involves a schema'd sub.
 
@@ -262,7 +276,7 @@ Inside the schema value passed to `reg-app-schema`, individual slots may carry p
 
 ### `:large?` — schema-driven size-elision nomination
 
-Slots marked `:large? true` are the **canonical AI-discoverable entry point** for the size-elision nomination contract catalogued at [009 §Size elision in traces](009-Instrumentation.md#size-elision-in-traces). The runtime walks every registered app-schema at boot (and on `reg-app-schema` re-registration), and writes a `{:large? true :hint <str-or-nil> :source :schema}` entry into the frame's `app-db [:rf/runtime :elision :declarations <path>]` slot for every flagged path. The framework's `rf/elide-wire-value` walker (per [API.md §`rf/elide-wire-value`](API.md#elide-wire-value-the-wire-boundary-walker)) consults the merged registry on every wire-boundary emit and substitutes the `:rf.size/large-elided` marker (per [Spec-Schemas §`:rf/elision-marker`](Spec-Schemas.md#rfelision-marker)) in place of the elided value.
+Slots marked `:large? true` are the **canonical AI-discoverable entry point** for the size-elision nomination contract catalogued at [009 §Size elision in traces](009-Instrumentation.md#size-elision-in-traces). The runtime walks every registered **app-db** schema at boot (and on `reg-app-schema` re-registration), and writes a `{:large? true :hint <str-or-nil> :source :schema}` entry into the frame's runtime-db `[:rf.runtime/elision :declarations <path>]` slot for every flagged path (the declarations describe app-db paths but the records are runtime bookkeeping). The framework's `rf/elide-wire-value` walker (per [API.md §`rf/elide-wire-value`](API.md#elide-wire-value-the-wire-boundary-walker)) consults the merged registry on every wire-boundary emit and substitutes the `:rf.size/large-elided` marker (per [Spec-Schemas §`:rf/elision-marker`](Spec-Schemas.md#rfelision-marker)) in place of the elided value.
 
 ```clojure
 (rf/reg-app-schema
@@ -271,13 +285,12 @@ Slots marked `:large? true` are the **canonical AI-discoverable entry point** fo
    [:profile     [:map [:name :string] [:email :string]]]
    [:uploaded-pdf {:large? true :hint "Upload preview blob"} :string]])
 
-;; At boot, the framework populates:
-;;   {:rf/runtime
-;;     {:elision
-;;       {:declarations
-;;         {[:user :uploaded-pdf] {:large? true
-;;                                 :source :schema
-;;                                 :hint   "Upload preview blob"}}}}}
+;; At boot, the framework populates (in runtime-db):
+;;   {:rf.runtime/elision
+;;     {:declarations
+;;       {[:user :uploaded-pdf] {:large? true
+;;                               :source :schema
+;;                               :hint   "Upload preview blob"}}}}
 ;;
 ;; Every wire-boundary emit thereafter substitutes the path with:
 ;;   {:rf.size/large-elided {:path   [:user :uploaded-pdf]
@@ -389,22 +402,21 @@ Path-of-failure (`:tags :path`), failing handler id (`:tags :failing-id`), schem
 
 **Walker.** The CLJS reference ships `re-frame.schemas/extract-sensitive-paths-from-schema` (parallel to `extract-large-paths-from-schema`) — a pure-data Malli-EDN walker that returns `{path declaration}` entries for every `:sensitive? true` slot in a registered schema. Each declaration carries `{:sensitive? true :source :schema}` plus an optional `:hint` propagated verbatim from the slot's props (apps reuse the same `:hint` key as `:large?` so a slot can be annotated once for both flags). The validation emit-site walks the failing path's schema with this helper to decide whether to redact.
 
-**Registry feeder.** Mirroring the `:large?` registry-population path, `re-frame.elision` reads the schemas artefact's `extract-sensitive-paths-from-schema` hook to write a sibling slot in the unified elision registry at `app-db [:rf/runtime :elision :sensitive-declarations]`:
+**Registry feeder.** Mirroring the `:large?` registry-population path, `re-frame.elision` reads the schemas artefact's `extract-sensitive-paths-from-schema` hook to write a sibling slot in the unified elision registry at runtime-db `[:rf.runtime/elision :sensitive-declarations]`:
 
 ```clojure
 (rf/reg-app-schema [:user]
   [:map [:password {:sensitive? true :hint "argon2id"} :string]])
 
-;; After schema population, the frame's app-db carries:
-;;   {:rf/runtime
-;;     {:elision
-;;       {:sensitive-declarations
-;;         {[:user :password] {:sensitive? true
-;;                             :source     :schema
-;;                             :hint       "argon2id"}}}}}
+;; After schema population, the frame's runtime-db carries:
+;;   {:rf.runtime/elision
+;;     {:sensitive-declarations
+;;       {[:user :password] {:sensitive? true
+;;                           :source     :schema
+;;                           :hint       "argon2id"}}}}
 ```
 
-The sibling slot lives under the shared `[:rf/runtime :elision]` reserved root per [Spec-Schemas §`:rf/elision-registry`](Spec-Schemas.md#rfelision-registry). Two slots (not one merged map) because the `:large?` and `:sensitive?` flags compose orthogonally — a slot may carry either or both, and the schema-validation emit-site's composition rule (sensitive wins) is enforced at trace time, not at registry time. Storing them separately keeps the per-flag query (`(get-in db [:rf/runtime :elision :sensitive-declarations <path>])`) O(1) without value-shape inspection. Hot-reload of a schema refreshes `:source :schema` entries; removing `:sensitive?` prunes stale schema declarations.
+The sibling slot lives under the shared `[:rf.runtime/elision]` runtime-db child per [Spec-Schemas §`:rf/elision-registry`](Spec-Schemas.md#rfelision-registry). The declarations are *sourced* from **app-db** schema slots (`:sensitive?` / `:large?`) but the declaration records are runtime bookkeeping, so they live in runtime-db (not in an app-db path the app could accidentally replace). Two slots (not one merged map) because the `:large?` and `:sensitive?` flags compose orthogonally — a slot may carry either or both, and the schema-validation emit-site's composition rule (sensitive wins) is enforced at trace time, not at registry time. Storing them separately keeps the per-flag query (`(get-in runtime-db [:rf.runtime/elision :sensitive-declarations <path>])`) O(1) without value-shape inspection. Hot-reload of a schema refreshes `:source :schema` entries; removing `:sensitive?` prunes stale schema declarations.
 
 **Backward compatibility.** Non-sensitive validation failures (handlers and slots with no `:sensitive?` declaration) are unchanged — `:value`, `:received`, and `:explain` ride the trace verbatim as before. Legacy listener code (tools that read `:tags :value` directly) continues to work for non-sensitive traces and sees the sentinel keyword `:rf/redacted` for sensitive ones; the sentinel is a normal EDN value the consumer can pattern-match on.
 

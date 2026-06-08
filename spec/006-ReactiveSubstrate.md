@@ -46,7 +46,7 @@ The substrate-agnostic core is what every implementation supplies. The adapter i
 The core is the substrate-agnostic part. It owns:
 
 - **The handler registrar.** `(kind, id) → metadata` lookup. Pure data. JVM-runnable.
-- **The frame contract.** Each frame holds an `app-db` *value*, a queue, a sub-cache, and an id. The "value" interface is what the core requires; the adapter provides the reactive container that holds it.
+- **The frame contract.** Each frame holds a **frame-state** *value* (the two-partition container — `{:rf.db/app <app-db> :rf.db/runtime <runtime-db>}`), a queue, a sub-cache, and an id. The "value" interface is what the core requires; the adapter provides the reactive container that holds it and the two partition projections over it (per [§Frame-state container and partition projections](#frame-state-container-and-partition-projections)).
 - **The dispatch envelope and event queue.** Per [002 §Routing](002-Frames.md#routing-the-dispatch-envelope). Pure data, FIFO.
 - **The drain mechanism.** Run-to-completion drain (per [002 §Run-to-completion](002-Frames.md#run-to-completion-dispatch-drain-semantics)). Pure logic over the queue.
 - **Subscription topology.** The static dependency graph derived from `reg-sub` registrations — the literal `:<-` edges plus the per-sub input-kind discriminator (`:db` / `:static` / `:parametric`). Pure data, JVM-runnable. (Realized parametric edges per concrete query vector are runtime cache state, not static topology — see [§Subscription input producers](#subscription-input-producers--app-db-reader-static-parametric-input-fn).)
@@ -72,6 +72,29 @@ The adapter is the substrate-specific part. Per [§Abstract](#abstract), the ada
 - **Frame-routing for views.** React context — per [002 §View ergonomics](002-Frames.md#view-ergonomics-the-hard-part). The CLJS reference uses Reagent's `:contextType` (class-component path) and a function-component `_currentValue` read; other ports' React bindings expose `useContext` as the standard mechanism. The contract is "context value carrying the current frame-id; views read via the host React binding's hooks-equivalent." See [§Frame-provider via React context](#frame-provider-via-react-context) below for the per-port realisation.
 
 Adapter behaviour is *observably equivalent* across the in-scope React-binding adapters given the same core: the same events produce the same state, the same subs return the same values. The adapter only changes *how* the view sees those values reactively and which React binding mounts the tree.
+
+## Frame-state container and partition projections
+
+A frame owns **two durable partitions** (per [002 §The two-partition frame contract](002-Frames.md#the-two-partition-frame-contract)): user **app-db** (`:db`) and framework **runtime-db** (`:rf.db/runtime`). The substrate holds them as **ONE physical frame-state container** with **two cached partition-projection reactions** layered over it:
+
+```clojure
+frame-state  (the physical reactive container — make-state-container holds
+              {:rf.db/app <app-db> :rf.db/runtime <runtime-db>})
+   ├── app-db     = (make-derived-value [frame-state] #(:rf.db/app %))      ; layer-1 input for app subs
+   └── runtime-db = (make-derived-value [frame-state] #(:rf.db/runtime %))  ; layer-1 input for framework subs
+```
+
+This is **pattern contract**, not merely one acceptable representation (Mike ruling #3 — it commits EP-0001 Open Issues 3 + 7). A conformant adapter MAY use a different internal arrangement **only if** it preserves the projection-equality semantics below; the reference adapter commits to the single container + two `make-derived-value` projections.
+
+**Partition-aware invalidation falls out of `make-derived-value`'s memoised equality — no new machinery** (Mike ruling #7, no explicit dirty flags unless an adapter needs them). `make-derived-value` recomputes its `compute-fn` when its source changes but propagates only when the *result* changes (per [§`(make-derived-value …)`](#make-derived-value-source-containers-compute-fn--container) — the memoised-container contract):
+
+- A **runtime-only commit** mutates `frame-state` (via `replace-container!` / `commit-frame-transition!`); the `app-db` projection recomputes `(:rf.db/app new)`, finds it `identical?`/`=` to the prior app-db, and **does not propagate** — app subs neither recompute nor re-render.
+- An **app-only commit** is symmetric: the `runtime-db` projection does not propagate, so framework route/machine subs are untouched, and app authors never carry runtime paths in their sub code.
+- A commit touching **both** partitions propagates to both projections.
+
+**Commit boundary.** The drain's commit step (per [002 §Run-to-completion §commit](002-Frames.md#run-to-completion-dispatch-drain-semantics)) installs an app-db change (`:db` effect), a runtime-db change (`:rf.db/runtime` effect), or both as **one atomic `replace-container!` on the frame-state container** (`commit-frame-transition!`). There is never a window where one partition is committed and the other is not; an app/runtime cascade is one coherent frame-state transition. The frame-state coeffect is injected by reference (no copy), so a pure app event pays nothing for the runtime partition it never touches.
+
+Layer-1 app subs read the **app-db** projection; framework subs (`sub-machine`, `[:rf.route/*]`) read the **runtime-db** projection. Both are ordinary derived-value sources to the rest of the sub-cache machinery — the projection split is invisible to the invalidation algorithm below, which sees two layer-1 inputs instead of one.
 
 ## The adapter API contract
 
@@ -126,11 +149,11 @@ Fable / Scala.js / PureScript / Kotlin/JS / Melange / ReScript / Reason / Squint
 
 ### `(read-container container) → value` and `(replace-container! container new-value) → nil`
 
-The two basic operations on a container. `read-container` is pure; `replace-container!` is the only mutation primitive — partial updates aren't supported (the core always replaces the entire `app-db` after a drain).
+The two basic operations on a container. `read-container` is pure; `replace-container!` is the only mutation primitive — partial updates aren't supported (the core always replaces the entire **frame-state** value after a drain — both partitions in one atomic write, per [§Frame-state container and partition projections](#frame-state-container-and-partition-projections)). The container the *core's frame* holds is the frame-state container; the per-partition `app-db` / `runtime-db` projections over it are `make-derived-value` containers (read-only — never `replace-container!`d directly).
 
 ```clojure
-(read-container container)                              ;; → current app-db value
-(replace-container! container new-value)                ;; → nil; container now holds new-value
+(read-container container)                              ;; → current frame-state value {:rf.db/app … :rf.db/runtime …}
+(replace-container! container new-value)                ;; → nil; container now holds new-value (one atomic frame-state install)
 ```
 
 **Nil-container guard (defense-in-depth).** The core's `replace-container!` wrapper guards against the destroy-race case where a write (router `:db` commit, drain rollback, flows recompute, epoch restore, SSR write) arrives after the owning frame has been destroyed and `frame/app-db-container` has started returning nil. When `container` is nil, the wrapper SKIPS the underlying adapter's `replace-container!` call and emits a `:warning :rf.warning/write-after-destroy` trace (per [009 §Where trace emission lives](009-Instrumentation.md#where-trace-emission-lives)) with `:recovery :no-recovery` — the write is dropped, no exception is thrown. The guard centralises destroy-race handling on the one mutation primitive that every frame app-db write flows through. Adapter implementations may assume `container` is non-nil; the guard is in the core's wrapper, not in the adapter contract.
@@ -519,7 +542,7 @@ Lookup [query-v] in frame F:
 Two properties this guarantees:
 
 1. **De-duplication.** Concurrent equal subscriptions share one cached computation. The cache key is the query-vector itself. v2 has a single disposal algorithm (synchronous ref-counting; see [§Reference counting and disposal](#reference-counting-and-disposal)).
-2. **Layer-1/2/3 chaining.** A layer-2 sub's `:<-` inputs are themselves resolved via this same lookup, recursively. The recursion terminates at layer-1 subs whose inputs are not other subs but readers over `app-db` directly.
+2. **Layer-1/2/3 chaining.** A layer-2 sub's `:<-` inputs are themselves resolved via this same lookup, recursively. The recursion terminates at layer-1 subs whose inputs are not other subs but readers over a **partition projection** directly — the **app-db** projection for ordinary app subs, the **runtime-db** projection for framework subs (`sub-machine`, `[:rf.route/*]`). Per [§Frame-state container and partition projections](#frame-state-container-and-partition-projections).
 
 ### Invalidation algorithm
 
@@ -527,13 +550,20 @@ The contract:
 
 > A subscription's cached value is invalidated **only when an input the subscription depends on changes value** (by `=` equality).
 
-The algorithm, host-agnostic:
+The algorithm, host-agnostic. The drain commits the whole **frame-state** in one atomic write; the two partition projections (`app-db`, `runtime-db`) recompute over the new frame-state and propagate only the partition(s) that actually changed — an app-only commit leaves the runtime-db projection value-equal (so framework subs stay cached) and vice versa, **for free** from projection equality (per [§Frame-state container and partition projections](#frame-state-container-and-partition-projections)):
 
 ```
-On replace-container!(F.app-db, new-db):           ;; called from drain loop step 2
-  ;; Phase 1: layer-1 subs (those whose inputs are app-db readers).
+On commit-frame-transition!(F.frame-state, new-frame-state):   ;; called from drain loop step 2
+  new-app-db     ← (:rf.db/app new-frame-state)
+  new-runtime-db ← (:rf.db/runtime new-frame-state)
+  ;; Phase 1: layer-1 subs (those whose inputs read a partition projection).
+  ;;   An app sub reads new-app-db; a framework sub reads new-runtime-db.
+  ;;   A projection value-equal to its prior value propagates nothing — so a
+  ;;   runtime-only commit never re-runs app subs, and an app-only commit never
+  ;;   re-runs framework subs.
   For each k → entry in F.sub-cache where entry is layer-1:
-    new-val ← (entry.body new-db query-v)
+    partition-val ← (if (framework-sub? entry) new-runtime-db new-app-db)
+    new-val ← (entry.body partition-val query-v)
     If new-val = entry.value:                      ;; value-equal: keep cache
       no-op
     Else:
@@ -749,7 +779,7 @@ Three contract guarantees this enforces:
 
 - **Drain-loop integration** ([002 §Drain-loop pseudocode](002-Frames.md#drain-loop-pseudocode)): invalidation fires once per `process-event!`, at the single deferred `:db` install (step 2) — the flow transform has already rewritten the pending `:db` effect as the outermost `:after` (step 1, per [013 §Drain integration](013-Flows.md#drain-integration)), so the value installed is the flow-augmented db. There is exactly one invalidation per event, at that install, and subscriptions observe the **flow-augmented** db on recompute. A handler can rely on subscriptions reflecting the new `app-db` from inside `do-fx` (the `:fx` walk at step 3, after the install).
 - **Hot reload** ([001-Registration](001-Registration.md)): re-registering a sub disposes the cache slot for that query (regardless of ref-count); next subscribe rebuilds with the new body. Tracked with the rest of hot-reload semantics in the bead-tracked work.
-- **Machine subscriptions** ([005 §Subscribing to machines via `sub-machine`](005-StateMachines.md#subscribing-to-machines-via-sub-machine)): a machine's snapshot lives at `[:rf/runtime :machines :snapshots <id>]` and is read like any other slice of `app-db`; `sub-machine` is a thin convenience over `reg-sub`. Sub-cache invalidation works the same.
+- **Machine subscriptions** ([005 §Subscribing to machines via `sub-machine`](005-StateMachines.md#subscribing-to-machines-via-sub-machine)): a machine's snapshot lives in **runtime-db** at `[:rf.runtime/machines :snapshots <id>]` and is read like any other slice of the runtime-db projection; `sub-machine` is a thin framework convenience over `reg-sub` that reads the runtime-db projection rather than the app-db projection. Sub-cache invalidation works the same — a machine snapshot change is a runtime-db commit, which propagates to framework subs only (per [§Frame-state container and partition projections](#frame-state-container-and-partition-projections)).
 - **`clear-sub` is a registry-only operation**: `(clear-sub id)` and `(clear-sub)` remove `:sub` registrations but leave already-materialised per-frame cache slots in place. Caching is governed by the disposal contract above (synchronous ref-counting on derefer-count → 0, hot-reload eviction, frame-destroy eviction); cache eviction independent of those triggers is `clear-sub-cache!`'s job. This split preserves v1's documented contract — see the `clear-sub` docstring's note: "Depending on the usecase, it may be necessary to call `clear-sub-cache!` afterwards."
 
 ### Per-host implementation notes
