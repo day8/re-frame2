@@ -107,6 +107,25 @@
   (is (nil? (sip/resolve-input-paths :not-registered {}))
       "missing target sub resolves to nil"))
 
+(deftest parametric-sub-resolves-to-unknown-nil
+  ;; rf2-e3acps — a parametric (input-fn) sub's realized input edges
+  ;; depend on the concrete outer query vector and are NOT statically
+  ;; enumerable, so the static walk treats it as :unknown (→ nil),
+  ;; conservative-include in the path filter (it may read any path) —
+  ;; the same posture as a cycle / missing registration. It must NOT
+  ;; resolve to `[]` (which would EXCLUDE it from the popover).
+  (let [registry {:article/page {:input-signal-ids [] :layer-1? false
+                                 :parametric? true}}]
+    (is (nil? (sip/resolve-input-paths :article/page registry))
+        "parametric sub → nil (unknown / conservative include), NOT []"))
+  (testing "a downstream sub composing a parametric upstream is also unknown"
+    (let [registry {:article/page {:input-signal-ids [] :layer-1? false
+                                   :parametric? true}
+                    :article/banner {:input-signal-ids [:article/page]
+                                     :layer-1? false}}]
+      (is (nil? (sip/resolve-input-paths :article/banner registry))
+          "a parametric upstream poisons the composite to unknown"))))
+
 (deftest empty-registry-returns-empty-resolve-many
   (is (= {} (sip/resolve-many {}))
       "empty registry yields empty resolve-many"))

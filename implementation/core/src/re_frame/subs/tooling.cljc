@@ -32,14 +32,26 @@
 ;; ---- static topology ------------------------------------------------------
 ;;
 ;; Per Spec 002 §The public registrar query API and Spec 006 §Subscription
-;; topology vs subscription tracking. `sub-topology` is the static ":<- chain"
-;; you can derive from registrations alone — pure data over the registrar,
-;; no app-db, no reactive runtime, no per-frame cache. JVM-runnable.
+;; topology vs subscription tracking. `sub-topology` is the static dependency
+;; graph you can derive from registrations alone — pure data over the
+;; registrar, no app-db, no reactive runtime, no per-frame cache.
+;; JVM-runnable.
 ;;
 ;; Shape (per Spec 002 §The public registrar query API row): a map of
-;;   sub-id → {:inputs [<input-sub-ids>] :doc <str?> :ns sym :line int :file str}
-;; with :inputs always present (empty vector for layer-1 / direct-app-db subs)
-;; and the source-coord / :doc keys included only when the registration
+;;   sub-id → {:input-kind <kind> :inputs <inputs>
+;;             :doc <str?> :ns sym :line int :file str}
+;; where `:input-kind` discriminates the input producer (Spec 006
+;; §Subscription input producers) and `:inputs` carries the kind-specific
+;; static edge set:
+;;   :db          layer-1 / direct-app-db reader  →  :inputs []
+;;   :static      literal `:<-` query-vectors      →  :inputs [[:q1] [:q2 a] ...]
+;;   :parametric  an `input-fn` (query-parametric) →  :inputs :parametric
+;; The parametric edge set is NOT statically enumerable — it depends on the
+;; concrete outer query vector, so the static surface reports the
+;; `:parametric` sentinel rather than fabricating un-materialized edges.
+;; Realized parametric edges per concrete query vector are runtime cache
+;; state, surfaced by `sub-cache-snapshot`'s `:realized-inputs` slot.
+;; The source-coord / :doc keys are included only when the registration
 ;; carries them.
 
 (defn sub-topology
@@ -49,13 +61,27 @@
   reactive runtime. Per Spec 002 §The public registrar query API and
   Spec 006 §Subscription topology vs subscription tracking.
 
-  Shape: `{sub-id {:inputs [<input-sub-ids>] :doc ... :ns ... :line ... :file ...}}`.
+  Shape: `{sub-id {:input-kind <kind> :inputs <inputs>
+                   :doc ... :ns ... :line ... :file ...}}`.
 
-  - `:inputs` is the vector of upstream sub-ids declared via `:<-` at
-    registration time. It is always present; layer-1 subs (which read
-    `app-db` directly) report `:inputs []`. The order matches the
-    declaration order so that downstream tools can reconstruct the
-    chain shape the body fn expects.
+  - `:input-kind` discriminates the sub's input producer (Spec 006
+    §Subscription input producers): `:db` (layer-1 app-db reader),
+    `:static` (literal `:<-` chain), or `:parametric` (an `input-fn`
+    that computes its input query-vectors from the outer query-v). It
+    is always present.
+  - `:inputs` is the kind-specific static edge set, always present:
+      - `:db`         → `[]` (reads `app-db` directly; no upstream subs).
+      - `:static`     → the vector of literal `:<-` input query-vectors
+                        (`[[:items] [:filter]]`) in declaration order, so
+                        downstream tools can reconstruct the chain shape
+                        the body fn expects. The args are preserved
+                        (`:<- [:upstream :arg]` → `[:upstream :arg]`).
+      - `:parametric` → the keyword `:parametric`. The realized edge set
+                        depends on the concrete outer query vector and is
+                        therefore NOT statically enumerable. Realized
+                        parametric edges per concrete query vector live in
+                        the runtime cache — see `sub-cache-snapshot`'s
+                        `:realized-inputs` slot.
   - `:doc`, `:ns`, `:line`, `:file` are present when the registration
     carried them (`:ns` / `:line` / `:file` are auto-captured by the
     `reg-sub` macro per Spec 001 §Source-coordinate capture; `:doc`
@@ -69,8 +95,18 @@
   (let [subs-meta (registrar/registrations :sub)]
     (reduce-kv
       (fn [acc sub-id meta]
-        (let [inputs (mapv first (:input-signals meta))
-              entry  (cond-> {:inputs inputs}
+        (let [input-kind (:input-kind meta)
+              ;; `:static` reports the literal `:<-` input query-vectors
+              ;; (args preserved); `:parametric` reports the `:parametric`
+              ;; sentinel (the realized edge set is per-concrete-query-v
+              ;; runtime state, not statically enumerable); `:db` (and any
+              ;; legacy registration without a discriminator) reports `[]`.
+              inputs     (case input-kind
+                           :parametric :parametric
+                           :static     (vec (:input-signals meta))
+                           [])
+              entry  (cond-> {:input-kind (or input-kind :db)
+                              :inputs     inputs}
                        (contains? meta :doc)  (assoc :doc  (:doc  meta))
                        (contains? meta :ns)   (assoc :ns   (:ns   meta))
                        (contains? meta :line) (assoc :line (:line meta))
@@ -81,12 +117,34 @@
 
 (defn sub-cache-snapshot
   "Public read-only snapshot of a frame's sub-cache, projected to a
-  Tool-Pair-friendly shape: `{query-v {:value v :ref-count n}}`.
+  Tool-Pair-friendly shape:
+  `{query-v {:value v :ref-count n :input-kind k :realized-inputs [...]}}`.
 
   CLJS-only — on the JVM the cache exists for ref-counting purposes but
   the cached reactions are not deref-able, so this fn returns `nil`. Per
   Spec 002 §The public registrar query API and Tool-Pair §How AI tools
   attach.
+
+  Per-entry slots:
+
+  - `:value`           — the current deref of the cached reaction (`nil`
+                         when the reaction throws on deref).
+  - `:ref-count`       — the live consumer ref-count for the entry.
+  - `:input-kind`      — the input-producer discriminator the sub was
+                         registered with (`:db` / `:static` /
+                         `:parametric`), looked up from the registrar.
+                         Layer-1 / direct-app-db readers are `:db`.
+  - `:realized-inputs` — the REALIZED input query-vectors for THIS
+                         concrete cache entry — the literal `:<-` list for
+                         `:static`, and the `(input-fn query-v)` result for
+                         `:parametric` (Spec 006 §Subscription input
+                         producers; the EP §Tooling live cache-entry view).
+                         This is the runtime counterpart to the static
+                         `sub-topology` `:inputs :parametric` sentinel: it
+                         surfaces the concrete edges that the static surface
+                         cannot enumerate. `[]` for a `:db` reader. Stored
+                         on the entry at materialization, so its topology is
+                         fixed for the entry's lifetime.
 
   Dev-only on CLJS too — the body is gated on `interop/debug-enabled?`
   (the `goog.DEBUG` mirror) so production builds elide both the cache
@@ -99,14 +157,26 @@
   #?(:cljs
      (when interop/debug-enabled?
        (when-let [cache (:sub-cache (frame/frame frame-id))]
-         (reduce-kv
-           (fn [acc query-v entry]
-             (assoc acc query-v
-                    {:value     (when-let [r (:reaction entry)]
-                                  (try @r (catch :default _ nil)))
-                     :ref-count (or (:ref-count entry) 0)}))
-           {}
-           @cache)))
+         (let [subs-meta (registrar/registrations :sub)]
+           (reduce-kv
+             (fn [acc query-v entry]
+               (let [sub-id     (when (vector? query-v) (first query-v))
+                     meta       (get subs-meta sub-id)
+                     ;; The cache entry's `:inputs` slot holds the realized
+                     ;; input query-vectors for this concrete outer query-v
+                     ;; (the literal `:<-` list for `:static`, the
+                     ;; `(input-fn query-v)` result for `:parametric`) — see
+                     ;; `re-frame.subs/compute-and-cache!`. Layer-1 readers
+                     ;; carry `[]`.
+                     realized   (vec (:inputs entry))]
+                 (assoc acc query-v
+                        {:value           (when-let [r (:reaction entry)]
+                                            (try @r (catch :default _ nil)))
+                         :ref-count       (or (:ref-count entry) 0)
+                         :input-kind      (or (:input-kind meta) :db)
+                         :realized-inputs realized})))
+             {}
+             @cache))))
      :clj
      nil))
 

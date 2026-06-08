@@ -4341,22 +4341,36 @@
   as `mini` keywords. Returns nil when:
     - the sub-id can't be resolved (anonymous sub / no meta captured), or
     - `:input-signals` is empty — a genuine Level-1 app-db reader, where
-      the cell falls back to the `app-db` source label.
+      the cell falls back to the `app-db` source label, or
+    - the sub is PARAMETRIC (rf2-e3acps) — its `:input-kind` is
+      `:parametric`, so the STATIC topology has no enumerable edge set
+      (the realized edges depend on the concrete outer query vector).
+      Returning nil here routes the inputs cell to the row's REALIZED
+      `:inputs` slot (sourced from the `:rf.sub/inputs` trace tag — the
+      `(input-fn query-v)` result for this concrete cache entry), so the
+      live/cascade view shows the REALIZED parametric edges rather than
+      fabricating a static set. This is the EP §Tooling two-level
+      contract: static topology reports `:parametric`; the live view
+      shows the concrete realized edges.
 
   Pre-rf2-87c8a the inputs cell read the row's `:inputs` slot, which the
-  projection sources purely from `:rf.sub/cause-sub` (the cascade
-  attribution — which upstream sub's value-change drove THIS re-run).
-  That tag is OMITTED outside an in-flight cascade, so any derived sub
-  that ran fresh (e.g. the parameterized `[:standard-epochs/greater-than? 5]`
-  on first mount) fell through to the `app-db` fallback and was mislabeled
-  a Level-1 reader. The cascade attribution still surfaces — via the
-  `caused by <event-id>` chrome (rf2-1cc03) — it is just no longer the
-  source for the static-topology `inputs` column."
+  projection sources from `:rf.sub/cause-sub` (the single upstream sub
+  whose value-change drove THIS re-run) or, when absent, the full
+  realized `:rf.sub/inputs` edge set (rf2-e3acps). The cascade
+  attribution also surfaces via the `caused by <event-id>` chrome
+  (rf2-1cc03)."
   [sub-id]
   (when (some? sub-id)
     (let [m (try (rf/handler-meta :sub sub-id) (catch :default _ nil))
           signals (:input-signals m)]
-      (when (seq signals)
+      ;; Parametric subs carry empty `:input-signals` (their realized
+      ;; edges are runtime cache state) — nil here defers to the row's
+      ;; realized `:inputs` slot. The `(seq signals)` guard already
+      ;; covers them (empty → nil); the `:input-kind` check is belt-and-
+      ;; braces so a future non-empty parametric registration shape still
+      ;; defers to the realized live view rather than claiming a static set.
+      (when (and (seq signals)
+                 (not= :parametric (:input-kind m)))
         (mapv (fn [sig] (if (vector? sig) (first sig) sig)) signals)))))
 
 (defn- subscriptions-table

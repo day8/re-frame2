@@ -298,16 +298,26 @@
 ;; ---- Level 1 / Level 2+ partition -------------------------------------
 
 (def ^:private topology
-  "A static sub-topology snapshot: :inputs [] = Level 1; non-empty =
-  Level 2+. Carries :ns/:line/:file so the code coord resolves."
-  {:cart/state {:inputs [] :ns 'cart :line 10 :file "cart.cljs"}
-   :cart/items {:inputs [] :ns 'cart :line 14 :file "cart.cljs"}
-   :cart/total {:inputs [:cart/state :cart/items]
-                :ns 'cart :line 22 :file "cart.cljs"}})
+  "A static sub-topology snapshot in the rf2-e3acps shape: `:input-kind`
+  discriminates `:db` (Level 1) / `:static` / `:parametric`, and
+  `:inputs` carries the literal `:<-` QUERY-VECTORS for `:static`
+  (`[[:cart/state] [:cart/items]]`) or the `:parametric` sentinel for an
+  `input-fn` sub. Carries :ns/:line/:file so the code coord resolves."
+  {:cart/state {:input-kind :db :inputs [] :ns 'cart :line 10 :file "cart.cljs"}
+   :cart/items {:input-kind :db :inputs [] :ns 'cart :line 14 :file "cart.cljs"}
+   :cart/total {:input-kind :static
+                :inputs [[:cart/state] [:cart/items]]
+                :ns 'cart :line 22 :file "cart.cljs"}
+   ;; rf2-e3acps — a parametric input-fn sub: static topology reports the
+   ;; :parametric sentinel (realized edges are per-concrete-query-v cache
+   ;; state, not statically enumerable).
+   :cart/line  {:input-kind :parametric :inputs :parametric
+                :ns 'cart :line 30 :file "cart.cljs"}})
 
-(deftest partition-splits-by-inputs-empty
-  (testing "rf2-8ve8z — :inputs [] subs land in Level 1; non-empty land
-            in Level 2+, carrying their input-sub names + coord."
+(deftest partition-splits-by-input-kind
+  (testing "rf2-8ve8z + rf2-e3acps — :input-kind :db subs land in Level 1;
+            :static / :parametric land in Level 2+, carrying their input-sub
+            names + coord (parametric carries NO static inputs)."
     (let [{:keys [level-1 level-2]}
           (subs/partition-subs-by-level
             [(sub-run+ :cart/state true true)
@@ -316,9 +326,43 @@
       (is (= [:cart/state] (mapv :sub-id level-1)))
       (is (= [:cart/total] (mapv :sub-id level-2)))
       (is (= [:cart/state :cart/items] (-> level-2 first :inputs))
-          "Level 2+ row carries its declared input-sub names")
+          "Level 2+ :static row carries its declared input-sub names (query-vector heads)")
+      (is (= :static (-> level-2 first :input-kind))
+          "the Level 2 row carries the :input-kind discriminator")
       (is (= "cart.cljs" (-> level-1 first :coord :file))
           "Level 1 row carries the topology source coord"))))
+
+(deftest partition-parametric-sub-is-level-2-with-no-static-edges
+  (testing "rf2-e3acps — a :parametric sub is Level 2+ (composes upstream
+            subs) but reports NO STATIC input edges; the static partition
+            must not fabricate un-materialized parametric edges + must not
+            crash on the :parametric (non-vector) :inputs sentinel."
+    (let [{:keys [level-1 level-2]}
+          (subs/partition-subs-by-level
+            [(sub-run+ :cart/state true true)
+             (sub-run+ :cart/line  true true)]
+            topology)]
+      (is (= [:cart/state] (mapv :sub-id level-1))
+          ":db reader is Level 1")
+      (is (= [:cart/line] (mapv :sub-id level-2))
+          "parametric sub is Level 2+ (NOT misbucketed as Level 1)")
+      (is (= [] (-> level-2 first :inputs))
+          "parametric sub draws no STATIC edges (realized edges live in the live/cache view)")
+      (is (= :parametric (-> level-2 first :input-kind))
+          "the parametric discriminator rides the row so the panel can badge it"))))
+
+(deftest topology-input-sub-ids-handles-static-and-parametric
+  (testing "rf2-e3acps — topology-input-sub-ids projects :static query-vectors
+            to their sub-id heads and returns [] for the :parametric sentinel."
+    (is (= [:cart/state :cart/items]
+           (subs/topology-input-sub-ids (:cart/total topology)))
+        ":static → query-vector heads (sub-ids)")
+    (is (= []
+           (subs/topology-input-sub-ids (:cart/line topology)))
+        ":parametric sentinel → [] (no static edges)")
+    (is (= []
+           (subs/topology-input-sub-ids (:cart/state topology)))
+        ":db reader → []")))
 
 (deftest partition-carries-changed-flag
   (testing "rf2-8ve8z — :value-changed? rides onto each row's :changed?."

@@ -48,12 +48,13 @@
 ;;
 ;; `frame-sub-caches` stands in for the live per-frame sub-cache the
 ;; framework's `re-frame.subs.tooling/sub-cache-snapshot` projects:
-;; `{query-v {:value v :ref-count n}}`. Disposing a reaction removes its
-;; entry — modelled here by `dispose-sub!`.
+;; `{query-v {:value v :ref-count n :input-kind k :realized-inputs [...]}}`
+;; (rf2-e3acps added the `:input-kind` + `:realized-inputs` slots).
+;; Disposing a reaction removes its entry — modelled here by `dispose-sub!`.
 ;; ---------------------------------------------------------------------------
 
 (def frame-registry (atom #{}))
-(def frame-sub-caches (atom {}))   ;; frame-id -> {query-v {:value v :ref-count n}}
+(def frame-sub-caches (atom {}))   ;; frame-id -> {query-v {:value v :ref-count n :input-kind k :realized-inputs [...]}}
 (def selected-frame (atom nil))
 
 (defn register-frame! [frame-id]
@@ -61,10 +62,17 @@
   (swap! frame-sub-caches assoc frame-id {})
   frame-id)
 
-(defn cache-sub! [frame-id query-v value ref-count]
-  (swap! frame-sub-caches assoc-in [frame-id query-v]
-         {:value value :ref-count ref-count})
-  frame-id)
+(defn cache-sub!
+  "Cache an entry. The 4-arity defaults a layer-1 `:db` reader (no
+   realized input edges); the 6-arity sets the rf2-e3acps `:input-kind`
+   + `:realized-inputs` slots explicitly (static / parametric subs)."
+  ([frame-id query-v value ref-count]
+   (cache-sub! frame-id query-v value ref-count :db []))
+  ([frame-id query-v value ref-count input-kind realized-inputs]
+   (swap! frame-sub-caches assoc-in [frame-id query-v]
+          {:value value :ref-count ref-count
+           :input-kind input-kind :realized-inputs realized-inputs})
+   frame-id))
 
 (defn dispose-sub!
   "Model the framework disposing a reaction once its last consumer
@@ -111,8 +119,11 @@
           :count (count qvs)
           :subs  (if include-values?
                    (mapv (fn [q]
-                           (let [{:keys [value ref-count]} (get cache q)]
-                             {:query-v q :value value :ref-count ref-count}))
+                           (let [{:keys [value ref-count input-kind realized-inputs]}
+                                 (get cache q)]
+                             {:query-v q :value value :ref-count ref-count
+                              :input-kind input-kind
+                              :realized-inputs realized-inputs}))
                          qvs)
                    (vec qvs))})))))
 
@@ -172,12 +183,42 @@
     (is (= 0 (:count r)))
     (is (= [] (:subs r)))))
 
-(deftest include-values-carries-value-and-ref-count
+(deftest include-values-carries-value-ref-count-input-kind-realized
+  ;; rf2-e3acps — :include-values? surfaces :input-kind + :realized-inputs
+  ;; alongside :value / :ref-count. A layer-1 :db reader has no realized
+  ;; input edges.
   (register-frame! :rf/default)
   (cache-sub! :rf/default ["cart" "total"] 4200 2)
   (let [r (sub-cache-info {:frame :rf/default :include-values? true})]
-    (is (= [{:query-v ["cart" "total"] :value 4200 :ref-count 2}]
+    (is (= [{:query-v ["cart" "total"] :value 4200 :ref-count 2
+             :input-kind :db :realized-inputs []}]
            (:subs r)))))
+
+(deftest include-values-surfaces-realized-parametric-inputs
+  ;; rf2-e3acps — the egress contract: a PARAMETRIC sub's live cache entry
+  ;; surfaces its REALIZED input query-vectors (the (input-fn query-v)
+  ;; result for the concrete outer query-v), the runtime counterpart to
+  ;; the static sub-topology's :inputs :parametric sentinel.
+  (register-frame! :rf/default)
+  ;; static :<- sub — realized inputs are the literal :<- list
+  (cache-sub! :rf/default [:visible-items] [] 1
+              :static [[:items] [:filter]])
+  ;; parametric input-fn sub — realized inputs are the concrete edges
+  (cache-sub! :rf/default [:article/page :a1] {} 1
+              :parametric [[:article/by-id :a1]
+                           [:comments/for-article :a1]
+                           [:viewer/current]])
+  (let [subs (:subs (sub-cache-info {:frame :rf/default :include-values? true}))
+        by-q (into {} (map (juxt :query-v identity)) subs)]
+    (is (= :static (:input-kind (by-q [:visible-items]))))
+    (is (= [[:items] [:filter]] (:realized-inputs (by-q [:visible-items])))
+        "static realized inputs are the literal :<- query-vectors")
+    (is (= :parametric (:input-kind (by-q [:article/page :a1]))))
+    (is (= [[:article/by-id :a1]
+            [:comments/for-article :a1]
+            [:viewer/current]]
+           (:realized-inputs (by-q [:article/page :a1])))
+        "parametric realized inputs are the (input-fn query-v) result for :a1")))
 
 (deftest resolves-sole-frame-without-explicit-arg
   (register-frame! :rf/default)

@@ -702,13 +702,24 @@
    `:include-values?` (default false) controls payload size: when false
    only the query-vectors ride the wire (the cheap \"what's subscribed\"
    read); when true each entry also carries `:value` (the current
-   deref) and `:ref-count`.
+   deref), `:ref-count`, `:input-kind`, and `:realized-inputs`.
+
+   `:input-kind` + `:realized-inputs` (rf2-e3acps) surface the
+   subscription's input topology PER LIVE CACHE ENTRY — the realized
+   counterpart to the static `sub-topology`. `:input-kind` is `:db` /
+   `:static` / `:parametric`; `:realized-inputs` is the REALIZED input
+   query-vectors for the concrete outer query-v (the literal `:<-` list
+   for `:static`, the `(input-fn query-v)` result for `:parametric`,
+   `[]` for layer-1). These are query-vectors (sub-id + args), NOT
+   computed values, so they ride raw — the egress redaction in the
+   `list-subscriptions` tool elides only the `:value` slot.
 
    Returns:
      `{:ok? true :frame <id> :count N
        :subs [<query-v> ...]}`                       ; :include-values? false
      `{:ok? true :frame <id> :count N
-       :subs [{:query-v <v> :value v :ref-count n}]}` ; :include-values? true
+       :subs [{:query-v <v> :value v :ref-count n
+               :input-kind k :realized-inputs [...]}]}` ; :include-values? true
 
    `:subs` is the empty vector when nothing is subscribed in the frame —
    never `:ok? false` for the empty case. The query-vectors are sorted
@@ -728,10 +739,13 @@
           :count (count qvs)
           :subs  (if include-values?
                    (mapv (fn [q]
-                           (let [{:keys [value ref-count]} (get cache q)]
-                             {:query-v   q
-                              :value     value
-                              :ref-count ref-count}))
+                           (let [{:keys [value ref-count input-kind realized-inputs]}
+                                 (get cache q)]
+                             {:query-v         q
+                              :value           value
+                              :ref-count       ref-count
+                              :input-kind      input-kind
+                              :realized-inputs realized-inputs}))
                          qvs)
                    (vec qvs))})))))
 

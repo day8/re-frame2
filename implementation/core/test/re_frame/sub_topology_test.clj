@@ -4,16 +4,26 @@
   Spec 006 §Subscription topology vs subscription tracking.
 
   `sub-topology` returns a map of
-    `sub-id → {:inputs [<input-sub-ids>] :doc :ns :line :file}`
+    `sub-id → {:input-kind <kind> :inputs <inputs> :doc :ns :line :file}`
   derived purely from the registrar at registration time. No app-db,
   no per-frame cache, no reactive runtime — JVM-runnable.
 
+  `:input-kind` discriminates the input producer (`:db` / `:static` /
+  `:parametric`); `:inputs` carries the kind-specific static edge set —
+  `[]` for `:db`, the literal `:<-` input QUERY-VECTORS (args preserved)
+  for `:static`, and the `:parametric` keyword sentinel for an
+  `input-fn` sub (whose realized edges depend on the concrete outer
+  query vector and are NOT statically enumerable — rf2-e3acps / the
+  parametric-subscription-inputs EP §Tooling).
+
   These tests exercise the contract end-to-end: empty registry,
   layer-1 / layer-2 / layer-3 chains, multi-input fanout, source-coord
-  capture, doc passthrough, declaration-order preservation, and a
-  declared self-reference cycle (which is allowed by registration —
-  the topology surface reports the static :<- chain regardless of
-  whether the resulting sub would resolve at runtime)."
+  capture, doc passthrough, declaration-order preservation, the
+  parametric two-level topology (registrar reports `:parametric`,
+  realized edges live in the cache), and a declared self-reference
+  cycle (which is allowed by registration — the topology surface
+  reports the static :<- chain regardless of whether the resulting sub
+  would resolve at runtime)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.subs :as subs]
@@ -48,22 +58,27 @@
     (is (map? (rf/sub-topology)))))
 
 (deftest layer-1-sub-has-empty-inputs
-  (testing "a layer-1 sub (reads app-db directly) reports :inputs []"
+  (testing "a layer-1 sub (reads app-db directly) reports :input-kind :db / :inputs []"
     (rf/reg-sub :n (fn [db _] (:n db)))
     (let [topo (rf/sub-topology)]
       (is (contains? topo :n))
+      (is (= :db (:input-kind (topo :n)))
+          "layer-1 / direct-app-db reader is :input-kind :db")
       (is (= [] (:inputs (topo :n)))
           ":inputs is always present and is the empty vector for layer-1 subs"))))
 
 ;; ---- :<- chain capture ---------------------------------------------------
 
-(deftest single-input-layer-2-sub-reports-the-upstream-id
-  (testing "a layer-2 sub with one :<- declares one upstream input"
+(deftest single-input-layer-2-sub-reports-the-upstream-query-vector
+  (testing "a layer-2 sub with one :<- declares one upstream input QUERY-VECTOR"
     (rf/reg-sub :n  (fn [db _] (:n db)))
     (rf/reg-sub :n2 :<- [:n] (fn [n _] (* 2 n)))
     (let [topo (rf/sub-topology)]
+      (is (= :db (:input-kind (topo :n))))
+      (is (= :static (:input-kind (topo :n2))))
       (is (= [] (:inputs (topo :n))))
-      (is (= [:n] (:inputs (topo :n2)))))))
+      (is (= [[:n]] (:inputs (topo :n2)))
+          ":static inputs are the literal :<- query-vectors (Spec 002 §registrar query API)"))))
 
 (deftest multi-input-layer-2-sub-preserves-declaration-order
   (testing "multi-input :<- chain order is preserved (matters for body fn arity)"
@@ -72,29 +87,70 @@
     (rf/reg-sub :c (fn [db _] (:c db)))
     (rf/reg-sub :sum :<- [:a] :<- [:b] :<- [:c]
                 (fn [[a b c] _] (+ a b c)))
-    (is (= [:a :b :c] (:inputs ((rf/sub-topology) :sum)))
-        "declaration order is preserved so tools can reconstruct the body's input shape")))
+    (let [entry ((rf/sub-topology) :sum)]
+      (is (= :static (:input-kind entry)))
+      (is (= [[:a] [:b] [:c]] (:inputs entry))
+          "declaration order is preserved so tools can reconstruct the body's input shape"))))
 
 (deftest deeper-chain-each-link-recorded
-  (testing "layer-3 chain — every node carries its direct upstreams"
+  (testing "layer-3 chain — every node carries its direct upstream query-vectors"
     (rf/reg-sub :raw   (fn [db _] (:n db)))
     (rf/reg-sub :step1 :<- [:raw]   (fn [r _] (inc r)))
     (rf/reg-sub :step2 :<- [:step1] (fn [s _] (* 10 s)))
     (let [topo (rf/sub-topology)]
-      (is (= []       (:inputs (topo :raw))))
-      (is (= [:raw]   (:inputs (topo :step1))))
-      (is (= [:step1] (:inputs (topo :step2)))))))
+      (is (= []        (:inputs (topo :raw))))
+      (is (= [[:raw]]   (:inputs (topo :step1))))
+      (is (= [[:step1]] (:inputs (topo :step2)))))))
 
-(deftest input-sub-ids-strip-query-args
-  (testing ":inputs reports sub-ids only — query-vector args are stripped"
-    ;; The registration form is `:<- [:upstream arg1 arg2]`; the static
-    ;; topology is keyed by sub-id, so :inputs reports just :upstream.
-    ;; Per Spec 002 §The public registrar query API row.
+(deftest static-inputs-preserve-query-vector-args
+  (testing ":static :inputs preserve per-input query-vector args (full query-vectors)"
+    ;; The registration form is `:<- [:upstream :some-arg]`; the static
+    ;; topology now reports the literal query-vector (args preserved),
+    ;; per Spec 002 §The public registrar query API row + Spec 006
+    ;; §Subscription topology (the rf2-e3acps reconciliation). Tools that
+    ;; want the bare sub-id project with `(mapv first ...)`.
     (rf/reg-sub :upstream (fn [db [_ _arg]] (:n db)))
     (rf/reg-sub :downstream :<- [:upstream :some-arg]
                 (fn [u _] (str u)))
-    (is (= [:upstream] (:inputs ((rf/sub-topology) :downstream)))
-        "the per-input-vector args don't change the topology — sub-ids only")))
+    (is (= [[:upstream :some-arg]] (:inputs ((rf/sub-topology) :downstream)))
+        "static inputs carry the full :<- query-vector, args and all")))
+
+;; ---- parametric input-fn topology (rf2-e3acps) ---------------------------
+
+(deftest parametric-sub-reports-parametric-sentinel
+  (testing "a parametric input-fn sub reports :input-kind :parametric / :inputs :parametric"
+    ;; The realized edge set depends on the concrete outer query vector
+    ;; and is NOT statically enumerable — the static surface reports the
+    ;; `:parametric` sentinel rather than fabricating un-materialized
+    ;; edges (EP §Tooling two-level contract; realized edges live in the
+    ;; runtime cache via sub-cache).
+    (rf/reg-sub :article/by-id        (fn [db [_ id]] (get-in db [:articles id])))
+    (rf/reg-sub :comments/for-article (fn [db [_ id]] (get-in db [:comments id])))
+    (rf/reg-sub :viewer/current       (fn [db _] (:viewer db)))
+    (rf/reg-sub :article/page
+                (fn [[_ id]]
+                  [[:article/by-id id]
+                   [:comments/for-article id]
+                   [:viewer/current]])
+                (fn [[article comments viewer] [_ id]]
+                  {:id id :article article :comments comments :viewer viewer}))
+    (let [entry ((rf/sub-topology) :article/page)]
+      (is (= :parametric (:input-kind entry))
+          "parametric subs are discriminated by :input-kind")
+      (is (= :parametric (:inputs entry))
+          ":inputs is the :parametric sentinel — realized edges are per-query-v cache state")
+      (is (not (vector? (:inputs entry)))
+          "the static surface must NOT pretend the parametric edge set is a static vector"))))
+
+(deftest single-input-parametric-sub-still-parametric
+  (testing "a single-input parametric sub still reports the :parametric sentinel"
+    (rf/reg-sub :item/by-id (fn [db [_ id]] (get-in db [:items id])))
+    (rf/reg-sub :item/title
+                (fn [[_ id]] [[:item/by-id id]])
+                (fn [[item] _] (:title item)))
+    (let [entry ((rf/sub-topology) :item/title)]
+      (is (= :parametric (:input-kind entry)))
+      (is (= :parametric (:inputs entry))))))
 
 ;; ---- :doc and source-coord passthrough -----------------------------------
 
@@ -145,13 +201,26 @@
 (deftest reregistration-replaces-the-entry
   (testing "re-registering a sub replaces its topology entry"
     (rf/reg-sub :a (fn [db _] (:a db)))
+    (is (= :db (:input-kind ((rf/sub-topology) :a))))
     (is (= [] (:inputs ((rf/sub-topology) :a))))
     ;; Re-register :a as a layer-2 sub composing :b. The topology
     ;; reports the new :<- chain (last-write-wins per Spec 001
     ;; §Hot-reload semantics).
     (rf/reg-sub :b (fn [db _] (:b db)))
     (rf/reg-sub :a :<- [:b] (fn [b _] (str b)))
-    (is (= [:b] (:inputs ((rf/sub-topology) :a))))))
+    (is (= :static (:input-kind ((rf/sub-topology) :a))))
+    (is (= [[:b]] (:inputs ((rf/sub-topology) :a)))))
+
+  (testing "re-registering a :static sub as :parametric flips :input-kind + :inputs"
+    (rf/reg-sub :x (fn [db _] (:x db)))
+    (rf/reg-sub :p :<- [:x] (fn [x _] x))
+    (is (= :static (:input-kind ((rf/sub-topology) :p))))
+    (is (= [[:x]] (:inputs ((rf/sub-topology) :p))))
+    (rf/reg-sub :p
+                (fn [[_ id]] [[:x id]])
+                (fn [[x] _] x))
+    (is (= :parametric (:input-kind ((rf/sub-topology) :p))))
+    (is (= :parametric (:inputs ((rf/sub-topology) :p))))))
 
 ;; ---- self-reference / cycle handling -------------------------------------
 
@@ -165,11 +234,11 @@
     ;; cycles by traversing the returned graph; sub-topology itself
     ;; just reports what was registered.
     (rf/reg-sub :loop :<- [:loop] (fn [v _] v))
-    (is (= [:loop] (:inputs ((rf/sub-topology) :loop)))))
+    (is (= [[:loop]] (:inputs ((rf/sub-topology) :loop)))))
 
   (testing "a 2-node cycle :<- declarations are similarly verbatim"
     (rf/reg-sub :a :<- [:b] (fn [b _] b))
     (rf/reg-sub :b :<- [:a] (fn [a _] a))
     (let [topo (rf/sub-topology)]
-      (is (= [:b] (:inputs (topo :a))))
-      (is (= [:a] (:inputs (topo :b)))))))
+      (is (= [[:b]] (:inputs (topo :a))))
+      (is (= [[:a]] (:inputs (topo :b)))))))

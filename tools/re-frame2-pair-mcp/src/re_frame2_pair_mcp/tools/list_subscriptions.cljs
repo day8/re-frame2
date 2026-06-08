@@ -47,12 +47,29 @@
     :include-values  boolean (default false) — when false, only the
                      query-vectors ride the wire (the cheap \"what's
                      subscribed\" read); when true each entry also
-                     carries `:value` (current deref) and `:ref-count`.
+                     carries `:value` (current deref), `:ref-count`,
+                     `:input-kind`, and `:realized-inputs`.
 
   Returns `{:ok? true :frame <id> :count N :subs [<query-v> ...]}`
   (or, with `:include-values true`,
-  `:subs [{:query-v <v> :value v :ref-count n} ...]`). Empty `:subs`
+  `:subs [{:query-v <v> :value v :ref-count n
+           :input-kind k :realized-inputs [...]} ...]`). Empty `:subs`
   vector when nothing is subscribed in the frame.
+
+  ## rf2-e3acps — realized parametric input egress
+
+  `:include-values true` also surfaces each live entry's `:input-kind`
+  (`:db` / `:static` / `:parametric`) and `:realized-inputs` — the
+  REALIZED input query-vectors for the concrete outer query-v (the
+  literal `:<-` list for `:static`, the `(input-fn query-v)` result for
+  `:parametric`, `[]` for layer-1). This is the runtime counterpart to
+  the static `sub-topology` surface: the static topology reports
+  `:inputs :parametric` for an `input-fn` sub (the edge set is not
+  statically enumerable), and the live sub-cache here resolves the
+  concrete realized edges per materialized entry. The realized inputs
+  are QUERY-VECTORS (sub-id + args), not computed values, so they ride
+  raw — only the per-sub `:value` slot is run through the egress
+  redaction walker below.
 
   ## rf2-f1ose — `:include-values` egress redaction
 

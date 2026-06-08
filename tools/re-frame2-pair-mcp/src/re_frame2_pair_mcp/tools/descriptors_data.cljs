@@ -1313,13 +1313,15 @@
                      "when the last consumer disposes the reaction — so a disposed sub no longer shows up here. "
                      "NOT the streaming-tap registry — for 'what trace/epoch/fx/error streams are open?' use `list-streams`. "
                      "Returns `{:ok? true :frame <id> :count N :subs [<query-v> ...]}` (query-vectors only, sorted, stable across calls); "
-                     "with `:include-values true` each entry becomes `{:query-v <v> :value <current-deref> :ref-count <n>}`. "
+                     "with `:include-values true` each entry becomes `{:query-v <v> :value <current-deref> :ref-count <n> :input-kind <:db|:static|:parametric> :realized-inputs [<query-v> ...]}`. "
+                     ":input-kind + :realized-inputs (rf2-e3acps) are the live counterpart to the static sub-topology: :realized-inputs are the REALIZED input query-vectors for the concrete outer query-v "
+                     "(the literal :<- list for a :static sub, the (input-fn query-v) result for a :parametric sub, [] for a layer-1 :db reader — query-vectors, not values, so they ride raw). "
                      "Empty `:subs` vector when nothing is subscribed in the frame. "
                      "Frame resolution mirrors snapshot/get-path: omit `:frame` to use the operating frame; a multi-frame session "
                      "with no selection returns {:ok? false :reason :ambiguous-frame}. "
                      "Examples: "
                      "1. Default frame: {} -> {:ok? true :frame :rf/default :count 1 :subs [[\"mounted?\"]]}. "
-                     "2. With values: {:frame \":rf/xray\" :include-values true} -> {:ok? true :frame :rf/xray :count 2 :subs [{:query-v [\"active-filters\"] :value #{} :ref-count 1} {:query-v [\"for-table\" \"views\"] :value [...] :ref-count 1}]}. "
+                     "2. With values: {:frame \":rf/xray\" :include-values true} -> {:ok? true :frame :rf/xray :count 2 :subs [{:query-v [\"active-filters\"] :value #{} :ref-count 1 :input-kind :db :realized-inputs []} {:query-v [:article/page :a1] :value {...} :ref-count 1 :input-kind :parametric :realized-inputs [[:article/by-id :a1] [:comments/for-article :a1] [:viewer/current]]}]}. "
                      "3. Nothing subscribed: {:frame \":rf/default\"} -> {:ok? true :frame :rf/default :count 0 :subs []}.")
    :typicalTokens 400
    :annotations idempotent-read-only-annotations
@@ -1328,7 +1330,7 @@
                  :properties {:frame          {:type "string"
                                                :description "Frame to read. Accepts bare names (\"rf/default\") or EDN-shaped strings (\":rf/default\"). Defaults to the operating frame; a multi-frame session with no selection -> :reason :ambiguous-frame."}
                               :include-values {:type "boolean"
-                                               :description "When true, each entry carries :value (current deref) and :ref-count alongside :query-v. Default false (query-vectors only — the cheap 'what's subscribed' read). Each :value is run through the size-elision walker server-side before egress (rf2-f1ose): a value over a declared-sensitive app-db slot redacts to :rf/redacted, a declared-large value elides to :rf.size/large-elided, when the --allow-sensitive-reads gate is OFF."}
+                                               :description "When true, each entry carries :value (current deref), :ref-count, :input-kind (:db/:static/:parametric), and :realized-inputs (the realized input query-vectors for the concrete query-v — rf2-e3acps) alongside :query-v. Default false (query-vectors only — the cheap 'what's subscribed' read). Each :value is run through the size-elision walker server-side before egress (rf2-f1ose): a value over a declared-sensitive app-db slot redacts to :rf/redacted, a declared-large value elides to :rf.size/large-elided, when the --allow-sensitive-reads gate is OFF. :realized-inputs are query-vectors (not values), so they ride raw."}
                               :elision        knobs/elision-property
                               :include-sensitive {:type "boolean"
                                                    :description "Opt declared-sensitive sub `:value`s back in to raw egress (the walker's `:rf.size/include-sensitive?` opt). Default false; honoured only when the server was launched with --allow-sensitive-reads (rf2-f1ose)."}

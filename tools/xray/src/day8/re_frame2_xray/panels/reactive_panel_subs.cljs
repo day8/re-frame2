@@ -345,12 +345,51 @@
 
 (defn level-1?
   "True when a sub is a Level 1 sub — it observes app-db DIRECTLY,
-  reported by `sub-topology` as `:inputs []`. A sub MISSING from the
-  topology (not statically registered, e.g. a test-injected literal)
-  is treated as Level 1 by default — the conservative bucket, since a
-  sub with no declared inputs reads app-db."
+  reported by `sub-topology` as `:input-kind :db` (`:inputs []`).
+  `:static` and `:parametric` subs compose upstream subs and are
+  Level 2+. A sub MISSING from the topology (not statically
+  registered, e.g. a test-injected literal) is treated as Level 1 by
+  default — the conservative bucket, since a sub with no declared
+  topology entry has no upstream sub edges.
+
+  Keys off `:input-kind` (rf2-e3acps): a `:parametric` sub reports
+  `:inputs :parametric` (a keyword, not a vector), so the old
+  `(empty? (:inputs topo-entry))` test would throw on it. `:input-kind`
+  is the precise discriminator — `:db` is Level 1, everything else
+  composes upstream subs."
   [topo-entry]
-  (empty? (:inputs topo-entry)))
+  (case (:input-kind topo-entry)
+    :db    true
+    :static false
+    :parametric false
+    ;; Missing entry / unrecognised kind → conservative Level 1.
+    (empty? (:inputs topo-entry))))
+
+(defn topology-input-sub-ids
+  "Project a `sub-topology` entry's `:inputs` to the vector of upstream
+  SUB-IDs the Level 2+ flow-graph resolves edges against (rf2-e3acps).
+
+  The static `sub-topology` reports `:static` inputs as full query-
+  vectors (`[[:items] [:filter]]`, args preserved — per Spec 002 §The
+  public registrar query API). The reactive flow-graph keys edge
+  endpoints by sub-id, so this strips each query-vector to its head:
+  `[[:items] [:filter]]` → `[:items :filter]`.
+
+  `:parametric` subs report `:inputs :parametric` (the realized edge set
+  is per-concrete-query-v runtime cache state, NOT statically
+  enumerable — the EP §Tooling two-level contract). The static surface
+  has NO edges to draw for them, so this returns `[]` rather than
+  fabricating un-materialized edges. The REALIZED parametric edges live
+  in the live/cache view (`sub-cache` / the `:rf.sub/inputs` cascade
+  tag), not the static topology partition.
+
+  `:db` / missing entry → `[]`."
+  [topo-entry]
+  (let [inputs (:inputs topo-entry)]
+    (if (vector? inputs)
+      (mapv (fn [q] (if (vector? q) (first q) q)) inputs)
+      ;; `:parametric` sentinel (or any non-vector) → no static edges.
+      [])))
 
 (defn partition-subs-by-level
   "Partition the cascade's subs into the Level 1 / Level 2+ table rows
@@ -358,15 +397,26 @@
 
   `subs-ran` is the `:sub-runs` projection slice (each entry carries
   `:sub-id`, `:value-changed?`, `:value`, `:prev-value`). `topology` is
-  the `re-frame.subs.tooling/sub-topology` map (`{sub-id {:inputs [...]
-  :ns :line :file}}`). `readers` (optional, rf2-y23uw) is the sub→readers
-  map from `sub-readers` (`{sub-id [view-id ...]}`).
+  the `re-frame.subs.tooling/sub-topology` map (`{sub-id {:input-kind _
+  :inputs [...] :ns :line :file}}`). `readers` (optional, rf2-y23uw) is
+  the sub→readers map from `sub-readers` (`{sub-id [view-id ...]}`).
 
   Returns `{:level-1 [row ...] :level-2 [row ...]}` where each row:
 
     Level 1: {:sub-id _ :changed? bool :coord {...}? :readers [view-id ...]?}
-    Level 2: {:sub-id _ :changed? bool :inputs [<input-sub-id> ...]
-              :coord {...}? :readers [view-id ...]?}
+    Level 2: {:sub-id _ :changed? bool :input-kind _
+              :inputs [<input-sub-id> ...] :coord {...}? :readers [...]?}
+
+  Level partitioning keys off the topology entry's `:input-kind`
+  (rf2-e3acps): `:db` is Level 1 (reads app-db directly), `:static` /
+  `:parametric` are Level 2+. The Level 2 `:inputs` slot carries the
+  upstream SUB-IDs (the flow-graph's edge-endpoint key space): the
+  static `:<-` heads for a `:static` sub, and `[]` for a `:parametric`
+  sub — whose realized edges are per-concrete-query-v runtime state, NOT
+  statically enumerable, so the STATIC partition draws no edges for them
+  (the EP §Tooling: don't fabricate un-materialized parametric edges).
+  The row also carries `:input-kind` so the panel can badge a parametric
+  sub. Realized parametric edges surface in the live/cache view.
 
   `:readers` is the views that deref this sub THIS cascade — the
   shared-subscription edge (rf2-y23uw); absent when no rendered view read
@@ -393,8 +443,9 @@
                        coord          (assoc :coord coord)
                        (seq sub-rdrs)  (assoc :readers (vec sub-rdrs))))
              (update acc :level-2 conj
-                     (cond-> {:sub-id sub-id :changed? changed?
-                              :inputs (vec (:inputs topo-entry))}
+                     (cond-> {:sub-id     sub-id :changed? changed?
+                              :input-kind (:input-kind topo-entry)
+                              :inputs     (topology-input-sub-ids topo-entry)}
                        coord          (assoc :coord coord)
                        (seq sub-rdrs)  (assoc :readers (vec sub-rdrs)))))))
        {:level-1 [] :level-2 []}
