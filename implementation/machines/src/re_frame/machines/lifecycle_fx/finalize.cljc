@@ -70,6 +70,33 @@
            (catch #?(:clj Throwable :cljs :default) _ nil))))
   nil)
 
+;; ---- per-instance :data-schema marks cleanup (rf2-egvm4t) -----------------
+;;
+;; Per rf2-fm1cpl `spawn-fx` records the spawned actor's `:data-schema`-
+;; derived marks under the INSTANCE id (in the marks artefact's
+;; schema-sourced table) so the instance-id trace's `(marks-for :event
+;; <instance-id>)` lookup redacts a `:sensitive?` `:data` slot. Per
+;; rf2-egvm4t every destroy trigger must CLEAR that per-instance entry so a
+;; destroyed actor leaves no marks-table residue (an unbounded leak under
+;; per-request spawn/destroy churn) — symmetric with the snapshot dissoc, the
+;; registrar unregister, and the spawn-order forget. `restore-epoch` reverts
+;; app-db only, so the per-instance marks do NOT reappear on restore — the
+;; lazy actor-handler resolver re-runs the spawn bridge from the restored
+;; snapshot's spec to rehydrate them (see
+;; `registration/resolve-actor-handler-meta`). The marks-table thus tracks
+;; live spawned-actor liveness in lock-step with the revertible snapshot.
+
+(defn clear-actor-schema-marks!
+  "Fire the late-bind hook that drops the destroyed actor's per-instance
+  `:data-schema` marks (rf2-egvm4t). Idempotent, and safe to call when the
+  marks artefact is absent or the id has no entry (returns nil)."
+  [actor-id]
+  (when actor-id
+    (when-let [clear! (late-bind/get-fn :marks/clear-machine-schema-marks!)]
+      (try (clear! actor-id)
+           (catch #?(:clj Throwable :cljs :default) _ nil))))
+  nil)
+
 ;; ---- final-state resolution -----------------------------------------------
 
 ;; Per Spec 005 §Final states §The done-state signal (rf2-bnjb3): the
@@ -277,6 +304,10 @@
     ;; system-id-released trace (when applicable), unregister handler.
     (abort-actor-in-flight-http! machine-id)
     (timer/cancel-actor-timers! frame-id machine-id)
+    ;; rf2-egvm4t — drop the actor's per-instance :data-schema marks so the
+    ;; auto-destroyed actor leaves no marks-table residue (symmetric with the
+    ;; snapshot dissoc + registrar unregister above).
+    (clear-actor-schema-marks! machine-id)
     (traces/emit-system-id-released! frame-id released-sid machine-id)
     (registrar/unregister! :event machine-id)
     ;; (7) Per Spec 005 §Final states §`:on-error` (rf2-5hlsh): when the child

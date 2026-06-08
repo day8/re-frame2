@@ -15,29 +15,46 @@ The EP decisions are final; these are the implementation gaps still open against
 `main` (decision-settled, build-incomplete). They track follow-on work and do not
 reopen any ruling:
 
-- **`rf2-20d6k2`** — the redaction bridge protects `:before` / `:after` / `:snapshot`
-  slots, but other machine trace events still carry raw `:data`
-  (`:rf.machine/started` direct `:data`; `:rf.machine/guard-evaluated` /
-  `:rf.machine/action-ran` `:input {:data …}`). Extend projection to redact those slots.
-- **`rf2-qpibk0`** — schema-sourced and author-sourced marks union only when the
-  manual `register-marks!` ran *before* `reg-machine`; a later `register-marks!` can
-  drop schema-derived `[:data …]` marks. Make the union order-independent
-  (decision 3).
-- **`rf2-egvm4t`** — `spawn-fx` registers per-instance `:data-schema` marks, but
-  destroy / finalize / frame teardown do not clear or restore them; epoch
-  restore/replay around spawned actors is not yet lifecycle-safe.
 - **`rf2-pjv7pz`** — the `:schema` → `:data-schema` rename (decision 1) is complete
   in machines/spec/guide surfaces, but core probe/integration surfaces
   (`late_bind/directory.cljc`, `router.cljc`, `elision_probe.cljs`) still carry the
   old `:schema` spelling.
-- **`rf2-1zqh1z`** — `union-marks!` drops an existing explicit `false` whole-output
-  override when the added declaration carries only path marks; the OR semantics the
-  mark-union contract (decision 3) documents are not yet fully honoured.
 - **`rf2-0k5ubx`** *(awaiting Mike ruling)* — Spec 015 §6 + three implementor-skill
   notes document unimplemented top-level `:sensitive` / `:large` convenience keys on
   the machine spec; the shipped surface is the per-slot `:data-schema`
   `:sensitive?` / `:large?` Malli props. Either reword to match the shipped surface
   or implement the convenience keys.
+
+### Resolved errata
+
+The redaction-bridge errata below are **fixed** (the marks-cluster work) and kept
+here as a closed record; they no longer reopen any ruling:
+
+- **`rf2-20d6k2`** *(fixed)* — `project-machine-tags` now redacts machine `:data`
+  across EVERY trace slot that carries it: `:rf.machine/started`'s direct `:data`
+  map, the `:input {:data …}` of `:rf.machine/guard-evaluated` /
+  `:rf.machine/action-ran`, and the per-step `:data-delta`s of a
+  `:rf.machine/transition`'s `:cascade` — re-rooting the snapshot-rooted `[:data …]`
+  marks to each slot's shape — alongside the original `:before` / `:after` /
+  `:snapshot` coverage.
+- **`rf2-qpibk0`** *(fixed)* — schema-sourced machine marks now live in a table
+  SEPARATE from the author-sourced `:event` marks entry; `marks-for :event <id>`
+  unions the two at READ time, and `reg-event-fx` skips its bare-meta
+  `register-marks!` clear for machine registrations. A `register-marks!` (or
+  re-registration) can no longer drop schema-derived `[:data …]` marks, so the
+  schema-vs-author union is order-independent regardless of whether the manual
+  marks were registered before OR after `reg-machine` (decision 3).
+- **`rf2-1zqh1z`** *(fixed)* — `union-marks!` now preserves an explicit `false`
+  whole-output override across a union that adds only path marks (monotone-OR via
+  `union-whole-output-flag`: `true` on either side wins, an explicit `false` is
+  preserved, only both-absent vanishes), honouring the OR semantics the mark-union
+  contract (decision 3) documents both ways.
+- **`rf2-egvm4t`** *(fixed)* — a spawned actor's per-instance `:data-schema` marks
+  are now lifecycle-managed: every destroy trigger (explicit destroy, final-state
+  auto-destroy, frame teardown of spawned actors) CLEARS the per-instance entry, and
+  the lazy actor-handler resolver REHYDRATES it from the restored snapshot's spec on
+  the first dispatch after a `restore-epoch` / replay — so the marks table tracks the
+  revertible snapshot in lock-step and epoch restore stays safe.
 
 (The declared-over-inferred context-shape gap for empty/closed/wrapped map schemas,
 `rf2-2btfzr`, is **fixed** in PR #3523 and is no longer open.)

@@ -104,6 +104,10 @@
     ;; both transient (the snapshot is dissoc'd two steps later).
     (exit-cascade/run-child-exit! frame-id actor-id)
     (finalize/abort-actor-in-flight-http! actor-id)
+    ;; (rf2-egvm4t) Drop the actor's per-instance :data-schema marks so the
+    ;; destroyed actor leaves no marks-table residue (symmetric with the
+    ;; snapshot dissoc + registrar unregister below).
+    (finalize/clear-actor-schema-marks! actor-id)
     ;; (rf2-82a0u) Cancel any armed `:after` timers the destroyed
     ;; actor owns, emitting one `:rf.machine.timer/cancelled :reason
     ;; :on-destroy` trace per timer. The epoch invariant already
@@ -266,6 +270,9 @@
         ;; points share one ordering convention.
         (exit-cascade/run-child-exit! frame-id actor-id)
         (finalize/abort-actor-in-flight-http! actor-id)
+        ;; (rf2-egvm4t) Drop the actor's per-instance :data-schema marks so the
+        ;; destroyed actor leaves no marks-table residue.
+        (finalize/clear-actor-schema-marks! actor-id)
         ;; (rf2-82a0u) Cancel any armed `:after` timers the destroyed
         ;; actor owns — see `destroy-single-actor!` for the rationale.
         (timer/cancel-actor-timers! frame-id actor-id)

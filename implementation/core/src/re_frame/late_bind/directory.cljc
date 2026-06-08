@@ -153,7 +153,15 @@
    {:key         :marks/marks-for
     :producer-ns 're-frame.marks
     :design-bead "rf2-w46fpt"
-    :description "Read the registered mark declaration for a (kind, id), or nil. Consumed by re-frame.machines' reg-machine :data-schema bridge (EP-0005) to CAPTURE any manually-registered machine marks BEFORE reg-event-fx's bare-meta register-marks! clears them, so the bridge can re-union the manual set alongside the schema-derived one (order-independent union-by-source)."}
+    :description "Read the registered mark declaration for a (kind, id), or nil. For an :event-kind machine id, unions the author-sourced marks with the schema-sourced marks at read time (rf2-qpibk0). Consumed by re-frame.machines' reg-machine :data-schema bridge (EP-0005)."}
+   {:key         :marks/declare-machine-schema-marks!
+    :producer-ns 're-frame.marks
+    :design-bead "rf2-qpibk0"
+    :description "Record a machine's :data-schema-derived marks under machine-id in the schema-sourced table (kept separate from the author-sourced :event entry so marks-for unions the two at read time — order-independent against any register-marks! / re-registration on the :event entry). Consumed by re-frame.machines' reg-machine :data-schema bridge (EP-0005) for both the type id (reg-machine time) and per-instance spawned-actor ids (spawn time, rf2-fm1cpl)."}
+   {:key         :marks/clear-machine-schema-marks!
+    :producer-ns 're-frame.marks
+    :design-bead "rf2-egvm4t"
+    :description "Drop the schema-sourced marks entry for a machine-id. Consumed by re-frame.machines' destroy / finalize / frame-teardown lifecycle to clear a spawned INSTANCE's per-instance :data-schema marks so a destroyed actor leaves no marks-table residue (rf2-egvm4t); restore/replay re-runs the spawn bridge to rehydrate them."}
    {:key         :marks/project-trace-event
     :producer-ns 're-frame.marks
     :design-bead "rf2-vw7f5"

@@ -221,6 +221,98 @@
   (is (true? (:sensitive? (marks/marks-for :sub :u5)))
       "whole-output :sensitive? flags OR (true wins)"))
 
+;; ---- union-marks! preserves explicit false whole-output overrides --------
+;; (rf2-1zqh1z) The OR semantics the contract documents must hold BOTH ways:
+;; a `true` on either side wins, and an explicit `false` opt-out is PRESERVED
+;; when the added declaration touches only paths (or carries no flag). The
+;; prior `(or existing added)` collapsed `(or false nil)` to nil and DROPPED
+;; the opt-out.
+
+(deftest union-marks-preserves-false-when-added-has-only-paths
+  (marks/register-marks! :sub :f1 {:sensitive? false})
+  (marks/union-marks!    :sub :f1 {:sensitive [[:data :token]]})
+  (let [m (marks/marks-for :sub :f1)]
+    (is (false? (:sensitive? m))
+        "explicit false survives a union that adds only path marks")
+    (is (= [[:data :token]] (:sensitive m))
+        "the added path mark lands alongside the preserved false override")))
+
+(deftest union-marks-preserves-false-when-added-is-nil-shaped
+  ;; The added declaration carries a DIFFERENT flag (`:large?`) but no
+  ;; `:sensitive?` — the existing `:sensitive? false` must not vanish.
+  (marks/register-marks! :sub :f2 {:sensitive? false})
+  (marks/union-marks!    :sub :f2 {:large? true})
+  (let [m (marks/marks-for :sub :f2)]
+    (is (false? (:sensitive? m)) "existing false :sensitive? preserved")
+    (is (true?  (:large? m))     "added true :large? lands")))
+
+(deftest union-marks-true-overrides-existing-false
+  (marks/register-marks! :sub :f3 {:sensitive? false})
+  (marks/union-marks!    :sub :f3 {:sensitive? true})
+  (is (true? (:sensitive? (marks/marks-for :sub :f3)))
+      "a later true wins over an existing false (monotone OR)"))
+
+(deftest union-marks-false-added-over-existing-true-stays-true
+  (marks/register-marks! :sub :f4 {:sensitive? true})
+  (marks/union-marks!    :sub :f4 {:sensitive? false})
+  (is (true? (:sensitive? (marks/marks-for :sub :f4)))
+      "an added false cannot retract an existing true (true wins)"))
+
+;; ---- machine schema marks: order-independent union (rf2-qpibk0) ----------
+;; Schema-sourced machine marks live in a SEPARATE table that `marks-for
+;; :event <id>` unions with the author-sourced `:event` entry at read time, so
+;; the schema-vs-author composition is order-independent and a register-marks!
+;; on the `:event` entry can never drop schema-derived marks.
+
+(deftest machine-schema-marks-union-with-author-marks-at-read-time
+  (marks/declare-machine-schema-marks! :m/auth {:sensitive [[:data :token]]
+                                                :large     [[:data :blob]]})
+  (marks/register-marks! :event :m/auth {:sensitive [[:data :session-id]]})
+  (let [m (marks/marks-for :event :m/auth)]
+    (is (= #{[:data :token] [:data :session-id]} (set (:sensitive m)))
+        "schema-sourced and author-sourced sensitive paths union at read time")
+    (is (= #{[:data :blob]} (set (:large m)))
+        "schema-sourced large path present")))
+
+(deftest machine-schema-marks-order-independent-author-after-schema
+  (marks/declare-machine-schema-marks! :m/o1 {:sensitive [[:data :token]]})
+  (marks/register-marks! :event :m/o1 {:sensitive [[:data :extra]]})
+  (is (= #{[:data :token] [:data :extra]}
+         (set (:sensitive (marks/marks-for :event :m/o1))))
+      "schema-first then author yields the union"))
+
+(deftest machine-schema-marks-order-independent-schema-after-author
+  (marks/register-marks! :event :m/o2 {:sensitive [[:data :extra]]})
+  (marks/declare-machine-schema-marks! :m/o2 {:sensitive [[:data :token]]})
+  (is (= #{[:data :token] [:data :extra]}
+         (set (:sensitive (marks/marks-for :event :m/o2))))
+      "author-first then schema yields the IDENTICAL union (order-independent)"))
+
+(deftest re-registering-event-entry-does-not-drop-schema-marks
+  ;; A bare-meta register-marks! (or re-registration) REPLACES the author
+  ;; `:event` entry, but the schema-sourced marks live in a separate table and
+  ;; survive — the order-independence invariant.
+  (marks/declare-machine-schema-marks! :m/o3 {:sensitive [[:data :token]]})
+  (marks/register-marks! :event :m/o3 {:sensitive [[:data :extra]]})
+  ;; Bare-meta register-marks! clears the author entry (last-write-wins).
+  (marks/register-marks! :event :m/o3 {})
+  (is (= #{[:data :token]} (set (:sensitive (marks/marks-for :event :m/o3))))
+      "schema-sourced [:data :token] survives the author-entry clear"))
+
+(deftest clear-machine-schema-marks-drops-only-schema-entry
+  (marks/declare-machine-schema-marks! :m/c1 {:sensitive [[:data :token]]})
+  (marks/register-marks! :event :m/c1 {:sensitive [[:data :extra]]})
+  (marks/clear-machine-schema-marks! :m/c1)
+  (let [m (marks/marks-for :event :m/c1)]
+    (is (= #{[:data :extra]} (set (:sensitive m)))
+        "clearing the schema entry leaves the author-sourced marks intact")))
+
+(deftest declare-machine-schema-marks-nil-clears-entry
+  (marks/declare-machine-schema-marks! :m/c2 {:sensitive [[:data :token]]})
+  (marks/declare-machine-schema-marks! :m/c2 nil)
+  (is (nil? (marks/marks-for :event :m/c2))
+      "declaring nil clears the schema entry (and no author entry exists)"))
+
 ;; ---- emit-time projection ----------------------------------------------
 
 (deftest event-arg-sensitive-path-redacts-in-trace

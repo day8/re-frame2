@@ -57,6 +57,35 @@
 (defonce ^:private kind->id->marks
   (atom {}))
 
+;; ---- machine :data-schema marks (order-independent source — rf2-qpibk0) --
+;;
+;; Schema-derived machine marks live in a SEPARATE per-machine-id table from
+;; the author-sourced `kind->id->marks` `:event` entry, and `marks-for :event
+;; <id>` UNIONS the two at READ time. This is the SAME architecture app-db
+;; marks already use: a schema-sourced declaration (`:source :schema`) lives
+;; ALONGSIDE the `:marks`-sourced ones in the elision registry, unioned at
+;; lookup. Bringing it to machine marks makes the schema-vs-author union
+;; truly ORDER-INDEPENDENT (rf2-qpibk0): a `register-marks!` (or a bare-meta
+;; re-registration) on the `:event` entry REPLACES that entry in full
+;; (matching the registrar slot semantics every other reg-* site relies on),
+;; but it CANNOT drop the schema-derived `[:data …]` marks because they are
+;; not stored there — they re-union at the next `marks-for` read regardless
+;; of whether the manual `register-marks!` ran before OR after `reg-machine`.
+;;
+;; The prior bridge (rf2-w46fpt) worked around the replace by capturing the
+;; manual marks BEFORE `reg-event-fx` and re-unioning them, which only held
+;; for manual-BEFORE-reg-machine; a manual `register-marks!` AFTER reg-machine
+;; still clobbered the schema marks. The separate-table read-time union fixes
+;; that asymmetry.
+;;
+;; Keyed by machine-id (the `:event`-registry key — a machine IS an event
+;; handler). Per-instance (spawned-actor) entries also live here so the
+;; spawn-time bridge keys schema marks under the instance id (rf2-fm1cpl) and
+;; the destroy/finalize/frame-teardown lifecycle clears them (rf2-egvm4t).
+
+(defonce ^:private machine-id->schema-marks
+  (atom {}))
+
 (defn- coerce-paths
   "Normalise a `:sensitive` / `:large` declaration value to a vector of
   path vectors. `nil` becomes `[]`; any non-vector entry is dropped
@@ -125,11 +154,30 @@
                        (concat (coerce-paths existing) (coerce-paths added)))]
     (when (seq result) result)))
 
+(defn- union-whole-output-flag
+  "OR a whole-output `:sensitive?` / `:large?` flag across the existing and
+  added declarations, preserving an explicit `false`. Returns the resolved
+  boolean, or nil when NEITHER side declared the flag (so the caller omits
+  the slot rather than stash a meaningless value).
+
+  Per Spec 015 §union-by-source the flag is monotone-OR (rf2-1zqh1z): `true`
+  on EITHER side wins; an explicit `false` is PRESERVED when the other side
+  is absent (it is a real opt-out declaration, not a missing one). The prior
+  `(or existing added)` collapsed `(or false nil)` to nil and DROPPED the
+  opt-out — a footgun the false-override fix closes. Only when both sides are
+  absent (nil) does the slot vanish."
+  [existing-flag added-flag]
+  (cond
+    (or (true? existing-flag) (true? added-flag)) true
+    (or (false? existing-flag) (false? added-flag)) false
+    :else nil))
+
 (defn union-marks!
   "Union a mark declaration into the existing `(kind, id)` marks entry —
   the per-(kind, id) marks-table analogue of `add-marks` merging into a
   frame's app-db elision registry (Spec 015 §App-db marks). Returns nil.
-  No-op when `meta` carries no `:sensitive` / `:large` paths.
+  No-op when `meta` carries no `:sensitive` / `:large` / `:sensitive?` /
+  `:large?` keys.
 
   Unlike `register-marks!` (which REPLACES the entry in full, matching the
   registrar's slot semantics), this MERGES: the supplied `:sensitive` /
@@ -137,8 +185,16 @@
   registration with a schema-derived mark set AND a manually-registered
   one ends up with BOTH (Spec 015 §Conflict between the two sources is
   resolved by union — there is no way for one source to unmark a path the
-  other marked). The whole-output `:sensitive?` / `:large?` flags, when
-  present in `meta`, OR into the entry (true wins).
+  other marked). The whole-output `:sensitive?` / `:large?` flags OR into
+  the entry (true wins) and an explicit `false` opt-out is PRESERVED across
+  a union that touches only paths (rf2-1zqh1z) — the OR semantics this fn
+  documents are honoured both ways.
+
+  ORDER-INDEPENDENT (rf2-qpibk0): unioning declaration A then B yields the
+  identical entry as B then A — set-union of paths plus monotone-OR of the
+  whole-output flags is commutative + associative, so the registration order
+  of a machine's `:data-schema` bridge and a manual `register-marks!` never
+  changes the result.
 
   Used by `reg-machine`'s `:data-schema` redaction bridge (EP-0005): the
   schema's per-slot `:sensitive?` / `:large?` paths (snapshot-rooted under
@@ -153,29 +209,98 @@
              (fn [existing]
                (let [union-s (union-path-vecs (:sensitive existing) (:sensitive added))
                      union-l (union-path-vecs (:large existing)     (:large added))
-                     sens?   (or (:sensitive? existing) (:sensitive? added))
-                     large?  (or (:large? existing)     (:large? added))]
+                     sens?   (union-whole-output-flag (:sensitive? existing) (:sensitive? added))
+                     large?  (union-whole-output-flag (:large? existing)     (:large? added))]
                  (cond-> {}
                    union-s          (assoc :sensitive  union-s)
                    union-l          (assoc :large      union-l)
-                   (some? sens?)    (assoc :sensitive? (boolean sens?))
-                   (some? large?)   (assoc :large?     (boolean large?))))))))
+                   (some? sens?)    (assoc :sensitive? sens?)
+                   (some? large?)   (assoc :large?     large?)))))))
   nil)
+
+(defn- merge-schema-marks
+  "Union the author-sourced `manual` marks entry with the schema-sourced
+  `schema` marks entry into one resolved declaration. Both arguments are the
+  canonical `{:sensitive [...] :large [...] :sensitive? bool :large? bool}`
+  shape (or nil). Returns the union, or nil when both are nil/empty — so a
+  machine with neither manual nor schema marks reads as `nil` (the same
+  no-marks signal `marks-for` returned before this table existed).
+
+  Set-union of paths plus monotone-OR of whole-output flags — commutative,
+  so the union does not depend on which source is treated as `existing`
+  (rf2-qpibk0 order-independence)."
+  [manual schema]
+  (when (or manual schema)
+    (let [union-s (union-path-vecs (:sensitive manual) (:sensitive schema))
+          union-l (union-path-vecs (:large manual)     (:large schema))
+          sens?   (union-whole-output-flag (:sensitive? manual) (:sensitive? schema))
+          large?  (union-whole-output-flag (:large? manual)     (:large? schema))
+          merged  (cond-> {}
+                    union-s        (assoc :sensitive  union-s)
+                    union-l        (assoc :large      union-l)
+                    (some? sens?)  (assoc :sensitive? sens?)
+                    (some? large?) (assoc :large?     large?))]
+      (when (seq merged) merged))))
 
 (defn marks-for
   "Return the registered mark declaration for `(kind, id)`, or nil.
 
   The returned shape is `{:sensitive [paths] :large [paths]
   :sensitive? bool :large? bool}` — slots are present only when the
-  registration declared them."
+  registration declared them.
+
+  For `:event`-kind ids that name a machine carrying a `:data-schema`, the
+  author-sourced `kind->id->marks` entry is UNIONED at read time with the
+  schema-sourced `machine-id->schema-marks` entry (rf2-qpibk0). The two
+  tables are kept separate so a `register-marks!` (or bare-meta
+  re-registration) on the `:event` entry — which REPLACES it in full — can
+  never drop schema-derived `[:data …]` marks, making the union truly
+  order-independent regardless of whether the manual marks were registered
+  before OR after `reg-machine`."
   [kind id]
-  (get-in @kind->id->marks [kind id]))
+  (let [manual (get-in @kind->id->marks [kind id])]
+    (if (= :event kind)
+      (merge-schema-marks manual (get @machine-id->schema-marks id))
+      manual)))
+
+(defn declare-machine-schema-marks!
+  "Record a machine's `:data-schema`-derived marks under `machine-id` in the
+  schema-sourced table (rf2-qpibk0). `marks` is the canonical
+  `{:sensitive [paths] :large [paths] :sensitive? bool :large? bool}` shape
+  (snapshot-rooted under `[:data …]`), or nil to clear the entry. Returns nil.
+
+  Kept separate from the author-sourced `kind->id->marks` `:event` entry so
+  `marks-for :event machine-id` unions the two at read time — order-
+  independent against any `register-marks!` / re-registration on the `:event`
+  entry. Called by `reg-machine`'s `:data-schema` bridge for both the type id
+  (at `reg-machine` time) and per-instance spawned-actor ids (at spawn time,
+  rf2-fm1cpl)."
+  [machine-id marks]
+  (if (nil? marks)
+    (swap! machine-id->schema-marks dissoc machine-id)
+    (swap! machine-id->schema-marks assoc machine-id marks))
+  nil)
+
+(defn clear-machine-schema-marks!
+  "Drop the schema-sourced marks entry for `machine-id`. Returns nil.
+
+  The destroy / finalize / frame-teardown lifecycle clears a SPAWNED
+  INSTANCE's per-instance schema marks here (rf2-egvm4t) so a destroyed
+  actor leaves no marks-table residue, and `restore-epoch` / replay re-runs
+  the spawn bridge to rehydrate them — the marks table tracks live
+  spawned-actor liveness in lock-step with the (revertible) snapshot. Safe
+  to call for an id with no entry (no-op)."
+  [machine-id]
+  (swap! machine-id->schema-marks dissoc machine-id)
+  nil)
 
 (defn clear-marks!
-  "Drop every registered marks declaration. Test-isolation only —
-  production code never calls this. Returns nil."
+  "Drop every registered marks declaration (author-sourced AND
+  schema-sourced). Test-isolation only — production code never calls this.
+  Returns nil."
   []
   (reset! kind->id->marks {})
+  (reset! machine-id->schema-marks {})
   nil)
 
 ;; ---- add-marks / set-marks API ------------------------------------------
@@ -797,24 +922,87 @@
                  (:rf.view/render-args tags)))
     tags))
 
+(defn- strip-data-prefix
+  "Re-root a vector of snapshot-rooted machine mark paths (each
+  `[:data …]`) to be `:data`-MAP-relative — drop the leading `:data`
+  segment. A path that is NOT under `:data` (e.g. a hand-registered
+  `[:state …]` mark) does not address the `:data` map and is dropped, since
+  the alternate machine trace slots this re-rooting feeds (`:rf.machine/started`
+  `:data`, the `:input :data` of guard/action traces, the cascade
+  `:data-delta`s) carry ONLY the `:data` map's contents. The bare `[:data]`
+  whole-`:data` mark re-roots to `[[]]` (whole-value)."
+  [paths]
+  (into []
+        (comp (filter #(= :data (first %)))
+              (map #(vec (rest %))))
+        paths))
+
 (defn- project-machine-tags
-  "Walk machine-snapshot tag shapes (`:rf.machine/transition`,
-  `:rf.machine/snapshot-updated`): `:before` and `:after` are full
-  snapshot maps. Marks declared on `reg-machine` are paths rooted at
-  the snapshot — per Spec 015 §6. State machines — so common app-
-  marks are written as `[:data :jwt]`, `[:data :user :ssn]`, etc."
+  "Walk machine `:data`-bearing trace tag shapes. Marks declared on
+  `reg-machine` (and bridged from the `:data-schema`) are paths rooted at the
+  SNAPSHOT — per Spec 015 §6. State machines — so common marks are written as
+  `[:data :jwt]`, `[:data :user :ssn]`, etc. Machine `:data` surfaces in
+  several differently-shaped trace slots, and per rf2-20d6k2 EVERY one is
+  redacted so a `:sensitive?` / `:large?` slot never egresses raw:
+
+    - `:before` / `:after` / `:snapshot` (`:rf.machine/transition`,
+      `:rf.machine/snapshot-updated`) — FULL snapshot maps; the snapshot-rooted
+      `[:data …]` paths apply directly.
+    - `:data` (`:rf.machine/started`) — the booted snapshot's `:data` MAP
+      directly (one level shallower than a snapshot), so the paths re-root
+      `:data`-relative (`[:data :token]` → `[:token]`).
+    - `:input` (`:rf.machine/guard-evaluated` / `:rf.machine/action-ran`) —
+      `{:data <snapshot :data> :event <event-vec>}`; the `:data` sub-map gets
+      the `:data`-relative paths, the `:event` sub-slot is left to
+      `project-event-tags` (it is the dispatched event vector, not machine
+      `:data`).
+    - `:cascade` (`:rf.machine/transition`) — a vector of step maps, each with
+      a `:data-delta {<k> <new-v>}` keyed by `:data` keys directly; each delta
+      gets the `:data`-relative paths so a sensitive key an action wrote is
+      redacted in the per-step explanation (the `:data-delta` rides under the
+      same handler-scope `:sensitive?` stamp as `:before` / `:after` per Spec
+      005 §Privacy).
+
+  All slots resolve marks via the SAME machine-id lookup, so a spawned
+  instance's id-keyed schema marks (rf2-fm1cpl) cover the instance's traces."
   [tags]
   (let [machine-id (:machine-id tags)
         marks      (machine-marks machine-id)]
     (if-not marks
       tags
-      (let [sens     (or (:sensitive marks) [])
-            large    (or (:large marks) [])
-            project  (fn [v] (when v (redact-with-paths v sens large)))]
+      (let [sens       (or (:sensitive marks) [])
+            large      (or (:large marks) [])
+            ;; `:data`-map-relative paths for the slots that carry the bare
+            ;; `:data` map (not a full snapshot).
+            data-sens  (strip-data-prefix sens)
+            data-large (strip-data-prefix large)
+            ;; Whole-snapshot projection (paths rooted at the snapshot).
+            project    (fn [v] (when v (redact-with-paths v sens large)))
+            ;; Bare-`:data`-map projection (paths rooted at the `:data` map).
+            project-data (fn [v] (when v (redact-with-paths v data-sens data-large)))
+            ;; A guard/action `:input` map: redact its `:data` sub-slot;
+            ;; leave `:event` to project-event-tags.
+            project-input (fn [input]
+                            (if (and (map? input) (contains? input :data))
+                              (assoc input :data (project-data (:data input)))
+                              input))
+            ;; The cascade step vector: redact each step's `:data-delta` map.
+            project-cascade (fn [cascade]
+                              (when (vector? cascade)
+                                (mapv (fn [step]
+                                        (if (and (map? step) (contains? step :data-delta))
+                                          (assoc step :data-delta
+                                                 (project-data (:data-delta step)))
+                                          step))
+                                      cascade)))]
         (cond-> tags
           (contains? tags :before)   (assoc :before   (project (:before   tags)))
           (contains? tags :after)    (assoc :after    (project (:after    tags)))
-          (contains? tags :snapshot) (assoc :snapshot (project (:snapshot tags))))))))
+          (contains? tags :snapshot) (assoc :snapshot (project (:snapshot tags)))
+          ;; rf2-20d6k2 — the additional machine `:data` slots.
+          (contains? tags :data)     (assoc :data     (project-data (:data tags)))
+          (contains? tags :input)    (assoc :input    (project-input (:input tags)))
+          (contains? tags :cascade)  (assoc :cascade  (project-cascade (:cascade tags))))))))
 
 (defn- project-machine-error-tags
   "Walk the `:rf.error/machine-action-exception` tag shape (rf2-zsm03).
@@ -947,6 +1135,8 @@
 (late-bind/set-fn! :marks/register-marks!     register-marks!)
 (late-bind/set-fn! :marks/union-marks!        union-marks!)
 (late-bind/set-fn! :marks/marks-for           marks-for)
+(late-bind/set-fn! :marks/declare-machine-schema-marks! declare-machine-schema-marks!)
+(late-bind/set-fn! :marks/clear-machine-schema-marks!   clear-machine-schema-marks!)
 (late-bind/set-fn! :marks/resolve-sub-output-marks resolve-sub-output-marks)
 (late-bind/set-fn! :marks/mark-sub-output!    mark-sub-output!)
 (late-bind/set-fn! :marks/clear-marks!        clear-marks!)

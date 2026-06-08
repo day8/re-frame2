@@ -86,7 +86,15 @@
   The HTTP-abort fires the shared `:http/abort-on-actor-destroy`
   late-bind hook via `finalize/abort-actor-in-flight-http!` — the same
   best-effort, idempotent helper the spawn-destroy + final-state
-  teardowns use, so the rf2-wvkn contract has one home."
+  teardowns use, so the rf2-wvkn contract has one home.
+
+  Per rf2-egvm4t this path deliberately does NOT clear `:data-schema` marks:
+  a singleton's marks are keyed under the TYPE id and its handler outlives
+  any particular frame (it lives in the global registrar), so the marks must
+  survive frame destroy to keep redacting the type's traces in other frames.
+  SPAWNED instances — whose per-instance marks DO get cleared — are recorded
+  in spawn-order and flow through `destroy/destroy-single-actor!` (which
+  clears them), never this straggler path."
   [frame-id actor-id]
   (exit-cascade/run-child-exit! frame-id actor-id)
   (finalize/abort-actor-in-flight-http! actor-id)

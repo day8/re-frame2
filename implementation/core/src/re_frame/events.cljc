@@ -589,8 +589,21 @@
     ;; resolve them. Late-bound — the hook is unbound when the marks
     ;; artefact is absent (which it never is in the canonical build,
     ;; but the indirection keeps `events` decoupled from `marks`).
-    (when-let [register! (late-bind/get-fn :marks/register-marks!)]
-      (register! :event id meta))
+    ;;
+    ;; Per rf2-qpibk0: SKIP the clearing call for a MACHINE registration
+    ;; (`:rf/machine?` in meta). `reg-machine` re-registers the machine as an
+    ;; event handler with bare meta (no mark keys), and `register-marks!`'s
+    ;; full-replace semantics would CLEAR any manually-registered machine
+    ;; marks (`register-marks! :event machine-id {...}`) — the order-dependent
+    ;; clobber the bead closes. A machine declares its `:sensitive?` /
+    ;; `:large?` in its `:data-schema` (bridged into the separate schema-marks
+    ;; table by `reg-machine`, unioned at read time), never in the reg meta, so
+    ;; there is nothing to stash here for a machine — and skipping the call lets
+    ;; a manual machine `register-marks!` survive `reg-machine` regardless of
+    ;; order (it unions with the schema marks at `marks-for` read time).
+    (when-not (:rf/machine? meta)
+      (when-let [register! (late-bind/get-fn :marks/register-marks!)]
+        (register! :event id meta)))
     id))
 
 (defn reg-event-db
