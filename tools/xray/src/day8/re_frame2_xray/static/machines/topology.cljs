@@ -167,11 +167,10 @@
   "Render Topology mode for `machine-id`. `definition` is the
   registrar's spec map; `source-coord` is its lifted coord (or nil).
 
-  The embedded `machine-canvas/Chart` (rf2-md9oz) subscribes to
-  `:rf.xray.machine-canvas/viewport-for` internally so zoom / pan
-  state lives in app-db — the body function itself is still pure
-  hiccup; the subscribe lands one level down in the canvas
-  adapter.
+  The embedded `machine-canvas/Chart` (rf2-md9oz) wraps the
+  machines-viz xyflow `MachineChart` (rf2-gpzb4), which manages
+  zoom / pan / fit internally — the body function itself is still
+  pure hiccup.
 
   `dispatch` (rf2-nesy9) is threaded from `definition_detail/body` so
   the chart's state-click + the toolbar's pop-out land on the
