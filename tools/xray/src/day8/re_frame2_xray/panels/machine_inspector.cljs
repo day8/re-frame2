@@ -582,7 +582,7 @@
     - the rings install (`:after` countdown ring overlay)
 
   rf2-nugvv (2026-06-04) — the Share affordance (button + modal +
-  `share.cljs` infra) is removed; `install!` no longer installs it.
+  share-URL infra) is removed; `install!` no longer installs it.
 
   rf2-r4nao moved the Sim engine + UI into
   `static.machines.sim` — installed via
@@ -911,8 +911,7 @@
   ;; rf2-nugvv (2026-06-04) — the Share affordance (rf2-nqw0v) is
   ;; removed. The machine panel was the sole UI entry point to the
   ;; share modal (`:rf.xray/share-modal-open`), so the button, the
-  ;; modal (`share_modal.cljs`), the shell mount, and the `share.cljs`
-  ;; infra all go with it.
+  ;; modal, the shell mount, and the share-URL infra all go with it.
 
   ;; rf2-2moh1 — register the Dynamic Machines tab with the internal L4
   ;; tab registry.
