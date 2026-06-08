@@ -131,12 +131,13 @@ The transition's `:target` may be a single keyword (sibling-level) or a vector p
 {:on {:start {:guard  (fn [{:keys [data]}] (some? (:input data)))
               :target :working}}}
 
-;; Keyword reference — preferred for anything non-trivial, because the
-;; registered id appears in trace events and tools can jump-to-source.
+;; Keyword reference — the DEFAULT for anything non-trivial, because the
+;; registered id is a stable, reusable name that trace events, tools, and
+;; AIs can address and jump-to-source against.
 {:on {:start {:guard :has-input? :target :working}}}
 ```
 
-Per the inspectability bias (Spec 005 §Inspectability bias): named entries surface in `:rf.machine/*` trace events as the registered keyword, not as an opaque `#object[Function ...]`. Reach for the inline form only when the body is trivial.
+Per the inspectability bias (Spec 005 §Inspectability bias): named entries surface in `:rf.machine/*` trace events as the registered keyword. The bias is **not** about source visibility — an inline fn's `:source-code` text is co-located on its enclosing node in dev (per Spec 005 §Source-coord stamping), so visualisers and Xray can render an inline body just fine. The named keyword is the default because the id is a **name** that is **reusable, addressable, and clearer for humans, tools, and AIs**: a keyword resolves against the machine's `:guards` / `:actions` map (via `(machine-meta <id>)`), labels a diagram arrow at a glance, and can be stubbed by id in tests, where an anonymous inline closure has no public name to reference. Reach for the inline form only when the body is a single non-branching expression that adds no meaning by being named.
 
 ### Guard / action contract
 
