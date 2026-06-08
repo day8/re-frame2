@@ -259,6 +259,60 @@ Actions produce data updates and/or effects, living in `:actions`:
 
 An action sees `(fn [data event] effects)` and returns one of: `:data` (a map merged into the existing data slot, last-write-wins, explicit `nil` clears a key), `:fx` (effects — HTTP, navigation, follow-up dispatches), both, or `nil`. The exact same contract as an ordinary `reg-event-fx` return. (If a guard or action genuinely needs the current state *name* — rare — there's an opt-in 3-arity form, `^:rf.machine/wants-ctx (fn [data event {:keys [state meta]}] ...)`. Default to 2-arity.)
 
+## Declaring the shape of a machine's `:data`: `:data-schema`
+
+`:data` is the one machine slot with no declared shape. The transition table pins the *states* — a target naming an unknown state fails registration on the spot — but `:data` is free-form: any action can `assoc` any key, and the same class of quiet, time-displaced bug [chapter 08 on schemas](08-schemas.md) warns about lands here just as easily. An action writes `:attempts` as a string instead of an int, the machine keeps transitioning, everything's green, and six weeks later a guard that does `(< (:attempts data) 3)` silently misbehaves.
+
+The fix is the same one chapter 08 gives `app-db`: declare a schema. A machine spec may carry an optional top-level **`:data-schema`** — a Malli schema describing the shape `:data` must have:
+
+```clojure
+(rf/reg-machine :auth.login/flow
+  {:initial     :idle
+   :data        {:attempts 0 :error nil}
+   :data-schema [:map
+                 [:attempts [:int {:min 0}]]
+                 [:error    [:maybe :string]]]
+   :guards      {...}
+   :actions     {...}
+   :states      {...}})
+```
+
+The key is named `:data-schema`, not the bare `:schema` every other `reg-*` kind uses ([chapter 08](08-schemas.md#binding-a-schema-to-an-event)), for one reason: the machine spec is the only registration surface where the validated value has its own visible sibling key. `:data` and `:data-schema` sit side by side, so the key *says* what it validates at the exact point a reader might otherwise wonder "validates the whole snapshot? the spec itself?" It's the only `reg-*` surface where that ambiguity exists, so it's the only one that earns the longer name. (The Malli vocabulary is the same seven shapes from [chapter 08](08-schemas.md#the-malli-vocabulary-youll-actually-use) — `:data` is just data, like everything else in re-frame2.)
+
+### When it validates, and what happens on a failure
+
+The schema checks `:data` at three moments — the same lifecycle position as the `app-db` schema check, applied to the machine's context:
+
+- **At every transition.** After the exit → action → entry cascade settles and the runtime is about to write the new snapshot back, it validates the `:data` it's about to commit. One check per transition, regardless of how many actions fired — the value the framework would write is the value checked.
+- **At bootstrap.** The first time the machine receives an event, its initial `:data` is installed and the initial state's `:entry` runs; the same boundary catches a typo'd initial `:data` or an `:entry` action that returns a bad shape.
+- **At spawn.** A spawned actor's initial `:data` is validated *before* the snapshot lands in app-db. A failing spawn never installs — the actor never enters the runtime, so no parent state observes a half-born child.
+
+On a failure the runtime emits `:rf.error/schema-validation-failure` with `:where :machine-data` — naming the machine, the failing `:data` map, the schema, and Malli's `:explain` output — and **rolls the whole cascade back**, exactly as the `app-db` boundary does ([chapter 08](08-schemas.md#binding-a-schema-to-an-app-db-path)). Because every machine's snapshot lives in `app-db`, the rollback is the same mechanism: the bad transition simply never took, and the app sits in its last known-good state. (The one exception is a spawn failure, which has no commit to roll back — the actor just never installs.) That error surfaces as a first-class row in the trace stream and in Xray, the same as any other schema failure ([chapter 14](14-errors.md)).
+
+And — like every schema in re-frame2 — it costs nothing in production. The validation site is gated by the same `debug-enabled?` flag chapter 08 describes, so it DCEs to nothing under an `:advanced` build. Write `:data-schema` freely. For a machine that ingests untrusted `:data` at a system boundary (an SSR hydrate restoring snapshots from the wire, say), reach for the `:rf.schema/at-boundary` interceptor ([chapter 08](08-schemas.md#the-off-switch-dev-vs-production)) on the specific event that does the ingesting.
+
+### The shape becomes visible, and sensitive slots get redacted
+
+Declaring `:data-schema` buys two things beyond validation.
+
+**Tooling can render the declared shape.** A machine's `:data` is its *context* — xstate's word — and xstate v5 lets you declare that context's shape with `setup({ types: { context } })`, which Stately's inspector renders as a `Context:` header on the chart. `:data-schema` is the re-frame2 analog: declare the shape, and the machine visualiser ([chapter 17](17-tooling.md)) shows an authoritative `Context: attempts: int, error: string?` panel instead of guessing the shape from one sample of the initial `:data`. The deliberate divergence from xstate is worth naming: xstate's typed context is checked by the TypeScript compiler and then *erased* — a value off the wire that violates the declared shape is never caught at runtime — whereas re-frame2's `:data-schema` is the same declaration backed by an actually-running validation in dev. Same declaration; re-frame2 keeps the runtime guarantee xstate leaves to the type-erased layer, at no production cost.
+
+**Sensitive slots are redacted, not just validated.** A `:data-schema` slot can carry the `{:sensitive? true}` (or `{:large? true}`) Malli property [chapter 23 on privacy](23-privacy-and-large-things.md) describes — and on a machine, the marker does double duty. It rides validation like any property, *and* it scrubs that slot wherever the snapshot egresses: every transition's `:before` / `:after` in the trace stream, the Xray overlay, the pair-MCP surface, the epoch wire:
+
+```clojure
+(rf/reg-machine :session/auth
+  {:initial     :anon
+   :data        {:retries 0 :token nil}
+   :data-schema [:map
+                 [:retries :int]
+                 [:token   {:sensitive? true} [:maybe :string]]]    ;; validated AND redacted
+   :states      {...}})
+```
+
+Declare `[:token {:sensitive? true} [:maybe :string]]` and the token is validated as a string-or-nil *and* never egresses raw — Xray, pair-MCP, the epoch wire, and log sinks all see `:token` redacted, while the legible non-sensitive context (`:retries`) shows through. The marker is per-slot and precise, matching how `app-db` schema slots redact. This is the trap `:sensitive?` would otherwise be: a marker you trust to protect a token that quietly leaks it in every transition trace. On a `:data-schema` it's honoured at egress, not only at the validation boundary.
+
+A machine with no `:data-schema` is unchanged: `:data` is free-form and unvalidated, and the visualiser infers and badges its context shape from one sample of the initial `:data` as before. The schema is opt-in — reach for it when the `:data` has more than a key or two, carries a constrained field (an int with a floor, an enum), or holds anything sensitive. (The full normative contract — timing, the failure-trace shape, the xstate parity table — is [Spec 005 §Schema validation](https://github.com/day8/re-frame2/blob/main/spec/005-StateMachines.md).)
+
 ## Reading a machine: `sub-machine`
 
 Views read a machine through a sub:
