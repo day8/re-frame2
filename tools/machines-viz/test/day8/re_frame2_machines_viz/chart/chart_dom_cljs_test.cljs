@@ -42,7 +42,11 @@
             [clojure.string :as str]
             [cljs.test :refer-macros [deftest is testing]]
             [day8.re-frame2-machines-viz.adapters.react-chart :as react-chart]
-            [day8.re-frame2-machines-viz.chart.layout :as layout]))
+            [day8.re-frame2-machines-viz.chart.edges :as edges]
+            [day8.re-frame2-machines-viz.chart.layout :as layout]
+            [day8.re-frame2-machines-viz.chart.projection :as projection]
+            [day8.re-frame2-machines-viz.theme.tokens :as tokens]
+            [day8.re-frame2-machines-viz.visual-constants :as vc]))
 
 ;; ---- sample machines ----------------------------------------------------
 
@@ -157,6 +161,56 @@
           (finally
             (try (act-fn (fn [] (.unmount root))) (catch :default _ nil))
             (try (.removeChild (.-body js/document) node) (catch :default _ nil))))))))
+
+(defn- with-mounted-element
+  "rf2-qj6hoa — mount an ARBITRARY React `element` under act(), call
+  `(f node)` with the host node, then unmount. Used to render a single
+  edge component (e.g. the fork connector) standalone so its rendered
+  `<path>` styling is DOM-assertable WITHOUT mounting the full chart (and
+  without racing the async elkjs layout pass — the connector carries no
+  route, so its straight handle-to-handle path renders on the first
+  commit). Returns nil when no DOM / no act() (the caller asserts the
+  skip)."
+  [element f]
+  (let [act-fn (get-act)]
+    (when (and (browser?) act-fn)
+      (enable-react-act-env!)
+      (let [node (mount-node!)
+            root (react-dom-client/createRoot node)]
+        (try
+          (act-fn (fn [] (.render root element)))
+          (f node)
+          (finally
+            (try (act-fn (fn [] (.unmount root))) (catch :default _ nil))
+            (try (.removeChild (.-body js/document) node) (catch :default _ nil))))))))
+
+(defn- ->edge-props
+  "Build a JS props object shaped like the one xyflow hands a custom edge
+  component, from a projector edge map. The edge component reads coords +
+  `:data` + `:id` + `:markerEnd` off it; the fork connector carries no
+  route, so degenerate handle coords are fine (its `<path>` is a straight
+  line). `clj->js` mirrors xyflow's own serialisation of the `:data`/`:markerEnd`
+  maps into JS objects."
+  [edge]
+  #js {:id             (:id edge)
+       :sourceX        0 :sourceY 0
+       :targetX        80 :targetY 0
+       :sourcePosition "right" :targetPosition "left"
+       :markerEnd      (clj->js (:markerEnd edge))
+       :data           (clj->js (:data edge))})
+
+(defn- normalize-color
+  "Round-trip a CSS colour string through the browser's CSSOM so a token
+  value (which may be hex or `rgba(...)`) reads back in the SAME canonical
+  form the DOM reports for a `style.<prop>` read. Lets a styling assertion
+  compare a token against a rendered value WITHOUT hard-coding the browser's
+  normalisation. Returns the input unchanged off-DOM."
+  [css]
+  (if (browser?)
+    (let [el (.createElement js/document "div")]
+      (set! (.. el -style -color) (str css))
+      (.. el -style -color))
+    css))
 
 ;; ---- node / edge count --------------------------------------------------
 
@@ -1184,6 +1238,174 @@
               (when (and (pos? badges) (pos? ev-nodes))
                 (is (< badges ev-nodes)
                     "fewer badges than event-nodes — the non-fork :gate/set + :gate/reset nodes carry none")))))))))
+
+;; ---- fork connector renderer styling (rf2-qj6hoa) -----------------------
+;; The projection suite proves `:forkConnector` edges EXIST + carry the
+;; decorative `:data` shape, but no DOM/render test pins that the RENDERER
+;; paints them DECORATIVE. Without a render pin a refactor of `edges.cljs`
+;; could turn a fork connector back into a normal transition edge (arrowhead
+;; + solid stroke + label) while every projection test stays green. This
+;; mounts the REAL `edges/transition-edge` component with the REAL projector
+;; fork-connector edge `:data` and asserts the rendered `<path>` is
+;; decorative: NO markerEnd, `stroke-dasharray "1 3"`, round linecap, NO
+;; edge label, neutral `:pseudo-marker` stroke. The connector carries no
+;; route, so its straight handle-to-handle path mounts on the first commit
+;; (no async elk dependency).
+
+(defn- a-fork-connector-edge
+  "The first decorative fork-connector edge the projector emits for the
+  gate guarded fork (REAL projector output, not a hand-rolled map)."
+  []
+  (let [parsed (layout/project-definition gate-fork-machine)
+        conns  (projection/fork-connector-edges
+                 (:edges parsed) (tokens/chart-tokens) vc/chart-regular)]
+    (first conns)))
+
+(deftest chart-fork-connector-renders-decorative
+  (testing "rf2-qj6hoa — a guarded-fork connector edge renders DECORATIVE:
+            the `<path>` carries `stroke-dasharray \"1 3\"` (the tight dotted
+            order chain, distinct from the internal self-transition's 4·3
+            dash), a ROUND linecap, the neutral `:pseudo-marker` stroke, and
+            NO markerEnd (arrowhead) — and the edge renders NO label div. A
+            renderer refactor that turned it back into a normal transition
+            edge would break these even while the projection pins stay green."
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises this")
+      (let [edge (a-fork-connector-edge)
+            ct   (tokens/chart-tokens)]
+        (is (some? edge) "the gate fork yields a connector edge to render")
+        (with-mounted-element
+          (edges/transition-edge (->edge-props edge))
+          (fn [node]
+            ;; The connector id carries `/` + `?` (from the spec edge ids),
+            ;; which are not valid in a CSS `#id` selector — find the path by
+            ;; its `.id` PROPERTY across the rendered paths instead.
+            (let [paths (.querySelectorAll node "path")
+                  path  (some (fn [i]
+                                (let [p (aget paths i)]
+                                  (when (= (:id edge) (.-id p)) p)))
+                              (range (.-length paths)))]
+              (is (some? path) "the connector renders a BaseEdge <path>")
+              (when (some? path)
+                ;; DECORATIVE dotted order chain — tight 1·3 dots, round caps.
+                ;; The browser canonicalises the dash list ("1 3" → "1, 3"),
+                ;; so compare the numeric token sequence, not the raw string.
+                (is (= ["1" "3"]
+                       (->> (str/split (.. path -style -strokeDasharray) #"[,\s]+")
+                            (remove str/blank?)
+                            vec))
+                    "dotted 1·3 dash (the Stately order chain, not 4·3 internal)")
+                (is (= "round" (.. path -style -strokeLinecap))
+                    "round linecap so the dots read as a soft order chain")
+                ;; Neutral pseudo-marker stroke — an order annotation, never a
+                ;; runtime edge hue (compared through the CSSOM normaliser so
+                ;; the token's hex/rgba form matches the browser's read-back).
+                (is (= (normalize-color (:pseudo-marker ct))
+                       (normalize-color (.. path -style -stroke)))
+                    "neutral :pseudo-marker stroke (order annotation, not runtime)")
+                ;; NO arrowhead — `markerEnd` is suppressed for a connector.
+                (let [me (.getAttribute path "marker-end")]
+                  (is (or (nil? me) (= "" me) (= "none" me))
+                      "no markerEnd — the connector carries no arrowhead")))
+              ;; NO edge label div (the connector's eventLabel is empty). The
+              ;; id carries `/`+`?` (invalid in a `#id`/`=` selector), so
+              ;; count the label-testid PREFIX instead — zero labels render.
+              (is (zero? (count-sel node "[data-testid^=\"rf-mv-chart-edge-\"]"))
+                  "the decorative connector renders no edge label"))))))))
+
+;; ---- enclosed event action chip rendering (rf2-ekniye) ------------------
+;; The projector threads each transition's `:action` onto the event-node
+;; `:data {:action}`, and the RENDERER (`chart.nodes.event-node`) paints it
+;; as a subdued ENCLOSED action chip (`rf-mv-chart-event-action-*` testid +
+;; `data-action`, density-aware geometry). No DOM test pinned the chip
+;; contract, so a refactor could drop the enclosed styling while projection
+;; stays green. The gate's `:gate/set` is an action-only transition
+;; (`{:action :set-level}`), so its event-node renders the chip; the
+;; `:gate/check` / `:gate/reset` event-nodes carry NO action → NO chip. The
+;; chip is part of the node body (layout-independent), so it mounts on the
+;; first commit without awaiting elk.
+
+(deftest chart-action-bearing-event-renders-enclosed-action-chip
+  (testing "rf2-ekniye — an action-bearing event-node (the gate's
+            `:gate/set` → `:set-level`) renders the enclosed action chip:
+            testid `rf-mv-chart-event-action-*` carrying `data-action`
+            \"set-level\", with the ENCLOSED styling (`:container-header-bg`
+            fill + `:state-border` border + the density `:action-pill-radius`
+            rounding / `:action-pill-height` height / `:action-pill-pad-x`
+            padding) so it reads as a contained annotation — not loose
+            free-floating text."
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises this")
+      (with-mounted-chart
+        {:machine-id :test/gate :definition gate-fork-machine}
+        (fn [_root node]
+          (let [chips (.querySelectorAll
+                        node "[data-testid^=\"rf-mv-chart-event-action-\"]")
+                ct    (tokens/chart-tokens)
+                {:keys [action-pill-height action-pill-pad-x
+                        action-pill-radius]} vc/chart-regular]
+            ;; The action chip mounts on the first commit (node body). Assert
+            ;; positively when present, else keep the structural invariant
+            ;; (the chart_dom convention for layout-independent body chrome).
+            (when (pos? (.-length chips))
+              ;; EXACTLY one action-bearing event-node: the gate's :gate/set.
+              (is (= 1 (.-length chips))
+                  "exactly one enclosed action chip (only :gate/set bears an action)")
+              (let [chip (aget chips 0)]
+                (is (= "set-level" (.getAttribute chip "data-action"))
+                    "data-action carries the action name")
+                ;; ENCLOSED styling — fill + border + rounding (a contained
+                ;; annotation, not loose text). Colours compared through the
+                ;; CSSOM normaliser (the tokens are rgba(); the DOM read-back
+                ;; canonicalises both sides identically).
+                (is (= (normalize-color (:container-header-bg ct))
+                       (normalize-color (.. chip -style -backgroundColor)))
+                    "enclosed neutral container-header fill")
+                (is (= (normalize-color (:state-border ct))
+                       (normalize-color (.. chip -style -borderColor)))
+                    "enclosed structural border colour")
+                (is (= "1px" (.. chip -style -borderWidth))
+                    "enclosed 1px structural border")
+                (is (= "solid" (.. chip -style -borderStyle))
+                    "enclosed solid border (a contained chip, not a dashed hint)")
+                (is (= (str action-pill-radius "px") (.. chip -style -borderRadius))
+                    "density-aware corner radius")
+                ;; Density-aware geometry — height + horizontal padding.
+                (is (= (str action-pill-height "px") (.. chip -style -height))
+                    "density-aware chip height")
+                (is (str/includes? (.. chip -style -padding) (str action-pill-pad-x "px"))
+                    "density-aware horizontal padding")))
+            (is (number? (.-length chips)))))))))
+
+(deftest chart-non-action-event-nodes-render-no-action-chip
+  (testing "rf2-ekniye — event-nodes WITHOUT an action render NO action chip.
+            The gate's `:gate/check` branches + `:gate/reset` transitions are
+            action-free, and a plain machine with no action-bearing
+            transition renders zero action chips at all (so the chip is
+            strictly an action affordance, never decoration)."
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises this")
+      (do
+        ;; A machine with NO action-bearing transition: zero chips anywhere.
+        (with-mounted-chart
+          {:machine-id :test/flow :definition idle-loading-done}
+          (fn [_root node]
+            (is (zero? (count-sel node "[data-testid^=\"rf-mv-chart-event-action-\"]"))
+                "an action-free machine renders no action chips")))
+        ;; The gate machine: chips appear ONLY on the one action-bearing
+        ;; :gate/set node, never on the action-free :gate/check / :gate/reset
+        ;; event-nodes (far more event-nodes than the single chip).
+        (with-mounted-chart
+          {:machine-id :test/gate :definition gate-fork-machine}
+          (fn [_root node]
+            (let [chips    (count-sel node "[data-testid^=\"rf-mv-chart-event-action-\"]")
+                  ev-nodes (count-sel node "[data-testid^=\"rf-mv-chart-event-\"][data-node-id]")]
+              (when (pos? chips)
+                (is (= 1 chips)
+                    "only the single :gate/set action-bearing node carries a chip"))
+              (when (and (pos? chips) (pos? ev-nodes))
+                (is (< chips ev-nodes)
+                    "fewer chips than event-nodes — the action-free nodes carry none")))))))))
 
 ;; ---- :on-state-click contract: leaf body + compound title strip --------
 ;; rf2-34ff3 — A-PRIME ruling. `:on-state-click` fires for REAL statechart-
