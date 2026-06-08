@@ -30,6 +30,7 @@
             [re-frame.frame            :as frame]
             [re-frame.machines         :as machines]
             [re-frame.registrar        :as registrar]
+            [re-frame.subs             :as subs]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.story            :as story]
             [re-frame.story.assertions :as assertions]
@@ -170,6 +171,36 @@
     (let [r (async/deref-blocking (story/run-variant :story.sub/bad) 5000)]
       (is (false? (-> r :assertions first :passed?))))
     (story/destroy-variant! :story.sub/bad)))
+
+(deftest sub-equals-runtime-db-projection
+  ;; rf2-pecaxy regression: a `:rf.assert/sub-equals` over a sub that
+  ;; projects RUNTIME-DB state (the idiomatic machine-snapshot shape) must
+  ;; resolve the live value — NOT nil. Pre-fix the play-runner handed
+  ;; `compute-sub` the bare app-db `:db` cofx, so a `:runtime-db` sub read
+  ;; app-db and returned nil. The fix passes the full frame-state value
+  ;; `{:rf.db/app … :rf.db/runtime …}` so `compute-sub` resolves the
+  ;; runtime-db partition the sub belongs to.
+  (testing ":rf.assert/sub-equals resolves a runtime-db-projection sub (not nil)"
+    ;; Seed a machine snapshot into the runtime-db partition (EP-0001).
+    (rf/reg-event-fx :test/seed-machine-sub
+      (fn [{rt :rf.db/runtime} _]
+        {:rf.db/runtime (assoc-in (or rt {})
+                                  [:rf.runtime/machines :snapshots :traffic-light]
+                                  {:state :red})}))
+    ;; A runtime-db sub projecting the snapshot's :state — the idiomatic
+    ;; shape an app sub uses to read machine state reactively.
+    (subs/reg-runtime-sub :traffic-light/state
+      (fn [rt _] (get-in rt [:rf.runtime/machines :snapshots :traffic-light :state])))
+    (story/reg-variant :story.sub/runtime
+      {:events [[:test/seed-machine-sub]]
+       :play-script [[:dispatch-sync [:rf.assert/sub-equals [:traffic-light/state] :red]]]})
+    (let [r (async/deref-blocking (story/run-variant :story.sub/runtime) 5000)
+          a (-> r :assertions first)]
+      (is (true? (:passed? a))
+          "the runtime-db-projection sub resolved its live value through sub-equals")
+      (is (= :red (:actual a))
+          "actual is the live runtime-db value, not nil (the pre-pecaxy bug)"))
+    (story/destroy-variant! :story.sub/runtime)))
 
 ;; ===========================================================================
 ;; :rf.assert/dispatched?
