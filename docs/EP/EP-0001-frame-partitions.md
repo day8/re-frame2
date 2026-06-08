@@ -1,6 +1,6 @@
 # EP-0001: Frame App/Runtime Partitions
 
-Status: proposal
+Status: accepted
 
 ## Abstract
 
@@ -1116,37 +1116,100 @@ Generalize frames into arbitrary named durable partitions.
 This is more ceremony than the current problem needs and is harder to teach
 than app-db/runtime-db.
 
-## Open Issues
+## Resolved Decisions
 
-1. Exact public names for runtime-db and frame-state accessors.
-2. Exact epoch record shape: replace `:db-before` / `:db-after`, or add
-   frame-state siblings.
-3. Whether adapter containers physically hold one frame-state value or two
-   partition containers.
-4. Whether ordinary user interceptors may intentionally emit
-   `:rf.db/runtime`, or whether that requires a registered extension marker.
-5. Whether framework runtime writes should use whole-value `:rf.db/runtime`
-   effects, operation effects, or both.
-6. The trace/change-event vocabulary for partition commits: keep
-   `:rf.event/db-changed` app-db-only and add runtime/frame-state siblings, or
-   widen it with partition tags.
-7. How partition-aware sub-cache invalidation is represented in the substrate:
-   one frame-state container, two containers, or explicit dirty flags.
-8. How strict the legacy `:rf/runtime` diagnostic should be during pre-alpha:
-   warning, error, or migration-only lint.
-9. Whether `reset-frame!` resets both partitions by default or only app-db with
-   a separate full reset surface.
-10. Whether `reset-frame-db!` remains app-db-only, gains a frame-state sibling,
-    or is renamed before public stabilization.
-11. Whether app-db schemas should be renamed in docs to "app partition schemas"
-    while keeping the public API name `reg-app-schema`.
-12. Whether flow definitions and last-input caches remain transient runtime
-    bookkeeping that is recomputed or cleared, or any part becomes durable
-    runtime-db.
-13. The exact durable/transient boundary for SSR, HTTP, epoch, trace, and tooling
-    side channels.
-14. Off-box projection policy for runtime-db: default redaction, elision, and
-    whether trusted local tools can request transient diagnostics.
+The fourteen calls this EP left open were ruled by Mike on 2026-06-08 (also
+recorded in bead `rf2-h0d6s6`). All fourteen are now final and authoritative; the
+rulings below settle the design so the partition can be locked. Where a ruling
+fixes vocabulary or shape that earlier sections describe as illustrative, the
+ruling here is the binding form.
+
+1. **Accessor names — fixed.** The frame-state readers are
+   `app-db-value` / `runtime-db-value` / `frame-state-value`, and the mutators are
+   `replace-app-db!` / `replace-runtime-db!` / `replace-frame-state!`. The
+   illustrative names in §Full-Frame Operations and §Reference Implementation step 2
+   are adopted verbatim as the public names.
+
+2. **Epoch record shape — frame-state canonical, app-db projections optional.**
+   `:frame-state-before` / `:frame-state-after` are the canonical snapshot fields;
+   `:app-db-before` / `:app-db-after` are optional app-db projections kept for tool
+   diff ergonomics. There is no `:db-before` / `:db-after`. The "alternatively, keep
+   `:db-before` / `:db-after`" option in §6 is rejected; the canonical-plus-optional-
+   projection shape from the same section is the one adopted.
+
+3. **Representation — one physical container plus projection reactions.** A frame
+   holds **one** physical frame-state container; app-db and runtime-db are derived as
+   **projection reactions** over it. This resolves Open-Issue 3 and Open-Issue 7
+   together (see Decision 7): the "two coherent containers" and "explicit dirty flags"
+   alternatives in §Subscriptions And Flows are not used. This is the single-container
+   model Appendix A §3 recommends.
+
+4. **`:rf.db/runtime` reserved by convention, not a security boundary.**
+   `:rf.db/runtime` is reserved **by convention**, not enforced as a capability
+   boundary: app code can technically emit it. Docs and dev-diagnostics frame the key
+   as belonging to the framework and to runtime extensions, and steer ordinary app code
+   away from it, but the framework does not reject an app-authored `:rf.db/runtime`
+   write at the commit boundary. (This declines the authority-at-registration hard-
+   rejection posture Appendix A §2 argues for; the convention-plus-diagnostics stance is
+   the ruled one.)
+
+5. **Runtime writes — support both whole-value replacement and operation-style
+   writes.** Framework runtime writes support **both** whole-value `:rf.db/runtime`
+   replacement **and** operation-style (helper / op) writes. Normal subsystem writes
+   prefer ops/helpers; whole-value replacement is for restore, hydration, and reset.
+   This is the "both" branch of the §Runtime Write Semantics question.
+
+6. **Change-event vocabulary — `:rf.event/db-changed` stays app-db-only; add a
+   sibling.** `:rf.event/db-changed` remains **app-db-only**. A new
+   `:rf.event/frame-state-changed` is added for partition-tagged frame-state commits.
+   The "widen `:rf.event/db-changed` with partition tags" alternative is rejected in
+   favour of the distinct-sibling event.
+
+7. **Sub-cache invalidation — derives from the one-container/projection model.**
+   Partition-aware sub-cache invalidation falls out of the one-container-plus-
+   projection-reactions model (Decision 3): a partition's projection reaction recomputes
+   on commit and propagates only when its slice changed by identity. No explicit dirty
+   flags are introduced unless a specific adapter needs them. This is the projection-
+   equality mechanism described in Appendix A §3.
+
+8. **Legacy `:rf/runtime` — hard error in the final form.** In the final form, a legacy
+   app-db root `:rf/runtime` is a **hard error**. A temporary migration **warning** is
+   permitted only during the in-repo migration campaign, then removed — consistent with
+   the short-lived-diagnostic posture in §Backwards Compatibility and §Migration.
+
+9. **`reset-frame!` — resets the whole frame.** `reset-frame!` resets the **whole
+   frame**: lifecycle plus **both** partitions (app-db and runtime-db). It is not an
+   app-db-only reset.
+
+10. **`reset-frame-db!` — split into app-db and frame-state surfaces.** The current
+    `reset-frame-db!` is replaced by an app-db-only surface, named `reset-app-db!`
+    (equivalently `replace-app-db!` per Decision 1), plus a **distinct**
+    `replace-frame-state!` for full-frame replacement. A tool API named as a db
+    replacement no longer silently replaces runtime-db — the concern §Full-Frame
+    Operations raises.
+
+11. **App schemas — keep `reg-app-schema` and "app-db schema"; clarify scope.** The
+    public API name `reg-app-schema` and the term "app-db schema" are kept. The docs
+    clarify that an app-db schema validates **only the app partition**, not the whole
+    frame-state. No rename to "app partition schema".
+
+12. **Flow defs and last-input caches — transient.** Flow definitions and last-input
+    dirty-check caches are **transient** runtime bookkeeping: they are recomputed or
+    cleared on restore and rollback, never serialized as durable frame-state. Durable
+    flow **outputs** that model app state remain app-db values. This confirms the
+    §Subscriptions And Flows treatment.
+
+13. **runtime-db durable/transient boundary — fixed.** runtime-db holds the
+    **serializable facts** needed for restore, SSR-hydration, and time-travel. Host
+    handles, request slots, trace rings, in-flight HTTP, and dirty caches stay
+    **transient** (frame-scoped, torn down on destroy, never serialized). This is the
+    "survives epoch-restore and SSR-hydration" line Appendix A §4 names as the single
+    durable/transient principle.
+
+14. **Off-box projection policy — redacted/omitted by default.** runtime-db is
+    **redacted or omitted off-box by default**. A **trusted-local** caller may request
+    richer diagnostics explicitly. This is the fail-closed default in §Security And
+    Privacy Considerations and §6.
 
 ## Bead Plan
 
@@ -1267,7 +1330,7 @@ So the EP's choice is principled. The cost it pays is real (two spellings for th
 
 ### 2. Rigour — pin the write-authority mechanism; it is load-bearing
 
-The headline guarantee is "accidental runtime deletion is **structurally impossible**." But the mechanism that makes app-writers distinguishable from framework-writers is deferred (Open Issue 4; §Guardrails: "the implementation must define how… namespace heuristics alone are too weak"). **Until that mechanism is named, the guarantee is only as strong as a diagnostic** — i.e. no stronger than today's `:rf.warning/runtime-state-dropped`, which the Motivation rightly rejects. The EP's strongest claim currently rests on its least-specified part.
+The headline guarantee is "accidental runtime deletion is **structurally impossible**." But the mechanism that makes app-writers distinguishable from framework-writers is deferred (Resolved Decision 4; §Guardrails: "the implementation must define how… namespace heuristics alone are too weak"). **Until that mechanism is named, the guarantee is only as strong as a diagnostic** — i.e. no stronger than today's `:rf.warning/runtime-state-dropped`, which the Motivation rightly rejects. The EP's strongest claim currently rests on its least-specified part.
 
 Pin it, and pin it at the cleanest altitude: **authority is conferred at registration, by which registrar created the handler.** `reg-event-db` / `reg-event-fx` mint *app-authority* handlers; the framework's own registrars (machines, routing, resources, SSR) mint *framework-authority* handlers. Then:
 
@@ -1281,7 +1344,7 @@ It is also the more on-ethos posture in two further ways. **Loud-failure / rejec
 
 ### 3. Simplicity — commit to one physical frame-state value, and partition-invalidation falls out for free
 
-The EP keeps representation open (one container / two containers / dirty flags — Open Issues 3 & 7) on the principle "contract over representation." That principle is right in general, but here it **defers the single hardest sub-problem** — partition-aware reactive invalidation — into "implementation detail", and the reactive substrate is exactly what must not be hand-waved.
+The EP keeps representation open (one container / two containers / dirty flags — Resolved Decisions 3 & 7) on the principle "contract over representation." That principle is right in general, but here it **defers the single hardest sub-problem** — partition-aware reactive invalidation — into "implementation detail", and the reactive substrate is exactly what must not be hand-waved.
 
 Committing to **one frame-state value in the reactive container, with two cached projection reactions** collapses the problem into the *existing* reaction machinery:
 
@@ -1291,7 +1354,7 @@ frame-state  (one signal: {:db <app-db> :rf.db/runtime <runtime-db>})
    └── runtime-db = (reaction (:rf.db/runtime @frame-state)) ; layer-1 input for framework subs
 ```
 
-A runtime-only commit bumps `frame-state`; the `app-db` projection reaction recomputes, finds `(:db …)` `identical?`, and **does not propagate** — app subs neither re-render nor recompute. An app-only commit is symmetric. The EP's four invalidation requirements (§Subscriptions And Flows) are then satisfied by reaction-deref equality that re-frame already has, instead of new "partition-aware dirty flags." This is both **simpler** (no new invalidation machinery) and **more concrete** (Open Issue 7 mostly disappears). The "two coherent containers" option, by contrast, multiplies the substrate plumbing for no contract benefit. I would commit to single-container in the spec and demote the alternatives to "ports may differ if they preserve the projection-equality semantics."
+A runtime-only commit bumps `frame-state`; the `app-db` projection reaction recomputes, finds `(:db …)` `identical?`, and **does not propagate** — app subs neither re-render nor recompute. An app-only commit is symmetric. The EP's four invalidation requirements (§Subscriptions And Flows) are then satisfied by reaction-deref equality that re-frame already has, instead of new "partition-aware dirty flags." This is both **simpler** (no new invalidation machinery) and **more concrete** (Resolved Decision 7 mostly disappears). The "two coherent containers" option, by contrast, multiplies the substrate plumbing for no contract benefit. I would commit to single-container in the spec and demote the alternatives to "ports may differ if they preserve the projection-equality semantics."
 
 ### 4. Simplicity (document) — state the durable/transient boundary once
 
