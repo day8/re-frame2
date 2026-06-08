@@ -98,8 +98,9 @@
 ;; visible gap pointing AT the edge, NOT penetrating it).
 ;;
 ;; rf2-d5s7yg — the dot offset is DECOUPLED from the arrow-tip position. The
-;; node sits `initial-marker-x-offset` px left of the state (so the dot
-;; lands ~15px outside the edge), but the glyph's arrowhead tip is drawn at
+;; node sits `initial-marker-x-offset` (26) px left of the state (so the dot
+;; CENTRE lands `offset - dot-x` px outside the edge — `state.x - 19` at
+;; regular density), but the glyph's arrowhead tip is drawn at
 ;; node-local x = `(offset - initial-marker-tip-gap)`, so the absolute tip
 ;; lands at `state.x - gap` — a clean ~`gap`px gap OUTSIDE the edge. Before
 ;; rf2-d5s7yg the offset (48) equalled the glyph arm and the tip landed at
@@ -109,18 +110,21 @@
 (def initial-marker-x-offset
   "rf2-i9d2ob / rf2-d5s7yg / rf2-wwyx1u — horizontal offset (px) of the
   initial-marker node LEFT of its state. SMALL (the Stately short-hook
-  span): the filled dot lands ~15px outside the state's left edge. The
-  arrow tip is drawn further right in the glyph (`offset -
-  initial-marker-tip-gap`) so the tip ends just OUTSIDE the edge, not
-  on/through it.
+  span): the filled dot's CENTRE lands `(offset - dot-x)` px outside the
+  state's left edge — `state.x - 19` at regular density (offset 26, `dot-x =
+  pseudo-radius + 1 = 7`). The arrow tip is drawn further right in the glyph
+  (`offset - initial-marker-tip-gap`) so the tip ends just OUTSIDE the edge,
+  not on/through it.
 
   rf2-wwyx1u — bumped 20 → 22 so the glyph has room for a SMALL Stately-
   sized arrowhead AND a short FORWARD-flowing hook (dot → down-right curve
   → arrowhead). At 20 with the old oversized arrowhead the hook ran
   BACKWARDS; the extra 2px (paired with the small arrowhead in
   `chart.nodes/initial-marker`) restores a clean dot → forward-hook →
-  small-arrow-into-edge unit. Dot lands at absolute `state.x - 15`
-  (`offset - dot-x`), matching Stately's `startPoint.x = node.x - 15`.
+  small-arrow-into-edge unit. (At the rf2-wwyx1u offset 22 the dot centre
+  landed at `state.x - 15`, matching Stately's `startPoint.x = node.x - 15`;
+  rf2-k7kiiq below bumps the offset to 26, moving the centre to
+  `state.x - 19`.)
 
   rf2-k7kiiq — bumped 22 → 26 to LENGTHEN the visible hook arm (Stately-
   aligned glyph tuning). The arm length is `end-x - dot-x`; with the
@@ -153,9 +157,15 @@
 
   The marker node is positioned at `state.x - initial-marker-x-offset`
   (it sits that far left of the state). Inside that node's local frame the
-  glyph's LEFTMOST ink is the filled dot's left edge, at node-local
+  filled dot is centred at node-local `dot-x = pseudo-radius + 1`. The
+  reservation anchors to the dot's GEOMETRY-radius left edge — node-local
   x = `dot-x - pseudo-radius = (pseudo-radius + 1) - pseudo-radius = 1`
-  (`initial-marker-glyph`). So the dot's left edge lands at absolute
+  (`initial-marker-glyph`) — NOT the slightly-narrower PAINTED left edge at
+  x = `dot-x - dot-paint-r = 1.5` (the dot is painted at `pseudo-radius − 0.5`,
+  rf2-k7kiiq). Anchoring to the geometry-radius edge is the conservative
+  choice: it reserves the wider extent, so the painted ink (which only
+  reaches x=1.5) always lands INSIDE the reservation. So the dot's
+  geometry-radius left edge lands at absolute
   `(state.x - initial-marker-x-offset) + 1 = state.x - (initial-marker-x-offset - 1)`
   — i.e. `initial-marker-x-offset - 1` px LEFT of the state's near edge,
   independent of density (the +1 dot inset is density-independent).

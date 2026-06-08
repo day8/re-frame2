@@ -1384,25 +1384,39 @@
             (str density " only the LEFT side changes"))))))
 
 (deftest container-elk-padding-marker-left-extent-clears-glyph
-  (testing "rf2-lxk3h3 — the reserved LEFT extent is no smaller than the
-            initial-marker glyph's actual leftmost ink (the dot's left edge,
-            `initial-marker-x-offset - dot-left-inset`), so the glyph sits
-            inside the container border at every density"
+  (testing "rf2-lxk3h3 / rf2-djqjh6 — the reserved LEFT extent is no smaller
+            than the initial-marker glyph's GEOMETRY-radius left edge (the
+            conservative wider anchor, `initial-marker-x-offset - 1`), so the
+            painted dot (whose left ink only reaches x=1.5) always sits inside
+            the container border at every density"
     (doseq [vc-map [vc/chart-compact vc/chart-regular vc/chart-cosy]]
       (let [{:keys [pseudo-radius]} vc-map
-            ;; The marker node sits `initial-marker-x-offset` px LEFT of the
-            ;; state; the dot's left edge is at node-local
-            ;; `(dot-x - pseudo-radius)` = `((pseudo-radius + 1) - pseudo-radius)`
-            ;; = 1 (`initial-marker-glyph`). So the glyph's leftmost ink is
-            ;; `initial-marker-x-offset - 1` px left of the state's edge.
+            ;; rf2-djqjh6 — DISTINGUISH the GEOMETRY radius from the PAINTED
+            ;; radius. The marker node sits `initial-marker-x-offset` (26) px
+            ;; LEFT of the state; the dot is centred at node-local
+            ;; `dot-x = pseudo-radius + 1`. The reservation anchors to the dot's
+            ;; GEOMETRY-radius left edge, node-local `dot-x - pseudo-radius`
+            ;; = `(pseudo-radius + 1) - pseudo-radius` = 1 — NOT the slightly-
+            ;; narrower PAINTED left edge at `dot-x - dot-paint-r = 1.5` (the
+            ;; dot paints at `pseudo-radius − 0.5`). So the conservative
+            ;; geometry-radius extent is `initial-marker-x-offset - 1` px left
+            ;; of the state's edge.
             glyph-left-extent (dec projection/initial-marker-x-offset)]
         (is (>= projection/initial-marker-left-extent glyph-left-extent)
-            "the reserved extent encloses the dot's leftmost ink")
-        ;; and the dot left edge derived purely from the glyph agrees with
-        ;; the node-local `dot-x - pseudo-radius = 1` invariant.
-        (let [{:keys [dot-x]} (projection/initial-marker-glyph pseudo-radius)]
+            "the reserved extent encloses the dot's GEOMETRY-radius left edge")
+        ;; the GEOMETRY-radius left edge derived purely from the glyph agrees
+        ;; with the node-local `dot-x - pseudo-radius = 1` invariant …
+        (let [{:keys [dot-x]} (projection/initial-marker-glyph pseudo-radius)
+              ;; … and the PAINTED left edge (`dot-x - (pseudo-radius - 0.5)`)
+              ;; is 0.5px further RIGHT — node-local x=1.5 — so it sits inside
+              ;; the geometry-radius reservation in every density.
+              painted-r   (- pseudo-radius 0.5)]
           (is (= 1 (- dot-x pseudo-radius))
-              "the dot's left edge is at node-local x=1 in every density"))))))
+              "the dot's GEOMETRY-radius left edge is at node-local x=1 in every density")
+          (is (= 1.5 (- dot-x painted-r))
+              "the dot's PAINTED left edge is at node-local x=1.5 (radius shrunk 0.5px)")
+          (is (> (- dot-x painted-r) (- dot-x pseudo-radius))
+              "the painted left edge is RIGHT of the geometry-radius edge — inside the reservation"))))))
 
 (deftest elk-children-nested-compound-reserves-initial-marker-left
   (testing "rf2-lxk3h3 — every compound container holding an initial
@@ -1924,11 +1938,13 @@
             tip-gap is decoupled from it: the arrow tip (drawn at node-local
             x = offset - tip-gap) lands a clean gap OUTSIDE the state's left
             edge (absolute state.x - tip-gap), never on/through it"
-    ;; offset is a SHORT hook span (Stately ~15px dot offset), not the old 48.
-    ;; rf2-k7kiiq — upper bound widened 26 → 28 alongside the offset bump
-    ;; (22 → 26) that lengthens the visible hook arm.
+    ;; offset is a SHORT hook span (Stately's dot-offset neighbourhood), not
+    ;; the old 48. rf2-k7kiiq — upper bound widened 26 → 28 alongside the
+    ;; offset bump (22 → 26) that lengthens the visible hook arm; at offset 26
+    ;; the dot CENTRE (`dot-x = pseudo-radius + 1`) lands ~19px left of the edge
+    ;; (regular: `offset - dot-x = 26 - 7 = 19`).
     (is (<= 12 projection/initial-marker-x-offset 28)
-        "offset is a short-hook span (dot ~15px left of the edge)")
+        "offset is a short-hook span (dot centre ~19px left of the edge)")
     ;; the tip-gap is a small positive gap, strictly less than the offset so
     ;; the tip lands OUTSIDE the edge (local x = offset - gap > 0).
     (is (pos? projection/initial-marker-tip-gap))
