@@ -4,16 +4,16 @@
   rf2-gpzb4 (2026-05-21 xyflow migration) — the previous test corpus
   was dominated by the viewport-reducer + drag-state machinery the
   SVG renderer needed. Post-migration xyflow owns zoom/pan/fit
-  internally; only the view-mode toggle slot + the `Chart` hiccup
-  wrapper survive on the Xray side.
+  internally; the `Chart` hiccup wrapper + the chart-collapsed slot
+  survive on the Xray side. (rf2-48fwsi retired the dead Canvas/List
+  view-mode toggle + its slot/events/fx.)
 
   Covers:
 
     1. Registry wires the surviving subs + events + fx.
-    2. `:set-view-mode` updates the per-machine slot and fires the
-       persist-view-mode fx with the latest map.
+    2. The chart-collapsed slot mutates + persists per machine.
     3. The `Chart` view returns hiccup carrying the canvas-host
-       data-testid + the view-mode toggle (when enabled)."
+       data-testid."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
@@ -44,51 +44,12 @@
   (setup-xray-frame!)
   (rf/with-frame :rf/xray
     (testing "every machine-canvas sub resolves through rf/subscribe"
-      (doseq [q-v [[:rf.xray.machine-canvas/view-mode-for :m]
-                   [:rf.xray.machine-canvas/view-mode-by-id]
-                   [:rf.xray.machine-canvas/chart-collapsed-for :m]
+      (doseq [q-v [[:rf.xray.machine-canvas/chart-collapsed-for :m]
                    [:rf.xray.machine-canvas/chart-collapsed-by-id]]]
         (is (some? (rf/subscribe q-v))
             (str q-v " must resolve through rf/subscribe"))))))
 
-;; ---- 2. View-mode toggle + persistence fx -----------------------------
-
-(deftest set-view-mode-mutates-slot
-  (setup-xray-frame!)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync
-      [:rf.xray.machine-canvas/set-view-mode
-       {:machine-id :m :mode :list}])
-    (let [mode @(rf/subscribe [:rf.xray.machine-canvas/view-mode-for :m])
-          by-id @(rf/subscribe [:rf.xray.machine-canvas/view-mode-by-id])]
-      (is (= :list mode))
-      (is (= {:m :list} by-id)))))
-
-(deftest set-view-mode-defaults-to-canvas
-  (setup-xray-frame!)
-  (rf/with-frame :rf/xray
-    (let [mode @(rf/subscribe [:rf.xray.machine-canvas/view-mode-for :m])]
-      (is (= :canvas mode)
-          "Unset slot defaults to :canvas — the dominant surface"))))
-
-(deftest set-view-mode-normalises-bad-input
-  (setup-xray-frame!)
-  (rf/with-frame :rf/xray
-    (rf/dispatch-sync
-      [:rf.xray.machine-canvas/set-view-mode
-       {:machine-id :m :mode :nonsense}])
-    (let [mode @(rf/subscribe [:rf.xray.machine-canvas/view-mode-for :m])]
-      (is (= :canvas mode)
-          "Unknown modes fall back to :canvas"))))
-
-(deftest persist-view-mode-fx-registered
-  (setup-xray-frame!)
-  (is (some?
-        (registrar/handler
-          :fx :rf.xray.machine-canvas/persist-view-mode))
-      "persist-view-mode fx is in the registrar"))
-
-;; ---- 2b. Chart-collapsed slot (rf2-3d987 issue #4) ---------------------
+;; ---- 2. Chart-collapsed slot (rf2-3d987 issue #4) ---------------------
 
 (deftest chart-collapsed-defaults-to-false
   (setup-xray-frame!)
@@ -171,25 +132,18 @@
       (is (some? (find-by-testid tree "rf-xray-machine-canvas-host"))
           "canvas host wrapper present"))))
 
-(deftest chart-view-emits-view-mode-toggle
-  (setup-xray-frame!)
-  (rf/with-frame :rf/xray
-    (let [tree (mc/Chart {:definition fixture-definition :machine-id :m})]
-      (is (some? (find-by-testid tree "rf-xray-machine-canvas-view-mode-toggle"))))))
-
-(deftest chart-view-omits-view-mode-toggle-when-knob-false
-  (testing "rf2-md9oz — Static Topology consumer passes
-            :show-view-mode-toggle? false to suppress the Canvas/List
-            pill (Static panel owns sub-mode at L3)."
+(deftest chart-view-never-emits-view-mode-toggle-rf2-48fwsi
+  (testing "rf2-48fwsi — the vestigial Canvas/List view-mode toggle is
+            removed; the Chart never renders it (it was dead after the
+            rf2-g2axio events-as-nodes redesign — no view branched on
+            the persisted mode)."
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
-      (let [tree (mc/Chart {:definition fixture-definition
-                            :machine-id :m
-                            :show-view-mode-toggle? false})]
+      (let [tree (mc/Chart {:definition fixture-definition :machine-id :m})]
         (is (some? (find-by-testid tree "rf-xray-machine-canvas-host"))
-            "canvas host still mounts")
+            "canvas host mounts")
         (is (nil? (find-by-testid tree "rf-xray-machine-canvas-view-mode-toggle"))
-            "view-mode toggle is suppressed")))))
+            "the retired view-mode toggle never renders")))))
 
 ;; ---- 4. SnapshotDrillIn view (rf2-lxvn6 · spec/021 §10) --------------
 

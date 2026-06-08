@@ -215,14 +215,11 @@
    :rf.xray/machine-definitions
    :rf.xray/machine-definitions-override
    :rf.xray/machine-inspector-data
-   ;; rf2-y3l8z — view-mode toggle slot subs (post-rf2-gpzb4 xyflow
-   ;; migration the viewport-state subs were retired; xyflow owns
-   ;; zoom/pan/fit internally).
-   :rf.xray.machine-canvas/view-mode-by-id
-   :rf.xray.machine-canvas/view-mode-for
    ;; rf2-3d987 issue #4 — chart-collapsed slot per machine, persisted
-   ;; alongside view-mode-by-id. Lets the operator hide the chart so
-   ;; the snapshot pair has room without scrolling.
+   ;; to localStorage. Lets the operator hide the chart so the snapshot
+   ;; pair has room without scrolling. (rf2-48fwsi retired the sibling
+   ;; view-mode-by-id / view-mode-for subs along with the dead
+   ;; Canvas/List toggle.)
    :rf.xray.machine-canvas/chart-collapsed-by-id
    :rf.xray.machine-canvas/chart-collapsed-for
    ;; rf2-a9cke — focused-event lens composite consumed by the
@@ -540,12 +537,9 @@
    ;; Phase 4 (rf2-m7co9) — ELK chart layout pulse.
    :rf.xray/machine-chart-layout-pulse
    :rf.xray/machine-state-clicked
-   ;; rf2-y3l8z — view-mode toggle events for the Dynamic Machines
-   ;; canvas (rf2-gpzb4 xyflow migration: viewport-state events
-   ;; retired — xyflow owns zoom/pan/fit internally).
-   :rf.xray.machine-canvas/hydrate-view-modes
-   :rf.xray.machine-canvas/set-view-mode
-   ;; rf2-3d987 issue #4 — chart-collapsed events.
+   ;; rf2-3d987 issue #4 — chart-collapsed events. (rf2-48fwsi retired
+   ;; the sibling set-view-mode / hydrate-view-modes events with the
+   ;; dead Canvas/List toggle.)
    :rf.xray.machine-canvas/hydrate-chart-collapsed
    :rf.xray.machine-canvas/set-chart-collapsed
    ;; (Pre-rf2-q3dzw the legacy `edn-inspector.render` engine emitted
@@ -758,13 +752,9 @@
    ;; set to localStorage in one place (mirrors the filter-persistence
    ;; shape above).
    :rf.xray.spine-filters/persist
-   ;; rf2-y3l8z — interactive Machines canvas view-mode persistence
-   ;; side-effect. Writes the per-machine view-mode-by-id map to
-   ;; localStorage on every `:set-view-mode` mutation so the user's
-   ;; Canvas / List choice survives reloads.
-   :rf.xray.machine-canvas/persist-view-mode
-   ;; rf2-3d987 issue #4 — chart-collapsed persistence side-effect. Same
-   ;; localStorage round-trip pattern as persist-view-mode.
+   ;; rf2-3d987 issue #4 — chart-collapsed persistence side-effect.
+   ;; (rf2-48fwsi retired the sibling persist-view-mode fx with the
+   ;; dead Canvas/List toggle.)
    :rf.xray.machine-canvas/persist-chart-collapsed
    ;; rf2-wm7z4 — palette pop-out side-effect. Lives under the
    ;; palette-specific prefix because it wraps a mount-layer pop-out

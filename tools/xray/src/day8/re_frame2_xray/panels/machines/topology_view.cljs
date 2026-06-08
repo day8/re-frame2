@@ -257,7 +257,6 @@
          ;; machine declares no `:data` (panel stays hidden).
          :machine-data           (static-context-shape definition)
          :show-after-rings?      false
-         :show-view-mode-toggle? false
          :show-controls?         show-controls?
          ;; rf2-6tw7t — fit-on-entry nonce pass-through; hosts that mount
          ;; this consumer surface inside a tab/panel bump it on entry so

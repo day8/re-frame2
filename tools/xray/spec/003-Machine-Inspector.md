@@ -129,9 +129,12 @@ below; the three render states are:
        connecting edges emphasised, the focused epoch's traversed edges
        painting the FIRED treatment (rf2-qeemm), and `:after` countdown
        rings overlaying armed timer states. The chart carries its **own**
-       toolbar (view-mode toggle + zoom/pan/fit controls) supplied by
-       `machine-canvas/Chart`; the per-machine view-mode and the chart
-       are chart-owned concerns, not tab chrome.
+       toolbar (xyflow zoom/pan/fit controls) supplied by
+       `machine-canvas/Chart`; the chart is a chart-owned concern, not
+       tab chrome. (rf2-48fwsi retired the vestigial Canvas/List
+       view-mode toggle that previously sat in this toolbar — it was
+       dead after the rf2-g2axio events-as-nodes redesign, with no view
+       branching on the persisted mode.)
 
    **Removed (rf2-g2axio):** everything else the pre-redesign section
    carried is gone — the bespoke **focused-transition lens** (the

@@ -533,7 +533,7 @@ it pans, zooms, and fits to viewport.
 
 ```
 ┌─ :auth/login   :idle → :authing                          [:auth/submit] ─┐
-│ ┌─[Canvas|List]──────────────────────────────────[− 100% +] [Fit][Reset]┐│
+│ ┌────────────────────────────────────────────────[− 100% +] [Fit][Reset]┐│
 │ │ · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · ││
 │ │ · · ▢ idle ──→ ▣ authing · · · · · · · · · · · · · · · · · · · · · · ││
 │ │ · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · ││
@@ -554,14 +554,14 @@ it pans, zooms, and fits to viewport.
   viewport dims + the content dims from `chart/layout`.)
 - `Reset` — zoom 100%, pan (0, 0).
 
-**View-mode toggle (top-left of every canvas):**
-
-A two-button pill — **Canvas** | **List**. Per-machine slot,
-persisted to localStorage under
-`xray.machine-canvas.view-mode-by-id`. Canvas is the default; List
-opt-out renders the section without the chart (guards + actions
-only) for users who want a leaner per-event read or who prefer the
-old text-first surface.
+> **rf2-48fwsi — Canvas/List view-mode toggle removed.** The canvas
+> formerly carried a top-left two-button **Canvas** | **List** pill.
+> After the rf2-g2axio events-as-nodes redesign no view branched on
+> the persisted mode — clicking "List" only flipped a localStorage
+> slot nothing read — so the toggle, its per-machine slot, and its
+> localStorage round-trip were deleted. The chart is the sole render
+> path. A chartless guards/actions-only "List view" would be a
+> separate new feature, not a revert.
 
 **Direct manipulation:**
 
@@ -605,14 +605,15 @@ with the rest of Xray's surface.
 | Slot | Shape | Purpose |
 |---|---|---|
 | `:viewports {<machine-id> {:scale :tx :ty}}` | per-machine `{:scale s :tx tx :ty ty}` | current viewport |
-| `:view-mode-by-id {<machine-id> :canvas|:list}` | per-machine | view-mode toggle; localStorage-persisted |
 | `:viewport-dims {<machine-id> {:width :height}}` | per-machine | last-measured viewport box (drives `:fit`, keyboard) |
 | `:drag {:machine-id … :dragging? :origin-x :origin-y :origin-viewport}` | transient | mouse-down pan accumulator; cleared on mouseup |
 
+(rf2-48fwsi removed the `:view-mode-by-id` slot + its
+`view-mode-for` / `view-mode-by-id` subs along with the dead
+Canvas/List toggle.)
+
 Subscriptions exposed for tools / tests:
 `:rf.xray.machine-canvas/viewport-for`,
-`:rf.xray.machine-canvas/view-mode-for`,
-`:rf.xray.machine-canvas/view-mode-by-id`,
 `:rf.xray.machine-canvas/viewport-dims-for`.
 
 ## IN/OUT filter pills
