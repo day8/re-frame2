@@ -310,6 +310,33 @@ Why the canonical form is `[<id> <map>]`:
 
 Cross-refs: [002 §Routing — canonical call shapes table](002-Frames.md#routing-the-dispatch-envelope), [Construction-Prompts §CP-1 — Call-shape convention](Construction-Prompts.md#cp-1-add-an-event-handler), [MIGRATION §M-19](../migration/from-re-frame-v1/README.md#m-19-multi-positional-dispatch--subscribe-vectors--map-payload-form-opt-in).
 
+## `reg-sub` input grammar — `input-fn` returns a vector of query vectors
+
+`reg-sub`'s two-function form takes a v2 **`input-fn`** as its optional first function (`(reg-sub id input-fn computation-fn)`). The `input-fn` is a **pure** function from the outer subscription `query-v` to the input query vectors this subscription depends on. There is exactly **one** legal return shape:
+
+> An `input-fn` MUST return a vector, and every element of that vector MUST be a query vector (a vector whose first element is a keyword).
+
+```clojure
+input-return := [query-vector*]      ;; query-vector := vector with a keyword head
+```
+
+```clojure
+;; Accepted
+[[:article/by-id id] [:viewer/current]]   ;; multiple inputs
+[[:item/by-id id]]                        ;; single input — still a vector OF query vectors
+[]                                        ;; no inputs (valid, unusual)
+
+;; Rejected — signals :rf.error/sub-input-fn-bad-return
+:viewer/current                           ;; bare keyword (no shorthand)
+[:article/by-id id]                       ;; scalar query vector — ambiguous, rejected
+[[:article/by-id id] :viewer]             ;; mixed vector + bare keyword
+{:article [:article/by-id id]}            ;; map return
+```
+
+The grammar is **intentionally narrow** to remove the v1 shape ambiguity: no bare keyword shorthand, no map return, no scalar single-query return, no live reaction / derefable. The scalar query-vector rejection is deliberate — `[:x :y]` is ambiguous (one query with argument `:y`, vs two inputs); the only accepted single-query spelling is `[[:x :y]]`. An `input-fn` is **not** a v1 signal function: it must not call `subscribe`, deref `app-db`, dispatch, mutate, or perform IO; it receives only the outer `query-v`; and it must not choose its edge set from `app-db` (that would break the fixed-topology-per-cache-entry invariant — thread `app-db`-derived parameters through the outer query vector at the call site instead).
+
+Use `:<-` for static inputs (it is exactly a constant `input-fn`); reach for `input-fn` only when the upstream query vectors need values carried by the outer `query-v`. Owned by [006 §Subscription input producers](006-ReactiveSubstrate.md#subscription-input-producers--app-db-reader-static-parametric-input-fn); mirrored in [API §`reg-sub` input-production modes](API.md#reg-sub-input-production-modes). The registration-shape and input-return error categories (`:rf.error/reg-sub-bad-args`, `:rf.error/sub-input-fn-exception`, `:rf.error/sub-input-fn-bad-return`) are catalogued in [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue) per the §Error-id and warning-id grammar co-edit invariant above.
+
 ## Tool dispatch frame-envelope convention
 
 Canonical re-frame2 devtools (Xray, Story, future tools under `:rf.<tool>/*` — per [§Reserved namespaces](#reserved-namespaces-framework-owned)) host their own state in their own frame. A tool view sitting under a `frame-provider` for, say, `:rf.xray` MUST end up dispatching its own events (`:rf.xray.epoch/set-db-view-mode`, etc.) into `:rf.xray` — never into `:rf/default` or into the inspected app frame. The convention has two cases — pick by **the moment the dispatching fn is invoked**, not by what the call site looks like.

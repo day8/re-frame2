@@ -753,6 +753,74 @@ re-frame2 does not ship `reg-sub-raw`. The substrate now has explicit answers fo
 
 ---
 
+### M-71. v1 signal functions → v2 `input-fn`s (vector of query vectors)
+
+**Type B** (semantic flag — the rewrite depends on the v1 signal fn's return shape, and a map-returning signal fn requires the author to choose an explicit input order).
+
+re-frame v1's two-function `reg-sub` form took a **signal function** that returned live `subscribe` reactions. re-frame2 keeps the two-function form but redefines the first function as a v2 **`input-fn`**: a **pure** function from the outer `query-v` to a **vector of query vectors** (data, not reactions). The runtime resolves those query vectors in the same frame and passes the resolved *values* to the computation function. This is **intentionally breaking** — see [006 §Subscription input producers](../../spec/006-ReactiveSubstrate.md#subscription-input-producers--app-db-reader-static-parametric-input-fn), [Conventions §`reg-sub` input grammar](../../spec/Conventions.md#reg-sub-input-grammar--input-fn-returns-a-vector-of-query-vectors), and [API §`reg-sub` input-production modes](../../spec/API.md#reg-sub-input-production-modes).
+
+v1 signal functions could call `subscribe`, return a single live signal, a vector of live signals, a map of live signals, and sometimes received extra args. v2 `input-fn`s must **not** call `subscribe`, must return a vector of query vectors, receive only the outer `query-v`, cannot return maps or bare keywords, and cannot choose their dependency topology from `app-db` (that would break the fixed-topology-per-cache-entry invariant). The static `:<-` form and the layer-1 `(fn [db query-v] ...)` form are **unchanged**.
+
+**What to look for:** every `reg-sub` whose second arg is a function (not `:<-` and not the lone computation fn) — that function is a v1 signal fn returning reactions. The breakage class:
+
+```clojure
+(rf/reg-sub :item/detail
+  (fn [[_ id]] [(rf/subscribe [:item/by-id id]) (rf/subscribe [:selection/current])])   ;; ← v1 signal fn
+  (fn [[item selected] [_ id]] ...))
+```
+
+**What to do** — rewrite the signal fn to return query vectors instead of reactions; classify by return shape:
+
+1. **Vector-returning** (the common case): drop the `subscribe` wrappers, return the query vectors.
+
+   ```clojure
+   ;; v1
+   (rf/reg-sub :item/detail
+     (fn [[_ id]] [(rf/subscribe [:item/by-id id]) (rf/subscribe [:selection/current])])
+     (fn [[item selected] [_ id]] (assoc item :selected? (= selected id))))
+
+   ;; v2
+   (rf/reg-sub :item/detail
+     (fn [[_ id]] [[:item/by-id id] [:selection/current]])
+     (fn [[item selected] [_ id]] (assoc item :selected? (= selected id))))
+   ```
+
+2. **Map-returning** (`{:item (rf/subscribe …) :selected (rf/subscribe …)}`): v2 does **not** accept a map return. Choose an explicit input order, return a vector of query vectors, and change the computation fn to vector destructuring. **Do not rely on source map iteration order** when picking the order — pick and preserve an explicit order.
+
+   ```clojure
+   ;; v1
+   (rf/reg-sub :item/detail
+     (fn [[_ id]] {:item (rf/subscribe [:item/by-id id]) :selected (rf/subscribe [:selection/current])})
+     (fn [{:keys [item selected]} [_ id]] (assoc item :selected? (= selected id))))
+
+   ;; v2
+   (rf/reg-sub :item/detail
+     (fn [[_ id]] [[:item/by-id id] [:selection/current]])
+     (fn [[item selected] [_ id]] (assoc item :selected? (= selected id))))
+   ```
+
+3. **Single-signal-returning** (`(rf/subscribe [:item/by-id id])` — a bare reaction): v2 has no scalar single-input form. Wrap in a vector of one query vector and adjust the computation fn to destructure a one-element vector.
+
+   ```clojure
+   ;; v1
+   (rf/reg-sub :item/title
+     (fn [[_ id]] (rf/subscribe [:item/by-id id]))
+     (fn [item _] (:title item)))
+
+   ;; v2
+   (rf/reg-sub :item/title
+     (fn [[_ id]] [[:item/by-id id]])
+     (fn [[item] _] (:title item)))
+   ```
+
+4. **`app-db`-dependent signal fn** (signal fn derefs `re-frame.db/app-db` or otherwise chooses inputs from state): the v2 `input-fn` cannot read `app-db`. **Flag for human review** — thread the state-derived parameter through the **outer query vector at the call site** (`@(rf/subscribe [:thing param])` where `param` came from another subscribe), so each concrete cache entry has stable dependencies. See [006 §No app-db-dependent topology](../../spec/006-ReactiveSubstrate.md#subscription-input-producers--app-db-reader-static-parametric-input-fn).
+
+**Bare keyword / scalar shorthand:** v2 has none. A single input is `[[:x]]` (not `:x`), and `[:x :y]` is never an `input-fn` return — only a single query vector *inside* `[[:x :y]]`. Rejected returns signal `:rf.error/sub-input-fn-bad-return` at runtime; a throwing `input-fn` signals `:rf.error/sub-input-fn-exception`; a malformed `reg-sub` registration shape signals `:rf.error/reg-sub-bad-args` (per [009 §Error event catalogue](../../spec/009-Instrumentation.md#error-event-catalogue)).
+
+**Why:** a v1 signal fn returns live substrate reactions, which is incompatible with re-frame2's pure, JVM-runnable `compute-sub` (and with non-Reagent substrates, SSR, and tool inspection). The vector-of-query-vectors design keeps the useful v1 capability — query-parametric subscription inputs — while keeping the signal graph static and inspectable per concrete query vector.
+
+---
+
 ### M-19. Multi-positional dispatch / subscribe vectors → map-payload form (opt-in)
 
 **Type B** (the rewrite is mechanical given good information; the *trigger* is intent — the codebase's owner decides when to migrate, per-event-id).
@@ -1666,7 +1734,7 @@ The migration message string carries the migration target inline so a stack-trac
 ## Type-tag summary
 
 - **Type A — fully mechanical.** Agent applies the rewrite without asking. Rules: **M-0** (deps-coord swap to `day8/re-frame2` — target is unambiguous), M-1 (with the documented private-namespace exceptions), M-4, M-5, M-6, M-7, M-8, M-9, M-16, **M-17 (single-frame app variant only)**, **M-20** (framework keyword consolidation under `:rf/*`), **M-21 (`debug` and `trim-v` portions only)**, **M-22**, **M-23 (registration / subscribe shape rewrites only — lifecycle annotations are dropped with a flag, not silently rewritten)**, **M-24** (`h` macro removal), **M-25** (`re-frame.test` → `re-frame.test-support` ns rename), **M-26 (drift-sweep portions other than `add-post-event-callback` / `remove-post-event-callback` / `reg-event-error-handler`)**, **M-27** (`day8/re-frame2-schemas` dep when the app uses Spec 010), **M-28** (`day8/re-frame2-machines` dep when the app uses Spec 005), **M-29** (`day8/re-frame2-routing` dep when the app uses Spec 012), **M-30** (`day8/re-frame2-flows` dep when the app uses Spec 013), **M-31** (`day8/re-frame2-http` dep when the app uses Spec 014), **M-32** (`day8/re-frame2-ssr` dep when the app uses Spec 011), **M-33** (`day8/re-frame2-epoch` dep when the app uses the Tool-Pair time-travel / pair-tool surface), **M-35** (`:spawn` / `:destroy-machine` → `:rf.machine/spawn` / `:rf.machine/destroy` rename), **M-37** (adapters relocated under `implementation/adapters/<name>/` — note only; Maven artefact names are unchanged), **M-38** (CLJS namespace rename `re-frame.substrate.<name>` → `re-frame.adapter.<name>`; mechanical `:require`-line substring swap), **M-39** (additive `reg-http-interceptor` / `clear-http-interceptor` surface on `:rf.http/managed`; no rewrite — opt-in collapse of per-call-site request-builder threading), **M-41** (subscribe + dispatch consult the React-context tier; additive, no rewrite), **M-47** (state-tag capability shipped; additive — no rewrite required for existing machines, optional adoption via `:tags` on state nodes), **M-70** (bare interceptor → vector wrap — mechanical `mw/x` → `[mw/x]`; but **SILENT-fail**, so swept by an exhaustive up-front grep, not march-the-wall).
-- **Type B — flag for human review.** Agent identifies hit sites, explains the change, but does NOT rewrite without explicit approval — the rewrite depends on intent that static analysis can't recover. Rules: **M-3** (run-to-completion drain semantics; timing-sensitive code may depend on the old async-dispatch behaviour and silent reordering would break it); **M-10** (reserved-namespace collisions; the rewrite depends on whether the user intended to override a framework event or accidentally collided); **M-11** (plain Reagent fns rendered under non-default frames; the rewrite depends on whether the component should follow its surrounding frame or pin to the default); **M-12** (render-count test re-baselining); **M-13** (error-handler ownership); **M-14** (`:rf.route/not-found` requirement when adopting Spec 012); **M-15** (app-db seeding move); **M-17 (multi-frame app variant)** (rewrite path depends on whether the global interceptor was meant to apply to every frame, was observer-shaped, or only belonged on the default frame); **M-18** (`reg-sub-raw` removal; rewrite path depends on what the raw body does — app-db read, non-app-db source, lifecycle management, or side-effects-from-subs anti-pattern); **M-19 (opt-in)** (multi-positional dispatch/subscribe → map-payload; the rewrite is mechanical given handler-side parameter names, but the trigger is the codebase owner's choice — multi-positional is tolerated indefinitely); **M-21 (`on-changes`, `enrich`, `after` portions)** (rewrite path depends on whether the interceptor's body is computing derived state, validating, side-effecting, or escape-hatching; agent suggests flow / schema / fx / custom `->interceptor` based on body shape); **M-26 (`add-post-event-callback` / `remove-post-event-callback` / `reg-event-error-handler` portions)** (rewrite path depends on whether the v1 callback / handler was observer-shaped or behaviour-modifying); **M-34** (declarative-`:spawn` spawn-id tracking moved from `:data :pending` to runtime-owned `[:rf/runtime :machines :spawned ...]`; rewrite depends on whether user code or tests asserted on the old leak-on-missing-`:on-spawn` behaviour); **M-40** (`(rf/init!)` requires an explicit adapter spec map; agent identifies hit sites but human confirms which adapter each call site should boot — single-substrate apps are mechanical, mixed-substrate or `.cljc` apps with platform branches need per-site direction); **M-42** (React-19-removed Reagent surfaces ship as throw-on-call shims under the slim adapter; mount-path rewrites are mechanical once the container reference is identified, but `dom-node` / `force-update-all` call sites need per-site direction — there is no static-analysable replacement for `findDOMNode` consumers or `force-update-all` global-rebuild scripts).
+- **Type B — flag for human review.** Agent identifies hit sites, explains the change, but does NOT rewrite without explicit approval — the rewrite depends on intent that static analysis can't recover. Rules: **M-3** (run-to-completion drain semantics; timing-sensitive code may depend on the old async-dispatch behaviour and silent reordering would break it); **M-10** (reserved-namespace collisions; the rewrite depends on whether the user intended to override a framework event or accidentally collided); **M-11** (plain Reagent fns rendered under non-default frames; the rewrite depends on whether the component should follow its surrounding frame or pin to the default); **M-12** (render-count test re-baselining); **M-13** (error-handler ownership); **M-14** (`:rf.route/not-found` requirement when adopting Spec 012); **M-15** (app-db seeding move); **M-17 (multi-frame app variant)** (rewrite path depends on whether the global interceptor was meant to apply to every frame, was observer-shaped, or only belonged on the default frame); **M-18** (`reg-sub-raw` removal; rewrite path depends on what the raw body does — app-db read, non-app-db source, lifecycle management, or side-effects-from-subs anti-pattern); **M-19 (opt-in)** (multi-positional dispatch/subscribe → map-payload; the rewrite is mechanical given handler-side parameter names, but the trigger is the codebase owner's choice — multi-positional is tolerated indefinitely); **M-21 (`on-changes`, `enrich`, `after` portions)** (rewrite path depends on whether the interceptor's body is computing derived state, validating, side-effecting, or escape-hatching; agent suggests flow / schema / fx / custom `->interceptor` based on body shape); **M-26 (`add-post-event-callback` / `remove-post-event-callback` / `reg-event-error-handler` portions)** (rewrite path depends on whether the v1 callback / handler was observer-shaped or behaviour-modifying); **M-34** (declarative-`:spawn` spawn-id tracking moved from `:data :pending` to runtime-owned `[:rf/runtime :machines :spawned ...]`; rewrite depends on whether user code or tests asserted on the old leak-on-missing-`:on-spawn` behaviour); **M-40** (`(rf/init!)` requires an explicit adapter spec map; agent identifies hit sites but human confirms which adapter each call site should boot — single-substrate apps are mechanical, mixed-substrate or `.cljc` apps with platform branches need per-site direction); **M-42** (React-19-removed Reagent surfaces ship as throw-on-call shims under the slim adapter; mount-path rewrites are mechanical once the container reference is identified, but `dom-node` / `force-update-all` call sites need per-site direction — there is no static-analysable replacement for `findDOMNode` consumers or `force-update-all` global-rebuild scripts); **M-71** (v1 signal functions → v2 `input-fn`s; the vector-of-reactions rewrite is mechanical, but a **map-returning** signal fn forces the author to choose and preserve an explicit input order, and an `app-db`-reading signal fn must thread the state-derived parameter through the outer query vector at the call site — both are intent the agent cannot recover statically).
 
 Per [000-Vision §C1](../../spec/000-Vision.md#c1-mechanical-migration-via-ai-agent), Type B rules require human review precisely because side-effects can be silently reordered with observable consequences.
 

@@ -49,7 +49,7 @@ The core is the substrate-agnostic part. It owns:
 - **The frame contract.** Each frame holds an `app-db` *value*, a queue, a sub-cache, and an id. The "value" interface is what the core requires; the adapter provides the reactive container that holds it.
 - **The dispatch envelope and event queue.** Per [002 §Routing](002-Frames.md#routing-the-dispatch-envelope). Pure data, FIFO.
 - **The drain mechanism.** Run-to-completion drain (per [002 §Run-to-completion](002-Frames.md#run-to-completion-dispatch-drain-semantics)). Pure logic over the queue.
-- **Subscription topology.** The static `:<-` graph derived from `reg-sub` chains. Pure data, JVM-runnable.
+- **Subscription topology.** The static dependency graph derived from `reg-sub` registrations — the literal `:<-` edges plus the per-sub input-kind discriminator (`:db` / `:static` / `:parametric`). Pure data, JVM-runnable. (Realized parametric edges per concrete query vector are runtime cache state, not static topology — see [§Subscription input producers](#subscription-input-producers--app-db-reader-static-parametric-input-fn).)
 - **Subscription computation.** `(compute-sub query-v db)` — running a sub's body against an `app-db` value. Pure function. JVM-runnable.
 - **Effect map interpretation.** Walking `:fx` and dispatching to registered fx handlers. Per [Spec-Schemas §:rf/effect-map](Spec-Schemas.md#rfeffect-map).
 - **The trace event stream.** Per [009](009-Instrumentation.md). Pure data.
@@ -470,7 +470,11 @@ Each frame holds one sub-cache, keyed by `[query-vector]`:
 
 {[query-vector]
  {:reaction  r            ;; the substrate-specific derived container
-  :inputs    [[q1] [q2]]  ;; resolved :<- chain (vector of input query-vectors)
+  :inputs    [[q1] [q2]]  ;; the realized input query-vectors for THIS cache entry —
+                          ;; the literal :<- chain for a static sub, or the
+                          ;; (input-fn query-v) result for a parametric sub (per
+                          ;; [§Subscription input producers]). Fixed for the entry's
+                          ;; lifetime (fixed-topology-per-cache-entry invariant).
   :ref-count n}}          ;; how many readers currently hold a reference
 ```
 
@@ -488,19 +492,25 @@ Lookup [query-v] in frame F:
     return F.sub-cache[k].reaction      ;; the derived container
   Otherwise (cache miss):
     meta    ← registrar.lookup(:sub, first(query-v))
-    inputs  ← resolve-inputs(meta, F)         ;; recurses for :<- inputs
-    body    ← meta.fn
-    derived ← substrate.make-derived-value(
-                inputs.map(c → c.reaction),
+    ;; Produce this entry's input query-vectors from the sub's input producer
+    ;; (per [§Subscription input producers]), then resolve each recursively.
+    input-qs ← match meta.input-kind:
+                 :db          → []                        ;; layer-1: no producer
+                 :static      → meta.input-signals        ;; literal :<- query-vectors
+                 :parametric  → validate((meta.input-fn query-v))  ;; vector of query-vectors
+    inputs   ← input-qs.map(q → subscribe(F, q))  ;; recurse — resolve each input → containers
+    body     ← meta.fn
+    derived  ← substrate.make-derived-value(
+                inputs,                            ;; the resolved input containers
                 (in-vals) → body(in-vals, query-v))
     F.sub-cache[k] ← {:reaction  derived
-                      :inputs    inputs
+                      :inputs    input-qs   ;; the realized input QUERY-VECTORS for this entry
                       :ref-count 1}
     ;; Wire disposal on the derived container itself — when its last
     ;; derefer drops, release input refs and dissoc the slot. The cache
     ;; holds NO entry-level dispose-fn vector; it relies on the container's
     ;; own on-dispose hook (CLJS: interop/add-on-dispose! on the Reaction).
-    on-dispose(derived, () → { for q in inputs: unsubscribe(F, q)
+    on-dispose(derived, () → { for q in input-qs: unsubscribe(F, q)
                                F.sub-cache.dissoc(k) })
     trace! :sub/registered {:query-v query-v :frame F.id}
     return derived
@@ -568,6 +578,59 @@ The terminology comes from re-frame v1; the semantics carry over.
 | **Layer-3** | Reads other subs via `:<-`, where one or more inputs are themselves layer-2 | `(reg-sub :user-greeting :<- [:user-name] :<- [:locale] (fn [...] ...))` | Any input sub's value changes by `=`. |
 
 Layers ≥ 3 are conventionally just "layer-2+" — the algorithm treats them all the same. The distinction matters for understanding the cascade order (layer-1 settles before layer-2, layer-2 before layer-3) but not for the implementation, which uses `:<-` chain depth implicitly via topological iteration.
+
+### Subscription input producers — app-db reader, static, parametric input-fn
+
+Every subscription has one **input query-vector producer** — the thing that, at cache-miss time, names the upstream subscriptions this node depends on. The three producer kinds are a single unifying model:
+
+> A subscription has an input query-vector producer. Layer-1 has **no** producer (it reads `app-db` directly); `:<-` is the **literal** producer (a fixed list of input query vectors known at registration); and an `input-fn` is the **query-parametric** producer (it computes the input query vectors from the outer `query-v`).
+
+This is what `reg-sub`'s optional first function is. It is a v2 **`input-fn`**: a **pure** function from the outer subscription `query-v` to a vector of input query vectors — **not** a v1 reaction-returning signal function. The runtime resolves each returned query vector through the ordinary [§Lookup algorithm](#lookup-algorithm) in the same frame as the outer subscription, then calls the computation function with the resolved input *values* (in order) and the outer `query-v`.
+
+```clojure
+(rf/reg-sub
+  :article/page
+  (fn input-fn [[_ article-id]]                ;; query-v → vector of query vectors
+    [[:article/by-id article-id]
+     [:comments/for-article article-id]
+     [:viewer/current]])
+  (fn computation-fn [[article comments viewer] [_ article-id]]
+    {:id article-id :article article :comments comments
+     :can-edit? (:edit? viewer)}))
+```
+
+**Input grammar.** An `input-fn` MUST return a vector, and every element MUST be a query vector (a vector whose head is a keyword):
+
+```clojure
+query-vector := vector whose first element is a keyword
+input-return := [query-vector*]
+```
+
+Accepted: `[[:a id] [:b]]` (multiple), `[[:a id]]` (single — still a vector OF query vectors), `[]` (no inputs). **Rejected** (each signals `:rf.error/sub-input-fn-bad-return` per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)): a bare keyword (`:a`), a scalar query vector (`[:a id]` — ambiguous between "one query with arg `id`" and "two inputs"), a mixed `[[:a id] :b]`, a map (`{:a [:a id]}`), or a reaction / derefable. The only accepted single-query spelling is `[[:x :y]]`. The grammar is owned by [Conventions §`reg-sub` input grammar](Conventions.md#reg-sub-input-grammar--input-fn-returns-a-vector-of-query-vectors) and mirrored in [API §`reg-sub` input-production modes](API.md#reg-sub-input-production-modes).
+
+The `input-fn`:
+
+- receives the full outer `query-v`;
+- runs when the concrete subscription node is materialized (a cache miss), **not** on the hot recompute path;
+- returns a vector of query vectors;
+- MUST be pure and deterministic over `query-v`;
+- MUST NOT call `subscribe`, deref `app-db`, dispatch, mutate, or perform IO.
+
+Static `:<-` is exactly a **constant** `input-fn`. `(reg-sub :vis :<- [:items] :<- [:filter] f)` is equivalent to `(reg-sub :vis (fn [_] [[:items] [:filter]]) f)`. Use `:<-` for static inputs; reach for `input-fn` only when the upstream query vectors need values carried by the outer `query-v`.
+
+**Fixed-topology-per-cache-entry invariant.** A subscription's cache entry (keyed by its concrete outer query vector) has a **fixed** set of upstream edges for the entry's whole lifetime. The `input-fn` runs once at materialization to compute those edges; once materialized the node follows ordinary layer-2+ semantics (upstream value changes trigger recompute; `=`-equal upstream values suppress recompute; disposal releases the realized upstream subscriptions synchronously; hot reload invalidates the affected cache entries and the `input-fn` re-runs on recreation). The realized input query vectors are stored on the cache entry (alongside `:inputs`) so disposal, trace, and Xray can read them — see [§Lookup algorithm](#lookup-algorithm) and [§Sub-cache wiring](#sub-cache-wiring-reagent-realisation).
+
+**No app-db-dependent topology.** An `input-fn` MUST NOT choose its edge set from `app-db`. The objection is **not** purity — an `app-db` value is pure and JVM-computable — it is **reactive-cache stability**: a state-dependent edge set would let a cache entry's upstream edges change as `app-db` changes, breaking the fixed-topology-per-cache-entry invariant that disposal, hot reload, live topology display, and Xray explanation rely on. When a parameter lives in `app-db`, thread it through the **outer query vector at the call site** instead:
+
+```clojure
+(let [article-id @(rf/subscribe [:current-route/article-id])
+      page       @(rf/subscribe [:article/page article-id])]
+  ...)
+```
+
+The graph stays dynamic at the **view boundary**, where React already manages subscription lifecycle; each concrete `[:article/page article-id]` cache entry keeps stable dependencies for its lifetime. (This is why a v1 signal function returning live reactions, or an `input-fn` reading `app-db`, are both rejected — see [Backwards compatibility / migration](../migration/from-re-frame-v1/README.md#m-71-v1-signal-functions--v2-input-fns-vector-of-query-vectors).)
+
+**Frame resolution.** Input query vectors are frame-agnostic data. The runtime resolves them in the **same frame** as the outer subscription; the `input-fn` does not receive a frame argument and must not search for one. Per the Explicit Frame Target Resolution EP, frame identity is carried by the outer subscription operation and every realized input inherits that frame.
 
 ### Reference counting and disposal
 
@@ -852,20 +915,33 @@ The per-frame **sub-cache** ([§Subscription cache invalidation](#subscription-c
 
 (defn- compute-and-cache [frame query-v]
   (let [meta     (registrar/lookup :sub (first query-v))
-        inputs   (mapv (fn [input-q] (subscribe frame input-q))   ;; recurse for :<-
-                       (:input-signals meta))
+        ;; Produce the realized input query-vectors for THIS entry from the sub's
+        ;; input producer (per [§Subscription input producers]):
+        ;;   :db         → []                          ; layer-1 reads app-db directly
+        ;;   :static     → (:input-signals meta)       ; literal :<- query-vectors
+        ;;   :parametric → (normalize-sub-inputs       ; (input-fn query-v), validated
+        ;;                   ((:input-fn meta) query-v))
+        ;; normalize-sub-inputs enforces the input grammar (a vector of query
+        ;; vectors) — a bad shape signals :rf.error/sub-input-fn-bad-return; a
+        ;; throw in input-fn signals :rf.error/sub-input-fn-exception.
+        input-qs (produce-input-queries meta query-v)
+        inputs   (mapv (fn [input-q] (subscribe frame input-q)) input-qs) ;; recurse → containers
         body-fn  (:fn meta)
         ;; The Reaction wraps the sub body. Reagent re-runs body-fn only when
         ;; one of its derefs (the inputs) changes by =. This is the layer-1/2/3
-        ;; sub semantics from v1 — same algorithm, now scoped per frame.
+        ;; sub semantics from v1 — same algorithm, now scoped per frame. The
+        ;; entry's input topology is FIXED once materialized (the input-fn does
+        ;; not re-run on recompute — fixed-topology-per-cache-entry invariant).
         r        (ratom/make-reaction
                    (fn [] (apply body-fn (conj (mapv deref inputs) query-v))))]
-    (swap! (:sub-cache frame) assoc k {:reaction r :inputs inputs :ref-count 1})
+    ;; Store the realized input QUERY-VECTORS (not the containers) so disposal,
+    ;; trace, and Xray can read this entry's realized parametric edges.
+    (swap! (:sub-cache frame) assoc k {:reaction r :inputs input-qs :ref-count 1})
     ;; When this reaction's last reader disposes, release the input refs
     ;; symmetrically (layer-2+ cascade) then GC the cache slot.
     (interop/add-on-dispose! r
       (fn []
-        (doseq [input-q inputs] (unsubscribe frame input-q))
+        (doseq [input-q input-qs] (unsubscribe frame input-q))
         (swap! (:sub-cache frame)
                (fn [cm] (if (identical? r (get-in cm [k :reaction])) (dissoc cm k) cm)))))
     r))
@@ -1132,7 +1208,7 @@ All three adapters read the **same** React Context object (`re-frame.adapter.con
 
 A subtle distinction worth pulling out: **the static topology of the sub graph is core; the runtime tracking is adapter**.
 
-The topology is "what depends on what" — the static `:<-` chain you can derive from registrations alone, without running any code. `(rf/sub-topology)` returns this graph as data, shaped `{sub-id {:inputs [<input-sub-ids>] :doc :ns :line :file}}` per [002 §The public registrar query API](002-Frames.md#the-public-registrar-query-api). `:inputs` is always present (empty for layer-1 / direct-app-db subs) and lists the upstream sub-ids in declaration order; `:doc` and the source-coord keys are present when the registration carries them. JVM-runnable. No adapter needed.
+The topology is "what depends on what" — the static dependency graph you can derive from registrations alone, without running any code. `(rf/sub-topology)` returns this graph as data, shaped `{sub-id {:input-kind <kind> :inputs <inputs> :doc :ns :line :file}}` per [002 §The public registrar query API](002-Frames.md#the-public-registrar-query-api). `:input-kind` discriminates `:db` (layer-1 / direct-app-db reader; `:inputs []`), `:static` (`:<-` chains; `:inputs` lists the literal upstream query vectors in declaration order), and `:parametric` (`input-fn`; `:inputs :parametric` — the realized edge set depends on the concrete outer query vector and is therefore NOT statically enumerable). `:doc` and the source-coord keys are present when the registration carries them. JVM-runnable. No adapter needed. **Realized parametric edges** per concrete query vector are runtime cache state, surfaced by `sub-cache` / live sub-cache inspection (e.g. `{[:article/page :a1] {:sub-id :article/page :input-kind :parametric :realized-inputs [[:article/by-id :a1] ...]}}`), not by the static `sub-topology` — the static query must not pretend every possible parametric edge is enumerable before concrete query vectors exist.
 
 `sub-topology` is a *literal projection* of the registrar — it does not validate the resulting graph. Cycle detection, "this `:<-` references an unregistered sub", and similar diagnostics are debugger / tool-pair concerns that traverse the returned map; the topology query itself reports verbatim what was registered. (Cycles in `:<-` are not legal at runtime — the resolved sub will throw — but the topology query stays a static projection.)
 
