@@ -49,7 +49,7 @@
             ;; `:rf.machine/destroy` fx, and the `:rf/machine` /
             ;; `:rf/machine-has-tag?` framework subs.
             [re-frame.late-bind]
-            [re-frame.machines :as machines]
+            [re-frame.machines]
             [re-frame.fx]
             [websocket.schema]))
 

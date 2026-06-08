@@ -46,7 +46,6 @@
    bundle. The bundle-isolation gate verifies the Story / Xray
    sentinel sets stay out of the plain `:examples/nine-states` build."
   (:require [re-frame.core  :as rf]
-            [re-frame.story :as story]
             [re-frame.adapter.reagent :as reagent-adapter]
             [day8.re-frame2-xray.config :as xray-config]
             ;; Source the example's registrations (machine / schemas /

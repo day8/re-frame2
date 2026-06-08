@@ -68,8 +68,7 @@
             [re-frame.machines]
             [long-running-work.schema]
             [long-running-work.worker]
-            [long-running-work.views :as views])
-  (:require-macros [re-frame.core :refer [reg-view]]))
+            [long-running-work.views :as views]))
 
 ;; ============================================================================
 ;; INITIALISATION
