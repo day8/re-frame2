@@ -1199,9 +1199,10 @@
                   {:doc  "Route x"
                    :path "/"
                    :head :head/main})
-    (rf/reg-event-db :init/seed-route
-      (fn [db _]
-        (assoc-in db [:rf/runtime :routing :current] {:id :route/x})))
+    ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state.
+    (rf/reg-event-fx :init/seed-route
+      (fn [{rt :rf.db/runtime} _]
+        {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:id :route/x})}))
     (rf/reg-view* :pages/blank-for-title (fn [] [:div]))
 
     (let [handler  (ssr-ring/ssr-handler
@@ -1251,9 +1252,9 @@
                   {:doc  "Route no-title"
                    :path "/"
                    :head :head/no-title})
-    (rf/reg-event-db :init/seed-no-title
-      (fn [db _]
-        (assoc-in db [:rf/runtime :routing :current] {:id :route/no-title})))
+    (rf/reg-event-fx :init/seed-no-title
+      (fn [{rt :rf.db/runtime} _]
+        {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:id :route/no-title})}))
     (rf/reg-view* :pages/blank-no-title (fn [] [:div]))
 
     (let [handler  (ssr-ring/ssr-handler
@@ -1285,8 +1286,8 @@
                 {:doc  "Route exercising :html-attrs / :body-attrs"
                  :path "/"
                  :head :head/with-attrs})
-  (rf/reg-event-db :init/seed-attrs-route
-    (fn [db _] (assoc-in db [:rf/runtime :routing :current] {:id :route/with-attrs})))
+  (rf/reg-event-fx :init/seed-attrs-route
+    (fn [{rt :rf.db/runtime} _] {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:id :route/with-attrs})}))
   (rf/reg-view* :pages/blank-attrs (fn [] [:div])))
 
 (deftest default-shell-stamps-html-attrs-and-body-attrs
@@ -2001,11 +2002,11 @@
                 {:doc  "Route whose head fn throws"
                  :path "/head-throws"
                  :head :head/throws})
-  (rf/reg-event-db :init/seed-throwing-head-route
+  (rf/reg-event-fx :init/seed-throwing-head-route
     {:platforms #{:server}}
-    (fn [db _]
-      (assoc-in db [:rf/runtime :routing :current]
-                {:id :route/head-throws})))
+    (fn [{rt :rf.db/runtime} _]
+      {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current]
+                                {:id :route/head-throws})}))
   (rf/reg-view* :pages/head-throws-body
     (fn [] [:div.page [:h1 "Body rendered fine"]])))
 
