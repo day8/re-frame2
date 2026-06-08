@@ -369,7 +369,7 @@
 ;; the schema-first wire walker (`elision/elide-wire-value`) already reads.
 ;; We translate the registration's output-rooted marks into ABSOLUTE app-db
 ;; declarations rooted at `(:path flow)` and write them into the frame's
-;; `[:rf/runtime :elision :sensitive-declarations]` / `:declarations` slots.
+;; `[:rf.runtime/elision :sensitive-declarations]` / `:declarations` slots.
 ;;
 ;; ONE walker then covers BOTH channels:
 ;;   - the flow trace `:result` / `:before` already ride

@@ -6,10 +6,10 @@
   saved-position map at `[:rf.runtime/routing :scroll-positions]`,
   LRU-capped by `scroll-positions-cap`. Recency anchor lives at
   `[:rf.runtime/routing :scroll-positions-order]` as an internal
-  vector. Both sit under the framework-owned `:rf/runtime` root
-  (spec/Conventions §Reserved app-db keys, Spec-Schemas §`:rf/runtime`)
-  so all routing runtime state in app-db sits beneath the single
-  framework root.
+  vector. Both sit under the framework-owned `:rf.runtime/routing`
+  child of the runtime-db partition (spec/Conventions §Reserved
+  runtime-db keys) so all routing runtime state lives in runtime-db,
+  not in app-db.
 
   Internal namespace; the public facade is `re-frame.routing`. The
   facade owns the two `fx/reg-fx` calls so a `:reload` re-wires them on
@@ -22,19 +22,21 @@
   "Soft upper bound on tracked URLs in the per-frame scroll-positions map.
   Sized for typical SPA navigation depth — large enough that real
   Back-button restoration hits saved positions, small enough that the
-  per-frame app-db slice stays bounded over long sessions."
+  per-frame runtime-db slice stays bounded over long sessions."
   50)
 
 (defn lookup-scroll-position
-  "Return the saved [x y] for url in this frame's app-db, or nil if none."
+  "Return the saved [x y] for url in this frame's runtime-db, or nil if none.
+  `db` is the runtime-db value."
   [db url]
   (get-in db [:rf.runtime/routing :scroll-positions url]))
 
 (defn save-scroll-position
-  "Pure: return db with the scroll position for url recorded at
-  [:rf.runtime/routing :scroll-positions url]. Used inside :db effect
-  maps so scroll positions live under the frame boundary (Spec 012
-  §Multi-frame routing). The map is LRU-capped at `scroll-positions-cap`
+  "Pure: return runtime-db with the scroll position for url recorded at
+  [:rf.runtime/routing :scroll-positions url]. Applied to the frame's
+  runtime-db partition (via `swap-runtime-db!`) so scroll positions live
+  under the frame boundary (Spec 012 §Multi-frame routing). `db` is the
+  runtime-db value. The map is LRU-capped at `scroll-positions-cap`
   entries — re-saving an existing url promotes it to most-recent; new
   saves past the cap evict the least-recently-used entry."
   [db url xy]

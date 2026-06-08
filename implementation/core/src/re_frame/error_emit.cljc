@@ -280,7 +280,7 @@
   gated like the dev trace. Every caller MUST keep identifiers tight,
   elide `:event` (done here via the wire-walker), and carry NO raw
   app-db slice. Sensitive-data redaction on this path is path-based:
-  the per-frame `[:rf/runtime :elision]` registry's `:sensitive-
+  the per-frame `:rf.runtime/elision` registry's `:sensitive-
   declarations` drive the wire-walker's per-slot substitutions.
   Handler-meta `:sensitive?` is no longer consulted (path-marked
   classification is the v2 mechanism; separate spec doc; in progress).
@@ -307,7 +307,7 @@
         ;; `[:event …]`. See [[error-source-coord]] / [[sub-error-categories]].
         source-coord (error-source-coord error-kw event-id)
         ;; Per-path wire-walker: paths flagged `:sensitive?` / `:large?`
-        ;; via the per-frame `[:rf/runtime :elision]` registry get their
+        ;; via the per-frame `:rf.runtime/elision` registry get their
         ;; per-path substitutions.
         elided-event (elision/elide-wire-value event {:frame frame-id})
         record       (cond-> {:error      error-kw

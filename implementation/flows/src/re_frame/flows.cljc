@@ -261,7 +261,7 @@
           ;; slice's root the wrapped value lives — `:result` and
           ;; `:before` BOTH live at the flow's output path; each
           ;; `:input-values` entry is the value at the matching input
-          ;; path. The walker reads `[:rf/runtime :elision
+          ;; path. The walker reads `[:rf.runtime/elision
           ;; :declarations <path>]` and emits the marker for
           ;; schema-declared large slots.
           ;;
