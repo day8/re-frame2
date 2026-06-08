@@ -714,8 +714,12 @@
 
   `:db` + `:event` are populated by `assemble-initial-ctx`; `:frame` ditto.
   `:source` + `:trace-id` are envelope keys also surfaced on the cofx
-  map by `assemble-initial-ctx` for handler-body convenience."
-  #{:db :event :frame :source :trace-id})
+  map by `assemble-initial-ctx` for handler-body convenience.
+  `:rf.db/runtime` (the runtime-db partition) + `:rf.frame/id` (the
+  runtime-context frame id) are the EP-0001 partition coeffects, likewise
+  injected by `assemble-initial-ctx` — framework defaults, not user cofx
+  (rf2-bvwoi4)."
+  #{:db :event :frame :source :trace-id :rf.db/runtime :rf.frame/id})
 
 (defn user-injected-coeffects
   "Project the user-injected subset of a coeffects map. Pure data → data.

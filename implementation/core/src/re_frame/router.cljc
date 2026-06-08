@@ -405,16 +405,51 @@
 (defn- assemble-initial-ctx
   "Build the initial interceptor context per the standard shape. Envelope
   keys (:source :trace-id) are surfaced as cofx entries so handler bodies
-  can read them. Per Spec 002 §Routing — the dispatch envelope."
-  [envelope frame frame-record fx-overrides]
-  (let [event     (:event envelope)
-        db-value  (frame/frame-app-db-value frame)]
-    {:coeffects (cond-> {:db    db-value
-                         :event event
-                         :frame frame}
+  can read them. Per Spec 002 §Routing — the dispatch envelope.
+
+  EP-0001 (rf2-bvwoi4) — the event context threads BOTH durable partitions
+  plus the frame id (per Spec 002 §Event context threads both partitions):
+
+    :db            the app-db partition value (the inherited bare key — KEEPS
+                   meaning app-db, NOT the whole frame).
+    :rf.db/runtime the runtime-db partition value, injected BY REFERENCE (no
+                   copy) so a pure app event pays nothing for a partition it
+                   never touches.
+    :rf.frame/id   the running frame's id — the runtime-context spelling of
+                   the frame id, distinct from the public `:frame` opt.
+
+  The runtime-db partition has no physical slot until the one-container
+  frame-state lands in rf2-adwcv6 (bead 5); until then `frame-runtime-db-
+  value` reads `nil` for a live frame, which is the correct injected value
+  (an empty/absent runtime-db). The shape is final — bead 5 grows a populated
+  `:rf.db/runtime` coeffect for free.
+
+  `:rf/framework-authority?` is a NON-coeffect context flag (not visible to
+  handler bodies) recording whether THIS handler has framework-write
+  authority over the reserved `:rf.db/runtime` partition. It is true for
+  framework-minted handlers (today: machine handlers, `:rf/machine? true` —
+  the machine registrar mints a framework-authority handler per Spec 002
+  §Write authority). The effect-commit site reads it to decide whether a
+  returned `:rf.db/runtime` effect is in-bounds or should fire the
+  `:rf.warning/app-handler-runtime-effect` dev diagnostic (reserved BY
+  CONVENTION, not a security boundary — Mike ruling #4). It is NOT a
+  capability gate: the effect is applied either way."
+  [envelope frame frame-record handler-meta fx-overrides]
+  (let [event       (:event envelope)
+        db-value    (frame/frame-app-db-value frame)
+        ;; populated in rf2-adwcv6 (bead 5): the runtime-db partition has no
+        ;; physical slot yet, so this reads `nil` (an absent runtime-db) for a
+        ;; live frame. Injected by reference per Spec 002 §Event context.
+        runtime-db  (frame/frame-runtime-db-value frame)]
+    {:coeffects (cond-> {:db            db-value
+                         :event         event
+                         :frame         frame
+                         :rf.db/runtime runtime-db
+                         :rf.frame/id   frame}
                   (:source envelope)   (assoc :source (:source envelope))
                   (:trace-id envelope) (assoc :trace-id (:trace-id envelope)))
      :effects {}
+     :rf/framework-authority? (boolean (:rf/machine? handler-meta))
      :rf/fx-overrides fx-overrides}))
 
 (def ^:private handler-wrapping-interceptor-ids
@@ -1380,7 +1415,7 @@
         ;; :interceptors` still sees the user-authored chain with the
         ;; handler-wrapper at its tail.
         full-chain      (into [flows-after-interceptor] redacted-chain)
-        initial-ctx     (assemble-initial-ctx envelope frame frame-record fx-overrides)
+        initial-ctx     (assemble-initial-ctx envelope frame frame-record handler-meta fx-overrides)
         all-paths       (into (vec redaction-paths) user-paths)]
     {:full-chain   full-chain
      :initial-ctx  initial-ctx
