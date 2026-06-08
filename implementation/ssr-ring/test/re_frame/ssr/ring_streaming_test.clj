@@ -749,11 +749,12 @@
                   {:doc  "Streaming route whose head fn throws"
                    :path "/stream-head-throws"
                    :head :test.stream/head-throws})
-    (rf/reg-event-db :rf.test.stream/seed-throwing-head-route
+    ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state.
+    (rf/reg-event-fx :rf.test.stream/seed-throwing-head-route
       {:platforms #{:server}}
-      (fn [db _]
-        (assoc-in db [:rf/runtime :routing :current]
-                  {:id :test.stream/route-head-throws})))
+      (fn [{rt :rf.db/runtime} _]
+        {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current]
+                                  {:id :test.stream/route-head-throws})}))
     (rf/reg-view ^{:rf/id :test/stream-head-body} stream-head-body []
       [:main [:h1 "Streamed body rendered fine"]])
     (let [traces  (atom [])
