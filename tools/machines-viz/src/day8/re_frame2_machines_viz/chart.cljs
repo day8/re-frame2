@@ -49,6 +49,7 @@
             [day8.re-frame2-machines-viz.chart.layout :as layout]
             [day8.re-frame2-machines-viz.chart.layout-error :as layout-error]
             [day8.re-frame2-machines-viz.chart.projection :as projection]
+            [day8.re-frame2-machines-viz.chart.post-elk :as post-elk]
             [day8.re-frame2-machines-viz.chart.nodes :as nodes]
             [day8.re-frame2-machines-viz.chart.edges :as edges]
             [day8.re-frame2-machines-viz.chart.overlays.after-rings
@@ -843,7 +844,22 @@
                          (\"simulate ON the chart\"). nil = no wiring.
     :read-only?        — when true all `:on-*` callbacks are no-op'd.
                          The viewer page sets this.
-    :direction         — `:tb` (top-to-bottom, default) or `:lr`.
+    :direction         — `:tb` (top-to-bottom, default) or `:lr`
+                         (left-to-right). **OPT-IN adaptive: `:auto`**
+                         (rf2-lamdfl + rf2-gnrkke). The DEFAULT `:tb` (and
+                         an explicit `:tb` / `:lr`) is byte-identical to the
+                         historical render: the post-ELK adaptive pass is NOT
+                         invoked. Pass `:auto` to OPT A MACHINE IN to the
+                         adaptive-aspect heuristic (`chart.post-elk/aspect-
+                         direction` — a branchy machine flows landscape
+                         `:lr`, a chain stays a column `:tb`, a parallel
+                         machine gets the region-stacking transpose) PLUS the
+                         back-edge return-route reroute (§4.3.1 + §4.3.2 of
+                         `001-Topology-Parity.md`). A host resolves `:auto`
+                         from a machine's `:layout {:aspect :adaptive}` hint
+                         (or its own layout intent). Fed to elkjs as
+                         `elk.direction` (resolved to `:tb`/`:lr` on the
+                         `:auto` path).
     :density           — rf2-k647w. `:compact` / `:regular` (default) /
                          `:cosy`. Resolves the geometry + typography
                          map via `visual-constants/chart-for-density`;
@@ -1191,14 +1207,36 @@
             ;; on an unknown density (same total resolution the render body
             ;; does for `chart-vc` at L1177).
             elk-vc     (vc/chart-for-density density)
+            ;; rf2-lamdfl + rf2-gnrkke — the OPT-IN adaptive gate. The whole
+            ;; post-ELK subsystem (the per-machine aspect heuristic + the
+            ;; parallel-region transpose + the back-edge reroute) is invoked
+            ;; ONLY when the host opts a machine in with `:direction :auto`
+            ;; (`post-elk/adaptive?`). The default `:tb` (and an explicit
+            ;; `:tb`/`:lr`) takes the historical path: no heuristic
+            ;; resolution, no `apply-post-elk` — the ELK result flows to the
+            ;; projector byte-identical to main. The reverted #3453 made
+            ;; `:auto` the DEFAULT and re-laid every machine; this redo keeps
+            ;; every non-opted machine pixel-identical.
+            adaptive?     (post-elk/adaptive? direction)
+            ;; The direction ELK is actually fed. On the opt-in path the
+            ;; `:auto` sentinel resolves to the per-machine heuristic
+            ;; (`:tb`/`:lr`); otherwise `direction` passes straight through
+            ;; unchanged (so `:tb`/`:lr` force exactly as before).
+            elk-direction (if adaptive?
+                            (post-elk/resolve-direction direction parsed)
+                            direction)
             ;; Trigger an elk layout pass when the (definition,
             ;; direction, layout-options, density) tuple changes. Keep the
             ;; previous positions during in-flight layout to avoid an
             ;; empty-chart flash. rf2-8q5pt — `density` joins the key so a
             ;; density switch (which changes the derived container padding)
             ;; re-runs ELK rather than rendering the topology with the prior
-            ;; density's header gaps.
-            this-key   [definition direction layout-options density]
+            ;; density's header gaps. rf2-lamdfl — the RESOLVED ELK direction
+            ;; keys the pass (identical to `direction` on the non-adaptive
+            ;; path, so the historical key is unchanged for default/forced
+            ;; machines) so an `:auto` machine whose heuristic verdict is
+            ;; stable does not re-lay needlessly.
+            this-key   [definition elk-direction layout-options density]
             ;; rf2-d9ro2 — one ELK pass. `measured-dims` is nil on the
             ;; FIRST pass (nodes not yet rendered/measured) and the
             ;; xyflow-measured `{node-id {:width :height}}` map on the
@@ -1207,8 +1245,25 @@
             run-layout!
             (fn [measured-dims]
               (compute-layout!
-                parsed direction layout-options machine-id measured-dims elk-vc
-                (fn [result]
+                parsed elk-direction layout-options machine-id measured-dims elk-vc
+                (fn [raw-result]
+                  ;; rf2-lamdfl + rf2-gnrkke — the OPT-IN post-ELK stage.
+                  ;; On the adaptive path ONLY (and only for a successful
+                  ;; result), after ELK settles + before the projector emits
+                  ;; xyflow nodes/edges, run the cohesive post-ELK pass: the
+                  ;; parallel-region stacking-axis transpose (§4.3.2) THEN the
+                  ;; back-edge return-route detour (§4.3.1). On the DEFAULT /
+                  ;; forced path `adaptive?` is false, so this is a no-op
+                  ;; pass-through — the result is byte-identical to main. An
+                  ;; error result is also passed through untouched (banner
+                  ;; path unchanged).
+                  (let [result (if (and adaptive?
+                                        raw-result
+                                        (seq (:positions raw-result))
+                                        (nil? (:layout-error raw-result)))
+                                 (post-elk/apply-post-elk raw-result parsed
+                                                          elk-direction)
+                                 raw-result)]
                   (when result
                     (reset! layout-state result)
                     ;; rf2-set3x — after a successful layout settle
@@ -1226,7 +1281,7 @@
                                              (:instance @fit-state))]
                       (when (not= this-key (:fit-key @fit-state))
                         (swap! fit-state assoc :fit-key this-key)
-                        (schedule-fit! inst)))))))
+                        (schedule-fit! inst))))))))
             ;; rf2-d9ro2 — the ELK-measurable node-id set: leaf states +
             ;; synthetic event-nodes. ELK sizes these from the rendered
             ;; box (`->elk-children` consults `measured-dims` for them).
