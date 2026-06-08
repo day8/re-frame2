@@ -69,7 +69,7 @@
 
 (deftest render-head-invokes-handler-against-db-and-route
   (testing "render-head reads the frame's app-db, the active route from the
-            [:rf/runtime :routing :current] slice, and applies the registered fn"
+            [:rf.runtime/routing :current] slice, and applies the registered fn"
     (rf/reg-head :head/article
                  (fn [db {:keys [params]}]
                    (let [{:keys [title summary]} (get-in db [:articles (:id params)])]
@@ -79,14 +79,15 @@
               {:doc       "head test frame"
                :platform  :server
                :on-create [:set-test-state]})]
-      (rf/reg-event-db :set-test-state
-                       (fn [db _]
-                         (-> db
-                             (assoc-in [:articles "123"]
-                                       {:title   "Hello SSR"
-                                        :summary "A summary"})
-                             (assoc-in [:rf/runtime :routing :current]
-                                       {:id :route/article :params {:id "123"}}))))
+      ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db
+      ;; state — seed it via :rf.db/runtime; :articles stays in app-db.
+      (rf/reg-event-fx :set-test-state
+                       (fn [{:keys [db] rt :rf.db/runtime} _]
+                         {:db (assoc-in db [:articles "123"]
+                                        {:title   "Hello SSR"
+                                         :summary "A summary"})
+                          :rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current]
+                                                   {:id :route/article :params {:id "123"}})}))
       (rf/dispatch-sync [:set-test-state] {:frame f})
       (let [model (rf/render-head :head/article {:frame f})]
         (is (= "Hello SSR" (:title model)))
@@ -154,10 +155,10 @@
       ;; via with-frame and assoc — but the framework's [:rf/runtime
       ;; :routing :current] slice populates via dispatch-driven routing.
       ;; We bypass with a one-shot event below.
-      (rf/reg-event-db ::seed-route
-                       (fn [db _]
-                         (assoc-in db [:rf/runtime :routing :current]
-                                {:id :route/article :params {:id "42"}})))
+      (rf/reg-event-fx ::seed-route
+                       (fn [{rt :rf.db/runtime} _]
+                         {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current]
+                                                   {:id :route/article :params {:id "42"}})}))
       (rf/dispatch-sync [::seed-route] {:frame f})
       (is (= {:title "Article 42"}
              (rf/active-head f))))))
@@ -168,9 +169,9 @@
                   {:doc  "Bare route"
                    :path "/"})
     (let [f (rf/make-frame {:doc "Default-head probe" :platform :server})]
-      (rf/reg-event-db ::seed-route-no-head
-                       (fn [db _]
-                         (assoc-in db [:rf/runtime :routing :current] {:id :route/no-head})))
+      (rf/reg-event-fx ::seed-route-no-head
+                       (fn [{rt :rf.db/runtime} _]
+                         {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current] {:id :route/no-head})}))
       (rf/dispatch-sync [::seed-route-no-head] {:frame f})
       (let [model (rf/active-head f)]
         (is (= "Default-head probe" (:title model))
@@ -565,15 +566,14 @@
             :head :head/article; the head fn derives title/meta/link from
             app-db; active-head → head-model->html emits the tags in
             canonical order"
-    (rf/reg-event-db :seed-article
-                     (fn [db _]
-                       (-> db
-                           (assoc-in [:articles "123"]
-                                     {:title   "re-frame2 SSR"
-                                      :summary "How re-frame2 ships SSR"
-                                      :image   "https://example.com/og.png"})
-                           (assoc-in [:rf/runtime :routing :current]
-                                     {:id :route/article :params {:id "123"}}))))
+    (rf/reg-event-fx :seed-article
+                     (fn [{:keys [db] rt :rf.db/runtime} _]
+                       {:db (assoc-in db [:articles "123"]
+                                      {:title   "re-frame2 SSR"
+                                       :summary "How re-frame2 ships SSR"
+                                       :image   "https://example.com/og.png"})
+                        :rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current]
+                                                 {:id :route/article :params {:id "123"}})}))
     (rf/reg-head :head/article
                  {:doc "Article-page head model"}
                  (fn [db {:keys [params]}]
@@ -630,10 +630,10 @@
                   {:doc  "French article page"
                    :path "/fr/articles/:id"
                    :head :head/with-attrs})
-    (rf/reg-event-db :seed-fr
-                     (fn [db _]
-                       (assoc-in db [:rf/runtime :routing :current]
-                              {:id :route/article-fr :params {:id "1"}})))
+    (rf/reg-event-fx :seed-fr
+                     (fn [{rt :rf.db/runtime} _]
+                       {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current]
+                                                 {:id :route/article-fr :params {:id "1"}})}))
     (let [f (rf/make-frame {:platform :server})]
       (rf/dispatch-sync [:seed-fr] {:frame f})
       (let [model (rf/active-head f)]

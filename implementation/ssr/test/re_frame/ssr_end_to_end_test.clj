@@ -97,7 +97,7 @@
       (fn [{:keys [db]} [_ request]]
         {:db (-> db
                  (assoc :request request)
-                 (assoc-in [:rf/runtime :routing :current] {:id :route/articles}))
+                 (assoc-in [:rf.runtime/routing :current] {:id :route/articles}))
          :fx [[:http/get {:url        "/api/articles"
                           :on-success [:articles/loaded]}]]}))
 
@@ -170,13 +170,16 @@
                                {:doc      "Hydrated client frame"
                                 :platform :client})]
             (rf/dispatch-sync [:rf/hydrate payload] {:frame client-frame})
-            (let [client-db (rf/app-db-value client-frame)]
+            (let [client-db (rf/app-db-value client-frame)
+                  ;; EP-0001 (rf2-vzld77): the hydration metadata is durable
+                  ;; runtime-db state.
+                  client-rt (rf/runtime-db-value client-frame)]
               ;; The server's app-db replaced the client's empty app-db.
               (is (= (:articles server-db) (:articles client-db))
                   ":rf/hydrate replaced the client app-db with payload's :rf/app-db")
               ;; The server hash was stashed for verify-hydration!.
-              (is (= server-hash (get-in client-db [:rf/runtime :ssr :hydration :server-hash])))
-              (is (= 1            (get-in client-db [:rf/runtime :ssr :hydration :version]))))
+              (is (= server-hash (get-in client-rt [:rf.runtime/ssr :hydration :server-hash])))
+              (is (= 1            (get-in client-rt [:rf.runtime/ssr :hydration :version]))))
 
             ;; First client render — same view, same hydrated state, same
             ;; resolved tree, same hash. Resolve under the client frame so
@@ -951,7 +954,7 @@
           f         (rf/make-frame {:platform :client})]
       (rf/dispatch-sync [:rf/hydrate payload] {:frame f})
       (is (= "head-hash-server-A"
-             (get-in (rf/app-db-value f) [:rf/runtime :ssr :hydration :server-hash]))
+             (get-in (rf/runtime-db-value f) [:rf.runtime/ssr :hydration :server-hash]))
           ":rf/hydrate stashed the server's head-hash")
 
       (rf/register-listener! ::head (fn [ev] (swap! traces conj ev)))
@@ -2300,7 +2303,7 @@
 
       (rf/reg-event-fx :rf/server-init
         (fn [{:keys [db]} [_ _request]]
-          {:db (assoc-in db [:rf/runtime :routing :current] {:id :route/articles})
+          {:db (assoc-in db [:rf.runtime/routing :current] {:id :route/articles})
            :fx [[:http/get {:url "/api/articles"
                             :on-success [:articles/loaded]}]]}))
       (rf/reg-event-db :articles/loaded

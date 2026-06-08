@@ -41,6 +41,7 @@
   the audit's §Drop-or-keep recommendation)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.subs :as subs]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.test-fixture :as tf]))
 
@@ -60,7 +61,8 @@
   (rf/reg-event-db ::inc
     (fn [db _ev] (update db :count (fnil inc 0))))
   (rf/reg-sub :count     (fn [db _] (or (:count db) 0)))
-  (rf/reg-sub :hydrated? (fn [db _] (boolean (get-in db [:rf/runtime :ssr :hydration])))))
+  ;; EP-0001 (rf2-vzld77): the SSR hydration metadata is durable runtime-db state.
+  (subs/reg-runtime-sub :hydrated? (fn [rt _] (boolean (get-in rt [:rf.runtime/ssr :hydration])))))
 
 (defn- capture-traces!
   [f]
@@ -94,8 +96,8 @@
           "post-hydrate :hydrated? reads true even though the baked
            hash will mismatch the (future) client render")
       (is (= "deadbeef"
-             (get-in (rf/app-db-value client-frame)
-                     [:rf/runtime :ssr :hydration :server-hash]))
+             (get-in (rf/runtime-db-value client-frame)
+                     [:rf.runtime/ssr :hydration :server-hash]))
           "the deliberately-wrong :rf/render-hash is stashed verbatim
            for verify-hydration! to pick up"))))
 
