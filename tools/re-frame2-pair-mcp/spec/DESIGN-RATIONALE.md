@@ -81,8 +81,9 @@ stdio JSON-RPC were both proven.
 
 ### Trail-of-thought citations
 
-- rf2-5b8e PR #423 (the toolchain pilot — `pilot/` directory is
-  preserved as the smoke harness).
+- rf2-5b8e PR #423 (the toolchain pilot). The pilot lived under a
+  `pilot/` directory; it has since been removed. Its bencode-framing
+  coverage now lives in the production test suite — see Lock #5.
 - Mike's 2026-05-12 locking comment on the PR.
 
 ---
@@ -431,9 +432,15 @@ position-vs-bytes footgun was hit; locked at PR #423 merge.
 ### Trail-of-thought citations
 
 - `tools/re-frame2-pair-mcp/spec/002-nREPL-Transport.md` § Bencode framing.
-- rf2-5b8e PR #423 description (the position-vs-bytes diagnosis).
-- The pilot's `nrepl_test.cljs` unit tests around partial-frame
-  decoding.
+- rf2-5b8e PR #423 description (the position-vs-bytes diagnosis). The
+  pilot once carried the framing unit tests; that coverage now lives
+  in the production test suite at
+  `tools/re-frame2-pair-mcp/test/re_frame2_pair_mcp/nrepl_test.cljs`,
+  which exercises `decode-all-frames` directly (partial-frame
+  buffering, multi-frame splitting, and the `decode.position` cursor
+  regression). On-wire round-trip coverage rides on the JS harnesses
+  `test/stdio-roundtrip.js`, `test/live-nrepl.js`, and the
+  `test/probe-decode.js` multi-frame walker diagnostic.
 
 ---
 
