@@ -188,6 +188,35 @@
         (is (re-find #"threw" (:reason out))
             ":reason explains the sub threw")))))
 
+;; ---- evaluate-sub-equals — runtime-db-projection sub (rf2-pecaxy) --------
+;;
+;; A `:runtime-db` sub (the idiomatic machine-snapshot shape) projects state
+;; from the runtime-db partition. The evaluator must resolve it against the
+;; FULL frame-state value `{:rf.db/app … :rf.db/runtime …}` so `compute-sub`
+;; reads the runtime partition the sub belongs to. Pre-fix the evaluator was
+;; handed bare app-db, so the runtime-db sub read nil. Here we register a
+;; runtime-db sub, hand the evaluator a frame-state value, and assert it
+;; resolves the live runtime-db value — and that bare app-db reads nil.
+
+(deftest cljs-evaluate-sub-equals-runtime-db-projection
+  (testing "evaluate-sub-equals resolves a runtime-db-projection sub against
+            the frame-state value, not nil"
+    (subs/reg-runtime-sub :pecaxy/light
+      (fn [rt _] (get-in rt [:rf.runtime/machines :snapshots :traffic-light :state])))
+    (let [runtime    {:rf.runtime/machines {:snapshots {:traffic-light {:state :red}}}}
+          frame-state {:rf.db/app {} :rf.db/runtime runtime}
+          ;; The faithful read: the play-runner now hands the full
+          ;; frame-state value (app + runtime).
+          ok         (evaluate-sub-equals :rf/default frame-state [[:pecaxy/light] :red])
+          ;; The pre-pecaxy bug: bare app-db → the runtime-db sub reads nil.
+          bug        (evaluate-sub-equals :rf/default {:rf.db/app {}} [[:pecaxy/light] :red])]
+      (is (true? (:passed? ok))
+          "runtime-db sub resolves :red through the frame-state value")
+      (is (= :red (:actual ok)))
+      (is (false? (:passed? bug))
+          "bare app-db (no runtime partition) makes the runtime-db sub read nil")
+      (is (nil? (:actual bug))))))
+
 ;; ---- evaluate-effect-emitted — the pred-rejects-but-present arm ----------
 ;;
 ;; Only present/absent was tested. When the fx-id WAS emitted but the

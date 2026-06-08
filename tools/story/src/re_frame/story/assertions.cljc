@@ -460,10 +460,19 @@
       explanation (assoc :explanation explanation))))
 
 (defn- evaluate-sub-equals
-  [frame-id db [sub-vec expected]]
+  [frame-id frame-state [sub-vec expected]]
   ;; Use compute-sub against the snapshot — bypasses the reactive cache
   ;; per Spec 008. Subscriptions registered against the variant's frame
   ;; resolve the same way they would in the running app.
+  ;;
+  ;; EP-0001 (rf2-vzld77 / rf2-pecaxy): `frame-state` is the FULL frame-state
+  ;; value `{:rf.db/app <app-db> :rf.db/runtime <runtime-db>}`, NOT the bare
+  ;; app-db. `compute-sub` resolves a mixed app-db/runtime-db dependency
+  ;; graph against a frame-state value (subs.cljc `partition-value-for-sub`
+  ;; extracts `:rf.db/runtime` for a `:runtime-db` sub and `:rf.db/app` for a
+  ;; `:db` sub) — the faithful read the reactive subscribe path does. Handing
+  ;; it bare app-db (the pre-pecaxy bug) made every runtime-db-projection sub
+  ;; (e.g. `:rf/machine` and any app sub deriving off it) read nil.
   ;;
   ;; Redaction: a sub reading a sensitive path propagates the sensitive
   ;; marker into its output value (spec/015 §reg-sub). We project the
@@ -473,7 +482,7 @@
   ;; common `[:sub/id & path]` shape) the projection redacts; otherwise
   ;; the value passes through unchanged.
   (let [raw     (try
-                  (subs/compute-sub sub-vec db)
+                  (subs/compute-sub sub-vec frame-state)
                   (catch #?(:clj Throwable :cljs :default) _
                     ::compute-error))
         passed? (and (not= raw ::compute-error)
@@ -1022,7 +1031,12 @@
           extras       (case evaluator-kind
                          :path-equals     (evaluate-path-equals     frame-id db payload)
                          :path-matches    (evaluate-path-matches    frame-id db payload)
-                         :sub-equals      (evaluate-sub-equals      frame-id db payload)
+                         ;; EP-0001 (rf2-vzld77 / rf2-pecaxy): subs may project
+                         ;; runtime-db state (e.g. `:rf/machine`), so hand
+                         ;; `compute-sub` the FULL frame-state value (app +
+                         ;; runtime), not the bare app-db `:db` cofx — else
+                         ;; runtime-db-projection subs read nil.
+                         :sub-equals      (evaluate-sub-equals      frame-id {:rf.db/app db :rf.db/runtime rt} payload)
                          :dispatched?     (evaluate-dispatched?     (dispatched-events frame-id) payload)
                          ;; EP-0001 (rf2-vzld77): machine snapshots live in
                          ;; runtime-db; read the `:rf.db/runtime` coeffect.
