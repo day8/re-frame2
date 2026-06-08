@@ -25,11 +25,11 @@
   `mv-chart/MachineChart` so the blank-state (Case-B) topology gets the
   SAME elkjs hierarchical-layered layout, sized state nodes, arrowheads,
   and Controls chrome as the focused-event chart — the Stately/xstate
-  look. The previous deterministic grid (`topology/grid-positions` via
-  `xyflow-wrapper/xyflow-canvas`) is no longer the render path; the pure
-  `topology/project` projector + its grid layout survive as a
-  self-contained, JVM-portable fallback projection (still unit-tested)
-  but are not on this view's hot path.
+  look. The previous deterministic grid (`topology/grid-positions`,
+  rendered through Xray's own xyflow wrapper) is no longer the render
+  path; the pure `topology/project` projector + its grid layout survive
+  as a self-contained, JVM-portable fallback projection (still
+  unit-tested) but are not on this view's hot path.
 
   ## current-state overlay
 

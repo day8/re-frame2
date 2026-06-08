@@ -2,11 +2,13 @@
 # eval-cljs.sh — evaluate a ClojureScript form in the connected browser
 # runtime via shadow-cljs's cljs-eval. Prints edn on stdout.
 #
-# DEPRECATED: prefer the MCP tool `eval-cljs` from
-# `@day8/re-frame2-pair-mcp` (tools/re-frame2-pair-mcp/). The MCP server holds
-# one persistent nREPL connection per session and drops per-op latency
-# from ~700ms to ~5-50ms. This bash shim is kept for back-compat with
-# sessions where the MCP server isn't configured.
+# RETIRED from the skill's tool surface: the skill drives `eval-cljs`
+# via the MCP server (`@day8/re-frame2-pair-mcp`, tools/re-frame2-pair-mcp/),
+# the only skill-facing transport. The MCP server holds one persistent
+# nREPL connection per session and drops per-op latency from ~700ms to
+# ~5-50ms. This shim is on disk only for the project's own test harness
+# (tests/shim/, tests/e2e/) and ad-hoc shell use outside the skill — NOT
+# a skill-facing fallback transport.
 #
 # Usage:
 #   scripts/eval-cljs.sh '(+ 1 2)' [--build=app]

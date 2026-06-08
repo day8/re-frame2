@@ -185,7 +185,7 @@ The app hasn't called `(rf/init!)` yet (or the only frame was destroyed). Wait f
 
 ### `:ambiguous-frame`
 
-Two-plus app frames are registered and the session hasn't pinned one. Pin one with `set-operating-frame {frame: ":foo"}`, or pass `frame: ":foo"` per call. The dedicated `snapshot` / `get-path` / `dispatch` tools refuse rather than guess; the lower-level eval helpers warn-and-default to `:rf/default`.
+Two-plus app frames are registered and the session hasn't pinned one. Pin one with `set-operating-frame {frame: ":foo"}`, or pass `frame: ":foo"` per call. Both writes and reads refuse rather than guess: the dedicated `snapshot` / `get-path` / `dispatch` tools refuse, and the lower-level read helpers (`subs-sample` / `read-sub!` / `sub-cache-info`) return `:reason :ambiguous-frame` rather than silently reading `:rf/default`.
 
 ### Watch ops don't stream anything
 

@@ -2,8 +2,11 @@
 # tail-build.sh — coordinate with shadow-cljs hot-reload after a source
 # edit.
 #
-# DEPRECATED: prefer the MCP tool `tail-build` from
-# `@day8/re-frame2-pair-mcp` (tools/re-frame2-pair-mcp/). Kept for back-compat.
+# RETIRED from the skill's tool surface: the skill drives `tail-build`
+# via the MCP server (`@day8/re-frame2-pair-mcp`, tools/re-frame2-pair-mcp/),
+# the only skill-facing transport. This shim is on disk only for the
+# project's own test harness (tests/shim/, tests/e2e/) and ad-hoc shell
+# use outside the skill — NOT a skill-facing fallback transport.
 #
 # --wait-ms N       how long to wait for the reload to land (default 5000)
 # --probe '<form>'  a CLJS form whose return value changes after the edit is

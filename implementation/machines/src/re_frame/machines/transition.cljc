@@ -2230,10 +2230,11 @@
 
   Returns a `re-frame.machines.result/Result` — a `result/ok` carrying
   the post-cascade snapshot + accumulated fx, or a `result/fail` if any
-  `:exit` action threw. Callers (destroy / finalize / `:spawn-all` per-
-  child teardown) emit a `[:rf.machine/bootstrap-exit]` synthetic event so
-  3-arity `:exit` fns that introspect the event see a discriminator
-  distinguishing destroy-time exit from transition-driven exit.
+  `:exit` action threw. This cascade threads a `[:rf.machine/destroy-exit]`
+  synthetic event (destroy / finalize / `:spawn-all` per-child teardown
+  all funnel through here) so 3-arity `:exit` fns that introspect the
+  event see a discriminator distinguishing destroy-time exit from
+  transition-driven exit.
 
   This is the SINGLE entry-point — every destroy path threads through
   here so a spec change to destroy-time `:exit` semantics is one-edit-

@@ -188,21 +188,6 @@
           (or existing {})
           paths))
 
-(defn- write-marks!
-  "Apply the new `sensitive-decls` / `large-decls` maps to the frame's
-  app-db elision registry, preserving the rest of the
-  `[:rf/runtime :elision]` slot. Empty maps drop the slot key entirely.
-  If the resulting `[:rf/runtime :elision]` map is empty, the slot is
-  dissoc'd from `:rf/runtime`."
-  [frame-id sensitive-decls large-decls]
-  (elision/swap-elision-slot! frame-id
-    (fn [reg]
-      (cond-> (or reg {})
-        (seq sensitive-decls)    (assoc :sensitive-declarations sensitive-decls)
-        (empty? sensitive-decls) (dissoc :sensitive-declarations)
-        (seq large-decls)        (assoc :declarations large-decls)
-        (empty? large-decls)     (dissoc :declarations)))))
-
 (defn add-marks
   "Additively merge path-marks into the `app-db` mark-set of `frame-id`.
   Per Spec 015 §App-db marks (per frame).
