@@ -25,11 +25,11 @@
   `mv-chart/MachineChart` so the blank-state (Case-B) topology gets the
   SAME elkjs hierarchical-layered layout, sized state nodes, arrowheads,
   and Controls chrome as the focused-event chart — the Stately/xstate
-  look. The previous deterministic grid (`topology/grid-positions`,
-  rendered through Xray's own xyflow wrapper) is no longer the render
-  path; the pure `topology/project` projector + its grid layout survive
-  as a self-contained, JVM-portable fallback projection (still
-  unit-tested) but are not on this view's hot path.
+  look. The pure `topology/project` projector + its deterministic grid
+  layout (`topology/grid-positions`) are NOT on this render path; they
+  survive as a self-contained, JVM-portable fallback projection +
+  style catalogue (still unit-tested), but the live view never hands
+  their output to React.
 
   ## current-state overlay
 
@@ -150,13 +150,16 @@
                            A `min-height` floor keeps xyflow's non-zero-
                            parent-height requirement satisfied when the
                            container itself is auto-height.
-    :show-controls?      — pass-through to wrapper (default true).
+    :show-controls?      — pass-through to `machine-canvas/Chart`
+                           (default true).
     :fit-signal          — rf2-6tw7t. Opaque fit-on-entry nonce forwarded
                            to `machine-canvas/Chart`'s `:fit-signal`. A
                            host bumps it on panel-entry / tab-activation
                            so the topology re-frames to view. nil → inert.
-    :testid              — pass-through wrapper testid (default
-                           `'rf-xray-machines-topology'`).
+    :testid              — testid stamped on the outer container; the
+                           inner chart is stamped `<testid>-canvas` via
+                           `machine-canvas/Chart`'s `:inner-testid`
+                           (default `'rf-xray-machines-topology'`).
 
   Returns hiccup."
   [{:keys [machine-id definition current-state-path trace-events
