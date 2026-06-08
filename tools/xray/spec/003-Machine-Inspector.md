@@ -720,16 +720,35 @@ mints — agreement by construction, mirroring `extract-fired-edge-ids`). The
 host threads the set as `:guard-blocked-edge-ids` into `machine-canvas/Chart` →
 `MachineChart` (both the Dynamic Machine tab and the Static Topology view).
 
-**Render (render plane).** `chart.projection/xyflow-graph` marks each matching
-edge and its event-node `:guardBlocked`; `chart.nodes.event-node` +
-`chart.edges` then paint the guard-blocked treatment off the new
-`theme/tokens` `:edge-guard-blocked` token (a PINK hue — `:magenta-pink`,
-distinct from the blue fired/active hues AND the red `:final-error` ring):
+**Render (render plane).** Under the events-as-nodes paradigm (rf2-qo5xy) each
+transition splits into two segments: a `__in` (source-state → event-node) half
+and a `__out` (event-node → target-state) half. `chart.projection/xyflow-graph`
+marks the matching event-node + its `__in` half `:guardBlocked`;
+`chart.nodes.event-node` + `chart.edges` then paint the guard-blocked treatment
+off the new `theme/tokens` `:edge-guard-blocked` token (a PINK hue —
+`:magenta-pink`, distinct from the blue fired/active hues AND the red
+`:final-error` ring):
 
-1. The edge stroke + arrowhead paint PINK and emphasised-width (`tokens/edge-color`
-   resolves `:blocked?` with HIGHEST precedence).
+1. The `__in` edge stroke + arrowhead paint PINK and emphasised-width
+   (`tokens/edge-color` resolves `:blocked?` with HIGHEST precedence).
 2. The event-node border + box-shadow go PINK and its `IF <guard>` chip is
    EMPHASISED (bold pink) so the node reads as the guard that rejected it.
+
+**The highlight STOPS at the guard event-node (rf2-4nxgqq, Mike-ruled
+2026-06-08).** A guard-blocked transition is a NO-OP: the guard declined, the
+machine STAYED in the source state, the target was NEVER reached (the renderer
+distinguishes blocked from fired precisely because the machine state did not
+advance — `db-before` state == `db-after` state). So the live blocked HIGHLIGHT
+covers `source → event-node` ONLY, NEVER `event-node → target`. The `__out`
+half therefore carries `:guardBlocked false` and paints RESTING (non-pink) —
+lighting the onward arrow would FALSELY imply the transition progressed to the
+target. The `__out` STATIC topology edge still renders (the transition exists
+in the definition); only the live blocked-overlay is withheld from it. This is
+GENERAL to ALL guard-blocked transitions: each branch of a guarded fork
+independently drops the overlay from its own onward half. Implementation:
+`chart.projection`'s `events-as-nodes-edge` gates the blocked flag per half
+(`half-blocked? = blocked? AND in?`), driving both `:guardBlocked` and the
+arrowhead colour.
 
 **Design calls (Mike-ruled 2026-06-08):**
 
@@ -739,14 +758,19 @@ distinct from the blue fired/active hues AND the red `:final-error` ring):
   under the blue). `tokens/edge-color` ranks `blocked? > fired? > focused?/active? > quiet`.
 - _(3) Scope = guard-blocked ONLY_ — a truly-unhandled event (no declared edge)
   is a separate state-node "ignored event" marker, filed separately.
+- _(4) Highlight stops at the event-node (rf2-4nxgqq)_ — the onward
+  `event-node → target` half is NOT highlighted, because the no-op never
+  reached the target.
 
 **Beyond XState.** Stately labels the guarded edge but, on a block, takes no
 transition and highlights NOTHING — it does not paint a guard-failed edge
 colour. This is a SUPERSET enhancement, only possible because re-frame2 emits
 `:rf.machine/guard-evaluated` (observable-everything ethos).
 
-DOM pins: every guard-blocked edge label / event-node carries
-`data-guard-blocked="true"`; the chart root surfaces the sorted set on
+DOM pins: the guard-blocked event-node + its `__in` (source → event-node) edge
+half carry `data-guard-blocked="true"`; the `__out` (event-node → target) half
+carries `data-guard-blocked="false"` (rf2-4nxgqq — the highlight stops at the
+event-node). The chart root surfaces the sorted set on
 `data-guard-blocked-edge-ids` (mirroring `data-fired-edge-ids`).
 
 ### Relationship to the focused-transition lens (rf2-99rhe)
