@@ -418,3 +418,170 @@
       (is (some? local-edge))
       (is (= #{(:id local-edge)} fired)
           "the state-local edge lights; the machine-level fallback is not pulled in"))))
+
+;; ---- extract-guard-blocked-edge-ids (rf2-fzrzlw) ------------------------
+;;
+;; A guard-blocked transition is a NO-OP: the guard evaluated fail/threw, so
+;; the runtime emits `:rf.machine/guard-evaluated {:guard-id … :outcome
+;; :fail/:threw :input {:event …}}` but NO `:rf.machine/transition` — the
+;; fired set is empty for it. `extract-guard-blocked-edge-ids` recovers the
+;; EXACT attempted-and-rejected edge from the (event, guard) pair the guard
+;; trace carries (the named guard the transition trace lacks), so the chart
+;; can paint it PINK instead of leaving it invisible among the blue exits.
+
+(defn- door-definition
+  "The bead's repro shape: a door in `:open` with a `:door/close` guarded
+  by `:may-close?`. When `held-open? = true` the guard fails → no-op."
+  []
+  {:initial :closed
+   :states  {:closed {:on {:door/open :open}}
+             :open   {:on {:door/close {:target :closed
+                                        :guard  :may-close?}}}}})
+
+(defn- canonical-guard-edge-id
+  "Look up the canonical machines-viz edge id for an edge matching
+  `from-path` / `event` / `guard` in `definition` — projected through the
+  SAME public `chart.layout/project-definition` the live chart uses."
+  [definition from-path event guard]
+  (->> (:edges (chart-layout/project-definition definition))
+       (some (fn [e]
+               (when (and (= from-path (:from-path e))
+                          (= event     (:event e))
+                          (= guard     (:guard e)))
+                 (:id e))))))
+
+(deftest guard-blocked-ids-match-on-fail-outcome
+  (testing "rf2-fzrzlw — a guard-evaluated :fail lights the canonical
+            (from, event, guard) edge id the live chart mints"
+    (let [def        (door-definition)
+          close-id   (canonical-guard-edge-id def [:open] :door/close :may-close?)
+          ;; the LIVE runtime shape: :guard-id + :outcome + :input {:event}.
+          events     [{:operation :rf.machine/guard-evaluated
+                       :tags {:machine-id :door
+                              :guard-id   :may-close?
+                              :outcome    :fail
+                              :input      {:data {:held-open? true}
+                                           :event [:door/close]}}}]
+          blocked    (trace-state/extract-guard-blocked-edge-ids def events :door)]
+      (is (string? close-id))
+      (is (= #{close-id} blocked)
+          "the blocked edge id is the live-chart :door/close [may-close?] edge"))))
+
+(deftest guard-blocked-ids-match-on-threw-outcome
+  (testing ":threw (the guard fn blew up; engine treats it as fail) also
+            marks the edge guard-blocked"
+    (let [def      (door-definition)
+          close-id (canonical-guard-edge-id def [:open] :door/close :may-close?)
+          events   [{:operation :rf.machine/guard-evaluated
+                     :tags {:machine-id :door
+                            :guard-id   :may-close?
+                            :outcome    :threw
+                            :input      {:event :door/close}}}]
+          blocked  (trace-state/extract-guard-blocked-edge-ids def events :door)]
+      (is (= #{close-id} blocked)))))
+
+(deftest guard-blocked-ids-ignore-pass-outcome
+  (testing "a guard that PASSED is not blocked — the transition fired,
+            so it must NOT light the guard-blocked pink"
+    (let [def     (door-definition)
+          events  [{:operation :rf.machine/guard-evaluated
+                    :tags {:machine-id :door
+                           :guard-id   :may-close?
+                           :outcome    :pass
+                           :input      {:event :door/close}}}]
+          blocked (trace-state/extract-guard-blocked-edge-ids def events :door)]
+      (is (= #{} blocked)))))
+
+(deftest guard-blocked-ids-empty-and-nil-safety
+  (testing "no guard traces / nil events / nil definition → empty set"
+    (let [def (door-definition)]
+      (is (= #{} (trace-state/extract-guard-blocked-edge-ids def [] :door)))
+      (is (= #{} (trace-state/extract-guard-blocked-edge-ids def nil :door)))
+      (is (= #{} (trace-state/extract-guard-blocked-edge-ids
+                   def [{:operation :something-else}] :door)))
+      (is (= #{} (trace-state/extract-guard-blocked-edge-ids
+                   nil
+                   [{:operation :rf.machine/guard-evaluated
+                     :tags {:machine-id :door :guard-id :may-close?
+                            :outcome :fail :input {:event :door/close}}}]
+                   :door))))))
+
+(deftest guard-blocked-ids-scope-by-machine-id
+  (testing "ignores guard traces belonging to other machines"
+    (let [def      (door-definition)
+          close-id (canonical-guard-edge-id def [:open] :door/close :may-close?)
+          events   [{:operation :rf.machine/guard-evaluated
+                     :tags {:machine-id :other
+                            :guard-id   :may-close?
+                            :outcome    :fail
+                            :input      {:event :door/close}}}
+                    {:operation :rf.machine/guard-evaluated
+                     :tags {:machine-id :door
+                            :guard-id   :may-close?
+                            :outcome    :fail
+                            :input      {:event :door/close}}}]
+          blocked  (trace-state/extract-guard-blocked-edge-ids def events :door)]
+      (is (= #{close-id} blocked)
+          "only the :door machine's blocked edge lights"))))
+
+(deftest guard-blocked-ids-read-legacy-flat-event-and-guard-slots
+  (testing "legacy fixture shape: flat :tags :event + :tags :guard
+            (mirrors machine_inspector_helpers/guard-record's fallbacks)"
+    (let [def      (door-definition)
+          close-id (canonical-guard-edge-id def [:open] :door/close :may-close?)
+          events   [{:operation :rf.machine/guard-evaluated
+                     :tags {:machine-id :door
+                            :guard      :may-close?   ;; legacy :guard slot
+                            :outcome    :fail
+                            :event      :door/close}}]  ;; legacy flat :event
+          blocked  (trace-state/extract-guard-blocked-edge-ids def events :door)]
+      (is (= #{close-id} blocked)))))
+
+(deftest guard-blocked-ids-read-event-vector-head
+  (testing "the :input :event may be a [event-id & args] vector — the head
+            (:door/close) drives the match"
+    (let [def      (door-definition)
+          close-id (canonical-guard-edge-id def [:open] :door/close :may-close?)
+          events   [{:operation :rf.machine/guard-evaluated
+                     :tags {:machine-id :door
+                            :guard-id   :may-close?
+                            :outcome    :fail
+                            :input      {:event [:door/close :extra-arg]}}}]
+          blocked  (trace-state/extract-guard-blocked-edge-ids def events :door)]
+      (is (= #{close-id} blocked)))))
+
+(deftest guard-blocked-ids-disambiguate-guarded-fork-arm
+  (testing "rf2-fzrzlw precision win — a guarded FORK (two same-source/
+            same-event candidates differing by guard) lights ONLY the arm
+            whose NAMED guard the trace reports failing, not its sibling"
+    (let [def       {:initial :idle
+                     :states  {:idle {:on {:check [{:guard :hi? :target :high}
+                                                   {:guard :lo? :target :low}]}}
+                               :high {}
+                               :low  {}}}
+          projected (:edges (chart-layout/project-definition def))
+          hi-id     (->> projected (some (fn [e] (when (= :hi? (:guard e)) (:id e)))))
+          lo-id     (->> projected (some (fn [e] (when (= :lo? (:guard e)) (:id e)))))
+          ;; :hi? failed; the engine walked on to :lo? (which passed and
+          ;; fired) — only the :hi? ARM is guard-blocked.
+          events    [{:operation :rf.machine/guard-evaluated
+                      :tags {:machine-id :m :guard-id :hi? :outcome :fail
+                             :input {:event :check}}}]
+          blocked   (trace-state/extract-guard-blocked-edge-ids def events :m)]
+      (is (string? hi-id))
+      (is (string? lo-id))
+      (is (not= hi-id lo-id) "the two fork arms have distinct ids")
+      (is (= #{hi-id} blocked)
+          "ONLY the :hi? arm lights — the named guard discriminates the fork"))))
+
+(deftest guard-blocked-ids-agree-with-projected-chart-edge-ids
+  (testing "every guard-blocked id is a real projected chart edge :id"
+    (let [def           (door-definition)
+          projected-ids (set (map :id (:edges (chart-layout/project-definition def))))
+          events        [{:operation :rf.machine/guard-evaluated
+                          :tags {:machine-id :door :guard-id :may-close?
+                                 :outcome :fail :input {:event :door/close}}}]
+          blocked       (trace-state/extract-guard-blocked-edge-ids def events :door)]
+      (is (seq blocked))
+      (is (every? projected-ids blocked)
+          "each guard-blocked id is one the live chart actually rendered"))))

@@ -165,6 +165,13 @@
                                               snapshot-state)
         fired-ids (trace-state/extract-fired-edge-ids definition trace-events
                                                       machine-id)
+        ;; rf2-fzrzlw — the guard-blocked no-op edge ids for the focused
+        ;; epoch. A guard-blocked transition emits NO `:rf.machine/transition`
+        ;; (so `fired-ids` is empty for it), but the runtime DOES emit
+        ;; `:rf.machine/guard-evaluated` fail/threw — so the attempted-and-
+        ;; rejected edge can still be marked PINK on the chart.
+        guard-blocked-ids (trace-state/extract-guard-blocked-edge-ids
+                            definition trace-events machine-id)
         ;; Case-B detection (rf2-dbi87 / spec/021 §6.2): the focused
         ;; epoch fired no transitions for this machine. The view STILL
         ;; renders the topology — only the fired-this-epoch overlay is
@@ -240,6 +247,10 @@
          ;; it. `#{}` (case-B / no transition this epoch) → no fired
          ;; highlight, identical to passing none.
          :fired-edge-ids         fired-ids
+         ;; rf2-fzrzlw — forward the guard-blocked no-op edge ids so the
+         ;; attempted-and-rejected edge paints PINK even though it fired
+         ;; no transition (the door :door/close blocked by :may-close?).
+         :guard-blocked-edge-ids guard-blocked-ids
          ;; rf2-vcnvj — surface the STATIC context shape (keys + type
          ;; captions of the definition's `:data`) so the root Context
          ;; chrome renders on the blank-state topology. nil when the

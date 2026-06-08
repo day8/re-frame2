@@ -211,7 +211,7 @@
   toolbar."
   [cascade
    {:keys [machine-id from-state to-state definition fired-edge-ids
-           start? no-op?]
+           guard-blocked-edge-ids start? no-op?]
     :as _record}]
   ;; rf2-gpzb4 (2026-05-21 xyflow migration) — the host-side ELK
   ;; layout dance is GONE; xyflow + elkjs own positioning end-to-end
@@ -294,6 +294,11 @@
               ;; JVM/hiccup suite + hosts pin the wiring without reaching
               ;; into the xyflow canvas. "" when none fired.
               :data-fired-edge-ids (str/join " " (sort (set fired-edge-ids)))
+              ;; rf2-fzrzlw — the focused epoch's guard-blocked no-op edge
+              ;; ids on the canvas wrapper (sorted, space-joined) so the
+              ;; JVM/hiccup suite + hosts pin the wiring without reaching
+              ;; into the xyflow canvas. "" when none blocked.
+              :data-guard-blocked-edge-ids (str/join " " (sort (set guard-blocked-edge-ids)))
               :data-view-mode "canvas"
               ;; rf2-zdfbm — fill the section's remaining height so the
               ;; topology chart expands into the panel. `flex 1` +
@@ -336,6 +341,12 @@
            ;; rf2-qeemm (G3) — the traversed edges paint the FIRED
            ;; treatment on the live chart.
            :fired-edge-ids     fired-edge-ids
+           ;; rf2-fzrzlw — the attempted-and-rejected edges (guard-blocked
+           ;; no-op, e.g. door :door/close blocked by :may-close?) paint
+           ;; the PINK guard-blocked treatment on the live chart so the
+           ;; operator sees which edge the event hit + that a guard
+           ;; rejected it (no transition fired, so the fired set is empty).
+           :guard-blocked-edge-ids guard-blocked-edge-ids
            ;; rf2-6tw7t — fit-on-entry nonce so re-entering the Machine
            ;; tab re-frames the topology.
            :fit-signal         fit-signal
@@ -682,10 +693,22 @@
         ;; threads it into `MachineChart` so the traversed arms paint the
         ;; FIRED treatment — every microstep / guard-fork candidate the
         ;; from/to lens cannot reach.
+        ;; rf2-fzrzlw — additionally attach the guard-BLOCKED edge-ids: a
+        ;; guard-blocked no-op emits NO `:rf.machine/transition` (so
+        ;; `fired-edge-ids` is empty for it), but the runtime DOES emit
+        ;; `:rf.machine/guard-evaluated` fail/threw carrying the named
+        ;; guard, so `extract-guard-blocked-edge-ids` resolves the exact
+        ;; attempted-and-rejected edge. The view threads it into
+        ;; `MachineChart` so that edge paints the PINK guard-blocked
+        ;; treatment instead of vanishing into the affordance-blue exits.
         (mapv (fn [{:keys [machine-id definition] :as rec}]
-                (assoc rec :fired-edge-ids
-                       (trace-state/extract-fired-edge-ids
-                         definition events machine-id)))
+                (assoc rec
+                  :fired-edge-ids
+                  (trace-state/extract-fired-edge-ids
+                    definition events machine-id)
+                  :guard-blocked-edge-ids
+                  (trace-state/extract-guard-blocked-edge-ids
+                    definition events machine-id)))
               (h/project-focused-event-transitions events definitions)))))
 
   ;; ---- focused-epoch cascade events (rf2-g2axio) ------------------

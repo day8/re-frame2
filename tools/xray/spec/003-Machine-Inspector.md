@@ -660,14 +660,23 @@ transition does, with these differences:
   from-highlight / to-highlight — so the chart paints a single active-state
   highlight on the current node rather than a misleading `state → state`
   self-transition edge.
+- **The guard-blocked edge paints PINK (rf2-fzrzlw).** When the no-op is a
+  GUARD-BLOCK (a clause for the event-id exists but its `:guard` returned
+  false / threw), the chart marks that exact edge — and its event-node —
+  GUARD-BLOCKED so the operator sees _which_ edge the event hit and that a
+  guard rejected it. See
+  [§Guard-blocked edge highlight on the topology chart (rf2-fzrzlw)](#guard-blocked-edge-highlight-on-the-topology-chart-rf2-fzrzlw)
+  for the full mechanism. (Before rf2-fzrzlw the chart painted ALL of the
+  active state's exits affordance-blue and gave ZERO rejection signal.)
 - **No snapshot drill-in.** The no-op trace carries no `:before` / `:after`
   snapshot pair (`:data` did not change), so the drill-in suppresses cleanly.
-- **No guards / actions list.** Today's substrate does not emit
-  `:rf.machine/guard-evaluated` for the declining (guard-blocked) candidate —
-  the no-op trace is the sole signal — so there are no guard / action rows to
-  attach. (A follow-on bead may surface the failing guard in the lens once the
-  substrate emits a guard trace on the no-op path; the record shape stays
-  stable.)
+- **No guards / actions LIST in the lens.** The lens's GUARDS-RUN / ACTIONS-RUN
+  forensic LIST is still driven off the cascade projection (the no-op trace is
+  its sole signal there), so no rows attach to the lens list. (The CHART,
+  however, DOES surface the failing guard — it consumes the
+  `:rf.machine/guard-evaluated` fail/threw trace directly; see the rf2-fzrzlw
+  section. A follow-on bead may surface the failing guard in the lens LIST too;
+  the record shape stays stable.)
 
 A machine that BOTH transitioned (or was born) AND no-op'd in the same cascade
 surfaces only its transition / birth record — a no-op is single-signalled
@@ -680,6 +689,62 @@ The Epoch panel's EVENT HANDLER section renders the SAME no-op signal as a
 muted `[NO OP] staying in {state}` cascade-row (rf2-iu3no) — that surface is
 the per-event cascade narration; this section is the Machines TAB's topology
 read. Both key off the one `:rf.machine.event/unhandled-no-op` trace.
+
+### Guard-blocked edge highlight on the topology chart (rf2-fzrzlw)
+
+A guard-blocked no-op (above) emits NO `:rf.machine/transition`, so the chart's
+fired-edge set ([§fired-this-epoch](#focused-transition-lens--above-the-chart-rf2-99rhe))
+is empty for it. Pre-rf2-fzrzlw the chart therefore painted ALL of the active
+state's outgoing edges affordance-blue and gave the operator ZERO signal that a
+specific edge was _attempted and rejected_. The motivating case (Mike, live
+`examples/machine-epochs` door, 2026-06-08): door in `:open` with `held-open?
+true`; dispatch `[:door/close]`; the `:may-close? = (not held-open?)` guard
+fails → guard-blocked no-op.
+
+**The data already exists.** On the declining candidate the runtime emits
+`:rf.machine/guard-evaluated {:machine-id … :guard-id <named-guard> :outcome
+:fail|:threw :input {:event <event>}}` (machines · `transition.cljc`
+`evaluate-guard`). The named guard is the PRECISION the bare transition trace
+lacks: `(event, guard)` uniquely picks the declining candidate — even one arm
+of a guarded fork.
+
+**Derivation (data plane).** `panels/machines/trace-state/extract-guard-blocked-edge-ids`
+filters the focused epoch's `:rf.machine/guard-evaluated` traces (for this
+`:machine-id`) to the `:fail` / `:threw` outcomes, then matches each by
+`(event, guard-ref)` against the edges of `chart.layout/project-definition`,
+returning the CANONICAL machines-viz edge-ids (the EXACT ids the live chart
+mints — agreement by construction, mirroring `extract-fired-edge-ids`). The
+host threads the set as `:guard-blocked-edge-ids` into `machine-canvas/Chart` →
+`MachineChart` (both the Dynamic Machine tab and the Static Topology view).
+
+**Render (render plane).** `chart.projection/xyflow-graph` marks each matching
+edge and its event-node `:guardBlocked`; `chart.nodes.event-node` +
+`chart.edges` then paint the guard-blocked treatment off the new
+`theme/tokens` `:edge-guard-blocked` token (a PINK hue — `:magenta-pink`,
+distinct from the blue fired/active hues AND the red `:final-error` ring):
+
+1. The edge stroke + arrowhead paint PINK and emphasised-width (`tokens/edge-color`
+   resolves `:blocked?` with HIGHEST precedence).
+2. The event-node border + box-shadow go PINK and its `IF <guard>` chip is
+   EMPHASISED (bold pink) so the node reads as the guard that rejected it.
+
+**Design calls (Mike-ruled 2026-06-08):**
+
+- _(1) BOTH_ — pink the edge stroke AND emphasise the guard label.
+- _(2) The attempted edge WINS_ — on a guard-blocked no-op the PINK overrides
+  the all-exits affordance-blue on that specific edge (it does NOT merely sit
+  under the blue). `tokens/edge-color` ranks `blocked? > fired? > focused?/active? > quiet`.
+- _(3) Scope = guard-blocked ONLY_ — a truly-unhandled event (no declared edge)
+  is a separate state-node "ignored event" marker, filed separately.
+
+**Beyond XState.** Stately labels the guarded edge but, on a block, takes no
+transition and highlights NOTHING — it does not paint a guard-failed edge
+colour. This is a SUPERSET enhancement, only possible because re-frame2 emits
+`:rf.machine/guard-evaluated` (observable-everything ethos).
+
+DOM pins: every guard-blocked edge label / event-node carries
+`data-guard-blocked="true"`; the chart root surfaces the sorted set on
+`data-guard-blocked-edge-ids` (mirroring `data-fired-edge-ids`).
 
 ### Relationship to the focused-transition lens (rf2-99rhe)
 

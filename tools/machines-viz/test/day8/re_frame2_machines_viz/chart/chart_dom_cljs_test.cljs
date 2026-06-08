@@ -843,6 +843,66 @@
             (is (= "" (.getAttribute root "data-fired-edge-ids"))
                 "no fired set → empty data-fired-edge-ids")))))))
 
+;; ---- guard-blocked no-op edge highlight (rf2-fzrzlw) -------------------
+;;
+;; The bead's repro: door in `:open`, `:door/close` blocked by the
+;; `:may-close?` guard → no-op. The host resolves the blocked edge-ids via
+;; `extract-guard-blocked-edge-ids` (from the named-guard guard-evaluated
+;; fail/threw traces) and passes them as `:guard-blocked-edge-ids`. The
+;; matching event-node renders with `data-guard-blocked="true"` (the DOM
+;; pin for the PINK guard-blocked treatment) and the chart root surfaces
+;; the sorted set on `data-guard-blocked-edge-ids`.
+
+(def ^:private guarded-door-machine
+  "rf2-fzrzlw — minimal door with a guarded `:door/close [may-close?]`
+  (`:open` → `:closed`) so the guard-blocked no-op edge can be exercised."
+  {:initial :closed
+   :states  {:closed {:on {:door/open :open}}
+             :open   {:on {:door/close {:target :closed :guard :may-close?}}}}})
+
+(deftest chart-guard-blocked-event-node-renders-data-guard-blocked
+  (testing "rf2-fzrzlw — passing :guard-blocked-edge-ids #{<close id>}
+            marks the matching event-node with data-guard-blocked=\"true\";
+            non-blocked event-nodes carry data-guard-blocked=\"false\"."
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises this")
+      (let [close-id (canonical-edge-id guarded-door-machine [:open] [:closed] :door/close)
+            blocked-ev-id (str "event__" close-id)]
+        (with-mounted-chart
+          {:machine-id     :test/door
+           :definition     guarded-door-machine
+           :guard-blocked-edge-ids #{close-id}}
+          (fn [_root node]
+            (let [blocked-el (.querySelector
+                               node (str "[data-testid=\"rf-mv-chart-event-" blocked-ev-id "\"]"))
+                  all-evs    (array-seq
+                               (.querySelectorAll node "[data-testid^=\"rf-mv-chart-event-\"]"))
+                  others     (remove #(= % blocked-el) all-evs)]
+              (when (some? blocked-el)
+                (is (= "true" (.getAttribute blocked-el "data-guard-blocked")))
+                (is (every? #(or (= "false" (.getAttribute % "data-guard-blocked"))
+                                 (nil? (.getAttribute % "data-guard-blocked"))) others))))))))))
+
+(deftest chart-guard-blocked-edge-ids-surfaces-on-root
+  (testing "rf2-fzrzlw — the chart root surfaces the sorted guard-blocked
+            set on data-guard-blocked-edge-ids; absent the prop the attr
+            is empty"
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises this")
+      (let [close-id (canonical-edge-id guarded-door-machine [:open] [:closed] :door/close)]
+        (with-mounted-chart
+          {:machine-id     :test/door
+           :definition     guarded-door-machine
+           :guard-blocked-edge-ids #{close-id}}
+          (fn [root _node]
+            (is (= close-id (.getAttribute root "data-guard-blocked-edge-ids"))
+                "the guard-blocked edge-id surfaces on the root")))
+        (with-mounted-chart
+          {:machine-id :test/door :definition guarded-door-machine}
+          (fn [root _node]
+            (is (= "" (.getAttribute root "data-guard-blocked-edge-ids"))
+                "no guard-blocked set → empty data-guard-blocked-edge-ids")))))))
+
 ;; ---- compound-endpoint edges render in DOM (rf2-shv82, Issue 1) --------
 ;;
 ;; The bug: xyflow v12 silently drops every edge whose source or target

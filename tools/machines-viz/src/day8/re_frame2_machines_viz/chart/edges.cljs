@@ -336,7 +336,12 @@
       (tokens/chart-tokens))))
 
 (defn- edge-stroke
-  "rf2-qeemm (G3) — `fired?` (the edge traversed THIS epoch) wins over
+  "rf2-fzrzlw — `blocked?` (the edge's guard rejected the event this
+  epoch) wins OUTRIGHT so the pink guard-blocked hue overrides the
+  affordance-blue / fired / active on that specific edge (bead design
+  call (2): the attempted-and-rejected edge must stand out).
+
+  rf2-qeemm (G3) — `fired?` (the edge traversed THIS epoch) wins over
   `focused?` / `active?` so a fired arm reads as 'what just happened' in
   the FIRED hue, distinct from the focused/active hue.
 
@@ -356,7 +361,8 @@
   rf2-dt5b1 — otherwise delegates to the shared `tokens/edge-color`, the
   SINGLE source the projector's arrowhead-`:markerEnd` colour also routes
   through, so a stroke and its arrowhead can never resolve different
-  colours for the same edge state."
+  colours for the same edge state (rf2-fzrzlw — `:blocked?` resolves to
+  the pink guard-blocked hue there, winning over fired/active)."
   [ct {:keys [entry?] :as flags}]
   (if entry?
     (:pseudo-marker ct)
@@ -371,16 +377,20 @@
   rf2-qeemm (G3) — `fired?` paints at the emphasis width (the heaviest
   treatment), at least as prominent as `focused?`.
 
+  rf2-fzrzlw — `blocked?` (the guard-blocked no-op edge) paints at the
+  emphasis width too so the pink rejected edge stands out as much as a
+  fired arm — the operator must not miss the attempted transition.
+
   rf2-az6e2 — the QUIET source→event segment (`quiet?`) paints ONE notch
   THINNER than the resting width (so the pair reads as one route: the
   quiet inbound half + the primary outbound half). A quiet segment that
   is itself fired/focused still picks up the emphasis width so a
   traversed route lights BOTH segments together."
-  [{:keys [active? focused? fired? quiet? chart]
+  [{:keys [active? focused? fired? blocked? quiet? chart]
     :or   {chart vc/chart-regular}}]
   (let [{:keys [stroke-width stroke-width-emphasis]} chart]
     (cond
-      (or fired? focused?) stroke-width-emphasis
+      (or fired? focused? blocked?) stroke-width-emphasis
       active?              (/ (+ stroke-width stroke-width-emphasis) 2.0)
       ;; resting quiet inbound half — one notch under the resting width.
       quiet?               (max 0.75 (- stroke-width 0.5))
@@ -421,6 +431,14 @@
         ;; FIRED treatment (emphasised + animated stroke, `data-fired`),
         ;; winning over the focused/active styling per `edge-stroke`.
         fired?     (boolean (.-fired d))
+        ;; rf2-fzrzlw — this edge's guard REJECTED the event this epoch
+        ;; (a guard-blocked no-op: the runtime emitted
+        ;; `:rf.machine/guard-evaluated` fail/threw but NO transition).
+        ;; Drives the PINK guard-blocked treatment (emphasised stroke +
+        ;; emphasised guard label, `data-guard-blocked`), winning OUTRIGHT
+        ;; over fired/focused/active per `edge-stroke` so the attempted-
+        ;; and-rejected edge stands out (bead design call (2)).
+        blocked?   (boolean (.-guardBlocked d))
         after-ms   (.-afterMs d)
         ;; rf2-u422r — on-chart click wiring. `:onClick` is the host
         ;; callback (e.g. Xray's on-chart sim → sim-step); `:eventId`
@@ -502,9 +520,10 @@
         stroke  (if fork-connector?
                   (:pseudo-marker ct)
                   (edge-stroke ct {:active? active? :focused? focused? :fired? fired?
-                                   :entry? entry?}))
+                                   :blocked? blocked? :entry? entry?}))
         stroke-w (edge-stroke-width {:active? active? :focused? focused?
-                                     :fired? fired? :quiet? quiet? :chart vc})]
+                                     :fired? fired? :blocked? blocked?
+                                     :quiet? quiet? :chart vc})]
     (r/as-element
       [:<>
        ;; rf2-o6vh7 — every edge renders its own SVG path + arrowhead.
@@ -544,6 +563,10 @@
                ;; rf2-qeemm (G3) — DOM pin for the fired-this-epoch edge
                ;; treatment; tests + hosts read it to find the traversed arm.
                :data-fired (str fired?)
+               ;; rf2-fzrzlw — DOM pin for the guard-blocked no-op edge
+               ;; treatment; tests + hosts read it to find the attempted-
+               ;; and-rejected arm (the pink edge whose guard declined).
+               :data-guard-blocked (str blocked?)
                :data-after-ms (when after-ms (str after-ms))
                ;; rf2-ee38b.21 — surface internal / machine-level so the
                ;; DOM suite + a host can distinguish self-transition kind

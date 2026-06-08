@@ -115,6 +115,13 @@
     :action        — action name as a string, or nil.
     :focused       — focused-event lens hit; emphasised border.
     :fired         — this event fired THIS epoch; FIRED treatment.
+    :guardBlocked  — rf2-fzrzlw — this transition's guard REJECTED the
+                     event this epoch (a guard-blocked no-op: the runtime
+                     emitted `:rf.machine/guard-evaluated` fail/threw but
+                     NO transition). PINK guard-blocked treatment: pink
+                     border + an EMPHASISED pink `IF <guard>` chip so the
+                     node reads as the guard that rejected it (bead design
+                     call (1)). Wins over fired/focused on this node.
     :clickable     — host wired an on-click for this event (the
                      on-chart sim path).
     :eventId       — raw fireable event keyword the host receives on
@@ -145,6 +152,12 @@
         action      (.-action d)
         focused?    (boolean (.-focused d))
         fired?      (boolean (.-fired d))
+        ;; rf2-fzrzlw — this transition's guard rejected the event this
+        ;; epoch (guard-blocked no-op). Drives the PINK guard-blocked
+        ;; treatment (pink border + emphasised pink `IF <guard>` chip),
+        ;; winning over fired/focused on this node so the rejected
+        ;; transition stands out (bead design call (1) + (2)).
+        blocked?    (boolean (.-guardBlocked d))
         fork-order  (.-forkOrder d)
         internal?   (boolean (.-internal d))
         reenter?    (boolean (.-reenter d))
@@ -161,13 +174,17 @@
                 event-chip-pad-y event-chip-radius event-chip-px
                 event-chip-action-px action-pill-height action-pill-pad-x
                 action-pill-radius stroke-width stroke-width-emphasis]} vc
-        emphasised? (or focused? fired?)
+        emphasised? (or focused? fired? blocked?)
         stroke-w    (if emphasised? stroke-width-emphasis stroke-width)
         ;; rf2-az6e2 — the route chip is SUBORDINATE to states: a quiet
         ;; neutral fill + neutral border by default. Runtime state
         ;; (focused lens / fired-this-epoch) swaps the border to the
         ;; runtime accent; a clickable (sim) chip gets a faint amber wash.
+        ;; rf2-fzrzlw — a guard-blocked no-op swaps the border to the PINK
+        ;; guard-blocked hue (winning over fired/focused) so the rejected
+        ;; transition stands out.
         stroke-col  (cond
+                      blocked?  (:edge-guard-blocked ct)
                       fired?    (:edge-fired ct)
                       focused?  (:edge-active ct)
                       :else     (:event-chip-border ct))
@@ -196,6 +213,10 @@
              :data-fork-order (when fork-order (str fork-order))
              :data-machine-level (str machine-level?)
              :data-fired (str fired?)
+             ;; rf2-fzrzlw — DOM pin for the guard-blocked no-op event
+             ;; treatment; tests + hosts read it to find the attempted-
+             ;; and-rejected transition (the pink chip whose guard declined).
+             :data-guard-blocked (str blocked?)
              :data-focused (str focused?)
              :data-clickable (str clickable?)
              :data-after-ms (when after-ms (str after-ms))
@@ -235,7 +256,10 @@
                      :user-select    "none"
                      :box-shadow     (when emphasised?
                                        (str "0 0 0 2px "
-                                            (if fired? (:glow-fired ct) (:glow ct))))
+                                            (cond
+                                              blocked? (:edge-guard-blocked ct)
+                                              fired?   (:glow-fired ct)
+                                              :else    (:glow ct))))
                      :animation      (when fired?
                                        "mv-chart-transition-glow 720ms ease-out infinite")
                      :transition     "border-color 120ms ease, background 120ms ease"}}
@@ -254,11 +278,18 @@
         (fork-badge (.-id props) fork-order ct event-chip-px)
         header
         (when guard
+          ;; rf2-fzrzlw — a guard-blocked no-op EMPHASISES the guard chip
+          ;; in the pink guard-blocked hue (bold pink `IF <guard>`) so the
+          ;; node reads "this guard rejected it"; the resting guard chip
+          ;; stays quiet tertiary.
           [:span {:data-testid (str "rf-mv-chart-event-guard-" (.-id props))
                   :data-guard guard
+                  :data-guard-blocked (str blocked?)
                   :style {:margin-left "5px"
-                          :color (:text-tertiary ct)
-                          :font-weight 600}}
+                          :color (if blocked?
+                                   (:edge-guard-blocked ct)
+                                   (:text-tertiary ct))
+                          :font-weight (if blocked? 700 600)}}
            (str "IF " guard)])
         ;; rf2-9dj21r — the EXTERNAL restart marker. A targeted transition
         ;; is internal by default (XState v5 / Spec 005); a `↻` reenter chip

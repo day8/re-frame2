@@ -56,6 +56,7 @@ registry).
 | `:from-highlight` | no | `nil` | Focused-event lens origin (a `:state` value). |
 | `:to-highlight` | no | `nil` | Focused-event lens landing (a `:state` value). |
 | `:fired-edge-ids` | no | `#{}` | rf2-qeemm (closes parity gap **G3**). A **set** of canonical edge-ids (the EXACT scheme `chart.layout` mints) that fired **this epoch**. Each matching edge gets the FIRED treatment — emphasised + animated stroke + `data-fired` — along its routed path (coexisting with G2 bend-points + G1 active styling). Distinct from the from/to lens (`:from-highlight` / `:to-highlight`, matched by ENDPOINT state): this matches the **edge** directly, so every traversed arm (microsteps, guard-fork candidates) lights up. The host (Xray) resolves it for the focused epoch via `panels.machines.trace-state/extract-fired-edge-ids`; the ids agree with the chart by construction. The chart root surfaces the sorted set as `data-fired-edge-ids`. `nil` / `#{}` → no fired highlight. **Colour delegated to Figma** (`:accent` baseline, distinct from the focused/active `:info`). |
+| `:guard-blocked-edge-ids` | no | `#{}` | rf2-fzrzlw. A **set** of canonical edge-ids (same scheme as `:fired-edge-ids`) whose **guard REJECTED** the event this epoch — a guard-blocked **no-op** (the runtime emitted `:rf.machine/guard-evaluated` fail/threw but **NO** `:rf.machine/transition`, so the fired set is empty for it). Each matching edge **and its event-node** gets the guard-blocked treatment — emphasised **PINK** stroke + emphasised pink `IF <guard>` chip + `data-guard-blocked` — which **WINS** over fired/focused/active on that edge (`theme.tokens/edge-color` ranks `blocked? > fired? > focused?/active? > quiet`), so the attempted-and-rejected edge stands out from the all-exits affordance-blue. Without it a blocked no-op gives ZERO signal which edge the event hit. The host (Xray) resolves it via `panels.machines.trace-state/extract-guard-blocked-edge-ids` (matching on the named-guard `(event, guard)` the `:rf.machine/guard-evaluated` trace carries). The chart root surfaces the sorted set as `data-guard-blocked-edge-ids`. `nil` / `#{}` → no guard-blocked highlight. **SUPERSET of XState/Stately** (which highlights nothing on a block) — only possible because re-frame2 emits guard-evaluated. Colour = `:edge-guard-blocked` (pink `:magenta-pink`). |
 | `:sim?` | no | `nil` | Flips the highlight palette to amber for the simulator path. |
 | `:on-state-click` | no | `nil` | `(fn [path] ...)`. Fires when the user clicks a **real statechart-state node** — a **leaf state** (its body) or a **compound state** (its **title strip** only; the compound's body stays pointer-transparent so a click inside it falls through to the nested leaf). `path` is the clicked state's path. **Not** fired for the synthetic **machine-root** chip or **parallel-region** containers (no region-selection concept yet) — the projector threads the callback onto leaf + compound `:data` only (rf2-34ff3). No-op'd when `:read-only?` is true. |
 | `:read-only?` | no | `nil` | When `true`, all `:on-*` callbacks are no-op'd. The viewer page sets this. |
@@ -343,14 +344,17 @@ carry: `:eventLabel` (the `chart.layout/event-segment` glyph-aware
 text), `:guard` (string), `:action` (string), `:variant` (`:on` /
 `:after` / `:always`), `:eventId` (raw fireable keyword for the
 on-chart sim — nil for `:after` / `:always` / wildcard), `:fromPath`
-/ `:toPath`, `:focused`, `:fired`, `:internal`, `:reenter` (rf2-9dj21r —
+/ `:toPath`, `:focused`, `:fired`, `:guardBlocked` (rf2-fzrzlw — the
+guard-blocked no-op marker; drives the PINK border + emphasised pink
+`IF <guard>` chip), `:internal`, `:reenter` (rf2-9dj21r —
 the external-restart axis; drives the `↻` reenter chip), `:machineLevel`,
 `:onClick` (the host-supplied callback), `:afterMs`, `:chart`
 (resolved visual-constants).
 
 The inbound + outbound edges carry the structural / styling state
 that used to live on the single state→state edge: `:active`,
-`:focused`, `:fired`, `:crossHierarchy`, and elk-routed `:points`. Edge
+`:focused`, `:fired`, `:guardBlocked` (rf2-fzrzlw — both halves paint the
+PINK guard-blocked stroke), `:crossHierarchy`, and elk-routed `:points`. Edge
 ids: `<spec-edge-id>__in` / `<spec-edge-id>__out`. Event-node ids:
 `event__<spec-edge-id>` via `chart.projection/event-node-id`. The
 `:eventLabel` slot on these edges is empty (the event-node holds the
@@ -1005,6 +1009,7 @@ chrome-only tokens (`:chrome-ribbon-*`, `:diff-*`, `:syntax-*`,
 | `:event-chip-bg` / `:event-chip-border` | route-chip fill / border (subordinate) |
 | `:pseudo-marker` | initial / history pseudo-state (neutral, NOT accent) |
 | `:edge-quiet` / `:edge-active` / `:edge-fired` | source→event quiet / event→target+active / fired-epoch |
+| `:edge-guard-blocked` | rf2-fzrzlw — the guard-blocked no-op edge (a transition whose guard rejected the event): PINK (`:magenta-pink`), distinct from the blue fired/active hues AND the red `:final-error` ring. Wins over fired/active in `edge-color` (`blocked? > fired? > focused?/active? > quiet`). |
 | `:active` / `:focus` / `:sim` / `:final` | runtime-state accents (reserved for runtime, NOT static structure) |
 
 ### Resolution rules
