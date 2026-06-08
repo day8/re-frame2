@@ -39,7 +39,13 @@ You can list the peer-dependency declarations with a read-only search over the l
 If the project leans on a **UI component library** — any Reagent-based or React-based component kit (a design-system wrapper, a Reagent component suite, a React component library consumed from CLJS) — confirm it has a release compatible with **React 19** (and, if it is a Reagent component lib, **Reagent 2.x**).
 
 - If it does: note the target version; it joins the Check-1 bump list.
-- **If it does not: STOP. This is a go/no-go blocker.** Do not touch any dep coord. Surface it to the operator/author as an explicit decision: wait for a React-19 release of the component library, replace it, vendor/patch it, or hold the migration. A Reagent component library with no Reagent-2 / React-19 build cannot be carried across the floor, and discovering that *after* the coord swap means unwinding a half-migrated tree. Discover it here.
+- **If it does not (no declared React-19 / Reagent-2 release): STOP. This is a go/no-go blocker.** Do not touch any dep coord. Surface it to the operator/author as an explicit decision among **four** options:
+  1. **Wait** for a React-19 / Reagent-2 release of the component library.
+  2. **Replace** it with a React-19-compatible alternative.
+  3. **Vendor / patch** it to run on React 19.
+  4. **Force React 19 at the app level and verify the component library empirically at runtime.** A library's *declared* peer range is a lower bound on what its maintainers tested, not a hard ceiling — a component kit that pins `^18` often runs fine on React 19 in practice (React 19 kept most of the 18 surface; the breaks are concentrated in the legacy `ReactDOM.render` path and a few removed APIs, per Check 3). So bump `react`/`react-dom` to `^19` anyway, install, and **exercise the app's real component-using screens at runtime** — mount each surface that renders the library's components, click through the interactions, watch the console for React errors/warnings. If it renders and behaves, the declared range was conservative and the library is usable as-is (record this as an *empirically-verified* GO, with the screens tested). If it throws or mis-renders, fall back to option 1–3. This is the **escape hatch from an over-conservative peer range** — but it is a *verified* GO, never an assumed one: an unverified "probably fine" force is exactly the half-migrated-tree trap this gate exists to prevent.
+
+  A Reagent component library with no Reagent-2 / React-19 build **and** no empirical pass cannot be carried across the floor, and discovering that *after* the coord swap means unwinding a half-migrated tree. Discover it here.
 
 This is the one check most likely to turn a "cheap coord swap" into a multi-week project — which is exactly why it runs before any edit.
 
@@ -53,8 +59,8 @@ Most v1 codebases route their root mount through Reagent and never call `ReactDO
 
 Decide and record the gate outcome before proceeding:
 
-- **GO** — React already at 19 (or cleanly bumpable), and every Check-1/Check-2 library has a React-19-compatible target, and Check-3 is empty or its call sites are slated for the `createRoot` rewrite. Carry the React/Reagent bump and any component-lib bumps into the M-0 pass below, then continue. (For a project already on React 19 with a React-19-ready component library, this is the fast path — the gate adds minutes, not weeks.)
-- **NO-GO** — any Check-2 component library (or a load-bearing Check-1 dep) has no React-19 release. **Stop here.** Do not edit any dep coord. Report the blocker and the options to the author; the migration resumes once the blocker is resolved.
+- **GO** — React already at 19 (or cleanly bumpable), and every Check-1/Check-2 library has a React-19-compatible target **or an empirically-verified runtime pass** (Check-2 option 4), and Check-3 is empty or its call sites are slated for the `createRoot` rewrite. Carry the React/Reagent bump and any component-lib bumps into the M-0 pass below, then continue. (For a project already on React 19 with a React-19-ready component library, this is the fast path — the gate adds minutes, not weeks.)
+- **NO-GO** — any Check-2 component library (or a load-bearing Check-1 dep) has no React-19 release **and** no empirical runtime pass. **Stop here.** Do not edit any dep coord. Report the blocker and the options to the author; the migration resumes once the blocker is resolved.
 
 **The React/Reagent bump itself**, once the gate is GO. If `package.json` pins `react`/`react-dom` to 17 or 18, bump both to `^19` (Reagent users are simultaneously on Reagent 2.x — that rides in via the `day8/re-frame2-reagent` adapter, not a separate `package.json` pin unless the project pins Reagent directly):
 

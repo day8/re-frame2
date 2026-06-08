@@ -34,6 +34,8 @@ The rule engine and the FSM are structurally different. async-flow is **temporal
 
 > **CRITICAL — retarget the producers, or the machine never advances.** async-flow watches the **global** router: a rule awaiting `:config-loaded` fires when *anyone* dispatches `[:config-loaded]`. A machine does **not** — it is an event handler addressed by its id, and **only observes events dispatched to its address** `[<machine-id> <event-vec>]` (per [005 §Spawning — dynamic actors](../../../spec/005-StateMachines.md#spawning--dynamic-actors): a machine "is addressable as an event handler whose id is the actor's address"; a plain `[:config-loaded]` resolves to a *separate* `:config-loaded` handler — or to `:rf.error/no-such-handler` — and never reaches `:app/boot`). So mapping the `:when`/`:seen-*` events onto the machine's `:on` keys is only **half** the conversion. The other half is rewriting every **producer** of those awaited events — the HTTP `:on-success`/`:on-failure`, the existing completion handler, whatever dispatched the plain global event — to dispatch the **addressed** form: `[:app/boot [:config-loaded payload]]`, `[:app/boot [:fetch-failed err]]`. Skip this and the converted boot/login/wizard compiles, starts, and then **hangs silently** on its first await — the spinner never clears, with no error. When the original event must stay public (other code also listens for the plain `[:config-loaded]`), keep the global producer and add a one-line **bridge** handler that re-dispatches into the machine — `(rf/reg-event-fx :config-loaded (fn [_ ev] {:fx [[:dispatch (into [:app/boot] [ev])]]}))` — or model the await as a spawned child actor whose completion the runtime routes back to the parent (see [§Parallel fan-out — `:spawn-all`](#parallel-fan-out--spawn-all-when-each-await-is-its-own-actor) below). The worked example below shows the producer rewrites explicitly.
 
+> **Plan a cross-file wiring pass — the producers are scattered, not co-located.** The worked example below is a single file for legibility, but a real boot/login/wizard orchestration is **the opposite**: the `:async-flow` declaration lives in one `boot`/`init` namespace, while its awaited events are produced **across many namespaces** — `[:config-loaded]` from a config ns, `[:user-loaded]` from an auth ns, `[:feature-flags-ready]` from a flags ns, each with its own HTTP `:on-success`/`:on-failure`. And the fan-out runs the other way too: **one** event (e.g. `[:session-expired]`, `[:fetch-failed]`) is often awaited by **several** flows/machines at once. So the retarget is not a local edit — it is a **wiring pass spanning the whole producer graph**. Before converting, enumerate it: for each awaited event in the flow, grep the codebase for *every* site that dispatches it (`rg "\[:config-loaded"`), and list which file/handler each lives in. Then decide per site — **re-address** it to `[<machine-id> …]` (when the machine is its sole consumer) or **bridge** it (when it must stay public for other listeners). Treat any awaited event you cannot fully trace to its producers as a blocker: an unretargeted producer is the silent stuck-boot. Record the producer-graph map in the plan and the report (per [§Reporting](#reporting)) so the operator can verify nothing was missed.
+
 ### `reg-machine` grammar (the slots this guide uses)
 
 ```clojure
@@ -178,6 +180,52 @@ The single most common `async-flow-fx` use is the **app boot / init orchestratio
 2. **Eager-kick it from mount / `:on-create` with `[:rf.machine/start]`.** A singleton is created **lazily** by default (the initial-entry cascade folds into its first real event). Boot wants the opposite — alive **now**, at app start, so the initial state's `:entry` fires. Dispatch the reserved synthetic creation marker `(rf/dispatch [:app/boot [:rf.machine/start]])` from the frame's `:on-create` (or the host's mount/on-create). This is xstate's `createActor(m).start()`: it runs the initial macrostep (initial-entry cascade + `:always` settle) then **stops**. A bare `[:start]` is just an unhandled user event → spurious no-op (per the `:first-dispatch` row in the construct-mapping table above and [005 §Synthetic creation marker](../../../spec/005-StateMachines.md#synthetic-creation-marker--rfmachinestart)).
 
 3. **The boot handler MERGEs into the existing db — never wholesale-replace.** The boot machine's snapshot lives **in `app-db`** at `[:rf/runtime :machines :snapshots :app/boot]`. A v1-style `{:db fresh-map}` wholesale replace — the near-universal `:initialize-db` idiom — drops `:rf/runtime` and the live snapshot with it, silently. If the init runs the wholesale seed, do it **before** the eager kick (so there is no live snapshot to clobber), or thread `(assoc fresh-db :rf/runtime (:rf/runtime db))` to preserve it. This is the [`:rf/runtime` wholesale-replace footgun](guided-handlers-state.md#m-15b--full-app-db-replace-boot-drops-rfruntime) (M-15b) — the dev diagnostic `:rf.warning/runtime-state-dropped` fires when it bites. See [Pattern-Boot §3 — build the initial db so it does NOT clobber the birth snapshot](../../../spec/Pattern-Boot.md#worked-example--the-singleton-boot-machine-that-survives-the-initial-db-build) for the two correct shapes.
+
+### Starting a machine WITH parameters — `[:rf.machine/start]` carries no payload
+
+A flow often kicks off with data the surrounding program supplies — a wizard opened on a specific entity id, a login flow seeded with a redirect target, a boot that needs a tenant id. async-flow let you stuff that into `:first-dispatch [:fetch-config tenant-id]`. The instinct on the machine side is to reach for `[:app/boot [:rf.machine/start params]]` — **don't.** The reserved creation marker is a **pure init-kick with no payload**: the runtime threads the literal placeholder `[:rf.machine/start]` (no args) through the initial-entry cascade, and an args-carrying marker is **silently ignored** — the `:entry` actions on the birth call see only `[:rf.machine/start]`, never your params (per [005 §Synthetic creation marker](../../../spec/005-StateMachines.md#synthetic-creation-marker--rfmachinestart): "User code … MUST NOT rely on any other interpretation of the marker"). This is deliberate xstate parity — `createActor(m).start()` takes no event. So there is no "parameterised start marker"; pick one of the three idioms below by the machine's shape.
+
+**(a) Static params known at registration — put them in the spec's `:data`.** When the seed is fixed at registration time (defaults, constants), declare it in the machine's top-level `:data` map; the initial `:entry` reads it from the context `:data` argument.
+
+```clojure
+(rf/reg-machine :wizard/checkout
+  {:initial :collecting
+   :data    {:steps [:cart :address :pay] :step 0}   ;; static seed
+   :states  {:collecting {:entry (fn [{:keys [data]}] ...)}}})
+
+(rf/dispatch [:wizard/checkout [:rf.machine/start]])   ;; no params on the marker
+```
+
+**(b) Dynamic params for a SINGLETON — seed via lazy first-event, not the eager kick.** When the params are only known at runtime and the machine is a singleton (one instance, addressed by registration id), **skip the eager `[:rf.machine/start]`** and let the machine boot **lazily** on its first real, parameter-carrying event. The initial macrostep folds into that event, and its transition `:action` reads the payload — the params arrive on the event, the way every other machine event carries data.
+
+```clojure
+;; initial state handles the seeding event; the machine boots lazily on it.
+(rf/reg-machine :app/boot
+  {:initial :idle
+   :states  {:idle {:on {:seed {:target :loading
+                                :action (fn [{:keys [event]}]
+                                          (let [[_ tenant-id] event]
+                                            {:data {:tenant-id tenant-id}
+                                             :fx   [[:dispatch [:fetch-config tenant-id]]]}))}}}
+            :loading {...}}})
+
+;; the surrounding program seeds WITH params — no [:rf.machine/start] at all:
+(rf/dispatch [:app/boot [:seed tenant-id]])
+```
+
+(If the initial state must *also* do birth work that should run before any seeding event — arm an `:after`, wire a subscription — keep the eager `[:rf.machine/start]` for that, and let the *separate* `[:seed …]` event carry the params; the two are independent.)
+
+**(c) Dynamic params for a CHILD actor — `:spawn :data` threads them from the triggering event.** When the machine is a dynamic child (one per row / request / wizard-instance), spawn it with `:rf.machine/spawn` and use the `:data` function form, which receives the spawning event: `(fn [{:keys [snapshot event]}] data)`. This is the canonical "start a child with parameters" path (per [005 §Spawn-spec keys](../../../spec/005-StateMachines.md#spawn-spec-keys) — `:data` "admits a function form so the initial data can depend on … the triggering event").
+
+```clojure
+{:fx [[:rf.machine/spawn
+       {:machine-id :row/editor
+        :data       (fn [{:keys [event]}]
+                      (let [[_ row-id] event]
+                        {:row-id row-id}))}]]}   ;; child's initial :data seeded from the event
+```
+
+> **Verdict for the migrator:** there is **no API gap** here — `[:rf.machine/start]`'s no-payload contract is intended, and the three idioms above cover every parameterised-start need (static → `:data`; dynamic singleton → lazy seed event; dynamic child → `:spawn :data` fn). Do **not** invent a workaround that smuggles params onto the marker. Map the v1 `:first-dispatch`'s arguments onto idiom (a) or (b) for a singleton boot, or onto (c) when the flow becomes a spawned child.
 
 ### The simple-case judgement — chain vs machine
 
