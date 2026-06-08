@@ -1480,27 +1480,27 @@
 ;; Per `settle!`'s empty-buffer policy (epoch.cljc) — a drain boundary
 ;; whose capture buffer holds no cascade context is SKIPPED rather than
 ;; committing a record with no :event-id / :trigger-event. This is the
-;; "no misleading record on a rejected / aborted dispatch" guard: the
-;; router calls `discard-buffer!` for the routine cascade-abort case
-;; (depth-exceeded mid-flight, dispatch-sync rejection), so when `settle!`
-;; fires at the abort boundary the harvested buffer is empty and no record
-;; is committed. The invariant was only covered indirectly (cross-
+;; "no misleading record on a rejected / aborted dispatch" guard: on the
+;; routine cascade-abort case (dispatch-sync rejection, an aborted child
+;; that never fired :event/run-start) the capture buffer is empty, so when
+;; `settle!` fires at the abort boundary the harvested buffer is empty and
+;; no record is committed. The invariant was only covered indirectly (cross-
 ;; contamination / leaked-buffer tests); this names it directly by driving
 ;; the empty-buffer settle! seam.
 
 (deftest empty-buffer-settle-commits-no-epoch
   (testing "settle! at a drain boundary whose capture buffer is empty —
-            the reality after the router has discarded the buffer for a
-            rejected / aborted dispatch — commits NO epoch record. A
+            the reality on a rejected / aborted dispatch that buffered
+            no cascade context — commits NO epoch record. A
             record with no :event-id / :trigger-event would misrepresent
             a cascade that never ran; the empty-buffer skip in settle!
             (epoch.cljc) suppresses it. The ring stays empty for the frame."
     (rf/reg-frame :test/main {})
     ;; Start from a known-empty capture buffer for this frame — the
-    ;; post-discard state the router leaves on a rejected/aborted
-    ;; dispatch. (`reg-frame` emits a :rf.frame/created trace that
+    ;; state on a rejected/aborted dispatch that buffered no cascade
+    ;; context. (`reg-frame` emits a :rf.frame/created trace that
     ;; capture-event! would buffer; reset so the buffer is genuinely
-    ;; empty, mirroring discard-buffer!.)
+    ;; empty, mirroring the empty-buffer abort case.)
     (reset! @#'state/capture-buffers {})
 
     ;; settle! fires at the abort boundary with no buffered cascade
@@ -2651,8 +2651,8 @@
 
 ;; ---- rf2-zzper: on-frame-destroyed! drops in-flight capture-buffer --------
 ;;
-;; The router calls `discard-buffer!` for the routine cascade-abort case
-;; (depth-exceeded, dispatch-sync rejection, etc.). But a destroy that
+;; The per-event halt and abort paths each clear their own buffer at the
+;; settle / harvest seam. But a destroy that
 ;; races a mid-flight drain — e.g. a hot-reload firing while the drain
 ;; has buffered events but has not yet settled — would otherwise leave
 ;; a stale partial buffer hanging on `capture-buffers[frame-id]`. The

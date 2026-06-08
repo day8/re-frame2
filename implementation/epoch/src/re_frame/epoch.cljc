@@ -399,27 +399,6 @@
       (commit-record! frame-id db-before db-after events outcome
                       halt-reason trigger-event))))
 
-(defn- discard-buffer!
-  "Drop the in-flight capture buffer for frame-id WITHOUT committing a
-  record. Used by routes that intentionally suppress the cascade
-  surface (e.g. the rf2-zzper destroy hook's belt-and-braces buffer
-  clear, where on-frame-destroyed runs before the drain loop's halt
-  path observes the destroy).
-
-  Per rf2-hul9q: the only consumer is the late-bind seam, surfaced
-  through `:epoch/discard-buffer!`. The fn itself takes no direct
-  callers, so the visibility stays `defn-` to keep the late-bind
-  seam the sole public access path.
-
-  Per rf2-v0jwt: the router's halt paths no longer route through this
-  hook — they call `settle!` with a halt outcome so a `:halted-*`
-  epoch record is committed. `discard-buffer!` remains for the
-  destroy-hook belt-and-braces path."
-  [frame-id]
-  (when interop/debug-enabled?
-    (state/harvest-buffer! frame-id))
-  nil)
-
 ;; ---- restore --------------------------------------------------------------
 ;;
 ;; Precondition validators, schema/handler/version probes, and
@@ -627,7 +606,6 @@
    ;; halting event never ran (so the buffer is empty and `settle!` would
    ;; skip). Synthesises the halting event's `:halted-depth` record.
    :epoch/commit-halt-record! commit-halt-record!
-   :epoch/discard-buffer!     discard-buffer!
    :epoch/capture-event       capture/capture-event!
    ;; rf2-25zo2: in-flight cascade-cause lookup for :rf.view/rendered.
    ;; Views consume this via `:epoch/cascade-cause` at render-emit time

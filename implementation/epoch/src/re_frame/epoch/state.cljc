@@ -929,7 +929,7 @@
 ;;
 ;; The memory bound rf2-fxowr guarded is preserved WITHOUT the count: a child
 ;; that NEVER runs to a settle has its marker cleared by the same terminal path
-;; that ends the child's life — `on-frame-destroyed!` / `discard-buffer!` drop
+;; that ends the child's life — `on-frame-destroyed!` drops
 ;; the whole frame buffer (frame destroyed / drain-interrupted), the per-event
 ;; depth-halt `commit-halt-record!` reads-and-CLEARS the whole buffer
 ;; (`harvest-buffer!`), and a rejected/aborted child dispatch reaches the
