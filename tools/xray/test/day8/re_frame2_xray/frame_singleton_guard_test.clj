@@ -87,9 +87,11 @@
   ## The ONE permitted `:rf/xray` reference — and why it isn't here
 
   The few legitimate production-singleton seams — the trace-collector
-  `note-suppressed!` dual-write (`config.cljc`), the share-URL on-load
-  restore (`share.cljs`), and the per-feature `hydrate!` init-seams
-  (`spine-filters`, `machine-canvas`, `static/machines/persistence`) —
+  `note-suppressed!` dual-write (`config.cljc`) and the per-feature
+  `hydrate!` init-seams (`spine-filters`, `machine-canvas`,
+  `static/machines/persistence`) — (the share-URL on-load restore in
+  `share.cljs` was another such seam until rf2-nugvv removed the whole
+  share surface) —
   target the ONE production shell frame via the NAMED
   `defaults/default-frame-id` Var, NOT a bare `{:frame :rf/xray}` map
   literal. The named Var never trips `frame-literal-pattern`, so those

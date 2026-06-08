@@ -7,7 +7,7 @@
   Seven Xray namespaces persist a slot to localStorage (frame-switcher
   selection, column widths, command-palette recents, spine mute-set,
   filter pills, the Static mode flag, the Static-Machines selection +
-  sub-mode map, the machine-canvas view-mode + chart-collapsed maps).
+  sub-mode map, the machine-canvas chart-collapsed map).
   Each had carried a copy-pasted trio of private helpers:
 
       (defn- storage-available? [] (and (exists? js/window)

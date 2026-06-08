@@ -21,8 +21,9 @@
   Dynamic panel's responsibility — the static-side JUMP just lands the
   selection; the post-collapse Dynamic Machines panel runs event-driven
   off the focused event, so the selected-machine-id slot drives the
-  Sim engine + share-URL contract today (per `panels/machine_inspector.
-  cljs/select-machine-id`)."
+  Sim engine + the jump/focus landing today (per `panels/machine_inspector.
+  cljs/select-machine-id`; the share-URL surface that previously also
+  consumed the slot was removed in rf2-nugvv)."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.theme.tokens
