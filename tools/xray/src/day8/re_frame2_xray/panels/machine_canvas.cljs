@@ -240,6 +240,13 @@
                           stays a separate (future) diagnostic. nil → no
                           panel. Forwarded verbatim to
                           `mv-chart/MachineChart`'s `:machine-data`.
+    :machine-data-inferred? — rf2-3q4k5b (EP-0005). Optional boolean
+                          (default true). True → the Context band's shape is
+                          INFERRED from one sample of `:data` (the `inferred
+                          from :data` badge, rf2-5tz9p). False → the shape is
+                          AUTHORITATIVE from a declared `:data-schema` (badge
+                          dropped, `declared` shown). Forwarded verbatim to
+                          `mv-chart/MachineChart`.
     :fired-edge-ids     — rf2-qeemm (G3). A SET of canonical machines-viz
                           edge-ids that fired THIS epoch (resolved by the
                           host via
@@ -293,11 +300,13 @@
   post-migration."
   [{:keys [definition machine-id from-highlight to-highlight current-state
            fired-edge-ids guard-blocked-edge-ids machine-data
+           machine-data-inferred?
            sim? on-state-click on-edge-click
            show-after-rings?
            show-controls? theme testid inner-testid
            fit-signal]
-    :or   {show-after-rings?       true
+    :or   {machine-data-inferred?  true
+           show-after-rings?       true
            show-controls?          true
            ;; rf2-az6e2 — Xray's surface is dark; the chart `:theme`
            ;; defaults to `@default-chart-theme` (`:dark`). Held in a
@@ -330,6 +339,11 @@
      {:definition      definition
       :machine-id      machine-id
       :machine-data    machine-data
+      ;; rf2-3q4k5b (EP-0005) — declared-over-inferred provenance for the
+      ;; Context band badge. Forwarded so the Static topology path can mark a
+      ;; `:data-schema`-declared shape AUTHORITATIVE (false → no inferred
+      ;; badge). Defaults true (rf2-5tz9p's inferred-by-default posture).
+      :machine-data-inferred? machine-data-inferred?
       :from-highlight  from-highlight
       :to-highlight    to-highlight
       :current-state   current-state

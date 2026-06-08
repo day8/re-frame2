@@ -748,9 +748,12 @@
     - a full-width TITLE STRIP carrying the MACHINE NAME (`:machineName`,
       from the host's `:machine-id`), with a subtle `∥` glyph for a parallel
       root (`:parallel`);
-    - an optional CONTEXT band UNDER the title (`:context` — the inferred
-      key→type-caption shape the host feeds via `:machine-data`), with a
-      quiet `inferred from :data` badge unless `:contextInferred` is false.
+    - an optional CONTEXT band UNDER the title (`:context` — the key→type-
+      caption shape the host feeds via `:machine-data`), with a provenance
+      badge: a quiet `inferred from :data` badge when `:contextInferred` is
+      true (the one-sample inference, rf2-5tz9p), or a positive `declared`
+      badge when false (the authoritative `:data-schema` shape, rf2-3q4k5b /
+      EP-0005).
 
   Structural chrome, not a state: NEUTRAL border (no runtime accent — the
   projector never marks it `:active`), no `:onClick`. The painted box FILLS
@@ -850,7 +853,13 @@
                             :text-transform "uppercase"
                             :color          (:text-tertiary ct)}}
              "Context"]
-            (when inferred?
+            ;; rf2-5tz9p / rf2-3q4k5b — the provenance badge. The shape is
+            ;; either INFERRED from one sample of the machine's `:data` (the
+            ;; quiet caveat badge — a partial initial `:data` can mislead) OR
+            ;; AUTHORITATIVE from a declared `:data-schema` (EP-0005). When
+            ;; declared, the `inferred from :data` badge is dropped and a
+            ;; positive `declared` badge marks the shape as authoritative.
+            (if inferred?
               [:span {:data-testid (str "rf-mv-chart-root-container-context-inferred-"
                                         (.-id props))
                       :title "Inferred from one sample of the machine's :data — not a declared schema"
@@ -858,7 +867,15 @@
                               :font-weight 500
                               :font-style  "italic"
                               :color       (:text-tertiary ct)}}
-               "inferred from :data"])]
+               "inferred from :data"]
+              [:span {:data-testid (str "rf-mv-chart-root-container-context-declared-"
+                                        (.-id props))
+                      :title "Declared by the machine's :data-schema — authoritative context shape"
+                      :style {:font-size      "8px"
+                              :font-weight    600
+                              :letter-spacing "0.04em"
+                              :color          (:accent ct)}}
+               "declared"])]
            (for [[k v] context]
              ^{:key k}
              [:div {:style {:display     "flex"

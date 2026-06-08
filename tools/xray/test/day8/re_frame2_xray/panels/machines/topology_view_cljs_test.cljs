@@ -81,6 +81,60 @@
     (is (nil? (tv/static-context-shape {:initial :a :data nil :states {:a {}}})))
     (is (nil? (tv/static-context-shape nil)))))
 
+(deftest static-context-declared-schema-is-authoritative
+  (testing "rf2-3q4k5b (EP-0005) — when a machine declares a `:data-schema`,
+            the static Context shape is read AUTHORITATIVELY off the schema
+            (not the `:data` sample) and `static-context-inferred?` is FALSE,
+            so the chart drops the `inferred from :data` badge."
+    (let [def {:initial     :anon
+               ;; A deliberately misleading partial :data sample — the
+               ;; declared schema must win.
+               :data        {:retries nil}
+               :data-schema [:map
+                             [:retries :int]
+                             [:token {:optional true} [:maybe :string]]]
+               :states      {:anon {}}}]
+      (is (= {:retries "number" :token "string?"}
+             (tv/static-context-shape def))
+          "shape comes from the SCHEMA's :map entries, authoritative over the
+           sample")
+      (is (false? (tv/static-context-inferred? def))
+          "declared schema → not inferred (chart drops the inferred badge)"))))
+
+(deftest static-context-inferred-when-no-schema
+  (testing "rf2-3q4k5b (EP-0005) — absent a `:data-schema`, the shape falls
+            back to the one-sample inference and `static-context-inferred?`
+            is TRUE (rf2-5tz9p's badge stays)."
+    (let [def {:initial :idle
+               :data    {:hits 0 :trail []}
+               :states  {:idle {}}}]
+      (is (= {:hits "number" :trail "vector"}
+             (tv/static-context-shape def)))
+      (is (true? (tv/static-context-inferred? def))
+          "no schema → inferred (chart keeps the `inferred from :data` badge)"))
+    (testing "and defaults true when there is no shape at all"
+      (is (true? (tv/static-context-inferred? {:initial :a :states {:a {}}}))))))
+
+(deftest topology-threads-inferred-flag-to-chart
+  (testing "rf2-3q4k5b (EP-0005) — the `Topology` mount forwards the
+            declared-over-inferred provenance to `machine-canvas/Chart`'s
+            `:machine-data-inferred?` prop: false for a declared schema, true
+            for an inferred sample."
+    (let [declared-def {:initial     :anon
+                        :data-schema [:map [:retries :int]]
+                        :states      {:anon {}}}
+          inferred-def {:initial :idle
+                        :data    {:hits 0}
+                        :states  {:idle {}}}
+          declared-props (find-chart-props
+                           (tv/Topology {:machine-id :m :definition declared-def}))
+          inferred-props (find-chart-props
+                           (tv/Topology {:machine-id :m :definition inferred-def}))]
+      (is (false? (:machine-data-inferred? declared-props))
+          "declared schema → :machine-data-inferred? false reaches the chart")
+      (is (true? (:machine-data-inferred? inferred-props))
+          "inferred sample → :machine-data-inferred? true reaches the chart"))))
+
 ;; ---- Topology → Chart fired-edge prop boundary (rf2-xf5on) --------------
 
 (deftest topology-forwards-fired-edge-ids-to-chart
