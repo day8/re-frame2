@@ -46,6 +46,8 @@
   reason `chart-dom-cljs-test` skips awaiting the elkjs Promise)."
   (:require [cljs.test :refer-macros [deftest is testing async]]
             [day8.re-frame2-machines-viz.chart :as chart]
+            [day8.re-frame2-machines-viz.chart.layout :as layout]
+            [day8.re-frame2-machines-viz.chart.post-elk :as post-elk]
             [re-frame.trace :as trace]))
 
 ;; ---- fixtures ----------------------------------------------------------
@@ -624,3 +626,76 @@
       (is (zero? (count @spy)) "no entry-fit on a layout-error settle")
       (is (= ::chart-unfit (:fit-sig @fit-state))
           "signal unrecorded — banner paints, not a degenerate fit"))))
+
+;; ---- 9. layout-key folds in the adaptive post-ELK mode (rf2-9qbn0g) ---
+;;
+;; The chart keys its ELK layout pass by the RESOLVED `elk-direction`, but the
+;; post-ELK transform (parallel transpose + back-edge reroute) is gated by the
+;; RAW `:auto` opt-in. When `:auto` resolves to the SAME direction as a
+;; forced/default `:tb` (a linear / parallel machine — `aspect-direction`
+;; returns `:tb`), the resolved direction is identical for `:direction :tb`
+;; and `:direction :auto`, so without the opt-in flag in the key a
+;; `:tb → :auto → :tb` flip would NOT invalidate the cached layout: the
+;; back-edge reroute / parallel transpose would never apply on opt-IN and
+;; would stale-stay on opt-OUT. `chart/layout-key` folds the `adaptive?` mode
+;; flag in to fix this.
+
+(def ^:private door-cyclic-definition
+  "The door shape: a forward spine with a back-edge whose `:auto` aspect-
+  heuristic resolves to `:tb` (a chain with a 2-way fan, under the landscape
+  threshold) — so its resolved `elk-direction` is `:tb` whether the host
+  forces `:tb` or opts in with `:auto`. The collision case rf2-9qbn0g fixes."
+  {:initial :locked
+   :states  {:locked   {:on {:insert-coin :closed}}
+             :closed   {:on {:push :open}}
+             :open     {:on {:close :closed :trip :alarming}}
+             :alarming {:on {:reset :locked}}}})
+
+(deftest layout-key-folds-in-adaptive-mode
+  (let [parsed   (layout/project-definition door-cyclic-definition)]
+    (testing "sanity: :auto resolves to the SAME direction as a forced :tb here"
+      ;; this is what makes the resolved-direction-only key collide.
+      (is (= :tb (post-elk/resolve-direction :auto parsed)))
+      (is (= :tb (post-elk/resolve-direction :tb parsed))))
+
+    (let [;; what the chart computes on each path: the RESOLVED elk-direction
+          ;; is :tb for BOTH, but adaptive? differs (true on :auto, false on
+          ;; :tb). All other key components are held constant.
+          forced-tb-key (chart/compute-layout-key door-cyclic-definition :tb nil :comfortable 0 false)
+          auto-key      (chart/compute-layout-key door-cyclic-definition :tb nil :comfortable 0 true)]
+      (testing "the forced-:tb and resolved-to-:tb-:auto keys DIFFER (mode is in the key)"
+        (is (not= forced-tb-key auto-key)
+            "without adaptive? in the key these collide — the post-ELK pass
+             never applies on opt-in and stale-stays on opt-out"))
+
+      (testing "a :tb → :auto → :tb flip re-invalidates each way (the gate fires)"
+        ;; model the auto-fit/relayout gate: a fit (and a relayout) fires only
+        ;; when the new key differs from the last one. Walk the flip.
+        (let [fit-state (atom {:instance fake-instance :fit-key nil})
+              spy       (atom [])
+              maybe-fit! (fn [k]
+                           (let [{:keys [instance fit-key]} @fit-state]
+                             (when (and instance (not= k fit-key))
+                               (swap! fit-state assoc :fit-key k)
+                               (swap! spy conj k))))]
+          (maybe-fit! forced-tb-key)   ;; mount as :tb
+          (maybe-fit! auto-key)        ;; flip to :auto (transform must APPLY)
+          (maybe-fit! forced-tb-key)   ;; flip back to :tb (transform must REMOVE)
+          (is (= [forced-tb-key auto-key forced-tb-key] @spy)
+              "each direction-prop flip invalidates the layout, so the post-ELK
+               transform applies on opt-in and is removed on opt-out")))
+
+      (testing "an unrelated re-render with the SAME prop set does NOT re-run"
+        (let [fit-state (atom {:instance fake-instance :fit-key nil})
+              spy       (atom [])
+              maybe-fit! (fn [k]
+                           (let [{:keys [instance fit-key]} @fit-state]
+                             (when (and instance (not= k fit-key))
+                               (swap! fit-state assoc :fit-key k)
+                               (swap! spy conj k))))]
+          (maybe-fit! auto-key)
+          (maybe-fit! auto-key)
+          (maybe-fit! auto-key)
+          (is (= 1 (count @spy))
+              "same prop set → same key → no needless relayout (the flag does
+               not over-invalidate)"))))))

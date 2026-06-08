@@ -550,10 +550,24 @@ projector emits xyflow nodes/edges) the pass:
    bowed `back-edge-detour-offset` px to the quiet side of the spine.
 3. **Reroutes** the back-edge's two segments (`<id>__in` / `<id>__out`) as
    a clean **side-detour** (source → out the side → lifted chip → in to the
-   target) so the return reads as a path AROUND the cluster.
+   target) so the return reads as a path AROUND the cluster. The elbow
+   **mirrors the flow axis** (rf2-hpe9ws): for `:tb` (vertical flow) the
+   route leaves the source SIDEWAYS to the side lane then runs vertically to
+   the lifted chip; for `:lr` (horizontal flow) it leaves the source
+   VERTICALLY to the side lane then runs horizontally to the chip. A
+   `:tb`-shaped elbow on an `:lr` layout would run along the flow row first,
+   crossing the forward edges.
 
 Forward edges and self/internal transitions are untouched (`back-edge?`
 excludes them); a back-edge ELK already placed compactly keeps its route.
+
+The opt-in `apply-post-elk` transform (back-edge reroute + parallel
+transpose) is gated by the RAW `:auto` opt-in, while ELK is fed the RESOLVED
+direction. So the `MachineChart` layout-key folds in the opt-in MODE flag
+alongside the resolved direction (rf2-9qbn0g): when `:auto` resolves to the
+same direction as a forced/default `:tb` (a linear / parallel machine), a
+`:tb → :auto → :tb` flip still invalidates the cached layout so the transform
+applies on opt-IN and is removed on opt-OUT rather than stale-caching.
 
 **OPT-IN — not auto-applied (the rf2-lamdfl/rf2-gnrkke redo lock).** The
 reroute runs ONLY when a machine OPTS IN via `:direction :auto`
