@@ -37,18 +37,38 @@ That is not for production. It is a dev-only bridge from pixels back to the view
 
 ## Xray Back To Editor
 
-Xray's source chips use the configured editor protocol. The supported editor preferences live under the Xray config surface:
+Xray's source chips wrap each coordinate in an `open` chip. Clicking resolves the coordinate to your editor's URI scheme — `vscode://file/...`, `cursor://...`, `idea://open?...` — and hands it to the OS so your editor jumps to the line.
+
+### Tell Xray Which Editor
+
+The catch: Xray cannot guess your editor. A host that wires only the preload never sets one, so the chip falls back to the framework default `:vscode` scheme. If VS Code is not your editor, the OS has no handler for that scheme and the navigation goes nowhere — and the browser cannot observe an OS-level handler miss, so the click would be a silent dead end.
+
+Rather than navigate into the void, an unconfigured click surfaces a **"No editor configured" hint**: a small, non-intrusive toast in the bottom corner of the panel with an **Open Settings** button that lands you on the editor picker. Once an editor is configured, the hint never fires and the click navigates straight to source.
+
+There are two ways to configure the editor:
+
+- **Xray Settings (per-dev).** The General tab's "Click-to-source links open in" picker. The choice persists per-developer in `localStorage`, so each teammate picks their own editor on their own machine — and the Open-Settings button on the hint toast lands you right here.
+- **`configure!` at boot (project default).** Set it once in your app's boot code:
+
+  ```clojure
+  (require '[day8.re-frame2-xray.config :as xray-config])
+  (xray-config/configure! {:rf.xray/editor :cursor})
+  ;; :vscode (default) | :cursor | :windsurf | :zed | :idea | {:custom "<uri-template>"}
+  ```
+
+  The `{:custom "<uri-template>"}` form supports a team's own editor bridge via `{path}` / `{file}` / `{line}` / `{column}` placeholders.
+
+The two compose: **the Settings picker overrides the boot-time `configure!` value, per machine.** So a mixed-editor team sets a sensible project default in code and individuals override locally without touching the host's boot config — the override is purely client-side and never mutates the shared default.
+
+### Relative Coordinates And `:rf.xray/project-root`
+
+`:rf.xray/project-root` is **only** for classpath-*relative* source coordinates. Editor URI handlers resolve paths against the filesystem, so a relative path fails with "Path does not exist" — when your stamped coords are relative, set the on-disk root so Xray can prefix it into an absolute URI:
 
 ```clojure
-(require '[day8.re-frame2-xray.core :as xray])
-
-(xray/set-editor! :vscode)
-;; or :cursor, :windsurf, :zed, :idea
+(xray-config/configure! {:rf.xray/project-root "/abs/path/to/project/src"})
 ```
 
-Custom URI templates are also supported through the lower-level config namespace when a team has its own editor bridge.
-
-For local testbeds and docs screenshots, the project root is seeded so Xray can turn a classpath-relative file into an absolute editor URI. In your app, configure that root when your build environment does not provide one.
+The normal `reg-*` / `reg-machine` registration path stamps **absolute** coordinates, which Xray ships verbatim — in that (common) case leave `:rf.xray/project-root` unset. Do not hardcode a machine-specific path "to make Open work"; if absolute coords already open, you do not need it.
 
 ## A Practical Loop
 
