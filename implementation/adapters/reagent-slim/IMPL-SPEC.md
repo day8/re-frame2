@@ -226,7 +226,7 @@ Symbols **not shipped** (per Stage 1 §2.4 + DECISION-7 + Stage 2 §2.7 audit-co
 
 Files:
 - `src/reagent2/ratom.cljs` — type definitions + public Vars.
-- `src/reagent2/ratom.clj` — the `reaction` and `run!` macros (Stage 1 §1.6 marks these SHOULD; Stage 2 §2.6 ships `reaction` as a 5-line indirection over `make-reaction`; `run!` not shipped — zero usage in audits).
+- `src/reagent2/ratom.clj` — the `reaction` macro only (Stage 1 §1.6 marked both `reaction` and `run!` SHOULD; Stage 2 §2.6 ships `reaction` as a 5-line indirection over `make-reaction`). `run!` is not shipped — see the "Symbols not shipped" list below.
 
 Public Vars:
 
