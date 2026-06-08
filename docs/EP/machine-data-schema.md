@@ -1,6 +1,6 @@
 # EP-0005: Machine `:data` Schema
 
-Status: proposal
+Status: final
 
 ## Abstract
 
@@ -260,11 +260,11 @@ The recommendation is **rename to `:data-schema`**: the local-clarity win at the
 of maximum ambiguity outranks the cross-registration symmetry, because (a) machines
 are the only surface where the validated value has a visible sibling key, so the
 ambiguity is unique to them and the symmetry argument is weaker than it looks, and (b)
-pre-alpha is the only free moment to make a clean-break rename. But this is the one
-call the EP defers to Mike (see [Open Issues](#open-issues)), because it inverts the
-"mirrors every other `reg-*` kind" rationale `spec/005-StateMachines.md` currently uses
-to motivate the key. If cross-registration symmetry wins, keeping `:schema` is
-defensible and the redaction / viz / parity work below is unchanged.
+pre-alpha is the only free moment to make a clean-break rename. This was the one call
+the EP deferred to Mike, who ruled the rename (see [Resolved Decisions](#resolved-decisions)),
+because it inverts the "mirrors every other `reg-*` kind" rationale
+`spec/005-StateMachines.md` previously used to motivate the key — a rationale that
+section now updates accordingly.
 
 ### Why the redaction bridge, and why per-slot
 
@@ -305,9 +305,10 @@ Migration is in-repo only and mechanical:
 - **Rename the key.** `(:schema spec)` → `(:data-schema spec)` in `data_validation.cljc`,
   the `machine-meta` round-trip, and every in-repo machine spec, testbed, example, and
   test that declares a machine `:data` schema. One token per spec.
-- **Drive legacy usage loud (optional).** A short-lived `:schema`-present registration
-  diagnostic during the rename surfaces any missed call site, then is removed. Whether
-  to ship it or do a silent atomic rename is [Open Issue 4](#open-issues).
+- **Silent atomic rename — no diagnostic, no shim.** Mike ruled a silent atomic in-repo
+  rename (see [Resolved Decisions](#resolved-decisions), item 4): with no external
+  consumers, no short-lived `:schema`-present registration warning is shipped. The rename
+  is a single contained edit across this repo.
 - **No app-side migration.** With no downstream consumers, the rename is contained to
   this repo and lands in the same work.
 
@@ -342,24 +343,33 @@ precise per-slot redaction. The snapshot `:data` is schema-shaped, so per-slot p
 map; precision is achievable and preferred. (The whole-slot scrub stays correct for
 `:exception-data`, which is not snapshot-shaped — it is kept there.)
 
-## Open Issues
+## Resolved Decisions
 
-These are unresolved and are the operator's to rule on; this EP recommends but does not
-decide them.
+The five calls this EP deferred to the operator were ruled by Mike on 2026-06-08. All
+were taken as recommended above; the rulings below are the final, implemented decisions.
 
-1. **Naming.** Rename `:schema` → `:data-schema` (recommended — local clarity) or keep
-   `:schema` (cross-registration symmetry)? This inverts the "mirrors every other
-   `reg-*` kind" rationale `spec/005-StateMachines.md` currently uses.
-2. **Redaction precision.** Per-slot bridge (recommended — matches app-db) vs
-   conservative whole-`:data` scrub when any slot is sensitive (simpler but coarser)?
-3. **Mark composition.** Confirm that schema-sourced and author-sourced marks union
-   (matching `reg-app-schema` + `add-marks`), rather than last-write-wins, when a
-   machine has both a `:data-schema` and a manual `register-marks!`.
-4. **Migration diagnostic.** Ship the short-lived `:schema`-present registration warning
-   during the rename, or do a silent atomic in-repo rename (no external consumers yet)?
-5. **Parity location.** Should the XState-parity subsection live in
-   `spec/005-StateMachines.md` (recommended, beside the schema-validation section) or in
-   a machines guide doc?
+1. **Naming → `:data-schema`.** The key is renamed from `:schema` to `:data-schema`. The
+   local-clarity win at the point of maximum ambiguity (a `:data` sibling sitting beside
+   the validator) outranks the cross-registration symmetry argument, and pre-alpha is the
+   only free moment for a clean-break rename. `spec/005-StateMachines.md`'s "mirrors every
+   other `reg-*` kind" rationale is updated accordingly.
+2. **Redaction precision → per-slot bridge.** A `:sensitive?` / `:large?` property
+   anywhere in a `:data-schema` is bridged per-slot into snapshot egress, matching app-db's
+   precise per-slot redaction rather than a coarse whole-`:data` scrub. The snapshot `:data`
+   is schema-shaped, so the marked paths map cleanly under `[:data …]`; precision is
+   achievable and preserves the legible non-sensitive context Xray shows. (The conservative
+   whole-slot scrub stays where it is correct — the non-snapshot-shaped `:exception-data`
+   path, `rf2-zsm03`.)
+3. **Mark composition → union.** Schema-sourced and author-sourced marks **union** (the
+   same schema-sourced-vs-author-sourced composition `reg-app-schema` + `add-marks` define
+   for app-db), not last-write-wins, when a machine has both a `:data-schema` and a manual
+   `register-marks!`.
+4. **Migration → silent atomic in-repo rename.** No `:schema`-present registration warning
+   and no shim. With no external consumers, the rename is a contained, atomic in-repo edit
+   landed in the same work.
+5. **Parity location → `spec/005-StateMachines.md`.** The XState-v5-typed-context parity
+   subsection lives in `spec/005-StateMachines.md`, beside the schema-validation section,
+   not in a separate machines guide doc.
 
 ## Recommendation
 
@@ -370,5 +380,6 @@ sensitive slots are redacted, not only validated; switch machines-viz to
 declared-over-inferred Context shape; and document the XState v5 parity. Validation
 itself already shipped under `rf2-jbbp7`, so this EP corrects the premise that machine
 `:data` is un-schema'd and finishes a documented-but-non-functional privacy capability.
-The final naming call is the operator's (see [Open Issues](#open-issues)), because it
-inverts the cross-registration-symmetry rationale Spec 005 currently uses.
+All five deferred calls were ruled by the operator on 2026-06-08 (see
+[Resolved Decisions](#resolved-decisions)) and the work is implemented and shipped, so
+this EP is **final**.
