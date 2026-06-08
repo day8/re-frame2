@@ -73,13 +73,16 @@
 
   ## Layout posture
 
-  Initial v1 uses a deterministic top-to-bottom grid lift from the
-  existing `chart-layout/layout` (the SVG chart's pure-CLJS layout
-  fn) so the xyflow render's node positions visually align with the
-  legacy chart. xyflow's `dagre`-based `getLayoutedElements` helper
-  could ship as a follow-on bead (spec §17.4.4 calls for `rankdir:
-  LR` ultimately); for v1 the simple grid keeps the projection
-  self-contained + JVM-portable.
+  This fallback projector lays out nodes with a deterministic,
+  top-to-bottom grid lift from the existing `chart-layout/layout`
+  (the pure-CLJS layout fn). It is a self-contained, JVM-portable
+  grid projection that lives OFF the live render path — the live
+  Machines panel renders through the shared machines-viz
+  `MachineChart`, whose hierarchical layout is driven internally by
+  ELK (default downward `DOWN` flow) inside xyflow. The grid
+  projection survives only as a deterministic fallback + a JVM-
+  testable layout/style catalogue; its output is never handed to
+  React.
 
   ## current-state-path resolution
 

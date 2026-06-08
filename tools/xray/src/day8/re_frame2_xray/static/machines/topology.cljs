@@ -50,6 +50,7 @@
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.open-in-editor :as open-in-editor]
             [day8.re-frame2-xray.panels.machine-canvas :as machine-canvas]
+            [day8.re-frame2-xray.panels.machines.topology-view :as topology-view]
             [day8.re-frame2-xray.static.machines.helpers :as h]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens sans-stack mono-stack type-scale]]))
@@ -78,7 +79,18 @@
     :show-after-rings?      false  — no focused-event lens on static.
     :testid                        — overrides the inner SVG testid
                                      so the existing static-panel
-                                     tests still match."
+                                     tests still match.
+
+  rf2-eao0s0 — forward the STATIC context shape (keys + type captions)
+  into the chart so the root Context band renders on the Static
+  Topology surface too. The Dynamic topology + focused-event charts
+  already pass this; the Static charts had been mounting only
+  definition / machine-id, so the root Context chrome was missing.
+  Derived via the SHARED `topology-view/static-context-shape` /
+  `static-context-inferred?` helpers (which delegate to machines-viz
+  `context-shape`) — no duplicate derivation. nil shape → the chart
+  hides the panel; the declared-over-inferred provenance gates the
+  `inferred from :data` badge."
   [dispatch {:keys [definition machine-id fit-signal]}]
   ;; rf2-gpzb4 (2026-05-21 xyflow migration) — ELK is now driven
   ;; internally by xyflow inside `mv-chart/MachineChart`; the
@@ -101,6 +113,12 @@
      [machine-canvas/Chart
       {:definition             definition
        :machine-id             machine-id
+       ;; rf2-eao0s0 — surface the STATIC context shape so the root
+       ;; Context band renders without a live snapshot (the Dynamic
+       ;; topology + focused-event charts already do this). Shape +
+       ;; provenance come from the shared machines-viz-backed helpers.
+       :machine-data           (topology-view/static-context-shape definition)
+       :machine-data-inferred? (topology-view/static-context-inferred? definition)
        :show-after-rings?      false
        ;; rf2-6tw7t — fit-on-entry nonce so entering the Static Machines
        ;; tab re-frames the topology (xyflow's one-shot `:fitView` +

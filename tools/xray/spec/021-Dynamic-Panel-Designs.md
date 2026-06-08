@@ -1043,7 +1043,7 @@ for the work cost of rebuilding auto-layout / zoom-pan-fit from scratch.
 | Transition edge animation | xyflow's `animated: true` edge prop. Color via Xray palette (`:accent` — the single GitHub-blue accent — for "fired this epoch"; `:text-tertiary` for "registered but not fired this epoch"). |
 | Current-state highlight pulse | Custom node CSS class that applies the `pulse` keyframe (~1.2s ease-in-out; CSS-variable interpolated through `--rf-xray-motion-scale` so `prefers-reduced-motion` collapses it). Pulse outline color = `:green` (the panel-domain accent). |
 | Auto-layout | **elkjs** (the Eclipse Layout Kernel, `Layered` algorithm) runs as xyflow's layout backend inside `MachineChart` (2026-05-19 ELK lock — superseded the originally-sketched dagre `getLayoutedElements`). Async one-shot layout, cached per machine-id; recomputed only when topology changes. |
-| Zoom + pan + fit | xyflow's built-in `Controls` component (re-styled to match Xray's button chrome). Default zoom: fit-on-mount with 20px padding. `[− 100% +] [Fit][Reset]` chrome already shown in the existing mockups maps 1:1 to xyflow's `Controls`. |
+| Zoom + pan + fit | xyflow's built-in `<Controls>` component ONLY (mounted `{:showZoom true :showFitView true :showInteractive false}`; xyflow positions it bottom-left). The cluster ships **zoom-in `+` / zoom-out `−` / fit-view `⛶`** buttons — no `NN%` zoom-readout chip, no `Reset` button, no custom Xray toolbar. Default framing: fit-on-mount via `:fitViewOptions {:padding 0.1}`; Xray re-frames on panel-entry by bumping the orthogonal `:fit-signal` nonce (rf2-6tw7t). See spec/007 §"Controls" for the authoritative reconciliation. |
 | Label-on-edge transitions | xyflow's `label` prop on edges; rendered inline on the edge, not in a side legend. Font: JetBrains Mono 10px (`:micro` size). |
 | Parallel-state side-by-side | Parallel-region containers render as sibling group-nodes with a dashed border (`:border-default` at `dash-array: 4 4`). Inner states laid out independently per region. |
 | Final states | Thick border ring (2px solid `:green` outer + 1px solid `:bg-2` inner gap, recreating Stately's double-ring convention). |
@@ -1099,9 +1099,12 @@ the nodes and edges with Xray palette tokens.
 │▌ stripe: mode accent (one GitHub-blue accent, both modes)             │
 │                                                                       │
 │ machine :title/flow            (no activity this epoch · current ●)   │
-│ ┌──────────────────────────────────────────────[− 100% +] [Fit][Reset]│
+│ ┌────────────────────────────────────────────────────────────────────┐│
 │ │  ( idle ) ──→ (( loaded )) ──→ ( error )                            │
 │ │                  ↑ current                                          │
+│ │ ┌──────┐                                                            │
+│ │ │ + − ⛶ │ ← xyflow <Controls> (bottom-left)                         │
+│ │ └──────┘                                                            │
 │ └────────────────────────────────────────────────────────────────────┘│
 │                                                                       │
 │ machine :other/flow            (no activity this epoch · current ●)   │
@@ -1128,7 +1131,7 @@ accent; the fired transition edge carries its **event label + guard + action inl
 ┌─ MACHINES · epoch #42 (machine :title/flow [:rf/init]) ─ [◀ Prev] [Next ▶] ─┐
 │▌ stripe: mode accent (one GitHub-blue accent, both modes)                   │
 │ machine :title/flow                                                          │
-│ ┌────────────────────────────────────────────────[− 100% +] [Fit][Reset]──┐│
+│ ┌──────────────────────────────────────────────────────────────────────────┐│
 │ │ ┌─ active (compound) ──────────────────────────────────┐                  ││
 │ │ │  ( idle ) ════════▶ (( loading )) ───→ ( loaded )     │      ( error )   ││
 │ │ │   FROM    [:rf/init]    TO/current                    │       ↑          ││
@@ -1137,6 +1140,9 @@ accent; the fired transition edge carries its **event label + guard + action inl
 │ │ └───────────────────────────────────────────────────────┘                 ││
 │ │  FROM = dashed/dim · TO = double-circle, mode-accent, pulse                 ││
 │ │  fired edge = mode-accent 2px animated · registered = dim 1px · error = red ││
+│ │ ┌──────┐                                                                    ││
+│ │ │ + − ⛶ │ ← xyflow <Controls> (bottom-left)                                 ││
+│ │ └──────┘                                                                    ││
 │ └────────────────────────────────────────────────────────────────────────────┘│
 │ guards: token? [pass]    actions: [fetch!]    after: ◴ 5s → :timeout         │
 │ Cancellation cascade (none)                                                  │
@@ -1159,8 +1165,10 @@ sketch called for a left-to-right `rankdir: 'LR'` default; the elkjs
 backend that shipped (`MachineChart`, 2026-05-19 ELK lock) maps `:lr` →
 elk `RIGHT` / `:tb` → elk `DOWN` and defaults to `DOWN`. Operator-facing
 direction flip (Settings → View → Machines layout direction) is deferred
-to a follow-on bead. Default zoom: fit-on-mount with 20px padding around
-the bounding box of all nodes.
+to a follow-on bead. Default framing: fit-on-mount via xyflow's
+`:fitViewOptions {:padding 0.1}` (a fractional viewport padding, not a
+fixed pixel inset); Xray re-frames on panel-entry by bumping the
+`:fit-signal` nonce (rf2-6tw7t).
 
 ### §6.3 Queries
 
@@ -5283,7 +5291,7 @@ operators will see.
 │  ◆  (panel header icon, :green)                                     │
 │  ──────────────────────────────────────────────────────             │
 │   :rf.machine.cart/lifecycle    :populated → :submitting            │
-│  ┌──[xyflow canvas]──────────────────────[− 100% +][Fit][Reset]──┐ │
+│  ┌──[xyflow canvas]────────────────────────────────────────────┐ │
 │  │                                                                │ │
 │  │   ╭───────╮  registered   ╭───────────╮  fired  ╭──────────╮  │ │
 │  │   │:empty │ ╴ ╴ ╴ ╴ ╴ ╴▷ │:populated │ ═════▶ │:submitting│  │ │
@@ -5305,6 +5313,9 @@ operators will see.
 │  │     ╭═╮ final state                        :bg-2 + 2px :green   │ │
 │  │     ╭◉╮ current state                      :bg-2 + 2px :green   │ │
 │  │            + 1.2s pulse animation                                │ │
+│  │   ┌──────┐                                                      │ │
+│  │   │ + − ⛶ │ ← xyflow <Controls> (bottom-left); zoom-±/fit only,  │ │
+│  │   └──────┘    no NN% chip, no Reset                              │ │
 │  └────────────────────────────────────────────────────────────────┘ │
 │   Guards    ✓ :cart-non-empty?                                      │
 │   Actions   ✓ :clear-form  ✓ :set-submitting-state                  │
@@ -5392,8 +5403,13 @@ the edge id keeps every branch addressable in xyflow.
   called for a left-to-right dagre `rankdir: 'LR'`; the elkjs backend
   that shipped maps `:lr` → elk `RIGHT` / `:tb` → elk `DOWN` and defaults
   to `DOWN`.
-- **Default zoom**: `fitView` on mount with 20px padding around the
-  bounding box. The `Fit` button in the Controls re-runs `fitView`.
+- **Default framing**: `fitView` on mount via `:fitViewOptions {:padding
+  0.1}` (a fractional viewport padding, not a fixed pixel inset). The
+  fit-view `⛶` button in the `<Controls>` cluster re-runs `fitView`;
+  Xray additionally re-frames on panel-entry by bumping the `:fit-signal`
+  nonce (rf2-6tw7t). There is no `NN%` zoom-readout chip and no `Reset`
+  button — the `<Controls>` cluster is zoom-±/fit only (`{:showZoom true
+  :showFitView true :showInteractive false}`); see spec/007 §"Controls".
 - **Min/max zoom**: 0.2× to 4.0× (`MachineChart`'s `minZoom` / `maxZoom`).
   Wheel-zoom enabled.
 - **Pan**: drag-to-pan on the canvas background (xyflow `panOnDrag`);

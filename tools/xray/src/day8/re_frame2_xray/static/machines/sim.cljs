@@ -74,6 +74,7 @@
   wrapper that wires the helpers to the reactive substrate."
   (:require [re-frame.core :as rf]
             [day8.re-frame2-xray.panels.machine-canvas :as machine-canvas]
+            [day8.re-frame2-xray.panels.machines.topology-view :as topology-view]
             [day8.re-frame2-xray.static.machines.sim-helpers :as sim-h]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack sans-stack type-scale]]))
@@ -669,6 +670,13 @@
       `:current-state` with `:sim? true`, so the live node highlights
       AMBER (distinct from the live cyan highlight on the Dynamic
       surface).
+    - **Context band** — the machine's STATIC context shape (keys +
+      type captions, rf2-eao0s0) drives the chart's `:machine-data`
+      so the root Context band renders here too (the Dynamic + Static
+      Topology charts already pass it). Shape + declared-over-inferred
+      provenance come from the shared `topology-view/static-context-
+      shape` / `static-context-inferred?` helpers — no duplicate
+      derivation.
     - **Taken transition** — the last audit-trail row's `:from` / `:to`
       (`:sim-last-transition`) drive the chart's focused-event lens
       (`:from-highlight` / `:to-highlight`), animating the edge just
@@ -705,6 +713,13 @@
       {:definition             definition
        :machine-id             machine-id
        :current-state          current
+       ;; rf2-eao0s0 — surface the STATIC context shape so the root
+       ;; Context band renders on the Static Sim chart too (the Dynamic
+       ;; topology + focused-event + Static Topology charts already do).
+       ;; Shape + provenance come from the shared machines-viz-backed
+       ;; helpers; nil shape → the chart hides the panel.
+       :machine-data           (topology-view/static-context-shape definition)
+       :machine-data-inferred? (topology-view/static-context-inferred? definition)
        :from-highlight         (:from last-trans)
        :to-highlight           (:to last-trans)
        :sim?                   true
