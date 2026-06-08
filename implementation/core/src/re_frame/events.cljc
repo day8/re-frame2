@@ -122,20 +122,40 @@
 ;; ---- effect-map shape policing (Spec migration M-8) -----------------------
 ;;
 ;; Per migration/from-re-frame-v1/README.md §M-8 and Spec-Schemas.md §:rf/effect-map,
-;; the effect-map a reg-event-fx handler returns is a CLOSED shape: only :db
-;; and :fx live at the top level. Legacy v1 top-level keys (:dispatch,
-;; :dispatch-later, :dispatch-n, :http, etc.) must move into :fx as
-;; [[fx-id args] ...] entries.
+;; the effect-map a reg-event-fx handler returns is a CLOSED shape: only :db,
+;; :rf.db/runtime, and :fx live at the top level. Legacy v1 top-level keys
+;; (:dispatch, :dispatch-later, :dispatch-n, :http, etc.) must move into :fx
+;; as [[fx-id args] ...] entries.
 ;;
-;; The runtime polices this contract: any non-:db / non-:fx top-level key
+;; EP-0001 (rf2-bvwoi4): the partition split widened the closed set from
+;; #{:db :fx} to #{:db :rf.db/runtime :fx} (per Spec-Schemas §:rf/effect-map +
+;; Spec 002 §Write authority). `:db` is the app-db partition (still targets
+;; app-db); `:rf.db/runtime` is the runtime-db partition — the one new
+;; state-bearing top-level key, reserved BY CONVENTION for framework-authority
+;; writers (NOT a security boundary). `:rf.db/runtime` is NOT a shape error
+;; here — a non-framework handler emitting it is surfaced by the
+;; `:rf.warning/app-handler-runtime-effect` dev diagnostic (in
+;; `commit-fx-effects`), not dropped. All OTHER unknown top-level keys remain
+;; shape errors.
+;;
+;; The runtime polices this contract: any top-level key outside the closed set
 ;; emits a structured :rf.error/effect-map-shape trace per Spec 009 §Error
 ;; contract, with :recovery :logged-and-skipped. The offending key is dropped
 ;; (NOT merged silently nor routed through the fx machinery).
 
+(def ^:private closed-effect-map-keys
+  "The closed set of top-level effect-map keys a `reg-event-fx` handler may
+  return. Per Spec-Schemas §:rf/effect-map — `:db` (app-db partition),
+  `:rf.db/runtime` (runtime-db partition, framework-authority by convention,
+  EP-0001 rf2-bvwoi4), and `:fx` (everything else). Widening this set is a
+  Spec change; any other top-level key is a shape error."
+  #{:db :rf.db/runtime :fx})
+
 (defn- police-effect-map-shape!
-  "Emit :rf.error/effect-map-shape for each non-:db / non-:fx top-level key
-  in `effects`. Per Spec migration M-8 the effect-map is closed at the top
-  level. Returns the list of offending keys (which the caller drops).
+  "Emit :rf.error/effect-map-shape for each top-level key in `effects`
+  outside `closed-effect-map-keys`. Per Spec migration M-8 + EP-0001 the
+  effect-map is closed at the top level (`#{:db :rf.db/runtime :fx}`).
+  Returns the list of offending keys (which the caller drops).
 
   Hot-path short-circuit (rf2-4ymm0 EV4): the well-shaped case is the
   overwhelming majority — handlers return `{}`, `{:db ...}`, `{:fx ...}`,
@@ -144,16 +164,16 @@
   via `every?` (no allocation), and fall through to the doseq/vec build
   only when at least one key is offending."
   [effects event]
-  (if (every? #{:db :fx} (keys effects))
+  (if (every? closed-effect-map-keys (keys effects))
     nil
     (let [event-id (when (vector? event) (first event))
           offending (->> (keys effects)
-                         (remove #{:db :fx})
+                         (remove closed-effect-map-keys)
                          (vec))]
       (doseq [k offending]
         (let [v      (get effects k)
               reason (str "Effect-map for `" event-id "` returned top-level key `" k
-                          "`; only `:db` and `:fx` are allowed at the top level.")]
+                          "`; only `:db`, `:rf.db/runtime`, and `:fx` are allowed at the top level.")]
           (trace/emit-error! :rf.error/effect-map-shape
                              {:failing-id        event-id
                               :rf.trace/event-id event-id
@@ -225,19 +245,63 @@
 ;; dispatch table. This collapses the historical db/fx/ctx triple into one
 ;; well-named primitive — adding a new event kind becomes a one-row edit.
 
+(defn- police-runtime-effect-authority!
+  "EP-0001 (rf2-bvwoi4): when `effects` carries a `:rf.db/runtime` effect AND
+  the running handler does NOT have framework-write authority, emit the
+  `:rf.warning/app-handler-runtime-effect` dev diagnostic. `:rf.db/runtime`
+  is reserved BY CONVENTION for framework / runtime-extension code (Mike
+  ruling #4) — NOT a security boundary: the effect is STILL applied (recovery
+  `:warned`); the diagnostic names the runtime-db ownership rule rather than
+  enforcing a capability or silently dropping the effect.
+
+  Framework-minted handlers (today: machine handlers — `assemble-initial-ctx`
+  stamps `:rf/framework-authority? true` from `:rf/machine?`) write
+  `:rf.db/runtime` legitimately and DO NOT fire this diagnostic.
+
+  Dev-only — gated on `interop/debug-enabled?` so production DCE-elides the
+  whole check, the reason string, and the emit (per Spec 009 §Production
+  builds)."
+  [ctx event effects]
+  (when (and interop/debug-enabled?
+             (contains? effects :rf.db/runtime)
+             (not (:rf/framework-authority? ctx)))
+    (let [event-id (when (vector? event) (first event))]
+      (trace/emit! :warning :rf.warning/app-handler-runtime-effect
+                   {:rf.trace/event-id event-id
+                    :rf.event/v        event
+                    :frame             (interceptor/get-coeffect ctx :rf.frame/id)
+                    :recovery          :warned
+                    :reason
+                    (str "Event `" event-id "` returned a reserved `:rf.db/runtime` effect, "
+                         "but is not a framework-authority handler. `:rf.db/runtime` is the "
+                         "framework-owned runtime-db partition — reserved by convention for "
+                         "framework / runtime-extension code, not application handlers. The "
+                         "effect is still applied (convention, not enforcement); ordinary app "
+                         "code should reach subsystem state through public framework "
+                         "subscriptions and effects, and write application data via `:db`.")}))))
+
 (defn- commit-fx-effects
-  "fx-kind commit: enforce the closed effect-map (M-8) and assoc :db / :fx
-  into the context. Bad-return / nil-return policy lives here too — `nil`
-  is the documented legal no-op (rf2-k3bj); any non-map return emits
-  :rf.error/effect-handler-bad-return with :no-recovery and the dispatch
-  becomes a no-op.
+  "fx-kind commit: enforce the closed effect-map (M-8 + EP-0001) and assoc
+  :db / :rf.db/runtime / :fx into the context. Bad-return / nil-return policy
+  lives here too — `nil` is the documented legal no-op (rf2-k3bj); any
+  non-map return emits :rf.error/effect-handler-bad-return with :no-recovery
+  and the dispatch becomes a no-op.
 
   Two shape checks run before commit: `police-effect-map-shape!` rejects
-  non-:db/:fx top-level keys (M-8), and `fx-value-ok?` rejects a
-  non-sequential `:fx` value (rf2-24zly) — both emit
+  top-level keys outside `#{:db :rf.db/runtime :fx}` (M-8 + EP-0001), and
+  `fx-value-ok?` rejects a non-sequential `:fx` value (rf2-24zly) — both emit
   :rf.error/effect-map-shape (:logged-and-skipped) and DROP the offending
   slot, so a malformed effect map never reaches `fx/do-fx` to throw a raw
-  host exception after the :db commit."
+  host exception after the :db commit.
+
+  EP-0001 (rf2-bvwoi4): `:db` targets the app-db partition; `:rf.db/runtime`
+  targets the runtime-db partition (reserved by convention — a non-framework
+  handler emitting it fires `:rf.warning/app-handler-runtime-effect` via
+  `police-runtime-effect-authority!`, but the effect is still committed). The
+  `:rf.db/runtime` effect is assoc'd into the context here; the actual
+  PARTITIONED commit (scoping `:db` to app-db, installing the runtime-db /
+  full-frame write as one atomic frame-state transition) lands in rf2-adwcv6
+  (bead 5)."
   [ctx event effects]
   (cond
     (nil? effects) ctx                       ;; documented legal no-op
@@ -253,8 +317,14 @@
     :else
     (do
       (police-effect-map-shape! effects event)
+      (police-runtime-effect-authority! ctx event effects)
       (cond-> ctx
         (contains? effects :db) (interceptor/assoc-effect :db (:db effects))
+        ;; runtime-db partition effect (EP-0001 rf2-bvwoi4). Carried through the
+        ;; context here; the partitioned/atomic commit path lands in rf2-adwcv6
+        ;; (bead 5). Reserved-by-convention — the authority diagnostic above has
+        ;; already fired for a non-framework writer; the effect is applied either way.
+        (contains? effects :rf.db/runtime) (interceptor/assoc-effect :rf.db/runtime (:rf.db/runtime effects))
         (and (contains? effects :fx)
              (fx-value-ok? effects event)) (interceptor/assoc-effect :fx (:fx effects))))))
 
