@@ -1495,3 +1495,44 @@
               (dispatch-click! browsing-el)
               (is (= [["unauth"] ["authenticated" "browsing"]] @clicks)
                   "nested-leaf click still fires (compound body pass-through preserved)"))))))))
+
+;; ---- initial-marker painted dot radius (rf2-sxwqzs / rf2-k7kiiq) --------
+;;
+;; rf2-k7kiiq DISTINGUISHES two radii on the initial pseudo-state dot: the
+;; GEOMETRY radius (the full `:pseudo-radius`, which feeds the arm/arrowhead
+;; math + the forward-flow invariant) and the PAINTED radius (`:pseudo-radius
+;; − 0.5`, a tighter Stately-aligned dot). The −0.5px painted shrink lives ONLY
+;; in the renderer (`chart.nodes/initial-marker` `dot-paint-r`) — the projection
+;; tests cover offset / arrowhead / forward-flow but NEVER the actual painted
+;; `<circle r>`. rf2-sxwqzs pins it directly: the `rf-mv-chart-initial-marker-dot`
+;; circle renders with `r = pseudo-radius − 0.5` at every density. The glyph is a
+;; node-body shape (no route), so it mounts on the FIRST commit — assertable
+;; without awaiting the async elkjs layout pass (the chart_dom convention).
+
+(deftest chart-initial-marker-dot-paints-at-pseudo-radius-minus-half
+  (testing "rf2-sxwqzs / rf2-k7kiiq — the initial-marker dot
+            (`rf-mv-chart-initial-marker-dot`) renders its `<circle>` with
+            radius `pseudo-radius − 0.5` (the PAINTED radius, distinct from the
+            full GEOMETRY radius the glyph math reads) across compact / regular
+            / cosy density. Guards the renderer-only −0.5px painted shrink that
+            no projection test can see."
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises this")
+      (doseq [[density vc-map] [[:compact vc/chart-compact]
+                                [:regular vc/chart-regular]
+                                [:cosy    vc/chart-cosy]]]
+        (with-mounted-chart
+          {:machine-id :test/flow :definition idle-loading-done :density density}
+          (fn [_root node]
+            (let [dot (.querySelector node "[data-testid=\"rf-mv-chart-initial-marker-dot\"]")
+                  expected (- (:pseudo-radius vc-map) 0.5)]
+              ;; The dot is node-body chrome (layout-independent); it mounts on
+              ;; the first commit. Assert positively when present, else keep the
+              ;; structural invariant (the chart_dom convention).
+              (when (some? dot)
+                (is (= expected (js/parseFloat (.getAttribute dot "r")))
+                    (str density ": dot radius = pseudo-radius − 0.5 ("
+                         expected ", the PAINTED radius — not the full "
+                         (:pseudo-radius vc-map) " geometry radius)")))
+              (is (some? dot)
+                  (str density ": the initial-marker dot mounted")))))))))

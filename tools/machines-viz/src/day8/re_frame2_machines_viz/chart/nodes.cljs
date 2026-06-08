@@ -595,13 +595,14 @@
 ;; the state.
 ;;
 ;; rf2-d5s7yg — the glyph's arrow tip is DECOUPLED from the node offset: the
-;; node sits `initial-marker-x-offset` (≈20) px left of the state so the dot
-;; lands ~15px outside the edge, but the tip is drawn at node-local x =
-;; `(offset - tip-gap)` so the ABSOLUTE tip lands at `state.x - tip-gap` — a
-;; clean ~`tip-gap`px gap OUTSIDE the edge, pointing AT it, never into the
-;; interior. Before rf2-d5s7yg the arm == offset == 48 drew the tip at
-;; `state.x` (the edge) with a too-long arm; on nested initials xyflow's
-;; `:extent "parent"` clamp then shoved it INSIDE the state.
+;; node sits `initial-marker-x-offset` (26, rf2-k7kiiq) px left of the state so
+;; the dot's CENTRE lands `(offset - dot-x)` px outside the edge — `state.x - 19`
+;; at regular density (`offset 26`, `dot-x = pseudo-radius + 1 = 7`) — but the
+;; tip is drawn at node-local x = `(offset - tip-gap)` so the ABSOLUTE tip lands
+;; at `state.x - tip-gap` — a clean ~`tip-gap`px gap OUTSIDE the edge, pointing
+;; AT it, never into the interior. Before rf2-d5s7yg the arm == offset == 48
+;; drew the tip at `state.x` (the edge) with a too-long arm; on nested initials
+;; xyflow's `:extent "parent"` clamp then shoved it INSIDE the state.
 
 (def ^:private initial-glyph-hook-drop
   "Vertical drop (px) of the Q-hook: the dot sits this far ABOVE the
@@ -623,10 +624,15 @@
   arrowhead) is drawn here, in the node's own local SVG frame, as ONE fixed
   SHORT hook:
 
-    - a FILLED circle (radius `:pseudo-radius` − 0.5px, rf2-k7kiiq — a
-      tighter Stately-aligned dot, −1px diameter; the glyph geometry still
-      reads off the FULL `:pseudo-radius`) on the left, near local
-      x≈`dot-r` — so it lands ~15px outside the state's left edge;
+    - a FILLED circle on the left, centred at node-local `dot-x =
+      pseudo-radius + 1`. rf2-k7kiiq DISTINGUISHES two radii here: the
+      GEOMETRY radius (`:pseudo-radius`, the full radius the arm/arrowhead
+      math reads) and the PAINTED radius (`:pseudo-radius − 0.5px`, a tighter
+      Stately-aligned dot, −1px diameter — `dot-paint-r`). So the dot's
+      GEOMETRY-radius left edge is at node-local x=1 (`dot-x − pseudo-radius`)
+      but its PAINTED left edge is at node-local x=1.5 (`dot-x − dot-paint-r`).
+      The dot CENTRE lands `(offset − dot-x)` px outside the state's left edge
+      — `state.x − 19` at regular density (offset 26, dot-x 7);
     - a single quadratic Bezier (`Q`) hook from the dot, control point
       at `(dot.x, arrow.y)` (the xstate-viz recipe), then a 1px straight
       run into the arrowhead;
@@ -636,9 +642,10 @@
       ~`tip-gap`px GAP just OUTSIDE the state's left edge, pointing AT it.
 
   rf2-d5s7yg — the tip is DECOUPLED from the node offset: the marker node
-  sits `initial-marker-x-offset` (≈20) px left of the state, but the tip is
-  drawn at `(offset - tip-gap)` so it ends OUTSIDE the edge, never on/through
-  it. Before this bead the arm == offset == 48 put the tip at `state.x` (the
+  sits `initial-marker-x-offset` (26, rf2-k7kiiq) px left of the state, but the
+  tip is drawn at `(offset - tip-gap)` so it ends OUTSIDE the edge, never
+  on/through it. Before this bead the arm == offset == 48 put the tip at
+  `state.x` (the
   edge) with a too-long arm; nested initials then penetrated once xyflow's
   `:extent \"parent\"` clamp shoved the deeply-negative marker rightward (the
   clamp is dropped in `chart.projection` — only `:parentId` is kept).
@@ -664,20 +671,26 @@
         stroke   (:pseudo-marker ct)
         ;; Glyph in node-local coords. Row y=0 is the marker origin
         ;; (== state.y + offset). rf2-d5s7yg — the marker node sits `offset`
-        ;; px left of the state (`chart.projection/initial-marker-x-offset`),
+        ;; (26) px left of the state (`chart.projection/initial-marker-x-offset`),
         ;; so node-local x=`offset` IS the state's left edge. The arrow tip
         ;; lands at (`offset - gap`, 0) — a clean ~`gap`px gap OUTSIDE the
-        ;; edge; the dot sits near x≈`dot-r` (≈15px outside) and `hook-drop`
-        ;; ABOVE the arrow row so the single Q hooks DOWN into the tip
-        ;; (xstate-viz signature).
+        ;; edge; the dot CENTRE sits at node-local `dot-x = pseudo-radius + 1`
+        ;; (regular x=7, so the centre is `offset - dot-x = 19`px outside the
+        ;; edge — absolute `state.x - 19`) and `hook-drop` ABOVE the arrow row
+        ;; so the single Q hooks DOWN into the tip (xstate-viz signature).
         drop     initial-glyph-hook-drop
+        ;; rf2-k7kiiq — `dot-r` is the GEOMETRY radius (the FULL
+        ;; `pseudo-radius`) that feeds the glyph math + the forward-flow
+        ;; invariant; the PAINTED circle uses the tighter `dot-paint-r` below.
         dot-r    pseudo-radius
-        ;; rf2-k7kiiq — the FILLED dot is drawn 0.5px SMALLER in radius
-        ;; (−1px diameter) for a tighter Stately-aligned dot, WITHOUT
-        ;; touching `dot-r` (the full `pseudo-radius`) that feeds the glyph
-        ;; geometry below — so the arm/arrowhead math + the forward-flow
-        ;; invariant stay anchored to the full radius. Only the painted
-        ;; circle shrinks.
+        ;; rf2-k7kiiq — the PAINTED dot radius, 0.5px SMALLER than the
+        ;; GEOMETRY radius `dot-r` (−1px diameter) for a tighter Stately-
+        ;; aligned dot, WITHOUT touching `dot-r` (the full `pseudo-radius`)
+        ;; that feeds the glyph geometry below — so the arm/arrowhead math +
+        ;; the forward-flow invariant stay anchored to the full radius. Only
+        ;; the painted circle shrinks: its painted LEFT EDGE is at node-local
+        ;; `dot-x - dot-paint-r = 1.5` (vs the geometry-radius left edge at
+        ;; `dot-x - pseudo-radius = 1`).
         dot-paint-r (- dot-r 0.5)
         ;; rf2-wwyx1u — the glyph geometry is single-sourced from the pure
         ;; `projection/initial-marker-glyph` (so the renderer + the projection
