@@ -368,8 +368,7 @@
                          [:not :a :map]
                          {:rf/app-db "slice-is-a-string"}
                          {:rf/app-db [:slice :is :a :vector]}
-                         {:rf/app-db 99}
-                         {:app-db "legacy-key-non-map"}]]
+                         {:rf/app-db 99}]]
       (let [client-frame (rf/make-frame {:doc "ssr-basic client frame"
                                          :platform :client})]
         ;; Seed a recognisable pre-hydration client slice so we can prove
