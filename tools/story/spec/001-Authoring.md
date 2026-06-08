@@ -261,7 +261,9 @@ A Storybook reader who lands on Story expects to write `argTypes:
 similar for every controllable arg. **Story's answer is shorter.**
 
 The view's Malli schema is the source of truth for control widgets.
-Write `[:int {:min 0 :max 100}]` once on the view's `:rf/schema` and
+Write `[:int {:min 0 :max 100}]` once on the view's props schema
+(`:rf/props`, the canonical key; `:schema` is the alternative location
+— first-match `[:rf/props :schema]`, never `:rf/schema`) and
 **every** story of that view gets the slider. No `:argtypes`
 plumbing per-story, no per-control widget wiring, no parallel-vocab
 maintenance burden.
@@ -286,9 +288,9 @@ The headline mapping (more in [§Schema-derivation pipeline](#schema-derivation-
 | `[:vector X]` / `[:set X]` | repeater (rows + `[+]` / `[-]`) |
 | `[:tuple X Y ...]` | fixed-arity row |
 
-The contract: push every typed constraint up to the view's
-`:rf/schema` and the controls panel renders the right widget for
-free. `:argtypes` on the story or variant body is the override
+The contract: push every typed constraint up to the view's props
+schema (`:rf/props`) and the controls panel renders the right widget
+for free. `:argtypes` on the story or variant body is the override
 channel for the cases the schema can't say enough — see the [edge
 cases](#when-to-write-argtypes-the-edge-cases) below.
 
@@ -1423,9 +1425,12 @@ corresponding `:assertions` record.
 ## Schema-derivation pipeline
 
 The control-derivation logic walks the registered Malli schema for
-`:component` (or an explicit `:schema` slot on the variant/story
-body — Story consults the variant body first, then the parent story,
-then the registered view) and emits a `{arg-key → widget-spec}` map:
+`:component` — resolved off the component view's `reg-view` metadata,
+first-match `[:rf/props :schema]` (`:rf/props` canonical, `:schema` the
+post-M-54 alternative; never `:rf/schema`; `:spec` dead post-M-54),
+through the compiled variant-plan's `[:world :view-args-schema]` so an
+`:extends`-inherited / `:compose`-d `:component` resolves — and emits a
+`{arg-key → widget-spec}` map:
 
 **Scalar forms**
 

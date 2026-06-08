@@ -56,15 +56,30 @@ The panel renders the active variant's:
 
 ### Schema lookup (normative order)
 
-The panel resolves the component schema by first-match wins:
+The panel does NOT re-resolve the schema itself. It reads the SAME
+view-args (props) schema the plan compiler wrote to the compiled
+variant-plan's `[:world :view-args-schema]`, through the one shared
+resolver `re-frame.story.view-args/compiled-view-args-schema`
+(`re-frame.story.ui.schema-validation/resolve-component-schema`
+delegates to it). This is the identical slot the Controls panel derives
+argtypes from, so validation and controls share one source.
 
-1. The variant body's `:schema` slot — explicit per-variant override
-   (forward-compatible with the `:rf/schema` Spec 010 slot per
-   IMPL-SPEC §9.4).
-2. The parent story body's `:schema` slot — story-wide schema.
-3. The framework registrar's `:view` metadata for the variant's
-   `:component`: `:spec` (Spec 010 canonical) then `:schema` (legacy /
-   Story-only alias).
+The compiler resolves that schema by first-match wins off the
+registered `:component` view's `reg-view` metadata, in canonical key
+order `[:rf/props :schema]`:
+
+1. `:rf/props` — the canonical props-schema key (per
+   `spec/Spec-Schemas.md` §`:rf/registration-metadata`).
+2. `:schema` — the alternative location (the post-M-54 `reg-*`
+   metadata key).
+
+First match wins; there is NO composition (a view's only schema surface
+is its props — the rf2-p5ivc (b) ruling). `:spec` is NOT a slot — it is
+dead post-M-54 (the `:spec`→`:schema` rename, see
+`migration/from-re-frame-v1/README.md` §M-54): the framework reads
+`:schema` only on registration metadata. Routing through the compiled
+plan also resolves an `:extends`-inherited or `:compose`-d `:component`
+that a bare-body read would miss.
 
 When no schema is on file, the Args section reports "no schema
 registered" and the Trace section still surfaces any
