@@ -4,6 +4,8 @@ Design proposals for re-frame2.
 
 EPs are *proposals*, not normative specification. The normative artefact remains [`spec/`](https://github.com/day8/re-frame2/tree/main/spec). An EP graduates into `spec/` + implementation beads once accepted. Each EP carries a stable PEP-style number (`EP-0001`, …), a `Status:` line, and standard sections (Abstract, Motivation, Relationships, Specification, …); dependencies live in each EP's `Relationships` section.
 
+Status lifecycle: **proposal** (under discussion) → **accepted** (approved, graduating into `spec/` + beads) → **final** (graduated; the spec is now authoritative).
+
 ## Index
 
 | EP       | Title | Status | Summary |
