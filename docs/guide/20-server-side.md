@@ -135,23 +135,23 @@ The SSR runtime owns the request lifecycle — frame create → drain → respon
 
 (def handler
   (ssr-ring/ssr-handler
-    {:on-create    [:rf/server-init]      ;; the Ring request is conj'd as the last arg
-     :root-view    [(rf/view :app/root)]
-     :html-shell   my-app/html-shell      ;; optional; a sensible default ships
-     :payload-keys [:public/articles      ;; allowlist of top-level app-db keys
-                    :public/user]}))      ;; to ship in the hydration payload
+    {:on-create  [:rf/server-init]        ;; the Ring request is conj'd as the last arg
+     :root-view  [(rf/view :app/root)]
+     :html-shell my-app/html-shell        ;; optional; a sensible default ships
+     :payload    [:public/articles        ;; allowlist of top-level app-db keys
+                  :public/user]}))         ;; to ship in the hydration payload
 
 (jetty/run-jetty handler {:port 3000 :join? false})
 ```
 
 `ssr-handler` gensyms a per-request frame-id, stashes the Ring request so the request cofx can read it during the drain, registers the frame with `:platform :server`, lets the drain settle synchronously, reads the response accumulator, renders the root view, materialises structured cookies and headers to wire shape, and destroys the per-request frame in a `finally` block. The per-frame teardown drops the request slot, so nothing leaks across requests; a redirect short-circuits the body render. It's also available as Ring middleware (`ssr-middleware`) when SSR is one handler among several in a stack.
 
-The hydration-payload policy is **explicit and fail-closed** — and this is a security boundary, so it's worth caring about. Every handler MUST declare one of two opts:
+The hydration-payload policy is **explicit and fail-closed** — and this is a security boundary, so it's worth caring about. Every handler MUST declare a single `:payload` opt, whose *shape* picks the policy:
 
-- `:payload-keys [<keys>]` — an **allowlist**. Everything else is dropped, *including keys you add later as the app grows*. This is the recommended mechanism precisely because a denylist would silently leak every new server-only key the moment it's introduced; an allowlist forces a deliberate edit per new wire-bound key.
-- `:payload-policy :rf.ssr.payload/whole-app-db` — explicit opt-in to ship the entire `app-db`. Only for apps whose `app-db` is structurally safe to expose end-to-end.
+- `:payload [<keys>]` — a vector is an **allowlist** of top-level `app-db` keywords. Everything else is dropped, *including keys you add later as the app grows*. This is the recommended mechanism precisely because a denylist would silently leak every new server-only key the moment it's introduced; an allowlist forces a deliberate edit per new wire-bound key. Every element must be a keyword — a non-empty vector carrying a non-keyword (a string typo like `"public/articles"`, a stray `nil`, a nested coll) fails loud at boot with `:rf.error/ssr-malformed-payload-allowlist` rather than silently shipping a wrong slice.
+- `:payload :rf.ssr.payload/whole-app-db` — the keyword is an explicit opt-in to ship the entire `app-db`. Only for apps whose `app-db` is structurally safe to expose end-to-end.
 
-Absence of *both* throws `:rf.error/ssr-missing-payload-policy` at handler-construction time, so a misconfigured deployment fails at boot rather than leaking on its first request.
+One opt holds exactly one policy, so there's nothing to arbitrate — the allowlist-vs-whole-app-db choice *is* the value's shape (vector vs keyword). Absence of `:payload` (or an empty `[]`, which means "ship zero keys" — almost always a mistake) throws `:rf.error/ssr-missing-payload-policy` at handler-construction time, so a misconfigured deployment fails at boot rather than leaking on its first request. An unrecognised policy keyword surfaces as the distinct `:rf.error/ssr-unknown-payload-policy` so a typo doesn't silently fall into the missing-policy bucket.
 
 Non-Ring hosts implement the same contract: stash the request in the per-frame slot before the drain, drive the runtime through `make-frame` / `get-response` / `render-to-string`, materialise the resolved response, and rely on per-frame teardown to clear the slot. A dynamic `Var` or thread-local for request state is explicitly *forbidden* — frame-id-keyed storage is the canonical mechanism, so per-request state can never leak across concurrent requests under any scheduler.
 
