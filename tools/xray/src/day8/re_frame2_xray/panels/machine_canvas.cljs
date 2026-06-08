@@ -380,6 +380,14 @@
                           traversed edges paint the FIRED treatment on the
                           live chart — not just the from/to lens. nil /
                           `#{}` → no fired highlight (Static passes none).
+    :guard-blocked-edge-ids — rf2-fzrzlw. A SET of canonical machines-viz
+                          edge-ids whose guard REJECTED the event this
+                          epoch (a guard-blocked no-op — resolved by the
+                          host via
+                          `panels.machines.trace-state/extract-guard-blocked-edge-ids`).
+                          Forwarded to `mv-chart/MachineChart` so the
+                          attempted-and-rejected edges paint the PINK
+                          guard-blocked treatment. nil / `#{}` → none.
     :sim?               — rf2-u422r. When true the active-state
                           highlight uses the amber sim palette (so the
                           on-chart hermetic simulator reads distinct
@@ -418,7 +426,7 @@
   internally — no host-side viewport machinery is needed
   post-migration."
   [{:keys [definition machine-id from-highlight to-highlight current-state
-           fired-edge-ids machine-data
+           fired-edge-ids guard-blocked-edge-ids machine-data
            sim? on-state-click on-edge-click
            show-after-rings? show-view-mode-toggle?
            show-controls? theme testid inner-testid
@@ -461,6 +469,7 @@
       :to-highlight    to-highlight
       :current-state   current-state
       :fired-edge-ids  fired-edge-ids
+      :guard-blocked-edge-ids guard-blocked-edge-ids
       :sim?            sim?
       :theme           theme
       :on-state-click  on-state-click

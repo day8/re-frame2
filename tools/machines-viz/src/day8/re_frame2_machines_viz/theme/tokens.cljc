@@ -305,8 +305,10 @@
     :pseudo-marker
        — initial / history pseudo-state glyph colour (neutral, NOT the
          accent-blue runtime marker).
-    :edge-quiet / :edge-active / :edge-fired
-       — source→event quiet segment, event→target / active, fired-epoch.
+    :edge-quiet / :edge-active / :edge-fired / :edge-guard-blocked
+       — source→event quiet segment, event→target / active, fired-epoch,
+         and the GUARD-BLOCKED no-op edge (rf2-fzrzlw — a pink/error
+         hue marking a transition whose guard rejected it).
     :text-primary / :text-secondary / :text-tertiary
        — re-exported off the palette so a renderer reads one map.
     :active / :focus / :sim / :final
@@ -345,6 +347,16 @@
       :edge-quiet  (with-alpha :border-default 0.55 palette)
       :edge-active (g :info)
       :edge-fired  (g :accent)
+      ;; rf2-fzrzlw — the GUARD-BLOCKED no-op edge hue. A transition
+      ;; whose guard evaluated fail/threw paints PINK so the operator
+      ;; sees which edge the event hit AND that a guard rejected it (a
+      ;; no-op emits no `:rf.machine/transition`, so the fired set is
+      ;; empty and the affordance-blue gives zero rejection signal). The
+      ;; pink `:magenta-pink` (pink-500) reads as "blocked" distinct from
+      ;; the red `:final-error` terminal ring and the blue fired/active
+      ;; hues. SUPERSET of XState/Stately (which highlights nothing on a
+      ;; block) — only possible because re-frame2 emits guard-evaluated.
+      :edge-guard-blocked (g :magenta-pink)
       ;; text
       :text-primary   (g :text-primary)
       :text-secondary (g :text-secondary)
@@ -382,14 +394,19 @@
   the arrowhead paints) route through this fn so a stroke and its
   arrowhead can never disagree on colour for the same edge state.
 
-  Ordering (XState/Stately gold standard): `fired?` (the edge traversed
-  THIS epoch) wins over `focused?` / `active?` so a fired arm reads as
-  'what just happened' in the FIRED hue; focused / active share the
-  ACTIVE hue; everything else is the resting QUIET hue.
+  Ordering (XState/Stately gold standard): `blocked?` (rf2-fzrzlw — the
+  edge's guard rejected the event this epoch) wins OUTRIGHT so the pink
+  guard-blocked hue overrides the affordance-blue / fired / active on
+  that specific edge — the attempted-and-rejected edge must stand out
+  (bead design call (2)); then `fired?` (the edge traversed THIS epoch)
+  wins over `focused?` / `active?` so a fired arm reads as 'what just
+  happened' in the FIRED hue; focused / active share the ACTIVE hue;
+  everything else is the resting QUIET hue.
 
   Pure data → string; JVM-portable."
-  [ct {:keys [active? focused? fired?]}]
+  [ct {:keys [active? focused? fired? blocked?]}]
   (cond
+    blocked?              (:edge-guard-blocked ct)
     fired?                (:edge-fired ct)
     (or focused? active?) (:edge-active ct)
     :else                 (:edge-quiet ct)))

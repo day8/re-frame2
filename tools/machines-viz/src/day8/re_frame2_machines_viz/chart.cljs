@@ -815,6 +815,21 @@
                          (Xray) resolves it for the focused epoch via
                          `extract-fired-edge-ids`; nil / `#{}` → no fired
                          highlight (the standalone viewer / Story path).
+    :guard-blocked-edge-ids — rf2-fzrzlw. A SET of canonical edge-ids
+                         whose guard REJECTED the event this epoch (a
+                         guard-blocked no-op: the runtime emitted
+                         `:rf.machine/guard-evaluated` fail/threw but NO
+                         `:rf.machine/transition`). Each matching edge +
+                         its event-node gets the PINK guard-blocked
+                         treatment (emphasised pink stroke + emphasised
+                         pink `IF <guard>` chip + `data-guard-blocked`),
+                         winning over fired/focused/active so the
+                         attempted-and-rejected edge stands out. Without
+                         it a blocked no-op gives ZERO signal which edge
+                         the event hit. The host (Xray) resolves it via
+                         `extract-guard-blocked-edge-ids`; nil / `#{}` →
+                         no guard-blocked highlight. SUPERSET of XState
+                         (which highlights nothing on a block).
     :sim?              — flips the highlight palette to amber for
                          the simulator path.
     :on-state-click    — `(fn [path] ...)` invoked on node click.
@@ -1125,7 +1140,7 @@
                 (reset! graph-cache fresh)
                 fresh))))]
     (fn [{:keys [machine-id definition current-state from-highlight to-highlight
-                 fired-edge-ids
+                 fired-edge-ids guard-blocked-edge-ids
                  sim? on-state-click on-edge-click read-only?
                  direction layout-options density theme
                  height show-minimap? show-controls? show-background?
@@ -1358,6 +1373,10 @@
                 {:keys [positions edge-points edge-labels layout-error]}
                 @layout-state
                 fired-edge-id-set (set fired-edge-ids)
+                ;; rf2-fzrzlw — the guard-blocked no-op edge-id set; the
+                ;; projector marks each matching edge + event-node
+                ;; `:guardBlocked`. nil → #{} default.
+                guard-blocked-edge-id-set (set guard-blocked-edge-ids)
                 ;; rf2-dnmbs — memoise the projection + JS marshalling
                 ;; (`xyflow-graph` then `clj->js`) on the inputs that
                 ;; actually change the projected graph. A tick-only /
@@ -1371,7 +1390,8 @@
                 ;; keyed directly so a changed handler identity rebuilds.
                 cache-key  [parsed positions edge-points edge-labels
                             highlight-ids from-highlight-id to-highlight-id
-                            fired-edge-id-set sim? callback edge-callback
+                            fired-edge-id-set guard-blocked-edge-id-set
+                            sim? callback edge-callback
                             density theme]
                 {:keys [js-nodes js-edges]}
                 (project+convert!
@@ -1399,6 +1419,10 @@
                                ;; edge-id set; the projector marks each
                                ;; matching edge :fired. nil → #{} default.
                                :fired-edge-ids    fired-edge-id-set
+                               ;; rf2-fzrzlw — the guard-blocked no-op
+                               ;; edge-id set; the projector marks each
+                               ;; matching edge + event-node :guardBlocked.
+                               :guard-blocked-edge-ids guard-blocked-edge-id-set
                                :chart             chart-vc
                                ;; rf2-az6e2 — the resolved chart-semantic
                                ;; token map for the active theme; the
@@ -1491,6 +1515,12 @@
                    ;; DOM tests can read every traversed arm at the chart
                    ;; root (mirrors `data-highlight-ids`). "" when none.
                    :data-fired-edge-ids (str/join " " (sort (set fired-edge-ids)))
+                   ;; rf2-fzrzlw — the guard-blocked no-op edge-id set
+                   ;; surfaces as a sorted, space-joined attr so hosts +
+                   ;; DOM tests can read every attempted-and-rejected arm
+                   ;; at the chart root (mirrors `data-fired-edge-ids`).
+                   ;; "" when none.
+                   :data-guard-blocked-edge-ids (str/join " " (sort (set guard-blocked-edge-ids)))
                    ;; rf2-4lyvh — surface ELK layout-failure as a root
                    ;; data-attr so DOM tests + hosts can pin the failure
                    ;; without inspecting the banner DOM. "true" / "false";

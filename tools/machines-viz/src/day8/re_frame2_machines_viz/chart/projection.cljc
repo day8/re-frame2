@@ -414,6 +414,10 @@
                             ;; label-less render off.
                             :forkConnector true
                             :active false :focused false :fired false
+                            ;; rf2-fzrzlw — the decorative connector is never
+                            ;; a guard-blocked transition; false keeps the
+                            ;; every-edge :data shape whole.
+                            :guardBlocked false
                             :afterMs nil :guard nil :action nil
                             :selfLoop false :loopIndex nil
                             :crossHierarchy false
@@ -977,6 +981,25 @@
                            matches the EDGE directly, so it lights every
                            traversed arm (microsteps, guard-fork
                            candidates) the lens cannot. Defaults to `#{}`.
+    :guard-blocked-edge-ids — rf2-fzrzlw. A SET of canonical edge-ids
+                           whose guard REJECTED the event this epoch (a
+                           guard-blocked no-op: the runtime emitted
+                           `:rf.machine/guard-evaluated` fail/threw but NO
+                           `:rf.machine/transition`). An edge — AND its
+                           event-node — is marked `:guardBlocked` when its
+                           id ∈ this set; the renderer paints the PINK
+                           guard-blocked treatment (emphasised pink stroke +
+                           emphasised pink `IF <guard>` chip, `data-guard-
+                           blocked`) which WINS over fired/focused/active on
+                           that edge so the attempted-and-rejected edge
+                           stands out (bead design calls (1) + (2)). Without
+                           this the chart paints ALL of the active state's
+                           exits affordance-blue and gives ZERO signal which
+                           edge the event hit or that a guard blocked it. The
+                           host (Xray) resolves the set via
+                           `panels.machines.trace-state/extract-guard-blocked-edge-ids`.
+                           SUPERSET of XState/Stately (which highlights
+                           nothing on a block). Defaults to `#{}`.
     :chart               — rf2-k647w. The resolved visual-constants
                            map for the active `:density`
                            (`visual-constants/chart-for-density`).
@@ -1005,9 +1028,9 @@
    positions
    {:keys [highlight-id highlight-ids from-highlight-id to-highlight-id sim?
            on-state-click on-edge-click edge-points edge-labels
-           fired-edge-ids chart palette]
+           fired-edge-ids guard-blocked-edge-ids chart palette]
     :or   {chart vc/chart-regular edge-points {} edge-labels {}
-           fired-edge-ids #{}}}]
+           fired-edge-ids #{} guard-blocked-edge-ids #{}}}]
   (let [;; rf2-az6e2 — resolve the chart-semantic token map for the
         ;; active theme ONCE. nil → dark chart-tokens (a theme-less
         ;; caller keeps the dark surface). Threaded onto every node/edge
@@ -1300,6 +1323,12 @@
                                         (= src from-highlight-id)
                                         (= tgt to-highlight-id))
                       fired?       (contains? fired-edge-ids (:id e))
+                      ;; rf2-fzrzlw — this edge's guard rejected the event
+                      ;; this epoch (guard-blocked no-op). Drives the PINK
+                      ;; guard-blocked treatment on both the event-node and
+                      ;; the `__in`/`__out` edge halves, winning over
+                      ;; fired/focused/active.
+                      blocked?     (contains? guard-blocked-edge-ids (:id e))
                       self-loop?   (= src tgt)
                       internal?    (boolean (:internal? e))
                       ;; rf2-9dj21r — the EXTERNAL restart axis (`:reenter?
@@ -1360,6 +1389,7 @@
                    :parent-id parent-id
                    :focused?  focused?
                    :fired?    fired?
+                   :blocked?  blocked?
                    :from-active? from-active?
                    :self-loop? self-loop?
                    :internal? internal?
@@ -1376,7 +1406,7 @@
         ;; `+ <action>` pill row.
         event-nodes
         (mapv (fn [{:keys [edge variant ev-node-id parent-id
-                           focused? fired? internal? reenter? event-id]}]
+                           focused? fired? blocked? internal? reenter? event-id]}]
                 (let [src (:source edge)
                       src-pos (get positions src {:x 0 :y 0})
                       ev-pos  (get positions ev-node-id
@@ -1406,6 +1436,12 @@
                                        :forkOrder   (get fork-order (:id edge))
                                        :focused     focused?
                                        :fired       fired?
+                                       ;; rf2-fzrzlw — guard-blocked no-op:
+                                       ;; the event-node paints the PINK
+                                       ;; guard-blocked treatment (pink
+                                       ;; border + emphasised pink IF-guard
+                                       ;; chip).
+                                       :guardBlocked blocked?
                                        :internal    internal?
                                        ;; rf2-9dj21r — the external-restart
                                        ;; axis surfaced to the event-node
@@ -1474,12 +1510,13 @@
         ;; (`:arrow-width-quiet` for `__in`, `:arrow-width` for `__out`)
         ;; so the head scales with the stroke instead of a baked literal.
         marker-color
-        (fn [{:keys [fired? focused? from-active?]}]
+        (fn [{:keys [fired? focused? blocked? from-active?]}]
           (tokens/edge-color ct {:fired?   fired?
                                  :focused? focused?
+                                 :blocked? blocked?
                                  :active?  from-active?}))
         events-as-nodes-edge
-        (fn [half {:keys [edge ev-node-id from-active? focused? fired?
+        (fn [half {:keys [edge ev-node-id from-active? focused? fired? blocked?
                           cross-hier?] :as desc} points label-pos]
           (let [in? (= half :in)
                 w   (if in?
@@ -1504,6 +1541,11 @@
                          :active     from-active?
                          :focused    focused?
                          :fired      fired?
+                         ;; rf2-fzrzlw — guard-blocked no-op: both halves of
+                         ;; the route paint the PINK guard-blocked stroke
+                         ;; (winning over fired/focused/active) so the
+                         ;; attempted-and-rejected edge stands out.
+                         :guardBlocked blocked?
                          :afterMs    nil
                          :guard      nil
                          :action     nil
@@ -1624,6 +1666,10 @@
                  ;; so the "every edge has X" projection invariants hold.
                  :data        {:eventLabel "" :eventLineLabel "" :entry true
                                :active false :focused false :fired false
+                               ;; rf2-fzrzlw — the initial-marker entry edge
+                               ;; is never a guard-blocked transition; false
+                               ;; keeps the every-edge :data shape whole.
+                               :guardBlocked false
                                :afterMs nil
                                :guard nil :action nil :selfLoop false
                                ;; rf2-shv82 — entry edges are never self-

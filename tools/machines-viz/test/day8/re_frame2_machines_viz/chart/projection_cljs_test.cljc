@@ -2375,6 +2375,110 @@
       (is (false? (:fired (:data entry)))
           "entry edges are never fired"))))
 
+;; ---- guard-blocked no-op edge highlight (rf2-fzrzlw) -------------------
+;;
+;; The bead's repro: door in `:open`, dispatch `:door/close`, the
+;; `:may-close?` guard fails → guard-blocked NO-OP. NO `:rf.machine/
+;; transition` is emitted (so `:fired-edge-ids` is empty), and before
+;; rf2-fzrzlw the chart painted ALL of `:open`'s exits affordance-blue,
+;; giving ZERO signal that `:door/close` was attempted-and-rejected. The
+;; Xray inspector resolves the blocked edge-ids
+;; (`extract-guard-blocked-edge-ids`, from the named-guard `:rf.machine/
+;; guard-evaluated` fail/threw traces) and threads them as
+;; `:guard-blocked-edge-ids` (a SET) into the projector, which marks each
+;; matching edge AND its event-node `:guardBlocked`. The renderer then
+;; paints the PINK guard-blocked treatment (the DOM suite pins the
+;; rendered `data-guard-blocked` attr + pink hue). The match is by
+;; EDGE-ID so the precise rejected arm lights — including the exact arm
+;; of a guarded fork.
+
+(defn- door-close-edge-id
+  "The canonical id of the door's guarded `:door/close [may-close?]`
+  edge (`:open` → `:closed`) off `door-cyclic-machine`."
+  [parsed]
+  (->> (:edges parsed)
+       (some (fn [e] (when (and (= [:open] (:from-path e))
+                                (= :door/close (:event e))
+                                (= :may-close? (:guard e)))
+                       (:id e))))))
+
+(deftest xyflow-graph-marks-guard-blocked-event-node-and-its-edges
+  (testing "rf2-fzrzlw — a parsed-edge id in :guard-blocked-edge-ids marks
+            BOTH the inbound + outbound edges AND the event-node for that
+            transition with `:guardBlocked true`. Other edges / event-nodes
+            stay `:guardBlocked false`."
+    (let [parsed   (layout/project-definition door-cyclic-machine)
+          close-id (door-close-edge-id parsed)
+          graph    (projection/xyflow-graph
+                     parsed {} {:guard-blocked-edge-ids #{close-id}})
+          ev-node  (event-node-for graph close-id)
+          in-edge  (inbound-edge-for  graph close-id)
+          out-edge (outbound-edge-for graph close-id)
+          other-ev (remove #(= (:id %) (:id ev-node))
+                           (filter #(= "rf2-event" (:type %)) (:nodes graph)))
+          other-ed (remove #(#{(:id in-edge) (:id out-edge)} (:id %))
+                           (:edges graph))]
+      (is (string? close-id) "fixture has the guarded :door/close edge")
+      (is (true? (:guardBlocked (:data ev-node))))
+      (is (true? (:guardBlocked (:data in-edge))))
+      (is (true? (:guardBlocked (:data out-edge))))
+      (is (every? #(false? (:guardBlocked (:data %))) other-ev))
+      (is (every? #(false? (:guardBlocked (:data %))) other-ed)))))
+
+(deftest xyflow-graph-no-guard-blocked-ids-leaves-all-unblocked
+  (testing "rf2-fzrzlw — omitting :guard-blocked-edge-ids leaves EVERY edge
+            + event-node `:guardBlocked false`"
+    (let [parsed (layout/project-definition door-cyclic-machine)
+          graph  (projection/xyflow-graph parsed {} {})]
+      (is (seq (:edges graph)))
+      (is (every? #(false? (:guardBlocked (:data %))) (:edges graph))
+          "no guard-blocked set → no guard-blocked edges")
+      (is (every? #(false? (:guardBlocked (:data %)))
+                  (filter #(= "rf2-event" (:type %)) (:nodes graph)))
+          "no guard-blocked set → no guard-blocked event-nodes"))))
+
+(deftest xyflow-graph-guard-blocked-marker-colour-distinct
+  (testing "rf2-fzrzlw — a guard-blocked edge's arrowhead colour is the
+            PINK guard-blocked hue, distinct from a non-blocked edge's, so
+            the attempted-and-rejected edge stands out"
+    (let [parsed     (layout/project-definition door-cyclic-machine)
+          close-id   (door-close-edge-id parsed)
+          ct         (tokens/chart-tokens)
+          graph      (projection/xyflow-graph
+                       parsed {} {:guard-blocked-edge-ids #{close-id}})
+          blocked-in (inbound-edge-for graph close-id)
+          plain-e    (first (remove #(or (= (:id %) (:id blocked-in))
+                                         (:guardBlocked (:data %))
+                                         (:entry (:data %)))
+                                    (:edges graph)))]
+      (is (some? plain-e) "fixture has a non-blocked transition edge")
+      (is (= (:edge-guard-blocked ct) (:color (:markerEnd blocked-in)))
+          "the blocked arrowhead paints the pink guard-blocked hue")
+      (is (not= (:color (:markerEnd blocked-in))
+                (:color (:markerEnd plain-e)))
+          "blocked vs non-blocked arrowheads are distinct colours"))))
+
+(deftest xyflow-graph-guard-blocked-wins-over-active-affordance
+  (testing "rf2-fzrzlw design call (2) — when the source state is ACTIVE
+            (all-exits affordance-blue) AND the edge is guard-blocked, the
+            blocked PINK overrides the affordance-blue on that edge so it
+            stands out (does not merely sit under the all-exits-blue)."
+    (let [parsed     (layout/project-definition door-cyclic-machine)
+          close-id   (door-close-edge-id parsed)
+          ct         (tokens/chart-tokens)
+          ;; :open is active → its exits are affordance-blue; :door/close is
+          ;; ALSO guard-blocked, so its arrowhead must read PINK, not blue.
+          graph      (projection/xyflow-graph
+                       parsed {} {:highlight-id (layout/node-id [:open])
+                                  :guard-blocked-edge-ids #{close-id}})
+          blocked-in (inbound-edge-for graph close-id)]
+      (is (true? (:active (:data blocked-in)))
+          "the source :open is active, so this exit is affordance-active")
+      (is (true? (:guardBlocked (:data blocked-in)))
+          "AND it is guard-blocked")
+      (is (= (:edge-guard-blocked ct) (:color (:markerEnd blocked-in)))
+          "the PINK guard-blocked hue WINS over the affordance-blue"))))
+
 ;; ---- compound-endpoint edges (rf2-shv82, Issue 1) -----------------------
 ;;
 ;; A parent-level transition like `:active → :disconnected` (declared on

@@ -224,3 +224,45 @@
       (is (= (:edge-quiet ct) (tokens/edge-color ct {})))
       (is (= (:edge-quiet ct)
              (tokens/edge-color ct {:fired? false :focused? false :active? false}))))))
+
+;; ---- guard-blocked edge hue (rf2-fzrzlw) -------------------------------
+
+(deftest chart-tokens-guard-blocked-is-pink
+  (testing "rf2-fzrzlw — `:edge-guard-blocked` resolves to the palette's
+            PINK `:magenta-pink` token in BOTH themes, and is DISTINCT
+            from the fired/active/quiet edge hues AND the red `:final-error`
+            terminal ring (a pink 'blocked' signal, not a red error)."
+    (doseq [palette [tokens/dark-palette tokens/light-palette]]
+      (let [ct (tokens/chart-tokens palette)]
+        (is (= (:magenta-pink palette) (:edge-guard-blocked ct))
+            "guard-blocked edge tracks the palette pink hue")
+        (is (string? (:edge-guard-blocked ct)))
+        (is (not= (:edge-fired ct)  (:edge-guard-blocked ct)))
+        (is (not= (:edge-active ct) (:edge-guard-blocked ct)))
+        (is (not= (:edge-quiet ct)  (:edge-guard-blocked ct)))
+        (is (not= (:final-error ct) (:edge-guard-blocked ct))
+            "pink blocked-edge is distinct from the red error-final ring")))))
+
+(deftest edge-color-blocked-wins-outright
+  (testing "rf2-fzrzlw design call (2) — `blocked?` wins OUTRIGHT over
+            fired / focused / active so the attempted-and-rejected edge
+            paints the PINK guard-blocked hue, standing out from the
+            affordance-blue exits."
+    (let [ct (tokens/chart-tokens)]
+      (is (= (:edge-guard-blocked ct)
+             (tokens/edge-color ct {:blocked? true})))
+      (is (= (:edge-guard-blocked ct)
+             (tokens/edge-color ct {:blocked? true :fired? true
+                                    :focused? true :active? true}))
+          "blocked beats fired + focused + active all at once"))))
+
+(deftest edge-color-unblocked-falls-through-to-fired-ladder
+  (testing "rf2-fzrzlw — `blocked? false` (or absent) leaves the existing
+            fired > focused/active > quiet ladder intact (no regression)."
+    (let [ct (tokens/chart-tokens)]
+      (is (= (:edge-fired ct)
+             (tokens/edge-color ct {:blocked? false :fired? true})))
+      (is (= (:edge-active ct)
+             (tokens/edge-color ct {:blocked? false :focused? true})))
+      (is (= (:edge-quiet ct)
+             (tokens/edge-color ct {:blocked? false}))))))

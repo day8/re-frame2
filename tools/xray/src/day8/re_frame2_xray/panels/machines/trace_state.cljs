@@ -6,7 +6,7 @@
   ## Scope
 
   Pure data, no DOM / React / re-frame side effects. Every input is
-  data; every output is data. The four public fns answer two questions
+  data; every output is data. The public fns answer three questions
   the topology overlay asks of a buffer of trace events:
 
     1. **Which state is the machine in?** — `current-state-from-traces`
@@ -17,6 +17,20 @@
 
     2. **Which edges fired this epoch?** — `extract-fired-edge-ids`,
        returning machines-viz-CANONICAL edge ids (see below).
+
+    3. **Which edges were GUARD-BLOCKED this epoch?** —
+       `extract-guard-blocked-edge-ids` (rf2-fzrzlw), returning the
+       canonical edge ids whose guard evaluated `:fail` / `:threw` so
+       the transition was a no-op. A guard-blocked no-op emits NO
+       `:rf.machine/transition` (the chart's fired set is empty), so
+       without this the operator gets ZERO signal that the event hit an
+       edge and was rejected. The runtime DOES emit the exact data —
+       `:rf.machine/guard-evaluated {:guard-id … :outcome :fail/:threw
+       :input {:event …}}` (machines · transition.cljc) — carrying the
+       NAMED guard the bare transition trace lacks, so the blocked-edge
+       match is EXACT. This is a SUPERSET enhancement beyond XState
+       (Stately takes no transition + highlights nothing on a block);
+       only possible because re-frame2 emits `guard-evaluated`.
 
   Before rf2-8jzm1 these helpers were scattered through the pure-data
   projector `topology.cljs`, interleaved with node/edge geometry. They
@@ -261,4 +275,107 @@
                                         (= event* (:event e)))
                                (:id e)))
                            edges)))))))
+         set)))
+
+;; ---- guard-blocked-edge ids (rf2-fzrzlw) --------------------------------
+
+(defn- machine-guard-evaluated?
+  "True when `ev` is a `:rf.machine/guard-evaluated` trace event for
+  `machine-id` (or for ANY machine when `machine-id` is nil). The
+  machine-id rides under `:tags :machine-id` (machines ·
+  transition.cljc `evaluate-guard` `trace/emit!`)."
+  [ev machine-id]
+  (and (= :rf.machine/guard-evaluated (:operation ev))
+       (or (nil? machine-id)
+           (= machine-id (get-in ev [:tags :machine-id])))))
+
+(defn- guard-blocked?
+  "True when a `:rf.machine/guard-evaluated` trace's `:outcome` signals
+  the guard DECLINED the candidate — `:fail` (guard returned falsey) or
+  `:threw` (guard threw; the engine treats throw as fail and walks on,
+  per machines · transition.cljc `evaluate-guard`)."
+  [ev]
+  (contains? #{:fail :threw} (get-in ev [:tags :outcome])))
+
+(defn- guard-ref-from-trace
+  "Pull the user-declared guard REF off a `:rf.machine/guard-evaluated`
+  trace. The ref is the value AS-IS (keyword OR inline fn — Spec
+  Schemas §`:rf.machine/guard-evaluated`); it rides `:tags :guard-id`
+  (the canonical slot) with a legacy `:tags :guard` fallback (mirrors
+  `machine_inspector_helpers/guard-record`). Returns the ref or nil."
+  [ev]
+  (or (get-in ev [:tags :guard-id])
+      (get-in ev [:tags :guard])))
+
+(defn- guard-event-from-trace
+  "Pull the inbound EVENT keyword off a `:rf.machine/guard-evaluated`
+  trace. The event rides `:tags :input :event` (the unified callback
+  context the engine stamps — machines · transition.cljc
+  `evaluate-guard` `input {:data … :event …}`); a legacy `:tags :event`
+  fallback covers test fixtures that stamp it flat. The event may be a
+  bare keyword or a `[event-id & args]` vector; returns the bare event
+  keyword (the vector's head) or nil."
+  [ev]
+  (let [event (or (get-in ev [:tags :input :event])
+                  (get-in ev [:tags :event]))]
+    (cond
+      (keyword? event) event
+      (vector? event)  (first event)
+      :else            nil)))
+
+(defn extract-guard-blocked-edge-ids
+  "Given a machine `definition`, a vector of trace events for the
+  focused epoch, and the `machine-id` of interest, return the SET of
+  machines-viz-canonical edge ids that were GUARD-BLOCKED this epoch —
+  the transition's guard evaluated `:fail` / `:threw` so the event was
+  a no-op (NO `:rf.machine/transition` was emitted). Pure fn —
+  JVM-runnable. rf2-fzrzlw.
+
+  A guard-blocked no-op paints NOTHING on the chart via the fired set
+  (it carries no transition), so the operator cannot see which edge the
+  event hit or that a guard rejected it. The runtime emits the exact
+  data on the no-op path: `:rf.machine/guard-evaluated {:guard-id …
+  :outcome :fail/:threw :input {:event …}}` carrying the NAMED guard,
+  so the blocked-edge match is EXACT — `(event, guard)` uniquely picks
+  the declining candidate even within a guarded fork (the precision the
+  bare transition trace lacks; see `extract-fired-edge-ids`' loose
+  `(from, to, event)` match).
+
+  The returned ids are the EXACT ids the live MachineChart mints: the
+  definition is projected through `chart.layout/project-definition` and
+  each fail/threw guard trace's `(event, guard-ref)` is matched against
+  the projected edges' `:event` / `:guard`. The guard refs compare with
+  `=` because both the trace's `:guard-id` and the edge's `:guard` are
+  the SAME user-declared ref off the SAME definition (keyword or fn).
+
+  Scope is GUARD-BLOCKED only (rf2-fzrzlw design call (3)): a truly-
+  unhandled event (no declared edge for it) is a separate state-node
+  'ignored event' marker, filed separately.
+
+  Returns `#{}` for a nil/empty definition or no fail/threw guard
+  traces."
+  [definition trace-events machine-id]
+  (let [edges (:edges (chart-layout/project-definition definition))]
+    (->> (or trace-events [])
+         (filter #(and (machine-guard-evaluated? % machine-id)
+                       (guard-blocked? %)))
+         (mapcat
+           (fn [ev]
+             (let [guard* (guard-ref-from-trace ev)
+                   event* (guard-event-from-trace ev)]
+               ;; A blocked candidate is uniquely (event, guard): the
+               ;; named guard discriminates which arm of a guarded fork
+               ;; declined. Match every projected edge carrying that
+               ;; same (event, guard) pair — typically exactly one. An
+               ;; edge with no guard cannot be the blocked candidate, so
+               ;; the `(some? guard*)` precondition keeps a guardless
+               ;; trace (which the runtime never emits — `evaluate-guard`
+               ;; skips the synthesised always-true guard) from lighting
+               ;; every same-event edge.
+               (when (and (some? guard*) event*)
+                 (keep (fn [e]
+                         (when (and (= event* (:event e))
+                                    (= guard* (:guard e)))
+                           (:id e)))
+                       edges)))))
          set)))
