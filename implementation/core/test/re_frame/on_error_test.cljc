@@ -486,6 +486,77 @@
         (is (some? r) "listener received :rf.error/sub-exception from compute-sub")
         (is (some? (:exception r)) ":exception present on the record")))))
 
+;; ============================================================================
+;; rf2-bxud9v — sub error records carry the failing SUB's source-coord.
+;; ----------------------------------------------------------------------------
+;; The always-on `error-coords-by-id` registry is keyed by `[registry-kind
+;; id]`. A `reg-sub` stores coords under `[:sub sub-id]`, but
+;; `dispatch-on-error!` previously looked source coords up under the
+;; hardcoded `[:event event-id]` — so the production error records for the
+;; sub categories (whose `:event-id` slot carries a SUB id) OMITTED the
+;; failing sub's `:source-coord`. The fix is a kind-aware lookup
+;; (`error-emit/error-source-coord`) that resolves the sub categories under
+;; `[:sub …]`. These tests pin that the records now carry the right coord.
+;; ============================================================================
+
+(deftest sub-input-fn-error-record-carries-sub-source-coord
+  (testing "Per rf2-bxud9v: a parametric `input-fn` throw fans
+            `:rf.error/sub-input-fn-exception` through the always-on
+            listener with `query-id` in `:event-id`. The record's
+            `:source-coord` must resolve under `[:sub …]` (kind-aware
+            lookup) — the sub was registered via the public `reg-sub`
+            macro path, so its coords ride the always-on registry."
+    (let [seen (atom [])]
+      (rf/register-error-listener! :test/recorder
+                                   (fn [record] (swap! seen conj record)))
+      ;; Parametric sub: input-fn (arity-1) THROWS at materialization.
+      ;; Registered via the public macro so `[:sub …]` coords are captured.
+      (rf/reg-sub :bxud9v/input-throws
+                  (fn [_q] (throw (ex-info "input-fn-boom" {})))
+                  (fn [_in _q] :unreachable))
+      ;; Reactive subscribe path → `compute-and-cache!` runs the input-fn,
+      ;; catches the throw, emits :rf.error/sub-input-fn-exception, recovers nil.
+      (is (nil? (rf/subscribe-once :rf/default [:bxud9v/input-throws]))
+          "subscribe recovers to nil on an input-fn throw")
+      (let [r (some (fn [x] (when (= :rf.error/sub-input-fn-exception (:error x)) x)) @seen)]
+        (is (some? r) "listener received :rf.error/sub-input-fn-exception")
+        (is (= :bxud9v/input-throws (:event-id r))
+            "the failing sub-id rides :event-id")
+        (is (some? (:exception r)) ":exception present (input-fn threw)")
+        ;; The kind-aware lookup resolves the coord under [:sub sub-id].
+        (let [sc (:source-coord r)]
+          (is (some? sc)
+              "record carries :source-coord resolved under [:sub …] (rf2-bxud9v)")
+          (is (symbol?  (:ns   sc)) ":source-coord :ns is the defining ns symbol")
+          (is (integer? (:line sc)) ":source-coord :line is the reg-sub line")
+          (is (string?  (:file sc)) ":source-coord :file is the defining file"))))))
+
+(deftest sub-exception-record-carries-sub-source-coord
+  (testing "Per rf2-bxud9v: a reactive sub whose body throws fans
+            `:rf.error/sub-exception` through the always-on listener;
+            its `:source-coord` resolves under `[:sub …]` now that the
+            reactive call site supplies `query-id` in `:event-id` and the
+            lookup is kind-aware."
+    (let [seen (atom [])]
+      (rf/register-error-listener! :test/recorder
+                                   (fn [record] (swap! seen conj record)))
+      ;; Layer-1 sub whose body throws on the reactive run.
+      (rf/reg-sub :bxud9v/body-throws
+                  (fn [_db _q] (throw (ex-info "body-boom" {}))))
+      (is (nil? (rf/subscribe-once :rf/default [:bxud9v/body-throws]))
+          "reactive subscribe recovers to nil on a body throw")
+      (let [r (some (fn [x] (when (= :rf.error/sub-exception (:error x)) x)) @seen)]
+        (is (some? r) "listener received :rf.error/sub-exception")
+        (is (= :bxud9v/body-throws (:event-id r))
+            "the failing sub-id rides :event-id (rf2-bxud9v)")
+        (is (some? (:exception r)) ":exception present on the record")
+        (let [sc (:source-coord r)]
+          (is (some? sc)
+              "record carries :source-coord resolved under [:sub …] (rf2-bxud9v)")
+          (is (symbol?  (:ns   sc)))
+          (is (integer? (:line sc)))
+          (is (string?  (:file sc))))))))
+
 (deftest non-recovery-categories-do-not-invoke-on-error-policy
   (testing "Per rf2-2hvga axis-2 (NARROW): the per-frame `:on-error`
             policy fn (#5) is NOT invoked for invalid-operation /
