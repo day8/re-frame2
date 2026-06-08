@@ -4489,6 +4489,14 @@
               ;; a cascade-attributed `:inputs` slot still paints that
               ;; upstream sub (preserves the pre-fix shape for traces
               ;; replayed against a frame where the sub isn't registered).
+              ;; rf2-nlraqq — the row's `:inputs` slot carries a uniform
+              ;; VECTOR OF QUERY-VECTORS (the projection wraps a single
+              ;; `:rf.sub/cause-sub` as `[cause]`; `:rf.sub/inputs` is
+              ;; already a vector of query-vectors). Each ELEMENT is one
+              ;; whole input query-vector, painted as a single `mini`, so
+              ;; a parameterized cause-sub (`[[:article/by-id :a1]]`)
+              ;; renders as ONE input rather than splitting :article/by-id
+              ;; and :a1 into two.
               (vector? inputs)
               (into [:div {:style subs-inputs-list-style}]
                     (map (fn [i] [:div [ei/mini i 40]]) inputs))

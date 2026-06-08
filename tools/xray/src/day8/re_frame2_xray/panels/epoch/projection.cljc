@@ -1886,16 +1886,30 @@
 
       :sub-id      — the registered sub id (`:rf.sub/id` tag).
       :sub-vec     — the full sub query vector (`:rf.sub/query-v` tag).
-      :inputs      — the sub's input query-vectors. Prefers the
-                     upstream `:rf.sub/cause-sub` (the single input
-                     whose value drove this recompute) when present;
-                     otherwise the FULL realized input edge set the
-                     substrate stamps on `:rf.sub/inputs` (rf2-e3acps —
-                     the literal `:<-` list for a `:static` sub, the
-                     `(input-fn query-v)` result for a `:parametric`
-                     sub, both REALIZED for the concrete cache entry).
-                     Layer-1 subs read app-db directly and surface as
-                     `:db` (empty realized edge set).
+      :inputs      — a VECTOR OF INPUT QUERY-VECTORS — uniform shape
+                     regardless of source. Prefers the upstream
+                     `:rf.sub/cause-sub` (the single input query-vector
+                     whose value drove this recompute) when present,
+                     WRAPPED as `[cause]` so the row carries a one-entry
+                     vector-of-query-vectors (rf2-nlraqq); otherwise the
+                     FULL realized input edge set the substrate stamps on
+                     `:rf.sub/inputs` (rf2-e3acps — already a vector of
+                     query-vectors: the literal `:<-` list for a `:static`
+                     sub, the `(input-fn query-v)` result for a
+                     `:parametric` sub, both REALIZED for the concrete
+                     cache entry). Layer-1 subs read app-db directly and
+                     surface as `:db` (empty realized edge set).
+
+                     The WRAP (rf2-nlraqq) keeps the two sources
+                     SHAPE-COMPATIBLE: `:rf.sub/cause-sub` is a SINGLE
+                     query-vector (e.g. a parametric cause-sub
+                     `[:article/by-id :a1]`), whereas `:rf.sub/inputs`
+                     is a vector OF query-vectors. The view's inputs cell
+                     iterates `:inputs` as a list of query-vectors; an
+                     unwrapped parametric cause-sub would be mis-iterated
+                     element-wise (`:article/by-id` + `:a1` shown as TWO
+                     inputs). Wrapping the cause-sub as `[cause]` makes a
+                     parameterized cause-sub render as ONE query-vector.
       :changed?    — true iff the sub's output value differed from the
                      prior run (`:rf.sub/value-changed?` tag).
       :first-run?  — true on the run that CREATED this sub's cache slot
@@ -1946,9 +1960,20 @@
                   ;; with the OMIT-vs-nil semantics of the trace tag.
                   cause-event-id (common/tag-of ev :rf.sub/cause-event-id)]]
         (cond-> {:sub-id      sub-id
+                 ;; rf2-nlraqq — `:rf.sub/cause-sub` is a SINGLE query-
+                 ;; vector (the one upstream input whose value drove this
+                 ;; recompute); `:rf.sub/inputs` is already a vector OF
+                 ;; query-vectors. The `:inputs` slot must carry the
+                 ;; uniform vector-of-query-vectors shape so the view's
+                 ;; inputs cell iterates it correctly, so we WRAP the
+                 ;; cause-sub as `[cause]`. Without the wrap a parametric
+                 ;; cause-sub (`[:article/by-id :a1]`) is mis-iterated
+                 ;; element-wise (`:article/by-id` + `:a1` rendered as two
+                 ;; separate inputs).
                  :sub-vec     sub-vec
-                 :inputs      (or cause
-                                  (common/tag-of ev :rf.sub/inputs))
+                 :inputs      (if (some? cause)
+                                [cause]
+                                (common/tag-of ev :rf.sub/inputs))
                  :changed?    (boolean
                                 (or (common/tag-of ev :rf.sub/value-changed?)
                                     (common/tag-of ev :rf.sub/changed?)))
