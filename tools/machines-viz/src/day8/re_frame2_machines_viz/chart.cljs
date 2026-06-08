@@ -51,7 +51,6 @@
             [day8.re-frame2-machines-viz.chart.projection :as projection]
             [day8.re-frame2-machines-viz.chart.nodes :as nodes]
             [day8.re-frame2-machines-viz.chart.edges :as edges]
-            [day8.re-frame2-machines-viz.chart.post-elk :as post-elk]
             [day8.re-frame2-machines-viz.chart.overlays.after-rings
              :as after-rings]
             [day8.re-frame2-machines-viz.chart.overlays.spawn-all-join
@@ -844,16 +843,7 @@
                          (\"simulate ON the chart\"). nil = no wiring.
     :read-only?        — when true all `:on-*` callbacks are no-op'd.
                          The viewer page sets this.
-    :direction         — `:auto` (default — the adaptive-aspect heuristic,
-                         rf2-lamdfl), `:tb` (top-to-bottom) or `:lr`
-                         (left-to-right). `:auto` defers the ELK layout
-                         direction to `chart.post-elk/aspect-direction`,
-                         which biases a genuinely-branchy machine landscape
-                         (`:lr`) and keeps a linear chain a column (`:tb`)
-                         so a large machine reads in a screen-friendly
-                         proportion (§4.3.2 of `001-Topology-Parity.md`).
-                         An explicit `:tb` / `:lr` FORCES that direction
-                         (the host's layout intent wins over the heuristic).
+    :direction         — `:tb` (top-to-bottom, default) or `:lr`.
     :density           — rf2-k647w. `:compact` / `:regular` (default) /
                          `:cosy`. Resolves the geometry + typography
                          map via `visual-constants/chart-for-density`;
@@ -1162,7 +1152,7 @@
                  machine-data-inferred?
                  fit-signal
                  testid]
-          :or   {direction         :auto
+          :or   {direction         :tb
                  density           :regular
                  theme             :dark
                  height            "100%"
@@ -1201,26 +1191,14 @@
             ;; on an unknown density (same total resolution the render body
             ;; does for `chart-vc` at L1177).
             elk-vc     (vc/chart-for-density density)
-            ;; rf2-lamdfl — resolve the ELK layout direction adaptively. A
-            ;; host that FORCES `:direction :tb` / `:lr` wins; the default
-            ;; `:auto` (and any non-direction value) defers to the
-            ;; adaptive-aspect heuristic (`post-elk/aspect-direction`), which
-            ;; biases a branchy machine landscape + keeps a chain a column
-            ;; (§4.3.2 G-ASPECT). The resolved direction feeds BOTH the ELK
-            ;; pass AND the post-ELK back-edge reroute (which needs the flow
-            ;; axis), and joins `this-key` so a host toggling the prop re-lays
-            ;; the topology.
-            elk-direction (post-elk/resolve-direction direction parsed)
             ;; Trigger an elk layout pass when the (definition,
             ;; direction, layout-options, density) tuple changes. Keep the
             ;; previous positions during in-flight layout to avoid an
             ;; empty-chart flash. rf2-8q5pt — `density` joins the key so a
             ;; density switch (which changes the derived container padding)
             ;; re-runs ELK rather than rendering the topology with the prior
-            ;; density's header gaps. rf2-lamdfl — the RESOLVED direction
-            ;; (post-heuristic) keys the pass so an `:auto` machine whose
-            ;; heuristic verdict is stable does not re-lay needlessly.
-            this-key   [definition elk-direction layout-options density]
+            ;; density's header gaps.
+            this-key   [definition direction layout-options density]
             ;; rf2-d9ro2 — one ELK pass. `measured-dims` is nil on the
             ;; FIRST pass (nodes not yet rendered/measured) and the
             ;; xyflow-measured `{node-id {:width :height}}` map on the
@@ -1229,22 +1207,8 @@
             run-layout!
             (fn [measured-dims]
               (compute-layout!
-                parsed elk-direction layout-options machine-id measured-dims elk-vc
-                (fn [raw-result]
-                  ;; rf2-lamdfl + rf2-gnrkke — the POST-ELK stage. After ELK
-                  ;; settles (and before the projector emits xyflow nodes/
-                  ;; edges) run the cohesive post-ELK pass: the parallel-
-                  ;; region stacking-axis transpose (§4.3.2) THEN the back-
-                  ;; edge return-route detour (§4.3.1). A successful result
-                  ;; (positions present, no layout-error) is rebalanced +
-                  ;; rerouted; an error result is passed through untouched so
-                  ;; the banner path is unchanged.
-                  (let [result (if (and raw-result
-                                        (seq (:positions raw-result))
-                                        (nil? (:layout-error raw-result)))
-                                 (post-elk/apply-post-elk raw-result parsed
-                                                          elk-direction)
-                                 raw-result)]
+                parsed direction layout-options machine-id measured-dims elk-vc
+                (fn [result]
                   (when result
                     (reset! layout-state result)
                     ;; rf2-set3x — after a successful layout settle
@@ -1262,7 +1226,7 @@
                                              (:instance @fit-state))]
                       (when (not= this-key (:fit-key @fit-state))
                         (swap! fit-state assoc :fit-key this-key)
-                        (schedule-fit! inst))))))))
+                        (schedule-fit! inst)))))))
             ;; rf2-d9ro2 — the ELK-measurable node-id set: leaf states +
             ;; synthetic event-nodes. ELK sizes these from the rendered
             ;; box (`->elk-children` consults `measured-dims` for them).
