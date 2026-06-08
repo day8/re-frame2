@@ -233,9 +233,9 @@ From [Implementor-Checklist §Subscriptions](https://day8.github.io/re-frame2/sp
 
 **The question.** What backs the subscription DAG, and how is the per-query cache keyed?
 
-**What's at stake.** Subscriptions form a DAG over `app-db`; values cache per `=`-equality. Layer-1 subs read `app-db` directly; layer-2+ compose via `:<-`. **Equality-by-value is required** for cache invalidation — identity-only equality breaks the contract.
+**What's at stake.** Subscriptions form a DAG over `app-db`; values cache per `=`-equality. Every sub is one of three input-fn producers: `:db` (layer-1 — reads `app-db` directly, no producer), `:static` (the literal `:<-` producer), or `:parametric` (an `input-fn` producer that computes its inputs from the outer `query-v`). **Equality-by-value is required** for cache invalidation — identity-only equality breaks the contract.
 
-**Where the spec speaks.** [Implementor-Checklist §Sub1](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#sub1-signal-graph--caching). [`spec/006-ReactiveSubstrate.md` §Subscription cache](https://day8.github.io/re-frame2/spec/006-ReactiveSubstrate/#subscription-cache--contract-and-operational-semantics).
+**Where the spec speaks.** [Implementor-Checklist §Sub1](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#sub1-signal-graph--caching). [`spec/006-ReactiveSubstrate.md` §Subscription input producers](https://day8.github.io/re-frame2/spec/006-ReactiveSubstrate/#subscription-input-producers--app-db-reader-static-parametric-input-fn) and §Subscription cache. [`spec/API.md` §`reg-sub` input-production modes](https://day8.github.io/re-frame2/spec/API/#reg-sub-input-production-modes).
 
 #### Sub2 Lifecycle (when to dispose)
 

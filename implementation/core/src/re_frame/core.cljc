@@ -208,10 +208,15 @@
        `re-frame.events/reg-event-ctx` for the full signature.")
 
      (rm/defreg-macro reg-sub subs/reg-sub
-       "Register a subscription under `id`. Layer-1 subs read `app-db`
-       directly; layer-2 subs chain off other subs via `:<-`. Captures
-       source-coords (Spec 001) at this call site. See
-       `re-frame.subs/reg-sub` for the full signature.")
+       "Register a subscription under `id`. Every sub is one of three
+       input-fn producers: `:db` (layer-1 — reads `app-db` directly, no
+       producer), `:static` (the literal `:<-` producer — a fixed list
+       of input query-vectors), or `:parametric` (an `input-fn` producer
+       — a pure `query-v -> vector-of-query-vectors` fn computing the
+       inputs per concrete query). Captures source-coords (Spec 001) at
+       this call site. See `re-frame.subs/reg-sub` for the full
+       signature, Spec 006 §Subscription input producers, and
+       spec/API.md §`reg-sub` input-production modes.")
 
      (rm/defreg-macro reg-fx fx/reg-fx
        "Register an effect handler under `id`. Handler signature is
