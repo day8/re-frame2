@@ -344,6 +344,9 @@
    ;; rf2-ttnst — Settings popup expansion convenience subs.
    :rf.xray/density
    :rf.xray/long-keyword-threshold
+   ;; rf2-4s08ov — open-in-editor 'pick an editor in Settings' hint
+   ;; toast mount-gate sub.
+   :rf.xray/editor-hint-open?
    ;; rf2-9poxq — Settings popup subs.
    :rf.xray/setting
    :rf.xray/settings
@@ -487,6 +490,13 @@
    :rf.xray/delete-edit-popup
    :rf.xray/edit-popup-set-mode
    :rf.xray/edit-popup-set-pattern
+   ;; rf2-4s08ov — open-in-editor 'pick an editor in Settings' hint
+   ;; toast events. Shown when an open-in-editor chip is clicked but no
+   ;; editor is effectively configured (instead of a silent vscode:
+   ;; no-op).
+   :rf.xray/editor-hint-show
+   :rf.xray/editor-hint-dismiss
+   :rf.xray/editor-hint-open-settings
    ;; rf2-sc3r1 — Epoch panel per-row expansion events.
    :rf.xray.epoch/toggle-row-expand
    :rf.xray.epoch/clear-row-expand
@@ -1378,6 +1388,11 @@
             contract assertions live in `open_in_editor_cljs_test.cljs`;
             here we pin the registry-level shape only."
     (setup-xray-frame!)
+    ;; rf2-4s08ov — model a wired host: explicitly set an editor so the
+    ;; click navigates (fires `:rf.editor/open`) rather than surfacing
+    ;; the unconfigured-host DX hint. The unconfigured-host branch is
+    ;; covered in `open_in_editor_cljs_test.cljs`.
+    (config/set-editor! :vscode)
     (let [captured (atom [])]
       ;; Replace the open fx with a capture stub (same pattern as the
       ;; time-travel reg-fx tests above).

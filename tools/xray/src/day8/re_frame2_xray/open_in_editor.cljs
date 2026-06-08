@@ -325,11 +325,26 @@
   ;; "click → open" trail is observable.
   (rf/reg-event-fx :rf.xray/open-in-editor
     (fn [_ctx [_event-id payload]]
-      (let [coord (coerce-coord payload)
-            uri   (resolve-uri coord)]
-        ;; Always emit the fx — even when uri is nil. `open!` is a
-        ;; no-op for nil, and routing through the fx (rather than
-        ;; short-circuiting in the handler) keeps the side-effect
-        ;; bookkeeping in one place + makes the fx the single
-        ;; instrumentable seam for replay/dev-tools.
-        {:fx [[:rf.editor/open {:uri uri}]]}))))
+      ;; rf2-4s08ov — DX hint when no editor is effectively configured.
+      ;; A host that wired only the bare preload (never called
+      ;; `(xray-config/configure! {:rf.xray/editor …})`) and an operator
+      ;; who never set an override are both targeting the implicit
+      ;; framework default `:vscode`. The URI resolves fine and
+      ;; `Location.assign` fires — but if VS Code is not the developer's
+      ;; editor the OS has no `vscode:` handler and the click is a
+      ;; silent no-op (rf2-ffijtp). Instead of that silent navigation,
+      ;; surface the 'pick an editor in Settings' toast so the chip
+      ;; itself guides the developer. Once EITHER the host or the
+      ;; operator has confirmed an editor (`config/editor-configured?`),
+      ;; the click resolves + navigates exactly as before — the hint
+      ;; never fires.
+      (if-not (config/editor-configured?)
+        {:fx [[:dispatch [:rf.xray/editor-hint-show]]]}
+        (let [coord (coerce-coord payload)
+              uri   (resolve-uri coord)]
+          ;; Always emit the fx — even when uri is nil. `open!` is a
+          ;; no-op for nil, and routing through the fx (rather than
+          ;; short-circuiting in the handler) keeps the side-effect
+          ;; bookkeeping in one place + makes the fx the single
+          ;; instrumentable seam for replay/dev-tools.
+          {:fx [[:rf.editor/open {:uri uri}]]})))))

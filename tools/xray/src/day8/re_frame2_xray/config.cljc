@@ -375,6 +375,37 @@
   editor
   (atom :vscode))
 
+;; ---- editor-explicitly-set? (rf2-4s08ov — open-in-editor DX hint) -------
+;;
+;; The `editor` atom defaults to `:vscode`, so a host that NEVER calls
+;; `set-editor!` / `(configure! {:rf.xray/editor …})` is indistinguishable
+;; by VALUE from a host that explicitly chose `:vscode`. That ambiguity
+;; matters for the open-in-editor DX: a bare host gets the `:vscode`
+;; default scheme, but if VS Code is not the developer's editor the OS
+;; has no handler and the click is a SILENT no-op (the URI resolves
+;; fine — `Location.assign` fires — but nothing happens because no OS
+;; protocol handler is registered; JS cannot observe that failure). Per
+;; rf2-ffijtp the fix was documented; rf2-4s08ov surfaces an actionable
+;; "pick an editor in Settings" hint at click-time instead of the
+;; silent no-op.
+;;
+;; This flag records whether the host EXPLICITLY chose an editor.
+;; `set-editor!` sets it true on any non-nil call (the host has signalled
+;; intent — even choosing `:vscode` explicitly counts); a nil reset
+;; clears it back to the unconfigured state. `editor-configured?` (below)
+;; OR's this against a live operator override so the hint fires only when
+;; NEITHER the host nor the operator has confirmed an editor.
+
+(defonce
+  ^{:doc "Atom: did the host EXPLICITLY set `:rf.xray/editor`? Default
+         `false` — the `editor` atom's `:vscode` default is the
+         framework default the host never confirmed. Set `true` by
+         `set-editor!` on any non-nil call. Read by `editor-configured?`
+         to decide whether the open-in-editor click should hint to
+         pick an editor in Settings (rf2-4s08ov)."}
+  editor-explicitly-set?
+  (atom false))
+
 (defn set-editor!
   "Set Xray's 'Open in editor' preference. Hosts call this once at
   boot (typically inside their `app.core` ns alongside any Xray-
@@ -390,9 +421,15 @@
                                    `{line}` / `{column}` placeholders.
     - `nil`               — reset to `:vscode` default.
 
+  Per rf2-4s08ov a non-nil call flips `editor-explicitly-set?` to true
+  (the host has confirmed an editor — even `:vscode` explicitly counts);
+  a nil reset clears the flag back to the unconfigured state so the
+  open-in-editor DX hint re-arms.
+
   Returns nothing."
   [e]
   (reset! editor (or e :vscode))
+  (reset! editor-explicitly-set? (some? e))
   nil)
 
 (defn get-host-editor-default
@@ -470,6 +507,30 @@
                               :value    raw})
                        nil))]
     (or override @editor)))
+
+(defn editor-configured?
+  "True iff an editor has been EFFECTIVELY configured (rf2-4s08ov) —
+  i.e. either the host explicitly set `:rf.xray/editor`
+  (`editor-explicitly-set?`) OR a valid non-nil operator override sits
+  in the `[:general :editor-override]` settings slot.
+
+  False means the open-in-editor target is the implicit framework
+  default (`:vscode`) that NEITHER the host nor the operator has
+  confirmed. In that state a chip click resolves to a `vscode://…` URI
+  and `Location.assign` fires, but if VS Code is not the developer's
+  editor the OS has no protocol handler and the click is a silent
+  no-op. The `:rf.xray/open-in-editor` event-fx reads this predicate
+  and surfaces the 'pick an editor in Settings' hint instead of
+  launching the silent navigation.
+
+  A corrupted / malformed override (rejected by `valid-editor-override?`)
+  does NOT count as configured — it degrades to the unconfigured state
+  exactly like the read-side `get-editor` does."
+  []
+  (let [raw      (try (get-in @settings [:general :editor-override])
+                      (catch #?(:clj Throwable :cljs :default) _ nil))
+        override (when (valid-editor-override? raw) raw)]
+    (boolean (or @editor-explicitly-set? (some? override)))))
 
 ;; ---- *project-root* (rf2-5m5n2 — 'Open in editor' path prefix) ----------
 ;;

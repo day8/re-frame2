@@ -61,6 +61,7 @@
             [day8.re-frame2-xray.mount :as mount]
             [day8.re-frame2-xray.open-in-editor :as open-in-editor]
             [day8.re-frame2-xray.palette :as palette]
+            [day8.re-frame2-xray.settings.editor-hint :as editor-hint]
             [day8.re-frame2-xray.settings.effects :as settings-effects]
             [day8.re-frame2-xray.settings.popup :as settings-popup]
             [day8.re-frame2-xray.spine :as spine]
@@ -829,6 +830,13 @@
     ;; dependency read is clearer.
     (epoch/install!)
     (open-in-editor/install!)
+    ;; rf2-4s08ov — open-in-editor 'pick an editor in Settings' hint
+    ;; toast. Installs before settings-popup since its
+    ;; `:rf.xray/editor-hint-open-settings` event dispatches
+    ;; `:rf.xray/settings-open` (registered by settings-popup), but the
+    ;; registrar resolves dispatch targets lazily so the order is
+    ;; cosmetic.
+    (editor-hint/install!)
     (palette/install!)
     (settings-popup/install!)
     ;; rf2-l4625 — edn-inspector popup overlay (subs + events). The

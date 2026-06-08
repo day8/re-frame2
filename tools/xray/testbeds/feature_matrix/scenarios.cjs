@@ -348,6 +348,23 @@ async function clickSourceCoordChip(page, { panel, sourceIncludes = [] }) {
 async function assertSourceCoordBridge(page, state, ctx, opts) {
   const beforeUrl = page.url();
   const requestStart = ctx && ctx.browserState ? ctx.browserState.requestFailures.length : 0;
+
+  // rf2-4s08ov — explicitly configure an editor before clicking the
+  // chip. The counter surface (this scenario's host) wires only the
+  // bare preload and never sets `:rf.xray/editor`, so by default the
+  // click would now surface the 'pick an editor in Settings' DX hint
+  // (the intended behaviour for an unconfigured host) instead of
+  // firing the `vscode://` navigation this scenario asserts. Setting
+  // `:vscode` explicitly models a properly-wired host and exercises
+  // the click → `Location.assign` bridge the scenario is about.
+  await page.evaluate(() => {
+    const cfg = window.day8 && window.day8.re_frame2_xray &&
+                window.day8.re_frame2_xray.config;
+    if (cfg && typeof cfg.set_editor_BANG_ === 'function') {
+      cfg.set_editor_BANG_(window.cljs.core.keyword('vscode'));
+    }
+  });
+
   const click = await clickSourceCoordChip(page, opts);
   if (!click.clicked) {
     failWithDetails('Could not click source-coordinate chip', {

@@ -1334,7 +1334,16 @@ the user's editor.
 - **No URL-encoding of the path.** The path MUST be passed verbatim
   into the URI — slashes stay slashes, colons stay colons.
 - **No handler-installed fallback.** When the URI's scheme has no
-  registered OS handler, the click MUST be a clean no-op.
+  registered OS handler, the click is a clean no-op at the OS level
+  (the JS layer cannot observe the miss). For a host that has actually
+  CONFIGURED an editor this is the correct best-effort behaviour. For
+  an UNCONFIGURED host (the bare-preload `:vscode` default that neither
+  the host nor the operator confirmed) the panel-side
+  `:rf.xray/open-in-editor` event-fx MUST surface the
+  unconfigured-host DX hint instead of the silent navigation — see
+  [§Unconfigured-host DX hint](#unconfigured-host-dx-hint-rf2-4s08ov)
+  below and
+  [`015-Configuration.md` §Unconfigured-host DX hint](./015-Configuration.md#unconfigured-host-dx-hint-rf2-4s08ov).
 - **Click vector.** The chip MUST invoke navigation by setting
   `window.location.href` (or rendering an `<a href>` and letting the
   browser follow it).
@@ -1390,6 +1399,37 @@ picker** is the per-machine override.
   (`http:` / `https:` / `javascript:` / `data:` / `vbscript:`)
   silently no-ops at the chip — the picker is NOT a route around the
   allowlist.
+
+### Unconfigured-host DX hint (rf2-4s08ov)
+
+A host that wires only the bare preload never sets `:rf.xray/editor`,
+so click-to-source targets the framework default `:vscode`. The URI
+resolves and navigation fires, but if VS Code is not the developer's
+editor the OS has no `vscode:` handler and the click is a silent
+no-op the JS layer cannot detect (the No-handler-installed fallback
+above). rf2-ffijtp documented the fix; rf2-4s08ov makes the chip
+itself guide the developer.
+
+- **Trigger.** The panel-side `:rf.xray/open-in-editor` event-fx reads
+  `config/editor-configured?`. When false — NEITHER the host
+  explicitly set `:rf.xray/editor` NOR a valid operator override is
+  present — the event MUST NOT fire the silent `:rf.editor/open`
+  navigation. It dispatches `:rf.xray/editor-hint-show` instead.
+- **Configured = navigate.** `editor-configured?` is true the moment
+  EITHER the host calls `set-editor!` / `configure!` (an explicit set,
+  even of `:vscode`, counts) OR a valid operator override exists. In
+  that state the click resolves + navigates exactly as before; the
+  hint never fires. A malformed override degrades to unconfigured.
+- **The hint.** A small, non-intrusive bottom-corner toast ("No
+  editor configured") with a one-line note and an **Open Settings**
+  button. The toast is NOT a modal — it does not block the chrome. It
+  is dismissable (✕ / Esc) and self-dismisses on Open-Settings.
+- **Open-Settings.** `:rf.xray/editor-hint-open-settings` dismisses
+  the toast and dispatches `:rf.xray/settings-open`, which lands the
+  operator on the General tab — the editor picker's home.
+- **State.** One boolean app-db slot `:editor-hint-open?` on
+  `:rf/xray`; the `:rf.xray/editor-hint-open?` sub gates the toast
+  mount (mounted at the shell-view root, sibling to the modals).
 
 ### Cross-references
 
