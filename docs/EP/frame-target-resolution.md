@@ -1,48 +1,6 @@
 # EP-0002: Explicit Frame Target Resolution
 
-Number: EP-0002
-
 Status: proposal
-
-Type: Standards Track
-
-Date: 2026-06-06
-
-Created: 2026-06-06
-
-Author: re-frame2 maintainers
-
-Target Artifact: `day8/re-frame2-core`
-
-Target API Surface:
-
-- frame resolution
-- dispatch and subscribe
-- root frame providers
-- framework effects
-- SSR and hydration
-- Xray, Story, pair tooling, and AI tool accessors
-
-Requires:
-
-- [Spec 002 - Frames](https://github.com/day8/re-frame2/blob/main/spec/002-Frames.md)
-- [Spec 004 - Views](https://github.com/day8/re-frame2/blob/main/spec/004-Views.md)
-- [Spec 006 - Reactive Substrate](https://github.com/day8/re-frame2/blob/main/spec/006-ReactiveSubstrate.md)
-- [Spec 009 - Instrumentation](https://github.com/day8/re-frame2/blob/main/spec/009-Instrumentation.md)
-- [Spec 011 - SSR](https://github.com/day8/re-frame2/blob/main/spec/011-SSR.md)
-- [Spec 014 - HTTP Requests](https://github.com/day8/re-frame2/blob/main/spec/014-HTTPRequests.md)
-- [Runtime Architecture](https://github.com/day8/re-frame2/blob/main/spec/Runtime-Architecture.md)
-- [Tool Pair](https://github.com/day8/re-frame2/blob/main/spec/Tool-Pair.md)
-- [Xray API](../xray/api/index.md)
-- [App/Runtime Partition EP](app-db-runtime-partition.md)
-
-Benchmark References:
-
-- TanStack Query `QueryClientProvider`
-- React Redux `Provider`
-- Apollo Client `ApolloProvider`
-- Relay `RelayEnvironmentProvider`
-- re-frame2 frames, SSR request frames, Xray, Story, and pair tools
 
 ## Abstract
 

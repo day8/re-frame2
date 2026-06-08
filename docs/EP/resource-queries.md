@@ -1,49 +1,6 @@
 # EP-0003: Resource Queries
 
-Number: EP-0003
-
 Status: proposal
-
-Type: Standards Track
-
-Date: 2026-06-06
-
-Created: 2026-06-06
-
-Author: re-frame2 maintainers
-
-Target Artifact: `day8/re-frame2-resources`
-
-Target API Surface:
-
-- MVP: `reg-resource`, `clear-resource`, resource subscriptions, resource
-  events, and resource introspection
-- First public-beta gate: `reg-mutation`, `clear-mutation`, and mutation
-  execution events
-
-Requires:
-
-- [App/Runtime Partition EP](app-db-runtime-partition.md)
-- [Explicit Frame Target Resolution EP](frame-target-resolution.md)
-- [Parametric Subscription Inputs EP](subscription-inputs.md)
-- [Spec 014 - HTTP Requests](https://github.com/day8/re-frame2/blob/main/spec/014-HTTPRequests.md)
-- [Spec 012 - Routing](https://github.com/day8/re-frame2/blob/main/spec/012-Routing.md)
-- [Spec 005 - State Machines](https://github.com/day8/re-frame2/blob/main/spec/005-StateMachines.md)
-
-Related:
-
-- [Guide 10 - HTTP](../guide/10-http.md)
-- [Guide 19 - Routing](../guide/19-routing.md)
-- [Guide 21 - Runtime model](../guide/21-dynamic-model.md)
-- [Pattern - Remote Data](https://github.com/day8/re-frame2/blob/main/spec/Pattern-RemoteData.md)
-
-Benchmark References:
-
-- TanStack Query
-- RTK Query
-- SWR
-- Apollo Client and Relay
-- `shipclojure/re-frame-query`
 
 ## Abstract
 
