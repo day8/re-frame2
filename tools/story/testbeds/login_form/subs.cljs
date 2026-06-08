@@ -1,33 +1,47 @@
 (ns login-form.subs
   "Login-form testbed subs (rf2-0sg12).
 
-  Two named subs project out the convenient pieces of the machine's
-  `:data` slot; the view also uses two `rf/machine-has-tag?` framework subs
-  for `:auth/busy` and `:auth/authenticated`. Per Spec 005 §State
+  Four named subs project out the convenient pieces of the machine's
+  current snapshot; the view also uses two `rf/machine-has-tag?` framework
+  subs for `:auth/busy` and `:auth/authenticated`. Per Spec 005 §State
   tags the tag queries replace the boolean-discriminator subs the
   pre-machines style would have used (`:submitting?` /
-  `:authenticated?`)."
+  `:authenticated?`).
+
+  EP-0001 (rf2-vzld77 / rf2-ib5acl): machine snapshots are durable
+  framework state and live in the frame's RUNTIME-DB partition at
+  `[:rf.runtime/machines :snapshots <machine-id>]`, NOT the retired
+  app-db `:rf/runtime` root. App code reads a machine's snapshot through
+  the framework `:rf/machine` sub (`(rf/sub-machine :login/flow)` is the
+  sugar) rather than reaching into the runtime-db partition by raw path;
+  the framework sub reads the right partition for us. Each projection sub
+  below is a layer-2 sub deriving off `:rf/machine` via the `:<-` chain —
+  it re-computes only when the snapshot's relevant slice changes."
   (:require [re-frame.core :as rf]))
 
 (rf/reg-sub :login/state
   {:doc "Current state of the login flow — one of :idle :submitting
         :error :submitting-retry :authenticated."}
-  (fn sub-login-state [db _query]
-    (get-in db [:rf/runtime :machines :snapshots :login/flow :state])))
+  :<- [:rf/machine :login/flow]
+  (fn sub-login-state [snapshot _query]
+    (:state snapshot)))
 
 (rf/reg-sub :login/error
   {:doc "Current error message, if any."}
-  (fn sub-login-error [db _query]
-    (get-in db [:rf/runtime :machines :snapshots :login/flow :data :error])))
+  :<- [:rf/machine :login/flow]
+  (fn sub-login-error [snapshot _query]
+    (get-in snapshot [:data :error])))
 
 (rf/reg-sub :login/attempts
   {:doc "How many login attempts the flow has rejected so far. The
         retry-state UI labels itself with this count."}
-  (fn sub-login-attempts [db _query]
-    (get-in db [:rf/runtime :machines :snapshots :login/flow :data :attempts] 0)))
+  :<- [:rf/machine :login/flow]
+  (fn sub-login-attempts [snapshot _query]
+    (get-in snapshot [:data :attempts] 0)))
 
 (rf/reg-sub :login/email
   {:doc "Email the user most recently submitted — surfaced in the
         :authenticated state's welcome banner."}
-  (fn sub-login-email [db _query]
-    (get-in db [:rf/runtime :machines :snapshots :login/flow :data :email])))
+  :<- [:rf/machine :login/flow]
+  (fn sub-login-email [snapshot _query]
+    (get-in snapshot [:data :email])))

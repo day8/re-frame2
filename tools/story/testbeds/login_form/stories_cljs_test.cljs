@@ -1,0 +1,167 @@
+(ns login-form.stories-cljs-test
+  "Regression guard for the login-form testbed's machine-snapshot reads
+  (rf2-ib5acl).
+
+  EP-0001 (rf2-vzld77) moved machine snapshots out of the retired app-db
+  `:rf/runtime` root and into the frame's runtime-db partition at
+  `[:rf.runtime/machines :snapshots <machine-id>]`. The login-form
+  testbed's four projection subs (`:login/state` `:login/error`
+  `:login/attempts` `:login/email`) and three `:script` checkpoints used
+  to reach into the dead app-db path — they compiled fine but resolved
+  empty at runtime, and NO CLJS gate caught it (the testbed had no unit
+  test; its variants run only via the browser story runner).
+
+  This test runs each variant through `story/run-variant` under the
+  top-level `node-test` build (`npm run test:cljs`) and then, against the
+  variant frame's live `frame-state-value` (which carries the runtime-db
+  partition), computes each migrated projection sub via `rf/compute-sub`
+  and asserts it resolves the live snapshot value — NOT nil from the dead
+  app-db path. `compute-sub` resolves a `:rf/machine`-derived sub against
+  the frame-state value's `:rf.db/runtime` partition (EP-0001), so this is
+  the faithful runtime-db read the views perform reactively. If a future
+  change reverts the subs to the dead app-db path, these assertions go red
+  and the CLJS gate fails loudly.
+
+  Why compute-sub here rather than a `:rf.assert/sub-equals` `:script`
+  checkpoint: the play-runner's `:sub-equals` evaluator computes subs
+  against app-db ONLY, so a runtime-db machine projection reads nil through
+  it (tracked separately as a play-runner gap). The variant `:script`s pin
+  state with `:rf.assert/state-is` (runtime-db-aware); this CLJS test owns
+  the `:data`-slice (`:error` / `:attempts` / `:email`) verification.
+
+  The variant stories ns is required at the top — loading it fires the
+  `reg-*` macros — so the side-table + the four projection subs are
+  registered by the time the tests run."
+  (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
+            [re-frame.core      :as rf]
+            [re-frame.frame     :as frame]
+            [re-frame.machines  :as machines]
+            [re-frame.registrar :as registrar]
+            [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.story     :as story]
+            [re-frame.story.async      :as async-lib]
+            [re-frame.story.loaders    :as loaders]
+            [re-frame.test-support     :as test-support]
+            [login-form.events]
+            [login-form.subs]
+            [login-form.stories :as lf-stories]))
+
+;; ---- fixtures ------------------------------------------------------------
+;;
+;; Snapshot/restore the registrar around each test (same shape as the
+;; counter-with-stories CLJS test): the framework-shipped events / fxs /
+;; subs registered at ns-load (the machines `:rf/machine` sub, the Story
+;; lifecycle machine, the login app's events / subs, the canonical
+;; `:rf.assert/*` handlers) survive the snapshot; per-test registrations
+;; roll back. Map-form fixture is needed for cljs.test's async bodies.
+
+(def ^:private registrar-snapshot (atom nil))
+
+(defn- before! []
+  (reset! registrar-snapshot (test-support/snapshot-registrar))
+  (reset! frame/frames {})
+  (try (rf/init! plain-atom/adapter) (catch :default _ nil))
+  (frame/ensure-default-frame!)
+  (machines/reset-timers!)
+  (loaders/clear-watchers!)
+  ;; Re-fire the Story registrations so each test starts with a freshly
+  ;; resolved registry (the four projection subs re-register here too).
+  (story/clear-all!)
+  (lf-stories/register-all!))
+
+(defn- after! []
+  (when-let [snap @registrar-snapshot]
+    (test-support/restore-registrar! snap)
+    (reset! registrar-snapshot nil))
+  (reset! frame/frames {}))
+
+(use-fixtures :each {:before before! :after after!})
+
+;; ---- registrations: the four projection subs landed ----------------------
+
+(deftest projection-subs-registered
+  (testing "the four machine-snapshot projection subs registered against
+            the registrar (their migration off the dead app-db path
+            keeps them registered as ordinary `reg-sub`s)"
+    (doseq [sub-id [:login/state :login/error :login/attempts :login/email]]
+      (is (some? (registrar/handler :sub sub-id)) (str sub-id " registered")))))
+
+;; ---- each variant runs; the migrated subs resolve the snapshot -----------
+;;
+;; The regression guard. After `run-variant`, the variant frame (keyed by
+;; the variant-id) still holds its committed state, so we compute each
+;; migrated projection sub via `rf/compute-sub` against the frame's
+;; `frame-state-value` — the same two-partition value `subscribe` resolves
+;; reactively. `compute-sub` extracts the `:rf.db/runtime` partition for a
+;; `:rf/machine`-derived sub, so a green assertion PROVES the sub reads the
+;; live runtime-db snapshot. Reverting the subs to the dead app-db
+;; `:rf/runtime` path makes them resolve nil → these go red.
+
+(defn- run-then
+  "Run `variant-id` and, on settle, invoke `(check result frame-state)`
+  with the variant frame's live frame-state value, then tear the variant
+  down and complete the async test."
+  [done variant-id check]
+  (-> (story/run-variant variant-id)
+      (async-lib/then
+        (fn [result]
+          (is (story/assertions-passing? result)
+              (str variant-id " play assertions (state-is etc): "
+                   (pr-str (:assertions result))))
+          (check result (rf/frame-state-value variant-id))
+          (story/destroy-variant! variant-id)
+          (done)))))
+
+(defn- sub-value
+  "Compute migrated projection sub `query-v` against the variant frame's
+  `frame-state` value (resolves the `:rf.db/runtime` partition for the
+  `:rf/machine`-derived projection subs)."
+  [query-v frame-state]
+  (rf/compute-sub query-v frame-state))
+
+(deftest idle-variant-state-sub-resolves
+  (testing ":story.login/idle — `:login/state` resolves :idle off the
+            runtime-db snapshot (and the `:rf.assert/state-is` checkpoint
+            passes)"
+    (async done
+      (run-then done :story.login/idle
+        (fn [_ fs]
+          (is (= :idle (sub-value [:login/state] fs))
+              ":login/state read the live runtime-db snapshot, not nil"))))))
+
+(deftest submitting-variant-state-sub-resolves
+  (testing ":story.login/submitting — `:login/state` resolves :submitting"
+    (async done
+      (run-then done :story.login/submitting
+        (fn [_ fs]
+          (is (= :submitting (sub-value [:login/state] fs))))))))
+
+(deftest error-variant-error-sub-resolves
+  (testing ":story.login/error — `:login/error` resolves the error message
+            off the runtime-db snapshot (NOT nil from the dead app-db path)"
+    (async done
+      (run-then done :story.login/error
+        (fn [_ fs]
+          (is (= :error (sub-value [:login/state] fs)))
+          (is (= "Invalid credentials." (sub-value [:login/error] fs))
+              ":login/error returned the live message, not nil"))))))
+
+(deftest submitting-retry-variant-attempts-sub-resolves
+  (testing ":story.login/submitting-retry — `:login/attempts` resolves the
+            incremented counter off the runtime-db snapshot"
+    (async done
+      (run-then done :story.login/submitting-retry
+        (fn [_ fs]
+          (is (= :submitting-retry (sub-value [:login/state] fs)))
+          (is (= 1 (sub-value [:login/attempts] fs))
+              ":login/attempts returned the live count, not the 0 default"))))))
+
+(deftest authenticated-variant-email-sub-resolves
+  (testing ":story.login/authenticated — `:login/email` resolves the
+            submitted handle off the runtime-db snapshot"
+    (async done
+      (run-then done :story.login/authenticated
+        (fn [_ fs]
+          (is (= :authenticated (sub-value [:login/state] fs)))
+          (is (= "ada@example.com" (sub-value [:login/email] fs))
+              ":login/email returned the live email, not nil"))))))

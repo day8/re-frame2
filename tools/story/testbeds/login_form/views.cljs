@@ -21,8 +21,9 @@
 ;;
 ;; Form-2 so the email/password inputs can hold component-local state
 ;; without colonising app-db with every keystroke. Per Story's design,
-;; local component state is fine — Story assertions read app-db, not
-;; component-local atoms, so the input state stays where it belongs.
+;; local component state is fine — Story assertions read framework state
+;; (app-db + the runtime-db machine snapshot), not component-local atoms,
+;; so the input state stays where it belongs.
 ;; ---------------------------------------------------------------------------
 
 (reg-view login-form []
