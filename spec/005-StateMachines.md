@@ -155,7 +155,7 @@ Why the locked path — the load-bearing reason is [Goal 2 — Frame state rever
 
 > **Footgun: a from-scratch `{:db fresh-map}` silently kills every live machine — guarded loudly (rf2-p806o).** Because `:rf/runtime` lives *inside* app-db, an event handler that returns a from-scratch `:db` effect — `{:db (build-fresh-app-db ...)}`, a shape common in v1→v2 boot-machine migrations that rebuild app-db and forget `:rf/runtime` — performs a WHOLESALE REPLACE that drops `:rf/runtime` and every live machine snapshot with it. The machine then silently dies: subsequent dispatches addressed to it find no snapshot and become no-ops, and the app hangs (e.g. on a loading spinner) with nothing in the trace stream. The clobber itself is *intended* — preserving / merging `:rf/runtime` across a `:db` replace would BREAK the revertibility invariant above (a `restore-epoch` would leak current machine state into a restored-past db). So the runtime does NOT merge; instead it surfaces the silent drop LOUDLY. A durable `:db` commit that drops a live machine snapshot (present pre-commit, absent post-commit, no replacement) emits the dev-time warning **`:rf.warning/runtime-state-dropped`** (per [009 §Error event catalogue](009-Instrumentation.md#error-event-catalogue)), naming the dropped `:subsystem` and the lost `:dropped-machine-ids`, with a `:reason` that names the fix (thread `(:rf/runtime db)` through, or build the new db with `update`/`assoc` over the existing db). The guard generalises across all `:rf/runtime` sub-containers (routing / elision / ssr). It does NOT false-fire on the legitimate wholesale replaces: `restore-epoch` / `reset-frame-db!` install a complete db via a direct container replace (never a `:db` effect), `:rf.machine/destroy` mutates via a direct frame swap, and `:rf/hydrate` installs the server's complete db carrying its own `:rf/runtime`.
 
-The runtime composes the snapshot-map's schema from the registered machines' `:schema` slots (per [§Schema validation](#schema-validation), the surface shipped under): `(rf/app-schema-at [:rf/runtime :machines :snapshots])` returns `[:map-of :keyword :rf/machine-snapshot]`, and per-machine entries refine `:rf/machine-snapshot` against each machine's declared `:schema` (which describes the `:data` shape). Violations surface at the `:where :machine-data` boundary — row 7 of the per-step recovery table per [Spec 010 §Per-step recovery](010-Schemas.md#per-step-recovery).
+The runtime composes the snapshot-map's schema from the registered machines' `:data-schema` slots (per [§Schema validation](#schema-validation), the surface shipped under): `(rf/app-schema-at [:rf/runtime :machines :snapshots])` returns `[:map-of :keyword :rf/machine-snapshot]`, and per-machine entries refine `:rf/machine-snapshot` against each machine's declared `:data-schema` (which describes the `:data` shape). Violations surface at the `:where :machine-data` boundary — row 7 of the per-step recovery table per [Spec 010 §Per-step recovery](010-Schemas.md#per-step-recovery).
 
 ### What the Single Store gives us for free
 
@@ -166,7 +166,7 @@ Because every machine's snapshot lives in `app-db` at `[:rf/runtime :machines :s
 - **SSR hydration.** The `:rf/hydrate` event replaces `app-db` with the server-supplied payload (per [011](011-SSR.md)); machine snapshots ride along with the rest of the state — no separate hydration channel.
 - **Persistence.** Writing `app-db` to localStorage / IndexedDB / a server endpoint serialises machines too. Reloading deserialises them back into `[:rf/runtime :machines :snapshots <id>]` and the next event sees them.
 - **Conformance fixtures.** A fixture's `:fixture/expect :final-app-db` covers machine state without needing a machine-specific assertion.
-- **Schema validation.** `(rf/reg-app-schema [:rf/runtime :machines :snapshots] ...)` validates the whole machine map; per-machine `:schema` slots refine it against each machine's `:data` shape at the `:where :machine-data` boundary (per [§Schema validation](#schema-validation), shipped under ; row 7 of [Spec 010 §Per-step recovery](010-Schemas.md#per-step-recovery)).
+- **Schema validation.** `(rf/reg-app-schema [:rf/runtime :machines :snapshots] ...)` validates the whole machine map; per-machine `:data-schema` slots refine it against each machine's `:data` shape at the `:where :machine-data` boundary (per [§Schema validation](#schema-validation), shipped under ; row 7 of [Spec 010 §Per-step recovery](010-Schemas.md#per-step-recovery)).
 - **Trace replay.** Tool-Pair epochs replay events against `:db-before` to reproduce a session; machine transitions replay along with everything else because their state is in the db.
 - **Snapshot-and-restore.** The epoch surface (`epoch/restore-epoch` + `epoch/reset-frame-db!`) captures `app-db` and reapplies it; machines come back with the rest of state. This holds for SPAWNED actors too, not just singletons: a spawned actor's liveness is its snapshot's presence in the (revertible) frame value (per [§Liveness is derived from app-db](#liveness-is-derived-from-app-db)), so rewinding past a spawn removes the actor and rewinding past a destroy re-materialises a working handler — with zero registrar drift.
 
@@ -179,7 +179,7 @@ A transition table is pure data. Top-level shape:
 ```clojure
 {:initial <fsm-keyword>                     ;; required — initial state
  :data    {<initial data>}                  ;; optional — initial data map
- :schema  <validator-schema>                ;; optional — validates `:data` at the `:where :machine-data` boundary (see §Schema validation)
+ :data-schema <validator-schema>            ;; optional — validates `:data` at the `:where :machine-data` boundary (see §Schema validation)
  :guards  {<keyword> <fn>, ...}             ;; optional — machine-local named guard impls
  :actions {<keyword> <fn>, ...}             ;; optional — machine-local named action impls
  :states  {<fsm-keyword> <state-node>, ...} ;; required
@@ -197,7 +197,7 @@ The snapshot's location in `app-db` is `[:rf/runtime :machines :snapshots <id>]`
 |---|---|---|
 | `:initial` | top-level | required — the initial FSM-keyword |
 | `:data` | top-level | optional — initial data map |
-| `:schema` | top-level | optional — validates the machine's `:data` slot at every macrostep boundary + at bootstrap; failures emit `:rf.error/schema-validation-failure :where :machine-data` and roll back the cascade. See [§Schema validation](#schema-validation). |
+| `:data-schema` | top-level | optional — validates the machine's `:data` slot at every macrostep boundary + at bootstrap; failures emit `:rf.error/schema-validation-failure :where :machine-data` and roll back the cascade. See [§Schema validation](#schema-validation). |
 | `:guards` | top-level | optional — `{<keyword> <fn>}` map of machine-local named guards; referenced by keyword from `:guard` slots |
 | `:actions` | top-level | optional — `{<keyword> <fn>}` map of machine-local named actions; referenced by keyword from `:action` / `:entry` / `:exit` slots |
 | `:meta` | top-level | optional — e.g. `:rf/snapshot-version` |
@@ -426,16 +426,16 @@ This is the design rule from above: imperative composition is fns, not data DSLs
 
 ### Schema validation
 
-a machine spec MAY declare a top-level **`:schema`** key. The schema validates the machine's `:data` slot — the user-domain extended state. Mirrors how `:schema` rides on every other registration kind (`reg-event-*`, `reg-cofx`, `reg-fx`, `reg-sub`):
+a machine spec MAY declare a top-level **`:data-schema`** key. The schema validates the machine's `:data` slot — the user-domain extended state. The key is named `:data-schema` (not the bare `:schema` every other `reg-*` kind uses) because the machine spec is the only registration surface where the validated value has its own visible sibling key: `:data` and `:data-schema` sit side by side, so the key says exactly what it validates at the point of greatest ambiguity. The key is unqualified, like `:data` / `:guards` / `:actions`:
 
 ```clojure
 (rf/reg-machine :drawer/editor
-  {:initial :idle
-   :data    {:circles [] :undo [] :redo []}
-   :schema  DrawerData                ;; validates :data
-   :guards  {...}
-   :actions {...}
-   :states  {...}})
+  {:initial     :idle
+   :data        {:circles [] :undo [] :redo []}
+   :data-schema DrawerData            ;; validates :data
+   :guards      {...}
+   :actions     {...}
+   :states      {...}})
 ```
 
 The schema's job is exactly the user-domain `:data` shape. The snapshot's `:state` slot is already validated at registration time (a transition targeting an unknown state fails registration with `:rf.error/machine-unresolved-target`, a malformed target with `:rf.error/machine-bad-target`); the snapshot's reserved `:rf/*` slots are framework-owned.
@@ -470,6 +470,21 @@ Consumers route on `:where` — the existing Issues triage, Xray projections, sc
 **Production builds.** Per [010 §Production builds](010-Schemas.md#production-builds), the validation site is gated by `re-frame.interop/debug-enabled?` and DCEs to a no-op under `:advanced` + `goog.DEBUG=false`. The boundary is dev-only by default; apps needing production validation at system boundaries reach for the `:rf.schema/at-boundary` interceptor on the specific events that ingest untrusted machine `:data` (e.g. an SSR-hydrate that restores machine snapshots from the wire).
 
 **Cross-reference.** Per [010 §Per-step recovery row 7](010-Schemas.md#per-step-recovery), this boundary is row 7 of the per-step recovery table; the `:where :machine-data` value is the closed-set extension to [Spec-Schemas §`SchemaValidationTags`](Spec-Schemas.md#per-category-tags-schemas). The two paragraphs at [§Where snapshots live](#where-snapshots-live) (schema composition) and in §What the Single Store gives us for free (the Schema-validation bullet) describe this surface as fact.
+
+#### `:data-schema` is the re-frame2 analog of XState v5 typed context
+
+A machine's `:data` slot **is** XState's *context* — the value the machine carries across transitions. XState v5 lets a developer declare that context's shape with `setup({ types: { context } })`, and Stately's inspector renders the declaration as a `Context: …` header on the chart. re-frame2's `:data-schema` is the behavioural analog of that typed-context declaration: both **declare** the context shape, both make it **renderable** by tooling (the machines-viz Context panel reads `:data-schema` the way Stately reads the typed-context declaration), and both pin the shape a reader can rely on. Naming the key `:data-schema` rather than `:context-schema` keeps re-frame2's own `:data` vocabulary, but the role is identical to XState's typed context.
+
+re-frame2 deliberately **exceeds** the XState v5 benchmark on this surface, in one respect worth naming:
+
+| | XState v5 typed context | re-frame2 `:data-schema` |
+|---|---|---|
+| Declaration | `setup({ types: { context: {} as T } })` | top-level `:data-schema` on the machine spec |
+| Tooling render | Stately inspector `Context:` header | machines-viz declared Context panel |
+| Enforcement | **compile-time only** — TypeScript types are erased at runtime; a value off the wire that violates the declared shape is *not* caught | **runtime Malli validation** at every macrostep-commit boundary, at bootstrap, and at spawn time — a violating `:data` emits `:rf.error/schema-validation-failure :where :machine-data` and rolls back the cascade (see §Schema validation above) |
+| Production cost | zero (types erased) | zero — the validation site is `re-frame.interop/debug-enabled?`-gated and DCEs under `:advanced` + `goog.DEBUG=false`, so the runtime guarantee is dev-only by default with the same erased-in-production posture (production boundary validation is opt-in via `:rf.schema/at-boundary`) |
+
+The divergence is the point: XState's typed context is a *static* contract a TypeScript compiler checks and then discards, whereas re-frame2's `:data-schema` is the same declaration backed by an *actually-running* validation in dev (and an opt-in at production boundaries) — re-frame2 keeps the compile-time-equivalent declaration AND adds the runtime guarantee XState v5 leaves to the type-erased layer, at no production cost.
 
 ### Trace events — guard evaluations and action runs
 

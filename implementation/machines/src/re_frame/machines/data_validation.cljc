@@ -3,7 +3,7 @@
   (rf2-jbbp7).
 
   Per Spec 005 §Schema validation: a machine spec may declare a
-  top-level `:schema` key whose value validates the machine's `:data`
+  top-level `:data-schema` key whose value validates the machine's `:data`
   slot. This namespace owns the boundary-validation call site.
 
   Per Spec 010 §Per-step recovery row 7: validation failures emit
@@ -15,9 +15,9 @@
   The post-commit validator (`validate-machine-data!`) walks the
   freshly-committed `[:rf/runtime :machines :snapshots]` map, looks up each machine's spec
   via `re-frame.machines/machine-meta`, and validates `(:data
-  snapshot)` against `(:schema spec)` through the schemas artefact's
+  snapshot)` against `(:data-schema spec)` through the schemas artefact's
   registered validator-fn. Snapshots whose machine declares no
-  `:schema`, or for which `machine-meta` returns nil (spawned actor
+  `:data-schema`, or for which `machine-meta` returns nil (spawned actor
   whose host spec is gone), pass silently.
 
   The spawn-time validator (`validate-spawn-data!`) is the sibling
@@ -126,7 +126,7 @@
 
 (defn validate-machine-data!
   "Walk every snapshot under `[:rf/runtime :machines :snapshots]` in `db` and validate its
-  `:data` against the registered machine's `:schema`. Returns true
+  `:data` against the registered machine's `:data-schema`. Returns true
   iff every snapshot conformed (or carried no schema / no validator);
   false on first failure with the per-snapshot trace already emitted.
 
@@ -148,11 +148,11 @@
       ;; snapshot (no short-circuit) so each failing machine surfaces its
       ;; own trace (consumers see the full set), AND-conjoining the per-
       ;; snapshot conform decision so the router decides rollback
-      ;; deterministically. A snapshot whose machine declares no `:schema`
+      ;; deterministically. A snapshot whose machine declares no `:data-schema`
       ;; (or whose spec `machine-meta` can't resolve) conforms vacuously.
       (reduce-kv
         (fn [ok? machine-id snapshot]
-          (and (if-let [schema (some-> (machine-meta machine-id) :schema)]
+          (and (if-let [schema (some-> (machine-meta machine-id) :data-schema)]
                  (validate-snapshot-data! machine-id snapshot schema :macrostep)
                  true)
                ok?))
@@ -164,7 +164,7 @@
 (defn validate-spawn-data!
   "Sibling of `validate-machine-data!` for the `:rf.machine/spawn` install
   path. Validates a freshly-built initial snapshot's `:data` against the
-  spawned actor's machine `:schema` BEFORE the snapshot lands in app-db.
+  spawned actor's machine `:data-schema` BEFORE the snapshot lands in app-db.
   Returns true on conform / no schema / no validator; false on failure
   (caller skips the install).
 
@@ -178,7 +178,7 @@
   under `:advanced` + `goog.DEBUG=false`."
   [spawned-id spec snapshot]
   (if interop/debug-enabled?
-    (if-let [schema (:schema spec)]
+    (if-let [schema (:data-schema spec)]
       (validate-snapshot-data! spawned-id snapshot schema :spawn)
       true)
     true))

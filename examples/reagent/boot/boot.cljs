@@ -118,10 +118,10 @@
    ;; §Spawn-time validation). The loader is only ever spawned (one
    ;; instance per asset, gensym'd id e.g. `:boot/loader#0`), so its
    ;; snapshot lives at a per-instance path no fixed `reg-app-schema`
-   ;; can reach — the machine `:schema` slot is the mechanism that
+   ;; can reach — the machine `:data-schema` slot is the mechanism that
    ;; boundary-checks the spawn. The per-child `:data` fn (see :app/boot
    ;; below) replaces this base map with the planted identity at spawn.
-   :schema  schema/LoaderData
+   :data-schema schema/LoaderData
    :data    {:parent-id   nil
              :child-id    nil
              :staging-key nil

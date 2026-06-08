@@ -49,14 +49,14 @@ Every registration accepts an optional `:schema` in its metadata map:
   (fn [coeffects _] (assoc coeffects :now (js/Date.))))
 ```
 
-Machines (per [005 §Schema validation](005-StateMachines.md#schema-validation)) carry `:schema` at the top of the machine spec — the value validates the machine's `:data` slot at every macrostep boundary and at bootstrap:
+Machines (per [005 §Schema validation](005-StateMachines.md#schema-validation)) carry `:data-schema` at the top of the machine spec — the value validates the machine's `:data` slot at every macrostep boundary and at bootstrap. The key is named `:data-schema` rather than the bare `:schema` because the machine spec is the only registration surface where the validated value (`:data`) has its own visible sibling key:
 
 ```clojure
 (rf/reg-machine :drawer/editor
-  {:initial :idle
-   :data    {:circles []}
-   :schema  DrawerData                ;; validates :data
-   :states  {...}})
+  {:initial     :idle
+   :data        {:circles []}
+   :data-schema DrawerData            ;; validates :data
+   :states      {...}})
 ```
 
 A failure emits `:rf.error/schema-validation-failure :where :machine-data` and rolls back the cascade (per [§Per-step recovery row 7](#per-step-recovery)).
@@ -145,7 +145,7 @@ For a single dispatched event, schema checks fire in this order:
 2. Cofx schemas (from `reg-cofx` `:schema`) — after each cofx injects, before the handler sees the merged context.
 3. Handler runs.
 4. `app-db` path schemas — at the single deferred `:db` install, validating the **flow-augmented** pending `:db` effect. By this point the flow transform has already rewritten the pending `:db` effect as the outermost `:after` (per [013 §Drain integration](013-Flows.md#drain-integration)), so the value validated and installed is the flow-augmented db, not the handler's raw `:db`.
-4a. Machine-`:data` schemas (from `reg-machine` `:schema`,) — alongside step 4 the runtime walks `[:rf/runtime :machines :snapshots]` and validates each snapshot's `:data` against its registered machine's `:schema`. Both validators AND-conjoin: a `false` from either rolls back the `:db` commit. Per [005 §Schema validation](005-StateMachines.md#schema-validation).
+4a. Machine-`:data` schemas (from `reg-machine` `:data-schema`,) — alongside step 4 the runtime walks `[:rf/runtime :machines :snapshots]` and validates each snapshot's `:data` against its registered machine's `:data-schema`. Both validators AND-conjoin: a `false` from either rolls back the `:db` commit. Per [005 §Schema validation](005-StateMachines.md#schema-validation).
 5. Effect schemas (from `reg-fx` `:schema`) — before each fx handler runs.
 6. Sub return-value schemas — after each materialisation/recompute that involves a schema'd sub.
 

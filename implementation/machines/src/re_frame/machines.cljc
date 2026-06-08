@@ -86,10 +86,10 @@
 
 (def reg-machine*           registration/reg-machine*)
 (def make-machine-handler registration/make-machine-handler)
-;; Per rf2-jbbp7 — boundary-validation surface for the `:schema` key
+;; Per rf2-jbbp7 — boundary-validation surface for the `:data-schema` key
 ;; on `reg-machine` (Spec 005 §Schema validation, Spec 010 §Per-step
 ;; recovery row 7). The post-commit walker validates every snapshot's
-;; `:data` against its registered machine's `:schema`; the spawn-time
+;; `:data` against its registered machine's `:data-schema`; the spawn-time
 ;; sibling validates a spawned actor's initial `:data` before install.
 (def validate-machine-data! data-validation/validate-machine-data!)
 (def validate-spawn-data!   data-validation/validate-spawn-data!)
@@ -129,9 +129,9 @@
 
 (defn machine-meta
   "Return the registered machine's spec map (`:initial`, `:data`,
-  `:guards`, `:actions`, `:states`, `:doc`, source coords) for
-  `machine-id`, or nil if no machine is registered under that id. Per
-  Spec 005 §Querying machines."
+  `:data-schema`, `:guards`, `:actions`, `:states`, `:doc`, source
+  coords) for `machine-id`, or nil if no machine is registered under
+  that id. Per Spec 005 §Querying machines."
   [machine-id]
   (let [m (registrar/lookup :event machine-id)]
     (when (:rf/machine? m)

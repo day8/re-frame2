@@ -18,7 +18,7 @@
      gensym'd id (e.g. `:boot/loader#0`), so its snapshot lives at an
      unknown per-instance path no fixed `reg-app-schema` can reach.
      `LoaderData` is therefore attached via the child machine's
-     `:schema` slot on `reg-machine` (see `boot.cljs`), which validates
+     `:data-schema` slot on `reg-machine` (see `boot.cljs`), which validates
      each spawned instance's initial `:data` at spawn time, before the
      snapshot installs (Spec 005 §Schema validation §Spawn-time
      validation)."
@@ -104,9 +104,9 @@
 ;; loader holds the parent-id + child-id + staging-key + URL it was
 ;; spawned with, fetches once, and dispatches `:boot/asset-loaded` (or
 ;; `:boot/asset-failed`) back to its parent on transition into `:done`
-;; (or `:failed`). Attached via the child machine's `:schema` slot on
+;; (or `:failed`). Attached via the child machine's `:data-schema` slot on
 ;; `(reg-machine :boot/loader ...)` in `boot.cljs` — the runtime owns
-;; the surrounding snapshot, so the machine `:schema` describes `:data`
+;; the surrounding snapshot, so the machine `:data-schema` describes `:data`
 ;; only (Spec 005 §Schema validation) and validates each spawned
 ;; instance's initial `:data` at spawn time, regardless of its gensym'd
 ;; id. The per-child `:data` fn (see :app/boot) plants identity only, so

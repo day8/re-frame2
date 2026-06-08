@@ -120,7 +120,7 @@
 (defn- spawn-rejected?
   "Per rf2-jbbp7 + rf2-f3kp7: decide whether a spawn must be rejected by
   schema validation BEFORE any registration or install side effect runs.
-  When the spawning machine's spec carries a `:schema`, the freshly-built
+  When the spawning machine's spec carries a `:data-schema`, the freshly-built
   `initial-snap`'s `:data` is validated against it. A failure emits
   `:rf.error/schema-validation-failure :where :machine-data :phase :spawn`
   (via `validate-spawn-data!`) and returns `true`; the caller then skips

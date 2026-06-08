@@ -23,7 +23,7 @@
                           at an UNKNOWN path that varies per instance.
                           A fixed `reg-app-schema` path cannot reach it.
                           Instead, `ProcessorData` is attached via the
-                          child machine's `:schema` slot on `reg-machine`
+                          child machine's `:data-schema` slot on `reg-machine`
                           (see `worker.cljs`), which validates each spawned
                           instance's initial `:data` at spawn time, before
                           the snapshot installs (Spec 005 §Schema
@@ -77,9 +77,9 @@
 ;;
 ;; The child machine's `:data` slot — the user-domain working memory the
 ;; child carries. The runtime owns the surrounding snapshot (`:state`, the
-;; `:tags` union, the reserved `:rf/*` slots), so the machine `:schema`
+;; `:tags` union, the reserved `:rf/*` slots), so the machine `:data-schema`
 ;; describes `:data` ONLY (Spec 005 §Schema validation). Attached via the
-;; `:schema` slot on `(reg-machine :work/processor ...)` in `worker.cljs`,
+;; `:data-schema` slot on `(reg-machine :work/processor ...)` in `worker.cljs`,
 ;; which validates each spawned instance's initial `:data` at spawn time —
 ;; the value here is what the parent's per-child `:spawn-all` invoke-spec
 ;; plants (every field below is supplied, so all are required).
@@ -104,7 +104,7 @@
 ;;
 ;; `:work/flow` is a singleton at a fixed id, so its full snapshot is
 ;; attached on the fixed snapshot path. (The `:work/processor` children
-;; are attached via the machine `:schema` slot in `worker.cljs` — see the
+;; are attached via the machine `:data-schema` slot in `worker.cljs` — see the
 ;; ns docstring for why a fixed path cannot reach a gensym'd-id snapshot.)
 
 (rf/reg-app-schema [:rf/runtime :machines :snapshots :work/flow] FlowSnapshot)
