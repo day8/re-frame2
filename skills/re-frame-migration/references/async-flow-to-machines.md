@@ -42,16 +42,17 @@ The rule engine and the FSM are structurally different. async-flow is **temporal
 (rf/reg-machine <machine-id>
   {:initial <state-keyword>                  ;; required
    :data    {<initial working-memory>}       ;; optional
-   :guards  {<kw> (fn [{:keys [data event]}] boolean), ...}  ;; named guards
+   :guards  {<kw> (fn [{:keys [data event]}] boolean), ...}  ;; named guards (machine-local)
+   :actions {<kw> (fn [{:keys [data event]}] {:data .. :fx ..}), ...}  ;; named actions (machine-local)
    :states
    {<state-keyword>
-    {:entry  (fn [{:keys [data event]}] {:data .. :fx ..})  ;; one fn or :actions-map keyword
+    {:entry  :kickoff-fetch                  ;; keyword → resolves in :actions (or an inline fn)
      :on     {<event-id> <transition>, ...}  ;; event-driven transitions
      :always [<guarded-transition>, ...]     ;; eventless — fires when a :guard turns true
      :final? true}}})                        ;; entering terminates + auto-destroys the machine
 ```
 
-A `<transition>` is `<target-keyword>` (sugar for `{:target ...}`) or a `{:target :guard :action}` map; `:guard` / `:action` are one fn or one keyword into the machine's `:guards` / `:actions` map. A guard / action receives one context map `{:keys [data event state meta]}`; an action returns a fresh `{:data ...}` (and optional `:fx`). All verified against [`spec/005-StateMachines.md` §Transition table grammar](../../../spec/005-StateMachines.md#transition-table-grammar), [§Guards](../../../spec/005-StateMachines.md#guards), and [§Actions](../../../spec/005-StateMachines.md#actions).
+The `:guards` and `:actions` maps are **symmetric** — both declare machine-local named implementations keyed by keyword, and both are referenced from the transition table by that keyword (`:guard :both-loaded?`, `:action :record-config`, `:entry :kickoff-fetch`). A `<transition>` is `<target-keyword>` (sugar for `{:target ...}`) or a `{:target :guard :action}` map; `:guard` / `:action` (and `:entry` / `:exit`) are **one keyword reference into the machine's `:guards` / `:actions` map — or one inline fn**. A guard / action receives one context map `{:keys [data event state meta]}`; an action returns a fresh `{:data ...}` (and optional `:fx`). Prefer the **named keyword reference** (see [§Name your actions](#name-your-actions--declare-them-in-the-actions-map-not-inline) below); inline fns are the trivial-one-liner escape hatch. All verified against [`spec/005-StateMachines.md` §Transition table grammar](../../../spec/005-StateMachines.md#transition-table-grammar), [§Guards](../../../spec/005-StateMachines.md#guards), [§Actions](../../../spec/005-StateMachines.md#actions), and [§Inspectability bias](../../../spec/005-StateMachines.md#inspectability-bias).
 
 ## Worked before → after — a boot/login sequence
 
@@ -109,33 +110,47 @@ A representative async-flow: dispatch `[:fetch-config]` first; when `[:config-lo
   (:require [re-frame.core :as rf]
             [re-frame.machines]))                      ;; per M-28 — fires the machines artefact's load-time hooks
 
+;; Guards AND actions live in named, machine-local maps — symmetric — and the
+;; :states table references them by keyword. This is the introspectable/reusable
+;; idiom (see §Name your actions below); inline fns are the trivial-case escape.
 (rf/reg-machine :app/boot
   {:initial :starting
    :data    {:config-loaded? false :user-loaded? false}
-   :guards  {:both-loaded? (fn [{:keys [data]}]
-                             (and (:config-loaded? data) (:user-loaded? data)))}
+
+   :guards
+   {:both-loaded? (fn [{:keys [data]}]
+                    (and (:config-loaded? data) (:user-loaded? data)))}
+
+   :actions
+   {:kickoff-config (fn [_] {:fx [[:dispatch [:fetch-config]]]})  ;; :first-dispatch → :entry
+    :kickoff-user   (fn [_] {:fx [[:dispatch [:fetch-user]]]})
+    :record-config  (fn [{:keys [data]}] {:data (assoc data :config-loaded? true)})
+    :record-user    (fn [{:keys [data]}] {:data (assoc data :user-loaded? true)})
+    :announce-ready  (fn [_] {:fx [[:dispatch [:app-ready]]]})
+    :announce-failed (fn [_] {:fx [[:dispatch [:app-boot-failed]]]})}
+
    :states
    {;; :first-dispatch → the initial state's :entry kicks off config fetch.
     :starting
-    {:entry (fn [_] {:fx [[:dispatch [:fetch-config]]]})
+    {:entry :kickoff-config
      :on    {:config-loaded {:target :loading-user
-                             :action (fn [{:keys [data]}] {:data (assoc data :config-loaded? true)})}
+                             :action :record-config}
              :fetch-failed  :failed}}                  ;; :halt-on → error transition
 
     ;; config is in; fetch the user. Both await-events feed the :both-loaded? guard.
     :loading-user
-    {:entry (fn [_] {:fx [[:dispatch [:fetch-user]]]})
-     :on    {:user-loaded {:action (fn [{:keys [data]}] {:data (assoc data :user-loaded? true)})}
+    {:entry :kickoff-user
+     :on    {:user-loaded  {:action :record-user}
              :fetch-failed :failed}
      ;; :seen-all-of? → eventless :always gated on the compound guard.
      :always [{:guard :both-loaded? :target :ready}]}
 
     ;; terminal states — entering either auto-destroys the machine + clears its snapshot.
     :ready  {:final? true
-             :entry  (fn [_] {:fx [[:dispatch [:app-ready]]]})}
+             :entry  :announce-ready}
 
     :failed {:final? true
-             :entry  (fn [_] {:fx [[:dispatch [:app-boot-failed]]]})}}})
+             :entry  :announce-failed}}})
 
 ;; The PRODUCERS — RETARGETED to the machine address. This is the half of the
 ;; conversion a blind :on-key mapping forgets: the machine only observes events
@@ -164,12 +179,28 @@ A representative async-flow: dispatch `[:fetch-config]` first; when `[:config-lo
 
 What changed:
 
-- **`:first-dispatch [:fetch-config]` → the `:starting` state's `:entry`.** The kickoff is an explicit, addressable action running through the standard fx pipeline.
-- **The single-event rule (`:config-loaded` → fetch user) → a transition on `:starting`'s `:on` map.** The awaited event is the `:on` key; the dispatch lands in the next state's `:entry` (or the transition's `:action :fx`).
-- **The `:seen-all-of? [:user-loaded :config-loaded]` rule → record-in-`:data` `:on` actions plus an `:always` gated by the `:both-loaded?` guard.** Each await flips a flag in working memory; the eventless `:always` advances the moment both are true — the FSM-native spelling of "all seen." (`:config-loaded` is recorded in `:starting`; `:user-loaded` in `:loading-user`; the guard reads both.)
+- **Guards AND actions are named in the spec's `:guards` / `:actions` maps; the `:states` table references them by keyword.** This is the symmetric, idiomatic shape (`:entry :kickoff-config`, `:action :record-config`, `:guard :both-loaded?`) — a single machine-local registry a reviewer, a visualiser, and a test can all read by name. Don't model the actions inline in the slots; see [§Name your actions](#name-your-actions--declare-them-in-the-actions-map-not-inline) for when the inline escape hatch is appropriate.
+- **`:first-dispatch [:fetch-config]` → the `:starting` state's `:entry` action `:kickoff-config`.** The kickoff is an explicit, named, addressable action running through the standard fx pipeline.
+- **The single-event rule (`:config-loaded` → fetch user) → a transition on `:starting`'s `:on` map.** The awaited event is the `:on` key; the dispatch lands in the next state's `:entry` action (`:kickoff-user`), and the await is recorded by the transition's `:action :record-config`.
+- **The `:seen-all-of? [:user-loaded :config-loaded]` rule → record-in-`:data` named `:on` actions plus an `:always` gated by the `:both-loaded?` guard.** Each await flips a flag in working memory (`:record-config` / `:record-user`); the eventless `:always` advances the moment both are true — the FSM-native spelling of "all seen." (`:config-loaded` is recorded in `:starting`; `:user-loaded` in `:loading-user`; the guard reads both.)
 - **`:halt-on [:fetch-failed]` → a `:fetch-failed` transition to the `:final?` `:failed` state**, declared on every state that can still be in flight. The normal completion routes to the `:final?` `:ready` state. Entering either terminal triggers auto-destroy.
 - **Every producer of an awaited event RETARGETED to the machine address.** `:fetch-config`'s `:on-success [:config-loaded]` → `[:app/boot [:config-loaded]]`; `:fetch-user`'s `:on-success [:user-loaded]` → `[:app/boot [:user-loaded]]`; both `:on-failure` → `[:app/boot [:fetch-failed]]`. This is the easily-missed half: the `:on`-key mapping is inert until the events actually arrive **at the machine's address** — a plain global `[:config-loaded]` bypasses the machine and the boot hangs silently. (Where the global event must stay public, bridge it instead — see the CRITICAL note under the construct table.)
 - **`(:require [day8.re-frame.async-flow-fx])` dropped; `(:require [re-frame.machines])` added** (M-28). The `day8.re-frame/async-flow-fx` Maven coord is dropped once every flow is converted.
+
+### Name your actions — declare them in the `:actions` map, not inline
+
+The example above puts **every** action in the machine's named `:actions` map and references it by keyword from the slots — `:entry :kickoff-config`, `:action :record-config`. That is the spec's [§Inspectability bias](../../../spec/005-StateMachines.md#inspectability-bias) default, and it is **deliberately the shape this guide models**, because the natural async-flow→machine instinct is to inline each old `:dispatch` as a `(fn [_] {:fx [[:dispatch …]]})` literal right in the slot — which works but skips the named registry. Two named maps, symmetric: `:guards` for the predicates, `:actions` for the effects.
+
+Why a named `:actions` map (and not inline fns) is the default:
+
+- **Reuse.** A boot/login/wizard flow routes to the same terminal effect from several states — e.g. `:fetch-failed → :failed` is declared on *every* in-flight state, and `:failed`'s `:entry :announce-failed` runs once. Naming the action lets every reference point at one definition; inlining the same `(fn [_] {:fx [[:dispatch [:app-boot-failed]]]})` body into N slots duplicates it, and the copies drift.
+- **A single named registry.** `(machine-meta :app/boot)` returns the `:actions` map keyed by id — one place that lists what the machine *does*, the way `:guards` lists what it *decides*. A reviewer reads the registry instead of hunting fn bodies scattered through the state tree.
+- **Addressable by id — for tests, fixtures, and visualisers.** A Level-1/2 test can redefine the spec's `:actions` entry by key to stub a deterministic stand-in; a conformance fixture can assert against the action id; a diagram exporter labels the arrow with `:record-config` instead of `[fn]`. An inline fn has no public name to address (per [§Inspectability bias](../../../spec/005-StateMachines.md#inspectability-bias) — "Tests read ids", "Conformance fixtures read ids").
+- **Clarity at the call site.** `:entry :kickoff-config` says *what* the entry does; `:entry (fn [_] {:fx [[:dispatch [:fetch-config]]]})` makes the reviewer parse the body to find out. The keyword *is* the meaning.
+
+> **Note — inline source is now stamped; the win is reuse + the named registry, not "you can't see the code."** As of rf2-se70xj an inline fn's source text *is* co-located on its enclosing state/transition node, so Xray's Epoch and Machine panels and a source-aware visualiser CAN show an inline action's code — it no longer renders as `#object[Function]` or a bare `[fn]` hole (per [005 §Inline-fn / keyword slots](../../../spec/005-StateMachines.md#inline-fn--keyword-slots-the-exemption-case)). So do **not** justify naming on "inline is non-introspectable." The real, accurate benefits are the four above: reuse across slots, one named registry per machine (`machine-meta`), addressability by id (tests / fixtures / diagram labels), and call-site clarity.
+
+When inline IS fine — the escape hatch: a **trivial, single-use, non-branching** body that adds no meaning by being named. `:guard (fn [{:keys [data]}] (some? (:circle-id data)))` used once is fine — `:has-circle?` adds nothing the body doesn't already show. The test (per [§Inspectability bias](../../../spec/005-StateMachines.md#inspectability-bias)): is the body a single non-branching expression used in exactly one slot? Yes → inline is acceptable. No (it branches, it composes multiple steps, or it is referenced from more than one slot) → name it in `:actions` / `:guards`. The default for anything a migrated flow carries — kickoffs, record-await steps, completion announcers — is **named**, because flows reuse and branch by nature.
 
 ### The top-level singleton boot machine — the most common async-flow shape
 
