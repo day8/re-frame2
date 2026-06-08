@@ -272,7 +272,7 @@
           "history.current points at /cart")
 
       ;; Slice side-effect: :rf/route was rewritten.
-      (let [route (get-in (rf/app-db-value :rf/default) [:rf/runtime :routing :current])]
+      (let [route (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])]
         (is (= :hist/cart (:id route))
             "the :rf/route slice carries the new route id")
         (is (some? (:nav-token route))
@@ -299,7 +299,7 @@
     (is (= 3 (:index @*history-state*))
         "index points at the most recent entry")
     (is (= :hist/article
-           (:id (get-in (rf/app-db-value :rf/default) [:rf/runtime :routing :current])))
+           (:id (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])))
         "the slice tracks the most recently pushed URL")))
 
 (deftest url-requested-external-url-does-not-push-cljs
@@ -310,7 +310,7 @@
     (is (= ["/"] (:entries @*history-state*))
         "external URL did not append a history entry")
     (is (= :hist/home
-           (:id (get-in (rf/app-db-value :rf/default) [:rf/runtime :routing :current])))
+           (:id (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])))
         "external URL did not rewrite the app route to not-found")))
 
 (deftest url-requested-non-string-url-fails-closed-cljs-rf2-w3qgc
@@ -324,7 +324,7 @@
     ;; Land on /cart so we can prove the slice does NOT move on a bad URL.
     (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
     (is (= :hist/cart
-           (:id (get-in (rf/app-db-value :rf/default) [:rf/runtime :routing :current])))
+           (:id (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])))
         "precondition: active route is :hist/cart")
     (let [entries-before (:entries @*history-state*)
           index-before   (:index @*history-state*)]
@@ -343,14 +343,14 @@
         (is (= index-before (:index @*history-state*))
             (str "non-string url " (pr-str bad) " did not move the history index"))
         (is (= :hist/cart
-               (:id (get-in (rf/app-db-value :rf/default) [:rf/runtime :routing :current])))
+               (:id (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])))
             (str "non-string url " (pr-str bad) " did not rewrite the route slice"))))
     ;; Sanity: a normal same-origin string STILL works through the same path.
     (rf/dispatch-sync [:rf/url-requested {:url "/checkout"}])
     (is (= "/checkout" (current-url *history-state*))
         "a normal same-origin string still pushes through after the guard")
     (is (= :hist/checkout
-           (:id (get-in (rf/app-db-value :rf/default) [:rf/runtime :routing :current])))
+           (:id (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])))
         "the slice tracks the legitimate same-origin navigation")))
 
 (deftest scroll-position-captured-before-forward-nav-cljs
@@ -374,7 +374,7 @@
     (is (= ["/"] (:entries @*history-state*))
         "duplicate URL-bound frame did not push to browser history")
     (is (= :hist/cart
-           (:id (get-in (rf/app-db-value :hist/duplicate-owner) [:rf/runtime :routing :current])))
+           (:id (get-in (rf/runtime-db-value :hist/duplicate-owner) [:rf.runtime/routing :current])))
         "the non-owner frame still updates its own route slice")))
 
 ;; =========================================================================
@@ -389,7 +389,7 @@
     (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
     (rf/dispatch-sync [:rf/url-requested {:url "/checkout"}])
     (is (= :hist/checkout
-           (:id (get-in (rf/app-db-value :rf/default) [:rf/runtime :routing :current])))
+           (:id (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])))
         "slice is on /checkout before the back-button")
 
     ;; Simulate back-button: browser would (a) move history.index back
@@ -411,7 +411,7 @@
               (rf/dispatch-sync
                 [:rf.route/handle-url-change (current-url *history-state*)])))]
       (is (= :hist/cart
-             (:id (get-in (rf/app-db-value :rf/default) [:rf/runtime :routing :current])))
+             (:id (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])))
           "the slice fell back to :hist/cart after the popstate-style dispatch")
       (is (= 1 (count traces))
           "the popstate dispatch fires exactly one :rf.route.nav-token/allocated")
@@ -442,7 +442,7 @@
 
       (is @fired? "the popstate listener registered via addEventListener fired")
       (is (= :hist/cart
-             (:id (get-in (rf/app-db-value :rf/default) [:rf/runtime :routing :current])))
+             (:id (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])))
           "the slice landed on /cart through the listener-driven popstate path"))))
 
 ;; ---- rf2-6qgbs.4: popstate drives the URL-OWNER frame --------------------
@@ -483,23 +483,23 @@
     (rf/dispatch-sync [:rf.route/navigate :hist/checkout] {:frame :sd/owner})
     (is (= ["/" "/cart" "/checkout"] (:entries @*history-state*))
         "owner-frame forward nav pushed both URLs onto the history stack")
-    (is (= :hist/checkout (:id (get-in (rf/app-db-value :sd/owner) [:rf/runtime :routing :current])))
+    (is (= :hist/checkout (:id (get-in (rf/runtime-db-value :sd/owner) [:rf.runtime/routing :current])))
         "owner slice is on /checkout before Back")
 
     ;; --- Back: browser moves the pointer + fires popstate. ---
     (.back (.-history js/globalThis.window))
     (.dispatchEvent js/globalThis.window #js {:type "popstate"})
-    (is (= :hist/cart (:id (get-in (rf/app-db-value :sd/owner) [:rf/runtime :routing :current])))
+    (is (= :hist/cart (:id (get-in (rf/runtime-db-value :sd/owner) [:rf.runtime/routing :current])))
         "Back restored the OWNER frame's slice to /cart via the installed listener")
-    (is (nil? (:id (get-in (rf/app-db-value :rf/default) [:rf/runtime :routing :current])))
+    (is (nil? (:id (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])))
         ":rf/default (the non-owner) was NOT mutated by the popstate")
 
     ;; --- Forward: pointer moves up, popstate fires again. ---
     (.forward (.-history js/globalThis.window))
     (.dispatchEvent js/globalThis.window #js {:type "popstate"})
-    (is (= :hist/checkout (:id (get-in (rf/app-db-value :sd/owner) [:rf/runtime :routing :current])))
+    (is (= :hist/checkout (:id (get-in (rf/runtime-db-value :sd/owner) [:rf.runtime/routing :current])))
         "Forward restored the OWNER frame's slice back to /checkout")
-    (is (nil? (:id (get-in (rf/app-db-value :rf/default) [:rf/runtime :routing :current])))
+    (is (nil? (:id (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])))
         ":rf/default still untouched after Forward")
 
     (rf/remove-history-listener!)))
@@ -514,12 +514,12 @@
 
     (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
     (rf/dispatch-sync [:rf/url-requested {:url "/checkout"}])
-    (is (= :hist/checkout (:id (get-in (rf/app-db-value :rf/default) [:rf/runtime :routing :current])))
+    (is (= :hist/checkout (:id (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])))
         "default slice on /checkout before Back")
 
     (.back (.-history js/globalThis.window))
     (.dispatchEvent js/globalThis.window #js {:type "popstate"})
-    (is (= :hist/cart (:id (get-in (rf/app-db-value :rf/default) [:rf/runtime :routing :current])))
+    (is (= :hist/cart (:id (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])))
         "Back restored :rf/default's slice to /cart — default-owned routing unregressed")
 
     (rf/remove-history-listener!)))
@@ -555,7 +555,7 @@
     (is (= ["/" "/cart" "/editor/articles/X"] (:entries @*history-state*))
         "two forward pushes stacked the history entries")
     (is (= :hist/editor
-           (:id (get-in (rf/app-db-value :rf/default) [:rf/runtime :routing :current])))
+           (:id (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])))
         "the slice is on the editor route before Back")
 
     ;; Mark the editor route dirty so its :can-leave guard returns false.
@@ -570,13 +570,13 @@
     (rf/dispatch-sync [:rf.route/handle-url-change (current-url *history-state*)])
 
     ;; The guard blocked: pending-nav is set, slice unchanged.
-    (let [pending (get-in (rf/app-db-value :rf/default) [:rf/runtime :routing :pending-navigation])]
+    (let [pending (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :pending-navigation])]
       (is (some? pending)
           ":rf/pending-navigation is populated on the blocked popstate")
       (is (= "/cart" (:requested-url pending))
           "the rejected (Back) URL is captured for resume"))
     (is (= :hist/editor
-           (:id (get-in (rf/app-db-value :rf/default) [:rf/runtime :routing :current])))
+           (:id (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])))
         "the :rf/route slice STAYS on the editor route (the block did not commit /cart)")
 
     ;; THE FIX: the browser address bar was restored to the slice's URL
@@ -588,13 +588,13 @@
         "the restore was a replace, not a push — no new history entry")
 
     ;; CANCEL leaves nothing else changed: slot clears, slice + URL stay.
-    (let [pn-id (get-in (rf/app-db-value :rf/default)
-                        [:rf/runtime :routing :pending-navigation :id])]
+    (let [pn-id (get-in (rf/runtime-db-value :rf/default)
+                        [:rf.runtime/routing :pending-navigation :id])]
       (rf/dispatch-sync [:rf.route/cancel pn-id]))
-    (is (nil? (get-in (rf/app-db-value :rf/default) [:rf/runtime :routing :pending-navigation]))
+    (is (nil? (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :pending-navigation]))
         "cancel clears the pending slot")
     (is (= :hist/editor
-           (:id (get-in (rf/app-db-value :rf/default) [:rf/runtime :routing :current])))
+           (:id (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])))
         "cancel leaves the slice on the editor route")
     (is (= "/editor/articles/X" (current-url *history-state*))
         "cancel leaves the restored URL in place")))
@@ -617,8 +617,8 @@
       ;; Forward nav attempt (link click / programmatic) — the browser URL
       ;; has NOT moved; the block declines to push.
       (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
-      (is (some? (get-in (rf/app-db-value :rf/default)
-                         [:rf/runtime :routing :pending-navigation]))
+      (is (some? (get-in (rf/runtime-db-value :rf/default)
+                         [:rf.runtime/routing :pending-navigation]))
           "the forward nav was blocked (pending slot set)")
       (is (= entries-before (:entries @*history-state*))
           "no push AND no replace — the history stack is byte-identical")
@@ -663,8 +663,8 @@
     (rf/dispatch-sync [:rf.route/handle-url-change (current-url *history-state*)])
     (is (= "/editor/articles/X" (current-url *history-state*))
         "the block restored the address bar to the editor route")
-    (let [pending (get-in (rf/app-db-value :rf/default)
-                          [:rf/runtime :routing :pending-navigation])]
+    (let [pending (get-in (rf/runtime-db-value :rf/default)
+                          [:rf.runtime/routing :pending-navigation])]
       (is (some? pending) "pending-nav populated on the blocked popstate")
       (is (true? (:url-restored? pending))
           "the pending-nav records that a URL restore was performed")
@@ -675,12 +675,12 @@
         ;; CONTINUE: resume the rejected Back navigation.
         (rf/dispatch-sync [:rf.route/continue pn-id])
 
-        (is (nil? (get-in (rf/app-db-value :rf/default)
-                          [:rf/runtime :routing :pending-navigation]))
+        (is (nil? (get-in (rf/runtime-db-value :rf/default)
+                          [:rf.runtime/routing :pending-navigation]))
             "continue clears the pending-nav slot")
         (is (= :hist/cart
-               (:id (get-in (rf/app-db-value :rf/default)
-                            [:rf/runtime :routing :current])))
+               (:id (get-in (rf/runtime-db-value :rf/default)
+                            [:rf.runtime/routing :current])))
             "continue committed the slice to the requested /cart route")
         (is (= "/cart" (current-url *history-state*))
             "continue moved the address bar to /cart — slice and URL agree")
@@ -694,7 +694,7 @@
 ;; Per Spec 012 §Fragments and routing.cljc's `:rf.route/transitioned`
 ;; handler — when only the URL fragment changes (the route-id,
 ;; :params, and :query are unchanged) the runtime updates
-;; [:rf/runtime :routing :current :fragment] and emits :rf.route/fragment-changed (rf2-cj9fn,
+;; [:rf.runtime/routing :current :fragment] and emits :rf.route/fragment-changed (rf2-cj9fn,
 ;; pre-rename: `:rf.route/fragment-changed`) instead of re-firing :on-match.
 ;; That's the framework's hashchange surface.
 
@@ -734,9 +734,9 @@
         (is (zero? (count @allocations))
             "fragment-only nav does NOT allocate a new nav-token")
 
-        (let [route (get-in (rf/app-db-value :rf/default) [:rf/runtime :routing :current])]
+        (let [route (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])]
           (is (= "section-2" (:fragment route))
-              "[:rf/runtime :routing :current :fragment] is updated to the new fragment")
+              "[:rf.runtime/routing :current :fragment] is updated to the new fragment")
           (is (= :hist/article (:id route))
               "route-id is unchanged across the fragment-only nav")
           (is (= pre-nav-token (:nav-token route))
@@ -894,8 +894,8 @@
     (register-routes!)
     (rf/reg-route :hist/docs {:path "/docs/:page"})
     (rf/dispatch-sync [:rf.route/navigate :hist/docs {:page "guide"} {:fragment ""}])
-    (is (nil? (get-in (rf/app-db-value :rf/default)
-                      [:rf/runtime :routing :current :fragment]))
+    (is (nil? (get-in (rf/runtime-db-value :rf/default)
+                      [:rf.runtime/routing :current :fragment]))
         "empty-string fragment normalized to nil in the slice")
     (is (= "/docs/guide" (current-url *history-state*))
         "the pushed URL has no trailing # for an empty-string fragment")))
@@ -943,7 +943,7 @@
   (testing "push A → push B → pop → push C → pop → pop yields the correct route cascade"
     (register-routes!)
     (let [route-id (fn []
-                     (:id (get-in (rf/app-db-value :rf/default) [:rf/runtime :routing :current])))
+                     (:id (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/routing :current])))
           pop-and-dispatch!
           (fn []
             (.back (.-history js/globalThis.window))
