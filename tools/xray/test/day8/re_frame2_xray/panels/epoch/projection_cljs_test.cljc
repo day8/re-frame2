@@ -1334,6 +1334,36 @@
                {:kind :action :action-id inline-fn :phase :transition
                 :source-state :idle :event-id :submit}))))))
 
+(deftest cascade-row-source-key-inline-always-action-test
+  (testing "rf2-k7yqod — inline-fn `:always` `:action` resolves to the
+            INDEX-FREE single-map shape `[:states <src> :always :action]`,
+            mirroring the single-map `:on` convention (the macro keys a
+            single-map `:always` at the bare `:always` path). The view
+            read-back additionally probes the index-0 vector path, so the
+            source-key need not hardcode index 0."
+    (let [inline-fn (fn [_] {})]
+      (is (= [:states :a :always :action]
+             (fmt/cascade-row-source-key
+               {:kind :action :action-id inline-fn :phase :always
+                :source-state :a}))
+          "flat machine: index-free :always :action slot")
+      (is (= [:states :outer :states :inner :always :action]
+             (fmt/cascade-row-source-key
+               {:kind :action :action-id inline-fn :phase :always
+                :source-state [:outer :inner]}))
+          "hierarchical source-state expands to nested :states path")
+      ;; The key must NOT bake in index 0 (the rf2-k7yqod regression — that
+      ;; mis-resolved a single-map `:always` AND hardcoded the wrong
+      ;; candidate for a multi-candidate vector).
+      (is (not (some #{0} (fmt/cascade-row-source-key
+                            {:kind :action :action-id inline-fn :phase :always
+                             :source-state :a})))
+          "the :always source-key is index-free (no hardcoded 0)")
+      ;; Missing source-state → nil (cannot build the path).
+      (is (nil? (fmt/cascade-row-source-key
+                  {:kind :action :action-id inline-fn :phase :always}))
+          "missing source-state → nil"))))
+
 (deftest cascade-row-source-key-inline-guard-test
   (testing "rf2-wwc3j — inline-fn `:guard` resolves to
             `[:states <src> :on <event> :guard]`"

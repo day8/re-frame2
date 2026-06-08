@@ -194,6 +194,69 @@
     (is (fn? (get-in (rf/machine-meta :rf2-se70xj/inline) [:states :idle :on :cancel :action])))
     (is (fn? (get-in (rf/machine-meta :rf2-se70xj/inline) [:states :idle :entry])))))
 
+(deftest reg-machine-stamps-inline-always-single-map-source-code-cljs
+  (testing "an inline `:always` `:action` written as a SINGLE MAP (not a
+  vector of candidates) carries its `:source-code` at the bare `:always`
+  spec-path — parity with the vector `:always [{…}]` form (rf2-k7yqod). The
+  runtime + validator both accept the single-map `:always` (wrapping it into
+  a one-candidate vector), so the macro must stamp it too — otherwise the
+  Epoch panel renders `#object[Function]` for it."
+    (rf/reg-machine :rf2-k7yqod/always-single-map
+      {:initial :a
+       :data    {:pending? true}
+       :states
+       {:a {:always {:target :b
+                     :guard  (fn [{data :data}] (:pending? data))
+                     :action (fn [{data :data}]
+                               {:data (assoc data :always-single-fired? true)})}}
+        :b {}}})
+    ;; Single-map `:always` keys at the bare `:always` path (no index).
+    (let [action-src (inline-source :rf2-k7yqod/always-single-map [:states :a :always] :action)
+          guard-src  (inline-source :rf2-k7yqod/always-single-map [:states :a :always] :guard)]
+      (is (string? action-src)
+          "single-map :always :action carries :source-code at [:states :a :always]")
+      (is (re-find #":always-single-fired\?" action-src)
+          "the captured :source-code is the inline action body")
+      (is (string? guard-src)
+          "single-map :always :guard carries :source-code at [:states :a :always]")
+      (is (re-find #":pending\?" guard-src)))
+    ;; The slot values stay bare fns (the runtime resolves them via fn?).
+    (is (fn? (get-in (rf/machine-meta :rf2-k7yqod/always-single-map)
+                     [:states :a :always :action])))
+    (is (fn? (get-in (rf/machine-meta :rf2-k7yqod/always-single-map)
+                     [:states :a :always :guard])))
+    ;; The single-map form does NOT mistakenly key under an index 0.
+    (is (nil? (inline-source :rf2-k7yqod/always-single-map [:states :a :always 0] :action))
+        "single-map :always is NOT keyed at index 0 (that's the vector form)")))
+
+(deftest reg-machine-stamps-inline-always-vector-source-code-cljs
+  (testing "a VECTOR `:always` co-locates each candidate map's inline
+  `:action` source at its index (rf2-k7yqod). The vector form keys per
+  index; a multi-candidate vector stamps each candidate independently so the
+  Epoch source lookup does NOT hardcode index 0 onto the wrong candidate."
+    (rf/reg-machine :rf2-k7yqod/always-vector
+      {:initial :a
+       :data    {}
+       :guards  {:first? (fn [_] false)}
+       :states
+       {:a {:always [{:guard  :first?
+                      :target :b
+                      :action (fn [_] {:data {:always-vec-0-fired? true}})}
+                     {:target :c
+                      :action (fn [_] {:data {:always-vec-1-fired? true}})}]}
+        :b {}
+        :c {}}})
+    ;; Each candidate's inline :action is stamped at its OWN index.
+    (let [src-0 (inline-source :rf2-k7yqod/always-vector [:states :a :always 0] :action)
+          src-1 (inline-source :rf2-k7yqod/always-vector [:states :a :always 1] :action)]
+      (is (string? src-0) "vector :always candidate 0 carries :source-code at index 0")
+      (is (re-find #":always-vec-0-fired\?" src-0))
+      (is (string? src-1) "vector :always candidate 1 carries :source-code at index 1")
+      (is (re-find #":always-vec-1-fired\?" src-1))
+      ;; The two candidates' sources are DISTINCT — index 0 is not reused.
+      (is (not= src-0 src-1)
+          "each candidate keys its own source — Xray must not hardcode index 0"))))
+
 (deftest reg-machine-skips-inline-source-for-keyword-references-cljs
   (testing "keyword-reference slots carry NO inline :source-code — their body
   lives on the named :actions / :guards entry's own :source-code (rf2-se70xj)"

@@ -1828,6 +1828,7 @@ distinct from the inline `:source-code` body above.
 | `:action`| inline-fn, `:entry`     | `[:states <target-state>... :entry]`                  | enclosing state-node `:source-code :entry` | enclosing state-node `:source-coords` |
 | `:action`| inline-fn, `:exit`      | `[:states <source-state>... :exit]`                   | enclosing state-node `:source-code :exit` | enclosing state-node `:source-coords` |
 | `:action`| inline-fn, `:transition`| `[:states <source-state>... :on <event> :action]`     | enclosing transition-map `:source-code :action` | enclosing transition-map `:source-coords` |
+| `:action`| inline-fn, `:always`    | `[:states <source-state>... :always :action]`        | enclosing `:always` map `:source-code :action` (read-back also probes the index-0 vector-candidate path) | enclosing `:always` map / state-node `:source-coords` (walk-up) |
 | `:guard` | keyword `guard-id`      | `[:guards <id>]`                                      | entry `:source-code` | entry `:source-coords` |
 | `:guard` | inline-fn               | `[:states <source-state>... :on <event> :guard]`      | enclosing transition-map `:source-code :guard` | enclosing transition-map `:source-coords` |
 | `:transition` | —                  | `[:states <source-state>... :on <event>]`             | logical-state delta box (not source) | transition-map `:source-coords` |
@@ -1843,6 +1844,22 @@ one). Multi-microstep cascades carry one transition emit per
 macrostep — intermediate-state inline-fns fall back to the
 headline state; source-key resolution degrades to the macrostep's
 source/target.
+
+**`:always` single-map vs vector candidate (rf2-k7yqod).** The runtime
+and validator both accept `:always` as EITHER a single transition map
+(`:always {:action (fn …)}`) OR a vector of guarded candidates
+(`:always [{:guard … :target …} {…}]`). The macro keys each form
+differently: a single-map `:always` is stamped at the bare `:always`
+path (`[:states <s> :always]`, mirroring single-map `:on`); a vector
+keys each candidate by index (`[:states <s> :always <i>]`). The
+source-key returns the INDEX-FREE single-map shape; the view read-back
+(`cascade-row-source-form`) probes the index-free path FIRST and, on a
+miss, the index-0 vector-candidate path — so a single-element vector
+`:always [{…}]` still resolves its body. Richer per-candidate index
+resolution for MULTI-candidate vectors (carrying the substrate's matched
+always-index onto the cascade row) is the rf2-lai1qv follow-on; until
+then a multi-candidate vector resolves its FIRST candidate's source
+(best-effort).
 
 For `:transition` rows, the body renders the **logical-state DELTA
 box** (rf2-iwy0c — see "Transition row" below), NOT a source form;
