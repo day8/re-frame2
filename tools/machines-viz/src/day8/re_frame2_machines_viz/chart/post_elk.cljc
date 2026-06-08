@@ -331,25 +331,92 @@
   node` paints — this is the spacing between them)."
   40)
 
+(def intra-region-flow-gap
+  "rf2-vb359s — horizontal gap (px) between consecutive flow RANKS inside a
+  transposed region (a state box and the next state box, or a state box and
+  the event-node chip between them). After the transpose the within-region
+  flow runs along the NEW x-axis, but a bare coordinate swap inherits the
+  flow spacing ELK budgeted for node HEIGHTS (state 58 / chip 34 + the 50px
+  between-layer gap ≈ 108px rank pitch), which is far too tight once the
+  boxes occupy their WIDTHS along x (state 152 / chip 96) — adjacent ranks
+  overlap, and the intra-region event-node chips bury into the state boxes
+  (the bug). So the transpose re-packs the ranks left-to-right by each rank's
+  ACTUAL width plus this gap. Mirrors ELK's `nodeNodeBetweenLayers` (50) flow
+  pitch so a transposed region reads with the same rank rhythm as a
+  non-transposed column."
+  50)
+
+(defn- box-width
+  "The layout width (px) of a transposed child box, floored to the state-node
+  minimum so a child that lost its measured `:width` still reserves a sane
+  rank pitch. Pure."
+  [pos]
+  (or (:width pos) projection/state-node-min-width))
+
+(defn- respace-flow-ranks
+  "rf2-vb359s — after the coordinate swap, re-pack the transposed children
+  along the NEW x-axis (the within-region flow axis) so adjacent flow RANKS
+  clear each other by their actual widths + `intra-region-flow-gap`. Pure:
+  transposed `{child-id pos}` submap → the same submap with x re-spaced.
+
+  A bare swap inherits the flow spacing ELK sized for node HEIGHTS, which is
+  too tight once boxes occupy their WIDTHS along x — so intra-region event-
+  node chips overlap the state boxes (the bug). We group children into ranks
+  by their swapped x (the original flow layer, incl. the +0.5 event-node
+  inter-ranks), order the ranks left-to-right, and re-base each rank's x to
+  the running cursor = previous rank's right edge + gap. The y-axis (the
+  cross-flow spread of within-rank siblings) is left UNTOUCHED — only the
+  flow pitch is corrected."
+  [transposed]
+  (if (empty? transposed)
+    transposed
+    (let [start-x   (reduce min (map :x (vals transposed)))
+          ;; group child-ids by their swapped x (the flow rank), ordered
+          ;; ascending so the re-pack preserves the transposed flow order.
+          ranks     (->> transposed
+                         (group-by (fn [[_ pos]] (:x pos)))
+                         (sort-by key))
+          ;; fold the ranks left-to-right, advancing the x-cursor by each
+          ;; rank's widest box + the flow gap.
+          [_ x->new]
+          (reduce
+            (fn [[cursor acc] [_ entries]]
+              (let [rank-w (reduce max 0 (map (fn [[_ pos]] (box-width pos)) entries))
+                    acc'   (reduce (fn [m [id _]] (assoc m id cursor)) acc entries)]
+                [(+ cursor rank-w intra-region-flow-gap) acc']))
+            [start-x {}]
+            ranks)]
+      (reduce-kv (fn [m id pos]
+                   (assoc m id (assoc pos :x (get x->new id (:x pos)))))
+                 {}
+                 transposed))))
+
 (defn transpose-region-interior
   "rf2-lamdfl — transpose the WITHIN-region layout of one region so its
   intra-region flow runs HORIZONTALLY (Stately) instead of vertically (root
   DOWN). Pure: takes the region's `{child-id position}` submap (positions are
   parent-relative) and returns the transposed submap.
 
-  The transpose swaps each child's local x↔y AND its width↔height-driven
-  extent: a child at local `{:x a :y b :width w :height h}` moves to
-  `{:x b :y a :width w :height h}` — the POSITION axes swap (so a vertical
-  stack becomes a horizontal row) while each node keeps its own box (a state
-  box is not rotated, only repositioned). We then re-base to the title-strip
-  inset so children still clear the region header, preserving the
+  The transpose swaps each child's local x↔y: a child at local
+  `{:x a :y b :width w :height h}` moves to `{:x b :y a :width w :height h}` —
+  the POSITION axes swap (so a vertical stack becomes a horizontal row) while
+  each node keeps its own box (a state box is not rotated, only repositioned).
+
+  rf2-vb359s — a BARE swap leaves the flow ranks spaced by the heights ELK
+  budgeted (state 58 / chip 34 + the 50px between-layer gap), which is far too
+  tight once the boxes occupy their WIDTHS along x (state 152 / chip 96), so
+  intra-region event-node chips overlapped the state boxes. After the swap we
+  therefore RE-PACK the ranks along the new x-axis (`respace-flow-ranks`) by
+  each rank's actual width + `intra-region-flow-gap`. We then re-base to the
+  title-strip inset so children still clear the region header, preserving the
   `container-elk-padding` reservation."
   [region-children]
-  (let [transposed (reduce-kv
-                      (fn [m id {:keys [x y] :as pos}]
-                        (assoc m id (assoc pos :x y :y x)))
-                      {}
-                      region-children)
+  (let [transposed (->> (reduce-kv
+                          (fn [m id {:keys [x y] :as pos}]
+                            (assoc m id (assoc pos :x y :y x)))
+                          {}
+                          region-children)
+                        respace-flow-ranks)
         ;; re-base so the transposed cluster's top-left returns to the
         ;; original interior inset (the smallest original local x/y), keeping
         ;; the header-strip clearance the padding reserved.
