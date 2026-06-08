@@ -125,9 +125,8 @@ frame-aware features harden their public APIs.
   explicit frame target and should not be built against the ambient
   `:rf/default` fallback this EP removes.
 - **Composes with the app/runtime partition.** Both partitions in the
-  [App/Runtime Partition EP](EP-0001-frame-partitions.md) (listed under
-  `Requires`) are frame-owned; resolving the frame target precedes committing or
-  projecting either partition.
+  [App/Runtime Partition EP](EP-0001-frame-partitions.md) are frame-owned;
+  resolving the frame target precedes committing or projecting either partition.
 - **Subscription inputs inherit the resolved frame.** Parametric subscription
   input query vectors are frame-agnostic data resolved in the outer
   subscription's frame; see the [Parametric Subscription Inputs
