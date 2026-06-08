@@ -44,6 +44,16 @@
   enclosing `[rf/frame-provider {:frame :rf/xray}]` in `shell.cljs`."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
+            ;; rf2-kq8nac (EP-0005) — the snapshot-egress chokepoint. The
+            ;; LIVE machine-snapshots sub reads the RAW app-db slot
+            ;; `[:rf/runtime :machines :snapshots]`, which is NOT egress-
+            ;; projected (it is the live frame-db value, not a trace). To
+            ;; keep the panel's `:data` display honest, route each live
+            ;; snapshot through the SAME `project-trace-event` chokepoint
+            ;; the trace stream uses, so a `:sensitive?` / `:large?`
+            ;; `:data-schema` slot lands as `:rf/redacted` / the size
+            ;; marker before any panel surface reads it — never raw.
+            [re-frame.marks :as marks]
             [day8.re-frame2-machines-viz.chart.layout :as chart-layout]
             [day8.re-frame2-xray.panel-registry :as panel-registry]
             ;; rf2-g2axio — the SHARED EVENT HANDLER machine-cascade
@@ -55,6 +65,15 @@
             [day8.re-frame2-xray.panels.epoch.projection :as epoch-proj]
             [day8.re-frame2-xray.panels.machine-canvas :as machine-canvas]
             [day8.re-frame2-xray.panels.machine-inspector-helpers :as h]
+            ;; rf2-kq8nac (EP-0005) — the declared-over-inferred static
+            ;; Context-shape projection. The focused-event chart surfaces
+            ;; the machine's declared `:data-schema` Context shape (keys +
+            ;; type captions) authoritatively, falling back to the
+            ;; one-sample inference when no schema is declared — the SAME
+            ;; `static-context-shape` / `static-context-inferred?` the
+            ;; Static Topology view feeds its chart (no duplicate
+            ;; derivation; both delegate to machines-viz `context-shape`).
+            [day8.re-frame2-xray.panels.machines.topology-view :as topology-view]
             [day8.re-frame2-xray.panels.machines.trace-state :as trace-state]
             [day8.re-frame2-xray.panels.machine-after-rings :as after-rings]
             ;; rf2-nugvv — the per-machine prev/next nav routes its focus
@@ -143,6 +162,54 @@
    :display        "flex"
    :flex-direction "column"
    :gap            (:gap-2 spacing)})
+
+
+;; ---- live-snapshot egress redaction (rf2-kq8nac · EP-0005) --------------
+;;
+;; The LIVE machine snapshots read straight off the frame-db slot
+;; `[:rf/runtime :machines :snapshots]` have NOT passed through the
+;; snapshot-egress redactor `re-frame.marks/project-machine-tags` (that
+;; runs at trace-emit, on the trace stream — not on a direct frame-db
+;; read). A machine declaring a `:sensitive?` / `:large?` slot in its
+;; `:data-schema` (EP-0005 / rf2-w46fpt) has those slots redacted in
+;; EVERY transition / snapshot trace, but a raw frame-db read would still
+;; surface them. `redact-live-snapshots` routes each `{:state :data}`
+;; snapshot through the SAME `project-trace-event` chokepoint as a
+;; synthetic `:rf.machine/snapshot-updated` event so the `:data` the
+;; panel surfaces is identically redacted to the trace path.
+
+(defn- redact-snapshot
+  "Redact one live machine snapshot `{:state :data …}` for `machine-id`
+  through the snapshot-egress chokepoint. Wraps the snapshot as a
+  synthetic `:rf.machine/snapshot-updated` trace event and runs
+  `marks/project-trace-event`, which calls `project-machine-tags` to
+  redact `:snapshot.data` against the machine's `:event`-keyed marks
+  (the `:data-schema` `:sensitive?` / `:large?` slots the EP-0005 bridge
+  unioned in at `reg-machine`). A schemaless / unmarked machine has no
+  marks entry, so the chokepoint returns the snapshot reference
+  unchanged. Returns the redacted snapshot (or the input verbatim when
+  it is not a map, or when redaction is unavailable)."
+  [machine-id snapshot]
+  (if-not (map? snapshot)
+    snapshot
+    (let [ev  {:operation :rf.machine/snapshot-updated
+               :tags      {:machine-id machine-id
+                           :snapshot   snapshot}}
+          out (try (marks/project-trace-event ev)
+                   (catch :default _ ev))]
+      (or (get-in out [:tags :snapshot]) snapshot))))
+
+(defn- redact-live-snapshots
+  "Redact a `{machine-id snapshot}` map of LIVE snapshots, per-slot, so a
+  `:sensitive?` / `:large?` `:data-schema` slot is `:rf/redacted` / size-
+  marked before any panel surface reads it. nil-safe; preserves nil
+  snapshot values (uninitialised machines)."
+  [snapshots]
+  (when (map? snapshots)
+    (reduce-kv (fn [acc machine-id snapshot]
+                 (assoc acc machine-id (redact-snapshot machine-id snapshot)))
+               {}
+               snapshots)))
 
 
 ;; ---- snapshot-flat-diff styles (rf2-mndut) ------------------------------
@@ -324,6 +391,20 @@
          [machine-canvas/Chart
           {:definition         definition
            :machine-id         machine-id
+           ;; rf2-kq8nac (EP-0005) — surface the AUTHORITATIVE declared
+           ;; Context shape (keys + type captions) in the focused-event
+           ;; chart's root Context band, with the declared-vs-inferred
+           ;; indicator. When the machine declares a `:data-schema` the
+           ;; shape is read off the schema and `:machine-data-inferred?`
+           ;; is FALSE (the chart drops the `inferred from :data` badge and
+           ;; shows `declared` — consistent with the Static Topology view
+           ;; from rf2-3q4k5b); absent a schema it falls back to the
+           ;; one-sample inference (rf2-5tz9p's badge stays). This is the
+           ;; SHAPE, not live `:data` VALUES — the live runtime `:data`
+           ;; surfaces (egress-redacted) through the SHARED mini-pipeline's
+           ;; cascade rows above, never raw here.
+           :machine-data       (topology-view/static-context-shape definition)
+           :machine-data-inferred? (topology-view/static-context-inferred? definition)
            ;; rf2-skmc7 — a NO-OP has no from→to edge; suppress the
            ;; from/to highlight grammar and surface the CURRENT state via
            ;; `:current-state` instead.
@@ -611,11 +692,30 @@
         (assoc db :registered-machines-override ov))))
 
   ;; The live snapshots map for every registered machine.
+  ;;
+  ;; rf2-kq8nac (EP-0005) — EGRESS-REDACTED. The raw slot
+  ;; `[:rf/runtime :machines :snapshots]` is the LIVE frame-db value, NOT
+  ;; a trace, so it has NOT passed through the snapshot-egress redactor
+  ;; (`re-frame.marks/project-machine-tags`) the trace stream rides. The
+  ;; trace-derived `:before` / `:after` the mini-pipeline renders ARE
+  ;; redacted at emit (epoch-capture sees the projected event), but a
+  ;; consumer reading THIS sub directly (the chart's live-snapshot
+  ;; `:current-state-override` `:data`, after-rings, sim) would see RAW
+  ;; `:data`. So each live snapshot is routed through the SAME
+  ;; `project-trace-event` chokepoint as a synthetic
+  ;; `:rf.machine/snapshot-updated` event: a `:sensitive?` `:data-schema`
+  ;; slot lands as `:rf/redacted`, a `:large?` slot as the size marker,
+  ;; the plain siblings ride verbatim — exactly the trace-path treatment.
+  ;; A schemaless / unmarked machine registers no marks, so its snapshot
+  ;; passes through untouched (reference-preserving fast path inside
+  ;; `project-machine-tags`).
   (rf/reg-sub :rf.xray/machine-snapshots
     :<- [:rf.xray/target-frame-db]
     (fn [target-frame-db _query]
       (when (map? target-frame-db)
-        (get-in target-frame-db [:rf/runtime :machines :snapshots] {}))))
+        (let [snapshots (get-in target-frame-db
+                                [:rf/runtime :machines :snapshots] {})]
+          (redact-live-snapshots snapshots)))))
 
   (rf/reg-sub :rf.xray/machine-snapshots-override
     (fn [db _query]

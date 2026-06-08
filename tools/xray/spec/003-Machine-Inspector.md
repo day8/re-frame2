@@ -863,6 +863,59 @@ one to inspect and **which one** it inspects:
   — the `:rf.machine/transition` trace contract this rule reads
   from.
 
+## `:data-schema` — declared Context shape + redacted `:data` (rf2-kq8nac · EP-0005)
+
+EP-0005 adds an optional `:data-schema` to `reg-machine` — a Malli
+validator for the machine's `:data` context (the re-frame2-native analog
+of XState v5 typed context). It carries two consequences the Machine
+Inspector surfaces, both consumer-side of the framework work
+([the egress bridge](../../../docs/EP/machine-data-schema.md) is rf2-w46fpt;
+[the machines-viz declared-over-inferred chart shape](../../machines-viz/spec/001-Topology-Parity.md)
+is rf2-3q4k5b).
+
+### Declared Context shape in the focused-event chart
+
+The focused-event chart's root **Context band** shows the machine's
+`:data` keys + their type captions (`{:retries "number", :token
+"string?"}`). When the machine declares a `:data-schema`, the shape is
+read **AUTHORITATIVELY** off the schema's `[:map [k schema] …]` entries
+and the chart drops the `inferred from :data` badge (rf2-5tz9p),
+rendering `declared` instead. Absent a schema, the shape falls back to
+the one-sample inference from the definition's initial `:data` and the
+`inferred from :data` badge stays — exactly the Static Topology view's
+behaviour (rf2-3q4k5b). Both surfaces consume the SAME
+`panels.machines.topology-view/static-context-shape` /
+`static-context-inferred?` (which delegate to the machines-viz
+`context-shape` helper); there is no duplicate derivation. The Context
+band shows the SHAPE only — never live `:data` VALUES — so a declared
+shape carries no value-redaction concern.
+
+### Redacted `:data` — the panel reads the EGRESSED snapshot
+
+A `:sensitive?` / `:large?` marker anywhere in a `:data-schema` is
+honoured in **snapshot egress** (rf2-w46fpt): the `:before` / `:after` /
+`:snapshot` `:data` slots on every `:rf.machine/transition` /
+`:rf.machine/snapshot-updated` trace are redacted to `:rf/redacted` /
+the `:rf.size/large-elided` marker by `re-frame.marks/project-trace-event`
+at emit, BEFORE epoch-capture sees the event. The Machine Inspector's
+`:data` view reads the focused epoch's `:trace-events` — those EGRESSED
+events — so a sensitive `:data` slot renders redacted, never raw, in the
+SHARED mini-pipeline cascade (and the Epoch panel's EVENT HANDLER step,
+which shares the projection).
+
+The **LIVE** machine-snapshots sub (`:rf.xray/machine-snapshots`) is the
+one path that reads the RAW frame-db slot `[:rf/runtime :machines
+:snapshots]` directly rather than a trace, so it has NOT passed through
+the egress redactor. The panel therefore routes each live snapshot
+through the SAME `project-trace-event` chokepoint (as a synthetic
+`:rf.machine/snapshot-updated` event) on read, so a `:sensitive?`
+`:data-schema` slot in the live snapshot reads back `:rf/redacted` for
+every downstream consumer (the chart's live-snapshot
+`:current-state-override`, after-rings, sim) — the same per-slot
+treatment the trace path gets. A schemaless / unmarked machine has no
+marks entry, so its snapshot passes through reference-unchanged (no
+extra work for the no-marks common case).
+
 ## Architectural posture
 
 **`tools/machines-viz/` owns the chart.** Per rf2-o9arp / PR #1570 the
