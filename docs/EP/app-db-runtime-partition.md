@@ -1,19 +1,26 @@
-# EP: Frame App/Runtime Partitions
+# EP-0001: Frame App/Runtime Partitions
+
+Number: EP-0001
 
 Status: proposal
+
 Type: Standards Track
+
 Date: 2026-06-06
+
 Created: 2026-06-06
+
+Author: re-frame2 maintainers
+
 Topic: frame state ownership
-Requires: explicit frame identity, coherent frame transitions
+
+Target Artifact: `day8/re-frame2-core`
+
 Impacts: frames, events, subscriptions, machines, routing, SSR, schemas, Xray, pair tools, docs, skills
 
-Related:
+Requires:
 
-- [Guide 02 - app-db](../guide/02-app-db.md)
-- [Guide 04 - Events and the cascade](../guide/04-events-and-the-cascade.md)
-- [Guide 18 - Frames](../guide/18-frames.md)
-- [Guide 21 - Runtime model](../guide/21-dynamic-model.md)
+- explicit frame identity, coherent frame transitions
 - [Spec 002 - Frames](https://github.com/day8/re-frame2/blob/main/spec/002-Frames.md)
 - [Spec 005 - State Machines](https://github.com/day8/re-frame2/blob/main/spec/005-StateMachines.md)
 - [Spec 006 - Reactive Substrate](https://github.com/day8/re-frame2/blob/main/spec/006-ReactiveSubstrate.md)
@@ -22,6 +29,13 @@ Related:
 - [Spec 012 - Routing](https://github.com/day8/re-frame2/blob/main/spec/012-Routing.md)
 - [Runtime Architecture](https://github.com/day8/re-frame2/blob/main/spec/Runtime-Architecture.md)
 - [Conventions](https://github.com/day8/re-frame2/blob/main/spec/Conventions.md)
+
+Related:
+
+- [Guide 02 - app-db](../guide/02-app-db.md)
+- [Guide 04 - Events and the cascade](../guide/04-events-and-the-cascade.md)
+- [Guide 18 - Frames](../guide/18-frames.md)
+- [Guide 21 - Runtime model](../guide/21-dynamic-model.md)
 - [Explicit Frame Target Resolution EP](frame-target-resolution.md)
 - [Resource Queries EP](resource-queries.md)
 
@@ -140,6 +154,26 @@ This proposal does not:
 - settle every epoch record field name;
 - redesign machine snapshot internals;
 - define the resource query API, except by reserving a runtime partition for it.
+
+## Relationships
+
+This EP is foundational for other EPs that store framework-owned state.
+
+- **Foundational for resource queries.** The [Resource Queries
+  EP](resource-queries.md) stores its cache in the framework-owned runtime
+  partition (`:rf.runtime/resources`) this EP introduces, so this partition
+  should land — or at least its key vocabulary be fixed — before resources rely
+  on it.
+- **Shares a path with the machine `:data` schema EP.** The [Machine `:data`
+  Schema EP](machine-data-schema.md) touches the same
+  `[:rf/runtime :machines :snapshots]` path this EP renames to
+  `[:rf.runtime/machines :snapshots]`. If both land, the machine-data-schema
+  redaction-bridge work sequences *after* this partition rename so it targets the
+  final path. The two are otherwise independent.
+- **Composes with explicit frame target resolution.** Both partitions are
+  frame-owned; resolving the frame target precedes committing or projecting
+  either partition. See the [Explicit Frame Target Resolution
+  EP](frame-target-resolution.md).
 
 ## Specification
 
@@ -752,6 +786,31 @@ Compatibility work should be limited to:
 
 The stable vocabulary should be the final vocabulary.
 
+## Migration
+
+Migration is in-repo only — re-frame2 ships no external alpha — and is mechanical
+rather than gradual:
+
+- **Move runtime subsystems off app-db.** Machines, routing, elision, SSR, and
+  related schemas move from `:rf/runtime` paths under app-db to the framework-owned
+  runtime-db (`:rf.runtime/*`). Snapshots move from
+  `[:rf/runtime :machines :snapshots]` to `[:rf.runtime/machines :snapshots]`.
+- **Classify write authority at call sites.** Every existing `[:rf/runtime …]`
+  reader/writer is reclassified: ordinary app handlers keep returning `:db`
+  (app-db only); framework subsystems write runtime-db through privileged
+  framework-authority paths.
+- **Reserve `:rf.db/runtime` in the effect map.** The closed top-level event
+  effect map (`:db`, `:fx`) gains `:rf.db/runtime` as a deliberate reserved key
+  writable only by framework-authority handlers.
+- **Update full-frame operations.** Epoch records, SSR hydration, `restore-epoch`,
+  reset, and destroy switch from app-db-only snapshots to frame-state projections.
+- **Drive legacy access loud.** A short-lived `:rf/runtime`-access diagnostic eases
+  the in-repo migration during implementation, then is removed; the stable
+  vocabulary is the final vocabulary (see Backwards Compatibility above).
+
+The detailed staged sequence lives in [Reference Implementation](#reference-implementation)
+and [Bead Plan](#bead-plan) below.
+
 ## Security And Privacy Considerations
 
 The current `:rf/runtime` location is not only a machine/routing correctness
@@ -1149,6 +1208,25 @@ than app-db/runtime-db.
    ambiguous context-key use, and unauthorized `:rf.db/runtime` effects.
 10. Docs/examples/skills bead: rewrite human docs, AI specs, examples, and
     skills to teach the new model.
+
+## Recommendation
+
+Adopt the two-partition frame model: a frame owns a user-owned **app-db** (`:db`)
+and a framework-owned **runtime-db** (`:rf.db/runtime`), committed coherently by
+one cascade and projectable as a single frame-state value for SSR, epoch restore,
+time travel, and Xray.
+
+This makes accidental runtime-state deletion structurally impossible for ordinary
+app handlers while preserving the ergonomic re-frame meaning of `:db`, keeping one
+coherent app+runtime snapshot, and giving app-db a pure application contract an
+agent can read without framework noise. The pre-alpha posture favors the clean
+break (no long-lived `:rf/runtime` aliases) over compatibility shims.
+
+The design-review appendices below record two open considerations the maintainers
+should settle alongside adoption: pinning write-authority at registration so the
+"structurally impossible" guarantee is earned (Appendix A), and whether the
+upstream handler-contract question should be decided before the partition is
+locked (Appendix B).
 
 ## Source Findings
 

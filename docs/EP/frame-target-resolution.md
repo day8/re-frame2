@@ -1,4 +1,6 @@
-# EP: Explicit Frame Target Resolution
+# EP-0002: Explicit Frame Target Resolution
+
+Number: EP-0002
 
 Status: proposal
 
@@ -7,6 +9,8 @@ Type: Standards Track
 Date: 2026-06-06
 
 Created: 2026-06-06
+
+Author: re-frame2 maintainers
 
 Target Artifact: `day8/re-frame2-core`
 
@@ -150,6 +154,26 @@ This EP should not:
 - make Xray or pair tools unable to discover frames;
 - solve app/runtime partitioning by itself;
 - introduce backwards-compatibility shims for v1-style frameless calls.
+
+## Relationships
+
+This is a cross-cutting safety proposal that should resolve before large
+frame-aware features harden their public APIs.
+
+- **Resolve before frame-aware features.** This EP should be resolved before
+  large frame-aware features — such as [resource queries](resource-queries.md),
+  Xray control surfaces, SSR hydration helpers, and work-ledger tooling — harden
+  their public APIs, because each of those features carries (or depends on) an
+  explicit frame target and should not be built against the ambient
+  `:rf/default` fallback this EP removes.
+- **Composes with the app/runtime partition.** Both partitions in the
+  [App/Runtime Partition EP](app-db-runtime-partition.md) (listed under
+  `Requires`) are frame-owned; resolving the frame target precedes committing or
+  projecting either partition.
+- **Subscription inputs inherit the resolved frame.** Parametric subscription
+  input query vectors are frame-agnostic data resolved in the outer
+  subscription's frame; see the [Parametric Subscription Inputs
+  EP](subscription-inputs.md).
 
 ## Developer And AI Use Cases
 
@@ -724,7 +748,7 @@ It must not borrow `:rf/default` marks.
 ;; => :rf.error/no-frame-context
 ```
 
-## Alternatives Considered
+## Rejected Ideas
 
 ### A. Keep Status Quo
 
@@ -780,7 +804,8 @@ Cons:
 - requires better root/bootstrap examples;
 - revokes the earlier single-frame invisibility goal.
 
-Recommendation: **Option C**.
+The recommended option is **Option C** — explicit frame context, no default
+fallback. See [Recommendation](#recommendation) below.
 
 ## Backwards Compatibility
 
@@ -795,7 +820,9 @@ is less valuable than frame correctness once SSR, Story, Xray, pair tools, AI
 tooling, resource management, managed effects, and runtime partitions all depend
 on frame isolation.
 
-Migration should be mechanical:
+## Migration
+
+Migration is mechanical:
 
 - choose an application frame id;
 - register it explicitly;
@@ -807,6 +834,11 @@ Migration should be mechanical:
 
 A migration may choose `:rf/default` as the explicit id. The runtime will not
 infer it.
+
+The full implementation order — sequential because the fallback is embedded in
+hot-zone specs, tests, tooling, docs, and developer education — lives in
+[Reference Implementation Plan](#reference-implementation-plan) and
+[Bead Structure](#bead-structure) below.
 
 ## Security And Privacy
 
@@ -1078,7 +1110,7 @@ Rollout should be sequential because hot-zone specs, tools, docs, and tests all
 reference the old contract. Do not dispatch implementation beads in parallel
 across the same spec and core-runtime files without a coordinator.
 
-## Open Decisions
+## Open Issues
 
 1. Should `init!` stop creating any frame, or should a separate app bootstrap
    helper create a frame explicitly from opts?
@@ -1104,6 +1136,22 @@ across the same spec and core-runtime files without a coordinator.
    Recommendation: always-on error emission, not per-frame epoch only.
 7. Do boot-time frame-local `reg-*` forms require explicit `:frame`?
    Recommendation: yes, unless the surface is classified as globally registered.
+
+## Recommendation
+
+Adopt **Option C**: remove the ambient `:rf/default` fallback. Frame-scoped
+operations must resolve their target from explicit frame context — a frame
+id/handle, a provider, a cascade, a lexical binding, or a tool/session target —
+and missing context must fail loudly rather than mutate or read the wrong frame.
+
+This is the strongest frame-isolation rule, the easiest to teach ("no frame
+context, no operation"), and the one that makes async and tooling boundaries
+honest. It matches the explicit provider/client/environment patterns in the
+benchmark libraries and fits the pre-alpha no-compatibility posture. The cost — a
+repo-wide migration of tests, docs, examples, tools, and skills that assume
+`:rf/default`, and revoking the earlier single-frame invisibility goal — is
+accepted because frame correctness now underpins SSR, Story, Xray, pair tools, AI
+tooling, resource management, managed effects, and the runtime partition.
 
 ## Bead Structure
 

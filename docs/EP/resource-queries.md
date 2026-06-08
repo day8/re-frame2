@@ -1,4 +1,6 @@
-# EP: Resource Queries
+# EP-0003: Resource Queries
+
+Number: EP-0003
 
 Status: proposal
 
@@ -7,6 +9,8 @@ Type: Standards Track
 Date: 2026-06-06
 
 Created: 2026-06-06
+
+Author: re-frame2 maintainers
 
 Target Artifact: `day8/re-frame2-resources`
 
@@ -17,17 +21,21 @@ Target API Surface:
 - First public-beta gate: `reg-mutation`, `clear-mutation`, and mutation
   execution events
 
+Requires:
+
+- [App/Runtime Partition EP](app-db-runtime-partition.md)
+- [Explicit Frame Target Resolution EP](frame-target-resolution.md)
+- [Parametric Subscription Inputs EP](subscription-inputs.md)
+- [Spec 014 - HTTP Requests](https://github.com/day8/re-frame2/blob/main/spec/014-HTTPRequests.md)
+- [Spec 012 - Routing](https://github.com/day8/re-frame2/blob/main/spec/012-Routing.md)
+- [Spec 005 - State Machines](https://github.com/day8/re-frame2/blob/main/spec/005-StateMachines.md)
+
 Related:
 
 - [Guide 10 - HTTP](../guide/10-http.md)
 - [Guide 19 - Routing](../guide/19-routing.md)
 - [Guide 21 - Runtime model](../guide/21-dynamic-model.md)
 - [Pattern - Remote Data](https://github.com/day8/re-frame2/blob/main/spec/Pattern-RemoteData.md)
-- [Spec 014 - HTTP Requests](https://github.com/day8/re-frame2/blob/main/spec/014-HTTPRequests.md)
-- [Spec 012 - Routing](https://github.com/day8/re-frame2/blob/main/spec/012-Routing.md)
-- [Spec 005 - State Machines](https://github.com/day8/re-frame2/blob/main/spec/005-StateMachines.md)
-- [App/Runtime Partition EP](app-db-runtime-partition.md)
-- [Explicit Frame Target Resolution EP](frame-target-resolution.md)
 
 Benchmark References:
 
@@ -191,6 +199,26 @@ The initial artifact should not:
 - promise offline persistence, cross-tab broadcast, infinite resources, polling,
   or optimistic rollback in the first slice;
 - hide server-state behavior inside React/Reagent component lifecycle.
+
+## Relationships
+
+This EP depends on three other EPs and should land after them.
+
+- **Depends on the app/runtime partition.** Resource Queries stores its cache in
+  the framework-owned runtime partition (`:rf.runtime/resources`) introduced by
+  the [App/Runtime Partition EP](app-db-runtime-partition.md), so that partition
+  should land — or at least its key vocabulary be fixed — before resources rely
+  on it.
+- **Depends on explicit frame target resolution.** Resource queries are a large
+  frame-aware feature; their public API should harden against the explicit
+  frame-target contract of the [Explicit Frame Target Resolution
+  EP](frame-target-resolution.md), not the ambient `:rf/default` fallback it
+  removes.
+- **Depends on parametric subscription inputs.** Whether resource subscription
+  view-models use static `:<-`, vector-of-query-vectors input functions, or
+  broader app-db reads is determined by the [Parametric Subscription Inputs
+  EP](subscription-inputs.md); that EP should resolve before these helpers lean
+  on parameterized subscription view models.
 
 ## Developer and AI Use Cases
 
@@ -1778,6 +1806,41 @@ mutations.
 The machine remains the semantic workflow. The resource runtime handles cached
 read mechanics.
 
+## Backwards Compatibility
+
+This EP adds a new optional artifact (`day8/re-frame2-resources`); it does not
+change existing core APIs. Apps that do not require it are unaffected, and the
+existing patterns it supersedes — Pattern-RemoteData plus managed HTTP (Spec 014)
+— keep working for apps that have not adopted resources.
+
+Within the pre-alpha posture there are no compatibility shims. The artifact stores
+its cache in the framework-owned runtime partition (`:rf.runtime/resources`); it
+relies on the final partition vocabulary from the [App/Runtime Partition
+EP](app-db-runtime-partition.md) rather than any interim `:rf/runtime` location.
+Resource registration, subscriptions, and events are new surfaces, so there is no
+prior resource API to keep compatible.
+
+## Migration
+
+There is no in-repo resource API to migrate from; migration is adoption.
+
+- **From hand-rolled RemoteData.** Apps currently expressing server state with
+  Pattern-RemoteData plus `:rf.http/managed` move each remote read to a
+  `reg-resource` registration, replacing ad-hoc cache keys, in-flight flags, and
+  staleness bookkeeping with resource identity, status, and tag invalidation.
+- **From `shipclojure/re-frame-query`.** Existing re-frame apps using that library
+  map query keys to resource identity (canonical params), `invalidateQueries` to
+  tag invalidation, and component-level observers to active owners. The
+  [Sources Consulted](#sources-consulted) prior-art mapping is the migration
+  reference; a guide chapter and migration notes are part of the docs bead.
+- **Route and SSR loading.** Component-tree request waterfalls move to route
+  `:resources` and SSR blocking-resource drain, so adoption is per-route rather
+  than all-at-once.
+
+The slice order — read-resource MVP first, mutations at the first public-beta gate
+— is in [Acceptance Criteria And Rollout](#acceptance-criteria-and-rollout) and
+[Bead Structure](#bead-structure) below.
+
 ## Reference Implementation Plan
 
 ### 1. Artifact and Namespaces
@@ -2084,7 +2147,7 @@ Initial conformance fixtures should cover:
 - trace redaction and pruning for params/scopes;
 - redacted tool summaries.
 
-## Alternatives Considered
+## Rejected Ideas
 
 ### A. Pattern Only
 
@@ -2226,7 +2289,7 @@ Where TanStack and alternatives remain ahead:
 The goal is not imitation. The goal is to make server state a first-class
 re-frame2 runtime process.
 
-## Open Decisions
+## Open Issues
 
 1. Should the file and guide title say "resources", "resource queries", or
    "server state"?
@@ -2266,6 +2329,23 @@ re-frame2 runtime process.
 12. How much previous-data support belongs in v1?
     Recommendation: support `:keep-previous?` for ordinary route/list churn;
     keep arbitrary placeholder data deferred.
+
+## Recommendation
+
+Adopt **Option C**: build a first-class optional `day8/re-frame2-resources`
+artifact for declarative server-state, starting with a read-resource MVP and
+gating mutations to the first public-beta slice.
+
+This is the re-frame2 answer to TanStack Query / RTK Query / SWR /
+`shipclojure/re-frame-query`: resource identity, caching, staleness, dedupe, tag
+invalidation, active-owner lifecycle/GC, and route + SSR preload, built on managed
+HTTP (Spec 014) and the framework-owned runtime partition. Pattern-only
+cookbooks, adopting `shipclojure/re-frame-query` wholesale, normalized-cache-first,
+and projection-first were each rejected because none owns re-frame2 frames,
+runtime partitions, route metadata, SSR, Xray visibility, privacy, and
+event-causal traces the way a first-class artifact does. The pre-alpha posture
+favors building the right primitive when the problem is real and recurring; this
+one is.
 
 ## Bead Structure
 
