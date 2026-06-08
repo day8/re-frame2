@@ -338,7 +338,7 @@
      :path             path
      :snapshot         snapshot
      ;; `:existing-snap?` records whether the handler found a snapshot
-     ;; ALREADY in app-db at entry. It distinguishes the two FRESH
+     ;; ALREADY in runtime-db at entry. It distinguishes the two FRESH
      ;; flavours for the `:rf.machine/started` `:cause` (rf2-gl588):
      ;;   - nil snapshot  → singleton (`:explicit` / `:lazy`, by trigger);
      ;;   - present + `:rf/bootstrap-pending?` → spawn-pre-seeded (`:spawned`).
@@ -351,7 +351,7 @@
   "Compute the `:rf.machine.start/cause` enum for a `maybe-boot` that ran
   the initial-entry cascade (rf2-gl588). Three-way, per Mike 2026-06-03:
 
-    - `:spawned`  — the handler found a snapshot ALREADY in app-db (the
+    - `:spawned`  — the handler found a snapshot ALREADY in runtime-db (the
                     spawn fx pre-seeded it + stamped `:rf/bootstrap-pending?`);
                     init ran on the actor's first dispatch.
     - `:explicit` — no pre-existing snapshot (singleton) AND the dispatched

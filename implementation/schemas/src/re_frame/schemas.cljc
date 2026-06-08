@@ -223,9 +223,9 @@
 (late-bind/set-fn! :schemas/set-schema-fns!       set-schema-fns!)
 
 ;; Schema-walker hooks consumed by `re-frame.elision` to feed the
-;; unified `[:rf/runtime :elision]` registry without statically depending on the
+;; unified `:rf.runtime/elision` registry without statically depending on the
 ;; schemas artefact. Per rf2-ynnq0 Option A — schemas owns the deep
-;; walker; the elision artefact owns the app-db write. The Path D impl
+;; walker; the elision artefact owns the runtime-db write. The Path D impl
 ;; (rf2-w3n5u) wires `re-frame.elision/populate-elision-from-schemas!`
 ;; to consume these two hooks; the per-slot extract-* hooks are the
 ;; single surface elision needs.

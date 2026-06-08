@@ -37,7 +37,7 @@
 (defn update-snapshot-fx
   "fx handler for `:rf.machine/update-snapshot`. Merges the spec-permitted
   keys of `:rf/patch` onto the snapshot at `[:rf.runtime/machines :snapshots <machine-id>]`
-  in the emitting frame's app-db. No-op when the actor has no snapshot
+  in the emitting frame's runtime-db. No-op when the actor has no snapshot
   (destroyed / not-yet-materialised) or when `:rf/machine-id` is absent.
   Per Spec 005 §Snapshot-level escape hatch."
   [{frame-id :frame :or {frame-id :rf/default}} args]
