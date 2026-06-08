@@ -36,7 +36,7 @@ Phase 2 — Bump (M-0)
 The sweep order below is for the failures a compile *surfaces*. Two classes of breakage are **not** in that bucket and must be carried in regardless of whether the compile fails:
 
 - **Forced removals/conversions** — broken add-ons, off-contract requires, classpath-colliding transitives — are known and planned from **Phase 0a** ([`inventory-and-plan.md`](inventory-and-plan.md)): the inventory scans each add-on's source up front so they're fixed in one sweep rather than one-per-recompile. Use the Phase-0a plan's ordering to clear the forced compile-blockers (so the post-M-0 compile gate is reachable).
-- **SILENT-fail rules** ([`breaking-changes.md` §Failure-visibility axis](breaking-changes.md#failure-visibility-axis--loud-fail-vs-silent-fail-orthogonal-to-type-ab)) — `{:db fresh}` boots (M-15b), top-level `:dispatch` keys (M-8), the signal-fn `reg-sub` (M-71), `^:flush-dom` (M-16) — **compile clean** and never appear as a compile failure. They're caught by the Phase-0a app-source grep and **applied/triaged whether or not the compile failed**; the [boot smoke-test](runtime-smoke-test.md) is the only thing that confirms the fix landed. A clean compile does NOT route you straight to the report — the planned silent-fail hits still apply, and the smoke-test still runs.
+- **SILENT-fail rules** ([`breaking-changes.md` §Failure-visibility axis](breaking-changes.md#failure-visibility-axis--loud-fail-vs-silent-fail-orthogonal-to-type-ab)) — `{:db fresh}` boots (M-15b), top-level `:dispatch` keys (M-8), the signal-fn `reg-sub` (M-71), `^:flush-dom` (M-16), unary `reg-fx` handlers (M-51 — `(fn [args] …)` binds the ctx-map to `args` on CLJS and silently drops the real fx args) — **compile clean** and never appear as a compile failure. They're caught by the Phase-0a app-source grep and **applied/triaged whether or not the compile failed**; the [boot smoke-test](runtime-smoke-test.md) is the only thing that confirms the fix landed. A clean compile does NOT route you straight to the report — the planned silent-fail hits still apply, and the smoke-test still runs.
 
 Use the sweep order below for whatever the compile surfaces.
 
@@ -74,6 +74,7 @@ The M-rule numbering in [`MIGRATION.md`](../../../migration/from-re-frame-v1/REA
 | 12 | **M-8** | Fold top-level `:dispatch` / `:dispatch-later` / `:dispatch-n` / user-fx-id keys into `:fx`. High-impact mechanical rewrite. |
 | 13 | **M-9** | `dispatch-sync` inside handlers → `:fx [[:dispatch ...]]`. |
 | 14 | **M-16** | `^:flush-dom` metadata → `:dispatch-later {:ms 0}`. |
+| 14a | **M-51** | Unary `reg-fx` handler `(fn [args] …)` → binary `(fn [_ args] …)`. Mechanical (Type A) but **SILENT-fail** — on CLJS the unary form parses + compiles clean, binds the runtime's context-map to `args`, and drops the real fx args with no error. **Exhaustive up-front grep, never march-the-wall** (the compile never surfaces it); confirm via the boot smoke-test. Async handlers should additionally hold `(rf/frame-handle)` and dispatch via `(:dispatch h)`. |
 
 ### Group 4 — Reserved-namespace renames (mechanical)
 
