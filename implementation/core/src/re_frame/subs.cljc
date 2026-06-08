@@ -166,21 +166,32 @@
   in v2 — `reg-sub-raw` is dropped (per Spec 002 §Subscriptions
   composing).
 
-  Three shapes:
+  Four shapes — one per input-producer kind (Spec 006 §Subscription
+  input producers):
 
-      ;; Layer-1 — reads `app-db` directly.
+      ;; :db — Layer-1: reads `app-db` directly (no input producer).
       (reg-sub :id
         (fn [db query-v] ...derived-value...))
 
-      ;; Layer-2, single input — chains off one upstream sub.
+      ;; :static, single input — the literal `:<-` producer chains off
+      ;; one upstream sub.
       (reg-sub :id
         :<- [:upstream-id]
         (fn [upstream-val query-v] ...derived-value...))
 
-      ;; Layer-2, multi input — chains off N upstream subs.
+      ;; :static, multi input — the literal `:<-` producer chains off N
+      ;; upstream subs.
       (reg-sub :id
         :<- [:a-sub]
         :<- [:b-sub]
+        (fn [[a-val b-val] query-v] ...derived-value...))
+
+      ;; :parametric — an `input-fn` producer (two trailing fns, NO `:<-`
+      ;; chain). The first fn is a pure `query-v -> vector-of-query-vectors`
+      ;; that computes the inputs PER concrete query; the second is the
+      ;; computation fn over those realized inputs.
+      (reg-sub :id
+        (fn [query-v] [[:a (second query-v)] [:b]])   ;; input-fn
         (fn [[a-val b-val] query-v] ...derived-value...))
 
   An optional metadata-map may precede the `:<-` chain / handler:
@@ -1224,14 +1235,18 @@
                               ;; `:error-emit/dispatch-on-error` late-bind hook
                               ;; (subs cannot static-require `re-frame.error-emit`
                               ;; — load cycle). A pure `compute-sub` has no
-                              ;; triggering event vector, so `:event` / `:event-id`
-                              ;; are nil.
+                              ;; triggering event vector OR reactive frame, so
+                              ;; `:frame` is nil; per rf2-bxud9v the failing sub's
+                              ;; `query-v` / `query-id` ride `:event` / `:event-id`
+                              ;; (mirroring the sub-input-fn path) so the kind-aware
+                              ;; error-emit lookup resolves the sub's `:source-coord`
+                              ;; under `[:sub query-id]` for off-box shippers.
                               (when-let [dispatch-on-error!
                                          (late-bind/get-fn-cached :error-emit/dispatch-on-error)]
                                 (dispatch-on-error!
                                   :rf.error/sub-exception
-                                  nil                       ;; event (pure compute — none)
-                                  nil                       ;; event-id
+                                  query-v                   ;; failing query-vector (as :event)
+                                  query-id                  ;; sub-id (as :event-id) — drives [:sub …] coord lookup
                                   nil                       ;; frame (pure compute — no reactive frame)
                                   e
                                   0                         ;; elapsed-ms

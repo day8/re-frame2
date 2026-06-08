@@ -383,7 +383,11 @@
           ;; leaks `:exception` / message; that detail rides the trace +
           ;; off-box listener record only (Spec 011 §Internal trace
           ;; events are not leaked). A reactive sub has no triggering
-          ;; event vector, so `:event` / `:event-id` are nil.
+          ;; event vector, but per rf2-bxud9v the failing sub's `query-v`
+          ;; / `query-id` ride `:event` / `:event-id` (mirroring the
+          ;; sub-input-fn path) so the kind-aware error-emit lookup
+          ;; resolves the sub's `:source-coord` under `[:sub query-id]`
+          ;; for off-box shippers — `:frame` already carries `frame-id`.
           ;;
           ;; Reached via the late-bind hook `:error-emit/dispatch-on-
           ;; error` — this subs layer cannot statically require
@@ -405,8 +409,8 @@
                      (late-bind/get-fn-cached :error-emit/dispatch-on-error)]
             (dispatch-on-error!
               :rf.error/sub-exception
-              nil                                 ;; event (reactive — none)
-              nil                                 ;; event-id
+              query-v                             ;; failing query-vector (as :event)
+              query-id                            ;; sub-id (as :event-id) — drives [:sub …] coord lookup
               frame-id
               e
               0                                   ;; elapsed-ms

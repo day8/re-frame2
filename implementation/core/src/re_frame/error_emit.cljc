@@ -104,6 +104,66 @@
   code should never call this. Returns nil."
   (:clear registry))
 
+;; ---- kind-aware source-coord lookup (rf2-bxud9v) --------------------------
+;;
+;; The always-on `error-coords-by-id` parallel registry is keyed by
+;; `[registry-kind id]` — the SAME `kind` the public reg-* macro path
+;; stamped at registration (`re-frame.registrar/register!` →
+;; `remember-error-coords!`). A `reg-sub` stores coords under `[:sub
+;; sub-id]`; a `reg-event-*` under `[:event event-id]`. So the lookup
+;; MUST pivot on the registry kind the failing `id` was registered with,
+;; not assume `:event`.
+;;
+;; The error categories carry that kind: a `:rf.error/sub-*` record's
+;; `:event-id` slot holds a SUB id (the call sites in `subs.cljc` /
+;; `subs/memo.cljc` pass `query-id`), so its coords live under `[:sub …]`.
+;; All other production categories (handler / interceptor / cofx / flow /
+;; reserved-fx / no-such-handler) carry an EVENT id under `[:event …]`.
+;;
+;; `:rf.error/frame-destroyed` is the one shared category — fired with an
+;; EVENT id from `router.cljc` (a dispatch into a destroyed frame) AND with
+;; a SUB id from `subs.cljc` (a subscribe into a destroyed frame). We can't
+;; disambiguate on the kw alone, so for it we try `:sub` then `:event`
+;; (a sub-id never collides with an event-id under the same registry, so
+;; the first hit is unambiguous; a miss falls through to nil → slot absent).
+
+(def ^:private sub-error-categories
+  "Categories whose `:event-id` slot carries a SUB id — their source
+  coords live under `[:sub sub-id]` in the always-on registry. Per
+  rf2-bxud9v: `dispatch-on-error!` looked these up under `[:event …]`
+  (the hardcoded default), so the always-on production error records
+  for the parametric input-fn failures (and the reactive sub-exception)
+  omitted the failing sub's `:source-coord`."
+  #{:rf.error/sub-input-fn-exception
+    :rf.error/sub-input-fn-bad-return
+    :rf.error/sub-exception
+    :rf.error/no-such-sub})
+
+(defn- error-source-coord
+  "Resolve the `{:ns :file :line}` source-coord for the failing `id` of an
+  `error-kw` category, pivoting on the registry kind the `id` was
+  registered with (rf2-bxud9v). Returns nil when no coords were captured
+  (programmatic registration that bypassed the macro path, or an id that
+  was never registered) — the caller `cond->`s the slot in, so nil means
+  the `:source-coord` slot is ABSENT from the record rather than nil.
+
+    - `:rf.error/sub-*` categories → look under `[:sub id]`.
+    - `:rf.error/frame-destroyed` is fired with both an event-id (router)
+      and a sub-id (subs), so try `[:sub id]` first then `[:event id]`.
+    - every other category → look under `[:event id]`."
+  [error-kw id]
+  (when id
+    (cond
+      (contains? sub-error-categories error-kw)
+      (source-coords/error-coords-for :sub id)
+
+      (= :rf.error/frame-destroyed error-kw)
+      (or (source-coords/error-coords-for :sub id)
+          (source-coords/error-coords-for :event id))
+
+      :else
+      (source-coords/error-coords-for :event id))))
+
 ;; ---- emission -------------------------------------------------------------
 
 (defn- emit-policy-exception!
@@ -232,15 +292,20 @@
   layers cannot static-require this ns — load cycle). Returns nil."
   [error-kw event event-id frame-id exception elapsed-ms time error-event]
   (let [;; Per rf2-3un2g §Always-on error-coord registry: source-coords
-        ;; for the failing handler ride the always-on parallel registry
-        ;; (NOT the public registry-meta — which is stripped of coord-
-        ;; keys under CLJS `:advanced + goog.DEBUG=false`). The lookup
-        ;; here surfaces `{:ns :file :line}` for Sentry-style shippers
-        ;; and the per-frame `:on-error` policy fn in BOTH dev AND
-        ;; production. Returns nil for programmatic registrations that
+        ;; for the failing handler/sub ride the always-on parallel
+        ;; registry (NOT the public registry-meta — which is stripped of
+        ;; coord-keys under CLJS `:advanced + goog.DEBUG=false`). The
+        ;; lookup here surfaces `{:ns :file :line}` for Sentry-style
+        ;; shippers and the per-frame `:on-error` policy fn in BOTH dev
+        ;; AND production. Returns nil for programmatic registrations that
         ;; bypassed the macro path — that's fine; the slot is absent
         ;; from the record / tags rather than nil.
-        source-coord (when event-id (source-coords/error-coords-for :event event-id))
+        ;;
+        ;; Per rf2-bxud9v the lookup is KIND-AWARE: the registry is keyed
+        ;; by `[registry-kind id]`, so a sub-id (`:rf.error/sub-*`
+        ;; categories) must resolve under `[:sub …]`, not the hardcoded
+        ;; `[:event …]`. See [[error-source-coord]] / [[sub-error-categories]].
+        source-coord (error-source-coord error-kw event-id)
         ;; Per-path wire-walker: paths flagged `:sensitive?` / `:large?`
         ;; via the per-frame `[:rf/runtime :elision]` registry get their
         ;; per-path substitutions.
