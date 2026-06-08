@@ -10,17 +10,18 @@
 ;;;; that exec's `bb ops.clj <subcommand> [args...]` and forwards the edn
 ;;;; printed on stdout.
 ;;;;
-;;;; Transport status — bash-shim is the **legacy / fallback** transport.
-;;;; The structural successor is the persistent-connection MCP server in
-;;;; `tools/re-frame2-pair-mcp/`, which holds a single nREPL connection per session
-;;;; (~14× faster than the per-call connect/disconnect this file performs).
-;;;; Keep the shims for ad-hoc shell scripting, CI scripts, or when the
-;;;; MCP server isn't configured in the agent host. Op semantics are
-;;;; identical between transports — see
+;;;; Transport status — the bash-shim is **retired from the skill's tool
+;;;; surface** (the `allowed-tools:` frontmatter carries no shell tool, so
+;;;; an agent cannot run it). It is NOT a skill-facing fallback transport.
+;;;; The MCP server in `tools/re-frame2-pair-mcp/` is the only skill-facing
+;;;; transport; it holds a single nREPL connection per session (~14× faster
+;;;; than the per-call connect/disconnect this file performs). These shims
+;;;; remain on disk only for the project's own test harness (`tests/shim/`,
+;;;; `tests/e2e/`) and ad-hoc shell use OUTSIDE the skill. Op semantics are
+;;;; identical between the shim and the MCP surface — see
 ;;;; `skills/re-frame2-pair/references/ops.md` for the full op catalogue
-;;;; (MCP form in the Invocation column; bash-shim forms in the
-;;;; back-compat appendix) and `references/mcp-transport.md` for the MCP
-;;;; surface.
+;;;; (MCP form in the Invocation column; the shim mapping in the harness
+;;;; appendix) and `references/mcp-transport.md` for the MCP surface.
 ;;;;
 ;;;; Subcommands (each maps 1:1 to a shim under `scripts/`)
 ;;;; -----------------------------------------------------
@@ -52,7 +53,7 @@
 ;;;;   here that calls it via `cljs-eval-value`. Document in
 ;;;;   `references/ops.md`. The runtime is the source of truth.
 ;;;; - **Bash-only flag tweak** (new `--foo` on an existing subcommand):
-;;;;   inline it here, update `references/ops.md` back-compat appendix.
+;;;;   inline it here, update the `references/ops.md` harness appendix.
 ;;;; - **Anything else** (new transport, new wire format, new shim):
 ;;;;   probably belongs in `tools/re-frame2-pair-mcp/` rather than another shim.
 ;;;;

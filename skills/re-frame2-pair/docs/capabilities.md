@@ -85,7 +85,7 @@ What re-frame2-pair can see inside a live re-frame2 app.
 |---|---|---|
 | `reset-frame-db` is logged via `tap>` and `--allow-writes`-gated | *done* | Previous + next + timestamp are tap'd so the human sees the change. Delegates to `rf/reset-frame-db!` (Tool-Pair §Pair-tool writes) so the synthetic `:rf.epoch/db-replaced` record is appended and `restore-epoch` can rewind past the injection. The tool is OFF unless the server is launched with `--allow-writes`. |
 | `eval-cljs` treated as full-authority | *guardrail* | Default-ON (opt out with `--no-eval`); SKILL.md instructs Claude to prefer the structured tools, and flags that `eval-cljs` returns its value un-elided and is not governed by `--allow-sensitive-reads` |
-| Mutating ops refuse on `:ambiguous-frame` | *done* | The structured `snapshot` / `get-path` / `dispatch` tools refuse; the lower-level eval helpers warn-and-default to `:rf/default` |
+| Ops refuse on `:ambiguous-frame` | *done* | Both writes and reads refuse rather than guess: the structured `snapshot` / `get-path` / `dispatch` tools refuse, and the lower-level read helpers (`subs-sample` / `read-sub!` / `sub-cache-info`) return `:reason :ambiguous-frame` rather than silently reading `:rf/default` |
 | Watches and background processes always stop cleanly | *done* | Auto-terminate on disconnect, idle (default 30s), hard-cap (default 5min), or count cap (default 5) |
 | Restore-failure traces are structured | *done* | Seven `:rf.epoch/*` operations with `:tags` — Tool-Pair contract |
 | Time-travel rewinds app-db only — surface limit | *guardrail* | SKILL.md style guidance + recipe text |

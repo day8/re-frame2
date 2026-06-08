@@ -221,7 +221,7 @@ re-frame2 supports multiple, named frames (Spec 002). Most apps run with one app
 
 These three are NOT subject to the `:ambiguous-frame` refusal themselves — they are how you *resolve* the ambiguity. (The eval-based `frames-list` / `select-frame!` / `frames-meta` runtime helpers in [references/ops.md §Frames](references/ops.md#frames) are the lower-level surface the tools wrap; reach for them only for `frames/meta`, which has no dedicated tool.)
 
-When the operating frame is ambiguous (two-plus **app** frames registered and the session hasn't pinned one), **every other frame-targeted op refuses with `:ambiguous-frame`** rather than guess — a write that lands in the wrong frame is unrecoverable without `restore-epoch`. (Read ops via the eval helpers warn-and-default to `:rf/default`; the dedicated `snapshot` / `get-path` tools refuse like the writes do.) This mirrors the Spec 002 §Frame presets / lifecycle convention.
+When the operating frame is ambiguous (two-plus **app** frames registered and the session hasn't pinned one), **every other frame-targeted op refuses with `:ambiguous-frame`** rather than guess — a write that lands in the wrong frame is unrecoverable without `restore-epoch`. Reads refuse too: the validated read helpers (`subs-sample`, `read-sub!`, `sub-cache-info`, …) return `:reason :ambiguous-frame` rather than silently reading `:rf/default`, and the dedicated `snapshot` / `get-path` tools refuse like the writes do. This mirrors the Spec 002 §Frame presets / lifecycle convention.
 
 ---
 

@@ -2,10 +2,13 @@
 # watch-epochs.sh — pull-mode live watch of the operating frame's
 # epoch-history.
 #
-# DEPRECATED: prefer the MCP tool `watch-epochs` from
-# `@day8/re-frame2-pair-mcp` (tools/re-frame2-pair-mcp/). The MCP tool returns
-# one bundle of matches per call (pull-mode); call it repeatedly with
-# the same `since-id` for a tight watch loop. Kept for back-compat.
+# RETIRED from the skill's tool surface: the skill drives `watch-epochs`
+# via the MCP server (`@day8/re-frame2-pair-mcp`, tools/re-frame2-pair-mcp/),
+# the only skill-facing transport. The MCP tool returns one bundle of
+# matches per call (pull-mode); call it repeatedly with the same
+# `since-id` for a tight watch loop. This shim is on disk only for the
+# project's own test harness (tests/shim/, tests/e2e/) and ad-hoc shell
+# use outside the skill — NOT a skill-facing fallback transport.
 #
 # Emits one edn line per matching epoch, plus a final {:finished?} summary.
 #
