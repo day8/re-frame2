@@ -494,9 +494,16 @@
 
 (defn project
   "Project a machine definition (+ optional overlay context) into
-  xyflow `{:nodes [...] :edges [...]}`. Returns CLJS maps; the
-  wrapper's `coerce-nodes` / `coerce-edges` turn them into JS at the
-  React boundary.
+  xyflow-shaped `{:nodes [...] :edges [...]}` CLJS maps.
+
+  This is part of the self-contained, JVM-portable fallback
+  projection (see the ns docstring) — a unit-tested projection +
+  style catalogue, NOT a live render path. The live Machines panel
+  renders through the shared machines-viz `MachineChart`; nothing
+  hands this projector's output to React. The returned maps are
+  plain CLJS data in xyflow's node/edge shape so the projection (and
+  the per-kind styling threaded through the `*-fn` args) can be
+  asserted directly in tests.
 
   Args (map):
 

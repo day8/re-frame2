@@ -9,9 +9,11 @@
   (§17.4.2), edge-styles (§17.4.3), token mapping (§17.4.5) — kept
   separate from the projection layer (`topology.cljs`) so the
   projector never inlines hex literals. (Both this style catalogue
-  and the `topology/project` projector are the self-contained
-  fallback render path; the live Machines panel renders through the
-  shared machines-viz `MachineChart`, which carries its own styling.)
+  and the `topology/project` projector are the self-contained,
+  JVM-portable fallback projection + style catalogue — a unit-tested
+  surface, NOT a live render path. The live Machines panel renders
+  through the shared machines-viz `MachineChart`, which carries its
+  own styling.)
 
   ## Token integration
 
