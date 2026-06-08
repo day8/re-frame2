@@ -2,21 +2,23 @@
   "Xray-side wrapper around the machines-viz `MachineChart` xyflow
   component (rf2-gpzb4 — 2026-05-21 xyflow migration; supersedes the
   rf2-y3l8z viewport-reducer machinery the SVG renderer needed).
+  rf2-48fwsi retired the vestigial Canvas/List view-mode toggle — no
+  view ever branched on the persisted mode after the rf2-g2axio
+  events-as-nodes redesign, so the toggle, its slot, and its
+  localStorage round-trip are gone.
 
   ## What this owns post-migration
 
   Two surfaces survive:
 
-    1. **View-mode slot** — `:canvas` or `:list` per machine, living
-       at `[:rf.xray/machine-canvas :view-mode-by-id machine-id]`.
-       Persisted to localStorage so the user's choice survives
-       reloads. The toggle button + the `Chart` wrapper still read
-       this.
+    1. **Chart-collapsed slot** — a per-machine boolean living at
+       `[:rf.xray/machine-canvas :chart-collapsed-by-id machine-id]`.
+       Persisted to localStorage so the operator's choice to hide the
+       chart real-estate survives reloads.
     2. **`Chart` hiccup adapter** — thin wrapper around
        `mv-chart/MachineChart` that wires the focused-event lens
        from-state / to-state highlights, the on-state-click
-       dispatch, the Canvas/List view-mode toggle, and the
-       after-rings overlay.
+       dispatch, and the after-rings overlay.
 
   ## What this no longer owns
 
@@ -49,9 +51,6 @@
   across Static and Dynamic. Static callers pass:
 
     :show-after-rings?      false  — no live focused event on static.
-    :show-view-mode-toggle? false  — Static's L3 sub-mode pills own
-                                     per-machine mode at the panel
-                                     level.
     :testid                 \"rf-xray-static-machines-topology\""
   (:require [clojure.string :as str]
             [cljs.reader :as reader]
@@ -102,12 +101,6 @@
   rest of Xray's slots stay clean."
   :rf.xray/machine-canvas)
 
-(defn- view-mode-of
-  "Read the persisted view-mode for `machine-id`. Defaults to
-  `:canvas` — Canvas is the dominant surface."
-  [db machine-id]
-  (get-in db [slot-root :view-mode-by-id machine-id] :canvas))
-
 (defn- chart-collapsed-of
   "Read the persisted chart-collapsed flag for `machine-id`. Defaults
   to `false` — rf2-3d987 issue #4 fix: chart is expanded by default so
@@ -118,47 +111,15 @@
 
 ;; ---- localStorage round-trip --------------------------------------------
 
-(def storage-key
-  "Canonical localStorage key for the per-machine view-mode map.
-  Mirrors `static.machines.persistence/sub-mode-key`'s posture: one
-  bare EDN slot keyed by machine-id keyword."
-  "xray.machine-canvas.view-mode-by-id")
-
 (def chart-collapsed-storage-key
   "Canonical localStorage key for the per-machine chart-collapsed flag
-  map (rf2-3d987 issue #4). Same posture as `storage-key`: one EDN
-  map keyed by machine-id. Persisting per-machine lets one machine's
-  Chart be collapsed (snapshot pair foregrounded) while another's
-  Chart stays expanded."
+  map (rf2-3d987 issue #4). One EDN map keyed by machine-id.
+  Persisting per-machine lets one machine's Chart be collapsed
+  (snapshot pair foregrounded) while another's Chart stays expanded."
   "xray.machine-canvas.chart-collapsed-by-id")
 
 ;; Raw browser access lives in the shared `local-storage` seam
-;; (rf2-jkake.24); both slots are key-parameterised here.
-
-(defn save-view-mode-by-id!
-  "Persist the view-mode-by-id map to localStorage. Empty/nil clears
-  the slot."
-  [m]
-  (if (or (nil? m) (and (map? m) (empty? m)))
-    (ls/remove-item! storage-key)
-    (ls/set-item! storage-key (pr-str m)))
-  nil)
-
-(defn load-view-mode-by-id
-  "Read + normalise the persisted view-mode map. Returns `{}` when
-  the slot is absent / unparseable. Values normalise to `:canvas`
-  by default."
-  []
-  (when-let [raw (ls/get-item storage-key)]
-    (try
-      (let [parsed (reader/read-string raw)]
-        (when (map? parsed)
-          (into {}
-                (keep (fn [[k v]]
-                        (when (keyword? k)
-                          [k (if (#{:canvas :list} v) v :canvas)])))
-                parsed)))
-      (catch :default _ {}))))
+;; (rf2-jkake.24); the slot is key-parameterised here.
 
 (defn save-chart-collapsed-by-id!
   "Persist the chart-collapsed-by-id map to localStorage (rf2-3d987
@@ -188,14 +149,6 @@
 ;; ---- subs ---------------------------------------------------------------
 
 (defn- install-subs! []
-  (rf/reg-sub :rf.xray.machine-canvas/view-mode-for
-    (fn [db [_ machine-id]]
-      (view-mode-of db machine-id)))
-
-  (rf/reg-sub :rf.xray.machine-canvas/view-mode-by-id
-    (fn [db _]
-      (get-in db [slot-root :view-mode-by-id] {})))
-
   (rf/reg-sub :rf.xray.machine-canvas/chart-collapsed-for
     (fn [db [_ machine-id]]
       (chart-collapsed-of db machine-id)))
@@ -207,18 +160,6 @@
 ;; ---- events -------------------------------------------------------------
 
 (defn- install-events! []
-  (rf/reg-event-fx :rf.xray.machine-canvas/set-view-mode
-    (fn [{:keys [db]} [_ {:keys [machine-id mode]}]]
-      (let [mode' (if (#{:canvas :list} mode) mode :canvas)
-            db'   (assoc-in db [slot-root :view-mode-by-id machine-id] mode')
-            by-id (get-in db' [slot-root :view-mode-by-id])]
-        {:db db'
-         :rf.xray.machine-canvas/persist-view-mode by-id})))
-
-  (rf/reg-event-db :rf.xray.machine-canvas/hydrate-view-modes
-    (fn [db [_ by-id]]
-      (assoc-in db [slot-root :view-mode-by-id] (or by-id {}))))
-
   ;; rf2-3d987 issue #4 — toggle the per-machine chart-collapsed flag.
   ;; `mode` is :collapsed / :expanded / :toggle. Persists the post-mutation
   ;; map to localStorage so the operator's choice survives reloads.
@@ -243,10 +184,6 @@
 ;; ---- fx -----------------------------------------------------------------
 
 (defn- install-fx! []
-  (rf/reg-fx :rf.xray.machine-canvas/persist-view-mode
-    (fn [_ctx by-id]
-      (save-view-mode-by-id! by-id)))
-
   (rf/reg-fx :rf.xray.machine-canvas/persist-chart-collapsed
     (fn [_ctx by-id]
       (save-chart-collapsed-by-id! by-id))))
@@ -258,80 +195,10 @@
   ;; frame via the named `defaults/default-frame-id` Var (production-
   ;; singleton seam, no surrounding render frame), not a `{:frame
   ;; :rf/xray}` literal. Consistent with `spine-filters/hydrate!`.
-  (let [by-id (load-view-mode-by-id)]
-    (when (seq by-id)
-      (rf/dispatch [:rf.xray.machine-canvas/hydrate-view-modes by-id]
-                   {:frame defaults/default-frame-id})))
   (let [by-id (load-chart-collapsed-by-id)]
     (when (seq by-id)
       (rf/dispatch [:rf.xray.machine-canvas/hydrate-chart-collapsed by-id]
                    {:frame defaults/default-frame-id}))))
-
-;; ---- view-mode toggle ---------------------------------------------------
-
-(defn view-mode-toggle
-  "Two-button pill — Canvas | List — at the section header. Wires
-  click → `:set-view-mode`. Public so the sibling `machine_inspector`
-  panel can mount the same toggle — cross-panel reuse was already
-  happening via the private symbol; promote to public rather than
-  re-publish via a wrapper."
-  [{:keys [machine-id mode]}]
-  ;; rf2-nesy9 — capture the surrounding instance frame at render time
-  ;; so the deferred view-mode clicks dispatch into it, not a `:rf/xray`
-  ;; literal. The toggle renders inside the Chart / machine-inspector
-  ;; reg-views, so current-frame-id resolves through the React-context tier.
-  (let [frame     (rf/current-frame-id)
-        tab-style (fn [active?]
-                    {:background    (if active?
-                                      (:bg-active tokens)
-                                      "transparent")
-                     :border        "none"
-                     :color         (if active?
-                                      (:accent tokens)
-                                      (:text-tertiary tokens))
-                     :font-family   sans-stack
-                     :font-size     "10px"
-                     :font-weight   600
-                     :padding       "3px 10px"
-                     :cursor        "pointer"
-                     :border-radius "10px"
-                     :line-height   "1"})]
-    [:div {:data-testid "rf-xray-machine-canvas-view-mode-toggle"
-           :data-machine-id (str machine-id)
-           :data-active-mode (name mode)
-           :role "tablist"
-           :aria-label "Toggle Canvas / List view"
-           :style {:display       "inline-flex"
-                   :align-items   "center"
-                   :gap           "0px"
-                   :padding       "2px"
-                   :background    (:bg-3 tokens)
-                   :border        (str "1px solid " (:border-subtle tokens))
-                   :border-radius "12px"}}
-     [:button
-      {:data-testid "rf-xray-machine-canvas-view-mode-canvas"
-       :role        "tab"
-       :aria-pressed (str (= :canvas mode))
-       :on-click    (fn [_]
-                      (rf/dispatch
-                        [:rf.xray.machine-canvas/set-view-mode
-                         {:machine-id machine-id :mode :canvas}]
-                        {:frame frame}))
-       :title       "Canvas view — topology chart with zoom/pan"
-       :style       (tab-style (= :canvas mode))}
-      "Canvas"]
-     [:button
-      {:data-testid "rf-xray-machine-canvas-view-mode-list"
-       :role        "tab"
-       :aria-pressed (str (= :list mode))
-       :on-click    (fn [_]
-                      (rf/dispatch
-                        [:rf.xray.machine-canvas/set-view-mode
-                         {:machine-id machine-id :mode :list}]
-                        {:frame frame}))
-       :title       "List view — guards/actions only, no chart"
-       :style       (tab-style (= :list mode))}
-      "List"]]))
 
 ;; ---- public Chart view --------------------------------------------------
 
@@ -341,16 +208,17 @@
 
   rf2-m4xz1 — registered via `reg-view` (was a plain `defn`) so the
   React-context frame tier carries the enclosing `:rf/xray` frame
-  through to the inner view-mode-toggle subscribe. As a plain fn the
-  subscribe routed to `:rf/default` (the host app), which is a real
-  frame-leak — xray-internal slots must be read via xray's own frame.
-  Same surgery PR #2110 (rf2-uu3lp) applied to the rest of xray chrome.
+  through to xray-internal subscribes (e.g. the chart-collapsed slot).
+  As a plain fn the subscribe routed to `:rf/default` (the host app),
+  which is a real frame-leak — xray-internal slots must be read via
+  xray's own frame. Same surgery PR #2110 (rf2-uu3lp) applied to the
+  rest of xray chrome.
 
   Args (map):
 
     :definition         — machine definition map. Required.
     :machine-id         — keyword; identifies the per-machine
-                          view-mode slot and surfaces on every
+                          chart-collapsed slot and surfaces on every
                           per-node testid.
     :from-highlight     — focused-event lens origin state. Optional;
                           a state-id keyword or path vector. xyflow
@@ -401,8 +269,6 @@
     :show-after-rings?  — when true (default) overlay the
                           `:after`-timer countdown rings. Dynamic
                           keeps true; Static passes false.
-    :show-view-mode-toggle? — when true (default) render the
-                              Canvas/List pill in the chart top-left.
     :show-controls?     — when true (default) render xyflow's built-in
                           zoom/pan/fit Controls inside the chart.
     :fit-signal         — rf2-6tw7t. Opaque fit-on-entry nonce forwarded
@@ -428,11 +294,10 @@
   [{:keys [definition machine-id from-highlight to-highlight current-state
            fired-edge-ids guard-blocked-edge-ids machine-data
            sim? on-state-click on-edge-click
-           show-after-rings? show-view-mode-toggle?
+           show-after-rings?
            show-controls? theme testid inner-testid
            fit-signal]
     :or   {show-after-rings?       true
-           show-view-mode-toggle?  true
            show-controls?          true
            ;; rf2-az6e2 — Xray's surface is dark; the chart `:theme`
            ;; defaults to `@default-chart-theme` (`:dark`). Held in a
@@ -487,15 +352,7 @@
      ;; The overlay walks the chart's node DOM by data-testid to find
      ;; bbox positions; no positioned-graph prop is needed
      ;; post-migration (xyflow owns positions internally).
-     [after-rings/AfterRingsOverlay nil])
-   (when show-view-mode-toggle?
-     [:div {:style {:position "absolute"
-                    :top      "8px"
-                    :left     "8px"
-                    :z-index  2}}
-      (let [mode @(rf/subscribe
-                    [:rf.xray.machine-canvas/view-mode-for machine-id])]
-        (view-mode-toggle {:machine-id machine-id :mode mode}))])])
+     [after-rings/AfterRingsOverlay nil])])
 
 ;; ---- snapshot drill-in (rf2-lxvn6 · spec/021 §10 widget contract) -----
 ;;

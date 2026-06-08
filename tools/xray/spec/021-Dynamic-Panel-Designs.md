@@ -1002,8 +1002,12 @@ nested machines auto-fit to the available viewport via xyflow's
 `fitView`. Multiple machines stack vertically (no horizontal split) so
 the operator scans them like cards on a workstation. Guards, actions,
 and cancellation cascade chips render below each canvas as dense text
-rows — no extra modal or popout. The List view-mode fallback (§6.2)
-trades the canvas for an even denser flat textual list.
+rows — no extra modal or popout. (rf2-48fwsi retired the vestigial
+Canvas/List view-mode toggle that once advertised a flat textual
+fallback — it was dead after the rf2-g2axio events-as-nodes redesign,
+with no view branching on the persisted mode. The xyflow canvas is the
+sole render path; a chartless guards/actions-only list would be a
+separate new feature.)
 
 ### §6.0 Implementation — xyflow path (B) LOCKED
 
@@ -1087,13 +1091,13 @@ the nodes and edges with Xray palette tokens.
 │▌ stripe: mode accent (one GitHub-blue accent, both modes)             │
 │                                                                       │
 │ machine :title/flow            (no activity this epoch · current ●)   │
-│ ┌─[Canvas]─────────────────────────────────────[− 100% +] [Fit][Reset]│
+│ ┌──────────────────────────────────────────────[− 100% +] [Fit][Reset]│
 │ │  ( idle ) ──→ (( loaded )) ──→ ( error )                            │
 │ │                  ↑ current                                          │
 │ └────────────────────────────────────────────────────────────────────┘│
 │                                                                       │
 │ machine :other/flow            (no activity this epoch · current ●)   │
-│ ┌─[Canvas]──────────────────────────────────────────────────────────┐ │
+│ ┌────────────────────────────────────────────────────────────────────┐ │
 │ │  ( empty )  (( populated ))  ( submitting )  ( settled )           │ │
 │ └────────────────────────────────────────────────────────────────────┘│
 └───────────────────────────────────────────────────────────────────────┘
@@ -1116,7 +1120,7 @@ accent; the fired transition edge carries its **event label + guard + action inl
 ┌─ MACHINES · epoch #42 (machine :title/flow [:rf/init]) ─ [◀ Prev] [Next ▶] ─┐
 │▌ stripe: mode accent (one GitHub-blue accent, both modes)                   │
 │ machine :title/flow                                                          │
-│ ┌─[Canvas]────────────────────────────────────────[− 100% +] [Fit][Reset]──┐│
+│ ┌────────────────────────────────────────────────[− 100% +] [Fit][Reset]──┐│
 │ │ ┌─ active (compound) ──────────────────────────────────┐                  ││
 │ │ │  ( idle ) ════════▶ (( loading )) ───→ ( loaded )     │      ( error )   ││
 │ │ │   FROM    [:rf/init]    TO/current                    │       ↑          ││
@@ -1131,11 +1135,12 @@ accent; the fired transition edge carries its **event label + guard + action inl
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Per §003, the interactive chart adapter (zoom / pan / fit / Canvas|List
-view-mode) wraps each per-machine canvas. **The Canvas mode is the
-xyflow surface described in §6.0**; the List view-mode is a flat
-xyflow-free fallback for accessibility / low-power devices (preserved
-from §003 — unchanged here). The mode-accent fired-edge / double-circle
+Per §003, the interactive chart adapter (zoom / pan / fit) wraps each
+per-machine canvas. **The xyflow surface described in §6.0 is the sole
+render path** — rf2-48fwsi retired the vestigial Canvas/List view-mode
+toggle (dead after rf2-g2axio; no view branched on the persisted mode).
+A chartless guards/actions-only "List view" would be a separate new
+feature, not a revert. The mode-accent fired-edge / double-circle
 active-node / dashed compound container / inline guard+action labels +
 the `after: ◴ Ns → :event` countdown ring are the visual elements the
 Figma design fixes; xyflow renders them with the §6.0 palette mapping.

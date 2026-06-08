@@ -177,7 +177,7 @@
 ;; HANDLER mini-pipeline (`epoch-view/machine-cascade-mini-pipeline` —
 ;; the SAME richer microstep-cascade renderer the Epoch panel uses, so
 ;; the two surfaces cannot diverge again) + the chart (which carries its
-;; own view-mode toggle + zoom/pan/fit toolbar).
+;; own zoom/pan/fit toolbar).
 
 ;; ---- per-machine focused-event section ---------------------------------
 
@@ -199,8 +199,7 @@
        bespoke forensic block.
     2. the chart — `machine-canvas/Chart` with the focused epoch's
        from/to/current/fired highlights. The chart carries its own
-       toolbar (view-mode toggle + zoom/pan/fit controls), so the
-       bespoke list/canvas + collapse chrome is gone.
+       zoom/pan/fit toolbar, so the bespoke collapse chrome is gone.
 
   REMOVED (rf2-g2axio): the bespoke focused-transition lens (Target
   Machine Instance / TRANSITION / GUARDS RUN / ACTIONS RUN), the
@@ -271,9 +270,9 @@
       ;; source-coords resolve identically to the Epoch panel.
       (epoch-view/machine-cascade-mini-pipeline cascade machine-id)]
      ;; ── ELEMENT 3 — the topology chart ─────────────────────────────
-     ;; The chart carries its OWN toolbar (view-mode toggle + zoom / pan
-     ;; / fit controls — `machine-canvas/Chart`), so the bespoke
-     ;; list/canvas wrapper + the chart-collapse toggle/summary are gone
+     ;; The chart carries its OWN toolbar (zoom / pan / fit controls —
+     ;; `machine-canvas/Chart`), so the bespoke list/canvas wrapper +
+     ;; the chart-collapse toggle/summary are gone
      ;; (rf2-g2axio). Highlights flow as reactive props off THIS focused
      ;; epoch, so Prev/Next repaints the chart together with the
      ;; mini-pipeline above.
@@ -299,7 +298,6 @@
               ;; JVM/hiccup suite + hosts pin the wiring without reaching
               ;; into the xyflow canvas. "" when none blocked.
               :data-guard-blocked-edge-ids (str/join " " (sort (set guard-blocked-edge-ids)))
-              :data-view-mode "canvas"
               ;; rf2-zdfbm — fill the section's remaining height so the
               ;; topology chart expands into the panel. `flex 1` +
               ;; `min-height` floor keeps xyflow's non-zero-parent-height
@@ -321,8 +319,8 @@
                        ;; absolute-position itself over the chart SVG.
                        :position "relative"}}
          ;; rf2-y3l8z — the chart wraps an interactive viewport adapter
-         ;; (zoom/pan/fit + view-mode toggle + controls toolbar) and owns
-         ;; the after-rings overlay so they stay co-located with the canvas.
+         ;; (zoom/pan/fit + controls toolbar) and owns the after-rings
+         ;; overlay so they stay co-located with the canvas.
          [machine-canvas/Chart
           {:definition         definition
            :machine-id         machine-id

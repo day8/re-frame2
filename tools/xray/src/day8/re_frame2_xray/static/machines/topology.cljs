@@ -11,18 +11,13 @@
   XState's static / read-only chart views get the same affordances;
   Xray's static surface should match.
 
-  Static differs from Dynamic in three respects:
+  Static differs from Dynamic in two respects:
 
     1. NO focused-event lens — Static is a static-read; there's no
        `:from-highlight-id` / `:to-highlight-id` to pass, and the
        after-rings overlay is suppressed (`:show-after-rings?
        false`).
-    2. NO Canvas/List view-mode toggle inside the canvas — the
-       Static Machines panel already owns a per-machine sub-mode
-       pill strip at L3 (Topology / Sim / Instances / Cascade); a
-       second toggle inside the canvas would be redundant noise.
-       (`:show-view-mode-toggle? false`.)
-    3. Click on a state node fires
+    2. Click on a state node fires
        `:rf.xray.static.machines/state-clicked` (with the clicked
        state's path) — not the Dynamic panel's inspector-lens
        navigation event.
@@ -80,7 +75,6 @@
   + keyboard shortcuts on the Static surface too. The static-
   flavoured opts are:
 
-    :show-view-mode-toggle? false  — Static panel owns sub-mode at L3.
     :show-after-rings?      false  — no focused-event lens on static.
     :testid                        — overrides the inner SVG testid
                                      so the existing static-panel
@@ -108,7 +102,6 @@
       {:definition             definition
        :machine-id             machine-id
        :show-after-rings?      false
-       :show-view-mode-toggle? false
        ;; rf2-6tw7t — fit-on-entry nonce so entering the Static Machines
        ;; tab re-frames the topology (xyflow's one-shot `:fitView` +
        ;; the layout-key auto-fit both leave a re-entered chart stale).

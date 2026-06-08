@@ -452,9 +452,11 @@
             ":inner-testid forwards through Chart to the xyflow root")))))
 
 (deftest topology-mode-omits-view-mode-toggle-on-static
-  (testing "rf2-md9oz — Static surface already owns the per-machine
-            sub-mode pill strip at L3; the canvas's Canvas/List toggle
-            is meaningless on static and must NOT mount."
+  (testing "rf2-48fwsi — the vestigial Canvas/List view-mode toggle was
+            removed framework-wide (it was dead after rf2-g2axio); it
+            must NOT mount on the Static surface either. (Pre-rf2-48fwsi
+            Static suppressed it via :show-view-mode-toggle? false; now
+            no Chart caller can render it at all.)"
     (xray-setup!)
     (seed-machines! [:m/a])
     (seed-definitions! {:m/a {:initial :idle
@@ -463,8 +465,7 @@
       (let [tree (panel/panel)]
         (is (nil? (find-by-testid tree
                                   "rf-xray-machine-canvas-view-mode-toggle"))
-            "view-mode toggle is suppressed on static via
-             :show-view-mode-toggle? false")))))
+            "the retired view-mode toggle never mounts on static")))))
 
 (deftest topology-mode-keeps-popout-and-source-coord-affordances
   (testing "The Static panel's existing 'open in popout' affordance +
