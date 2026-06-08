@@ -121,6 +121,40 @@
     (config/configure! {})
     (is (= :cursor (config/get-editor)))))
 
+(deftest configure-editor-nil-resets-configured-state
+  (testing "rf2-eilutf — configure! {:rf.xray/editor nil} RESETS the
+            editor-configured state, exactly like set-editor! nil does.
+            Previously configure! gated on `some?` so an explicit nil was
+            silently ignored, leaving editor-configured? stuck true after
+            a host tried to reset via the bulk surface — non-equivalent
+            to the per-key setter. The bulk surface now gates on key
+            PRESENCE: an explicit nil resets, an absent key is untouched."
+    ;; Configure an editor first so there is state to reset.
+    (config/configure! {:rf.xray/editor :cursor})
+    (is (= :cursor (config/get-editor)))
+    (is (true? (config/editor-configured?))
+        "precondition: editor is configured before the nil reset")
+    ;; The bug: this was a no-op before the fix.
+    (config/configure! {:rf.xray/editor nil})
+    (is (= :vscode (config/get-editor))
+        "explicit nil resets the preference to the :vscode default")
+    (config/update-setting! :general :editor-override nil)
+    (is (false? (config/editor-configured?))
+        "explicit nil clears editor-explicitly-set? — the hint re-arms")))
+
+(deftest configure-absent-editor-key-leaves-configured-state
+  (testing "rf2-eilutf — a configure! call WITHOUT the :rf.xray/editor key
+            leaves both the preference AND the configured flag untouched
+            (the key-presence gate must distinguish absent from nil)"
+    (config/configure! {:rf.xray/editor :idea})
+    (is (true? (config/editor-configured?)))
+    ;; A configure! that touches a DIFFERENT key must not disturb editor.
+    (config/configure! {:rf.xray/auto-open? false})
+    (is (= :idea (config/get-editor))
+        "the editor preference survives a non-editor configure! call")
+    (is (true? (config/editor-configured?))
+        "the configured flag survives a non-editor configure! call")))
+
 (deftest auto-open-defaults-to-enabled
   (testing "Xray's default launch auto-opens the inline host"
     (is (true? (config/auto-open-enabled?)))))

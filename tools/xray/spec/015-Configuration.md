@@ -246,14 +246,33 @@ rf2-4s08ov surfaces it at click-time.
 
 When `config/editor-configured?` is false — NEITHER the host
 explicitly set `:rf.xray/editor` NOR a valid operator override sits in
-`[:general :editor-override]` — the `:rf.xray/open-in-editor` event-fx
-MUST NOT fire the silent `:rf.editor/open` navigation. Instead it
-dispatches `:rf.xray/editor-hint-show`, which mounts a small,
-non-intrusive bottom-corner toast ("No editor configured") carrying an
-**Open Settings** button that lands the operator on the General-tab
-editor picker (`:rf.xray/editor-hint-open-settings` →
-`:rf.xray/settings-open`). The toast is dismissable (✕ / Esc) and
-self-dismisses on Open-Settings.
+`[:general :editor-override]` — BOTH open-in-editor surfaces MUST NOT
+fire the silent `:rf.editor/open` navigation:
+
+- The panel-side `:rf.xray/open-in-editor` event-fx dispatches
+  `:rf.xray/editor-hint-show` instead.
+- The in-DOM `open-chip` (`<a>`) routes its `:on-click` through
+  `open-in-editor/chip-click!` (rf2-r4q6y3), which applies the SAME
+  decision: when an editor is configured it navigates via `open!`;
+  when unconfigured AND a live `:rf/xray` shell frame is present it
+  dispatches `[:rf.xray/editor-hint-show]` on that frame; when
+  unconfigured with NO `:rf/xray` frame (a standalone / static host
+  with no shell where a hint toast cannot mount) it falls back to the
+  best-effort `open!` — the documented standalone contract.
+
+The hint mounts a small, non-intrusive bottom-corner toast ("No editor
+configured") carrying an **Open Settings** button that lands the
+operator on the General-tab editor picker
+(`:rf.xray/editor-hint-open-settings` → `:rf.xray/settings-open`). The
+toast is dismissable (✕ / **Esc**) and self-dismisses on Open-Settings.
+Because the toast is a non-modal `role=status` surface that MUST NOT
+trap focus (it would steal it from the host app), the **reachable Esc
+path is the shell-level global keydown listener**
+(`keybinding/handle-keydown`, rf2-wpvy6f): it dismisses the hint
+whenever it is open and falls through (does not consume Esc) whenever
+it is closed, so other Esc consumers and the host are undisturbed. The
+toast's own in-DOM `on-key-down` is retained as defense-in-depth for
+the case where focus does land inside the toast.
 
 `editor-configured?` is true the moment EITHER the host calls
 `set-editor!` / `(configure! {:rf.xray/editor …})` (an explicit set —
@@ -262,10 +281,17 @@ override is present. In that state the chip click resolves + navigates
 exactly as before; the hint never fires. A malformed override
 (rejected by `valid-editor-override?`) does NOT count as configured —
 it degrades to the unconfigured state like `get-editor` does.
+`(configure! {:rf.xray/editor nil})` RESETS the configured state to the
+framework default — the bulk surface gates on key PRESENCE so it is
+equivalent to `set-editor! nil`; an ABSENT `:rf.xray/editor` key leaves
+the preference untouched (rf2-eilutf).
 
-Tests cover the predicate (`config_test.clj`), the event-fx routing
-(`open_in_editor_cljs_test.cljs`), and the toast events / sub / render
-+ Open-Settings wiring (`settings/editor_hint_cljs_test.cljs`).
+Tests cover the predicate + `configure!` nil-reset / absent-key
+equivalence (`config_test.clj`), the event-fx routing + the direct
+`chip-click!` decision (`open_in_editor_cljs_test.cljs`), the toast
+events / sub / render + Open-Settings wiring
+(`settings/editor_hint_cljs_test.cljs`), and the shell-level Esc
+dismissal (`keybinding_cljs_test.cljs`).
 
 ### `:rf.xray/project-root`
 

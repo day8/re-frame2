@@ -51,7 +51,9 @@
   so Story consumes the same predicate Xray does."
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
+            [re-frame.frame :as frame]
             [day8.re-frame2-xray.config :as config]
+            [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.theme.tokens
              :refer [tokens mono-stack]]
             [re-frame.source-coords.editor-uri :as editor-uri]))
@@ -226,12 +228,65 @@
     (@navigator uri)
     nil))
 
+;; ---- click routing: configured/hint decision (rf2-r4q6y3) ----------------
+
+(defn chip-click!
+  "Route a direct `open-chip` click through the SAME configured/hint
+  decision the `:rf.xray/open-in-editor` event-fx applies (rf2-r4q6y3).
+
+  Before this seam the chip's `:on-click` called `open!` directly,
+  bypassing the rf2-4s08ov hint: an unconfigured host (never called
+  `(xray-config/configure! {:rf.xray/editor …})`, no operator override)
+  would silently navigate to the implicit `vscode:` URI and — if VS
+  Code is not the developer's editor — the click was a SILENT no-op
+  with no feedback. The panel-side dispatch path already routes that
+  case to the hint toast; the in-DOM chip now matches.
+
+  Two-tier behaviour:
+
+    1. **Editor configured** (`config/editor-configured?` true — host
+       set `:rf.xray/editor` OR a valid operator override exists): fire
+       `open!` exactly as before. The hint never enters the path.
+
+    2. **Editor NOT configured.** The chip needs a dispatch target for
+       the hint toast, which lives on the `:rf/xray` shell frame:
+
+         - **`:rf/xray` frame present** (the common case — the chip is
+           rendered inside a live Xray shell): dispatch
+           `[:rf.xray/editor-hint-show]` on `:rf/xray` so the toast
+           appears, consistent with the panel-side event-fx (rf2-4s08ov)
+           and #3486. No silent navigation.
+
+         - **No `:rf/xray` frame** (the standalone fallback — a static
+           page / non-Xray host rendering the chip with no shell runtime,
+           so no toast can mount): fall back to the direct `open!`. This
+           is the documented standalone contract — there is nowhere for
+           the hint to land, so the historic best-effort navigation is
+           the only sensible behaviour. The `console.log` in `open!`
+           still gives the developer a diagnostic trail.
+
+  `uri` may be nil — `open!` is a no-op for nil, and tier 1's `open!`
+  call carries that guard, so an unresolvable coord in the configured
+  case is a harmless no-op."
+  [uri]
+  (if (config/editor-configured?)
+    (open! uri)
+    (if (frame/frame defaults/default-frame-id)
+      (rf/dispatch [:rf.xray/editor-hint-show] {:frame defaults/default-frame-id})
+      ;; Standalone fallback — no shell frame to host the hint toast.
+      (open! uri)))
+  nil)
+
 ;; ---- public: the open-in-editor chip ------------------------------------
 
 (defn open-chip
   "Render an 'open' chip for a Xray source-coord. Reads the current
   editor preference from `config/get-editor`; builds the URI via
-  `editor-uri/editor-uri`; click fires `window.location.href`.
+  `editor-uri/editor-uri`; click routes through `chip-click!`, which
+  applies the rf2-4s08ov configured/hint decision (rf2-r4q6y3): a
+  configured editor navigates via `open!`, an unconfigured host with a
+  live `:rf/xray` shell shows the editor-hint toast instead of silently
+  no-oping, and a standalone host with no shell falls back to `open!`.
 
   Returns nil when the source-coord lacks a usable `:file` slot, when
   `editor-uri/editor-uri` returns nil (a scheme rejected by the
@@ -256,11 +311,14 @@
                           :else         (name editor))
            :on-click    (fn [e]
                           ;; Stop the browser from trying to render
-                          ;; the custom URI inline; fire the handoff
-                          ;; explicitly so the OS scheme handler
-                          ;; dispatches.
+                          ;; the custom URI inline; route the handoff
+                          ;; through `chip-click!` so the rf2-4s08ov
+                          ;; configured/hint decision applies (rf2-r4q6y3)
+                          ;; — an unconfigured host shows the hint toast
+                          ;; instead of silently navigating to the
+                          ;; implicit `vscode:` URI.
                           (.preventDefault e)
-                          (open! uri))}
+                          (chip-click! uri))}
        "open"])))
 
 ;; ---- registration: the data-driven open-in-editor path ------------------

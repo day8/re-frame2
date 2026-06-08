@@ -68,7 +68,9 @@
   editable-element guard means even a future Xray-side input field
   (e.g. the filter-pill edit popup) doesn't fight the user typing."
   (:require [re-frame.core :as rf]
+            [re-frame.frame :as frame]
             [day8.re-frame2-xray.config :as config]
+            [day8.re-frame2-xray.defaults :as defaults]
             [day8.re-frame2-xray.mount :as mount]))
 
 (defonce ^:private attached-state
@@ -181,6 +183,27 @@
          (not alt?)
          (or (= "k" k) (= "K" k) (= "KeyK" code)))))
 
+(defn- escape-key?
+  "True when `event` is a bare Escape keydown (no modifier required —
+  Esc is never chorded). Checks both `key` spellings (`\"Escape\"` is
+  the modern value; `\"Esc\"` the legacy IE/Edge value some embedded
+  webviews still emit). Used to route Esc to the editor-hint toast's
+  dismissal (rf2-wpvy6f)."
+  [^js event]
+  (let [k (.-key event)]
+    (or (= "Escape" k) (= "Esc" k))))
+
+(defn- editor-hint-open?
+  "True when the open-in-editor hint toast is currently open on the
+  Xray shell frame. Read DIRECTLY off the `:rf/xray` frame's app-db
+  (`frame/frame-app-db-value`) rather than via a subscription — this
+  global keydown listener runs outside any frame/reaction context, so a
+  plain app-db read is the correct seam. Returns false when the frame
+  does not yet exist (shell never opened) so Esc falls through to the
+  host untouched. Per rf2-wpvy6f."
+  []
+  (boolean (:editor-hint-open? (frame/frame-app-db-value defaults/default-frame-id))))
+
 (defn- target-inside-xray?
   "True when `event.target` is a DOM node inside the Xray shell — the
   ancestor walk hits the `data-testid=\"rf-xray-shell\"` envelope."
@@ -281,6 +304,22 @@
         (.stopPropagation event)
         (rf/with-frame :rf/xray
           (rf/dispatch [:rf.xray/toggle-mode])))
+
+    ;; rf2-wpvy6f — Esc dismisses the open-in-editor hint toast. The
+    ;; toast is a non-modal `role=status` bottom-corner toast: it must
+    ;; NOT trap focus (that would steal it from the host app), so its own
+    ;; in-DOM `on-key-down` never receives Esc in the normal click flow
+    ;; (focus is wherever the user clicked the chip, not inside the
+    ;; toast). The shell-level global listener is the reachable Esc path.
+    ;; Gated on the toast actually being open so Esc falls through to the
+    ;; host (and to other Esc consumers) whenever the toast is closed —
+    ;; the listener only consumes the key it acts on. Dispatched on the
+    ;; `:rf/xray` shell frame where the hint state lives.
+    (and (escape-key? event) (editor-hint-open?))
+    (do (.preventDefault event)
+        (.stopPropagation event)
+        (rf/dispatch [:rf.xray/editor-hint-dismiss]
+                     {:frame defaults/default-frame-id}))
 
     (palette-toggle-key? event)
     (do (.preventDefault event)
