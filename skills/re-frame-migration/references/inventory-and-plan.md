@@ -63,7 +63,7 @@ Separately from the add-ons, grep the **app's own source** for the v1 feature su
 | Direct `re-frame.db` / `re-frame.utils` / other off-contract `re-frame.*` requires; `@re-frame.db/app-db` | **M-1** |
 | `reg-global-interceptor` / `clear-global-interceptor` | **M-17** |
 | `reg-sub-raw` | **M-18** |
-| `reg-sub` with **two trailing fns** (the v1 3-arity signal-function form) — the v1 signal fn returned `subscribe` reactions; the v2 `input-fn` returns a vector of query vectors; the live-reaction shape is rejected at registration (`:rf.error/reg-sub-bad-args`) | **M-71** |
+| `reg-sub` with **two trailing fns** (the v1 two-function signal-function form) — the v1 signal fn returned `subscribe` reactions; the v2 `input-fn` returns a vector of query vectors. The two-fn shape **registers cleanly as a parametric sub**; the live-reaction return is only rejected at **first materialization** with `:rf.error/sub-input-fn-bad-return` (not at registration / ns-load) | **M-71** |
 | `^:flush-dom` event metadata | **M-16** |
 | Unary `reg-fx` handler `(fn [args] …)` — v2 invokes every fx with **two** args `(fn [_ args] …)`; the unary form binds the runtime's context-map to `args` and **silently drops** the real fx args (CLJS) — **silent** | **M-51** |
 | top-level `:dispatch` / `:dispatch-n` / `:http` / user-fx keys in effect maps | **M-8** |
