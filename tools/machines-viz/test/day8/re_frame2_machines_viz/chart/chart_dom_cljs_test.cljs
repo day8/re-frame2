@@ -823,10 +823,19 @@
            :definition     idle-loading-done
            :fired-edge-ids #{start-id}}
           (fn [_root node]
+            ;; Scope the per-node `data-fired` sweep to OUTER event-NODES
+            ;; via `[data-node-id]` (the same precise-event-node convention
+            ;; as the guard-blocked test + the `[data-variant]` count at the
+            ;; bottom of this file). The bare `rf-mv-chart-event-` prefix also
+            ;; matches the inner header/guard/reenter/action spans, which
+            ;; carry NO `data-node-id`; scoping keeps `others` to real nodes
+            ;; so the every?-is-false assertion can't be polluted as more
+            ;; inner-span attrs land (rf2-6c2r83).
             (let [fired-el (.querySelector
                              node (str "[data-testid=\"rf-mv-chart-event-" fired-ev-id "\"]"))
                   all-evs  (array-seq
-                             (.querySelectorAll node "[data-testid^=\"rf-mv-chart-event-\"]"))
+                             (.querySelectorAll
+                               node "[data-testid^=\"rf-mv-chart-event-\"][data-node-id]"))
                   others   (remove #(= % fired-el) all-evs)]
               (when (some? fired-el)
                 (is (= "true" (.getAttribute fired-el "data-fired")))
