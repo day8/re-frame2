@@ -63,9 +63,10 @@
 
     2. **`snapshots`** — `{machine-id snapshot-or-nil}` map; each
        value is the result of `(rf/machine-meta-via-sub machine-id)`
-       (i.e. `(get-in app-db [:rf/runtime :machines :snapshots <id>])` against the target
-       frame). nil when the machine is registered but not yet
-       initialised.
+       (i.e. `(get-in runtime-db [:rf.runtime/machines :snapshots <id>])`
+       against the target frame's RUNTIME-DB partition — EP-0001 rf2-vzld77
+       moved machine snapshots out of app-db into runtime-db). nil when the
+       machine is registered but not yet initialised.
 
     3. **`trace-buffer`** — Xray's trace ring buffer. The helper
        filters it to `:rf.machine/transition` events for the selected

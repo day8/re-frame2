@@ -90,13 +90,21 @@
 
   Post-rf2-vflrg the walker fires on BOTH `:app-db` and `:sub-cache`
   slices and threads `include-sensitive?` into the walker's
-  `:rf.size/include-sensitive?` opt."
+  `:rf.size/include-sensitive?` opt.
+
+  Post-rf2-jj1xer (EP-0001 ruling #14) the elision-on branch ALSO
+  default-redacts the `:machines` slice (runtime-db-partition state) to
+  `:rf/redacted` unless the operator opted in (`include-sensitive?` true
+  here mirrors the production `incl?` opt-in axis)."
   ([opts elision?] (build-snapshot-form opts elision? false))
   ([opts elision? include-sensitive?]
    ;; rf2-suoj2 — helper takes walker-aligned `include-large?`; flip
    ;; from the MCP-arg `elision?` polarity here, mirroring the
    ;; production call site in `tools/snapshot.cljs`.
    (let [elision-opts-form (elision/elision-opts-edn (not elision?) include-sensitive?)
+         ;; rf2-jj1xer — runtime-db (`:machines`) is redacted off-box by
+         ;; default; the opt-in axis is `incl?` (here `include-sensitive?`).
+         redact-runtime-db? (not include-sensitive?)
          ;; rf2-3bu3d.6 — on the `:app` default scope the form piggybacks
          ;; the excluded reserved tool frames; off that path it is `[]`.
          tool-frames-form (if (= :app (:frames opts))
@@ -113,7 +121,12 @@
             "                         fmap (if (contains? fmap :app-db)"
             "                                (update fmap :app-db f) fmap)"
             "                         fmap (if (contains? fmap :sub-cache)"
-            "                                (update fmap :sub-cache f) fmap)]"
+            "                                (update fmap :sub-cache f) fmap)"
+            (if redact-runtime-db?
+              (str "                         fmap (if (contains? fmap :machines)"
+                   "                                (assoc fmap :machines :rf/redacted) fmap)")
+              "")
+            "]"
             "                     (assoc m fid fmap))"
             "                   (assoc m fid fmap)))"
             "               {} snap)]"
@@ -162,9 +175,9 @@
   ;; §Direct-read privacy posture, the `sub-cache` direct-read surface
   ;; MUST route through the wire walker with off-box defaults.
   ;;
-  ;; The other slices (:machines :epochs :traces) have their own
-  ;; wire-protocol mechanisms (dedup, diff-encode, sensitive-strip);
-  ;; the walker fires only on the two direct-read slices that need it.
+  ;; The `:epochs` / `:traces` slices have their own wire-protocol
+  ;; mechanisms (dedup, diff-encode, sensitive-strip); the walker fires
+  ;; only on the two direct-read slices that need it.
   (let [form (build-snapshot-form {:frames :all
                                    :include [:app-db :sub-cache :machines :epochs]}
                                   true)]
@@ -172,10 +185,34 @@
     ;; `update` arms cite the two direct-read slices by key.
     (is (re-find #"contains\? fmap :app-db" form))
     (is (re-find #"contains\? fmap :sub-cache" form))
-    ;; Machines / epochs / traces are not walked here — they have
-    ;; their own wire mechanisms.
-    (is (not (re-find #"contains\? fmap :machines" form)))
+    ;; The walker (`elide-wire-value`) is NOT applied to :machines — its
+    ;; runtime-db redaction is a whole-slice `:rf/redacted` substitution,
+    ;; not a per-slot walk (see snapshot-form-redacts-machines-runtime-db).
+    (is (not (re-find #"update fmap :machines f" form)))
     (is (not (re-find #"contains\? fmap :epochs" form)))))
+
+(deftest snapshot-form-redacts-machines-runtime-db-off-box-by-default
+  ;; EP-0001 rf2-jj1xer / ruling #14 — the `:machines` slice is RUNTIME-DB
+  ;; state (machine snapshots moved to the runtime-db partition in
+  ;; rf2-vzld77). Per Spec 011 §Off-box redaction the runtime-db partition
+  ;; is REDACTED/OMITTED off-box by default. So the elision-on form (the
+  ;; default off-box posture, `include-sensitive?` false) substitutes the
+  ;; `:machines` slice with `:rf/redacted`.
+  (let [form-default  (build-snapshot-form {:frames :all
+                                            :include [:app-db :machines]}
+                                           true false)
+        form-opted-in (build-snapshot-form {:frames :all
+                                            :include [:app-db :machines]}
+                                           true true)]
+    (is (re-find #"contains\? fmap :machines" form-default)
+        "default off-box ⇒ the form touches the :machines slice")
+    (is (re-find #"assoc fmap :machines :rf/redacted" form-default)
+        "default off-box ⇒ :machines redacts to :rf/redacted (runtime-db partition)")
+    ;; Operator opted in to richer reads (the --allow-sensitive-reads gate,
+    ;; surfaced as include-sensitive? here) ⇒ the runtime-db machine
+    ;; snapshots ship; no :machines redaction arm.
+    (is (not (re-find #"assoc fmap :machines :rf/redacted" form-opted-in))
+        "trusted-local opt-in ⇒ :machines is NOT redacted (richer diagnostics)")))
 
 (deftest snapshot-form-threads-include-sensitive
   ;; rf2-vflrg — `:include-sensitive?` flows through to the walker's

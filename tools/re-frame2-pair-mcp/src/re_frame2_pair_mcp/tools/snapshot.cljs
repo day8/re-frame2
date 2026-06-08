@@ -104,23 +104,39 @@
         ;; record is projected; gate ON + `:include-sensitive true` ⇒
         ;; records ship raw (the operator's deliberate opt-in).
         project-epochs?   (not incl?)
-        ;; The whole `walked` reduction is needed when EITHER transform
-        ;; fires: `:app-db`/`:sub-cache` elision (`elision?`) OR `:epochs`
-        ;; projection (`project-epochs?`). When neither fires (gate ON +
-        ;; `:elision false` + `:include-sensitive true`) the snapshot
-        ;; passes through verbatim — the full raw-egress opt-in.
-        walk-snapshot?    (or elision? project-epochs?)
+        ;; EP-0001 (rf2-jj1xer · Mike ruling #14) — the `:machines` slice is
+        ;; RUNTIME-DB-partition state (machine snapshots now live in the
+        ;; durable runtime-db partition, not app-db — rf2-vzld77). Per Spec
+        ;; 011 §Off-box redaction the runtime-db partition is REDACTED/OMITTED
+        ;; off-box by default. So default-redact the `:machines` slice to the
+        ;; framework `:rf/redacted` sentinel unless the operator opted in to
+        ;; richer reads (the trusted-local `--allow-sensitive-reads` gate,
+        ;; surfaced here as `incl?` — same opt-in axis the `:epochs`
+        ;; projection uses). Gate OFF ⇒ `incl?` false ⇒ redact-runtime-db?
+        ;; true ⇒ `:machines` egresses as `:rf/redacted`; gate ON +
+        ;; `:include-sensitive true` ⇒ the live runtime-db snapshots ship
+        ;; (the operator's deliberate opt-in to runtime-db diagnostics).
+        redact-runtime-db? (not incl?)
+        ;; The whole `walked` reduction is needed when ANY transform fires:
+        ;; `:app-db`/`:sub-cache` elision (`elision?`), `:epochs` projection
+        ;; (`project-epochs?`), OR `:machines` runtime-db redaction
+        ;; (`redact-runtime-db?`). When none fire (gate ON + `:elision false`
+        ;; + `:include-sensitive true`) the snapshot passes through verbatim
+        ;; — the full raw-egress opt-in.
+        walk-snapshot?    (or elision? project-epochs? redact-runtime-db?)
         ;; Source fragment that applies the active per-slot transforms to
         ;; one frame's slice map `fmap`. `elision?` wraps `:app-db` /
         ;; `:sub-cache` through `elide-wire-value`; `project-epochs?` maps
-        ;; the `:epochs` vector through `projected-record`. Emitted as a
-        ;; threaded `let` so a frame can carry both transforms. The
-        ;; `opts` / `f` (`elide-wire-value`) bindings are emitted ONLY in
-        ;; the `elision?` branch — `:epochs` projection never touches the
-        ;; per-slot walker (`projected-record` carries its own elision),
-        ;; so a gate-ON `:elision false` read emits NO `elide-wire-value`
-        ;; (the `:raw-state/snapshot-opt-in-honours-elision-false`
-        ;; conformance contract) while still projecting `:epochs`.
+        ;; the `:epochs` vector through `projected-record`;
+        ;; `redact-runtime-db?` substitutes the `:machines` runtime-db slice
+        ;; with the `:rf/redacted` sentinel. Emitted as a threaded `let` so a
+        ;; frame can carry all transforms. The `opts` / `f`
+        ;; (`elide-wire-value`) bindings are emitted ONLY in the `elision?`
+        ;; branch — `:epochs` projection + `:machines` redaction never touch
+        ;; the per-slot walker, so a gate-ON `:elision false` read emits NO
+        ;; `elide-wire-value` (the
+        ;; `:raw-state/snapshot-opt-in-honours-elision-false` conformance
+        ;; contract) while still projecting `:epochs`.
         slice-walk-src    (str "(let ["
                                (if elision?
                                  (str " opts (merge {:frame fid} " elision-opts-form ")"
@@ -134,6 +150,10 @@
                                  (str " fmap (if (contains? fmap :epochs)"
                                       "        (update fmap :epochs"
                                       "                (fn [es] " (egress/project-page-src "es" true) ")) fmap)")
+                                 "")
+                               (if redact-runtime-db?
+                                 (str " fmap (if (contains? fmap :machines)"
+                                      "        (assoc fmap :machines :rf/redacted) fmap)")
                                  "")
                                "] fmap)")
         ;; rf2-3bu3d.6 — when the resolved scope is the DEFAULT `:app`
