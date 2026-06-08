@@ -50,9 +50,10 @@
   [:rf.route/transitioned "/cart"]]
 
  :fixture/expect
- {:final-app-db
-  {:rf/runtime {:routing {:current {:id :route/cart :params {} :query {} :fragment nil
-                :transition :idle :error nil}}} :load-count 1}                                           ;; fired ONCE, not twice
+ {:final-app-db {:load-count 1}
+
+  :final-runtime-db {:rf.runtime/routing {:current {:id :route/cart :params {} :query {} :fragment nil
+                :transition :idle :error nil}}}                                           ;; fired ONCE, not twice
 
   :trace-emissions
   [;; First navigation: nav-token allocated, loader fires once.

@@ -151,12 +151,20 @@
       :db-get       (let [[_ path default] form
                           v (get-in (:db ctx) path)]
                       (if (and (nil? v) (>= (count form) 3)) default v))
-      :get          (let [[_ path] form]
+      :get          (let [[_ path] form
+                          runtime-path? (and (vector? path)
+                                             (keyword? (first path))
+                                             (= "rf.runtime" (namespace (first path))))]
                       ;; Read from :data when present (machine bodies),
                       ;; else from :db (event bodies). The two contexts
                       ;; share the same shorthand.
+                      ;; EP-0001 (rf2-vzld77): a `[:rf.runtime/… …]` path in an
+                      ;; event body reads the RUNTIME-DB partition (the
+                      ;; `:rf.db/runtime` coeffect), not app-db — durable
+                      ;; machine / routing / SSR state lives there.
                       (cond
                         (contains? ctx :data) (get-in (:data ctx) path)
+                        runtime-path?         (get-in (get-in ctx [:cofx :rf.db/runtime]) path)
                         :else                 (get-in (:db ctx) path)))
       :fn           (resolve-fn-form form ctx)
       :cofx-key     (get (:cofx ctx) (second form))
@@ -366,6 +374,20 @@
                  (assoc ctx :db
                         (if (empty? path) v (assoc-in db path v))))
 
+    ;; EP-0001 (rf2-vzld77): seed / mutate the frame's RUNTIME-DB partition.
+    ;; `:set-runtime [path value]` assoc-in's into the runtime-db value
+    ;; threaded from the `:rf.db/runtime` coeffect; the realised event-fx
+    ;; handler emits the accumulated value under `:rf.db/runtime`. Used by
+    ;; fixtures to seed / assert machine snapshots / route slice / etc. now
+    ;; that durable framework runtime state lives in runtime-db.
+    :set-runtime (let [[_ path value] step
+                       v   (resolve-value value ctx)
+                       rdb (or (:runtime-db ctx)
+                               (get-in ctx [:cofx :rf.db/runtime])
+                               {})]
+                   (assoc ctx :runtime-db
+                          (if (empty? path) v (assoc-in rdb path v))))
+
     :update    (let [[_ path fn-form & extra-args] step
                      f             (resolve-value fn-form ctx)
                      resolved-args (mapv #(resolve-value % ctx) extra-args)]
@@ -450,10 +472,16 @@
   [steps]
   (fn [cofx event]
     (let [db    (:db cofx)
+          ;; EP-0001 (rf2-vzld77): thread the runtime-db partition value so a
+          ;; `:set-runtime` step can seed / mutate it and the handler emits a
+          ;; `:rf.db/runtime` effect.
+          rdb   (:rf.db/runtime cofx)
           final (reduce apply-step
                         {:db db :event event :fx [] :cofx cofx}
                         steps)
-          db-changed? (not= (:db final) db)]
+          db-changed?      (not= (:db final) db)
+          runtime-changed? (and (contains? final :runtime-db)
+                                (not= (:runtime-db final) rdb))]
       ;; A `:return-raw` step short-circuits the well-shaped builder —
       ;; the handler returns the stashed literal verbatim (which may be a
       ;; malformed effect-map, or a non-map for the bad-return path). This
@@ -463,6 +491,7 @@
         (::return-raw final)
         (cond-> {}
           db-changed?       (assoc :db (:db final))
+          runtime-changed?  (assoc :rf.db/runtime (:runtime-db final))
           (seq (:fx final)) (assoc :fx (:fx final)))))))
 
 (defn- walk-hiccup
@@ -575,10 +604,21 @@
   [steps]
   (letfn [(uses-cofx? [v]
             (and (vector? v)
-                 (#{:cofx-key :cofx-without} (first v))))]
+                 (or (#{:cofx-key :cofx-without} (first v))
+                     ;; EP-0001 (rf2-vzld77): a `[:get [:rf.runtime/… …]]`
+                     ;; value form reads the runtime-db coeffect, so the body
+                     ;; needs the full cofx map (event-fx, not event-db).
+                     (and (= :get (first v))
+                          (vector? (second v))
+                          (keyword? (first (second v)))
+                          (= "rf.runtime" (namespace (first (second v))))))))]
     (some (fn [step]
             (or (= :fx (first step))
                 (= :dispatch (first step))
+                ;; EP-0001 (rf2-vzld77): a `:set-runtime` body writes the
+                ;; runtime-db partition (a `:rf.db/runtime` effect), which
+                ;; only the event-fx shape can return — so force event-fx.
+                (= :set-runtime (first step))
                 ;; A `:return-raw` body must be event-fx so the literal
                 ;; return reaches `commit-fx-effects` — the proactive
                 ;; fx shape-policing site. An event-db handler would
@@ -607,10 +647,45 @@
 ;; perform: {:kind :layer-1 :body fn}
 ;;          {:kind :layer-2 :inputs [[:other-sub]] :body fn}
 
+(defn- runtime-db-sub-steps?
+  "EP-0001 (rf2-vzld77): a fixture sub body whose FIRST step is a
+  `[:get [:rf.runtime/… …]]` read against a reserved runtime-db key is a
+  framework runtime-db reader — the durable machine / routing / SSR state
+  now lives in the runtime-db partition. Such a sub registers via
+  `reg-runtime-sub` so its `db`-position arg is the runtime-db value."
+  [steps]
+  (let [first-step (first steps)]
+    (and (vector? first-step)
+         (= :get (first first-step))
+         (let [path (second first-step)]
+           (and (vector? path)
+                (keyword? (first path))
+                (= "rf.runtime" (namespace (first path))))))))
+
 (defn realise-sub
   [steps]
   (let [first-step (first steps)]
     (cond
+      ;; EP-0001 (rf2-vzld77): a `[:get [:rf.runtime/… …]]` body reads the
+      ;; runtime-db partition (machine snapshots / route slice / etc.). Same
+      ;; layer-1 pipeline shape, but `:kind :runtime-db` so the runner
+      ;; registers it via `reg-runtime-sub` (the `db`-position arg is the
+      ;; runtime-db value).
+      (runtime-db-sub-steps? steps)
+      {:kind :runtime-db
+       :body (fn [runtime-db _query]
+               (reduce
+                 (fn [v step]
+                   (case (first step)
+                     :get  (get-in runtime-db (second step))
+                     :fn   (let [[_ k & extra] step
+                                 f (builtin k)
+                                 args (mapv #(resolve-value % {:db runtime-db}) extra)]
+                             (apply f v args))
+                     v))
+                 nil
+                 steps))}
+
       ;; layer-2 reduce-input form
       (and (vector? first-step) (= :reduce-input (first first-step)))
       (let [[_ input-sub-id reducer-form mapper-form] first-step

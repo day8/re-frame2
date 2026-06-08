@@ -32,8 +32,7 @@
   [:rf.route/transitioned "/docs/routing"]]
 
  :fixture/expect
- {:final-app-db
-  {:rf/runtime {:routing {:current {:id       :route/docs
+ {:final-runtime-db {:rf.runtime/routing {:current {:id       :route/docs
               :params   {:page "routing"}
               :query    {}
-              :fragment nil}}}}}}
+              :fragment nil}}}}}

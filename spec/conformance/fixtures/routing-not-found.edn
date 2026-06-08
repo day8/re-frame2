@@ -34,14 +34,16 @@
  [[:rf.route/handle-url-change "/garbage/path"]]
 
  :fixture/expect
- {:final-app-db
+ {:final-app-db {:analytics {:last-404 true}}
+
   ;; :transition is implementation-defined here (some runtimes leave
   ;; :loading after on-match drain; others normalise to :idle). Partial-
   ;; match — assert the locked fields only.
-  {:rf/runtime {:routing {:current {:id     :rf.route/not-found
-               :params {:url "/garbage/path"}
-               :query  {}
-               :error  nil}}} :analytics {:last-404 true}}
+  ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state.
+  :final-runtime-db {:rf.runtime/routing {:current {:id     :rf.route/not-found
+                                          :params {:url "/garbage/path"}
+                                          :query  {}
+                                          :error  nil}}}}
 
   :trace-emissions
   [;; The runtime emits :rf.error/no-such-handler when match-url returns nil.

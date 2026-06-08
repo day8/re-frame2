@@ -121,6 +121,18 @@
   [db runtime-db frame payload new-db]
   (let [version       (:rf/version payload)
         schema-digest (:rf/schema-digest payload)
+        ;; EP-0001 (rf2-vzld77): the server-settled durable runtime state
+        ;; (machine snapshots, route slice) rides the payload's `:rf/runtime-db`
+        ;; slice — a coherent runtime-db value the hydrate handler installs into
+        ;; the runtime-db partition so the framework subs (`:rf/machine`,
+        ;; `[:rf.route/*]`) see the hydrated state, and it survives as durable
+        ;; frame-state. (The full epoch/SSR snapshot-restore PROJECTIONS are
+        ;; bead 7's surface — rf2-3aizt1; this is just the
+        ;; payload-runtime-db→partition install.) The base for the metadata
+        ;; merge is the payload slice when present, else the existing
+        ;; runtime-db coeffect.
+        payload-rt    (let [pr (:rf/runtime-db payload)] (when (map? pr) pr))
+        runtime-base  (or payload-rt runtime-db {})
         ;; Declarative hydration-metadata construction — additive,
         ;; nil-pruned. New keys land here as kv pairs without re-ordering
         ;; the previous `cond->` clauses.
@@ -161,8 +173,15 @@
 
                    (and client? schema-digest)
                    (conj [:rf.ssr/check-schema-digest schema-digest]))}
-      (seq metadata)
-      (assoc :rf.db/runtime (assoc-in (or runtime-db {}) [:rf.runtime/ssr :hydration] metadata)))))
+      ;; Install the runtime-db partition when EITHER a server-settled
+      ;; runtime-db slice rode the payload OR hydration metadata was produced.
+      ;; The metadata merges on top of the payload slice (server-hash/version
+      ;; sit alongside the hydrated machine snapshots / route slice).
+      (or payload-rt (seq metadata))
+      (assoc :rf.db/runtime
+             (if (seq metadata)
+               (assoc-in runtime-base [:rf.runtime/ssr :hydration] metadata)
+               runtime-base)))))
 
 ;; ---- :rf.ssr/check-version + :rf.ssr/check-schema-digest fxs --------------
 ;;

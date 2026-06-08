@@ -260,7 +260,7 @@
         ;; Initialise machine snapshot in app-db.
         (rf/reg-event-db :machine/init
           (fn [db _]
-            (assoc-in db [:rf/runtime :machines :snapshots :machine/tl]
+            (assoc-in db [:rf.runtime/machines :snapshots :machine/tl]
                       {:state :red :data {}})))
         (rf/dispatch-sync [:machine/init] {:frame :test/main})
         (rf/dispatch-sync [:machine/tl [:tick]] {:frame :test/main})
