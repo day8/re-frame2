@@ -549,9 +549,9 @@ it pans, zooms, and fits to viewport.
 - `−` / `+` — Zoom out / Zoom in about the viewport centre.
 - `NN%` chip — current zoom level, integer percentage.
 - `Fit` — fits the laid-out content into the viewport with padding
-  on all sides; centred. (Toolbar emits `:fit-request` which the
-  Xray-side handler expands to a full `:fit` using the measured
-  viewport dims + the content dims from `chart/layout`.)
+  on all sides; centred. (Owned by the machines-viz `MachineChart`
+  via xyflow's built-in `fitView`; Xray re-frames on panel-entry by
+  bumping the orthogonal `:fit-signal` nonce, rf2-6tw7t.)
 - `Reset` — zoom 100%, pan (0, 0).
 
 > **rf2-48fwsi — Canvas/List view-mode toggle removed.** The canvas
@@ -565,15 +565,14 @@ it pans, zooms, and fits to viewport.
 
 **Direct manipulation:**
 
-- **Mouse wheel** zooms toward the cursor (wheel-toward-cursor
-  invariant — the chart-world coord under the cursor is fixed
-  through the zoom transition). Trackpad pinch arrives as a wheel
-  event with `ctrlKey=true`; both are accepted.
+- **Mouse wheel** zooms toward the cursor (xyflow's `zoomOnScroll`;
+  the chart-world coord under the cursor is fixed through the zoom
+  transition). Trackpad pinch arrives as a wheel event with
+  `ctrlKey=true`; both are accepted.
 - **Click-drag** anywhere on canvas background (not on a state
-  node) pans. The drag handler walks up to 5 DOM ancestors looking
-  for `data-testid` starting `rf-mv-chart-node-` /
-  `rf-mv-chart-edge-`; clicks that hit a node fall through to
-  the node's own `:on-click` (state-click event).
+  node) pans (xyflow's `panOnDrag`; `nodesDraggable` is `false`,
+  so node hits fall through to the node's own `:on-click`
+  state-click event rather than dragging the node).
 
 **Keyboard shortcuts** (chart canvas must hold focus — `tabIndex=0`
 on the canvas host):
@@ -590,10 +589,15 @@ on the canvas host):
 **Bounds:** zoom is clamped to `[0.2, 4.0]`. Wheel notches step
 ×1.1; toolbar +/- and `+`/`-` keys step ×1.2.
 
-**`:after` rings track the canvas (rf2-obp4z).** The countdown-ring
-overlay receives the same viewport-transform the chart applies and
-wraps its rings group in `translate(tx,ty) scale(s)`. Rings stay
-anchored to their bearing-state node centres at every zoom + pan.
+**`:after` rings track the canvas (rf2-obp4z · rf2-uv1on).** The
+countdown-ring overlay (machines-viz `chart.overlays.after-rings/
+AfterRingsOverlay`) walks the rendered xyflow node DOM
+(`[data-testid=rf-mv-chart-node-…]`) to find each bearing node's
+bounding box and absolute-positions a ring there. Because xyflow
+owns node positions post-migration, the ring tracks the node's
+on-screen box at every zoom + pan (superseding the old elk-coordinate
+`{:cx :cy :r}` + SVG `translate(tx,ty) scale(s)` viewport-transform
+model the SVG renderer used).
 
 **Reduced motion.** Toolbar buttons + the canvas transform ride
 Xray's `--rf-xray-motion-scale` seam — no extra wiring here;
@@ -604,17 +608,23 @@ with the rest of Xray's surface.
 
 | Slot | Shape | Purpose |
 |---|---|---|
-| `:viewports {<machine-id> {:scale :tx :ty}}` | per-machine `{:scale s :tx tx :ty ty}` | current viewport |
-| `:viewport-dims {<machine-id> {:width :height}}` | per-machine | last-measured viewport box (drives `:fit`, keyboard) |
-| `:drag {:machine-id … :dragging? :origin-x :origin-y :origin-viewport}` | transient | mouse-down pan accumulator; cleared on mouseup |
+| `:chart-collapsed-by-id {<machine-id> boolean}` | per-machine boolean | operator's choice to hide the chart real-estate (default expanded); persisted to localStorage and rehydrated on load |
 
-(rf2-48fwsi removed the `:view-mode-by-id` slot + its
-`view-mode-for` / `view-mode-by-id` subs along with the dead
-Canvas/List toggle.)
+**Viewport state is NOT an Xray app-db slot (rf2-gpzb4 — 2026-05-21
+xyflow migration).** xyflow owns zoom / pan / fit internally; the
+former host-side viewport-reducer machinery (`:viewports`,
+`:viewport-dims`, `:drag` slots + the
+`:rf.xray.machine-canvas/viewport-for` /
+`viewport-dims-for` subs + the `/drag-start` · `/drag-move` ·
+`/drag-end` · `/measure` events) was removed when the SVG renderer
+gave way to `MachineChart`. Fit re-frames ride the orthogonal
+`:fit-signal` nonce (rf2-6tw7t), not a stored viewport. rf2-48fwsi
+likewise removed the `:view-mode-by-id` slot + its `view-mode-for` /
+`view-mode-by-id` subs along with the dead Canvas/List toggle.
 
 Subscriptions exposed for tools / tests:
-`:rf.xray.machine-canvas/viewport-for`,
-`:rf.xray.machine-canvas/viewport-dims-for`.
+`:rf.xray.machine-canvas/chart-collapsed-for`,
+`:rf.xray.machine-canvas/chart-collapsed-by-id`.
 
 ## IN/OUT filter pills
 
