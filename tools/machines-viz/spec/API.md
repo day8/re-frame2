@@ -353,8 +353,12 @@ the external-restart axis; drives the `↻` reenter chip), `:machineLevel`,
 
 The inbound + outbound edges carry the structural / styling state
 that used to live on the single state→state edge: `:active`,
-`:focused`, `:fired`, `:guardBlocked` (rf2-fzrzlw — both halves paint the
-PINK guard-blocked stroke), `:crossHierarchy`, and elk-routed `:points`. Edge
+`:focused`, `:fired`, `:guardBlocked` (rf2-fzrzlw / rf2-4nxgqq — the
+PINK guard-blocked stroke covers the `__in` source→event-node half ONLY;
+the `__out` event-node→target half carries `:guardBlocked false` because a
+guard-blocked transition is a no-op that never reached the target, so the
+highlight STOPS at the guard event-node and the onward arrow stays resting),
+`:crossHierarchy`, and elk-routed `:points`. Edge
 ids: `<spec-edge-id>__in` / `<spec-edge-id>__out`. Event-node ids:
 `event__<spec-edge-id>` via `chart.projection/event-node-id`. The
 `:eventLabel` slot on these edges is empty (the event-node holds the

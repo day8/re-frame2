@@ -2444,10 +2444,12 @@
                        (:id e))))))
 
 (deftest xyflow-graph-marks-guard-blocked-event-node-and-its-edges
-  (testing "rf2-fzrzlw — a parsed-edge id in :guard-blocked-edge-ids marks
-            BOTH the inbound + outbound edges AND the event-node for that
-            transition with `:guardBlocked true`. Other edges / event-nodes
-            stay `:guardBlocked false`."
+  (testing "rf2-fzrzlw + rf2-4nxgqq — a parsed-edge id in
+            :guard-blocked-edge-ids marks the event-node AND its `__in`
+            (source→event-node) half `:guardBlocked true`, but NOT its
+            `__out` (event-node→target) half — the highlight stops at the
+            guard event-node because the no-op never reached the target.
+            Other edges / event-nodes stay `:guardBlocked false`."
     (let [parsed   (layout/project-definition door-cyclic-machine)
           close-id (door-close-edge-id parsed)
           graph    (projection/xyflow-graph
@@ -2460,11 +2462,49 @@
           other-ed (remove #(#{(:id in-edge) (:id out-edge)} (:id %))
                            (:edges graph))]
       (is (string? close-id) "fixture has the guarded :door/close edge")
-      (is (true? (:guardBlocked (:data ev-node))))
-      (is (true? (:guardBlocked (:data in-edge))))
-      (is (true? (:guardBlocked (:data out-edge))))
+      (is (true? (:guardBlocked (:data ev-node))) "event-node is blocked")
+      (is (true? (:guardBlocked (:data in-edge)))
+          "the `__in` source→event-node half is blocked")
+      (is (false? (:guardBlocked (:data out-edge)))
+          "rf2-4nxgqq — the `__out` event-node→target half is NOT blocked
+           (the no-op never reached the target)")
       (is (every? #(false? (:guardBlocked (:data %))) other-ev))
       (is (every? #(false? (:guardBlocked (:data %))) other-ed)))))
+
+(deftest xyflow-graph-guard-blocked-highlight-stops-at-event-node
+  (testing "rf2-4nxgqq — a guard-BLOCKED transition is a no-op: the guard
+            declined, the machine stayed in the source state, the target was
+            never reached. So the live blocked HIGHLIGHT covers
+            source→event-node ONLY, never event-node→target. Concretely:
+            the `__in` half AND the event-node carry `:guardBlocked true` +
+            the PINK arrowhead hue, while the `__out` half carries
+            `:guardBlocked false` + the RESTING (non-pink) arrowhead — so the
+            onward arrow does NOT falsely imply the transition progressed.
+            The `__out` STATIC topology edge still renders (the transition
+            exists in the definition); only the live overlay is withheld."
+    (let [parsed     (layout/project-definition door-cyclic-machine)
+          close-id   (door-close-edge-id parsed)
+          ct         (tokens/chart-tokens)
+          graph      (projection/xyflow-graph
+                       parsed {} {:guard-blocked-edge-ids #{close-id}})
+          ev-node    (event-node-for  graph close-id)
+          in-edge    (inbound-edge-for  graph close-id)
+          out-edge   (outbound-edge-for graph close-id)]
+      ;; The `__out` topology edge still EXISTS (static rendering preserved).
+      (is (some? out-edge)
+          "the event-node→target `__out` edge still renders (static topology)")
+      ;; The blocked overlay reaches the event-node + the inbound half.
+      (is (true? (:guardBlocked (:data ev-node))) "event-node is blocked")
+      (is (true? (:guardBlocked (:data in-edge)))
+          "source→event-node half carries the blocked overlay")
+      (is (= (:edge-guard-blocked ct) (:color (:markerEnd in-edge)))
+          "the `__in` arrowhead is the PINK guard-blocked hue")
+      ;; The overlay STOPS at the event-node — the onward half stays resting.
+      (is (false? (:guardBlocked (:data out-edge)))
+          "event-node→target half is NOT blocked — the highlight stops here")
+      (is (not= (:edge-guard-blocked ct) (:color (:markerEnd out-edge)))
+          "the `__out` arrowhead is NOT the pink guard-blocked hue — the
+           onward arrow must not imply the transition progressed"))))
 
 (deftest xyflow-graph-no-guard-blocked-ids-leaves-all-unblocked
   (testing "rf2-fzrzlw — omitting :guard-blocked-edge-ids leaves EVERY edge

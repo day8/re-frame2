@@ -995,18 +995,28 @@
                            whose guard REJECTED the event this epoch (a
                            guard-blocked no-op: the runtime emitted
                            `:rf.machine/guard-evaluated` fail/threw but NO
-                           `:rf.machine/transition`). An edge — AND its
-                           event-node — is marked `:guardBlocked` when its
-                           id ∈ this set; the renderer paints the PINK
-                           guard-blocked treatment (emphasised pink stroke +
+                           `:rf.machine/transition`). The event-node AND its
+                           `__in` (source-state → event-node) half are
+                           marked `:guardBlocked` when the canonical id ∈
+                           this set; the renderer paints the PINK guard-
+                           blocked treatment (emphasised pink stroke +
                            emphasised pink `IF <guard>` chip, `data-guard-
-                           blocked`) which WINS over fired/focused/active on
-                           that edge so the attempted-and-rejected edge
-                           stands out (bead design calls (1) + (2)). Without
-                           this the chart paints ALL of the active state's
-                           exits affordance-blue and gives ZERO signal which
-                           edge the event hit or that a guard blocked it. The
-                           host (Xray) resolves the set via
+                           blocked`) which WINS over fired/focused/active so
+                           the attempted-and-rejected edge stands out (bead
+                           design calls (1) + (2)). rf2-4nxgqq — the
+                           highlight STOPS at the guard event-node: the
+                           `__out` (event-node → target-state) half is NOT
+                           marked, because a blocked transition is a no-op
+                           (the machine stayed in the source state; the
+                           target was never reached) and an onward pink arrow
+                           would falsely imply the transition progressed. The
+                           static `__out` topology edge still renders; only
+                           the live blocked-overlay stops at the event-node.
+                           Without any of this the chart paints ALL of the
+                           active state's exits affordance-blue and gives
+                           ZERO signal which edge the event hit or that a
+                           guard blocked it. The host (Xray) resolves the set
+                           via
                            `panels.machines.trace-state/extract-guard-blocked-edge-ids`.
                            SUPERSET of XState/Stately (which highlights
                            nothing on a block). Defaults to `#{}`.
@@ -1587,6 +1597,20 @@
         (fn [half {:keys [edge ev-node-id from-active? focused? fired? blocked?
                           cross-hier?] :as desc} points label-pos]
           (let [in? (= half :in)
+                ;; rf2-4nxgqq — a guard-BLOCKED transition is a no-op: the
+                ;; guard declined, the machine STAYED in the source state,
+                ;; the target was NEVER reached. So the guard-blocked
+                ;; HIGHLIGHT must stop at the guard event-node — it covers
+                ;; the `__in` (source→event-node) half ONLY, never the
+                ;; `__out` (event-node→target) half. Lighting the onward
+                ;; arrow would falsely imply the transition progressed to
+                ;; the target. The STATIC `__out` topology edge still
+                ;; renders (the transition exists in the definition); only
+                ;; the live blocked-overlay is withheld from it. General to
+                ;; ALL guard-blocked transitions (each guarded-fork branch's
+                ;; own `__out` half independently drops the overlay). The
+                ;; event-node itself + the `__in` half stay PINK (unchanged).
+                half-blocked? (and blocked? in?)
                 w   (if in?
                       (:arrow-width-quiet chart)
                       (:arrow-width chart))]
@@ -1600,8 +1624,11 @@
              ;; `__out` (event→target) half and the pair reads as ONE
              ;; transition route. Both sizes ride the resolved density map
              ;; (trimmed toward Stately's small/thin heads).
+             ;; rf2-4nxgqq — `half-blocked?` (not the raw `blocked?`) drives
+             ;; the arrowhead colour so the onward `__out` head is NOT pink
+             ;; for a guard-blocked no-op (the head + stroke agree per half).
              :markerEnd {:type   "arrowclosed"
-                         :color  (marker-color desc)
+                         :color  (marker-color (assoc desc :blocked? half-blocked?))
                          :width  w
                          :height w}
              :data      {:eventLabel ""
@@ -1609,11 +1636,15 @@
                          :active     from-active?
                          :focused    focused?
                          :fired      fired?
-                         ;; rf2-fzrzlw — guard-blocked no-op: both halves of
-                         ;; the route paint the PINK guard-blocked stroke
-                         ;; (winning over fired/focused/active) so the
-                         ;; attempted-and-rejected edge stands out.
-                         :guardBlocked blocked?
+                         ;; rf2-fzrzlw + rf2-4nxgqq — guard-blocked no-op: the
+                         ;; PINK guard-blocked stroke (winning over
+                         ;; fired/focused/active) covers the `__in`
+                         ;; (source→event-node) half ONLY. The `__out`
+                         ;; (event-node→target) half stays resting — the
+                         ;; target was never reached, so the onward arrow must
+                         ;; NOT imply the transition progressed. `half-blocked?`
+                         ;; is `blocked?` AND `in?`.
+                         :guardBlocked half-blocked?
                          :afterMs    nil
                          :guard      nil
                          :action     nil
