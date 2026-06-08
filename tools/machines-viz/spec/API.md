@@ -70,8 +70,8 @@ registry).
 | `:show-background?` | no | `true` | When `true`, render xyflow's dot-pattern Background. |
 | `:fit-signal` | no | `nil` | rf2-6tw7t. Opaque value (any `=`-comparable nonce). When its value **changes** between renders the chart re-fits the viewport to frame the whole topology — **orthogonal** to the layout-key auto-fit. Hosts bump it on **panel-entry / tab-activation** so re-entering a panel re-frames the graph rather than restoring a stale (possibly off-screen) zoom/pan. A **steady** signal across ordinary re-renders is a no-op, so the operator's manual zoom/pan still survives non-entry re-renders. See [§Fit-on-entry signal](#fit-on-entry-signal-rf2-6tw7t). |
 | `:overlays` | no | `nil` | rf2-7w4qr. A **vector of host-fed overlay descriptor maps**, each keyed on `:id`. The single slot through which hosts compose the host-fed, spec+tick+callbacks overlay family (after-rings / spawn-all-join / cancellation-cascade) — collapses the former flat per-overlay props so a new overlay adds **one descriptor variant**, not 3–5 trunk props. The chart dispatches each descriptor to its already-modular rendering namespace by `:id` (`chart.cljs/render-overlay`); the renderers are unchanged. A per-descriptor `:tick` unifies the former `:after-ring-tick` + `:overlay-tick` (one rAF clock per chart stays host-owned — Lock #8 — just delivered per-overlay). A descriptor whose `:id` is outside the recognised set is **ignored** (a host data error, not a runtime fallback; dev builds emit a `js/console.warn`). Non-map entries are skipped. `nil` / `[]` → no overlays. See [§`:overlays` slot descriptor schema](#overlays-slot-descriptor-schema-rf2-7w4qr) for the multispec. |
-| `:machine-data` | no | `nil` | rf2-qo5xy; rf2-q129z8. CLJS map fed into the Context BAND in the ROOT-CONTAINER frame header (was a top-left corner panel pre-q129z8). Host projection: either live `:data` (key→value) or — the sole production feeder today — the **static inferred shape** (key→type-caption, via Xray's `static-context-shape`). `nil` / empty → no band. See [§Context band](#context-band-rf2-qo5xy-rf2-q129z8--now-in-the-frame-header). |
-| `:machine-data-inferred?` | no | `true` | rf2-5tz9p. When `true` the Context band shows a subtle `inferred from :data` badge marking its contents as a type shape **inferred** from one sample of the definition's `:data` — **not** a declared schema and **not** the live runtime `:data`. Set `false` when the host feeds live `:data` **values**. Ignored when no band renders. See [§Context band](#context-band-rf2-qo5xy-rf2-q129z8--now-in-the-frame-header). |
+| `:machine-data` | no | `nil` | rf2-qo5xy; rf2-q129z8; rf2-3q4k5b. CLJS map fed into the Context BAND in the ROOT-CONTAINER frame header (was a top-left corner panel pre-q129z8). Host projection: either live `:data` (key→value) or the **static context shape** (key→type-caption, via Xray's `static-context-shape`), which is **declared over inferred** — authoritative off a `:data-schema` when present, else inferred from one `:data` sample (rf2-3q4k5b). `nil` / empty → no band. See [§Context band](#context-band-rf2-qo5xy-rf2-q129z8--now-in-the-frame-header). |
+| `:machine-data-inferred?` | no | `true` | rf2-5tz9p; rf2-3q4k5b. Provenance gate for the Context-band badge. When `true` (default) the band shows a subtle `inferred from :data` badge — a type shape **inferred** from one sample of the definition's `:data`, **not** a declared schema and **not** the live runtime `:data`. When `false` the inferred badge is **dropped** and a positive `declared` badge shows instead; hosts pass `false` when feeding live `:data` **values** OR an AUTHORITATIVE shape off a `:data-schema` (rf2-3q4k5b · EP-0005). Ignored when no band renders. See [§Context band](#context-band-rf2-qo5xy-rf2-q129z8--now-in-the-frame-header). |
 | `:testid` | no | `"rf-mv-chart"` | Root wrapper `data-testid` so tests + hosts can find the chart. |
 
 ### `:overlays` slot descriptor schema (rf2-7w4qr)
@@ -482,27 +482,39 @@ Two host projections feed it:
 
 - **Live context** — the machine's current `:data` map (the
   `:rf.machine/data` slot from the snapshot), `(key → value)`.
-- **Static context shape** (rf2-vcnvj) — when no live snapshot is in
-  hand (the Static-Machines blank-state topology), the Xray topology
-  path derives `(key → type-caption)` from the definition's declared
-  `:data` via `topology-view/static-context-shape`, so the root Context
-  chrome renders the context KEYS + their TYPE shape (e.g.
-  `{:opened-count "number" :trail "vector"}`). This satisfies the
-  rf2-vcnvj acceptance "root title/context chrome at the top when
-  context shape is available" without a live runtime read.
+- **Static context shape** (rf2-vcnvj; rf2-3q4k5b) — when no live
+  snapshot is in hand (the Static-Machines blank-state topology), the
+  Xray topology path derives `(key → type-caption)` via
+  `topology-view/static-context-shape` (which delegates to the
+  machines-viz `context-shape/static-context-shape` helper), so the
+  root Context chrome renders the context KEYS + their TYPE shape (e.g.
+  `{:opened-count "number" :trail "vector"}`). The shape is **declared
+  over inferred** (rf2-3q4k5b · EP-0005): if the machine declares a
+  `:data-schema` (a Malli `[:map …]`), the shape is read AUTHORITATIVELY
+  off the schema; otherwise it is INFERRED from one sample of the
+  initial `:data`. This satisfies the rf2-vcnvj acceptance "root
+  title/context chrome at the top when context shape is available"
+  without a live runtime read.
 
-**Inferred-shape label** (rf2-5tz9p) — the static-shape projection is
-the **sole production feeder** of this band today, and a type shape
-derived from one sample of the initial `:data` is **not** a declared
-schema (and can mislead when the initial `:data` is partial or
-unrepresentative). The chart therefore paints a subtle italic
-`inferred from :data` badge beside the **Context** header
-(`rf-mv-chart-root-container-context-inferred-<id>`), gated by the
-optional `:machine-data-inferred?` prop (**default `true`**). A host
-that feeds **live `:data` values** instead passes
-`:machine-data-inferred? false` to drop the badge. The badge
-distinguishes the band from (a) the live `:data` overlay and (b) a real
-declared schema.
+**Provenance badge** (rf2-5tz9p; rf2-3q4k5b) — the Context band paints a
+small badge beside the **Context** header marking the shape's
+provenance, gated by the optional `:machine-data-inferred?` prop
+(**default `true`**):
+
+- **`:machine-data-inferred? true`** (the default; absent
+  `:data-schema`) — a subtle italic `inferred from :data` badge
+  (`rf-mv-chart-root-container-context-inferred-<id>`). A type shape
+  derived from one sample of the initial `:data` is **not** a declared
+  schema and can mislead when the initial `:data` is partial or
+  unrepresentative.
+- **`:machine-data-inferred? false`** — the inferred badge is **dropped**
+  and replaced with a positive `declared`
+  (`rf-mv-chart-root-container-context-declared-<id>`) badge. Two hosts
+  pass false: one feeding **live `:data` values** (key→value), and — per
+  rf2-3q4k5b — the Static path when the shape is AUTHORITATIVE off a
+  declared `:data-schema` (EP-0005's declared-over-inferred upgrade,
+  closing the deferred `rf2-wto1k` option A). The badge distinguishes
+  an authoritative/declared shape from the one-sample inference.
 
 #### Legacy paradigm sections below
 
@@ -1135,8 +1147,11 @@ colour is subordinate to structure**.
   and, under it, a Context BAND rendered from the optional `:machine-data`
   prop — live context `(key → value)` when a snapshot is in hand, or the
   static **context-shape** `(key → type-caption)` the Xray topology path
-  derives from the definition's `:data` via
-  `topology-view/static-context-shape` (rf2-vcnvj). **Pre-q129z8** the
+  derives via `topology-view/static-context-shape` (rf2-vcnvj),
+  **declared over inferred** — authoritative off a `:data-schema` when
+  present, else inferred from one `:data` sample (rf2-3q4k5b · EP-0005);
+  the badge beside the header reads `declared` for the authoritative shape
+  and `inferred from :data` for the inference. **Pre-q129z8** the
   title strip + Context were two `position:absolute` overlays welded to the
   chart's top-left corner; being absolute, they did not contain/track the
   topology (they stuck to the corner while xyflow re-fit the topology on

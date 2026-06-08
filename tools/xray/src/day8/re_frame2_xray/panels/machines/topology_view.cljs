@@ -58,39 +58,46 @@
   directly — the parent panel is responsible for pulling the
   definition + traces off the substrate and passing them in. Keeps
   the view testable in isolation."
-  (:require [day8.re-frame2-xray.panels.machine-canvas :as machine-canvas]
+  (:require [day8.re-frame2-machines-viz.context-shape :as context-shape]
+            [day8.re-frame2-xray.panels.machine-canvas :as machine-canvas]
             [day8.re-frame2-xray.panels.machines.topology :as topology]
             [day8.re-frame2-xray.panels.machines.trace-state :as trace-state]
             [day8.re-frame2-xray.theme.tokens :refer [tokens]]))
 
 (defn static-context-shape
-  "rf2-vcnvj — derive the STATIC context shape from a machine definition's
-  declared `:data` for the chart's root Context panel. Returns a map of
+  "rf2-vcnvj; rf2-3q4k5b (EP-0005) — derive the STATIC context shape from a
+  machine definition for the chart's root Context panel. Returns a map of
   `{key type-caption}` so the root chrome shows the operator the context
   KEYS + their TYPE shape (e.g. `{:opened-count \"number\" :trail
   \"vector\"}`) even with no live snapshot in hand. This is deliberately
   the SHAPE, not the live values — the live runtime `:data` overlay
   stays a separate diagnostic (per the bead). Returns nil when the
-  definition declares no `:data` (so the panel stays hidden).
+  definition declares neither a `:data-schema` nor a map `:data` (so the
+  panel stays hidden).
+
+  Declared over inferred (rf2-3q4k5b): when the machine declares a
+  `:data-schema`, the shape is read AUTHORITATIVELY off the schema; otherwise
+  it is INFERRED from one sample of the initial `:data`. The provenance is
+  reported by `static-context-inferred?` (drives the chart's
+  `:machine-data-inferred?` badge gate). Delegates to the machines-viz
+  `context-shape` helper so the derivation lives with the chart it feeds.
 
   Pure fn — testable in isolation."
   [definition]
-  (let [data (:data definition)]
-    (when (map? data)
-      (into {}
-            (map (fn [[k v]]
-                   [k (cond
-                        (nil? v)        "nil"
-                        (boolean? v)    "boolean"
-                        (number? v)     "number"
-                        (string? v)     "string"
-                        (keyword? v)    "keyword"
-                        (map? v)        "map"
-                        (vector? v)     "vector"
-                        (set? v)        "set"
-                        (sequential? v) "seq"
-                        :else           "value")]))
-            data))))
+  (:shape (context-shape/static-context-shape definition)))
+
+(defn static-context-inferred?
+  "rf2-3q4k5b (EP-0005) — true when `static-context-shape` for this definition
+  is INFERRED from one sample of `:data` (rf2-5tz9p's caveat applies — the
+  chart shows the `inferred from :data` badge); false when it is AUTHORITATIVE
+  from a declared `:data-schema` (the chart drops the inferred badge and shows
+  a `declared` badge). Feeds the chart's `:machine-data-inferred?` prop.
+
+  Defaults to true when there is no shape at all, so a host that threads it
+  unconditionally keeps the historical inferred-by-default posture. Pure."
+  [definition]
+  (let [result (context-shape/static-context-shape definition)]
+    (if result (:inferred? result) true)))
 
 (defn- resolve-current-state-path
   "Per-spec precedence (high → low): explicit > focused-epoch traces >
@@ -252,10 +259,17 @@
          ;; no transition (the door :door/close blocked by :may-close?).
          :guard-blocked-edge-ids guard-blocked-ids
          ;; rf2-vcnvj — surface the STATIC context shape (keys + type
-         ;; captions of the definition's `:data`) so the root Context
-         ;; chrome renders on the blank-state topology. nil when the
-         ;; machine declares no `:data` (panel stays hidden).
+         ;; captions) so the root Context chrome renders on the blank-state
+         ;; topology. nil when the machine declares neither a `:data-schema`
+         ;; nor a map `:data` (panel stays hidden).
          :machine-data           (static-context-shape definition)
+         ;; rf2-3q4k5b (EP-0005) — declared over inferred. False when the
+         ;; shape came from a declared `:data-schema` (authoritative — the
+         ;; chart drops the `inferred from :data` badge); true when inferred
+         ;; from one sample of `:data` (rf2-5tz9p's badge stays). The chart's
+         ;; prop already defaults true, but threading it explicitly keeps the
+         ;; declared path correct.
+         :machine-data-inferred? (static-context-inferred? definition)
          :show-after-rings?      false
          :show-controls?         show-controls?
          ;; rf2-6tw7t — fit-on-entry nonce pass-through; hosts that mount

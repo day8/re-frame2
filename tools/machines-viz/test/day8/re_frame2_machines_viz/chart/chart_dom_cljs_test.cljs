@@ -564,6 +564,27 @@
                       "[data-testid^=\"rf-mv-chart-root-container-context-inferred-\"]"))
               "no inferred badge when machine-data-inferred? is false"))))))
 
+(deftest chart-context-band-shows-declared-badge-when-authoritative
+  (testing "rf2-3q4k5b (EP-0005) — a host feeding a DECLARED context shape
+            (off a machine's `:data-schema`) passes `:machine-data-inferred?
+            false`; the chart then drops the `inferred from :data` badge and
+            shows a positive `declared` badge marking the shape AUTHORITATIVE."
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises this")
+      (with-mounted-chart
+        {:machine-id :test/ctx :definition machine-level-on-machine
+         :machine-data {:hits "number" :seen "vector"}
+         :machine-data-inferred? false}
+        (fn [_root node]
+          (is (nil? (.querySelector node
+                      "[data-testid^=\"rf-mv-chart-root-container-context-inferred-\"]"))
+              "the inferred badge is dropped for a declared shape")
+          (let [declared (.querySelector node
+                           "[data-testid^=\"rf-mv-chart-root-container-context-declared-\"]")]
+            (is (some? declared) "the `declared` badge mounted")
+            (is (= "declared" (.-textContent declared))
+                "the badge reads `declared`")))))))
+
 ;; ---- empty / nil definition placeholders --------------------------------
 
 (deftest chart-renders-no-definition-placeholder
