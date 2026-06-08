@@ -82,7 +82,7 @@ You can have more than one input. A sub that needs two upstream values lists two
 
 Two arrows, so the computation function's first argument is a *vector* of the two input values, destructured here as `[sorted filter-text]`. (One arrow, one bare value; many arrows, a vector. That's the only wrinkle.) `:products/visible` reads `:products/sorted`, which reads `:products`, which reads `app-db`. That chain — `app-db → :products → :products/sorted → :products/visible → your view` — is a path through the graph, and it is exactly the path that data flows down when something changes.
 
-> **A note on the middle position.** `:<-` is sugar. The general form of `reg-sub` is `(reg-sub id ?metadata signal-fn computation-fn)`, where the *signal function* returns the input subscriptions explicitly. The `:<- [:products]` form expands into a signal function that subscribes to `:products` and hands its value on. You'll basically never write the long form by hand — `:<-` covers the cases you actually have — but when you read "signal function" in the spec or the tooling, that's the slot it's talking about: the part of a subscription that declares *what it depends on*, separate from the part that declares *what it computes*. Inputs and computation, named separately, on purpose.
+> **A note on the middle position.** `:<-` is sugar. The general form of `reg-sub` is `(reg-sub id ?metadata input-fn computation-fn)`, where the *input function* returns the inputs explicitly. The `:<- [:products]` form expands into an input function that names `[:products]` as the one input and hands its value on. You'll basically never write the long form by hand for *static* inputs — `:<-` covers those cleanly — but the middle slot earns its keep when the inputs aren't fixed: when *which* upstream subscriptions you need depends on the query vector's own arguments. That's [parametric inputs](#parametric-inputs-when-the-dependencies-depend-on-the-argument), a few sections down. Either way, the shape is the same idea: inputs and computation, named separately, on purpose.
 
 ## Why the graph is fast: the equality gate
 
@@ -168,5 +168,93 @@ There's a second gift in the graph, hiding behind the first, and it's the one th
 A subscription's cache is keyed by its query vector, *per frame* (frames are [chapter 18](18-frames.md)'s job — for now, "per app"). So when ten different views all `@(rf/subscribe [:products/sorted])`, they are not running ten sorts. They are all reading the *same cached value* from the *same node* in the graph. The sort runs once, when `:products` changes, and ten views read the result. Add an eleventh view tomorrow and it costs nothing — the computation was already happening; the new view just attaches to the existing node.
 
 This is the property that makes the rule from the [views chapter](06-views.md) — *views compute hiccup only, derivations live in subscriptions* — not just tidy but *fast*. If a view sorts its own list inline, that sort runs on every re-render of that view, and a sibling view that needs the same sorted list runs its own copy. Move the sort into a `:<-` sub and the cost collapses to once-per-change, shared by every consumer. The decoupling and the performance are the *same mechanism* seen from two angles: name your derivations, and the graph caches them, shares them, and prunes them, all without you writing a line of cache-management code.
+
+## Three ways a sub names its inputs
+
+So far you've seen two shapes of `reg-sub`: the layer-1 extractor that takes `db`, and the `:<-` form that names other subscriptions. Those aren't two unrelated syntaxes — they're two of **three input-production modes**, and seeing them as one idea makes the third one obvious.
+
+The idea: **every subscription has a *producer* that says where its inputs come from.** A layer-1 extractor has no producer (it reads `app-db` and that's that). The `:<-` form is a *literal* producer — the inputs are a fixed list of query vectors, written out at registration. And there's a third producer for the case the first two can't express: when *which* inputs you need depends on the arguments in the query vector itself.
+
+| Mode | Form | Where the inputs come from |
+|---|---|---|
+| **App-db reader** | `(reg-sub id computation-fn)` | No upstream subs. The computation fn gets `app-db` and the query vector. This is the layer-1 extractor. |
+| **Static inputs** | `(reg-sub id :<- q1 :<- q2 computation-fn)` | A literal, fixed list of query vectors, known at registration. This is `:<-`. |
+| **Parametric inputs** | `(reg-sub id input-fn computation-fn)` | Computed from the query vector by an *input function*, when a concrete subscription is first materialised. |
+
+The first two you already have. The third is the rest of this section.
+
+### Parametric inputs: when the dependencies depend on the argument
+
+Subscriptions take arguments — `@(rf/subscribe [:article/page article-id])` — and sometimes the *arguments* decide which upstream subscriptions you need. An article page needs *that* article, *that* article's comments, and the current viewer. With `:<-` you're stuck: `:<-` lists query vectors literally, and you can't write `:<- [:article/by-id article-id]` because `article-id` isn't known at registration time — it arrives later, per subscription, in the query vector.
+
+That's exactly the gap the middle slot fills. Put a function there — an **input function** — and it receives the outer query vector and returns the inputs computed from it:
+
+```clojure
+(rf/reg-sub
+  :article/page
+  ;; input-fn: outer query-v -> a vector of query vectors
+  (fn [[_ article-id]]
+    [[:article/by-id article-id]
+     [:comments/for-article article-id]
+     [:viewer/current]])
+  ;; computation-fn: the resolved input values (same order), plus the query-v
+  (fn [[article comments viewer] [_ article-id]]
+    {:id article-id
+     :article article
+     :comments comments
+     :can-edit? (:edit? viewer)}))
+```
+
+Read the two functions as the two halves they always were. The **input function** answers *what does this sub depend on?* — here, three subscriptions, two of them parameterised by the `article-id` plucked out of the query vector. The **computation function** answers *what does it compute?* — it gets a vector of the resolved input *values*, in the same order the input function listed them (`[article comments viewer]`), plus the original query vector, and shapes the page view-model.
+
+When you `@(rf/subscribe [:article/page :a1])`, the input function runs once, produces `[[:article/by-id :a1] [:comments/for-article :a1] [:viewer/current]]`, the runtime subscribes to each, and from then on `[:article/page :a1]` is an ordinary cached node — it recomputes when any of those three values change by `=`, shares its result among all views asking for `:a1`, and prunes exactly like everything else in the graph. A *different* argument, `[:article/page :a2]`, is a *different* cache entry with its own three inputs. The input function is not on the hot path: it runs when a concrete subscription is first materialised, not on every recompute.
+
+### The input function's one rule about its return value
+
+The input function returns **a vector of query vectors** — a vector whose every element is itself a query vector (a vector with a keyword head). That's the whole grammar, and it's worth being precise about because the shape is checked and a wrong shape errors loudly rather than guessing.
+
+```clojure
+;; Accepted
+[[:article/by-id id] [:viewer/current]]   ;; multiple inputs
+[[:item/by-id id]]                         ;; single input — STILL a vector OF query vectors
+[]                                          ;; no inputs (unusual, but valid)
+
+;; Rejected
+:viewer/current                            ;; bare keyword
+[:item/by-id id]                           ;; a scalar query vector, not a vector of them
+[[:item/by-id id] :viewer]                 ;; mixed: a query vector and a bare keyword
+{:item [:item/by-id id]}                   ;; a map
+@(rf/subscribe [:item/by-id id])           ;; a live reaction — never; return the query vector, not the value
+```
+
+The one that trips people coming from re-frame v1 is the single-input case. It is `[[:item/by-id id]]`, **not** `[:item/by-id id]`. The outer vector is "the collection of inputs"; the inner vector is "one query vector." A single input is a collection of one, so it's still doubly-bracketed. The reason the scalar form is rejected rather than accommodated: `[:x :y]` is genuinely ambiguous — is it *one* query `:x` with argument `:y`, or *two* inputs `[:x]` and `[:y]`? Rather than pick a winner, re-frame2 rejects the ambiguous shape and asks you to spell the unambiguous one: `[[:x :y]]` for one query-with-arg, `[[:x] [:y]]` for two inputs.
+
+If you're migrating a v1 subscription, note the deeper change behind the bracket count: a v1 signal function returned live *signals* (`(rf/subscribe ...)` calls). A v2 input function returns *query vectors* — plain data describing what to subscribe to, never the subscriptions themselves. The runtime does the subscribing. That's what keeps the input function pure and the graph inspectable.
+
+### Use `:<-` for static inputs; reach for `input-fn` only when you must
+
+The two-function form is more powerful, which is exactly why it's not the default. The guidance is sharp:
+
+> **Use `:<-` for static inputs. Reach for an `input-fn` only when the upstream query vectors need values from the outer query vector.**
+
+If your inputs are a fixed list — `[:products]`, `[:filter]` — `:<-` says so declaratively, the tooling can draw those edges without running your app, and there's nothing to get wrong. `:<-` is in fact exactly a constant input function: `:<- [:items] :<- [:filter]` is the same as `(fn [_] [[:items] [:filter]])`, just with the boilerplate removed. Only when the *edges themselves vary with the argument* — `[:article/by-id article-id]`, where `article-id` comes from the query vector — does the function form earn its complexity.
+
+### Thread state-derived parameters through the query vector
+
+One sharp constraint completes the picture, and it's there to protect the graph's predictability. The input function gets the **outer query vector and nothing else** — no `app-db`. It is pure over its argument: it must not deref `app-db`, call `subscribe`, dispatch, or perform IO. So you cannot pick a subscription's *dependencies* based on the current state.
+
+That sounds limiting until you see the alternative, which is better anyway. When the parameter you'd select on lives in `app-db`, **read it at the call site and thread it through the query vector**:
+
+```clojure
+;; In the view: pull the param out as its own subscription,
+;; then pass it as an argument to the parametric sub.
+(let [article-id @(rf/subscribe [:current-route/article-id])
+      page       @(rf/subscribe [:article/page article-id])]
+  ...)
+```
+
+Now `article-id` is part of the query vector, the input function sees it, and the dependency graph stays *fixed per concrete query vector*: every `[:article/page :a1]` cache entry has the same three inputs for its whole life. The dynamism lives at the view boundary — where React already manages subscription lifecycle as components mount and unmount — instead of hiding inside a cache entry whose edges could silently change underfoot. A subscription whose topology depended on `app-db` would break disposal, hot reload, and the [Xray](../xray/index.md) topology view, all of which assume a cache entry's edges are stable. Threading the parameter through the query vector keeps every one of those guarantees and reads more clearly besides.
+
+> The full contract — input grammar, the error ids that fire on a bad return, and the reactive-cache semantics — lives in the spec: [API §`reg-sub` input-production modes](https://github.com/day8/re-frame2/blob/main/spec/API.md) and [Spec 006 — Reactive Substrate](https://github.com/day8/re-frame2/blob/main/spec/006-ReactiveSubstrate.md).
 
 That's the read side of re-frame2: a graph of named derivations rooted in `app-db`, recomputing only along the paths where values genuinely moved, sharing every result among everyone who asks. Your views sit at the leaves of this thing and read from it. What they do with what they read — and the one strict rule about what they're allowed to do — is [the next chapter](06-views.md).

@@ -246,6 +246,7 @@ nav:
     - "Explicit Frame Target Resolution": EP/frame-target-resolution.md
     - "Parametric Subscription Inputs": EP/subscription-inputs.md
     - "Resource Queries": EP/resource-queries.md
+    - "Machine :data Schema": EP/machine-data-schema.md
 
   - API:
     # Section label IS the API overview page (navigation.indexes, rf2-qgpkm).
