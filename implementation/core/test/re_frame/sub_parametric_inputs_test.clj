@@ -473,3 +473,75 @@
       (is (nil? (rf/compute-sub [:bad] {:leaf 1})))
       (is (false? @body-ran)
           "the computation fn was NOT run with a silently-empty input set"))))
+
+;; ---- handler-detection robustness (rf2-280fmh) ----------------------------
+;;
+;; The fn-or-Var handler test + the two-trailing-fn parametric-form
+;; recognition replaced the original `(= 1 (count remaining))` /
+;; bare-`ifn?` parser. Downstream consumers (ssr / xray / pair-mcp) build
+;; subs through registration shapes the original parametric feature test
+;; did NOT cover — chiefly the meta-map-prefixed `(reg-sub id meta-map
+;; computation-fn)` form (ssr/core conformance corpora use exactly this),
+;; and Var-valued handlers. These lock that the parser classifies those
+;; shapes correctly: a meta-map is consumed as `:meta` (never mistaken for
+;; the first fn of a two-fn parametric form), and a Var passes `handler?`.
+;; This is the core-level gate that would have caught a real
+;; misclassification — the gap that made the parser the plausible (but
+;; ultimately not actual) suspect for the cross-artefact regressions.
+
+(deftest meta-map-prefixed-layer-1-classifies-as-db
+  (testing "(reg-sub id meta-map computation-fn) — the meta-map is consumed as
+            :meta, leaving a single trailing fn → :db (NOT a 2-fn parametric)"
+    (rf/reg-sub :m1 {:doc "a layer-1 sub"} (fn [db _] (:n db)))
+    (let [m (sub-meta :m1)]
+      (is (= :db (:input-kind m)))
+      (is (= [] (:input-signals m)))
+      (is (not (contains? m :input-fn))
+          "a meta-map + single fn is NOT misread as input-fn + computation-fn")
+      (is (= "a layer-1 sub" (:doc m)) "the meta-map survived onto the registration"))
+    (rf/reg-event-db :seed-m1 (fn [_ _] {:n 7}))
+    (rf/dispatch-sync [:seed-m1])
+    (is (= 7 (rf/subscribe-once [:m1])))))
+
+(deftest meta-map-prefixed-static-chain-classifies-as-static
+  (testing "(reg-sub id meta-map :<- [...] computation-fn) — meta-map + :<- chain
+            classifies as :static, the chain intact"
+    (rf/reg-sub :base (fn [db _] (:n db)))
+    (rf/reg-sub :m2 {:doc "doubled"} :<- [:base] (fn [n _] (* 2 n)))
+    (let [m (sub-meta :m2)]
+      (is (= :static (:input-kind m)))
+      (is (= [[:base]] (:input-signals m)))
+      (is (not (contains? m :input-fn)))
+      (is (= "doubled" (:doc m))))
+    (rf/reg-event-db :seed-m2 (fn [_ _] {:n 5}))
+    (rf/dispatch-sync [:seed-m2])
+    (is (= 10 (rf/subscribe-once [:m2])))))
+
+(defn- a-var-layer-1-handler [db _] (:v db))
+
+(deftest var-valued-handler-is-accepted
+  (testing "a Var (callable IFn, not fn?) is a valid handler — `handler?` is
+            fn-or-Var, not bare `fn?`; HoF / requiring-resolve call sites
+            register with a Var"
+    (rf/reg-sub :vh #'a-var-layer-1-handler)
+    (let [m (sub-meta :vh)]
+      (is (= :db (:input-kind m)))
+      (is (var? (:handler-fn m)) "the Var handler is stored as-is"))
+    (rf/reg-event-db :seed-vh (fn [_ _] {:v 42}))
+    (rf/dispatch-sync [:seed-vh])
+    (is (= 42 (rf/subscribe-once [:vh])))))
+
+(deftest meta-map-prefixed-parametric-still-recognised
+  (testing "(reg-sub id meta-map input-fn computation-fn) — a meta-map BEFORE a
+            genuine two-fn parametric pair still classifies as :parametric"
+    (rf/reg-sub :leaf2 (fn [db [_ id]] (get-in db [:by-id id])))
+    (rf/reg-sub :p1 {:doc "parametric with meta"}
+                (fn [[_ id]] [[:leaf2 id]])
+                (fn [[v] _] v))
+    (let [m (sub-meta :p1)]
+      (is (= :parametric (:input-kind m)))
+      (is (fn? (:input-fn m)))
+      (is (= "parametric with meta" (:doc m))))
+    (rf/reg-event-db :seed-p1 (fn [_ _] {:by-id {:a 99}}))
+    (rf/dispatch-sync [:seed-p1])
+    (is (= 99 (rf/subscribe-once [:p1 :a])))))
