@@ -6,7 +6,7 @@
   vector whenever entry cascades cross a `:spawn`-bearing state. Per
   Spec 005 §Spawning + rf2-a2sn1, a spawned actor's liveness is
   APP-DB-ONLY: `spawn-fx` seeds the actor's initial snapshot at
-  `[:rf/runtime :machines :snapshots <spawned-id>]` in the spawning
+  `[:rf.runtime/machines :snapshots <spawned-id>]` in the spawning
   frame's app-db, stamping the revertible TYPE reference at
   `:rf/machine-type`. There is NO per-instance event-handler
   registration — the actor's liveness IS that snapshot's presence in the
@@ -21,7 +21,7 @@
   Per rf2-6vmw `spawn-all-init-fx` also lives here — the runtime
   emits `[:rf.machine/spawn-all-init args]` alongside per-child
   `:rf.machine/spawn` fxs on entry to a `:spawn-all`-bearing state to
-  seed the join state at `[:rf/runtime :machines :spawned <parent> <invoke-id>]`."
+  seed the join state at `[:rf.runtime/machines :spawned <parent> <invoke-id>]`."
   (:require [re-frame.frame :as frame]
             [re-frame.late-bind :as late-bind]
             [re-frame.machines.data-validation :as data-validation]
@@ -44,28 +44,28 @@
   `:rf/spawn-counter`). Returns nil for hand-emitted
   `[:rf.machine/spawn args]` fxs that bypass the transition reducer —
   the caller (`spawn-fx`) allocates such ids from the frame's app-db
-  spawn-counter slot at `[:rf/runtime :machines :spawn-counter]` inside
+  spawn-counter slot at `[:rf.runtime/machines :spawn-counter]` inside
   the spawn's db-swap so the allocation shares the same write."
   [args]
   (or (:spawn-id args)
       (:rf/spawned-id args)))
 
-(defn- allocate-actor-id-in-db
+(defn- allocate-actor-id-in-runtime-db
   "Hand-emitted-spawn fallback allocator (rf2-gr8q). When the spawn args
   carry no pre-allocated id (no `:spawn-id`, no `:rf/spawned-id`), this
-  fn bumps the frame's app-db counter at
-  `[:rf/runtime :machines :spawn-counter <machine-id>]` and returns
-  `[new-db spawned-id]`. Per rf2-gr8q the global `spawn-counter` atom
-  is gone; the allocator lives where the side-effect belongs — inside
-  the fx-handler's app-db swap — so the pure transition layer stays
-  effect-free. Per rf2-owvvr the counter sits under the
-  `:rf/runtime :machines` sub-container alongside `:snapshots`,
-  `:system-ids`, `:spawned` so the single-reserved-root contract per
-  Conventions §Reserved app-db keys holds."
-  [db machine-id]
-  (let [db' (update-in db [:rf/runtime :machines :spawn-counter machine-id] (fnil inc 0))
-        n   (get-in db' [:rf/runtime :machines :spawn-counter machine-id])]
-    [db' (keyword (namespace machine-id)
+  fn bumps the frame's runtime-db counter at
+  `[:rf.runtime/machines :spawn-counter <machine-id>]` and returns
+  `[new-runtime-db spawned-id]`. Per rf2-gr8q the global `spawn-counter`
+  atom is gone; the allocator lives where the side-effect belongs —
+  inside the fx-handler's runtime-db swap — so the pure transition layer
+  stays effect-free. Per EP-0001 rf2-vzld77 the counter sits under the
+  `:rf.runtime/machines` sub-container of the durable runtime-db partition
+  alongside `:snapshots`, `:system-ids`, `:spawned` (Conventions §Reserved
+  runtime-db keys)."
+  [runtime-db machine-id]
+  (let [rt' (update-in runtime-db [:rf.runtime/machines :spawn-counter machine-id] (fnil inc 0))
+        n   (get-in rt' [:rf.runtime/machines :spawn-counter machine-id])]
+    [rt' (keyword (namespace machine-id)
                   (str (name machine-id) "#" n))]))
 
 (defn- resolve-spawn-machine
@@ -156,14 +156,15 @@
   `initial-snap` (built once by the caller) is threaded in rather than
   re-built here.
 
-  `db-after-alloc` is the post-id-allocation db computed by the caller
-  (see `spawn-fx`); `swap-frame-db!`'s fn arg is discarded — the merge
-  is applied on top of `db-after-alloc` so the caller's counter bump
+  `rt-after-alloc` is the post-id-allocation runtime-db computed by the
+  caller (see `spawn-fx`); `swap-runtime-db!`'s fn arg is discarded — the
+  merge is applied on top of `rt-after-alloc` so the caller's counter bump
   survives. Under Spec 002's single-drainer invariant the discarded
-  re-read is value-equal to the snapshot the caller already had."
-  [frame-id db-after-alloc spec spawned-id initial-snap
+  re-read is value-equal to the snapshot the caller already had. Machine
+  snapshots are durable runtime-db state (EP-0001 rf2-vzld77)."
+  [frame-id rt-after-alloc spec spawned-id initial-snap
    {:keys [system-id parent-id track? type-ref] invoke-id :spawn-id}]
-  (let [existing (when system-id (get-in db-after-alloc (paths/system-id-path system-id)))
+  (let [existing (when system-id (get-in rt-after-alloc (paths/system-id-path system-id)))
         ;; Per rf2-a2sn1 — stamp the revertible TYPE reference onto the
         ;; snapshot root so the lazy resolver can re-materialise the
         ;; handler from app-db alone. Only when a spec landed (a
@@ -182,12 +183,12 @@
                                                   "; rebinding to " spawned-id
                                                   " (last-write-wins).")
                           :recovery          :warned-and-replaced}))
-    (frame/swap-frame-db! frame-id
-                          (fn [_db]
-                            (cond-> db-after-alloc
-                              spec      (assoc-in (paths/snapshot-path spawned-id) initial-snap)
-                              system-id (assoc-in (paths/system-id-path system-id) spawned-id)
-                              track?    (assoc-in (paths/spawned-path parent-id invoke-id) spawned-id))))
+    (frame/swap-runtime-db! frame-id
+                            (fn [_rt]
+                              (cond-> rt-after-alloc
+                                spec      (assoc-in (paths/snapshot-path spawned-id) initial-snap)
+                                system-id (assoc-in (paths/system-id-path system-id) spawned-id)
+                                track?    (assoc-in (paths/spawned-path parent-id invoke-id) spawned-id))))
     (when system-id
       (trace/emit! :rf.machine :rf.machine/system-id-bound
                    {:frame      frame-id
@@ -199,7 +200,7 @@
 
 (defn spawn-fx
   "fx handler for `:rf.machine/spawn`. Per Spec 005 §Spawning, the spawned
-  actor's snapshot lives at `[:rf/runtime :machines :snapshots
+  actor's snapshot lives at `[:rf.runtime/machines :snapshots
   <spawned-id>]` in the spawning frame's app-db, and its liveness IS that
   snapshot's presence in the (revertible) frame value — per rf2-a2sn1
   there is NO per-instance event-handler registration.
@@ -207,7 +208,7 @@
   Lifecycle wired here:
    1. Resolve the spawn's machine spec (`:machine-id` from the registrar
       OR an inline `:definition`).
-   2. Initialise the actor's snapshot at `[:rf/runtime :machines
+   2. Initialise the actor's snapshot at `[:rf.runtime/machines
       :snapshots <spawned-id>]` using the spec's `:initial` / `:data`
       (overridden by the spawn args' `:data`), stamping the revertible
       TYPE reference at `:rf/machine-type` (the `:machine-id` keyword, or
@@ -218,11 +219,11 @@
       `:rf/parent-id` + `:rf/spawn-id` into the actor's initial `:data`.
       Re-spawn under the same id replaces — last-write-wins.
    3. If `:system-id` present, bind it in the per-frame
-      `[:rf/runtime :machines :system-ids]` reverse index. Collisions emit
+      `[:rf.runtime/machines :system-ids]` reverse index. Collisions emit
       `:rf.error/system-id-collision` and rebind (last-write-wins).
    4. If `:rf/parent-id` + `:rf/spawn-id` present (declarative `:spawn`
       desugar — rf2-t07u Option A revised), bind the spawned id at
-      `[:rf/runtime :machines :spawned <parent-id> <invoke-id>]`.
+      `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]`.
    5. If `:start` event-vector present, dispatch
       `[<spawned-id> <start>]`. When `:start` is absent (per rf2-ijm7),
       the runtime dispatches a synthetic `[<spawned-id>
@@ -240,7 +241,7 @@
         ;; routes through the transition reducer which bumps the parent
         ;; snapshot's `:rf/spawn-counter`). Hand-emitted spawn fxs carry
         ;; no pre-allocated id; the frame's app-db spawn-counter slot
-        ;; at `[:rf/runtime :machines :spawn-counter]` (rf2-owvvr) serves
+        ;; at `[:rf.runtime/machines :spawn-counter]` (rf2-owvvr) serves
         ;; as the fallback allocator, bumped inside the same db-swap as
         ;; the snapshot install / registry bind below.
         pre-id     (pre-allocated-actor-id args)
@@ -253,27 +254,28 @@
         type-ref   (machine-type-ref args)
         system-id  (:system-id args)
         ;; Per rf2-t07u (Option A revised): the runtime tracks each
-        ;; declarative-:spawn spawn at [:rf/runtime :machines :spawned <parent-id>
+        ;; declarative-:spawn spawn at [:rf.runtime/machines :spawned <parent-id>
         ;; <invoke-id>] — populated only when the spawn carries both.
         parent-id  (:rf/parent-id args)
         invoke-id  (:rf/spawn-id args)
         track?     (and parent-id invoke-id)
         ;; Resolve the final spawned id: pre-allocated when present;
-        ;; else allocate from app-db inside the swap below. We pre-read
-        ;; the db once so the trace event and reg-machine* call see the
-        ;; same id the snapshot install / registry bind will use. The
-        ;; db-swap re-applies the increment to the (potentially-newer)
-        ;; db at write time — for the JVM atom container the read is
-        ;; consistent because `frame/swap-frame-db!` is the only writer
-        ;; during fx drain (Spec 002 §Single drainer per frame).
-        old-db     (frame/frame-app-db-value frame-id)
+        ;; else allocate from runtime-db inside the swap below. We pre-read
+        ;; the runtime-db once so the trace event and reg-machine* call see
+        ;; the same id the snapshot install / registry bind will use. The
+        ;; runtime-db swap re-applies the increment to the (potentially-
+        ;; newer) runtime-db at write time — for the JVM atom container the
+        ;; read is consistent because `frame/swap-runtime-db!` is the only
+        ;; writer during fx drain (Spec 002 §Single drainer per frame).
+        ;; Machine snapshots are durable runtime-db state (rf2-vzld77).
+        old-rt     (frame/frame-runtime-db-value frame-id)
         machine-id-for-alloc (or (:id-prefix args) (:machine-id args))
-        [db-after-alloc spawned-id]
+        [rt-after-alloc spawned-id]
         (cond
-          pre-id        [old-db pre-id]
-          (and old-db machine-id-for-alloc)
-                        (allocate-actor-id-in-db old-db machine-id-for-alloc)
-          :else         [old-db nil])
+          pre-id        [old-rt pre-id]
+          (and old-rt machine-id-for-alloc)
+                        (allocate-actor-id-in-runtime-db old-rt machine-id-for-alloc)
+          :else         [old-rt nil])
         spec''     (stamp-framework-data spec' spawned-id parent-id invoke-id)
         ;; Build the initial snapshot ONCE here so the schema-rejection
         ;; decision can gate every side effect below; `install-spawn!`
@@ -312,13 +314,13 @@
       ;; handler on dispatch. Spawn is a pure app-db write.
       ;;
       ;; (2) Initialise the snapshot + (3) bind :system-id + (4) bind the
-      ;; runtime-owned spawn registry (atomically under one app-db swap so
-      ;; observers see consistent state). When the spawned id was allocated
-      ;; from the frame's app-db (the hand-emitted-spawn fallback path),
-      ;; `db-after-alloc` already carries the bumped counter — install the
-      ;; snapshot on top of that.
-      (when old-db
-        (install-spawn! frame-id db-after-alloc spec'' spawned-id initial-snap
+      ;; runtime-owned spawn registry (atomically under one runtime-db swap
+      ;; so observers see consistent state). When the spawned id was
+      ;; allocated from the frame's runtime-db (the hand-emitted-spawn
+      ;; fallback path), `rt-after-alloc` already carries the bumped counter —
+      ;; install the snapshot on top of that.
+      (when old-rt
+        (install-spawn! frame-id rt-after-alloc spec'' spawned-id initial-snap
                         {:system-id system-id
                          :parent-id parent-id
                          :spawn-id invoke-id
@@ -400,7 +402,7 @@
   "fx handler for `:rf.machine/spawn-all-init` (rf2-6vmw). Per Spec 005
   §Spawn-and-join via `:spawn-all`, on entry to a `:spawn-all`-bearing
   state the runtime emits this fx (alongside per-child `:rf.machine/spawn`
-  fxs) to seed the join state at `[:rf/runtime :machines :spawned <parent> <invoke-id>]` in
+  fxs) to seed the join state at `[:rf.runtime/machines :spawned <parent> <invoke-id>]` in
   the frame's app-db. The seed map shape is:
 
     {:children {<child-id> <spawned-id>, ...}
@@ -417,8 +419,9 @@
         invoke-id  (:rf/spawn-id args)
         join-state (:join-state args)
         children   (:children join-state)]
-    (frame/swap-frame-db! frame-id assoc-in
-                          (paths/spawned-path parent-id invoke-id) join-state)
+    ;; Machine spawn-registry state is durable runtime-db state (rf2-vzld77).
+    (frame/swap-runtime-db! frame-id assoc-in
+                            (paths/spawned-path parent-id invoke-id) join-state)
     (trace/emit! :rf.machine :rf.machine.spawn-all/started
                  {:machine-id parent-id
                   :spawn-id  invoke-id

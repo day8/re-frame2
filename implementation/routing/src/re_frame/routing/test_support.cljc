@@ -65,13 +65,14 @@
 
   Replays an async http completion that carries the `:carried-nav-token`
   captured at request time. Match against the current
-  `[:rf/runtime :routing :current :nav-token]` → dispatch the
+  `[:rf.runtime/routing :current :nav-token]` → dispatch the
   `:on-success-event` continuation; mismatch → suppress and emit
   `:rf.route.nav-token/stale-suppressed` (same trace shape as the
   production `:rf.route/with-nav-token` handler, so a single conformance
   assertion covers both paths)."
-  [{:keys [db frame]} [_ {:keys [on-success-event carried-nav-token]}]]
-  (let [current (get-in db [:rf/runtime :routing :current :nav-token])]
+  [{:keys [frame] rdb :rf.db/runtime} [_ {:keys [on-success-event carried-nav-token]}]]
+  ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state.
+  (let [current (get-in (or rdb {}) [:rf.runtime/routing :current :nav-token])]
     (cond
       (= carried-nav-token current)
       ;; Token matches — dispatch the continuation.

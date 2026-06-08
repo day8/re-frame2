@@ -99,8 +99,10 @@
               ;; `:static` reports the literal `:<-` input query-vectors
               ;; (args preserved); `:parametric` reports the `:parametric`
               ;; sentinel (the realized edge set is per-concrete-query-v
-              ;; runtime state, not statically enumerable); `:db` (and any
-              ;; legacy registration without a discriminator) reports `[]`.
+              ;; runtime state, not statically enumerable); `:db` and
+              ;; `:runtime-db` (single-source layer-1-shaped readers — EP-0001
+              ;; rf2-vzld77, the latter reading the runtime-db projection) and
+              ;; any legacy registration without a discriminator report `[]`.
               inputs     (case input-kind
                            :parametric :parametric
                            :static     (vec (:input-signals meta))

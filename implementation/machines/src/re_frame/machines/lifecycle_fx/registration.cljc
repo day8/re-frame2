@@ -106,7 +106,7 @@
   a guard / action can branch on it. Singletons (no parent) and parents that
   declare no `:on-error` route nowhere — the trace IS the signal, unchanged."
   [ctx event reason info]
-  (let [{:keys [machine-id frame-id db snapshot]} ctx
+  (let [{:keys [machine-id frame-id runtime-db snapshot]} ctx
         ex         (:exception info)
         ex-msg     #?(:clj  (when ex (.getMessage ^Throwable ex))
                       :cljs (when ex (.-message ex)))
@@ -134,7 +134,7 @@
     (let [child-data (:data snapshot)
           parent-id  (:rf/parent-id child-data)
           invoke-id  (:rf/spawn-id child-data)]
-      (when (spawn-error/parent-declares-on-error? db parent-id invoke-id)
+      (when (spawn-error/parent-declares-on-error? runtime-db parent-id invoke-id)
         (spawn-error/dispatch-spawn-error!
           frame-id parent-id invoke-id
           {:rf.error/id       :rf.error/machine-action-exception
@@ -289,16 +289,19 @@
 (defn- prepare-machine-ctx
   "Step 1 of 4 (rf2-2zzyg). Stamp the live frame / platform / parent-id
   onto the machine def, look up the existing snapshot at
-  `[:rf/runtime :machines :snapshots <machine-id>]`, decide `needs-bootstrap?`, route the
-  inner event. Returns a `ctx` map the remaining three steps read.
+  `[:rf.runtime/machines :snapshots <machine-id>]` in the **runtime-db**
+  partition (machine snapshots are durable runtime-db state — EP-0001
+  rf2-vzld77), decide `needs-bootstrap?`, route the inner event. Returns a
+  `ctx` map the remaining three steps read. `runtime-db` is the
+  `:rf.db/runtime` coeffect the router injected by reference.
 
   Per rf2-0z73: detect 'first event for this machine' so the initial
   state's `:entry` actions fire as part of bringing the machine to life.
   Two flavours:
-    - Singleton path: `(get-in db path)` is `nil` — the snapshot is
+    - Singleton path: `(get-in runtime-db path)` is `nil` — the snapshot is
       being lazily synthesised right now.
     - Spawn path: `spawn-fx` pre-seeded the snapshot at
-      `[:rf/runtime :machines :snapshots <spawned-id>]` and stamped
+      `[:rf.runtime/machines :snapshots <spawned-id>]` and stamped
       `:rf/bootstrap-pending? true` so the actor's first dispatch sees
       the marker and runs the cascade before processing the event.
 
@@ -310,7 +313,7 @@
   `:entry` fires this same handler call) and emits the named
   `:rf.error/machine-state-not-in-definition` or
   `:rf.error/machine-snapshot-version-mismatch` event."
-  [db frame event machine base-initial]
+  [db runtime-db frame event machine base-initial]
   (let [machine-id    (first event)
         frame-id      (or frame :rf/default)
         platform      (or (:platform (frame/frame-meta frame-id)) :client)
@@ -319,7 +322,7 @@
                              :rf/platform  platform
                              :rf/parent-id machine-id)
         path          (paths/snapshot-path machine-id)
-        existing-snap (get-in db path)
+        existing-snap (get-in runtime-db path)
         snapshot      (cond
                         (nil? existing-snap)
                         (assoc @base-initial :rf/bootstrap-pending? true)
@@ -328,6 +331,7 @@
                         (reconcile-snapshot machine machine-id frame-id
                                             existing-snap base-initial))]
     {:db               db
+     :runtime-db       runtime-db
      :machine-id       machine-id
      :frame-id         frame-id
      :machine          machine
@@ -428,7 +432,7 @@
   surface stays free of runtime-only metadata."
   [ctx step-result boot-result]
   (result/with-ok [next-snapshot fx] step-result
-    (let [{:keys [machine machine-id frame-id db path snapshot inner-event]} ctx
+    (let [{:keys [machine machine-id frame-id runtime-db path snapshot inner-event]} ctx
           boot-fx   (result/fx boot-result)
           merged-fx (vec (concat boot-fx fx))
           ;; Per rf2-n9f4z: when this handler call both bootstrapped the
@@ -492,7 +496,10 @@
                              (transition/top-level-final? machine (:state next-snapshot)))
                         (and (finalize/all-regions-final? machine (:state next-snapshot))
                              (nil? (:on-done machine))))
-          new-db    (assoc-in db path next-snapshot)]
+          ;; Machine snapshots are durable runtime-db state (rf2-vzld77):
+          ;; write the new snapshot into the runtime-db partition value;
+          ;; the handler returns it under `:rf.db/runtime`, NOT `:db`.
+          new-runtime-db (assoc-in runtime-db path next-snapshot)]
       ;; Per rf2-hwuki: `:frame` tag is REQUIRED for epoch-capture
       ;; admission (`re-frame.epoch.capture/capture-event!` silently
       ;; drops trace events whose tags lack `:frame`). Without this
@@ -535,9 +542,9 @@
                       :frame      frame-id}))
       (if finished?
         (finalize/finalize-machine machine machine-id frame-id
-                                   new-db next-snapshot inner-event merged-fx)
-        {:db new-db
-         :fx merged-fx}))))
+                                   new-runtime-db next-snapshot inner-event merged-fx)
+        {:rf.db/runtime new-runtime-db
+         :fx            merged-fx}))))
 
 (defn make-machine-handler
   "Returns a function suitable for registration with `reg-event-fx`.
@@ -578,7 +585,7 @@
   ;; nil); only the spawn path needs it stamped here.
   (let [base-initial (delay (parallel/build-initial-snapshot
                               machine {:bootstrap-pending? false}))]
-    (fn [{:keys [db frame] :as _cofx} event]
+    (fn [{:keys [db frame] rt :rf.db/runtime :as _cofx} event]
       ;; Per Spec 009 §:op-type vocabulary: `:rf.machine/event-received`
       ;; fires at the top of the handler so consumers see the inbound
       ;; event before any state derivation.
@@ -586,9 +593,17 @@
                    {:machine-id (first event)
                     :event      event
                     :frame      (or frame :rf/default)})
-      (let [ctx         (prepare-machine-ctx db frame event machine base-initial)
+      ;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db
+      ;; state. The handler reads the snapshot from the `:rf.db/runtime`
+      ;; coeffect (a fresh frame's runtime-db is `nil` until first write —
+      ;; default it to `{}` so the snapshot lookup / install paths see a map)
+      ;; and returns its snapshot write under `:rf.db/runtime`. `db` (app-db)
+      ;; is still threaded for the spawn-`:on-error` parent lookup +
+      ;; action-failure diagnostics.
+      (let [runtime-db  (or rt {})
+            ctx         (prepare-machine-ctx db runtime-db frame event machine base-initial)
             intercepted (join/intercept-spawn-all-event
-                          (:machine ctx) db (:path ctx) (:snapshot ctx)
+                          (:machine ctx) runtime-db (:path ctx) (:snapshot ctx)
                           (:machine-id ctx) (:inner-event ctx))]
         (if intercepted
           intercepted
@@ -637,12 +652,12 @@
                             (and (finalize/all-regions-final? m (:state post-boot-snap))
                                  (nil? (:on-done m))))
                       (finalize/finalize-machine m (:machine-id ctx) (:frame-id ctx)
-                                                 (assoc-in db (:path ctx) post-boot-snap)
+                                                 (assoc-in runtime-db (:path ctx) post-boot-snap)
                                                  post-boot-snap
                                                  (:inner-event ctx)
                                                  (vec boot-fx))
-                      {:db (assoc-in db (:path ctx) post-boot-snap)
-                       :fx (vec boot-fx)}))
+                      {:rf.db/runtime (assoc-in runtime-db (:path ctx) post-boot-snap)
+                       :fx            (vec boot-fx)}))
                   (let [step-result (run-step ctx post-boot-snap)]
                     (if (result/fail? step-result)
                       (trace-action-failure! ctx (:inner-event ctx)
@@ -854,15 +869,18 @@
   The materialised handler-meta is shape-identical to a registered
   machine's, so the rest of `process-event*` is unchanged — it runs the
   handler against the actor's own snapshot (the machine handler reads
-  `[:rf/runtime :machines :snapshots <actor-id>]` keyed on the dispatched
-  event's first element). The handler-fn is built fresh per unresolved
-  dispatch; this is the COLD path (a spawned actor whose per-instance
-  handler is — by design — never registered), so the allocation is
-  bounded by actual spawned-actor traffic, not by every dispatch."
+  `[:rf.runtime/machines :snapshots <actor-id>]` from runtime-db, keyed on
+  the dispatched event's first element). The handler-fn is built fresh per
+  unresolved dispatch; this is the COLD path (a spawned actor whose
+  per-instance handler is — by design — never registered), so the allocation
+  is bounded by actual spawned-actor traffic, not by every dispatch.
+
+  EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state, so
+  the live snapshot is read off the frame's runtime-db partition."
   [event frame-id]
-  (let [actor-id (first event)
-        db       (frame/frame-app-db-value (or frame-id :rf/default))
-        snapshot (when db (get-in db (paths/snapshot-path actor-id)))
-        spec     (when snapshot (resolver/spec-from-snapshot snapshot))]
+  (let [actor-id   (first event)
+        runtime-db (frame/frame-runtime-db-value (or frame-id :rf/default))
+        snapshot   (when runtime-db (get-in runtime-db (paths/snapshot-path actor-id)))
+        spec       (when snapshot (resolver/spec-from-snapshot snapshot))]
     (when spec
       (handler-meta-for spec))))

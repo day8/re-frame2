@@ -5,12 +5,12 @@
   that don't pull day8/re-frame2-routing carry no `:rf.route/*` strings
   on their production-elision bundle (rf2-k682).
 
-  The route slice lives at `[:rf/runtime :routing :current]` per
+  The route slice lives at `[:rf.runtime/routing :current]` per
   Spec-Schemas §`:rf/runtime` — `{:id :params :query :transition :error
   :fragment :nav-token}`. The per-frame routing-runtime sub-keys
   (`:scroll-positions` / `:scroll-positions-order` / `:nav-token-counter`
   / `:pending-nav-counter`) sit flat as siblings under
-  `[:rf/runtime :routing ...]`, so the slice carries ONLY the published
+  `[:rf.runtime/routing ...]`, so the slice carries ONLY the published
   fields and the layer-1 `:rf/route` sub reads it directly — no
   projection needed (views that deref `[:rf/route]` are isolated from
   internal counter ticks by structure, not by `select-keys`).
@@ -22,11 +22,11 @@
 
 (defn route-sub-fn
   "Layer-1 sub fn for `:rf/route` — reads the route slice from
-  `[:rf/runtime :routing :current]`. Exposed publicly so external
+  `[:rf.runtime/routing :current]`. Exposed publicly so external
   callers (smoke tests, tooling) read the slice without re-deriving the
   path."
   [db _query]
-  (get-in db [:rf/runtime :routing :current]))
+  (get-in db [:rf.runtime/routing :current]))
 
 (defn chain-from-meta
   "Walk the `:parent` chain from `id` to the root, returning a vector
@@ -53,7 +53,7 @@
 
 (defn pending-navigation-sub-fn
   "Layer-1 sub fn for `:rf/pending-navigation` — reads
-  `[:rf/runtime :routing :pending-navigation]`. Public so the façade
+  `[:rf.runtime/routing :pending-navigation]`. Public so the façade
   can wire it as the sub's reduction fn."
   [db _]
-  (get-in db [:rf/runtime :routing :pending-navigation]))
+  (get-in db [:rf.runtime/routing :pending-navigation]))

@@ -34,13 +34,15 @@
   a `:rf.route.nav-token/allocated` on the same drain. Consumers carry
   `:prev-fragment` / `:next-fragment` in `:tags`. Scroll-capture (for the
   position the user is leaving) still rides along."
-  [db prev next-fragment]
+  [rdb prev next-fragment]
   (trace/emit! :rf.event :rf.route/fragment-changed
                {:route-id      (:id prev)
                 :prev-fragment (:fragment prev)
                 :next-fragment next-fragment})
-  (let [capture-fx (scroll/capture-scroll-fx-entry db)]
-    (cond-> {:db (assoc-in db [:rf/runtime :routing :current :fragment] next-fragment)}
+  ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db
+  ;; state — read/write the runtime-db partition.
+  (let [capture-fx (scroll/capture-scroll-fx-entry rdb)]
+    (cond-> {:rf.db/runtime (assoc-in rdb [:rf.runtime/routing :current :fragment] next-fragment)}
       capture-fx (assoc :fx [capture-fx]))))
 
 (defn- url-change-fx
@@ -67,8 +69,9 @@
      URL's path captures, query keys/values, or `#fragment` failed to
      %-decode. The `:reason` discriminator lets per-route error UIs
      and SSR projections branch on the cause."
-  [db url default-scroll frame]
-  (let [;; rf2-6t1xb: `match-url` THROWS on the keyword-interning DoS
+  [rdb url default-scroll frame]
+  (let [rdb (or rdb {})
+        ;; rf2-6t1xb: `match-url` THROWS on the keyword-interning DoS
         ;; guard (`:rf.error/route-too-many-keys`, rf2-3k3o7) — and the
         ;; guard's documented intent is to treat such a URL as a
         ;; route-miss, not to crash the event drain. `match-url-fail-closed`
@@ -100,7 +103,7 @@
         ;; AND popstate / initial / SSR (`:rf.route/handle-url-change`).
         ;; Back/Forward to a same-page anchor must not re-fetch route
         ;; data (rf2-8oxj6).
-        prev              (get-in db [:rf/runtime :routing :current])
+        prev              (get-in rdb [:rf.runtime/routing :current])
         fragment-only?    (and prev match
                                (= (:id prev)     (:route-id match))
                                (= (:params prev) (:params match))
@@ -142,14 +145,14 @@
                             (seq params) (assoc :params params)
                             (seq query)  (assoc :query  query))
         strategy          (scroll/resolve-scroll-strategy route-meta nil default-scroll)
-        capture-fx        (scroll/capture-scroll-fx-entry db)
+        capture-fx        (scroll/capture-scroll-fx-entry rdb)
         scroll-fx         (scroll/scroll-fx-entry
                             {:strategy  strategy
                              :from      (scroll/route-descriptor
-                                          (get-in db [:rf/runtime :routing :current]))
+                                          (get-in rdb [:rf.runtime/routing :current]))
                              :to        to-route
                              :saved-pos (when (= :restore strategy)
-                                          (scroll/lookup-scroll-position db url))
+                                          (scroll/lookup-scroll-position rdb url))
                              :fragment  fragment})]
     (cond
       ;; Spec 012 §Per-route data loading rule 3: nothing relevant
@@ -159,14 +162,14 @@
       ;; navigation to the already-active URL" no-op (clicking the
       ;; current nav link, popstate to the current URL).
       identical-nav?
-      {:db db}
+      {:rf.db/runtime rdb}
 
       ;; Spec 012 §Fragments rules 3-4 (rf2-8oxj6): short-circuit BEFORE
       ;; the nav-token allocation / on-match drain below. Honoured on
       ;; both `:rf.route/transitioned` and `:rf.route/handle-url-change`
       ;; (popstate) because the branch lives in the shared helper.
       fragment-only?
-      (fragment-only-fx db prev fragment)
+      (fragment-only-fx rdb prev fragment)
 
       :else
       (do
@@ -227,14 +230,14 @@
         ;; URL-driven path passes NO `push-fx` — the browser URL already
         ;; changed (popstate / initial / link-click pushState).
         (routing-events/commit-navigation
-          db
+          rdb
           {:id         route-id
            :params     params
            :query      query
            :fragment   fragment
            :transition transition}
           on-match-vec
-          {:prev-id    (get-in db [:rf/runtime :routing :current :id])
+          {:prev-id    (get-in rdb [:rf.runtime/routing :current :id])
            :capture-fx capture-fx
            :scroll-fx  scroll-fx})))))
 
@@ -249,10 +252,11 @@
   strategy for forward nav is `:top` per Spec 012 §Scroll restoration;
   popstate / initial / SSR routes through `:rf.route/handle-url-change`
   (default `:restore`)."
-  [{:keys [db frame]} [_ url opts :as event-vec]]
+  [{:keys [frame] rdb :rf.db/runtime} [_ url opts :as event-vec]]
   (let [opts    (or opts {})
+        rdb     (or rdb {})
         blocked (can-leave/maybe-block-navigation
-                  db (or frame :rf/default)
+                  rdb (or frame :rf/default)
                   event-vec url
                   (:bypass-leave-guard? opts))]
     (or blocked
@@ -263,8 +267,9 @@
         ;; `:rf.route/navigate {:url ...}` path. Spec 009 requires `:frame` on
         ;; `:rf.error/no-such-handler {:kind :route}` and
         ;; `:rf.warning/no-not-found-route`. The default frame still tags
-        ;; `:rf/default` (the dispatch cofx supplies it).
-        (url-change-fx db url :top frame))))
+        ;; `:rf/default` (the dispatch cofx supplies it). EP-0001 (rf2-vzld77):
+        ;; the route slice is durable routing runtime-db state.
+        (url-change-fx rdb url :top frame))))
 
 (defn handle-url-change-handler
   "`:rf.route/handle-url-change` event-fx handler. Registered by the
@@ -277,11 +282,13 @@
   strategy is `:restore` so the saved position trumps. `:frame` is
   threaded through so the SSR error-projection listener can attribute
   the :no-such-handler trace per-frame."
-  [{:keys [db frame]} [_ url opts :as event-vec]]
+  [{:keys [frame] rdb :rf.db/runtime} [_ url opts :as event-vec]]
   (let [opts    (or opts {})
+        rdb     (or rdb {})
         blocked (can-leave/maybe-block-navigation
-                  db (or frame :rf/default)
+                  rdb (or frame :rf/default)
                   event-vec url
                   (:bypass-leave-guard? opts))]
     (or blocked
-        (url-change-fx db url :restore frame))))
+        ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state.
+        (url-change-fx rdb url :restore frame))))

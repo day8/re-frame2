@@ -238,8 +238,9 @@
   (when-not (= old-v new-v)
     (let [k (after-timer-key parent-id invoke-id delay-key)]
       (cancel-after-timer-entry! frame-id k :on-resolution)
-      (when-let [db (frame/frame-app-db-value frame-id)]
-        (let [snap (get-in db (paths/snapshot-path parent-id))
+      ;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state.
+      (when-let [rt (frame/frame-runtime-db-value frame-id)]
+        (let [snap (get-in rt (paths/snapshot-path parent-id))
               ;; Per Spec 005 §Per-region :after scoping (rf2-l67o): for
               ;; parallel-region machines the snapshot's :state is a map
               ;; of region-name → that region's state, and the invoke-id
@@ -417,7 +418,8 @@
         delay-key  (:delay-key args)
         epoch      (:epoch args)
         server?    (boolean (:server? args))
-        snapshot   (get-in (frame/frame-app-db-value frame-id)
+        ;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state.
+        snapshot   (get-in (frame/frame-runtime-db-value frame-id)
                            (paths/snapshot-path parent-id))]
     ;; Initial state-entry scheduling — the :scheduled trace was already
     ;; emitted synchronously by apply-transition-once (the pure side). For

@@ -28,8 +28,9 @@
   Per Spec 015 §Relationship with schema-attached marks: this
   namespace writes into the SAME registry slot the schema-first
   elision walker reads from
-  (`[:rf/runtime :elision :sensitive-declarations]` and
-  `[:rf/runtime :elision :declarations]`), keyed by absolute path. The
+  (`[:rf.runtime/elision :sensitive-declarations]` and
+  `[:rf.runtime/elision :declarations]` in the frame's runtime-db
+  partition — EP-0001 rf2-vzld77), keyed by absolute path. The
   two declaration sources union at lookup time — a path declared
   sensitive by EITHER source is sensitive."
   (:require [re-frame.elision :as elision]
@@ -180,9 +181,10 @@
 ;; ---- add-marks / set-marks API ------------------------------------------
 ;;
 ;; Two dedicated registration kinds for declaring path-marks against an
-;; `app-db`. Frame-scoped per Spec 015. Both write through the existing
-;; `[:rf/runtime :elision :sensitive-declarations]` / `[:rf/runtime :elision :declarations]`
-;; registry slots so the schema-first elision walker
+;; `app-db`. Frame-scoped per Spec 015. Both write through the
+;; `[:rf.runtime/elision :sensitive-declarations]` / `[:rf.runtime/elision :declarations]`
+;; runtime-db registry slots (EP-0001 rf2-vzld77 — the elision registry is
+;; durable framework state) so the schema-first elision walker
 ;; (`re-frame.elision/elide-wire-value`) sees the declarations without a
 ;; second lookup path.
 ;;
@@ -586,15 +588,19 @@
         ;; any sensitive path, the sub MAY have read it"). Spec 015
         ;; §Propagation rules acknowledges this is footgun prevention
         ;; not security-grade taint.
+        ;; EP-0001 (rf2-vzld77): the elision registry is durable framework
+        ;; state in the frame's runtime-db partition at `[:rf.runtime/elision …]`
+        ;; (Conventions §Reserved runtime-db keys), so the layer-1 footgun
+        ;; check reads the runtime-db projection, not app-db.
         any-sens?   (when layer-1?
-                      (let [container (frame/app-db-container frame-id)
-                            db        (when container (adapter/read-container container))
-                            decls     (get-in db [:rf/runtime :elision :sensitive-declarations])]
+                      (let [container (frame/runtime-db-container frame-id)
+                            rt        (when container (adapter/read-container container))
+                            decls     (get-in rt [:rf.runtime/elision :sensitive-declarations])]
                         (boolean (seq decls))))
         any-large?  (when layer-1?
-                      (let [container (frame/app-db-container frame-id)
-                            db        (when container (adapter/read-container container))
-                            decls     (get-in db [:rf/runtime :elision :declarations])]
+                      (let [container (frame/runtime-db-container frame-id)
+                            rt        (when container (adapter/read-container container))
+                            decls     (get-in rt [:rf.runtime/elision :declarations])]
                         (boolean (seq decls))))
         sensitive?  (cond
                       (true? forced-s)  true

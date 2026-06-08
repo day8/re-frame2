@@ -17,7 +17,7 @@
 
   Args shape: `{:rf/machine-id <id> :rf/patch {<snapshot-keys> ...}}`.
   `:rf/machine-id` names the actor whose snapshot at
-  `[:rf/runtime :machines :snapshots <id>]` is patched; `:rf/patch` is the map merged onto
+  `[:rf.runtime/machines :snapshots <id>]` is patched; `:rf/patch` is the map merged onto
   that snapshot. Only the spec-permitted top-level snapshot keys flow
   through (`:state` / `:meta` / `:errors` / `:status` / `:data`); any
   other key is ignored (the escape hatch can't graft arbitrary slots
@@ -36,7 +36,7 @@
 
 (defn update-snapshot-fx
   "fx handler for `:rf.machine/update-snapshot`. Merges the spec-permitted
-  keys of `:rf/patch` onto the snapshot at `[:rf/runtime :machines :snapshots <machine-id>]`
+  keys of `:rf/patch` onto the snapshot at `[:rf.runtime/machines :snapshots <machine-id>]`
   in the emitting frame's app-db. No-op when the actor has no snapshot
   (destroyed / not-yet-materialised) or when `:rf/machine-id` is absent.
   Per Spec 005 §Snapshot-level escape hatch."
@@ -56,12 +56,14 @@
                             :recovery        :logged-and-skipped}))
       (let [clean-patch (select-keys patch permitted-patch-keys)]
         (when (seq clean-patch)
-          (frame/swap-frame-db!
+          ;; Machine snapshots are durable runtime-db state (rf2-vzld77):
+          ;; the escape-hatch patch is a runtime-db partition write.
+          (frame/swap-runtime-db!
             frame-id
-            (fn [db]
+            (fn [runtime-db]
               ;; No-op merge target when the snapshot is absent — never
               ;; conjure a snapshot for a destroyed / unknown actor.
-              (if (contains? (get-in db (paths/snapshot-path)) machine-id)
-                (update-in db (paths/snapshot-path machine-id) merge clean-patch)
-                db))))))
+              (if (contains? (get-in runtime-db (paths/snapshot-path)) machine-id)
+                (update-in runtime-db (paths/snapshot-path machine-id) merge clean-patch)
+                runtime-db))))))
     nil))

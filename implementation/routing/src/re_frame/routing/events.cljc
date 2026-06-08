@@ -11,7 +11,7 @@
     - `identical-route-target?` — Spec 012 §Per-route data loading rule
       3 short-circuit predicate;
     - `merge-route-slice` — the slice-publish merge over
-      `[:rf/runtime :routing :current]` (encodes the slice-shape
+      `[:rf.runtime/routing :current]` (encodes the slice-shape
       contract once for both the programmatic-nav and URL-driven paths,
       rf2-g8tzb);
     - `commit-navigation` — the shared successful-commit assembler
@@ -32,7 +32,7 @@
 ;; Per Spec 012 §Multi-frame routing: nav-token and pending-nav id
 ;; counters are per-frame. Pure allocators: take db, return [db' id-str].
 ;; Both share one increment-and-stringify shape over a per-frame counter
-;; key under `[:rf/runtime :routing ...]`; the only per-allocator
+;; key under `[:rf.runtime/routing ...]`; the only per-allocator
 ;; variation is the counter key and the id prefix.
 ;;
 ;; The counters are INTENTIONALLY monotone and unbounded — see Spec 012
@@ -40,7 +40,7 @@
 ;; lifetime of any in-flight async continuation (equality against the
 ;; current slice token is the only operation on it), which a monotone
 ;; counter satisfies without ever wrapping. Unlike the bounded siblings
-;; under `[:rf/runtime :routing …]` (the scroll-position LRU cap, the
+;; under `[:rf.runtime/routing …]` (the scroll-position LRU cap, the
 ;; decoded-key cap, which bound RETAINED collections), each counter is a
 ;; single scalar that retains nothing and is GC'd whole on frame-destroy.
 ;; Overflow is a non-concern: CLJS f64 (exact to 2^53), JVM `long`
@@ -50,22 +50,22 @@
 
 (defn- alloc-counter
   "Pure per-frame counter allocator. Increments the counter at
-  `[:rf/runtime :routing counter-key]` and returns
+  `[:rf.runtime/routing counter-key]` and returns
   `[db' (str prefix n)]`."
   [db counter-key prefix]
-  (let [n (inc (or (get-in db [:rf/runtime :routing counter-key]) 0))]
-    [(assoc-in db [:rf/runtime :routing counter-key] n)
+  (let [n (inc (or (get-in db [:rf.runtime/routing counter-key]) 0))]
+    [(assoc-in db [:rf.runtime/routing counter-key] n)
      (str prefix n)]))
 
 (defn alloc-nav-token
   "Pure allocator: returns [db' \"nav-N\"]. Increments the per-frame
-  counter at [:rf/runtime :routing :nav-token-counter]."
+  counter at [:rf.runtime/routing :nav-token-counter]."
   [db]
   (alloc-counter db :nav-token-counter "nav-"))
 
 (defn alloc-pending-nav-id
   "Pure allocator: returns [db' \"pn-N\"]. Increments the per-frame
-  counter at [:rf/runtime :routing :pending-nav-counter]."
+  counter at [:rf.runtime/routing :pending-nav-counter]."
   [db]
   (alloc-counter db :pending-nav-counter "pn-"))
 
@@ -114,7 +114,7 @@
 
 ;; Per Spec 012 §The route slice and Spec-Schemas §`:rf/runtime` the
 ;; published slice carries exactly `{:id :params :query :fragment
-;; :transition :error :nav-token}` under `[:rf/runtime :routing
+;; :transition :error :nav-token}` under `[:rf.runtime/routing
 ;; :current]`. Both nav entry points (programmatic
 ;; `:rf.route/navigate` and URL-driven `:rf.route/transitioned` /
 ;; `:rf.route/handle-url-change`) write the same merge shape after
@@ -125,12 +125,12 @@
 ;; (`re-frame.routing.on-match-error`) sets it independently.
 ;;
 ;; The merge is targeted at `:current` (not at `:routing`), so the
-;; sibling routing-runtime keys under `[:rf/runtime :routing ...]`
+;; sibling routing-runtime keys under `[:rf.runtime/routing ...]`
 ;; (`:scroll-positions` / `:scroll-positions-order` /
 ;; `:nav-token-counter` / `:pending-nav-counter`) are untouched.
 (defn merge-route-slice
   "Pure slice-publish: merges the new slice fields over the existing
-  `:current` map at `[:rf/runtime :routing :current]`. Returns the
+  `:current` map at `[:rf.runtime/routing :current]`. Returns the
   updated db.
 
   `slice` is a map of `{:id :params :query :fragment :transition
@@ -138,7 +138,7 @@
   contract); callers needing an error-state slice go through the
   `:rf.route/on-match-error` trap which writes `:error` explicitly."
   [db {:keys [id params query fragment transition nav-token]}]
-  (update-in db [:rf/runtime :routing :current] merge
+  (update-in db [:rf.runtime/routing :current] merge
              {:id         id
               :params     params
               :query      query
@@ -182,12 +182,15 @@
     (trace/emit! :rf.event :rf.route.nav-token/allocated
                  {:route-id id :nav-token token})
     (emit-activation-traces! prev-id id)
-    {:db (merge-route-slice db' {:id         id
-                                 :params     params
-                                 :query      query
-                                 :fragment   fragment
-                                 :transition transition
-                                 :nav-token  token})
+    ;; EP-0001 (rf2-vzld77): the route slice is durable framework runtime-db
+    ;; state, so `db`/`db'` here is the RUNTIME-DB value and the commit
+    ;; returns `:rf.db/runtime`, not `:db`.
+    {:rf.db/runtime (merge-route-slice db' {:id         id
+                                            :params     params
+                                            :query      query
+                                            :fragment   fragment
+                                            :transition transition
+                                            :nav-token  token})
      :fx (vec (concat (when capture-fx [capture-fx])
                       (when push-fx    [push-fx])
                       (mapv (fn [ev] [:dispatch ev]) on-match-vec)
@@ -222,12 +225,19 @@
 ;; continue`, etc.). Same audience-split principle as
 ;; `:rf.route.nav-token/*` (Spec 012 §Navigation tokens).
 (defn settle-transition-handler
-  "`:rf.route.internal/settle-transition` event-db handler. Registered by
+  "`:rf.route.internal/settle-transition` event-fx handler. Registered by
   the `re-frame.routing` façade so a `:reload` of the façade re-runs the
-  registration."
-  [db [_ token]]
-  (let [current (get-in db [:rf/runtime :routing :current :nav-token])]
-    (if (and (= current token)
-             (= :loading (get-in db [:rf/runtime :routing :current :transition])))
-      (assoc-in db [:rf/runtime :routing :current :transition] :idle)
-      db)))
+  registration.
+
+  EP-0001 (rf2-vzld77): the route slice is durable framework runtime-db
+  state, so this reads the `:rf.db/runtime` coeffect and returns a
+  `:rf.db/runtime` effect (the runtime-db sibling of a `reg-event-db`
+  handler)."
+  [{rt :rf.db/runtime} [_ token]]
+  (let [runtime-db (or rt {})
+        current    (get-in runtime-db [:rf.runtime/routing :current :nav-token])]
+    {:rf.db/runtime
+     (if (and (= current token)
+              (= :loading (get-in runtime-db [:rf.runtime/routing :current :transition])))
+       (assoc-in runtime-db [:rf.runtime/routing :current :transition] :idle)
+       runtime-db)}))

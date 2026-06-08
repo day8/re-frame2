@@ -75,7 +75,7 @@
   deterministic, no side-effects. Same shape and discipline as a sub.
   `db` is the frame's app-db value (plain map, deref'd through the
   substrate adapter); `route` is the route slice from
-  `[:rf/runtime :routing :current]` (or whatever the caller passed to
+  `[:rf.runtime/routing :current]` (or whatever the caller passed to
   `render-head`).
 
   Two arities:
@@ -123,13 +123,14 @@
 ;; ---- render-head ----------------------------------------------------------
 
 (defn- frame-route
-  "Read the route slice from a frame's app-db at
-  `[:rf/runtime :routing :current]`. nil-safe — a frame whose app-db
-  has never been initialised resolves to nil."
+  "Read the route slice from a frame's RUNTIME-DB at
+  `[:rf.runtime/routing :current]` (EP-0001 rf2-vzld77 — the route slice is
+  durable routing runtime-db state). nil-safe — a frame whose runtime-db has
+  never been written resolves to nil."
   [frame-id]
   (when frame-id
-    (let [db (frame/frame-app-db-value frame-id)]
-      (when db (get-in db [:rf/runtime :routing :current])))))
+    (let [rt (frame/frame-runtime-db-value frame-id)]
+      (when rt (get-in rt [:rf.runtime/routing :current])))))
 
 (defn- render-head*
   "Resolve a normalised opts map and run the registered head fn. The
@@ -168,7 +169,7 @@
     (render-head head-id {:frame frame-id :route route})
 
   When `:route` is absent, the active route slice (at
-  `[:rf/runtime :routing :current]`) is read from the frame's app-db.
+  `[:rf.runtime/routing :current]`) is read from the frame's app-db.
   The produced fragment is recorded in
   the per-frame snapshot so `head-snapshot` reflects the most recent
   render-head output.
@@ -185,7 +186,7 @@
 
 (defn- route-head-id
   "Read the `:head` route-metadata key for the route-id named in the
-  active route slice at `[:rf/runtime :routing :current]`. Returns nil when there's no active route,
+  active route slice at `[:rf.runtime/routing :current]`. Returns nil when there's no active route,
   no route registration, or no `:head` declared on the route.
 
   Contract — the slice's `(:id route)` IS the canonical registrar key

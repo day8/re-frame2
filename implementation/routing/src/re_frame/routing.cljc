@@ -3,7 +3,7 @@
 
   Routes are registry entries (kind :route). Navigation is an event;
   URL changes are events. The route slice at
-  `[:rf/runtime :routing :current]` carries
+  `[:rf.runtime/routing :current]` carries
   `{:id :params :query :fragment :transition :error :nav-token}`.
 
   This namespace is the **public boot point and façade** for the
@@ -101,8 +101,9 @@
 ;; re-run every wire here.
 
 ;; :rf.route.internal/settle-transition — Spec 012 §Per-route data
-;; loading §2 FIFO settle.
-(events/reg-event-db :rf.route.internal/settle-transition
+;; loading §2 FIFO settle. EP-0001 (rf2-vzld77): the route slice is durable
+;; runtime-db state, so this is a runtime-db event-fx handler.
+(events/reg-event-fx :rf.route.internal/settle-transition
                      routing-events/settle-transition-handler)
 
 ;; :rf.route.internal/on-match-error — Spec 012 §Per-route error
@@ -176,8 +177,12 @@
 (registrar/add-registration-hook! url-bound/check-url-bound-exclusivity!)
 
 ;; Framework-shipped subs over the route slice — Spec 012.
-(subs/reg-sub :rf/route
-  {:doc "Subscribe to the current route slice `{:id :params :query :transition :error :fragment :nav-token}`. Layer-1 read of the route slice at `[:rf/runtime :routing :current]` — the per-frame routing-runtime keys (`:scroll-positions`, `:scroll-positions-order`, `:nav-token-counter`, `:pending-nav-counter`) sit as siblings at `[:rf/runtime :routing ...]`, so the slice carries only the published shape and the sub returns it directly. Per Spec 012."}
+;; EP-0001 (rf2-vzld77): the route slice is durable framework runtime-db
+;; state, so `:rf/route` and `:rf/pending-navigation` are `:runtime-db` subs
+;; (read the runtime-db projection); the `:rf.route/*` derived subs chain off
+;; `:rf/route` unchanged.
+(subs/reg-runtime-sub :rf/route
+  {:doc "Subscribe to the current route slice `{:id :params :query :transition :error :fragment :nav-token}`. Layer-1-shaped read of the route slice at `[:rf.runtime/routing :current]` in the runtime-db partition — the per-frame routing-runtime keys (`:scroll-positions`, `:scroll-positions-order`, `:nav-token-counter`, `:pending-nav-counter`) sit as siblings at `[:rf.runtime/routing ...]`, so the slice carries only the published shape and the sub returns it directly. Per Spec 012."}
   route-sub-fn)
 (subs/reg-sub :rf.route/id
   {:doc "Subscribe to the current route's `:id` keyword. Per Spec 012."}
@@ -201,11 +206,11 @@
   {:doc "Subscribe to the `:parent`-chain of the active route, returned
   as a vector `[parent-most ... current]`. Per Spec 012 §Nested layouts."}
   :<- [:rf.route/id] (fn [id _] (routing-subs/chain-from-meta id)))
-(subs/reg-sub :rf/pending-navigation
+(subs/reg-runtime-sub :rf/pending-navigation
   {:doc "Subscribe to the pending-navigation slot at
-  `[:rf/runtime :routing :pending-navigation]` (nil when no navigation
-  is pending). Per Spec 012 §Navigation blocking — pending-nav
-  protocol."}
+  `[:rf.runtime/routing :pending-navigation]` in the runtime-db partition
+  (nil when no navigation is pending). Per Spec 012 §Navigation blocking —
+  pending-nav protocol."}
   routing-subs/pending-navigation-sub-fn)
 
 ;; :route/link registered view — Spec 012 §Linking from views.

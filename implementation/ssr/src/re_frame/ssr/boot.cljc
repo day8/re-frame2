@@ -130,7 +130,7 @@
     3. VERIFY  — after the first render, `verify-hydration!` compares the
                  client render-tree hash against the server hash the
                  `:rf/hydrate` handler stashed at
-                 `[:rf/runtime :ssr :hydration :server-hash]`. A mismatch
+                 `[:rf.runtime/ssr :hydration :server-hash]`. A mismatch
                  emits `:rf.ssr/hydration-mismatch` (Spec 011
                  §Hydration-mismatch detection). The render itself is the
                  HOST's job (Reagent/UIx/Helix `render`) — the helper

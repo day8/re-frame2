@@ -9,7 +9,7 @@
    1. Resolves the active `:spawn-all`-bearing state by walking the
       snapshot's `:state` path leaf→root looking for a state node whose
       `:spawn-all` declares the matching event keyword.
-   2. Reads the join state at `[:rf/runtime :machines :spawned <parent> <invoke-id>]`.
+   2. Reads the join state at `[:rf.runtime/machines :spawned <parent> <invoke-id>]`.
    3. Verifies `<child-id>` (event[1]) is one of the parent's spawned
       children. Forged / unknown ids are rejected with the
       `:rf.error/machine-spawn-all-bad-child-id` error trace and a
@@ -247,9 +247,11 @@
   machine's normal `:on` lookup.
 
   Returns nil (NOT a child-event for any active `:spawn-all`) or a
-  re-frame effect map with `:db` (updated app-db) and `:fx` (per-sibling
-  destroys + the join-event dispatch)."
-  [machine db _path snapshot parent-id inner-event]
+  re-frame effect map with `:rf.db/runtime` (updated runtime-db — the join
+  state is durable machine runtime-db state, EP-0001 rf2-vzld77) and `:fx`
+  (per-sibling destroys + the join-event dispatch). `runtime-db` is the
+  frame's runtime-db partition value (the `:rf.db/runtime` coeffect)."
+  [machine runtime-db _path snapshot parent-id inner-event]
   (let [inner-id (first inner-event)
         child-id (second inner-event)
         matches  (find-active-spawn-alls machine snapshot inner-id)
@@ -263,7 +265,7 @@
         ;; (genuinely forged), fall back to the first match so the
         ;; bad-child-id error trace still fires against a real join.
         owns?    (fn [{invoke-id :spawn-id}]
-                   (let [js (get-in db (paths/spawned-path parent-id invoke-id))]
+                   (let [js (get-in runtime-db (paths/spawned-path parent-id invoke-id))]
                      (and (map? js) (contains? (:children js) child-id))))
         match    (or (some #(when (owns? %) %) matches)
                      (first matches))
@@ -286,16 +288,16 @@
             ;; :rf.machine.spawn-all/any-failed trace's :reason key
             ;; (Spec 005 §Trace events).
             child-extra (vec (drop 2 inner-event))
-            ;; Read the live join state from app-db (the seed was written
+            ;; Read the live join state from runtime-db (the seed was written
             ;; by :rf.machine/spawn-all-init on entry).
-            join-state (get-in db (paths/spawned-path parent-id invoke-id))]
+            join-state (get-in runtime-db (paths/spawned-path parent-id invoke-id))]
         (cond
-          ;; Pure-call snapshot: no app-db join state seeded yet — fall
+          ;; Pure-call snapshot: no runtime-db join state seeded yet — fall
           ;; through to no-op (the runtime tracks join state via the fx
           ;; handlers, not via the pure machine-transition).
           (or (not (map? join-state))
               (not (contains? join-state :children)))
-          {:db db :fx []}
+          {:rf.db/runtime runtime-db :fx []}
 
           ;; Already resolved: ignore late-completion. Trace once for
           ;; observability so tools can correlate.
@@ -306,7 +308,7 @@
                             :child-id   child-id
                             :kind       kind
                             :frame      frame-id})
-              {:db db :fx []})
+              {:rf.db/runtime runtime-db :fx []})
 
           ;; Forged / unknown child-id: the inbound `child-id` is NOT in
           ;; the seeded `:children` map. The accident class is a
@@ -326,7 +328,7 @@
                                   :kind       kind
                                   :frame      frame-id
                                   :recovery   :event-dropped})
-              {:db db :fx []})
+              {:rf.db/runtime runtime-db :fx []})
 
           :else
           ;; Read 'compute resolution; emit traces; build fx; write back':
@@ -340,5 +342,5 @@
                                      child-id child-extra resolution)
             (let [fx (build-resolution-fx frame-id parent-id invoke-id spec join-state''
                                           child-id child-extra resolution)]
-              {:db (assoc-in db (paths/spawned-path parent-id invoke-id) join-state'')
+              {:rf.db/runtime (assoc-in runtime-db (paths/spawned-path parent-id invoke-id) join-state'')
                :fx fx})))))))

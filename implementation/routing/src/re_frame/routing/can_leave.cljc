@@ -121,7 +121,7 @@
   to `requested-url`. Returns nil when the navigation should proceed (no
   guard, guard allows, or `bypass-leave-guard?`); returns the cofx map
   `{:db ... :fx ...}` that writes the routing pending-navigation slot
-  (`[:rf/runtime :routing :pending-navigation]`) and dispatches
+  (`[:rf.runtime/routing :pending-navigation]`) and dispatches
   `:rf.route/navigation-blocked` when the guard blocks.
 
   Public so the four event entry points (`:rf.route/navigate`,
@@ -142,13 +142,13 @@
   restores the address bar to the current route slice's URL — no new
   history entry, URL and slice agree again (rf2-ede1h.3). `:rf.route/
   cancel` / `:rf.route/continue` then operate from a consistent state."
-  [db frame-id event-vec requested-url bypass-leave-guard?]
-  (let [current-route (get-in db [:rf/runtime :routing :current])
+  [rdb frame-id event-vec requested-url bypass-leave-guard?]
+  (let [current-route (get-in rdb [:rf.runtime/routing :current])
         current-meta  (registrar/lookup :route (:id current-route))
         ok?           (or bypass-leave-guard?
                           (can-leave? frame-id (:id current-route) current-meta))]
     (when-not ok?
-      (let [[db' pn-id] (routing-events/alloc-pending-nav-id db)
+      (let [[db' pn-id] (routing-events/alloc-pending-nav-id rdb)
             guard-id    (can-leave-guard-id current-meta)
             ;; rf2-ede1h.3: a blocked popstate (Back/Forward) has already
             ;; moved the address bar; restore it to the slice's URL so URL
@@ -192,12 +192,14 @@
         ;; runtime dispatches when a `:can-leave` guard rejects — apps may
         ;; register their own handler (a confirmation-dialog policy, an
         ;; analytics ping). The runtime writes the pending-navigation slot
-        ;; at [:rf/runtime :routing :pending-navigation] FIRST (the slice
+        ;; at [:rf.runtime/routing :pending-navigation] FIRST (the slice
         ;; below), then dispatches the event carrying the pending-nav map
         ;; as its single arg so a handler reads it without a separate
         ;; subscription. A default no-op handler (registered below) keeps
         ;; the dispatch resolving cleanly when the app declares none.
-        {:db (assoc-in db' [:rf/runtime :routing :pending-navigation] pending-nav)
+        ;; EP-0001 (rf2-vzld77): the pending-navigation slot + nav-token
+        ;; counter are durable routing runtime-db state — write runtime-db.
+        {:rf.db/runtime (assoc-in db' [:rf.runtime/routing :pending-navigation] pending-nav)
          :fx (cond-> []
                ;; Restore the address bar FIRST (before the user event)
                ;; so a confirm-dialog handler that reads `current-url`
@@ -212,7 +214,7 @@
 ;; resolves (no `:rf.error/no-such-handler`); apps that want to react
 ;; (render a confirm dialog, log) re-register their own handler under the
 ;; same id. The pending-nav map is already at
-;; `[:rf/runtime :routing :pending-navigation]` (a sub reads it), so the
+;; `[:rf.runtime/routing :pending-navigation]` (a sub reads it), so the
 ;; default handler intentionally does nothing.
 (defn navigation-blocked-handler
   "`:rf.route/navigation-blocked` no-op default handler. Registered by
@@ -249,15 +251,17 @@
 (defn url-requested-handler
   "`:rf/url-requested` event-fx handler. Registered by the façade so a
   `:reload` re-wires it on a fresh registrar."
-  [{:keys [db frame]}
+  [{:keys [frame] rdb :rf.db/runtime}
    [_ {:keys [url bypass-leave-guard?] :as _request} :as event-vec]]
     ;; Per Spec 012 §Navigation blocking — pending-nav protocol the
     ;; runtime fires :can-leave for the active route on every
     ;; :rf/url-requested; rejection writes
-    ;; [:rf/runtime :routing :pending-navigation] with the full slot
+    ;; [:rf.runtime/routing :pending-navigation] with the full slot
     ;; shape `{:id :requested-by-event :requested-url :reason
     ;; :rejecting-route :rejecting-guard}` per Spec-Schemas.md
-    ;; §:rf/pending-navigation (rf2-b8ugt).
+    ;; §:rf/pending-navigation (rf2-b8ugt). EP-0001 (rf2-vzld77): the
+    ;; pending-nav slot is durable routing runtime-db state — read it from
+    ;; the `:rf.db/runtime` coeffect.
     ;;
     ;; The :bypass-leave-guard? request flag is the rf2-yursn one-shot
     ;; escape hatch :rf.route/continue uses to re-issue the original
@@ -265,7 +269,7 @@
     (let [external? (url/external-url? url)
           app-url   (url/request-url->app-url url)
           blocked   (when-not external?
-                      (maybe-block-navigation db (or frame :rf/default)
+                      (maybe-block-navigation (or rdb {}) (or frame :rf/default)
                                               event-vec app-url bypass-leave-guard?))]
       (cond
         external?
@@ -290,15 +294,17 @@
 (defn continue-handler
   "`:rf.route/continue` event-fx handler. Registered by the façade so a
   `:reload` re-wires it on a fresh registrar."
-  [{:keys [db]} [_ pn-id]]
+  [{rdb :rf.db/runtime} [_ pn-id]]
     ;; Per Spec 012 §Navigation blocking — pending-nav protocol continue
     ;; re-issues the original navigation request, *bypassing* the leave
     ;; guard for this one shot (rf2-yursn): re-emit :rf/url-requested with
     ;; :bypass-leave-guard? true so the same policy chain runs, rather
     ;; than dispatching :rf.route/transitioned + :rf.nav/push-url directly
     ;; (which would skip the policy interceptors and race the slice write
-    ;; with the URL push).
-    (let [pending  (get-in db [:rf/runtime :routing :pending-navigation])
+    ;; with the URL push). EP-0001 (rf2-vzld77): the pending-nav slot is
+    ;; durable routing runtime-db state.
+    (let [db       (or rdb {})
+          pending  (get-in db [:rf.runtime/routing :pending-navigation])
           original (:requested-by-event pending)
           url      (:requested-url pending)
           ;; rf2-8zvajk: when the block was a popstate that RESTORED the
@@ -324,7 +330,7 @@
                                    [:rf/url-requested {:url url
                                                        :bypass-leave-guard? true}])]]
       (if (and pending (= pn-id (:id pending)))
-        (cond-> {:db (update-in db [:rf/runtime :routing] dissoc :pending-navigation)}
+        (cond-> {:rf.db/runtime (update-in db [:rf.runtime/routing] dissoc :pending-navigation)}
           (or (vector? original) url)
           (assoc :fx (cond-> []
                        restore-fx (conj restore-fx)
@@ -334,7 +340,10 @@
 (defn cancel-handler
   "`:rf.route/cancel` event-fx handler. Registered by the façade so a
   `:reload` re-wires it on a fresh registrar."
-  [{:keys [db]} [_ pn-id]]
-  (if (= pn-id (get-in db [:rf/runtime :routing :pending-navigation :id]))
-    {:db (update-in db [:rf/runtime :routing] dissoc :pending-navigation)}
-    {}))
+  [{rdb :rf.db/runtime} [_ pn-id]]
+  ;; EP-0001 (rf2-vzld77): the pending-nav slot is durable routing runtime-db
+  ;; state.
+  (let [db (or rdb {})]
+    (if (= pn-id (get-in db [:rf.runtime/routing :pending-navigation :id]))
+      {:rf.db/runtime (update-in db [:rf.runtime/routing] dissoc :pending-navigation)}
+      {})))

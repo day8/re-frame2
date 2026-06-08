@@ -111,8 +111,13 @@
 
 (defn navigate-handler
   "`:rf.route/navigate` event-fx handler. Registered by the façade so a
-  `:reload` re-wires it on a fresh registrar."
-  [{:keys [db frame]} [_ target params opts :as event-vec]]
+  `:reload` re-wires it on a fresh registrar.
+
+  EP-0001 (rf2-vzld77): the route slice + scroll caches + nav-token counter
+  are durable framework runtime-db state, so the handler reads them from the
+  `:rf.db/runtime` coeffect (`rdb`) and `commit-navigation` returns a
+  `:rf.db/runtime` effect. The handler never touches user app-db."
+  [{:keys [frame] rdb-raw :rf.db/runtime} [_ target params opts :as event-vec]]
     ;; Per Spec 012 §Navigation is an event and §Fragments §Programmatic
     ;; navigation with fragments. Fragment may be supplied in opts
     ;; (`{:fragment "x"}`), on the target-map form (`{:url "/x"
@@ -127,6 +132,7 @@
     ;; the programmatic path matches the URL-driven path so async loaders
     ;; have a token to thread through stale-suppression.
     (let [opts (or opts {})
+          rdb  (or rdb-raw {})
           {:keys [route-id path-params query-params matched-fragment unmatched-url
                   throw-reason requested-url external-url-target?]}
           (cond
@@ -250,7 +256,7 @@
           ;; fragments §:query-retain cross-route coercion class.
           retain-keys  (:query-retain route-meta)
           retained     (when (seq retain-keys)
-                         (select-keys (get-in db [:rf/runtime :routing :current :query])
+                         (select-keys (get-in rdb [:rf.runtime/routing :current :query])
                                       retain-keys))
           query-params (if (seq retained)
                          (merge retained query-params)
@@ -259,7 +265,7 @@
           ;; event-boundary path `[:rf.route/navigate ...]` runs the
           ;; route's `:params` / `:query` schema BEFORE transitioning;
           ;; on failure the navigation is REJECTED — the route slice
-          ;; at [:rf/runtime :routing :current] does not change, no URL
+          ;; at [:rf.runtime/routing :current] does not change, no URL
           ;; is pushed — and the runtime
           ;; emits `:rf.error/schema-validation-failure` (`:where
           ;; :event`). `route-url` raises the structured error on a
@@ -332,7 +338,7 @@
           ;; duplicate `[:rf.route/navigate :route/cart]` doesn't re-fetch
           ;; unchanged data.
           identical-nav? (routing-events/identical-route-target?
-                           (get-in db [:rf/runtime :routing :current])
+                           (get-in rdb [:rf.runtime/routing :current])
                            route-id path-params query-params fragment)]
       (cond
         ;; rf2-1os1c: params/opts positional swap. An opts-only key
@@ -388,7 +394,7 @@
         ;; protocol stays uniform across both entry points.
         :else
         (if-let [blocked (can-leave/maybe-block-navigation
-                           db (or frame :rf/default)
+                           rdb (or frame :rf/default)
                            event-vec url
                            (:bypass-leave-guard? opts))]
           blocked
@@ -407,16 +413,16 @@
                   strategy   (scroll/resolve-scroll-strategy route-meta opts :top)
                   ;; Per Spec 012 §Multi-frame routing: scroll-position
                   ;; lookup reads the per-frame map under
-                  ;; [:rf/runtime :routing :scroll-positions].
+                  ;; [:rf.runtime/routing :scroll-positions].
                   scroll-fx  (scroll/scroll-fx-entry
                                {:strategy  strategy
                                 :from      (scroll/route-descriptor
-                                             (get-in db [:rf/runtime :routing :current]))
+                                             (get-in rdb [:rf.runtime/routing :current]))
                                 :to        to-route
                                 :saved-pos (when (= :restore strategy)
-                                             (scroll/lookup-scroll-position db url))
+                                             (scroll/lookup-scroll-position rdb url))
                                 :fragment  fragment})
-                  capture-fx (scroll/capture-scroll-fx-entry db)]
+                  capture-fx (scroll/capture-scroll-fx-entry rdb)]
               ;; rf2-2zyvj: structured telemetry for a `match-url` THROW
               ;; that failed closed on the `{:url ...}` target form (the
               ;; DoS-cap `:too-many-keys`, rf2-3k3o7, or an unexpected
@@ -454,14 +460,14 @@
               ;; path is the only one that drives the browser URL, so it
               ;; passes `push-fx`.
               (routing-events/commit-navigation
-                db
+                rdb
                 {:id         route-id
                  :params     path-params
                  :query      query-params
                  :fragment   fragment
                  :transition (if (seq on-match-vec) :loading :idle)}
                 on-match-vec
-                {:prev-id    (get-in db [:rf/runtime :routing :current :id])
+                {:prev-id    (get-in rdb [:rf.runtime/routing :current :id])
                  :capture-fx capture-fx
                  :scroll-fx  scroll-fx
                  :push-fx    push-fx})))))))

@@ -4,7 +4,7 @@
 
   The server's payload carries `:rf/render-hash`; the handler replaces
   app-db with `:rf/app-db` AND stashes the server hash under
-  `[:rf/runtime :ssr :hydration :server-hash]` so `verify-hydration!`
+  `[:rf.runtime/ssr :hydration :server-hash]` so `verify-hydration!`
   can read it after the client's first render.
 
   Also defines the two `:rf.ssr/check-*` compatibility-check fxs the
@@ -82,7 +82,7 @@
 (defn hydrate-event-handler
   "Handler fn for the `:rf/hydrate` event. Replaces app-db with
   `(:rf/app-db payload)`, stashes server-hash + version under
-  `[:rf/runtime :ssr :hydration]`, and dispatches the two
+  `[:rf.runtime/ssr :hydration]`, and dispatches the two
   `:rf.ssr/check-*` fxs when the resolved platform is `:client` (per
   rf2-7bcn0 — server-side `:rf/hydrate` skips them to avoid
   `:rf.fx/skipped-on-platform` noise).
@@ -94,7 +94,7 @@
   `:frame`). Hydration is best-effort by contract (Spec 011 §The
   :rf/hydrate event — degraded-but-running), so a corrupt payload must
   never silently install garbage as the whole app-db."
-  [{:keys [db frame]} [_ payload]]
+  [{:keys [db frame] rt :rf.db/runtime} [_ payload]]
   (let [new-db (or (:rf/app-db payload) db)]
     (if-let [reason (malformed-hydration-payload! payload)]
       (do
@@ -109,14 +109,16 @@
         ;; compatibility-check fxs (there is no trustworthy server slice
         ;; to compare against).
         {:db db})
-      (hydrate-event-handler* db frame payload new-db))))
+      (hydrate-event-handler* db rt frame payload new-db))))
 
 (defn- hydrate-event-handler*
   "The structurally-valid hydration path (rf2-gro94 extracted the
   fail-closed guard into `hydrate-event-handler`). `new-db` is the
   resolved server slice (or the existing `db` when the payload carried no
-  app-db slice — the client-only fallback)."
-  [db frame payload new-db]
+  app-db slice — the client-only fallback). `runtime-db` is the
+  `:rf.db/runtime` coeffect — EP-0001 (rf2-vzld77): the hydration metadata
+  is durable runtime-db state, written under `[:rf.runtime/ssr :hydration]`."
+  [db runtime-db frame payload new-db]
   (let [version       (:rf/version payload)
         schema-digest (:rf/schema-digest payload)
         ;; Declarative hydration-metadata construction — additive,
@@ -141,18 +143,26 @@
     ;; server's value (the "expected"); the fx looks up the client-side
     ;; "actual" via late-bind. Per rf2-69ad2.
     ;;
-    ;; Per rf2-f4j8x: hydration metadata lives under
-    ;; `[:rf/runtime :ssr :hydration]` (the single-reserved-root
-    ;; contract per Conventions.md §Reserved app-db keys); it is NOT a
-    ;; second root.
-    {:db (cond-> new-db
-           (seq metadata) (assoc-in [:rf/runtime :ssr :hydration] metadata))
-     :fx (cond-> []
-           (and client? version)
-           (conj [:rf.ssr/check-version       version])
+    ;; EP-0001 (rf2-vzld77): the SSR hydration metadata is DURABLE,
+    ;; serializable framework runtime state (it must survive epoch-restore /
+    ;; reconstitution so `verify-hydration!` can compare against it after the
+    ;; first client render), so it lives in the frame's RUNTIME-DB partition
+    ;; at `[:rf.runtime/ssr :hydration]` (Conventions §Reserved runtime-db
+    ;; keys) — NOT in app-db (where it briefly sat under the retired
+    ;; `:rf/runtime` root). The handler installs both partitions coherently:
+    ;; `:db` (the server's app-db slice) AND `:rf.db/runtime` (the hydration
+    ;; metadata). The reference `:rf/hydrate` handler is framework code, so
+    ;; emitting the reserved `:rf.db/runtime` effect is in-bounds (decision
+    ;; #4 — reserved by convention).
+    (cond-> {:db new-db
+             :fx (cond-> []
+                   (and client? version)
+                   (conj [:rf.ssr/check-version       version])
 
-           (and client? schema-digest)
-           (conj [:rf.ssr/check-schema-digest schema-digest]))}))
+                   (and client? schema-digest)
+                   (conj [:rf.ssr/check-schema-digest schema-digest]))}
+      (seq metadata)
+      (assoc :rf.db/runtime (assoc-in (or runtime-db {}) [:rf.runtime/ssr :hydration] metadata)))))
 
 ;; ---- :rf.ssr/check-version + :rf.ssr/check-schema-digest fxs --------------
 ;;
@@ -321,7 +331,7 @@
 
   opts may carry :first-diff-path, :failing-id, AND :server-hash.
   The :server-hash opt overrides the
-  [:rf/runtime :ssr :hydration :server-hash] slot in app-db — useful
+  [:rf.runtime/ssr :hydration :server-hash] slot in app-db — useful
   when the user's :rf/hydrate handler doesn't populate that slot
   (e.g. fixture-overridden handlers).
 
@@ -338,9 +348,12 @@
   ([frame-id tree-or-hash] (verify-hydration! frame-id tree-or-hash {}))
   ([frame-id tree-or-hash {:keys [first-diff-path failing-id server-hash]}]
    (when (detect-mismatch? frame-id)
-     (let [db          (frame/frame-app-db-value frame-id)
+     ;; EP-0001 (rf2-vzld77): the SSR hydration metadata is durable runtime-db
+     ;; state at `[:rf.runtime/ssr :hydration]` — read it off the runtime-db
+     ;; partition.
+     (let [rt          (frame/frame-runtime-db-value frame-id)
            server-hash (or server-hash
-                           (get-in db [:rf/runtime :ssr :hydration :server-hash]))
+                           (get-in rt [:rf.runtime/ssr :hydration :server-hash]))
            client-hash (cond
                          (string? tree-or-hash) tree-or-hash
                          tree-or-hash           (hash/render-tree-hash tree-or-hash))]

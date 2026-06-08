@@ -3,7 +3,7 @@
 
   Per Spec 012 §Navigation tokens — stale-result suppression. Owns:
     - `:nav-token` cofx — injects the current navigation epoch token
-      (`[:rf/runtime :routing :current :nav-token]`) into an `:on-match`
+      (`[:rf.runtime/routing :current :nav-token]`) into an `:on-match`
       handler's `:coeffects` under key `:nav-token`, so the handler can
       capture it and thread it into an async continuation;
     - `:rf.route/with-nav-token` fx — wraps an async-completion fx
@@ -36,7 +36,7 @@
   Universal platform: the route slice exists on both client and server,
   so the cofx resolves under SSR and browser alike."
   {:doc "The current navigation epoch token, read from
-`[:rf/runtime :routing :current :nav-token]` and injected under
+`[:rf.runtime/routing :current :nav-token]` and injected under
 `:coeffects :nav-token`. Declare with `(inject-cofx :nav-token)` on an
 `:on-match`-reached handler; capture the value and thread it into an
 async continuation so a superseding navigation suppresses the stale
@@ -44,23 +44,25 @@ result. Per Spec 012 §Navigation tokens — stale-result suppression."})
 
 (defn nav-token-cofx
   "Handler fn for the `:nav-token` cofx. Reads the current navigation
-  epoch token from the injected `:db` coeffect (the runtime pre-populates
-  `:coeffects :db` with the frame's `app-db` value before the
-  interceptor chain runs) and injects it under `:coeffects :nav-token`.
+  epoch token from the injected `:rf.db/runtime` coeffect (the runtime
+  pre-populates `:coeffects :rf.db/runtime` with the frame's runtime-db
+  partition value before the interceptor chain runs) and injects it under
+  `:coeffects :nav-token`. EP-0001 (rf2-vzld77): the route slice is durable
+  routing runtime-db state.
 
   1-arity is the canonical form. 2-arity accepts an explicit value
   override — useful in tests / conformance harnesses that want to assert
   the threading shape without standing up a route slice.
 
   Meaningful only inside a handler reached via an `:on-match` drain (or a
-  follow-up of one), where `[:rf/runtime :routing :current :nav-token]`
+  follow-up of one), where `[:rf.runtime/routing :current :nav-token]`
   holds the epoch the navigation cascade allocated. Read from any other
   handler it reflects whatever navigation is currently active — which is
   the correct \"is this still the live navigation?\" reading the
   stale-suppression pattern wants."
   ([ctx]
-   (let [db    (get-in ctx [:coeffects :db])
-         token (get-in db [:rf/runtime :routing :current :nav-token])]
+   (let [rdb   (get-in ctx [:coeffects :rf.db/runtime])
+         token (get-in rdb [:rf.runtime/routing :current :nav-token])]
      (assoc-in ctx [:coeffects :nav-token] token)))
   ([ctx token]
    (assoc-in ctx [:coeffects :nav-token] token)))
@@ -89,7 +91,7 @@ result. Per Spec 012 §Navigation tokens — stale-result suppression."})
   available to apps that want to centralise schemas (per Spec 010
   §Schema registration)."
   {:doc  "Per Spec 012 §Navigation tokens. Threads the carried
-`:nav-token` against the current `[:rf/runtime :routing :current :nav-token]`. Match → run
+`:nav-token` against the current `[:rf.runtime/routing :current :nav-token]`. Match → run
 `:do` (any fx entry); mismatch → suppress and emit
 `:rf.route.nav-token/stale-suppressed`."
    :schema [:map
@@ -107,8 +109,9 @@ result. Per Spec 012 §Navigation tokens — stale-result suppression."})
         nav-token       (get args :nav-token)
         frame-id        (or frame :rf/default)
         frame-record    (frame/frame frame-id)
-        db              (frame/frame-app-db-value frame-id)
-        current         (get-in db [:rf/runtime :routing :current :nav-token])]
+        ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state.
+        rdb             (frame/frame-runtime-db-value frame-id)
+        current         (get-in rdb [:rf.runtime/routing :current :nav-token])]
     (cond
       (= nav-token current)
       ;; Token matches — route the inner fx entry through

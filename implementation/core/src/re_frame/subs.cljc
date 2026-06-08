@@ -245,6 +245,36 @@
                   :rf.sub/input-signals (or input-signals [])})
     id))
 
+(defn reg-runtime-sub
+  "Register a FRAMEWORK subscription whose single layer-1-shaped signal
+  source is the frame's **runtime-db** projection rather than app-db
+  (EP-0001 rf2-vzld77; Spec 002 §Subscriptions read the partition they
+  belong to). The handler shape is identical to a layer-1 `reg-sub`
+  computation fn — `(fn [runtime-db query-v] …)` — but the `db`-position
+  argument is the runtime-db partition value, so framework subsystem subs
+  (`:rf/machine`, `:rf/machine-has-tag?`, `[:rf.route/*]`) read their
+  durable runtime-db state directly.
+
+  INTERNAL / framework-only: this is NOT a public app-author surface (app
+  code reads app-db via `reg-sub` and reaches subsystem state through these
+  framework subs). Routed from the subsystem façades (`re-frame.machines`,
+  `re-frame.routing`). Accepts an optional leading metadata map, same as
+  `reg-sub`. Returns `id`."
+  ([id handler-fn] (reg-runtime-sub id {} handler-fn))
+  ([id meta handler-fn]
+   (registrar/register! :sub id
+     (assoc (source-coords/merge-coords meta)
+            :handler-fn    handler-fn
+            :input-kind    :runtime-db
+            :input-signals []))
+   (when-let [register! (late-bind/get-fn :marks/register-marks!)]
+     (register! :sub id meta))
+   (trace/emit! :rf.sub :rf.sub/create
+                {:rf.sub/id            id
+                 :rf.sub/input-kind    :runtime-db
+                 :rf.sub/input-signals []})
+   id))
+
 (defn clear-sub
   "Unregister a subscription. Zero-arity clears every registered sub
   in the registrar; one-arity clears the named one. Hot-reload tools
@@ -337,6 +367,7 @@
   [sub-meta query-v]
   (case (:input-kind sub-meta)
     :db         []
+    :runtime-db []
     :static     (vec (:input-signals sub-meta))
     :parametric (:queries (normalize-sub-inputs ((:input-fn sub-meta) query-v)))
     ;; Fallback for any registration that predates the discriminator —
@@ -510,6 +541,13 @@
                                               :frame            frame-id})))
         body-fn       (:handler-fn sub-meta)
         layer-1?      (= :db (:input-kind sub-meta))
+        ;; EP-0001 (rf2-vzld77): a `:runtime-db` sub is a layer-1-shaped
+        ;; framework sub whose single signal source is the frame's RUNTIME-DB
+        ;; projection (machine snapshots / route slice / etc. are durable
+        ;; runtime-db state). Same fixed-arity-1 memoised body as a `:db`
+        ;; layer-1 sub — only the signal source differs (Spec 002
+        ;; §Subscriptions read the partition they belong to).
+        runtime-db?   (= :runtime-db (:input-kind sub-meta))
         ;; Produce the realized input query-vectors for THIS concrete
         ;; cache entry from the sub's input producer (Spec 006
         ;; §Subscription input producers): `[]` for layer-1, the literal
@@ -542,6 +580,7 @@
         ;; production yields an empty `input-qs` and a constant-nil body.
         inputs        (cond
                         layer-1?    [(frame/app-db-container frame-id)]
+                        runtime-db? [(frame/runtime-db-container frame-id)]
                         input-error? []
                         :else       (mapv (fn [input-q] (subscribe frame-id input-q)) input-qs))
         parametric?   (= :parametric (:input-kind sub-meta))
@@ -552,7 +591,11 @@
                         ;; cached (see `input-error?` branches below).
                         (constantly nil)
 
-                        layer-1?
+                        ;; Layer-1 (`:db`) and `:runtime-db` are both single-
+                        ;; source readers — same fixed-arity-1 memoised body;
+                        ;; the signal source resolved above (`inputs`) is the
+                        ;; only difference (app-db vs runtime-db projection).
+                        (or layer-1? runtime-db?)
                         (subs-memo/make-layer-1-memoised-body
                           body-fn query-id query-v frame-id sub-meta)
 
@@ -955,6 +998,33 @@
      (unsubscribe frame-id query-v)
      v)))
 
+(defn- frame-state-value?
+  "True when `v` is a frame-state projection map carrying at least one
+  partition key (`:rf.db/app` / `:rf.db/runtime`). EP-0001 (rf2-vzld77):
+  `compute-sub` accepts EITHER a bare app-db map (the historical form) or a
+  full frame-state value, so a single call can resolve both `:db` and
+  `:runtime-db` subs in one dependency graph against the coherent snapshot."
+  [v]
+  (and (map? v)
+       (or (contains? v :rf.db/app)
+           (contains? v :rf.db/runtime))))
+
+(defn- partition-value-for-sub
+  "Resolve the single-source value a layer-1-shaped sub's body should
+  receive from the value supplied to `compute-sub`. When `supplied` is a
+  frame-state value (`{:rf.db/app … :rf.db/runtime …}`), extract the
+  partition the sub-kind reads (`:runtime-db` → `:rf.db/runtime`, `:db` →
+  `:rf.db/app`). Otherwise `supplied` is a bare partition map and is passed
+  through unchanged — a `:db` sub gets the app-db it was always handed, and a
+  `:runtime-db` sub gets whatever the caller supplied (which, for a
+  runtime-db sub, should be the runtime-db value)."
+  [supplied input-kind]
+  (if (frame-state-value? supplied)
+    (case input-kind
+      :runtime-db (get supplied :rf.db/runtime)
+      (get supplied :rf.db/app))
+    supplied))
+
 (defn- compute-sub*
   "Recursive worker for `compute-sub`. Threads a per-call `memo` atom
   (`{query-v -> value}`) through the `:<-` recursion so each DISTINCT
@@ -964,7 +1034,12 @@
   A memo HIT short-circuits to the pinned value: no body re-run, no
   duplicate `:rf.sub/run` emission. Memoising by the full `query-v`
   (id + args) is value-identical to re-computing because, for a fixed
-  `db`, a sub's value is a pure function of `db` + its inputs."
+  `db`, a sub's value is a pure function of `db` + its inputs.
+
+  EP-0001 (rf2-vzld77): `db` may be a bare app-db map OR a full frame-state
+  value. A `:runtime-db` sub's body receives the runtime-db partition (Spec
+  002 §Subscriptions read the partition they belong to); the partition is
+  resolved per-sub via `partition-value-for-sub`."
   [query-v db memo]
   ;; `contains?` (not a sentinel + `identical?`) so a memoised nil value
   ;; is honoured as a HIT — unregistered subs and recovery-to-nil both
@@ -1000,7 +1075,13 @@
                        {:rf.sub/id      query-id
                         :rf.sub/query-v query-v})
           (let [body-fn  (:handler-fn meta)
-                layer-1? (= :db (:input-kind meta))
+                ;; EP-0001 (rf2-vzld77): `:db` and `:runtime-db` are both
+                ;; single-source readers — `compute-sub` passes the supplied
+                ;; value straight to the body for either. For a `:runtime-db`
+                ;; sub the caller supplies the runtime-db value (or a
+                ;; frame-state value, from which `compute-sub` extracts the
+                ;; right partition — see below).
+                layer-1? (#{:db :runtime-db} (:input-kind meta))
                 ;; Produce the realized input query-vectors from the sub's
                 ;; input producer — the SAME three-mode model as the
                 ;; reactive cache path (Spec 006 §Subscription input
@@ -1042,9 +1123,13 @@
                           (try
                           (let [parametric? (= :parametric (:input-kind meta))
                                 raw (cond
-                                      ;; Layer-1 (`:db`) reads app-db directly.
+                                      ;; Layer-1 (`:db`) reads app-db directly;
+                                      ;; `:runtime-db` reads the runtime-db
+                                      ;; partition. `partition-value-for-sub`
+                                      ;; extracts the right slice when `db` is a
+                                      ;; frame-state value (rf2-vzld77).
                                       layer-1?
-                                      (body-fn db query-v)
+                                      (body-fn (partition-value-for-sub db (:input-kind meta)) query-v)
 
                                       ;; PARAMETRIC subs deliver a VECTOR of
                                       ;; resolved input values (producer
@@ -1168,6 +1253,15 @@
   (rf2-wcam): the return value is validated against any :schema on the
   sub's meta — failures emit :rf.error/schema-validation-failure and
   yield nil (default :replaced-with-default recovery).
+
+  EP-0001 (rf2-vzld77): `db` may be a bare app-db map (the historical form)
+  OR a full frame-state value (`{:rf.db/app … :rf.db/runtime …}`). When a
+  frame-state value is supplied, a `:db` sub reads the `:rf.db/app`
+  partition and a framework `:runtime-db` sub (e.g. `:rf/machine`) reads the
+  `:rf.db/runtime` partition — so a mixed dependency graph computes
+  coherently in one call. To compute a framework runtime-db sub on its own,
+  pass either the runtime-db value or the frame-state value (use
+  `rf/frame-state-value` / `rf/runtime-db-value`).
 
   ## Cost — linear in distinct subs per call (rf2-gyxm3 / rf2-r0zf2)
 
