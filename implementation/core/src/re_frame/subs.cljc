@@ -59,24 +59,60 @@
 ;; ---- registration ---------------------------------------------------------
 ;;
 ;; A sub registration carries:
-;;   :handler-fn     the body fn — (fn [inputs query]) for layer-2+,
-;;                                  (fn [db query]) for layer-1.
-;;   :input-signals  for layer-2+, a vector of [query-id arg ...] forms
-;;                   that resolve to other registered subs. Empty for
-;;                   layer-1 (which reads app-db directly).
+;;   :handler-fn     the body (computation) fn — (fn [inputs query]) for
+;;                   layer-2+, (fn [db query]) for layer-1.
+;;   :input-kind     the input-producer discriminator (Spec 006
+;;                   §Subscription input producers) — one of:
+;;                     :db          layer-1 app-db reader (no producer);
+;;                     :static      literal `:<-` query-vectors known at
+;;                                  registration;
+;;                     :parametric  an `input-fn` that computes the input
+;;                                  query-vectors from the outer query-v.
+;;   :input-signals  for the `:static` kind, the vector of literal
+;;                   [query-id arg ...] `:<-` query-vectors. Empty `[]`
+;;                   for `:db` and `:parametric`.
+;;   :input-fn       for the `:parametric` kind, the pure
+;;                   (fn [query-v] -> [query-vector*]) input producer.
+;;                   Absent for `:db` / `:static`.
 
 (defn- parse-reg-sub-args
-  "Accept the :<- shorthand and the fn-tail forms.
+  "Accept the `:<-` shorthand, the layer-1 app-db-reader form, and the
+  two-function parametric `input-fn` form.
 
-  Forms supported:
-    (reg-sub :id (fn [db query] ...))                         ;; layer-1
-    (reg-sub :id :<- [:other-sub] (fn [other-val q] ...))     ;; layer-2 single
-    (reg-sub :id :<- [:a] :<- [:b] (fn [[a b] q] ...))         ;; layer-2 multi
-  "
+  Forms supported (Spec 006 §Subscription input producers, API
+  §`reg-sub` input-production modes):
+    (reg-sub :id (fn [db query] ...))                         ;; :db (layer-1)
+    (reg-sub :id :<- [:other-sub] (fn [other-val q] ...))     ;; :static single
+    (reg-sub :id :<- [:a] :<- [:b] (fn [[a b] q] ...))         ;; :static multi
+    (reg-sub :id (fn input [q] [[:a] [:b]]) (fn comp [in q] ...)) ;; :parametric
+
+  An optional metadata-map may precede any of these. The two-function
+  parametric form is recognised by two trailing fns with NO `:<-` chain
+  — the first is the `input-fn`, the second the computation fn.
+
+  Returns a parsed map carrying `:input-kind` plus the kind-specific
+  slots. Signals `:rf.error/reg-sub-bad-args` (a thrown, tagged ex-info
+  — registration-time / dev-only per Spec 009) on an unaccepted shape."
   [id args]
-  (let [meta? (and (map? (first args)) (not (vector? (first args))))
+  (let [;; A handler / input-fn must be a genuine function — a plain `fn`
+        ;; OR a Var (callable IFn; `requiring-resolve` / HoF call sites
+        ;; register with a Var, which is not `fn?`). Deliberately NOT
+        ;; `ifn?`: a keyword / map / set / vector / symbol is `ifn?` but is
+        ;; never a sub handler, and treating one as a handler would silently
+        ;; accept a malformed tail like `(reg-sub :id (fn …) :stray-kw)`.
+        handler? (fn [x] (or (fn? x) (var? x)))
+        meta? (and (map? (first args)) (not (vector? (first args))))
         meta  (if meta? (first args) {})
-        rest-args (if meta? (next args) args)]
+        rest-args (if meta? (next args) args)
+        bad!  (fn [reason received]
+                (throw (ex-info
+                         ":rf.error/reg-sub-bad-args"
+                         {:rf.error/id :rf.error/reg-sub-bad-args
+                          :where       'rf/reg-sub
+                          :recovery    :fix-registration
+                          :reason      reason
+                          :id          id
+                          :received    received})))]
     (loop [chain []
            remaining rest-args]
       (cond
@@ -85,21 +121,45 @@
         (recur (conj chain (second remaining))
                (drop 2 remaining))
 
-        (= 1 (count remaining))
+        ;; A leading `:<-` without a following query-vector is malformed.
+        (= :<- (first remaining))
+        (bad! "reg-sub `:<-` must be followed by an input query-vector, e.g. (:<- [:upstream] ...)"
+              (vec remaining))
+
+        ;; Two-function parametric form — ONLY when no `:<-` chain was
+        ;; consumed (a `:<-` chain plus a trailing pair would be an
+        ;; over-specified, ambiguous registration). The first fn is the
+        ;; `input-fn`; the second is the computation fn. `handler?`
+        ;; (fn-or-Var) accepts a Var-form registration (`(reg-sub id
+        ;; #'input-fn #'comp-fn)`, e.g. `requiring-resolve` / HoF call
+        ;; sites) while rejecting a stray keyword/map/vector tail.
+        (and (empty? chain)
+             (= 2 (count remaining))
+             (handler? (first remaining))
+             (handler? (second remaining)))
+        {:id         id
+         :meta       meta
+         :input-kind :parametric
+         :input-fn   (first remaining)
+         :handler-fn (second remaining)}
+
+        ;; Single trailing fn — layer-1 app-db reader (`:db`) when no
+        ;; `:<-` chain, else the `:static` `:<-` computation fn.
+        (and (= 1 (count remaining))
+             (handler? (first remaining)))
         {:id            id
          :meta          meta
+         :input-kind    (if (empty? chain) :db :static)
          :input-signals chain
          :handler-fn    (first remaining)}
 
         :else
-        (throw (ex-info
-                 ":rf.error/reg-sub-bad-args"
-                 {:rf.error/id :rf.error/reg-sub-bad-args
-                  :where       'rf/reg-sub
-                  :recovery    :fix-registration
-                  :reason      "reg-sub expects layer-1 (handler-fn), layer-2 single (:<- [:upstream] handler-fn), or layer-2 multi (:<- [:a] :<- [:b] handler-fn)"
-                  :id          id
-                  :remaining   remaining}))))))
+        (bad! (str "reg-sub expects one of: layer-1 app-db reader "
+                   "(computation-fn), static inputs "
+                   "(:<- [:a] :<- [:b] computation-fn), or parametric "
+                   "inputs (input-fn computation-fn). The trailing arg(s) "
+                   "must be the required function(s).")
+              (vec remaining))))))
 
 (defn reg-sub
   "Register a subscription under `id`. The only sub-registration form
@@ -144,11 +204,31 @@
   See also: `subscribe` (reactive form), `subscribe-once` (one-shot
   read), `compute-sub` (pure compute against a db value), `clear-sub`."
   [id & args]
-  (let [{:keys [meta handler-fn input-signals]} (parse-reg-sub-args id args)]
+  (let [parsed (try
+                 (parse-reg-sub-args id args)
+                 (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
+                   ;; Per Spec 009 §Error catalogue (`:rf.error/reg-sub-bad-args`):
+                   ;; a malformed registration shape. Registration-time /
+                   ;; dev-only — it does NOT ride the always-on production
+                   ;; error-emit listener (the registration path is never
+                   ;; re-run in production). Emit a structured dev trace so
+                   ;; tools surface the bad registration, then RE-THROW
+                   ;; (`:no-recovery` — the registration is rejected; the
+                   ;; malformed `reg-sub` is a programming error to fix).
+                   (let [{:keys [reason received]} (ex-data e)]
+                     (trace/emit-error! :rf.error/reg-sub-bad-args
+                                        {:rf.sub/id id
+                                         :received  received
+                                         :reason    reason
+                                         :recovery  :no-recovery}))
+                   (throw e)))
+        {:keys [meta handler-fn input-kind input-signals input-fn]} parsed]
     (registrar/register! :sub id
-      (assoc (source-coords/merge-coords meta)
-             :handler-fn    handler-fn
-             :input-signals input-signals))
+      (cond-> (assoc (source-coords/merge-coords meta)
+                     :handler-fn    handler-fn
+                     :input-kind    input-kind
+                     :input-signals (or input-signals []))
+        input-fn (assoc :input-fn input-fn)))
     ;; Per Spec 015 §3. Subscriptions — stash declarations:
     ;;   :sensitive / :large — per-output-path marks
     ;;   :sensitive? / :large? — whole-output override
@@ -161,7 +241,8 @@
     ;; the sub becomes available in the registry.
     (trace/emit! :rf.sub :rf.sub/create
                  {:rf.sub/id            id
-                  :rf.sub/input-signals input-signals})
+                  :rf.sub/input-kind    input-kind
+                  :rf.sub/input-signals (or input-signals [])})
     id))
 
 (defn clear-sub
@@ -174,6 +255,94 @@
   (the runtime-cache counterpart)."
   ([] (registrar/clear-kind! :sub))
   ([id] (registrar/unregister! :sub id)))
+
+;; ---- parametric input production ------------------------------------------
+;;
+;; Per Spec 006 §Subscription input producers + the EP §Reference
+;; Implementation. Every subscription has ONE input query-vector
+;; producer; `produce-input-queries` resolves it to the realized input
+;; query-vectors for a concrete outer query-v, and `normalize-sub-inputs`
+;; validates the `input-fn` return shape against the narrow grammar.
+
+(defn- query-vector?
+  "A query vector is a vector whose first element is a keyword (Spec 006
+  §Input grammar / Conventions §`reg-sub` input grammar). Anything else
+  — a bare keyword, a scalar, a map, a reaction/derefable, a vector with
+  a non-keyword head — is NOT a query vector."
+  [x]
+  (and (vector? x)
+       (keyword? (first x))))
+
+(defn normalize-sub-inputs
+  "PURE validator for a parametric `input-fn` return value (Spec 006
+  §Input grammar; the EP §Reference Implementation `normalize-sub-inputs`).
+
+  The ONLY legal shape is a vector whose every element is a query vector
+  (a vector with a keyword head):
+
+      input-return := [query-vector*]      ;; query-vector := [<keyword> & args]
+
+  On success returns `{:queries [query-v ...]}` — the realized input
+  query-vectors in producer order (empty `[]` for a `[]` return, which is
+  unusual but valid). On ANY other shape — a scalar query vector
+  (`[:x :y]`), a bare keyword (`:x`), a map, a reaction / derefable, a
+  mixed vector, a vector with a non-keyword head, or a non-vector — it
+  REJECTS LOUDLY by throwing a tagged `:rf.error/sub-input-fn-bad-return`
+  ex-info (the `:returned` slot carries the offending value). The throw
+  keeps this fn pure (no trace emit, no IO); each call site catches it,
+  stamps `:where` (`:reactive` / `:compute-sub`), and routes the error
+  through the loud emission path. A bad return is NEVER silently treated
+  as no inputs.
+
+  This is JVM-runnable and side-effect-free — usable from both the
+  reactive cache path and the pure `compute-sub` path."
+  [input-return]
+  (let [bad! (fn [reason]
+               (throw (ex-info
+                        ":rf.error/sub-input-fn-bad-return"
+                        {:rf.error/id :rf.error/sub-input-fn-bad-return
+                         :returned    input-return
+                         :reason      reason})))]
+    (cond
+      (not (vector? input-return))
+      (bad! (str "input-fn must return a vector of query vectors; got "
+                 (pr-str (type input-return))
+                 ". A bare keyword, scalar, map, or reaction is not accepted "
+                 "— the single-input spelling is [[:x :y]], not [:x :y]."))
+
+      (not (every? query-vector? input-return))
+      (bad! (str "every element of an input-fn return must be a query vector "
+                 "(a vector with a keyword head). The scalar form [:x :y] is "
+                 "ambiguous and rejected; spell a single input as [[:x :y]]."))
+
+      :else
+      {:queries input-return})))
+
+(defn- produce-input-queries
+  "Resolve a sub's realized input query-vectors for a concrete outer
+  `query-v` from its input producer (Spec 006 §Subscription input
+  producers). Returns a vector of query-vectors:
+
+    :db          → []                                   (layer-1 reader)
+    :static      → (:input-signals sub-meta)            (literal `:<-` list)
+    :parametric  → (normalize-sub-inputs ((:input-fn sub-meta) query-v))
+
+  PURE — no trace emit, no IO. The parametric branch may throw the
+  `input-fn`'s own exception (the input-fn body threw) OR the tagged
+  `:rf.error/sub-input-fn-bad-return` ex-info from `normalize-sub-inputs`
+  (the input-fn returned a bad shape). Call sites catch both, discriminate
+  them, and route through the loud emission path with the right `:where`.
+  Legacy registrations (pre-`:input-kind`, theoretical) fall back to the
+  `:input-signals` list."
+  [sub-meta query-v]
+  (case (:input-kind sub-meta)
+    :db         []
+    :static     (vec (:input-signals sub-meta))
+    :parametric (:queries (normalize-sub-inputs ((:input-fn sub-meta) query-v)))
+    ;; Fallback for any registration that predates the discriminator —
+    ;; treat its `:input-signals` as the literal input list (the prior
+    ;; behaviour). Defensive; all `reg-sub` paths now stamp `:input-kind`.
+    (vec (:input-signals sub-meta))))
 
 ;; ---- the cache ------------------------------------------------------------
 
@@ -199,10 +368,76 @@
 ;; body (in-process); only the per-miss constructor call from
 ;; `compute-and-cache!` below crosses the ns boundary.
 
+;; ---- parametric input-fn error emission (rf2-7brl74) ----------------------
+;;
+;; Per Spec 009 §Error catalogue: `:rf.error/sub-input-fn-exception` (the
+;; `input-fn` threw while materializing a node) and
+;; `:rf.error/sub-input-fn-bad-return` (the `input-fn` returned a value
+;; other than a vector of query vectors) are PRODUCTION-SURVIVABLE runtime
+;; categories — they ride the always-on error-emit listener (axis 1 /
+;; surface #4) so a bad parametric input under `:advanced` +
+;; `goog.DEBUG=false` reaches off-box shippers, AND the dev trace surface.
+;; LISTENER-ONLY (axis 2 not invoked): the recovery is the built-in
+;; nil-yielding reaction, not a `{:swallow|:replacement|:default}` policy
+;; choice, so `error-event` is nil. A bad input return is NEVER silently
+;; treated as no inputs — the structured error always carries the outer
+;; `query-v` + sub id. `:where` (`:reactive` / `:compute-sub`)
+;; discriminates the resolution path.
+
+(defn- emit-sub-input-fn-error!
+  "Emit a parametric `input-fn` failure loudly along BOTH the always-on
+  error-emit listener (axis 1) and the dev trace surface. `error-kw` is
+  `:rf.error/sub-input-fn-exception` or `:rf.error/sub-input-fn-bad-return`;
+  `where` is `:reactive` or `:compute-sub`. `e` is the thrown exception —
+  for the bad-return case it is the tagged `:rf.error/sub-input-fn-bad-return`
+  ex-info whose `ex-data` carries `:returned` / `:reason`."
+  [error-kw query-id query-v frame-id e where]
+  (let [data        (ex-data e)
+        bad-return? (= :rf.error/sub-input-fn-bad-return error-kw)
+        msg         #?(:clj (.getMessage ^Throwable e) :cljs (.-message e))]
+    ;; Axis 1 — always-on listener (survives prod elision). For the
+    ;; bad-return case there is no genuine exception to ship (the throw is
+    ;; just our tagged carrier), so pass nil; the exception is meaningful
+    ;; only for the input-fn-threw case.
+    (when-let [dispatch-on-error!
+               (late-bind/get-fn-cached :error-emit/dispatch-on-error)]
+      (dispatch-on-error!
+        error-kw
+        query-v                       ;; attempted query-vector (as :event)
+        query-id                      ;; sub-id (as :event-id)
+        frame-id
+        (when-not bad-return? e)      ;; exception (only the input-fn-threw case)
+        0                             ;; elapsed-ms
+        (interop/now-ms)              ;; time
+        nil))                         ;; LISTENER-ONLY — axis 2 not invoked
+    ;; Dev-only trace path — DCEs under `:advanced` + `goog.DEBUG=false`.
+    (trace/emit-error! error-kw
+                       (if bad-return?
+                         {:rf.sub/id      query-id
+                          :rf.sub/query-v query-v
+                          :where          where
+                          :returned       (:returned data)
+                          :reason         (:reason data)
+                          :frame          frame-id
+                          :recovery       :replaced-with-default}
+                         {:rf.sub/id         query-id
+                          :rf.sub/query-v    query-v
+                          :where             where
+                          :exception         e
+                          :exception-message msg
+                          :reason            (str "Subscription `" query-id
+                                                  "` input-fn threw while "
+                                                  "materializing: " msg
+                                                  ". Recovering to nil.")
+                          :frame             frame-id
+                          :recovery          :replaced-with-default}))))
+
 (defn- compute-and-cache!
   "Build the reaction for query-v and cache it. Per Spec 006 §Lookup
-  algorithm: recursively resolve :<- chain, build the reaction, attach
-  on-dispose to evict the cache slot.
+  algorithm: recursively resolve the input query-vectors (the literal
+  `:<-` list for `:static`, or the realized `(input-fn query-v)` result
+  for `:parametric`), build the reaction, attach on-dispose to evict the
+  cache slot.
 
   The compute fn handed to the substrate adapter is built in two
   layers, each named:
@@ -274,26 +509,82 @@
                                               :resolved-inputs  []
                                               :frame            frame-id})))
         body-fn       (:handler-fn sub-meta)
-        input-signals (:input-signals sub-meta)
-        layer-1?      (empty? input-signals)
-        ;; Resolve inputs: layer-1 → frame's app-db; layer-2+ → recursive subs.
-        inputs        (if layer-1?
-                        [(frame/app-db-container frame-id)]
-                        (mapv (fn [input-q] (subscribe frame-id input-q)) input-signals))
+        layer-1?      (= :db (:input-kind sub-meta))
+        ;; Produce the realized input query-vectors for THIS concrete
+        ;; cache entry from the sub's input producer (Spec 006
+        ;; §Subscription input producers): `[]` for layer-1, the literal
+        ;; `:<-` list for `:static`, or `(input-fn query-v)` (validated by
+        ;; `normalize-sub-inputs`) for `:parametric`. The `input-fn` runs
+        ;; ONCE here at materialization — NOT on the hot recompute path —
+        ;; so the entry's topology is FIXED for its lifetime (the
+        ;; fixed-topology-per-cache-entry invariant). On a parametric
+        ;; failure (`input-fn` throws, or returns a non-vector-of-query-
+        ;; vectors) we emit LOUDLY and recover to a nil-yielding reaction
+        ;; that is NOT cached (so a later registration fix re-materializes
+        ;; cleanly) — the same recovery posture as a no-such-sub miss.
+        ;; `input-error?` flags that recovery so the cache + dispose wiring
+        ;; below treats the entry like an uncached miss. (Layer-1 / static
+        ;; never throw here — only the parametric `input-fn` can.)
+        [input-qs input-error?]
+        (when sub-meta
+          (try
+            [(produce-input-queries sub-meta query-v) false]
+            (catch #?(:clj Throwable :cljs :default) e
+              (let [bad-return? (= :rf.error/sub-input-fn-bad-return
+                                   (:rf.error/id (ex-data e)))]
+                (emit-sub-input-fn-error! (if bad-return?
+                                            :rf.error/sub-input-fn-bad-return
+                                            :rf.error/sub-input-fn-exception)
+                                          query-id query-v frame-id e :reactive)
+                [[] true]))))
+        ;; Resolve inputs: layer-1 → frame's app-db; layer-2+ → recursive
+        ;; subs over the realized input query-vectors. A failed parametric
+        ;; production yields an empty `input-qs` and a constant-nil body.
+        inputs        (cond
+                        layer-1?    [(frame/app-db-container frame-id)]
+                        input-error? []
+                        :else       (mapv (fn [input-q] (subscribe frame-id input-q)) input-qs))
+        parametric?   (= :parametric (:input-kind sub-meta))
         memoised-body (cond
+                        input-error?
+                        ;; Recovery body: a constant nil reaction (Spec 009
+                        ;; §Error contract `:replaced-with-default`). Never
+                        ;; cached (see `input-error?` branches below).
+                        (constantly nil)
+
                         layer-1?
                         (subs-memo/make-layer-1-memoised-body
                           body-fn query-id query-v frame-id sub-meta)
-                        ;; Layer-2 with a single `:<-` input — dominant
-                        ;; shape per rf2-v1nu0; specialise to fixed-arity-1
-                        ;; for parity with layer-1 (rf2-0y2bp).
-                        (= 1 (count input-signals))
+
+                        ;; PARAMETRIC subs (any realized input count,
+                        ;; including 1) deliver a VECTOR of input values to
+                        ;; the computation fn — `(fn [[a b] q] ...)` — per the
+                        ;; EP §Single input contract. Route through the
+                        ;; varargs layer-n wrapper with `vector-inputs? true`
+                        ;; so even a single realized parametric input is
+                        ;; delivered as `[value]`, NOT the bare-value `:<-`
+                        ;; convention.
+                        parametric?
+                        (subs-memo/make-layer-n-memoised-body
+                          body-fn query-id query-v frame-id input-qs sub-meta true)
+
+                        ;; Static `:<-` with a single input — dominant shape
+                        ;; per rf2-v1nu0; specialise to fixed-arity-1 for
+                        ;; parity with layer-1 (rf2-0y2bp). Delivers the bare
+                        ;; value (the v1 `:<-` single-input convention).
+                        (= 1 (count input-qs))
                         (subs-memo/make-layer-n-single-input-memoised-body
-                          body-fn query-id query-v frame-id input-signals sub-meta)
+                          body-fn query-id query-v frame-id input-qs sub-meta)
                         :else
                         (subs-memo/make-layer-n-memoised-body
-                          body-fn query-id query-v frame-id input-signals sub-meta))
+                          body-fn query-id query-v frame-id input-qs sub-meta))
         reaction      (adapter/make-derived-value inputs memoised-body)
+        ;; A parametric input-production failure recovers to a nil-yielding
+        ;; reaction that is NOT cached (mirroring the no-such-sub miss):
+        ;; suppress the cache store + dispose wiring so a later fix
+        ;; re-materializes cleanly on the next subscribe.
+        sub-meta      (when-not input-error? sub-meta)
+        input-signals input-qs
         cache         (:sub-cache (frame/frame frame-id))
         k             (cache-key query-v)]
     ;; Per Spec 015 §App-db → subs / §Subs → fx propagation: when this
@@ -708,11 +999,34 @@
           (trace/emit! :rf.sub :rf.sub/run
                        {:rf.sub/id      query-id
                         :rf.sub/query-v query-v})
-          (let [body-fn (:handler-fn meta)
-                inputs  (:input-signals meta)
-                ;; Bind n once — `(empty? inputs)` then `(= 1 (count inputs))`
+          (let [body-fn  (:handler-fn meta)
+                layer-1? (= :db (:input-kind meta))
+                ;; Produce the realized input query-vectors from the sub's
+                ;; input producer — the SAME three-mode model as the
+                ;; reactive cache path (Spec 006 §Subscription input
+                ;; producers / Spec 008 §`compute-sub` algorithm). For a
+                ;; parametric sub the `input-fn` runs here (pure over
+                ;; `query-v`); `normalize-sub-inputs` enforces the
+                ;; vector-of-query-vectors grammar. This keeps `compute-sub`
+                ;; pure + JVM-runnable: the `input-fn` returns query-vectors
+                ;; (data), never live reactions. On a parametric production
+                ;; failure (`input-fn` throws / bad return) we emit LOUDLY
+                ;; with `:where :compute-sub` and recover this sub to nil
+                ;; (a bad return is NEVER silently treated as no inputs).
+                [input-qs input-error?]
+                (try
+                  [(produce-input-queries meta query-v) false]
+                  (catch #?(:clj Throwable :cljs :default) e
+                    (let [bad-return? (= :rf.error/sub-input-fn-bad-return
+                                         (:rf.error/id (ex-data e)))]
+                      (emit-sub-input-fn-error! (if bad-return?
+                                                  :rf.error/sub-input-fn-bad-return
+                                                  :rf.error/sub-input-fn-exception)
+                                                query-id query-v nil e :compute-sub)
+                      [nil true])))
+                ;; Bind n once — `(empty? input-qs)` then `(= 1 (count input-qs))`
                 ;; counted twice on the multi-input path (rf2-r1rma).
-                n       (count inputs)
+                n       (count input-qs)
                 ;; Per Spec 009 §Error contract — body throws emit
                 ;; :rf.error/sub-exception and recover to nil. Mirrors
                 ;; `subs.memo/validate-and-trace` (the reactive sibling), so
@@ -721,16 +1035,45 @@
                 ;; path produces. The `:where :compute-sub` tag distinguishes
                 ;; this emission site from the reactive memo path; the rest of
                 ;; the envelope mirrors the sibling exactly (rf2-cos61).
-                v       (try
-                          (let [raw (cond
-                                      (zero? n)
+                v       (if input-error?
+                          ;; Parametric input production failed — recover the
+                          ;; whole sub to nil (already emitted above).
+                          nil
+                          (try
+                          (let [parametric? (= :parametric (:input-kind meta))
+                                raw (cond
+                                      ;; Layer-1 (`:db`) reads app-db directly.
+                                      layer-1?
                                       (body-fn db query-v)
 
-                                      (= 1 n)
-                                      (body-fn (compute-sub* (first inputs) db memo) query-v)
+                                      ;; PARAMETRIC subs deliver a VECTOR of
+                                      ;; resolved input values (producer
+                                      ;; order) to the computation fn at ANY
+                                      ;; count — `(fn [[a] q] ...)` even for a
+                                      ;; single input (EP §Single input). This
+                                      ;; mirrors the reactive path's
+                                      ;; `vector-inputs?` delivery so
+                                      ;; `compute-sub` and `subscribe-once`
+                                      ;; AGREE for parametric subs.
+                                      parametric?
+                                      (body-fn (mapv #(compute-sub* % db memo) input-qs) query-v)
 
+                                      ;; Static `:<-` with zero realized
+                                      ;; inputs delivers `(body-fn nil
+                                      ;; query-v)` — matching the reactive
+                                      ;; path's `(empty? input-signals)`
+                                      ;; delivery in
+                                      ;; `subs.memo/validate-and-trace`.
+                                      (zero? n)
+                                      (body-fn nil query-v)
+
+                                      ;; Static single `:<-` — bare value.
+                                      (= 1 n)
+                                      (body-fn (compute-sub* (first input-qs) db memo) query-v)
+
+                                      ;; Static multi `:<-` — vector.
                                       :else
-                                      (body-fn (mapv #(compute-sub* % db memo) inputs) query-v))]
+                                      (body-fn (mapv #(compute-sub* % db memo) input-qs) query-v))]
                             ;; rf2-9cm27 — `compute-sub` is the pure testing form
                             ;; (Spec 008 §Testing): a compute against a SUPPLIED db,
                             ;; outside any reactive cascade. No in-flight reaction
@@ -811,7 +1154,7 @@
                                   nil))                     ;; LISTENER-ONLY — axis 2 not invoked
                               ;; Dev-only trace path — DCEs under `:advanced` + `goog.DEBUG=false`.
                               (trace/emit-error! :rf.error/sub-exception tags))
-                            nil))]
+                            nil)))]
             (swap! memo assoc query-v v)
             v))))))
 
