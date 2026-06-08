@@ -18,9 +18,9 @@ The complete routing API surface, for quick audit. Each entry links to its norma
 - **Path-pattern grammar** — five productions (literal, named param, optional segment group, splat, root). See [§Path-pattern grammar](#path-pattern-grammar-canonical).
 - **Route ranking** — six-rule cascade for resolving overlapping matches. See [§Route ranking algorithm](#route-ranking-algorithm).
 
-### `app-db` slices
+### `runtime-db` slices
 
-All routing state lives under `[:rf.runtime/routing]` (per [Conventions §Reserved app-db keys](Conventions.md#reserved-app-db-keys)):
+All routing state lives under `[:rf.runtime/routing]` in the frame's runtime-db partition (per [Conventions §Reserved runtime-db keys](Conventions.md#reserved-runtime-db-keys)):
 
 - **Route slice** at `[:rf.runtime/routing :current]` — `{:id :params :query :fragment :transition :error :nav-token}`. Schema `:rf/route-slice`. Consumer-facing sub-id `:rf/route`. See [§The `:rf/route` slice](#the-rfroute-slice).
 - **Pending-nav slot** at `[:rf.runtime/routing :pending-navigation]` — populated when a `:can-leave` guard rejects. Schema `:rf/pending-navigation`. Sub-id `:rf/pending-navigation`. See [§Navigation blocking — pending-nav protocol](#navigation-blocking--pending-nav-protocol).
@@ -440,7 +440,7 @@ Users who want plain anchors to be interceptable register their own delegating h
 
 ### Reading the route is a sub
 
-The `:rf/route` sub projects the published slice keys via `select-keys` over the route slice at `[:rf.runtime/routing :current]`. Internal routing-runtime keys (`:scroll-positions`, `:scroll-positions-order`, `:nav-token-counter`, `:pending-nav-counter`) live alongside `:current` under `:routing` in `app-db` but do not surface through the `:rf/route` sub — consumers that `deref` the sub see only the slice and do not re-render on internal counter ticks.
+The `:rf/route` sub projects the published slice keys via `select-keys` over the route slice at `[:rf.runtime/routing :current]`. Internal routing-runtime keys (`:scroll-positions`, `:scroll-positions-order`, `:nav-token-counter`, `:pending-nav-counter`) live alongside `:current` under `[:rf.runtime/routing]` in `runtime-db` but do not surface through the `:rf/route` sub — consumers that `deref` the sub see only the slice and do not re-render on internal counter ticks.
 
 These are **framework subscriptions** — their layer-1 reader runs against the frame's **runtime-db** projection (where the route slice lives), not the app-db projection (per [002 §Subscriptions read the partition they belong to](002-Frames.md#subscriptions-read-the-partition-they-belong-to) and [006 §Frame-state container and partition projections](006-ReactiveSubstrate.md#frame-state-container-and-partition-projections)). The `rt` arg below is the runtime-db projection. A runtime-only route commit propagates to these subs (and to nothing in app-sub-land); app authors consume them through the public sub-ids, never by reaching into runtime-db.
 
@@ -677,7 +677,7 @@ The two halves are shared infrastructure: the `:nav-token` cofx supplies the cap
 ### What the slice looks like over time
 
 ```clojure
-;; All slice snapshots below are at [:rf.runtime/routing :current] in app-db.
+;; All slice snapshots below are at [:rf.runtime/routing :current] in runtime-db.
 ;;
 ;; Step 1: User navigates to :route/article id="A". nav-token = "nav-1".
 {:id :route/article :params {:id "A"} :transition :loading :nav-token "nav-1"}
@@ -1001,11 +1001,11 @@ The `:parent` + chain-sub convention is sufficient for the common case and doesn
 
 ## Navigation blocking — pending-nav protocol
 
-Real product needs — unsaved forms, interrupted checkouts, destructive multi-step workflows — require navigation to be *blockable*. Angular, Vue Router, and TanStack Router all support this. Re-frame2 makes navigation blocking a **first-class named-event/state protocol** instead of a magic component hook: pending-nav state lives in `app-db`; UI renders confirm dialogs from ordinary subscriptions; user choices are dispatched as standard events. All testable.
+Real product needs — unsaved forms, interrupted checkouts, destructive multi-step workflows — require navigation to be *blockable*. Angular, Vue Router, and TanStack Router all support this. Re-frame2 makes navigation blocking a **first-class named-event/state protocol** instead of a magic component hook: pending-nav state lives in `runtime-db`; UI renders confirm dialogs from ordinary subscriptions (the framework `:rf/pending-navigation` sub reads the runtime-db projection); user choices are dispatched as standard events. All testable.
 
 ### Mechanism
 
-A standard pending-navigation slot in `app-db`, three named events, and an optional `:can-leave` route-metadata key.
+A standard pending-navigation slot in `runtime-db`, three named events, and an optional `:can-leave` route-metadata key.
 
 **Pending-nav slot** at `[:rf.runtime/routing :pending-navigation]` (schema in [Spec-Schemas.md §`:rf/pending-navigation`](Spec-Schemas.md#rfpending-navigation)):
 
@@ -1133,13 +1133,13 @@ On the client, hydration runs `[:rf/hydrate state]` which restores the route alo
 
 ## Frame-destroy teardown
 
-Routing's per-frame state — the route slice, pending-nav slot, scroll-positions order/map, and the per-frame nav-token / pending-nav counters — **lives entirely in `app-db`** under `[:rf.runtime/routing]` (per [§The `:rf/route` slice](#the-rfroute-slice) and [§Scroll restoration](#scroll-restoration)). The `destroy-frame!` boundary therefore releases routing's per-frame state **naturally** via the frame's `app-db` going away. **Routing publishes no `:routing/teardown-on-frame-destroy!` late-bind hook**, by deliberate contrast with the per-feature artefacts that hold frame-scoped state outside `app-db`:
+Routing's per-frame state — the route slice, pending-nav slot, scroll-positions order/map, and the per-frame nav-token / pending-nav counters — **lives entirely in the frame's `runtime-db`** under `[:rf.runtime/routing]` (per [§The `:rf/route` slice](#the-rfroute-slice) and [§Scroll restoration](#scroll-restoration)). The `destroy-frame!` boundary therefore releases routing's per-frame state **naturally** via the frame's value going away. **Routing publishes no `:routing/teardown-on-frame-destroy!` late-bind hook**, by deliberate contrast with the per-feature artefacts that hold frame-scoped state outside the frame value:
 
-- [Flows](013-Flows.md#frame-destroy-teardown) — publishes `:flows/teardown-on-frame-destroy!` because the per-frame flow registry and `last-inputs` dirty-check cache live in module-private atoms, not in `app-db`.
-- [Machines](005-StateMachines.md) — the machine snapshots live at `[:rf.runtime/machines :snapshots <id>]` inside `app-db` so they die naturally, but the artefact additionally publishes `:machines/teardown-on-frame-destroy!` for the per-frame timer registry and `:after` epoch counters held outside `app-db`.
+- [Flows](013-Flows.md#frame-destroy-teardown) — publishes `:flows/teardown-on-frame-destroy!` because the per-frame flow registry and `last-inputs` dirty-check cache live in module-private atoms, not in the frame value.
+- [Machines](005-StateMachines.md) — the machine snapshots live at `[:rf.runtime/machines :snapshots <id>]` inside `runtime-db` so they die naturally, but the artefact additionally publishes `:machines/teardown-on-frame-destroy!` for the per-frame timer registry and `:after` epoch counters held outside the frame value.
 - [Schemas](010-Schemas.md) — publishes `:schemas/on-frame-destroyed!` for the per-frame validator caches held in module-private atoms.
 
-Routing fits the "all per-frame state in `app-db`" pattern in full — there is no module-private per-frame structure to clear, and so no hook to publish. Audit Finding 8.
+Routing fits the "all per-frame state in the frame value" pattern in full — there is no module-private per-frame structure to clear, and so no hook to publish. Audit Finding 8.
 
 ### Process-global slots are intentionally not per-frame
 
@@ -1151,7 +1151,7 @@ Routing holds three process-global resources that survive `destroy-frame!` and a
 | `reg-counter` (rule-6 tiebreak counter, monotonic) | process-global `defonce` atom inside the routing artefact | Rule 6 of the [§Route ranking algorithm](#route-ranking-algorithm) breaks structural ties on registration order. The counter monotonically increases over the process lifetime so a re-registered route lands "after" its siblings (per [§Hot-reload semantics for routing](001-Registration.md#hot-reload-semantics)). Per-frame counters would re-shuffle ranks on frame destroy in surprising ways; cross-frame correctness requires the counter to be global. `reset-counters!` is a test-only helper. |
 | `route-table-cache` (compiled-route lookup memo) | process-global `defonce` atom inside the routing artefact | A pre-sorted compiled-route table keyed on the registrar map's identity. Self-managing: rebuilds whenever `(identical? @route-registrar last-key)` is false. Per-frame caches would compute the same value redundantly for every frame; cross-frame caching is correct because the registrar is itself cross-frame (above). |
 
-None of these clear on `destroy-frame!` and none should. A new feature artefact author scanning routing for the teardown shape MUST NOT publish a routing-style hook for module-private state they hold per-frame — they should follow [Flows §Frame-destroy teardown](013-Flows.md#frame-destroy-teardown) or [Machines §Teardown](005-StateMachines.md) instead. The "publish a hook" rule applies when an artefact holds **per-frame state outside `app-db`**; routing's design choice (per-frame in `app-db`; process-global for corpus-wide concerns) is the contrast example.
+None of these clear on `destroy-frame!` and none should. A new feature artefact author scanning routing for the teardown shape MUST NOT publish a routing-style hook for module-private state they hold per-frame — they should follow [Flows §Frame-destroy teardown](013-Flows.md#frame-destroy-teardown) or [Machines §Teardown](005-StateMachines.md) instead. The "publish a hook" rule applies when an artefact holds **per-frame state outside the frame value**; routing's design choice (per-frame in `runtime-db`; process-global for corpus-wide concerns) is the contrast example.
 
 ### What the slice teardown looks like
 
@@ -1163,7 +1163,7 @@ The corpus-wide `:rf.error/handler-exception` listener (`on-match-error-listener
 
 Each frame has its own `[:rf.runtime/routing :current]` slice. Only the default frame is URL-bound. Non-default frames have independent routes that don't push to the browser URL.
 
-1. Every frame's `app-db` may have a `:rf/route` slice (it's a regular `app-db` path, not a special concept).
+1. Every frame's `runtime-db` may have a `:rf/route` slice at `[:rf.runtime/routing :current]` (a framework-owned runtime-db path, read through the public `:rf/route` sub — not an app-db path).
 2. The default frame (`:rf/default`) is **URL-bound** by default: `:rf.route/navigate` events on that frame fire `:rf.nav/push-url`, and `popstate` (Back/Forward) drives it. The browser URL reflects the URL-owning frame's route.
 3. Non-default frames are **not URL-bound** by default. `:rf.route/navigate` updates their `:rf/route` slice (state changes) but does not fire `:rf.nav/push-url`. This is the right default for story-variant frames, devcards, per-test fixtures.
 4. Opt-in URL binding for non-default frames via `(rf/reg-frame :my-frame {:url-bound? true})`. The runtime enforces "only one frame can own the URL at a time" — re-registering a second `:url-bound? true` frame is a `:rf.error/duplicate-url-binding` trace event. When the default frame opts out (`{:url-bound? false}`) and a single non-default frame opts in, that frame becomes the sole URL owner.

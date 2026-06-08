@@ -1271,30 +1271,34 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:frame       :keyword]
    [:rf.epoch/id :any]])
 
-;; --- Tool-Pair §Pair-tool writes — reset-frame-db! ---
+;; --- Tool-Pair §Pair-tool writes — partition-aware injection (replace-app-db! et al.) ---
 
 (def DbReplacedTags
-  ;; :rf.epoch/db-replaced — fired by reset-frame-db! on the success
-  ;; path. :op-type :rf.epoch (not :error). Carries the synthetic
-  ;; record's epoch-id so consumers can correlate the trace with the
-  ;; recorded epoch in epoch-history.
+  ;; :rf.epoch/db-replaced — fired by a pair-tool injection
+  ;; (replace-app-db! / reset-app-db! / replace-runtime-db! /
+  ;; replace-frame-state!) on the success path. :op-type :rf.epoch
+  ;; (not :error). Carries the synthetic record's epoch-id so consumers
+  ;; can correlate the trace with the recorded epoch in epoch-history.
   [:map
    [:frame       :keyword]
    [:rf.epoch/id :any]])
 
-(def ResetFrameDbDuringDrainTags
-  ;; :rf.epoch/reset-frame-db-during-drain — failure mode: caller
-  ;; invoked reset-frame-db! while the frame's drain was in flight.
-  ;; Mirrors RestoreDuringDrainTags' shape (no :rf.epoch/id slot — the
-  ;; injection was rejected before any synthetic record was assembled).
+(def ReplaceAppDbDuringDrainTags
+  ;; :rf.epoch/replace-app-db-during-drain — failure mode: caller
+  ;; invoked a pair-tool injection while the frame's drain was in
+  ;; flight. Mirrors RestoreDuringDrainTags' shape (no :rf.epoch/id
+  ;; slot — the injection was rejected before any synthetic record was
+  ;; assembled).
   [:map
    [:category :keyword]
    [:frame    :keyword]])
 
-(def ResetFrameDbSchemaMismatchTags
-  ;; :rf.epoch/reset-frame-db-schema-mismatch — failure mode: the
-  ;; new-db argument failed the frame's currently-registered app-schema
-  ;; set. :failing-paths enumerates the paths that did not validate.
+(def ReplaceAppDbSchemaMismatchTags
+  ;; :rf.epoch/replace-app-db-schema-mismatch — failure mode: the
+  ;; injected value failed the frame's currently-registered schemas (the
+  ;; new app-db against the app-schema set, or the new runtime-db against
+  ;; the framework-owned runtime-db validator). :failing-paths enumerates
+  ;; the paths that did not validate.
   [:map
    [:category      :keyword]
    [:frame         :keyword]
