@@ -2675,7 +2675,7 @@
     [cancellation-cascade/Popover]
     ;; rf2-nugvv (2026-06-04) — the Share modal (rf2-nqw0v Phase 5) is
     ;; removed. The Machine panel's Share button was its sole UI entry
-    ;; point, so the modal, its shell mount, and the `share.cljs` infra
+    ;; point, so the modal, its shell mount, and the share-URL infra
     ;; all go with it.
     ;; Mute manager modal (rf2-ikuwt) — lists every muted event-id
     ;; with per-row unmute buttons + a 'Unmute all' affordance. Same

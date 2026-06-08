@@ -199,9 +199,8 @@
        (let [dispatches (focus-command->dispatches command)]
          ;; Fire into Xray's own shell frame (the host never sees it —
          ;; the channel is the command, not the frame split). Mirrors
-         ;; runtime.cljs's mutation accessors + share.cljs's restore
-         ;; path, which both target `defaults/default-frame-id` for the
-         ;; no-surrounding-frame case.
+         ;; runtime.cljs's mutation accessors, which target
+         ;; `defaults/default-frame-id` for the no-surrounding-frame case.
          (rf/with-frame defaults/default-frame-id
            (doseq [event-vec dispatches]
              (if sync?
@@ -232,9 +231,9 @@
 
      Dispatches each translated `:rf.xray/*` event into Xray's own
      `:rf/xray` shell frame (via `re-frame.core/with-frame` —
-     mirroring `runtime.cljs`'s mutation accessors + `share.cljs`'s
-     restore path). The host never sees Xray's internal frame; the
-     channel is the command, not the frame split.
+     mirroring `runtime.cljs`'s mutation accessors). The host never
+     sees Xray's internal frame; the channel is the command, not the
+     frame split.
 
      Returns a data-shaped result (mirroring `runtime.cljs`'s
      `{:ok? ...}` idiom):
