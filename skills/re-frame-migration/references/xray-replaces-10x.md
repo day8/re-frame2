@@ -85,7 +85,7 @@ The preload registers Xray's listeners under `register-listener!` and `register-
 
 ### 4. Set your editor for clickable jump-to-source
 
-For Xray's `open` chips to jump to source on click, Xray must know which editor to open — the bare preload defaults to the `:vscode` scheme, so if that isn't your editor the click silently no-ops. Set it in **Xray Settings** ("Click-to-source links open in" on the General tab — persisted per-dev) or once at boot:
+For Xray's `open` chips to jump to source on click, Xray must know which editor to open — the bare preload defaults to the `:vscode` scheme. Until you tell Xray your editor, a click does not navigate; instead it surfaces a **"No editor configured" hint** (a bottom-corner toast with an **Open Settings** button) so the dead click is never silent. Set your editor in **Xray Settings** ("Click-to-source links open in" on the General tab — persisted per-dev) or once at boot, and clicks navigate straight to source:
 
 ```clojure
 (require '[day8.re-frame2-xray.config :as xray-config])

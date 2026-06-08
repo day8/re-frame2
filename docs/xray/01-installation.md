@@ -117,7 +117,7 @@ If Xray does not appear, check:
 
 ## Clickable Jump-To-Source
 
-Every panel that surfaces a source-coord wraps it in an `open` chip. Clicking jumps to that line in your editor — but only once Xray knows which editor to open. On a plain host app wiring just the preload, the chip uses the `:vscode` default scheme; if that is not your editor, the OS has no handler for it and the click silently no-ops.
+Every panel that surfaces a source-coord wraps it in an `open` chip. Clicking jumps to that line in your editor — but only once Xray knows which editor to open. On a plain host app wiring just the preload, no editor is configured: the chip targets the `:vscode` default scheme, but if that is not your editor the OS has no handler for it and the click would silently go nowhere. So rather than navigate into the void, an unconfigured click surfaces a **"No editor configured" hint** — a small bottom-corner toast with an **Open Settings** button that lands you on the editor picker. Once an editor is configured (in Settings or at boot), the click resolves and navigates straight to source; the hint never fires.
 
 Set your editor either in **Xray Settings** (the "Click-to-source links open in" picker on the General tab — persisted per-dev in localStorage, so each teammate can pick their own), or once at boot in code:
 
