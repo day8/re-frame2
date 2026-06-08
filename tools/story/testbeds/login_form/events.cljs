@@ -17,8 +17,10 @@
   lives here. The same handlers run when the live app boots and when
   any Story variant frame allocates. Per IMPL-SPEC §1.1, variant
   bodies are data; they reference these event-ids in their `:setup`
-  slot. Story's per-variant frame isolation (Spec 002) means each
-  variant gets its own fresh `[:rf/runtime :machines :snapshots :login/flow]` slot.
+  slot. Story's per-variant frame isolation (Spec 002) means each variant
+  gets its own fresh `[:rf.runtime/machines :snapshots :login/flow]` slot in
+  its runtime-db partition (EP-0001 rf2-vzld77 — machine snapshots are
+  durable runtime-db state, not app-db).
 
   Per Spec 014 §Testing the stub layer: `:rf.http/managed` is the
   fx-id the machine emits; the Story variants override that id via
