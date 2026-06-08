@@ -37,8 +37,10 @@
  ;; runtime-allocated :nav-token (per-navigation epoch) is not asserted —
  ;; the route ids and params are. This isolates the multi-frame property
  ;; from per-fixture nav-token allocation order.
- {:final-app-dbs
-  {:tab.left  {:rf/runtime {:routing {:current {:id :route/home :params {} :query {} :fragment nil
-                          :transition :idle :error nil}}}}
-   :tab.right {:rf/runtime {:routing {:current {:id :route/article :params {:id "intro"} :query {}
-                          :fragment nil :transition :idle :error nil}}}}}}}
+ ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db
+ ;; state — each frame's slice is asserted under :final-runtime-dbs.
+ {:final-runtime-dbs
+  {:tab.left  {:rf.runtime/routing {:current {:id :route/home :params {} :query {} :fragment nil
+                                    :transition :idle :error nil}}}
+   :tab.right {:rf.runtime/routing {:current {:id :route/article :params {:id "intro"} :query {}
+                                    :fragment nil :transition :idle :error nil}}}}}}

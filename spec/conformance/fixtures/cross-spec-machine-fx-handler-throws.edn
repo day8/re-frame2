@@ -57,8 +57,9 @@
  :fixture/expect
  ;; Snapshot DID commit (state moved :idle → :angry); :fx-log carries the
  ;; :safe fx's args, proving the post-throw fx still ran.
- {:final-app-db
-  {:rf/runtime {:machines {:snapshots {:test/m {:state :angry :data {}}}}} :fx-log [{:tag :will-record}]}
+ {:final-app-db {:fx-log [{:tag :will-record}]}
+
+  :final-runtime-db {:rf.runtime/machines {:snapshots {:test/m {:state :angry :data {}}}}}
 
   :trace-emissions
   [{:operation :rf.event/run-start :tags {:rf.trace/event-id :test/m}}

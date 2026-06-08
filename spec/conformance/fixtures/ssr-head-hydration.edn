@@ -17,7 +17,11 @@
   :head  {:head/article {:doc "Article-page head model."}}}
 
  :fixture/handlers
- {:event {:rf/hydrate [[:set [] [:get-event-arg 1 :rf/app-db]]]}
+ {:event {;; EP-0001 (rf2-vzld77): hydration installs BOTH partitions — the
+          ;; payload's `:rf/app-db` into app-db AND its `:rf/runtime-db`
+          ;; (the durable route slice) into the runtime-db partition.
+          :rf/hydrate [[:set [] [:get-event-arg 1 :rf/app-db]]
+                       [:set-runtime [] [:get-event-arg 1 :rf/runtime-db]]]}
   :head  {:head/article
           [[:return-head
             {:title "Article: re-frame2 SSR — Example"
@@ -32,11 +36,14 @@
  ;; key (matching Spec 004 §Active-route storage). The runtime's
  ;; `active-head` reads `:rf/route` to find the route-id whose `:head`
  ;; metadata names the head fn to invoke.
+ ;; EP-0001 (rf2-vzld77): the active-route slice is durable routing
+ ;; runtime-db state, so it rides the payload's `:rf/runtime-db` slice; the
+ ;; `:rf/app-db` slice carries only application data.
  [[:rf/hydrate {:rf/version    1
                 :rf/frame-id   :rf/default
                 :rf/app-db     {:articles {"123" {:title "re-frame2 SSR"
-                                                  :summary "How re-frame2 ships SSR"}}
-                                :rf/runtime {:routing {:current {:id :route/article :params {:id "123"}}}}}
+                                                  :summary "How re-frame2 ships SSR"}}}
+                :rf/runtime-db {:rf.runtime/routing {:current {:id :route/article :params {:id "123"}}}}
                 :rf/render-hash "render-hash-server-A"}]]
 
  :fixture/render-after-hydrate
@@ -48,8 +55,9 @@
 
  :fixture/expect
  {:final-app-db {:articles {"123" {:title "re-frame2 SSR"
-                                   :summary "How re-frame2 ships SSR"}}
-                 :rf/runtime {:routing {:current {:id :route/article :params {:id "123"}}}}}
+                                   :summary "How re-frame2 ships SSR"}}}
+
+  :final-runtime-db {:rf.runtime/routing {:current {:id :route/article :params {:id "123"}}}}
 
   :ssr/active-head
   {:title "Article: re-frame2 SSR — Example"

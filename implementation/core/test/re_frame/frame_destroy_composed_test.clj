@@ -91,11 +91,13 @@
     ;; Seed two machine snapshots so destroy emits multiple
     ;; :rf.machine.lifecycle/destroyed events in addition to
     ;; :rf.frame/destroyed.
-    (rf/reg-event-db :composed/seed-machines
-                     (fn [db _]
-                       (assoc-in db [:rf/runtime :machines :snapshots]
-                              {:flow/a {:state :running :data {}}
-                               :flow/b {:state :idle    :data {}}})))
+    ;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state.
+    (rf/reg-event-fx :composed/seed-machines
+                     (fn [{rt :rf.db/runtime} _]
+                       {:rf.db/runtime
+                        (assoc-in (or rt {}) [:rf.runtime/machines :snapshots]
+                                  {:flow/a {:state :running :data {}}
+                                   :flow/b {:state :idle    :data {}}})}))
     (rf/dispatch-sync [:composed/seed-machines] {:frame :composed/scoped})
     (let [throw-calls (atom 0)
           survivor    (atom [])]

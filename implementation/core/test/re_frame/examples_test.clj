@@ -218,7 +218,7 @@
                                               {:email "a@b.com"
                                                :password "secret"}]]
                           {:frame f})
-        (is (= :authed (rf/compute-sub [:auth.login/state] (rf/app-db-value f)))
+        (is (= :authed (rf/compute-sub [:auth.login/state] (rf/frame-state-value f)))
             "expected :authed after canned success")))
 
     (testing "drain retry-then-lockout — three failures cycle, the fourth :submit lands at :locked-out"
@@ -236,5 +236,5 @@
           (rf/dispatch-sync [:auth.login/flow [:auth.login/submit
                                                 {:email "x@y.z" :password "wrong"}]]
                             {:frame f}))
-        (is (= :locked-out (rf/compute-sub [:auth.login/state] (rf/app-db-value f)))
+        (is (= :locked-out (rf/compute-sub [:auth.login/state] (rf/frame-state-value f)))
             "expected :locked-out on 4th attempt")))))

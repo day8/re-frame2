@@ -140,12 +140,14 @@
     (rf/reg-frame :ten {:doc "tenant"})
     ;; Seed three machine snapshots directly into app-db so we don't
     ;; depend on a full machine-runtime invocation.
-    (rf/reg-event-db :seed-machines
-      (fn [db _]
-        (assoc-in db [:rf/runtime :machines :snapshots]
-               {:flow/login    {:state :authed     :data {:user "a"}}
-                :flow/checkout {:state :reviewing  :data {:cart [1 2]}}
-                :flow/billing  {:state :collected  :data {}}})))
+    ;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state.
+    (rf/reg-event-fx :seed-machines
+      (fn [{rt :rf.db/runtime} _]
+        {:rf.db/runtime
+         (assoc-in (or rt {}) [:rf.runtime/machines :snapshots]
+                   {:flow/login    {:state :authed     :data {:user "a"}}
+                    :flow/checkout {:state :reviewing  :data {:cart [1 2]}}
+                    :flow/billing  {:state :collected  :data {}}})}))
     (rf/dispatch-sync [:seed-machines] {:frame :ten})
     (let [traces (atom [])]
       (rf/register-listener! ::cascade (fn [ev] (swap! traces conj ev)))
@@ -209,9 +211,8 @@
       (is (= 3 (count (filter #{:rf2-vsigt/child#1
                                  :rf2-vsigt/child#2
                                  :rf2-vsigt/child#3}
-                              (keys (get-in (rf/app-db-value :rf2-vsigt/auth)
-                                            [:rf/runtime :machines :snapshots])))))
-          "three spawned actor snapshots live at [:rf/runtime :machines :snapshots <id>]")
+                              (keys (get-in (rf/runtime-db-value :rf2-vsigt/auth) [:rf.runtime/machines :snapshots])))))
+          "three spawned actor snapshots live at [:rf.runtime/machines :snapshots <id>]")
       ;; Destroy the frame.
       (rf/destroy-frame! :rf2-vsigt/auth)
       ;; :exit fired three times in REVERSE-spawn order.

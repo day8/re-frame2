@@ -56,8 +56,7 @@
   [:rf.route/navigate :route/profile]]
 
  :fixture/expect
- {:final-app-db
-  {:rf/runtime {:routing {:current {:id :route/profile :params {} :error nil}}}}
+ {:final-runtime-db {:rf.runtime/routing {:current {:id :route/profile :params {} :error nil}}}
 
   :effects-routed
   ;; The push-url and scroll fxs interleave; what we assert is the

@@ -55,11 +55,12 @@
  ;; in a framework-private side-channel atom (re-frame.ssr/response-slots),
  ;; NOT in app-db — the projector's locked 404 status is asserted via
  ;; :ssr/public-error below.
- {:final-app-db
-  {:rf/runtime {:routing {:current {:id     :rf.route/not-found
+ {:final-app-db {:analytics {:last-404 true}}
+
+  :final-runtime-db {:rf.runtime/routing {:current {:id     :rf.route/not-found
                  :params {:url "/missing"}
                  :query  {}
-                 :error  nil}}} :analytics {:last-404 true}}
+                 :error  nil}}}
 
   :trace-emissions
   [{:operation :rf.event/run-start :tags {:rf.trace/event-id :rf/server-init}}

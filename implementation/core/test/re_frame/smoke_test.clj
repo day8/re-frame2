@@ -537,7 +537,7 @@
             "the def binds the symbol the user supplied")))))
 
 (deftest verify-hydration-emits-mismatch
-  (testing "rf/hydrate stashes [:rf/runtime :ssr :hydration] metadata; verify-hydration! detects mismatch"
+  (testing "rf/hydrate stashes [:rf.runtime/ssr :hydration] metadata; verify-hydration! detects mismatch"
     (require 're-frame.ssr)
     (let [verify-fn  @(resolve 're-frame.ssr/verify-hydration!)
           ;; Server-supplied payload with a render-hash.
@@ -548,7 +548,7 @@
       (rf/dispatch-sync [:rf/hydrate payload])
       ;; Hydrate stashed the metadata.
       (is (= "server-hash-X"
-             (get-in (rf/app-db-value :rf/default) [:rf/runtime :ssr :hydration :server-hash])))
+             (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/ssr :hydration :server-hash])))
       ;; Now simulate the client render producing a different hash.
       (rf/register-listener! ::vh (fn [ev] (swap! traces conj ev)))
       (verify-fn :rf/default "client-hash-Y")
@@ -582,12 +582,15 @@
 (deftest destroy-frame-signals-active-machines
   (testing "destroy-frame! emits one :rf.machine.lifecycle/destroyed per active machine, carrying :reason :parent-frame-destroyed"
     (rf/reg-frame :tenant-a {:doc "tenant"})
-    ;; Seed a machine snapshot directly into app-db so we don't need to
-    ;; run a full machine through this test.
-    (rf/reg-event-db :seed-machines
-      (fn [db _]
-        (assoc-in db [:rf/runtime :machines :snapshots] {:flow/login    {:state :authed   :data {}}
-                                                         :flow/checkout {:state :pending  :data {}}})))
+    ;; Seed a machine snapshot directly into the RUNTIME-DB partition
+    ;; (EP-0001 rf2-vzld77 — machine snapshots are durable runtime-db state)
+    ;; so we don't need to run a full machine through this test.
+    (rf/reg-event-fx :seed-machines
+      (fn [{rt :rf.db/runtime} _]
+        {:rf.db/runtime
+         (assoc-in (or rt {}) [:rf.runtime/machines :snapshots]
+                   {:flow/login    {:state :authed   :data {}}
+                    :flow/checkout {:state :pending  :data {}}})}))
     (rf/dispatch-sync [:seed-machines] {:frame :tenant-a})
     (let [traces (atom [])]
       (rf/register-listener! ::df (fn [ev] (swap! traces conj ev)))
@@ -642,11 +645,11 @@
           ;; atom — it lives inside each parent machine's snapshot at
           ;; `:rf/spawn-counter`. Frame-scoping is inherited from
           ;; per-frame app-db isolation: each frame owns its own copy of
-          ;; the :flow machine's snapshot at [:rf/runtime :machines :snapshots :flow]; each
+          ;; the :flow machine's snapshot at [:rf.runtime/machines :snapshots :flow]; each
           ;; copy's counter advances independently. Read the counter
           ;; from each frame's snapshot directly.
-          (let [snap-left  (get-in (rf/app-db-value :left)  [:rf/runtime :machines :snapshots :flow])
-                snap-right (get-in (rf/app-db-value :right) [:rf/runtime :machines :snapshots :flow])]
+          (let [snap-left  (get-in (rf/runtime-db-value :left) [:rf.runtime/machines :snapshots :flow])
+                snap-right (get-in (rf/runtime-db-value :right) [:rf.runtime/machines :snapshots :flow])]
             (is (= 1 (get-in snap-left  [:rf/spawn-counter :worker]))
                 "left frame's :flow snapshot counts one :worker spawn")
             (is (= 1 (get-in snap-right [:rf/spawn-counter :worker]))
@@ -738,9 +741,13 @@
             :authed      {}
             :locked-out  {}}}))
 
-      ;; Subs over the machine snapshot.
+      ;; Subs over the machine snapshot. EP-0001 (rf2-vzld77): machine
+      ;; snapshots are durable runtime-db state, so this composes off the
+      ;; framework `:rf/machine` sub (which reads the runtime-db projection)
+      ;; rather than reaching into a raw db path.
       (rf/reg-sub :auth.login/state
-        (fn [db _] (get-in db [:rf/runtime :machines :snapshots :auth.login/flow :state])))
+        :<- [:rf/machine :auth.login/flow]
+        (fn [snapshot _] (:state snapshot)))
 
       (testing "happy path: idle → submitting → authed; session token stored"
         (reset! stored nil)
@@ -748,7 +755,7 @@
           (rf/dispatch-sync [:auth.login/flow [:auth.login/submit
                                                {:email "a@b.c" :password "secret"}]]
                             {:frame f})
-          (is (= :authed (rf/compute-sub [:auth.login/state] (rf/app-db-value f)))
+          (is (= :authed (rf/compute-sub [:auth.login/state] (rf/frame-state-value f)))
               "machine landed in :authed after canned success")
           (is (= "t-1" @stored)
               "session token was stored via the :auth.session/store fx")))
@@ -766,7 +773,7 @@
           (rf/dispatch-sync [:auth.login/flow [:auth.login/submit
                                                {:email "x@y.z" :password "wrong"}]]
                             {:frame f})
-          (is (= :locked-out (rf/compute-sub [:auth.login/state] (rf/app-db-value f)))
+          (is (= :locked-out (rf/compute-sub [:auth.login/state] (rf/frame-state-value f)))
               "guarded multi-clause branch routed to :locked-out on 4th attempt"))))))
 
 (deftest rf-machine-sub
@@ -779,15 +786,16 @@
     (let [f (rf/make-frame {})]
       (rf/dispatch-sync [:test/tiny [:tick]] {:frame f})
       (rf/dispatch-sync [:test/tiny [:tick]] {:frame f})
-      (let [db (rf/app-db-value f)]
+      ;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state.
+      (let [rt (rf/runtime-db-value f)]
         ;; Per rf2-gr8q the snapshot carries `:rf/spawn-counter` seeded
         ;; by `synthesise-initial-snapshot`. This machine never spawns,
         ;; so the slot stays empty (`{}`).
         (is (= {:state :idle :data {:n 2} :rf/spawn-counter {}}
-               (get-in db [:rf/runtime :machines :snapshots :test/tiny]))
+               (get-in rt [:rf.runtime/machines :snapshots :test/tiny]))
             "machine snapshot exists at the spec'd path")
         (is (= {:state :idle :data {:n 2} :rf/spawn-counter {}}
-               (rf/compute-sub [:rf/machine :test/tiny] db))
+               (rf/compute-sub [:rf/machine :test/tiny] rt))
             ":rf/machine sub returns the same snapshot")))))
 
 (deftest machines-introspection
