@@ -270,6 +270,68 @@
     ;; shape — tests can assert on one keyword and cover both surfaces.
     (validate-policy-opts! opts)))
 
+;; ---- runtime-db projection (EP-0001 rf2-30kzz2) --------------------------
+;;
+;; Per Spec 011 §The hydration payload (`:rf/runtime-db`) + §Off-box redaction
+;; (Mike ruling #13): the optional `:rf/runtime-db` payload slice carries ONLY
+;; the SERIALIZABLE DURABLE runtime-db facts the client needs to reconstitute
+;; a coherent frame-state — machine snapshots / spawn registry, the active
+;; route slice, elision declarations, and SSR hydration metadata. Transient
+;; runtime state MUST NOT ride the wire: server-only request/response
+;; accumulators, head snapshots, streaming continuation registries,
+;; pending-error buffers, in-flight HTTP handles, host handles, and the
+;; client-local scroll-position / nav-token caches (per [002 §Durable vs
+;; transient]).
+;;
+;; The projection is an ALLOWLIST by subsystem child — symmetric to the
+;; `:rf/app-db` policy's fail-closed allowlist posture (a new transient
+;; sub-key under a shipped subsystem does NOT silently leak). Routing ships
+;; only the durable `:current` slice; the scroll-position / nav-counter
+;; siblings stay client-local. Absent / nil runtime-db projects to nil (the
+;; client-only / no-server-runtime fallback) so `build-payload` omits the
+;; optional key.
+
+(def ^:private durable-routing-keys
+  "The durable routing-runtime keys that ride the hydration payload. Only
+  `:current` (the active route slice) is durable + needed client-side; the
+  `:scroll-positions` / `:scroll-positions-order` / `:nav-token-counter` /
+  `:pending-nav-counter` / `:pending-navigation` siblings are transient
+  client-local caches (per [002 §Durable vs transient]) and stay off the wire."
+  [:current])
+
+(defn project-runtime-db
+  "Project a frame's runtime-db value to the SERIALIZABLE durable slice that
+  rides the `:rf/hydration-payload`'s optional `:rf/runtime-db` key (EP-0001
+  rf2-30kzz2, Mike ruling #13). Allowlist-shaped per subsystem child:
+
+    - `:rf.runtime/machines` — shipped whole (snapshots + spawn registry are
+      durable serializable facts the client re-materialises actors from);
+    - `:rf.runtime/routing`  — only the durable `:current` route slice
+      (scroll / nav-token caches are transient client-local state);
+    - `:rf.runtime/elision`  — the wire-elision declaration registry;
+    - `:rf.runtime/ssr`       — the SSR hydration metadata.
+
+  Returns nil for a nil / empty runtime-db OR when no durable subsystem fact
+  is present, so `build-payload` omits the optional `:rf/runtime-db` key
+  (the client-only / no-server-runtime fallback). nil-pruned: a subsystem
+  whose durable slice is absent contributes no key."
+  [runtime-db]
+  (when (map? runtime-db)
+    (let [slice (cond-> {}
+                  (contains? runtime-db :rf.runtime/machines)
+                  (assoc :rf.runtime/machines (:rf.runtime/machines runtime-db))
+
+                  (seq (select-keys (:rf.runtime/routing runtime-db) durable-routing-keys))
+                  (assoc :rf.runtime/routing
+                         (select-keys (:rf.runtime/routing runtime-db) durable-routing-keys))
+
+                  (contains? runtime-db :rf.runtime/elision)
+                  (assoc :rf.runtime/elision (:rf.runtime/elision runtime-db))
+
+                  (contains? runtime-db :rf.runtime/ssr)
+                  (assoc :rf.runtime/ssr (:rf.runtime/ssr runtime-db)))]
+      (when (seq slice) slice))))
+
 ;; ---- version resolution + payload assembly -------------------------------
 ;;
 ;; Single home for the hydration-payload `:rf/version` resolution and the
@@ -318,7 +380,7 @@
   "Assemble the canonical `:rf/hydration-payload` map per Spec 011 §The
   hydration payload — the four canonical keys (`:rf/version`,
   `:rf/frame-id`, `:rf/app-db`, `:rf/render-hash`) plus the optional
-  `:rf/schema-digest`.
+  `:rf/runtime-db` and `:rf/schema-digest`.
 
   The `:rf/app-db` slice is the already-projected `db-slice` — callers
   run `apply-policy` (the fail-closed allowlist / whole-app-db contract,
@@ -327,13 +389,21 @@
   hook → v1 stamp). Schema-digest is supplied by the caller when their
   app participates in the schema-digest check; nil otherwise.
 
+  EP-0001 (rf2-30kzz2): the optional `:runtime-db` opt carries the
+  already-projected SERIALIZABLE runtime-db slice (callers run
+  `project-runtime-db` on the frame's runtime-db value and hand the result
+  here). When non-nil it rides the payload as `:rf/runtime-db` so the client
+  `:rf/hydrate` handler installs a coherent frame-state (app-db + runtime-db);
+  nil omits the optional key (the client-only / no-server-runtime shape).
+
   Shared verbatim by both SSR paths (rf2-8wrzz.4): the non-streaming
   `re-frame.ssr.ring.payload/build-payload` and the streaming
   `re-frame.ssr.streaming/build-final-payload`, which differ only in how
-  they source `app-db` before projecting it."
-  [frame-id db-slice render-hash {:keys [version schema-digest]}]
+  they source `app-db` + runtime-db before projecting them."
+  [frame-id db-slice render-hash {:keys [version schema-digest runtime-db]}]
   (cond-> {:rf/version     (resolve-version version)
            :rf/frame-id    frame-id
            :rf/app-db      db-slice
            :rf/render-hash render-hash}
-    schema-digest (assoc :rf/schema-digest schema-digest)))
+    (some? runtime-db) (assoc :rf/runtime-db runtime-db)
+    schema-digest      (assoc :rf/schema-digest schema-digest)))

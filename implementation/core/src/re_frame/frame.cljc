@@ -760,16 +760,19 @@
 ;; take no frame arg). Per rf2-x3m8c.
 (def ^:dynamic *destroying-frame-id* nil)
 
-;; Pre-cascade app-db snapshot of the in-flight dequeued event, bound by
+;; Pre-cascade frame-state snapshot of the in-flight dequeued event, bound by
 ;; the router around `process-event!` (see `re-frame.router/run-one-pass!`).
 ;; A handler that calls `destroy-frame!` on its own frame mid-drain runs
-;; INSIDE that binding, so `destroy-frame!` can recover the value app-db
-;; held BEFORE the in-flight event's cascade began — the `:db-before` slot
-;; the `:halted-destroy` epoch record carries per Spec-Schemas
-;; §`:rf/epoch-record` §Outcomes (rf2-9neiq). nil outside a drain (an
-;; out-of-cascade `destroy-frame!` — hot-reload, `reset-frame!`, REPL —
-;; commits no `:halted-destroy` record, so the slot is moot there).
-(def ^:dynamic *cascade-db-before* nil)
+;; INSIDE that binding, so `destroy-frame!` can recover the whole frame-state
+;; (both partitions) held BEFORE the in-flight event's cascade began — the
+;; `:frame-state-before` slot the `:halted-destroy` epoch record carries per
+;; Spec-Schemas §`:rf/epoch-record` §Outcomes (rf2-9neiq). EP-0001
+;; (rf2-3aizt1, decision #2): the canonical snapshot unit is the whole
+;; frame-state; the epoch derives `:db-before` from its app-db projection.
+;; nil outside a drain (an out-of-cascade `destroy-frame!` — hot-reload,
+;; `reset-frame!`, REPL — commits no `:halted-destroy` record, so the slot
+;; is moot there).
+(def ^:dynamic *cascade-frame-state-before* nil)
 
 (defn- safe-call-hook!
   "Fire a late-bound cleanup hook by key. No-op when unbound. Exceptions
@@ -961,26 +964,28 @@
   (registrar/unregister! :frame id))
 
 (defn- notify-epoch-listeners!
-  "Fire the epoch destroy hook, threading the two app-db snapshots the
+  "Fire the epoch destroy hook, threading the two frame-state snapshots the
   `:halted-destroy` epoch record carries per Spec-Schemas §`:rf/epoch-record`
-  §Outcomes (rf2-9neiq):
+  §Outcomes (rf2-9neiq). EP-0001 (rf2-3aizt1, decision #2): the canonical
+  snapshot unit is the whole frame-state (both partitions); the epoch surface
+  derives the `:db-before` / `:db-after` app-db projections from them.
 
-    `db-before` — the pre-cascade snapshot (app-db before the in-flight
+    `fs-before` — the pre-cascade snapshot (frame-state before the in-flight
                   event's cascade began), recovered from the router-bound
-                  `*cascade-db-before*` dynamic var. nil outside a drain.
-    `db-after`  — the state at destroy-time: the live container value read
+                  `*cascade-frame-state-before*` dynamic var. nil outside a drain.
+    `fs-after`  — the state at destroy-time: the live frame-state value read
                   at the TOP of `destroy-frame!`, before any teardown step
                   mutated or removed the container. The partial cascade's
                   already-committed writes survive in this value; once
                   teardown runs the live container can no longer be read
-                  (`frame-app-db-value` returns nil for a destroyed frame).
+                  (`frame-state-value` returns nil for a destroyed frame).
 
   Both snapshots are captured BEFORE the frame is removed and passed
   explicitly so the epoch surface (which fires AFTER `dissoc-frame!`,
   step 6) does not have to read a container that is already gone — the
   root cause of the prior nil-`:db-before` / nil-`:db-after` records."
-  [id db-before db-after]
-  (safe-call-hook! :epoch/on-frame-destroyed id db-before db-after))
+  [id fs-before fs-after]
+  (safe-call-hook! :epoch/on-frame-destroyed id fs-before fs-after))
 
 (defn destroy-frame!
   "Tear down a frame. Per Spec 002 §Destroy, the ordered steps are:
@@ -1035,15 +1040,17 @@
     8. notify-epoch-listeners!      — fire the epoch hook so tools see
                                       :rf.epoch.cb/silenced-on-frame-destroy,
                                       threading the pre-cascade
-                                      (`*cascade-db-before*`) and destroy-
-                                      time (live container value captured
-                                      at the TOP of this fn, before any
-                                      teardown) app-db snapshots so a
+                                      (`*cascade-frame-state-before*`) and
+                                      destroy-time (live frame-state value
+                                      captured at the TOP of this fn, before
+                                      any teardown) frame-state snapshots so a
                                       mid-drain destroy's :halted-destroy
-                                      epoch record carries real :db-before
-                                      / :db-after per Spec-Schemas
-                                      §:rf/epoch-record §Outcomes
-                                      (rf2-9neiq) — not the prior nil/nil.
+                                      epoch record carries real
+                                      :frame-state-before / :frame-state-after
+                                      (and their :db-* app-db projections) per
+                                      Spec-Schemas §:rf/epoch-record §Outcomes
+                                      (rf2-9neiq / rf2-3aizt1) — not the prior
+                                      nil/nil.
 
   Subsequent dispatch / subscribe against a destroyed frame raises
   :rf.error/frame-destroyed.
@@ -1066,17 +1073,19 @@
   (when-not (contains? @destroying-frames id)
     (when-let [f (frame id)]
       (swap! destroying-frames conj id)
-      ;; Capture the DESTROY-TIME app-db value BEFORE any teardown step
+      ;; Capture the DESTROY-TIME frame-state value BEFORE any teardown step
       ;; runs. After `mark-frame-destroyed!` (step 3) flips :destroyed?,
-      ;; `frame-app-db-value` returns nil; after `dissoc-frame!` (step 6)
+      ;; `frame-state-value` returns nil; after `dissoc-frame!` (step 6)
       ;; the container is gone entirely. Reading it here yields the state
-      ;; the partial cascade left app-db in at the moment destroy was
-      ;; requested — the `:db-after` slot the `:halted-destroy` epoch
-      ;; record carries (rf2-9neiq). The pre-cascade `:db-before` rides
-      ;; the router-bound `*cascade-db-before*` dynamic var (nil outside
-      ;; a drain). Both are passed to `notify-epoch-listeners!` (step 8).
-      (let [cascade-db-before *cascade-db-before*
-            db-at-destroy     (frame-app-db-value id)]
+      ;; the partial cascade left the frame in at the moment destroy was
+      ;; requested — the `:frame-state-after` slot the `:halted-destroy`
+      ;; epoch record carries (rf2-9neiq). The pre-cascade
+      ;; `:frame-state-before` rides the router-bound
+      ;; `*cascade-frame-state-before*` dynamic var (nil outside a drain).
+      ;; Both are passed to `notify-epoch-listeners!` (step 8). EP-0001
+      ;; (rf2-3aizt1, decision #2): the whole frame-state, both partitions.
+      (let [cascade-fs-before *cascade-frame-state-before*
+            fs-at-destroy     (frame-state-value id)]
        (binding [*destroying-frame-id* id]
         (try
         (fire-on-destroy-event! id f)
@@ -1122,7 +1131,7 @@
         (safe-call-hook! :trace.tooling/release-frame-ring! id)
         (dissoc-frame! id)
         (unregister-frame! id)
-        (notify-epoch-listeners! id cascade-db-before db-at-destroy)
+        (notify-epoch-listeners! id cascade-fs-before fs-at-destroy)
         nil
         (finally
           ;; Always clear the in-flight marker — even if a downstream step

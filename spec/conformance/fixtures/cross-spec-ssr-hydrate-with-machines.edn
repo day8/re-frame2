@@ -7,22 +7,25 @@
 ;;                  [011-SSR §Hydration payload](../../011-SSR.md).
 ;;
 ;; Scenario: The server rendered a page that ran machines to completion
-;; of the SSR-eligible drain; the hydration payload carries app-db with
-;; machine snapshots at [:rf.runtime/machines :snapshots <id>] (per Conventions §Reserved
-;; app-db keys). The client hydrates and continues from the server's
+;; of the SSR-eligible drain; the hydration payload carries the durable
+;; machine snapshots in its :rf/runtime-db slice at
+;; [:rf.runtime/machines :snapshots <id>] (per Conventions §Reserved
+;; runtime-db keys). The client hydrates and continues from the server's
 ;; settled state.
 ;;
-;; Behaviour: Machine snapshots live INSIDE app-db, so the hydration
-;; payload (which is app-db itself) carries them transparently. After
-;; :rf/hydrate, dispatching events that read [:rf.runtime/machines :snapshots <id>] sees
-;; the server's settled snapshot. No separate machine-state channel is
-;; required — Goal 3 (revertibility) of the architecture pays for
-;; trivial hydration here.
+;; Behaviour (EP-0001 rf2-vzld77 / rf2-30kzz2): machine snapshots are
+;; runtime-db partition state, so the server emits them in the payload's
+;; :rf/runtime-db slice and the reference :rf/hydrate handler installs them
+;; into the runtime-db partition. After :rf/hydrate, dispatching events /
+;; subs that read [:rf.runtime/machines :snapshots <id>] from the runtime-db
+;; partition see the server's settled snapshot. No separate machine-state
+;; channel is required — Goal 3 (revertibility) of the architecture pays
+;; for trivial hydration here.
 ;;
-;; The pure-data observable: a hydrate payload containing
-;; {:rf/runtime {:machines {:snapshots {:auth.session/abc {:state :authenticated :data {...}}}}}}
-;; results in those snapshots living at the canonical path after hydrate
-;; settles, queryable by subsequent dispatches and subs.
+;; The pure-data observable: a hydrate payload whose :rf/runtime-db carries
+;; {:rf.runtime/machines {:snapshots {:auth.session/abc {:state :authenticated :data {...}}}}}
+;; results in those snapshots living at the canonical runtime-db path after
+;; hydrate settles, queryable by subsequent dispatches and subs.
 
 {:fixture/id           :cross-spec/ssr-hydrate-with-machines
  :fixture/spec-version "1.0"

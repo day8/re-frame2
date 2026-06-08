@@ -358,7 +358,7 @@
    {:key         :machines/actor-resolvable?
     :producer-ns 're-frame.machines
     :design-bead "rf2-a2sn1"
-    :description "Epoch-restore precondition companion to :machines/resolve-actor-handler-meta. Returns true iff a recorded actor-id's snapshot in a candidate restore db resolves to a live machine spec via its `:rf/machine-type` (registered TYPE or inline `:definition`). Lets `re-frame.epoch.tool-pair/missing-references` treat a spawned-actor snapshot as a VALID restore target — its per-instance handler is, by design, never registered — rather than a `:rf.epoch/restore-missing-handler`."}
+    :description "Epoch-restore precondition companion to :machines/resolve-actor-handler-meta. Returns true iff a recorded actor-id's snapshot in a candidate restore RUNTIME-DB partition (EP-0001 rf2-3aizt1 — snapshots are runtime-db state at [:rf.runtime/machines :snapshots <id>]) resolves to a live machine spec via its `:rf/machine-type` (registered TYPE or inline `:definition`). Lets `re-frame.epoch.tool-pair/missing-references` treat a spawned-actor snapshot as a VALID restore target — its per-instance handler is, by design, never registered — rather than a `:rf.epoch/restore-missing-handler`."}
    {:key         :machines/spawn-all-init-fx
     :producer-ns 're-frame.machines
     :description "Effect handler seeding the :spawn-all join state during spawn."}
@@ -561,7 +561,7 @@
     :description "Clear every registered epoch-settled callback (test isolation)."}
    {:key         :epoch/on-frame-destroyed
     :producer-ns 're-frame.epoch
-    :description "Tear down a frame's epoch state when the frame is destroyed. Invoked as (f frame-id db-before db-after): db-before is the in-flight event's pre-cascade snapshot (frame/*cascade-db-before*), db-after the destroy-time container value captured before teardown — the real :db-before/:db-after slots a mid-drain :halted-destroy epoch record carries per Spec-Schemas §:rf/epoch-record §Outcomes (rf2-9neiq). Both nil for an out-of-cascade destroy."}
+    :description "Tear down a frame's epoch state when the frame is destroyed. Invoked as (f frame-id fs-before fs-after): fs-before is the in-flight event's pre-cascade frame-state snapshot (frame/*cascade-frame-state-before*), fs-after the destroy-time frame-state value captured before teardown — the real :frame-state-before/:frame-state-after slots (and their :db-* app-db projections) a mid-drain :halted-destroy epoch record carries per Spec-Schemas §:rf/epoch-record §Outcomes (rf2-9neiq / rf2-3aizt1). Both nil for an out-of-cascade destroy."}
    {:key         :epoch/projected-record
     :producer-ns 're-frame.epoch
     :design-bead "rf2-mrsck"

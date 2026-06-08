@@ -238,13 +238,12 @@
 
 ;; ---- machine macrostep stays ONE epoch (rf2-nj6p7) ------------------------
 
-;; EP-0001 (rf2-vzld77) — DEFERRED to bead 7 (rf2-3aizt1). This test asserts
-;; the epoch record's `:db-after` carries the machine snapshot at
-;; `[:rf.runtime/machines :snapshots …]`. rf2-vzld77 moved machine snapshots to
-;; the runtime-db partition, but epoch capture still records `:db-before/-after`
-;; = app-db only. Capturing runtime-db in the epoch (`:frame-state-before/-after`)
-;; is bead 7's surface; re-enable + adapt there. `#_` reader-discards the form.
-#_(deftest machine-raise-macrostep-is-one-epoch
+;; EP-0001 (rf2-vzld77) re-enabled by bead 7 (rf2-3aizt1). The epoch record now
+;; captures the whole frame-state (`:frame-state-before/-after`, decision #2);
+;; the machine snapshot lives in the runtime-db partition at
+;; `[:rf.db/runtime :rf.runtime/machines :snapshots …]`. This asserts the
+;; macrostep's terminal state is captured there.
+(deftest machine-raise-macrostep-is-one-epoch
   (testing "per rf2-nj6p7 + Spec 005 §macrostep: a machine's :raise sub-events
             are in-memory microsteps inside a SINGLE macrostep — they ride
             the TRIGGERING event's epoch and do NOT allocate new epochs.
@@ -273,9 +272,10 @@
       (let [r (first history)]
         (is (= :mac/chain (:event-id r))
             "the triggering machine event is the epoch's trigger")
-        (is (= :s3 (:state (get-in (:db-after r) [:rf/runtime :machines :snapshots :mac/chain])))
+        (is (= :s3 (:state (get-in (:frame-state-after r)
+                                   [:rf.db/runtime :rf.runtime/machines :snapshots :mac/chain])))
             "the macrostep reached the terminal state — all three
-             transitions committed inside this one epoch")
+             transitions committed inside this one epoch (runtime-db partition)")
         ;; Every trace in the epoch rides the SAME :rf.trace/dispatch-id — the
         ;; :raises did NOT mint a new correlation id (Spec 009).
         (let [dispatch-ids (->> (:trace-events r)
@@ -589,6 +589,78 @@
                   events)
             ":rf.epoch/restored fired with the matching epoch-id")))))
 
+;; ---- frame-state snapshot/restore (EP-0001 rf2-3aizt1, decision #2 + #9) ---
+
+(deftest epoch-captures-whole-frame-state-both-partitions
+  (testing "an epoch record captures the canonical :frame-state-before /
+            :frame-state-after (both partitions) and derives the :db-* app-db
+            projections from them"
+    (rf/reg-frame :test/main {})
+    ;; A handler that writes BOTH partitions in one cascade — app-db via :db,
+    ;; runtime-db via the reserved :rf.db/runtime effect.
+    (rf/reg-event-fx :seed-both
+      (fn [{rt :rf.db/runtime} _]
+        {:db            {:app-value 1}
+         :rf.db/runtime (assoc-in (or rt {})
+                                  [:rf.runtime/machines :snapshots :m/x]
+                                  {:state :live})}))
+    (rf/dispatch-sync [:seed-both] {:frame :test/main})
+
+    (let [r (last (rf/epoch-history :test/main))]
+      (is (= {:rf.db/app     {:app-value 1}
+              :rf.db/runtime {:rf.runtime/machines {:snapshots {:m/x {:state :live}}}}}
+             (:frame-state-after r))
+          ":frame-state-after carries BOTH partitions coherently")
+      (is (= {} (get-in r [:frame-state-before :rf.db/app]))
+          ":frame-state-before's app-db partition is the pre-cascade {}")
+      ;; The :db-* projections are the app-db slice of the canonical frame-state.
+      (is (= {:app-value 1} (:db-after r))
+          ":db-after is the app-db projection of :frame-state-after")
+      (is (= {} (:db-before r))
+          ":db-before is the app-db projection of :frame-state-before"))))
+
+(deftest restore-rewinds-whole-frame-state-revives-runtime-db
+  (testing "restore-epoch reinstalls BOTH partitions (decision #9): a rewind to
+            an epoch whose runtime-db carried a machine snapshot revives that
+            snapshot, not just the app-db partition. The machine TYPE is
+            registered so the restored snapshot reference resolves (it is a
+            valid restore target, not a :rf.epoch/restore-missing-handler)."
+    (rf/reg-frame :test/main {})
+    ;; Register a real machine so the recorded snapshot's id resolves through
+    ;; the public event registry (Spec 005 §Registration).
+    (rf/reg-machine :m/x
+      {:initial :live :states {:live {} :gone {}}})
+    ;; Seed a known snapshot into the runtime-db partition + a marker in app-db.
+    (rf/reg-event-fx :put-machine
+      (fn [{rt :rf.db/runtime} _]
+        {:db {:phase :machine-alive}
+         :rf.db/runtime (assoc-in (or rt {})
+                                  [:rf.runtime/machines :snapshots :m/x]
+                                  {:state :live :data {} :meta {}})}))
+    (rf/reg-event-fx :drop-machine
+      (fn [{rt :rf.db/runtime} _]
+        {:db {:phase :machine-gone}
+         :rf.db/runtime (update-in (or rt {}) [:rf.runtime/machines :snapshots]
+                                   dissoc :m/x)}))
+
+    (rf/dispatch-sync [:put-machine]  {:frame :test/main})
+    (let [alive-epoch (:epoch-id (last (rf/epoch-history :test/main)))]
+      (rf/dispatch-sync [:drop-machine] {:frame :test/main})
+      ;; After the drop, the runtime-db snapshot is gone.
+      (is (nil? (get-in (rf/runtime-db-value :test/main)
+                        [:rf.runtime/machines :snapshots :m/x]))
+          "the machine snapshot was dropped from runtime-db")
+      ;; Rewind to the alive epoch.
+      (is (true? (rf/restore-epoch :test/main alive-epoch))
+          "restore to the alive epoch succeeded")
+      ;; BOTH partitions are rewound.
+      (is (= {:state :live :data {} :meta {}}
+             (get-in (rf/runtime-db-value :test/main)
+                     [:rf.runtime/machines :snapshots :m/x]))
+          "restore revived the runtime-db machine snapshot (decision #9)")
+      (is (= {:phase :machine-alive} (rf/app-db-value :test/main))
+          "restore also rewound the app-db partition"))))
+
 ;; ---- restore failure modes -------------------------------------------------
 
 (deftest restore-failure-unknown-frame
@@ -725,11 +797,16 @@
     ;; Register a route so the recorded route reference resolves; we'll
     ;; later unregister it to trigger the missing-handler failure.
     (rf/reg-route :route/users {:path "/users"})
-    (rf/reg-event-db :route-to
-      (fn [db _] (assoc-in db [:rf/runtime :routing :current] {:id :route/users})))
+    ;; EP-0001 (rf2-vzld77 / rf2-3aizt1): the route slice is runtime-db state
+    ;; at [:rf.runtime/routing :current]; bead 7's missing-references reads the
+    ;; recorded frame-state's runtime-db partition.
+    (rf/reg-event-fx :route-to
+      (fn [{rt :rf.db/runtime} _]
+        {:rf.db/runtime (assoc-in (or rt {}) [:rf.runtime/routing :current]
+                                  {:id :route/users})}))
     (rf/dispatch-sync [:route-to] {:frame :test/main})
     ;; A subsequent dispatch so the history holds at least one record
-    ;; whose :db-after references :route/users.
+    ;; whose :frame-state-after references :route/users.
     (let [target (last (rf/epoch-history :test/main))]
       ;; Now blow away the route registration.
       (registrar/unregister! :route :route/users)
@@ -750,12 +827,13 @@
                             (= :route/users (:id %)))
                       missing))))))))
 
-;; EP-0001 (rf2-vzld77) — DEFERRED to bead 7 (rf2-3aizt1): restore-epoch of a
-;; machine snapshot requires the epoch to capture + restore the runtime-db
-;; partition (machine snapshots are now runtime-db). See machine-raise note above.
-#_(deftest restore-failure-missing-handler-machine
-  (testing "restore-epoch on a db referencing a machine snapshot whose machine
-  is no longer registered fires :rf.epoch/restore-missing-handler. Per
+;; EP-0001 (rf2-vzld77) re-enabled by bead 7 (rf2-3aizt1): the epoch now
+;; captures + restores the runtime-db partition (machine snapshots are
+;; runtime-db state), and `tool_pair/missing-references` reads the recorded
+;; runtime-db partition (rf2-k4xe7u). See machine-raise note above.
+(deftest restore-failure-missing-handler-machine
+  (testing "restore-epoch on a frame-state referencing a machine snapshot whose
+  machine is no longer registered fires :rf.epoch/restore-missing-handler. Per
   rf2-ocg1: machine resolution goes through the public event registry
   (:rf/machine? metadata), NOT the internal :head registrar kind."
     (rf/reg-frame :test/main {})
@@ -765,12 +843,14 @@
       {:initial :red
        :states  {:red    {:on {:tick :green}}
                  :green  {:on {:tick :red}}}})
-    ;; Drive the machine so [:rf/runtime :machines :snapshots :machine/tl] gets a snapshot.
+    ;; Drive the machine so the runtime-db partition gets a snapshot at
+    ;; [:rf.runtime/machines :snapshots :machine/tl].
     (rf/dispatch-sync [:machine/tl [:tick]] {:frame :test/main})
 
     (let [target (last (rf/epoch-history :test/main))]
-      (is (some? (get-in (:db-after target) [:rf/runtime :machines :snapshots :machine/tl]))
-          "snapshot recorded under [:rf/runtime :machines :snapshots]")
+      (is (some? (get-in (:frame-state-after target)
+                         [:rf.db/runtime :rf.runtime/machines :snapshots :machine/tl]))
+          "snapshot recorded in the runtime-db partition")
 
       ;; Unregister the machine so the recorded snapshot's id no longer resolves.
       (registrar/unregister! :event :machine/tl)
@@ -792,9 +872,9 @@
                       missing)
                 "missing entry surfaces the machine id under :machine kind")))))))
 
-;; EP-0001 (rf2-vzld77) — DEFERRED to bead 7 (rf2-3aizt1): same runtime-db
-;; epoch capture/restore dependency as restore-failure-missing-handler-machine.
-#_(deftest restore-failure-missing-handler-non-machine-event-not-confused
+;; EP-0001 (rf2-vzld77) re-enabled by bead 7 (rf2-3aizt1): same runtime-db
+;; epoch capture/restore as restore-failure-missing-handler-machine.
+(deftest restore-failure-missing-handler-non-machine-event-not-confused
   (testing "an event handler under the same id as a recorded machine snapshot —
   but NOT marked :rf/machine? — does not satisfy the machine reference. Per
   rf2-ocg1, the registry probe gates on :rf/machine? metadata."
@@ -834,11 +914,15 @@
       {:initial :red
        :meta    {:rf/snapshot-version 1}
        :states  {:red {:on {:tick :green}} :green {}}})
-    ;; Commit a snapshot carrying matching :meta :rf/snapshot-version.
-    (rf/reg-event-db :put-snap
-      (fn [db _]
-        (assoc-in db [:rf/runtime :machines :snapshots :machine/tl]
-                  {:state :red :data {} :meta {:rf/snapshot-version 1}})))
+    ;; Commit a snapshot carrying matching :meta :rf/snapshot-version into the
+    ;; runtime-db partition (EP-0001 rf2-vzld77 — machine snapshots are
+    ;; runtime-db state; bead 7 reads the runtime-db partition of the recorded
+    ;; frame-state for the version-drift precondition).
+    (rf/reg-event-fx :put-snap
+      (fn [{rt :rf.db/runtime} _]
+        {:rf.db/runtime
+         (assoc-in (or rt {}) [:rf.runtime/machines :snapshots :machine/tl]
+                   {:state :red :data {} :meta {:rf/snapshot-version 1}})}))
     (rf/dispatch-sync [:put-snap] {:frame :test/main})
 
     (let [target (last (rf/epoch-history :test/main))]

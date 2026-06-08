@@ -776,6 +776,47 @@
           ":payload allowlist omits server-only slices from the wire payload")
       (is (not (str/includes? body "admin-flag"))))))
 
+(deftest handler-emits-serializable-runtime-db-slice
+  ;; EP-0001 (rf2-30kzz2): the server-side payload producer emits the
+  ;; serializable runtime-db slice (machine snapshots, route :current slice)
+  ;; as `:rf/runtime-db` so the client `:rf/hydrate` handler installs a
+  ;; coherent frame-state. Transient runtime-db state (scroll-position cache)
+  ;; is excluded by `project-runtime-db`.
+  (testing "the hydration payload carries the durable :rf/runtime-db slice and omits transient runtime-db state"
+    (rf/reg-event-fx :init/seed-runtime
+      {:platforms #{:server}}
+      (fn [{rt :rf.db/runtime} _]
+        {:db {:public/page :dashboard}
+         :rf.db/runtime
+         (-> (or rt {})
+             ;; durable: machine snapshot + active route slice
+             (assoc-in [:rf.runtime/machines :snapshots :auth.session/abc]
+                       {:state :authenticated :data {:user "u-1"}})
+             (assoc-in [:rf.runtime/routing :current] {:id :route/dashboard :params {}})
+             ;; transient: client-local scroll cache — must NOT ride the wire
+             (assoc-in [:rf.runtime/routing :scroll-positions "/"] {:x 0 :y 240}))}))
+
+    (rf/reg-view* :pages/echo (fn [] [:div "echo"]))
+
+    (let [handler  (ssr-ring/ssr-handler
+                     {:on-create [:init/seed-runtime]
+                      :root-view [:pages/echo]
+                      :payload   [:public/page]})
+          response (handler {:uri "/" :request-method :get})
+          body     (:body response)]
+      (is (= 200 (:status response)))
+      (is (str/includes? body ":runtime-db")
+          "the payload carries the :rf/runtime-db slice")
+      ;; pr-str emits namespace-keyed maps in `#:ns{...}` shorthand for
+      ;; namespace-shared keys (:auth.session/abc → #:auth.session{:abc ...}).
+      (is (or (str/includes? body ":auth.session/abc")
+              (str/includes? body "#:auth.session{:abc"))
+          "the durable machine snapshot rides :rf/runtime-db")
+      (is (str/includes? body ":route/dashboard")
+          "the durable route :current slice rides :rf/runtime-db")
+      (is (not (str/includes? body "scroll-positions"))
+          "the transient scroll-position cache is excluded from the wire payload"))))
+
 ;; ===========================================================================
 ;; ssr-handler — explicit fail-closed payload policy (rf2-gtgf9)
 ;;

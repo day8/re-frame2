@@ -382,14 +382,18 @@
         (is (= :rf2-j9phb/arg-target
                (get @captured-args :epoch/on-frame-destroyed))
             "epoch hook receives the destroyed frame id")
-        ;; rf2-9neiq: for this OUT-OF-CASCADE destroy, db-before (the
-        ;; pre-cascade snapshot from frame/*cascade-db-before*) is nil
-        ;; (no in-flight cascade), while db-after is the live container
-        ;; value read at destroy-time — the frame's initial {} app-db.
-        (is (= [nil {}] (get @captured-args :epoch/snapshot-args))
-            "epoch hook receives (db-before db-after): nil pre-cascade
-             (out-of-cascade destroy) + the destroy-time container {}
-             (rf2-9neiq)")
+        ;; rf2-9neiq / rf2-3aizt1: for this OUT-OF-CASCADE destroy, fs-before
+        ;; (the pre-cascade snapshot from frame/*cascade-frame-state-before*)
+        ;; is nil (no in-flight cascade), while fs-after is the live
+        ;; frame-state value read at destroy-time — the frame's initial empty
+        ;; two-partition frame-state. EP-0001 (rf2-3aizt1, decision #2): the
+        ;; destroy hook now threads the whole frame-state (both partitions),
+        ;; not app-db alone.
+        (is (= [nil {:rf.db/app {} :rf.db/runtime {}}]
+               (get @captured-args :epoch/snapshot-args))
+            "epoch hook receives (fs-before fs-after): nil pre-cascade
+             (out-of-cascade destroy) + the destroy-time frame-state
+             {:rf.db/app {} :rf.db/runtime {}} (rf2-9neiq / rf2-3aizt1)")
         (finally
           (reset! late-bind/hooks snapshot))))))
 
