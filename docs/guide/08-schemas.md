@@ -215,6 +215,7 @@ Schemas are deliberately a warmup chapter — you meet the vocabulary here, alon
 - [Chapter 11 — Forms](11-forms.md) is the first heavy user: a `FormSlice` for the lifecycle shape, a draft schema for the value the user's typing, both bound with `reg-app-schema`.
 - [Chapter 10 — HTTP](10-http.md) uses schemas as the canonical `:decode` for response bodies — the same shape-description, doing double duty as a parser.
 - [Chapter 14 — Errors](14-errors.md) is where `:rf.error/schema-validation-failure` shows up in the trace stream as a first-class, inspectable event rather than a console line you might miss.
+- [Chapter 12 — State machines](12-machines.md#declaring-the-shape-of-a-machines-data-data-schema) extends the same idea to a machine's `:data` (its extended state). A `:data-schema` on the machine spec validates `:data` at every transition, and a `{:sensitive? true}` slot redacts there too — the exact mechanism this chapter describes, pointed at a machine's context instead of an `app-db` slice.
 - The `:large?` and `:sensitive?` flags you can hang on a schema slot have nothing to do with validation — they control trace-stream elision (redact the auth token, drop the 40MB blob) — and that whole story lives in [chapter 23](23-privacy-and-large-things.md). The schema is just the one place you declare both.
 - [Malli's README](https://github.com/metosin/malli) is the full vocabulary — registries, custom schemas, generators — for when the seven shapes run out.
 
