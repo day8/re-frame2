@@ -9,6 +9,10 @@
             [re-frame.trace.tooling :as trace-tooling]
             ;; rf2-bmzq0: sub-cache-snapshot lives in re-frame.subs.tooling.
             [re-frame.subs.tooling :as subs-tooling]
+            ;; rf2-0sr0ai: reg-runtime-sub (framework runtime-db sub) is an
+            ;; internal subs surface, not on the rf/ facade — required for
+            ;; the two-partition projection-equality invalidation pins below.
+            [re-frame.subs :as subs]
             [re-frame.frame :as frame]
             [re-frame.machines :as machines]
             ;; rf2-k682: routing ships in day8/re-frame2-routing.
@@ -448,6 +452,130 @@
               "layer-2 body still suppressed on the second value-equal replacement"))
         (remove-watch r ::touch)
         (rf/unsubscribe [:stable/squared])))))
+
+;; ---- two-partition projection-equality invalidation (EP-0001 decision #7,
+;; rf2-0sr0ai) -----------------------------------------------------------------
+;;
+;; Spec 006 §Frame-state container and partition projections: app-db and
+;; runtime-db are PROJECTION REACTIONS over the ONE physical frame-state
+;; container. A runtime-only commit recomputes the app-db projection, finds
+;; it `=`, and MUST NOT propagate to app-db subs (and the converse for an
+;; app-only commit). The plain-atom (JVM) pin lives in
+;; `re-frame.partitioned-commit-test`; on plain-atom the short-circuit rides
+;; on the core sub-cache memoised body (make-derived-value recomputes on
+;; every deref). Under the Reagent reactive substrate the projections are
+;; REAL Reagent Reactions and the layer-1 sub body is a Reaction over the
+;; projection — the SAME contract, a DIFFERENT propagation path. These pin
+;; it under Reagent. UIx / Helix carry the parameterised twin in
+;; `re-frame.adapter.react-shared-suite`.
+;;
+;; A framework-authority handler (the `:rf/machine? true` marker the dev
+;; runtime-write diagnostic keys on) emits `:rf.db/runtime` without firing
+;; the diagnostic — mirrors `reg-fw-runtime-handler!` in the plain-atom
+;; suite.
+
+(defn- reg-fw-runtime-handler!
+  [id f]
+  (rf/reg-event-fx id {:doc "framework-authority" :rf/machine? true} f))
+
+(deftest runtime-only-commit-does-not-rerun-app-subs-cljs
+  (testing "[EP-0001 #7, rf2-0sr0ai] a runtime-only commit leaves the app-db
+  projection `=` and does NOT re-run an app-db layer-1 sub body under the
+  Reagent reactive substrate"
+    (let [runs (atom 0)]
+      (rf/reg-event-db :inval/seed-app (fn [_ _] {:n 1}))
+      (rf/dispatch-sync [:inval/seed-app])
+      (rf/reg-sub :inval/app-sub (fn [db _] (swap! runs inc) (:n db)))
+      (let [r (rf/subscribe [:inval/app-sub])]
+        ;; Pin the reaction live with a watch so its memoised value persists
+        ;; across the commit (matches sub-correctness-on-value-equal-input).
+        (add-watch r ::touch (fn [_ _ _ _] nil))
+        (is (= 1 @r) "precondition: app sub primes to the seeded value")
+        (let [after-prime @runs]
+          (reg-fw-runtime-handler! :inval/touch-rt
+            (fn [_ _] {:rf.db/runtime {:rf.runtime/machines {:m 1}}}))
+          (rf/dispatch-sync [:inval/touch-rt])
+          (r/flush)
+          @r
+          (is (= 1 @r) "the app sub still derefs to the unchanged value")
+          (is (= after-prime @runs)
+              "the app-db layer-1 sub body did NOT re-run — app-db projection stayed `=` on a runtime-only commit")
+          (is (= {:rf.runtime/machines {:m 1}} (rf/runtime-db-value :rf/default))
+              "the runtime-only commit DID land in runtime-db (real short-circuit, not a dropped write)"))
+        (remove-watch r ::touch)
+        (rf/unsubscribe [:inval/app-sub])))))
+
+(deftest app-only-commit-does-not-rerun-runtime-subs-cljs
+  (testing "[EP-0001 #7, rf2-0sr0ai] an app-only commit leaves the runtime-db
+  projection `=` and does NOT re-run a runtime-db (reg-runtime-sub) sub body
+  under the Reagent reactive substrate"
+    (let [runs (atom 0)]
+      (reg-fw-runtime-handler! :inval/seed-rt
+        (fn [_ _] {:rf.db/runtime {:rf.runtime/routing {:current {:id :home}}}}))
+      (rf/dispatch-sync [:inval/seed-rt])
+      (subs/reg-runtime-sub :inval/rt-sub
+        (fn [runtime-db _] (swap! runs inc) (get-in runtime-db [:rf.runtime/routing :current :id])))
+      (let [r (rf/subscribe [:inval/rt-sub])]
+        (add-watch r ::touch (fn [_ _ _ _] nil))
+        (is (= :home @r) "precondition: runtime-db sub primes to the seeded route id")
+        (let [after-prime @runs]
+          (rf/reg-event-db :inval/app-write (fn [db _] (assoc db :touched? true)))
+          (rf/dispatch-sync [:inval/app-write])
+          (r/flush)
+          @r
+          (is (= :home @r) "the runtime-db sub still derefs to the unchanged route id")
+          (is (= after-prime @runs)
+              "the runtime-db sub body did NOT re-run — runtime-db projection stayed `=` on an app-only commit")
+          (is (true? (:touched? (rf/app-db-value :rf/default)))
+              "the app-only commit DID land in app-db (real short-circuit, not a dropped write)"))
+        (remove-watch r ::touch)
+        (rf/unsubscribe [:inval/rt-sub])))))
+
+(deftest real-partition-change-propagates-to-its-subs-cljs
+  (testing "[EP-0001 #7, rf2-0sr0ai] the converse: a real change to a
+  partition DOES re-run that partition's subs (exactly once) and only that
+  partition's — under the Reagent reactive substrate"
+    (let [app-runs (atom 0)
+          rt-runs  (atom 0)]
+      (rf/reg-event-db :inval/seed-app2 (fn [_ _] {:n 1}))
+      (rf/dispatch-sync [:inval/seed-app2])
+      (reg-fw-runtime-handler! :inval/seed-rt2
+        (fn [_ _] {:rf.db/runtime {:rf.runtime/machines {:m 1}}}))
+      (rf/dispatch-sync [:inval/seed-rt2])
+      (rf/reg-sub :inval/app-sub2 (fn [db _] (swap! app-runs inc) (:n db)))
+      (subs/reg-runtime-sub :inval/rt-sub2
+        (fn [runtime-db _] (swap! rt-runs inc) (get-in runtime-db [:rf.runtime/machines :m])))
+      (let [ra (rf/subscribe [:inval/app-sub2])
+            rr (rf/subscribe [:inval/rt-sub2])]
+        (add-watch ra ::touch-a (fn [_ _ _ _] nil))
+        (add-watch rr ::touch-r (fn [_ _ _ _] nil))
+        (is (= 1 @ra) "precondition: app sub primed")
+        (is (= 1 @rr) "precondition: runtime-db sub primed")
+        (let [app-baseline @app-runs
+              rt-baseline  @rt-runs]
+          ;; Real app-db change.
+          (rf/reg-event-db :inval/app-write2 (fn [db _] (update db :n inc)))
+          (rf/dispatch-sync [:inval/app-write2])
+          (r/flush)
+          (is (= 2 @ra) "the app sub re-derived to the new app-db value")
+          (is (= (inc app-baseline) @app-runs)
+              "the app sub body re-ran exactly once on a real app-db change")
+          (is (= rt-baseline @rt-runs)
+              "the runtime-db sub body did NOT re-run on a real app-db change")
+          ;; Real runtime-db change.
+          (reg-fw-runtime-handler! :inval/rt-write2
+            (fn [_ _] {:rf.db/runtime {:rf.runtime/machines {:m 2}}}))
+          (rf/dispatch-sync [:inval/rt-write2])
+          (r/flush)
+          (is (= 2 @rr) "the runtime-db sub re-derived to the new runtime-db value")
+          (is (= (inc rt-baseline) @rt-runs)
+              "the runtime-db sub body re-ran exactly once on a real runtime-db change")
+          (is (= (inc app-baseline) @app-runs)
+              "the app sub body did NOT re-run on a real runtime-db change"))
+        (remove-watch ra ::touch-a)
+        (remove-watch rr ::touch-r)
+        (rf/unsubscribe [:inval/app-sub2])
+        (rf/unsubscribe [:inval/rt-sub2])))))
 
 (deftest dispatch-sync-in-handler-errors-cljs
   (testing "calling dispatch-sync from inside a handler raises a structured error"
