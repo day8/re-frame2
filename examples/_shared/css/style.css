@@ -15,12 +15,11 @@
  * Atmosphere        : subtle paper-grain radial gradients fixed to the
  *                     viewport + soft warm-toned shadows. No heavy textures.
  *
- * Token convention  : the canonical names are --ex-*. The per-substrate
- *                     prefixes --rg-*, --ux-*, --hx-* are aliased onto the
- *                     same shared values so the design-led examples
- *                     (notebook, dashboard_uix, process_monitor_helix)
- *                     that consume them render identically across
- *                     substrates.
+ * Token convention  : the canonical names are --ex-*. Two design-led
+ *                     examples still consume per-substrate prefix aliases
+ *                     (notebook → --rg-*, process_monitor_helix → --hx-*),
+ *                     which map onto the same shared values so they render
+ *                     identically. New examples should use --ex-* directly.
  *
  * @imports structure.css for layout-only class shapes
  *          (forms, banners, pills, boot, navbar, cards, cells grid,
@@ -64,56 +63,34 @@
   /* fonts */
   --ex-sans:  'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --ex-mono:  'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
-  --ex-serif: 'Inter', system-ui, sans-serif;  /* alias for legacy serif refs */
 
   /* alias consumed by structure.css */
   --rf2-mono: var(--ex-mono);
 
   /* ---- Per-substrate prefix aliases ----------------------------------- *
-   * The design-led examples (notebook, dashboard_uix,
-   * process_monitor_helix) carry per-example inline CSS that references
-   * --rg-*, --ux-*, --hx-* tokens. These all map onto the same shared
-   * palette so every example renders identically.
+   * Two design-led examples carry per-example inline CSS that references
+   * prefixed tokens: notebook (--rg-*) and process_monitor_helix (--hx-*).
+   * These map onto the same shared palette so every example renders
+   * identically. Only the tokens those examples actually use are kept.
    * ----------------------------------------------------------------- */
 
-  /* Reagent legacy (--rg-*) */
+  /* Reagent legacy (--rg-*) — tokens consumed by the notebook example */
   --rg-bg:           var(--ex-bg);
   --rg-bg-raised:    var(--ex-bg-raised);
   --rg-bg-sunken:    var(--ex-bg-sunken);
   --rg-ink:          var(--ex-ink);
-  --rg-ink-muted:    var(--ex-ink-muted);
   --rg-ink-faint:    var(--ex-ink-faint);
   --rg-rule:         var(--ex-rule);
   --rg-sienna:       var(--ex-accent);
   --rg-sienna-deep:  var(--ex-accent-deep);
-  --rg-gold:         var(--ex-accent-soft);
-  --rg-oxblood:      var(--ex-error);
-  --rg-forest:       var(--ex-success);
   --rg-serif:        var(--ex-sans);
   --rg-sans:         var(--ex-sans);
   --rg-mono:         var(--ex-mono);
 
-  /* UIx legacy (--ux-*) */
-  --ux-bg:           var(--ex-bg);
-  --ux-bg-raised:    var(--ex-bg-raised);
-  --ux-bg-sunken:    var(--ex-bg-sunken);
-  --ux-grid:         rgba(26,24,20,0.045);
-  --ux-ink:          var(--ex-ink);
-  --ux-ink-mute:     var(--ex-ink-muted);
-  --ux-ink-faint:    var(--ex-ink-faint);
-  --ux-rule:         var(--ex-rule);
-  --ux-cyan:         var(--ex-accent);          /* remapped to amber */
-  --ux-cyan-deep:    var(--ex-accent-deep);
-  --ux-yellow:       var(--ex-accent-soft);
-  --ux-coral:        var(--ex-error);
-  --ux-mint:         var(--ex-success);
-  --ux-sans:         var(--ex-sans);
-  --ux-mono:         var(--ex-mono);
-
-  /* Helix legacy (--hx-*) — was dark; now mapped to the shared light theme */
+  /* Helix legacy (--hx-*) — was dark; now mapped to the shared light theme.
+     Tokens consumed by the process_monitor_helix example. */
   --hx-bg:           var(--ex-bg);
   --hx-bg-surface:   var(--ex-bg-sunken);
-  --hx-bg-raised:    var(--ex-bg-raised);
   --hx-bg-elevated:  var(--ex-bg-elevated);
   --hx-ink:          var(--ex-ink);
   --hx-ink-muted:    var(--ex-ink-muted);
@@ -121,13 +98,10 @@
   --hx-rule:         var(--ex-rule);
   --hx-rule-strong:  var(--ex-rule-strong);
   --hx-green:        var(--ex-success);
-  --hx-green-deep:   #345B2E;
-  --hx-magenta:      var(--ex-accent);          /* remapped */
   --hx-amber:        var(--ex-warn);
   --hx-red:          var(--ex-error);
   --hx-cyan:         var(--ex-info);
   --hx-mono:         var(--ex-mono);
-  --hx-sans:         var(--ex-sans);
 }
 
 html, body {
@@ -284,19 +258,12 @@ button:active:not([disabled]) { transform: translateY(1px); }
 
 .boot-hint { color: var(--ex-ink-faint); font-style: italic; }
 .main-app section { border-top: 1px solid var(--ex-rule); }
-dl.boot-summary dt { color: var(--ex-ink-muted); }
 
 /* Realworld / Conduit ---------------------------------------------------- */
 
-.navbar, .realworld-footer {
+.navbar {
   background: var(--ex-bg-raised);
   border-bottom: 1px solid var(--ex-rule);
-}
-
-.realworld-footer {
-  border-bottom: 0;
-  border-top: 1px solid var(--ex-rule);
-  margin-top: 2em;
 }
 
 .nav-link { color: var(--ex-accent); font-weight: 500; }

@@ -62,20 +62,9 @@
   padding: 12px 0;
 }
 
-dl.boot-summary {
-  display: grid;
-  grid-template-columns: max-content 1fr;
-  gap: 6px 16px;
-  margin: 0;
-}
-
-dl.boot-summary dt { font-weight: 600; }
-dl.boot-summary dd { margin: 0; }
-
 /* -- Realworld / Conduit layout ----------------------------------------- */
 
-.navbar,
-.realworld-footer {
+.navbar {
   padding: 12px 20px;
 }
 
