@@ -849,7 +849,9 @@ Each MAP node inside `:states` — a state-node, a transition map under `:on` / 
 :states {:idle {:on {:submit {:target :done
                               :guard  :form-valid?
                               :action (fn [_] {})
-                              :source-coords {:ns sym :file "path/login.cljs" :line 80 :column 23}}}
+                              :source-coords {:ns sym :file "path/login.cljs" :line 80 :column 23}
+                              ;; inline-fn source — keyed by slot (rf2-se70xj):
+                              :source-code   {:action "(fn [_] {})"}}}
                 :source-coords {:ns sym :file "path/login.cljs" :line 78 :column 11}}
          :done {:source-coords {:ns sym :file "path/login.cljs" :line 84 :column 11}}}
 ```
@@ -858,19 +860,21 @@ This is the coord tools navigate to for "jump to call site" — where a transiti
 
 #### Inline-fn / keyword slots (the exemption case)
 
-Inline-fn and keyword slots inside `:states` — `:entry` / `:exit` / `:guard` / `:action` / `:on-spawn` — hold a fn or keyword VALUE, not a map, so there is no node to hang a `:source-coords` key on. They are **not** stamped individually; a tool resolving such a slot reads the `:source-coords` off its **nearest enclosing map node** (the transition map for an inline `:guard` / `:action`; the state-node for an inline `:entry` / `:exit`). This is the same source line in practice, and it mirrors the keyword-reference rule: a keyword (`:form-valid?`) is a name, not a source form, so it too falls back to the enclosing map's coord.
+Inline-fn and keyword slots inside `:states` — `:entry` / `:exit` / `:guard` / `:action` / `:on-spawn` — hold a fn or keyword VALUE, not a map, so there is no node to hang a `:source-coords` key on. They are **not** stamped with their OWN `:source-coords`; a tool resolving such a slot reads the `:source-coords` off its **nearest enclosing map node** (the transition map for an inline `:guard` / `:action`; the state-node for an inline `:entry` / `:exit`). This is the same source line in practice, and it mirrors the keyword-reference rule: a keyword (`:form-valid?`) is a name, not a source form, so it too falls back to the enclosing map's coord.
+
+**Inline-fn `:source-code` (rf2-se70xj).** The enclosing-map fallback works for `:source-coords` (the position is the same source line), but it does NOT supply an inline fn's CODE TEXT — `pr-str` of the enclosing transition map is `{:target :done :action (fn …)}`, not the action fn body. So an inline fn's `:source-code` (the `pr-str` of the fn literal) is co-located on the **enclosing map node** under a `:source-code` MAP keyed by the inline slot — `{:entry "…" :exit "…"}` on a state-node, `{:guard "…" :action "…"}` on a transition map — alongside the node's own `:source-coords`. A tool resolving an inline-fn slot key (`[… :action]`) reads `(get-in spec [… :source-code :action])` off the enclosing node. This is distinct from the named-element `:source-code` (a STRING on `:guards` / `:actions` entries): named entries live under the registry slots, never on a `:states`-tree map node, so the two `:source-code` shapes never share a map. **The inline-fn slot VALUE itself stays a bare fn** — the runtime engine resolves `:entry` / `:exit` / `:guard` / `:action` slots via `fn?` / `keyword?` and stamps the slot value as the trace `:action-id` / `:guard-id`, so it is never wrapped into a map. Keyword-reference slots (`:action :clear-hold`) carry NO inline `:source-code` — their body lives on the named `:actions` entry's own `:source-code`.
 
 Concretely for `{:guards {:form-valid? (fn …)} :states {:idle {:on {:submit {:target :done :guard :form-valid? :action (fn [_] {})}}}}}`:
 
-| Where | Co-located coord? | Why |
-|---|---|---|
-| `:guards :form-valid?` entry's `:source-coords` | ✓ (when defined) | fn literal carries reader meta |
-| `:states :idle` state-node's `:source-coords` | ✓ | state-node map carries reader meta (CLJS) |
-| `:states :idle :on :submit` transition map's `:source-coords` | ✓ | transition map carries reader meta (CLJS) |
-| `:states :idle :on :submit :guard` | — (resolves to the transition map) | `:form-valid?` is a keyword — no node |
-| `:states :idle :on :submit :action` | — (resolves to the transition map) | the inline fn is a value, not a map |
+| Where | Co-located coord? | Inline `:source-code`? | Why |
+|---|---|---|---|
+| `:guards :form-valid?` entry's `:source-coords` / `:source-code` | ✓ (when defined) | ✓ (on the `:guards` entry) | fn literal carries reader meta + `pr-str` source |
+| `:states :idle` state-node's `:source-coords` | ✓ | — (no inline `:entry`/`:exit` here) | state-node map carries reader meta (CLJS) |
+| `:states :idle :on :submit` transition map's `:source-coords` | ✓ | — | transition map carries reader meta (CLJS) |
+| `:states :idle :on :submit :guard` | — (resolves to the transition map) | — (`:form-valid?` is a keyword) | a keyword's body lives on `:guards :form-valid?` |
+| `:states :idle :on :submit :action` | — (resolves to the transition map) | ✓ via `[:states :idle :on :submit :source-code :action]` | the inline fn is a value, not a map — its source rides the enclosing transition map's `:source-code` |
 
-Tools resolving a slot walk UP from its spec-path to the nearest enclosing map carrying `:source-coords`; for a "jump to call site" click on a state's `:guard`, they land on the enclosing transition's coord (the same source line).
+Tools resolving a slot walk UP from its spec-path to the nearest enclosing map carrying `:source-coords`; for a "jump to call site" click on a state's `:guard`, they land on the enclosing transition's coord (the same source line). For the inline fn's CODE, they read `(get-in spec [<enclosing-map-path> :source-code <slot>])` — the inline `:source-code` map on that same enclosing node.
 
 #### Reading it back
 
@@ -886,13 +890,18 @@ Tools resolving a slot walk UP from its spec-path to the nearest enclosing map c
 ;; => {:ns ... :line ... :column ... :file ...}
 (get-in (rf/machine-meta :auth/login) [:states :form :on :submit :source-coords])
 ;; => {:ns ... :line ... :column ... :file ...}
+
+;; Inline-fn source — read off the enclosing node's :source-code map by slot
+;; (rf2-se70xj):
+(get-in (rf/machine-meta :auth/login) [:states :form :on :submit :source-code :action])
+;; => "(fn [{data :data}] {:fx ...})"   (nil for a keyword-reference :action)
 ```
 
 The top-level call-site coords (the position of the `(rf/reg-machine ...)` form itself) live on the registry slot as `:ns` / `:line` / `:column` / `:file`, queryable via `(rf/handler-meta :event machine-id)`. These surfaces are independent: a tool highlighting the `reg-machine` declaration uses `handler-meta`; a tool highlighting a guard's definition reads its co-located `:source-coords` on the `:guards` entry; a tool highlighting a transition's source line reads the `:source-coords` on the transition map node.
 
 #### Production elision
 
-The macro emits an `(if interop/debug-enabled? <dev> <prod>)` branch. The DEV arm co-locates `{:fn .. :source-coords .. :source-code ..}` onto each element entry AND co-locates `:source-coords` onto each `:states`-tree map node; the PROD arm collapses each element entry to `{:fn <fn>}` and runs NO state-source splice, so prod state-nodes ship clean (just the user's authored `{:on … :tags …}`). Under `:advanced` + `goog.DEBUG=false` the closure compiler constant-folds the gate to `false` and DCEs the entire dev arm — every co-located `:source-code` string and every coord literal (per-element AND state-node / transition-map) are absent from the production bundle. The separable `:fn` is what lets the source bytes DCE while the live function ships; state-nodes have no extra runtime cost in prod because the splice never runs. Verified by the `npm run test:elision` sentinel grep (the co-located `:source-code` fn-body fragments, which ride the same dev arm as the state-source splice — there is no longer a `:rf.machine/state-coords` keyword to grep, and `:source-coords` is shared with the guards/actions arm).
+The macro emits an `(if interop/debug-enabled? <dev> <prod>)` branch. The DEV arm co-locates `{:fn .. :source-coords .. :source-code ..}` onto each element entry, co-locates `:source-coords` onto each `:states`-tree map node, AND co-locates the inline-fn `:source-code` map onto each enclosing node (rf2-se70xj); the PROD arm collapses each element entry to `{:fn <fn>}` and runs NO state-source / inline-source splice, so prod state-nodes ship clean (just the user's authored `{:on … :tags …}`) and inline-fn slots ship as bare fns. Under `:advanced` + `goog.DEBUG=false` the closure compiler constant-folds the gate to `false` and DCEs the entire dev arm — every co-located `:source-code` string (named-element AND inline-fn) and every coord literal (per-element AND state-node / transition-map) are absent from the production bundle. The separable `:fn` is what lets the named-element source bytes DCE while the live function ships; inline-fn slots keep their bare fn while the inline `:source-code` map DCEs; state-nodes have no extra runtime cost in prod because the splice never runs. Verified by the `npm run test:elision` sentinel grep (the co-located `:source-code` fn-body fragments, which ride the same dev arm as the state-source / inline-source splices — there is no longer a `:rf.machine/state-coords` keyword to grep, and `:source-coords` is shared with the guards/actions arm).
 
 #### JVM caveat
 

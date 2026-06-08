@@ -205,6 +205,55 @@
         acc))
     spec coords))
 
+(defn collocate-state-inline-source
+  "Dev-branch runtime co-location of inline-fn `:source-code` strings onto
+  each enclosing `:states`-tree map node (rf2-se70xj). `inline-source` is the
+  `{<map-spec-path> {<slot> <source-string>}}` index the macro built via
+  [[walk-machine-inline-source]] at expansion time; this fn splices each
+  per-slot source map onto the map living at its spec-path under
+  `:source-code`, yielding e.g.
+
+      :states {:open {:entry (fn …)
+                      :on    {:door/close {:target :closed :guard :may-close?}}
+                      :source-coords {…}
+                      :source-code   {:entry \"(fn …)\"}}}
+
+  and for an inline transition `:action`:
+
+      :on {:cancel {:target :idle :action (fn [_] {})
+                    :source-coords {…}
+                    :source-code   {:action \"(fn [_] {})\"}}}
+
+  The `:source-code` map sits ALONGSIDE the `:source-coords` already
+  co-located on the node (per rf2-vqja2 / [[collocate-state-source]]); a tool
+  resolving an inline-fn slot key (`[… :action]`) reads `(get-in spec […
+  :source-code :action])` off the enclosing node. The inline SLOT itself
+  keeps its bare fn value — the runtime engine resolves it via `fn?` and
+  stamps it as the trace `:action-id`/`:guard-id`, so it must not be wrapped.
+
+  This co-location does not collide with the named-element `:source-code`
+  (a STRING on `:guards`/`:actions` entries via [[collocate-element-source]]):
+  those live under the `:guards`/`:actions` registry slots, never on a
+  `:states`-tree map node, so the two `:source-code` shapes never share a map.
+
+  Only paths whose live value is a map get a `:source-code` (the walker only
+  emits map-valued paths; this fn defends with `(map? (get-in …))` so a spec
+  whose runtime shape diverged from the literal degrades to a no-op). Returns
+  the updated spec.
+
+  This is the dev arm of the reg-machine macro's `(if interop/debug-enabled?
+  <collocate> <identity>)` gate — the `inline-source` literal is referenced
+  ONLY here, so under `:advanced` + `goog.DEBUG=false` the whole co-location
+  (with its `pr-str` source strings) DCEs and the registered state-nodes ship
+  clean."
+  [spec inline-source]
+  (reduce-kv
+    (fn [acc path src]
+      (if (map? (get-in acc path))
+        (assoc-in acc (conj (vec path) :source-code) src)
+        acc))
+    spec inline-source))
+
 ;; ---- always-on error-coord registry (rf2-3un2g) --------------------------
 ;;
 ;; The parallel registry that retains source-coords in production builds.
@@ -661,6 +710,168 @@
       ;; Reference-site stamping of MAP nodes under :states.
       (walk-states-tree (:states spec-form) [:states] acc ns-sym file)
       (persistent! acc))))
+
+;; ---- inline-fn source-code co-location (rf2-se70xj) -----------------------
+;;
+;; Per rf2-vqja2 an inline-fn slot (`:entry` / `:exit` / `:guard` / `:action`)
+;; inside the `:states` tree holds a fn VALUE, not a map, so it carries no
+;; `:source-coords` of its own — a tool resolving such a slot reads the
+;; enclosing map node's coord (jump-to-editor lands on the right line). But
+;; the enclosing map's coord cannot supply the inline fn's CODE TEXT: pr-str
+;; of the enclosing transition map (`{:target :x :action (fn …)}`) is not the
+;; action fn body, so Xray's Epoch-panel micro-step rendered an inline action
+;; as `#object[Function]` (the bare compiled fn falling through `pr-str`).
+;;
+;; The fix mirrors the guard mechanism's `:source-code` capture (the
+;; `pr-str` of the fn literal) WITHOUT wrapping the inline slot value — the
+;; runtime engine resolves `:entry`/`:exit`/`:guard`/`:action` slots
+;; directly via `fn?`/`keyword?` and stamps the slot value as the trace
+;; `:action-id`/`:guard-id`, so the slot value must stay a bare fn. Instead
+;; the inline fn's source string is co-located onto the ENCLOSING map node
+;; under `:source-code` — a `{<slot> <source-string>}` map keyed by the
+;; inline slot — parallel to the `:source-coords` already co-located there
+;; (`walk-machine-spec` / `collocate-state-source`). A tool resolving an
+;; inline-fn slot key (`[… :action]`) reads `(get-in spec [… :source-code
+;; :action])` off the enclosing map. Keyword-reference slots (`:action
+;; :clear-hold`) carry NO inline source — their body lives on the named
+;; `:actions` entry (per `walk-element-source`).
+;;
+;; The whole index rides the dev arm of the macro's `interop/debug-enabled?`
+;; gate (spliced only by `collocate-state-inline-source`), so the source
+;; strings DCE under `:advanced` + `goog.DEBUG=false` exactly as the
+;; reference-site coord index does.
+
+#?(:clj
+   (do
+
+(def ^:private inline-source-slots
+  "The inline-fn slots whose fn-literal source is co-located onto the
+   enclosing `:states`-tree map node's `:source-code` map (rf2-se70xj).
+   State-nodes carry `:entry` / `:exit`; transition maps carry `:guard` /
+   `:action`. Only fn-literal values are captured (keyword references defer
+   to the named `:guards` / `:actions` entry's own `:source-code`)."
+  [:entry :exit :guard :action])
+
+(defn- node-inline-source
+  "Build the `{<slot> <source-string>}` map for a single `:states`-tree map
+   node `form`, capturing the `pr-str` of each inline-fn slot whose value is
+   a fn LITERAL (`(fn …)` / `#(…)` reader form — a list). Keyword references
+   and non-list values are skipped (a keyword's body lives on its named
+   `:guards` / `:actions` entry; a non-list slot value carries no fn form to
+   render). Returns nil when the node carries no capturable inline fn so the
+   caller emits no entry. Compile-time / JVM-only."
+  [form]
+  (when (map? form)
+    (let [m (reduce
+              (fn [acc slot]
+                (let [v (get form slot)]
+                  ;; A fn literal reads as a list — `(fn …)` or the `#(…)`
+                  ;; reader-macro expansion. `seq?` distinguishes it from a
+                  ;; keyword reference or any non-form value, mirroring the
+                  ;; `(keyword? fn-form)` skip in `walk-element-source`.
+                  (if (seq? v)
+                    (assoc acc slot (pr-str v))
+                    acc)))
+              {}
+              inline-source-slots)]
+      (when (seq m) m))))
+
+(defn- walk-states-inline-source
+  "Recursively walk the literal `:states` map and return a flat index
+   `{<map-spec-path> {<slot> <source-string>}}` capturing each inline-fn
+   slot's fn-literal source (`:entry` / `:exit` on state-nodes; `:guard` /
+   `:action` on transition maps), keyed by the ENCLOSING map node's
+   spec-path (rf2-se70xj). Mirrors `walk-states-tree`'s structural recursion
+   so the same `:on` / `:always` / `:after` / nested-`:states` shapes are
+   covered, but collects fn-literal SOURCE rather than map-node coords.
+
+   `path` accumulates the spec-path from the spec's root. The mutable `acc`
+   transient is threaded through. Compile-time / JVM-only."
+  [states-form path acc]
+  (if-not (map? states-form)
+    acc
+    (reduce-kv
+      (fn [acc state-id node]
+        (let [node-path (conj path state-id)]
+          (when (map? node)
+            ;; State-node inline `:entry` / `:exit`.
+            (when-let [src (node-inline-source node)]
+              (assoc! acc node-path src))
+            ;; :on transitions — each transition MAP's inline `:guard` /
+            ;; `:action`. Single-map and vector-of-candidates forms.
+            (when-let [on-map (:on node)]
+              (when (map? on-map)
+                (reduce-kv
+                  (fn [_ ev-id t]
+                    (let [tp (conj node-path :on ev-id)]
+                      (cond
+                        (map? t)
+                        (when-let [src (node-inline-source t)]
+                          (assoc! acc tp src))
+                        (vector? t)
+                        (doseq [[i tx] (map-indexed vector t)
+                                :when (map? tx)]
+                          (when-let [src (node-inline-source tx)]
+                            (assoc! acc (conj tp i) src)))))
+                    nil)
+                  nil on-map)))
+            ;; :always — vector of transition maps.
+            (when-let [always (:always node)]
+              (when (vector? always)
+                (doseq [[i tx] (map-indexed vector always)
+                        :when (map? tx)]
+                  (when-let [src (node-inline-source tx)]
+                    (assoc! acc (conj node-path :always i) src)))))
+            ;; :after — map of delay → target-or-transition map.
+            (when-let [after (:after node)]
+              (when (map? after)
+                (reduce-kv
+                  (fn [_ delay t]
+                    (when (map? t)
+                      (when-let [src (node-inline-source t)]
+                        (assoc! acc (conj node-path :after delay) src)))
+                    nil)
+                  nil after)))
+            ;; Recurse into nested :states.
+            (walk-states-inline-source (:states node) (conj node-path :states) acc))
+          acc))
+      acc states-form)))
+
+(defn walk-machine-inline-source
+  "Compile-time helper. Walk a literal machine-spec form's `:states` tree
+   and return a flat index `{<map-spec-path> {<slot> <source-string>}}`
+   capturing each inline-fn slot's fn-literal source (rf2-se70xj). Keyed by
+   the ENCLOSING `:states`-tree map node's spec-path — e.g.
+   `[:states :idle :on :submit]` → `{:action \"(fn [_] {})\"}` for an inline
+   transition `:action`, `[:states :open]` → `{:entry \"(fn …)\"}` for an
+   inline state `:entry`.
+
+   Inline-fn slots hold a fn VALUE, not a map, so they cannot carry a
+   `:source-code` key of their own (per rf2-vqja2 the same reason
+   `:source-coords` lives on the enclosing node). This index is consumed by
+   [[collocate-state-inline-source]], which co-locates the per-slot source
+   strings under a `:source-code` map on each enclosing node — the read-back
+   surface Xray's Epoch-panel micro-step uses to render an inline action's
+   code (it previously fell through to `pr-str` of the bare fn → an opaque
+   `#object[Function]` token).
+
+   Keyword-reference slots (`:action :clear-hold`) are NOT captured here —
+   their body lives on the named `:actions` entry's own co-located
+   `:source-code` (via [[walk-element-source]]).
+
+   Returns `{}` when the spec form is not a map literal (a symbol /
+   let-bound expr — nothing to walk). JVM-only — runs on the Clojure side
+   of the `reg-machine` / `defmachine` macro. The whole returned literal is
+   referenced only from the dev arm of the macro's `interop/debug-enabled?`
+   gate, so it DCEs under `:advanced` + `goog.DEBUG=false`."
+  [spec-form]
+  (if-not (map? spec-form)
+    {}
+    (let [acc (transient {})]
+      (walk-states-inline-source (:states spec-form) [:states] acc)
+      (persistent! acc))))
+
+   )) ;; end #?(:clj (do ...)) for the inline-source walk
 
 ;; ---- co-located per-element source walk (rf2-npvsx) ----------------------
 ;;

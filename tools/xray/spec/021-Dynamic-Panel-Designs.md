@@ -1782,30 +1782,48 @@ guard/action fn-form pr-str strings) + `:source-coords` (per-element
 `{:file :line}`), and whose `:states`-tree map nodes (state-node /
 transition map) each co-locate their own reference-site `:source-coords`
 (rf2-vqja2, supersedes the flat `:rf.machine/state-coords` index of
-rf2-npvsx / rf2-ypu5i / rf2-8bp3). The prior code read
-`(rf/handler-meta :machine event-id)`, a NON-EXISTENT registrar kind
-that always resolved nil — so `machine-spec-from-meta` saw no spec and
-every exit / entry action + guard row rendered the `<source not yet
+rf2-npvsx / rf2-ypu5i / rf2-8bp3) **plus an inline-fn `:source-code` map**
+keyed by inline slot (`{:entry "…" :exit "…"}` on a state-node,
+`{:guard "…" :action "…"}` on a transition map; rf2-se70xj). The prior
+code read `(rf/handler-meta :machine event-id)`, a NON-EXISTENT registrar
+kind that always resolved nil — so `machine-spec-from-meta` saw no spec
+and every exit / entry action + guard row rendered the `<source not yet
 captured>` placeholder. Reading under `:event` (where the machine
 handler is registered) surfaces the stamped spec so the interleaved
-source code resolves for named handlers (off the co-located entry);
-inline-fn / transition / timer rows resolve via
-`projection/state-node-source-coords` (the `:source-coords` on the
-nearest enclosing `:states`-tree map node). Source-key dispatch
-(`projection/cascade-row-source-key`) returns the spec-path tuple the
-view's `named-element-key` discriminator routes between the two lookup
-targets:
+source code resolves for named handlers (off the co-located entry's
+`:source-code`) AND for inline-fn rows (off the enclosing node's inline
+`:source-code <slot>` — rf2-se70xj; before it, an inline action's body
+fell through to the bare compiled fn and rendered `#object[Function]`,
+while its `:source-coords` click-to-source still worked off the enclosing
+node). Source-key dispatch (`projection/cascade-row-source-key`) returns
+the spec-path tuple the view's `named-element-key` discriminator routes
+between the two lookup families; the view's `cascade-row-source-form`
+then resolves the SOURCE:
 
-| Row kind | id flavour              | spec-path key                                         | lookup target |
-|----------|-------------------------|-------------------------------------------------------|---------------|
-| `:action`| keyword `action-id`     | `[:actions <id>]`                                     | co-located entry `:source-coords` / `:source-code` |
-| `:action`| inline-fn, `:entry`     | `[:states <target-state>... :entry]`                  | enclosing state-node `:source-coords` |
-| `:action`| inline-fn, `:exit`      | `[:states <source-state>... :exit]`                   | enclosing state-node `:source-coords` |
-| `:action`| inline-fn, `:transition`| `[:states <source-state>... :on <event> :action]`     | enclosing transition-map `:source-coords` |
-| `:guard` | keyword `guard-id`      | `[:guards <id>]`                                      | co-located entry `:source-coords` / `:source-code` |
-| `:guard` | inline-fn               | `[:states <source-state>... :on <event> :guard]`      | enclosing transition-map `:source-coords` |
-| `:transition` | —                  | `[:states <source-state>... :on <event>]`             | transition-map `:source-coords` |
-| `:timer` | —                       | `[:states <state>...]` (parent state-node, D1 shape)  | state-node `:source-coords` |
+- **Named** `[:guards|:actions <id>]` keys → the co-located entry's
+  `:source-code` string (fall back to the bare `:fn` in prod / fn-form
+  fixtures).
+- **Inline-fn** `[:states … <slot>]` keys → the enclosing node's inline
+  `:source-code <slot>` string (the parent of the key, `(butlast k)`, +
+  the slot `(last k)`; rf2-se70xj). Falls back to the bare slot value (a
+  compiled fn / keyword reference) when no inline source was captured
+  (prod, fn-form fixtures, value-registered non-`defmachine` specs).
+
+Click-to-source COORDS for inline-fn rows resolve via
+`projection/state-node-source-coords` (the `:source-coords` on the
+nearest enclosing `:states`-tree map node — walk-up; rf2-vqja2),
+distinct from the inline `:source-code` body above.
+
+| Row kind | id flavour              | spec-path key                                         | source-body lookup | coord lookup |
+|----------|-------------------------|-------------------------------------------------------|--------------------|--------------|
+| `:action`| keyword `action-id`     | `[:actions <id>]`                                     | entry `:source-code` | entry `:source-coords` |
+| `:action`| inline-fn, `:entry`     | `[:states <target-state>... :entry]`                  | enclosing state-node `:source-code :entry` | enclosing state-node `:source-coords` |
+| `:action`| inline-fn, `:exit`      | `[:states <source-state>... :exit]`                   | enclosing state-node `:source-code :exit` | enclosing state-node `:source-coords` |
+| `:action`| inline-fn, `:transition`| `[:states <source-state>... :on <event> :action]`     | enclosing transition-map `:source-code :action` | enclosing transition-map `:source-coords` |
+| `:guard` | keyword `guard-id`      | `[:guards <id>]`                                      | entry `:source-code` | entry `:source-coords` |
+| `:guard` | inline-fn               | `[:states <source-state>... :on <event> :guard]`      | enclosing transition-map `:source-code :guard` | enclosing transition-map `:source-coords` |
+| `:transition` | —                  | `[:states <source-state>... :on <event>]`             | logical-state delta box (not source) | transition-map `:source-coords` |
+| `:timer` | —                       | `[:states <state>...]` (parent state-node, D1 shape)  | (body elided) | state-node `:source-coords` |
 
 The per-row `:source-state` / `:target-state` / `:event-id` slots are
 stamped by `machine-cascade-rows`'s `enrich-cascade-rows` pass —

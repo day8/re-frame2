@@ -159,6 +159,55 @@
     (is (some? (node-coords :rf2-8bp3/hier [:states :outer :states :inner :on :go]))
         "transition map inside hierarchical inner state co-locates its coord")))
 
+;; ---- inline-fn :source-code co-location (rf2-se70xj) ----------------------
+
+;; Read the inline-fn `:source-code` string for an inline slot off the
+;; enclosing `:states`-tree map node.
+(defn- inline-source [machine-id enclosing-path slot]
+  (get-in (rf/machine-meta machine-id)
+          (conj (vec enclosing-path) :source-code slot)))
+
+(deftest reg-machine-stamps-inline-action-source-code-cljs
+  (testing "inline transition `:action` / state `:entry` / `:exit` / inline
+  `:guard` fns carry their `:source-code` on the enclosing `:states`-tree map
+  node — parity with the named-guard `:source-code` stamp (rf2-se70xj). The
+  inline slot value itself stays a bare fn (the runtime resolves it via fn?)."
+    (rf/reg-machine :rf2-se70xj/inline
+      {:initial :idle
+       :guards  {:ok? (fn [_] true)}
+       :states
+       {:idle {:entry (fn [_] {:data {:entered? true}})
+               :exit  (fn [_] {:data {:exited? true}})
+               :on    {:submit {:target :done :guard (fn [{data :data}] (:ready? data))}
+                       :cancel {:target :idle :action (fn [_] {:data {:cancelled? true}})}}}
+        :done {}}})
+    ;; Inline transition :action.
+    (let [src (inline-source :rf2-se70xj/inline [:states :idle :on :cancel] :action)]
+      (is (string? src) "inline :action carries :source-code")
+      (is (re-find #":cancelled\?" src)))
+    ;; Inline state :entry / :exit.
+    (is (re-find #":entered\?" (inline-source :rf2-se70xj/inline [:states :idle] :entry)))
+    (is (re-find #":exited\?"  (inline-source :rf2-se70xj/inline [:states :idle] :exit)))
+    ;; Inline transition :guard.
+    (is (re-find #":ready\?"   (inline-source :rf2-se70xj/inline [:states :idle :on :submit] :guard)))
+    ;; Slot values stay bare fns — not wrapped into a map.
+    (is (fn? (get-in (rf/machine-meta :rf2-se70xj/inline) [:states :idle :on :cancel :action])))
+    (is (fn? (get-in (rf/machine-meta :rf2-se70xj/inline) [:states :idle :entry])))))
+
+(deftest reg-machine-skips-inline-source-for-keyword-references-cljs
+  (testing "keyword-reference slots carry NO inline :source-code — their body
+  lives on the named :actions / :guards entry's own :source-code (rf2-se70xj)"
+    (rf/reg-machine :rf2-se70xj/kw
+      {:initial :idle
+       :guards  {:ok? (fn [_] true)}
+       :actions {:do  (fn [_] {})}
+       :states
+       {:idle {:on {:submit {:target :done :guard :ok? :action :do}}}
+        :done {}}})
+    (is (nil? (inline-source :rf2-se70xj/kw [:states :idle :on :submit] :action)))
+    (is (nil? (inline-source :rf2-se70xj/kw [:states :idle :on :submit] :guard)))
+    (is (string? (get-in (rf/machine-meta :rf2-se70xj/kw) [:actions :do :source-code])))))
+
 ;; ---- programmatic call (no walking) --------------------------------------
 
 (deftest reg-machine-skips-stamping-for-non-literal-spec-cljs
