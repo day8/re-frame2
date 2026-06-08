@@ -322,9 +322,15 @@
       (source-state)
     - `:transition`               → `[:states <state>... :on <event> :action]`
       (source-state + event-id)
-    - `:always`                   → `[:states <state>... :always 0 :action]`
-      (best-effort: index 0; richer index resolution requires
-      substrate-side carrier of the always-index, deferred)
+    - `:always`                   → `[:states <state>... :always :action]`
+      (the index-free single-map shape, mirroring the single-map `:on`
+      convention — the macro keys a single-map `:always` at the bare
+      `:always` path, rf2-k7yqod). The view read-back PROBES BOTH this
+      index-free path AND the index-0 vector-candidate path
+      (`[:states <state>... :always 0 :source-code :action]`) so a
+      vector `:always [{…}]` still resolves; richer per-candidate index
+      resolution (carrying the matched always-index from the substrate)
+      is the rf2-lai1qv follow-on.
     - `:after-action`             → `[:states <state>... :after :action]`
       (best-effort: timer fn-form path; the macro doesn't yet stamp
       per-delay `:after` coords; D2 follow-on bead handles richer index).
@@ -359,7 +365,12 @@
         (when (and source-prefix event-id)
           (conj source-prefix :on event-id :action))
         (= :always phase)
-        (when source-prefix (conj source-prefix :always 0 :action))
+        ;; The index-free single-map shape (rf2-k7yqod). The macro keys a
+        ;; single-map `:always` at the bare `:always` path; the view's
+        ;; read-back additionally probes the index-0 vector-candidate path
+        ;; so a `:always [{…}]` vector resolves too (rf2-lai1qv carries the
+        ;; exact matched index for richer multi-candidate resolution).
+        (when source-prefix (conj source-prefix :always :action))
         (= :after-action phase)
         (when source-prefix (conj source-prefix :after :action))
         :else nil)

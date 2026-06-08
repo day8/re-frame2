@@ -2645,8 +2645,18 @@
         (let [slot          (last k)
               enclosing-path (vec (butlast k))
               inline-src    (when (seq enclosing-path)
-                              (get-in spec (conj enclosing-path :source-code slot)))]
+                              (get-in spec (conj enclosing-path :source-code slot)))
+              ;; rf2-k7yqod — the `:always` source-key is the index-free
+              ;; single-map shape (`[:states … :always :action]`). When the
+              ;; spec wrote the VECTOR-candidate form (`:always [{…}]`), the
+              ;; source lives one level deeper at index 0; probe it so a
+              ;; vector `:always` resolves too. (rf2-lai1qv will carry the
+              ;; exact matched index for multi-candidate vectors.)
+              always-vec-src (when (and (nil? inline-src)
+                                        (= :always (peek enclosing-path)))
+                               (get-in spec (conj enclosing-path 0 :source-code slot)))]
           (or inline-src
+              always-vec-src
               (get-in spec k)))))))
 
 (defn- cascade-outcome-chip

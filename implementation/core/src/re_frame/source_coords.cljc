@@ -815,9 +815,20 @@
                             (assoc! acc (conj tp i) src)))))
                     nil)
                   nil on-map)))
-            ;; :always — vector of transition maps.
+            ;; :always — single transition MAP or a vector of candidate maps
+            ;; (rf2-k7yqod; mirrors the `:on` single-map / vector forms the
+            ;; runtime + validator both accept — `transition/pick-always-
+            ;; transition` wraps a non-vector `:always` into `[always]`,
+            ;; `validation/always-entries` does the same). The single-map
+            ;; form is keyed at the bare `:always` path (the transition MAP
+            ;; IS the `:always` value, like a single-map `:on` entry); the
+            ;; vector form keys each candidate by index.
             (when-let [always (:always node)]
-              (when (vector? always)
+              (cond
+                (map? always)
+                (when-let [src (node-inline-source always)]
+                  (assoc! acc (conj node-path :always) src))
+                (vector? always)
                 (doseq [[i tx] (map-indexed vector always)
                         :when (map? tx)]
                   (when-let [src (node-inline-source tx)]
