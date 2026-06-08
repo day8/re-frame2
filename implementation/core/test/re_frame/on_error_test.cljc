@@ -73,9 +73,10 @@
         (is (= :no-recovery (get-in ev [:tags :recovery])))))))
 
 (deftest on-error-policy-exception-does-not-propagate
-  (testing "Per Spec 009 §1052: an `:on-error` policy fn that throws
-            does NOT take down the drain — its exception is caught
-            inside the always-on substrate."
+  (testing "Per Spec 009 §Error event catalogue
+            (`:rf.error/on-error-policy-exception`): an `:on-error` policy
+            fn that throws does NOT take down the drain — its exception is
+            caught inside the always-on substrate."
     (rf/reg-frame :rf/default
                   {:on-error (fn [_error-event]
                                (throw (ex-info "policy threw" {})))})
@@ -85,6 +86,46 @@
     ;; The dispatch must return normally — the policy fn's exception is
     ;; caught by error-emit/dispatch-on-error!.
     (is (nil? (rf/dispatch-sync [:on-error-test/policy-throw])))))
+
+(deftest on-error-policy-exception-emits-loudly-not-swallowed
+  (testing "Per rf2-avnzbp + rf2-ciy + the loud-failure posture: when an
+            `:on-error` policy fn throws, the runtime does NOT silently
+            swallow it. It surfaces `:rf.error/on-error-policy-exception`
+            LOUDLY through the always-on listener (axis 1), correlating
+            the policy failure with the original error via `:original`,
+            and STILL recovers (no propagation to user code, no recursive
+            policy invocation). The handler-exception that triggered the
+            policy fans out too — so a listener sees BOTH categories."
+    (let [seen (atom [])]
+      (rf/register-error-listener!
+        :test/recorder
+        (fn [record] (swap! seen conj record)))
+      (rf/reg-frame :rf/default
+                    {:on-error (fn [_error-event]
+                                 (throw (ex-info "policy boom"
+                                                 {:detail :test})))})
+      (rf/reg-event-db :on-error-test/policy-emit-throw
+                       (fn [_db _] (throw (ex-info "handler boom" {}))))
+      (is (nil? (rf/dispatch-sync [:on-error-test/policy-emit-throw]))
+          "dispatch settled — policy throw recovered, did not propagate")
+      ;; The original handler-exception fanned out once …
+      (let [handler-rec (some #(when (= :rf.error/handler-exception (:error %)) %) @seen)
+            policy-rec  (some #(when (= :rf.error/on-error-policy-exception (:error %)) %) @seen)]
+        (is (some? handler-rec)
+            "listener saw the original :rf.error/handler-exception")
+        ;; … AND the policy-fn throw was surfaced loudly as its own category.
+        (is (some? policy-rec)
+            "listener saw :rf.error/on-error-policy-exception — NOT swallowed")
+        (is (= :rf/default (:frame policy-rec))
+            ":frame names the policy's host frame")
+        (is (some? (:exception policy-rec))
+            ":exception carries the policy fn's throw")
+        (is (= :rf.error/handler-exception (:original policy-rec))
+            ":original correlates the policy failure with the error it was handling")
+        ;; No recursive storm: exactly ONE policy-exception record (the
+        ;; loud emit is listener-only — it does NOT re-invoke the policy).
+        (is (= 1 (count (filter #(= :rf.error/on-error-policy-exception (:error %)) @seen)))
+            "exactly one :rf.error/on-error-policy-exception — no recursive re-emit")))))
 
 (deftest re-registration-replaces-on-error
   (testing "Per Spec 002 §Re-registration — surgical update: re-
