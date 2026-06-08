@@ -284,13 +284,7 @@
      :component  :counter-with-stories.views/counter-card
      :args       {:label "Matrix"}
      :tags       #{:dev :test :internal}
-     :substrates #{:reagent}
-     :schema     [:map
-                  [:label :string]
-                  [:settings
-                   [:map
-                    [:title :string]
-                    [:enabled? :boolean]]]]})
+     :substrates #{:reagent}})
 
   ;; ===========================================================================
   ;; EXEMPLARY BLOCK — the small, copyable teaching surface.
@@ -505,9 +499,14 @@
      :substrates #{:reagent}})
 
   (story/reg-variant :story.counter-matrix/schema-invalid
-    {:doc    "Deliberately invalid args against the parent story
-             schema. The schema-validation panel should show the exact
-             failing key while the shell stays interactive."
+    {:doc    "Args that mismatch the component's expected prop shape
+             (a numeric :label, an unused :settings map). The
+             schema-validation panel surfaces a violation only when the
+             registered :component view carries a props schema (per
+             rf2-hwcdh2 the props schema lives on the view's reg-view
+             metadata, not on the story / variant body); counter-card
+             ships none, so this variant stays interactive and the
+             panel reports 'no schema registered'."
      :args   {:label 42
               :settings {:title "Bad label" :enabled? true}}
      :setup [[:counter/initialise 4]]

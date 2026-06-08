@@ -108,7 +108,10 @@
     - `:where` — `:event` / `:sub-return` / `:cofx` / `:app-db` /
                  `:fx-args` (per Spec 010 §Validation order).
     - `:failing-id` / `:event-id` / `:sub-id` / `:cofx-id` / `:fx-id`
-                 — the id of the artefact whose `:spec` failed.
+                 — the registration/boundary id whose schema validation
+                 failed (the registered event / sub / cofx / fx / app-db
+                 root). `:spec` is dead post-M-54 — this surface speaks
+                 the schema vocabulary (`reg-*` `:schema` metadata).
     - `:received` — the actual value that failed (event vector / value /
                     coeffect map / slice).
     - `:explain` — the validator's explanation (Malli explain map on
@@ -126,7 +129,7 @@
       {:id          <int>              ;; the trace event's :id (stable per-process key)
        :time        <ms-since-epoch>   ;; from the trace event's :time
        :where       <kw>               ;; :event / :sub-return / :cofx / :app-db / :fx-args
-       :failing-id  <kw|nil>           ;; the artefact id whose :spec failed
+       :failing-id  <kw|nil>           ;; the registration/boundary id whose schema validation failed
        :path        <vector|nil>       ;; only for app-db failures
        :received    <any>              ;; the rejected value
        :explain     <any|nil>          ;; the validator's explanation

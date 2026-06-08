@@ -415,14 +415,18 @@
    [:decorators {:optional true} DecoratorRefs]
    [:args       {:optional true} ArgMap]
    [:argtypes   {:optional true} ArgtypesMap]
-   ;; rf2-mantt — explicit view-args/props schema slots. The canonical
-   ;; first-match key order is `[:rf/props :schema]` (per
-   ;; `re-frame.story.malli-schema/view-args-schema-keys`); `:rf/props`
-   ;; wins over `:schema`. The value is a Malli schema form. Declared so
-   ;; a story body that pins its component's props schema (the canonical
-   ;; testbed's `:story.counter-matrix`) validates on the closed map.
-   [:rf/props   {:optional true} :any]
-   [:schema     {:optional true} :any]
+   ;; rf2-hwcdh2 — a story body carries NO `:rf/props` / `:schema`
+   ;; props-schema slot. The view-args (props) schema lives ONLY on the
+   ;; registered `:component` view's `reg-view` metadata (canonical
+   ;; first-match `[:rf/props :schema]` — see `re-frame.story.malli-schema/
+   ;; view-args-schema-keys`). The plan compiler
+   ;; (`re-frame.story.plan/compile-body`) resolves it off the view-meta
+   ;; via `view-lookup`, never off the story/variant body — so a body-level
+   ;; slot passed closed-shape validation but was silently UNREAD (an
+   ;; accepted-but-dead authoring surface). The slots are removed so a
+   ;; props schema authored on the body now FAILS closed-shape validation
+   ;; with `:rf.error/story-shape`, naming the dead key, rather than being
+   ;; swallowed with no effect.
    [:tags       {:optional true} TagSet]
    [:modes      {:optional true} ModeRefSet]
    [:substrates {:optional true} SubstrateSet]
@@ -803,13 +807,20 @@
     [:plays                 {:optional true} PlaysSpec]
     [:args                  {:optional true} ArgMap]
     [:argtypes              {:optional true} ArgtypesMap]
-    ;; rf2-mantt — explicit view-args/props schema slots (canonical
-    ;; first-match order `[:rf/props :schema]`; see the Story schema +
-    ;; `re-frame.story.malli-schema/view-args-schema-keys`). A variant
-    ;; MAY pin a narrower/stricter props schema than its component-wide
-    ;; one. The value is a Malli schema form.
-    [:rf/props              {:optional true} :any]
-    [:schema                {:optional true} :any]
+    ;; rf2-hwcdh2 — a variant body carries NO `:rf/props` / `:schema`
+    ;; props-schema slot. The view-args (props) schema lives ONLY on the
+    ;; registered `:component` view's `reg-view` metadata (canonical
+    ;; first-match `[:rf/props :schema]`; see `re-frame.story.malli-schema/
+    ;; view-args-schema-keys`). The plan compiler resolves it off the
+    ;; view-meta of the resolved `:component` (`[:world :view-args-schema]`),
+    ;; never off the variant body — and `:rf/props` / `:schema` are NOT in
+    ;; `re-frame.story.plan/context-keys`, so they would not even inherit
+    ;; through `:extends`. A body-level slot was an accepted-but-dead
+    ;; authoring surface (passed closed-shape validation, silently unread),
+    ;; so it is removed: a props schema on a variant body now FAILS
+    ;; closed-shape validation with `:rf.error/variant-shape`. A variant
+    ;; that wants a narrower props schema does it on the per-variant
+    ;; `:component` view's metadata, not on the variant body.
     ;; rf2-5x1wt.14 — first-class managed-HTTP request stubs. A map of
     ;; `[method url]` → `{:reply {:ok|:failure …}}`. The plan compiler
     ;; lowers `:network` to `[:world :network]` and on to the managed-

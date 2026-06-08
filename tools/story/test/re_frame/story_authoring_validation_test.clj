@@ -229,6 +229,74 @@
         (is (re-find #"did you mean :script\?" (:reason (ex-data e)))
             "the nearest-key suggestion points at :script")))))
 
+;; ---- rf2-hwcdh2 — body-level props-schema slots are GONE -----------------
+;;
+;; The view-args (props) schema lives ONLY on the registered `:component`
+;; view's `reg-view` metadata (first-match `[:rf/props :schema]`, resolved
+;; off the view-meta by the plan compiler). A `:rf/props` / `:schema` slot
+;; on a STORY or VARIANT body used to pass closed-shape validation but was
+;; silently UNREAD (an accepted-but-dead authoring surface). The slots are
+;; removed, so a props schema authored on the body now REJECTS at reg-time
+;; with the dead key named, rather than being swallowed with no effect.
+
+(deftest reg-story-rejects-body-level-props-schema-slots
+  (testing ":schema on a STORY body is rejected — props schema lives on the
+            registered :component view's metadata, not the story body"
+    (try
+      (story/reg-story :story.deadprops
+        {:component :views/widget
+         :schema    [:map [:label :string]]})
+      (is false "expected an exception — body :schema must NOT be accepted")
+      (catch clojure.lang.ExceptionInfo e
+        (is (= :rf.error/story-shape (:rf.error/id (ex-data e)))
+            "ex-data carries the :rf.error/story-shape sentinel")
+        (is (re-find #":schema" (:reason (ex-data e)))
+            ":reason names the dead :schema key"))))
+  (testing ":rf/props on a STORY body is rejected too"
+    (try
+      (story/reg-story :story.deadrfprops
+        {:component :views/widget
+         :rf/props  [:map [:label :string]]})
+      (is false "expected an exception — body :rf/props must NOT be accepted")
+      (catch clojure.lang.ExceptionInfo e
+        (is (= :rf.error/story-shape (:rf.error/id (ex-data e))))))))
+
+(deftest reg-variant-rejects-body-level-props-schema-slots
+  (testing ":schema on a VARIANT body is rejected — a variant narrows its
+            component's props schema on the view metadata, not the body"
+    (try
+      (story/reg-variant :story.dead/schema
+        {:events []
+         :schema [:map [:label :string]]})
+      (is false "expected an exception — body :schema must NOT be accepted")
+      (catch clojure.lang.ExceptionInfo e
+        (is (= :rf.error/variant-shape (:rf.error/id (ex-data e)))
+            "ex-data carries the :rf.error/variant-shape sentinel")
+        (is (re-find #":schema" (:reason (ex-data e)))
+            ":reason names the dead :schema key"))))
+  (testing ":rf/props on a VARIANT body is rejected too"
+    (try
+      (story/reg-variant :story.dead/rfprops
+        {:events   []
+         :rf/props [:map [:label :string]]})
+      (is false "expected an exception — body :rf/props must NOT be accepted")
+      (catch clojure.lang.ExceptionInfo e
+        (is (= :rf.error/variant-shape (:rf.error/id (ex-data e))))))))
+
+(deftest props-schema-on-view-metadata-still-drives-validation
+  (testing "the LIVE path is unchanged — a props schema on the registered
+            :component view's metadata (NOT the body) still copies into the
+            compiled plan and validates :effective-args (rf2-hwcdh2)"
+    (story/reg-variant :story.live/props
+      {:component :views/widget
+       :args      {:label "Hi"}})
+    (let [view-schema [:map [:label :string]]
+          p (plan/variant-plan :story.live/props
+                               {:view-lookup {:views/widget {:rf/props view-schema}}})]
+      (is (= view-schema (get-in p [:world :view-args-schema]))
+          "the view-meta props schema is copied to [:world :view-args-schema]")
+      (is (= {:label "Hi"} (get-in p [:world :effective-args]))))))
+
 (deftest reg-variant-migrated-setup-script-authoring-validates
   (testing "the migrated authoring shape (the template scaffold, rf2-1774m)
             — :setup preconditions + :script with [:assert [:rf.assert/…]]
