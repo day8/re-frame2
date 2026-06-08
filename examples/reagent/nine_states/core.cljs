@@ -417,10 +417,12 @@
          machine's :data items via :fetch-succeeded, clear the draft,
          and broadcast :submit-valid (the :form region lands in
          :correct)."}
-  (fn handler-new-todo-submit [{:keys [db]} _]
+  ;; EP-0001 (rf2-vzld77): the machine snapshot is durable runtime-db state —
+  ;; read it from the `:rf.db/runtime` coeffect.
+  (fn handler-new-todo-submit [{:keys [db] rt :rf.db/runtime} _]
     (let [draft  (get-in db [:new-todo :draft])
           errors (validate-new-todo draft)
-          items  (get-in db [:rf/runtime :machines :snapshots :ui/nine-states :data :items])]
+          items  (get-in rt [:rf.runtime/machines :snapshots :ui/nine-states :data :items])]
       (if (seq errors)
         ;; Incorrect — populate :errors, touch all error fields so they show.
         {:db (-> db

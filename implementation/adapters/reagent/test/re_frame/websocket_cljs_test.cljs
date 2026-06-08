@@ -383,13 +383,12 @@
         ;; Seed the snapshot's :data :retries past :max-retries via a
         ;; direct write to the machine's :data slot. This is a test
         ;; helper — production code never does this.
-        ;; EP-0001 (rf2-adwcv6): write the app-db PARTITION via swap-frame-db!
-        ;; — app-db-container is now a read-only projection. The machine
-        ;; snapshot still lives at [:rf/runtime …] inside app-db until bead 6.
-        (re-frame.frame/swap-frame-db! f
-          (fn [db]
-            (let [max-retries (get-in db [:rf/runtime :machines :snapshots :ws/connection :data :max-retries])]
-              (update-in db [:rf/runtime :machines :snapshots :ws/connection :data]
+        ;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db
+        ;; state, so the seed writes the runtime-db PARTITION via swap-runtime-db!.
+        (re-frame.frame/swap-runtime-db! f
+          (fn [rt]
+            (let [max-retries (get-in rt [:rf.runtime/machines :snapshots :ws/connection :data :max-retries])]
+              (update-in rt [:rf.runtime/machines :snapshots :ws/connection :data]
                          assoc :retries (inc max-retries)))))
         ;; Now drive a :ws/closed — the parent transitions to :reconnecting
         ;; and immediately into :failed via :always-cascade.
@@ -491,8 +490,10 @@
         ;; reply lands inside the dispatch-sync stack — :in-flight
         ;; goes empty AGAIN by the time we check.
         (rf/dispatch-sync [:ws.app/request "hello"] {:frame f})
+        ;; EP-0001 (rf2-vzld77): the machine snapshot is runtime-db; `:messages`
+        ;; is app-db.
         (let [db   (rf/app-db-value f)
-              snap (snapshot db)]
+              snap (snapshot (rf/runtime-db-value f))]
           (is (= {} (get-in snap [:data :in-flight]))
               ":in-flight slot was cleared on reply")
           (let [last-reply (get-in db [:messages :last-reply])]
@@ -530,8 +531,10 @@
                                          :auth-token "demo"}]]
                           {:frame f})
         (rf/dispatch-sync [:ws.app/subscribe-demo] {:frame f})
+        ;; EP-0001 (rf2-vzld77): the machine snapshot is runtime-db; `:messages`
+        ;; is app-db.
         (let [db (rf/app-db-value f)
-              snap (snapshot db)]
+              snap (snapshot (rf/runtime-db-value f))]
           (is (contains? (get-in snap [:data :subscriptions]) :demo-topic)
               ":data :subscriptions tracks the topic")
           ;; The mock's subscribe-ack synthetic push landed in

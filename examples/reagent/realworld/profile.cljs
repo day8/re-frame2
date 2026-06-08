@@ -39,8 +39,11 @@
 (defn request-slice []
   {:status :idle :data nil :error nil :loaded-at nil :attempt 0})
 
-(defn username-from-db [db]
-  (get-in db [:rf/runtime :routing :current :params :username]))
+;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state —
+;; `username-from-db` reads it off the runtime-db value (event handlers pass the
+;; `:rf.db/runtime` coeffect).
+(defn username-from-db [runtime-db]
+  (get-in runtime-db [:rf.runtime/routing :current :params :username]))
 
 ;; ============================================================================
 ;; THE MACHINE — :ui/profile  (one machine, two regions)
@@ -162,8 +165,8 @@
          the `:data` region advances to `:loading` (or `:refreshing`
          from `:loaded`)."
    :rf.http/decode-schemas [schema/ProfileResponse]}
-  (fn [{:keys [db]} _]
-    (let [username (username-from-db db)]
+  (fn [{:keys [db] rt :rf.db/runtime} _]
+    (let [username (username-from-db rt)]
       {:db (-> db
                (assoc-in [:profile :status]
                          (if (get-in db [:profile :data]) :fetching :loading))
@@ -203,8 +206,8 @@
          Also broadcasts `:show-articles` so the `:ui/profile` :tab
          region tracks the active tab."
    :rf.http/decode-schemas [schema/ArticlesResponse]}
-  (fn [{:keys [db]} _]
-    (let [username (username-from-db db)]
+  (fn [{:keys [db] rt :rf.db/runtime} _]
+    (let [username (username-from-db rt)]
       {:db (-> db
                (assoc-in [:profile.articles :status] :loading)
                (assoc-in [:profile.articles :error] nil)
@@ -239,8 +242,8 @@
          Also broadcasts `:show-favorites` so the `:ui/profile` :tab
          region tracks the active tab."
    :rf.http/decode-schemas [schema/ArticlesResponse]}
-  (fn [{:keys [db]} _]
-    (let [username (username-from-db db)]
+  (fn [{:keys [db] rt :rf.db/runtime} _]
+    (let [username (username-from-db rt)]
       {:db (-> db
                (assoc-in [:profile.favorites :status] :loading)
                (assoc-in [:profile.favorites :error] nil)
@@ -282,10 +285,10 @@
          to login rather than optimistically flipping `:following` and then
          rolling back after the real backend 401s."
    :rf.http/decode-schemas [schema/ProfileResponse]}
-  (fn [{:keys [db]} _]
+  (fn [{:keys [db] rt :rf.db/runtime} _]
     (if (nil? (get-in db [:auth :user]))
       {:fx [[:dispatch [:rf.route/navigate :realworld.auth/login]]]}
-      (let [username (username-from-db db)]
+      (let [username (username-from-db rt)]
         {:db (assoc-in db [:profile :data :following] true)
          :fx [[:rf.http/managed
                (rh/request {:method     :post
@@ -302,10 +305,10 @@
   {:doc "Optimistically clear the followed flag; reconcile on reply.
          Auth-gated like `:profile/follow` above."
    :rf.http/decode-schemas [schema/ProfileResponse]}
-  (fn [{:keys [db]} _]
+  (fn [{:keys [db] rt :rf.db/runtime} _]
     (if (nil? (get-in db [:auth :user]))
       {:fx [[:dispatch [:rf.route/navigate :realworld.auth/login]]]}
-      (let [username (username-from-db db)]
+      (let [username (username-from-db rt)]
         {:db (assoc-in db [:profile :data :following] false)
          :fx [[:rf.http/managed
                (rh/request {:method     :delete

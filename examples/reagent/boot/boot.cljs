@@ -361,21 +361,26 @@
          into the canonical top-level app-db slices the running app
          reads. Fires :boot/hydrated back at :app/boot to transition
          from :hydrating to :ready."}
-  (fn handler-boot-apply-hydration [{:keys [db]} _]
+  ;; EP-0001 (rf2-vzld77): the app slices land in app-db (`:db`); the boot
+  ;; machine's snapshot is durable runtime-db state, so the snapshot mirror
+  ;; is a `:rf.db/runtime` effect (the reference handler is framework-shaped
+  ;; example code — emitting the reserved runtime-db effect is in-bounds,
+  ;; decision #4).
+  (fn handler-boot-apply-hydration [{:keys [db] rt :rf.db/runtime} _]
     (let [staging (:boot/staging db)]
       {:db (-> db
                (assoc :config (:config staging))
                (assoc :flags  (:flags staging))
                (assoc :user   (:user staging))
-               (assoc :routes (:routes staging))
-               ;; Mirror the loaded values into the boot machine's
-               ;; :data slice so the snapshot is self-describing
-               ;; for SSR / tools / pair-tools inspection.
-               (update-in [:rf/runtime :machines :snapshots :app/boot :data] assoc
-                          :config (:config staging)
-                          :flags  (:flags staging)
-                          :user   (:user staging)
-                          :routes (:routes staging)))
+               (assoc :routes (:routes staging)))
+       ;; Mirror the loaded values into the boot machine's :data slice so the
+       ;; snapshot is self-describing for SSR / tools / pair-tools inspection.
+       :rf.db/runtime (update-in (or rt {})
+                                 [:rf.runtime/machines :snapshots :app/boot :data] assoc
+                                 :config (:config staging)
+                                 :flags  (:flags staging)
+                                 :user   (:user staging)
+                                 :routes (:routes staging))
        :fx [[:dispatch [:app/boot [:boot/hydrated]]]]})))
 
 ;; ============================================================================
@@ -395,9 +400,11 @@
 ;; SUBS — boot-state slots the views read
 ;; ============================================================================
 
+;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state — read
+;; them through the framework `:rf/machine` sub.
 (rf/reg-sub :app.boot/snapshot
-  (fn [db _]
-    (get-in db [:rf/runtime :machines :snapshots :app/boot])))
+  :<- [:rf/machine :app/boot]
+  (fn [snapshot _] snapshot))
 
 (rf/reg-sub :app.boot/state
   :<- [:app.boot/snapshot]

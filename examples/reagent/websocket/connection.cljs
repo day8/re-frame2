@@ -373,8 +373,11 @@
 (rf/reg-machine :ws/connection connection-machine)
 
 ;; --- subs -------------------------------------------------------------
+;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state — read
+;; them through the framework `:rf/machine` sub.
 (rf/reg-sub :ws/snapshot
-  (fn [db _] (get-in db [:rf/runtime :machines :snapshots :ws/connection])))
+  :<- [:rf/machine :ws/connection]
+  (fn [snapshot _] snapshot))
 
 (rf/reg-sub :ws/state
   :<- [:ws/snapshot]

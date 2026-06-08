@@ -107,4 +107,8 @@
 ;; are attached via the machine `:data-schema` slot in `worker.cljs` — see the
 ;; ns docstring for why a fixed path cannot reach a gensym'd-id snapshot.)
 
-(rf/reg-app-schema [:rf/runtime :machines :snapshots :work/flow] FlowSnapshot)
+;; EP-0001 (rf2-vzld77): machine snapshots are runtime-db state, not app-db —
+;; an `reg-app-schema` on a machine-snapshot path validates nothing (app
+;; schemas validate the app-db partition only, Mike ruling #11). The
+;; machine's own `:data-schema` is the snapshot-validation surface, so the
+;; vestigial app-schema reg is removed.

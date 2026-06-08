@@ -87,7 +87,7 @@
         ;; including the wrapper actor's child dispatch that emits the
         ;; underlying fx.
         {:fx-overrides {:rf.http/managed :rf.http/managed-test-stub}})
-      (let [db (rf/app-db-value :rf/default)]
+      (let [db (rf/runtime-db-value :rf/default)]
         (is (= :rf.http/managed#1
                (get-in db [:rf.runtime/machines :spawned :cljs/auth2 [:authenticating]]))
             "the wrapper actor is bound under the parent's spawn-registry slot")
@@ -132,7 +132,7 @@
         [:cljs/cancellable [:login]]
         {:fx-overrides {:rf.http/managed :rf.http/managed-test-stub}})
       (rf/dispatch-sync [:cljs/cancellable [:cancel]])
-      (let [db (rf/app-db-value :rf/default)]
+      (let [db (rf/runtime-db-value :rf/default)]
         (is (nil? (get-in db [:rf.runtime/machines :spawned :cljs/cancellable [:authenticating]]))
             "spawn-registry slot cleared by the destroy cascade")
         (is (nil? (get-in db [:rf.runtime/machines :snapshots :rf.http/managed#1]))
