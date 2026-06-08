@@ -1,7 +1,7 @@
 (ns re-frame.sub-parametric-inputs-test
   "Tests for parametric subscription inputs — the two-function
   `(reg-sub id input-fn computation-fn)` form (rf2-7brl74, EP
-  docs/EP/subscription-inputs.md §Test Plan; Spec 006 §Subscription
+  docs/EP/EP-0004-subscription-inputs.md §Test Plan; Spec 006 §Subscription
   input producers).
 
   The `input-fn` is a PURE function from the outer `query-v` to a vector

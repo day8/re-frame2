@@ -119,19 +119,19 @@ This is a cross-cutting safety proposal that should resolve before large
 frame-aware features harden their public APIs.
 
 - **Resolve before frame-aware features.** This EP should be resolved before
-  large frame-aware features — such as [resource queries](resource-queries.md),
+  large frame-aware features — such as [resource queries](EP-0003-resource-queries.md),
   Xray control surfaces, SSR hydration helpers, and work-ledger tooling — harden
   their public APIs, because each of those features carries (or depends on) an
   explicit frame target and should not be built against the ambient
   `:rf/default` fallback this EP removes.
 - **Composes with the app/runtime partition.** Both partitions in the
-  [App/Runtime Partition EP](app-db-runtime-partition.md) (listed under
+  [App/Runtime Partition EP](EP-0001-frame-partitions.md) (listed under
   `Requires`) are frame-owned; resolving the frame target precedes committing or
   projecting either partition.
 - **Subscription inputs inherit the resolved frame.** Parametric subscription
   input query vectors are frame-agnostic data resolved in the outer
   subscription's frame; see the [Parametric Subscription Inputs
-  EP](subscription-inputs.md).
+  EP](EP-0004-subscription-inputs.md).
 
 ## Developer And AI Use Cases
 

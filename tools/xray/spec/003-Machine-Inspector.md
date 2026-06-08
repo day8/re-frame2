@@ -869,7 +869,7 @@ EP-0005 adds an optional `:data-schema` to `reg-machine` — a Malli
 validator for the machine's `:data` context (the re-frame2-native analog
 of XState v5 typed context). It carries two consequences the Machine
 Inspector surfaces, both consumer-side of the framework work
-([the egress bridge](../../../docs/EP/machine-data-schema.md) is rf2-w46fpt;
+([the egress bridge](../../../docs/EP/EP-0005-machine-data-schema.md) is rf2-w46fpt;
 [the machines-viz declared-over-inferred chart shape](../../machines-viz/spec/001-Topology-Parity.md)
 is rf2-3q4k5b).
 
