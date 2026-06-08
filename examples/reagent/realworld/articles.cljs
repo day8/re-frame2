@@ -229,8 +229,9 @@
          `:data` region advances to `:loading` (or `:refreshing` from
          `:some`)."
    :rf.http/decode-schemas [schema/ArticlesResponse]}
-  (fn [{:keys [db]} _]
-    (let [tag       (get-in db [:rf/runtime :routing :current :query :tag])
+  ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state.
+  (fn [{:keys [db] rt :rf.db/runtime} _]
+    (let [tag       (get-in rt [:rf.runtime/routing :current :query :tag])
           path      (if tag
                       (str "/articles?tag=" tag)
                       "/articles")

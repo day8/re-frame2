@@ -227,8 +227,12 @@
 ;; broadcasts the per-axis transitions into the home machine
 ;; (`:realworld/articles-home`) before kicking the per-feed fetch.
 
-(defn home-query [db]
-  (get-in db [:rf/runtime :routing :current :query] {}))
+;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state —
+;; `home-query` reads it off a runtime-db value (event handlers pass the
+;; `:rf.db/runtime` coeffect; the `:home/query` sub composes off the public
+;; `[:rf.route/query]` framework sub).
+(defn home-query [runtime-db]
+  (get-in runtime-db [:rf.runtime/routing :current :query] {}))
 
 (rf/reg-event-fx :home/load
   {:doc "Route :on-match handler for `:realworld/home`. Reads the route's
@@ -241,8 +245,8 @@
          Each fetch handler in turn broadcasts `:fetch-started` into the
          home machine's `:data` region (per articles.cljs and
          favorites.cljs)."}
-  (fn [{:keys [db]} _]
-    (let [{:keys [feed tag] :as _query} (home-query db)
+  (fn [{rt :rf.db/runtime} _]
+    (let [{:keys [feed tag] :as _query} (home-query rt)
           your-feed? (= "your" feed)
           tag-feed?  (and (not your-feed?) (some? tag))
           feed-event (cond
@@ -269,12 +273,13 @@
     {:fx [[:dispatch [:rf.route/navigate :realworld/home {} {:query {:tag tag}}]]]}))
 
 (rf/reg-event-fx :tags/clear-filter
-  (fn [{:keys [db]} _]
-    (let [query (dissoc (home-query db) :tag)]
+  (fn [{rt :rf.db/runtime} _]
+    (let [query (dissoc (home-query rt) :tag)]
       {:fx [[:dispatch [:rf.route/navigate :realworld/home {} {:query query}]]]})))
 
 (rf/reg-sub :home/query
-  (fn [db _] (home-query db)))
+  :<- [:rf.route/query]
+  (fn [query _] (or query {})))
 
 (rf/reg-sub :home/selected-tag
   :<- [:home/query]

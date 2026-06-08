@@ -80,7 +80,7 @@
 
       ;; Initial dispatch — issue the managed request. Default reply
       ;; addressing routes the reply back here.
-      (let [slug (get-in db [:rf/runtime :routing :current :params :slug])]
+      (let [slug (get-in rt [:rf.runtime/routing :current :params :slug])]
         {:db (-> db
                  (assoc-in [:article :status]
                            (if (get-in db [:article :data]) :fetching :loading))
@@ -104,8 +104,8 @@
          reply addressing) — both shapes are valid Spec 014; pick whichever
          reads best for the handler."
    :rf.http/decode-schemas [schema/CommentsResponse]}
-  (fn [{:keys [db]} _]
-    (let [slug (get-in db [:rf/runtime :routing :current :params :slug])]
+  (fn [{:keys [db] rt :rf.db/runtime} _]
+    (let [slug (get-in rt [:rf.runtime/routing :current :params :slug])]
       {:db (-> db
                (assoc-in [:comments :status]
                          (if (seq (get-in db [:comments :data])) :fetching :loading))
@@ -152,8 +152,8 @@
          eventual save / rollback (Spec 014 - explicit on-success/on-failure
          where the partial event vector pre-populates correlation args)."
    :rf.http/decode-schemas [schema/CommentResponse]}
-  (fn [{:keys [db]} _]
-    (let [slug      (get-in db [:rf/runtime :routing :current :params :slug])
+  (fn [{:keys [db] rt :rf.db/runtime} _]
+    (let [slug      (get-in rt [:rf.runtime/routing :current :params :slug])
           draft     (get-in db [:comment-form :draft])
           body      (str/trim (or (:body draft) ""))
           user      (get-in db [:auth :user])
@@ -222,8 +222,8 @@
 (rf/reg-event-fx :comment/delete
   {:doc "Optimistically remove a comment, then DELETE. On failure, the
          rollback handler re-inserts the comment at its original index."}
-  (fn [{:keys [db]} [_ id]]
-    (let [slug     (get-in db [:rf/runtime :routing :current :params :slug])
+  (fn [{:keys [db] rt :rf.db/runtime} [_ id]]
+    (let [slug     (get-in rt [:rf.runtime/routing :current :params :slug])
           comments (vec (get-in db [:comments :data]))
           index    (first (keep-indexed (fn [idx comment]
                                           (when (= id (:id comment)) idx))

@@ -247,8 +247,9 @@
          :settings/submit-error broadcast :submit-succeeded /
          :submit-failed."
    :rf.http/decode-schemas [schema/UserResponse]}
-  (fn handler-settings-submit [{:keys [db]} _]
-    (let [draft (get-in db [:rf/runtime :machines :snapshots :settings/form :data :draft])]
+  ;; EP-0001 (rf2-vzld77): the machine snapshot is durable runtime-db state.
+  (fn handler-settings-submit [{rt :rf.db/runtime} _]
+    (let [draft (get-in rt [:rf.runtime/machines :snapshots :settings/form :data :draft])]
       {:fx [[:dispatch [:settings/form
                         [:submit-valid {:submitted draft}]]]
             [:rf.http/managed

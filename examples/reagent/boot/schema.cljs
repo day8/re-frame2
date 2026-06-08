@@ -155,7 +155,11 @@
 ;; every registration is wrapped in :maybe so the validator passes
 ;; during the staging/loading phases.
 
-(rf/reg-app-schema [:rf/runtime :machines :snapshots :app/boot] [:maybe BootSnapshot])
+;; EP-0001 (rf2-vzld77): machine snapshots are runtime-db state, not app-db —
+;; an `reg-app-schema` on a machine-snapshot path validates nothing (app
+;; schemas validate the app-db partition only, Mike ruling #11). The
+;; machine's own `:data-schema` is the snapshot-validation surface, so the
+;; vestigial app-schema reg is removed.
 
 ;; The :spawn-all children stage their payloads into [:boot/staging]
 ;; before signalling completion to the parent. The :enter-hydrating

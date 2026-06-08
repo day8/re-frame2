@@ -23,6 +23,7 @@
   §Multi-frame routing."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.subs :as subs]
             [re-frame.routing :as routing]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]))
@@ -59,10 +60,12 @@
                      :on-match [[:cljs/article-load]]})
       (rf/reg-event-db :cljs/article-load
                        (fn [db _] (assoc db :article-loaded? true)))
-      (rf/reg-sub :rf.cljs.route/id
-                  (fn [db _] (get-in db [:rf.db/runtime :rf.runtime/routing :current :id])))
-      (rf/reg-sub :rf.cljs.route/params
-                  (fn [db _] (get-in db [:rf.db/runtime :rf.runtime/routing :current :params])))
+      ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db
+      ;; state — these custom subs read the runtime-db partition.
+      (subs/reg-runtime-sub :rf.cljs.route/id
+                  (fn [rt _] (get-in rt [:rf.runtime/routing :current :id])))
+      (subs/reg-runtime-sub :rf.cljs.route/params
+                  (fn [rt _] (get-in rt [:rf.runtime/routing :current :params])))
 
       ;; URL-driven nav. The slice is set; :on-match dispatches.
       (rf/dispatch-sync [:rf.route/transitioned "/cljs/articles/intro"] {:frame f})
@@ -72,7 +75,7 @@
       (is (= {:id "intro"}
              (rf/subscribe-once f [:rf.cljs.route/params]))
           ":rf.route/params sub resolves under the Reagent adapter")
-      (is (true? (:article-loaded? (rf/frame-state-value f)))
+      (is (true? (:article-loaded? (rf/app-db-value f)))
           ":on-match's [:cljs/article-load] dispatched and ran")
 
       ;; A second navigation through the same path with new params re-fires.
@@ -96,7 +99,7 @@
     (rf/reg-route :route.cljs2/articles      {:path "/cljs2/articles"})
     (rf/reg-route :route.cljs2/article       {:path   "/cljs2/articles/:id"
                                               :params [:map [:id :string]]})
-    (rf/reg-sub :rf.cljs2/route (fn [db _] (get-in db [:rf.db/runtime :rf.runtime/routing :current])))
+    (subs/reg-runtime-sub :rf.cljs2/route (fn [rt _] (get-in rt [:rf.runtime/routing :current])))
 
     (let [left  (rf/make-frame {:doc "left tab frame"})
           right (rf/make-frame {:doc "right tab frame"})]

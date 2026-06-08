@@ -143,7 +143,11 @@
             [:attempts {:default 0} :int]
             [:error    [:maybe :string]]]]])
 
-(rf/reg-app-schema [:rf/runtime :machines :snapshots :auth.login/flow] AuthLoginSnapshot)
+;; EP-0001 (rf2-vzld77): machine snapshots are runtime-db state, not app-db —
+;; an `reg-app-schema` on a machine-snapshot path validates nothing (app
+;; schemas validate the app-db partition only, Mike ruling #11). The
+;; machine's own `:data-schema` is the snapshot-validation surface, so the
+;; vestigial app-schema reg is removed.
 
 ;; ============================================================================
 ;; FX  (Spec 014 + per-app demo stub)
@@ -341,15 +345,19 @@
 ;; "in :submitting?" and "in :authed?" predicates moved to the
 ;; `rf/machine-has-tag?` queries in views below (per Spec 005 §State tags).
 
+;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state — read
+;; them through the framework `:rf/machine` sub (the public surface).
 (rf/reg-sub :auth.login/state
   {:doc "Current state of the login flow."}
-  (fn sub-auth-login-state [db _]
-    (get-in db [:rf/runtime :machines :snapshots :auth.login/flow :state])))
+  :<- [:rf/machine :auth.login/flow]
+  (fn sub-auth-login-state [snapshot _]
+    (:state snapshot)))
 
 (rf/reg-sub :auth.login/error
   {:doc "Current error message, if any."}
-  (fn sub-auth-login-error [db _]
-    (get-in db [:rf/runtime :machines :snapshots :auth.login/flow :data :error])))
+  :<- [:rf/machine :auth.login/flow]
+  (fn sub-auth-login-error [snapshot _]
+    (get-in snapshot [:data :error])))
 
 ;; ============================================================================
 ;; VIEWS  (CP-4)

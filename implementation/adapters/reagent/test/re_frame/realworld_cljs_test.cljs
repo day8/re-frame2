@@ -515,8 +515,9 @@
       (is (false? (settings-machine-has-tag? f :settings/in-flight)))
       (is (true?  (settings-machine-has-tag? f :form/success)))
       ;; the :auth slice has the new user data (the side-effect the
-      ;; original test asserted).
-      (is (= "New bio" (get-in db [:auth :user :bio])))
+      ;; original test asserted). EP-0001 (rf2-vzld77): `:auth` is app-db; read
+      ;; it off the `:rf.db/app` partition of the frame-state value.
+      (is (= "New bio" (get-in db [:rf.db/app :auth :user :bio])))
       ;; the `:settings/submitting?` sub returns false (same name a
       ;; slice-form reader would use; only the source changed).
       (is (false? (rf/compute-sub [:settings/submitting?] db))))))
@@ -550,7 +551,8 @@
       (is (true?  (settings-machine-has-tag? f :form/invalid)))
       (is (false? (settings-machine-has-tag? f :settings/in-flight)))
       ;; the auth slice was NOT updated; the user's :bio is still nil.
-      (is (nil? (get-in db [:auth :user :bio]))))))
+      ;; EP-0001 (rf2-vzld77): `:auth` is app-db — read the `:rf.db/app` partition.
+      (is (nil? (get-in db [:rf.db/app :auth :user :bio]))))))
 
 (defn- settings-validation-test []
   ;; Validation path — direct broadcasts exercise the
@@ -717,7 +719,7 @@
     ;; records the original target at [:auth :return-to].
     (rf/dispatch-sync [:rf.route/navigate :realworld.user/settings {}] {:frame f})
     (is (= {:id :realworld.user/settings :params {}}
-           (get-in (rf/frame-state-value f) [:auth :return-to]))
+           (get-in (rf/frame-state-value f) [:rf.db/app :auth :return-to]))
         "the redirect stashes the original target for post-login bounce-back")
 
     ;; Authenticated: the same guarded nav now proceeds.
@@ -729,7 +731,7 @@
     ;; The post-login bounce-back event consumes the stashed target and
     ;; clears the slot.
     (rf/dispatch-sync [:auth/post-login-redirect] {:frame f})
-    (is (nil? (get-in (rf/frame-state-value f) [:auth :return-to]))
+    (is (nil? (get-in (rf/frame-state-value f) [:rf.db/app :auth :return-to]))
         ":auth/post-login-redirect clears the :return-to slot")))
 
 (defn- auth-guard-all-access-paths-test []
@@ -750,7 +752,7 @@
     (is (= :realworld.auth/login (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
         "logged-out direct-URL/reload to a :requires-auth route redirects to login")
     (is (= {:id :realworld.user/settings :params {}}
-           (get-in (rf/frame-state-value f) [:auth :return-to]))
+           (get-in (rf/frame-state-value f) [:rf.db/app :auth :return-to]))
         "the direct-URL redirect stashes the original target for bounce-back")
 
     ;; Editor route via direct URL with path params is also gated, and
@@ -759,7 +761,7 @@
     (is (= :realworld.auth/login (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
         "logged-out direct-URL to a :requires-auth editor route redirects to login")
     (is (= {:id :realworld.editor/edit :params {:slug "my-slug"}}
-           (get-in (rf/frame-state-value f) [:auth :return-to]))
+           (get-in (rf/frame-state-value f) [:rf.db/app :auth :return-to]))
         "the editor direct-URL redirect stashes id + params for bounce-back")
 
     ;; A non-auth route via direct URL is unaffected.
@@ -779,7 +781,7 @@
     (is (= :realworld.auth/login (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
         "logged-out anchor click to a :requires-auth route redirects to login")
     (is (= {:id :realworld.user/settings :params {}}
-           (get-in (rf/frame-state-value f) [:auth :return-to]))
+           (get-in (rf/frame-state-value f) [:rf.db/app :auth :return-to]))
         "the anchor redirect stashes the original target for bounce-back")
 
     ;; A url-only request (no :to) still gates via match-url resolution.

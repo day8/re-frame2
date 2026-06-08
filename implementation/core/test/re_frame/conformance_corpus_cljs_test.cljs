@@ -435,6 +435,11 @@
           :layer-1 (if (seq sub-meta)
                      (subs/reg-sub id sub-meta body)
                      (subs/reg-sub id body))
+          ;; EP-0001 (rf2-vzld77): a `[:get [:rf.runtime/… …]]` fixture sub
+          ;; reads the runtime-db partition — register via reg-runtime-sub.
+          :runtime-db (if (seq sub-meta)
+                        (subs/reg-runtime-sub id sub-meta body)
+                        (subs/reg-runtime-sub id body))
           ;; Use subs/reg-sub (the fn-form) here because rf/reg-sub is a
           ;; macro and macros aren't first-class values for `apply`.
           :layer-2 (apply subs/reg-sub id
@@ -1035,6 +1040,16 @@
                            (into {}
                                  (for [[fid _] expected-dbs]
                                    [fid (rf/app-db-value fid)])))
+            ;; EP-0001 (rf2-vzld77): durable framework runtime state lives in
+            ;; the runtime-db partition; fixtures assert it under
+            ;; :final-runtime-db / :final-runtime-dbs (paths under :rf.runtime/*).
+            expected-rt  (:final-runtime-db expect)
+            expected-rts (:final-runtime-dbs expect)
+            final-rt     (rf/runtime-db-value :rf/default)
+            final-rts    (when expected-rts
+                           (into {}
+                                 (for [[fid _] expected-rts]
+                                   [fid (rf/runtime-db-value fid)])))
             sub-checks
             (doall
               (for [[query-v expected-val] (or (:sub-values expect) {})]
@@ -1086,6 +1101,11 @@
                             (or (nil? expected-dbs)
                                 (every? (fn [[fid db]] (submap? db (get final-dbs fid)))
                                         expected-dbs))
+                            ;; EP-0001 (rf2-vzld77) — runtime-db partition assertions.
+                            (or (nil? expected-rt) (submap? expected-rt final-rt))
+                            (or (nil? expected-rts)
+                                (every? (fn [[fid rt]] (submap? rt (get final-rts fid)))
+                                        expected-rts))
                             (every? #(= (:expected %) (:actual %)) sub-checks)
                             (empty? trace-failures)
                             (empty? effects-failures)

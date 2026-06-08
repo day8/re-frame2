@@ -346,15 +346,17 @@
           "no malformed diagnostic on a well-formed payload"))
     ;; (b) map payload with NO app-db slice → falls back to existing db
     ;;     (client-only / no-server-slice shape — NOT malformed). The
-    ;;     existing user data survives; only the runtime hydration-metadata
-    ;;     block (`:version`) is additively stashed under :rf/runtime.
+    ;;     existing user data survives; the runtime hydration-metadata block
+    ;;     (`:version`) is additively stashed in the runtime-db partition
+    ;;     (EP-0001 rf2-vzld77 — SSR hydration metadata is durable runtime-db
+    ;;     state, returned under the handler's `:rf.db/runtime` effect).
     (let [{:keys [result traces]} (hydrate-with {:rf/version 1})]
       (is (true? (get-in result [:db :client/seeded]))
           "no-slice payload preserves the existing client data (not replaced/rejected)")
       (is (= 0 (get-in result [:db :count]))
           "existing user slice rides through unchanged")
-      (is (= 1 (get-in result [:db :rf/runtime :ssr :hydration :version]))
-          "version metadata is additively stashed (the legitimate no-slice path)")
+      (is (= 1 (get-in result [:rf.db/runtime :rf.runtime/ssr :hydration :version]))
+          "version metadata is additively stashed in runtime-db (the legitimate no-slice path)")
       (is (zero? (count (ops traces :rf.error/malformed-hydration-payload)))
           "a no-slice map payload is the legitimate client-only fallback, not malformed"))
     ;; (c) empty map → fallback, no diagnostic

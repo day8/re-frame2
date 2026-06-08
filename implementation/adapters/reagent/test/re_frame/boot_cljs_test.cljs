@@ -139,13 +139,13 @@
       ;; The :on-create cofx fires :boot/initialise during make-frame,
       ;; which dispatches [:app/boot [:rf.machine/start]]. The synchronous
       ;; drain runs all four canned-success stubs to completion.
-      (let [db    (rf/app-db-value f)
+      (let [db    (rf/frame-state-value f)
             state (rf/compute-sub [:app.boot/state] db)]
         (assert (= :ready state)
                 (str "expected boot machine state :ready, got " state))
 
         ;; Staging slots all populated.
-        (let [staging (:boot/staging db)]
+        (let [staging (get-in db [:rf.db/app :boot/staging])]
           (assert (= test-config (:config staging)))
           (assert (= test-routes (:routes staging)))
           (assert (= test-flags  (:flags staging)))
@@ -165,8 +165,8 @@
                          {:on-create    [:boot/initialise]
                           :fx-overrides {:rf.http/managed
                                          :boot.test/canned-boot-success}})]
-      (let [db      (rf/app-db-value f)
-            staging (:boot/staging db)]
+      (let [db      (rf/frame-state-value f)
+            staging (get-in db [:rf.db/app :boot/staging])]
         ;; Each staging-key holds the payload that came back from the
         ;; matching URL. Cross-talk (e.g. :flags staging holding the
         ;; routes payload) would mean the :spawn-all :data fns are
@@ -178,7 +178,7 @@
         ;; The boot machine's :data mirrors the staged values once
         ;; :enter-hydrating runs (so the snapshot is self-describing
         ;; for SSR / tools).
-        (let [boot-data (get-in db [:rf/runtime :machines :snapshots :app/boot :data])]
+        (let [boot-data (get-in db [:rf.db/runtime :rf.runtime/machines :snapshots :app/boot :data])]
           (assert (= test-config (:config boot-data)))
           (assert (= test-routes (:routes boot-data)))
           (assert (= test-flags  (:flags boot-data)))
@@ -195,7 +195,7 @@
                          {:on-create    [:boot/initialise]
                           :fx-overrides {:rf.http/managed
                                          :boot.test/canned-boot-fail}})]
-      (let [db    (rf/app-db-value f)
+      (let [db    (rf/frame-state-value f)
             state (rf/compute-sub [:app.boot/state] db)]
         ;; Every child fails (the canned-failure stub is blanket); the
         ;; first failure routes the boot to :failed via :on-any-failed.

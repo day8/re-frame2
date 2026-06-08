@@ -359,9 +359,11 @@
     (rf/dispatch-sync [:rf/url-requested {:url "/cart"}])
     (.scrollTo js/globalThis.window 12 345)
     (rf/dispatch-sync [:rf/url-requested {:url "/checkout"}])
+    ;; EP-0001 (rf2-vzld77): scroll-position caches are durable routing
+    ;; runtime-db state.
     (is (= [12 345]
            (routing/lookup-scroll-position
-             (rf/app-db-value :rf/default)
+             (rf/runtime-db-value :rf/default)
              "/cart"))
         "scroll position for the route being left is saved before the scroll strategy runs")))
 
@@ -703,8 +705,9 @@
     (register-routes!)
     ;; Forward nav lands on /articles/intro.
     (rf/dispatch-sync [:rf/url-requested {:url "/articles/intro"}])
-    (let [pre-nav-token (-> (rf/app-db-value :rf/default)
-                            :rf/runtime :routing :current :nav-token)]
+    ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state.
+    (let [pre-nav-token (-> (rf/runtime-db-value :rf/default)
+                            :rf.runtime/routing :current :nav-token)]
 
       ;; Capture both :rf.route/fragment-changed AND
       ;; :rf.route.nav-token/allocated emissions during the fragment-only
