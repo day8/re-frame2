@@ -884,10 +884,21 @@
            :definition     guarded-door-machine
            :guard-blocked-edge-ids #{close-id}}
           (fn [_root node]
+            ;; Scope to OUTER event-NODES only via `[data-node-id]` (the
+            ;; child header/guard/action/reenter spans share the
+            ;; `rf-mv-chart-event-` testid prefix but carry no
+            ;; `data-node-id` — same precise-event-node convention as the
+            ;; `[data-variant]` count at the bottom of this file). The
+            ;; bare prefix selector also matches the blocked node's OWN
+            ;; inner guard span, which correctly carries
+            ;; data-guard-blocked="true" (it paints the pink `IF <guard>`
+            ;; chip) — including it in `others` would wrongly fail the
+            ;; non-blocked-nodes-are-false assertion.
             (let [blocked-el (.querySelector
                                node (str "[data-testid=\"rf-mv-chart-event-" blocked-ev-id "\"]"))
                   all-evs    (array-seq
-                               (.querySelectorAll node "[data-testid^=\"rf-mv-chart-event-\"]"))
+                               (.querySelectorAll
+                                 node "[data-testid^=\"rf-mv-chart-event-\"][data-node-id]"))
                   others     (remove #(= % blocked-el) all-evs)]
               (when (some? blocked-el)
                 (is (= "true" (.getAttribute blocked-el "data-guard-blocked")))
