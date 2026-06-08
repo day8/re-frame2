@@ -861,11 +861,14 @@
 
 (defn machine-state
   "Snapshot of one machine in the operating frame. Per Spec 005 + rf2-eguy4,
-   machine snapshots live at `[:rf/runtime :machines :snapshots machine-id]`
-   in app-db."
+   machine snapshots live at `[:rf.runtime/machines :snapshots machine-id]`
+   in the RUNTIME-DB partition (EP-0001 rf2-vzld77 moved machine snapshots
+   out of app-db `:rf/runtime` into the durable runtime-db partition — read
+   via `rf/runtime-db-value`, NOT `rf/snapshot-of`, which reads app-db)."
   ([machine-id] (machine-state machine-id (current-frame)))
   ([machine-id frame-id]
-   (rf/snapshot-of [:rf/runtime :machines :snapshots machine-id] {:frame frame-id})))
+   (get-in (rf/runtime-db-value frame-id)
+           [:rf.runtime/machines :snapshots machine-id])))
 
 ;; ---------------------------------------------------------------------------
 ;; Epoch history & assembled-stream listener
@@ -3986,12 +3989,14 @@
     :sub-cache  (subs-tooling/sub-cache-snapshot frame-id)
     ;; The global machine-id list is registrar-level (not per-frame).
     ;; Per Spec 005 + rf2-eguy4 each frame holds its own machine
-    ;; snapshots at [:rf/runtime :machines :snapshots machine-id] in
-    ;; app-db, so the per-frame slice returns
-    ;; {:ids [...] :state {machine-id snapshot}}.
+    ;; snapshots at [:rf.runtime/machines :snapshots machine-id] in the
+    ;; RUNTIME-DB partition (EP-0001 rf2-vzld77 moved machine snapshots out
+    ;; of app-db :rf/runtime into the durable runtime-db partition — read
+    ;; via `rf/runtime-db-value`, NOT `rf/app-db-value`), so the per-frame
+    ;; slice returns {:ids [...] :state {machine-id snapshot}}.
     :machines   (let [ids (vec (rf/machines))
-                      state (or (get-in (rf/app-db-value frame-id)
-                                        [:rf/runtime :machines :snapshots])
+                      state (or (get-in (rf/runtime-db-value frame-id)
+                                        [:rf.runtime/machines :snapshots])
                                 {})]
                   {:ids ids :state state})
     :epochs     (vec (rf/epoch-history frame-id))

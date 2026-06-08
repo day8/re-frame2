@@ -222,29 +222,45 @@
    :states  {:idle               {:on {:login :authenticating}}
              :active             {:states {:authenticating {} :authed {}}}}})
 
+;; EP-0001 (rf2-jj1xer) — seed the live machine snapshot exactly where the
+;; machines runtime writes it post-rf2-vzld77: the RUNTIME-DB partition at
+;; `[:rf.runtime/machines :snapshots :auth]`, NOT the old app-db `:rf/runtime`
+;; slot. A framework-authority `reg-event-fx` returning the reserved
+;; `:rf.db/runtime` effect installs the runtime-db partition (the same path
+;; the machines lifecycle-fx writes); `:rf/machine? true` marks it
+;; framework-authority so the runtime-write diagnostic does not fire.
+(defn- seed-machine-snapshot-in-runtime-db! [snapshot]
+  (rf/reg-event-fx :test/seed-machine-snapshot
+    {:rf/machine? true}
+    (fn [_ _]
+      {:rf.db/runtime {:rf.runtime/machines {:snapshots {:auth snapshot}}}}))
+  (rf/dispatch-sync [:test/seed-machine-snapshot]))
+
 (deftest get-machine-state-reports-live-position-not-spec
   (testing "get-machine-state returns the LIVE snapshot :state (the running
-            FSM position), NOT the registered spec — rf2-uo0rc.3"
+            FSM position), NOT the registered spec — rf2-uo0rc.3 + rf2-jj1xer
+            (reads the runtime-db partition, with a trusted-local opt-in)"
     (let [live-state [:active :authenticating]
           snapshot   {:state live-state
                       :data  {:user "ada"}
                       :tags  #{:busy}}]
-      ;; Seed the live snapshot exactly where the machines runtime writes
-      ;; it: [:rf/runtime :machines :snapshots :auth].
-      (rf/reg-event-db :test/seed-machine-snapshot
-        (fn [db _]
-          (assoc-in db [:rf/runtime :machines :snapshots :auth] snapshot)))
-      (rf/dispatch-sync [:test/seed-machine-snapshot])
+      ;; rf2-jj1xer — seed into the RUNTIME-DB partition (not app-db).
+      (seed-machine-snapshot-in-runtime-db! snapshot)
       ;; Stub the registry surface so `machine-meta` resolves to a spec
       ;; without the runtime artefact on the classpath.
       (with-redefs [rf/machine-meta (fn [mid]
                                       (when (= :auth mid) uo0rc3-registered-spec))]
-        (let [result (runtime/get-machine-state {:machine-id :auth})]
+        ;; rf2-jj1xer — runtime-db is REDACTED off-box by default (ruling
+        ;; #14); a trusted-local caller opts in with :include-runtime-db?
+        ;; true to read the live position. Pass it here to assert the
+        ;; partition read lands the runtime-db value.
+        (let [result (runtime/get-machine-state {:machine-id :auth
+                                                  :include-runtime-db? true})]
           (is (true? (:ok? result)))
           (is (= :auth (:machine-id result)))
-          (testing ":state is the LIVE FSM position, not the spec"
+          (testing ":state is the LIVE FSM position read off the runtime-db partition"
             (is (= live-state (:state result))
-                ":state is the running state-path off the live snapshot")
+                ":state is the running state-path off the live runtime-db snapshot")
             (is (not= uo0rc3-registered-spec (:state result))
                 ":state is NOT the registered spec (the rf2-uo0rc.3 regression)")
             (is (not= :idle (:state result))
@@ -254,6 +270,28 @@
           (testing "the static definition is available SEPARATELY under :spec"
             (is (= uo0rc3-registered-spec (:spec result))
                 ":spec carries the registered machine definition")))))))
+
+(deftest get-machine-state-redacts-runtime-db-off-box-by-default
+  (testing "EP-0001 rf2-jj1xer / ruling #14 — the LIVE machine snapshot is
+            RUNTIME-DB state; the default (no opt-in) off-box read REDACTS
+            :state + :snapshot to :rf/redacted, while the static :spec (a
+            registry value, not runtime-db) still egresses"
+    (let [snapshot {:state [:active :authenticating]
+                    :data  {:user "ada"}
+                    :tags  #{:busy}}]
+      (seed-machine-snapshot-in-runtime-db! snapshot)
+      (with-redefs [rf/machine-meta (fn [mid]
+                                      (when (= :auth mid) uo0rc3-registered-spec))]
+        ;; No :include-runtime-db? ⇒ the off-box default fails closed.
+        (let [result (runtime/get-machine-state {:machine-id :auth})]
+          (is (true? (:ok? result)) "the read still succeeds")
+          (is (= :auth (:machine-id result)))
+          (is (= :rf/redacted (:state result))
+              ":state is redacted off-box by default (runtime-db partition)")
+          (is (= :rf/redacted (:snapshot result))
+              ":snapshot is redacted off-box by default (runtime-db partition)")
+          (is (= uo0rc3-registered-spec (:spec result))
+              ":spec (a static registry value, not runtime-db) still egresses"))))))
 
 (deftest get-machine-state-not-yet-started-when-no-live-snapshot
   (testing "a registered-but-not-yet-started machine (no live snapshot in
@@ -626,6 +664,54 @@
           out    (runtime/egress-record record {:include-sensitive? true})]
       (is (= "shh" (get-in out [:db-after :auth :password]))
           ":include-sensitive? true ⇒ the raw value passes through"))))
+
+;; ---------------------------------------------------------------------------
+;; EP-0001 (rf2-jj1xer · ruling #14) — partition-aware runtime-db egress.
+;; ---------------------------------------------------------------------------
+;;
+;; `egress-runtime-db-value` is the partition-distinguishing peer of
+;; `egress-value`: app-db egresses subject to per-slot elision; runtime-db
+;; is REDACTED/OMITTED off-box by default and crosses the wire only when a
+;; trusted-local caller opts in with `:include-runtime-db? true`.
+
+(deftest egress-runtime-db-value-redacts-by-default
+  (testing "the safe default (no opt-in) substitutes :rf/redacted for a
+            runtime-db value — runtime-db is redacted off-box by default
+            (ruling #14)"
+    (is (= :rf/redacted
+           (runtime/egress-runtime-db-value {:rf.runtime/machines {:m 1}}))
+        "the bare call redacts the whole runtime-db value")
+    (is (= :rf/redacted
+           (runtime/egress-runtime-db-value {:state [:a :b]} {:include-sensitive? true}))
+        ":include-sensitive? alone does NOT lift the runtime-db partition redaction")))
+
+(deftest egress-runtime-db-value-trusted-local-opts-in
+  (testing "a trusted-local caller opts in to the runtime-db value with
+            :include-runtime-db? true; the value then routes through the
+            value walker (per-slot elision still applies)"
+    (seed-sensitive-schema!)
+    (let [v {:state [:active] :auth {:password "shh"}}]
+      (let [out (runtime/egress-runtime-db-value v {:include-runtime-db? true})]
+        (is (= [:active] (:state out))
+            "the runtime-db value crosses when the trusted-local opt-in is set")
+        (is (= :rf/redacted (get-in out [:auth :password]))
+            "the partition opt-in COMPOSES with per-slot sensitive elision — it does not override it")))))
+
+(deftest get-app-db-does-not-leak-runtime-db-partition
+  (testing "EP-0001 rf2-jj1xer — get-app-db reads ONLY the app-db partition
+            (rf/app-db-value), so a runtime-db-only commit never bleeds into
+            the app-db read (partition distinction at the read boundary)"
+    (rf/reg-event-db :test/seed-app (fn [_ _] {:cart {:items [:a]}}))
+    (rf/dispatch-sync [:test/seed-app])
+    (rf/reg-event-fx :test/seed-rt {:rf/machine? true}
+      (fn [_ _] {:rf.db/runtime {:rf.runtime/machines {:snapshots {:m {:state :on}}}}}))
+    (rf/dispatch-sync [:test/seed-rt])
+    (let [result (runtime/get-app-db)]
+      (is (true? (:ok? result)))
+      (is (= {:cart {:items [:a]}} (:value result))
+          "get-app-db returns the app-db partition only — no :rf.runtime/* keys")
+      (is (nil? (get-in result [:value :rf.runtime/machines]))
+          "runtime-db state is absent from the app-db read"))))
 
 (deftest get-app-db-redacts-sensitive-end-to-end
   (testing "the rerouted `get-app-db` call site still redacts a

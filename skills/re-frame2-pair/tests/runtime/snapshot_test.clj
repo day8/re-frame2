@@ -33,16 +33,21 @@
 ;; under test routes by `:include` keys and assembles one map per
 ;; frame-id.
 
+;; EP-0001 rf2-vzld77 — machine snapshots are RUNTIME-DB-partition state.
+;; The fixture now carries a `:runtime-db` partition per frame (read via
+;; `rf/runtime-db-value` in production); the `:machines` slice sources its
+;; `:state` from `[:rf.runtime/machines :snapshots]` there, NOT from app-db
+;; `:rf/runtime`. KEEP IN SYNC with preload/re_frame2_pair/runtime.cljs.
 (def fixture-frames
- {:rf/default {:app-db {:cart {:items 3 :total 4200}
- :rf/runtime {:machines {:snapshots {:auth {:state :authed}}}}}
+ {:rf/default {:app-db {:cart {:items 3 :total 4200}}
+ :runtime-db {:rf.runtime/machines {:snapshots {:auth {:state :authed}}}}
  :sub-cache {[:cart/total] {:value 4200 :ref-count 2}}
  :epochs [{:epoch-id "e1" :event-id :app/init}
  {:epoch-id "e2" :event-id :cart/add}]
  :traces [{:id 1 :operation :rf.event/dispatched :tags {:frame :rf/default}}
  {:id 2 :operation :rf.sub/run :tags {:frame :rf/default}}]}
- :stories {:app-db {:scenarios {:checkout :ready}
- :rf/runtime {:machines {:snapshots {}}}}
+ :stories {:app-db {:scenarios {:checkout :ready}}
+ :runtime-db {:rf.runtime/machines {:snapshots {}}}
  :sub-cache {[:stories/active] {:value :checkout :ref-count 1}}
  :epochs [{:epoch-id "s1" :event-id :stories/load}]
  :traces [{:id 3 :operation :rf.event/dispatched :tags {:frame :stories}}]}
@@ -50,12 +55,14 @@
  ;; Its :app-db is the huge tool-frame inspection state that the default
  ;; `:app` scope MUST exclude so the first read doesn't overflow on it.
  :rf/xray {:app-db {:rf/runtime {:xray-mega-state :massive}}
+ :runtime-db {}
  :sub-cache {}
  :epochs []
  :traces []}})
 
 (defn stub-frame-ids [] (keys fixture-frames))
 (defn stub-get-frame-db [fid] (get-in fixture-frames [fid :app-db]))
+(defn stub-runtime-db [fid] (get-in fixture-frames [fid :runtime-db]))
 (defn stub-sub-cache [fid] (get-in fixture-frames [fid :sub-cache]))
 (defn stub-epoch-history [fid] (get-in fixture-frames [fid :epochs]))
 (defn stub-machines [] [:auth :session]) ;; global registrar surface
@@ -98,9 +105,11 @@
  (case slice
  :app-db (stub-get-frame-db frame-id)
  :sub-cache (stub-sub-cache frame-id)
+ ;; rf2-vzld77 — machine snapshots read from the RUNTIME-DB partition
+ ;; at [:rf.runtime/machines :snapshots], NOT app-db :rf/runtime.
  :machines {:ids (vec (stub-machines))
- :state (or (get-in (stub-get-frame-db frame-id)
- [:rf/runtime :machines :snapshots])
+ :state (or (get-in (stub-runtime-db frame-id)
+ [:rf.runtime/machines :snapshots])
  {})}
  :epochs (vec (stub-epoch-history frame-id))
  ;; Per rf2-g1b2m / rf2-8uwce the trace ring is per-frame; per
@@ -176,12 +185,13 @@
  "naming :rf/xray explicitly includes it")))
 
 (deftest app-db-slice-delegates-to-frame-db
+ ;; rf2-vzld77 — the app-db partition no longer carries machine snapshots
+ ;; (they moved to runtime-db); the `:app-db` slice is the pure app
+ ;; partition.
  (let [snap (snapshot-state {:include [:app-db]})]
- (is (= {:cart {:items 3 :total 4200}
- :rf/runtime {:machines {:snapshots {:auth {:state :authed}}}}}
+ (is (= {:cart {:items 3 :total 4200}}
  (get-in snap [:rf/default :app-db])))
- (is (= {:scenarios {:checkout :ready}
- :rf/runtime {:machines {:snapshots {}}}}
+ (is (= {:scenarios {:checkout :ready}}
  (get-in snap [:stories :app-db])))))
 
 (deftest sub-cache-slice-delegates-to-rf-sub-cache

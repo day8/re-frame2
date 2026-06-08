@@ -290,6 +290,63 @@
      (rf/projected-record record))))
 
 ;; ---------------------------------------------------------------------------
+;; Partition-aware runtime-db egress (EP-0001 rf2-jj1xer · Mike ruling #14)
+;; ---------------------------------------------------------------------------
+;;
+;; A frame-state projection has TWO partitions: the user `app-db`
+;; (`:rf.db/app`) and the framework `runtime-db` (`:rf.db/runtime` —
+;; machine snapshots, route slice, spawn registry, SSR/hydration
+;; metadata, the elision registry). Per Spec 011 §Off-box redaction +
+;; Spec 009 §Privacy + Security.md, off-box egress (this runtime is the
+;; AI/MCP + log boundary) DEFAULT-REDACTS the runtime-db partition: only
+;; the app-db partition (subject to its own `:sensitive?` / `:large?`
+;; elision via `egress-value`) and explicitly allowlisted serializable
+;; runtime-db facts cross the wire. A TRUSTED-LOCAL caller (the developer
+;; inspecting their own running app) may request richer runtime-db
+;; diagnostics explicitly via `:include-runtime-db? true`.
+;;
+;; This is the runtime-egress analog of the framework's normative
+;; `re-frame.epoch.tool-pair/elide-frame-state-slot` — which redacts the
+;; `:rf.db/runtime` partition of an epoch's `:frame-state-before` /
+;; `:frame-state-after` to `:rf/redacted` on the off-box default path.
+;; The runtime-db egress here mirrors that posture for the LIVE-read
+;; accessors (`get-machine-state`) that surface runtime-db state directly
+;; rather than through an already-projected epoch record.
+
+(defn egress-runtime-db-value
+  "Off-box safe-egress fn for a value drawn from the framework RUNTIME-DB
+  partition (a machine snapshot, the route slice, the spawn registry — any
+  `:rf.db/runtime` state). Per Mike ruling #14 (Spec 011 §Off-box redaction
+  + Spec 009 §Privacy) runtime-db is REDACTED/OMITTED off-box by default:
+  the safe default substitutes the framework `:rf/redacted` sentinel rather
+  than walking + shipping the live runtime-db value to the AI/MCP / log
+  boundary.
+
+      (egress-runtime-db-value v)                          ; safe → :rf/redacted
+      (egress-runtime-db-value v {:include-runtime-db? true}) ; trusted-local opt-in
+
+  When a TRUSTED-LOCAL caller opts in (`:include-runtime-db? true`) the
+  value still routes through `egress-value` so any `:sensitive?` / `:large?`
+  slots inside the runtime-db value (e.g. a `:sensitive?` `:data-schema`
+  slot on a machine snapshot) are elided per their own declarations — the
+  partition opt-in lifts the runtime-db redaction, NOT the per-slot privacy
+  / size posture. `:include-sensitive?` / `:include-large?` carry through to
+  that inner walk; `:path` threads the absolute slice path so declarations
+  keyed by path still match. The partition opt-out is the partition default;
+  it composes with — does not override — the value-level off-box defaults.
+
+  This is the partition-distinguishing peer of `egress-value` (app-db
+  partition): app-db egresses subject to per-slot elision, runtime-db
+  egresses redacted-whole unless the trusted-local opt-in is set
+  (rf2-jj1xer)."
+  ([value]
+   (egress-runtime-db-value value nil))
+  ([value {:keys [include-runtime-db?] :as opts}]
+   (if include-runtime-db?
+     (egress-value value (dissoc opts :include-runtime-db?))
+     :rf/redacted)))
+
+;; ---------------------------------------------------------------------------
 ;; Event-level default-suppress gate (rf2-to36uj)
 ;; ---------------------------------------------------------------------------
 ;;
@@ -522,28 +579,33 @@
              :epoch-id epoch-id
              :diff     diff}))))))
 
-;; The live machine snapshot lives in the frame's app-db at the
-;; runtime-owned `[:rf/runtime :machines :snapshots <machine-id>]` slot
-;; (re-frame.machines.paths/snapshot-path — singleton machines key the
-;; snapshot by machine-id). The snapshot is `{:state <state-path> :data
-;; … :tags …}`; its `:state` is the LIVE FSM position (a state-path
-;; vector — a region→state map for a parallel machine, per Spec 005).
-;; The xray runtime reads it by app-db path rather than reaching into a
-;; framework internal: this is the same published slot the Machine
-;; Inspector + the framework's own resolver read.
+;; The live machine snapshot lives in the frame's RUNTIME-DB partition at
+;; the runtime-owned `[:rf.runtime/machines :snapshots <machine-id>]` slot
+;; (EP-0001 rf2-vzld77 moved machine snapshots out of app-db `:rf/runtime`
+;; into the durable runtime-db partition; `re-frame.machines.paths/snapshot-path`
+;; — singleton machines key the snapshot by machine-id). The snapshot is
+;; `{:state <state-path> :data … :tags …}`; its `:state` is the LIVE FSM
+;; position (a state-path vector — a region→state map for a parallel
+;; machine, per Spec 005). The xray runtime reads it from the runtime-db
+;; partition (`rf/runtime-db-value`) rather than reaching into a framework
+;; internal: this is the same published slot the Machine Inspector's
+;; `:rf.xray/machine-snapshots` sub (sourced from
+;; `:rf.xray/target-frame-runtime-db`) + the framework's own resolver read.
 (def ^:private machine-snapshot-path-root
-  "Absolute app-db path of the runtime-owned machines snapshot table,
-  `[:rf/runtime :machines :snapshots]`. Singleton machines key their
-  snapshot by machine-id under this root (Spec 005 §Reserved app-db
-  keys · `re-frame.machines.paths/snapshot-path`)."
-  [:rf/runtime :machines :snapshots])
+  "Absolute RUNTIME-DB-partition path of the runtime-owned machines
+  snapshot table, `[:rf.runtime/machines :snapshots]` (EP-0001 rf2-vzld77).
+  Singleton machines key their snapshot by machine-id under this root
+  (Spec 005 §Reserved runtime-db keys · `re-frame.machines.paths/snapshot-path`)."
+  [:rf.runtime/machines :snapshots])
 
 (defn get-machine-state
   "Tool: `get-machine-state`. The LIVE current state of a named machine
   in the running app — reads the machine's snapshot from the frame's
-  `app-db` at `[:rf/runtime :machines :snapshots <machine-id>]` (the
-  runtime-owned slot the Machine Inspector + the framework resolver
-  read) and returns its current FSM position. Returns
+  RUNTIME-DB partition at `[:rf.runtime/machines :snapshots <machine-id>]`
+  (EP-0001 rf2-vzld77 — machine snapshots are durable runtime-db state;
+  the same slot the Machine Inspector's `:rf.xray/machine-snapshots` sub +
+  the framework resolver read) and returns its current FSM position.
+  Returns
 
       {:ok? true :frame <id> :machine-id <kw>
        :state <live-state-path>          ; the running FSM position
@@ -567,11 +629,22 @@
   `:not-yet-started` (the call still succeeds with `:ok? true` so the
   agent can read `:spec` and see the machine is registered-but-idle).
 
-  Both `:state`/`:snapshot` (a live app-db slice) and `:spec` (a
-  registry value) route through `egress-value` before crossing the
-  off-box boundary; the snapshot egresses against its absolute app-db
-  path so schema-declared sensitive / large slots elide correctly."
-  [{:keys [frame machine-id include-sensitive? include-large?] :as _opts}]
+  ## Partition-aware off-box redaction (EP-0001 rf2-jj1xer · ruling #14)
+
+  The machine snapshot is RUNTIME-DB state, NOT app-db. Per Spec 011
+  §Off-box redaction the runtime-db partition is REDACTED/OMITTED off-box
+  by default — so `:state` and `:snapshot` egress as the `:rf/redacted`
+  sentinel on the safe default path (via `egress-runtime-db-value`). A
+  TRUSTED-LOCAL caller (a developer inspecting their own running app)
+  opts in to the live runtime-db diagnostics with `:include-runtime-db?
+  true`; the snapshot then routes through `egress-value` against its
+  absolute runtime-db-partition path so any per-slot `:sensitive?` /
+  `:large?` declarations (e.g. a `:sensitive?` `:data-schema` slot) still
+  elide. `:spec` is a static REGISTRY value (not runtime-db state), so it
+  egresses through `egress-value` (subject to its own sensitive / large
+  elision) regardless of the runtime-db opt-in."
+  [{:keys [frame machine-id include-sensitive? include-large?
+           include-runtime-db?] :as _opts}]
   (let [fid (resolve-frame frame)]
     (cond
       (nil? fid)
@@ -589,15 +662,22 @@
            :frame fid :machine-id machine-id
            :registered (vec (rf/machines))}
           (let [snapshot-path (conj machine-snapshot-path-root machine-id)
-                snapshot      (get-in (rf/app-db-value fid) snapshot-path)
-                egress-opts   {:include-sensitive? include-sensitive?
-                               :include-large?     include-large?}
-                spec-edn      (egress-value spec egress-opts)]
+                ;; EP-0001 rf2-vzld77 — read the snapshot from the RUNTIME-DB
+                ;; partition, not app-db. The partition distinction is the
+                ;; correctness fix (the old app-db `:rf/runtime` slot is now
+                ;; empty) AND the off-box-redaction site (runtime-db state is
+                ;; redacted by default unless the trusted-local opt-in is set).
+                snapshot      (get-in (rf/runtime-db-value fid) snapshot-path)
+                rt-egress     {:include-sensitive?  include-sensitive?
+                               :include-large?      include-large?
+                               :include-runtime-db? include-runtime-db?}
+                spec-edn      (egress-value spec {:include-sensitive? include-sensitive?
+                                                  :include-large?     include-large?})]
             (if (nil? snapshot)
               ;; Registered but not yet brought to life — no live snapshot
-              ;; in app-db. Succeed with the spec so the agent can see the
-              ;; machine exists, but make the absence of a live position
-              ;; explicit (so it can't be mistaken for current state).
+              ;; in the runtime-db partition. Succeed with the spec so the
+              ;; agent can see the machine exists, but make the absence of a
+              ;; live position explicit (so it can't be mistaken for state).
               {:ok?        true
                :frame      fid
                :machine-id machine-id
@@ -605,14 +685,19 @@
                :snapshot   nil
                :spec       spec-edn
                :reason     :not-yet-started}
+              ;; The snapshot is runtime-db state — redact off-box by
+              ;; default (ruling #14); trusted-local opts back in via
+              ;; `:include-runtime-db?`, and the inner walk then honours the
+              ;; per-slot sensitive / large declarations keyed by path.
               {:ok?        true
                :frame      fid
                :machine-id machine-id
-               :state      (egress-value (:state snapshot)
-                                         (assoc egress-opts
-                                                :path (conj snapshot-path :state)))
-               :snapshot   (egress-value snapshot
-                                         (assoc egress-opts :path snapshot-path))
+               :state      (egress-runtime-db-value
+                             (:state snapshot)
+                             (assoc rt-egress :path (conj snapshot-path :state)))
+               :snapshot   (egress-runtime-db-value
+                             snapshot
+                             (assoc rt-egress :path snapshot-path))
                :spec       spec-edn})))))))
 
 (defn get-machine-list

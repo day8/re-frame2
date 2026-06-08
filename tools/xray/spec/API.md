@@ -683,9 +683,33 @@ off-box defaults BAKED IN so a forwarder author never re-derives the
 opt-juggling per call site:
 
 ```clojure
-(day8.re-frame2-xray.runtime/egress-value value)   ;; arbitrary value (app-db slice, sub, trace event, …)
-(day8.re-frame2-xray.runtime/egress-record record) ;; one :rf/epoch-record
+(day8.re-frame2-xray.runtime/egress-value value)             ;; arbitrary app-db-partition value (slice, sub, trace event, …)
+(day8.re-frame2-xray.runtime/egress-record record)           ;; one :rf/epoch-record
+(day8.re-frame2-xray.runtime/egress-runtime-db-value value)  ;; a RUNTIME-DB-partition value (machine snapshot, route slice, …)
 ```
+
+**Partition-aware runtime-db egress (EP-0001 rf2-jj1xer · Mike ruling
+#14).** A frame-state projection has two partitions — the user `app-db`
+(`:rf.db/app`) and the framework `runtime-db` (`:rf.db/runtime`: machine
+snapshots, route slice, spawn registry, SSR/hydration metadata, the
+elision registry). Per [Spec 011 §Off-box redaction](../../../spec/011-SSR.md)
++ [Spec 009 §Privacy](../../../spec/009-Instrumentation.md#privacy--sensitive-data-in-traces),
+off-box egress (this runtime is the AI/MCP + log boundary) DEFAULT-REDACTS
+the runtime-db partition: only the app-db partition (subject to its own
+`egress-value` elision) and explicitly allowlisted serializable runtime-db
+facts cross the wire. `egress-runtime-db-value` is the partition-
+distinguishing peer of `egress-value` — it substitutes the framework
+`:rf/redacted` sentinel for a runtime-db value on the safe default path. A
+**trusted-local** caller (the developer inspecting their own running app)
+opts in to the live runtime-db value with `{:include-runtime-db? true}`;
+the value then routes through `egress-value` so the partition opt-in
+COMPOSES with — does not override — the per-slot sensitive / large off-box
+defaults. This mirrors the framework's normative
+`re-frame.epoch.tool-pair/elide-frame-state-slot`, which default-redacts
+the `:rf.db/runtime` partition of an epoch's `:frame-state-*` slots. The
+`get-machine-state` accessor uses it for its live `:state` / `:snapshot`
+reads (the registered `:spec` egresses through `egress-value` — it is not
+runtime-db state).
 
 Off-box defaults: `:include-sensitive?` and `:include-large?` both
 default `false` — sensitive slots become `:rf/redacted`, large slots
@@ -762,7 +786,7 @@ gate is reachable only through the runtime accessors.
 | `get-epoch-history` | `get-epoch-history` | `{:ok? true :frame <id> :epochs <vec> :count <n>}` | `rf/epoch-history` per-frame vector of `:rf/epoch-record`. |
 | `get-app-db` | `get-app-db` | `{:ok? true :frame <id> :path <vec> :value <edn>}` | `rf/app-db-value` (optionally scoped by `:path`). The `:value` routes through `egress-value`; when `:path` is supplied the absolute path is threaded into the walker so a scoped slice elides against schema-declared sensitive / large paths — fail-closed, symmetric with the whole-db read and the `get-app-db-diff` slices (rf2-a96xq). |
 | `get-app-db-diff` | `get-app-db-diff` | `{:ok? true :frame <id> :epoch-id <uuid> :diff {:added [{:path :value}] :removed [{:path :value}] :changed [{:path :before :after}]}}` | Projects the changed-paths slice diff between a named epoch's `:db-before` + `:db-after` via the canonical Editscript-A* engine (`diff.engine/project`). Only the changed paths' slices egress — each `:value` / `:before` / `:after` routed through `egress-value`, never two whole app-db snapshots (rf2-uv2q2). Heavier nested-diff projection lives MCP-side. |
-| `get-machine-state` | `get-machine-state` | `{:ok? true :frame <id> :machine-id <kw> :state <live-state-path> :snapshot {:state :data :tags …} :spec <registered-definition>}` | The LIVE FSM position — reads the machine's snapshot from `app-db` at `[:rf/runtime :machines :snapshots <machine-id>]` (the runtime-owned slot the Machine Inspector + the framework resolver read). `:state` is the running state-path (a region→state map for a `:parallel` machine — Spec 005), NOT derived from the static spec; the registered definition is returned separately under `:spec`. A registered-but-not-yet-started machine has no live snapshot — `:state` / `:snapshot` are `nil` and `:reason` is `:not-yet-started` (still `:ok? true`). `:state` / `:snapshot` (a live app-db slice) and `:spec` both route through `egress-value`. |
+| `get-machine-state` | `get-machine-state` | `{:ok? true :frame <id> :machine-id <kw> :state <live-state-path> :snapshot {:state :data :tags …} :spec <registered-definition>}` | The LIVE FSM position — reads the machine's snapshot from the frame's **runtime-db partition** at `[:rf.runtime/machines :snapshots <machine-id>]` (EP-0001 rf2-vzld77 — machine snapshots are durable runtime-db state; the same slot the Machine Inspector's `:rf.xray/machine-snapshots` sub + the framework resolver read). `:state` is the running state-path (a region→state map for a `:parallel` machine — Spec 005), NOT derived from the static spec; the registered definition is returned separately under `:spec`. A registered-but-not-yet-started machine has no live snapshot — `:state` / `:snapshot` are `nil` and `:reason` is `:not-yet-started` (still `:ok? true`). **Partition-aware off-box redaction (rf2-jj1xer · Mike ruling #14):** `:state` / `:snapshot` are RUNTIME-DB state, so they egress through `egress-runtime-db-value` and are REDACTED to `:rf/redacted` off-box by default; a trusted-local caller opts in with `:include-runtime-db? true` (the inner walk then honours per-slot sensitive / large declarations). `:spec` is a static registry value (not runtime-db), so it egresses through `egress-value` regardless of the runtime-db opt-in. |
 | `get-machine-list` | `get-machine-list` | `{:ok? true :machines <map> :count <n>}` | `rf/machines` — map keyed by machine-id. |
 | `get-issues` | `get-issues` | `{:ok? true :issues <vec> :count <n>}` | Projection over the trace buffer filtered to issue-tier op-types (`:error` / `:warning` / `:rf.schema/violation` / `:rf.hydration/mismatch`). Whole `:sensitive? true` issue events are default-SUPPRESSED before the op-type filter — the envelope is dropped unless `{:include-sensitive? true}` (rf2-to36uj, symmetric with `get-trace-buffer`). |
 | `get-handlers` | `get-handlers` | `{:ok? true :handlers <vec> :count <n>}` | `rf/registrations` per-kind. Optional `:kind` narrows to one of `:event :sub :fx :cofx :machine :flow :reg-machine :frame :view`. |
