@@ -639,6 +639,94 @@
             (is (= "declared" (.-textContent declared))
                 "the badge reads `declared`")))))))
 
+;; ---- rf2-8z1rca: the Context band fits in the reserved ELK top padding --
+;;
+;; The bug: the root-container frame's ELK TOP padding reserved only the
+;; title strip + a body-pad band, NOT the variable-height Context band the
+;; header ALSO paints — so with non-trivial context the first child laid out
+;; below the strip sat UNDER the painted band. The fix reserves
+;; `projection/context-band-height` on TOP for the frame. This DOM
+;; regression proves the rendered header (title strip + Context band) FITS
+;; WITHIN the reserved ELK top padding the projection computes for the same
+;; context-row count — i.e. ELK lays the first child below the rendered
+;; header, never under it. (We pin against the reserved padding rather than
+;; the child's measured Y because the elk layout pass is async + not awaited
+;; here — see the async-layout note at the top of this ns.)
+
+(def ^:private context-rich-machine
+  "rf2-8z1rca — a flat machine declaring a 3-key `:data` so the chart paints
+  a NON-TRIVIAL (3-row) Context band in the root-container header — enough
+  to make the band taller than the plain title-strip reservation."
+  {:initial :a
+   :data    {:hits 0 :seen [] :note "x"}
+   :states  {:a {:on {:go :b}}
+             :b {:on {:go :a}}}})
+
+(deftest chart-context-band-fits-within-reserved-elk-top-padding
+  (testing "rf2-8z1rca — the rendered root-container HEADER (title strip +
+            Context band) is no taller than the ELK TOP padding the frame
+            reserves (`data-reserved-top`, the SAME `context-band-height`
+            value `->elk-children` feeds ELK), so the first child ELK lays
+            out below the strip clears the painted band. WITHOUT the band
+            reservation `data-reserved-top` would be the plain title+body-pad
+            band, which the rendered header OVERFLOWS — the regression fails."
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises this")
+      (with-mounted-chart
+        {:machine-id :test/ctx :definition context-rich-machine
+         :machine-data {:hits "number" :seen "vector" :note "string"}}
+        (fn [_root node]
+          (let [frame  (.querySelector node "[data-root-container=\"true\"]")
+                header (.querySelector node
+                         "[data-testid^=\"rf-mv-chart-root-container-header-\"]")
+                band   (.querySelector node
+                         "[data-testid^=\"rf-mv-chart-root-container-context-\"]")
+                vc-map vc/chart-regular
+                ;; the ELK top padding the chart ACTUALLY reserved for this
+                ;; context, surfaced by `root-container-node` from the same
+                ;; `projection/context-band-height` `->elk-children` feeds ELK.
+                reserved-top (js/parseInt (.getAttribute frame "data-reserved-top") 10)]
+            (is (some? frame) "the root-container frame mounted")
+            (is (some? header) "the root-container header mounted")
+            (is (some? band) "the Context band mounted (non-trivial context)")
+            ;; The painted Context band is itself non-trivial — strictly
+            ;; taller than the plain body-pad band the OLD reservation gave.
+            (is (> (.-offsetHeight band) (:container-body-pad vc-map))
+                "the 3-row Context band is taller than the plain body-pad band")
+            ;; The reserved top INCLUDES the Context band (it exceeds the plain
+            ;; title+body-pad band) — the wiring `->elk-children` applies.
+            (is (> reserved-top (+ (:container-title-height vc-map)
+                                   (:container-body-pad vc-map)))
+                "the reserved top includes the Context-band height (the fix)")
+            ;; The whole rendered header (title strip + band) fits inside the
+            ;; reserved ELK top padding — so a child laid out at the reserved
+            ;; content edge starts BELOW the header, never under it.
+            (is (<= (.-offsetHeight header) reserved-top)
+                "the rendered header height fits within the reserved ELK top padding")))))))
+
+(deftest chart-context-band-overflows-plain-title-reservation
+  (testing "rf2-8z1rca — the bug premise: with a non-trivial Context band the
+            rendered header is TALLER than the title-strip+body-pad band the
+            pre-8z1rca reservation gave, so the OLD top padding would have
+            laid the first child UNDER the band (what the fix reserves for)"
+    (if-not (browser?)
+      (is true ":node-test: no DOM — browser-test runner exercises this")
+      (with-mounted-chart
+        {:machine-id :test/ctx :definition context-rich-machine
+         :machine-data {:hits "number" :seen "vector" :note "string"}}
+        (fn [_root node]
+          (let [header (.querySelector node
+                         "[data-testid^=\"rf-mv-chart-root-container-header-\"]")
+                vc-map vc/chart-regular
+                ;; the OLD (pre-8z1rca) top reservation: title strip + body-pad
+                ;; only — no Context-band allowance.
+                old-top (+ (:container-title-height vc-map)
+                           (:container-body-pad vc-map))]
+            (is (some? header) "the root-container header mounted")
+            (is (> (.-offsetHeight header) old-top)
+                "the rendered header overflows the pre-8z1rca top padding —
+                 the band would have sat over the first child without the fix")))))))
+
 ;; ---- empty / nil definition placeholders --------------------------------
 
 (deftest chart-renders-no-definition-placeholder

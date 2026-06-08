@@ -88,13 +88,14 @@
             (swap! counts update :project inc)
             {:nodes [] :edges []}))
     ;; `compute-layout!` is a fixed-MULTI-arity `defn`; the render calls
-    ;; the arity-7 form (`parsed direction layout-options machine-id
-    ;; measured-dims chart-vc done-fn`). shadow compiles that call to the
-    ;; direct `.cljs$core$IFn$_invoke$arity$7` dispatch, so the stub must
-    ;; itself be a MULTI-arity fn (a single fixed-arity `fn` exposes only
-    ;; the generic `call`, not `arity$7`). We mirror the real fn's arity
-    ;; shape and increment on whichever the render hits. No-op: the real
-    ;; elk pass never runs.
+    ;; the arity-8 form (`parsed direction layout-options machine-id
+    ;; measured-dims chart-vc context-rows done-fn` — rf2-8z1rca added the
+    ;; `context-rows` param). shadow compiles that call to the direct
+    ;; `.cljs$core$IFn$_invoke$arity$8` dispatch, so the stub must itself be
+    ;; a MULTI-arity fn (a single fixed-arity `fn` exposes only the generic
+    ;; `call`, not `arity$8`). We mirror the real fn's arity shape and
+    ;; increment on whichever the render hits. No-op: the real elk pass
+    ;; never runs.
     (set! chart/compute-layout!
           (fn
             ([_p _done] (swap! counts update :layout inc) nil)
@@ -102,6 +103,8 @@
             ([_p _d _lo _mid _done] (swap! counts update :layout inc) nil)
             ([_p _d _lo _mid _md _done] (swap! counts update :layout inc) nil)
             ([_p _d _lo _mid _md _cv _done]
+             (swap! counts update :layout inc) nil)
+            ([_p _d _lo _mid _md _cv _cr _done]
              (swap! counts update :layout inc) nil)))
     (set! chart/invoke-fit-view!
           (fn [& _args] nil))

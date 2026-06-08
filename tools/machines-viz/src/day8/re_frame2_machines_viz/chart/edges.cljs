@@ -563,9 +563,16 @@
                ;; rf2-qeemm (G3) — DOM pin for the fired-this-epoch edge
                ;; treatment; tests + hosts read it to find the traversed arm.
                :data-fired (str fired?)
-               ;; rf2-fzrzlw — DOM pin for the guard-blocked no-op edge
-               ;; treatment; tests + hosts read it to find the attempted-
-               ;; and-rejected arm (the pink edge whose guard declined).
+               ;; rf2-fzrzlw / rf2-bdwolc — this edge-LABEL `data-guard-
+               ;; blocked` attr is emitted ONLY when the edge carries a
+               ;; non-empty `:eventLabel` (this whole `<div>` is gated on
+               ;; `(when (seq label) …)`). Under events-as-nodes the
+               ;; `__in`/`__out` halves carry an EMPTY label (the text rides
+               ;; the event-NODE), so NO edge-half `data-guard-blocked` attr
+               ;; is emitted — it is NOT the canonical guard-blocked DOM pin.
+               ;; The CANONICAL pins are the event-node (`data-guard-blocked`,
+               ;; unconditional) + the chart root (`data-guard-blocked-edge-
+               ;; ids`); this attr only surfaces for a (rare) labelled edge.
                :data-guard-blocked (str blocked?)
                :data-after-ms (when after-ms (str after-ms))
                ;; rf2-ee38b.21 — surface internal / machine-level so the
