@@ -526,33 +526,48 @@ Programmatic callers drive Sim against `:rf/xray` via that ns.
 
 ### Interactive Machines canvas (rf2-y3l8z)
 
-Every per-machine section in the Dynamic Machines panel wraps its
-chart in an interactive viewport adapter (`panels/machine_canvas.cljs`
-→ `chart/controls.cljc`). The chart is no longer a static SVG paint;
-it pans, zooms, and fits to viewport.
+Every per-machine section in the Dynamic Machines panel renders its
+chart through the machines-viz `MachineChart` xyflow component
+(`panels/machine_canvas.cljs` → `day8.re-frame2-machines-viz.chart`).
+The chart is no longer a static SVG paint; xyflow owns pan, zoom, and
+fit internally (the pre-xyflow host-side `chart/controls.cljc`
+viewport reducer is gone — rf2-gpzb4).
 
 ```
 ┌─ :auth/login   :idle → :authing                          [:auth/submit] ─┐
-│ ┌────────────────────────────────────────────────[− 100% +] [Fit][Reset]┐│
-│ │ · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · ││
-│ │ · · ▢ idle ──→ ▣ authing · · · · · · · · · · · · · · · · · · · · · · ││
-│ │ · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · ││
-│ │ · · · · · · · ◔ :after rings track node centres under zoom + pan · · ││
-│ └─────────────────────────────────────────────────────────────────────┘│
+│ · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · ││
+│ · · ▢ idle ──→ ▣ authing · · · · · · · · · · · · · · · · · · · · · · · ││
+│ · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · ││
+│ · · · · · · · ◔ :after rings track node centres under zoom + pan · · · ││
+│ ┌──────┐                                                                 │
+│ │ + − ⛶ │ ← xyflow <Controls> (bottom-left)                              │
+│ └──────┘                                                                 │
 │ Guards   ✓ :session-fresh?                                              │
 │ Actions  ✓ :clear-form                                                  │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Toolbar (top-right of every canvas):**
+**Controls — xyflow's built-in `<Controls>` component** (mounted with
+`{:showZoom true :showFitView true :showInteractive false}`; xyflow
+positions it bottom-left). It is a button cluster, not a custom Xray
+toolbar:
 
-- `−` / `+` — Zoom out / Zoom in about the viewport centre.
-- `NN%` chip — current zoom level, integer percentage.
-- `Fit` — fits the laid-out content into the viewport with padding
-  on all sides; centred. (Owned by the machines-viz `MachineChart`
-  via xyflow's built-in `fitView`; Xray re-frames on panel-entry by
-  bumping the orthogonal `:fit-signal` nonce, rf2-6tw7t.)
-- `Reset` — zoom 100%, pan (0, 0).
+- **Zoom-in `+`** / **zoom-out `−`** buttons — step the viewport zoom
+  about the centre.
+- **Fit-view `⛶`** button — fits the laid-out content into the viewport
+  with padding on all sides; centred. (Driven by xyflow's `fitView`;
+  Xray additionally re-frames on panel-entry by bumping the orthogonal
+  `:fit-signal` nonce, rf2-6tw7t.)
+- The interactivity-lock toggle is suppressed (`:showInteractive
+  false`) — the chart is non-interactive (`nodesDraggable false`).
+
+> **No `NN%` zoom-readout chip and no `Reset` button.** Earlier
+> drafts of this section described a custom `[− 100% +] [Fit][Reset]`
+> toolbar carried over from the pre-xyflow SVG renderer's host-side
+> viewport adapter. xyflow's `<Controls>` ships zoom-±/fit buttons
+> only — there is no percentage readout and no reset-to-100% button.
+> Reset-to-default framing is achieved via the fit-view button (or a
+> panel-entry `:fit-signal` bump).
 
 > **rf2-48fwsi — Canvas/List view-mode toggle removed.** The canvas
 > formerly carried a top-left two-button **Canvas** | **List** pill.
@@ -574,20 +589,35 @@ it pans, zooms, and fits to viewport.
   so node hits fall through to the node's own `:on-click`
   state-click event rather than dragging the node).
 
-**Keyboard shortcuts** (chart canvas must hold focus — `tabIndex=0`
-on the canvas host):
+**Keyboard shortcuts.** The chart binds **no** zoom/pan/fit keyboard
+shortcuts. Earlier drafts of this section claimed a `+`/`=`/`-`/`_`/`0`/
+`f`/`F` + arrow-key map on a `tabIndex=0` canvas host — that surface
+belonged to the pre-xyflow SVG renderer's host-side `chart/controls.cljc`
+viewport reducer and did not survive the rf2-gpzb4 xyflow migration. The
+live chart sets no `tabIndex` and registers no `onKeyDown`; xyflow 12.x
+ships no native viewport zoom-by-key (`+`/`-`/`0`) or pan-by-arrow
+handler (its built-in arrow-key handler *moves a selected node* and is
+inert here because `nodesDraggable`/`elementsSelectable` are `false`).
 
-| Key | Action |
+Zoom / pan / fit are therefore mouse-driven plus the `<Controls>`
+buttons:
+
+| Affordance | Action |
 |---|---|
-| `+` / `=`  | Zoom in (about viewport centre) |
-| `-` / `_`  | Zoom out (about viewport centre) |
-| `0`        | Reset (100%, pan 0,0) |
-| `f` / `F`  | Fit to viewport |
-| `←` / `→`  | Pan horizontally (20px / press) |
-| `↑` / `↓`  | Pan vertically (20px / press) |
+| Mouse wheel / trackpad pinch | Zoom toward the cursor (`zoomOnScroll`) |
+| Click-drag on canvas background | Pan (`panOnDrag`) |
+| `<Controls>` `+` / `−` buttons | Zoom in / out about the centre |
+| `<Controls>` fit-view button | Fit the topology to the viewport |
 
-**Bounds:** zoom is clamped to `[0.2, 4.0]`. Wheel notches step
-×1.1; toolbar +/- and `+`/`-` keys step ×1.2.
+> **Follow-up (rf2-oc0fwy):** if a keyboard zoom/pan surface is wanted,
+> it is a *new feature* (a focusable canvas host + an `onKeyDown` that
+> drives the captured `ReactFlowInstance`'s `zoomIn`/`zoomOut`/`fitView`/
+> `setViewport`), not a spec-described-existing one. File a feature bead
+> rather than treating it as implemented.
+
+**Bounds:** zoom is clamped to `[0.2, 4.0]` (the chart's `minZoom`
+/ `maxZoom` props). Wheel + button zoom-step factors are xyflow's
+internal defaults — not configured by the chart.
 
 **`:after` rings track the canvas (rf2-obp4z · rf2-uv1on).** The
 countdown-ring overlay (machines-viz `chart.overlays.after-rings/
@@ -1152,20 +1182,15 @@ active panel). `Esc` always returns focus to the event list.
 | `Tab` / `Shift+Tab` | Cycle focusables |
 | `Esc` | Return focus to event list |
 
-### Machines canvas (when chart canvas holds focus — rf2-y3l8z)
+### Machines canvas (rf2-y3l8z)
 
-| Key | Action |
-|---|---|
-| `+` / `=` | Zoom in (about viewport centre) |
-| `-` / `_` | Zoom out (about viewport centre) |
-| `0` | Reset to 100%, pan 0,0 |
-| `f` / `F` | Fit to viewport |
-| `←` `→` `↑` `↓` | Pan 20px / press |
-
-The canvas shortcuts only fire while the canvas host (`tabIndex=0`)
-is the active focus target — they are scoped to a clicked-into chart
-and do not collide with the global Xray keymap. Wheel-zoom +
-click-drag pan have no keyboard equivalent.
+The chart binds **no keyboard shortcuts** — see §Interactive Machines
+canvas → Keyboard shortcuts. Pan / zoom / fit are mouse-wheel,
+click-drag, and the xyflow `<Controls>` buttons only. The earlier
+`+`/`=`/`-`/`_`/`0`/`f`/`F` + arrow-key map (on a `tabIndex=0` canvas
+host) was pre-xyflow SVG-renderer fiction and did not survive the
+rf2-gpzb4 migration (rf2-oc0fwy audit). A keyboard zoom/pan surface
+would be a new feature, not a documented-existing one.
 
 ### Retired keys (from pre-rewrite spec)
 
