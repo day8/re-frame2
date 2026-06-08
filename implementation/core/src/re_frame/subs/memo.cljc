@@ -318,6 +318,22 @@
                                                            prev-value)
                                   :rf.sub/value          validated
                                   :rf.sub/cascade?       cascade?
+                                  ;; rf2-e3acps — the REALIZED input
+                                  ;; query-vectors for this concrete cache
+                                  ;; entry (the literal `:<-` list for
+                                  ;; `:static`, the `(input-fn query-v)`
+                                  ;; result for `:parametric`, `[]` for
+                                  ;; layer-1). `input-signals` is the
+                                  ;; per-entry realized edge set (Spec 006
+                                  ;; §Subscription input producers; the EP
+                                  ;; §Tooling live/cache view). Lets the
+                                  ;; Xray live-cascade view render REALIZED
+                                  ;; parametric edges without fabricating
+                                  ;; un-materialized ones. Query-vectors,
+                                  ;; not values — rides raw like
+                                  ;; `:rf.sub/query-v` / `:rf.sub/cause-sub`
+                                  ;; (only computed values are redacted).
+                                  :rf.sub/inputs         (vec input-signals)
                                   :rf.sub/cause-sub      cause-sub}
                            (some? elapsed-ms)
                            (assoc :rf.sub/elapsed-ms elapsed-ms)

@@ -469,7 +469,8 @@
 ;; ---- sub-cache (rf2-vvsh) -------------------------------------------------
 
 (deftest sub-cache-projects-tool-pair-shape
-  (testing "(rf/sub-cache frame-id) returns {query-v {:value v :ref-count n}}
+  (testing "(rf/sub-cache frame-id) returns
+           {query-v {:value v :ref-count n :input-kind k :realized-inputs [...]}}
            for every materialised subscription in the named frame"
     (rf/reg-event-db :seed (fn [_ _] {:n 7 :name "ada"}))
     (rf/reg-sub :n     (fn [db _] (:n db)))
@@ -489,6 +490,11 @@
       (is (= 2     (get-in snapshot [[:n]     :ref-count]))
           "ref-count reflects two outstanding subscribes for [:n]")
       (is (= 1     (get-in snapshot [[:name*] :ref-count])))
+      ;; rf2-e3acps — layer-1 readers carry :input-kind :db / no realized edges.
+      (is (= :db (get-in snapshot [[:n]     :input-kind]))
+          "layer-1 reader surfaces :input-kind :db")
+      (is (= []  (get-in snapshot [[:n]     :realized-inputs]))
+          "layer-1 reader has no realized input edges")
       ;; Default no-arg form uses the active frame.
       (is (= snapshot (subs-tooling/sub-cache-snapshot (rf/current-frame-id)))
           "no-arg form returns the active frame's snapshot")
@@ -498,6 +504,58 @@
     ;; Missing frame yields nil rather than throwing.
     (is (nil? (subs-tooling/sub-cache-snapshot :no-such-frame))
         "missing frame returns nil")))
+
+(deftest sub-cache-surfaces-static-realized-inputs
+  (testing "a :static :<- sub surfaces :input-kind :static + the literal realized edges"
+    (rf/reg-event-db :seed2 (fn [_ _] {:items [1 2 3] :filter :all}))
+    (rf/reg-sub :items  (fn [db _] (:items db)))
+    (rf/reg-sub :filter (fn [db _] (:filter db)))
+    (rf/reg-sub :visible-items
+                :<- [:items]
+                :<- [:filter]
+                (fn [[items _filter] _] items))
+    (rf/dispatch-sync [:seed2])
+    (let [r (rf/subscribe [:visible-items])
+          snapshot (subs-tooling/sub-cache-snapshot :rf/default)
+          entry (get snapshot [:visible-items])]
+      (is (= :static (:input-kind entry))
+          "a :<- sub is :input-kind :static")
+      (is (= [[:items] [:filter]] (:realized-inputs entry))
+          "static realized inputs are the literal :<- query-vectors in order")
+      (rf/unsubscribe [:visible-items]))))
+
+(deftest sub-cache-surfaces-parametric-realized-inputs
+  (testing "a :parametric input-fn sub surfaces :input-kind :parametric +
+           the REALIZED input query-vectors for the concrete outer query-v"
+    (rf/reg-event-db :seed3 (fn [_ _] {:articles {:a1 {:title "T"}}
+                                       :comments {:a1 [:c1]}
+                                       :viewer   {:edit? true}}))
+    (rf/reg-sub :article/by-id        (fn [db [_ id]] (get-in db [:articles id])))
+    (rf/reg-sub :comments/for-article (fn [db [_ id]] (get-in db [:comments id])))
+    (rf/reg-sub :viewer/current       (fn [db _] (:viewer db)))
+    (rf/reg-sub :article/page
+                (fn [[_ id]]
+                  [[:article/by-id id]
+                   [:comments/for-article id]
+                   [:viewer/current]])
+                (fn [[article comments viewer] [_ id]]
+                  {:article article :comments comments :viewer viewer}))
+    (rf/dispatch-sync [:seed3])
+    (let [r (rf/subscribe [:article/page :a1])
+          snapshot (subs-tooling/sub-cache-snapshot :rf/default)
+          entry (get snapshot [:article/page :a1])]
+      (is (= :parametric (:input-kind entry))
+          "the input-fn sub is :input-kind :parametric")
+      (is (= [[:article/by-id :a1]
+              [:comments/for-article :a1]
+              [:viewer/current]]
+             (:realized-inputs entry))
+          "realized-inputs are the (input-fn query-v) result — concrete edges for :a1")
+      ;; The static topology must NOT enumerate these — only the live cache does.
+      ;; CLJS calls the tooling ns directly (rf/sub-topology is a JVM-only alias).
+      (is (= :parametric (:inputs ((subs-tooling/sub-topology) :article/page)))
+          "static sub-topology reports the :parametric sentinel, not the realized edges")
+      (rf/unsubscribe [:article/page :a1]))))
 
 ;; ---- epoch history (Tool-Pair §Time-travel, rf2-shjf) ---------------------
 ;;

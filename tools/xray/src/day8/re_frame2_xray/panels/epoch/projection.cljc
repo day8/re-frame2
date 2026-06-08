@@ -1886,11 +1886,16 @@
 
       :sub-id      — the registered sub id (`:rf.sub/id` tag).
       :sub-vec     — the full sub query vector (`:rf.sub/query-v` tag).
-      :inputs      — the sub's input-signal query-vectors (when stamped).
-                     For layer-2+ subs the substrate stamps the
-                     upstream `:rf.sub/cause-sub` (the input whose
-                     value changed); layer-1 subs read app-db directly
-                     and surface as `:db`.
+      :inputs      — the sub's input query-vectors. Prefers the
+                     upstream `:rf.sub/cause-sub` (the single input
+                     whose value drove this recompute) when present;
+                     otherwise the FULL realized input edge set the
+                     substrate stamps on `:rf.sub/inputs` (rf2-e3acps —
+                     the literal `:<-` list for a `:static` sub, the
+                     `(input-fn query-v)` result for a `:parametric`
+                     sub, both REALIZED for the concrete cache entry).
+                     Layer-1 subs read app-db directly and surface as
+                     `:db` (empty realized edge set).
       :changed?    — true iff the sub's output value differed from the
                      prior run (`:rf.sub/value-changed?` tag).
       :first-run?  — true on the run that CREATED this sub's cache slot

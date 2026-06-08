@@ -107,9 +107,17 @@
   `{sub-id {:input-signal-ids [...] :layer-1? bool}}`. Pure data over
   `rf/registrations` — no app-db, no reactive runtime.
 
-  Layer-1 subs (which read app-db directly) report
-  `:input-signal-ids []` + `:layer-1? true`. Layer-2+ subs report
-  their declared upstream sub-ids + `:layer-1? false`.
+  Layer-1 subs (`:input-kind :db` — read app-db directly) report
+  `:input-signal-ids []` + `:layer-1? true`. Layer-2+ subs (`:static`
+  / `:parametric`) report `:layer-1? false`. `:static` subs report
+  their declared upstream sub-ids; `:parametric` subs report `[]` —
+  their realized input edges depend on the concrete outer query vector
+  and are NOT statically enumerable (rf2-e3acps), so the static walk
+  treats them as a Layer-2+ sub with no STATICALLY-known leaves.
+
+  Keys layer-1 off `:input-kind`, NOT `(empty? signals)`: a
+  `:parametric` sub also carries `:input-signals []`, so the old
+  emptiness test would have misclassified it as a layer-1 leaf.
 
   Tests can pass an injected map to `resolve-input-paths` / `resolve-
   many` so the walk is testable without seeding the registrar."
@@ -119,7 +127,8 @@
       (let [signals (input-signal-ids (:input-signals meta))]
         (assoc acc sub-id
                {:input-signal-ids signals
-                :layer-1?         (empty? signals)})))
+                :layer-1?         (= :db (:input-kind meta))
+                :parametric?      (= :parametric (:input-kind meta))})))
     {}
     (rf/registrations :sub)))
 
@@ -154,6 +163,16 @@
         ;; downstream layer-2 sub composing several layer-1 leaves
         ;; sees the union.
         #{sub-id}
+
+        (:parametric? entry)
+        ;; Parametric (`input-fn`) sub — its realized input edges depend
+        ;; on the concrete outer query vector and are NOT statically
+        ;; enumerable (rf2-e3acps). The static walk can't know which
+        ;; layer-1 leaves it ultimately reads, so it is `:unknown` —
+        ;; conservative-include in the path-filter (a parametric sub may
+        ;; read any path), the same posture as a cycle / missing
+        ;; registration. (`:unknown` projects to `nil` at the top level.)
+        :unknown
 
         :else
         ;; Layer-n — recurse into every upstream. If ANY upstream is
