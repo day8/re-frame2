@@ -19,6 +19,10 @@
             [re-frame.flows :as flows]
             [re-frame.machines]
             [re-frame.routing]
+            ;; rf2-q4i9ko — replace-app-db! delegates to the epoch artefact's
+            ;; reset-frame-db! (synthetic-epoch recording); load it so the
+            ;; mutator round-trip below resolves a live hook.
+            [re-frame.epoch]
             [re-frame.substrate.plain-atom :as plain-atom]))
 
 (defn reset-runtime [test-fn]
@@ -290,3 +294,75 @@
       (is (contains? wide-ids :wide.a/one))
       (is (contains? wide-ids :wide.b/two))
       (is (not (contains? wide-ids :elsewhere/one))))))
+
+;; ===========================================================================
+;; rf2-q4i9ko — EP-0001 two-partition accessor/mutator helpers (bead 3)
+;;
+;; This bead introduces the SURFACE only (Mike ruling #1 / #10), no behavior
+;; change. The physical runtime-db partition + one-container frame-state land
+;; in rf2-adwcv6 (bead 5); the partition-aware tests come with beads 4-5.
+;; These tests pin: the app-db read/replace round-trip, the frame-state
+;; projection shape, runtime-db reading nil today, and the deferred-semantics
+;; mutators throwing rather than silently dropping data.
+;; ===========================================================================
+
+(deftest app-db-value-and-replace-app-db-round-trip
+  (testing "replace-app-db! then app-db-value round-trips the app-db partition"
+    (rf/reg-frame :pp/round-trip {:doc "round-trip"})
+    (rf/reg-event-db :pp/seed (fn [_ [_ db]] db))
+    (rf/dispatch-sync [:pp/seed {:k 1}] {:frame :pp/round-trip})
+    (is (= {:k 1} (rf/app-db-value :pp/round-trip))
+        "app-db-value reads the seeded app-db")
+    (is (true? (rf/replace-app-db! :pp/round-trip {:k 2 :j 9}))
+        "replace-app-db! returns true on success (thin alias of reset-frame-db!)")
+    (is (= {:k 2 :j 9} (rf/app-db-value :pp/round-trip))
+        "app-db-value reads back exactly what replace-app-db! wrote")))
+
+(deftest app-db-value-unknown-frame-is-nil
+  (testing "app-db-value returns nil for an unknown frame"
+    (is (nil? (rf/app-db-value :pp/no-such-frame)))))
+
+(deftest runtime-db-value-is-nil-until-bead-5
+  (testing "runtime-db-value reads nil — the physical partition lands in bead 5"
+    (rf/reg-frame :pp/runtime {:doc "runtime"})
+    (is (nil? (rf/runtime-db-value :pp/runtime))
+        "live frame: runtime-db has no physical slot yet (rf2-adwcv6)")
+    (is (nil? (rf/runtime-db-value :pp/no-such-frame))
+        "unknown frame: nil")))
+
+(deftest frame-state-value-projection-shape
+  (testing "frame-state-value yields {:rf.db/app … :rf.db/runtime …}"
+    (rf/reg-frame :pp/fs {:doc "frame-state"})
+    (rf/reg-event-db :pp/seed-fs (fn [_ [_ db]] db))
+    (rf/dispatch-sync [:pp/seed-fs {:a 1}] {:frame :pp/fs})
+    (is (= {:rf.db/app {:a 1} :rf.db/runtime nil}
+           (rf/frame-state-value :pp/fs))
+        "app-db slot carries the live app-db; runtime-db slot nil until bead 5")
+    (is (= {:a 1} (:rf.db/app (rf/frame-state-value :pp/fs)))
+        "the :rf.db/app slot equals app-db-value")
+    (is (= (rf/app-db-value :pp/fs) (:rf.db/app (rf/frame-state-value :pp/fs)))
+        "frame-state :rf.db/app is the same value app-db-value returns")))
+
+(deftest frame-state-value-unknown-frame-is-nil
+  (testing "frame-state-value returns nil for an unknown frame"
+    (is (nil? (rf/frame-state-value :pp/no-such-frame)))))
+
+(deftest replace-runtime-db-defers-to-bead-5
+  (testing "replace-runtime-db! throws until the physical partition lands (rf2-adwcv6)"
+    (rf/reg-frame :pp/rdb {:doc "runtime-mutate"})
+    (let [e (try (rf/replace-runtime-db! :pp/rdb {:rf.runtime/machines {}}) nil
+                 (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? e) "replace-runtime-db! must signal rather than silently drop data")
+      (is (= :rf.error/not-yet-implemented (:rf.error/id (ex-data e))))
+      (is (= :rf2-adwcv6 (:deferred-to (ex-data e)))
+          "ex-data names bead 5 as the home of the physical write"))))
+
+(deftest replace-frame-state-defers-to-bead-5
+  (testing "replace-frame-state! throws until the physical container lands (rf2-adwcv6)"
+    (rf/reg-frame :pp/fsm {:doc "frame-state-mutate"})
+    (let [e (try (rf/replace-frame-state! :pp/fsm {:rf.db/app {} :rf.db/runtime {}}) nil
+                 (catch clojure.lang.ExceptionInfo e e))]
+      (is (some? e) "replace-frame-state! must signal rather than apply only the app-db half")
+      (is (= :rf.error/not-yet-implemented (:rf.error/id (ex-data e))))
+      (is (= :rf2-adwcv6 (:deferred-to (ex-data e)))
+          "ex-data names bead 5 as the home of the atomic full-frame install"))))

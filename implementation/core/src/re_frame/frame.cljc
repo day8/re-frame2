@@ -209,6 +209,51 @@
   (when-let [container (app-db-container id)]
     (adapter/read-container container)))
 
+;; ---- EP-0001 two-partition readers (rf2-q4i9ko) ---------------------------
+;;
+;; Per Spec 002 §The two-partition frame contract a frame owns two durable
+;; partitions — user `app-db` and framework `runtime-db` — projected as a
+;; coherent `frame-state` value `{:rf.db/app … :rf.db/runtime …}`.
+;;
+;; This bead introduces the read SURFACE only (Mike ruling #1). The physical
+;; one-container frame-state + projection reactions land in rf2-adwcv6 (bead
+;; 5); the `:rf.db/runtime` partition has no physical slot until then, so
+;; `frame-runtime-db-value` reads as `nil` today. `frame-state-value`
+;; composes the two readers, so it already yields the correct shape and grows
+;; a populated `:rf.db/runtime` slot for free once bead 5 lands.
+
+(defn frame-runtime-db-value
+  "Read the current runtime-db partition value for a frame — the
+  framework-owned subsystem state (`:rf.runtime/*` children). Returns `nil`
+  for an unknown / destroyed frame.
+
+  EP-0001 (rf2-q4i9ko): the read surface only. The physical runtime-db
+  partition is introduced by the one-container frame-state work in rf2-adwcv6
+  (bead 5); until then there is no runtime-db slot and this reads `nil` for a
+  live frame too. Per Spec 002 §The two-partition frame contract."
+  [id]
+  ;; full semantics land in rf2-adwcv6 (bead 5): once the single frame-state
+  ;; container exists, this reads its `:rf.db/runtime` projection. No physical
+  ;; slot exists yet, so the live value is `nil`; the `(when (frame id) …)`
+  ;; guard keeps the unknown-frame and live-frame answers both `nil` without
+  ;; faking a partition that is not there.
+  (when (frame id)
+    nil))
+
+(defn frame-state-value
+  "Read the coherent frame-state projection for a frame —
+  `{:rf.db/app <app-db> :rf.db/runtime <runtime-db>}`. Returns `nil` for an
+  unknown / destroyed frame.
+
+  EP-0001 (rf2-q4i9ko): composes `frame-app-db-value` with
+  `frame-runtime-db-value`. The `:rf.db/runtime` slot is `nil` until the
+  physical partition lands in rf2-adwcv6 (bead 5); the shape is final.
+  Per Spec 002 §The two-partition frame contract."
+  [id]
+  (when (frame id)
+    {:rf.db/app     (frame-app-db-value id)
+     :rf.db/runtime (frame-runtime-db-value id)}))
+
 (defn swap-frame-db!
   "Mutate the frame's app-db: read the current value, compute
   `(apply f db args)`, and replace the container with the result. Returns
