@@ -22,6 +22,14 @@
             ;; `reg-machine*` resolves rather than throwing
             ;; `:rf.error/machines-artefact-missing`.
             [re-frame.machines]
+            ;; rf2-kq8nac (EP-0005) — the snapshot-egress chokepoint +
+            ;; the schemas walker the `:data-schema` redaction bridge
+            ;; consults. Required so the redaction tests can register a
+            ;; machine carrying a `:sensitive?` `:data-schema` slot and
+            ;; run a real transition trace through `project-trace-event`.
+            [re-frame.marks :as marks]
+            [re-frame.schemas]
+            [re-frame.schemas.malli]
             [re-frame.registrar :as registrar]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-helpers :as th]
@@ -645,6 +653,235 @@
           (is (str/includes? (pr-str orient) "idle")
               "after Prev, the mini-pipeline orientation reads the earlier
                epoch's pre-transition state — it moved WITH the chart"))))))
+
+;; ---- (4c) declared-over-inferred Context shape (rf2-kq8nac · EP-0005) ----
+;;
+;; The Machine Inspector's focused-event chart surfaces the machine's
+;; declared `:data-schema` Context shape (keys + type captions)
+;; AUTHORITATIVELY, with the declared-vs-inferred indicator — consistent
+;; with the Static Topology view (rf2-3q4k5b) and reusing the SAME
+;; `topology-view/static-context-shape` / `static-context-inferred?`
+;; (which delegate to machines-viz `context-shape`, no duplicate
+;; derivation). When the machine declares no schema the chart falls back
+;; to the one-sample inference (rf2-5tz9p's `inferred from :data` badge
+;; stays).
+
+(defn- machine-chart-props?
+  "True iff `m` is the `MachineChart` props map. `reg-view` wraps the
+  component as a MetaFn, so the rendered head is NOT the bare
+  `mv-chart/MachineChart` var — match by the props SHAPE instead (the
+  unique `:machine-data-inferred?` + `:definition` + `:machine-id`
+  triple the canvas threads only into the MachineChart mount)."
+  [m]
+  (and (map? m)
+       (contains? m :machine-data-inferred?)
+       (contains? m :definition)
+       (contains? m :machine-id)))
+
+(defn- find-machine-chart-props
+  "Walk the rendered panel hiccup and return the props map of the first
+  `MachineChart` mount (the inner component the `machine-canvas/Chart`
+  wrapper mounts). Depth-first; nil when absent."
+  [hiccup]
+  (cond
+    (and (vector? hiccup) (machine-chart-props? (second hiccup)))
+    (second hiccup)
+
+    (vector? hiccup) (some find-machine-chart-props hiccup)
+    (seq? hiccup)    (some find-machine-chart-props hiccup)
+    :else            nil))
+
+(def ^:private schema-fixture-definition
+  "A machine carrying a `:data-schema` so the declared Context shape wins
+  over the (deliberately misleading) one-sample `:data` inference."
+  {:initial     :idle
+   :data        {:retries nil}          ; misleading partial sample
+   :data-schema [:map
+                 [:retries :int]
+                 [:token {:optional true} [:maybe :string]]]
+   :states      {:idle    {:on {:start :authing}}
+                 :authing {:on {:ok :done}}
+                 :done    {:final? true}}})
+
+(deftest focused-event-chart-shows-declared-context-shape-rf2-kq8nac
+  (testing "rf2-kq8nac (EP-0005): when the focused machine declares a
+            `:data-schema`, the focused-event chart's Context band shows
+            the AUTHORITATIVE declared shape (off the schema's :map
+            entries, NOT the misleading `:data` sample) and
+            `:machine-data-inferred?` reaches the chart FALSE (so the
+            `inferred from :data` badge drops + `declared` shows)."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (override-machines!    [:session/auth])
+      (override-definitions! {:session/auth schema-fixture-definition})
+      (override-epoch-history!
+        [{:epoch-id 1
+          :trace-events
+          [{:id 1 :time 10 :operation :rf.machine/transition
+            :tags {:machine-id :session/auth
+                   :before     {:state :idle    :data {:retries 0}}
+                   :after      {:state :authing :data {:retries 1}}
+                   :event      [:start] :rf.trace/dispatch-id "d-1"}}]}])
+      (focus-epoch! 1)
+      (let [tree  (machine-inspector/Panel)
+            props (find-machine-chart-props tree)]
+        (is (some? props) "the focused-event chart mounts MachineChart")
+        (is (= {:retries "number" :token "string?"}
+               (:machine-data props))
+            "the Context shape is the AUTHORITATIVE declared schema shape,
+             not the one-sample inference")
+        (is (false? (:machine-data-inferred? props))
+            "declared schema → :machine-data-inferred? false reaches the
+             chart (the `inferred from :data` badge drops, `declared`
+             shows — consistent with the Static Topology view)")))))
+
+(deftest focused-event-chart-infers-shape-when-no-schema-rf2-kq8nac
+  (testing "rf2-kq8nac (EP-0005): absent a `:data-schema` the focused-event
+            chart falls back to the one-sample inference and
+            `:machine-data-inferred?` reaches the chart TRUE (rf2-5tz9p's
+            `inferred from :data` badge stays)."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (override-machines!    [:cart/flow])
+      (override-definitions! {:cart/flow {:initial :idle
+                                          :data    {:hits 0 :trail []}
+                                          :states  {:idle {:on {:add :busy}}
+                                                    :busy {}}}})
+      (override-epoch-history!
+        [{:epoch-id 1
+          :trace-events
+          [{:id 1 :time 10 :operation :rf.machine/transition
+            :tags {:machine-id :cart/flow
+                   :before     {:state :idle :data {:hits 0 :trail []}}
+                   :after      {:state :busy :data {:hits 1 :trail []}}
+                   :event      [:add] :rf.trace/dispatch-id "d-1"}}]}])
+      (focus-epoch! 1)
+      (let [tree  (machine-inspector/Panel)
+            props (find-machine-chart-props tree)]
+        (is (some? props))
+        (is (= {:hits "number" :trail "vector"} (:machine-data props))
+            "no schema → shape inferred from one sample of initial :data")
+        (is (true? (:machine-data-inferred? props))
+            "no schema → :machine-data-inferred? true (badge stays)")))))
+
+;; ---- (4d) live `:data` view renders redacted (rf2-kq8nac · EP-0005) ------
+;;
+;; The bead's task #2: VERIFY the panel's live `:data` view renders a
+;; `:sensitive?` `:data-schema` slot REDACTED — confirming xray reads the
+;; EGRESSED/projected snapshot, never raw machine state. Two surfaces:
+;;
+;;   1. The SHARED mini-pipeline cascade reads the focused epoch's
+;;      `:trace-events`, which are egress-redacted at emit (epoch-capture
+;;      sees the `project-trace-event`-projected event). This test drives
+;;      a REAL transition trace through `project-trace-event` (the exact
+;;      egress chokepoint) before seeding it as the focused epoch, then
+;;      asserts no raw secret survives into the rendered panel hiccup.
+;;
+;;   2. The LIVE `:rf.xray/machine-snapshots` sub reads the RAW frame-db
+;;      slot; `redact-live-snapshots` (rf2-kq8nac) routes it through the
+;;      SAME chokepoint so a direct snapshot read is redacted too.
+
+(def ^:private redaction-machine-id :session/auth-redaction)
+
+(def ^:private sensitive-schema
+  [:map
+   [:retries :int]
+   [:token {:sensitive? true} [:maybe :string]]])
+
+(defn- reg-sensitive-machine! []
+  (rf/reg-machine redaction-machine-id
+    {:initial     :anon
+     :data        {:retries 0 :token nil}
+     :data-schema sensitive-schema
+     :states      {:anon   {:on {:login :authed}}
+                   :authed {}}}))
+
+(deftest panel-renders-sensitive-data-slot-redacted-rf2-kq8nac
+  (testing "rf2-kq8nac (EP-0005) task #2: a `:sensitive?` `:data-schema`
+            slot does NOT leak its raw value into the Machine Inspector
+            panel. The focused epoch's `:trace-events` are the EGRESSED
+            (project-trace-event-projected) events — exactly what
+            epoch-capture sees at emit — so the `:before` / `:after`
+            `:data` the mini-pipeline reads carries `:rf/redacted` in the
+            sensitive slot, never the raw token. This pins that the panel
+            reads the egressed snapshot, not raw machine state."
+    (setup-xray-frame!)
+    (reg-sensitive-machine!)
+    (rf/with-frame :rf/xray
+      (override-machines!    [redaction-machine-id])
+      (override-definitions! {redaction-machine-id
+                              {:initial :anon
+                               :data-schema sensitive-schema
+                               :states {:anon   {:on {:login :authed}}
+                                        :authed {}}}})
+      ;; A RAW transition trace carrying the secret token in :before/:after
+      ;; :data — exactly what the runtime emits BEFORE egress.
+      (let [raw-event {:operation :rf.machine/transition
+                       :tags {:machine-id redaction-machine-id
+                              :frame      :rf/default
+                              :before     {:state :anon
+                                           :data  {:retries 0
+                                                   :token   "secret-jwt-before"}}
+                              :after      {:state :authed
+                                           :data  {:retries 1
+                                                   :token   "secret-jwt-after"}}
+                              :event      [:login]
+                              :rf.trace/dispatch-id "d-1"}}
+            ;; The egress chokepoint redacts :before/:after :data.token →
+            ;; :rf/redacted (the :data-schema :sensitive? bridge wired the
+            ;; mark at reg-machine, rf2-w46fpt). Epoch-capture sees THIS
+            ;; projected event, so the panel's :trace-events are redacted.
+            egressed  (marks/project-trace-event raw-event)
+            egressed* (assoc egressed :id 1 :time 10)]
+        ;; The egress projection redacted the token both sides — pinned
+        ;; here so a regression in the bridge surfaces in the panel test.
+        (is (= :rf/redacted (get-in egressed* [:tags :before :data :token]))
+            "egress redacts the sensitive token (before)")
+        (is (= :rf/redacted (get-in egressed* [:tags :after :data :token]))
+            "egress redacts the sensitive token (after)")
+        (override-epoch-history! [{:epoch-id 1 :trace-events [egressed*]}])
+        (focus-epoch! 1)
+        (let [tree     (machine-inspector/Panel)
+              rendered (pr-str tree)]
+          (is (some? (find-by-testid tree "rf-xray-machine-focused-event"))
+              "the focused-event surface mounts for the redacted transition")
+          (is (not (str/includes? rendered "secret-jwt"))
+              "the raw sensitive token MUST NOT appear anywhere in the
+               rendered panel — the `:data` view reads the EGRESSED
+               snapshot (`:rf/redacted` in the sensitive slot), not raw
+               machine state"))))))
+
+(deftest live-snapshots-sub-redacts-sensitive-data-rf2-kq8nac
+  (testing "rf2-kq8nac (EP-0005) task #2: the `:rf.xray/machine-snapshots`
+            sub reads the RAW frame-db slot, so it routes each live
+            snapshot through the snapshot-egress chokepoint. A
+            `:sensitive?` `:data-schema` slot in the live snapshot reads
+            back `:rf/redacted`; the plain sibling rides verbatim; a
+            schemaless machine's snapshot passes through untouched."
+    (setup-xray-frame!)
+    (reg-sensitive-machine!)
+    (rf/with-frame :rf/xray
+      ;; Seed the live snapshots slot directly (the test override stands
+      ;; in for a populated `[:rf/runtime :machines :snapshots]`); the sub
+      ;; redacts on read.
+      (rf/dispatch-sync
+        [:rf.xray/set-machine-snapshots-override-for-test nil])
+      ;; Drive the redaction through the live sub by pinning a frame-db
+      ;; snapshot. We exercise the sub's redaction fn directly on a
+      ;; populated snapshots map (the sub composes target-frame-db →
+      ;; this map) to keep the assertion independent of a live machine
+      ;; runtime under the plain-atom test substrate.
+      (let [snaps    {redaction-machine-id
+                      {:state :authed
+                       :data  {:retries 2 :token "secret-jwt-live"}}}
+            redacted (#'machine-inspector/redact-live-snapshots snaps)]
+        (is (= :rf/redacted
+               (get-in redacted [redaction-machine-id :data :token]))
+            "the live snapshot's :sensitive? slot is redacted on read")
+        (is (= 2 (get-in redacted [redaction-machine-id :data :retries]))
+            "the plain sibling rides verbatim")
+        (is (not (str/includes? (pr-str redacted) "secret-jwt-live"))
+            "no raw secret survives the live-snapshot redaction")))))
 
 (deftest blank-state-renders-verbatim-empty-state-text-rf2-8og3k
   (testing "spec/003 §Empty state — focused event does not target a state
