@@ -218,12 +218,20 @@
   (the wrapper's last-seen input value(s), `::unset` on first recompute,
   else a coll parallel to `input-signals`)."
   [body-fn in-vals query-id query-v frame-id input-signals sub-meta
-   prev-value prev-in-vals]
+   prev-value prev-in-vals vector-inputs?]
   ;; Publish the sub's HandlerScope for the duration of body-fn
   ;; invocation + validation + the `:sub/run` emit. Per Spec 009
   ;; §:rf.trace/trigger-handler the sub's source-coord rides every emit
   ;; (`:sub/run` success, `:rf.error/sub-exception` / schema-validation /
   ;; transitive sub-miss errors). The emit MUST sit inside the scope.
+  ;;
+  ;; `vector-inputs?` (rf2-7brl74): when true, the body ALWAYS receives the
+  ;; resolved inputs as a VECTOR (in producer order) — the contract for a
+  ;; PARAMETRIC `input-fn` sub, whose computation fn destructures `[[a] q]`
+  ;; even for a single input (Spec 006 §Subscription input producers; EP
+  ;; §Single input). When false (the static `:<-` path) the existing v1
+  ;; convention holds: a single `:<-` input is delivered as the bare value,
+  ;; ≥2 inputs as a vector. The layer-1 / single-`:<-` wrappers pass false.
   (trace/with-handler-scope
     (trace/handler-scope-from-meta :sub query-id sub-meta)
     (try
@@ -236,13 +244,22 @@
       ;; browser-only, NOT on the trace stream).
       (let [t0        (when interop/debug-enabled? (interop/now-ms))
             computed (performance/mark-and-measure :sub query-id
-                      (if (empty? input-signals)
+                      (cond
+                        ;; Parametric sub — always a vector of input values
+                        ;; (producer order), even for one input.
+                        vector-inputs?
+                        (body-fn (vec in-vals) query-v)
+
+                        (empty? input-signals)
                         (body-fn (first in-vals) query-v)
-                        ;; Layer-2+: deliver inputs as a coll if many,
-                        ;; or singleton when only one chain entry.
-                        (if (= 1 (count input-signals))
-                          (body-fn (first in-vals) query-v)
-                          (body-fn (vec in-vals) query-v))))
+
+                        ;; Static `:<-`: single input → bare value;
+                        ;; ≥2 inputs → vector (the v1 convention).
+                        (= 1 (count input-signals))
+                        (body-fn (first in-vals) query-v)
+
+                        :else
+                        (body-fn (vec in-vals) query-v)))
             elapsed-ms (when interop/debug-enabled? (- (interop/now-ms) t0))
             validated (maybe-validate-sub! computed query-v query-id sub-meta frame-id)]
         ;; Emit AFTER compute+validate so the trace carries the computed
@@ -442,7 +459,7 @@
           (let [prev-result (if (= ::unset @last-db) unset @last-result)
                 computed    (validate-and-trace
                               body-fn (list db) query-id query-v
-                              frame-id [] sub-meta prev-result unset)]
+                              frame-id [] sub-meta prev-result unset false)]
             (vreset! last-db db)
             (vreset! last-result computed)
             computed))))))
@@ -508,24 +525,35 @@
                 computed     (validate-and-trace
                                body-fn (list v0) query-id query-v
                                frame-id input-signals sub-meta
-                               prev-result prev-in-vals)]
+                               prev-result prev-in-vals false)]
             (vreset! last-v0 v0)
             (vreset! last-result computed)
             computed))))))
 
 (defn make-layer-n-memoised-body
-  "Memo wrapper for layer-2+ subs with two or more `:<-` inputs.
-  Varargs — the input arity matches the count of `:<-` entries on the
-  registration, and the wrapper compares the seq of input values
+  "Memo wrapper for layer-2+ subs with two or more inputs — and for
+  PARAMETRIC subs of ANY input count (including one or zero realized
+  inputs). Varargs — the input arity matches the count of input
+  query-vectors, and the wrapper compares the seq of input values
   against the last-seen seq.
 
   Returns a `(fn [& in-vals])`. When `body-fn` is nil the wrapper
   yields nil on every call without touching the memo cells.
 
+  `vector-inputs?` (rf2-7brl74, optional — defaults false): forwarded to
+  `validate-and-trace`. True for a parametric `input-fn` sub so the body
+  always receives a VECTOR of input values (producer order) even at one
+  input — the EP §Single input contract (`(fn [[a] q] ...)`). False (or
+  omitted) for a static `:<-` multi-input sub so the existing v1
+  convention holds.
+
   See `make-layer-1-memoised-body` for the layer-1 specialisation and
-  `make-layer-n-single-input-memoised-body` for the layer-2 single-input
+  `make-layer-n-single-input-memoised-body` for the static single-`:<-`
   specialisation (rf2-0y2bp)."
-  [body-fn query-id query-v frame-id input-signals sub-meta]
+  ([body-fn query-id query-v frame-id input-signals sub-meta]
+   (make-layer-n-memoised-body
+     body-fn query-id query-v frame-id input-signals sub-meta false))
+  ([body-fn query-id query-v frame-id input-signals sub-meta vector-inputs?]
   (let [last-in-vals (volatile! ::unset)
         last-result  (volatile! nil)]
     (fn [& in-vals]
@@ -563,7 +591,7 @@
                 computed     (validate-and-trace
                                body-fn in-vals query-id query-v
                                frame-id input-signals sub-meta
-                               prev-result prev-in-vals)]
+                               prev-result prev-in-vals vector-inputs?)]
             (vreset! last-in-vals in-vals)
             (vreset! last-result computed)
-            computed))))))
+            computed)))))))
