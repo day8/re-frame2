@@ -642,8 +642,7 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:handler-id        :keyword]
    [:phase             {:optional true} [:enum :before :after :handler]]
    [:exception         {:optional true} :any]
-   [:exception-message :string]
-   [:exception-data    {:optional true} :any]])
+   [:exception-message :string]])
 
 (def CoeffectExceptionTags
   ;; A registered coeffect's injection body threw during the :before chain
@@ -660,8 +659,7 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:frame             {:optional true} :keyword]
    [:phase             {:optional true} [:enum :before]]
    [:exception         {:optional true} :any]
-   [:exception-message :string]
-   [:exception-data    {:optional true} :any]])
+   [:exception-message :string]])
 
 (def InterceptorExceptionTags
   ;; A user interceptor's :before or :after slot threw (rf2-mszrz).
@@ -679,8 +677,7 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:frame             {:optional true} :keyword]
    [:phase             [:enum :before :after]]
    [:exception         {:optional true} :any]
-   [:exception-message :string]
-   [:exception-data    {:optional true} :any]])
+   [:exception-message :string]])
 
 (def FxHandlerExceptionTags
   [:map
@@ -738,7 +735,6 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:rf.sub/query-v    [:vector :any]]
    [:where             [:enum :reactive :compute-sub]]
    [:exception-message :string]
-   [:exception-data    {:optional true} :any]
    [:frame             {:optional true} :keyword]])
 
 (def SubInputFnBadReturnTags
@@ -896,7 +892,6 @@ Common keys (`:category`, `:failing-id`, `:reason`, `:frame`) are inherited from
    [:frame             {:optional true} :keyword]
    [:exception         {:optional true} :any]
    [:exception-message {:optional true} :string]
-   [:exception-data    {:optional true} :any]
    [:recovery          [:= :no-recovery]]])
 
 (def FlowEvalExceptionTags
