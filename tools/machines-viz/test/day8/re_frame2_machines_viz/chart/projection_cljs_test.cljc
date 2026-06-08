@@ -1760,7 +1760,9 @@
             x = offset - tip-gap) lands a clean gap OUTSIDE the state's left
             edge (absolute state.x - tip-gap), never on/through it"
     ;; offset is a SHORT hook span (Stately ~15px dot offset), not the old 48.
-    (is (<= 12 projection/initial-marker-x-offset 26)
+    ;; rf2-k7kiiq — upper bound widened 26 → 28 alongside the offset bump
+    ;; (22 → 26) that lengthens the visible hook arm.
+    (is (<= 12 projection/initial-marker-x-offset 28)
         "offset is a short-hook span (dot ~15px left of the edge)")
     ;; the tip-gap is a small positive gap, strictly less than the offset so
     ;; the tip lands OUTSIDE the edge (local x = offset - gap > 0).
@@ -1781,10 +1783,11 @@
       (let [{:keys [pseudo-radius]} (vc/chart-for-density density)
             {:keys [ah tip-x dot-x end-x]}
             (projection/initial-marker-glyph pseudo-radius)]
-        ;; the arrowhead is SMALL (Stately ~5×5), never the oversized
-        ;; ~10-13px head the regression produced.
-        (is (<= 4 ah 5)
-            (str density ": arrowhead is Stately-small (4–5px), not oversized"))
+        ;; the arrowhead is SMALL (Stately ~5×6), never the oversized
+        ;; ~10-13px head the regression produced. rf2-k7kiiq — ceiling
+        ;; raised 5 → 6 for a slightly larger Stately-aligned head.
+        (is (<= 4 ah 6)
+            (str density ": arrowhead is Stately-small (4–6px), not oversized"))
         ;; the hook base sits RIGHT of the dot ⇒ the curve flows FORWARD
         ;; (down-and-right) into the arrowhead, not backwards into the dot.
         (is (> end-x dot-x)

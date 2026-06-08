@@ -120,8 +120,15 @@
   BACKWARDS; the extra 2px (paired with the small arrowhead in
   `chart.nodes/initial-marker`) restores a clean dot → forward-hook →
   small-arrow-into-edge unit. Dot lands at absolute `state.x - 15`
-  (`offset - dot-x`), matching Stately's `startPoint.x = node.x - 15`."
-  22)
+  (`offset - dot-x`), matching Stately's `startPoint.x = node.x - 15`.
+
+  rf2-k7kiiq — bumped 22 → 26 to LENGTHEN the visible hook arm (Stately-
+  aligned glyph tuning). The arm length is `end-x - dot-x`; with the
+  arrowhead-ceiling raised to 6 (below) a longer `tip-x` (= offset −
+  tip-gap) is REQUIRED to keep `end-x = tip-x − ah > dot-x` in every
+  density. The +4px lands a clearly-visible arm AND a larger arrowhead
+  clear of the dot."
+  26)
 
 (def initial-marker-tip-gap
   "rf2-d5s7yg / rf2-wwyx1u — the visible GAP (px) between the initial-glyph
@@ -153,8 +160,8 @@
     - `tip-x` — the arrowhead tip, at `offset - tip-gap`, so its ABSOLUTE x
       is `state.x - tip-gap` (a small gap OUTSIDE the edge, pointing AT it);
     - `ah`    — the SMALL Stately-sized arrowhead side (≈ dot diameter / 2,
-      4px floor) — NOT the oversized `arrow-width-entry` that drove the
-      backwards-hook regression;
+      clamped to a 4–6px band, rf2-k7kiiq) — NOT the oversized
+      `arrow-width-entry` that drove the backwards-hook regression;
     - `end-x` — the arrowhead BASE (`tip-x - ah`), where the stroked hook
       meets the triangle. The glyph reads as ONE clean unit IFF
       `end-x > dot-x` (the hook flows dot → down-and-RIGHT into the head).
@@ -162,10 +169,13 @@
   Returns a map of the resolved local-frame coordinates. Pure."
   [pseudo-radius]
   (let [;; SMALL Stately-sized head: ≈ dot diameter / 2, but CLAMPED to a
-        ;; 4–5px band so it stays Stately-small in EVERY density (Stately's
-        ;; marker is a fixed ~5×5 regardless of node size). An uncapped
+        ;; 4–6px band so it stays Stately-small in EVERY density (Stately's
+        ;; marker is a fixed ~5×6 regardless of node size). An uncapped
         ;; `pseudo-radius`-scaled head squeezed the forward hook run in cosy.
-        ah    (-> (dec pseudo-radius) (max 4) (min 5))
+        ;; rf2-k7kiiq — ceiling raised 5 → 6 for a slightly LARGER arrowhead;
+        ;; the paired offset bump (22 → 26) keeps `end-x > dot-x` (the bigger
+        ;; head lowers `end-x = tip-x − ah`, so the two MUST tune together).
+        ah    (-> (dec pseudo-radius) (max 4) (min 6))
         tip-x (- initial-marker-x-offset initial-marker-tip-gap)
         dot-x (+ pseudo-radius 1)
         end-x (- tip-x ah)]
