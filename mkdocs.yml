@@ -244,6 +244,7 @@ nav:
     - EP/README.md
     - "App/Runtime Partition": EP/app-db-runtime-partition.md
     - "Explicit Frame Target Resolution": EP/frame-target-resolution.md
+    - "Parametric Subscription Inputs": EP/subscription-inputs.md
     - "Resource Queries": EP/resource-queries.md
 
   - API:
