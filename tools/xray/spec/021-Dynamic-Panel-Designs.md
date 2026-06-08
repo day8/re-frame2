@@ -2523,6 +2523,18 @@ into a single canonical home at
   fallback and was mislabeled a Level-1 reader. (A runtime with no
   captured meta but a cascade-attributed `:inputs` slot still paints
   that upstream sub as a graceful fallback for replayed traces.)
+
+  **Row `:inputs` slot shape — uniform vector-of-query-vectors (rf2-nlraqq).**
+  The projection's `:inputs` row slot is ALWAYS a vector OF query-vectors,
+  regardless of which trace source fed it. `:rf.sub/inputs` is already that
+  shape (the literal `:<-` list / realized `(input-fn query-v)` edge set).
+  `:rf.sub/cause-sub`, by contrast, is a SINGLE query-vector — the one
+  upstream input whose value drove this recompute — so the projection
+  WRAPS it as `[cause]`. The view's inputs cell iterates the slot as a list
+  of query-vectors, rendering one `edn-inspector/mini` per ENTRY. Without
+  the wrap, a PARAMETERIZED cause-sub (e.g. `[:article/by-id :a1]`) would be
+  iterated element-wise — `:article/by-id` and `:a1` rendered as TWO
+  separate inputs instead of one query-vector.
 - **SUBSCRIPTIONS `caused by <event-id>` cell (rf2-1cc03).** Below the
   sub-name + `coord-chip`, the same sub-name cell carries a CONDITIONAL
   `caused by <event-id>` chrome — a `<div>` (testid

@@ -2160,6 +2160,76 @@
             "the sub-run row still projects (the absence is in the
              attribution slot only, not the whole row)")))))
 
+(deftest subscriptions-row-wraps-cause-sub-as-query-vector-test
+  (testing "rf2-nlraqq — `:rf.sub/cause-sub` is a SINGLE upstream query-
+            vector (the one input whose value drove this recompute); the
+            projection WRAPS it as `[cause]` so the row's `:inputs` slot
+            carries the uniform VECTOR-OF-QUERY-VECTORS shape. The view's
+            inputs cell iterates `:inputs` as a list of query-vectors, so
+            an UNwrapped parametric cause-sub (`[:article/by-id :a1]`)
+            would be mis-iterated element-wise (`:article/by-id` + `:a1`
+            shown as two separate inputs)."
+    (testing "PARAMETERIZED cause-sub — the changed input is itself
+              parameterized; wrapping keeps it ONE query-vector"
+      (let [row (-> (proj/subscriptions-step
+                      [(ev :rf.sub :rf.sub/run
+                           {:rf.sub/id             :article/headline
+                            :rf.sub/query-v        [:article/headline :a1]
+                            :rf.sub/value-changed? true
+                            :rf.sub/cascade?       true
+                            :rf.sub/cause-sub      [:article/by-id :a1]
+                            :rf.sub/prev-value     "old"
+                            :rf.sub/value          "new"})])
+                    :rows first)]
+        (is (= [[:article/by-id :a1]] (:inputs row))
+            ":inputs carries the cause-sub WRAPPED as a one-entry vector
+             of query-vectors — NOT the bare `[:article/by-id :a1]`,
+             which the view would iterate as two inputs")
+        (is (= 1 (count (:inputs row)))
+            "exactly ONE input query-vector — the parameterized cause-sub")
+        (is (true? (:cascade? row))
+            "the cascade flag still rides alongside the wrapped cause-sub")))
+    (testing "SIMPLE (un-parameterized) cause-sub — wrap still yields a
+              one-entry vector-of-query-vectors"
+      (let [row (-> (proj/subscriptions-step
+                      [(ev :rf.sub :rf.sub/run
+                           {:rf.sub/id             :counter/doubled
+                            :rf.sub/query-v        [:counter/doubled]
+                            :rf.sub/value-changed? true
+                            :rf.sub/cascade?       true
+                            :rf.sub/cause-sub      [:counter/value]
+                            :rf.sub/prev-value     2
+                            :rf.sub/value          4})])
+                    :rows first)]
+        (is (= [[:counter/value]] (:inputs row))
+            "even a simple single-keyword cause-sub wraps to `[[:counter/value]]`")))
+    (testing "no cause-sub — falls through to `:rf.sub/inputs` (already a
+              vector OF query-vectors), passed through UNwrapped"
+      (let [row (-> (proj/subscriptions-step
+                      [(ev :rf.sub :rf.sub/run
+                           {:rf.sub/id             :report/summary
+                            :rf.sub/query-v        [:report/summary]
+                            :rf.sub/value-changed? true
+                            :rf.sub/inputs         [[:sales] [:costs]]
+                            :rf.sub/prev-value     1
+                            :rf.sub/value          2})])
+                    :rows first)]
+        (is (= [[:sales] [:costs]] (:inputs row))
+            ":rf.sub/inputs is already a vector of query-vectors — NOT
+             re-wrapped (only the single-query-vector cause-sub is wrapped)")))
+    (testing "neither cause-sub nor inputs (Level-1 app-db reader) →
+              `:inputs` nil (the view's `app-db` fallback)"
+      (let [row (-> (proj/subscriptions-step
+                      [(ev :rf.sub :rf.sub/run
+                           {:rf.sub/id             :counter/value
+                            :rf.sub/query-v        [:counter/value]
+                            :rf.sub/value-changed? true
+                            :rf.sub/prev-value     0
+                            :rf.sub/value          1})])
+                    :rows first)]
+        (is (nil? (:inputs row))
+            "no cause-sub + no realized inputs → nil → view renders app-db")))))
+
 (deftest subscriptions-step-counts-changed-vs-unchanged-test
   (testing "rf2-kfh1v — step header carries `changed` + `unchanged`
             counts so the view can render `N recomputed (M changed,

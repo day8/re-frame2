@@ -2661,6 +2661,73 @@
             "a genuine Level-1 reader (empty `:input-signals`) still
              shows the `app-db` source label in its INPUTS cell")))))
 
+(defn- inputs-cell
+  "The INPUTS cell node for sub-row `i` under `tree`."
+  [tree i]
+  (-> tree
+      (th/find-by-testid (str "rf-xray-epoch-sub-row-" i))
+      (th/find-by-attr :data-rf-xray-resizable-col "inputs")))
+
+(deftest parametric-cause-sub-renders-as-one-query-vector-test
+  (testing "rf2-nlraqq — a PARAMETERIZED cause-sub (`[:article/by-id :a1]`)
+            renders as ONE input query-vector in the SUBSCRIPTIONS inputs
+            cell, NOT split into `:article/by-id` + `:a1` as two inputs.
+
+            The projection wraps `:rf.sub/cause-sub` as `[cause]` so the
+            row's `:inputs` slot is a one-entry vector OF query-vectors;
+            the view iterates the slot as a list of query-vectors, so each
+            element is one whole input. The sub-id here is UNREGISTERED, so
+            `sub-input-signals` returns nil and the cell falls through to
+            the row's realized `:inputs` slot — exactly the cascade-
+            attributed path the bug mis-iterated."
+    (epoch-orchestrator/install!)
+    (frame/reg-frame :rf/xray {})
+    (rf/with-frame :rf/xray
+      ;; UNREGISTERED sub-id → `sub-input-signals` resolves nil → the cell
+      ;; reads the row's realized `:inputs` slot (the cause-sub path).
+      (is (nil? (rf/handler-meta :sub :article/headline))
+          "precondition: the sub is NOT registered, so the inputs cell
+           cannot resolve a static `:input-signals` topology and must
+           fall through to the row's realized `:inputs` slot")
+      (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
+                  :rows [{:sub-id  :article/headline
+                          :sub-vec [:article/headline :a1]
+                          ;; the projection's wrapped cause-sub shape:
+                          ;; ONE parameterized query-vector inside a vec.
+                          :inputs  [[:article/by-id :a1]]
+                          :changed? true :cascade? true :before "old" :after "new"}]
+                  :changed 1 :unchanged 0}
+            tree   (view/render-subscriptions-step step)
+            cell   (inputs-cell tree 0)
+            minis  (th/find-all-by-attr cell :data-rf-mini "1")
+            titles (set (map #(-> % th/attrs :title) minis))]
+        (is (some? cell) "the parameterized sub's inputs cell renders")
+        (is (= 1 (count minis))
+            "the parameterized cause-sub renders as exactly ONE input
+             query-vector — pre-fix the unwrapped `[:article/by-id :a1]`
+             was iterated element-wise into TWO mini tokens")
+        (is (contains? titles "[:article/by-id :a1]")
+            "the single input is the WHOLE query-vector `[:article/by-id :a1]`")
+        (is (not (string/includes? (th/text-content cell) "app-db"))
+            "not the Level-1 `app-db` fallback — a cascade-attributed input"))))
+  (testing "rf2-nlraqq — a multi-edge `:rf.sub/inputs` set (NOT cause-sub;
+            already a vector OF query-vectors) still renders one mini per
+            edge — the wrap is cause-sub-only and does not double-wrap"
+    (epoch-orchestrator/install!)
+    (frame/reg-frame :rf/xray {})
+    (rf/with-frame :rf/xray
+      (let [step {:step :subscriptions :badge :SUBSCRIPTIONS :step-number 5
+                  :rows [{:sub-id  :report/summary
+                          :sub-vec [:report/summary]
+                          :inputs  [[:sales] [:costs]]
+                          :changed? true :before 1 :after 2}]
+                  :changed 1 :unchanged 0}
+            tree  (view/render-subscriptions-step step)
+            cell  (inputs-cell tree 0)
+            minis (th/find-all-by-attr cell :data-rf-mini "1")]
+        (is (= 2 (count minis))
+            "two realized input edges → two input query-vectors rendered")))))
+
 (deftest first-run-container-sub-renders-added-chrome-test
   (testing "rf2-kp7bw — a first-run subscription whose value is a
             CONTAINER (map / vector / set) renders the whole subtree
