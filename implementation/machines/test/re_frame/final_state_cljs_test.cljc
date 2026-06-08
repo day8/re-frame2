@@ -46,7 +46,7 @@
 
 (defn- snapshot
   [machine-id]
-  (get-in (rf/app-db-value :rf/default) [:rf/runtime :machines :snapshots machine-id]))
+  (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/machines :snapshots machine-id]))
 
 (defn- traces-for
   [traces operation]
@@ -83,8 +83,8 @@
                   :on-done (fn [{data :data result :result}] (assoc data :token-from-child result))}}}})
     (rf/dispatch-sync [:rf2-gn80/parent [:start]])
     ;; Now the child is spawned. Drive its :finish to enter :final?.
-    (let [spawned-id (-> (rf/app-db-value :rf/default)
-                         (get-in [:rf/runtime :machines :spawned :rf2-gn80/parent [:working]]))]
+    (let [spawned-id (-> (rf/runtime-db-value :rf/default)
+                         (get-in [:rf.runtime/machines :spawned :rf2-gn80/parent [:working]]))]
       (is (some? spawned-id)
           "child was spawned and bound in the registry")
       (rf/dispatch-sync [spawned-id [:finish :auth/secret-token]])
@@ -93,9 +93,9 @@
           "the parent's :on-done ran against the child's :output-key slot")
       (is (nil? (snapshot spawned-id))
           "the child's snapshot was synchronously dissoc'd (D4 auto-destroy)")
-      (is (nil? (get-in (rf/app-db-value :rf/default)
-                        [:rf/runtime :machines :spawned :rf2-gn80/parent [:working]]))
-          "the [:rf/runtime :machines :spawned <parent> <invoke-id>] slot was cleared"))))
+      (is (nil? (get-in (rf/runtime-db-value :rf/default)
+                        [:rf.runtime/machines :spawned :rf2-gn80/parent [:working]]))
+          "the [:rf.runtime/machines :spawned <parent> <invoke-id>] slot was cleared"))))
 
 ;; ---- (b) auto-destroy fires synchronously ----------------------------------
 
@@ -134,8 +134,8 @@
           {:spawn {:machine-id :rf2-gn80/child2
                     :on-done (fn [{d :data r :result}] (assoc d :reported r))}}}})
       (rf/dispatch-sync [:rf2-gn80/parent2 [:rf.machine.spawn/spawned]])
-      (let [spawned-id (get-in (rf/app-db-value :rf/default)
-                               [:rf/runtime :machines :spawned :rf2-gn80/parent2 [:working]])]
+      (let [spawned-id (get-in (rf/runtime-db-value :rf/default)
+                               [:rf.runtime/machines :spawned :rf2-gn80/parent2 [:working]])]
         (rf/dispatch-sync [spawned-id [:finish 42]])
         (let [dones (traces-for traces :rf.machine/done)]
           (is (= 1 (count dones))
@@ -162,8 +162,8 @@
          {:working
           {:spawn {:machine-id :rf2-gn80/child3}}}})
       (rf/dispatch-sync [:rf2-gn80/parent3 [:rf.machine.spawn/spawned]])
-      (let [spawned-id (get-in (rf/app-db-value :rf/default)
-                               [:rf/runtime :machines :spawned :rf2-gn80/parent3 [:working]])]
+      (let [spawned-id (get-in (rf/runtime-db-value :rf/default)
+                               [:rf.runtime/machines :spawned :rf2-gn80/parent3 [:working]])]
         (rf/dispatch-sync [spawned-id [:done]])
         (let [dests (traces-for traces :rf.machine/destroyed)
               finish-trace (some #(when (= :rf.machine/finished (-> % :tags :reason)) %)
@@ -193,10 +193,10 @@
         (is (nil? (-> (first dones) :tags :parent-id))
             ":parent-id is nil for singletons (D7)")))))
 
-;; ---- (f) [:rf/runtime :machines :system-ids ...] reverse-index clears after :on-done -----
+;; ---- (f) [:rf.runtime/machines :system-ids ...] reverse-index clears after :on-done -----
 
 (deftest system-id-clears-after-on-done
-  (testing "D8: [:rf/runtime :machines :system-ids <sid>] reverse-index entry clears AFTER :on-done fires"
+  (testing "D8: [:rf.runtime/machines :system-ids <sid>] reverse-index entry clears AFTER :on-done fires"
     (let [on-done-saw-sid (atom nil)]
       (rf/reg-machine :rf2-gn80/sid-child
         {:initial :running
@@ -219,8 +219,8 @@
                                           (machines/machine-by-system-id :auth-actor))
                                   (assoc d :result r))}}}})
       (rf/dispatch-sync [:rf2-gn80/sid-parent [:rf.machine.spawn/spawned]])
-      (let [spawned-id (get-in (rf/app-db-value :rf/default)
-                               [:rf/runtime :machines :spawned :rf2-gn80/sid-parent [:working]])]
+      (let [spawned-id (get-in (rf/runtime-db-value :rf/default)
+                               [:rf.runtime/machines :spawned :rf2-gn80/sid-parent [:working]])]
         (is (= spawned-id (machines/machine-by-system-id :auth-actor))
             ":system-id is bound while the child is running")
         (rf/dispatch-sync [spawned-id [:fin]])
@@ -268,8 +268,8 @@
                                   (reset! seen-result r)
                                   d)}}}})
       (rf/dispatch-sync [:rf2-gn80/observer [:rf.machine.spawn/spawned]])
-      (let [spawned-id (get-in (rf/app-db-value :rf/default)
-                               [:rf/runtime :machines :spawned :rf2-gn80/observer [:working]])]
+      (let [spawned-id (get-in (rf/runtime-db-value :rf/default)
+                               [:rf.runtime/machines :spawned :rf2-gn80/observer [:working]])]
         (rf/dispatch-sync [spawned-id [:fin]])
         (is (nil? @seen-result)
             "with no :output-key, :on-done received nil (per D3)")))))
@@ -289,8 +289,8 @@
        {:working
         {:spawn {:machine-id :rf2-gn80/just-final}}}})
     (rf/dispatch-sync [:rf2-gn80/silent-parent [:rf.machine.spawn/spawned]])
-    (let [spawned-id (get-in (rf/app-db-value :rf/default)
-                             [:rf/runtime :machines :spawned :rf2-gn80/silent-parent [:working]])]
+    (let [spawned-id (get-in (rf/runtime-db-value :rf/default)
+                             [:rf.runtime/machines :spawned :rf2-gn80/silent-parent [:working]])]
       (rf/dispatch-sync [spawned-id [:fin]])
       (is (nil? (snapshot spawned-id))
           "child cleaned up even without :on-done"))))

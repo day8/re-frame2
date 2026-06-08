@@ -3,7 +3,7 @@
   rf2-ecv4) under the Reagent reactive substrate.
 
   Per Spec 005 §Named addressing via :system-id: a spawn whose args carry a
-  `:system-id` keyword binds that name in the per-frame `[:rf/runtime :machines :system-ids]`
+  `:system-id` keyword binds that name in the per-frame `[:rf.runtime/machines :system-ids]`
   reverse index. `(rf/machine-by-system-id sid)` resolves the binding;
   destroy clears it; collisions emit `:rf.error/system-id-collision` and
   rebind (last-write-wins).
@@ -49,26 +49,26 @@
       (let [spawned (rf/machine-by-system-id :worker)]
         (is (= :worker/proc#1 spawned)
             ":system-id resolves to the spawned machine id")
-        (is (= spawned (get-in (rf/app-db-value :rf/default)
-                               [:rf/runtime :machines :system-ids :worker]))
-            "[:rf/runtime :machines :system-ids] reverse index records the binding")
-        (is (some? (get-in (rf/app-db-value :rf/default)
-                           [:rf/runtime :machines :snapshots spawned]))
-            "snapshot initialised at [:rf/runtime :machines :snapshots <spawned-id>]")
+        (is (= spawned (get-in (rf/runtime-db-value :rf/default)
+                               [:rf.runtime/machines :system-ids :worker]))
+            "[:rf.runtime/machines :system-ids] reverse index records the binding")
+        (is (some? (get-in (rf/runtime-db-value :rf/default)
+                           [:rf.runtime/machines :snapshots spawned]))
+            "snapshot initialised at [:rf.runtime/machines :snapshots <spawned-id>]")
         ;; (2) Dispatch-by-system-id reaches the actor.
         (rf/dispatch-sync [spawned [:ping]])
-        (is (= 1 (get-in (rf/app-db-value :rf/default)
-                         [:rf/runtime :machines :snapshots spawned :data :hits]))
+        (is (= 1 (get-in (rf/runtime-db-value :rf/default)
+                         [:rf.runtime/machines :snapshots spawned :data :hits]))
             "dispatch routed via system-id reached the live actor"))
       ;; (3) Destroy clears system-id binding and snapshot.
       (rf/dispatch-sync [:sup/flow [:done]])
       (is (nil? (rf/machine-by-system-id :worker))
           "post-destroy lookup returns nil")
-      (is (nil? (get-in (rf/app-db-value :rf/default)
-                        [:rf/runtime :machines :system-ids :worker]))
-          "[:rf/runtime :machines :system-ids] entry cleared on destroy")
-      (is (nil? (get-in (rf/app-db-value :rf/default)
-                        [:rf/runtime :machines :snapshots :worker/proc#1]))
+      (is (nil? (get-in (rf/runtime-db-value :rf/default)
+                        [:rf.runtime/machines :system-ids :worker]))
+          "[:rf.runtime/machines :system-ids] entry cleared on destroy")
+      (is (nil? (get-in (rf/runtime-db-value :rf/default)
+                        [:rf.runtime/machines :snapshots :worker/proc#1]))
           "snapshot cleared on destroy")))
 
   (testing "dispatch-to-system sugar resolves the system-id and routes the dispatch"
@@ -97,8 +97,8 @@
         ;; non-Reagent test runner there's no render to trigger the
         ;; drain. The lookup-then-dispatch chain is what we're verifying.
         (rf/dispatch-sync [(rf/machine-by-system-id :notifier) [:notify "hello"]])
-        (is (= ["hello"] (get-in (rf/app-db-value :rf/default)
-                                 [:rf/runtime :machines :snapshots spawned :data :msgs]))
+        (is (= ["hello"] (get-in (rf/runtime-db-value :rf/default)
+                                 [:rf.runtime/machines :snapshots spawned :data :msgs]))
             "dispatch via system-id lookup reached the live actor")
         ;; And the sugar fn no-ops when the system-id is unbound.
         (is (nil? (rf/dispatch-to-system :no-such-system [:notify "x"]))
@@ -135,14 +135,14 @@
           "expected :rf.error/system-id-collision trace"))))
 
 (deftest machine-spawn-without-system-id-leaves-index-empty-cljs
-  (testing "spawn-without-system-id leaves [:rf/runtime :machines :system-ids] empty"
+  (testing "spawn-without-system-id leaves [:rf.runtime/machines :system-ids] empty"
     (let [child {:initial :running :data {} :states {:running {}}}]
       (rf/reg-machine :w2/proc child)
       (rf/reg-event-fx ::spawn-anon
         (fn [_ _]
           {:fx [[:rf.machine/spawn {:machine-id :w2/proc :id-prefix :w2/proc}]]}))
       (rf/dispatch-sync [::spawn-anon])
-      (is (nil? (get-in (rf/app-db-value :rf/default) [:rf/runtime :machines :system-ids]))
-          "[:rf/runtime :machines :system-ids] not allocated when no spawns carry :system-id")
+      (is (nil? (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/machines :system-ids]))
+          "[:rf.runtime/machines :system-ids] not allocated when no spawns carry :system-id")
       (is (nil? (rf/machine-by-system-id :anything))
           "lookup against an unbound system-id returns nil"))))

@@ -90,9 +90,9 @@
       ;; Bring the machine to life with an event that doesn't violate the schema —
       ;; bootstrap settles to {:n 1} cleanly.
       (rf/dispatch-sync [:rf.machine-schema/macrostep [:noop]])
-      (let [snap-before (get-in (rf/app-db-value :rf/default)
-                                [:rf/runtime :machines :snapshots :rf.machine-schema/macrostep])
-            db-before   (rf/app-db-value :rf/default)
+      (let [snap-before (get-in (rf/runtime-db-value :rf/default)
+                                [:rf.runtime/machines :snapshots :rf.machine-schema/macrostep])
+            db-before   (rf/runtime-db-value :rf/default)
             traces      (collect-traces!
                           #(rf/dispatch-sync [:rf.machine-schema/macrostep [:go]]))
             trace-ev    (first traces)
@@ -116,11 +116,11 @@
         (is (= :no-recovery (:recovery trace-ev))
             "trace envelope declares :no-recovery (consistent with :where :app-db)")
         ;; Rollback restores pre-handler app-db.
-        (is (= db-before (rf/app-db-value :rf/default))
+        (is (= db-before (rf/runtime-db-value :rf/default))
             "post-rollback app-db equals pre-handler app-db")
         (is (= snap-before
-               (get-in (rf/app-db-value :rf/default)
-                       [:rf/runtime :machines :snapshots :rf.machine-schema/macrostep]))
+               (get-in (rf/runtime-db-value :rf/default)
+                       [:rf.runtime/machines :snapshots :rf.machine-schema/macrostep]))
             "the machine's snapshot returns to its pre-handler value")))))
 
 ;; ---- (3) bootstrap-time validation: initial :data violates --------------
@@ -135,7 +135,7 @@
                       :data-schema DataSchema
                       :states      {:idle {}}}]
       (rf/reg-machine :rf.machine-schema/bootstrap spec)
-      (let [db-before (rf/app-db-value :rf/default)
+      (let [db-before (rf/runtime-db-value :rf/default)
             traces    (collect-traces!
                         #(rf/dispatch-sync [:rf.machine-schema/bootstrap [:noop]]))
             tag       (-> traces first :tags)]
@@ -144,10 +144,10 @@
         (is (= :machine-data (:where tag)))
         (is (= {:n 0} (:value tag)))
         ;; Rollback drops the violating snapshot.
-        (is (nil? (get-in (rf/app-db-value :rf/default)
-                          [:rf/runtime :machines :snapshots :rf.machine-schema/bootstrap]))
+        (is (nil? (get-in (rf/runtime-db-value :rf/default)
+                          [:rf.runtime/machines :snapshots :rf.machine-schema/bootstrap]))
             "rolled back: the machine snapshot is not installed in app-db")
-        (is (= db-before (rf/app-db-value :rf/default))
+        (is (= db-before (rf/runtime-db-value :rf/default))
             "rolled back: app-db unchanged")))))
 
 ;; ---- (4) spawn-time validation: spawned actor's :data violates ----------
@@ -187,8 +187,8 @@
         (is (false? (:rollback? tag))
             "spawn-phase failure carries :rollback? false (nothing was committed)")
         ;; The spawned actor's snapshot was never installed.
-        (is (nil? (get-in (rf/app-db-value :rf/default)
-                          [:rf/runtime :machines :snapshots :rf.machine-schema/spawned]))
+        (is (nil? (get-in (rf/runtime-db-value :rf/default)
+                          [:rf.runtime/machines :snapshots :rf.machine-schema/spawned]))
             "rejected spawn: snapshot is not in app-db")
         ;; rf2-f3kp7 — atomic reject. The prior code called `reg-machine*`
         ;; out of step with the install gate, leaking a registered event
@@ -215,8 +215,8 @@
         (is (empty? traces)
             "no :where :machine-data trace for a no-schema machine")
         ;; Sanity: the action ran and updated :data.
-        (is (= 42 (get-in (rf/app-db-value :rf/default)
-                          [:rf/runtime :machines :snapshots :rf.machine-schema/no-schema :data :n]))
+        (is (= 42 (get-in (rf/runtime-db-value :rf/default)
+                          [:rf.runtime/machines :snapshots :rf.machine-schema/no-schema :data :n]))
             "the no-schema machine's :data updates normally")))))
 
 ;; ---- (6) tag payload completeness for downstream consumers ----------------

@@ -1,16 +1,23 @@
 (ns re-frame.dropped-snapshot-diagnostic-test
-  "Spec 005 / Spec 009 — `:rf.warning/runtime-state-dropped` against a REAL
-  live machine (rf2-p806o).
+  "Spec 005 / Conventions §The clobber footgun is eliminated structurally —
+  the `{:db fresh-map}` footgun is GONE under the two-partition frame
+  (EP-0001 rf2-vzld77).
 
-  The loud-failure guard fires when a durable `:db` commit drops a live
-  machine snapshot under `[:rf/runtime :machines :snapshots <id>]` with no
-  replacement — the silent `{:db fresh-map}` footgun (a v1→v2 boot-machine
-  action that rebuilds app-db from scratch and forgets `:rf/runtime`, killing
-  every live machine). The core-side structural unit tests live in
-  `implementation/core` (`re-frame.dropped-runtime-state-test`); these are the
-  machines-artefact integration tests that exercise the guard with a genuine
-  registered machine and prove the discriminator does not false-fire on the
-  legitimate wholesale-replace mechanisms.
+  Pre-migration, machine snapshots sat under an `:rf/runtime` root INSIDE
+  app-db, so an event returning a from-scratch `:db` effect wholesale-replaced
+  app-db and silently dropped every live machine snapshot — the footgun the
+  `:rf.warning/runtime-state-dropped` diagnostic flagged. Under the
+  two-partition contract machine snapshots live in the **runtime-db**
+  partition at `[:rf.runtime/machines :snapshots <id>]`, and an ordinary `:db`
+  effect replaces ONLY app-db — runtime-db is a partition the handler never
+  holds. So a fresh-map `:db` return CANNOT touch a live machine snapshot:
+  the footgun is structurally impossible, not merely warned.
+
+  These machines-artefact integration tests prove that property end-to-end
+  against a genuine registered machine: a from-scratch `:db` return leaves the
+  machine ALIVE and the snapshot intact. (The legacy `:rf/runtime`-root hard
+  error + the retirement of the now-vestigial `:rf.warning/runtime-state-dropped`
+  diagnostic are bead 9 — rf2-tfepxu.)
 
   JVM-only by intent — the commit path is substrate-independent."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -43,8 +50,8 @@
 
 (defn- live-snapshot?
   [machine-id]
-  (some? (get-in (rf/app-db-value :rf/default)
-                 [:rf/runtime :machines :snapshots machine-id])))
+  (some? (get-in (rf/runtime-db-value :rf/default)
+                 [:rf.runtime/machines :snapshots machine-id])))
 
 (defn- with-recorder
   "Register a recorder, run `body-fn`, return captured
@@ -61,74 +68,74 @@
 
 (defn- register-live-machine!
   "Register `toggle-spec` under :diag/m1 and drive it once so a live
-  snapshot is installed at [:rf/runtime :machines :snapshots :diag/m1]."
+  snapshot is installed at [:rf.runtime/machines :snapshots :diag/m1]."
   []
   (rf/reg-machine :diag/m1 toggle-spec)
   (rf/dispatch-sync [:diag/m1 [:flip]])
   (assert (live-snapshot? :diag/m1) "machine must be live before the test body"))
 
-;; ---- the footgun fires against a real machine ------------------------------
+;; ---- the footgun is structurally GONE under the partition ------------------
 
-(deftest boot-machine-style-fresh-db-drops-live-machine-fires
-  (testing "an event returning {:db fresh-map} that forgets :rf/runtime kills a live machine and fires the warning"
+(deftest fresh-db-return-cannot-drop-a-live-machine
+  (testing "an event returning {:db fresh-map} leaves the live machine ALIVE — machine snapshots are runtime-db, an ordinary :db effect replaces ONLY app-db"
     (register-live-machine!)
-    ;; The footgun: a handler (here a plain event, but the same shape a
+    ;; The former footgun: a handler (here a plain event, but the same shape a
     ;; boot-machine action emits inside a cascade) rebuilds app-db from
-    ;; scratch, dropping :rf/runtime — and with it the live :diag/m1 snapshot.
+    ;; scratch. Pre-migration this dropped the `:rf/runtime` app-db root and
+    ;; with it the live :diag/m1 snapshot. Under the two-partition contract
+    ;; the snapshot lives in runtime-db, which `:db` never holds.
     (rf/reg-event-db :diag/reboot (fn [_db _] {:fresh-app-state true}))
     (let [warnings (with-recorder #(rf/dispatch-sync [:diag/reboot]))]
-      (is (= 1 (count warnings)))
-      (let [{:keys [tags recovery]} (first warnings)]
-        (is (= :machines (:subsystem tags)))
-        (is (= #{:diag/m1} (:dropped-machine-ids tags))
-            "names the real live machine that just died")
-        (is (= :no-recovery recovery)))
-      (is (not (live-snapshot? :diag/m1))
-          "the machine really is dead — its snapshot is gone"))))
+      (is (empty? warnings)
+          "no runtime-state-dropped warning — the footgun is structurally gone")
+      (is (live-snapshot? :diag/m1)
+          "the machine survives the from-scratch :db replace — its snapshot is runtime-db")
+      (is (= {:fresh-app-state true} (rf/app-db-value :rf/default))
+          "app-db is the fresh map; runtime-db (the snapshot) is untouched"))))
 
-;; ---- discriminator: the idiomatic destroy fx does NOT fire -----------------
+;; ---- an ordinary transition mutates the snapshot in place ------------------
 
-(deftest idiomatic-transition-does-not-fire
-  (testing "an ordinary machine transition (snapshot changes, not dropped) does not fire"
+(deftest idiomatic-transition-keeps-machine-alive
+  (testing "an ordinary machine transition mutates the snapshot in place — machine stays alive, no drop"
     (register-live-machine!)
     (let [warnings (with-recorder #(rf/dispatch-sync [:diag/m1 [:flip]]))]
-      (is (empty? warnings)
-          "a transition mutates the snapshot in place — no drop"))))
+      (is (empty? warnings))
+      (is (live-snapshot? :diag/m1)
+          "a transition updates the runtime-db snapshot — the machine stays live"))))
 
-;; ---- discriminator: direct-replace mechanisms bypass the :db commit path ---
+;; ---- a direct runtime-db replace (restore-epoch shape) DOES revert it ------
 
-(deftest direct-container-replace-bypasses-the-guard
-  (testing "restore-epoch / reset-frame-db install a COMPLETE db via a direct adapter/replace-container! — they never flow through a :db effect, so they never reach the guard"
+(deftest direct-runtime-db-replace-reverts-the-snapshot
+  (testing "restore-epoch / reset install a fresh runtime-db via a direct partition write — that legitimately reverts the snapshot"
     (register-live-machine!)
-    ;; Reproduce exactly what re-frame.epoch's restore-epoch / reset-frame-db
-    ;; do: install a complete app-db that carries NO machine snapshot (e.g.
-    ;; restoring to a pre-spawn epoch) via the app-db PARTITION write
-    ;; `frame/swap-frame-db!` (EP-0001 rf2-adwcv6 — `app-db-container` is now a
-    ;; read-only projection). Because this is not a `:db` effect,
-    ;; `commit-frame-effects!` is never on the stack and the guard cannot fire.
-    (let [warnings  (with-recorder
-                      #(frame/swap-frame-db! :rf/default (constantly {:restored-past true})))]
+    ;; Reproduce the revertible-restore path: install a fresh runtime-db that
+    ;; carries NO machine snapshot (e.g. restoring to a pre-spawn epoch) via
+    ;; the runtime-db PARTITION write `frame/swap-runtime-db!`. This is the
+    ;; LEGITIMATE way machine liveness reverts (Goal 2 — frame state
+    ;; revertibility); no warning, the snapshot is gone by design.
+    (let [warnings (with-recorder
+                     #(frame/swap-runtime-db! :rf/default (constantly {})))]
       (is (empty? warnings)
-          "a direct container replace is not a :db commit — out of the guard's scope")
+          "a direct runtime-db replace is the revertible-restore path — no footgun")
       (is (not (live-snapshot? :diag/m1))
-          "the snapshot IS gone — but legitimately, via the revertible-restore path"))))
+          "the snapshot IS gone — legitimately, via the runtime-db revert path"))))
 
-;; ---- discriminator: a complete-db :db replace carrying its OWN snapshots ---
+;; ---- hydration carrying its own runtime-db snapshots keeps the machine -----
 
-(deftest hydrate-shape-replace-carrying-snapshots-does-not-fire
-  (testing ":rf/hydrate-shape — a :db effect that installs a COMPLETE db carrying its own machine snapshot does not fire (the snapshot has a replacement)"
+(deftest hydrate-shape-runtime-db-carrying-snapshots-keeps-machine
+  (testing ":rf/hydrate-shape — installing a runtime-db that carries the machine snapshot keeps the machine alive"
     (register-live-machine!)
-    ;; The :rf/hydrate handler returns {:db <server's complete db>}. When the
-    ;; server ran the machine, that db carries the snapshot, so the live
-    ;; machine is NOT dropped — it is replaced. Simulate that shape.
-    (rf/reg-event-db :diag/hydrate
-                     (fn [db _]
-                       {:server-state true
-                        :rf/runtime {:machines {:snapshots
-                                                {:diag/m1 (get-in db [:rf/runtime :machines
-                                                                      :snapshots :diag/m1])}}}}))
+    ;; The reference :rf/hydrate handler installs the server's runtime-db slice
+    ;; into the runtime-db partition (per the SSR hydration path). When the
+    ;; server ran the machine, that slice carries the snapshot, so the live
+    ;; machine is replaced-in-place, not dropped. Simulate that shape with a
+    ;; framework-authority runtime-db effect.
+    (rf/reg-event-fx :diag/hydrate
+                     (fn [{rt :rf.db/runtime} _]
+                       {:db {:server-state true}
+                        :rf.db/runtime rt}))
     (let [warnings (with-recorder #(rf/dispatch-sync [:diag/hydrate]))]
       (is (empty? warnings)
-          "the snapshot is present post-commit — a replacement, not a drop")
+          "the runtime-db snapshot is present post-commit — a replacement, not a drop")
       (is (live-snapshot? :diag/m1)
-          "the machine survived the wholesale replace"))))
+          "the machine survived hydration — its runtime-db snapshot rode along"))))

@@ -227,7 +227,7 @@
 (def ^:private spawn-type-id :rf.machine-redaction/spawn-worker)
 
 (defn- frame-db []
-  (rf/app-db-value :rf/default))
+  (rf/runtime-db-value :rf/default))
 
 (deftest spawned-instance-gets-schema-marks-keyed-under-instance-id
   (testing "spawning an actor whose TYPE carries a :sensitive? / :large?
@@ -246,7 +246,7 @@
                  :working {:spawn {:machine-id spawn-type-id}}}})
     (rf/dispatch-sync [:rf.machine-redaction/sup [:start]])
     (let [spawned-id (get-in (frame-db)
-                             [:rf/runtime :machines :spawned
+                             [:rf.runtime/machines :spawned
                               :rf.machine-redaction/sup [:working]])
           inst-marks (marks/marks-for :event spawned-id)]
       (is (some? spawned-id) "an actor instance was spawned")
@@ -271,7 +271,7 @@
                  :working {:spawn {:machine-id spawn-type-id}}}})
     (rf/dispatch-sync [:rf.machine-redaction/sup [:start]])
     (let [spawned-id (get-in (frame-db)
-                             [:rf/runtime :machines :spawned
+                             [:rf.runtime/machines :spawned
                               :rf.machine-redaction/sup [:working]])
           ;; Synthesise the instance's transition trace exactly as the
           ;; handler emits it: :machine-id = the instance id, :data carrying
@@ -316,7 +316,7 @@
       (rf/dispatch-sync [:rf.machine-redaction/sup-inline [:noop]])
       (rf/dispatch-sync [:rf.machine-redaction/sup-inline [:go]])
       (let [inst-marks (marks/marks-for :event inst-id)]
-        (is (some? (get-in (frame-db) [:rf/runtime :machines :snapshots inst-id]))
+        (is (some? (get-in (frame-db) [:rf.runtime/machines :snapshots inst-id]))
             "an inline-definition actor was spawned")
         (is (= #{[:data :token]} (set (:sensitive inst-marks)))
             "inline-definition :data-schema :sensitive? slot bridged under the instance id")

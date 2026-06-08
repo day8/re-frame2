@@ -61,12 +61,12 @@
 
 (defn- snapshot
   [machine-id]
-  (get-in (rf/app-db-value :rf/default) [:rf/runtime :machines :snapshots machine-id]))
+  (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/machines :snapshots machine-id]))
 
 (defn- spawned-id-for
   [parent-id invoke-id]
-  (get-in (rf/app-db-value :rf/default)
-          [:rf/runtime :machines :spawned parent-id invoke-id]))
+  (get-in (rf/runtime-db-value :rf/default)
+          [:rf.runtime/machines :spawned parent-id invoke-id]))
 
 (defn- traces-for
   [traces operation]
@@ -335,7 +335,7 @@
 ;; ---- (g) parallel-PARENT region :spawn :on-done / :on-error (rf2-r09fc) -----
 ;;
 ;; Per rf2-r09fc — a declarative `:spawn` declared INSIDE a parallel REGION
-;; must key its `[:rf/runtime :machines :spawned <parent> <invoke-id>]` slot
+;; must key its `[:rf.runtime/machines :spawned <parent> <invoke-id>]` slot
 ;; under the REAL parent machine-id (the parallel machine itself), NOT the
 ;; `:rf/transition-pure` fallback. `parallel/reduce-regions` re-stamps the live
 ;; parent-id onto the synthetic region-spec, so both `:spawn :on-done` AND
@@ -365,13 +365,13 @@
                           :states  {:idle {}}}}})
     (rf/dispatch-sync [:rf2-r09fc-g0/parent [:rf.machine.spawn/spawned]])
     ;; The region prefixes the invoke-id with its region name → [:loader :working].
-    (let [spawned-map (get-in (rf/app-db-value :rf/default)
-                              [:rf/runtime :machines :spawned :rf2-r09fc-g0/parent])
+    (let [spawned-map (get-in (rf/runtime-db-value :rf/default)
+                              [:rf.runtime/machines :spawned :rf2-r09fc-g0/parent])
           child       (spawned-id-for :rf2-r09fc-g0/parent [:loader :working])]
       (is (some? spawned-map)
           "the :spawned slot keys under the REAL parent :rf2-r09fc-g0/parent (NOT :rf/transition-pure)")
-      (is (nil? (get-in (rf/app-db-value :rf/default)
-                        [:rf/runtime :machines :spawned :rf/transition-pure]))
+      (is (nil? (get-in (rf/runtime-db-value :rf/default)
+                        [:rf.runtime/machines :spawned :rf/transition-pure]))
           "NOTHING keyed under the bogus :rf/transition-pure fallback")
       (is (some? child)
           "the region-prefixed invoke-id [:loader :working] addresses the spawned child")
