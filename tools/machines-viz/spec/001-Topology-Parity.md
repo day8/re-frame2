@@ -705,9 +705,14 @@ pure ns `chart.post-elk`:
    children swap their within-region x/y (the intra-region flow that ran
    vertically under root `DOWN` now runs **horizontally** — the Stately
    intra-region axis), and the region containers re-stack into a single
-   **vertical column** (`region-stack-gap` between bands). Region-touching
-   edge routes are cleared so they re-route via the renderer's bezier
-   fallback through the transposed handles.
+   **vertical column** (`region-stack-gap` between bands). After the swap the
+   flow ranks are **re-packed** along the new x-axis (`post-elk/respace-flow-
+   ranks`) by each rank's actual WIDTH + `intra-region-flow-gap` — the bare
+   swap inherits the flow pitch ELK budgeted for node HEIGHTS (state 58 / chip
+   34), too tight once boxes occupy their WIDTHS along x (state 152 / chip
+   96), which buried the intra-region event-node chips into the state boxes
+   (rf2-vb359s). Region-touching edge routes are cleared so they re-route via
+   the renderer's bezier fallback through the transposed handles.
 
 **OPT-IN — not auto-applied (the redo lock).** Both levers fire ONLY when a
 machine OPTS IN via `:direction :auto` (`chart.post-elk/adaptive?`); with
@@ -720,10 +725,13 @@ redo keeps every existing non-opted machine pixel-identical (verified: the
 path vs `main`). The selective-beside-the-source event-node placement the
 research also floated (the flat-branchy event-node rank cost) remains a
 SEPARATE, still-out-of-scope item — the direction heuristic recovers the
-flat-aspect win without it. **Known rough edge (held for sign-off):** under
-the parallel transpose, intra-region event-node chips can overlap state
-boxes after the coordinate swap + route-clear; this is why the feature is
-opt-in and the PR is held for a visual ruling, not auto-merged.
+flat-aspect win without it. **Resolved rough edge (rf2-vb359s):** the
+parallel transpose previously left intra-region event-node chips overlapping
+state boxes after the bare coordinate swap (the swap inherited ELK's
+height-sized flow pitch, too tight for the wider boxes along the new x-axis);
+the transpose now re-packs the flow ranks by their actual widths
+(`respace-flow-ranks` + `intra-region-flow-gap`), so the chips clear the
+state boxes. The feature stays opt-in behind `:direction :auto`.
 
 ### 4.4 G3 — fired-edge id consistency ✅ CLOSED
 

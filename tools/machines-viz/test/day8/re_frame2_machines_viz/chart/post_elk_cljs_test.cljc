@@ -301,6 +301,78 @@
         (is (apply = ys) "transposed children share a y (horizontal row)")
         (is (not (apply = xs)) "transposed children spread on x")))))
 
+(defn- x-overlap?
+  "Do two boxes `{:x :width}` overlap along the x-axis (open intervals)? Pure."
+  [a b]
+  (and (< (:x a) (+ (:x b) (:width b)))
+       (< (:x b) (+ (:x a) (:width a)))))
+
+(deftest transpose-event-chips-clear-state-boxes
+  ;; rf2-vb359s — after the transpose, intra-region event-node chips must NOT
+  ;; overlap the state boxes. A bare coordinate swap inherits the flow spacing
+  ;; ELK sized for node HEIGHTS (state 58 / chip 34), far too tight once boxes
+  ;; occupy their WIDTHS along the new x-axis (state 152 / chip 96), so the
+  ;; chips buried into the state boxes. The re-pack must space the ranks by
+  ;; their actual widths.
+  (let [parsed (layout/project-definition parallel-machine)
+        desc   (post-elk/region-descendant-ids parsed)
+        audio-rid (layout/region-node-id :audio)
+        video-rid (layout/region-node-id :video)
+        ;; an ELK-shaped column inside each region: states at REALISTIC widths
+        ;; (152×58) stacked vertically with an event chip (96×34) between
+        ;; consecutive states (the +0.5 inter-rank events-as-nodes shape). The
+        ;; vertical pitch (108px) is sized for the heights the bug inherits.
+        state-ids  (fn [rid] (->> (get desc rid)
+                                  (remove #(str/starts-with? % "event__"))
+                                  sort))
+        event-ids  (fn [rid] (->> (get desc rid)
+                                  (filter #(str/starts-with? % "event__"))
+                                  sort))
+        region-cols
+        (fn [rid x0]
+          (let [ss (state-ids rid)
+                es (event-ids rid)
+                ;; states on integer ranks 0,1,…; events on the +0.5 ranks
+                ;; between them — exactly the column ELK produces for a region.
+                state-pos (into {} (map-indexed
+                                     (fn [i id] [id {:x (+ x0 20) :y (* 108 i)
+                                                     :width 152 :height 58}])
+                                     ss))
+                event-pos (into {} (map-indexed
+                                     (fn [i id] [id {:x (+ x0 48) :y (+ 54 (* 108 i))
+                                                     :width 96 :height 34}])
+                                     es))]
+            (merge state-pos event-pos)))
+        positions (merge
+                    {audio-rid {:x 0   :y 0 :width 200 :height 500}
+                     video-rid {:x 400 :y 0 :width 200 :height 500}}
+                    (region-cols audio-rid 0)
+                    (region-cols video-rid 400))
+        stub {:positions positions :edge-points {} :edge-labels {}}
+        out  (post-elk/transpose-parallel-regions stub parsed)
+        np   (:positions out)
+        check-region
+        (fn [rid]
+          (let [s-boxes (map #(get np %) (state-ids rid))
+                e-boxes (map #(get np %) (event-ids rid))]
+            (doseq [eb e-boxes
+                    sb s-boxes]
+              (is (not (x-overlap? eb sb))
+                  (str "event chip " eb " overlaps state box " sb
+                       " in region " rid " after transpose")))))]
+    (testing "audio region: no event chip overlaps a state box on the flow axis"
+      (check-region audio-rid))
+    (testing "video region: no event chip overlaps a state box on the flow axis"
+      (check-region video-rid))
+
+    (testing "the re-packed ranks read left-to-right with positive flow pitch"
+      ;; the transposed audio children must occupy DISTINCT x ranks (not all
+      ;; piled on one x), with each rank cleared of the previous.
+      (let [audio-children (map #(get np %) (get desc audio-rid))
+            xs (sort (distinct (map :x audio-children)))]
+        (is (> (count xs) 1) "children spread across multiple flow ranks")
+        (is (apply < xs) "ranks are strictly increasing on x")))))
+
 (deftest transpose-clears-region-edge-routes
   (let [parsed (layout/project-definition parallel-machine)
         ;; seed an ELK route on an intra-region edge, then assert the
