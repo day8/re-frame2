@@ -166,7 +166,17 @@
  :api-md-known-unmanifested
  #{"machine->xstate-json"   ; spec/API.md §Machines — tools/machines-viz design surface, unshipped
    "machine->mermaid"       ; spec/API.md §Machines — tools/machines-viz design surface, unshipped
-   "story-view"}            ; spec/API.md §Stories — Story view-render verb, unshipped in the reference impl
+   "story-view"             ; spec/API.md §Stories — Story view-render verb, unshipped in the reference impl
+   ;; EP-0001 two-partition frame contract (rf2-xtlzrk) — SPEC landed ahead of
+   ;; the impl beads (3-10); these vars don't yet exist as live public vars, so
+   ;; the generated manifest cannot carry them. Remove each from this allowlist
+   ;; as its impl bead lands and the regenerated manifest picks it up.
+   "runtime-db-value"       ; EP-0001 runtime-db partition reader (002) — unshipped
+   "frame-state-value"      ; EP-0001 frame-state projection reader (002) — unshipped
+   "replace-app-db!"        ; EP-0001 app-db-partition mutator (Tool-Pair; renamed from reset-frame-db!) — unshipped
+   "reset-app-db!"          ; EP-0001 app-db-only reset (Tool-Pair) — unshipped
+   "replace-runtime-db!"    ; EP-0001 runtime-db-partition mutator (Tool-Pair) — unshipped
+   "replace-frame-state!"}  ; EP-0001 full-frame mutator (Tool-Pair) — unshipped
 
  ;; --------------------------------------------------------------------------
  ;; SECONDARY projection-check allowlists (rf2-gkp0t). The keystone guards

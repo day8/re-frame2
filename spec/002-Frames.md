@@ -53,7 +53,11 @@ This Spec inherits the constraints and goals from 000 and adds two frame-specifi
 
 ```clojure
 {:id           :todo                    ;; the keyword identifier
- :app-db       <atom>                   ;; this frame's app-db
+ :frame-state  <atom>                   ;; this frame's ONE physical durable container —
+                                        ;;   holds both partitions: {:rf.db/app <app-db>
+                                        ;;   :rf.db/runtime <runtime-db>}. app-db and
+                                        ;;   runtime-db are PROJECTION REACTIONS over it
+                                        ;;   (per §One physical container, two projection reactions)
  :router       {...}                    ;; this frame's event queue/scheduler state
  :sub-cache    {...}                    ;; this frame's signal-graph cache
  :epoch-history [...]                   ;; this frame's per-cascade :rf/epoch-record ring (per Tool-Pair §Time-travel)
@@ -66,20 +70,130 @@ This Spec inherits the constraints and goals from 000 and adds two frame-specifi
  :config       {...}}                   ;; whatever was passed to `reg-frame`
 ```
 
-Within `:app-db`, a small number of root keys are runtime-managed (per [Conventions.md §Reserved app-db keys](Conventions.md#reserved-app-db-keys)). The set:
+The frame's durable state is **two partitions** (per §The two-partition frame contract below): user **app-db** (`:db`) and framework **runtime-db** (`:rf.db/runtime`). App-db holds nothing but application data. The framework-owned runtime state — machine snapshots, route slice, elision declarations, SSR hydration metadata — lives in **runtime-db**, addressed by the `:rf.runtime/*` children (per [Conventions.md §Reserved runtime-db keys](Conventions.md#reserved-runtime-db-keys)). The runtime-managed slots:
 
-- `[:rf/runtime :machines :snapshots]` — `{<machine-id> <:rf/machine-snapshot>}` for every active machine in this frame (per [005-StateMachines.md §Where snapshots live](005-StateMachines.md#where-snapshots-live)).
-- `[:rf/runtime :machines :system-ids]` — the per-frame **reverse-index** for `:system-id` named addressing: `{<system-id> <gensym'd-machine-id>}`. Allocated lazily (only present when a spawn binds a name); cleared on destroy. Per [005 §Named addressing via `:system-id`](005-StateMachines.md#named-addressing-via-system-id) and.
-- `[:rf/runtime :routing :current]` — the route slice for url-bound frames (per [012-Routing.md](012-Routing.md)).
-- `[:rf/runtime :routing :pending-navigation]` — the pending-navigation slot, populated when a `:can-leave` guard rejects a navigation; cleared by `:rf.route/continue` or `:rf.route/cancel`. Allocated lazily. Per [012 §Navigation blocking — pending-nav protocol](012-Routing.md#navigation-blocking--pending-nav-protocol).
+- `[:rf.runtime/machines :snapshots]` — `{<machine-id> <:rf/machine-snapshot>}` for every active machine in this frame (per [005-StateMachines.md §Where snapshots live](005-StateMachines.md#where-snapshots-live)).
+- `[:rf.runtime/machines :system-ids]` — the per-frame **reverse-index** for `:system-id` named addressing: `{<system-id> <gensym'd-machine-id>}`. Allocated lazily (only present when a spawn binds a name); cleared on destroy. Per [005 §Named addressing via `:system-id`](005-StateMachines.md#named-addressing-via-system-id) and.
+- `[:rf.runtime/routing :current]` — the route slice for url-bound frames (per [012-Routing.md](012-Routing.md)).
+- `[:rf.runtime/routing :pending-navigation]` — the pending-navigation slot, populated when a `:can-leave` guard rejects a navigation; cleared by `:rf.route/continue` or `:rf.route/cancel`. Allocated lazily. Per [012 §Navigation blocking — pending-nav protocol](012-Routing.md#navigation-blocking--pending-nav-protocol).
 
-The reserved set is **fixed-and-additive** per [Conventions.md §Reserved app-db keys](Conventions.md#reserved-app-db-keys): names already in the table cannot be repurposed, and new keys are added only by Spec change.
+The reserved runtime-db set is **fixed-and-additive** per [Conventions.md §Reserved runtime-db keys](Conventions.md#reserved-runtime-db-keys): names already in the table cannot be repurposed, and new children are added only by Spec change.
 
 Three observations:
 
 1. **Handlers are not in the frame.** The handler registrar is global, shared across all frames. Frames isolate *state*, not *behaviour*.
-2. **The signal graph is per-frame.** Two frames running the same `:total` subscription compute against their own `app-db`s, cache against their own sub-caches; they are independent.
+2. **The signal graph is per-frame.** Two frames running the same `:total` subscription compute against their own app-db projections, cache against their own sub-caches; they are independent.
 3. **Frames are mutable runtime objects.** They are not values. User code holds keywords; the framework holds frame records.
+
+### The two-partition frame contract
+
+A frame owns **two durable partitions**, committed coherently by one event cascade:
+
+| Partition | Owner | Event-context key | What it holds |
+|---|---|---|---|
+| **app-db** | the application | `:db` (coeffect/effect) | user application data — and nothing else |
+| **runtime-db** | the framework | `:rf.db/runtime` (coeffect/effect) | machine / routing / elision / SSR subsystem state (the `:rf.runtime/*` children) |
+
+A **frame-state** value is the coherent projection of both:
+
+```clojure
+{:rf.db/app     <app-db>
+ :rf.db/runtime <runtime-db>}
+```
+
+This split removes the v1→early-v2 ownership footgun where framework runtime state sat under a `:rf/runtime` root *inside* user app-db, so an ordinary fresh `:db` return could silently delete machine, routing, elision, or SSR state. Under the partition, an ordinary `:db` effect replaces **only** app-db — runtime-db is a partition the handler never holds. The footgun is structurally gone, not merely warned against.
+
+The split is also an **AI-legibility win**: once app-db holds nothing but app data, `reg-app-schema` describes a *pure* application contract an agent can read without framework noise — the spec-is-the-artefact payoff (per [Principles.md](Principles.md)).
+
+#### One physical container, two projection reactions
+
+The frame holds **one physical frame-state container** (the `:frame-state` atom above). App-db and runtime-db are **projection reactions** layered over it:
+
+```clojure
+frame-state  (one signal: {:rf.db/app <app-db> :rf.db/runtime <runtime-db>})
+   ├── app-db     = (reaction (:rf.db/app @frame-state))     ; layer-1 input for app subs
+   └── runtime-db = (reaction (:rf.db/runtime @frame-state)) ; layer-1 input for framework subs
+```
+
+This is **pattern contract**, not just one acceptable representation (it resolves EP-0001 Open Issues 3 + 7 — Mike ruling #3). Ports MAY differ only if they preserve the projection-equality semantics below; the reference impl commits to the single container. The full substrate realisation lives in [006 §Frame-state container and partition projections](006-ReactiveSubstrate.md#frame-state-container-and-partition-projections).
+
+The model buys partition-aware sub-cache invalidation **for free** from existing reaction-deref equality (Mike ruling #7 — no explicit dirty flags unless an adapter needs them):
+
+- A **runtime-only commit** bumps `frame-state`; the `app-db` projection reaction recomputes, finds `(:rf.db/app …)` `identical?` to the prior value, and **does not propagate** — app subs neither re-render nor recompute.
+- An **app-only commit** is symmetric — the `runtime-db` projection does not propagate, so framework route/machine subs are untouched, and app authors never carry runtime paths in their schemas or sub code.
+- A commit that touches **both** partitions propagates to both projections.
+
+#### Event context threads both partitions
+
+A standard event context threads both partitions plus the frame id:
+
+```clojure
+{:coeffects
+ {:db             {:todo/items []}              ;; app-db (the inherited bare key)
+  :event          [:todo/add "Write spec"]
+  :rf.db/runtime  {:rf.runtime/machines {}       ;; runtime-db (reserved)
+                   :rf.runtime/routing  {}}
+  :rf.frame/id    :todo}                         ;; the running frame's id
+ :effects {}}
+```
+
+The runtime-db coeffect is injected **by reference** (the persistent runtime-db value, no copy); an app-only commit performs no runtime re-commit, so a pure app event pays nothing for a partition it never touches. `:rf.frame/id` is the *runtime-context* spelling of the frame id; it is distinct from the public `:frame` dispatch/subscribe opt, which is unchanged (the `:frame` → `:rf.frame/id` *context-key* concern is owned by the frame-target-resolution work, not this contract).
+
+#### An ordinary `:db` return replaces only app-db
+
+`reg-event-db` handlers receive and return only app-db; ordinary `:db` effects from `reg-event-fx` are app-db too. If the frame currently holds:
+
+```clojure
+{:rf.db/app     {:session/status :authenticated :user/id 42}
+ :rf.db/runtime {:rf.runtime/machines {…} :rf.runtime/routing {…}}}
+```
+
+then `(rf/reg-event-db :session/reset (fn [_db _] {:session/status :anonymous}))` commits:
+
+```clojure
+{:rf.db/app     {:session/status :anonymous}      ;; only app-db replaced
+ :rf.db/runtime {:rf.runtime/machines {…} :rf.runtime/routing {…}}}  ;; runtime-db untouched
+```
+
+No preservation code is needed; the handler cannot touch runtime-db through `:db`.
+
+#### Write authority is by convention
+
+`:rf.db/runtime` is reserved **by convention, NOT as a security boundary** (Mike ruling #4). Because it rides in `:coeffects`, app code can technically read it, and the closed top-level effect map is widened from `#{:db :fx}` to include the reserved `:rf.db/runtime` state effect, so app code can technically *emit* it too. The rule — documented and surfaced through dev diagnostics, not enforced as a capability — is:
+
+> `:rf.db/runtime` is for framework and runtime-extension code. Ordinary application code does not write it directly; it reaches subsystem state through public framework subscriptions and effects.
+
+Framework subsystems (machines, routing, elision, SSR) write runtime-db through `:rf.db/runtime` effects, privileged runtime APIs, or internal interceptors. Both **whole-value replacement** AND **operation-style writes** are supported (Mike ruling #5): normal subsystem writes prefer operations/helpers; restore / hydration / reset may replace the whole runtime-db (or the whole frame-state). A runtime write and an app-db write in the same cascade install as **one atomic frame-state transition** (per [§Run-to-completion](#run-to-completion-dispatch-drain-semantics) and [006](006-ReactiveSubstrate.md)).
+
+Host handles remain **outside** frame-state. Timers, AbortControllers, listeners, promise handles, and substrate objects are teardown resources, not serializable runtime-db values. Runtime-db records enough durable facts to reconstitute or clean up those handles; it does not store the handles themselves (per §Durable vs transient below).
+
+#### Subscriptions read the partition they belong to
+
+- Ordinary layer-1 app subscriptions read **app-db** (`(rf/reg-sub :todo/items (fn [db _] (:todo/items db)))` — `db` is the app-db projection).
+- Framework subscriptions read **runtime-db** through framework helpers: `[:rf/machine :door/main]` (or `sub-machine`), `[:rf.route/id]`, `[:rf.route/params]`. App code uses these public subs; it does not reach into runtime-db paths directly.
+- A sub composed from both partitions reruns when either input changes; the projection-equality model (above) makes runtime-only changes visible to framework subs and invisible to app subs, and vice versa.
+
+#### Frame-state value accessors and mutators
+
+| Surface | Returns / does | Mike ruling |
+|---|---|---|
+| `(rf/app-db-value frame-id)` | the app-db partition value (a plain map) | reader #1 |
+| `(rf/runtime-db-value frame-id)` | the runtime-db partition value | reader #1 |
+| `(rf/frame-state-value frame-id)` | `{:rf.db/app … :rf.db/runtime …}` | reader #1 |
+| `(rf/replace-app-db! frame-id app-db)` | replace **only** the app-db partition | mutator #1 |
+| `(rf/replace-runtime-db! frame-id runtime-db)` | replace **only** the runtime-db partition | mutator #1 |
+| `(rf/replace-frame-state! frame-id frame-state)` | replace **both** partitions atomically (full-frame install) | mutator #1 / #10 |
+
+App-facing APIs return app-db by default; tools and privileged runtime code request runtime-db or frame-state explicitly. Full-frame operations (epoch restore, time travel, SSR hydration, frame reset, test-fixture install) use the full-frame surfaces — never ordinary `:db` effects. The `reset-frame-db!` Tool-Pair surface is renamed to a clear pair — `replace-app-db!` / `reset-app-db!` for app-db-only injection, and the distinct `replace-frame-state!` for full-frame tools (Mike ruling #10); a tool API named as a db replacement does not silently replace runtime-db.
+
+#### Durable vs transient
+
+A fact lives in **runtime-db iff it must survive epoch-restore and SSR-hydration** — i.e. it is a serializable durable fact (Mike ruling #13). Everything else is **transient**: frame-scoped, torn down on destroy, never serialized.
+
+- **Durable (runtime-db):** machine snapshots + system-ids + spawn registry + spawn-counter; the route slice + pending-nav + scroll caches + nav-token counters; elision declarations; SSR hydration metadata (e.g. a server render hash).
+- **Transient (NOT runtime-db):** host handles (timers, AbortControllers, listeners, promises); in-flight HTTP registries; SSR request/response accumulators, head snapshots, streaming continuation registries, pending-error buffers; trace rings; epoch capture buffers; sub-cache entries; flow registries + `last-inputs` dirty-check caches.
+
+Transient state is frame-scoped and torn down on `destroy-frame!` (per [§Destroy](#destroy)) but full-frame serialization, hydration, restore, and time-travel MUST NOT pull it in.
 
 **The trace surface is per-frame too.** Each frame owns its own cascade-keyed trace ring alongside its `epoch-history`. Trace events that ride inside an in-flight cascade route to the frame whose drain loop, reactive recompute, or view render is running — they never cross frames. The ring unit is the cascade (one `:rf.trace/dispatch-id` = one slot), retained at the per-frame `:rf.trace/cascades-retained` knob (default 50). Cross-frame consumers (pair tools, multi-frame stories) merge by `:dispatch-id` across rings; frameless emits (registration, REPL evals, lifecycle outside any cascade) bypass the rings entirely and stream live to listeners only. See [Spec 009 §Per-frame trace rings](009-Instrumentation.md#per-frame-trace-rings-cascade-keyed-dev-only) for the full retention contract.
 
@@ -207,12 +321,12 @@ For developers who want a fresh start (a test fixture, an explicit "reset to ini
 
 Equivalent to `(destroy-frame! :todo)` followed by `(reg-frame :todo <current-config>)`:
 
-- Existing `app-db` is reset to `{}`.
+- **The WHOLE frame is reset** — lifecycle AND *both* durable partitions (Mike ruling #9). Existing `app-db` is reset to `{}` and runtime-db is cleared (every machine snapshot, route slice, elision declaration, and SSR metadata is dropped); the physical frame-state container starts fresh.
 - Sub-cache is disposed; live subscriptions re-materialise on next deref.
 - Router queue is cleared; any unprocessed events are dropped.
 - The configured `:on-create` event re-fires as if it were a fresh creation, draining its cascade synchronously.
 
-`reset-frame!` is the right tool for "I want this back to its initial state." Tests use it between test cases. Story tools use it for "reset" buttons.
+`reset-frame!` is the right tool for "I want this back to its initial state." Tests use it between test cases. Story tools use it for "reset" buttons. It resets the whole frame, not just app-db — for an app-db-only reset that preserves live runtime state, use `reset-app-db!` (per [§Frame-state value accessors and mutators](#frame-state-value-accessors-and-mutators)).
 
 `destroy-frame!` (covered above) goes one step further — the frame keyword is removed from the registry; subsequent dispatch/subscribe with that frame recovers (dispatch no-ops, subscribe returns nil) and emits a production-survivable `:rf.error/frame-destroyed` through the always-on error-emit listener (see the [§Destroy](#destroy) contract).
 
@@ -581,7 +695,7 @@ The frame affordances are organised by **what you are trying to do**, not by mec
 - **Scope:** `with-frame` (pin to an existing frame), `with-new-frame` (create + own + destroy), `frame-provider` (React subtree).
 - **Hold (carry a frame's ops as a value, across async):** `frame-handle` (common), `frame-bound-fn` / `frame-bound-fn*` (advanced wrap).
 - **Override:** the `{:frame …}` opt — first-class explicit routing for tools / tests / SSR / fx handlers.
-- **Reads / lifecycle:** `app-db-value`, `current-frame-id`, `snapshot-of`, `destroy-frame!`, `make-frame`, `reg-frame`, `frame-ids`, `frame-meta`.
+- **Reads / lifecycle:** `app-db-value`, `runtime-db-value`, `frame-state-value`, `current-frame-id`, `snapshot-of`, `destroy-frame!`, `make-frame`, `reg-frame`, `frame-ids`, `frame-meta`.
 
 ### `frame-handle` — the keystone affordance (CLJS reference)
 
@@ -906,7 +1020,7 @@ The distinction is documentary and conceptual, not technical. One dispatch pipel
 2. **Every actor message sent during a domain-event's processing drains before the next domain event for that frame.** Once drain is engaged, no further external events are processed for that frame until the cascade settles.
 3. **Depth-limited (dynamic), halt at the event boundary — no whole-drain rollback.** The drain enforces a configurable depth limit (`:drain-depth`). When exceeded, drain stops with a machine-readable error: `{:reason :drain-depth-exceeded :frame :auth :event [...] :depth N}`. The limit is per-frame and runtime-overridable for debugging. **The unit of atomicity is the *event*, not the drain** (per [§Drain versus event — the epoch unit](#drain-versus-event--the-epoch-unit)). Every event the drain already settled committed its own `:db` write and its own durable `:ok` epoch — those are **kept**, exactly as if the drain had ended after each one. There is **no** whole-drain rollback and no pre-drain snapshot: rolling back already-settled, already-epoched events would discard durable history and contradict the per-event epoch boundary. When the limit trips, the runtime (a) **discards the remaining queued events** (the next, *halting* event never runs), (b) emits the `:rf.error/drain-depth-exceeded` error trace carrying `:rollback? false` (no state was reverted), and (c) commits a single trailing `:halted-depth` [`:rf/epoch-record`](Spec-Schemas.md#rfepoch-record) for the halting event so devtools (Xray's epoch panel, re-frame2-pair's `cascade-of`) get a clear "drain halted here" marker following the durable `:ok` records. Because the halting event never ran, that record's `:db-before` and `:db-after` **both equal the durable last-settled `app-db`** (per [Spec-Schemas §`:rf/epoch-record` §Outcomes](Spec-Schemas.md#outcomes) and the halted-cascade listener contract in [009 §`register-epoch-listener!`](009-Instrumentation.md#register-epoch-listener--assembled-epoch-listener)). The frame is left at the last settled state — which, being the value after a completed event, is exactly the kind of between-event boundary that is always reachable by replay. Conformance fixture: [`drain-depth-limit.edn`](conformance/fixtures/drain-depth-limit.edn).
 
-   **Halt boundary — what does and doesn't commit.** Atomicity is enforced *at the event boundary*, so there is no multi-event drain state to revert. Each settled event is atomic on its own: a handler's `:db` write either commits in full (when the event settles, yielding its `:ok` epoch) or not at all (the event's own partial work never reaches `app-db` if the event itself fails — see [§Interceptor chain execution](#interceptor-chain-execution--before-short-circuit-after-always-runs)). The halting event makes **no** writes — it was never dequeued into a handler invocation — so nothing of its needs reverting. Frame-local registry mutations follow the same per-event grammar: a `(rf/dispatch [:rf.machine/spawn ...])` that **settled** as its own event durably registered the spawned actor's frame-local handler in its `[:rf/runtime :machines :snapshots <id>]` slot, and that registration is kept along with that event's durable `app-db` — there is no orphaning, because the kept `app-db` is the very value (post that event) that references the registration. Out-of-band side effects already committed to *external* substrates (an HTTP request that flew, a `dispatch-later` timer that was scheduled) are likewise not touched. (The sibling halt case, [§Edge cases worth pinning §Frame disposal mid-drain](#edge-cases-worth-pinning), behaves identically: settled events are durable, only not-yet-dequeued events are dropped, and a `:halted-destroy` marker records the halt.)
+   **Halt boundary — what does and doesn't commit.** Atomicity is enforced *at the event boundary*, so there is no multi-event drain state to revert. Each settled event is atomic on its own: a handler's `:db` write either commits in full (when the event settles, yielding its `:ok` epoch) or not at all (the event's own partial work never reaches `app-db` if the event itself fails — see [§Interceptor chain execution](#interceptor-chain-execution--before-short-circuit-after-always-runs)). The halting event makes **no** writes — it was never dequeued into a handler invocation — so nothing of its needs reverting. Frame-local registry mutations follow the same per-event grammar: a `(rf/dispatch [:rf.machine/spawn ...])` that **settled** as its own event durably registered the spawned actor's frame-local handler in its `[:rf.runtime/machines :snapshots <id>]` slot, and that registration is kept along with that event's durable `app-db` — there is no orphaning, because the kept `app-db` is the very value (post that event) that references the registration. Out-of-band side effects already committed to *external* substrates (an HTTP request that flew, a `dispatch-later` timer that was scheduled) are likewise not touched. (The sibling halt case, [§Edge cases worth pinning §Frame disposal mid-drain](#edge-cases-worth-pinning), behaves identically: settled events are durable, only not-yet-dequeued events are dropped, and a `:halted-destroy` marker records the halt.)
 
 ```clojure
 (rf/reg-frame :auth
@@ -955,7 +1069,7 @@ From the *handler's* perspective, the handler returns once with the full effects
 
 **Composition with the dispatch queue.** When `:fx` entries include `:dispatch`, the dispatched events enter the runtime queue in source order — preserving source-order all the way down a chain. From a plain (non-machine) handler they append to the back (FIFO); from a *machine* handler they are inserted at the front, still in source order, per [005 §Level 4](005-StateMachines.md#level-4--across-the-runtime). `:dispatch-later` schedules timers in source order; actual delivery depends on each timer's delay.
 
-**Composition with state machines.** Machine action effect maps (`{:data :fx}`) follow the same rule per [005 §Drain semantics §Level 1](005-StateMachines.md#level-1--within-a-single-actions-effect-map): `:data` merges first (lowered to one `:db` write at `[:rf/runtime :machines :snapshots <id>]`), then `:fx` entries process in source order with `:raise` routed locally to the machine's pre-commit queue and the rest (including `:rf.machine/spawn` / `:rf.machine/destroy`) forwarded to the standard fx pipeline.
+**Composition with state machines.** Machine action effect maps (`{:data :fx}`) follow the same rule per [005 §Drain semantics §Level 1](005-StateMachines.md#level-1--within-a-single-actions-effect-map): `:data` merges first (lowered to one `:rf.db/runtime` write at `[:rf.runtime/machines :snapshots <id>]` — snapshots are runtime-db), then `:fx` entries process in source order with `:raise` routed locally to the machine's pre-commit queue and the rest (including `:rf.machine/spawn` / `:rf.machine/destroy`) forwarded to the standard fx pipeline.
 
 **Error during `:fx`.** If the fx-handler for `[a 1]` throws, subsequent entries `[b 2]` and `[c 3]` **continue to run.** Each thrown error is traced independently as `:rf.error/fx-handler-exception`. The `:db` commit is preserved (it happened before any `:fx` entry). Rationale: `:fx` entries are by design independent; ordering means *order*, not *dependency*. An fx that genuinely depends on a prior fx succeeding should be lifted to a `:dispatch` chain — observe the result via cofx in the dispatched handler. Halting on first error would conflate the two concerns.
 
@@ -1103,23 +1217,36 @@ The loop has two layers — an **outer drain** (Level 4 in [005's terms](005-Sta
       ;; POST-install stage; an fx throw at step 3 does NOT wind back the
       ;; installed `:db` — its side effects may already have fired.)
 
-      ;; 2. Apply :db FIRST — the FLOW-AUGMENTED `:db` effect. Atomic single
-      ;;    replace-container! call. Installs ONLY when a `:db` effect is
-      ;;    present — so a pre-install throw (which leaves no `:db` effect)
-      ;;    installs nothing. By this point the flow-transform :after has
-      ;;    already rewritten `(:db effects)` (step 1), so the value
-      ;;    installed here is the flow-derived db. This is the moment
-      ;;    sub-cache invalidation fires (per :fx ordering rule 4 above and
-      ;;    per [006 §Subscription cache invalidation]) AND the moment the
-      ;;    `:rf.event/db-changed` trace fires — AFTER flows (per [013
+      ;; 2. Commit the FRAME-STATE transition FIRST — the FLOW-AUGMENTED `:db`
+      ;;    effect (app-db) AND any `:rf.db/runtime` effect (runtime-db),
+      ;;    installed as ONE atomic frame-state write. A cascade may produce
+      ;;    an app-db change, a runtime-db change, or both; the frame installs
+      ;;    the combined result as one coherent transition into the single
+      ;;    physical frame-state container (per §One physical container, two
+      ;;    projection reactions). Installs ONLY when at least one partition
+      ;;    effect is present — so a pre-install throw (which leaves neither
+      ;;    `:db` nor `:rf.db/runtime`) installs nothing. By this point the
+      ;;    flow-transform :after has already rewritten `(:db effects)`
+      ;;    (step 1), so the app-db value installed here is the flow-derived
+      ;;    db. This is the moment sub-cache invalidation fires (per :fx
+      ;;    ordering rule 4 above and per [006 §Subscription cache
+      ;;    invalidation]); the projection-equality model means an app-only
+      ;;    commit propagates only to app subs and a runtime-only commit only
+      ;;    to framework subs. Change traces fire AFTER flows (per [013
       ;;    §Drain integration](013-Flows.md#drain-integration) and [009
-      ;;    §Canonical per-event trace sequence](009-Instrumentation.md#canonical-per-event-trace-sequence)).
-      ;;    `contains? effects :db` is the WHOLE guard: a pre-install throw
-      ;;    leaves no `:db` effect (a handler / interceptor throw never made
-      ;;    one; the flow-throw path discarded it), so this is a no-op and
-      ;;    the event aborts with app-db unchanged.
-      (when (contains? effects :db)
-        (substrate/replace-container! (:app-db frame) (:db effects))
+      ;;    §Canonical per-event trace sequence](009-Instrumentation.md#canonical-per-event-trace-sequence)):
+      ;;    an app-db change emits `:rf.event/db-changed` (APP-DB-ONLY — Mike
+      ;;    ruling #6); a partition change of EITHER kind additionally emits
+      ;;    the frame-level `:rf.event/frame-state-changed` carrying the
+      ;;    changed-partition tag(s). `contains?` is the WHOLE guard: a
+      ;;    pre-install throw leaves no partition effect, so this is a no-op
+      ;;    and the event aborts with both partitions unchanged.
+      (when (or (contains? effects :db) (contains? effects :rf.db/runtime))
+        (substrate/commit-frame-transition!                ;; one atomic frame-state install
+          (:frame-state frame)
+          (cond-> {}
+            (contains? effects :db)            (assoc :rf.db/app     (:db effects))
+            (contains? effects :rf.db/runtime) (assoc :rf.db/runtime (:rf.db/runtime effects))))
         (sub-cache/invalidate! frame))
 
       ;; 3. Walk :fx in source order — SKIPPED on any pre-install throw
@@ -1222,9 +1349,9 @@ For machine events, `process-event!` step 1 lands inside the machine handler, wh
 
 (defn machine-event-handler [machine-def]
   (fn [frame envelope]
-    (let [snapshot-path [:rf/runtime :machines :snapshots (:id machine-def)]
-          db            (substrate/read-container (:app-db frame))
-          snapshot      (get-in db snapshot-path)]
+    (let [snapshot-path [:rf.runtime/machines :snapshots (:id machine-def)]
+          runtime-db    (substrate/read-runtime-db (:frame-state frame))  ;; runtime-db projection
+          snapshot      (get-in runtime-db snapshot-path)]
       (loop [in-flight    snapshot
              accum-fx     []
              raise-queue  [(:event envelope)]
@@ -1254,9 +1381,13 @@ For machine events, `process-event!` step 1 lands inside the machine handler, wh
                    (extract-raises fx)
                    (inc always-depth)))
 
-          ;; Fixed point reached. Commit ONE :db write at [:rf/runtime :machines :snapshots <id>].
+          ;; Fixed point reached. Commit ONE :rf.db/runtime write at
+          ;; [:rf.runtime/machines :snapshots <id>] — machine snapshots are
+          ;; runtime-db, so the snapshot install is a runtime-db partition
+          ;; write (the machine registrar mints a framework-authority handler;
+          ;; per [005] the snapshot effect is `:rf.db/runtime`, not `:db`).
           :else
-          {:db (assoc-in db snapshot-path in-flight)
+          {:rf.db/runtime (assoc-in runtime-db snapshot-path in-flight)
            :fx accum-fx})))))
 ```
 
@@ -1415,11 +1546,11 @@ The drain semantics above were motivated by actor-style machine composition. The
 
 > **A state machine has the same contract as an event handler.** Given current state + an event, it produces new state + effects — exactly what `reg-event-fx` is. A machine is an event handler whose *body* happens to be a transition-table interpreter.
 
-Machines therefore reuse the existing event registry, dispatch pipeline, and effect substrate. Co-locating machine snapshots in `app-db` (rather than in a parallel substrate) is what makes machine state inherit [Goal 3 — Frame state revertibility](000-Vision.md#frame-state-revertibility) for free; spawn-time registrations live in the **frame-local** tier of the two-tier registry (per [005 §Spawning](005-StateMachines.md#spawning--dynamic-actors)). The two tiers — **central** (process-global, shared across frames; populated by namespace-load `reg-*` calls) and **frame-local** (per-frame, populated by spawn-time registrations, and revertible as part of the frame value — a frame-state rewind to a prior settled epoch restores its `[:rf/runtime :machines :snapshots …]` registrations along with `app-db`) — are defined in [000-Vision §Frame state revertibility](000-Vision.md#frame-state-revertibility). The foundation hooks defined here are:
+Machines therefore reuse the existing event registry, dispatch pipeline, and effect substrate. Locating machine snapshots in the frame's **runtime-db** partition (rather than in a parallel substrate, and no longer inside app-db) is what makes machine state inherit [Goal 3 — Frame state revertibility](000-Vision.md#frame-state-revertibility) for free — runtime-db is part of the one frame-state container, so a frame-state rewind walks snapshots back atomically; spawn-time registrations live in the **frame-local** tier of the two-tier registry (per [005 §Spawning](005-StateMachines.md#spawning--dynamic-actors)). The two tiers — **central** (process-global, shared across frames; populated by namespace-load `reg-*` calls) and **frame-local** (per-frame, populated by spawn-time registrations, and revertible as part of the frame value — a frame-state rewind to a prior settled epoch restores its `[:rf.runtime/machines :snapshots …]` registrations along with the rest of frame-state) — are defined in [000-Vision §Frame state revertibility](000-Vision.md#frame-state-revertibility). The foundation hooks defined here are:
 
 - A registered event handler whose body comes from `make-machine-handler` *is* the machine. Tools filter by the `:rf/machine?` metadata exposed in `(handler-meta :event <id>)` to enumerate machines.
-- Snapshots live at the **reserved per-frame path `[:rf/runtime :machines :snapshots <machine-id>]`** in each frame's `app-db` (see [005 §Where snapshots live](005-StateMachines.md#where-snapshots-live)). The shape is `{:state ... :data ...}`: `:state` is the discrete FSM-keyword; `:data` is the machine's extended state (the term used in FSM literature and `gen_statem`; xstate calls it "context"). **Per-frame isolation is automatic** — each frame's `app-db` has its own `:rf/machines` map, so the same machine id can exist in multiple frames without collision; their snapshots live in each frame's own `[:rf/runtime :machines :snapshots]`. Because `:rf/machine` reads from the active frame's `app-db`, per-frame isolation extends transparently to subscription reads as well.
-- Reads happen through the framework-registered parametric sub `:rf/machine` (or its `sub-machine` wrapper). `@(rf/sub-machine <machine-id>)` resolves on the surrounding frame and reads from that frame's `[:rf/runtime :machines :snapshots <id>]`. See [005 §Subscribing to machines via `sub-machine`](005-StateMachines.md#subscribing-to-machines-via-sub-machine).
+- Snapshots live at the **reserved per-frame path `[:rf.runtime/machines :snapshots <machine-id>]`** in each frame's **runtime-db** (see [005 §Where snapshots live](005-StateMachines.md#where-snapshots-live)). The shape is `{:state ... :data ...}`: `:state` is the discrete FSM-keyword; `:data` is the machine's extended state (the term used in FSM literature and `gen_statem`; xstate calls it "context"). **Per-frame isolation is automatic** — each frame's runtime-db has its own `:rf.runtime/machines` map, so the same machine id can exist in multiple frames without collision; their snapshots live in each frame's own `[:rf.runtime/machines :snapshots]`. Because `:rf/machine` reads from the active frame's runtime-db, per-frame isolation extends transparently to subscription reads as well.
+- Reads happen through the framework-registered parametric sub `:rf/machine` (or its `sub-machine` wrapper). `@(rf/sub-machine <machine-id>)` resolves on the surrounding frame and reads from that frame's `[:rf.runtime/machines :snapshots <id>]`. See [005 §Subscribing to machines via `sub-machine`](005-StateMachines.md#subscribing-to-machines-via-sub-machine).
 - Two thin helpers: `(machine-transition definition snapshot event) → [next-snapshot effects]` (pure, JVM-runnable) and `(make-machine-handler spec) → fn` (a *pure factory* — no registration side effects, no global-state lookups, no self-id capture; the returned fn is suitable as a `reg-event-fx` body).
 - One reserved machine-internal fx-id (`:raise`) the machine handler routes locally inside the action's returned `:fx` vector; the canonical actor-lifecycle fx-ids `:rf.machine/spawn` / `:rf.machine/destroy` are registered globally and reach the standard `do-fx` resolver like any other fx.
 - Inspection trace events for machine lifecycle/transition (`:rf.machine.lifecycle/created`, `:rf.machine/transition`, `:rf.machine/snapshot-updated`, etc.) ride the standard trace stream — discriminated by their `:rf.machine.*` `:operation` keyword. Machine-emitted dispatches additionally carry `:source :machine-action` on the envelope per rf2-c3990 (the actor-message path).
@@ -1456,7 +1587,9 @@ re-frame2 commits to a queryable public registrar for every kind of registered e
 | `(rf/frame-ids)` | Seq of all registered frame keywords. | Yes |
 | `(rf/frame-ids prefix)` | Seq filtered by namespace prefix (e.g., `(rf/frame-ids :story)` returns all `:story.*` frames). | Yes |
 | `(rf/frame-meta id)` | Metadata for a single frame (config, source coords, lifecycle, doc, override maps, interceptor list). | Yes |
-| `(rf/app-db-value id)` | Current `app-db` value (a plain map) for the named frame. Returns nil if the frame is not registered. | Yes |
+| `(rf/app-db-value id)` | Current **app-db** partition value (a plain map) for the named frame. Returns nil if the frame is not registered. | Yes |
+| `(rf/runtime-db-value id)` | Current **runtime-db** partition value for the named frame (framework-owned subsystem state). Returns nil if the frame is not registered. Tooling / privileged-runtime read. | Yes |
+| `(rf/frame-state-value id)` | The coherent **frame-state** projection `{:rf.db/app <app-db> :rf.db/runtime <runtime-db>}`. Returns nil if the frame is not registered. The full-frame read for SSR / epoch / time-travel / Xray. | Yes |
 | `(rf/snapshot-of path)` / `(rf/snapshot-of path opts)` | Snapshot value at a path in a frame's `app-db` (typically a machine snapshot). One-arg form uses `:rf/default` frame; two-arg accepts `{:frame frame-id}`. | Yes |
 | `(rf/sub-topology)` | **Static** dependency graph over the registrar: a map of `sub-id → {:input-kind <kind>, :inputs <inputs>, :doc, :ns/:line/:file}`. `:input-kind` is `:db` / `:static` / `:parametric`; `:inputs` carries the literal `:<-` input query vectors for `:static`, `[]` for `:db`, and `:parametric` for an `input-fn` sub (whose realized edge set is not statically enumerable — realized edges per concrete query vector live in `sub-cache`). Pure data derived from the registrar at registration time. | Yes |
 | `(rf/sub-cache id)` | **Runtime** cache state for a frame: which subs are currently materialised, their current cached values, dependent components if any. Requires the reactive runtime. | **No** — CLJS-only |
@@ -1513,6 +1646,7 @@ A pointer-only index of decisions taken in this Spec. Each entry's load-bearing 
 
 | Decision | Pointer |
 |---|---|
+| Two-partition frame contract (EP-0001 / rf2-h0d6s6, 14 rulings) — a frame owns user **app-db** (`:db`) + framework **runtime-db** (`:rf.db/runtime`), held as ONE physical frame-state container with app-db/runtime-db projection reactions; an ordinary `:db` return replaces only app-db; `:rf.db/runtime` reserved by convention (not a security boundary); both whole-value and operation-style runtime writes; partition-aware invalidation falls out of projection-equality (no dirty flags); `reset-frame!` resets the whole frame; accessors `app-db-value`/`runtime-db-value`/`frame-state-value`, mutators `replace-app-db!`/`replace-runtime-db!`/`replace-frame-state!` | [§The two-partition frame contract](#the-two-partition-frame-contract), [Conventions §The two-partition frame contract](Conventions.md#the-two-partition-frame-contract) |
 | Frame presets — closed v1 set `:default` / `:test` / `:story` / `:ssr-server`; expansion is `(merge expansion user-supplied-metadata)` with user keys winning on conflict; adding a fifth preset is a Spec-change-only operation; `:devcards` (subsumed by `:story`), `:repl` (subsumed by `:default`), `:replay` (too coupled to Tool-Pair to stabilise) considered and not adopted in v1 | [§Frame presets](#frame-presets--capability-bundles-for-common-configurations) |
 | `reg-frame` re-registration is a surgical update by default; `reset-frame!` is the opt-in full replace; `destroy-frame!` removes from registry | [§Re-registration — surgical update](#re-registration--surgical-update), [§reset-frame! — full replace, opt-in](#reset-frame--full-replace-opt-in) |
 | `reg-frame` takes no `:db` config — frames always start with `app-db = {}`; initialisation runs through `:on-create` | [§reg-frame is atomic](#reg-frame--atomic-create-and-register-and-the-canonical-metadata-grammar) |
