@@ -145,6 +145,30 @@
   points into the state's near edge near its title row."
   14)
 
+(def initial-marker-left-extent
+  "rf2-lxk3h3 — the px the initial-state glyph extends LEFT of its target
+  state's near (left) edge — i.e. how far a container must reserve on its
+  LEFT so a NESTED initial substate's marker sits fully INSIDE the
+  container border instead of spilling past it.
+
+  The marker node is positioned at `state.x - initial-marker-x-offset`
+  (it sits that far left of the state). Inside that node's local frame the
+  glyph's LEFTMOST ink is the filled dot's left edge, at node-local
+  x = `dot-x - pseudo-radius = (pseudo-radius + 1) - pseudo-radius = 1`
+  (`initial-marker-glyph`). So the dot's left edge lands at absolute
+  `(state.x - initial-marker-x-offset) + 1 = state.x - (initial-marker-x-offset - 1)`
+  — i.e. `initial-marker-x-offset - 1` px LEFT of the state's near edge,
+  independent of density (the +1 dot inset is density-independent).
+
+  Equal to `initial-marker-x-offset` (one px of slack over the bare
+  `offset - 1` extent), so a container reserving this much LEFT padding
+  lands the dot's left edge ~1px INSIDE its border — the clean Stately
+  inset, never on/through it. `container-elk-padding`'s
+  `reserve-initial-marker?` arm takes `(max container-body-pad
+  initial-marker-left-extent)` so the reservation only ever GROWS the
+  inset, never shrinks a body-pad already wider than the glyph."
+  initial-marker-x-offset)
+
 (defn initial-marker-glyph
   "rf2-wwyx1u — PURE geometry of the initial-state glyph (filled dot +
   single Q-hook + small triangle arrowhead), in the marker node's LOCAL
@@ -598,20 +622,41 @@
               `compound-node` paints) PLUS a `:container-body-pad` band
               so the metadata row (compound tags / entry-exit rows) and
               the first child clear the header;
-    - LEFT / RIGHT / BOTTOM = `:container-body-pad` — the same inset the
-              container chrome leaves around its children below the strip.
+    - LEFT   = `:container-body-pad` — the inset the container chrome
+              leaves around its children below the strip — UNLESS
+              `reserve-initial-marker?` is set, in which case it grows to
+              `(max container-body-pad initial-marker-left-extent)` so a
+              NESTED initial substate's marker glyph (the dot + short
+              hook, drawn `initial-marker-x-offset` px LEFT of the state)
+              sits fully INSIDE the container border instead of spilling
+              past it (rf2-lxk3h3);
+    - RIGHT / BOTTOM = `:container-body-pad` — the same inset.
 
-  Both keys are density-dependent (`chart-{compact,regular,cosy}`), so a
-  fixed literal reserved the wrong header gap in the non-regular
+  Both density keys are density-dependent (`chart-{compact,regular,cosy}`),
+  so a fixed literal reserved the wrong header gap in the non-regular
   densities (children crowded the strip in `:cosy`, over-spaced it in
   `:compact`). Pass the resolved density map (`vc/chart-for-density`);
-  defaults to `vc/chart` (regular) so the nil-arity stays stable."
-  ([] (container-elk-padding vc/chart))
-  ([{:keys [container-title-height container-body-pad]}]
-   (str "[top="   (+ container-title-height container-body-pad)
-        ",left="  container-body-pad
-        ",bottom=" container-body-pad
-        ",right=" container-body-pad "]")))
+  defaults to `vc/chart` (regular) so the nil-arity stays stable.
+
+  rf2-lxk3h3 — `reserve-initial-marker?` (default false) widens ONLY the
+  LEFT side. `->elk-children` sets it per-container for every container
+  whose own initial substate carries a marker (the common case — a
+  compound / region always has an `:initial?` child), so the left inset
+  reserves room for the marker's leftward extent. The marker itself is
+  NOT in the ELK graph (it is a decorative xyflow-only glyph node), so its
+  extent cannot be measured into the container box by ELK's
+  `INCLUDE_CHILDREN` pass — the padding reservation is what grows the box
+  to enclose it."
+  ([] (container-elk-padding vc/chart false))
+  ([chart-vc] (container-elk-padding chart-vc false))
+  ([{:keys [container-title-height container-body-pad]} reserve-initial-marker?]
+   (let [left (if reserve-initial-marker?
+                (max container-body-pad initial-marker-left-extent)
+                container-body-pad)]
+     (str "[top="   (+ container-title-height container-body-pad)
+          ",left="  left
+          ",bottom=" container-body-pad
+          ",right=" container-body-pad "]"))))
 
 (defn ->elk-children
   "Project parsed nodes + parsed edges into elk.js's `children` shape.
@@ -650,7 +695,31 @@
   ([parsed] (->elk-children parsed nil nil))
   ([parsed measured-dims] (->elk-children parsed measured-dims nil))
   ([{:keys [nodes edges] :as parsed} measured-dims chart-vc]
-  (let [container-pad (container-elk-padding (or chart-vc vc/chart))
+  (let [resolved-vc   (or chart-vc vc/chart)
+        ;; rf2-8q5pt — the default container padding (no initial-marker
+        ;; reservation). rf2-lxk3h3 — a container whose own initial
+        ;; substate carries a marker takes the wider-LEFT variant instead
+        ;; (see `marker-container-pad` + `marker-container-ids` below).
+        container-pad (container-elk-padding resolved-vc)
+        ;; rf2-lxk3h3 — the LEFT-widened padding for a container that holds
+        ;; a NESTED initial substate, so the marker's leftward glyph extent
+        ;; sits inside the border instead of spilling past it.
+        marker-container-pad (container-elk-padding resolved-vc true)
+        ;; rf2-lxk3h3 — the set of container-ids (each `:parent-id` an
+        ;; `:initial?` state nests under) that therefore need the LEFT-
+        ;; widened padding. A compound / region always has an `:initial?`
+        ;; child, so this is the common case; a container with no initial
+        ;; child (none in a valid statechart, but cheap to be exact) keeps
+        ;; the plain body-pad inset. The synthetic ROOT-CONTAINER frame
+        ;; (rf2-q129z8) is the parent of the machine's TOP-LEVEL initial
+        ;; state (`wrap-in-root-container` re-parents every no-parent node
+        ;; to `root-container-id`), so it lands in the set too — the
+        ;; top-level initial marker is reserved against the frame border
+        ;; the same way a nested one is reserved against its compound.
+        marker-container-ids (into #{}
+                                   (comp (filter :initial?)
+                                         (keep :parent-id))
+                                   nodes)
         node-by-id (into {} (map (juxt :id identity)) nodes)
         ;; rf2-p75kbg — the guarded-fork branch within-layer ORDER pins.
         ;; `fork-positions` maps each fork-branch EVENT-NODE id to its
@@ -689,9 +758,16 @@
         ;; ONLY when this container holds a guarded fork (so the branch
         ;; `elk.position` hints are honoured; non-fork containers are
         ;; untouched and keep full crossing-minimisation).
+        ;; rf2-lxk3h3 — a container holding a NESTED initial substate uses
+        ;; the LEFT-widened padding so the substate's initial-marker glyph
+        ;; sits inside the border instead of spilling past it; every other
+        ;; container keeps the plain body-pad inset.
         container-opts (fn [parent-id]
                          (cond-> {"elk.algorithm" "layered"
-                                  "elk.padding"   container-pad}
+                                  "elk.padding"   (if (contains? marker-container-ids
+                                                                 parent-id)
+                                                    marker-container-pad
+                                                    container-pad)}
                            (contains? fork-containers parent-id)
                            (assoc "elk.layered.crossingMinimization.semiInteractive"
                                   "true")))
