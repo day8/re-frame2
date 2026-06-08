@@ -116,12 +116,22 @@ is the v1 signal fn. (A single trailing fn is the unchanged layer-1
 `(fn [db q] …)` app-db reader; a `:<- [q] :<- [q]` chain is the unchanged
 static form — neither trips M-71.)
 
-**Why it is silent at compile.** The two-function shape *parses* fine, so the
-compiler says nothing. On the **current** v2 runtime the bad shape throws
-`:rf.error/reg-sub-bad-args` at **registration / namespace load** (a deref to
-the sub yields `nil`); under M-71 the same shape is **valid** once you swap the
-reactions for query vectors. Either way the compiler is no help — grep every
-signal-fn site exhaustively up front (this is a silent-fail rule; see
+**Why it is silent at compile — and where it actually fails.** The two-function
+shape *parses* fine, so the compiler says nothing. It also **registers** fine:
+the v2 runtime reads `(reg-sub :id (fn …) (fn …))` (two trailing fns, no `:<-`)
+as a **valid `:parametric` registration** — both trailing args are functions, so
+there is **no `:rf.error/reg-sub-bad-args` at registration / namespace load**.
+The break surfaces later, at the **first `subscribe` / materialization**: the v1
+signal fn returns live reactions (or a bare reaction), which are not query
+vectors, so the runtime throws `:rf.error/sub-input-fn-bad-return` and the sub
+**recovers to a `nil`-yielding reaction** (it is *never* silently treated as
+no-inputs — the error rides the always-on error listener + the dev trace). Under
+M-71 the same shape becomes **valid** once you swap the reactions for query
+vectors. `:rf.error/reg-sub-bad-args` is reserved for a genuinely unparseable
+registration *shape* (e.g. three trailing fns, or a leading `:<-` with no query
+vector) — **not** for a v1-style signal-fn body. Either way the compiler is no
+help — grep every signal-fn site exhaustively up front (this is a silent-fail
+rule; see
 [`breaking-changes.md` §silent-fail register](breaking-changes.md#failure-visibility-axis--loud-fail-vs-silent-fail-orthogonal-to-type-ab)),
 never march-the-wall.
 
