@@ -2,6 +2,46 @@
 
 Status: final
 
+> **`final` means the decisions are settled.** The five deferred calls were ruled
+> by Mike on 2026-06-08 (see [Resolved Decisions](#resolved-decisions)) and the
+> design is locked. The bulk of the implementation has shipped, but a handful of
+> tracked implementation errata remain open — see
+> [Implementation errata](#implementation-errata). Finalizing the *decisions* does
+> not assert the *implementation* is gap-free.
+
+## Implementation errata
+
+The EP decisions are final; these are the implementation gaps still open against
+`main` (decision-settled, build-incomplete). They track follow-on work and do not
+reopen any ruling:
+
+- **`rf2-20d6k2`** — the redaction bridge protects `:before` / `:after` / `:snapshot`
+  slots, but other machine trace events still carry raw `:data`
+  (`:rf.machine/started` direct `:data`; `:rf.machine/guard-evaluated` /
+  `:rf.machine/action-ran` `:input {:data …}`). Extend projection to redact those slots.
+- **`rf2-qpibk0`** — schema-sourced and author-sourced marks union only when the
+  manual `register-marks!` ran *before* `reg-machine`; a later `register-marks!` can
+  drop schema-derived `[:data …]` marks. Make the union order-independent
+  (decision 3).
+- **`rf2-egvm4t`** — `spawn-fx` registers per-instance `:data-schema` marks, but
+  destroy / finalize / frame teardown do not clear or restore them; epoch
+  restore/replay around spawned actors is not yet lifecycle-safe.
+- **`rf2-pjv7pz`** — the `:schema` → `:data-schema` rename (decision 1) is complete
+  in machines/spec/guide surfaces, but core probe/integration surfaces
+  (`late_bind/directory.cljc`, `router.cljc`, `elision_probe.cljs`) still carry the
+  old `:schema` spelling.
+- **`rf2-1zqh1z`** — `union-marks!` drops an existing explicit `false` whole-output
+  override when the added declaration carries only path marks; the OR semantics the
+  mark-union contract (decision 3) documents are not yet fully honoured.
+- **`rf2-0k5ubx`** *(awaiting Mike ruling)* — Spec 015 §6 + three implementor-skill
+  notes document unimplemented top-level `:sensitive` / `:large` convenience keys on
+  the machine spec; the shipped surface is the per-slot `:data-schema`
+  `:sensitive?` / `:large?` Malli props. Either reword to match the shipped surface
+  or implement the convenience keys.
+
+(The declared-over-inferred context-shape gap for empty/closed/wrapped map schemas,
+`rf2-2btfzr`, is **fixed** in PR #3523 and is no longer open.)
+
 ## Abstract
 
 A state machine's `:data` slot — its context, in XState terms — is the value the
@@ -381,5 +421,7 @@ declared-over-inferred Context shape; and document the XState v5 parity. Validat
 itself already shipped under `rf2-jbbp7`, so this EP corrects the premise that machine
 `:data` is un-schema'd and finishes a documented-but-non-functional privacy capability.
 All five deferred calls were ruled by the operator on 2026-06-08 (see
-[Resolved Decisions](#resolved-decisions)) and the work is implemented and shipped, so
-this EP is **final**.
+[Resolved Decisions](#resolved-decisions)) and the design is settled, so this EP is
+**final** — final in its *decisions*. The bulk of the work has shipped; the
+remaining implementation gaps are tracked as open
+[implementation errata](#implementation-errata), not unresolved decisions.
