@@ -683,13 +683,27 @@
   [decls]
   (mapv (fn [path] (into [:data] path)) (keys decls)))
 
-(defn- register-data-schema-marks!
+(defn register-data-schema-marks!
   "EP-0005 (rf2-w46fpt) — bridge the machine `:data-schema`'s `:sensitive?` /
   `:large?` per-slot markers into snapshot-egress redaction. Extracts the
   marked paths from `(:data-schema machine)` via the schemas walker, roots
   them under `[:data …]`, and UNIONs them into the `:event`-keyed marks entry
   for `machine-id` (composing with any manual `register-marks!`, not clobbering
   it).
+
+  Per rf2-fm1cpl this is PUBLIC because the spawn path
+  (`lifecycle-fx.spawn/spawn-fx`) re-runs the bridge keyed under the SPAWNED
+  INSTANCE id. A spawned actor's `:rf.machine/transition` /
+  `:rf.machine/snapshot-updated` trace carries `:machine-id` = the instance id
+  (`<type>#<n>` or the explicit `:spawn-id`), NOT the type id — and
+  `re-frame.marks/project-machine-tags` resolves redaction marks via
+  `(marks-for :event <machine-id>)`. The type's `:data-schema` marks key under
+  the TYPE id, so without a per-instance bridge a spawned actor's `:sensitive?`
+  `:data` slot would egress RAW (the type-id lookup never fires for an
+  instance-id trace). Re-running this fn under the instance id at spawn time
+  keys the same schema-derived marks under the id the trace actually carries,
+  covering BOTH registered-type (`:machine-id`) and inline (`:definition`)
+  spawns uniformly via the resolved spec's `:data-schema`.
 
   `prior-marks` is the machine's marks entry captured BEFORE `reg-event-fx`
   ran. The `reg-event-fx` registration calls `register-marks! :event
