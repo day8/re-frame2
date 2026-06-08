@@ -1,6 +1,6 @@
 # guided-interceptors-subs
 
-Type B walkthroughs covering global interceptors, `reg-sub-raw`, opt-in map-payload migration, the surviving v1 interceptors (`on-changes` / `enrich` / `after`), the `:re-frame/lifecycle` annotation, and post-event callbacks. Each section gives the **identification**, the **risk explanation**, and the **decision shape**. The agent identifies and explains; the author decides; the agent then applies.
+Type B walkthroughs covering global interceptors, `reg-sub-raw`, the v1 signal-function `reg-sub` form (→ v2 `input-fn`s), opt-in map-payload migration, the surviving v1 interceptors (`on-changes` / `enrich` / `after`), the `:re-frame/lifecycle` annotation, and post-event callbacks. Each section gives the **identification**, the **risk explanation**, and the **decision shape**. The agent identifies and explains; the author decides; the agent then applies.
 
 For handler- / view- / db-seeding- / error-handler-shaped Type B rewrites, see [`guided-handlers-state.md`](guided-handlers-state.md). For Type A patterns, see [`auto-call-site-rewrites.md`](auto-call-site-rewrites.md) and [`auto-cross-cutting.md`](auto-cross-cutting.md). For full rule rationale, see [`MIGRATION.md`](../../../migration/from-re-frame-v1/README.md).
 
@@ -8,7 +8,7 @@ For handler- / view- / db-seeding- / error-handler-shaped Type B rewrites, see [
 
 - M-17 — `reg-global-interceptor` in a multi-frame app
 - M-18 — `reg-sub-raw` rewrite-path picking
-- M-18, signal-fn case — the v1 signal-function `reg-sub` form (3-arity)
+- M-71 — the v1 signal-function `reg-sub` form (3-arity) → v2 `input-fn`s
 - M-19 — opt-in map-payload migration (only if user asked)
 - M-21 — `on-changes` / `enrich` / `after`
 - M-23 — `:re-frame/lifecycle` annotation drop
@@ -71,84 +71,213 @@ Present the categorisation per call site with the proposed rewrite; the author c
 
 ---
 
-## M-18, signal-fn case — the v1 signal-function `reg-sub` form (3-arity)
+## M-71 — the v1 signal-function `reg-sub` form (3-arity) → v2 `input-fn`s
 
-(This is an extension of **M-18**, not a separate rule. Cite it as **M-18** in reports.)
-
-**`reg-sub` is not fully preserved.** v1 allowed a middle signal function:
+**Mental model — v1 *signal function* → v2 *`input-fn`*.** v1's two-function
+`reg-sub` form took a **signal function**: a fn from the outer query vector to
+**live `subscribe` reactions** that the runtime then deref'd for the
+computation fn. re-frame2 keeps the two-function form but redefines that first
+fn as an **`input-fn`**: a pure fn from the outer query vector to a **vector of
+query vectors** (plain data — *not* reactions). The runtime resolves those
+query vectors in the same frame and hands the resolved **values** to the
+computation fn. The shape of the call site is the same; only what the first fn
+*returns* changes — reactions become query-vector data.
 
 ```clojure
-(rf/reg-sub :item-detail
+;; v1 signal fn — returns live reactions
+(fn [[_ id]] [(rf/subscribe [:x id]) (rf/subscribe [:y])])
+
+;; v2 input-fn — returns query vectors (data)
+(fn [[_ id]] [[:x id] [:y]])
+```
+
+This is **intentionally breaking** vs v1, and it is the dedicated rule
+**M-71** — cite it as **M-71** in reports (it is *not* the `reg-sub-raw`
+removal, which is **M-18** above). The authoritative rule text + rationale is
+[`MIGRATION.md` §M-71](../../../migration/from-re-frame-v1/README.md#m-71-v1-signal-functions--v2-input-fns-vector-of-query-vectors);
+the design rationale is the [Parametric Subscription Inputs spec](../../../spec/006-ReactiveSubstrate.md#subscription-input-producers--app-db-reader-static-parametric-input-fn).
+
+**The `input-fn` contract** (all four facts are the break — a v1 signal fn
+could violate every one):
+
+- It **receives only the outer query vector** — no `db` arg, no extra args. (v1
+  signal fns sometimes took extra args; v2 `input-fn`s do not.)
+- It **must return a vector of query vectors** — `[[:a x] [:b]]`. A bare
+  query vector (`[:a x]`), a bare keyword (`:a`), or a map is rejected.
+- It **must not call `subscribe`**, deref `app-db`, dispatch, mutate, or do IO —
+  it returns *descriptions* of inputs, and the runtime resolves them.
+- It **must not choose its dependency topology from `app-db`** — that would
+  break the fixed-topology-per-cache-entry invariant. Thread any state-derived
+  parameter through the **outer query vector** at the call site instead.
+
+**Identify:** every `reg-sub` call with **two trailing fn forms and no `:<-`
+between them** — `(rf/reg-sub :id (fn [q] …) (fn [inputs q] …))`. The first fn
+is the v1 signal fn. (A single trailing fn is the unchanged layer-1
+`(fn [db q] …)` app-db reader; a `:<- [q] :<- [q]` chain is the unchanged
+static form — neither trips M-71.)
+
+**Why it is silent at compile.** The two-function shape *parses* fine, so the
+compiler says nothing. On the **current** v2 runtime the bad shape throws
+`:rf.error/reg-sub-bad-args` at **registration / namespace load** (a deref to
+the sub yields `nil`); under M-71 the same shape is **valid** once you swap the
+reactions for query vectors. Either way the compiler is no help — grep every
+signal-fn site exhaustively up front (this is a silent-fail rule; see
+[`breaking-changes.md` §silent-fail register](breaking-changes.md#failure-visibility-axis--loud-fail-vs-silent-fail-orthogonal-to-type-ab)),
+never march-the-wall.
+
+**Decision-shape — first prefer `:<-` for static inputs.** If the signal fn's
+inputs do **not** depend on the outer query vector, the inputs are static —
+prefer a `:<-` chain, the same as v1's preferred static form. `:<-` is sugar
+for a constant `input-fn`; it is the best style whenever it applies.
+
+```clojure
+(rf/reg-sub :dashboard
+  :<- [:totals]
+  :<- [:alerts]
+  (fn [[totals alerts] _]
+    {:totals totals :alerts alerts}))
+```
+
+When the inputs **do** depend on the outer query vector, rewrite the signal fn
+to an `input-fn`. **Classify by what the v1 signal fn returns** — the three
+v1 return shapes each rewrite differently:
+
+### 1. Vector-returning (the common case) — drop the `subscribe`, return query vectors
+
+Strip the `(rf/subscribe …)` wrappers; return the bare query vectors. The
+computation fn already destructures a vector of inputs in the same order — it is
+**unchanged**.
+
+```clojure
+;; v1 — signal fn returns a vector of live reactions
+(rf/reg-sub :item/detail
   (fn [[_ id]]
-    [(rf/subscribe [:item id])
-     (rf/subscribe [:selected])])
+    [(rf/subscribe [:item/by-id id])
+     (rf/subscribe [:selection/current])])
+  (fn [[item selected] [_ id]]
+    (assoc item :selected? (= selected id))))
+
+;; v2 — input-fn returns a vector of query vectors
+(rf/reg-sub :item/detail
+  (fn [[_ id]]
+    [[:item/by-id id]
+     [:selection/current]])
   (fn [[item selected] [_ id]]
     (assoc item :selected? (= selected id))))
 ```
 
-v1 signal functions could return a single live signal, a vector of live signals,
-or a map of live signals. That return contract is the break.
+### 2. Map-returning — pick an EXPLICIT input order, switch to vector destructuring
 
-**Current shipped v2 behavior:** before the Parametric Subscription Inputs EP
-lands in core, the two-function shape throws `:rf.error/reg-sub-bad-args` at
-registration / namespace load. It compiles clean and then fails at runtime.
+v2 does **not** accept a map return. Choose an explicit input order, return a
+**vector of query vectors** in that order, and change the computation fn from
+**map destructuring to vector destructuring** to match.
 
-**Proposed EP target:** when the target re-frame2 version includes
-`docs/EP/subscription-inputs.md`, the two-function shape returns a **vector of
-query vectors**, not `subscribe` results. The runtime resolves those query
-vectors in the outer subscription's frame, and `compute-sub` stays
-pure/JVM-runnable.
+> **Do NOT rely on source-map iteration order.** A v1 map of signals had no
+> meaningful order — Clojure map iteration order is not a contract. Pick a
+> deliberate order yourself and preserve it across the `input-fn` *and* the
+> computation fn's destructure. Reading the order off the source map's literal
+> key sequence is a latent bug.
 
 ```clojure
-;; v2 EP target — vector bridge
-(rf/reg-sub :item-detail
+;; v1 — signal fn returns a MAP of live reactions
+(rf/reg-sub :item/detail
   (fn [[_ id]]
-    [[:item id] [:selected]])
-  (fn [[item selected] [_ id]]
+    {:item     (rf/subscribe [:item/by-id id])
+     :selected (rf/subscribe [:selection/current])})
+  (fn [{:keys [item selected]} [_ id]]      ;; map destructuring
+    (assoc item :selected? (= selected id))))
+
+;; v2 — explicit input order + vector destructuring
+(rf/reg-sub :item/detail
+  (fn [[_ id]]
+    [[:item/by-id id]                        ;; chosen order: item, then selected
+     [:selection/current]])
+  (fn [[item selected] [_ id]]              ;; vector destructuring, same order
     (assoc item :selected? (= selected id))))
 ```
 
-**Identify:** every `reg-sub` call with two trailing fn forms and no `:<-`
-between them.
+### 3. Single-signal-returning — wrap in a vector of ONE query vector
 
-**Rewrite by target version and shape:**
+v2 has **no scalar single-input form**. A v1 signal fn that returned one bare
+reaction becomes an `input-fn` returning `[[:item/by-id id]]` — a **vector of
+one query vector**, not the bare query vector. The computation fn destructures
+a one-element vector: `(fn [[item] _] …)`.
 
-1. **Static inputs:** prefer a static `:<-` chain. This works in current v2 and
-   remains best style under the EP.
+```clojure
+;; v1 — signal fn returns ONE bare reaction
+(rf/reg-sub :item/title
+  (fn [[_ id]]
+    (rf/subscribe [:item/by-id id]))
+  (fn [item _]
+    (:title item)))
 
-   ```clojure
-   (rf/reg-sub :dashboard
-     :<- [:totals]
-     :<- [:alerts]
-     (fn [[totals alerts] _]
-       {:totals totals :alerts alerts}))
-   ```
+;; v2 — input-fn returns a vector of ONE query vector
+(rf/reg-sub :item/title
+  (fn [[_ id]]
+    [[:item/by-id id]])
+  (fn [[item] _]                            ;; destructure the one-element vector
+    (:title item)))
+```
 
-2. **Query-dependent pure sub inputs, EP available:** rewrite the signal
-   function to return a vector of query vectors. A v1 map of live signals must
-   be rewritten to an explicit vector order, and the computation function must
-   be changed from map destructuring to vector destructuring. Do not rely on
-   map iteration order; choose the order at the call site.
+The two extra brackets are load-bearing: `[:item/by-id id]` is **one query
+vector** (rejected as a scalar return); `[[:item/by-id id]]` is **a vector
+containing one query vector** (the only accepted single-input spelling). `[:x :y]`
+is *never* read as an `input-fn` return — only as a single query vector *inside*
+`[[:x :y]]`.
 
-3. **Query-dependent pure sub inputs, EP not available:** fold to a layer-1 sub
-   or chain to whole collections and index in the computation function.
+### The BREAK — what v2 rejects
 
-   ```clojure
-   (rf/reg-sub :item-detail
-     :<- [:all-items]
-     :<- [:selected]
-     (fn [[items selected] [_ id]]
-       (assoc (get items id) :selected? (= selected id))))
-   ```
+v1 signal functions could do all of the following; v2 `input-fn`s reject every
+one. These are the shapes to flag, not silently "fix":
 
-4. **Non-app-db reactive source, lifecycle management, or side effects:** route
-   to the matching `reg-sub-raw` path: fx-driven state, state machine, or move
-   the side effect out of subscriptions.
+| v1 signal-fn shape | v2 status |
+|---|---|
+| Returns a live reaction (`(rf/subscribe …)`) | **Rejected** — return the query vector instead (cases 1–3 above). |
+| Returns a **map** of inputs | **Rejected** — pick an explicit order + vector destructure (case 2). |
+| Returns a **bare keyword** (`:viewer/current`) | **Rejected** — no shorthand; spell it `[[:viewer/current]]`. |
+| Returns a **scalar query vector** (`[:item id]`) | **Rejected** — wrap it: `[[:item id]]` (case 3). |
+| Receives **extra args** beyond the outer query vector | **Rejected** — the `input-fn` receives only `query-v`. |
+| Reads `app-db` to choose inputs | **Rejected** — thread the parameter through the outer query vector (below). |
 
-**Do not auto-apply query-dependent rewrites blindly.** First classify whether
-the target runtime has the EP, whether the signal-fn returns vector/map/single
-signals, and whether all inputs are ordinary subscriptions. Then present the
-proposed rewrite for author confirmation.
+A bad return signals `:rf.error/sub-input-fn-bad-return`; an `input-fn` that
+throws signals `:rf.error/sub-input-fn-exception`; a malformed `reg-sub`
+registration shape signals `:rf.error/reg-sub-bad-args` (see
+[`error-events.md`](error-events.md) →
+[Spec 009 §Error event catalogue](../../../spec/009-Instrumentation.md#error-event-catalogue)).
+
+### `app-db`-reading signal fn — FLAG, don't auto-rewrite
+
+If the v1 signal fn **derefs `app-db`** (or otherwise picks inputs from state),
+the `input-fn` cannot read `app-db`. **Flag for human review.** The rewrite is
+to thread the state-derived parameter through the **outer query vector at the
+call site** — so each concrete cache entry has stable dependencies:
+
+```clojure
+;; at the call site, the param comes from another subscribe
+(let [article-id @(rf/subscribe [:current-route/article-id])
+      page       @(rf/subscribe [:article/page article-id])]
+  …)
+```
+
+The graph stays dynamic at the view boundary (where React already manages
+subscription lifecycle), and each `[:article/page article-id]` cache entry has
+fixed inputs for its lifetime. See
+[Spec 006 §No app-db-dependent topology](../../../spec/006-ReactiveSubstrate.md#subscription-input-producers--app-db-reader-static-parametric-input-fn).
+
+### Other-substrate cases (non-app-db reactive source, lifecycle, side effects)
+
+If the signal-fn body is doing something a `reg-sub-raw` would (subscribing to a
+non-app-db reactive source, managing reaction lifecycle, or side-effecting),
+that is the **M-18** `reg-sub-raw` decision tree above — route to the matching
+path (fx-driven state, state machine, or move the side effect into a handler),
+not an `input-fn`.
+
+**Do not auto-apply M-71 rewrites blindly.** It is **Type B**: the
+vector-returning case is mechanical, but a **map-returning** signal fn forces
+the explicit-order choice (case 2) and an **`app-db`-reading** signal fn must
+thread the parameter through the outer query vector — both are intent the agent
+cannot recover statically. Classify the return shape, present the proposed
+rewrite, and let the author confirm.
 
 ---
 

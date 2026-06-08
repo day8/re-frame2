@@ -113,7 +113,8 @@ The M-rule numbering in [`MIGRATION.md`](../../../migration/from-re-frame-v1/REA
 | 26 | **M-15** | App-db seeding via `:on-create` (pairs with M-1's private-ns rewrite). |
 | 27 | **M-11** | Plain Reagent fns under non-default frames. Type B. Only surfaces in multi-frame apps. |
 | 28 | **M-13** | `reg-event-error-handler` removed. Frame-level `:on-error` or trace listener. Type B. |
-| 29 | **M-18** | `reg-sub-raw` removed. Four rewrite paths (read-only-app-db, fx-driven, machine, anti-pattern). Type B. Also covers the **v1 signal-function `reg-sub` form** (the signal-fn case of M-18): current v2 throws at registration; the Parametric Subscription Inputs EP target rewrites pure query-dependent inputs to vector-of-query-vectors input fns (`[[:item id] [:selected]]`), while non-EP targets fold to layer-1 or `:<-`-the-collection-and-index. Type B. |
+| 29 | **M-18** | `reg-sub-raw` removed. Four rewrite paths (read-only-app-db, fx-driven, machine, anti-pattern). Type B. |
+| 29b | **M-71** | **v1 signal-function `reg-sub` form** (`(reg-sub :id signal-fn computation-fn)`) → v2 `input-fn`. The first fn returns a **vector of query vectors** (`[[:item id] [:selected]]`), not `subscribe` reactions. Static inputs prefer `:<-`; three return shapes rewrite differently — vector (drop `subscribe`), map (pick an explicit order + vector destructure), single-signal (`[[:item id]]`); an `app-db`-reading signal fn threads the param through the outer query vector. Type B. |
 | 30 | **M-42** | React-19-removed Reagent surfaces (throw-on-call shims under the slim adapter). **A/B split** — the `render` / `unmount-component-at-node` mount-path rewrites are Type A (mechanical once the `container` ref is identified). `dom-node` and `force-update-all` are **Type B** — no static replacement (`findDOMNode` consumers need a `:ref` at the *parent* call site; `force-update-all` had no documented use beyond global-rebuild scripts). Flag both for human review; do not rewrite silently. |
 
 ### Group 8 — Per-feature artefact splits (dep-only adds; pair with the feature-trigger rules)
@@ -150,15 +151,16 @@ The Type B rules each have a documented question. Group them at the end of the s
 Order of presentation within the batch (most-blocking first):
 
 1. **M-3** — run-to-completion impact: any animation timing, queue-peek tests, intermediate-render dependencies.
-2. **M-18** — `reg-sub-raw` rewrites: each call site needs the user's read on what the raw body is doing. Includes the **signal-function `reg-sub` form** (the signal-fn case of M-18) — the agent must learn whether the signal-fn's inputs are query-dependent before picking the rewrite path.
-3. **M-11** — plain-Reagent fns under non-default frames: each component-frame pair.
-4. **M-17** — multi-frame `reg-global-interceptor`: each-frame vs trace-listener vs default-only.
-5. **M-21** — `on-changes` / `enrich` / `after`: flow / schema / `->interceptor` / fx routing.
-6. **M-10** — reserved-namespace collisions.
-7. **M-5** Var-aliasing — refactor to direct invocation.
-8. **M-13** — `reg-event-error-handler` policy.
-9. **M-12** — render-count test re-baselines.
-10. **M-19** (only if requested) — opt-in map-payload migration per event-id.
+2. **M-18** — `reg-sub-raw` rewrites: each call site needs the user's read on what the raw body is doing.
+3. **M-71** — the **v1 signal-function `reg-sub` form** → v2 `input-fn`: the agent must learn whether the signal fn's inputs are query-dependent (else prefer `:<-`) and which return shape it has (vector / map / single-signal) before picking the rewrite — a map return forces an explicit input-order choice; an `app-db`-reading signal fn must thread the param through the outer query vector.
+4. **M-11** — plain-Reagent fns under non-default frames: each component-frame pair.
+5. **M-17** — multi-frame `reg-global-interceptor`: each-frame vs trace-listener vs default-only.
+6. **M-21** — `on-changes` / `enrich` / `after`: flow / schema / `->interceptor` / fx routing.
+7. **M-10** — reserved-namespace collisions.
+8. **M-5** Var-aliasing — refactor to direct invocation.
+9. **M-13** — `reg-event-error-handler` policy.
+10. **M-12** — render-count test re-baselines.
+11. **M-19** (only if requested) — opt-in map-payload migration per event-id.
 
 Apply all the Type A rewrites first, present the Type B batch second. The author shouldn't have to context-switch every five minutes.
 
