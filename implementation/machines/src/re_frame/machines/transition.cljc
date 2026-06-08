@@ -272,6 +272,19 @@
           ;; (registration.cljc) before the engine is invoked; nil-safe
           ;; for pure-function callers (conformance corpus, JVM fixtures).
           frame-id   (:rf/frame machine)
+          ;; rf2-tjm3u2 — the ACTIVE state the guard was evaluated against
+          ;; (the snapshot's `:state`: a keyword, a vector path, or — for a
+          ;; parallel region's snapshot — a region value). Stamped on the
+          ;; trace so a downstream consumer can disambiguate WHICH state's
+          ;; edge a guard-block belongs to. Without it, two states that
+          ;; declare the SAME event + SAME guard id are indistinguishable by
+          ;; `(event, guard)` alone, and a single guard failure paints BOTH
+          ;; edges (the bug). The guard runs during the active-configuration
+          ;; resolution, so the active `:state` is the discriminator: the
+          ;; consumer (`panels.machines.trace-state/extract-guard-blocked-
+          ;; edge-ids`) matches only edges whose declaring `:from-path` is on
+          ;; this active path. nil-safe — a hand-built snapshot may omit it.
+          state      (:state snapshot)
           input      {:data (:data snapshot) :event event}]
       (try
         (let [outcome (boolean (call-guard g snapshot event))]
@@ -279,6 +292,7 @@
                        {:machine-id machine-id
                         :guard-id   guard-ref
                         :input      input
+                        :state      state
                         :outcome    (if outcome :pass :fail)
                         :frame      frame-id})
           outcome)
@@ -287,6 +301,7 @@
                        {:machine-id machine-id
                         :guard-id   guard-ref
                         :input      input
+                        :state      state
                         :outcome    :threw
                         :exception  e
                         :frame      frame-id})

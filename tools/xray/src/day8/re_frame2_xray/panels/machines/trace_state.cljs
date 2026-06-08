@@ -428,6 +428,32 @@
       (vector? event)  (first event)
       :else            nil)))
 
+(defn- guard-state-from-trace
+  "Pull the ACTIVE state path the guard was evaluated against off a
+  `:rf.machine/guard-evaluated` trace (rf2-tjm3u2). The runtime stamps the
+  snapshot's `:state` under `:tags :state` (machines · transition.cljc
+  `evaluate-guard`). Coerced through `normalise-path` so a keyword
+  (`:open`) or vector path (`[:authenticated :cart]`) both land as a path
+  vector; a parallel region-MAP `:state` (no single active leaf) or an
+  absent slot returns nil — and a nil state then disables source-path
+  disambiguation (the consumer falls back to the `(event, guard)` match,
+  preserving the pre-rf2-tjm3u2 behaviour for traces that carry no state)."
+  [ev]
+  (normalise-path (get-in ev [:tags :state])))
+
+(defn- on-active-path?
+  "True iff `from-path` (an edge's declaring source path) is on the active
+  `state-path` — i.e. `from-path` is a (possibly equal) PREFIX of
+  `state-path`. A STATE-LOCAL edge declares on the active leaf (`from-path`
+  == `state-path`); an INHERITED edge declares on an ANCESTOR still on the
+  active path (`from-path` is a strict prefix). An edge declared on a
+  DIFFERENT branch (the bug's sibling state reusing the same event + guard)
+  is NOT a prefix of the active path, so it is excluded. nil `state-path`
+  (region-map / absent) disables the check upstream — never reaches here."
+  [from-path state-path]
+  (and (<= (count from-path) (count state-path))
+       (= (vec from-path) (vec (take (count from-path) state-path)))))
+
 (defn extract-guard-blocked-edge-ids
   "Given a machine `definition`, a vector of trace events for the
   focused epoch, and the `machine-id` of interest, return the SET of
@@ -440,18 +466,40 @@
   (it carries no transition), so the operator cannot see which edge the
   event hit or that a guard rejected it. The runtime emits the exact
   data on the no-op path: `:rf.machine/guard-evaluated {:guard-id …
-  :outcome :fail/:threw :input {:event …}}` carrying the NAMED guard,
-  so the blocked-edge match is EXACT — `(event, guard)` uniquely picks
-  the declining candidate even within a guarded fork (the precision the
-  bare transition trace lacks; see `extract-fired-edge-ids`' loose
-  `(from, to, event)` match).
+  :outcome :fail/:threw :input {:event …} :state …}` carrying the NAMED
+  guard AND the ACTIVE state the guard ran against (rf2-tjm3u2), so the
+  blocked-edge match is EXACT.
+
+  rf2-tjm3u2 — match by `(source-path, event, guard)`, NOT `(event,
+  guard)` alone. A machine may declare the SAME event + SAME guard id on
+  MULTIPLE states (`:open` and `:ajar` both with `:door/close` guarded by
+  `:may-close?`). `(event, guard)` alone matched EVERY such edge, so ONE
+  guard failure in ONE active state painted ALL of them pink. The guard
+  runs during the ACTIVE-configuration resolution, so the trace's `:state`
+  (the active path) is the discriminator: only an edge whose declaring
+  `:from-path` is ON that active path (a prefix of it — `on-active-path?`)
+  could have produced this block. A STATE-LOCAL edge declares on the
+  active leaf; an INHERITED edge declares on an ancestor still on the
+  active path; a SIBLING state's same-(event, guard) edge is NOT on the
+  active path and is correctly excluded. The MACHINE-LEVEL fallback
+  (top-level `:on`, `:from-path []`) is on EVERY active path (the empty
+  vector is a prefix of all), so it still matches — matching the
+  machine-level fallback `extract-fired-edge-ids` keeps.
+
+  Backward-compatible: when the trace carries NO `:state` (a region-MAP
+  parallel snapshot, or an older/hand-built trace), `on-active-path?` is
+  not consulted and the match falls back to `(event, guard)` alone — the
+  pre-rf2-tjm3u2 behaviour. So a guarded FORK on a single state (two
+  same-source candidates differing by guard) still lights ONLY the arm
+  whose named guard the trace reports failing (the named guard remains the
+  fork-arm discriminator).
 
   The returned ids are the EXACT ids the live MachineChart mints: the
   definition is projected through `chart.layout/project-definition` and
-  each fail/threw guard trace's `(event, guard-ref)` is matched against
-  the projected edges' `:event` / `:guard`. The guard refs compare with
-  `=` because both the trace's `:guard-id` and the edge's `:guard` are
-  the SAME user-declared ref off the SAME definition (keyword or fn).
+  each fail/threw guard trace is matched against the projected edges'
+  `:from-path` / `:event` / `:guard`. The guard refs compare with `=`
+  because both the trace's `:guard-id` and the edge's `:guard` are the
+  SAME user-declared ref off the SAME definition (keyword or fn).
 
   Scope is GUARD-BLOCKED only (rf2-fzrzlw design call (3)): a truly-
   unhandled event (no declared edge for it) is a separate state-node
@@ -467,20 +515,32 @@
          (mapcat
            (fn [ev]
              (let [guard* (guard-ref-from-trace ev)
-                   event* (guard-event-from-trace ev)]
-               ;; A blocked candidate is uniquely (event, guard): the
-               ;; named guard discriminates which arm of a guarded fork
-               ;; declined. Match every projected edge carrying that
-               ;; same (event, guard) pair — typically exactly one. An
-               ;; edge with no guard cannot be the blocked candidate, so
-               ;; the `(some? guard*)` precondition keeps a guardless
-               ;; trace (which the runtime never emits — `evaluate-guard`
-               ;; skips the synthesised always-true guard) from lighting
-               ;; every same-event edge.
+                   event* (guard-event-from-trace ev)
+                   ;; rf2-tjm3u2 — the active state path the guard ran
+                   ;; against. nil (region-map / absent) disables source-
+                   ;; path disambiguation (the `(event, guard)` fallback).
+                   state* (guard-state-from-trace ev)]
+               ;; A blocked candidate is uniquely (source-path, event,
+               ;; guard): the named guard discriminates which arm of a
+               ;; guarded fork declined, and the active state discriminates
+               ;; WHICH state's edge when several states reuse the same
+               ;; (event, guard). An edge with no guard cannot be the
+               ;; blocked candidate, so the `(some? guard*)` precondition
+               ;; keeps a guardless trace (which the runtime never emits —
+               ;; `evaluate-guard` skips the synthesised always-true guard)
+               ;; from lighting every same-event edge.
                (when (and (some? guard*) event*)
                  (keep (fn [e]
                          (when (and (= event* (:event e))
-                                    (= guard* (:guard e)))
+                                    (= guard* (:guard e))
+                                    ;; Source-path gate: skip only when the
+                                    ;; trace carried a usable `:state` AND
+                                    ;; this edge's declaring `:from-path` is
+                                    ;; NOT on that active path. nil `state*`
+                                    ;; → no gate (the (event, guard)
+                                    ;; fallback).
+                                    (or (nil? state*)
+                                        (on-active-path? (:from-path e) state*)))
                            (:id e)))
                        edges)))))
          set)))

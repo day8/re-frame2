@@ -455,11 +455,13 @@
             (from, event, guard) edge id the live chart mints"
     (let [def        (door-definition)
           close-id   (canonical-guard-edge-id def [:open] :door/close :may-close?)
-          ;; the LIVE runtime shape: :guard-id + :outcome + :input {:event}.
+          ;; the LIVE runtime shape: :guard-id + :outcome + :state +
+          ;; :input {:data :event} (rf2-tjm3u2 added :state).
           events     [{:operation :rf.machine/guard-evaluated
                        :tags {:machine-id :door
                               :guard-id   :may-close?
                               :outcome    :fail
+                              :state      [:open]
                               :input      {:data {:held-open? true}
                                            :event [:door/close]}}}]
           blocked    (trace-state/extract-guard-blocked-edge-ids def events :door)]
@@ -564,15 +566,100 @@
           lo-id     (->> projected (some (fn [e] (when (= :lo? (:guard e)) (:id e)))))
           ;; :hi? failed; the engine walked on to :lo? (which passed and
           ;; fired) — only the :hi? ARM is guard-blocked.
+          ;; rf2-tjm3u2 — both fork arms declare on the SAME state (:idle),
+          ;; so source-path can't discriminate them; the NAMED guard does.
           events    [{:operation :rf.machine/guard-evaluated
                       :tags {:machine-id :m :guard-id :hi? :outcome :fail
+                             :state [:idle]
                              :input {:event :check}}}]
           blocked   (trace-state/extract-guard-blocked-edge-ids def events :m)]
       (is (string? hi-id))
       (is (string? lo-id))
       (is (not= hi-id lo-id) "the two fork arms have distinct ids")
       (is (= #{hi-id} blocked)
-          "ONLY the :hi? arm lights — the named guard discriminates the fork"))))
+          "ONLY the :hi? arm lights — same source state, the named guard
+           discriminates the fork (source-path agrees for both arms)"))))
+
+(deftest guard-blocked-ids-disambiguate-by-source-state-path
+  (testing "rf2-tjm3u2 — two states both declaring the SAME event + SAME
+            guard id: a guard failure in ONE active state lights ONLY that
+            state's edge, NOT the sibling's reused-id edge"
+    (let [;; Two siblings BOTH declare `:door/close` guarded by `:may-close?`.
+          ;; Before the fix, a guard-block in :open painted BOTH edges pink.
+          def       {:initial :open
+                     :states  {:open {:on {:door/close {:target :closed
+                                                        :guard  :may-close?}}}
+                               :ajar {:on {:door/close {:target :closed
+                                                        :guard  :may-close?}}}
+                               :closed {}}}
+          open-id   (canonical-guard-edge-id def [:open] :door/close :may-close?)
+          ajar-id   (canonical-guard-edge-id def [:ajar] :door/close :may-close?)
+          ;; The guard FAILED while :open was the active state — the runtime
+          ;; stamps the active `:state` on the trace (rf2-tjm3u2).
+          events    [{:operation :rf.machine/guard-evaluated
+                      :tags {:machine-id :door
+                             :guard-id   :may-close?
+                             :outcome    :fail
+                             :state      [:open]
+                             :input      {:event :door/close}}}]
+          blocked   (trace-state/extract-guard-blocked-edge-ids def events :door)]
+      (is (string? open-id))
+      (is (string? ajar-id))
+      (is (not= open-id ajar-id)
+          "the two states' reused-id edges have distinct canonical ids")
+      (is (= #{open-id} blocked)
+          "ONLY the active :open state's edge lights — the source path in the
+           trace's :state disambiguates it from :ajar's identical (event, guard)"))))
+
+(deftest guard-blocked-ids-no-state-falls-back-to-event-guard-match
+  (testing "rf2-tjm3u2 — a trace with NO :state (region-map / older trace)
+            falls back to the (event, guard) match (pre-tjm3u2 behaviour):
+            both same-id edges light, since the source cannot be resolved"
+    (let [def      {:initial :open
+                    :states  {:open {:on {:door/close {:target :closed
+                                                       :guard  :may-close?}}}
+                              :ajar {:on {:door/close {:target :closed
+                                                       :guard  :may-close?}}}
+                              :closed {}}}
+          open-id  (canonical-guard-edge-id def [:open] :door/close :may-close?)
+          ajar-id  (canonical-guard-edge-id def [:ajar] :door/close :may-close?)
+          ;; No :state on the trace — the source-path gate is disabled.
+          events   [{:operation :rf.machine/guard-evaluated
+                     :tags {:machine-id :door
+                            :guard-id   :may-close?
+                            :outcome    :fail
+                            :input      {:event :door/close}}}]
+          blocked  (trace-state/extract-guard-blocked-edge-ids def events :door)]
+      (is (= #{open-id ajar-id} blocked)
+          "without a :state to disambiguate, both reused-id edges light —
+           the conservative (event, guard) fallback"))))
+
+(deftest guard-blocked-ids-inherited-transition-on-active-path
+  (testing "rf2-tjm3u2 — an INHERITED transition (declared on an ANCESTOR
+            still on the active path) is matched: the ancestor's :from-path
+            is a strict PREFIX of the active leaf state"
+    (let [;; `:open` is a COMPOUND with `:door/close` declared at the PARENT
+          ;; level; the active leaf is `[:open :wide]`.
+          def      {:initial :open
+                    :states  {:open {:initial :wide
+                                     :on      {:door/close {:target :closed
+                                                            :guard  :may-close?}}
+                                     :states  {:wide {} :narrow {}}}
+                              :closed {}}}
+          close-id (canonical-guard-edge-id def [:open] :door/close :may-close?)
+          events   [{:operation :rf.machine/guard-evaluated
+                     :tags {:machine-id :door
+                            :guard-id   :may-close?
+                            :outcome    :fail
+                            ;; active leaf is the nested [:open :wide]; the
+                            ;; edge declares at [:open] (a prefix of it).
+                            :state      [:open :wide]
+                            :input      {:event :door/close}}}]
+          blocked  (trace-state/extract-guard-blocked-edge-ids def events :door)]
+      (is (string? close-id))
+      (is (= #{close-id} blocked)
+          "the inherited edge lights — its [:open] :from-path is a prefix of
+           the active [:open :wide] leaf"))))
 
 (deftest guard-blocked-ids-agree-with-projected-chart-edge-ids
   (testing "every guard-blocked id is a real projected chart edge :id"

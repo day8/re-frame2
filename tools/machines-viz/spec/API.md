@@ -364,6 +364,24 @@ ids: `<spec-edge-id>__in` / `<spec-edge-id>__out`. Event-node ids:
 `:eventLabel` slot on these edges is empty (the event-node holds the
 visible text).
 
+> **Edge-half `:guardBlocked` is projection/rendering data, NOT a DOM pin
+> (rf2-bdwolc).** The per-half `:guardBlocked` flag drives the half's
+> STROKE + arrowhead colour (the `__in` half goes pink, the `__out` half
+> stays resting). It is *not* surfaced as a `data-guard-blocked` DOM
+> attribute on the edge halves: `chart.edges/transition-edge` emits the
+> edge-label `<div>` (and its `data-guard-blocked` / `data-fired` /
+> `data-active` attrs) **only when the edge carries a non-empty
+> `:eventLabel`** (`(when (seq label) …)`), and under events-as-nodes the
+> `__in` / `__out` halves carry an EMPTY label (the text rides the
+> event-node). So the structural halves render no edge-label element and
+> no edge-half `data-guard-blocked` attribute exists to read. The
+> CANONICAL guard-blocked DOM pins are the **event-node**
+> (`[data-testid^="rf-mv-chart-event-"]` carries `data-guard-blocked`
+> unconditionally) and the **chart root**
+> (`data-guard-blocked-edge-ids`). A DOM test asserting the per-half
+> blocked highlight reads the `:guardBlocked` projection value (e.g. via
+> a projection unit test), not an edge-half DOM attribute.
+
 elk routes each of those two segments independently, so the
 `:edge-points` map `chart.cljs/elk-result->positions` produces is keyed
 by the **elk edge id** — `<spec-edge-id>__in` and `<spec-edge-id>__out`
