@@ -52,12 +52,12 @@
   the schemas / routing sweeps closed at their boundaries.
 
   Returns a `:rf.error/*` reason string when `payload` is not a map, or
-  when the app-db slice KEY is present but its value is not a map (incl.
-  an explicit nil / false / non-collection); nil when the payload is
-  structurally acceptable (a map, with the `:rf/app-db` / `:app-db` key
-  either absent or carrying a map). A wholly-ABSENT app-db slice key is
-  NOT malformed — it is the documented client-only / no-server-slice
-  shape that falls back to the existing `db`."
+  when the `:rf/app-db` slice KEY is present but its value is not a map
+  (incl. an explicit nil / false / non-collection); nil when the payload
+  is structurally acceptable (a map, with the `:rf/app-db` key either
+  absent or carrying a map). A wholly-ABSENT app-db slice key is NOT
+  malformed — it is the documented client-only / no-server-slice shape
+  that falls back to the existing `db`."
   [payload]
   (cond
     (not (map? payload))
@@ -65,19 +65,17 @@
          (cond (nil? payload) "nil" :else (pr-str (type payload)))
          "); hydration rejected — the client app-db is left unchanged")
 
-    ;; The app-db slice KEY is present but its value is not a map.
+    ;; The `:rf/app-db` slice KEY is present but its value is not a map.
     ;; Installing a non-map (string / number / vector / nil / false) as
     ;; the whole app-db would corrupt the frame, so a PRESENT-but-non-map
     ;; slice is rejected (a wholly-absent key is the legitimate
-    ;; no-server-slice fallback and is NOT flagged here). The canonical
-    ;; key is `:rf/app-db`; `:app-db` is the legacy alias.
-    (let [k (cond (contains? payload :rf/app-db) :rf/app-db
-                  (contains? payload :app-db)    :app-db)]
-      (and k (not (map? (get payload k)))))
-    (let [k (if (contains? payload :rf/app-db) :rf/app-db :app-db)]
-      (str "the :rf/hydrate payload's " k " slice is not a map (got "
-           (cond (nil? (get payload k)) "nil" :else (pr-str (type (get payload k))))
-           "); hydration rejected — the client app-db is left unchanged"))
+    ;; no-server-slice fallback and is NOT flagged here).
+    (and (contains? payload :rf/app-db)
+         (not (map? (:rf/app-db payload))))
+    (str "the :rf/hydrate payload's :rf/app-db slice is not a map (got "
+         (cond (nil? (:rf/app-db payload)) "nil"
+               :else (pr-str (type (:rf/app-db payload))))
+         "); hydration rejected — the client app-db is left unchanged")
 
     :else nil))
 
@@ -97,7 +95,7 @@
   :rf/hydrate event — degraded-but-running), so a corrupt payload must
   never silently install garbage as the whole app-db."
   [{:keys [db frame]} [_ payload]]
-  (let [new-db (or (:rf/app-db payload) (:app-db payload) db)]
+  (let [new-db (or (:rf/app-db payload) db)]
     (if-let [reason (malformed-hydration-payload! payload)]
       (do
         (when interop/debug-enabled?

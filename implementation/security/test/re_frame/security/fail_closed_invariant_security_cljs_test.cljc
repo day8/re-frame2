@@ -312,7 +312,6 @@
    {:rf/app-db "not-a-map"}      ;; slice present but a string
    {:rf/app-db 42}               ;; slice present but a number
    {:rf/app-db [:not :a :map]}   ;; slice present but a vector
-   {:app-db "legacy-key-string"} ;; the legacy :app-db key, non-map slice
    {:rf/app-db true}])           ;; slice present but a boolean
 
 (deftest malformed-hydration-payload-never-installs
