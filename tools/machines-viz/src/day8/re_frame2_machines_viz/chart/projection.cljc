@@ -430,6 +430,20 @@
                    :source (event-node-id from)
                    :target (event-node-id to)
                    :type   "transition"
+                   ;; rf2-4vvywg — ANCHOR the connector to EXPLICIT handles
+                   ;; rather than relying on xyflow's default handle pick.
+                   ;; The branch event-nodes lay out LEFT-TO-RIGHT in
+                   ;; priority order (1→2→3, the within-layer cross-axis
+                   ;; under the chart's DOWN direction; rf2-p75kbg), so the
+                   ;; order chain must read side-to-side: it leaves each
+                   ;; branch from its RIGHT source handle (id `\"right\"`,
+                   ;; `four-cardinal-handles`) and enters the next from its
+                   ;; LEFT target handle (id `\"left\"`). Without these,
+                   ;; xyflow may attach BOTTOM→TOP (the unnamed cardinal
+                   ;; source/target handles), making the priority chain
+                   ;; visually awkward + dependent on xyflow internals.
+                   :sourceHandle "right"
+                   :targetHandle "left"
                    ;; The connector is a quiet order chain, NOT a
                    ;; transition: the renderer suppresses the arrowhead off
                    ;; the `:forkConnector` flag (same as an internal self-

@@ -13,7 +13,7 @@
   under the `:node-test` build (`cljs-test$` ns-regexp) — it is NOT a
   `-dom-cljs-test` (no DOM mount), and the JVM `clojure -M:test` runner
   skips it (it scans .clj/.cljc only, never .cljs)."
-  (:require [cljs.test :refer-macros [deftest is testing]]
+  (:require [cljs.test :refer-macros [deftest is testing async]]
             [clojure.string :as str]
             [day8.re-frame2-machines-viz.chart :as chart]
             [day8.re-frame2-machines-viz.chart.edges :as edges]
@@ -198,6 +198,71 @@
     (doseq [parsed [(nested-parsed) (parallel-parsed) (flat-parsed)]]
       (is (not (contains? (chart/elk-layout-options parsed nil :tb)
                           "elk.layered.crossingMinimization.semiInteractive"))))))
+
+;; ---- async REAL-ELK regression: gate fork branches order 1,2,3 ----------
+;; rf2-rcszre — the projection-layer pins (elk.position hints +
+;; semiInteractive on the root-container child, pinned in
+;; projection-cljs-test) are the INPUT to ELK; this exercises the OUTPUT.
+;; Run real elkjs (`compute-layout!`, the same async pass the live chart
+;; uses) on the gate guarded fork and assert the three `:gate/check`
+;; branch event-nodes RESOLVE left-to-right in priority order (x ascending
+;; 1,2,3). This is the post-root-container layout path the synthetic
+;; bare-root option test does not exercise; without the pins ELK's
+;; LAYER_SWEEP would freely reorder the same-rank branches (the gate fork
+;; landed 3,1,2) and this would fail.
+
+(def ^:private gate-fork-machine
+  "The gate testbed shape: `:gate/check` FORKS from `:idle` by a guarded
+  candidate vector (first guard-pass wins). `:gate/set` is a SEPARATE
+  internal action-only transition on the same source (not part of the
+  fork). Same shape the projection + chart-dom suites pin."
+  {:initial :idle
+   :data    {:level 0}
+   :states  {:idle     {:on {:gate/set   {:action :set-level}
+                             :gate/check [{:guard :gate-high? :target :high}
+                                          {:guard :gate-low?  :target :low}
+                                          {:target :rejected}]}}
+             :low      {:on {:gate/reset :idle}}
+             :high     {:on {:gate/reset :idle}}
+             :rejected {:on {:gate/reset :idle}}}})
+
+(deftest real-elk-orders-gate-fork-branches-left-to-right
+  (testing "rf2-rcszre — running REAL elkjs (`compute-layout!`) on the gate
+            guarded fork resolves the three `:gate/check` branch event-nodes
+            LEFT-TO-RIGHT in priority order (x ascending: branch 1 < branch
+            2 < branch 3), the post-root-container layout the projection
+            elk.position + semiInteractive pins drive. Without the pins
+            ELK's crossing-minimisation freely reorders the same-rank
+            branches."
+    (async done
+      (let [parsed   (layout/project-definition gate-fork-machine)
+            edges    (:edges parsed)
+            checks   (filter #(= :gate/check (:event %)) edges)
+            by-guard (into {} (map (juxt :guard identity) checks))
+            ev       #(projection/event-node-id (get by-guard %))
+            id1 (ev :gate-high?)   ;; priority 1
+            id2 (ev :gate-low?)    ;; priority 2
+            id3 (ev nil)]          ;; priority 3
+        ;; :tb is the chart's DOWN direction — branches stack on the X
+        ;; (within-layer) cross-axis, so priority order reads x-ascending.
+        (chart/compute-layout!
+          parsed :tb nil :test/gate
+          (fn [result]
+            (try
+              (is (map? result))
+              (is (nil? (:layout-error result))
+                  "real elk laid the fork out without error")
+              (let [pos (:positions result)
+                    x1  (get-in pos [id1 :x])
+                    x2  (get-in pos [id2 :x])
+                    x3  (get-in pos [id3 :x])]
+                (is (every? number? [x1 x2 x3])
+                    "all three branch event-nodes resolved a position")
+                (when (every? number? [x1 x2 x3])
+                  (is (< x1 x2 x3)
+                      (str "branches resolve left-to-right in priority order "
+                           "1,2,3 (x: " x1 " < " x2 " < " x3 ")"))))
+              (finally (done)))))))))
 
 (deftest elk-layout-options-pins-g2-routing-keys
   (testing "rf2-cz8v6 (G2) — the routing keys cross-hierarchy bend-points

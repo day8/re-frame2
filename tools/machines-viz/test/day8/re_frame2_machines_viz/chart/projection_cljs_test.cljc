@@ -3294,6 +3294,77 @@
         (is (re-find #"^fork-connector__" (:id e))
             "stable fork-connector id prefix")))))
 
+(deftest fork-connector-edges-anchor-to-explicit-side-handles
+  (testing "rf2-4vvywg — every connector edge anchors to EXPLICIT side
+            handles (`:sourceHandle \"right\"` + `:targetHandle \"left\"`)
+            rather than xyflow's default handle pick. The branch event-nodes
+            lay out LEFT-TO-RIGHT in priority order (rf2-p75kbg), so the
+            order chain must read side-to-side: it leaves each branch from
+            its RIGHT source handle and enters the next from its LEFT target
+            handle (the named cardinal handles `four-cardinal-handles`
+            emits). Without these, xyflow may attach BOTTOM→TOP off the
+            unnamed cardinal handles, making the priority chain awkward."
+    (let [parsed (layout/project-definition gate-fork-machine)
+          conns  (projection/fork-connector-edges
+                   (:edges parsed) (tokens/chart-tokens) vc/chart-regular)]
+      (is (seq conns) "the gate fork yields connector edges")
+      (doseq [e conns]
+        (is (= "right" (:sourceHandle e))
+            "leaves the source branch from its RIGHT source handle")
+        (is (= "left" (:targetHandle e))
+            "enters the next branch from its LEFT target handle")))))
+
+(deftest fork-connector-handles-read-as-clean-order-chain
+  (testing "rf2-4vvywg — the connector edges form a clean side-to-side
+            ORDER CHAIN: each consecutive pair links one branch's RIGHT
+            source handle to the next branch's LEFT target handle, and the
+            chain is consecutive (1's right → 2's left, 2's right → 3's
+            left — no edge skips a branch and none attaches an unnamed
+            top/bottom handle), so the priority line reads left-to-right
+            without depending on xyflow's default-handle internals."
+    (let [parsed   (layout/project-definition gate-fork-machine)
+          conns    (projection/fork-connector-edges
+                     (:edges parsed) (tokens/chart-tokens) vc/chart-regular)
+          edges    (:edges parsed)
+          checks   (filter #(= :gate/check (:event %)) edges)
+          by-guard (into {} (map (juxt :guard identity) checks))
+          c1 (:id (get by-guard :gate-high?))   ;; priority 1
+          c2 (:id (get by-guard :gate-low?))    ;; priority 2
+          c3 (:id (get by-guard nil))           ;; priority 3
+          ev #(str "event__" %)
+          ;; index every connector by its [source target] event-node pair.
+          by-pair (into {} (map (juxt (juxt :source :target) identity)) conns)]
+      (is (= 2 (count conns)) "3-branch fork → 2 connector edges (1→2, 2→3)")
+      (let [link-1->2 (get by-pair [(ev c1) (ev c2)])
+            link-2->3 (get by-pair [(ev c2) (ev c3)])]
+        (is (some? link-1->2) "the 1→2 link exists")
+        (is (some? link-2->3) "the 2→3 link exists")
+        (doseq [link [link-1->2 link-2->3]]
+          (is (= "right" (:sourceHandle link)) "each link leaves a RIGHT handle")
+          (is (= "left" (:targetHandle link)) "each link enters a LEFT handle"))
+        ;; The chain is a true order chain: branch 2 is BOTH the target of
+        ;; link 1→2 (entered on its LEFT) AND the source of link 2→3 (left
+        ;; from its RIGHT) — a clean pass-through, not a fan from one node.
+        (is (= (:target link-1->2) (:source link-2->3))
+            "branch 2 is the hinge: entered on the left, left on the right")
+        ;; No connector attaches an unnamed (top/bottom) cardinal handle.
+        (is (not-any? #(contains? #{nil "top" "bottom"} (:sourceHandle %)) conns)
+            "no connector leaves a top/bottom source handle")
+        (is (not-any? #(contains? #{nil "top" "bottom"} (:targetHandle %)) conns)
+            "no connector enters a top/bottom target handle")))))
+
+(deftest xyflow-graph-fork-connector-handles-survive-projection
+  (testing "rf2-4vvywg — the explicit side-handle anchoring survives the
+            full `xyflow-graph` projection (the connector edges are appended
+            post-ELK), so the rendered xyflow edges carry the handle ids."
+    (let [parsed (layout/project-definition gate-fork-machine)
+          graph  (projection/xyflow-graph parsed {} {})
+          conns  (connector-edges-of graph)]
+      (is (seq conns) "the projected graph carries the fork connector edges")
+      (doseq [e conns]
+        (is (= "right" (:sourceHandle e)) "RIGHT source handle survives projection")
+        (is (= "left" (:targetHandle e)) "LEFT target handle survives projection")))))
+
 (deftest xyflow-graph-appends-fork-connector-edges
   (testing "rf2-o3rkq1 — `xyflow-graph` appends the decorative connector
             edges to its `:edges` output (alongside the route + entry
@@ -3412,3 +3483,60 @@
                    (projection/->elk-children (layout/project-definition m)))]
         (is (not-any? #(contains? (:layoutOptions %) "elk.position") kids)
             (str "non-fork fixture " m " pins no node position"))))))
+
+;; ---- guarded-fork semiInteractive on the REAL root-container child ------
+;; rf2-rcszre — the gate fork's branches lay out UNDER the synthetic
+;; ROOT-CONTAINER frame (rf2-q129z8), NOT at the bare ELK root. So the
+;; `chart/elk-layout-options`-on-the-bare-root semiInteractive lever (pinned
+;; in edges-cljs-test via a SYNTHETIC bare-root fixture) does NOT fire for
+;; the real machine — instead the ROOT-CONTAINER child built by
+;; `->elk-children` (`container-opts`) carries semiInteractive because
+;; `fork-branch-container-ids` returns `#{root-container-id}`. This pin
+;; guards that REAL post-root-container path the synthetic test routes
+;; around: the root-container ELK child carries the semiInteractive option,
+;; and a non-fork machine's root-container child does NOT.
+
+(deftest elk-children-root-container-carries-semi-interactive-for-fork
+  (testing "rf2-rcszre — the gate guarded fork's branches lay out under the
+            ROOT-CONTAINER frame, so the root-container ELK child (the sole
+            top-level `->elk-children` element) carries
+            `elk.layered.crossingMinimization.semiInteractive = true` — the
+            REAL post-root-container path the synthetic bare-root pin in
+            edges-cljs-test routes around. Without this, the branch
+            event-nodes' `elk.position` hints would be ignored and the
+            dotted connector would weave."
+    (let [parsed    (layout/project-definition gate-fork-machine)
+          container (first (projection/->elk-children parsed))]
+      (is (= layout/root-container-id (:id container))
+          "the sole top-level ELK child is the root-container frame")
+      (is (= "true"
+             (get (:layoutOptions container)
+                  "elk.layered.crossingMinimization.semiInteractive"))
+          "the root-container child enables semiInteractive for the fork")
+      ;; the branch event-children INSIDE it carry the elk.position hints
+      ;; the semiInteractive option honours (the pair is what orders 1,2,3).
+      (let [edges    (:edges parsed)
+            checks   (filter #(= :gate/check (:event %)) edges)
+            by-guard (into {} (map (juxt :guard identity) checks))
+            ev       #(projection/event-node-id (get by-guard %))
+            kids     (root-children (projection/->elk-children parsed))
+            opts-of  (fn [id] (-> (filter #(= id (:id %)) kids) first :layoutOptions))]
+        (is (= {"elk.position" "(1,0)"} (opts-of (ev :gate-high?)))
+            "branch 1 event-node pinned at cross-axis x=1 inside the container")
+        (is (= {"elk.position" "(2,0)"} (opts-of (ev :gate-low?)))
+            "branch 2 event-node pinned at cross-axis x=2")
+        (is (= {"elk.position" "(3,0)"} (opts-of (ev nil)))
+            "branch 3 event-node pinned at cross-axis x=3")))))
+
+(deftest elk-children-root-container-no-semi-interactive-without-fork
+  (testing "rf2-rcszre — a machine with NO guarded fork does NOT enable
+            semiInteractive on its root-container child, so the default
+            full crossing-minimisation stands and no non-fork layout is
+            perturbed."
+    (doseq [m [self-loop-machine compound-machine idle-loading]]
+      (let [container (first (projection/->elk-children
+                               (layout/project-definition m)))]
+        (is (not (contains? (:layoutOptions container)
+                            "elk.layered.crossingMinimization.semiInteractive"))
+            (str "non-fork fixture " m
+                 " root-container child omits semiInteractive"))))))
