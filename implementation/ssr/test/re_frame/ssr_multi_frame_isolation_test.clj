@@ -7,14 +7,14 @@
   `:log`), one payload bundle carrying per-frame slices, three
   independent `:rf/hydrate` dispatches, three independent app-dbs,
   three independent `:rf/render-hash` values stashed on each
-  frame's `[:rf/runtime :ssr :hydration]` metadata block.
+  frame's `[:rf.runtime/ssr :hydration]` metadata block.
 
   The contract surface is platform-neutral:
 
     - `rf/dispatch-sync [:rf/hydrate slice] {:frame fid}` routes the
       replace-app-db to the named frame (per Spec 002 §Routing the
       dispatch envelope).
-    - The [:rf/runtime :ssr :hydration] metadata lands in THAT frame's app-db only
+    - The [:rf.runtime/ssr :hydration] metadata lands in THAT frame's app-db only
       (Spec 011 §Frames are per-request + Spec 002 §What lives in
       a frame).
     - `rf/subscribe-once fid query-v` resolves against the explicit
@@ -49,6 +49,7 @@
   smokes per the audit's §Drop-or-keep recommendation)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.subs :as subs]
             [re-frame.ssr.test-fixture :as tf]))
 
 (use-fixtures :each tf/reset-runtime)
@@ -83,7 +84,9 @@
   (rf/reg-event-db ::inc          (fn [db _ev] (update db :n (fnil inc 0))))
   (rf/reg-sub :n         (fn [db _] (:n db)))
   (rf/reg-sub :entries   (fn [db _] (:entries db)))
-  (rf/reg-sub :hydration (fn [db _] (get-in db [:rf/runtime :ssr :hydration]))))
+  ;; EP-0001 (rf2-vzld77): the SSR hydration metadata is durable runtime-db
+  ;; state, so :hydration is a runtime-db sub (reads the runtime-db projection).
+  (subs/reg-runtime-sub :hydration (fn [rt _] (get-in rt [:rf.runtime/ssr :hydration]))))
 
 (defn- register-three-frames! []
   (rf/reg-frame frame-a   {:on-create [::counter-init]})
@@ -119,24 +122,24 @@
         ":log's app-db carries the 2 seeded entries from its payload slice")))
 
 ;; ===========================================================================
-;; spec.cjs §(2) → per-frame [:rf/runtime :ssr :hydration] metadata landed
+;; spec.cjs §(2) → per-frame [:rf.runtime/ssr :hydration] metadata landed
 ;; ===========================================================================
 
 (deftest multi-frame-hydrate-stashes-per-frame-hydration-metadata
   (testing "Migrated from testbeds/ssr_multi_frame/spec.cjs assertion #4.
-            Each frame's :rf/hydrate stashes a [:rf/runtime :ssr :hydration] metadata
+            Each frame's :rf/hydrate stashes a [:rf.runtime/ssr :hydration] metadata
             block on that frame's app-db (not on the surrounding
             default frame, not on a global atom)."
     (bootstrap-and-hydrate!)
     (is (some? (rf/subscribe-once frame-a [:hydration]))
-        ":counter/a carries [:rf/runtime :ssr :hydration] metadata")
+        ":counter/a carries [:rf.runtime/ssr :hydration] metadata")
     (is (some? (rf/subscribe-once frame-b [:hydration]))
-        ":counter/b carries [:rf/runtime :ssr :hydration] metadata")
+        ":counter/b carries [:rf.runtime/ssr :hydration] metadata")
     (is (some? (rf/subscribe-once frame-log [:hydration]))
-        ":log carries [:rf/runtime :ssr :hydration] metadata")
+        ":log carries [:rf.runtime/ssr :hydration] metadata")
     ;; And the metadata didn't bleed onto the default frame
     ;; (which was never hydrated).
-    (is (nil? (get-in (rf/app-db-value :rf/default) [:rf/runtime :ssr :hydration]))
+    (is (nil? (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/ssr :hydration]))
         "the default frame was never hydrated — no metadata block")))
 
 ;; ===========================================================================
@@ -145,7 +148,7 @@
 
 (deftest multi-frame-hydrate-stashes-per-frame-server-hash
   (testing "Migrated from testbeds/ssr_multi_frame/spec.cjs assertion
-            #5. Each frame's [:rf/runtime :ssr :hydration :server-hash] equals its
+            #5. Each frame's [:rf.runtime/ssr :hydration :server-hash] equals its
             payload slice's :rf/render-hash verbatim — no cross-
             frame bleed (the runtime writes to one frame's app-db
             per dispatch, never to siblings)."

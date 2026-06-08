@@ -9,7 +9,7 @@
   patterns.
 
   Every load-bearing assertion is platform-neutral — the contract
-  surface (the `:rf/hydrate` handler, the [:rf/runtime :ssr :hydration] metadata,
+  surface (the `:rf/hydrate` handler, the [:rf.runtime/ssr :hydration] metadata,
   the compatibility-check fxs, `verify-hydration!`, the
   `:rf/response` shape) lives in `re-frame.ssr.hydrate` and
   surrounding sub-namespaces, which are `.cljc`. Per the migration
@@ -44,6 +44,7 @@
   by the 3 adapter smokes per the audit's §Drop-or-keep recommendation)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
+            [re-frame.subs :as subs]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.payload-policy :as payload-policy]
             [re-frame.ssr.test-fixture :as tf]))
@@ -82,7 +83,9 @@
   (rf/reg-sub :count       (fn [db _] (or (:count db) 0)))
   (rf/reg-sub :title       (fn [db _] (or (:title db) "untitled")))
   (rf/reg-sub :server-resp (fn [db _] (:server-response db)))
-  (rf/reg-sub :hydrated?   (fn [db _] (boolean (get-in db [:rf/runtime :ssr :hydration])))))
+  ;; EP-0001 (rf2-vzld77): the SSR hydration metadata is durable runtime-db
+  ;; state, so :hydrated? is a runtime-db sub.
+  (subs/reg-runtime-sub :hydrated? (fn [rt _] (boolean (get-in rt [:rf.runtime/ssr :hydration])))))
 
 (defn- materialise-response
   "Mirror of testbeds/ssr_basic/core.cljs's `materialise-response` —
@@ -115,7 +118,7 @@
             :rf/hydrate replaces app-db with the payload's :rf/app-db
             (Spec 011 §The :rf/hydrate event — `:replace-app-db` policy),
             stashes the version + nil server-hash under
-            [:rf/runtime :ssr :hydration],
+            [:rf.runtime/ssr :hydration],
             and the :hydrated? / :count / :title subs read the
             post-hydrate values via subscribe-once (no view re-render
             machinery needed; the contract is the app-db state)."
@@ -126,18 +129,19 @@
       (rf/dispatch-sync [:rf/hydrate payload] {:frame client-frame})
 
       (is (true? (rf/subscribe-once client-frame [:hydrated?]))
-          ":hydrated? reads true once hydration metadata lands at [:rf/runtime :ssr :hydration]")
+          ":hydrated? reads true once hydration metadata lands at [:rf.runtime/ssr :hydration]")
       (is (= 7 (rf/subscribe-once client-frame [:count]))
           "seeded :count from payload's :rf/app-db wins")
       (is (= "seeded" (rf/subscribe-once client-frame [:title]))
           "seeded :title from payload's :rf/app-db wins")
-      ;; Lock the [:rf/runtime :ssr :hydration] metadata shape (the
+      ;; Lock the [:rf.runtime/ssr :hydration] metadata shape (the
       ;; testbed's view doesn't read these slots, but downstream tooling
       ;; — Xray / the late-bind compatibility-check fxs — does).
-      (let [db (rf/app-db-value client-frame)]
-        (is (= 1 (get-in db [:rf/runtime :ssr :hydration :version]))
+      ;; EP-0001 (rf2-vzld77): the hydration metadata is durable runtime-db state.
+      (let [rt (rf/runtime-db-value client-frame)]
+        (is (= 1 (get-in rt [:rf.runtime/ssr :hydration :version]))
             ":rf/version rides on the hydration metadata block")
-        (is (not (contains? (get-in db [:rf/runtime :ssr :hydration]) :server-hash))
+        (is (not (contains? (get-in rt [:rf.runtime/ssr :hydration]) :server-hash))
             "nil :rf/render-hash is pruned from the metadata block
              (rf2-asmj1 Q9 / cluster rf2-sljs1)")))))
 
