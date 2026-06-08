@@ -55,7 +55,7 @@ Before any op, `discover-app` runs. This locates the nREPL port, connects, verif
 
 ### L6 — Multi-frame model, operating-frame selection
 
-re-frame2 apps may run multiple named frames (Spec 002). The session caches an operating frame; mutating ops refuse with `:ambiguous-frame` if more than one frame is registered and none selected. Read ops proceed against `:rf/default` after warning. This matches Spec 002 §Frame-presets / lifecycle convention.
+re-frame2 apps may run multiple named frames (Spec 002). The session caches an operating frame; ops refuse with `:ambiguous-frame` if more than one app frame is registered and none selected. Read ops refuse too — the read helpers return `:reason :ambiguous-frame` rather than silently reading `:rf/default`. This matches Spec 002 §Frame-presets / lifecycle convention.
 
 ### L7 — One trace listener and one epoch listener per skill
 

@@ -32,7 +32,7 @@
   STRUCTURE slots) is intentionally public and NOT scrubbed; see
   `scrub-frame-value` for the runtime-vs-authored split.
 
-  ## Path-based redaction (`elide-app-db`, `scrub-assertions`)
+  ## Path-based redaction (`elide-app-db`, `scrub-assertions+count`)
 
   Apply the cross-MCP privacy-posture rules to every live `:app-db`
   slice and assertion accumulator before egress. Off-box defaults
@@ -147,14 +147,6 @@
     include?       [(vec (or records [])) 0]
     (nil? records) [[] 0]
     :else          (sensitive/strip-sensitive records false)))
-
-(defn scrub-assertions
-  "Kept-vec-only projection of `scrub-assertions+count` — the historical
-  signature for call sites that don't surface the dropped count. New
-  egress paths SHOULD prefer `scrub-assertions+count` and thread the
-  count onto the envelope via `with-indicators` (rf2-koq5m)."
-  [records include?]
-  (first (scrub-assertions+count records include?)))
 
 ;; ---------------------------------------------------------------------------
 ;; Derived-tree value-based redaction (rf2-ee38b.17)

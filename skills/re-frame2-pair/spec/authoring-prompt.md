@@ -54,7 +54,7 @@ A self-contained prompt that re-authors the `re-frame2-pair` skill from this `sp
 > *2. **No re-frame-10x dependency** — time-travel and trace consumption ride on `register-listener!` / `register-epoch-listener!` / `epoch-history` / `restore-epoch`.*
 > *3. **Connect first, every session** — `discover-app` before any op. Failures return structured edn; report verbatim, don't improvise workarounds.*
 > *4. **Two modes of changing the app** — REPL changes ephemeral; source edits permanent (must `hot-reload/wait` after).*
-> *5. **Multi-frame model** — mutating ops refuse with `:ambiguous-frame` if more than one frame is registered and none selected. Read ops fall back to `:rf/default` after warning.*
+> *5. **Multi-frame model** — ops refuse with `:ambiguous-frame` if more than one app frame is registered and none selected. Reads refuse too — the read helpers return `:reason :ambiguous-frame` rather than silently reading `:rf/default`.*
 > *6. **One trace listener and one epoch listener** under `:re-frame2-pair` / `:re-frame2-pair-epoch`. Multi-tool coexistence is the expected default.*
 > *7. **Use the assembled epoch stream by default; reach for the raw trace stream when the projection drops detail.***
 > *8. **Read before you write** — ground a hypothesis in a snapshot / epoch / sub-run before proposing a change.*

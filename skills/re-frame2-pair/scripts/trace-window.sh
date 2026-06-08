@@ -2,8 +2,11 @@
 # trace-window.sh — return epochs added to the operating frame's
 # epoch-history in the last N ms.
 #
-# DEPRECATED: prefer the MCP tool `trace-window` from
-# `@day8/re-frame2-pair-mcp` (tools/re-frame2-pair-mcp/). Kept for back-compat.
+# RETIRED from the skill's tool surface: the skill drives `trace-window`
+# via the MCP server (`@day8/re-frame2-pair-mcp`, tools/re-frame2-pair-mcp/),
+# the only skill-facing transport. This shim is on disk only for the
+# project's own test harness (tests/shim/, tests/e2e/) and ad-hoc shell
+# use outside the skill — NOT a skill-facing fallback transport.
 #
 # Usage:
 #   scripts/trace-window.sh 3000           # last 3 seconds of epochs
