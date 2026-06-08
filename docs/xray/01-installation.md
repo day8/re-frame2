@@ -115,6 +115,22 @@ If Xray does not appear, check:
 - `rf/init!` has run with a substrate adapter.
 - `window.day8.re_frame2_xray.status()` has no missing-host diagnostic.
 
+## Clickable Jump-To-Source
+
+Every panel that surfaces a source-coord wraps it in an `open` chip. Clicking jumps to that line in your editor — but only once Xray knows which editor to open. On a plain host app wiring just the preload, the chip uses the `:vscode` default scheme; if that is not your editor, the OS has no handler for it and the click silently no-ops.
+
+Set your editor either in **Xray Settings** (the "Click-to-source links open in" picker on the General tab — persisted per-dev in localStorage, so each teammate can pick their own), or once at boot in code:
+
+```clojure
+(require '[day8.re-frame2-xray.config :as xray-config])
+(xray-config/configure! {:rf.xray/editor :cursor})
+;; :vscode (default) | :cursor | :windsurf | :zed | :idea | {:custom "<uri-template>"}
+```
+
+The Settings picker overrides the boot-time `configure!` value per-machine, so a mixed-editor team sets a project default in code and individuals override locally.
+
+`:rf.xray/project-root` is **only** needed when your stamped source-coords are classpath-*relative* (an editor cannot resolve a relative path). The normal `reg-*` / `reg-machine` registration path stamps **absolute** coords, which Xray ships verbatim — leave `:rf.xray/project-root` unset in that case. Do not hardcode a machine-specific path "to make Open work"; if absolute coords already open, you do not need it.
+
 ## Production Posture
 
 Production builds should not include the preload. Even if a dev-only path accidentally remains reachable, Xray's substrate is gated by re-frame2's debug flag and the bundle-isolation checks guard against Xray strings leaking into production bundles.

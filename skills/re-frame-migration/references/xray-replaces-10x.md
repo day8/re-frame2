@@ -83,6 +83,17 @@ Xray is **dev-only by construction** — production builds elide every byte of i
 
 The preload registers Xray's listeners under `register-listener!` and `register-epoch-listener!`, attaches the global keydown listener (`Ctrl+Shift+C` and the rest — see [Keybindings](#keybindings-whats-actually-wired)), and auto-opens the panel into the layout host after `rf/init!`. No `(require '[day8.re-frame2-xray.core])`. No `init!` call. The preload plus the host element are the full integration surface.
 
+### 4. Set your editor for clickable jump-to-source
+
+For Xray's `open` chips to jump to source on click, Xray must know which editor to open — the bare preload defaults to the `:vscode` scheme, so if that isn't your editor the click silently no-ops. Set it in **Xray Settings** ("Click-to-source links open in" on the General tab — persisted per-dev) or once at boot:
+
+```clojure
+(require '[day8.re-frame2-xray.config :as xray-config])
+(xray-config/configure! {:rf.xray/editor :cursor}) ; / :vscode (default) / :windsurf / :zed / :idea / {:custom "<uri-template>"}
+```
+
+`:rf.xray/project-root` is **only** needed when stamped source-coords are classpath-*relative*. The normal `reg-*` / `reg-machine` path stamps **absolute** coords (shipped verbatim), so leave it unset — do not hardcode a machine-specific path to "make Open work" when absolute coords already resolve. See [`docs/xray/01-installation.md` §Clickable Jump-To-Source](../../../docs/xray/01-installation.md#clickable-jump-to-source).
+
 ---
 
 ## The layout host (true-inline default)
