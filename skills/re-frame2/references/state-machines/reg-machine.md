@@ -171,13 +171,18 @@ It is spelled `:data-schema`, not the bare `:schema` every other `reg-*` kind us
 
 2. **Declared context shape.** With a `:data-schema` present, a machine visualiser renders the context shape **authoritatively** from the declared `[:map [k type] …]` entries — the re-frame2 analog of XState v5's typed context (which Stately's inspector renders as a `Context:` header). Without a schema, a viz can only *infer* key→type from one sample of the initial `:data`, which a partial initial map can mislead. Declaring the schema turns that one-sample guess into a reliable, reader-trustable contract.
 
-3. **`:sensitive?` redaction.** A `:sensitive?` (or `:large?`) Malli property on a `:data` slot — `[:token {:sensitive? true} [:maybe :string]]` above — marks that slot for redaction at trace / wire egress, so the value does not leak raw into a transition trace, an inspector snapshot, or the epoch wire. (For coarse, whole-machine redaction, putting `:sensitive? true` in the `reg-machine` *registration metadata* stamps every `:rf.machine/*` event in the machine's cascade — the per-slot schema property is the finer-grained surface for redacting only specific keys.)
+3. **`:sensitive?` redaction.** A `:sensitive?` (or `:large?`) Malli property on a `:data` slot — `[:token {:sensitive? true} [:maybe :string]]` above — marks that slot for redaction at trace / wire egress, so the value does not leak raw into a transition trace, an inspector snapshot, or the epoch wire. At registration the `:data-schema`'s marked slots are extracted, rooted under `[:data …]` to match the snapshot shape, and honoured in every `:rf.machine/transition` / `:rf.machine/snapshot-updated` egress (the `:before` / `:after` / `:snapshot` slots) — exactly like an `app-db` schema's per-slot props feed app-db elision.
 
 ```clojure
-;; Whole-machine redaction via registration metadata:
-(rf/reg-machine :session/auth {:doc "…" :sensitive? true} AuthMachineSpec)
-;; vs per-slot redaction via the :data-schema property (above) — redact :token only.
+;; Per-slot redaction via the :data-schema property (above) — redact :token only:
+(rf/reg-machine :session/auth
+  {:initial     :anon
+   :data        {:retries 0 :token nil}
+   :data-schema AuthData            ;; [:map [:retries :int] [:token {:sensitive? true} [:maybe :string]]]
+   :states      {...}})
 ```
+
+**There is no whole-machine redaction key on `reg-machine`.** `reg-machine` (and `reg-machine*`) accept exactly `(machine-id machine-map)` — there is no metadata-bearing arity and no top-level `:sensitive?` key on the spec map. The framework-wide handler-metadata `:sensitive?` annotation that once stamped a whole cascade has been removed (sensitivity is now path-based, per Spec 009 §The `:sensitive?` registration metadata key). To redact a machine's whole `:data`, mark each sensitive slot in the `:data-schema` (the precise, supported surface). For coarse, frame-scoped redaction not tied to a schema, declare the snapshot paths with `rf/add-marks` / `rf/set-marks` against the frame.
 
 A machine with **no** `:data-schema` is unchanged: its `:data` is free-form and unvalidated, and a viz infers (and badges as inferred) its context shape.
 
