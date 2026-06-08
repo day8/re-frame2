@@ -2,8 +2,11 @@
 # dispatch.sh — fire a re-frame2 event in the connected app, tagged
 # with :origin :pair (Spec 002 §Dispatch origin tagging).
 #
-# DEPRECATED: prefer the MCP tool `dispatch` from
-# `@day8/re-frame2-pair-mcp` (tools/re-frame2-pair-mcp/). Kept for back-compat.
+# RETIRED from the skill's tool surface: the skill drives `dispatch`
+# via the MCP server (`@day8/re-frame2-pair-mcp`, tools/re-frame2-pair-mcp/),
+# the only skill-facing transport. This shim is on disk only for the
+# project's own test harness (tests/shim/, tests/e2e/) and ad-hoc shell
+# use outside the skill — NOT a skill-facing fallback transport.
 #
 # Default mode is queued dispatch (`rf/dispatch`).
 # --sync  forces `rf/dispatch-sync` for deterministic before/after.

@@ -222,7 +222,7 @@ Four surfaces — see `docs/TESTING.md`.
 
 - **No re-frame-10x dependency.** Every 10x reach has been replaced with a re-frame2 Tool-Pair surface. See `SKILL.md`'s "Dropped from v1" section for the exhaustive substitution table.
 - **First-class time-travel.** `restore-epoch` is shipped by re-frame2; no adapter, no stubs, seven documented failure modes.
-- **Multi-frame.** Every op carries an operating-frame concept; reads use `:rf/default` when unambiguous; mutating ops refuse on `:ambiguous-frame`.
+- **Multi-frame.** Every op carries an operating-frame concept; the operating frame resolves to the sole registered app frame when unambiguous; both reads and writes refuse on `:ambiguous-frame` (reads return `:reason :ambiguous-frame` rather than silently reading `:rf/default`).
 - **Origin tagging.** Pair dispatches carry `:origin :pair` so they can be filtered out of a trace stream that also carries `:app` / `:ui` / `:timer` / `:http` events.
 - **Render projection consumed verbatim.** `:renders` and `:sub-runs` are projected by re-frame2 itself; no re-com classifier in the runtime (Spec-Schemas owns the projection shape).
 - **Source-coord bridge takes re-frame2's annotation first, re-com's as a fallback.**

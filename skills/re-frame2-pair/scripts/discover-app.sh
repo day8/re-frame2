@@ -4,8 +4,11 @@
 # structured edn result. (The runtime ships via shadow-cljs :devtools
 # :preloads; there is no per-session inject step — see SKILL.md §Setup.)
 #
-# DEPRECATED: prefer the MCP tool `discover-app` from
-# `@day8/re-frame2-pair-mcp` (tools/re-frame2-pair-mcp/). Kept for back-compat.
+# RETIRED from the skill's tool surface: the skill drives `discover-app`
+# via the MCP server (`@day8/re-frame2-pair-mcp`, tools/re-frame2-pair-mcp/),
+# the only skill-facing transport. This shim is on disk only for the
+# project's own test harness (tests/shim/, tests/e2e/) and ad-hoc shell
+# use outside the skill — NOT a skill-facing fallback transport.
 #
 # Usage:
 #   scripts/discover-app.sh [--build=app]
