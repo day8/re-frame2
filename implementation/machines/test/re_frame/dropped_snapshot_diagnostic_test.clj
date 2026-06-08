@@ -101,13 +101,13 @@
   (testing "restore-epoch / reset-frame-db install a COMPLETE db via a direct adapter/replace-container! — they never flow through a :db effect, so they never reach the guard"
     (register-live-machine!)
     ;; Reproduce exactly what re-frame.epoch's restore-epoch / reset-frame-db
-    ;; do: call adapter/replace-container! directly with a complete db that
-    ;; carries NO machine snapshot (e.g. restoring to a pre-spawn epoch).
-    ;; Because this is not a `:db` effect, `commit-db-effect!` is never on the
-    ;; stack and the guard cannot fire.
-    (let [container (frame/app-db-container :rf/default)
-          warnings  (with-recorder
-                      #(adapter/replace-container! container {:restored-past true}))]
+    ;; do: install a complete app-db that carries NO machine snapshot (e.g.
+    ;; restoring to a pre-spawn epoch) via the app-db PARTITION write
+    ;; `frame/swap-frame-db!` (EP-0001 rf2-adwcv6 — `app-db-container` is now a
+    ;; read-only projection). Because this is not a `:db` effect,
+    ;; `commit-frame-effects!` is never on the stack and the guard cannot fire.
+    (let [warnings  (with-recorder
+                      #(frame/swap-frame-db! :rf/default (constantly {:restored-past true})))]
       (is (empty? warnings)
           "a direct container replace is not a :db commit — out of the guard's scope")
       (is (not (live-snapshot? :diag/m1))

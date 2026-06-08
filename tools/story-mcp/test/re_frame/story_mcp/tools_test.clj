@@ -2004,9 +2004,11 @@
    (frame-container variant-id)))
 
 (defn- replace-frame-db! [variant-id new-db]
-  ((requiring-resolve 're-frame.substrate.adapter/replace-container!)
-   (frame-container variant-id)
-   new-db))
+  ;; EP-0001 (rf2-adwcv6): write the app-db PARTITION via swap-frame-db! —
+  ;; `frame/app-db-container` is now a read-only projection over the one
+  ;; physical frame-state container.
+  ((requiring-resolve 're-frame.frame/swap-frame-db!)
+   variant-id (constantly new-db)))
 
 (defn- ensure-variant-frame!
   "Allocate `variant-id`'s frame if it doesn't already exist. The fixture

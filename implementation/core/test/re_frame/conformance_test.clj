@@ -481,10 +481,13 @@
     (let [adapter-helpers
           {:read-db!  (fn [frame-id]
                         (frame/frame-app-db-value frame-id))
+           ;; EP-0001 (rf2-adwcv6): write the app-db PARTITION of the one
+           ;; physical frame-state container. `frame/app-db-container` is now
+           ;; a READ-ONLY projection, so a direct `replace-container!` on it
+           ;; throws; `swap-frame-db!` (constant fn) installs the new app-db
+           ;; into the app-db partition, leaving runtime-db untouched.
            :write-db! (fn [frame-id new-db]
-                        (let [container (frame/app-db-container frame-id)]
-                          ((requiring-resolve 're-frame.substrate.adapter/replace-container!)
-                           container new-db)))
+                        (frame/swap-frame-db! frame-id (constantly new-db)))
            :dispatch! (fn [event frame-id]
                         (rf/dispatch event {:frame frame-id}))
            ;; Per Cross-Spec Interaction §14 (rf2-60szl): dispatch-sync

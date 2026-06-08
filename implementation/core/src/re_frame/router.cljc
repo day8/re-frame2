@@ -860,104 +860,160 @@
                      (seq dropped-machine-ids)
                      (assoc :dropped-machine-ids dropped-machine-ids))))))
 
-(defn- commit-db-effect!
-  "Apply :db atomically: replace the app-db container, emit the
-  :event/db-changed trace, then run post-commit schema validation.
-  Returns true when the commit is durable (no :db effect, or all
-  schemas conformed); false when post-commit validation rejected the
-  new state and the container has been **rolled back** to the
-  pre-handler value (per Spec 010 §Per-step recovery row 4 /
-  rf2-wkxng / rf2-6m0se).
+(defn- emit-frame-state-changed!
+  "Emit the partition-tagged `:rf.event/frame-state-changed` trace
+  (EP-0001 decision #6 / Spec 009 §Canonical per-event trace sequence).
+  `changed` is the set of frame-state partition keys that changed by `=`
+  (a subset of `#{:rf.db/app :rf.db/runtime}` returned by
+  `frame/commit-frame-transition!`); the trace carries
+  `:rf.event/partitions` mapped to the tooling-facing tag set
+  `#{:app-db :runtime-db}`. Fires only when at least one partition
+  changed. Dev-only — `trace/emit!` is internally gated on
+  `interop/debug-enabled?`, and the `phase` keyword is carried through for
+  the rollback re-emit."
+  ([event-id emit-event frame changed]
+   (emit-frame-state-changed! event-id emit-event frame changed nil))
+  ([event-id emit-event frame changed phase]
+   (when (seq changed)
+     (let [tags (cond-> #{}
+                  (contains? changed frame/app-partition-key)     (conj :app-db)
+                  (contains? changed frame/runtime-partition-key) (conj :runtime-db))]
+       (trace/emit! :rf.event :rf.event/frame-state-changed
+                    (cond-> {:rf.trace/event-id     event-id
+                             :rf.event/v            emit-event
+                             :frame                 frame
+                             :rf.event/partitions   tags}
+                      phase (assoc :rf.trace/phase phase)))))))
 
-  Per Spec 013 §Drain integration (rf2-u0zz5): `(:db effects)` here is
-  the FLOW-AUGMENTED value — the OUTERMOST flows-after-interceptor has
-  already rewritten the pending `:db` effect by the time the chain
-  returns. So `:event/db-changed` reflects the flow-derived db and fires
-  AFTER `:rf.flow/computed` (per Spec 009 §Canonical per-event trace
-  sequence).
+(defn- commit-frame-effects!
+  "Install the partitioned frame transition atomically (EP-0001 rf2-adwcv6,
+  Spec 002 §Drain-loop pseudocode §commit + §An ordinary :db return replaces
+  only app-db). A cascade may produce:
 
-  On rollback, a second :event/db-changed trace is emitted for the
-  restored state with `:phase :rollback` so listeners (subs, 10x,
-  pair-tools) observe the post-rollback app-db without ambiguity —
-  the trace stream's load-bearing ordering is `:db-changed (post-
-  handler) → :rf.error/schema-validation-failure → :db-changed
-  (post-rollback)`, mirroring the depth-exceeded pattern (the error
-  trace fires AFTER the container is back at its pre-handler value,
-  so a trace listener that reads app-db sees the rolled-back state).
-  Subscriptions whose inputs changed re-fire on the second commit so
-  the UI never settles on a non-conforming snapshot.
+    - an ordinary `:db` effect — the app-db partition write (scoped to
+      app-db; `:db` is NOT the whole frame);
+    - a reserved `:rf.db/runtime` effect — the runtime-db partition write
+      (whole-value replacement; decision #5 — operation-style writes go
+      through `swap-frame-db!` / the runtime mutators);
+    - both — installed as ONE coherent transition;
+    - neither — a no-op (a pre-install throw leaves no partition effect, so
+      this installs nothing and the event aborts with both partitions
+      unchanged).
 
-  Schema-derived redaction is reflected in the `:event/db-changed`
-  trace event's `:tags :event` slot. The router-installed internal
-  interceptor stashes the scrubbed form under `:rf/redacted-event`;
-  this commit path reads it through.
+  Both partitions install in ONE atomic `commit-frame-transition!` on the
+  single physical frame-state container — there is never a window where one
+  partition is committed and the other is not (Spec 006 §Commit boundary).
 
-  Per rf2-4wqu6 finding 1: on rollback the flow dirty-check
-  (`last-inputs`) bookkeeping is rolled back in lock-step with the
-  app-db. The flow transform advanced each computed flow's `last-inputs`
-  row inside the chain (folding the output into the now-discarded
-  pending `:db`); restoring app-db to `db-before` without also restoring
+  Returns true when the commit is durable (no partition effect, or app-db
+  schema conformed); false when post-commit app-db schema validation
+  rejected the new state and the frame-state has been **rolled back** to the
+  pre-handler value (per Spec 010 §Per-step recovery row 4 / rf2-wkxng /
+  rf2-6m0se). App-db schema validation is APP-DB-ONLY (app schemas validate
+  the app partition, Mike ruling #11); a rejection unwinds the WHOLE
+  transition (both partitions) so the frame is left coherently at its
+  pre-handler state.
+
+  Change traces (per Spec 009 §Canonical per-event trace sequence):
+    - `:rf.event/db-changed` — APP-DB-ONLY (Mike ruling #6): fires only when
+      the app-db partition changed; NEVER for a runtime-only commit;
+    - `:rf.event/frame-state-changed` — fires when EITHER partition changed,
+      partition-tagged (`#{:app-db}` / `#{:runtime-db}` / both).
+  A runtime-only commit emits ONLY frame-state-changed (`#{:runtime-db}`);
+  an app-only commit emits both (db-changed + frame-state-changed
+  `#{:app-db}`).
+
+  Per Spec 013 §Drain integration (rf2-u0zz5): `(:db effects)` here is the
+  FLOW-AUGMENTED app-db value — the OUTERMOST flows-after-interceptor has
+  already rewritten the pending `:db` effect by the time the chain returns.
+  So `:event/db-changed` reflects the flow-derived db and fires AFTER
+  `:rf.flow/computed` (per Spec 009 §Canonical per-event trace sequence).
+
+  On rollback, a second `:event/db-changed` (+ `frame-state-changed`) trace
+  is emitted for the restored state with `:phase :rollback` so listeners
+  (subs, 10x, pair-tools) observe the post-rollback frame-state without
+  ambiguity — the trace stream's load-bearing ordering is `:db-changed
+  (post-handler) → :rf.error/schema-validation-failure → :db-changed
+  (post-rollback)`, mirroring the depth-exceeded pattern (the error trace
+  fires AFTER the container is back at its pre-handler value).
+
+  Schema-derived redaction is reflected in the change traces' `:tags :event`
+  slot via `privacy/redacted-event-from-ctx`.
+
+  Per rf2-4wqu6 finding 1: on rollback the flow dirty-check (`last-inputs`)
+  bookkeeping is rolled back in lock-step (the flow transform advanced each
+  computed flow's row inside the chain; restoring app-db without restoring
   those rows would leave the dirty-check believing the flows are
-  up-to-date, so the next clean drain would skip them on `=`-equal
-  inputs and the output would never re-materialise. `ctx` carries the
-  pre-drain snapshot under `:rf/flow-last-inputs-before` (stashed by
-  `flows-after-interceptor`); the rollback arm restores it through the
-  frame-scoped `:flows/restore-last-inputs!` hook — the mirror of
-  `run-flows-on-db`'s throw-path rollback at the post-commit boundary."
-  [effects event-id event frame ctx db-before]
-  (if (contains? effects :db)
-    (let [container  (frame/app-db-container frame)
-          new-db     (:db effects)
-          emit-event (privacy/redacted-event-from-ctx ctx)]
-      (adapter/replace-container! container new-db)
-      (trace/emit! :rf.event :rf.event/db-changed
-                   {:rf.trace/event-id event-id :rf.event/v emit-event :frame frame})
-      (if (run-post-commit-validation! new-db event-id frame)
-        (do
-          ;; (rf2-p806o) Loud-failure guard: a durable `:db` commit that
-          ;; wholesale-replaced app-db and dropped a live `:rf/runtime`
-          ;; subsystem (machine snapshots / routing / elision / ssr) with no
-          ;; replacement is the silent `{:db fresh-map}` footgun — surface it.
-          ;; Fires only AFTER a durable commit (a rolled-back commit restores
-          ;; `db-before`, so no drop persists); see `detect-dropped-runtime-state!`
-          ;; for the discriminator that keeps restore-epoch / reset-frame-db /
-          ;; `:rf/hydrate` from false-firing.
-          (detect-dropped-runtime-state! db-before new-db event-id emit-event frame)
-          true)
-        (do
-          ;; Roll back: restore the pre-handler container value, then
-          ;; emit a second :event/db-changed with :phase :rollback so
-          ;; subs / listeners see the restored state on the trace
-          ;; stream. The error trace from validate-app-schema! has
-          ;; already fired between the two commits — consumers see
-          ;; (in order): forward commit, schema-failure error,
-          ;; rollback commit.
-          (adapter/replace-container! container db-before)
-          ;; Per rf2-4wqu6 finding 1: app-db rolled back to its pre-handler
-          ;; value, so the flow dirty-check (`last-inputs`) bookkeeping MUST
-          ;; roll back too — the flow transform already advanced each
-          ;; computed flow's row inside the chain, but those outputs were
-          ;; just discarded along with the rolled-back db. Restore THIS
-          ;; frame's pre-drain `last-inputs` snapshot (stashed on the ctx by
-          ;; `flows-after-interceptor`) so the next clean drain re-reads
-          ;; changed inputs and re-materialises the flow output instead of
-          ;; skipping it as `=`-equal. This is the exact mirror of
-          ;; `run-flows-on-db`'s throw-path rollback, applied at the
-          ;; post-commit boundary the flows artefact cannot reach. Both the
-          ;; snapshot and the restorer are frame-scoped (rf2-94ol5): a
-          ;; sibling frame's container is a different atom and is untouched.
-          ;; No-op when no flow ran (no snapshot stashed) or the flows
-          ;; artefact never loaded (restorer hook nil).
-          (when (contains? ctx :rf/flow-last-inputs-before)
-            (when-let [restore-li (late-bind/get-fn-cached :flows/restore-last-inputs!)]
-              (restore-li frame (:rf/flow-last-inputs-before ctx))))
+  up-to-date). `ctx` carries the pre-drain snapshot under
+  `:rf/flow-last-inputs-before`; the rollback arm restores it through the
+  frame-scoped `:flows/restore-last-inputs!` hook."
+  [effects event-id event frame ctx db-before runtime-before]
+  (let [app-effect? (contains? effects :db)
+        rt-effect?  (contains? effects :rf.db/runtime)]
+    (if (or app-effect? rt-effect?)
+      (let [new-db     (:db effects)
+            emit-event (privacy/redacted-event-from-ctx ctx)
+            ;; Map the EFFECT keys (:db / :rf.db/runtime) to the frame-state
+            ;; PARTITION keys (:rf.db/app / :rf.db/runtime). `:db` scopes to
+            ;; the app-db partition; `:rf.db/runtime` to runtime-db. A
+            ;; partition not present is carried forward unchanged by
+            ;; `commit-frame-transition!`.
+            partitions (cond-> {}
+                         app-effect? (assoc frame/app-partition-key     new-db)
+                         rt-effect?  (assoc frame/runtime-partition-key (:rf.db/runtime effects)))
+            ;; ONE atomic frame-state install. Returns the set of partition
+            ;; keys that actually changed by `=`.
+            changed    (frame/commit-frame-transition! frame partitions)
+            app-changed? (contains? changed frame/app-partition-key)]
+        ;; APP-DB-ONLY db-changed (Mike ruling #6) — only when the app-db
+        ;; partition actually changed. A runtime-only commit never fires it.
+        (when app-changed?
           (trace/emit! :rf.event :rf.event/db-changed
-                       {:rf.trace/event-id event-id
-                        :rf.event/v        emit-event
-                        :frame             frame
-                        :rf.trace/phase    :rollback})
-          false)))
-    true))
+                       {:rf.trace/event-id event-id :rf.event/v emit-event :frame frame}))
+        ;; Partition-tagged frame-state-changed — when EITHER partition changed.
+        (emit-frame-state-changed! event-id emit-event frame changed)
+        ;; App-db schema validation is app-db-only; it runs only when a `:db`
+        ;; effect produced a new app-db. A runtime-only commit skips it (app
+        ;; schemas do not describe runtime-db, Mike ruling #11).
+        (if (or (not app-effect?)
+                (run-post-commit-validation! new-db event-id frame))
+          (do
+            ;; (rf2-p806o) Loud-failure guard for the `{:db fresh-map}`
+            ;; footgun — surfaces a durable `:db` commit that wholesale-
+            ;; replaced app-db and dropped a live `:rf/runtime` subsystem.
+            ;; (Pre-bead-6, runtime subsystems still live at `:rf/runtime`
+            ;; INSIDE app-db, so the footgun and this guard remain on the
+            ;; app-db partition; bead 6 migrates them to runtime-db.) Fires
+            ;; only after a durable app-db commit.
+            (when app-effect?
+              (detect-dropped-runtime-state! db-before new-db event-id emit-event frame))
+            true)
+          (do
+            ;; Roll back the WHOLE transition (both partitions) to the
+            ;; pre-handler frame-state so the frame stays coherent — app-db
+            ;; schema rejection unwinds any runtime-db write in the same
+            ;; cascade too. Then emit the rollback change traces so subs /
+            ;; listeners see the restored state. The schema-failure error
+            ;; trace already fired between the forward and rollback commits.
+            (let [rb-changed (frame/replace-frame-state!
+                               frame
+                               {frame/app-partition-key     db-before
+                                frame/runtime-partition-key runtime-before})]
+              ;; Per rf2-4wqu6 finding 1: roll back the flow dirty-check
+              ;; (`last-inputs`) bookkeeping in lock-step with the app-db
+              ;; (frame-scoped, rf2-94ol5). No-op when no flow ran or the
+              ;; flows artefact never loaded.
+              (when (contains? ctx :rf/flow-last-inputs-before)
+                (when-let [restore-li (late-bind/get-fn-cached :flows/restore-last-inputs!)]
+                  (restore-li frame (:rf/flow-last-inputs-before ctx))))
+              (when (contains? rb-changed frame/app-partition-key)
+                (trace/emit! :rf.event :rf.event/db-changed
+                             {:rf.trace/event-id event-id
+                              :rf.event/v        emit-event
+                              :frame             frame
+                              :rf.trace/phase    :rollback}))
+              (emit-frame-state-changed! event-id emit-event frame rb-changed :rollback))
+            false)))
+      true)))
 
 (def ^:private flows-after-interceptor
   "Per Spec 013 §Drain integration (rf2-u0zz5): the framework-owned
@@ -1521,10 +1577,15 @@
   of any downstream rollback — it is the proximate, most-actionable
   signal."
   [final-ctx event-id event frame frame-record fx-overrides envelope start-ms]
-  (let [effects    (:effects final-ctx)
-        error      (:rf/interceptor-error final-ctx)
-        flow-error (:rf/flow-error final-ctx)
-        db-before  (get-in final-ctx [:coeffects :db])]
+  (let [effects        (:effects final-ctx)
+        error          (:rf/interceptor-error final-ctx)
+        flow-error     (:rf/flow-error final-ctx)
+        db-before      (get-in final-ctx [:coeffects :db])
+        ;; Pre-handler runtime-db partition (EP-0001 rf2-adwcv6): the
+        ;; `:rf.db/runtime` coeffect `assemble-initial-ctx` injected by
+        ;; reference. Needed by `commit-frame-effects!` so an app-db schema
+        ;; rollback unwinds the WHOLE transition (both partitions) coherently.
+        runtime-before (get-in final-ctx [:coeffects :rf.db/runtime])]
     (when error
       (emit-pipeline-exception! error event-id event frame final-ctx start-ms))
     (cond
@@ -1543,11 +1604,12 @@
       (do
         (emit-flow-eval-exception! flow-error event event-id frame start-ms)
         :flow-error)
-      ;; Per Spec 010 §Per-step recovery row 4: `commit-db-effect!`
-      ;; returns false when post-commit schema validation rejected the
-      ;; new state and rolled the container back to its pre-handler
-      ;; value. `:fx` is skipped; the dispatch failed.
-      (not (commit-db-effect! effects event-id event frame final-ctx db-before))
+      ;; Per Spec 010 §Per-step recovery row 4: `commit-frame-effects!`
+      ;; returns false when post-commit app-db schema validation rejected
+      ;; the new state and rolled the WHOLE frame-state transition back to
+      ;; its pre-handler value. `:fx` is skipped; the dispatch failed.
+      (not (commit-frame-effects! effects event-id event frame final-ctx
+                                  db-before runtime-before))
       :rolled-back
       :else
       (do

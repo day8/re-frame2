@@ -49,7 +49,6 @@
             [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.late-bind :as late-bind]
-            [re-frame.substrate.adapter :as adapter]
             [re-frame.trace :as trace]))
 
 ;; ---- configuration --------------------------------------------------------
@@ -477,12 +476,18 @@
   canonical `:rf.error/no-such-handler` (kind `:frame`) failure trace and
   returns `false`, matching the destroyed-frame contract."
   [frame-id new-db]
-  (let [{:keys [outcome op tags container]} (tool-pair/live-container-or-fail frame-id)]
+  (let [{:keys [outcome op tags]} (tool-pair/live-container-or-fail frame-id)]
     (if (= :fail outcome)
       (do (tool-pair/emit-precondition-failure! op tags)
           false)
-      (let [db-before (adapter/read-container container)]
-        (adapter/replace-container! container new-db)
+      (let [db-before (frame/frame-app-db-value frame-id)]
+        ;; EP-0001 (rf2-adwcv6): write the app-db PARTITION of the one
+        ;; physical frame-state container — `frame/app-db-container` is now a
+        ;; READ-ONLY projection, so a direct `replace-container!` on it
+        ;; throws. `reset-frame-db!` / `replace-app-db!` replace the app-db
+        ;; partition only; runtime-db is untouched (Mike ruling #10 — a
+        ;; db-shaped name never silently replaces runtime-db).
+        (frame/replace-app-db! frame-id new-db)
         ;; Record a synthetic epoch so `restore-epoch` can rewind the
         ;; previous state. The record's :trigger-event is the
         ;; pair-tool injection sentinel (no application event ran).

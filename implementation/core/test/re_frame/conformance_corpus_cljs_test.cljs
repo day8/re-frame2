@@ -450,9 +450,11 @@
     (let [adapter-helpers
           {:read-db!  (fn [frame-id]
                         (frame/frame-app-db-value frame-id))
+           ;; EP-0001 (rf2-adwcv6): write the app-db PARTITION via
+           ;; `swap-frame-db!` — `frame/app-db-container` is now a READ-ONLY
+           ;; projection over the one physical frame-state container.
            :write-db! (fn [frame-id new-db]
-                        (let [container (frame/app-db-container frame-id)]
-                          (substrate-adapter/replace-container! container new-db)))
+                        (frame/swap-frame-db! frame-id (constantly new-db)))
            :dispatch! (fn [event frame-id]
                         (rf/dispatch event {:frame frame-id}))
            ;; Per Cross-Spec Interaction §14 (rf2-60szl): dispatch-sync
