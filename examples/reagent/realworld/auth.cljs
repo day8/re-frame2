@@ -279,8 +279,11 @@
 
 (rf/reg-sub :auth/flow-state
   {:doc "Current state of the auth machine snapshot."}
-  (fn [db _]
-    (get-in db [:rf/runtime :machines :snapshots :auth/flow])))
+  ;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state —
+  ;; read them through the framework `:rf/machine` sub (the public surface)
+  ;; rather than a raw db path.
+  :<- [:rf/machine :auth/flow]
+  (fn [snapshot _] snapshot))
 
 (rf/reg-sub :auth/state
   :<- [:auth/flow-state]
