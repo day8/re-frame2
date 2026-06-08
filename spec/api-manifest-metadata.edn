@@ -171,12 +171,11 @@
    ;; the impl beads (3-10); these vars don't yet exist as live public vars, so
    ;; the generated manifest cannot carry them. Remove each from this allowlist
    ;; as its impl bead lands and the regenerated manifest picks it up.
-   "runtime-db-value"       ; EP-0001 runtime-db partition reader (002) — unshipped
-   "frame-state-value"      ; EP-0001 frame-state projection reader (002) — unshipped
-   "replace-app-db!"        ; EP-0001 app-db-partition mutator (Tool-Pair; renamed from reset-frame-db!) — unshipped
-   "reset-app-db!"          ; EP-0001 app-db-only reset (Tool-Pair) — unshipped
-   "replace-runtime-db!"    ; EP-0001 runtime-db-partition mutator (Tool-Pair) — unshipped
-   "replace-frame-state!"}  ; EP-0001 full-frame mutator (Tool-Pair) — unshipped
+   ;; rf2-q4i9ko (bead 3) shipped runtime-db-value / frame-state-value /
+   ;; replace-app-db! / replace-runtime-db! / replace-frame-state! as live
+   ;; vars — they are now manifested and classified below, so they are removed
+   ;; from this allowlist.
+   "reset-app-db!"}         ; EP-0001 app-db-only reset (Tool-Pair) — unshipped (rf2-tfepxu / bead 9)
 
  ;; --------------------------------------------------------------------------
  ;; SECONDARY projection-check allowlists (rf2-gkp0t). The keystone guards
@@ -360,6 +359,11 @@
   ["re-frame.core" "frame-ids"]            {:tier :tooling :owner "002" :status "v1"}
   ["re-frame.core" "frame-meta"]           {:tier :tooling :owner "002" :status "v1"}
   ["re-frame.core" "app-db-value"]         {:tier :advanced :owner "002" :status "v1"}
+  ;; EP-0001 two-partition readers (rf2-q4i9ko / bead 3). Per spec/API.md
+  ;; §Public registrar query API rows. Surface introduced ahead of the
+  ;; physical partition (rf2-adwcv6 / bead 5); runtime-db reads nil today.
+  ["re-frame.core" "runtime-db-value"]     {:tier :tooling :owner "002" :status "v1"}
+  ["re-frame.core" "frame-state-value"]    {:tier :tooling :owner "002" :status "v1"}
   ["re-frame.core" "snapshot-of"]          {:tier :tooling :owner "002" :status "v1"}
   ["re-frame.core" "sub-topology"]         {:tier :tooling :owner "002" :status "v1"}
   ["re-frame.core" "sub-cache"]            {:tier :tooling :owner "002" :status "v1"}
@@ -413,6 +417,15 @@
   ["re-frame.core" "epoch-history"]              {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ["re-frame.core" "restore-epoch"]              {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ["re-frame.core" "reset-frame-db!"]            {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
+  ;; EP-0001 two-partition mutators (rf2-q4i9ko / bead 3). Per spec/API.md
+  ;; §Epoch / Tool-Pair rows. replace-app-db! is a thin alias of the existing
+  ;; app-db replacement (coexists with reset-frame-db! until the rename in
+  ;; rf2-tfepxu / bead 9). The runtime-db / frame-state mutators introduce the
+  ;; surface ahead of the physical partition (rf2-adwcv6 / bead 5) and throw
+  ;; until it exists.
+  ["re-frame.core" "replace-app-db!"]            {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
+  ["re-frame.core" "replace-runtime-db!"]        {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
+  ["re-frame.core" "replace-frame-state!"]       {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ["re-frame.core" "register-epoch-listener!"]   {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ["re-frame.core" "unregister-epoch-listener!"] {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ["re-frame.core" "projected-record"]           {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}

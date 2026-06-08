@@ -1213,6 +1213,33 @@
   [frame-id]
   (frame/frame-app-db-value frame-id))
 
+(defn runtime-db-value
+  "Return the current `runtime-db` partition VALUE for the named frame —
+  the framework-owned subsystem state (the `:rf.runtime/*` children), or
+  `nil` for an unknown / destroyed frame. The tool / privileged-runtime
+  read of the framework partition.
+
+  EP-0001 (rf2-q4i9ko): introduces the read surface. The physical
+  runtime-db partition is built by the one-container frame-state work in
+  rf2-adwcv6 (bead 5); until then this reads `nil` even for a live frame.
+  Per Spec 002 §The two-partition frame contract and API.md
+  `runtime-db-value`."
+  [frame-id]
+  (frame/frame-runtime-db-value frame-id))
+
+(defn frame-state-value
+  "Return the coherent frame-state projection for the named frame —
+  `{:rf.db/app <app-db> :rf.db/runtime <runtime-db>}`, or `nil` for an
+  unknown / destroyed frame. The full-frame read for SSR / epoch /
+  time-travel / Xray.
+
+  EP-0001 (rf2-q4i9ko): composes `app-db-value` with `runtime-db-value`.
+  The `:rf.db/runtime` slot is `nil` until the physical partition lands in
+  rf2-adwcv6 (bead 5); the projection shape is final. Per Spec 002 §The
+  two-partition frame contract and API.md `frame-state-value`."
+  [frame-id]
+  (frame/frame-state-value frame-id))
+
 (defn snapshot-of
   "Return the value at `path` in a frame's app-db — convenience over
   `(get-in (rf/app-db-value frame-id) path)`. Frame resolution:
@@ -1516,6 +1543,91 @@
   when the artefact is absent. Per Tool-Pair §Pair-tool writes
   (rf2-zq55). Late-bound via `:epoch/reset-frame-db!`."}
   reset-frame-db!    rf-epoch/reset-frame-db!)
+
+;; ---- EP-0001 two-partition mutators (rf2-q4i9ko) --------------------------
+;;
+;; Per Spec 002 §Frame-state value accessors and mutators + API.md, the
+;; partition write surface is `replace-app-db!` / `replace-runtime-db!` /
+;; `replace-frame-state!`. This bead (rf2-q4i9ko) introduces the SURFACE
+;; (Mike ruling #1 / #10), NOT the physical partition split.
+;;
+;; - `replace-app-db!` is a true thin alias of the existing app-db
+;;   replacement mechanism — same delegate (`rf-epoch/reset-frame-db!`),
+;;   same synthetic-epoch recording, same gating and failure modes. No
+;;   behavior change: it is the new name for the same write. The rename of
+;;   the legacy `reset-frame-db!` Tool-Pair surface (and the new app-db-only
+;;   `reset-app-db!`) is rf2-tfepxu (bead 9); both names coexist until then.
+;; - `replace-runtime-db!` / `replace-frame-state!` write partitions that
+;;   have no physical slot yet. The one-container frame-state + projection
+;;   reactions land in rf2-adwcv6 (bead 5); the atomic partitioned commit
+;;   path is beads 4-5. Faking a partial write now would be a behavior
+;;   change against today's structure, so these introduce the surface with a
+;;   deferred-semantics throw rather than a no-op that silently loses data.
+
+(def ^{:doc "Replace `frame-id`'s `app-db` partition with `app-db`,
+  bypassing the dispatch loop. The canonical Tool-Pair write surface for
+  app-db state injection — pair tools, story fixtures, conformance
+  harnesses, and time-travel from JSON repros. Records a synthetic
+  `:rf/epoch-record` so `restore-epoch` can rewind. Returns `true` on
+  success, `false` on a documented failure (unknown frame, drain in
+  flight, schema mismatch). Dev-only (gated on `interop/debug-enabled?`).
+  Raises `:rf.error/epoch-artefact-missing` when the epoch artefact is
+  absent.
+
+  EP-0001 (rf2-q4i9ko): thin wrapper — the new partition-aware name for
+  the existing app-db replacement; same delegate and behavior as
+  `reset-frame-db!`. Replaces ONLY the app-db partition; runtime-db is a
+  partition this surface never touches (Mike ruling #10 — a db-shaped
+  name never silently replaces runtime-db). Per Spec 002 §Frame-state
+  value accessors and mutators and API.md `replace-app-db!`."}
+  replace-app-db!    rf-epoch/reset-frame-db!)
+
+(defn replace-runtime-db!
+  "Replace `frame-id`'s `runtime-db` partition with `runtime-db` — the
+  framework-owned subsystem state. Privileged runtime / full-frame tool
+  surface. Returns `true` on success, `false` for an unknown / destroyed
+  frame.
+
+  EP-0001 (rf2-q4i9ko): introduces the SURFACE only. The physical
+  runtime-db partition and its atomic commit path land in rf2-adwcv6
+  (bead 5) + rf2-bvwoi4 (bead 4). There is no runtime-db slot to write
+  today; rather than fake a write that silently drops data, this raises
+  until the partition exists. Per Spec 002 §Frame-state value accessors
+  and mutators and API.md `replace-runtime-db!`."
+  [frame-id _runtime-db]
+  ;; full semantics land in rf2-adwcv6 (bead 5) — the one-container
+  ;; frame-state holds the `:rf.db/runtime` projection this writes.
+  (throw (ex-info "replace-runtime-db! has no physical partition to write yet — the runtime-db partition lands in rf2-adwcv6 (bead 5)"
+                  {:rf.error/id :rf.error/not-yet-implemented
+                   :surface     :replace-runtime-db!
+                   :frame       frame-id
+                   :deferred-to :rf2-adwcv6})))
+
+(defn replace-frame-state!
+  "Replace BOTH partitions of `frame-id` atomically with `frame-state`
+  (`{:rf.db/app … :rf.db/runtime …}`) — the full-frame install for
+  tool-driven replay / fixture install (epoch restore, time travel, SSR
+  hydration, frame reset, test-fixture install). A db-shaped name never
+  silently replaces runtime-db — this is the explicit full-frame surface
+  (Mike ruling #10). Returns `true` on success, `false` for an unknown /
+  destroyed frame.
+
+  EP-0001 (rf2-q4i9ko): introduces the SURFACE only. The single physical
+  frame-state container that makes a two-partition install atomic lands in
+  rf2-adwcv6 (bead 5). There is no container to install both partitions
+  into today; rather than apply only the app-db half (a behavior change
+  that would silently drop the runtime-db half), this raises until the
+  container exists. Per Spec 002 §Frame-state value accessors and mutators
+  and API.md `replace-frame-state!`."
+  [frame-id _frame-state]
+  ;; full semantics land in rf2-adwcv6 (bead 5) — the single frame-state
+  ;; container is what makes the two-partition install one atomic transition.
+  (throw (ex-info "replace-frame-state! has no physical frame-state container to install into yet — the one-container frame-state lands in rf2-adwcv6 (bead 5)"
+                  {:rf.error/id :rf.error/not-yet-implemented
+                   :surface     :replace-frame-state!
+                   :frame       frame-id
+                   :deferred-to :rf2-adwcv6})))
+
 ;; Per Security.md §Epoch privacy posture and rf2-mrsck — single
 ;; normative projection helpers for off-box epoch egress.
 (def ^{:doc "Project an `:rf/epoch-record` for off-box egress — the
