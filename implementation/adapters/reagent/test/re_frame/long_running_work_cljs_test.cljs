@@ -4,8 +4,8 @@
    fresh frame via `make-frame`, walks the :work/flow parent through a
    flow (spawn cascade, happy-path join, mid-flight cancel, parent
    unmount, reset round-trip), and asserts the resulting
-   [:rf/runtime :machines :snapshots :work/flow] snapshot + the
-   runtime-owned [:rf/runtime :machines :spawned :work/flow [:working]]
+   [:rf.db/runtime :rf.runtime/machines :snapshots :work/flow] snapshot + the
+   runtime-owned [:rf.db/runtime :rf.runtime/machines :spawned :work/flow [:working]]
    join-state slot.
 
    The fixture fns live HERE (the adapter test tree), not under
@@ -44,14 +44,14 @@
 (defn- snapshot
   "Read the parent's machine snapshot from a frame's app-db."
   [frame]
-  (get-in (rf/app-db-value frame) [:rf/runtime :machines :snapshots :work/flow]))
+  (get-in (rf/frame-state-value frame) [:rf.db/runtime :rf.runtime/machines :snapshots :work/flow]))
 
 (defn- join-state
   "Read the runtime-owned join-state slot at
-   [:rf/runtime :machines :spawned :work/flow [:working]]. Returns nil after the
+   [:rf.db/runtime :rf.runtime/machines :spawned :work/flow [:working]]. Returns nil after the
    cascade has cleared it."
   [frame]
-  (get-in (rf/app-db-value frame) [:rf/runtime :machines :spawned :work/flow [:working]]))
+  (get-in (rf/frame-state-value frame) [:rf.db/runtime :rf.runtime/machines :spawned :work/flow [:working]]))
 
 (defn- new-frame
   "Spin up a fresh test frame. We dispatch :work/flow [:reset] inside the
@@ -78,7 +78,7 @@
     ;; :start transitions :idle → :working; the runtime emits
     ;; :rf.machine/spawn-all-init + 3 :rf.machine/spawn fxs. The
     ;; init fx seeds the join-state map at
-    ;; [:rf/runtime :machines :spawned :work/flow [:working]] with :children mapping
+    ;; [:rf.db/runtime :rf.runtime/machines :spawned :work/flow [:working]] with :children mapping
     ;; each user-supplied id (:s1/:s2/:s3) to the gensym'd
     ;; spawned-id (:work/processor#N).
     (rf/dispatch-sync [:work/flow [:start]] {:frame f})
@@ -86,7 +86,7 @@
           js   (join-state f)]
       (is (= :working (:state snap)))
       ;; The runtime allocated a join-state slot at
-      ;; [:rf/runtime :machines :spawned :work/flow [:working]] keyed by user id.
+      ;; [:rf.db/runtime :rf.runtime/machines :spawned :work/flow [:working]] keyed by user id.
       (is (map? js))
       (is (= #{:s1 :s2 :s3} (set (keys (:children js)))))
       (is (false? (:resolved? js)))
@@ -134,7 +134,7 @@
       (is (= :complete (:state snap)))
       (is (= :complete (-> snap :data :outcome)))
       ;; The cascade tore down the invoke-all slot: after the exit
-      ;; from :working, the destroy fx clears [:rf/runtime :machines :spawned
+      ;; from :working, the destroy fx clears [:rf.db/runtime :rf.runtime/machines :spawned
       ;; :work/flow [:working]].
       (is (nil? (join-state f))))))
 
@@ -157,15 +157,15 @@
       (is (= :working (:state snap)))
       (is (= {:s1 30 :s2 50 :s3 10} (-> snap :data :progress)))
       ;; The aggregate-progress sub: (30+50+10)/(3*100) = 90/300.
-      (is (= 90  (rf/compute-sub [:work/items-done]   (rf/app-db-value f))))
-      (is (= 300 (rf/compute-sub [:work/total-items] (rf/app-db-value f)))))
+      (is (= 90  (rf/compute-sub [:work/items-done]   (rf/frame-state-value f))))
+      (is (= 300 (rf/compute-sub [:work/total-items] (rf/frame-state-value f)))))
 
     ;; User clicks Cancel. The parent transitions :working →
     ;; :cancelled; the :spawn-all desugared :exit fires one
     ;; :rf.machine/destroy fx with :rf/spawn-all true; the
     ;; destroy fx handler iterates the join-state's :children map
     ;; and tears each surviving child down, then clears the
-    ;; [:rf/runtime :machines :spawned :work/flow [:working]] slot.
+    ;; [:rf.db/runtime :rf.runtime/machines :spawned :work/flow [:working]] slot.
     (rf/dispatch-sync [:work/flow [:cancel]] {:frame f})
     (let [snap (snapshot f)]
       (is (= :cancelled (:state snap)))

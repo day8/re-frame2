@@ -6,7 +6,7 @@
                                            drive the slice under the Reagent
                                            adapter; subscriptions resolve.
   - routing-frame-provider-routing-cljs  — multi-frame routing: each frame's
-                                           [:rf/runtime :routing :current] slice
+                                           [:rf.db/runtime :rf.runtime/routing :current] slice
                                            is independent, the registry is
                                            shared, subscriptions resolve
                                            per-frame.
@@ -44,11 +44,11 @@
   (testing ":rf.route/transitioned drives the slice on CLJS"
     ;; Per Spec 012 §URL changes are events: the runtime's URL-driven
     ;; entry point is :rf.route/transitioned (or :rf.route/handle-url-change for
-    ;; SSR-equivalent code paths). Both write the [:rf/runtime :routing :current]
+    ;; SSR-equivalent code paths). Both write the [:rf.db/runtime :rf.runtime/routing :current]
     ;; slice from the URL and dispatch :on-match events. Subscriptions over
     ;; the slice resolve under the Reagent adapter.
     ;;
-    ;; Test isolation: a fresh frame so prior tests' [:rf/runtime :routing :current]
+    ;; Test isolation: a fresh frame so prior tests' [:rf.db/runtime :rf.runtime/routing :current]
     ;; slices don't leak in.
     (let [f (rf/make-frame {:doc "isolated frame for this test"})]
       (rf/reg-route :route.cljs/home
@@ -60,9 +60,9 @@
       (rf/reg-event-db :cljs/article-load
                        (fn [db _] (assoc db :article-loaded? true)))
       (rf/reg-sub :rf.cljs.route/id
-                  (fn [db _] (get-in db [:rf/runtime :routing :current :id])))
+                  (fn [db _] (get-in db [:rf.db/runtime :rf.runtime/routing :current :id])))
       (rf/reg-sub :rf.cljs.route/params
-                  (fn [db _] (get-in db [:rf/runtime :routing :current :params])))
+                  (fn [db _] (get-in db [:rf.db/runtime :rf.runtime/routing :current :params])))
 
       ;; URL-driven nav. The slice is set; :on-match dispatches.
       (rf/dispatch-sync [:rf.route/transitioned "/cljs/articles/intro"] {:frame f})
@@ -72,7 +72,7 @@
       (is (= {:id "intro"}
              (rf/subscribe-once f [:rf.cljs.route/params]))
           ":rf.route/params sub resolves under the Reagent adapter")
-      (is (true? (:article-loaded? (rf/app-db-value f)))
+      (is (true? (:article-loaded? (rf/frame-state-value f)))
           ":on-match's [:cljs/article-load] dispatched and ran")
 
       ;; A second navigation through the same path with new params re-fires.
@@ -80,14 +80,14 @@
       (is (= {:id "welcome"}
              (rf/subscribe-once f [:rf.cljs.route/params]))
           "new params land in the slice on subsequent navigation")
-      (is (some? (get-in (rf/app-db-value f) [:rf/runtime :routing :current :nav-token]))
+      (is (some? (get-in (rf/frame-state-value f) [:rf.db/runtime :rf.runtime/routing :current :nav-token]))
           "fresh nav-token allocated on each full navigation"))))
 
 ;; ---- Spec 012 §Multi-frame routing ---------------------------------------
 
 (deftest routing-frame-provider-routing-cljs
-  (testing "two frames carry independent [:rf/runtime :routing :current] slices over a shared registry"
-    ;; Per Spec 012 §Multi-frame routing: each frame's [:rf/runtime :routing :current]
+  (testing "two frames carry independent [:rf.db/runtime :rf.runtime/routing :current] slices over a shared registry"
+    ;; Per Spec 012 §Multi-frame routing: each frame's [:rf.db/runtime :rf.runtime/routing :current]
     ;; slice is independent — same registered routes, different active route
     ;; per frame. Subscriptions resolve per-frame. This is the contract React
     ;; context-aware routing components rely on (story-variant frames,
@@ -96,7 +96,7 @@
     (rf/reg-route :route.cljs2/articles      {:path "/cljs2/articles"})
     (rf/reg-route :route.cljs2/article       {:path   "/cljs2/articles/:id"
                                               :params [:map [:id :string]]})
-    (rf/reg-sub :rf.cljs2/route (fn [db _] (get-in db [:rf/runtime :routing :current])))
+    (rf/reg-sub :rf.cljs2/route (fn [db _] (get-in db [:rf.db/runtime :rf.runtime/routing :current])))
 
     (let [left  (rf/make-frame {:doc "left tab frame"})
           right (rf/make-frame {:doc "right tab frame"})]

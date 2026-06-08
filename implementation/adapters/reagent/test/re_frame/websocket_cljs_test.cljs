@@ -23,6 +23,7 @@
   (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
             [re-frame.core :as rf]
             [re-frame.fx :as fx]
+            [re-frame.subs :as subs]
             [re-frame.late-bind :as late-bind]
             [re-frame.frame]
             [re-frame.substrate.adapter]
@@ -85,12 +86,14 @@
     (fx/reg-fx :rf.machine/after-cancel after-cancel-fx))
   ;; The framework subs that read machine state — both registered at
   ;; machines.cljc ns-load time and equally vulnerable to `clear-all!`.
-  (rf/reg-sub :rf/machine
-    (fn [db [_ machine-id]]
-      (get-in db [:rf/runtime :machines :snapshots machine-id])))
-  (rf/reg-sub :rf/machine-has-tag?
-    (fn [db [_ machine-id tag]]
-      (contains? (get-in db [:rf/runtime :machines :snapshots machine-id :tags]) tag))))
+  ;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state, so
+  ;; these are runtime-db subs (the `db`-position arg is the runtime-db value).
+  (subs/reg-runtime-sub :rf/machine
+    (fn [rt [_ machine-id]]
+      (get-in rt [:rf.runtime/machines :snapshots machine-id])))
+  (subs/reg-runtime-sub :rf/machine-has-tag?
+    (fn [rt [_ machine-id tag]]
+      (contains? (get-in rt [:rf.runtime/machines :snapshots machine-id :tags]) tag))))
 
 (defn- register-all!
   "Re-fire every `reg-*` the websocket example depends on. Safe to call
@@ -101,12 +104,17 @@
   (re-register-machines-fx-and-subs!)
 
   ;; --- websocket.schema --------------------------------------------------
-  (rf/reg-app-schema [:rf/runtime :machines :snapshots :ws/connection] ws.schema/ConnectionSnapshot)
+  ;; EP-0001 (rf2-vzld77): machine snapshots are runtime-db, not app-db — an
+  ;; `reg-app-schema` on a machine-snapshot path no longer validates anything
+  ;; (app schemas validate the app-db partition only, Mike ruling #11). The
+  ;; machine's own `:data-schema` is the snapshot-validation surface; the
+  ;; vestigial app-schema reg is dropped. Only the genuine app-db slice
+  ;; (`[:messages]`) keeps its app-schema.
   (rf/reg-app-schema [:messages]                   ws.schema/MessagesSlice)
 
   ;; --- websocket.connection ----------------------------------------------
   (rf/reg-machine :ws/connection ws.connection/connection-machine)
-  (rf/reg-sub :ws/snapshot       (fn [db _] (get-in db [:rf/runtime :machines :snapshots :ws/connection])))
+  (subs/reg-runtime-sub :ws/snapshot (fn [rt _] (get-in rt [:rf.runtime/machines :snapshots :ws/connection])))
   (rf/reg-sub :ws/state          :<- [:ws/snapshot] (fn [snap _] (:state snap)))
   (rf/reg-sub :ws/connecting?    :<- [:ws/snapshot] (fn [snap _] (contains? (:tags snap) :websocket/connecting)))
   (rf/reg-sub :ws/authenticating? :<- [:ws/snapshot] (fn [snap _] (contains? (:tags snap) :websocket/authenticating)))
@@ -193,14 +201,17 @@
 ;; HELPERS — shared across the connection + messages fixtures
 ;; ============================================================================
 
-(defn- snapshot [db]
-  (get-in db [:rf/runtime :machines :snapshots :ws/connection]))
+;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state, so
+;; `snapshot` reads the runtime-db value (callers pass `(rf/runtime-db-value f)`).
+(defn- snapshot [runtime-db]
+  (get-in runtime-db [:rf.runtime/machines :snapshots :ws/connection]))
 
 (defn- machine-has-tag?
-  "Read the machine's :tags union against a frame's app-db."
+  "Read the machine's :tags union against a frame's runtime-db (machine
+  snapshots are runtime-db state — rf2-vzld77)."
   [frame tag]
   (rf/compute-sub [:rf/machine-has-tag? :ws/connection tag]
-                  (rf/app-db-value frame)))
+                  (rf/runtime-db-value frame)))
 
 (defn- new-frame []
   ;; Suppress the real `:dispatch-later` fx — the connection machine's
@@ -226,7 +237,7 @@
 (defn- initial-state-test []
   (with-new-frame [f (new-frame)]
     (rf/dispatch-sync [:ws/connection [:ws/noop]] {:frame f})
-    (let [s (snapshot (rf/app-db-value f))]
+    (let [s (snapshot (rf/runtime-db-value f))]
       (is (= :disconnected (:state s))
           (str "expected :disconnected got " (pr-str (:state s))))
       (is (= [] (get-in s [:data :queue])))
@@ -245,7 +256,7 @@
                           {:frame f})
         ;; Sync-mode mock: the actor's open-then-send-auth-then-auth-ok
         ;; chain runs to completion inside the dispatch-sync stack.
-        (let [s (snapshot (rf/app-db-value f))]
+        (let [s (snapshot (rf/runtime-db-value f))]
           (is (= [:active :connected] (:state s))
               (str "expected [:active :connected] got " (:state s)))
           (is (true?  (machine-has-tag? f :websocket/connected)))
@@ -269,7 +280,7 @@
         (rf/dispatch-sync [:ws/connection
                            [:ws/send {:type :note :body "B"}]]
                           {:frame f})
-        (let [s (snapshot (rf/app-db-value f))]
+        (let [s (snapshot (rf/runtime-db-value f))]
           (is (= :disconnected (:state s)))
           (is (= 2 (count (get-in s [:data :queue]))))
           (is (= [{:type :note :body "A"}
@@ -282,7 +293,7 @@
                            [:ws/connect {:url "ws://mock"
                                          :auth-token "demo"}]]
                           {:frame f})
-        (let [s (snapshot (rf/app-db-value f))]
+        (let [s (snapshot (rf/runtime-db-value f))]
           (is (true? (machine-has-tag? f :websocket/connected)))
           (is (= [] (get-in s [:data :queue]))
               ":connected entry's :flush-queue :always drained the queue"))))))
@@ -297,14 +308,14 @@
                                          :auth-token "demo"}]]
                           {:frame f})
         (is (true? (machine-has-tag? f :websocket/connected)))
-        (let [pre-snap   (snapshot (rf/app-db-value f))
+        (let [pre-snap   (snapshot (rf/runtime-db-value f))
               pre-socket (get-in pre-snap [:data :socket-id])]
           (is (some? pre-socket))
           ;; Simulate a transport-level drop. The mock fires :ws/closed
           ;; (with the source-socket-id) into the actor, which forwards
           ;; to the parent.
           (messages/simulate-disconnect!)
-          (let [s (snapshot (rf/app-db-value f))]
+          (let [s (snapshot (rf/runtime-db-value f))]
             (is (= :reconnecting (:state s))
                 (str "expected :reconnecting got " (:state s)))
             (is (true?  (machine-has-tag? f :websocket/reconnecting)))
@@ -321,7 +332,7 @@
           ;; the resolved-delay-ms as the second slot. Look up the
           ;; current :after-epoch from :data and fire the after-elapsed
           ;; event keyed by the fn-form spec.
-          (let [snap-now (snapshot (rf/app-db-value f))
+          (let [snap-now (snapshot (rf/runtime-db-value f))
                 ;; Per Spec 005 §Hierarchy interaction the epoch is
                 ;; per-decl-path; :reconnecting is the :after-bearing node.
                 epoch    (get-in snap-now [:data :rf/after-epoch [:reconnecting]])
@@ -341,7 +352,7 @@
           ;; After firing the :after timer the machine re-enters :active.
           ;; In sync-mode the open-auth-ok cascade runs to :connected
           ;; inside the synthetic-timer dispatch.
-          (let [s (snapshot (rf/app-db-value f))]
+          (let [s (snapshot (rf/runtime-db-value f))]
             ;; Either :active is re-entered (and in sync-mode runs to
             ;; :connected) OR the synthetic event was dropped as stale
             ;; (in which case the test asserts the precondition only).
@@ -382,12 +393,12 @@
                          assoc :retries (inc max-retries)))))
         ;; Now drive a :ws/closed — the parent transitions to :reconnecting
         ;; and immediately into :failed via :always-cascade.
-        (let [snap-before (snapshot (rf/app-db-value f))]
+        (let [snap-before (snapshot (rf/runtime-db-value f))]
           (rf/dispatch-sync [:ws/connection
                              [:ws/closed {:source-socket-id (get-in snap-before [:data :socket-id])
                                           :code 1006}]]
                             {:frame f}))
-        (let [s (snapshot (rf/app-db-value f))]
+        (let [s (snapshot (rf/runtime-db-value f))]
           (is (= :failed (:state s))
               (str "expected :failed got " (:state s)
                    " retries=" (get-in s [:data :retries])
@@ -401,7 +412,7 @@
                            [:ws/connect {:url "ws://mock"
                                          :auth-token "demo"}]]
                           {:frame f})
-        (let [live-socket-id (get-in (snapshot (rf/app-db-value f))
+        (let [live-socket-id (get-in (snapshot (rf/runtime-db-value f))
                                      [:data :socket-id])
               stale-id       (str "stale-" (random-uuid))]
           ;; A :ws/received event with a stale source-socket-id is
@@ -438,13 +449,13 @@
                            [:ws/connect {:url "ws://mock"
                                          :auth-token "old-token"}]]
                           {:frame f})
-        (is (= "old-token" (get-in (snapshot (rf/app-db-value f))
+        (is (= "old-token" (get-in (snapshot (rf/runtime-db-value f))
                                    [:data :auth-token])))
         ;; Refresh from :connected.
         (rf/dispatch-sync [:ws/connection
                            [:ws/refresh-token "new-token"]]
                           {:frame f})
-        (is (= "new-token" (get-in (snapshot (rf/app-db-value f))
+        (is (= "new-token" (get-in (snapshot (rf/runtime-db-value f))
                                    [:data :auth-token])))))))
 
 (defn- disconnect-cleanly-test []
@@ -457,7 +468,7 @@
                           {:frame f})
         (is (true? (machine-has-tag? f :websocket/connected)))
         (rf/dispatch-sync [:ws/connection [:ws/disconnect]] {:frame f})
-        (let [s (snapshot (rf/app-db-value f))]
+        (let [s (snapshot (rf/runtime-db-value f))]
           (is (= :disconnected (:state s)))
           (is (false? (machine-has-tag? f :websocket/connected)))
           (is (false? (machine-has-tag? f :websocket/reconnecting)))

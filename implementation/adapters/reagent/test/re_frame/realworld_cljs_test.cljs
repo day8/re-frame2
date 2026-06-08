@@ -114,17 +114,17 @@
   (with-new-frame [f (rf/make-frame {:on-create    [:auth/initialise]
                                  :fx-overrides {:rf.http/managed      :realworld.test/login-success
                                                 :auth.session/persist :rf/no-op}})]
-    (is (= :idle (rf/compute-sub [:auth/state] (rf/app-db-value f))))
+    (is (= :idle (rf/compute-sub [:auth/state] (rf/frame-state-value f))))
 
     (rf/dispatch-sync [:auth/flow [:auth/login {:email "alice@example.com"
                                                 :password "correct-horse"}]]
                       {:frame f})
-    (is (= :authed (rf/compute-sub [:auth/state] (rf/app-db-value f))))
-    (is (= "alice" (:username (rf/compute-sub [:auth/user] (rf/app-db-value f)))))
+    (is (= :authed (rf/compute-sub [:auth/state] (rf/frame-state-value f))))
+    (is (= "alice" (:username (rf/compute-sub [:auth/user] (rf/frame-state-value f)))))
 
     (rf/dispatch-sync [:auth/flow [:auth/logout]] {:frame f})
-    (is (= :idle (rf/compute-sub [:auth/state] (rf/app-db-value f))))
-    (is (nil? (rf/compute-sub [:auth/user] (rf/app-db-value f))))))
+    (is (= :idle (rf/compute-sub [:auth/state] (rf/frame-state-value f))))
+    (is (nil? (rf/compute-sub [:auth/user] (rf/frame-state-value f))))))
 
 (defn- session-token-cofx-shape-test []
   ;; Cofx-shape contract — the :auth.session/token cofx must assoc its
@@ -155,11 +155,11 @@
                                  :fx-overrides {:rf.http/managed :realworld.test/login-failure}})]
     (rf/dispatch-sync [:auth/flow [:auth/login {:email "x@y.z" :password "wrong"}]]
                       {:frame f})
-    (is (= :error (rf/compute-sub [:auth/state] (rf/app-db-value f))))
-    (is (some? (rf/compute-sub [:auth/error] (rf/app-db-value f))))
+    (is (= :error (rf/compute-sub [:auth/state] (rf/frame-state-value f))))
+    (is (some? (rf/compute-sub [:auth/error] (rf/frame-state-value f))))
 
     (rf/dispatch-sync [:auth/flow [:auth/dismiss]] {:frame f})
-    (is (= :idle (rf/compute-sub [:auth/state] (rf/app-db-value f))))))
+    (is (= :idle (rf/compute-sub [:auth/state] (rf/frame-state-value f))))))
 
 ;; ============================================================================
 ;; articles — global feed loading + failure paths
@@ -182,14 +182,14 @@
 
   (with-new-frame [f (rf/make-frame {:on-create [:app/initialise]
                                  :fx-overrides {:rf.http/managed :realworld.test/canned-articles}})]
-    (is (= :idle (:status (rf/compute-sub [:articles/slice] (rf/app-db-value f)))))
+    (is (= :idle (:status (rf/compute-sub [:articles/slice] (rf/frame-state-value f)))))
     (rf/dispatch-sync [:articles/load] {:frame f})
-    (let [slice (rf/compute-sub [:articles/slice] (rf/app-db-value f))]
+    (let [slice (rf/compute-sub [:articles/slice] (rf/frame-state-value f))]
       (is (= :loaded (:status slice)))
       (is (= 1 (count (:data slice))))
       (is (= "hello-world" (-> slice :data first :slug))))
     (rf/dispatch-sync [:articles/load] {:frame f})
-    (let [slice (rf/compute-sub [:articles/slice] (rf/app-db-value f))]
+    (let [slice (rf/compute-sub [:articles/slice] (rf/frame-state-value f))]
       (is (= :loaded (:status slice)))
       (is (= 2 (:attempt slice))))))
 
@@ -202,8 +202,8 @@
   (with-new-frame [f (rf/make-frame {:on-create [:app/initialise]
                                  :fx-overrides {:rf.http/managed :realworld.test/canned-articles-failure}})]
     (rf/dispatch-sync [:articles/load] {:frame f})
-    (is (= :error (:status (rf/compute-sub [:articles/slice] (rf/app-db-value f)))))
-    (is (some? (rf/compute-sub [:articles/error] (rf/app-db-value f))))))
+    (is (= :error (:status (rf/compute-sub [:articles/slice] (rf/frame-state-value f)))))
+    (is (some? (rf/compute-sub [:articles/error] (rf/frame-state-value f))))))
 
 ;; ============================================================================
 ;; article-editor — create flow and navigation guard
@@ -227,29 +227,29 @@
     (rf/dispatch-sync [:editor/initialise] {:frame f})
     ;; The :mode region starts at :create; the :lifecycle region starts
     ;; at :idle.
-    (is (true? (rf/compute-sub [:rf/machine-has-tag? :ui/article-editor :mode/create] (rf/app-db-value f))))
-    (is (true? (rf/compute-sub [:rf/machine-has-tag? :ui/article-editor :lifecycle/idle] (rf/app-db-value f))))
+    (is (true? (rf/compute-sub [:rf/machine-has-tag? :ui/article-editor :mode/create] (rf/frame-state-value f))))
+    (is (true? (rf/compute-sub [:rf/machine-has-tag? :ui/article-editor :lifecycle/idle] (rf/frame-state-value f))))
     ;; The :editor/can-submit? FLOW (Spec 013) starts false — the draft is
     ;; blank (invalid) and unchanged.
-    (is (false? (rf/compute-sub [:editor/can-submit?] (rf/app-db-value f))))
+    (is (false? (rf/compute-sub [:editor/can-submit?] (rf/frame-state-value f))))
     (rf/dispatch-sync [:editor/edit-field :title "Hello"] {:frame f})
     (rf/dispatch-sync [:editor/edit-field :description "Short"] {:frame f})
     (rf/dispatch-sync [:editor/edit-field :body "Body"] {:frame f})
     ;; Now valid AND dirty → the flow materialised true into app-db at
     ;; [:editor :can-submit?] on the edit drains' post-walk.
-    (is (true? (rf/compute-sub [:editor/can-submit?] (rf/app-db-value f))))
+    (is (true? (rf/compute-sub [:editor/can-submit?] (rf/frame-state-value f))))
     (rf/dispatch-sync [:editor/submit] {:frame f})
     ;; A successful submit advances :mode → :edit and :lifecycle → :saved.
-    (is (true? (rf/compute-sub [:rf/machine-has-tag? :ui/article-editor :lifecycle/saved] (rf/app-db-value f))))
-    (is (true? (rf/compute-sub [:rf/machine-has-tag? :ui/article-editor :mode/edit] (rf/app-db-value f))))
-    (is (false? (rf/compute-sub [:editor/dirty?] (rf/app-db-value f))))))
+    (is (true? (rf/compute-sub [:rf/machine-has-tag? :ui/article-editor :lifecycle/saved] (rf/frame-state-value f))))
+    (is (true? (rf/compute-sub [:rf/machine-has-tag? :ui/article-editor :mode/edit] (rf/frame-state-value f))))
+    (is (false? (rf/compute-sub [:editor/dirty?] (rf/frame-state-value f))))))
 
 (defn- editor-can-leave-test []
   (with-new-frame [f (rf/make-frame {:on-create [:app/initialise]})]
     (rf/dispatch-sync [:editor/initialise] {:frame f})
-    (is (true? (rf/compute-sub [:editor/can-leave?] (rf/app-db-value f))))
+    (is (true? (rf/compute-sub [:editor/can-leave?] (rf/frame-state-value f))))
     (rf/dispatch-sync [:editor/edit-field :title "Changed"] {:frame f})
-    (is (false? (rf/compute-sub [:editor/can-leave?] (rf/app-db-value f))))))
+    (is (false? (rf/compute-sub [:editor/can-leave?] (rf/frame-state-value f))))))
 
 ;; ============================================================================
 ;; comments — article-detail load and comment-post happy path
@@ -287,8 +287,8 @@
     (rf/dispatch-sync [:comments/initialise] {:frame f})
     (rf/dispatch-sync [:comment-form/initialise] {:frame f})
     (rf/dispatch-sync [:rf.route/handle-url-change "/article/hello"] {:frame f})
-    (is (= "hello" (:slug (rf/compute-sub [:article/data] (rf/app-db-value f)))))
-    (is (= 1 (count (rf/compute-sub [:comments/data] (rf/app-db-value f)))))))
+    (is (= "hello" (:slug (rf/compute-sub [:article/data] (rf/frame-state-value f)))))
+    (is (= 1 (count (rf/compute-sub [:comments/data] (rf/frame-state-value f)))))))
 
 (defn- comment-submit-test []
   (reg-canned-success-by-url! :realworld.test/canned-comment-post
@@ -329,10 +329,10 @@
     (rf/dispatch-sync [:rf.route/handle-url-change "/article/hello"] {:frame f})
     (rf/dispatch-sync [:comment-form/edit-field :body "Nice article."] {:frame f})
     (rf/dispatch-sync [:comment-form/submit] {:frame f})
-    (is (= "" (:body (rf/compute-sub [:comment-form/draft] (rf/app-db-value f)))))
+    (is (= "" (:body (rf/compute-sub [:comment-form/draft] (rf/frame-state-value f)))))
     ;; Initial GET returned [] (no existing comments); POST returned 1
     ;; saved comment → exactly 1 comment in the slice after submit.
-    (is (= 1 (count (rf/compute-sub [:comments/data] (rf/app-db-value f)))))))
+    (is (= 1 (count (rf/compute-sub [:comments/data] (rf/frame-state-value f)))))))
 
 (defn- comment-delete-rollback-stale-index-test []
   ;; rf2-mzqd4.2 — :comment/delete-rollback re-inserts at an index
@@ -349,7 +349,7 @@
        {:value {:comments [{:id 7 :body "survivor"
                             :author {:username "eve"}}]}}]
       {:frame f})
-    (is (= 1 (count (rf/compute-sub [:comments/data] (rf/app-db-value f)))))
+    (is (= 1 (count (rf/compute-sub [:comments/data] (rf/frame-state-value f)))))
 
     ;; A DELETE for a comment that WAS at index 3 in a since-shrunk list
     ;; fails. The captured prior carries the stale index 3 against the
@@ -359,7 +359,7 @@
                                                     :author {:username "mallory"}}}]
       {:frame f})
 
-    (let [data (rf/compute-sub [:comments/data] (rf/app-db-value f))]
+    (let [data (rf/compute-sub [:comments/data] (rf/frame-state-value f))]
       ;; No throw, and the rolled-back comment was re-inserted (clamped to
       ;; the tail) rather than lost.
       (is (= 2 (count data))
@@ -402,10 +402,10 @@
                       {:frame f})
     (rf/dispatch-sync [:article/toggle-favorite "hello"] {:frame f})
     ;; Optimistic flip + canned 4xx → rollback to original state.
-    (is (false? (-> (rf/compute-sub [:articles/data] (rf/app-db-value f))
+    (is (false? (-> (rf/compute-sub [:articles/data] (rf/frame-state-value f))
                     first
                     :favorited)))
-    (is (= 0 (-> (rf/compute-sub [:articles/data] (rf/app-db-value f))
+    (is (= 0 (-> (rf/compute-sub [:articles/data] (rf/frame-state-value f))
                  first
                  :favoritesCount)))))
 
@@ -433,22 +433,22 @@
                                  :fx-overrides {:rf.http/managed :realworld.test/canned-profile}})]
     (rf/dispatch-sync [:profile/initialise] {:frame f})
     (rf/dispatch-sync [:rf.route/handle-url-change "/profile/eve"] {:frame f})
-    (is (= "eve" (:username (rf/compute-sub [:profile/data] (rf/app-db-value f)))))
-    (is (= 1 (count (rf/compute-sub [:profile.articles/data] (rf/app-db-value f)))))))
+    (is (= "eve" (:username (rf/compute-sub [:profile/data] (rf/frame-state-value f)))))
+    (is (= 1 (count (rf/compute-sub [:profile.articles/data] (rf/frame-state-value f)))))))
 
 ;; ============================================================================
 ;; settings — the :settings/form machine (form-region variant of Pattern-Forms)
 ;; ============================================================================
 
 (defn- settings-snapshot [db]
-  (get-in db [:rf/runtime :machines :snapshots :settings/form]))
+  (get-in db [:rf.db/runtime :rf.runtime/machines :snapshots :settings/form]))
 
 (defn- settings-machine-has-tag?
   "Read the :settings/form machine's :tags union against a frame's app-db
    (browserless form of `rf/machine-has-tag?`)."
   [frame tag]
   (rf/compute-sub [:rf/machine-has-tag? :settings/form tag]
-                  (rf/app-db-value frame)))
+                  (rf/frame-state-value frame)))
 
 (defn- settings-test []
   ;; Happy-path lifecycle. The assertions below are the SAME questions
@@ -472,7 +472,7 @@
                                                 :auth.session/persist :rf/no-op}})]
     ;; After :app/initialise → :settings/initialise → [:reset], the
     ;; machine sits at :neutral with empty :data.
-    (let [snap (settings-snapshot (rf/app-db-value f))]
+    (let [snap (settings-snapshot (rf/frame-state-value f))]
       (is (= :neutral (:state snap)))
       (is (= ""       (get-in snap [:data :draft :bio])))
       (is (false?     (settings-machine-has-tag? f :settings/in-flight))))
@@ -485,7 +485,7 @@
                                             :image nil}]
                       {:frame f})
     (rf/dispatch-sync [:settings/load] {:frame f})
-    (let [snap (settings-snapshot (rf/app-db-value f))]
+    (let [snap (settings-snapshot (rf/frame-state-value f))]
       (is (= :neutral (:state snap)))
       (is (= "alice"  (get-in snap [:data :draft :username]))))
 
@@ -493,7 +493,7 @@
     ;; region stays at :neutral (a fresh edit doesn't trigger a
     ;; transition out of :correct / :incorrect unless we were there).
     (rf/dispatch-sync [:settings/edit-field :bio "New bio"] {:frame f})
-    (let [snap (settings-snapshot (rf/app-db-value f))]
+    (let [snap (settings-snapshot (rf/frame-state-value f))]
       (is (= :neutral  (:state snap)))
       (is (= "New bio" (get-in snap [:data :draft :bio])))
       (is (contains?   (get-in snap [:data :touched]) :bio)))
@@ -504,7 +504,7 @@
     ;; `:submitted draft` are now the machine's `:state :correct` +
     ;; `:data :draft` (re-seeded from the server-returned user).
     (rf/dispatch-sync [:settings/submit] {:frame f})
-    (let [db   (rf/app-db-value f)
+    (let [db   (rf/frame-state-value f)
           snap (settings-snapshot db)]
       (is (= :correct (:state snap)))
       (is (= "New bio" (get-in snap [:data :draft :bio])))
@@ -542,7 +542,7 @@
     (rf/dispatch-sync [:settings/load] {:frame f})
     (rf/dispatch-sync [:settings/edit-field :bio "Doomed bio"] {:frame f})
     (rf/dispatch-sync [:settings/submit] {:frame f})
-    (let [db   (rf/app-db-value f)
+    (let [db   (rf/frame-state-value f)
           snap (settings-snapshot db)]
       (is (= :incorrect (:state snap)))
       (is (some? (get-in snap [:data :submit-error])))
@@ -579,7 +579,7 @@
     (rf/dispatch-sync [:settings/form
                        [:submit-invalid {:errors {:email ["Email must contain @."]}}]]
                       {:frame f})
-    (let [snap (settings-snapshot (rf/app-db-value f))]
+    (let [snap (settings-snapshot (rf/frame-state-value f))]
       (is (= :incorrect (:state snap)))
       (is (= {:email ["Email must contain @."]} (get-in snap [:data :errors])))
       (is (contains? (get-in snap [:data :touched]) :email))
@@ -588,7 +588,7 @@
     ;; The first :edit on the offending field clears that field's
     ;; error entry and returns the region to :neutral.
     (rf/dispatch-sync [:settings/edit-field :email "alice@example.com"] {:frame f})
-    (let [snap (settings-snapshot (rf/app-db-value f))]
+    (let [snap (settings-snapshot (rf/frame-state-value f))]
       (is (= :neutral (:state snap)))
       (is (false? (settings-machine-has-tag? f :form/invalid)))
       (is (not (contains? (get-in snap [:data :errors]) :email))))))
@@ -598,21 +598,21 @@
 ;; ============================================================================
 
 (defn- tags-snapshot [db]
-  (get-in db [:rf/runtime :machines :snapshots :realworld/tags]))
+  (get-in db [:rf.db/runtime :rf.runtime/machines :snapshots :realworld/tags]))
 
 (defn- tags-machine-has-tag?
   "Read the :realworld/tags machine's :tags union against a frame's app-db
    (browserless form of `rf/machine-has-tag?`)."
   [frame tag]
   (rf/compute-sub [:rf/machine-has-tag? :realworld/tags tag]
-                  (rf/app-db-value frame)))
+                  (rf/frame-state-value frame)))
 
 (defn- tag-query-test []
   (with-new-frame [f (rf/make-frame {:on-create [:app/initialise]})]
     (rf/dispatch-sync [:tags/apply-filter "clojure"] {:frame f})
-    (is (= "clojure" (:tag (rf/compute-sub [:rf.route/query] (rf/app-db-value f)))))
+    (is (= "clojure" (:tag (rf/compute-sub [:rf.route/query] (rf/frame-state-value f)))))
     (rf/dispatch-sync [:home/show-your-feed] {:frame f})
-    (is (= "your" (:feed (rf/compute-sub [:rf.route/query] (rf/app-db-value f)))))))
+    (is (= "your" (:feed (rf/compute-sub [:rf.route/query] (rf/frame-state-value f)))))))
 
 (defn- tags-machine-load-test []
   ;; The :tags lifecycle — load happy path through the machine.
@@ -622,7 +622,7 @@
                                  :fx-overrides {:rf.http/managed :realworld.test/canned-tags}})]
     ;; After :app/initialise → :tags/initialise → [:reset], the machine
     ;; sits at :idle with empty :data.
-    (let [snap (tags-snapshot (rf/app-db-value f))]
+    (let [snap (tags-snapshot (rf/frame-state-value f))]
       (is (= :idle (:state snap)))
       (is (= []    (get-in snap [:data :tags])))
       (is (= 0     (get-in snap [:data :attempt]))))
@@ -631,7 +631,7 @@
     ;; we observe the machine in :loaded (not :loading) after the
     ;; dispatch returns.
     (rf/dispatch-sync [:tags/load] {:frame f})
-    (let [db   (rf/app-db-value f)
+    (let [db   (rf/frame-state-value f)
           snap (tags-snapshot db)]
       (is (= :loaded (:state snap)))
       (is (= ["intro" "demo" "clojure"]
@@ -651,7 +651,7 @@
     ;; Second fetch with prior data present: the region picks :fetching
     ;; (not :loading) so the sidebar doesn't blank out.
     (rf/dispatch-sync [:tags/load] {:frame f})
-    (let [snap (tags-snapshot (rf/app-db-value f))]
+    (let [snap (tags-snapshot (rf/frame-state-value f))]
       (is (= :loaded (:state snap)))
       (is (= 2 (get-in snap [:data :attempt]))))))
 
@@ -665,7 +665,7 @@
   (with-new-frame [f (rf/make-frame {:on-create    [:app/initialise]
                                  :fx-overrides {:rf.http/managed :realworld.test/canned-tags-failure}})]
     (rf/dispatch-sync [:tags/load] {:frame f})
-    (let [db   (rf/app-db-value f)
+    (let [db   (rf/frame-state-value f)
           snap (tags-snapshot db)]
       (is (= :error (:state snap)))
       (is (some? (get-in snap [:data :error])))
@@ -680,20 +680,20 @@
 (defn- routing-tests []
   (with-new-frame [f (rf/make-frame {:on-create [:app/initialise]})]
     (rf/dispatch-sync [:rf.route/navigate :realworld.article/show {:slug "hello"}] {:frame f})
-    (is (= :realworld.article/show (rf/compute-sub [:rf.route/id] (rf/app-db-value f))))
-    (is (= "hello" (:slug (rf/compute-sub [:rf.route/params] (rf/app-db-value f)))))
+    (is (= :realworld.article/show (rf/compute-sub [:rf.route/id] (rf/frame-state-value f))))
+    (is (= "hello" (:slug (rf/compute-sub [:rf.route/params] (rf/frame-state-value f)))))
 
     (rf/dispatch-sync [:rf.route/handle-url-change "/profile/eve"] {:frame f})
-    (is (= :realworld.profile/show (rf/compute-sub [:rf.route/id] (rf/app-db-value f))))
+    (is (= :realworld.profile/show (rf/compute-sub [:rf.route/id] (rf/frame-state-value f))))
 
     (rf/dispatch-sync [:rf.route/handle-url-change "/settings"] {:frame f})
-    (is (= :realworld.user/settings (rf/compute-sub [:rf.route/id] (rf/app-db-value f))))
+    (is (= :realworld.user/settings (rf/compute-sub [:rf.route/id] (rf/frame-state-value f))))
 
     (rf/dispatch-sync [:rf.route/handle-url-change "/?tag=clojure"] {:frame f})
-    (is (= "clojure" (:tag (rf/compute-sub [:rf.route/query] (rf/app-db-value f)))))
+    (is (= "clojure" (:tag (rf/compute-sub [:rf.route/query] (rf/frame-state-value f)))))
 
     (rf/dispatch-sync [:rf.route/handle-url-change "/garbage/path"] {:frame f})
-    (is (= :rf.route/not-found (rf/compute-sub [:rf.route/id] (rf/app-db-value f))))))
+    (is (= :rf.route/not-found (rf/compute-sub [:rf.route/id] (rf/frame-state-value f))))))
 
 (defn- auth-guard-test []
   ;; The auth-guard is a plain interceptor (Spec 012 §Redirects and
@@ -705,31 +705,31 @@
     ;; Unauthenticated: navigating to a :requires-auth route
     ;; (:realworld.user/settings) is redirected to :realworld.auth/login.
     (rf/dispatch-sync [:rf.route/navigate :realworld.user/settings {}] {:frame f})
-    (is (= :realworld.auth/login (rf/compute-sub [:rf.route/id] (rf/app-db-value f)))
+    (is (= :realworld.auth/login (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
         "unauthenticated nav to a :requires-auth route redirects to login")
 
     ;; A non-guarded route is unaffected by the guard.
     (rf/dispatch-sync [:rf.route/navigate :realworld/home {}] {:frame f})
-    (is (= :realworld/home (rf/compute-sub [:rf.route/id] (rf/app-db-value f)))
+    (is (= :realworld/home (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
         "unguarded route navigates normally with the guard installed")
 
     ;; Bounce-back stash (rf2-ygh4m ITEM 1): the redirect to login also
     ;; records the original target at [:auth :return-to].
     (rf/dispatch-sync [:rf.route/navigate :realworld.user/settings {}] {:frame f})
     (is (= {:id :realworld.user/settings :params {}}
-           (get-in (rf/app-db-value f) [:auth :return-to]))
+           (get-in (rf/frame-state-value f) [:auth :return-to]))
         "the redirect stashes the original target for post-login bounce-back")
 
     ;; Authenticated: the same guarded nav now proceeds.
     (rf/dispatch-sync [:auth/store-session {:username "eve" :token "t"}] {:frame f})
     (rf/dispatch-sync [:rf.route/navigate :realworld.user/settings {}] {:frame f})
-    (is (= :realworld.user/settings (rf/compute-sub [:rf.route/id] (rf/app-db-value f)))
+    (is (= :realworld.user/settings (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
         "authenticated nav to a :requires-auth route proceeds")
 
     ;; The post-login bounce-back event consumes the stashed target and
     ;; clears the slot.
     (rf/dispatch-sync [:auth/post-login-redirect] {:frame f})
-    (is (nil? (get-in (rf/app-db-value f) [:auth :return-to]))
+    (is (nil? (get-in (rf/frame-state-value f) [:auth :return-to]))
         ":auth/post-login-redirect clears the :return-to slot")))
 
 (defn- auth-guard-all-access-paths-test []
@@ -747,24 +747,24 @@
                                  :interceptors [routing/auth-guard]})]
     ;; Logged-out direct URL (or reload) to a :requires-auth route.
     (rf/dispatch-sync [:rf.route/handle-url-change "/settings"] {:frame f})
-    (is (= :realworld.auth/login (rf/compute-sub [:rf.route/id] (rf/app-db-value f)))
+    (is (= :realworld.auth/login (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
         "logged-out direct-URL/reload to a :requires-auth route redirects to login")
     (is (= {:id :realworld.user/settings :params {}}
-           (get-in (rf/app-db-value f) [:auth :return-to]))
+           (get-in (rf/frame-state-value f) [:auth :return-to]))
         "the direct-URL redirect stashes the original target for bounce-back")
 
     ;; Editor route via direct URL with path params is also gated, and
     ;; the stash carries the params.
     (rf/dispatch-sync [:rf.route/handle-url-change "/editor/my-slug"] {:frame f})
-    (is (= :realworld.auth/login (rf/compute-sub [:rf.route/id] (rf/app-db-value f)))
+    (is (= :realworld.auth/login (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
         "logged-out direct-URL to a :requires-auth editor route redirects to login")
     (is (= {:id :realworld.editor/edit :params {:slug "my-slug"}}
-           (get-in (rf/app-db-value f) [:auth :return-to]))
+           (get-in (rf/frame-state-value f) [:auth :return-to]))
         "the editor direct-URL redirect stashes id + params for bounce-back")
 
     ;; A non-auth route via direct URL is unaffected.
     (rf/dispatch-sync [:rf.route/handle-url-change "/profile/eve"] {:frame f})
-    (is (= :realworld.profile/show (rf/compute-sub [:rf.route/id] (rf/app-db-value f)))
+    (is (= :realworld.profile/show (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
         "logged-out direct-URL to a non-auth route is unaffected"))
 
   ;; --- anchor click (`:rf/url-requested`) ---
@@ -776,15 +776,15 @@
     (rf/dispatch-sync [:rf/url-requested {:url "/settings"
                                           :to  :realworld.user/settings}]
                       {:frame f})
-    (is (= :realworld.auth/login (rf/compute-sub [:rf.route/id] (rf/app-db-value f)))
+    (is (= :realworld.auth/login (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
         "logged-out anchor click to a :requires-auth route redirects to login")
     (is (= {:id :realworld.user/settings :params {}}
-           (get-in (rf/app-db-value f) [:auth :return-to]))
+           (get-in (rf/frame-state-value f) [:auth :return-to]))
         "the anchor redirect stashes the original target for bounce-back")
 
     ;; A url-only request (no :to) still gates via match-url resolution.
     (rf/dispatch-sync [:rf/url-requested {:url "/editor"}] {:frame f})
-    (is (= :realworld.auth/login (rf/compute-sub [:rf.route/id] (rf/app-db-value f)))
+    (is (= :realworld.auth/login (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
         "logged-out url-only anchor to a :requires-auth route redirects to login")
 
     ;; A non-auth anchor is unaffected.
@@ -792,7 +792,7 @@
                                           :to  :realworld.profile/show
                                           :params {:username "eve"}}]
                       {:frame f})
-    (is (= :realworld.profile/show (rf/compute-sub [:rf.route/id] (rf/app-db-value f)))
+    (is (= :realworld.profile/show (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
         "logged-out anchor to a non-auth route is unaffected"))
 
   ;; --- authenticated: every entry point now PASSES through ---
@@ -801,13 +801,13 @@
     (rf/dispatch-sync [:auth/store-session {:username "eve" :token "t"}] {:frame f})
     ;; direct-URL / reload to a guarded route proceeds when logged in.
     (rf/dispatch-sync [:rf.route/handle-url-change "/settings"] {:frame f})
-    (is (= :realworld.user/settings (rf/compute-sub [:rf.route/id] (rf/app-db-value f)))
+    (is (= :realworld.user/settings (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
         "authenticated direct-URL to a :requires-auth route proceeds")
     ;; anchor click to a guarded route also proceeds when logged in.
     (rf/dispatch-sync [:rf/url-requested {:url "/settings"
                                           :to  :realworld.user/settings}]
                       {:frame f})
-    (is (= :realworld.user/settings (rf/compute-sub [:rf.route/id] (rf/app-db-value f)))
+    (is (= :realworld.user/settings (rf/compute-sub [:rf.route/id] (rf/frame-state-value f)))
         "authenticated anchor click to a :requires-auth route proceeds")))
 
 ;; ============================================================================
@@ -843,11 +843,13 @@
                                                 :auth.session/persist :rf/no-op}})]
     ;; After init: the :auth + :articles slices and the
     ;; :realworld/tags + :settings/form machine snapshots are present.
-    (let [db (rf/app-db-value f)]
+    ;; EP-0001 (rf2-vzld77): app data is in app-db; machine snapshots in runtime-db.
+    (let [db (rf/app-db-value f)
+          rt (rf/runtime-db-value f)]
       (is (contains? db :auth))
       (is (contains? db :articles))
-      (is (contains? (get-in db [:rf/runtime :machines :snapshots]) :realworld/tags))
-      (is (contains? (get-in db [:rf/runtime :machines :snapshots]) :settings/form)))))
+      (is (contains? (get-in rt [:rf.runtime/machines :snapshots]) :realworld/tags))
+      (is (contains? (get-in rt [:rf.runtime/machines :snapshots]) :settings/form)))))
 
 ;; ============================================================================
 ;; DEFTESTS
