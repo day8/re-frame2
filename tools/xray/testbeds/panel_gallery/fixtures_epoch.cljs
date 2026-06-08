@@ -772,13 +772,13 @@
                       :dispatch-n  [[:audit/log :checkout/begin]
                                     [:metrics/emit :checkout/begin]]
                       :dispatch-later {:ms 250
-                                       :dispatch [:checkout/retry-prompt]}})
+                                       :event [:checkout/retry-prompt]}})
            (fx-handled-ev :db nil 0.2)
            (fx-handled-ev :dispatch [:cart/add :apple] 0.1)
            (fx-handled-ev :dispatch-n [[:audit/log :checkout/begin]
                                        [:metrics/emit :checkout/begin]] 0.2)
            (fx-handled-ev :dispatch-later
-                          {:ms 250 :dispatch [:checkout/retry-prompt]} 0.1)
+                          {:ms 250 :event [:checkout/retry-prompt]} 0.1)
            (run-end-ev 1.4)]}))])
 
 ;; ---- VARIANT 6: long-step cascade ---------------------------------------
@@ -1040,9 +1040,9 @@
           :trace-events
           [(dispatched-ev [:checkout/begin] :ui)
            (do-fx-ev {:dispatch-later
-                      {:ms 500 :dispatch [:checkout/retry-prompt]}})
+                      {:ms 500 :event [:checkout/retry-prompt]}})
            (fx-handled-ev :dispatch-later
-                          {:ms 500 :dispatch [:checkout/retry-prompt]}
+                          {:ms 500 :event [:checkout/retry-prompt]}
                           0.1)
            (run-end-ev 0.4)]}))
    ;; CHILD cascade — fired 500ms later by the timer

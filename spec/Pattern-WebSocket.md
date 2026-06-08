@@ -157,11 +157,11 @@ The connection machine composes the locked substrate:
          :fx   [[:dispatch [(:socket-id data)
                             [:send (assoc body :request-id request-id)]]]
                 [:dispatch-later
-                 {:ms       timeout-ms
-                  :dispatch [:ws/connection
-                             [:ws/request-timeout
-                              {:request-id       request-id
-                               :source-socket-id (:socket-id data)}]]}]]})
+                 {:ms    timeout-ms
+                  :event [:ws/connection
+                          [:ws/request-timeout
+                           {:request-id       request-id
+                            :source-socket-id (:socket-id data)}]]}]]})
 
       :clear-request
       (fn [data [_ {:keys [request-id]}]]
