@@ -94,24 +94,17 @@ lands in core, the two-function shape throws `:rf.error/reg-sub-bad-args` at
 registration / namespace load. It compiles clean and then fails at runtime.
 
 **Proposed EP target:** when the target re-frame2 version includes
-`docs/EP/subscription-inputs.md`, the two-function shape returns **descriptors**,
-not `subscribe` results. The runtime resolves those descriptors in the outer
-subscription's frame, and `compute-sub` stays pure/JVM-runnable.
+`docs/EP/subscription-inputs.md`, the two-function shape returns a **vector of
+query vectors**, not `subscribe` results. The runtime resolves those query
+vectors in the outer subscription's frame, and `compute-sub` stays
+pure/JVM-runnable.
 
 ```clojure
 ;; v2 EP target — vector bridge
 (rf/reg-sub :item-detail
   (fn [[_ id]]
-    [[:item id] :selected])
+    [[:item id] [:selected]])
   (fn [[item selected] [_ id]]
-    (assoc item :selected? (= selected id))))
-
-;; v2 EP target — preferred map form
-(rf/reg-sub :item-detail
-  (fn [[_ id]]
-    {:item [:item id]
-     :selected :selected})
-  (fn [{:keys [item selected]} [_ id]]
     (assoc item :selected? (= selected id))))
 ```
 
@@ -132,9 +125,10 @@ between them.
    ```
 
 2. **Query-dependent pure sub inputs, EP available:** rewrite the signal
-   function to return input descriptors. Prefer map descriptors for new code;
-   vector descriptors are the direct migration bridge. A v1 map of live signals
-   becomes a v2 map of descriptors.
+   function to return a vector of query vectors. A v1 map of live signals must
+   be rewritten to an explicit vector order, and the computation function must
+   be changed from map destructuring to vector destructuring. Do not rely on
+   map iteration order; choose the order at the call site.
 
 3. **Query-dependent pure sub inputs, EP not available:** fold to a layer-1 sub
    or chain to whole collections and index in the computation function.

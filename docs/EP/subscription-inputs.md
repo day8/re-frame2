@@ -39,18 +39,17 @@ This proposal restores a disciplined version of re-frame v1's two-function
 (rf/reg-sub
   :id
   (fn input-fn [query-v]
-    {:x [:x]
-     :y :y})
-  (fn computation-fn [{:keys [x y]} query-v]
+    [[:x] [:y]])
+  (fn computation-fn [[x y] query-v]
     ...))
 ```
 
 The first function is no longer a v1 signal function. It is a re-frame2
-`input-fn`: a pure function from the outer subscription query vector to
-subscription input descriptors. The runtime resolves those descriptors in the
-same frame as the outer subscription.
+`input-fn`: a pure function from the outer subscription query vector to a
+vector of input query vectors. The runtime resolves those input query vectors
+in the same frame as the outer subscription.
 
-This keeps the useful v1 capability - query-parametric subscription inputs -
+This keeps the useful v1 capability, query-parametric subscription inputs,
 without carrying forward v1's reaction-returning signal functions:
 
 ```clojure
@@ -58,19 +57,27 @@ without carrying forward v1's reaction-returning signal functions:
 [(rf/subscribe [:x])
  (rf/subscribe [:y])]
 
-;; v2: return input descriptors
-[[:x] :y]
+;; v2: return query vectors
+[[:x] [:y]]
 ```
 
-The canonical parametric form returns a map of named descriptors. A vector of
-descriptors is also supported as the migration bridge and for small ordered
-inputs. A bare keyword is shorthand for a zero-argument subscription descriptor
-only inside a descriptor collection or descriptor map: `:y` means `[:y]`.
+The grammar is intentionally narrow:
 
-Scalar returns are deliberately not supported. An `input-fn` returning
-`[:x :y]` is ambiguous: it could be one query vector with argument `:y`, or it
-could be an author intending two inputs. Under this proposal, single-input
-parametric subscriptions write `[[:x :y]]` or `{:x [:x :y]}`.
+> An `input-fn` MUST return a vector, and every element of that vector MUST be a
+> query vector.
+
+No bare keyword shorthand is accepted. No map return is accepted. No scalar
+single-query return is accepted. Single-input parametric subscriptions still
+return a vector of query vectors:
+
+```clojure
+(fn [[_ id]]
+  [[:item/by-id id]])
+```
+
+This removes the v1 shape ambiguity entirely. `[:x :y]` is never interpreted as
+an `input-fn` return. It is only valid as an element inside the returned vector:
+`[[:x :y]]`.
 
 ## Motivation
 
@@ -88,11 +95,10 @@ JVM-runnable: it takes an app-db value, resolves subscriptions as data, and
 does not depend on Reagent reactions. A v1 signal function that returns live
 reactions is incompatible with that contract.
 
-So the descriptor-returning design is not merely cleaner. It is the only
+So the query-vector-returning design is not merely cleaner. It is the only
 design that fits the existing re-frame2 testing and substrate model.
 
-The remaining question is how much of v1's expressiveness to recover. Static
-`:<-` chains cover fixed dependency lists:
+Static `:<-` chains cover fixed dependency lists:
 
 ```clojure
 (rf/reg-sub
@@ -119,18 +125,21 @@ programmers, Xray, tests, and AI agents.
 
 - Restore the query-parametric `reg-sub` capability.
 - Preserve `:<-` as the preferred syntax for static inputs.
-- Require input functions to return input descriptors, not live reactions.
+- Require input functions to return vectors of query vectors, not live
+  reactions.
 - Keep `compute-sub` pure and JVM-runnable.
 - Keep subscription dependencies inspectable by Xray and pair tools.
 - Keep dependency topology fixed for each concrete cached query vector.
-- Make v1 migration explicit, including the break for map-returning signal
+- Make v1 migration explicit, including the break for v1 map-returning signal
   functions.
-- Avoid ambiguous scalar returns.
+- Avoid ambiguous return shapes.
 
 ## Non-Goals
 
 - Do not restore `reg-sub-raw`.
 - Do not restore exact v1 signal functions.
+- Do not support bare keyword shorthand.
+- Do not support map-returning `input-fn`s in the initial design.
 - Do not allow ordinary input functions to choose dependencies from app-db.
 - Do not make subscriptions perform fetching or other effects.
 - Do not make every possible parametric edge enumerable at registration time.
@@ -144,55 +153,52 @@ programmers, Xray, tests, and AI agents.
 | Mode | Form | Meaning |
 |---|---|---|
 | App-db reader | `(reg-sub id computation-fn)` | No upstream subscriptions. The computation fn receives app-db and query-v. |
-| Static inputs | `(reg-sub id :<- q1 :<- q2 computation-fn)` | Inputs are literal descriptors known at registration. |
+| Static inputs | `(reg-sub id :<- q1 :<- q2 computation-fn)` | Inputs are literal query vectors known at registration. |
 | Parametric inputs | `(reg-sub id input-fn computation-fn)` | Inputs are computed from the outer query-v when a concrete cache entry is materialized. |
 
 The unifying model is:
 
-> A subscription has an input descriptor producer. Layer-1 has no producer,
+> A subscription has an input query-vector producer. Layer-1 has no producer,
 > `:<-` is the literal producer, and `input-fn` is the query-parametric
 > producer.
 
-### Descriptor grammar
+### Input grammar
 
-An `input-fn` MUST return either a vector of input descriptors or a map of input
-descriptors.
+An `input-fn` MUST return a vector of query vectors.
 
 ```clojure
-input-descriptor := keyword | query-vector
-query-vector     := vector whose first element is a keyword
-input-return     := [input-descriptor*] | {any-key input-descriptor, ...}
+query-vector := vector whose first element is a keyword
+input-return := [query-vector*]
 ```
 
 Examples:
 
 ```clojure
-;; Preferred: named inputs.
-{:article [:article/by-id article-id]
- :comments [:comments/for-article article-id]
- :viewer :viewer/current}
-
-;; Migration bridge: ordered inputs.
+;; Multiple inputs.
 [[:article/by-id article-id]
  [:comments/for-article article-id]
- :viewer/current]
+ [:viewer/current]]
 
-;; Single input: still a collection or map.
+;; Single input.
 [[:article/by-id article-id]]
-{:article [:article/by-id article-id]}
+
+;; No inputs, unusual but valid.
+[]
 ```
 
-A bare keyword is shorthand only in descriptor position:
+Rejected:
 
 ```clojure
-[[:x] :y]     ;; two descriptors: [:x] and [:y]
-[:x :y]       ;; not accepted as an input-fn return
-[[:x :y]]     ;; one descriptor: [:x :y]
-{:x [:x :y]}  ;; one named descriptor: [:x :y]
+:viewer/current                         ;; bare keyword
+[:article/by-id article-id]             ;; scalar query vector
+[[:article/by-id article-id] :viewer]   ;; mixed vector + bare keyword
+{:article [:article/by-id article-id]}  ;; map return
 ```
 
-This rule removes the v1 shape ambiguity where `[:items :filters]` could be a
-mistaken two-input list or a valid single query vector.
+The scalar query-vector rejection is deliberate. `[:x :y]` is ambiguous at this
+boundary: it could be one query vector with argument `:y`, or it could be an
+author intending two inputs. The only accepted single-query spelling is
+`[[:x :y]]`.
 
 ### Parametric input function
 
@@ -200,33 +206,17 @@ The input function:
 
 - receives the full outer `query-v`;
 - is called when the concrete subscription node is materialized;
-- returns a descriptor vector or descriptor map;
+- returns a vector of query vectors;
 - must be pure and deterministic over `query-v`;
 - must not call `subscribe`, deref app-db, dispatch, mutate, or perform IO.
 
 The computation function:
 
-- receives the resolved input value structure;
+- receives a vector of resolved input values in the same order;
 - receives the original outer `query-v`;
 - computes the derived subscription value.
 
-Named input maps are canonical for new code:
-
-```clojure
-(rf/reg-sub
-  :article/page
-  (fn [[_ article-id]]
-    {:article [:article/by-id article-id]
-     :comments [:comments/for-article article-id]
-     :viewer :viewer/current})
-  (fn [{:keys [article comments viewer]} [_ article-id]]
-    {:id article-id
-     :article article
-     :comments comments
-     :can-edit? (:edit? viewer)}))
-```
-
-The vector form is accepted for small cases and direct v1 migrations:
+Example:
 
 ```clojure
 (rf/reg-sub
@@ -234,7 +224,7 @@ The vector form is accepted for small cases and direct v1 migrations:
   (fn [[_ article-id]]
     [[:article/by-id article-id]
      [:comments/for-article article-id]
-     :viewer/current])
+     [:viewer/current]])
   (fn [[article comments viewer] [_ article-id]]
     {:id article-id
      :article article
@@ -265,8 +255,8 @@ It is equivalent to a constant input producer:
     (filter-items items filter)))
 ```
 
-Use `:<-` for static inputs. Use `input-fn` only when the upstream descriptors
-need values from the outer query vector.
+Use `:<-` for static inputs. Use `input-fn` only when the upstream query
+vectors need values from the outer query vector.
 
 ### No app-db-dependent topology
 
@@ -295,7 +285,7 @@ has stable dependencies for its lifetime.
 
 ### Frame resolution
 
-Input descriptors are frame-agnostic data. The runtime resolves them in the
+Input query vectors are frame-agnostic data. The runtime resolves them in the
 same frame as the outer subscription. The input function does not need a frame
 argument and must not search for one.
 
@@ -308,15 +298,15 @@ that frame.
 For `(subscribe [:article/page :a1])`:
 
 1. Resolve `:article/page` in the registrar.
-2. Produce input descriptors:
-   - no descriptors for a layer-1 app-db reader;
-   - literal descriptors for `:<-`;
+2. Produce input query vectors:
+   - no query vectors for a layer-1 app-db reader;
+   - literal query vectors for `:<-`;
    - `(input-fn [:article/page :a1])` for the parametric form.
-3. Normalize descriptors to query vectors.
+3. Validate that the result is a vector of query vectors.
 4. Subscribe to each input query vector in the same frame.
-5. Project resolved input values into the declared vector or map shape.
-6. Call the computation function with projected inputs and the outer query-v.
-7. Cache the derived node under the concrete outer query-v.
+5. Call the computation function with the vector of resolved input values and
+   the outer query-v.
+6. Cache the derived node under the concrete outer query-v.
 
 The input function is not on the hot recompute path. It runs when a cache entry
 is materialized, and again only if that cache entry is disposed and later
@@ -338,7 +328,7 @@ Invalid input behavior signals loudly.
 |---|---|
 | `:rf.error/reg-sub-bad-args` | Registration shape is not accepted. |
 | `:rf.error/sub-input-fn-exception` | Input function throws while materializing a node. |
-| `:rf.error/sub-input-fn-bad-return` | Input function returns a scalar, reaction, derefable, malformed query vector, or other invalid shape. |
+| `:rf.error/sub-input-fn-bad-return` | Input function returns a scalar, map, bare keyword, reaction, derefable, malformed query vector, or other invalid shape. |
 
 Recovery follows existing subscription failure posture: emit a structured error,
 materialize a nil-yielding reaction when safe, include the outer query vector
@@ -390,9 +380,9 @@ v1 signal functions could:
 v2 input functions:
 
 - must not call `subscribe`;
-- must return a vector or map of descriptors;
-- must use descriptor maps for named inputs instead of maps of live reactions;
+- must return a vector of query vectors;
 - receive only the outer query vector;
+- cannot return maps or bare keywords;
 - cannot choose dependency topology from app-db.
 
 The static `:<-` form remains preserved. The layer-1 `(fn [db query-v] ...)`
@@ -421,7 +411,7 @@ v2:
   :item/detail
   (fn [[_ id]]
     [[:item/by-id id]
-     :selection/current])
+     [:selection/current]])
   (fn [[item selected] [_ id]]
     (assoc item :selected? (= selected id))))
 ```
@@ -440,20 +430,21 @@ v1:
     (assoc item :selected? (= selected id))))
 ```
 
-v2:
+v2 requires choosing an explicit input order and changing the computation
+function to vector destructuring:
 
 ```clojure
 (rf/reg-sub
   :item/detail
   (fn [[_ id]]
-    {:item [:item/by-id id]
-     :selected :selection/current})
-  (fn [{:keys [item selected]} [_ id]]
+    [[:item/by-id id]
+     [:selection/current]])
+  (fn [[item selected] [_ id]]
     (assoc item :selected? (= selected id))))
 ```
 
-Map form is preferred for new parametric subscriptions because the computation
-function destructures by name rather than by input order.
+Do not rely on source map iteration order when rewriting. Pick and preserve an
+explicit order at the call site.
 
 ### Single input
 
@@ -469,17 +460,6 @@ v1:
 ```
 
 v2:
-
-```clojure
-(rf/reg-sub
-  :item/title
-  (fn [[_ id]]
-    {:item [:item/by-id id]})
-  (fn [{:keys [item]} _]
-    (:title item)))
-```
-
-or, for a small ordered migration:
 
 ```clojure
 (rf/reg-sub
@@ -502,13 +482,11 @@ or, for a small ordered migration:
     :input-fn input-fn}
    ```
 
-3. Add a pure descriptor normalizer:
+3. Add a pure input normalizer:
 
    ```clojure
-   (normalize-sub-inputs descriptor-return)
-   ;; => {:shape :vector | :map
-   ;;     :queries [query-v ...]
-   ;;     :project (fn [values] projected-inputs)}
+   (normalize-sub-inputs input-return)
+   ;; => {:queries [query-v ...]}
    ```
 
 4. Use the normalizer in both the reactive cache path and `compute-sub`.
@@ -521,18 +499,16 @@ or, for a small ordered migration:
 
 - Static `:<-` behavior remains unchanged.
 - Parametric input function receives the full outer query vector.
-- Descriptor maps resolve to maps of input values.
-- Descriptor vectors resolve to vectors of input values.
-- Bare keyword descriptors normalize only inside vector/map descriptor
-  positions.
-- Scalar returns such as `[:x :y]`, `:x`, or a reaction are rejected.
+- Vector-of-query-vectors input returns resolve to vectors of input values.
+- Scalar returns such as `[:x :y]`, `:x`, maps, reactions, and derefables are
+  rejected.
 - `compute-sub` and `subscribe-once` agree for parametric subscriptions.
 - Hot reload invalidates existing parametric cache entries.
 - Disposal releases realized upstream inputs.
 - Multi-frame subscriptions resolve every realized input in the outer frame.
 - Xray/live sub-cache inspection reports realized parametric inputs.
-- Migration examples for v1 vector and map signal returns compute the same
-  values after rewrite.
+- Migration examples for v1 vector, map, and single-signal returns compute the
+  same values after rewrite.
 
 ## Rejected Ideas
 
@@ -547,39 +523,45 @@ Rejected because they create state-dependent edge sets inside a cache entry.
 That breaks the stable-topology invariant used by disposal, hot reload, and
 Xray. Thread state-derived parameters through the outer query vector instead.
 
+### Bare keyword shorthand
+
+Rejected because it adds a second spelling for zero-argument queries and makes
+the descriptor grammar less visually obvious. The explicit spelling is `[:y]`,
+and inside an input return it is `[[:y]]`.
+
 ### Scalar single-input return
 
 Rejected because it reintroduces the `[:x :y]` ambiguity. The two-character
 cost of `[[:x :y]]` buys a clear boundary between "one query with an arg" and
-"a collection of input descriptors."
+"the collection of input query vectors."
 
-### Option map API
+### Map-returning input functions
 
-An option-map shape such as `{:inputs input-fn}` is unambiguous but conflicts
-with the existing metadata-map position and makes the common case more
-ceremonial. It can be reconsidered later if input functions acquire more
-options.
+Rejected for the initial design because they introduce a second input grammar
+and force additional migration choices around map key order and named
+destructuring. They can be reconsidered later as an explicit extension, but the
+v1 core should ship one unambiguous shape.
 
 ## Open Issues
 
-1. Should descriptor-map inputs be mandatory for new code in the linter, with
-   descriptor vectors allowed only as compatibility/migration style?
+1. Should a future extension add named inputs, or should named input grouping
+   stay in user code above the subscription layer?
 
 2. Should `sub-topology` expose the input function source coordinate or only
    the enclosing `reg-sub` source coordinate?
 
-3. Should malformed descriptor values include a redacted preview in development
+3. Should malformed input returns include a redacted preview in development
    traces, or only class/shape metadata?
 
 ## Bead Plan
 
 1. Spec reconciliation:
    update API, ReactiveSubstrate, Testing, Conventions, and migration docs to
-   define descriptor-returning input functions and remove the old `(signal-fn
-   db query-v)` branch.
+   define vector-of-query-vectors input functions and remove the old
+   `(signal-fn db query-v)` branch.
 
 2. Core implementation:
-   parser, metadata, descriptor normalizer, reactive cache path, `compute-sub`,
+   parser, metadata, input normalizer, reactive cache path, `compute-sub`,
    error ids, and tests.
 
 3. Tooling:
@@ -587,15 +569,16 @@ options.
    for realized parametric inputs.
 
 4. Migration skill:
-   teach v1 signal-function rewrites, including vector-returning and
-   map-returning signal functions.
+   teach v1 signal-function rewrites, including vector-returning,
+   map-returning, and single-signal-returning signal functions.
 
 ## Recommendation
 
-Adopt descriptor-returning parametric input functions.
+Adopt vector-of-query-vectors parametric input functions.
 
 This restores the part of v1 that scales: query-parametric subscription
-composition. It rejects the part that conflicts with re-frame2's architecture:
-reaction-returning signal functions and state-dependent hidden topology. The
-result is a static, inspectable graph per concrete query vector, with enough
-expressiveness for route, resource, form, Hasura, and machine view models.
+composition. It rejects the parts that conflict with re-frame2's architecture:
+reaction-returning signal functions, state-dependent hidden topology, and
+ambiguous descriptor grammar. The result is a static, inspectable graph per
+concrete query vector, with enough expressiveness for route, resource, form,
+Hasura, and machine view models.
