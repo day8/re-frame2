@@ -693,6 +693,57 @@ muted `[NO OP] staying in {state}` cascade-row (rf2-iu3no) — that surface is
 the per-event cascade narration; this section is the Machines TAB's topology
 read. Both key off the one `:rf.machine.event/unhandled-no-op` trace.
 
+### Parallel multi-region fired-edge highlight (rf2-8ncxrf)
+
+A `:type :parallel` machine's snapshot `:state` is a **region-map** —
+one active leaf per orthogonal region (Spec 005 §Parallel regions). A
+single external event can fire transitions in **N regions at once**, yet
+the runtime emits exactly **ONE** `:rf.machine/transition` whose
+`:before` / `:after` carry the WHOLE composite region-map (machines ·
+`lifecycle_fx.registration/commit-or-finalize`). The focused Machine view
+must light **every** region's fired edge for that one event.
+
+The motivating case (Mike, live `examples/machine-epochs` HVAC,
+2026-06-08): `:hvac/controller` in `{:climate :idle, :fan :off}`;
+dispatch `[:hvac/power-cycle]` fires `:climate :idle→:running` AND
+`:fan :off→:on` in the same macrostep. The STATIC topology renders both
+`power-cycle` event-nodes, but the EVENT-FOCUSED dynamic view showed **NO
+transition** — `extract-fired-edge-ids` ran the trace's `:before` /
+`:after` `:state` through the single-active path coercion
+(`normalise-path`), which returns nil for a **map**, so it lit ZERO
+edges and the chart went blank.
+
+**Derivation (data plane).** `panels/machines/trace-state/extract-fired-edge-ids`
+detects the region-map shape on a transition's RAW (un-normalised)
+`:before` / `:after` `:state`. For a region-map it derives the fired set
+from the **machine-state change across ALL regions** — NOT from a single
+`(from, to)` pair (and NOT from the cascade db-diff, which can report
+empty changed-paths even though the machine snapshot under
+`[:rf/runtime :machines :snapshots]` changed). For each region whose
+`(from ≠ to)`, it matches the per-region `(from-path, to-path, event)`
+against the projected region edges, disambiguated by the edge's
+**region-scoped `:source`** (`chart.layout/region-scoped-id` of the
+region + in-region from-path — the SAME injective scheme
+`chart.layout/highlight-ids` resolves a region-map against, rf2-wnzha).
+This attributes each fired edge to exactly the region that moved, so two
+regions sharing a state NAME never cross-light. A region that did NOT
+move this event contributes no edge. The returned ids are the EXACT
+canonical machines-viz edge-ids the live chart mints (agreement by
+construction). Single-active (flat / compound) transitions are
+unaffected — they take the existing `(from, to, event)` match + the
+machine-level fallback.
+
+**Render (render plane).** The host threads the multi-id set verbatim as
+`:fired-edge-ids` into `machine-canvas/Chart` → `MachineChart`; the
+projector marks **each** matching edge `:fired`, so all N region edges
+paint the fired treatment at once. No render-plane change was needed —
+the fired-edge set was always a SET; the bug was purely the data-plane
+derivation returning empty for the region-map shape.
+
+DOM pin: the chart root surfaces the sorted multi-id set on
+`data-fired-edge-ids` (space-joined), so a parallel multi-region event
+pins **all** fired region-edge ids, not one.
+
 ### Guard-blocked edge highlight on the topology chart (rf2-fzrzlw)
 
 A guard-blocked no-op (above) emits NO `:rf.machine/transition`, so the chart's

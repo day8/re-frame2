@@ -585,3 +585,132 @@
       (is (seq blocked))
       (is (every? projected-ids blocked)
           "each guard-blocked id is one the live chart actually rendered"))))
+
+;; ---- extract-fired-edge-ids: PARALLEL multi-region (rf2-8ncxrf) ----------
+;;
+;; A `:type :parallel` machine's snapshot `:state` is a region-MAP (one
+;; active leaf per orthogonal region — Spec 005 §Parallel regions). A single
+;; external event fires transitions in N regions AT ONCE, but the runtime
+;; emits ONE `:rf.machine/transition` whose `:before` / `:after` carry the
+;; WHOLE composite region-map. The single-active (from, to) match returns
+;; nil for a map, so before this fix the event-focused Machine view lit NO
+;; edge for `[:hvac/power-cycle]` (the bug). `extract-fired-edge-ids` now
+;; detects the region-map shape and lights EVERY changed region's edge.
+
+(defn- hvac-definition
+  "The bead's repro: a 2-region parallel HVAC controller. `[:hvac/power-cycle]`
+  toggles BOTH regions at once (climate idle⇄running, fan off⇄on)."
+  []
+  {:type :parallel
+   :regions {:climate {:initial :idle
+                       :states  {:idle    {:on {:hvac/power-cycle :running}}
+                                 :running {:on {:hvac/power-cycle :idle}}}}
+             :fan     {:initial :off
+                       :states  {:off {:on {:hvac/power-cycle :on}}
+                                 :on  {:on {:hvac/power-cycle :off}}}}}})
+
+(deftest fired-ids-parallel-light-every-changed-region
+  (testing "rf2-8ncxrf — one [:hvac/power-cycle] event firing in BOTH regions
+            lights BOTH region edges (climate idle→running + fan off→on),
+            not a blank chart"
+    (let [def           (hvac-definition)
+          projected     (:edges (chart-layout/project-definition def))
+          projected-ids (set (map :id projected))
+          climate-id    (->> projected
+                             (some (fn [e]
+                                     (when (and (= [:idle]    (:from-path e))
+                                                (= [:running] (:to-path e))
+                                                (= :hvac/power-cycle (:event e)))
+                                       (:id e)))))
+          fan-id        (->> projected
+                             (some (fn [e]
+                                     (when (and (= [:off] (:from-path e))
+                                                (= [:on]  (:to-path e))
+                                                (= :hvac/power-cycle (:event e)))
+                                       (:id e)))))
+          ;; The LIVE runtime shape: ONE transition trace, region-map
+          ;; before/after, `:tags :event` a `[event-id & args]` vector.
+          events        [{:operation :rf.machine/transition
+                          :tags {:machine-id :hvac/controller
+                                 :before {:state {:climate :idle :fan :off}}
+                                 :after  {:state {:climate :running :fan :on}}
+                                 :event  [:hvac/power-cycle]}}]
+          fired         (trace-state/extract-fired-edge-ids
+                          def events :hvac/controller)]
+      (is (string? climate-id) "the climate idle→running edge exists")
+      (is (string? fan-id)     "the fan off→on edge exists")
+      (is (= #{climate-id fan-id} fired)
+          "BOTH fired region edges light — the multi-region event renders")
+      (is (every? projected-ids fired)
+          "each fired id is a real live-chart edge id"))))
+
+(deftest fired-ids-parallel-only-changed-regions
+  (testing "rf2-8ncxrf — an event that moves ONE region and leaves the other
+            resting lights ONLY the moved region's edge"
+    (let [def        (hvac-definition)
+          projected  (:edges (chart-layout/project-definition def))
+          climate-id (->> projected
+                          (some (fn [e]
+                                  (when (and (= [:idle]    (:from-path e))
+                                             (= [:running] (:to-path e))
+                                             (= :hvac/power-cycle (:event e)))
+                                    (:id e)))))
+          ;; climate moved idle→running; fan stayed off (region unchanged).
+          events     [{:operation :rf.machine/transition
+                       :tags {:machine-id :hvac/controller
+                              :before {:state {:climate :idle :fan :off}}
+                              :after  {:state {:climate :running :fan :off}}
+                              :event  [:hvac/power-cycle]}}]
+          fired      (trace-state/extract-fired-edge-ids
+                       def events :hvac/controller)]
+      (is (= #{climate-id} fired)
+          "only the climate edge lights — the resting fan region is skipped"))))
+
+(deftest fired-ids-parallel-disambiguate-shared-state-names-across-regions
+  (testing "rf2-8ncxrf / rf2-wnzha — two regions sharing a state NAME mint
+            DISTINCT region-scoped edge ids; the region-scoped :source match
+            attributes each fired edge to the region that actually moved"
+    ;; Both regions declare an `:a`/`:b` pair on the same `:go` event — the
+    ;; (from, to, event) triple alone would collide across regions. The
+    ;; region-scoped :source disambiguates.
+    (let [def        {:type :parallel
+                      :regions {:left  {:initial :a
+                                        :states  {:a {:on {:go :b}}
+                                                  :b {}}}
+                                :right {:initial :a
+                                        :states  {:a {:on {:go :b}}
+                                                  :b {}}}}}
+          projected  (:edges (chart-layout/project-definition def))
+          left-id    (->> projected (some (fn [e]
+                                            (when (= "region__left__a"  (:source e))
+                                              (:id e)))))
+          right-id   (->> projected (some (fn [e]
+                                            (when (= "region__right__a" (:source e))
+                                              (:id e)))))
+          ;; Only :left moved a→b; :right stayed at :a.
+          events     [{:operation :rf.machine/transition
+                       :tags {:machine-id :twin
+                              :before {:state {:left :a :right :a}}
+                              :after  {:state {:left :b :right :a}}
+                              :event  [:go]}}]
+          fired      (trace-state/extract-fired-edge-ids def events :twin)]
+      (is (string? left-id))
+      (is (string? right-id))
+      (is (not= left-id right-id) "the two regions' :a→:b edges have distinct ids")
+      (is (= #{left-id} fired)
+          "ONLY the :left edge lights — the region-scoped source discriminates"))))
+
+(deftest fired-ids-parallel-agree-with-projected-chart-edge-ids
+  (testing "rf2-8ncxrf — every parallel fired id is a real projected chart edge :id"
+    (let [def           (hvac-definition)
+          projected-ids (set (map :id (:edges (chart-layout/project-definition def))))
+          events        [{:operation :rf.machine/transition
+                          :tags {:machine-id :hvac/controller
+                                 :before {:state {:climate :idle :fan :off}}
+                                 :after  {:state {:climate :running :fan :on}}
+                                 :event  [:hvac/power-cycle]}}]
+          fired         (trace-state/extract-fired-edge-ids
+                          def events :hvac/controller)]
+      (is (= 2 (count fired)) "both region edges fired")
+      (is (every? projected-ids fired)
+          "each parallel fired id is one the live chart actually rendered"))))
