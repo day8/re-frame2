@@ -623,7 +623,9 @@
   arrowhead) is drawn here, in the node's own local SVG frame, as ONE fixed
   SHORT hook:
 
-    - a FILLED circle (radius `:pseudo-radius`) on the left, near local
+    - a FILLED circle (radius `:pseudo-radius` − 0.5px, rf2-k7kiiq — a
+      tighter Stately-aligned dot, −1px diameter; the glyph geometry still
+      reads off the FULL `:pseudo-radius`) on the left, near local
       x≈`dot-r` — so it lands ~15px outside the state's left edge;
     - a single quadratic Bezier (`Q`) hook from the dot, control point
       at `(dot.x, arrow.y)` (the xstate-viz recipe), then a 1px straight
@@ -670,6 +672,13 @@
         ;; (xstate-viz signature).
         drop     initial-glyph-hook-drop
         dot-r    pseudo-radius
+        ;; rf2-k7kiiq — the FILLED dot is drawn 0.5px SMALLER in radius
+        ;; (−1px diameter) for a tighter Stately-aligned dot, WITHOUT
+        ;; touching `dot-r` (the full `pseudo-radius`) that feeds the glyph
+        ;; geometry below — so the arm/arrowhead math + the forward-flow
+        ;; invariant stay anchored to the full radius. Only the painted
+        ;; circle shrinks.
+        dot-paint-r (- dot-r 0.5)
         ;; rf2-wwyx1u — the glyph geometry is single-sourced from the pure
         ;; `projection/initial-marker-glyph` (so the renderer + the projection
         ;; test agree on the FORWARD-FLOW invariant). It returns a SMALL
@@ -714,7 +723,7 @@
               :style {:overflow "visible"}}
         ;; FILLED dot — the UML initial pseudo-state.
         [:circle {:data-testid "rf-mv-chart-initial-marker-dot"
-                  :cx dot-x :cy dot-y :r dot-r
+                  :cx dot-x :cy dot-y :r dot-paint-r
                   :fill stroke}]
         ;; single Q hook into the arrowhead base.
         [:path {:d hook :stroke stroke :stroke-width 2 :fill "none"}]
