@@ -342,9 +342,13 @@
         ;; and inline (`:definition`) spawns via the resolved `spec''`'s
         ;; `:data-schema`. The bridge itself rides `interop/debug-enabled?`
         ;; (the egress surface it feeds is gated), so this is dead-elided in
-        ;; production builds. `prior-marks` nil — a per-instance id has no
-        ;; manual `register-marks!` to compose with.
-        (registration/register-data-schema-marks! spawned-id spec'' nil)
+        ;; production builds. Per rf2-qpibk0 the per-instance schema marks land
+        ;; in the separate schema-sourced table (unioned at read time), and per
+        ;; rf2-egvm4t the matching destroy/finalize/frame-teardown lifecycle
+        ;; clears them via `:marks/clear-machine-schema-marks!` so a destroyed
+        ;; actor leaves no marks residue and epoch restore/replay re-runs this
+        ;; bridge to rehydrate them.
+        (registration/register-data-schema-marks! spawned-id spec'')
         ;; Per rf2-vsigt — record the spawned actor in the frame's
         ;; spawn-order channel so frame-destroy can walk in reverse-
         ;; creation order per Spec 005 §Cross-Spec Interactions §1.

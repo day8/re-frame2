@@ -699,12 +699,26 @@
   (mapv (fn [path] (into [:data] path)) (keys decls)))
 
 (defn register-data-schema-marks!
-  "EP-0005 (rf2-w46fpt) — bridge the machine `:data-schema`'s `:sensitive?` /
-  `:large?` per-slot markers into snapshot-egress redaction. Extracts the
-  marked paths from `(:data-schema machine)` via the schemas walker, roots
-  them under `[:data …]`, and UNIONs them into the `:event`-keyed marks entry
-  for `machine-id` (composing with any manual `register-marks!`, not clobbering
-  it).
+  "EP-0005 — bridge the machine `:data-schema`'s `:sensitive?` / `:large?`
+  per-slot markers into snapshot-egress redaction. Extracts the marked paths
+  from `(:data-schema machine)` via the schemas walker, roots them under
+  `[:data …]` (to match the snapshot shape), and records them under
+  `machine-id` in the SCHEMA-SOURCED marks table via
+  `:marks/declare-machine-schema-marks!`.
+
+  Per rf2-qpibk0 the schema marks live in a table SEPARATE from the
+  author-sourced `:event` marks entry; `marks/marks-for :event machine-id`
+  UNIONS the two at read time. This makes the schema-vs-author composition
+  (Spec 015 §union-by-source, EP-0005 ruling #3 — a machine with both a
+  `:data-schema` AND a manual `register-marks!` keeps both) truly
+  ORDER-INDEPENDENT: the `reg-event-fx` registration's bare-meta
+  `register-marks!` REPLACES the `:event` entry (clearing any manual machine
+  marks), but it cannot drop the schema marks because they are not stored
+  there — and a manual `register-marks!` called AFTER `reg-machine` likewise
+  cannot clobber them. The prior bridge (rf2-w46fpt) re-unioned manual marks
+  CAPTURED before `reg-event-fx` ran, which only held for manual-before; the
+  separate-table read-time union removes that asymmetry, so no `prior-marks`
+  capture is needed.
 
   Per rf2-fm1cpl this is PUBLIC because the spawn path
   (`lifecycle-fx.spawn/spawn-fx`) re-runs the bridge keyed under the SPAWNED
@@ -718,57 +732,40 @@
   instance-id trace). Re-running this fn under the instance id at spawn time
   keys the same schema-derived marks under the id the trace actually carries,
   covering BOTH registered-type (`:machine-id`) and inline (`:definition`)
-  spawns uniformly via the resolved spec's `:data-schema`.
+  spawns uniformly via the resolved spec's `:data-schema`. The matching
+  destroy/finalize/frame-teardown lifecycle clears the per-instance entry via
+  `:marks/clear-machine-schema-marks!` (rf2-egvm4t).
 
-  `prior-marks` is the machine's marks entry captured BEFORE `reg-event-fx`
-  ran. The `reg-event-fx` registration calls `register-marks! :event
-  machine-id <machine-meta>` with a meta that carries NO mark keys, so its
-  last-write-wins semantics CLEAR any manually-registered machine marks. To
-  honour Spec 015 §union-by-source (Mike ruling #3 — a machine with both a
-  `:data-schema` AND a manual `register-marks!` keeps both), this bridge
-  re-UNIONs the captured manual marks back in alongside the schema-derived
-  ones. The union is idempotent and order-independent: whether the author
-  registered marks before or after `reg-machine`, the schema and manual sets
-  end up unioned.
-
-  Late-bound on three optional seams, so the bridge degrades cleanly:
+  Late-bound on optional seams, so the bridge degrades cleanly:
     - `:schemas/extract-sensitive-paths-from-schema` /
       `:schemas/extract-large-paths-from-schema` — absent when the schemas
       artefact is not on the classpath (a machine with a `:data-schema` but no
       schemas artefact validates nothing AND marks nothing — symmetric).
-    - `:marks/union-marks!` — absent when the marks artefact (core's
-      `re-frame.marks`) is somehow unloaded; in the canonical build it is
-      always present.
+    - `:marks/declare-machine-schema-marks!` — absent when the marks artefact
+      (core's `re-frame.marks`) is somehow unloaded; in the canonical build it
+      is always present.
 
   Per Spec 009 §Production builds the whole bridge rides `interop/debug-enabled?`
   — the egress surface it feeds (`project-machine-tags`) is itself gated, so
   populating the marks table in a production build would be dead work. Returns
   nil."
-  [machine-id machine prior-marks]
+  [machine-id machine]
   (when interop/debug-enabled?
     (let [schema    (:data-schema machine)
           extract-s (when schema (late-bind/get-fn :schemas/extract-sensitive-paths-from-schema))
           extract-l (when schema (late-bind/get-fn :schemas/extract-large-paths-from-schema))
-          union!    (late-bind/get-fn :marks/union-marks!)
+          declare!  (late-bind/get-fn :marks/declare-machine-schema-marks!)
           ;; Schema-sourced slots, snapshot-rooted under [:data …].
           schema-s  (when extract-s (root-paths-under-data (extract-s schema [])))
-          schema-l  (when extract-l (root-paths-under-data (extract-l schema [])))
-          ;; Manual slots captured before reg-event-fx cleared them.
-          prior-s   (:sensitive prior-marks)
-          prior-l   (:large     prior-marks)
-          prior-s?  (:sensitive? prior-marks)
-          prior-l?  (:large?     prior-marks)
-          sens      (vec (concat prior-s schema-s))
-          large     (vec (concat prior-l schema-l))]
-      (when (and union!
-                 (or (seq sens) (seq large)
-                     (some? prior-s?) (some? prior-l?)))
-        (union! :event machine-id
-                (cond-> {}
-                  (seq sens)        (assoc :sensitive sens)
-                  (seq large)       (assoc :large large)
-                  (some? prior-s?)  (assoc :sensitive? prior-s?)
-                  (some? prior-l?)  (assoc :large?     prior-l?))))))
+          schema-l  (when extract-l (root-paths-under-data (extract-l schema [])))]
+      (when declare!
+        (let [marks (cond-> {}
+                      (seq schema-s) (assoc :sensitive (vec schema-s))
+                      (seq schema-l) (assoc :large     (vec schema-l)))]
+          ;; nil clears the entry (re-registration with no marked slot, or a
+          ;; schema-less re-registration over a previously-marked id); a
+          ;; non-empty marks map records the schema-sourced set.
+          (declare! machine-id (when (seq marks) marks))))))
   nil)
 
 ;; ---- reg-machine* — plain-fn surface (rf2-8bp3) ---------------------------
@@ -804,23 +801,20 @@
   ;; map and its attached cache atom, so no separate invalidation step
   ;; is needed.
   (let [machine    (parallel/install-region-cache machine)
-        handler-fn (make-machine-handler machine)
-        ;; EP-0005 (rf2-w46fpt) — capture any manually-registered machine
-        ;; marks BEFORE `reg-event-fx` runs. The registration's bare-meta
-        ;; `register-marks!` clears them (last-write-wins, no mark keys);
-        ;; the bridge below re-unions them alongside the schema-derived set
-        ;; so a manual `register-marks!` and a `:data-schema` compose
-        ;; (Spec 015 §union-by-source, order-independent).
-        prior-marks (when interop/debug-enabled?
-                      (when-let [marks-for (late-bind/get-fn :marks/marks-for)]
-                        (marks-for :event machine-id)))]
+        handler-fn (make-machine-handler machine)]
     (events/reg-event-fx machine-id
                          {:rf/machine? true
                           :rf/machine  machine}
                          handler-fn)
-    ;; Bridge the `:data-schema`'s per-slot `:sensitive?` / `:large?` markers
-    ;; into snapshot-egress redaction, UNION'd with the captured manual marks.
-    (register-data-schema-marks! machine-id machine prior-marks)
+    ;; EP-0005 — bridge the `:data-schema`'s per-slot `:sensitive?` / `:large?`
+    ;; markers into snapshot-egress redaction. Per rf2-qpibk0 the schema marks
+    ;; are recorded in a SEPARATE table that `marks-for :event machine-id`
+    ;; unions with the author-sourced `:event` entry at read time — so the
+    ;; schema-vs-manual composition is order-independent regardless of whether
+    ;; a manual `register-marks!` ran before OR after `reg-machine` (no
+    ;; prior-marks capture needed; `reg-event-fx`'s bare-meta `register-marks!`
+    ;; can no longer clobber the schema set).
+    (register-data-schema-marks! machine-id machine)
     (trace/emit! :rf.machine.lifecycle/created :rf.machine.lifecycle/created
                  {:machine-id machine-id
                   :initial    (:initial machine)})
@@ -876,11 +870,26 @@
   is bounded by actual spawned-actor traffic, not by every dispatch.
 
   EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state, so
-  the live snapshot is read off the frame's runtime-db partition."
+  the live snapshot is read off the frame's runtime-db partition.
+
+  Per rf2-egvm4t this is ALSO the restore/replay REHYDRATION seam for a
+  spawned actor's per-instance `:data-schema` marks. The destroy / finalize /
+  frame-teardown lifecycle clears those marks (so a destroyed actor leaves no
+  marks residue), and `restore-epoch` reverts app-db only — it brings the
+  snapshot back but does NOT re-run the spawn bridge. The first dispatch to a
+  restored (or replayed) actor hits THIS cold path (no registered handler),
+  so re-running the bridge here under `actor-id` rehydrates the marks from the
+  restored snapshot's resolved spec (`:data-schema`) in lock-step with the
+  snapshot's reappearance. Idempotent (re-declaring is a plain table assoc)
+  and order-independent (rf2-qpibk0). A spec carrying no marked `:data-schema`
+  slot declares nothing — symmetric with `reg-machine`."
   [event frame-id]
   (let [actor-id   (first event)
         runtime-db (frame/frame-runtime-db-value (or frame-id :rf/default))
         snapshot   (when runtime-db (get-in runtime-db (paths/snapshot-path actor-id)))
         spec       (when snapshot (resolver/spec-from-snapshot snapshot))]
     (when spec
+      ;; rf2-egvm4t — rehydrate the per-instance schema marks the prior
+      ;; destroy cleared, from the restored snapshot's spec.
+      (register-data-schema-marks! actor-id spec)
       (handler-meta-for spec))))

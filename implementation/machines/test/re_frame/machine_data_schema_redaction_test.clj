@@ -166,6 +166,144 @@
       (is (= :rf/redacted (get-in out [:tags :snapshot :data :token])))
       (is (not (.contains (pr-str out) "secret-jwt-snap"))))))
 
+;; ---- (2b) FULL machine :data slot coverage (rf2-20d6k2) -------------------
+;;
+;; The bridge originally protected only the snapshot-shaped slots (:before /
+;; :after / :snapshot). But machine :data surfaces in several other trace
+;; slots that carried it RAW: :rf.machine/started's direct :data; the
+;; :input {:data …} of :rf.machine/guard-evaluated / :rf.machine/action-ran;
+;; and the per-step :data-delta of a :rf.machine/transition's :cascade.
+;; project-machine-tags now redacts every one against the SAME machine marks.
+
+(deftest started-data-slot-redacted-in-egress
+  (testing ":rf.machine/started carries the booted snapshot's :data MAP
+            directly (one level shallower than a snapshot); the :sensitive?
+            slot redacts and the :large? slot elides"
+    (reg-auth-machine!)
+    (let [ev   {:operation :rf.machine/started
+                :tags      {:machine-id auth-id
+                            :frame      :rf/default
+                            :state      :anon
+                            :data       {:retries 0
+                                         :token   "secret-jwt-started"
+                                         :blob    "huge-started"}}}
+          out  (marks/project-trace-event ev)
+          tags (:tags out)]
+      (is (= :rf/redacted (get-in tags [:data :token]))
+          ":sensitive? :data slot redacts on :rf.machine/started")
+      (is (contains? (get-in tags [:data :blob]) :rf.size/large-elided)
+          ":large? :data slot elides on :rf.machine/started")
+      (is (= 0 (get-in tags [:data :retries]))
+          "plain sibling rides verbatim")
+      (is (not (.contains (pr-str out) "secret-jwt-started"))
+          "no raw token leaked from the :rf.machine/started :data slot"))))
+
+(deftest guard-evaluated-input-data-redacted-in-egress
+  (testing ":rf.machine/guard-evaluated carries :input {:data … :event …};
+            the :data sub-slot redacts, :event is left to project-event-tags"
+    (reg-auth-machine!)
+    (let [ev   {:operation :rf.machine/guard-evaluated
+                :tags      {:machine-id auth-id
+                            :frame      :rf/default
+                            :guard-id   :ready?
+                            :state      :anon
+                            :outcome    :pass
+                            :input      {:data  {:retries 0
+                                                 :token   "secret-jwt-guard"
+                                                 :blob    "huge-guard"}
+                                         :event [:login]}}}
+          out  (marks/project-trace-event ev)
+          tags (:tags out)]
+      (is (= :rf/redacted (get-in tags [:input :data :token]))
+          ":sensitive? slot inside :input :data redacts")
+      (is (contains? (get-in tags [:input :data :blob]) :rf.size/large-elided)
+          ":large? slot inside :input :data elides")
+      (is (= [:login] (get-in tags [:input :event]))
+          ":input :event passes through (not machine :data)")
+      (is (not (.contains (pr-str out) "secret-jwt-guard"))
+          "no raw token leaked from guard-evaluated :input :data"))))
+
+(deftest action-ran-input-data-redacted-in-egress
+  (testing ":rf.machine/action-ran carries :input {:data … :event …}; the
+            :data sub-slot redacts"
+    (reg-auth-machine!)
+    (let [ev   {:operation :rf.machine/action-ran
+                :tags      {:machine-id auth-id
+                            :frame      :rf/default
+                            :action-id  :tap
+                            :phase      :transition
+                            :outcome    :ok
+                            :input      {:data  {:retries 1
+                                                 :token   "secret-jwt-action"
+                                                 :blob    "huge-action"}
+                                         :event [:login]}}}
+          out  (marks/project-trace-event ev)
+          tags (:tags out)]
+      (is (= :rf/redacted (get-in tags [:input :data :token]))
+          ":sensitive? slot inside :input :data redacts on action-ran")
+      (is (contains? (get-in tags [:input :data :blob]) :rf.size/large-elided)
+          ":large? slot inside :input :data elides on action-ran")
+      (is (not (.contains (pr-str out) "secret-jwt-action"))
+          "no raw token leaked from action-ran :input :data"))))
+
+(deftest transition-cascade-data-deltas-redacted-in-egress
+  (testing "a :rf.machine/transition's :cascade carries per-step :data-delta
+            maps keyed by :data keys directly; each delta redacts"
+    (reg-auth-machine!)
+    (let [ev   {:operation :rf.machine/transition
+                :tags      {:machine-id auth-id
+                            :frame      :rf/default
+                            :before     {:state :anon  :data {:retries 0 :token nil :blob nil}}
+                            :after      {:state :authed :data {:retries 1
+                                                               :token "secret-jwt-after"
+                                                               :blob "huge-after"}}
+                            :microsteps 0
+                            :cascade    [{:kind   :action
+                                          :state  []
+                                          :region nil
+                                          :action :authenticate
+                                          ;; the action wrote a sensitive token
+                                          ;; + a large blob + a plain sibling
+                                          :data-delta {:token "secret-jwt-delta"
+                                                       :blob  "huge-delta"
+                                                       :retries 1}}
+                                         {:kind   :entry
+                                          :state  [:authed]
+                                          :region nil
+                                          :action nil
+                                          :data-delta {}}]}}
+          out  (marks/project-trace-event ev)
+          cascade (get-in out [:tags :cascade])
+          step0   (first cascade)]
+      (is (= :rf/redacted (get-in step0 [:data-delta :token]))
+          "the cascade step's :sensitive? :data-delta key redacts")
+      (is (contains? (get-in step0 [:data-delta :blob]) :rf.size/large-elided)
+          "the cascade step's :large? :data-delta key elides")
+      (is (= 1 (get-in step0 [:data-delta :retries]))
+          "a plain :data-delta key rides verbatim")
+      (is (= {} (get-in cascade [1 :data-delta]))
+          "an empty :data-delta passes through unchanged")
+      ;; The headline :after snapshot is also redacted (existing coverage).
+      (is (= :rf/redacted (get-in out [:tags :after :data :token])))
+      (is (not (.contains (pr-str out) "secret-jwt-delta"))
+          "no raw token leaked from a cascade :data-delta")
+      (is (not (.contains (pr-str out) "secret-jwt-after"))
+          "no raw token leaked from the headline :after snapshot"))))
+
+(deftest started-data-slot-untouched-for-schemaless-machine
+  (testing "a machine with no marks rides every :data slot verbatim (the
+            seam is precise — no blanket scrub)"
+    (rf/reg-machine :rf.machine-redaction/plain2
+      {:initial :idle :data {:token "plain"} :states {:idle {}}})
+    (let [ev   {:operation :rf.machine/started
+                :tags      {:machine-id :rf.machine-redaction/plain2
+                            :frame      :rf/default
+                            :state      :idle
+                            :data       {:token "not-secret"}}}
+          out  (marks/project-trace-event ev)]
+      (is (= "not-secret" (get-in out [:tags :data :token]))
+          "no marks → :data slot verbatim"))))
+
 ;; ---- (3) UNION with a manual register-marks! (Mike ruling #3) -------------
 
 (deftest schema-marks-union-manual-register-marks
@@ -212,6 +350,52 @@
     (let [m (marks/marks-for :event auth-id)]
       (is (= #{[:data :token] [:data :extra]} (set (:sensitive m)))
           "union-marks! preserves the schema-sourced path"))))
+
+;; ---- (3b) ORDER-INDEPENDENT union via the real reg-machine path (rf2-qpibk0)
+;;
+;; The bead's core failure: a `register-marks!` (not `union-marks!`) called
+;; AFTER `reg-machine` previously REPLACED the `:event` entry and dropped the
+;; schema-derived `[:data …]` marks. The separate schema-marks table + read-
+;; time union (plus skipping `reg-event-fx`'s bare-meta clear for machines)
+;; makes BOTH orders yield the identical union.
+
+(deftest manual-register-marks-before-reg-machine-unions
+  (testing "register-marks! BEFORE reg-machine: the manual path survives
+            reg-machine (no bare-meta clobber) and unions with the schema marks"
+    (marks/register-marks! :event auth-id {:sensitive [[:data :session-id]]})
+    (reg-auth-machine!)
+    (let [m (marks/marks-for :event auth-id)]
+      (is (= #{[:data :session-id] [:data :token]} (set (:sensitive m)))
+          "manual-before unions with schema-sourced :token")
+      (is (= #{[:data :blob]} (set (:large m)))))))
+
+(deftest manual-register-marks-after-reg-machine-unions
+  (testing "register-marks! AFTER reg-machine: the schema marks are NOT
+            dropped by the later full-replace register-marks! (the rf2-qpibk0
+            leak) — they live in a separate table and union at read time"
+    (reg-auth-machine!)
+    ;; The harder case the bead names: register-marks! (full-replace), not
+    ;; union-marks!, AFTER reg-machine. Previously this clobbered :token.
+    (marks/register-marks! :event auth-id {:sensitive [[:data :session-id]]})
+    (let [m (marks/marks-for :event auth-id)]
+      (is (= #{[:data :session-id] [:data :token]} (set (:sensitive m)))
+          "schema-sourced :token survives the later register-marks!")
+      (is (= #{[:data :blob]} (set (:large m)))
+          "schema-sourced :large slot survives too"))
+    ;; And both redact at egress, regardless of order.
+    (let [ev  {:operation :rf.machine/transition
+               :tags      {:machine-id auth-id
+                           :frame      :rf/default
+                           :after      {:state :authed
+                                        :data  {:retries    1
+                                                :token      "secret-jwt"
+                                                :session-id "sess-after"
+                                                :blob       nil}}}}
+          out (marks/project-trace-event ev)]
+      (is (= :rf/redacted (get-in out [:tags :after :data :token])))
+      (is (= :rf/redacted (get-in out [:tags :after :data :session-id])))
+      (is (not (.contains (pr-str out) "secret-jwt")))
+      (is (not (.contains (pr-str out) "sess-after"))))))
 
 ;; ---- (5) SPAWNED-INSTANCE egress redaction (rf2-fm1cpl) -------------------
 ;;
