@@ -39,7 +39,9 @@
 
 (deftest project-definition-extracts-flat-machine-nodes
   (let [{:keys [nodes initial-path]} (layout/project-definition idle-loading-success)
-        paths (set (map :path nodes))]
+        ;; rf2-q129z8 — exclude the synthetic ROOT-CONTAINER frame node
+        ;; (`:path []`) that now wraps the whole machine.
+        paths (set (map :path (remove :root-container? nodes)))]
     (is (= [:idle] initial-path))
     (is (= #{[:idle] [:loading] [:success] [:failed]} paths))
     (is (some :initial? nodes) "the initial state is flagged")
@@ -56,13 +58,17 @@
 (deftest project-definition-wires-compound-parent-id
   (testing "rf2-54s5a — compound substates carry :parent-id (the
             parent's node-id) for xyflow `:parentId` nesting (rf2-xh1lm
-            — v12 reads `parentId`, not the pre-v12 `parentNode`);
-            top-level states carry none"
+            — v12 reads `parentId`, not the pre-v12 `parentNode`).
+
+            rf2-q129z8 — a top-level state no longer carries NO parent; it
+            now nests under the synthetic ROOT-CONTAINER frame, so its
+            `:parent-id` is `root-container-id` (a nested substate still
+            points at its own compound parent)."
     (let [{:keys [nodes]} (layout/project-definition compound-machine)
           browsing (first (filter #(= [:authenticated :browsing] (:path %)) nodes))
           unauth   (first (filter #(= [:unauth] (:path %)) nodes))]
       (is (= (layout/node-id [:authenticated]) (:parent-id browsing)))
-      (is (nil? (:parent-id unauth))))))
+      (is (= layout/root-container-id (:parent-id unauth))))))
 
 (deftest project-definition-extracts-edges
   (let [{:keys [edges]} (layout/project-definition idle-loading-success)
@@ -154,7 +160,10 @@
                     :regions {:r1 {:initial :a :states {:a {} :b {}}}
                               :r2 {:initial :x :states {:x {} :y {}}}}}
           {:keys [nodes]} (layout/project-definition parallel)
-          states (remove :region? nodes)]
+          ;; rf2-q129z8 — exclude the synthetic ROOT-CONTAINER frame (it has
+          ;; no `:region` and no `:parent-id`; it is the wrapping frame, not a
+          ;; region state).
+          states (remove #(or (:region? %) (:root-container? %)) nodes)]
       (is (every? :parent-id states) "every state has a parent region id")
       (is (every? :region states)    "every state knows its region")
       (let [r1-states (filter #(= :r1 (:region %)) states)]
@@ -284,15 +293,20 @@
                                        :states {:checking {:on {:ok :done}}
                                                 :done     {:final? true}}}}}
           {:keys [nodes edges]} (layout/project-definition ingest)
-          node-ids (set (map :id nodes))]
+          node-ids (set (map :id nodes))
+          ;; rf2-q129z8 — the synthetic ROOT-CONTAINER frame id legitimately
+          ;; ends in `__` (a sentinel boundary no real node-id can mint, like
+          ;; `machine-root-id`); exclude it from the trailing-`__` degeneracy
+          ;; check, which targets the degenerate region-scoped empty-path id.
+          region-node-ids (disj node-ids layout/root-container-id)]
       ;; NO synthetic machine-root node inside any region
       (is (empty? (filter :machine-root? nodes))
           "no synthetic machine-root node is minted for a region :on")
       ;; NO degenerate region-scoped empty-path id
       (is (not (contains? node-ids (str (layout/region-node-id :fetch) "__")))
           "no degenerate `region__fetch__` (empty path segment) node")
-      (is (every? #(not (str/ends-with? % "__")) node-ids)
-          "no node id ends in a trailing `__` (the degenerate root marker)")
+      (is (every? #(not (str/ends-with? % "__")) region-node-ids)
+          "no real node id ends in a trailing `__` (the degenerate root marker)")
       ;; the region-level fallback edge IS still projected, sourced from the
       ;; REGION CONTAINER (rid) into its in-region target — every edge
       ;; endpoint is a real projected node (no phantom/empty id).

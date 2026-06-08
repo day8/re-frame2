@@ -127,6 +127,26 @@
   [graph id]
   (first (filter #(= id (:id %)) (:nodes graph))))
 
+(defn- root-children
+  "rf2-q129z8 — the EFFECTIVE top-level elk children: the `:children` of
+  the synthetic ROOT-CONTAINER frame `->elk-children` now emits as the sole
+  top-level child (the Stately-style named box wrapping the whole machine).
+  Every pre-q129z8 top-level child (flat states, regions, the machine-root
+  chip, top-level event-nodes) now nests one level deeper, under this frame;
+  this helper unwraps it so the assertions read against the same effective
+  top level they did before the frame landed.
+
+  `elk-children` is the `(projection/->elk-children parsed …)` result vector
+  (exactly one element: the root container)."
+  [elk-children]
+  (:children (first elk-children)))
+
+(defn- root-child-by-id
+  "rf2-q129z8 — pluck one effective-top-level elk child by id (an element
+  of `root-children`)."
+  [elk-children id]
+  (first (filter #(= id (:id %)) (root-children elk-children))))
+
 (defn- event-node-for
   "rf2-qo5xy — find the event-node a projected graph emitted for a
   given parsed-edge id. The events-as-nodes paradigm hoists each
@@ -400,14 +420,21 @@
         (is (not (contains? n :parentNode))
             (str "node " (:id n) " must not carry the dead :parentNode key"))))))
 
-(deftest xyflow-graph-flat-state-has-no-parent-id
-  (testing "a state in a non-parallel machine carries no parentId /
-            extent — those wire ONLY for region children"
+(deftest xyflow-graph-flat-state-nests-under-root-container
+  (testing "rf2-q129z8 — a flat machine's top-level state now nests UNDER
+            the synthetic ROOT-CONTAINER frame (the Stately-style named box
+            wrapping the whole machine): it carries `:parentId` ==
+            `root-container-id` + `:extent \"parent\"`, exactly as a compound
+            substate does. The frame itself is the sole node with no parent."
     (let [parsed (layout/project-definition idle-loading)
           graph  (projection/xyflow-graph parsed {} {})
-          idle   (node-by-id graph (layout/node-id [:idle]))]
-      (is (nil? (:parentId idle)))
-      (is (nil? (:extent idle))))))
+          idle   (node-by-id graph (layout/node-id [:idle]))
+          frame  (node-by-id graph layout/root-container-id)]
+      (is (some? frame) "the root-container frame node is projected")
+      (is (= "root-container" (:type frame)))
+      (is (nil? (:parentId frame)) "the frame itself has no parent")
+      (is (= layout/root-container-id (:parentId idle)))
+      (is (= "parent" (:extent idle))))))
 
 ;; ---- xyflow-graph parent-before-child sort (G1) ------------------------
 
@@ -1186,22 +1213,27 @@
   (testing "rf2-qo5xy — a flat machine projects one elk child per
             parsed state node PLUS one synthetic event-node per parsed
             transition (events-as-nodes paradigm). All children carry
-            id + width/height + label."
+            id + width/height + label.
+
+            rf2-q129z8 — these now nest UNDER the synthetic ROOT-CONTAINER
+            frame (the sole top-level child), so the count is taken against
+            `root-children` (the frame's children) — and the parsed state
+            count excludes the synthetic root container itself."
     (let [parsed   (layout/project-definition idle-loading)
-          children (projection/->elk-children parsed)
-          n-states (count (:nodes parsed))
+          children (root-children (projection/->elk-children parsed))
+          n-states (count (remove :root-container? (:nodes parsed)))
           n-events (count (:edges parsed))]
       (is (= (+ n-states n-events) (count children))
-          "states + events = total flat children")
+          "states + events = total children inside the root frame")
       (is (every? :id children))
       (is (every? #(pos? (:width %)) children))
       (is (every? #(pos? (:height %)) children)))))
 
 (deftest elk-children-compound-uses-compound-floor
   (testing "a compound node gets the compound size floor; a leaf gets
-            the state floor"
+            the state floor (rf2-q129z8 — read inside the root frame)"
     (let [parsed   (layout/project-definition compound-machine)
-          children (projection/->elk-children parsed)
+          children (root-children (projection/->elk-children parsed))
           by-id    (into {} (map (juxt :id identity)) children)
           parent   (get by-id (layout/node-id [:authenticated]))
           leaf     (get by-id (layout/node-id [:unauth]))]
@@ -1216,10 +1248,10 @@
             structural containers); each region nests its states AND
             the events declared inside as `:children`."
     (let [parsed   (layout/project-definition parallel-machine)
-          children (projection/->elk-children parsed)
+          children (root-children (projection/->elk-children parsed))
           regions  (filter #(re-find #"^region__" (:id %)) children)]
       (is (= 2 (count regions))
-          "two regions land as top-level elk children")
+          "two regions land as the root frame's structural children")
       (is (every? #(contains? % :layoutOptions) regions))
       (is (every? #(seq (:children %)) regions))
       ;; the audio region nests its two states + its two events
@@ -1231,9 +1263,10 @@
 
 (deftest elk-children-region-padding-leaves-header-room
   (testing "each region's elk.padding leaves top room for the header
-            strip the parallel-region-node paints"
+            strip the parallel-region-node paints (rf2-q129z8 — regions
+            now sit inside the root frame)"
     (let [parsed   (layout/project-definition parallel-machine)
-          children (projection/->elk-children parsed)]
+          children (root-children (projection/->elk-children parsed))]
       (is (every? #(= "layered" (get-in % [:layoutOptions "elk.algorithm"]))
                   children))
       (is (every? #(re-find #"top=" (get-in % [:layoutOptions "elk.padding"]))
@@ -1387,7 +1420,7 @@
           ev-id      (projection/event-node-id start-edge)
           measured   {idle-id {:width 260 :height 72}
                       ev-id   {:width 180 :height 60}}
-          children   (projection/->elk-children parsed measured)
+          children   (root-children (projection/->elk-children parsed measured))
           by-id      (into {} (map (juxt :id identity)) children)]
       (is (= 260 (:width (get by-id idle-id))) "measured leaf width threaded")
       (is (= 72  (:height (get by-id idle-id))))
@@ -1407,7 +1440,7 @@
       (is (= (projection/->elk-children parsed)
              (projection/->elk-children parsed nil))
           "the 1-arity and nil-2-arity are identical")
-      (let [children (projection/->elk-children parsed nil)
+      (let [children (root-children (projection/->elk-children parsed nil))
             leaves   (remove #(re-find #"^event__" (:id %)) children)]
         (is (every? #(= projection/state-node-min-width (:width %)) leaves)
             "every leaf at the width floor when unmeasured")))))
@@ -1420,7 +1453,10 @@
             parse order. This is the model-order half of the initial-
             state placement soft preference."
     (let [parsed  (layout/project-definition door-cyclic-machine)
-          top     (get (group-by :parent-id (:nodes parsed)) nil)
+          ;; rf2-q129z8 — the door states now nest under the ROOT-CONTAINER
+          ;; frame, so the effective top level is keyed on its id (was nil).
+          top     (get (group-by :parent-id (:nodes parsed))
+                       layout/root-container-id)
           ordered (projection/order-state-children top)
           ids     (mapv :id ordered)]
       (is (= (layout/node-id [:locked]) (first ids))
@@ -1442,7 +1478,9 @@
             non-root states does not reorder them relative to each other
             (only the initial floats up + the root sinks down)."
     (let [parsed  (layout/project-definition door-cyclic-machine)
-          top     (get (group-by :parent-id (:nodes parsed)) nil)
+          ;; rf2-q129z8 — door states nest under the ROOT-CONTAINER frame.
+          top     (get (group-by :parent-id (:nodes parsed))
+                       layout/root-container-id)
           init    (filter :initial? top)
           root    (filter :machine-root? top)
           plain   (remove #(or (:initial? %) (:machine-root? %)) top)
@@ -1469,7 +1507,7 @@
             DEPTH_FIRST source selection + within-layer tiebreak prefer
             the initial state. End-to-end through the production path."
     (let [parsed   (layout/project-definition door-cyclic-machine)
-          children (projection/->elk-children parsed)
+          children (root-children (projection/->elk-children parsed))
           state-children (remove #(re-find #"^event__" (:id %)) children)
           ids      (mapv :id state-children)]
       (is (= (layout/node-id [:locked]) (first ids))
@@ -1483,7 +1521,7 @@
             the top level). `compound-machine`'s `:authenticated` is
             initial :browsing."
     (let [parsed   (layout/project-definition compound-machine)
-          children (projection/->elk-children parsed)
+          children (root-children (projection/->elk-children parsed))
           by-id    (into {} (map (juxt :id identity)) children)
           compound (get by-id (layout/node-id [:authenticated]))
           ;; the compound's STATE children (skip its nested event-nodes).
@@ -1882,10 +1920,10 @@
             unchanged (2); event-nodes for `:checkout` (browsing → paying)
             and `:done` (paying → browsing) sit inside too."
     (let [parsed   (layout/project-definition compound-machine)
-          children (projection/->elk-children parsed)
+          children (root-children (projection/->elk-children parsed))
           by-id    (into {} (map (juxt :id identity) children))
           authed   (get by-id (layout/node-id [:authenticated]))]
-      (is (some? authed) "compound parent is a top-level elk child")
+      (is (some? authed) "compound parent nests inside the root frame")
       (let [kid-types (group-by #(if (re-find #"^event__" (:id %))
                                    :event :state)
                                 (:children authed))]
@@ -3157,13 +3195,19 @@
             "the non-fork :gate/set event-node carries no position hint")))))
 
 (deftest fork-branch-container-ids-flags-only-fork-holders
-  (testing "rf2-p75kbg — the holding-container set carries the root (nil) for
-            the gate fork (its branches leave the top-level :idle), and is
-            EMPTY for a machine without a guarded fork (so semiInteractive is
-            never enabled where there is nothing to order)."
-    (is (= #{nil} (projection/fork-branch-container-ids
-                    (layout/project-definition gate-fork-machine)))
-        "gate fork's branches lay out at the root → #{nil}")
+  (testing "rf2-p75kbg — the holding-container set carries the gate fork's
+            holding container, and is EMPTY for a machine without a guarded
+            fork (so semiInteractive is never enabled where there is nothing
+            to order).
+
+            rf2-q129z8 — the gate fork's branches (leaving the top-level
+            `:idle`) now lay out under the synthetic ROOT-CONTAINER frame
+            rather than at the bare root, so the holding container is the
+            frame id (was nil)."
+    (is (= #{layout/root-container-id}
+           (projection/fork-branch-container-ids
+             (layout/project-definition gate-fork-machine)))
+        "gate fork's branches lay out inside the root frame")
     (doseq [m [self-loop-machine compound-machine idle-loading]]
       (is (empty? (projection/fork-branch-container-ids
                     (layout/project-definition m)))
@@ -3176,7 +3220,7 @@
             leaves every non-fork node unpinned."
     (let [parsed   (layout/project-definition gate-fork-machine)
           edges    (:edges parsed)
-          kids     (projection/->elk-children parsed)
+          kids     (root-children (projection/->elk-children parsed))
           opts-of  (fn [id] (-> (filter #(= id (:id %)) kids) first :layoutOptions))
           checks   (filter #(= :gate/check (:event %)) edges)
           by-guard (into {} (map (juxt :guard identity) checks))
@@ -3197,6 +3241,7 @@
             `elk.position` pins on any child (the ordering machinery is a
             no-op where there is no fork to straighten)."
     (doseq [m [self-loop-machine compound-machine idle-loading]]
-      (let [kids (projection/->elk-children (layout/project-definition m))]
+      (let [kids (root-children
+                   (projection/->elk-children (layout/project-definition m)))]
         (is (not-any? #(contains? (:layoutOptions %) "elk.position") kids)
             (str "non-fork fixture " m " pins no node position"))))))

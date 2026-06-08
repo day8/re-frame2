@@ -932,24 +932,27 @@
                              `chart.overlays.cancellation-cascade` waterfall
                              beneath the parent state. nil / no steps →
                              dormant.
-    :machine-data      — rf2-qo5xy. Optional CLJS map fed into the root
-                         Context panel (top-LEFT corner). Two host
+    :machine-data      — rf2-qo5xy; rf2-q129z8. Optional CLJS map fed into
+                         the Context BAND in the ROOT-CONTAINER frame header
+                         (pre-q129z8 a top-LEFT corner panel; now folded into
+                         the named frame that hugs the topology). Two host
                          projections feed it: the live `:data`
                          (`:rf.machine/data`, key→value) OR — the sole
                          production feeder today — the STATIC context
                          shape INFERRED from the definition's `:data`
                          (key→type-caption, via Xray's
-                         `static-context-shape`). nil / empty → no panel.
-                         The panel is purely presentation — the host owns
-                         the projection.
+                         `static-context-shape`). nil / empty → no band.
+                         Purely presentation — the host owns the projection;
+                         `chart.projection/xyflow-graph` threads it onto the
+                         frame node's `:data {:context}`.
     :machine-data-inferred? — rf2-5tz9p. Optional boolean (DEFAULT true).
-                         When true the Context panel shows a subtle
+                         When true the Context band shows a subtle
                          \"inferred from :data\" badge marking its
                          contents as a type shape INFERRED from one sample
                          of the definition's `:data` — NOT a declared
                          schema and NOT the live runtime `:data`. Set
                          false when the host feeds live `:data` VALUES.
-                         Ignored when no panel renders.
+                         Ignored when no band renders.
     :fit-signal        — rf2-6tw7t. Optional opaque value (a nonce — any
                          `=`-comparable). When its value CHANGES between
                          renders the chart re-fits the viewport to frame
@@ -1174,7 +1177,11 @@
             ;; rf2-lkwev — exclude synthetic parallel-region container
             ;; nodes from the state count + aria-label (they are zone
             ;; chrome, not states).
-            n-states   (count (remove :region? (:nodes parsed)))
+            ;; rf2-q129z8 — also exclude the synthetic ROOT-CONTAINER frame
+            ;; (the named box wrapping the whole machine — structural chrome,
+            ;; not a state).
+            n-states   (count (remove #(or (:region? %) (:root-container? %))
+                                      (:nodes parsed)))
             n-regions  (count (filter :region? (:nodes parsed)))
             n-trans    (count (:edges parsed))
             ;; rf2-8q5pt — resolve the density map ONCE so the ELK pass
@@ -1388,11 +1395,16 @@
                 ;; `theme`, so the cheaper keywords stand in for them in
                 ;; the key. The resolved (read-only-gated) callbacks are
                 ;; keyed directly so a changed handler identity rebuilds.
+                ;; rf2-q129z8 — `machine-id` / `machine-data` /
+                ;; `machine-data-inferred?` now feed the ROOT-CONTAINER frame
+                ;; header (the named box's machine name + Context band), so a
+                ;; change in any of them must rebuild the projected graph.
                 cache-key  [parsed positions edge-points edge-labels
                             highlight-ids from-highlight-id to-highlight-id
                             fired-edge-id-set guard-blocked-edge-id-set
                             sim? callback edge-callback
-                            density theme]
+                            density theme
+                            machine-id machine-data machine-data-inferred?]
                 {:keys [js-nodes js-edges]}
                 (project+convert!
                   cache-key
@@ -1428,7 +1440,18 @@
                                ;; token map for the active theme; the
                                ;; projector threads it onto every node/edge
                                ;; `:data {:palette}`.
-                               :palette           ct})))
+                               :palette           ct
+                               ;; rf2-q129z8 — the ROOT-CONTAINER frame's
+                               ;; header content. The projector overrides the
+                               ;; synthetic frame node's label with the machine
+                               ;; name and threads the inferred Context shape +
+                               ;; inferred flag onto its `:data` so
+                               ;; `nodes/root-container-node` paints the named
+                               ;; frame header + Context band (absorbing the old
+                               ;; corner-pinned title strip + Context overlay).
+                               :machine-id        machine-id
+                               :machine-data      machine-data
+                               :machine-data-inferred? machine-data-inferred?})))
                 aria-label (str "State machine"
                                 (when machine-id
                                   (str ": " (name machine-id)))
@@ -1626,45 +1649,16 @@
                              :pannable true
                              :nodeColor (fn [_] (:bg-3 theme-palette))
                              :maskColor (tokens/with-alpha :bg-0 0.6 theme-palette)}])]
-             ;; rf2-az6e2 — ROOT MACHINE CHROME. A title strip pinned to
-             ;; the top of the chart frame integrates the root machine
-             ;; into the grammar (it was previously only the aria-label).
-             ;; A root PARALLEL machine shows a subtle ∥ glyph in the
-             ;; strip. The optional static "Context" section is rendered
-             ;; from the `:machine-data` overlay below (kept as an opt-in
-             ;; diagnostic; static context-shape derivation is a follow-on
-             ;; — current definitions expose no static context schema).
-             (when machine-id
-               [:div {:data-testid (str testid "-root-title")
-                      :data-parallel (str (boolean (:parallel? parsed)))
-                      :style {:position       "absolute"
-                              :top            0
-                              :left           0
-                              :right          0
-                              :z-index        4
-                              :display        "flex"
-                              :align-items    "center"
-                              :gap            "6px"
-                              :height         (str (:root-title-height chart-vc) "px")
-                              :padding        (str "0 " (:root-context-pad chart-vc) "px")
-                              :pointer-events "none"
-                              :font-family    tokens/sans-stack
-                              :font-size      (str (:root-title-px chart-vc) "px")
-                              :font-weight    700
-                              :letter-spacing "0.02em"
-                              :color          (:text-primary theme-palette)
-                              :background      (tokens/with-alpha :bg-2 0.82 theme-palette)
-                              :border-bottom   (str "1px solid "
-                                                    (tokens/with-alpha :border-default 0.6 theme-palette))}}
-                (when (:parallel? parsed)
-                  [:span {:data-testid (str testid "-root-parallel-glyph")
-                          :style {:opacity 0.6
-                                  :font-family tokens/mono-stack}}
-                   "∥"])
-                [:span {:style {:white-space "nowrap"
-                                :overflow "hidden"
-                                :text-overflow "ellipsis"}}
-                 (name machine-id)]])
+             ;; rf2-q129z8 — the ROOT MACHINE CHROME (machine title strip +
+             ;; Context shape) no longer renders as a corner-pinned overlay
+             ;; here. It is now the HEADER of the synthetic ROOT-CONTAINER
+             ;; frame node (`chart.nodes/root-container-node`), an ELK-sized
+             ;; box that HUGS + TRACKS the whole topology and reflows on
+             ;; resize — eliminating the pre-q129z8 corner-pinning (the strip
+             ;; welded to the drawing surface while xyflow re-fit the
+             ;; topology) and the top-left chrome collision. The machine name
+             ;; + Context band are threaded onto the frame node's `:data` by
+             ;; `chart.projection/xyflow-graph`.
              ;; rf2-7w4qr — host-fed overlays, composed through the
              ;; single `:overlays` slot. Each descriptor map (keyed on
              ;; `:id`) is dispatched to its rendering namespace by
@@ -1682,87 +1676,14 @@
                              (pr-str (:id descriptor)))}
                  [render-overlay descriptor])
                overlay-descriptors)
-             ;; rf2-qo5xy — `:machine-data` corner panel. The Stately
-             ;; graph view paints the machine's current `:data` /
-             ;; context as a top-left panel so the operator reads it
-             ;; alongside the topology. Presentation-only: the host
-             ;; supplies the map; the chart paints whatever shape it is
-             ;; (the panel does no destructuring, just pr-str on each
-             ;; value). Hidden when nil / empty so a machine with no
-             ;; `:data` declared (or a host that hasn't wired it) does
-             ;; not paint an empty box.
-             (when (and machine-data (seq machine-data))
-               [:div {:data-testid (str testid "-machine-data-panel")
-                      :data-key-count (str (count machine-data))
-                      :role "complementary"
-                      :aria-label (str "Machine context for "
-                                       (when machine-id (name machine-id)))
-                      :style {:position      "absolute"
-                              ;; rf2-az6e2 — tuck the Context panel just
-                              ;; UNDER the root title strip so the two
-                              ;; chrome bands stack rather than overlap.
-                              :top           (str (+ (:root-title-height chart-vc) 6) "px")
-                              :left          "8px"
-                              :z-index       6
-                              :max-width     "260px"
-                              :max-height    "40%"
-                              :overflow      "auto"
-                              :padding       "8px 10px"
-                              :font-family   tokens/mono-stack
-                              :font-size     "11px"
-                              :line-height   1.4
-                              :color         (:text-primary theme-palette)
-                              :background    (tokens/with-alpha :bg-2 0.92 theme-palette)
-                              :border        (str "1px solid "
-                                                  (tokens/with-alpha :border-default 0.6 theme-palette))
-                              :border-radius "4px"}}
-                [:div {:style {:display        "flex"
-                               :align-items    "baseline"
-                               :gap            "5px"
-                               :margin-bottom  "4px"}}
-                 [:span {:style {:font-family    tokens/sans-stack
-                                 :font-size      "9px"
-                                 :font-weight    700
-                                 :letter-spacing "0.06em"
-                                 :text-transform "uppercase"
-                                 :color          (:text-tertiary theme-palette)}}
-                  "Context"]
-                 ;; rf2-5tz9p — the panel paints the STATIC context shape
-                 ;; INFERRED from one sample of the definition's `:data`
-                 ;; (key→type-caption), NOT a declared schema and NOT the
-                 ;; live runtime `:data`. Flag it in-UI so a partial /
-                 ;; unrepresentative initial `:data` can't read as an
-                 ;; authoritative contract. Subtle, lower-case, tertiary.
-                 (when machine-data-inferred?
-                   [:span {:data-testid (str testid "-machine-data-inferred-badge")
-                           :title "Inferred from one sample of the machine's :data — not a declared schema"
-                           :style {:font-family    tokens/sans-stack
-                                   :font-size      "9px"
-                                   :font-weight    500
-                                   :font-style     "italic"
-                                   :letter-spacing "0.02em"
-                                   :color          (tokens/with-alpha :text-tertiary 0.75 theme-palette)}}
-                    "inferred from :data"])]
-                (for [[k v] (seq machine-data)]
-                  ^{:key (pr-str k)}
-                  [:div {:data-testid (str testid "-machine-data-key-"
-                                           (if (keyword? k) (name k) (str k)))
-                         :data-key (pr-str k)
-                         :style {:display "flex"
-                                 :gap     "6px"
-                                 :align-items "baseline"
-                                 :white-space "nowrap"
-                                 :overflow "hidden"
-                                 :text-overflow "ellipsis"}}
-                   [:span {:style {:color (:accent theme-palette)
-                                   :font-weight 600}}
-                    (if (keyword? k) (name k) (str k))]
-                   [:span {:style {:color (:text-tertiary theme-palette)}}
-                    ":"]
-                   [:span {:style {:color (:text-secondary theme-palette)
-                                   :overflow "hidden"
-                                   :text-overflow "ellipsis"}}
-                    (pr-str v)]])])
+             ;; rf2-q129z8 — the `:machine-data` Context shape no longer
+             ;; renders as a corner-pinned overlay panel here; it is now the
+             ;; Context BAND in the synthetic ROOT-CONTAINER frame header
+             ;; (`chart.nodes/root-container-node`), threaded onto the frame
+             ;; node's `:data {:context}` by `chart.projection/xyflow-graph`.
+             ;; This eliminates the top-left chrome collision (the panel used
+             ;; to weld to the corner under the title strip) — the Context now
+             ;; rides INSIDE the frame that hugs the topology.
              ;; rf2-4lyvh — ELK layout-failure indicator. When
              ;; `compute-layout!` surfaces a `:layout-error` slot the
              ;; chart would otherwise render every node stacked at

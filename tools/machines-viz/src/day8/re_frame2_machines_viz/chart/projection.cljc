@@ -1034,13 +1034,15 @@
                            theme (not the hardwired dark alias). Defaults
                            to `(chart-tokens)` (dark) so a theme-less
                            caller still resolves the dark surface."
-  [{:keys [nodes edges]}
+  [{:keys [nodes edges parallel?]}
    positions
    {:keys [highlight-id highlight-ids from-highlight-id to-highlight-id sim?
            on-state-click on-edge-click edge-points edge-labels
-           fired-edge-ids guard-blocked-edge-ids chart palette]
+           fired-edge-ids guard-blocked-edge-ids chart palette
+           machine-id machine-data machine-data-inferred?]
     :or   {chart vc/chart-regular edge-points {} edge-labels {}
-           fired-edge-ids #{} guard-blocked-edge-ids #{}}}]
+           fired-edge-ids #{} guard-blocked-edge-ids #{}
+           machine-data-inferred? true}}]
   (let [;; rf2-az6e2 — resolve the chart-semantic token map for the
         ;; active theme ONCE. nil → dark chart-tokens (a theme-less
         ;; caller keeps the dark surface). Threaded onto every node/edge
@@ -1113,13 +1115,32 @@
                       ;; (`active-ids` is leaves, `active-container-ids` is
                       ;; their ancestor containers), so the union is the
                       ;; whole active surface.
-                      active?  (or (contains? active-ids (:id n))
-                                   (contains? active-container-ids (:id n)))
+                      ;; rf2-q129z8 — the synthetic ROOT-CONTAINER frame is
+                      ;; the ancestor of EVERY node, so the `active-container-
+                      ;; ids` parent-chain walk would always mark it active and
+                      ;; the whole frame would light up on every transition.
+                      ;; It is structural chrome, not a state, so it never picks
+                      ;; up active affordance — gate it out explicitly.
+                      active?  (and (not (:root-container? n))
+                                    (or (contains? active-ids (:id n))
+                                        (contains? active-container-ids (:id n))))
                       from-hi? (= (:id n) from-highlight-id)
                       to-hi?   (= (:id n) to-highlight-id)
                       base
                       {:id       (:id n)
                        :type     (cond
+                                   ;; rf2-q129z8 — the synthetic ROOT-CONTAINER
+                                   ;; frame: the Stately-Studio-style NAMED box
+                                   ;; wrapping the WHOLE machine. A container
+                                   ;; (ELK-sized to hug its children) rendered by
+                                   ;; `chart.nodes/root-container-node`, whose
+                                   ;; header carries the machine name + Context
+                                   ;; shape (absorbing the old corner overlay).
+                                   ;; Checked BEFORE `:compound?` (it carries
+                                   ;; `:compound? true` for the ELK/xyflow
+                                   ;; container mechanics, but is NOT a compound
+                                   ;; state box).
+                                   (:root-container? n) "root-container"
                                    ;; rf2-vcnvj — the synthetic root node a
                                    ;; machine-level (top-level `:on`) fallback
                                    ;; routes FROM. Painted as a quiet root-
@@ -1234,14 +1255,51 @@
                                    ;; occupied, so there is no state to select
                                    ;; (same inert-synthetic-chip posture as the
                                    ;; machine-root / parallel-root anchors).
+                                   ;; rf2-q129z8 — the synthetic ROOT-CONTAINER
+                                   ;; frame is structural chrome, not a
+                                   ;; statechart state, so (like the machine-
+                                   ;; root / region / parallel-root anchors) it
+                                   ;; carries no `:onClick`.
                                    (not (or (:machine-root? n)
                                             (:parallel-root? n)
                                             (:history? n)
+                                            (:root-container? n)
                                             region?))
                                    (assoc :onClick on-state-click)
 
                                    region? (assoc :regionId    (:region n)
-                                                  :regionIndex (:region-index n)))
+                                                  :regionIndex (:region-index n))
+
+                                   ;; rf2-q129z8 — the ROOT-CONTAINER frame's
+                                   ;; header content. The pure layer minted a
+                                   ;; neutral `:label` ("machine"); override it
+                                   ;; with the MACHINE NAME (the host's
+                                   ;; `:machine-id`) and thread the inferred
+                                   ;; Context shape + parallel flag so
+                                   ;; `chart.nodes/root-container-node` paints the
+                                   ;; named frame header + Context band —
+                                   ;; absorbing the pre-q129z8 corner-pinned
+                                   ;; title strip + Context overlay. Serialise
+                                   ;; the context map's keyword keys to fully-
+                                   ;; qualified strings BEFORE xyflow `clj->js`
+                                   ;; (whose default keyword-fn drops the
+                                   ;; namespace), mirroring the `:tags` handling.
+                                   (:root-container? n)
+                                   (assoc :label (if machine-id
+                                                   (name machine-id)
+                                                   (:label n))
+                                          :machineName (when machine-id
+                                                         (name machine-id))
+                                          :parallel    (boolean parallel?)
+                                          :context     (when (seq machine-data)
+                                                         (mapv (fn [[k v]]
+                                                                 [(if (keyword? k)
+                                                                    (str (symbol k))
+                                                                    (str k))
+                                                                  (pr-str v)])
+                                                               machine-data))
+                                          :contextInferred (boolean
+                                                             machine-data-inferred?)))
                        :draggable false
                        :selectable false}]
                   ;; rf2-a64bi — BOTH region AND compound containers receive

@@ -70,8 +70,8 @@ registry).
 | `:show-background?` | no | `true` | When `true`, render xyflow's dot-pattern Background. |
 | `:fit-signal` | no | `nil` | rf2-6tw7t. Opaque value (any `=`-comparable nonce). When its value **changes** between renders the chart re-fits the viewport to frame the whole topology — **orthogonal** to the layout-key auto-fit. Hosts bump it on **panel-entry / tab-activation** so re-entering a panel re-frames the graph rather than restoring a stale (possibly off-screen) zoom/pan. A **steady** signal across ordinary re-renders is a no-op, so the operator's manual zoom/pan still survives non-entry re-renders. See [§Fit-on-entry signal](#fit-on-entry-signal-rf2-6tw7t). |
 | `:overlays` | no | `nil` | rf2-7w4qr. A **vector of host-fed overlay descriptor maps**, each keyed on `:id`. The single slot through which hosts compose the host-fed, spec+tick+callbacks overlay family (after-rings / spawn-all-join / cancellation-cascade) — collapses the former flat per-overlay props so a new overlay adds **one descriptor variant**, not 3–5 trunk props. The chart dispatches each descriptor to its already-modular rendering namespace by `:id` (`chart.cljs/render-overlay`); the renderers are unchanged. A per-descriptor `:tick` unifies the former `:after-ring-tick` + `:overlay-tick` (one rAF clock per chart stays host-owned — Lock #8 — just delivered per-overlay). A descriptor whose `:id` is outside the recognised set is **ignored** (a host data error, not a runtime fallback; dev builds emit a `js/console.warn`). Non-map entries are skipped. `nil` / `[]` → no overlays. See [§`:overlays` slot descriptor schema](#overlays-slot-descriptor-schema-rf2-7w4qr) for the multispec. |
-| `:machine-data` | no | `nil` | rf2-qo5xy. CLJS map fed into the root Context panel (top-left). Host projection: either live `:data` (key→value) or — the sole production feeder today — the **static inferred shape** (key→type-caption, via Xray's `static-context-shape`). `nil` / empty → no panel. See [§Context corner panel](#context-corner-panel-rf2-qo5xy). |
-| `:machine-data-inferred?` | no | `true` | rf2-5tz9p. When `true` the Context panel shows a subtle `inferred from :data` badge marking its contents as a type shape **inferred** from one sample of the definition's `:data` — **not** a declared schema and **not** the live runtime `:data`. Set `false` when the host feeds live `:data` **values**. Ignored when no panel renders. See [§Context corner panel](#context-corner-panel-rf2-qo5xy). |
+| `:machine-data` | no | `nil` | rf2-qo5xy; rf2-q129z8. CLJS map fed into the Context BAND in the ROOT-CONTAINER frame header (was a top-left corner panel pre-q129z8). Host projection: either live `:data` (key→value) or — the sole production feeder today — the **static inferred shape** (key→type-caption, via Xray's `static-context-shape`). `nil` / empty → no band. See [§Context band](#context-band-rf2-qo5xy-rf2-q129z8--now-in-the-frame-header). |
+| `:machine-data-inferred?` | no | `true` | rf2-5tz9p. When `true` the Context band shows a subtle `inferred from :data` badge marking its contents as a type shape **inferred** from one sample of the definition's `:data` — **not** a declared schema and **not** the live runtime `:data`. Set `false` when the host feeds live `:data` **values**. Ignored when no band renders. See [§Context band](#context-band-rf2-qo5xy-rf2-q129z8--now-in-the-frame-header). |
 | `:testid` | no | `"rf-mv-chart"` | Root wrapper `data-testid` so tests + hosts can find the chart. |
 
 ### `:overlays` slot descriptor schema (rf2-7w4qr)
@@ -445,6 +445,7 @@ knows xstate/Stately reads in 30 seconds (per the bead's §Shift 4):
 | `[name]` | guard chip | `chart.nodes.event-node` |
 | filled dot | initial-marker source | `chart.nodes/initial-marker` |
 | `◆ root` pill | machine-root chip — the SINGLE source of a machine-level (top-level `:on`) fallback (rf2-vcnvj) | `chart.nodes/machine-root-node` (type `"machine-root"`, node-id `chart.layout/machine-root-id`) |
+| named frame box | root-container frame (rf2-q129z8) — the Stately-style NAMED box wrapping the whole machine; its header carries the machine name + Context band | `chart.nodes/root-container-node` (type `"root-container"`, node-id `chart.layout/root-container-id`) |
 
 #### Active state on box border
 
@@ -456,13 +457,22 @@ under the paradigm shift). The legacy "tags row inside the state
 box" (rf2-a2b55) is unchanged — those are user-declared semantic
 `:tags`, distinct from active-state highlight.
 
-#### Context corner panel (rf2-qo5xy)
+#### Context band (rf2-qo5xy; rf2-q129z8 — now in the frame header)
 
 The chart accepts an optional `:machine-data` prop — a `(key, value)`
-map painted as a small read-only panel in the top-LEFT corner of the
-canvas so the operator sees the machine context without leaving the
-chart. The panel is presentation-only — the host owns the projection;
-the chart paints whatever shape it receives. nil / empty → no panel.
+map painted read-only so the operator sees the machine context without
+leaving the chart. The band is presentation-only — the host owns the
+projection; the chart paints whatever shape it receives. nil / empty →
+no band.
+
+**rf2-q129z8** — the Context is no longer a `position:absolute` panel
+welded to the canvas's top-left corner. It is now the Context BAND in
+the synthetic ROOT-CONTAINER frame's HEADER (under the machine-name
+title strip), threaded onto the frame node's `:data {:context}` by
+`chart.projection/xyflow-graph` and painted by
+`chart.nodes/root-container-node`. The Context now rides INSIDE the
+frame that hugs + tracks the topology, eliminating the corner-pinning +
+the old top-left chrome collision.
 
 Two host projections feed it:
 
@@ -478,16 +488,17 @@ Two host projections feed it:
   context shape is available" without a live runtime read.
 
 **Inferred-shape label** (rf2-5tz9p) — the static-shape projection is
-the **sole production feeder** of this panel today, and a type shape
+the **sole production feeder** of this band today, and a type shape
 derived from one sample of the initial `:data` is **not** a declared
 schema (and can mislead when the initial `:data` is partial or
 unrepresentative). The chart therefore paints a subtle italic
 `inferred from :data` badge beside the **Context** header
-(`<testid>-machine-data-inferred-badge`), gated by the optional
-`:machine-data-inferred?` prop (**default `true`**). A host that feeds
-**live `:data` values** instead passes `:machine-data-inferred? false`
-to drop the badge. The badge distinguishes the panel from (a) the live
-`:data` overlay and (b) a real declared schema.
+(`rf-mv-chart-root-container-context-inferred-<id>`), gated by the
+optional `:machine-data-inferred?` prop (**default `true`**). A host
+that feeds **live `:data` values** instead passes
+`:machine-data-inferred? false` to drop the badge. The badge
+distinguishes the band from (a) the live `:data` overlay and (b) a real
+declared schema.
 
 #### Legacy paradigm sections below
 
@@ -1034,9 +1045,11 @@ chrome-only tokens (`:chrome-ribbon-*`, `:diff-*`, `:syntax-*`,
 - A node/edge payload without a `:palette` entry falls back to
   `chart-tokens` of the dark palette, so a theme-less / directly-
   constructed node still renders the dark grammar.
-- The chart's own chrome (root canvas surface, the **root title strip**,
-  the Context panel, dot-grid, minimap, layout-error banner) reads the
-  resolved `theme-palette` directly.
+- The chart's own canvas chrome (root canvas surface, dot-grid, minimap,
+  layout-error banner) reads the resolved `theme-palette` directly. The
+  root machine title strip + Context band are NO LONGER canvas chrome —
+  rf2-q129z8 folded them into the ROOT-CONTAINER frame node's header, so
+  they read the per-node `:palette` like every other node.
 
 ## Visual grammar (rf2-az6e2)
 
@@ -1108,14 +1121,26 @@ colour is subordinate to structure**.
   [`001-Topology-Parity.md`](001-Topology-Parity.md) §Layout). NOT a hard
   invariant: ELK's crossing-min + node-placement can still arrange a
   state off the ideal when the graph demands it.
-- **Root chrome**: a **root machine title strip** is pinned in the chart
-  frame (a subtle `∥` glyph for root-parallel machines). A Context
-  section under the title is rendered from the optional `:machine-data`
-  overlay — live context `(key → value)` when a snapshot is in hand, or
-  the static **context-shape** `(key → type-caption)` the Xray topology
-  path derives from the definition's `:data` via
-  `topology-view/static-context-shape` (rf2-vcnvj) so the root context
-  chrome renders on the blank-state topology.
+- **Root chrome** (rf2-q129z8): the machine name + Context shape ride the
+  HEADER of the synthetic **ROOT-CONTAINER frame** — a named rounded box
+  wrapping the WHOLE machine (Stately Studio's frame around the machine
+  root). Every top-level node nests under it via xyflow `parentId`; ELK
+  sizes the frame to HUG its children and reflows it on resize (exactly as
+  a compound container hugs its substates). The header's title strip
+  carries the machine name (subtle `∥` glyph for root-parallel machines)
+  and, under it, a Context BAND rendered from the optional `:machine-data`
+  prop — live context `(key → value)` when a snapshot is in hand, or the
+  static **context-shape** `(key → type-caption)` the Xray topology path
+  derives from the definition's `:data` via
+  `topology-view/static-context-shape` (rf2-vcnvj). **Pre-q129z8** the
+  title strip + Context were two `position:absolute` overlays welded to the
+  chart's top-left corner; being absolute, they did not contain/track the
+  topology (they stuck to the corner while xyflow re-fit the topology on
+  resize) and collided with other top-left chrome. The frame header fixes
+  both. The frame is structural chrome: NEUTRAL (never marked `:active`),
+  not a click/selection target. Rendered by
+  `chart.nodes/root-container-node` (node-type `"root-container"`, node-id
+  `chart.layout/root-container-id`).
 
 ## Performance invariants
 
