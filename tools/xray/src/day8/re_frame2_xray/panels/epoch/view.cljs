@@ -2604,10 +2604,16 @@
     (the macro stamps it at compile time). Falls back to the entry's `:fn`
     (a compiled fn object) when no source-string was captured (production
     builds, fixture fn-form machines).
-  - Inline-fn `:entry` / `:exit` / `:guard` / `:action` rows: the spec
-    path returns the runtime value at that slot — a compiled fn object
-    or, when the user wrote a keyword reference (`:entry :enter-a`),
-    that keyword (the caller's render path will dispatch on shape).
+  - Inline-fn `:entry` / `:exit` / `:guard` / `:action` rows: prefer the
+    co-located `:source-code` STRING the macro stamped on the enclosing
+    `:states`-tree map node (rf2-se70xj) — a `{<slot> <source-string>}`
+    map under `:source-code` on the node, read at `(pop k)` + the slot
+    `(last k)`. This is what lets an inline action's CODE render (the slot
+    value itself is a bare compiled fn → an opaque `#object[Function]`
+    token, the rf2-se70xj symptom). Falls back to the runtime value at the
+    slot (a compiled fn object in production / fn-form fixture machines, or,
+    when the user wrote a keyword reference (`:entry :enter-a`), that keyword
+    — the caller's render path dispatches on shape).
   - Transition rows: the spec path returns the transition map literal
     (a renderable EDN map).
   - Timer rows: the spec path returns the entire state-node map (the
@@ -2628,7 +2634,20 @@
               ;; A pre-rf2-npvsx fixture might still carry a bare fn under
               ;; the slot; tolerate it for unit-test ergonomics.
               entry))
-        (get-in spec k)))))
+        ;; Inline-fn slot key (`[… :action]` / `:guard` / `:entry` /
+        ;; `:exit`) under `:states`. Prefer the co-located `:source-code`
+        ;; STRING the macro stamped on the ENCLOSING map node (rf2-se70xj) —
+        ;; the inline fn's body cannot live on the bare slot (the runtime
+        ;; engine needs a fn there), so it rides a `{<slot> <source>}` map
+        ;; under the enclosing node's `:source-code`. Fall back to the
+        ;; runtime slot value (the bare fn / keyword reference) when no
+        ;; source was captured (production builds, fn-form fixtures).
+        (let [slot          (last k)
+              enclosing-path (vec (butlast k))
+              inline-src    (when (seq enclosing-path)
+                              (get-in spec (conj enclosing-path :source-code slot)))]
+          (or inline-src
+              (get-in spec k)))))))
 
 (defn- cascade-outcome-chip
   "Render the outcome chip for a cascade row (rf2-u69j7). Pulls glyph

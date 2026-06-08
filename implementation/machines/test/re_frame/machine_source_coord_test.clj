@@ -115,6 +115,109 @@
     (is (some? (element-coords :rf2-8bp3/on-spawn-defs :on-spawn-actions :capture-id))
         "the :capture-id on-spawn-action fn-form carries co-located :source-coords")))
 
+;; ---- inline-fn :source-code co-location (rf2-se70xj) ----------------------
+;;
+;; Inline `:entry` / `:exit` / `:guard` / `:action` fn LITERALS inside the
+;; `:states` tree hold a fn VALUE, not a map, so they cannot carry a
+;; `:source-code` of their own (per rf2-vqja2 the same reason `:source-coords`
+;; lives on the enclosing node). The reg-machine macro co-locates each inline
+;; fn's `pr-str` source onto the ENCLOSING `:states`-tree map node under a
+;; `{<slot> <source-string>}` map keyed `:source-code` — so Xray's Epoch-panel
+;; micro-step renders an inline action's CODE instead of `#object[Function]`.
+;;
+;; This works on JVM (unlike the reference-site `:source-coords`, which needs
+;; the CLJS reader's map-literal meta): the source string is the `pr-str` of
+;; the fn LITERAL (a list, which the LispReader does decorate / pr-str
+;; faithfully), and the co-location is `assoc-in`/`get-in` on the enclosing
+;; node — neither depends on map-literal reader meta.
+
+;; Read the inline-fn `:source-code` string for an inline slot off the
+;; enclosing `:states`-tree map node. `enclosing-path` is the spec-path to the
+;; enclosing state-node / transition map; `slot` is :entry/:exit/:guard/:action.
+(defn- inline-source [machine-id enclosing-path slot]
+  (get-in (rf/machine-meta machine-id)
+          (conj (vec enclosing-path) :source-code slot)))
+
+(deftest reg-machine-stamps-inline-transition-action-source-code
+  (testing "an inline transition `:action` fn carries its `:source-code` on
+  the enclosing transition map — parity with the guard `:source-code` stamp
+  (rf2-se70xj). The guard `:source-code` is the foil that already worked."
+    (rf/reg-machine :rf2-se70xj/inline-action
+      {:initial :idle
+       :guards  {:ok? (fn [_] true)}
+       :states
+       {:idle {:on {:submit {:target :done :guard :ok?}
+                    :cancel {:target :idle :action (fn [_] {:data {:cancelled? true}})}}}
+        :done {}}})
+    ;; The named guard's :source-code (the parity baseline — already worked).
+    (is (string? (get-in (rf/machine-meta :rf2-se70xj/inline-action)
+                         [:guards :ok? :source-code]))
+        "named guard carries :source-code (parity baseline)")
+    ;; The inline transition :action now carries :source-code on the
+    ;; enclosing transition map (the rf2-se70xj fix).
+    (let [src (inline-source :rf2-se70xj/inline-action [:states :idle :on :cancel] :action)]
+      (is (string? src)
+          "inline transition :action carries :source-code on the enclosing transition map")
+      (is (re-find #"\(fn" src)
+          "the captured :source-code is the inline action fn's source form")
+      (is (re-find #":cancelled\?" src)
+          "the captured :source-code is the action body, not the enclosing map"))
+    ;; The inline-fn slot value itself stays a BARE fn (the runtime engine
+    ;; resolves it via fn? and stamps it as the trace :action-id) — NOT wrapped.
+    (is (fn? (get-in (rf/machine-meta :rf2-se70xj/inline-action)
+                     [:states :idle :on :cancel :action]))
+        "inline :action slot value stays a bare fn (not wrapped into a map)")))
+
+(deftest reg-machine-stamps-inline-entry-exit-source-code
+  (testing "inline state `:entry` / `:exit` fns carry their `:source-code` on
+  the enclosing state-node (rf2-se70xj)"
+    (rf/reg-machine :rf2-se70xj/inline-ee
+      {:initial :a
+       :states
+       {:a {:entry (fn [_] {:data {:entered? true}})
+            :exit  (fn [_] {:data {:exited? true}})
+            :on    {:go :b}}
+        :b {}}})
+    (let [entry-src (inline-source :rf2-se70xj/inline-ee [:states :a] :entry)
+          exit-src  (inline-source :rf2-se70xj/inline-ee [:states :a] :exit)]
+      (is (string? entry-src) "inline :entry carries :source-code")
+      (is (re-find #":entered\?" entry-src))
+      (is (string? exit-src) "inline :exit carries :source-code")
+      (is (re-find #":exited\?" exit-src)))
+    ;; Slot values stay bare fns.
+    (is (fn? (get-in (rf/machine-meta :rf2-se70xj/inline-ee) [:states :a :entry])))
+    (is (fn? (get-in (rf/machine-meta :rf2-se70xj/inline-ee) [:states :a :exit])))))
+
+(deftest reg-machine-stamps-inline-guard-source-code
+  (testing "an inline transition `:guard` fn carries its `:source-code` on the
+  enclosing transition map (rf2-se70xj)"
+    (rf/reg-machine :rf2-se70xj/inline-guard
+      {:initial :idle
+       :states
+       {:idle {:on {:submit {:target :done :guard (fn [{data :data}] (:ready? data))}}}
+        :done {}}})
+    (let [src (inline-source :rf2-se70xj/inline-guard [:states :idle :on :submit] :guard)]
+      (is (string? src) "inline :guard carries :source-code")
+      (is (re-find #":ready\?" src)))))
+
+(deftest reg-machine-skips-inline-source-for-keyword-references
+  (testing "keyword-reference slots (`:action :clear-hold`) carry NO inline
+  :source-code on the enclosing node — their body lives on the named
+  :actions / :guards entry's own :source-code (rf2-se70xj)"
+    (rf/reg-machine :rf2-se70xj/kw-refs
+      {:initial :idle
+       :guards  {:ok? (fn [_] true)}
+       :actions {:do  (fn [_] {})}
+       :states
+       {:idle {:on {:submit {:target :done :guard :ok? :action :do}}}
+        :done {}}})
+    ;; No inline :source-code for keyword-reference slots on the transition.
+    (is (nil? (inline-source :rf2-se70xj/kw-refs [:states :idle :on :submit] :action)))
+    (is (nil? (inline-source :rf2-se70xj/kw-refs [:states :idle :on :submit] :guard)))
+    ;; The named entries DO carry their own :source-code (the existing path).
+    (is (string? (get-in (rf/machine-meta :rf2-se70xj/kw-refs) [:actions :do :source-code])))
+    (is (string? (get-in (rf/machine-meta :rf2-se70xj/kw-refs) [:guards :ok? :source-code])))))
+
 ;; ---- reference-site stamping inside the :states tree ----------------------
 
 (deftest reg-machine-stamps-on-transition-keyword-references-via-definition

@@ -223,12 +223,19 @@
        `{<id> {:fn <fn> :source-coords {...} :source-code \"...\"}}`. Plus
        `source-coords/collocate-state-source` splices the reference-site
        `:source-coords` onto each `:states`-tree map node at its spec-path
-       (the `{<map-spec-path> <coord>}` index from `walk-machine-spec`).
+       (the `{<map-spec-path> <coord>}` index from `walk-machine-spec`), and
+       `source-coords/collocate-state-inline-source` splices the inline-fn
+       `:source-code` strings — a `{<slot> <source-string>}` map keyed by the
+       inline `:entry`/`:exit`/`:guard`/`:action` slot — onto each enclosing
+       node (the `{<map-spec-path> {<slot> <source>}}` index from
+       `walk-machine-inline-source`; rf2-se70xj). The inline-fn slot values
+       themselves stay bare fns (the runtime engine resolves them via `fn?`
+       and stamps them as the trace `:action-id`/`:guard-id`).
      - PROD arm: `source-coords/wrap-element-fns` collapses each entry to
-       `{<id> {:fn <fn>}}` and NO state-source splice runs — NO source
-       literals, so Closure DCEs the dev arm (with its coord maps + `pr-str`
-       strings + the state-coord index) under `:advanced` +
-       `goog.DEBUG=false`.
+       `{<id> {:fn <fn>}}` and NO state-source / inline-source splice runs —
+       NO source literals, so Closure DCEs the dev arm (with its coord maps +
+       `pr-str` strings + the state-coord and inline-source indexes) under
+       `:advanced` + `goog.DEBUG=false`.
 
      `value-expr` is the runtime expression that evaluates to the spec map
      (the spec form itself for `reg-machine`; a gensym bound to it for
@@ -265,6 +272,15 @@
                                           (:line coords)   (assoc :line (:line coords))
                                           (:column coords) (assoc :column (:column coords)))]))
                                 (source-coords/walk-machine-spec spec-form ns-sym file))
+             ;; Inline-fn source-code index (rf2-se70xj): per enclosing
+             ;; `:states`-tree map-node spec-path, the `{<slot>
+             ;; <source-string>}` map for each inline `:entry`/`:exit`/
+             ;; `:guard`/`:action` fn LITERAL. Plain strings — syntax-quote-
+             ;; safe with no further quoting (unlike the coord maps' `:ns`
+             ;; symbol). Co-located alongside the reference-site coords so an
+             ;; inline action's CODE renders (it previously fell through to a
+             ;; bare-fn `pr-str` → `#object[Function]`).
+             inline-src   (source-coords/walk-machine-inline-source spec-form)
              ;; Only co-locate slots actually present on the spec; both
              ;; helpers no-op on an absent slot, but emitting calls only for
              ;; present slots keeps the expansion lean.
@@ -273,18 +289,24 @@
              ;; gated on the coords being non-empty.
              state-step   (when (seq state-coords)
                             [`(source-coords/collocate-state-source ~state-coords)])
+             ;; The inline-source co-location is likewise a single extra
+             ;; `->` step, gated on the index being non-empty.
+             inline-step  (when (seq inline-src)
+                            [`(source-coords/collocate-state-inline-source ~inline-src)])
              dev-form     `(-> ~value-expr
                               ~@(map (fn [slot]
                                        `(source-coords/collocate-element-source
                                           ~slot ~(get slot->src slot)))
                                      present-slots)
-                              ~@state-step)
+                              ~@state-step
+                              ~@inline-step)
              prod-form    `(-> ~value-expr
                               ~@(map (fn [slot]
                                        `(source-coords/wrap-element-fns ~slot))
                                      present-slots))]
-         (if (and (empty? present-slots) (empty? state-coords))
-           ;; Nothing debug-only to emit (no element slots, no states coords).
+         (if (and (empty? present-slots) (empty? state-coords) (empty? inline-src))
+           ;; Nothing debug-only to emit (no element slots, no states coords,
+           ;; no inline-fn source).
            value-expr
            `(if re-frame.interop/debug-enabled?
               ~dev-form
