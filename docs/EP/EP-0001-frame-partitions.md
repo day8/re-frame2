@@ -123,20 +123,20 @@ This proposal does not:
 This EP is foundational for other EPs that store framework-owned state.
 
 - **Foundational for resource queries.** The [Resource Queries
-  EP](resource-queries.md) stores its cache in the framework-owned runtime
+  EP](EP-0003-resource-queries.md) stores its cache in the framework-owned runtime
   partition (`:rf.runtime/resources`) this EP introduces, so this partition
   should land — or at least its key vocabulary be fixed — before resources rely
   on it.
 - **Shares a path with the machine `:data` schema EP.** The [Machine `:data`
-  Schema EP](machine-data-schema.md) touches the same
+  Schema EP](EP-0005-machine-data-schema.md) touches the same
   `[:rf/runtime :machines :snapshots]` path this EP renames to
-  `[:rf.runtime/machines :snapshots]`. If both land, the machine-data-schema
-  redaction-bridge work sequences *after* this partition rename so it targets the
+  `[:rf.runtime/machines :snapshots]`. If both land, the EP-0005 machine `:data`
+  schema redaction-bridge work sequences *after* this partition rename so it targets the
   final path. The two are otherwise independent.
 - **Composes with explicit frame target resolution.** Both partitions are
   frame-owned; resolving the frame target precedes committing or projecting
   either partition. See the [Explicit Frame Target Resolution
-  EP](frame-target-resolution.md).
+  EP](EP-0002-frame-target-resolution.md).
 
 ## Specification
 
@@ -1320,7 +1320,7 @@ And it is not an imported abstraction — it is **re-frame2's own organising hab
 ### Minor notes
 
 - **Two prefixes for one area.** The parent is `:rf.db/runtime` but its children are `:rf.runtime/*`. Either justify the split (the children are globally greppable when detached — a real tooling benefit) or align them; right now it reads as two naming schemes for the same region.
-- **Scope creep of `:rf.frame/id`.** The `:frame` → `:rf.frame/id` *context-key* rename is really the frame-target-resolution EP's concern riding along because both touch the event context. Consider splitting it out so this EP is purely the partition; coupling two renames makes both harder to land and review.
+- **Scope creep of `:rf.frame/id`.** The `:frame` → `:rf.frame/id` *context-key* rename is really the EP-0002 (Explicit Frame Target Resolution) concern riding along because both touch the event context. Consider splitting it out so this EP is purely the partition; coupling two renames makes both harder to land and review.
 - **Cost of threading runtime-db every event.** Confirm the runtime-db coeffect is injected **by reference** (persistent structure, no copy) and that an app-only commit performs **no** runtime re-commit — otherwise every pure app event pays for a partition it never touches. Worth one sentence in §Event Context.
 
 ### What I would not change
@@ -1332,7 +1332,7 @@ And it is not an imported abstraction — it is **re-frame2's own organising hab
 
 ### Net
 
-The EP lands on the right design (the findings' "A2 → frame-state split"). The four pushes that would make it more elegant / simpler / more rigorous / more sophisticated, in priority order: **(2)** pin authority-at-registration so "structurally impossible" is earned; **(1)** give app-db one name (`:db` in the projection too); **(3)** commit to single-container frame-state and get partition invalidation from projection-equality; **(5)** name the runtime-subsystem contract — which also unblocks the extension/plugin and Resource/Hasura work cleanly. (3) and (5) interlock with the resource-queries and Hasura EPs; landing the authority model (2) is the prerequisite that makes all of them honest.
+The EP lands on the right design (the findings' "A2 → frame-state split"). The four pushes that would make it more elegant / simpler / more rigorous / more sophisticated, in priority order: **(2)** pin authority-at-registration so "structurally impossible" is earned; **(1)** give app-db one name (`:db` in the projection too); **(3)** commit to single-container frame-state and get partition invalidation from projection-equality; **(5)** name the runtime-subsystem contract — which also unblocks the extension/plugin and Resource/Hasura work cleanly. (3) and (5) interlock with the EP-0003 Resource Queries and Hasura EPs; landing the authority model (2) is the prerequisite that makes all of them honest.
 
 None of these are imports. Each argues *from* re-frame2's own values — loud-failure (2), name-the-recurring-contract (5), the value-oriented equality substrate (3), and spec-as-artefact / AI-legibility (3, 4, 5, and the partition itself). The single genuine *ethos-internal* tension is (1) — CLARITY vs namespace discipline — and the right resolution there is not for this review to crown a winner but for the EP to **name the value it trades and why**, which is the move the rest of the document already models well.
 

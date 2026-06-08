@@ -121,7 +121,7 @@ programmers, Xray, tests, and AI agents.
 This is a Reactive Substrate proposal that other view-model EPs build on:
 
 - **Resolves before resource/route/Hasura subscription view-models.** This EP
-  should be resolved before the [Resource Queries EP](resource-queries.md), the
+  should be resolved before the [Resource Queries EP](EP-0003-resource-queries.md), the
   route-model helpers, or Hasura helpers lean on parameterized subscription view
   models, because it determines whether those helpers use static `:<-`,
   vector-of-query-vectors input functions, or broader app-db reads. Downstream
@@ -130,7 +130,7 @@ This is a Reactive Substrate proposal that other view-model EPs build on:
 - **Composes with explicit frame target resolution.** Input query vectors are
   frame-agnostic data; the runtime resolves them in the frame of the outer
   subscription. See the [Explicit Frame Target Resolution
-  EP](frame-target-resolution.md) (listed under `Requires`) and the
+  EP](EP-0002-frame-target-resolution.md) (listed under `Requires`) and the
   [§Frame resolution](#frame-resolution) section below.
 
 ## Specification

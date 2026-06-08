@@ -177,18 +177,18 @@ This EP depends on three other EPs and should land after them.
 
 - **Depends on the app/runtime partition.** Resource Queries stores its cache in
   the framework-owned runtime partition (`:rf.runtime/resources`) introduced by
-  the [App/Runtime Partition EP](app-db-runtime-partition.md), so that partition
+  the [App/Runtime Partition EP](EP-0001-frame-partitions.md), so that partition
   should land — or at least its key vocabulary be fixed — before resources rely
   on it.
 - **Depends on explicit frame target resolution.** Resource queries are a large
   frame-aware feature; their public API should harden against the explicit
   frame-target contract of the [Explicit Frame Target Resolution
-  EP](frame-target-resolution.md), not the ambient `:rf/default` fallback it
+  EP](EP-0002-frame-target-resolution.md), not the ambient `:rf/default` fallback it
   removes.
 - **Depends on parametric subscription inputs.** Whether resource subscription
   view-models use static `:<-`, vector-of-query-vectors input functions, or
   broader app-db reads is determined by the [Parametric Subscription Inputs
-  EP](subscription-inputs.md); that EP should resolve before these helpers lean
+  EP](EP-0004-subscription-inputs.md); that EP should resolve before these helpers lean
   on parameterized subscription view models.
 
 ## Developer and AI Use Cases
@@ -1895,7 +1895,7 @@ existing patterns it supersedes — Pattern-RemoteData plus managed HTTP (Spec 0
 Within the pre-alpha posture there are no compatibility shims. The artifact stores
 its cache in the framework-owned runtime partition (`:rf.runtime/resources`); it
 relies on the final partition vocabulary from the [App/Runtime Partition
-EP](app-db-runtime-partition.md) rather than any interim `:rf/runtime` location.
+EP](EP-0001-frame-partitions.md) rather than any interim `:rf/runtime` location.
 Resource registration, subscriptions, and events are new surfaces, so there is no
 prior resource API to keep compatible.
 

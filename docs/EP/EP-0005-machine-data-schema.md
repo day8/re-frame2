@@ -136,7 +136,7 @@ This EP is largely independent but shares one path with another proposal.
 
 - **Sequences after the App/Runtime Partition EP.** The redaction bridge targets the
   machine-snapshot path `[:rf/runtime :machines :snapshots]`, which the
-  [App/Runtime Partition EP](app-db-runtime-partition.md) renames to
+  [App/Runtime Partition EP](EP-0001-frame-partitions.md) renames to
   `[:rf.runtime/machines :snapshots]`. If both land, the bridge work follows the
   partition rename so it targets the final path. The two are otherwise independent.
 - **Subsumes the deferred `rf2-wto1k` option A.** `rf2-wto1k` shipped the pragmatic
