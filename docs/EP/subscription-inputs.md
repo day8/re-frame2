@@ -1,38 +1,6 @@
 # EP-0004: Parametric Subscription Inputs
 
-Number: EP-0004
-
-Status: proposal
-
-Type: Standards Track
-
-Date: 2026-06-08
-
-Created: 2026-06-08
-
-Author: re-frame2 maintainers
-
-Target Artifact: `day8/re-frame2-core`
-
-Target API Surface:
-
-- `reg-sub`
-- `subscribe`
-- `subscribe-once`
-- `compute-sub`
-- `sub-topology`
-- subscription cache entries
-- Xray subscription topology and live-sub inspection
-- migration guidance from re-frame v1
-
-Requires:
-
-- [Spec 006 - Reactive Substrate](https://github.com/day8/re-frame2/blob/main/spec/006-ReactiveSubstrate.md)
-- [Spec 008 - Testing](https://github.com/day8/re-frame2/blob/main/spec/008-Testing.md)
-- [Spec 009 - Instrumentation](https://github.com/day8/re-frame2/blob/main/spec/009-Instrumentation.md)
-- [Spec API](https://github.com/day8/re-frame2/blob/main/spec/API.md)
-- [Conventions](https://github.com/day8/re-frame2/blob/main/spec/Conventions.md)
-- [Explicit Frame Target Resolution EP](frame-target-resolution.md)
+Status: final
 
 ## Abstract
 

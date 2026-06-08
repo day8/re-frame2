@@ -1,43 +1,6 @@
 # EP-0005: Machine `:data` Schema (`defmachine` `:data-schema`)
 
-Number: EP-0005
-
 Status: proposal
-
-Type: Standards Track
-
-Date: 2026-06-08
-
-Created: 2026-06-08
-
-Author: re-frame2 maintainers
-
-Target Artifact: `day8/re-frame2-machines`
-
-Target API Surface:
-
-- the `defmachine` / `reg-machine` transition-table grammar (the `:data` /
-  `:schema` slot)
-- machine `:data` validation at the `:where :machine-data` boundary
-- machine snapshot redaction / wire elision (Xray, pair-MCP, epoch egress)
-- machines-viz declared-vs-inferred Context-shape panel
-
-Requires:
-
-- [Spec 005 - State Machines](https://github.com/day8/re-frame2/blob/main/spec/005-StateMachines.md)
-- [Spec 009 - Instrumentation](https://github.com/day8/re-frame2/blob/main/spec/009-Instrumentation.md)
-- [Spec 010 - Schemas](https://github.com/day8/re-frame2/blob/main/spec/010-Schemas.md)
-- [Spec 015 - Data Classification](https://github.com/day8/re-frame2/blob/main/spec/015-Data-Classification.md)
-- [Spec-Schemas](https://github.com/day8/re-frame2/blob/main/spec/Spec-Schemas.md)
-- [Conventions](https://github.com/day8/re-frame2/blob/main/spec/Conventions.md)
-- [App/Runtime Partition EP](app-db-runtime-partition.md)
-
-Benchmark References:
-
-- XState v5 typed context (`setup({ types: { context } })`, input/context
-  schemas) and Stately's rendered "Context:" chart header
-- re-frame2's existing per-registration `:schema` key on `reg-event-*`,
-  `reg-sub`, `reg-fx`, `reg-cofx`, `reg-app-schema`
 
 ## Abstract
 

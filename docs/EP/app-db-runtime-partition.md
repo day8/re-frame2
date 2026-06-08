@@ -1,43 +1,6 @@
 # EP-0001: Frame App/Runtime Partitions
 
-Number: EP-0001
-
 Status: proposal
-
-Type: Standards Track
-
-Date: 2026-06-06
-
-Created: 2026-06-06
-
-Author: re-frame2 maintainers
-
-Topic: frame state ownership
-
-Target Artifact: `day8/re-frame2-core`
-
-Impacts: frames, events, subscriptions, machines, routing, SSR, schemas, Xray, pair tools, docs, skills
-
-Requires:
-
-- explicit frame identity, coherent frame transitions
-- [Spec 002 - Frames](https://github.com/day8/re-frame2/blob/main/spec/002-Frames.md)
-- [Spec 005 - State Machines](https://github.com/day8/re-frame2/blob/main/spec/005-StateMachines.md)
-- [Spec 006 - Reactive Substrate](https://github.com/day8/re-frame2/blob/main/spec/006-ReactiveSubstrate.md)
-- [Spec 009 - Instrumentation](https://github.com/day8/re-frame2/blob/main/spec/009-Instrumentation.md)
-- [Spec 011 - SSR](https://github.com/day8/re-frame2/blob/main/spec/011-SSR.md)
-- [Spec 012 - Routing](https://github.com/day8/re-frame2/blob/main/spec/012-Routing.md)
-- [Runtime Architecture](https://github.com/day8/re-frame2/blob/main/spec/Runtime-Architecture.md)
-- [Conventions](https://github.com/day8/re-frame2/blob/main/spec/Conventions.md)
-
-Related:
-
-- [Guide 02 - app-db](../guide/02-app-db.md)
-- [Guide 04 - Events and the cascade](../guide/04-events-and-the-cascade.md)
-- [Guide 18 - Frames](../guide/18-frames.md)
-- [Guide 21 - Runtime model](../guide/21-dynamic-model.md)
-- [Explicit Frame Target Resolution EP](frame-target-resolution.md)
-- [Resource Queries EP](resource-queries.md)
 
 ## Abstract
 
