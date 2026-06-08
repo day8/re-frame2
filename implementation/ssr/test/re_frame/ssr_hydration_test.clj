@@ -427,6 +427,54 @@
             "a no-slice map payload is the legitimate client-only fallback, not malformed")))))
 
 ;; ===========================================================================
+;; rf2-1qem4q — the retired plain :app-db hydration alias stays DEAD
+;; ===========================================================================
+;;
+;; The hydrate handler reads ONLY `:rf/app-db` (re-frame.ssr.hydrate line
+;; `new-db (or (:rf/app-db payload) db)`). A plain `:app-db` key never had
+;; alias status here. This negative regression pins that: a future worker
+;; who reintroduced an `(:app-db payload)` fallback (the v1-era unqualified
+;; spelling) would turn this test red. Without it the current happy-path
+;; tests would stay green — none dispatch a `:app-db`-keyed payload — so the
+;; alias could silently come back. The asserted behaviour: under the
+;; documented open-map / no-slice semantics, a `{:app-db {…}}` payload is an
+;; UNKNOWN no-slice payload (the `:rf/app-db` key is absent, so app-db is
+;; left unchanged), NOT an alias that replaces app-db. It is also not
+;; malformed — the payload is a map with no `:rf/app-db` key, which is the
+;; legitimate client-only fallback shape.
+
+(deftest plain-app-db-key-is-not-a-hydration-alias
+  (testing "rf2-1qem4q — [:rf/hydrate {:app-db {…}}] must NOT replace app-db.
+            The handler reads only :rf/app-db; the unqualified :app-db key is
+            a retired alias that stays dead. It behaves as an unknown no-slice
+            payload (app-db unchanged, client-only fallback), not as an alias."
+    (register-baseline-handlers!)
+    (let [client-frame (rf/make-frame {:doc "alias-dead client frame"
+                                       :platform :client})]
+      ;; Seed a recognisable pre-hydration client slice so we can prove it
+      ;; SURVIVES (was not replaced by the :app-db-keyed payload).
+      (rf/dispatch-sync [::set-title "pre-hydration"] {:frame client-frame})
+      (rf/dispatch-sync [::inc] {:frame client-frame})  ;; count 0 → 1
+      (let [traces (capture-traces!
+                     (fn []
+                       (rf/dispatch-sync
+                         [:rf/hydrate {:app-db {:count 99 :title "legacy"}}]
+                         {:frame client-frame})))]
+        (is (= 1 (rf/subscribe-once client-frame [:count]))
+            "the plain :app-db key did NOT replace :count (alias stays dead —
+             the 99 from {:app-db {…}} must not land)")
+        (is (= "pre-hydration" (rf/subscribe-once client-frame [:title]))
+            "the plain :app-db key did NOT replace :title (alias stays dead —
+             \"legacy\" must not land)")
+        (is (false? (rf/subscribe-once client-frame [:hydrated?]))
+            "no hydration metadata stashed — the :rf/render-hash / :rf/version
+             keys are absent, so the no-slice payload installs no metadata")
+        (is (not-any? #(= :rf.error/malformed-hydration-payload (:operation %)) traces)
+            (str "a {:app-db {…}} payload is a map with no :rf/app-db key — the "
+                 "legitimate client-only no-slice fallback, NOT malformed; saw: "
+                 (pr-str (mapv :operation traces))))))))
+
+;; ===========================================================================
 ;; rf2-lq2ou — client-side hydration boot helper (ssr/hydrate!)
 ;;
 ;; The symmetric client-side counterpart of `re-frame.ssr.ring/ssr-handler`.
