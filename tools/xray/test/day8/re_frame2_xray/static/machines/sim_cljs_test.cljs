@@ -566,6 +566,77 @@
         (is (fn? (:on-edge-click chart-props))
             "the chart gets an on-edge-click callback")))))
 
+;; rf2-eao0s0 — the Static Sim chart must forward the STATIC context
+;; shape into machine-canvas/Chart so the root Context band renders on
+;; the Sim surface too (the Dynamic + Static Topology charts already do).
+
+(def ^:private inferred-fixture-definition
+  "No :data-schema → the context shape is INFERRED from one sample of
+  the initial :data (the chart keeps the `inferred from :data` badge)."
+  {:initial :idle
+   :data    {:counter 0 :label "x"}
+   :states  {:idle {:on {:start :authing}}
+             :authing {:final? true}}})
+
+(def ^:private declared-fixture-definition
+  "Declares a :data-schema → the context shape is AUTHORITATIVE off the
+  schema (the chart drops the inferred badge)."
+  {:initial     :idle
+   :data        {:counter 0 :label "x"}
+   :data-schema [:map [:counter :int] [:label :string]]
+   :states      {:idle {:on {:start :authing}}
+                 :authing {:final? true}}})
+
+(defn- sim-chart-props
+  "Render SimChart for `definition` and return the embedded
+  machine-canvas/Chart props (via the RAW walker so the chart survives
+  as data)."
+  [definition]
+  (let [tree       (sim/SimChart rf/dispatch* {:machine-id :auth/login
+                                  :definition definition})
+        chart-node (some (fn [node]
+                           (when (and (vector? node)
+                                      (= machine-canvas/Chart (first node)))
+                             node))
+                         (raw-hiccup-seq tree))]
+    (second chart-node)))
+
+(deftest sim-chart-forwards-inferred-context-shape-to-canvas
+  (testing "rf2-eao0s0 — an inferred (:data, no schema) machine: the Static
+            Sim chart hands the canvas the {key → type-caption} shape with
+            :machine-data-inferred? TRUE (the inferred-from-:data badge)."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (override-machines!    [:auth/login])
+      (override-definitions! {:auth/login inferred-fixture-definition})
+      (select-static-machine! :auth/login)
+      (rf/dispatch-sync [:rf.xray.static.machines/sim-start
+                         {:machine-id :auth/login
+                          :definition inferred-fixture-definition}])
+      (let [props (sim-chart-props inferred-fixture-definition)]
+        (is (= {:counter "number" :label "string"} (:machine-data props))
+            "the static context SHAPE reaches the chart's :machine-data")
+        (is (true? (:machine-data-inferred? props))
+            "inferred sample → :machine-data-inferred? TRUE reaches the chart")))))
+
+(deftest sim-chart-forwards-declared-context-shape-to-canvas
+  (testing "rf2-eao0s0 — a declared (:data-schema) machine: the Static Sim
+            chart hands the canvas the AUTHORITATIVE schema shape with
+            :machine-data-inferred? FALSE (badge dropped)."
+    (setup-xray-frame!)
+    (rf/with-frame :rf/xray
+      (override-machines!    [:auth/login])
+      (override-definitions! {:auth/login declared-fixture-definition})
+      (select-static-machine! :auth/login)
+      (rf/dispatch-sync [:rf.xray.static.machines/sim-start
+                         {:machine-id :auth/login
+                          :definition declared-fixture-definition}])
+      (let [props (sim-chart-props declared-fixture-definition)]
+        (is (= {:counter "number" :label "string"} (:machine-data props))
+            "the declared schema SHAPE reaches the chart's :machine-data")
+        (is (false? (:machine-data-inferred? props))
+            "declared schema → :machine-data-inferred? FALSE reaches the chart")))))
+
 (deftest sim-body-renders-chart-and-rail-panes
   (testing "rf2-u422r — the sim body is a two-pane split: the on-chart sim
             surface (primary) + the rail side column"
