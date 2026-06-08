@@ -33,6 +33,17 @@
  *     bundle init (sci.cljs :require's the artefact) and its top-level
  *     (subs/reg-sub :rf/machine ...) + (fx/reg-fx :rf.machine/* ...) forms ran.
  *
+ * Asserts the rf2-2h1yhk (eager creation marker) contract:
+ *   - A third ```cljs-rf2 cell dispatches the eager creation marker
+ *     [machine-id [:rf.machine/start]] (the reserved lifecycle keyword, renamed
+ *     from the retired :rf.machine/bootstrap per rf2-gl588) against a machine
+ *     whose :booting initial state holds an `:always` guard. A live
+ *     :rf.machine/start runs the initial-entry cascade and settles the machine
+ *     to :ready with no user event. This is the runtime half of the SCI-bundle
+ *     freshness guard: a stale bundle (keyed on :rf.machine/bootstrap) would
+ *     no-op the start kick and stick at :booting. The static half is
+ *     scripts/check-playground-sci-freshness.sh.
+ *
  * Run: node test/smoke.test.mjs   (after both bundles are built + `npm run
  * browsers`)
  */
@@ -109,6 +120,29 @@ const PAGE = `<!DOCTYPE html>
      [:span#rf2-tog-state "state: " (str (:state snap))]
      [:button#rf2-tog-btn {:on-click #(rf/dispatch [:rf2smoke/toggle [:flip]])} "flip"]]))
 [toggle-view]</pre>
+  <h2>eager [:rf.machine/start] kick (rf2 cell, rf2-2h1yhk)</h2>
+  <pre class="language-cljs-rf2">(require '[reagent2.core :as r]
+         '[re-frame.core :as rf])
+;; Eager creation-marker boot: [machine-id [:rf.machine/start]] is the
+;; xstate createActor(m).start() equivalent — it runs the initial-entry
+;; cascade with NO user event. Here :booting carries an :always guard that
+;; holds, so the eager start must settle the machine straight to :ready.
+;; This cell exists to keep the committed SCI bundle honest about the reserved
+;; :rf.machine/start lifecycle keyword (renamed from the retired
+;; :rf.machine/bootstrap, rf2-gl588): if the bundle were stale, this start
+;; kick would no-op and the view would stick at :booting.
+(rf/reg-machine :rf2smoke/eager
+  {:initial :booting
+   :data    {:ready? true}
+   :guards  {:ready? (fn [{data :data}] (:ready? data))}
+   :states  {:booting {:always [{:guard :ready? :target :ready}]}
+             :ready   {}}})
+(rf/dispatch-sync [:rf2smoke/eager [:rf.machine/start]])
+(defn eager-view []
+  (let [snap @(rf/sub-machine :rf2smoke/eager)]
+    [:div
+     [:span#rf2-eager-state "state: " (str (:state snap))]]))
+[eager-view]</pre>
   <script src="/playground.js"></script>
 </body></html>`;
 
@@ -175,9 +209,10 @@ await page.waitForFunction(
 );
 await page.waitForSelector(".cljs-cell .cm-editor", { timeout: 20000 });
 
-// All cells mount (3 plain-eval + 2 rf2 render: counter + toggle-machine).
+// All cells mount (3 plain-eval + 3 rf2 render: counter + toggle-machine +
+// eager-start-machine).
 const allCells = await page.$$(".cljs-cell");
-assert(allCells.length === 5, `5 cells mounted (got ${allCells.length})`);
+assert(allCells.length === 6, `6 cells mounted (got ${allCells.length})`);
 // The eval-cell helpers below index into the 3 plain-eval cells only
 // (rf2 render cells carry .cljs-cell--render, so this excludes them).
 const cells = await page.$$(".cljs-cell:not(.cljs-cell--render)");
@@ -233,7 +268,7 @@ await page.waitForFunction(
 assert(true, "bootstrap auto-loaded the re-frame2 SCI bundle (window.rf2sci)");
 
 const rf2Cells = await page.$$(".cljs-cell--rf2");
-assert(rf2Cells.length === 2, `2 re-frame2 cells mounted (got ${rf2Cells.length})`);
+assert(rf2Cells.length === 3, `3 re-frame2 cells mounted (got ${rf2Cells.length})`);
 
 // The reagent2 component renders into the result div as live DOM (auto-mount),
 // driven by re-frame2's OWN reg-event-db / reg-sub / dispatch-sync.
@@ -252,6 +287,10 @@ const rf2MachineErr = await rf2Cells[1].$eval(".cljs-result", (el) =>
   el.classList.contains("cljs-result--err")
 );
 assert(!rf2MachineErr, "re-frame2 machine cell not flagged error");
+const rf2EagerErr = await rf2Cells[2].$eval(".cljs-result", (el) =>
+  el.classList.contains("cljs-result--err")
+);
+assert(!rf2EagerErr, "re-frame2 eager-start machine cell not flagged error");
 
 // Clicking the button dispatches a re-frame2 event; the v2 subscription updates
 // and the reagent2 view re-renders.
@@ -293,6 +332,25 @@ console.log("machine cell state (after :flip):", JSON.stringify(togAfter));
 assert(
   togAfter === "state: :off",
   `machine :flip transitions :on -> :off via reg-machine (got ${JSON.stringify(togAfter)})`
+);
+
+// --- rf2-2h1yhk: eager [:rf.machine/start] creation marker --------------------
+//
+// The reserved lifecycle keyword moved from the retired :rf.machine/bootstrap
+// to :rf.machine/start (rf2-gl588, pre-alpha no shim). This cell dispatches the
+// eager creation marker [machine-id [:rf.machine/start]] — the xstate
+// createActor(m).start() equivalent — against a machine whose :booting initial
+// state carries a holding `:always` guard. A live :rf.machine/start must run
+// the initial-entry cascade and settle the machine straight to :ready with NO
+// user event. If the committed SCI bundle were stale (still keyed on
+// :rf.machine/bootstrap), the start kick would no-op and the view would stick
+// at :booting — so this assertion is the runtime half of the freshness guard.
+await page.waitForSelector(".cljs-cell--rf2 #rf2-eager-state", { timeout: 20000 });
+const eagerState = (await page.locator("#rf2-eager-state").innerText()).trim();
+console.log("eager-start machine cell state:", JSON.stringify(eagerState));
+assert(
+  eagerState === "state: :ready",
+  `eager [:rf.machine/start] settles :booting -> :ready (got ${JSON.stringify(eagerState)})`
 );
 
 // A plain eval cell on the SAME page still works alongside the re-frame2 bundle

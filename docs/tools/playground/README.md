@@ -185,6 +185,27 @@ runs the smoke against them, **and** verifies the committed
 (`git diff --exit-code`) so a stale vendored bundle fails the PR — the deployed
 artefact can never silently drift from source. See the row in `TESTING.md`.
 
+**SCI-bundle freshness guard (rf2-2h1yhk).** `playground-rf2.js` is a Closure
+`:advanced` build whose minified output is **not** cross-machine reproducible,
+so it is NOT byte-diffed (see the gate steps' rationale). That leaves a hole: a
+reserved-keyword rename in `implementation/machines/**` (e.g. the machine
+lifecycle creation marker `:rf.machine/bootstrap` → `:rf.machine/start`)
+re-bundles into a structurally-valid-but-stale artefact, and **no
+changed-surface fired the `playground` gate** because only
+`docs/tools/playground/**` and the committed bundles did. Two changes close it:
+
+- `report-changed-surfaces.sh` now sets `playground=true` for any
+  `implementation/machines/*` change, so the `tools-playground` job runs even
+  when the machines source — not the playground tree — is what changed.
+- `scripts/check-playground-sci-freshness.sh` (run as a `tools-playground`
+  step) asserts the **committed** `docs/cljs/playground-rf2.js` carries the
+  current creation marker (derived from `transition.cljc`'s `start-marker`
+  def, so it auto-tracks a future rename) and does **not** carry the retired
+  `:rf.machine/bootstrap`. It is a deterministic content check — it rebuilds
+  nothing — and is the static counterpart to the smoke's eager
+  `[:rf.machine/start]` cell (the runtime half). Run it locally from the repo
+  root: `sh scripts/check-playground-sci-freshness.sh`.
+
 ## mkdocs wiring
 
 `mkdocs.yml` declares a `cljs` custom fence (`pymdownx.superfences` →
