@@ -90,8 +90,8 @@
       (let [cofx @captured]
         (is (contains? cofx :rf.db/runtime)
             ":rf.db/runtime coeffect is present (runtime-db partition)")
-        (is (nil? (:rf.db/runtime cofx))
-            ":rf.db/runtime reads nil until the physical partition lands (bead 5 / rf2-adwcv6)")
+        (is (= {} (:rf.db/runtime cofx))
+            ":rf.db/runtime reads the real (fresh {}) runtime-db partition (rf2-adwcv6, bead 5)")
         (is (= (rf/runtime-db-value :ctx/partitions) (:rf.db/runtime cofx))
             ":rf.db/runtime coeffect equals runtime-db-value")
         (is (= :ctx/partitions (:rf.frame/id cofx))

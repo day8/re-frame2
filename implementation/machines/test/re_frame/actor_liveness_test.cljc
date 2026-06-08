@@ -55,9 +55,14 @@
   "Reset `frame-id`'s app-db to `db` — exactly what `restore-epoch` /
   `reset-frame-db!` do internally (app-db only, no registrar touch). Used
   here so the machines unit test exercises the revertibility property
-  without test-dep'ing the epoch artefact."
+  without test-dep'ing the epoch artefact.
+
+  EP-0001 (rf2-adwcv6): writes the app-db PARTITION of the one physical
+  frame-state container via `frame/swap-frame-db!` — `app-db-container` is
+  now a READ-ONLY projection. Matches what `restore-epoch` / `reset-frame-db!`
+  do post-bead-5 (`frame/replace-app-db!`)."
   [frame-id db]
-  (adapter/replace-container! (frame/app-db-container frame-id) db))
+  (frame/swap-frame-db! frame-id (constantly db)))
 
 ;; A parent that spawns one child of a registered TYPE on `:go` and
 ;; destroys it on `:drop`. The child increments a counter on `:bump` so

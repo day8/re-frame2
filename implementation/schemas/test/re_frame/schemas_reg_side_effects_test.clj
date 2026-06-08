@@ -32,10 +32,13 @@
 (use-fixtures :each tf/reset-runtime)
 
 (defn- set-app-db!
-  "Set the live app-db value for `frame-id` (defaults to :rf/default)."
+  "Set the live app-db value for `frame-id` (defaults to :rf/default).
+  EP-0001 (rf2-adwcv6): writes the app-db PARTITION via `frame/swap-frame-db!`
+  — `app-db-container` is now a read-only projection over the one physical
+  frame-state container."
   ([db] (set-app-db! :rf/default db))
   ([frame-id db]
-   (substrate-adapter/replace-container! (frame/app-db-container frame-id) db)))
+   (frame/swap-frame-db! frame-id (constantly db))))
 
 (defn- capture
   "Run `body-fn` collecting trace events whose `:operation` is

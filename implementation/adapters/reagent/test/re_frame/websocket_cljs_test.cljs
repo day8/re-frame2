@@ -372,12 +372,14 @@
         ;; Seed the snapshot's :data :retries past :max-retries via a
         ;; direct write to the machine's :data slot. This is a test
         ;; helper — production code never does this.
-        (let [db (rf/app-db-value f)
-              max-retries (get-in db [:rf/runtime :machines :snapshots :ws/connection :data :max-retries])
-              new-db (update-in db [:rf/runtime :machines :snapshots :ws/connection :data]
-                                assoc :retries (inc max-retries))]
-          (re-frame.substrate.adapter/replace-container!
-            (re-frame.frame/app-db-container f) new-db))
+        ;; EP-0001 (rf2-adwcv6): write the app-db PARTITION via swap-frame-db!
+        ;; — app-db-container is now a read-only projection. The machine
+        ;; snapshot still lives at [:rf/runtime …] inside app-db until bead 6.
+        (re-frame.frame/swap-frame-db! f
+          (fn [db]
+            (let [max-retries (get-in db [:rf/runtime :machines :snapshots :ws/connection :data :max-retries])]
+              (update-in db [:rf/runtime :machines :snapshots :ws/connection :data]
+                         assoc :retries (inc max-retries)))))
         ;; Now drive a :ws/closed — the parent transitions to :reconnecting
         ;; and immediately into :failed via :always-cascade.
         (let [snap-before (snapshot (rf/app-db-value f))]

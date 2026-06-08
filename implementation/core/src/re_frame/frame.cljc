@@ -25,13 +25,45 @@
 ;;
 ;; Per Spec 002 §What lives in a frame, a frame is a map with:
 ;;   :id          the keyword identity
-;;   :app-db      substrate-managed reactive container (opaque; through adapter)
+;;   :frame-state the ONE physical durable container (opaque; through adapter)
+;;                — holds BOTH partitions as a frame-state value
+;;                `{:rf.db/app <app-db> :rf.db/runtime <runtime-db>}`.
+;;   :app-db      the app-db PROJECTION REACTION over :frame-state
+;;                (`make-derived-value [frame-state] :rf.db/app`). Read-only —
+;;                layer-1 app subs read it; writes go through the frame-state
+;;                container, never `replace-container!` on this projection.
+;;   :runtime-db  the runtime-db PROJECTION REACTION over :frame-state
+;;                (`make-derived-value [frame-state] :rf.db/runtime`). Read-only
+;;                — framework subs read it.
 ;;   :router      per-frame queue + drain-state FSM (defined in router.cljc)
 ;;   :sub-cache   per-frame sub-cache (defined in subs.cljc)
 ;;   :lifecycle   {:created-at :destroyed? :listeners}
 ;;   :config      the metadata that reg-frame was given
 ;;
+;; Per Spec 002 §One physical container, two projection reactions + Spec 006
+;; §Frame-state container and partition projections (EP-0001 decision #3):
+;; the frame holds ONE physical frame-state container; app-db and runtime-db
+;; are PROJECTION REACTIONS over it. Partition-aware sub-cache invalidation
+;; falls out of `make-derived-value`'s memoised `=`-equality — NO dirty flags
+;; (decision #7): a runtime-only commit recomputes the app-db projection,
+;; finds `:rf.db/app` `=`, and does not propagate to app subs; an app-only
+;; commit is symmetric.
+;;
 ;; Frame records are stored in `frames` keyed by id.
+;;
+;; The two reserved partition keys inside the physical frame-state value.
+;; `:rf.db/app` is the app-db partition slot; `:rf.db/runtime` is the
+;; runtime-db partition slot (per Spec 002 §The two-partition frame contract
+;; and Conventions §Reserved partition keys). Held here as the single source
+;; of truth for the commit + projection machinery in this ns.
+
+(def ^:const app-partition-key
+  "Reserved frame-state key naming the app-db partition (`:rf.db/app`)."
+  :rf.db/app)
+
+(def ^:const runtime-partition-key
+  "Reserved frame-state key naming the runtime-db partition (`:rf.db/runtime`)."
+  :rf.db/runtime)
 
 (defonce
   ^{:doc "Map of frame-id → frame-record. Per-process (one global frame registry)."}
@@ -188,88 +220,234 @@
                              (clojure.string/starts-with? ns prefix)))))
            @frames))))
 
+(defn frame-state-container
+  "Return the frame's ONE physical frame-state **container** — the
+  substrate-managed reactive cell that holds the frame-state VALUE
+  `{:rf.db/app <app-db> :rf.db/runtime <runtime-db>}` (an `r/atom` under
+  the stock Reagent adapter, a `clojure.core/atom` under plain-atom /
+  React-hook adapters). This is the single physical write target; every
+  durable state write flows through it via `commit-frame-transition!` /
+  the partition mutators.
+
+  Internals only: the router commit path and the partition write helpers
+  call `replace-container!` against this cell. App-db and runtime-db are
+  READ-ONLY projection reactions over it (`app-db-container` /
+  `runtime-db-container`).
+
+  Returns `nil` when the frame is not registered or has been destroyed.
+  Per Spec 002 §One physical container, two projection reactions and
+  Spec 006 §Frame-state container and partition projections."
+  [id]
+  (:frame-state (frame id)))
+
 (defn app-db-container
-  "Return the underlying app-db **container** for the frame — the
-  substrate-managed reactive cell that holds the app-db value (an atom
-  under the stock Reagent adapter, an MVT cell under others). Internals
-  only: tools, tests, and core machinery that need to call
-  `read-container` / `replace-container!` against the cell.
+  "Return the app-db **projection reaction** for the frame — the read-only
+  derived value `(make-derived-value [frame-state] :rf.db/app)` over the
+  one physical frame-state container. Layer-1 app subs read it as their
+  signal source, so the subscription machinery only ever sees app-db (the
+  partition split is invisible to the invalidation algorithm — a
+  runtime-only commit recomputes this projection, finds `:rf.db/app` `=`,
+  and does not propagate). Distinct from `frame-state-container`, the
+  writable physical cell.
+
+  READ-ONLY: this is a `make-derived-value` result, so
+  `adapter/replace-container!` on it throws `:rf.error/derived-container-
+  replaced` (per Spec 006 §`make-derived-value`). App-db writes go through
+  `swap-frame-db!` / `replace-app-db!` / `commit-frame-transition!`, which
+  write the app-db partition of the physical frame-state container.
 
   Distinct from `re-frame.core/app-db-value`, which returns the deref'd
   app-db **value** (a plain map). User handlers receive `db` via cofx.
 
-  Returns `nil` when the frame is not registered or has been destroyed."
+  Returns `nil` when the frame is not registered or has been destroyed.
+  Per Spec 002 §One physical container, two projection reactions."
   [id]
   (:app-db (frame id)))
 
+(defn runtime-db-container
+  "Return the runtime-db **projection reaction** for the frame — the
+  read-only derived value `(make-derived-value [frame-state] :rf.db/runtime)`
+  over the one physical frame-state container. Framework subs
+  (`sub-machine`, `[:rf.route/*]`) read it as their signal source; an
+  app-only commit leaves `:rf.db/runtime` `=`, so the projection does not
+  propagate and framework subs are untouched.
+
+  READ-ONLY (a derived value); runtime-db writes go through
+  `replace-runtime-db!` / `commit-frame-transition!`, which write the
+  runtime-db partition of the physical frame-state container.
+
+  Returns `nil` when the frame is not registered or has been destroyed.
+  Per Spec 002 §One physical container, two projection reactions."
+  [id]
+  (:runtime-db (frame id)))
+
 (defn frame-app-db-value
-  "Read the current app-db value for a frame as a plain map (deref through
-  the substrate adapter)."
+  "Read the current app-db value for a frame as a plain map (deref the
+  app-db projection through the substrate adapter)."
   [id]
   (when-let [container (app-db-container id)]
     (adapter/read-container container)))
 
-;; ---- EP-0001 two-partition readers (rf2-q4i9ko) ---------------------------
+;; ---- EP-0001 two-partition readers (rf2-q4i9ko / rf2-adwcv6) --------------
 ;;
 ;; Per Spec 002 §The two-partition frame contract a frame owns two durable
 ;; partitions — user `app-db` and framework `runtime-db` — projected as a
 ;; coherent `frame-state` value `{:rf.db/app … :rf.db/runtime …}`.
 ;;
-;; This bead introduces the read SURFACE only (Mike ruling #1). The physical
-;; one-container frame-state + projection reactions land in rf2-adwcv6 (bead
-;; 5); the `:rf.db/runtime` partition has no physical slot until then, so
-;; `frame-runtime-db-value` reads as `nil` today. `frame-state-value`
-;; composes the two readers, so it already yields the correct shape and grows
-;; a populated `:rf.db/runtime` slot for free once bead 5 lands.
+;; rf2-q4i9ko (bead 3) introduced the read SURFACE; rf2-adwcv6 (bead 5, this
+;; one) makes the physical one-container frame-state + projection reactions
+;; real, so `frame-runtime-db-value` now reads the live runtime-db partition.
 
 (defn frame-runtime-db-value
   "Read the current runtime-db partition value for a frame — the
-  framework-owned subsystem state (`:rf.runtime/*` children). Returns `nil`
-  for an unknown / destroyed frame.
+  framework-owned subsystem state. Returns `nil` for an unknown / destroyed
+  frame.
 
-  EP-0001 (rf2-q4i9ko): the read surface only. The physical runtime-db
-  partition is introduced by the one-container frame-state work in rf2-adwcv6
-  (bead 5); until then there is no runtime-db slot and this reads `nil` for a
-  live frame too. Per Spec 002 §The two-partition frame contract."
+  rf2-adwcv6 (bead 5): reads the real `:rf.db/runtime` partition off the one
+  physical frame-state container (via the runtime-db projection). A fresh
+  frame's runtime-db starts `{}`. Per Spec 002 §The two-partition frame
+  contract."
   [id]
-  ;; full semantics land in rf2-adwcv6 (bead 5): once the single frame-state
-  ;; container exists, this reads its `:rf.db/runtime` projection. No physical
-  ;; slot exists yet, so the live value is `nil`; the `(when (frame id) …)`
-  ;; guard keeps the unknown-frame and live-frame answers both `nil` without
-  ;; faking a partition that is not there.
-  (when (frame id)
-    nil))
+  (when-let [container (runtime-db-container id)]
+    (adapter/read-container container)))
 
 (defn frame-state-value
   "Read the coherent frame-state projection for a frame —
   `{:rf.db/app <app-db> :rf.db/runtime <runtime-db>}`. Returns `nil` for an
   unknown / destroyed frame.
 
-  EP-0001 (rf2-q4i9ko): composes `frame-app-db-value` with
-  `frame-runtime-db-value`. The `:rf.db/runtime` slot is `nil` until the
-  physical partition lands in rf2-adwcv6 (bead 5); the shape is final.
-  Per Spec 002 §The two-partition frame contract."
+  rf2-adwcv6 (bead 5): reads the one physical frame-state container directly
+  (a single deref) rather than composing two reads, so the returned value is
+  the exact coherent snapshot the commit installed. Per Spec 002 §The
+  two-partition frame contract."
   [id]
-  (when (frame id)
-    {:rf.db/app     (frame-app-db-value id)
-     :rf.db/runtime (frame-runtime-db-value id)}))
+  (when-let [container (frame-state-container id)]
+    (adapter/read-container container)))
+
+;; ---- EP-0001 partition commit + write helpers (rf2-adwcv6) ----------------
+;;
+;; The frame-state container is the ONE physical write target. Every durable
+;; state write — the router's per-event commit, the privileged runtime
+;; mutators, full-frame tool install — flows through `replace-container!` on
+;; it. Per Spec 002 §An ordinary :db return replaces only app-db + §Write
+;; authority is by convention, and Spec 006 §Commit boundary.
+
+(defn commit-frame-transition!
+  "Atomically install a frame transition into the ONE physical frame-state
+  container (Spec 002 §Drain-loop pseudocode §commit; Spec 006 §Commit
+  boundary). `partitions` is a map that MAY carry `:rf.db/app` (the new
+  app-db value — the ordinary `:db` effect, scoped to the app-db partition)
+  and/or `:rf.db/runtime` (the new runtime-db value — the reserved
+  `:rf.db/runtime` effect). The partition(s) NOT present are carried forward
+  unchanged from the current frame-state, so:
+
+    - an APP-ONLY commit (`{:rf.db/app v}`) replaces only the app-db slice;
+      runtime-db is untouched — the handler cannot drop it through `:db`;
+    - a RUNTIME-ONLY commit (`{:rf.db/runtime v}`) replaces only runtime-db;
+    - a commit touching BOTH installs the combined result as ONE coherent
+      transition — there is never a window where one partition is committed
+      and the other is not.
+
+  Returns the SET of partition keys that actually changed by `=` (a subset
+  of `#{:rf.db/app :rf.db/runtime}`) — the caller uses it to drive the
+  partition-tagged change traces (`:rf.event/db-changed` /
+  `:rf.event/frame-state-changed`). A no-op partition (the supplied value
+  `=` the current slice) is NOT reported as changed, so the projection
+  reactions and the change signals agree. Returns `nil` for an unknown /
+  destroyed frame (the nil-container guard in `replace-container!` also
+  covers the destroy-race when called through it).
+
+  NOTE the `partitions` map keys are the frame-state partition keys
+  (`:rf.db/app` / `:rf.db/runtime`), NOT the effect keys (`:db` /
+  `:rf.db/runtime`) — the router maps `:db` effect → `:rf.db/app` partition
+  before calling this."
+  [id partitions]
+  (when-let [container (frame-state-container id)]
+    (let [current   (adapter/read-container container)
+          app-given? (contains? partitions app-partition-key)
+          rt-given?  (contains? partitions runtime-partition-key)
+          next-app  (if app-given? (get partitions app-partition-key)
+                        (get current app-partition-key))
+          next-rt   (if rt-given? (get partitions runtime-partition-key)
+                        (get current runtime-partition-key))
+          next-fs   {app-partition-key     next-app
+                     runtime-partition-key next-rt}
+          changed   (cond-> #{}
+                      (and app-given?
+                           (not= next-app (get current app-partition-key)))
+                      (conj app-partition-key)
+                      (and rt-given?
+                           (not= next-rt (get current runtime-partition-key)))
+                      (conj runtime-partition-key))]
+      ;; ONE atomic frame-state install — both partitions in one write, per
+      ;; Spec 006 §Commit boundary. Even a no-op (changed empty) re-installs
+      ;; the equal value; the projection reactions' `=`-memoisation collapses
+      ;; the downstream notification so a value-equal commit costs nothing.
+      (adapter/replace-container! container next-fs)
+      changed)))
+
+(defn replace-app-db!
+  "Replace ONLY the app-db partition of `id`'s frame-state, leaving
+  runtime-db untouched (Spec 002 §Frame-state value accessors and mutators,
+  Mike ruling #1 / #10 — a db-shaped name never silently replaces
+  runtime-db). Atomic install through the one physical container. Returns
+  the set of changed partition keys, or `nil` for an unknown / destroyed
+  frame. Internal write boundary used by the Tool-Pair `replace-app-db!` /
+  epoch `reset-frame-db!` path."
+  [id app-db]
+  (commit-frame-transition! id {app-partition-key app-db}))
+
+(defn replace-runtime-db!
+  "Replace ONLY the runtime-db partition of `id`'s frame-state, leaving
+  app-db untouched (Spec 002 §Frame-state value accessors and mutators).
+  The privileged runtime / full-frame write surface. Atomic install through
+  the one physical container. Returns the set of changed partition keys, or
+  `nil` for an unknown / destroyed frame."
+  [id runtime-db]
+  (commit-frame-transition! id {runtime-partition-key runtime-db}))
+
+(defn replace-frame-state!
+  "Replace BOTH partitions of `id` atomically with `frame-state`
+  (`{:rf.db/app … :rf.db/runtime …}`) — the full-frame install for
+  tool-driven replay / fixture install (epoch restore, time travel, SSR
+  hydration, frame reset). A db-shaped name never silently replaces
+  runtime-db; this is the explicit full-frame surface (Mike ruling #10).
+  Both partitions install in ONE atomic write. Returns the set of changed
+  partition keys, or `nil` for an unknown / destroyed frame.
+
+  `frame-state` MUST carry both partition keys; a missing key installs
+  `nil` for that partition (a full-frame replace is whole-value by
+  contract). Use `replace-app-db!` / `replace-runtime-db!` for a
+  single-partition write."
+  [id frame-state]
+  (commit-frame-transition! id {app-partition-key     (get frame-state app-partition-key)
+                                runtime-partition-key (get frame-state runtime-partition-key)}))
 
 (defn swap-frame-db!
-  "Mutate the frame's app-db: read the current value, compute
-  `(apply f db args)`, and replace the container with the result. Returns
-  the new-db, or nil if the frame is not registered.
+  "Mutate the frame's app-db PARTITION: read the current app-db value,
+  compute `(apply f db args)`, and install the result into the app-db
+  partition of the one physical frame-state container (runtime-db
+  untouched). Returns the new app-db, or nil if the frame is not registered.
 
-  Models `swap!` over the substrate-managed reactive container. Under the
-  single-drainer invariant (Spec 002 §Single drainer per frame) the
-  read-then-replace is effectively atomic — `replace-container!` is the
-  only writer during fx drain. The helper is the canonical \"mutate the
-  frame's app-db\" surface; the read-container / replace-container dance
-  belongs here, not at every fx-handler call site."
+  Models `swap!` over the app-db partition. Under the single-drainer
+  invariant (Spec 002 §Single drainer per frame) the read-then-replace is
+  effectively atomic — `commit-frame-transition!` is the only writer during
+  fx drain. The helper is the canonical \"mutate the frame's app-db\"
+  surface; the read / partition-commit dance belongs here, not at every
+  fx-handler call site.
+
+  EP-0001 (rf2-adwcv6): now writes the app-db partition of the physical
+  frame-state container (was a direct `replace-container!` on the old app-db
+  store). The machine / routing / SSR `:rf/runtime`-under-app-db writers that
+  call this keep working unchanged — `:rf/runtime` still lives inside app-db
+  until bead 6 (rf2-vzld77) migrates them to runtime-db."
   [id f & args]
-  (when-let [container (app-db-container id)]
-    (let [old-db (adapter/read-container container)
-          new-db (apply f old-db args)]
-      (adapter/replace-container! container new-db)
+  (when-let [container (frame-state-container id)]
+    (let [current (adapter/read-container container)
+          old-db  (get current app-partition-key)
+          new-db  (apply f old-db args)]
+      (adapter/replace-container! container
+                                  (assoc current app-partition-key new-db))
       new-db)))
 
 ;; ---- lifecycle-vs-drain serialization (rf2-2woz9) -------------------------
@@ -404,9 +582,24 @@
 ;; ---- registration ---------------------------------------------------------
 
 (defn- new-frame-record [id config]
-  {:id         id
-   :app-db     (adapter/make-state-container {})
-   :router     (atom {:queue interop/empty-queue :scheduled? false})
+  ;; ONE physical frame-state container holding both partitions (Spec 002
+  ;; §One physical container, two projection reactions; EP-0001 decision #3).
+  ;; A fresh frame starts with an empty app-db (Spec 002 §Frames always start
+  ;; with app-db = {}) and an empty runtime-db.
+  (let [frame-state (adapter/make-state-container {app-partition-key     {}
+                                                   runtime-partition-key {}})]
+   {:id          id
+    :frame-state frame-state
+    ;; app-db / runtime-db are READ-ONLY projection reactions over the one
+    ;; physical container — `make-derived-value` memoises on `=`, so a
+    ;; runtime-only commit does not propagate to app subs (and vice versa),
+    ;; with no dirty flags (decision #7). The compute-fn is the bare keyword
+    ;; lookup of the partition slice; `make-derived-value`'s recompute closure
+    ;; arity-specialises the 1-source case so the projection costs a single
+    ;; keyword invoke per recompute.
+    :app-db      (adapter/make-derived-value [frame-state] app-partition-key)
+    :runtime-db  (adapter/make-derived-value [frame-state] runtime-partition-key)
+    :router      (atom {:queue interop/empty-queue :scheduled? false})
    ;; Single-drainer invariant: a separate CAS-able cell that admits
    ;; at most one thread into `drain!` at a time. On the JVM the
    ;; executor's `next-tick` callback can wake while the calling
@@ -418,11 +611,11 @@
    ;; single-threaded so the CAS is uncontended there, but the same
    ;; flag preserves the contract under any future concurrent host.
    :drain-lock (atom false)
-   :sub-cache  (atom {})
-   :lifecycle  {:created-at (interop/now-ms)
-                :destroyed? false
-                :listeners  []}
-   :config     config})
+    :sub-cache  (atom {})
+    :lifecycle  {:created-at (interop/now-ms)
+                 :destroyed? false
+                 :listeners  []}
+    :config     config}))
 
 (declare destroy-frame!)
 
@@ -713,6 +906,22 @@
                  (catch #?(:clj Throwable :cljs :default) _ nil))))
         (reset! cache {})))))
 
+(defn- tear-down-partition-projections!
+  "Dispose the two partition projection reactions (`:app-db` /
+  `:runtime-db`) that `make-derived-value` layered over the physical
+  frame-state container (rf2-adwcv6). Each projection holds a watch on the
+  physical container (on the React-hook / plain-atom spine) or a Reagent
+  reaction; left undisposed across a `destroy-frame!`, those watches /
+  reactions leak in long-lived processes (test bundles, SSR per-request
+  frame churn, hot-reload). Best-effort — a throwing dispose does not abort
+  teardown. The physical frame-state container itself is GC'd with the
+  dropped frame record once `dissoc-frame!` runs; no explicit dispose."
+  [f]
+  (doseq [k [:app-db :runtime-db]]
+    (when-let [proj (get f k)]
+      (try (interop/dispose! proj)
+           (catch #?(:clj Throwable :cljs :default) _ nil)))))
+
 (defn- emit-frame-destroyed-trace!
   [id]
   (trace/emit! :rf.frame :rf.frame/destroyed
@@ -849,6 +1058,12 @@
         (notify-machine-destruction! id)
         (mark-frame-destroyed! id)
         (tear-down-sub-cache! id f)
+        ;; Dispose the app-db / runtime-db projection reactions (rf2-adwcv6)
+        ;; AFTER the sub-cache (the sub-cache's layer-1 reactions watch the
+        ;; app-db projection; disposing the projection first would orphan
+        ;; their source watch). The projections watch the physical
+        ;; frame-state container; disposing here releases those watches.
+        (tear-down-partition-projections! f)
         (safe-call-hook! :privacy/clear-suppression-cache!)
         (safe-call-hook! :elision/clear-warning-cache!)
         (safe-call-hook! :ssr/on-frame-destroyed id)

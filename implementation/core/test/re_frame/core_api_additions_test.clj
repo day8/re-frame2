@@ -322,47 +322,55 @@
   (testing "app-db-value returns nil for an unknown frame"
     (is (nil? (rf/app-db-value :pp/no-such-frame)))))
 
-(deftest runtime-db-value-is-nil-until-bead-5
-  (testing "runtime-db-value reads nil — the physical partition lands in bead 5"
+(deftest runtime-db-value-reads-real-partition
+  (testing "runtime-db-value reads the real runtime-db partition (rf2-adwcv6, bead 5)"
     (rf/reg-frame :pp/runtime {:doc "runtime"})
-    (is (nil? (rf/runtime-db-value :pp/runtime))
-        "live frame: runtime-db has no physical slot yet (rf2-adwcv6)")
+    (is (= {} (rf/runtime-db-value :pp/runtime))
+        "live frame: a fresh frame's runtime-db starts {} (the physical partition is real now)")
     (is (nil? (rf/runtime-db-value :pp/no-such-frame))
-        "unknown frame: nil")))
+        "unknown frame: nil")
+    (rf/replace-runtime-db! :pp/runtime {:rf.runtime/machines {:m 1}})
+    (is (= {:rf.runtime/machines {:m 1}} (rf/runtime-db-value :pp/runtime))
+        "runtime-db-value reads back exactly what replace-runtime-db! wrote")))
 
 (deftest frame-state-value-projection-shape
-  (testing "frame-state-value yields {:rf.db/app … :rf.db/runtime …}"
+  (testing "frame-state-value yields {:rf.db/app … :rf.db/runtime …} with the real runtime-db"
     (rf/reg-frame :pp/fs {:doc "frame-state"})
     (rf/reg-event-db :pp/seed-fs (fn [_ [_ db]] db))
     (rf/dispatch-sync [:pp/seed-fs {:a 1}] {:frame :pp/fs})
-    (is (= {:rf.db/app {:a 1} :rf.db/runtime nil}
+    (is (= {:rf.db/app {:a 1} :rf.db/runtime {}}
            (rf/frame-state-value :pp/fs))
-        "app-db slot carries the live app-db; runtime-db slot nil until bead 5")
+        "app-db slot carries the live app-db; runtime-db slot is the real (fresh {}) partition")
     (is (= {:a 1} (:rf.db/app (rf/frame-state-value :pp/fs)))
         "the :rf.db/app slot equals app-db-value")
     (is (= (rf/app-db-value :pp/fs) (:rf.db/app (rf/frame-state-value :pp/fs)))
-        "frame-state :rf.db/app is the same value app-db-value returns")))
+        "frame-state :rf.db/app is the same value app-db-value returns")
+    (is (= (rf/runtime-db-value :pp/fs) (:rf.db/runtime (rf/frame-state-value :pp/fs)))
+        "frame-state :rf.db/runtime is the same value runtime-db-value returns")))
 
 (deftest frame-state-value-unknown-frame-is-nil
   (testing "frame-state-value returns nil for an unknown frame"
     (is (nil? (rf/frame-state-value :pp/no-such-frame)))))
 
-(deftest replace-runtime-db-defers-to-bead-5
-  (testing "replace-runtime-db! throws until the physical partition lands (rf2-adwcv6)"
+(deftest replace-runtime-db-writes-real-partition
+  (testing "replace-runtime-db! writes the runtime-db partition only (rf2-adwcv6)"
     (rf/reg-frame :pp/rdb {:doc "runtime-mutate"})
-    (let [e (try (rf/replace-runtime-db! :pp/rdb {:rf.runtime/machines {}}) nil
-                 (catch clojure.lang.ExceptionInfo e e))]
-      (is (some? e) "replace-runtime-db! must signal rather than silently drop data")
-      (is (= :rf.error/not-yet-implemented (:rf.error/id (ex-data e))))
-      (is (= :rf2-adwcv6 (:deferred-to (ex-data e)))
-          "ex-data names bead 5 as the home of the physical write"))))
+    (rf/reg-event-db :pp/seed-app (fn [_ [_ db]] db))
+    (rf/dispatch-sync [:pp/seed-app {:app :data}] {:frame :pp/rdb})
+    (rf/replace-runtime-db! :pp/rdb {:rf.runtime/machines {}})
+    (is (= {:rf.runtime/machines {}} (rf/runtime-db-value :pp/rdb))
+        "runtime-db partition replaced")
+    (is (= {:app :data} (rf/app-db-value :pp/rdb))
+        "app-db partition untouched by a runtime-db-only write")))
 
-(deftest replace-frame-state-defers-to-bead-5
-  (testing "replace-frame-state! throws until the physical container lands (rf2-adwcv6)"
+(deftest replace-frame-state-writes-both-partitions
+  (testing "replace-frame-state! installs both partitions atomically (rf2-adwcv6)"
     (rf/reg-frame :pp/fsm {:doc "frame-state-mutate"})
-    (let [e (try (rf/replace-frame-state! :pp/fsm {:rf.db/app {} :rf.db/runtime {}}) nil
-                 (catch clojure.lang.ExceptionInfo e e))]
-      (is (some? e) "replace-frame-state! must signal rather than apply only the app-db half")
-      (is (= :rf.error/not-yet-implemented (:rf.error/id (ex-data e))))
-      (is (= :rf2-adwcv6 (:deferred-to (ex-data e)))
-          "ex-data names bead 5 as the home of the atomic full-frame install"))))
+    (rf/replace-frame-state! :pp/fsm {:rf.db/app {:a 7} :rf.db/runtime {:rf.runtime/routing {:r 1}}})
+    (is (= {:a 7} (rf/app-db-value :pp/fsm))
+        "app-db partition installed")
+    (is (= {:rf.runtime/routing {:r 1}} (rf/runtime-db-value :pp/fsm))
+        "runtime-db partition installed")
+    (is (= {:rf.db/app {:a 7} :rf.db/runtime {:rf.runtime/routing {:r 1}}}
+           (rf/frame-state-value :pp/fsm))
+        "frame-state reads back the coherent both-partition snapshot")))

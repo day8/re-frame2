@@ -360,8 +360,9 @@
   ["re-frame.core" "frame-meta"]           {:tier :tooling :owner "002" :status "v1"}
   ["re-frame.core" "app-db-value"]         {:tier :advanced :owner "002" :status "v1"}
   ;; EP-0001 two-partition readers (rf2-q4i9ko / bead 3). Per spec/API.md
-  ;; §Public registrar query API rows. Surface introduced ahead of the
-  ;; physical partition (rf2-adwcv6 / bead 5); runtime-db reads nil today.
+  ;; §Public registrar query API rows. The physical partition landed in
+  ;; rf2-adwcv6 (bead 5): runtime-db-value reads the real runtime-db
+  ;; partition off the one physical frame-state container.
   ["re-frame.core" "runtime-db-value"]     {:tier :tooling :owner "002" :status "v1"}
   ["re-frame.core" "frame-state-value"]    {:tier :tooling :owner "002" :status "v1"}
   ["re-frame.core" "snapshot-of"]          {:tier :tooling :owner "002" :status "v1"}
@@ -420,9 +421,9 @@
   ;; EP-0001 two-partition mutators (rf2-q4i9ko / bead 3). Per spec/API.md
   ;; §Epoch / Tool-Pair rows. replace-app-db! is a thin alias of the existing
   ;; app-db replacement (coexists with reset-frame-db! until the rename in
-  ;; rf2-tfepxu / bead 9). The runtime-db / frame-state mutators introduce the
-  ;; surface ahead of the physical partition (rf2-adwcv6 / bead 5) and throw
-  ;; until it exists.
+  ;; rf2-tfepxu / bead 9). The runtime-db / frame-state mutators are real
+  ;; partition writes as of rf2-adwcv6 (bead 5): they install into the one
+  ;; physical frame-state container via frame/commit-frame-transition!.
   ["re-frame.core" "replace-app-db!"]            {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ["re-frame.core" "replace-runtime-db!"]        {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ["re-frame.core" "replace-frame-state!"]       {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}

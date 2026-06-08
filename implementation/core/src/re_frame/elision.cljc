@@ -111,14 +111,18 @@
   `re-frame.marks` ns — which mutates the SAME slot from its
   `add-marks` / `set-marks` / `clear-app-db-marks!`
   paths — can share a single source of truth for the read-transform-
-  write skeleton. Not part of the public API."
+  write skeleton. Not part of the public API.
+
+  EP-0001 (rf2-adwcv6): writes through `frame/swap-frame-db!` (the app-db
+  partition of the one physical frame-state container) rather than a direct
+  `replace-container!` — `frame/app-db-container` is now a READ-ONLY
+  projection. The elision registry still lives at `[:rf/runtime :elision]`
+  INSIDE app-db until bead 6 (rf2-vzld77) migrates elision to runtime-db, so
+  this stays an app-db write."
   [frame-id f]
-  (when-let [container (frame/app-db-container frame-id)]
-    (let [old-db  (adapter/read-container container)
-          old-reg (get-in old-db [:rf/runtime :elision])
-          new-reg (f old-reg)
-          new-db  (write-elision-slot old-db new-reg)]
-      (adapter/replace-container! container new-db)))
+  (frame/swap-frame-db! frame-id
+                        (fn [old-db]
+                          (write-elision-slot old-db (f (get-in old-db [:rf/runtime :elision])))))
   nil)
 
 (defn declarations

@@ -915,11 +915,11 @@
     (let [post-go-db (rf/app-db-value :rf/default)]
       (is (= :working (get-in post-go-db [:rf/runtime :machines :snapshots :test/m :state]))
           "machine reached :working")
-      ;; Tool-Pair-style revert: replace-container! to a snapshot where
-      ;; the machine is in :idle.
-      (let [container (frame/app-db-container :rf/default)
-            reverted  (assoc-in post-go-db [:rf/runtime :machines :snapshots :test/m :state] :idle)]
-        (adapter/replace-container! container reverted))
+      ;; Tool-Pair-style revert: write the app-db PARTITION to a snapshot
+      ;; where the machine is in :idle (EP-0001 rf2-adwcv6 — app-db-container
+      ;; is now a read-only projection, so revert via swap-frame-db!).
+      (frame/swap-frame-db! :rf/default
+        (fn [db] (assoc-in db [:rf/runtime :machines :snapshots :test/m :state] :idle)))
       (is (= :idle (get-in (rf/app-db-value :rf/default)
                            [:rf/runtime :machines :snapshots :test/m :state]))
           "after replace-container! the snapshot reads back as :idle")

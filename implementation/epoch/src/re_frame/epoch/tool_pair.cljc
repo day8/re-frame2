@@ -398,12 +398,17 @@
   the canonical `:rf.error/no-such-handler` (kind `:frame`) failure trace
   and returns `false`, matching the destroyed-frame contract."
   [frame-id epoch]
-  (let [{:keys [outcome op tags container]} (live-container-or-fail frame-id)]
+  (let [{:keys [outcome op tags]} (live-container-or-fail frame-id)]
     (if (= :fail outcome)
       (do (emit-precondition-failure! op tags)
           false)
       (let [db-target (:db-after epoch)]
-        (adapter/replace-container! container db-target)
+        ;; EP-0001 (rf2-adwcv6): write the app-db PARTITION of the one
+        ;; physical frame-state container — `frame/app-db-container` is now
+        ;; a READ-ONLY projection, so a direct `replace-container!` on it
+        ;; throws. `restore-epoch` rewinds the app-db partition only here;
+        ;; the full frame-state (runtime-db) restore is bead 7 (rf2-3aizt1).
+        (frame/replace-app-db! frame-id db-target)
         (trace/emit! :rf.epoch :rf.epoch/restored
                      {:frame    frame-id
                       :epoch-id (:epoch-id epoch)})

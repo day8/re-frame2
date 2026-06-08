@@ -40,7 +40,6 @@
             [re-frame.interop :as interop]
             [re-frame.registrar :as registrar]
             [re-frame.source-coords :as source-coords]
-            [re-frame.substrate.adapter :as adapter]
             [re-frame.trace :as trace]))
 
 ;; ---- state ---------------------------------------------------------------
@@ -760,20 +759,25 @@
   intermediate cases without writing nil parents or throwing (per audit
   rf2-q25os).
 
-  Per rf2-2vpac: skips `replace-container!` when the dissoc branch was a
-  no-op (missing key, or `dissoc-in-safe` returning `db` literally on
+  Per rf2-2vpac: skips the write when the dissoc branch was a no-op
+  (missing key, or `dissoc-in-safe` returning `db` literally on
   unmaterialised-parent / non-map-intermediate). Otherwise we trigger
   reactive sub-cache invalidation for a no-op write — cheap-but-needless
   walk of the sub graph (`identical?` is O(1)). No-op when the frame has
-  no app-db container."
+  no app-db container.
+
+  EP-0001 (rf2-adwcv6): writes the app-db PARTITION of the one physical
+  frame-state container via `frame/swap-frame-db!` — `app-db-container` is
+  now a READ-ONLY projection. Flow OUTPUTS are app-db values (Mike ruling
+  #12), so vacating one is an app-db write. The `identical?` no-op skip is
+  preserved by computing `new-db` first and only swapping when it changed."
   [frame-id path]
-  (when-let [container (frame/app-db-container frame-id)]
-    (let [db     (adapter/read-container container)
-          new-db (if (= 1 (count path))
+  (when-let [db (frame/frame-app-db-value frame-id)]
+    (let [new-db (if (= 1 (count path))
                    (dissoc db (first path))
                    (dissoc-in-safe db path))]
       (when-not (identical? new-db db)
-        (adapter/replace-container! container new-db)))))
+        (frame/swap-frame-db! frame-id (constantly new-db))))))
 
 ;; ---- registrar-slot owner maintenance (rf2-73pi1) ------------------------
 ;;
