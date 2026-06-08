@@ -43,7 +43,7 @@
 (defn- snapshot
   ([machine-id] (snapshot :rf/default machine-id))
   ([frame-id machine-id]
-   (get-in (rf/app-db-value frame-id) [:rf/runtime :machines :snapshots machine-id])))
+   (get-in (rf/runtime-db-value frame-id) [:rf.runtime/machines :snapshots machine-id])))
 
 (defn- registrar-event-snapshot
   "A value-snapshot of every registered :event id — the bit we assert is
@@ -52,17 +52,18 @@
   (set (keys (registrar/registrations :event))))
 
 (defn- revert-app-db!
-  "Reset `frame-id`'s app-db to `db` — exactly what `restore-epoch` /
-  `reset-frame-db!` do internally (app-db only, no registrar touch). Used
-  here so the machines unit test exercises the revertibility property
+  "Reset `frame-id`'s RUNTIME-DB to `runtime-db` — the partition a
+  `restore-epoch` / frame-state revert walks machine snapshots back through.
+  Used here so the machines unit test exercises the revertibility property
   without test-dep'ing the epoch artefact.
 
-  EP-0001 (rf2-adwcv6): writes the app-db PARTITION of the one physical
-  frame-state container via `frame/swap-frame-db!` — `app-db-container` is
-  now a READ-ONLY projection. Matches what `restore-epoch` / `reset-frame-db!`
-  do post-bead-5 (`frame/replace-app-db!`)."
-  [frame-id db]
-  (frame/swap-frame-db! frame-id (constantly db)))
+  EP-0001 (rf2-vzld77): a spawned actor's LIVENESS is its snapshot's presence
+  in the **runtime-db** partition (machine snapshots are durable runtime-db
+  state), so reverting liveness means reverting runtime-db — written via
+  `frame/swap-runtime-db!`. (The full frame-state restore PROJECTIONS are
+  bead 7 — rf2-3aizt1; this helper installs just the runtime-db partition.)"
+  [frame-id runtime-db]
+  (frame/swap-runtime-db! frame-id (constantly runtime-db)))
 
 ;; A parent that spawns one child of a registered TYPE on `:go` and
 ;; destroys it on `:drop`. The child increments a counter on `:bump` so
@@ -151,24 +152,25 @@
       (is (nil? (snapshot :al3/child#1))
           "no snapshot was fabricated"))))
 
-;; ---- liveness reverts with an app-db reset (what restore-epoch does) ------
+;; ---- liveness reverts with a runtime-db reset (what restore-epoch does) ----
 
-(deftest actor-liveness-reverts-with-app-db
-  (testing "rf2-a2sn1 — resetting the frame's app-db to a captured value
-            (exactly what restore-epoch does — app-db only) reverts an
-            actor's liveness perfectly, with NO registrar drift"
+(deftest actor-liveness-reverts-with-runtime-db
+  (testing "rf2-a2sn1 / rf2-vzld77 — resetting the frame's runtime-db to a
+            captured value (a frame-state revert walks machine snapshots back
+            through the runtime-db partition) reverts an actor's liveness
+            perfectly, with NO registrar drift"
     (rf/reg-machine :al4/child  (counter-child))
     (rf/reg-machine :al4/parent (assoc-in (spawning-parent :al4/child)
                                           [:states :idle :on :drop]
                                           {:action (fn [_]
                                                      {:fx [[:rf.machine/destroy :al4/child#1]]})}))
     ;; Capture app-db BEFORE the actor exists (rewind-past-spawn target).
-    (let [db-before-spawn (rf/app-db-value :rf/default)]
+    (let [db-before-spawn (rf/runtime-db-value :rf/default)]
       (rf/dispatch-sync [:al4/parent [:go]])
       (is (some? (snapshot :al4/child#1)) "actor alive after spawn")
       ;; Capture app-db while the actor IS alive (rewind-past-destroy
       ;; target).
-      (let [db-while-alive (rf/app-db-value :rf/default)]
+      (let [db-while-alive (rf/runtime-db-value :rf/default)]
         (rf/dispatch-sync [:al4/child#1 [:bump]])
         (is (= 1 (:n (:data (snapshot :al4/child#1)))))
         (rf/dispatch-sync [:al4/parent [:drop]])

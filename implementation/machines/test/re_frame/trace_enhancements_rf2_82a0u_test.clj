@@ -190,8 +190,8 @@
     (rf/dispatch-sync [:rf2-82a0u/threw-fall [:go]])
     ;; The snapshot is now in :done — the throwing-guard candidate
     ;; failed-and-was-walked-past; the unguarded candidate fired.
-    (let [db   (frame/frame-app-db-value :rf/default)
-          snap (get-in db [:rf/runtime :machines :snapshots :rf2-82a0u/threw-fall])]
+    (let [db   (frame/frame-runtime-db-value :rf/default)
+          snap (get-in db [:rf.runtime/machines :snapshots :rf2-82a0u/threw-fall])]
       (is (= :done (:state snap))
           "transition reached the second candidate's target")
       (is (= 1 (-> snap :data :n))

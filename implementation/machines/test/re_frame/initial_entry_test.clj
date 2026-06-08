@@ -21,7 +21,7 @@
 
    2. **Spawned actor via declarative `:spawn`** — parent enters an
       `:spawn`-bearing state; the spawn fx allocates the child, seeds
-      its snapshot at `[:rf/runtime :machines :snapshots <spawned-id>]`. The child's initial
+      its snapshot at `[:rf.runtime/machines :snapshots <spawned-id>]`. The child's initial
       state's `:entry` action should fire as the spawn cascade runs.
 
    3. **Compound initial cascade** — initial state is itself a compound
@@ -39,7 +39,7 @@
 
 (defn- snapshot
   [machine-id]
-  (get-in (rf/app-db-value :rf/default) [:rf/runtime :machines :snapshots machine-id]))
+  (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/machines :snapshots machine-id]))
 
 ;; ---- (1) singleton-machine initial :entry firing -------------------------
 
@@ -176,9 +176,9 @@
       (is (= [:throws-entered] @calls)
           "the throwing action ran (cascade reached the state) — necessary precondition")
 
-      ;; (a) Snapshot NOT committed: no entry at [:rf/runtime :machines :snapshots ...].
-      (is (nil? (get-in (rf/app-db-value :rf/default)
-                        [:rf/runtime :machines :snapshots :rf2-dd3b/throws]))
+      ;; (a) Snapshot NOT committed: no entry at [:rf.runtime/machines :snapshots ...].
+      (is (nil? (get-in (rf/runtime-db-value :rf/default)
+                        [:rf.runtime/machines :snapshots :rf2-dd3b/throws]))
           "the bootstrap snapshot was NOT committed — cascade halt is atomic")
 
       ;; (b) :rf.error/machine-action-exception trace fired with diagnostic detail.
@@ -232,8 +232,8 @@
           (is (false? @spawn-fired?)
               ":spawn's spawn fx did not fire when :entry threw on the same state")
           ;; And the snapshot was not committed — there is no machine record.
-          (is (nil? (get-in (rf/app-db-value :rf/default)
-                            [:rf/runtime :machines :snapshots :rf2-dd3b/skip]))
+          (is (nil? (get-in (rf/runtime-db-value :rf/default)
+                            [:rf.runtime/machines :snapshots :rf2-dd3b/skip]))
               "the snapshot was not committed; no machine record exists"))
         ;; Restore.
         (when orig
@@ -270,8 +270,8 @@
       (is (= [:outer :inner-throws] @calls)
           "the cascade ran outer's :entry, then inner's :entry where it threw")
       ;; But the snapshot is NOT committed — the whole bootstrap is atomic.
-      (is (nil? (get-in (rf/app-db-value :rf/default)
-                        [:rf/runtime :machines :snapshots :rf2-dd3b/compound]))
+      (is (nil? (get-in (rf/runtime-db-value :rf/default)
+                        [:rf.runtime/machines :snapshots :rf2-dd3b/compound]))
           "neither outer nor inner :entry's :data writes committed — bootstrap halted atomically")
       ;; The exception trace fired.
       (is (some #(= :rf.error/machine-action-exception (:operation %))

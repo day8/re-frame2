@@ -48,7 +48,7 @@
 
 (defn- snapshot
   [machine-id]
-  (get-in (rf/app-db-value :rf/default) [:rf/runtime :machines :snapshots machine-id]))
+  (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/machines :snapshots machine-id]))
 
 (defn- record-traces!
   [k]
@@ -232,8 +232,8 @@
         (rf/reg-machine k child))
       (rf/reg-machine :rf2-ndfjo/sup parent)
       (rf/dispatch-sync [:rf2-ndfjo/sup [:start]])
-      (let [ids (get-in (rf/app-db-value :rf/default)
-                        [:rf/runtime :machines :spawned :rf2-ndfjo/sup [:working] :children])]
+      (let [ids (get-in (rf/runtime-db-value :rf/default)
+                        [:rf.runtime/machines :spawned :rf2-ndfjo/sup [:working] :children])]
         (is (= 5 (count ids)) "five children spawned")
         ;; Complete a, b, c → join resolves at :n 3; d, e are cancelled
         ;; survivors; parent transitions :working → :ready (exit cascade).

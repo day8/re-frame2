@@ -38,7 +38,7 @@
   (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
 (defn- snapshot [machine-id]
-  (get-in (rf/app-db-value :rf/default) [:rf/runtime :machines :snapshots machine-id]))
+  (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/machines :snapshots machine-id]))
 
 ;; A two-region machine. Each region: :one -> :two on :go. No region handles
 ;; :all (only the root will). Used by several cases.

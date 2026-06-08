@@ -29,8 +29,8 @@
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 
-(defn- frame-db [] (rf/app-db-value :rf/default))
-(defn- snapshot [machine-id] (get-in (frame-db) [:rf/runtime :machines :snapshots machine-id]))
+(defn- frame-db [] (rf/runtime-db-value :rf/default))
+(defn- snapshot [machine-id] (get-in (frame-db) [:rf.runtime/machines :snapshots machine-id]))
 
 ;; ---- registration-time rejection of :timeout-ms ---------------------------
 
@@ -520,15 +520,15 @@
       (rf/reg-machine :child/auth child)
       (rf/reg-machine :sup/atimeout parent)
       (rf/dispatch-sync [:sup/atimeout [:go]])
-      (let [child-id (get-in (frame-db) [:rf/runtime :machines :spawned :sup/atimeout [:authenticating]])
+      (let [child-id (get-in (frame-db) [:rf.runtime/machines :spawned :sup/atimeout [:authenticating]])
             epoch    (get-in (snapshot :sup/atimeout) [:data :rf/after-epoch [:authenticating]])]
         (is (some? child-id) "spawn slot bound")
-        (is (some? (get-in (frame-db) [:rf/runtime :machines :snapshots child-id]))
+        (is (some? (get-in (frame-db) [:rf.runtime/machines :snapshots child-id]))
             "child snapshot exists")
         (rf/dispatch-sync [:sup/atimeout [:rf.machine.timer/after-elapsed 30000 epoch [:authenticating]]])
         (is (= :timed-out (:state (snapshot :sup/atimeout)))
             "parent transitioned via :after firing")
-        (is (nil? (get-in (frame-db) [:rf/runtime :machines :snapshots child-id]))
+        (is (nil? (get-in (frame-db) [:rf.runtime/machines :snapshots child-id]))
             "child machine destroyed via standard exit cascade")))))
 
 ;; ---- fn-form :after exception observability (rf2-c1tnr) -------------------

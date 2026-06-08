@@ -30,7 +30,7 @@
 (defn- snapshot
   "Read the snapshot for `machine-id` from the default frame's app-db."
   [machine-id]
-  (get-in (rf/app-db-value :rf/default) [:rf/runtime :machines :snapshots machine-id]))
+  (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/machines :snapshots machine-id]))
 
 (defn- seed-snapshot!
   "Force the snapshot for `machine-id` to a known value via an event-db, so
@@ -39,7 +39,7 @@
   [machine-id snap]
   (let [seed-id (keyword "test" (str "seed-" (namespace machine-id) "-" (name machine-id)))]
     (rf/reg-event-db seed-id
-      (fn [db _] (assoc-in db [:rf/runtime :machines :snapshots machine-id] snap)))
+      (fn [db _] (assoc-in db [:rf.runtime/machines :snapshots machine-id] snap)))
     (rf/dispatch-sync [seed-id])))
 
 ;; ---------------------------------------------------------------------------

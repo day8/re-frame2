@@ -27,7 +27,7 @@
 
 (defn- snapshot
   [machine-id]
-  (get-in (rf/app-db-value :rf/default) [:rf/runtime :machines :snapshots machine-id]))
+  (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/machines :snapshots machine-id]))
 
 (defn- capture-error-traces []
   (let [captured (atom [])
@@ -57,9 +57,9 @@
         ;; Seed an incompatible snapshot directly — a state that's no
         ;; longer in `:states`. Mirrors a hot-reload that dropped a
         ;; state while the snapshot was still live.
-        (frame/swap-frame-db! :rf/default
+        (frame/swap-runtime-db! :rf/default
                               assoc-in
-                              [:rf/runtime :machines :snapshots :compat/m1]
+                              [:rf.runtime/machines :snapshots :compat/m1]
                               {:state :gone
                                :data  {:user-stuff 42}})
         (rf/dispatch-sync [:compat/m1 [:go]])
@@ -111,9 +111,9 @@
         ;; Seed a partial snapshot missing :right — :left already final.
         ;; Pre-fix this validated and (with :right absent) could vacuously
         ;; read all-final and auto-destroy the machine with a region missing.
-        (frame/swap-frame-db! :rf/default
+        (frame/swap-runtime-db! :rf/default
                               assoc-in
-                              [:rf/runtime :machines :snapshots :compat/par-missing]
+                              [:rf.runtime/machines :snapshots :compat/par-missing]
                               {:state {:left :done} :data {:corrupt true}})
         (rf/dispatch-sync [:compat/par-missing [:noop]])
         (let [snap (snapshot :compat/par-missing)
@@ -138,9 +138,9 @@
       (try
         (rf/reg-machine :compat/par-extra spec)
         ;; Seed a snapshot with a stale :middle region a hot reload removed.
-        (frame/swap-frame-db! :rf/default
+        (frame/swap-runtime-db! :rf/default
                               assoc-in
-                              [:rf/runtime :machines :snapshots :compat/par-extra]
+                              [:rf.runtime/machines :snapshots :compat/par-extra]
                               {:state {:left :run :right :run :middle :run} :data {}})
         (rf/dispatch-sync [:compat/par-extra [:noop]])
         (let [snap (snapshot :compat/par-extra)
@@ -174,9 +174,9 @@
         (rf/reg-machine :compat/hist spec)
         ;; Seed a snapshot occupying the history pseudo-state — node-at
         ;; resolves it (pre-fix => validated), but it is never occupiable.
-        (frame/swap-frame-db! :rf/default
+        (frame/swap-runtime-db! :rf/default
                               assoc-in
-                              [:rf/runtime :machines :snapshots :compat/hist]
+                              [:rf.runtime/machines :snapshots :compat/hist]
                               {:state [:playing :hist] :data {:stale true}})
         (rf/dispatch-sync [:compat/hist [:go]])
         (let [snap (snapshot :compat/hist)
@@ -205,9 +205,9 @@
         ;; Seed an old-version snapshot — `:state` is otherwise valid
         ;; in the new definition (so we're isolating version-check
         ;; from state-not-in-definition).
-        (frame/swap-frame-db! :rf/default
+        (frame/swap-runtime-db! :rf/default
                               assoc-in
-                              [:rf/runtime :machines :snapshots :compat/m2]
+                              [:rf.runtime/machines :snapshots :compat/m2]
                               {:state :idle
                                :data  {:legacy true}
                                :meta  {:rf/snapshot-version 1}})
@@ -265,9 +265,9 @@
         (rf/reg-machine :compat/m4 spec)
         ;; Seed a snapshot whose version matches and whose :state is
         ;; in the definition.
-        (frame/swap-frame-db! :rf/default
+        (frame/swap-runtime-db! :rf/default
                               assoc-in
-                              [:rf/runtime :machines :snapshots :compat/m4]
+                              [:rf.runtime/machines :snapshots :compat/m4]
                               {:state :idle
                                :data  {:preserved true}
                                :meta  {:rf/snapshot-version 7}})

@@ -24,7 +24,7 @@
   The on-spawn callback fires inline during `apply-transition-once` (advisory
   — its return is dropped); the deterministic child id is read back from the
   runtime spawn-registry slot at
-  `[:rf/runtime :machines :spawned <parent> <invoke-id>]`.
+  `[:rf.runtime/machines :spawned <parent> <invoke-id>]`.
 
   Split out of `machines_cljs_test.cljs` (rf2-3vps4)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
@@ -41,7 +41,7 @@
 (defn- snapshot
   "Read the snapshot for `machine-id` from the default frame's app-db."
   [machine-id]
-  (get-in (rf/app-db-value :rf/default) [:rf/runtime :machines :snapshots machine-id]))
+  (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/machines :snapshots machine-id]))
 
 (deftest machine-spawn-cljs
   (testing ":spawn spawns child on entry and destroys it on exit"
@@ -52,7 +52,7 @@
            ;; Per Spec 005 §Declarative :spawn (rf2-grw4i / rf2-v0rrr):
            ;; on-spawn callback takes a single context-map. The callback is
            ;; advisory — its return is DROPPED and the runtime tracks the
-           ;; spawned id at [:rf/runtime :machines :spawned <parent> <invoke-id>]
+           ;; spawned id at [:rf.runtime/machines :spawned <parent> <invoke-id>]
            ;; regardless. Returns nil (observational; rf2-dtth6 warns on a
            ;; non-nil dropped return).
            {:auth/record-actor (fn [{:keys [id]}]
@@ -83,12 +83,12 @@
       (let [s (snapshot :auth3/flow)]
         (is (= :authenticating (:state s)))
         ;; Per rf2-grw4i / rf2-v0rrr `:on-spawn` is purely advisory —
-        ;; the runtime tracks the spawned id at [:rf/runtime :machines :spawned <parent>
+        ;; the runtime tracks the spawned id at [:rf.runtime/machines :spawned <parent>
         ;; <invoke-id>] instead of relying on the user-supplied callback
         ;; to write into `:data`.
         (is (= :http/post#1
-               (get-in (rf/app-db-value :rf/default)
-                       [:rf/runtime :machines :spawned :auth3/flow [:authenticating]]))
+               (get-in (rf/runtime-db-value :rf/default)
+                       [:rf.runtime/machines :spawned :auth3/flow [:authenticating]]))
             "runtime-tracked spawn slot binds the deterministic actor id"))
       (is (some (fn [ev]
                   (and (= :rf.machine.spawn/spawned (:operation ev))
@@ -231,8 +231,8 @@
                        (= :literal (:delay-source (:tags ev)))))
                 @traces)
           "expected :rf.machine.timer/scheduled with :delay-source :literal")
-      (let [child-id (get-in (rf/app-db-value :rf/default)
-                             [:rf/runtime :machines :spawned :sup/auth-after [:authenticating]])
+      (let [child-id (get-in (rf/runtime-db-value :rf/default)
+                             [:rf.runtime/machines :spawned :sup/auth-after [:authenticating]])
             epoch    (get-in (snapshot :sup/auth-after) [:data :rf/after-epoch [:authenticating]])]
         (is (some? child-id) "spawn slot bound to the spawned child id")
         (reset! traces [])
@@ -241,8 +241,8 @@
         (rf/dispatch-sync [:sup/auth-after [:rf.machine.timer/after-elapsed 30000 epoch [:authenticating]]])
         (is (= :timed-out (:state (snapshot :sup/auth-after)))
             "parent transitioned :authenticating → :timed-out via :after firing")
-        (is (nil? (get-in (rf/app-db-value :rf/default)
-                          [:rf/runtime :machines :snapshots child-id]))
+        (is (nil? (get-in (rf/runtime-db-value :rf/default)
+                          [:rf.runtime/machines :snapshots child-id]))
             "child machine snapshot torn down by the standard exit cascade"))
       (trace-tooling/unregister-listener! ::ato))))
 

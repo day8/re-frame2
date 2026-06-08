@@ -47,7 +47,7 @@
        :cljs {:adapter reagent-adapter/adapter})))
 
 (defn- snapshot [machine-id]
-  (get-in (rf/app-db-value :rf/default) [:rf/runtime :machines :snapshots machine-id]))
+  (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/machines :snapshots machine-id]))
 
 (deftest dispatch-to-system-fx-reaches-spawned-actor
   (testing "a machine action's [:rf.machine/dispatch-to-system [<sys> [:msg]]]

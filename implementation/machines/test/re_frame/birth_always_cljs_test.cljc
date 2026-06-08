@@ -291,7 +291,7 @@
 (defn- snapshot
   "Read the snapshot for `machine-id` from the default frame's app-db."
   [machine-id]
-  (get-in (rf/app-db-value :rf/default) [:rf/runtime :machines :snapshots machine-id]))
+  (get-in (rf/runtime-db-value :rf/default) [:rf.runtime/machines :snapshots machine-id]))
 
 (deftest live-eager-start-settles-birth-always
   (testing "(a) eager `[:rf.machine/start]` — a transient initial leaf whose
