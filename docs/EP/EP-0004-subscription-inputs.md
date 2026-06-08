@@ -130,7 +130,7 @@ This is a Reactive Substrate proposal that other view-model EPs build on:
 - **Composes with explicit frame target resolution.** Input query vectors are
   frame-agnostic data; the runtime resolves them in the frame of the outer
   subscription. See the [Explicit Frame Target Resolution
-  EP](EP-0002-frame-target-resolution.md) (listed under `Requires`) and the
+  EP](EP-0002-frame-target-resolution.md) and the
   [§Frame resolution](#frame-resolution) section below.
 
 ## Specification

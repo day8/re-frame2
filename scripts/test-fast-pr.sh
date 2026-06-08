@@ -16,9 +16,10 @@ set -euo pipefail
 #   scripts/test-fast-pr.sh --no-docs    skip markdown gates even if .md changed
 #
 # Markdown-gate components:
-#   1. python scripts/check_readme_links.py — README anchor + target validator
-#   2. python scripts/check_doc_slugs.py    — docs corpus anchor validator
-#   3. mkdocs build --strict (when mkdocs on PATH; soft-skip on Windows when not)
+#   1. python scripts/check_readme_links.py     — README anchor + target validator
+#   2. python scripts/check_doc_slugs.py        — docs corpus anchor validator
+#   3. python scripts/check_ep_status_sync.py   — docs/EP index status-sync guard
+#   4. mkdocs build --strict (when mkdocs on PATH; soft-skip on Windows when not)
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
@@ -154,6 +155,16 @@ if [ "$markdown_changed" = "true" ]; then
 
   run "docs corpus anchor validator" "python scripts/check_doc_slugs.py" \
     python "$repo_root/scripts/check_doc_slugs.py"
+
+  # EP index status-sync guard (rf2-8cw3m7): docs/EP/README.md restates each
+  # EP's Status: line in its index table; the two drift by hand (EP-0001 sat at
+  # `accepted` while the index still said `proposal`).  Self-test first (proves
+  # the guard fires on mismatch / missing-row / orphan-row), then the live scan.
+  run "EP status-sync self-test" "python scripts/check_ep_status_sync.py --self-test" \
+    python "$repo_root/scripts/check_ep_status_sync.py" --self-test
+
+  run "EP status-sync" "python scripts/check_ep_status_sync.py" \
+    python "$repo_root/scripts/check_ep_status_sync.py"
 
   run_soft "mkdocs --strict build" "mkdocs build --strict" mkdocs \
     bash -lc "cd '$repo_root' && mkdocs build --strict"
