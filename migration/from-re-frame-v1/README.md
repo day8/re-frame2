@@ -352,7 +352,7 @@ Why: per [Spec-Schemas §:rf/effect-map](../../spec/Spec-Schemas.md#rfeffect-map
              :fx [[:dispatch [:bar]]]}))
 
 (rf/reg-event-fx :baz
-  (fn [_ _] {:fx [[:dispatch-later {:ms 100 :dispatch [:tick]}]]}))
+  (fn [_ _] {:fx [[:dispatch-later {:ms 100 :event [:tick]}]]}))
 
 (rf/reg-event-fx :many
   (fn [_ _] {:fx [[:dispatch [:a]] [:dispatch [:b]] [:dispatch [:c]]]}))
@@ -370,6 +370,7 @@ Why: per [Spec-Schemas §:rf/effect-map](../../spec/Spec-Schemas.md#rfeffect-map
 3. Rewriting:
    - Single value (`:dispatch [:foo]`, `:http {:url ...}`, or a custom `:datadog/log {...}`): wrap as `[[:key value]]` inside `:fx`.
    - Vector of values (`:dispatch-n [[:a] [:b]]`, `:dispatch-later [{...} {...}]`): expand to `:fx [[:key v1] [:key v2] ...]`.
+   - **`:dispatch-later` map key rename** — v1's `:dispatch-later` map used `:dispatch` for the event-to-dispatch (`{:ms n :dispatch [:ev]}`); the v2 fx reads **`:event`** (`{:ms n :event [:ev]}`). Rename the key as you expand each map — `:dispatch-later [{:ms 100 :dispatch [:tick]}]` → `:fx [[:dispatch-later {:ms 100 :event [:tick]}]]`. A left-behind `:dispatch` key compiles and runs but the fx silently ignores it and the deferred event never fires.
 4. If the effect map already has a `:fx`, concat: `:fx (into existing-fx new-fx)`.
 5. Remove the rewritten top-level keys.
 
@@ -583,7 +584,7 @@ Treat this as a stopgap, not the destination: carrying `:rf/runtime` forward acr
 
 **Type A** (mechanical).
 
-re-frame v1 supported a `^:flush-dom` metadata on dispatched event vectors that forced a DOM repaint between handlers — used for the "show modal, then run a synchronous block" pattern. re-frame2 doesn't carry this metadata. The modern equivalent inside an effect map is `:dispatch-later {:ms 0 :dispatch <event-vec>}`, which schedules through the host clock primitive (via `re-frame.interop`) and yields one render tick before the next handler runs.
+re-frame v1 supported a `^:flush-dom` metadata on dispatched event vectors that forced a DOM repaint between handlers — used for the "show modal, then run a synchronous block" pattern. re-frame2 doesn't carry this metadata. The modern equivalent inside an effect map is `:dispatch-later {:ms 0 :event <event-vec>}`, which schedules through the host clock primitive (via `re-frame.interop`) and yields one render tick before the next handler runs.
 
 The rule has **two sub-cases** depending on where the `^:flush-dom` form appears: inside a `reg-event-fx` handler's effect map (M-16a) or at the top level as a direct `dispatch` call (M-16b). The mechanical rewrite for (a) compiles and runs unchanged; (b) compiles AND superficially looks like the (a) rewrite, but **throws at runtime** because `rf/dispatch-later` is not a function in v2. (b) needs a different rewrite.
 
@@ -603,7 +604,7 @@ Wrap the dispatched event in a `:dispatch-later` fx with `{:ms 0}` inside the ef
  :db        (assoc db :processing-X true)}
 
 ;; re-frame2
-{:fx [[:dispatch-later {:ms 0 :dispatch [:do-work-process-x]}]]
+{:fx [[:dispatch-later {:ms 0 :event [:do-work-process-x]}]]
  :db (assoc db :processing-X true)}
 ```
 
@@ -618,7 +619,7 @@ v1 also allowed `^:flush-dom` on a top-level `dispatch` call — typically in ap
 (rf/dispatch ^:flush-dom [:bootstrap])
 ```
 
-The mechanical M-16a rewrite (`{:fx [[:dispatch-later {:ms 0 :dispatch [:bootstrap]}]]}`) does NOT apply at the top level — effect maps only exist inside a `reg-event-fx` handler. A naïve port to `(rf/dispatch-later {:ms 0 :dispatch [:bootstrap]})` also fails: **`rf/dispatch-later` is NOT a function in re-frame2** — it exists only as an fx-id consumed by the `:fx` runner. The form compiles (the symbol resolves; CLJS doesn't arity-check at compile time) but throws at runtime as the `dispatch-later` symbol resolves to `nil` or raises an arity error depending on host.
+The mechanical M-16a rewrite (`{:fx [[:dispatch-later {:ms 0 :event [:bootstrap]}]]}`) does NOT apply at the top level — effect maps only exist inside a `reg-event-fx` handler. A naïve port to `(rf/dispatch-later {:ms 0 :event [:bootstrap]})` also fails: **`rf/dispatch-later` is NOT a function in re-frame2** — it exists only as an fx-id consumed by the `:fx` runner. The form compiles (the symbol resolves; CLJS doesn't arity-check at compile time) but throws at runtime as the `dispatch-later` symbol resolves to `nil` or raises an arity error depending on host.
 
 **Pick one of two rewrites depending on intent.**
 
@@ -637,7 +638,7 @@ re-frame2's run-to-completion drain (per [M-3](#m-3-dispatch-ordering--events-di
 ;; re-frame2 (ii) — wrap in a one-shot trampoline
 (rf/reg-event-fx :rf/dispatch-later-once
   (fn [_ [_ ev]]
-    {:fx [[:dispatch-later {:ms 0 :dispatch ev}]]}))
+    {:fx [[:dispatch-later {:ms 0 :event ev}]]}))
 
 ;; at the call site
 (rf/dispatch [:rf/dispatch-later-once [:bootstrap]])

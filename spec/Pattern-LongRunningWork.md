@@ -150,7 +150,7 @@ re-frame v1 had a `^:flush-dom` event-vector metadata that forced a DOM flush be
 (rf/reg-event-fx :process/start
   (fn [{:keys [db]} _]
     {:db (assoc db :processing? true)                          ;; modal renders next tick
-     :fx [[:dispatch-later {:ms 0 :dispatch [:process/run]}]]}));; yield, then run
+     :fx [[:dispatch-later {:ms 0 :event [:process/run]}]]}));; yield, then run
 
 (rf/reg-event-fx :process/run
   (fn [{:keys [db]} _]

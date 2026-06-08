@@ -24,7 +24,7 @@ Anything in `:fx` is a `[fx-id args]` pair. The runtime looks up `fx-id` in the 
 | `[fx-id args]` | Args | Status | Spec | Intuition |
 |---|---|---|---|---|
 | `[:dispatch event-vec]` | event vector | v1 | 002 | "Schedule this event on the same queue." Async — runs after the current cascade completes. |
-| `[:dispatch-later {:ms ms :dispatch event-vec}]` | options map | v1 | 002 | "Schedule this event after N ms." |
+| `[:dispatch-later {:ms ms :event event-vec}]` | options map | v1 | 002 | "Schedule this event after N ms." |
 | `[:rf.http/managed args-map]` | per `:rf.fx/managed-args` | v1 (optional) | 014 | The canonical managed-HTTP fx. See [07 — HTTP](07-http.md). |
 | `[:rf.nav/push-url url-string]` | URL string | v1 | 012 | Navigate. See [06 — Routing](06-routing.md). |
 | `[:raise event-vec]` | event vector | v1 | 005 | **Machine-only.** Inside a machine action's `:fx`, routes the event back into the same machine atomically and pre-commit. Unbound outside machine actions. |

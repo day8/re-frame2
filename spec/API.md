@@ -452,7 +452,7 @@ Standard `:fx` entries:
 | `[fx-id args]` | Args | Status | Spec | Notes |
 |---|---|---|---|---|
 | `[:dispatch [event-id ...]]` | event vector | v1 | 002 | |
-| `[:dispatch-later {:ms ms :dispatch event-vec}]` | options map | v1 | 002 | |
+| `[:dispatch-later {:ms ms :event event-vec}]` | options map | v1 | 002 | |
 | `[:http args]` | impl-specific | — | — | user-registered via `reg-fx`. |
 | `[:rf.http/managed args-map]` | args per [014 §The args map](014-HTTPRequests.md#the-args-map) | v1 (optional capability) | 014 | Framework-provided when the implementation ships Spec 014. CLJS reference: ships on Fetch + JVM `HttpClient`. See also `:rf.http/managed-abort`, `:rf.http/managed-canned-success`, `:rf.http/managed-canned-failure`. |
 | `[:rf.nav/push-url url-string]` | URL string | v1 | 012 | |

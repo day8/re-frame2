@@ -17,7 +17,7 @@
        handler body (the rf2-yf97 case).
     3. `:fx [[:dispatch ...]]` from a `reg-event-fx` handler (the
        documented workaround).
-    4. `:fx [[:dispatch-later {:ms 0 :dispatch ...}]]` and the
+    4. `:fx [[:dispatch-later {:ms 0 :event ...}]]` and the
        `(:dispatch (rf/frame-handle))` capture-at-creation affordance.
 
   Per rf2-l5q3 the fix routes through `process-event!`: the drain
