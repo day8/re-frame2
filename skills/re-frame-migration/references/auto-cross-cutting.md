@@ -11,7 +11,7 @@ For the *why* of each rule, see [`MIGRATION.md`](../../../migration/from-re-fram
 - Listener-registration verb unification (M-55)
 - `:rf.http/managed` `:retry :on` closed-set (M-31b)
 - Interceptor list cleanup (M-21 mechanical half)
-- Bare interceptor → `[vector]` wrap (M-70 — mechanical, but **SILENT-fail**: grep up front)
+- Bare interceptor → `[vector]` wrap (M-70 — mechanical; **loud-at-runtime, not loud-at-compile**: structural grep up front)
 - View / hiccup rewrites (M-22, M-24)
 - `reg-event-fx` shape (M-26 mechanical half)
 - Init / adapter (M-40 — **Type B**; shape is here, the decision is asked-first)
@@ -181,9 +181,9 @@ If the interceptor list becomes empty after dropping `debug`/`trim-v`, drop the 
 
 ---
 
-## Bare interceptor → `[vector]` wrap (M-70 — mechanical, but SILENT-fail)
+## Bare interceptor → `[vector]` wrap (M-70 — mechanical; loud-at-runtime, not loud-at-compile)
 
-v2's `reg-event-db` / `reg-event-fx` / `reg-event-ctx` require the interceptors slot (the 2nd arg, between id and handler) to be a **vector**. A **bare** (non-vector) interceptor in that slot is **silently dropped** — its `:before` / `:after` never run, with no error or warning at registration or dispatch. v1 tolerated the bare form (it wrapped/flattened a single interceptor), so a v1 app carries it pervasively. Wrap each in a vector:
+v2's `reg-event-db` / `reg-event-fx` / `reg-event-ctx` require the interceptors slot (the 2nd arg, between id and handler) to be a **vector**. A **bare** (non-vector) interceptor in that slot now **throws `:rf.error/reg-event-bare-interceptor` at registration / ns-load** (the rf2-3ut12 guard landed; it was silently dropped before). v1 tolerated the bare form (it wrapped/flattened a single interceptor), so a v1 app carries it pervasively. Wrap each in a vector:
 
 ```clojure
 ;; SEARCH — bare interceptor (Var, inline ->interceptor, inject-cofx, path, …)
@@ -195,15 +195,16 @@ v2's `reg-event-db` / `reg-event-fx` / `reg-event-ctx` require the interceptors 
  <handler>)
 ```
 
-The rewrite is mechanical (`mw/x` → `[mw/x]`), but **this rule is SILENT-fail, not loud** — a missed site compiles clean and runs; the interceptor just never fires (see [`breaking-changes.md` §Failure-visibility axis](breaking-changes.md#failure-visibility-axis--loud-fail-vs-silent-fail-orthogonal-to-type-ab), silent-fail register, M-70). So **grep every `reg-event-*` site up front and inspect the 2nd-arg shape at each** — do NOT march-the-wall (the compiler never points you at the next occurrence):
+The rewrite is mechanical (`mw/x` → `[mw/x]`), and **this rule is loud-at-runtime — but NOT loud-at-compile**. The throw fires at ns-load / first page-load, so a missed site **compiles clean** and only detonates when the app boots — where it **aborts the offending ns's load** (everything after it, incl. a boot machine's `reg-machine`, never registers → the app hangs). So the *compiler* can't find them: **grep every `reg-event-*` site up front and inspect the 2nd-arg SHAPE at each** — do NOT march-the-wall (the compiler never points you at the next occurrence), and the **boot smoke-test** ([`runtime-smoke-test.md`](runtime-smoke-test.md)) surfaces any survivor's throw on the console:
 
 ```bash
 # Surface every reg-event-* registration; a hit = the form after the id is
-# NOT a [ vector and NOT the handler fn / metadata map.
+# NOT a [ vector and NOT the handler fn / metadata map. STRUCTURAL — flag ANY
+# bare interceptor (custom, mw/*, registered, rf/unwrap), not only rf/unwrap.
 rg -n '\(rf/reg-event-(db|fx|ctx)\b' src
 ```
 
-A `{:doc … :schema …}` metadata map in the 2nd slot (M-70 is **not** triggered — that's the O-1 metadata shape) and an already-`[vector]` slot are both fine; only a bare *interceptor* value is the M-70 trigger. The framework is gaining a registration guard that will make this **loud** (error/warn on a non-vector interceptors arg — rf2-3ut12); until it lands, the up-front grep is the only detector.
+A `{:doc … :schema …}` metadata map in the 2nd slot (M-70 is **not** triggered — that's the O-1 metadata shape) and an already-`[vector]` slot are both fine; only a bare *interceptor* value is the M-70 trigger. The detection is **by slot-shape, not by interceptor identity** — a real worker missed a bare `mw/complete-progress` by anchoring on `unwrap`; flag any non-vector in the slot. The registration guard has landed (rf2-3ut12 — throws `:rf.error/reg-event-bare-interceptor`), but because it's loud-at-*runtime* only, the structural up-front grep + boot smoke-test remain the detectors.
 
 ---
 
