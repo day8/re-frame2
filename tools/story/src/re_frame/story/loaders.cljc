@@ -28,8 +28,10 @@
   expressed as a `re-frame.machines` machine — NOT ad-hoc state
   tracking. The machine is registered at Story-boot under the id
   `:rf.story.lifecycle/machine`. Each variant frame holds its own
-  snapshot at `[:rf/runtime :machines :snapshots :rf.story.lifecycle/machine]` and mirrors
-  the discrete state at `[:rf.story/lifecycle]` for direct read access.
+  snapshot at `[:rf.runtime/machines :snapshots :rf.story.lifecycle/machine]`
+  in the runtime-db partition (EP-0001 rf2-vzld77 — machine snapshots are
+  durable framework state) and mirrors the discrete state at
+  `[:rf.story/lifecycle]` (in app-db) for direct read access.
 
   The transitions are driven by the runtime dispatching synthetic
   events into the variant frame:
@@ -63,14 +65,15 @@
 
 (def lifecycle-machine-id
   "Stable id for Story's lifecycle machine. One registration; per-
-  variant snapshots live at `[:rf/runtime :machines :snapshots :rf.story.lifecycle/machine]`
-  inside each variant frame's app-db."
+  variant snapshots live at
+  `[:rf.runtime/machines :snapshots :rf.story.lifecycle/machine]` inside each
+  variant frame's runtime-db partition (EP-0001 rf2-vzld77)."
   :rf.story.lifecycle/machine)
 
 (def state-mirror-path
   "Side-mirror path. After every transition the lifecycle's `:action`
   copies the new discrete state to `[:rf.story/lifecycle]` so callers
-  can read it without the `:rf/runtime :machines :snapshots` indirection."
+  can read it without the `:rf.runtime/machines :snapshots` indirection."
   [:rf.story/lifecycle])
 
 ;; ---- transition vocabulary -----------------------------------------------
@@ -184,17 +187,20 @@
 ;; ---- per-frame snapshot reads --------------------------------------------
 
 (defn snapshot
-  "Read the lifecycle machine's snapshot from a frame's app-db. Returns
-  `{:state <state-kw> :data {...}}` or nil if the machine hasn't fired
-  yet on this frame.
+  "Read the lifecycle machine's snapshot from a frame's runtime-db
+  partition. Returns `{:state <state-kw> :data {...}}` or nil if the
+  machine hasn't fired yet on this frame.
 
-  `rf/app-db-value` returns the value-form app-db map (per Spec 002
-  §Public registrar query API); we then `get-in` to the machine's
-  snapshot slot."
+  EP-0001 (rf2-vzld77): machine snapshots are durable framework state and
+  live in the `:rf.db/runtime` partition at
+  `[:rf.runtime/machines :snapshots <machine-id>]`, NOT in app-db.
+  `rf/runtime-db-value` returns the value-form runtime-db map (per Spec 002
+  §Public registrar query API); we then `get-in` to the machine's snapshot
+  slot."
   [frame-id]
-  (let [db (rf/app-db-value frame-id)]
-    (when db
-      (get-in db [:rf/runtime :machines :snapshots lifecycle-machine-id]))))
+  (let [rt (rf/runtime-db-value frame-id)]
+    (when rt
+      (get-in rt [:rf.runtime/machines :snapshots lifecycle-machine-id]))))
 
 (defn current-state
   "Return the lifecycle's current discrete state (`:pre-mount`,

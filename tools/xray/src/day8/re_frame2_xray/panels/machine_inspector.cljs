@@ -45,9 +45,10 @@
   (:require [clojure.string :as str]
             [re-frame.core :as rf]
             ;; rf2-kq8nac (EP-0005) — the snapshot-egress chokepoint. The
-            ;; LIVE machine-snapshots sub reads the RAW app-db slot
-            ;; `[:rf/runtime :machines :snapshots]`, which is NOT egress-
-            ;; projected (it is the live frame-db value, not a trace). To
+            ;; LIVE machine-snapshots sub reads the RAW runtime-db slot
+            ;; `[:rf.runtime/machines :snapshots]` (EP-0001 rf2-vzld77 —
+            ;; machine snapshots are durable runtime-db state), which is NOT
+            ;; egress-projected (it is the live frame-db value, not a trace). To
             ;; keep the panel's `:data` display honest, route each live
             ;; snapshot through the SAME `project-trace-event` chokepoint
             ;; the trace stream uses, so a `:sensitive?` / `:large?`
@@ -168,8 +169,8 @@
 
 ;; ---- live-snapshot egress redaction (rf2-kq8nac · EP-0005) --------------
 ;;
-;; The LIVE machine snapshots read straight off the frame-db slot
-;; `[:rf/runtime :machines :snapshots]` have NOT passed through the
+;; The LIVE machine snapshots read straight off the runtime-db slot
+;; `[:rf.runtime/machines :snapshots]` (EP-0001 rf2-vzld77) have NOT passed through the
 ;; snapshot-egress redactor `re-frame.marks/project-machine-tags` (that
 ;; runs at trace-emit, on the trace stream — not on a direct frame-db
 ;; read). A machine declaring a `:sensitive?` / `:large?` slot in its
@@ -696,7 +697,8 @@
   ;; The live snapshots map for every registered machine.
   ;;
   ;; rf2-kq8nac (EP-0005) — EGRESS-REDACTED. The raw slot
-  ;; `[:rf/runtime :machines :snapshots]` is the LIVE frame-db value, NOT
+  ;; `[:rf.runtime/machines :snapshots]` (EP-0001 rf2-vzld77 — runtime-db
+  ;; partition) is the LIVE frame-db value, NOT
   ;; a trace, so it has NOT passed through the snapshot-egress redactor
   ;; (`re-frame.marks/project-machine-tags`) the trace stream rides. The
   ;; trace-derived `:before` / `:after` the mini-pipeline renders ARE
@@ -712,11 +714,11 @@
   ;; passes through untouched (reference-preserving fast path inside
   ;; `project-machine-tags`).
   (rf/reg-sub :rf.xray/machine-snapshots
-    :<- [:rf.xray/target-frame-db]
-    (fn [target-frame-db _query]
-      (when (map? target-frame-db)
-        (let [snapshots (get-in target-frame-db
-                                [:rf/runtime :machines :snapshots] {})]
+    :<- [:rf.xray/target-frame-runtime-db]
+    (fn [target-runtime-db _query]
+      (when (map? target-runtime-db)
+        (let [snapshots (get-in target-runtime-db
+                                [:rf.runtime/machines :snapshots] {})]
           (redact-live-snapshots snapshots)))))
 
   (rf/reg-sub :rf.xray/machine-snapshots-override

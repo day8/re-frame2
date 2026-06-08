@@ -921,8 +921,10 @@ SHARED mini-pipeline cascade (and the Epoch panel's EVENT HANDLER step,
 which shares the projection).
 
 The **LIVE** machine-snapshots sub (`:rf.xray/machine-snapshots`) is the
-one path that reads the RAW frame-db slot `[:rf/runtime :machines
-:snapshots]` directly rather than a trace, so it has NOT passed through
+one path that reads the RAW frame-db slot `[:rf.runtime/machines
+:snapshots]` (EP-0001 rf2-vzld77 — machine snapshots are durable
+runtime-db state, sourced via `:rf.xray/target-frame-runtime-db`)
+directly rather than a trace, so it has NOT passed through
 the egress redactor. The panel therefore routes each live snapshot
 through the SAME `project-trace-event` chokepoint (as a synthetic
 `:rf.machine/snapshot-updated` event) on read, so a `:sensitive?`
