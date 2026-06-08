@@ -212,3 +212,113 @@
     (let [m (marks/marks-for :event auth-id)]
       (is (= #{[:data :token] [:data :extra]} (set (:sensitive m)))
           "union-marks! preserves the schema-sourced path"))))
+
+;; ---- (5) SPAWNED-INSTANCE egress redaction (rf2-fm1cpl) -------------------
+;;
+;; A spawned actor's `:rf.machine/transition` / `:rf.machine/snapshot-updated`
+;; trace carries `:machine-id` = the INSTANCE id (`<type>#<n>` or the explicit
+;; `:spawn-id`), NOT the type id. `project-machine-tags` resolves redaction
+;; marks via `(marks-for :event <machine-id>)`, so the TYPE's `:data-schema`
+;; marks (keyed under the type id at `reg-machine` time) do NOT cover an
+;; instance-id trace. rf2-fm1cpl re-runs the schema bridge at SPAWN time keyed
+;; under the spawned instance id so a spawned actor's `:sensitive?` `:data`
+;; slot redacts in egress exactly like a singleton's.
+
+(def ^:private spawn-type-id :rf.machine-redaction/spawn-worker)
+
+(defn- frame-db []
+  (rf/app-db-value :rf/default))
+
+(deftest spawned-instance-gets-schema-marks-keyed-under-instance-id
+  (testing "spawning an actor whose TYPE carries a :sensitive? / :large?
+            :data-schema registers the SAME schema-derived marks under the
+            SPAWNED INSTANCE id (the id its transition trace carries)"
+    ;; The spawned worker type carries auth-schema (token :sensitive?, blob
+    ;; :large?). A supervisor spawns one instance on entry to :working.
+    (rf/reg-machine spawn-type-id
+      {:initial     :anon
+       :data        {:retries 0 :token nil :blob nil}
+       :data-schema auth-schema
+       :states      {:anon {} :authed {}}})
+    (rf/reg-machine :rf.machine-redaction/sup
+      {:initial :idle
+       :states  {:idle    {:on {:start :working}}
+                 :working {:spawn {:machine-id spawn-type-id}}}})
+    (rf/dispatch-sync [:rf.machine-redaction/sup [:start]])
+    (let [spawned-id (get-in (frame-db)
+                             [:rf/runtime :machines :spawned
+                              :rf.machine-redaction/sup [:working]])
+          inst-marks (marks/marks-for :event spawned-id)]
+      (is (some? spawned-id) "an actor instance was spawned")
+      (is (some? inst-marks)
+          "a marks entry exists keyed under the SPAWNED INSTANCE id")
+      (is (= #{[:data :token]} (set (:sensitive inst-marks)))
+          ":sensitive? slot bridged under the instance id, snapshot-rooted")
+      (is (= #{[:data :blob]} (set (:large inst-marks)))
+          ":large? slot bridged under the instance id"))))
+
+(deftest spawned-instance-data-redacted-in-egress
+  (testing "a :rf.machine/transition trace keyed by the SPAWNED INSTANCE id
+            redacts the :sensitive? :data slot — the leak rf2-fm1cpl closes"
+    (rf/reg-machine spawn-type-id
+      {:initial     :anon
+       :data        {:retries 0 :token nil :blob nil}
+       :data-schema auth-schema
+       :states      {:anon {} :authed {}}})
+    (rf/reg-machine :rf.machine-redaction/sup
+      {:initial :idle
+       :states  {:idle    {:on {:start :working}}
+                 :working {:spawn {:machine-id spawn-type-id}}}})
+    (rf/dispatch-sync [:rf.machine-redaction/sup [:start]])
+    (let [spawned-id (get-in (frame-db)
+                             [:rf/runtime :machines :spawned
+                              :rf.machine-redaction/sup [:working]])
+          ;; Synthesise the instance's transition trace exactly as the
+          ;; handler emits it: :machine-id = the instance id, :data carrying
+          ;; a live secret token + large blob.
+          ev   {:operation :rf.machine/transition
+                :tags      {:machine-id spawned-id
+                            :frame      :rf/default
+                            :after      {:state :authed
+                                         :data  {:retries 1
+                                                 :token   "secret-jwt-spawned"
+                                                 :blob    "huge-spawned"}}}}
+          out  (marks/project-trace-event ev)
+          tags (:tags out)]
+      (is (= :rf/redacted (get-in tags [:after :data :token]))
+          "spawned instance's :sensitive? :data slot redacts at egress")
+      (is (contains? (get-in tags [:after :data :blob]) :rf.size/large-elided)
+          "spawned instance's :large? :data slot elides at egress")
+      (is (= 1 (get-in tags [:after :data :retries]))
+          "plain sibling rides verbatim")
+      (is (not (.contains (pr-str out) "secret-jwt-spawned"))
+          "no raw spawned-instance secret leaked into the projected trace"))))
+
+(deftest inline-definition-spawn-also-bridges-schema-marks
+  (testing "an inline-:definition spawn (no registered type) also bridges its
+            :data-schema marks under the instance id"
+    ;; The supported inline-:definition spawn form is the fx-emitted
+    ;; `[:rf.machine/spawn {:spawn-id <id> :definition <spec>}]` from an
+    ;; :entry action (mirrors machine_schema_test). The instance id is the
+    ;; explicit :spawn-id; the resolved :definition carries the :data-schema.
+    (let [inst-id    :rf.machine-redaction/inline-instance
+          child-spec {:initial     :anon
+                      :data        {:retries 0 :token nil :blob nil}
+                      :data-schema auth-schema
+                      :states      {:anon {} :authed {}}}]
+      (rf/reg-machine :rf.machine-redaction/sup-inline
+        {:initial :starting
+         :states  {:starting {:on {:go :spawning}}
+                   :spawning {:entry (fn [_]
+                                       {:fx [[:rf.machine/spawn
+                                              {:spawn-id   inst-id
+                                               :definition child-spec}]]})}}})
+      (rf/dispatch-sync [:rf.machine-redaction/sup-inline [:noop]])
+      (rf/dispatch-sync [:rf.machine-redaction/sup-inline [:go]])
+      (let [inst-marks (marks/marks-for :event inst-id)]
+        (is (some? (get-in (frame-db) [:rf/runtime :machines :snapshots inst-id]))
+            "an inline-definition actor was spawned")
+        (is (= #{[:data :token]} (set (:sensitive inst-marks)))
+            "inline-definition :data-schema :sensitive? slot bridged under the instance id")
+        (is (= #{[:data :blob]} (set (:large inst-marks)))
+            "inline-definition :data-schema :large? slot bridged under the instance id")))))

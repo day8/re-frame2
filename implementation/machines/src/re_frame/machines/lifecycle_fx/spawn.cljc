@@ -25,6 +25,7 @@
   (:require [re-frame.frame :as frame]
             [re-frame.late-bind :as late-bind]
             [re-frame.machines.data-validation :as data-validation]
+            [re-frame.machines.lifecycle-fx.registration :as registration]
             [re-frame.machines.parallel :as parallel]
             [re-frame.machines.paths :as paths]
             [re-frame.machines.spawn-order :as spawn-order]
@@ -323,6 +324,25 @@
                          :spawn-id invoke-id
                          :track?    track?
                          :type-ref  type-ref})
+        ;; Per rf2-fm1cpl — bridge the spawned actor's `:data-schema`
+        ;; `:sensitive?` / `:large?` markers into snapshot-egress redaction
+        ;; KEYED UNDER THE INSTANCE ID. A spawned actor's
+        ;; `:rf.machine/transition` / `:rf.machine/snapshot-updated` trace
+        ;; carries `:machine-id` = the INSTANCE id (`<type>#<n>` or the
+        ;; explicit `:spawn-id`), and `re-frame.marks/project-machine-tags`
+        ;; resolves marks via `(marks-for :event <machine-id>)`. The TYPE's
+        ;; `:data-schema` marks (bridged at `reg-machine*` time) key under the
+        ;; TYPE id, so an instance-id trace's lookup would MISS and a
+        ;; `:sensitive?` `:data` slot would egress RAW. Re-running the SAME
+        ;; bridge (`registration/register-data-schema-marks!`) under
+        ;; `spawned-id` keys the schema-derived marks under the id the trace
+        ;; actually carries — covering both registered-type (`:machine-id`)
+        ;; and inline (`:definition`) spawns via the resolved `spec''`'s
+        ;; `:data-schema`. The bridge itself rides `interop/debug-enabled?`
+        ;; (the egress surface it feeds is gated), so this is dead-elided in
+        ;; production builds. `prior-marks` nil — a per-instance id has no
+        ;; manual `register-marks!` to compose with.
+        (registration/register-data-schema-marks! spawned-id spec'' nil)
         ;; Per rf2-vsigt — record the spawned actor in the frame's
         ;; spawn-order channel so frame-destroy can walk in reverse-
         ;; creation order per Spec 005 §Cross-Spec Interactions §1.
