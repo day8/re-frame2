@@ -1000,3 +1000,117 @@
           {:keys [nodes edges]} (layout/project-definition m)]
       (is (empty? (filter :parallel-root? nodes)))
       (is (empty? (filter :on-done? edges))))))
+
+;; ---- root parallel `:on` projection (rf2-3v3gv1) ------------------------
+;;
+;; A `:type :parallel` machine's OWN top-level `:on` is the ANCESTOR FALLBACK
+;; for its regions (Spec 005 §Root parallel `:on`, verified against
+;; xstate@5.32.0). Shipped runtime semantics: when no region-local transition
+;; handles the event the root `:on` fires, moving one or more REGION-QUALIFIED
+;; targets atomically (untargeted regions stay put). Pre-rf2-3v3gv1 the chart
+;; projection modelled the per-region `:on` fallbacks but DROPPED the parallel
+;; root's own `:on` entirely — so Xray could neither render the transition in
+;; topology nor highlight it on a focused event. The projection now sources
+;; each root `:on` edge from the synthetic MACHINE-ROOT chip into the region-
+;; scoped target node (a targetless action-only root `:on` self-anchors on the
+;; chip as an internal affordance).
+
+(deftest project-definition-parallel-root-on-single-region-target
+  (testing "rf2-3v3gv1 — a root :on targeting ONE region `[:a :two]` projects
+            ONE edge from the MACHINE-ROOT chip into region :a's :two node"
+    ;; Mirrors spec/conformance/fixtures/parallel-root-on-single-region-target.
+    (let [m {:type    :parallel
+             :on      {:one {:target [:a :two]}}
+             :regions {:a {:initial :one :states {:one {} :two {}}}
+                       :b {:initial :one :states {:one {} :two {}}}}}
+          {:keys [nodes edges]} (layout/project-definition m)
+          root-ons (filter :parallel-root-on? edges)]
+      (is (= 1 (count root-ons)) "exactly one root-:on edge")
+      (let [e (first root-ons)]
+        (is (true? (:machine-level? e)) "flagged as an inherited fallback")
+        (is (= [] (:from-path e)) "sourced from the root context")
+        (is (= [:a :two] (:to-path e)) "region-qualified target path")
+        (is (= :one (:event e)))
+        (is (= layout/machine-root-id (:source e))
+            "sourced from the synthetic MACHINE-ROOT chip")
+        (is (= (layout/region-scoped-id :a [:two]) (:target e))
+            "lands on region :a's :two node (region-scoped)")
+        (is (not (:internal? e)) "a region-targeting root :on is not internal"))
+      ;; the synthetic MACHINE-ROOT chip is surfaced as the anchor
+      (let [root (first (filter :machine-root? nodes))]
+        (is (some? root) "the synthetic MACHINE-ROOT chip is present")
+        (is (= layout/machine-root-id (:id root)))))))
+
+(deftest project-definition-parallel-root-on-multi-region-target
+  (testing "rf2-3v3gv1 — a root :on with MULTIPLE region-qualified targets
+            `[[:a :x] [:b :y]]` projects ONE edge per region, both sourced
+            from the MACHINE-ROOT chip; the untargeted region :c gets none"
+    ;; Mirrors spec/conformance/fixtures/parallel-root-on-multi-region-target.
+    (let [m {:type    :parallel
+             :on      {:advance {:target [[:a :x] [:b :y]] :action :bump}}
+             :regions {:a {:initial :one :states {:one {} :x {}}}
+                       :b {:initial :one :states {:one {} :y {}}}
+                       :c {:initial :one :states {:one {}}}}}
+          {:keys [edges]} (layout/project-definition m)
+          root-ons (filter :parallel-root-on? edges)]
+      (is (= 2 (count root-ons)) "one root-:on edge per region-qualified target")
+      (is (= #{[:a :x] [:b :y]} (set (map :to-path root-ons))))
+      (is (every? #(= layout/machine-root-id (:source %)) root-ons)
+          "both sourced from the MACHINE-ROOT chip")
+      (is (= #{(layout/region-scoped-id :a [:x])
+               (layout/region-scoped-id :b [:y])}
+             (set (map :target root-ons)))
+          "each lands on its region-scoped target node")
+      (is (every? #(= :bump (:action %)) root-ons) "the root action is preserved")
+      ;; no root :on edge addresses the untargeted :c region
+      (is (not-any? #(= :c (first (:to-path %))) root-ons)
+          "the untargeted region :c gets no root :on edge"))))
+
+(deftest project-definition-parallel-root-on-targetless-action-only
+  (testing "rf2-3v3gv1 — a TARGETLESS action-only root :on self-anchors on
+            the MACHINE-ROOT chip as an internal affordance (moves no region)"
+    (let [m {:type    :parallel
+             :on      {:ping {:action :log-ping}}   ;; no :target
+             :regions {:a {:initial :one :states {:one {} :two {}}}
+                       :b {:initial :one :states {:one {} :two {}}}}}
+          {:keys [nodes edges]} (layout/project-definition m)
+          root-ons (filter :parallel-root-on? edges)]
+      (is (= 1 (count root-ons)) "one root-:on affordance")
+      (let [e (first root-ons)]
+        (is (true? (:internal? e)) "targetless → internal self-anchored chip")
+        (is (= [] (:to-path e)) "no region-qualified target")
+        (is (= layout/machine-root-id (:source e)))
+        (is (= layout/machine-root-id (:target e))
+            "self-anchored on the MACHINE-ROOT chip (moves no region)")
+        (is (= :log-ping (:action e)) "the action is preserved"))
+      (is (some? (first (filter :machine-root? nodes)))
+          "the MACHINE-ROOT chip anchors the affordance"))))
+
+(deftest project-definition-parallel-without-root-on-leaks-no-machine-root
+  (testing "rf2-3v3gv1 — a parallel machine with NO root :on keeps the
+            pre-fix node/edge set: no MACHINE-ROOT chip, no root :on edge"
+    (let [m {:type :parallel
+             :regions {:a {:initial :x :states {:x {:on {:go :y}} :y {}}}
+                       :b {:initial :p :states {:p {:on {:go :q}} :q {}}}}}
+          {:keys [nodes edges]} (layout/project-definition m)]
+      (is (empty? (filter :machine-root? nodes))
+          "no synthetic MACHINE-ROOT chip without a root :on")
+      (is (not-any? #(= layout/machine-root-id (:id %)) nodes))
+      (is (empty? (filter :parallel-root-on? edges))
+          "no root :on edges"))))
+
+(deftest project-definition-parallel-root-on-edge-ids-distinct-and-stable
+  (testing "rf2-3v3gv1 — multi-region root :on edges mint DISTINCT stable ids
+            (no xyflow duplicate-id drop) carrying the MACHINE-ROOT source"
+    (let [m {:type    :parallel
+             :on      {:advance {:target [[:a :x] [:b :y]]}}
+             :regions {:a {:initial :one :states {:one {} :x {}}}
+                       :b {:initial :one :states {:one {} :y {}}}}}
+          {:keys [edges]} (layout/project-definition m)
+          root-ons (filter :parallel-root-on? edges)
+          ids      (map :id root-ons)]
+      (is (= 2 (count ids)))
+      (is (= 2 (count (set ids))) "the two root :on edge ids are distinct")
+      (is (every? string? ids))
+      (is (every? #(str/starts-with? % layout/machine-root-id) ids)
+          "each id reads from the MACHINE-ROOT source segment"))))

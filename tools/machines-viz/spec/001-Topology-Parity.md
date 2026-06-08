@@ -429,6 +429,7 @@ fill), and colours resolved through the active-theme **chart-tokens**
 | **Edge (`:after` timer)** | `⌚ <ms>` event chip + `data-after-ms` hook for the countdown-ring overlay | shipped |
 | **Edge (`:always` eventless)** | `∞` event chip | shipped |
 | **Edge (machine-level fallback)** | a SINGLE route from the MACHINE-ROOT chip into the target (rf2-vcnvj — projected once, not per-leaf); `data-machine-level` hook on the event chip; the loud "machine-level" label is **muted** by default (rf2-az6e2) | shipped flag + root-sourced route |
+| **Edge (root parallel `:on` ancestor fallback — rf2-3v3gv1)** | a `:type :parallel` machine's OWN top-level `:on` is the **ancestor fallback** for its regions (Spec 005 §Root parallel `:on`; verified xstate@5.32.0): when no region-local transition handles the event the root `:on` fires, moving one or more **region-qualified targets** atomically. Projected as ONE route **per region-qualified target** from the synthetic MACHINE-ROOT chip into the **region-scoped** target node (`region-scoped-id`), flagged `:machine-level?` AND `:parallel-root-on?`; a **targetless action-only** root `:on` self-anchors on the chip as an `:internal?` affordance (moves no region). Pre-fix the projection modelled the per-region `:on` fallbacks but DROPPED the parallel root's own `:on` entirely — neither topology nor focused-event highlight could show it. `chart.layout` `collect-parallel-root-edges` + `project-parallel`. | shipped flag + root-sourced region-scoped route |
 | **Machine-root chip (rf2-vcnvj)** | a small NEUTRAL pill (root glyph `◆` + `root` caption) that anchors machine-level fallbacks; NOT a state box; `data-machine-root` hook | *`:container-header-bg` fill, `:state-border`, pill radius* |
 | **Event chip** | subordinate route chip, **no title bar**; **capsule-pill** corner radius (≈ half the chip min-height — Stately's rounded transition/event pill, not a near-rectangle); event + guard on the first line as **`IF <guard>`**; action row only when present — a **subdued ENCLOSED action chip** (rf2-fokezq: subtle `:container-header-bg` fill + `:state-border` border + `:action-pill-*` padding/rounding, density-aware font off `:event-chip-action-px`), matching the state-node entry/exit action chip and Stately's quiet action treatment, so it reads as a **contained annotation** subordinate to the event name — NOT loose free-floating text inside the trigger box; the internal-transition chip keeps its **dashed** border; clickable (host sim) gets a button affordance + distinct border | *`:event-chip-bg` / `:event-chip-border`; `:event-chip-radius` 16px regular (≈ ½ `:event-chip-min-h` 32); action chip: `:container-header-bg` / `:state-border` / `:action-pill-*`; `:sim` border when clickable* |
 | **Guarded-fork branch badge (rf2-uw3vmi)** | a small **numbered priority badge** (a circled 1-based index) LEADING the event line on **each branch of a genuine guarded multi-branch fork** — Stately's ①②③ on the gate `:gate/check` 3-way. Surfaces the deterministic first-pass-wins evaluation order (the source candidate-vector index `chart.layout` preserves). **Applies ONLY to a fork** — 2+ same-source / same-trigger candidates where at least one carries a `:guard`; a SINGLE transition (incl. a single guarded `:always`) gets NO badge, and distinct triggers on one source never merge. ADDITIVE to the settled `IF <guard>` per-branch wording (§3.2) — no ELSE-IF/ELSE text. `data-fork-order` hook on the chip + the leading badge span (`rf-mv-chart-event-fork-badge-<id>`); neutral + unobtrusive (an order annotation, not a second event), sized off the density's `:event-chip-px` | *circular badge, `:event-chip-border` fill + `:text-primary` numeral; threaded via projector `:data {:forkOrder}`* |
@@ -755,6 +756,20 @@ state boxes. The feature stays opt-in behind `:direction :auto`.
   the match is by **edge-id** (not endpoint node-ids like the from/to
   lens), it lights **every** traversed arm — microsteps, guard-fork
   candidates — the lens cannot reach. **Palette delegated to Figma.**
+- ✅ **Parallel fired-edge coverage (rf2-8ncxrf / rf2-3v3gv1 / rf2-l8ls6w).**
+  A `:type :parallel` transition emits ONE `:rf.machine/transition` whose
+  `:before` / `:after` carry the WHOLE region-map. `extract-fired-edge-ids`
+  (Xray-side) derives the fired edges per region from the region-map **plus**
+  the structured `:cascade`: (a) a region that **changed via a region-local
+  transition** lights its region-scoped edge (rf2-8ncxrf); (b) a region that
+  **changed via the parallel ROOT `:on`** (no region-local edge moved it)
+  lights the MACHINE-ROOT-sourced chip whose region-qualified `:to-path` names
+  it (rf2-3v3gv1); (c) a region that was **HANDLED but UNCHANGED** — a real
+  targetless/internal or external self transition with `before == after` and a
+  non-empty cascade — lights its self/internal edge, distinguished from a
+  RESTING region (declined the event, absent from the cascade) by the
+  `:cascade` `:region` stamps (rf2-l8ls6w). All three mint ids that agree with
+  the live chart by construction (the projection is the single edge-id source).
 
 ## §5 — Roadmap
 
