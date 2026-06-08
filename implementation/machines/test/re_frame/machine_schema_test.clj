@@ -1,10 +1,10 @@
 (ns re-frame.machine-schema-test
-  "Per rf2-jbbp7. Verifies the `:schema` key on `reg-machine` and the
+  "Per rf2-jbbp7. Verifies the `:data-schema` key on `reg-machine` and the
   new `:where :machine-data` validation boundary.
 
   The contract under test:
 
-   1. **Acceptance.** `reg-machine` accepts a top-level `:schema` key on
+   1. **Acceptance.** `reg-machine` accepts a top-level `:data-schema` key on
       the machine spec; registration completes without error and the
       registered spec carries the schema through `(rf/machine-meta id)`.
 
@@ -23,7 +23,7 @@
       violates the schema emits the same trace with `:phase :spawn`
       and the install is skipped — the actor never enters the runtime.
 
-   5. **No schema → no validation.** Machines without `:schema` are
+   5. **No schema → no validation.** Machines without `:data-schema` are
       unaffected; the framework's existing behaviour is preserved.
 
    6. **Tag payload.** Failures carry `:machine-id`, `:phase`, `:value`,
@@ -58,20 +58,20 @@
     (filterv #(= :rf.error/schema-validation-failure (:operation %))
              @traces)))
 
-;; ---- (1) acceptance: `:schema` is accepted on reg-machine ----------------
+;; ---- (1) acceptance: `:data-schema` is accepted on reg-machine -----------
 
 (deftest reg-machine-accepts-schema-key
-  (testing "reg-machine completes registration when the spec carries :schema"
+  (testing "reg-machine completes registration when the spec carries :data-schema"
     (let [DataSchema [:map [:n :int]]
-          spec       {:initial :idle
-                      :data    {:n 0}
-                      :schema  DataSchema
-                      :states  {:idle {}}}]
+          spec       {:initial     :idle
+                      :data        {:n 0}
+                      :data-schema DataSchema
+                      :states      {:idle {}}}]
       (rf/reg-machine :rf.machine-schema/accepted spec)
       (let [meta (rf/machine-meta :rf.machine-schema/accepted)]
         (is (some? meta) "machine-meta returns the registered spec")
-        (is (= DataSchema (:schema meta))
-            "the :schema key round-trips through machine-meta")))))
+        (is (= DataSchema (:data-schema meta))
+            "the :data-schema key round-trips through machine-meta")))))
 
 ;; ---- (2) macrostep boundary: action returns bad :data → rollback + emit --
 
@@ -79,13 +79,13 @@
   (testing "an action returning bad :data triggers a :where :machine-data
             trace AND rolls back the cascade"
     (let [DataSchema [:map [:n pos-int?]]
-          spec       {:initial :idle
-                      :data    {:n 1}
-                      :schema  DataSchema
-                      :actions {:break (fn [_] {:data {:n 0}})}     ;; 0 violates pos-int?
-                      :states  {:idle {:on {:go {:target :ran
-                                                 :action :break}}}
-                                :ran  {}}}]
+          spec       {:initial     :idle
+                      :data        {:n 1}
+                      :data-schema DataSchema
+                      :actions     {:break (fn [_] {:data {:n 0}})}     ;; 0 violates pos-int?
+                      :states      {:idle {:on {:go {:target :ran
+                                                     :action :break}}}
+                                    :ran  {}}}]
       (rf/reg-machine :rf.machine-schema/macrostep spec)
       ;; Bring the machine to life with an event that doesn't violate the schema —
       ;; bootstrap settles to {:n 1} cleanly.
@@ -126,14 +126,14 @@
 ;; ---- (3) bootstrap-time validation: initial :data violates --------------
 
 (deftest bootstrap-violation-emits-and-rolls-back
-  (testing "an initial :data that violates :schema emits + rolls back the
+  (testing "an initial :data that violates :data-schema emits + rolls back the
             first dispatch's bootstrap commit"
     (let [DataSchema [:map [:n pos-int?]]
           ;; Typo: :n is 0 — violates pos-int? on bootstrap.
-          spec       {:initial :idle
-                      :data    {:n 0}
-                      :schema  DataSchema
-                      :states  {:idle {}}}]
+          spec       {:initial     :idle
+                      :data        {:n 0}
+                      :data-schema DataSchema
+                      :states      {:idle {}}}]
       (rf/reg-machine :rf.machine-schema/bootstrap spec)
       (let [db-before (rf/app-db-value :rf/default)
             traces    (collect-traces!
@@ -157,10 +157,10 @@
             at install time; the snapshot never lands in app-db"
     (let [ChildSchema [:map [:n pos-int?]]
           ;; Child spec violates its own schema at bootstrap.
-          child-spec  {:initial :idle
-                       :data    {:n 0}
-                       :schema  ChildSchema
-                       :states  {:idle {}}}
+          child-spec  {:initial     :idle
+                       :data        {:n 0}
+                       :data-schema ChildSchema
+                       :states      {:idle {}}}
           parent-spec {:initial :starting
                        :data    {}
                        :states  {:starting
@@ -202,7 +202,7 @@
 ;; ---- (5) no schema → no validation (control) ------------------------------
 
 (deftest no-schema-no-validation
-  (testing "a machine without :schema runs without any :where :machine-data trace"
+  (testing "a machine without :data-schema runs without any :where :machine-data trace"
     (let [spec {:initial :idle
                 :data    {:n "anything goes"}
                 :actions {:set-x (fn [_] {:data {:n 42}})}
@@ -226,11 +226,11 @@
             consumes (rf2-xgeag) — :machine-id, :phase, :value, :explain,
             :rollback?, :recovery, :reason"
     (let [DataSchema [:map [:n pos-int?]]
-          spec       {:initial :idle
-                      :data    {:n 1}
-                      :schema  DataSchema
-                      :actions {:bad (fn [_] {:data {:n 0}})}
-                      :states  {:idle {:on {:go {:target :idle :action :bad}}}}}]
+          spec       {:initial     :idle
+                      :data        {:n 1}
+                      :data-schema DataSchema
+                      :actions     {:bad (fn [_] {:data {:n 0}})}
+                      :states      {:idle {:on {:go {:target :idle :action :bad}}}}}]
       (rf/reg-machine :rf.machine-schema/payload spec)
       (rf/dispatch-sync [:rf.machine-schema/payload [:noop]])
       (let [traces   (collect-traces!

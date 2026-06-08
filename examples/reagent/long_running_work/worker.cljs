@@ -103,9 +103,9 @@
    ;; validation). This is how a spawned child's shape is boundary-
    ;; checked: the runtime addresses each instance by a gensym'd id
    ;; (e.g. `:work/processor#0`), so no fixed `reg-app-schema` path can
-   ;; reach it — the machine `:schema` slot validates the spawn
+   ;; reach it — the machine `:data-schema` slot validates the spawn
    ;; regardless of id. (See schema.cljs ns docstring.)
-   :schema  schema/ProcessorData
+   :data-schema schema/ProcessorData
 
    ;; The :data is materialised from the parent's per-child invoke-spec
    ;; :data slot at spawn time (see :work/flow below). :shard is the
