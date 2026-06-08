@@ -663,7 +663,9 @@
    :rf.xray/set-epoch-history-for-test
    :rf.xray/set-focus-epoch-id-for-test
    ;; rf2-y9xmf — scrubber-position slot reducer (UI is gone; the
-   ;; share-URL surface round-trips through this event).
+   ;; `:after`-rings overlay reads the slot this event writes. The
+   ;; share-URL surface that also round-tripped it was removed in
+   ;; rf2-nugvv).
    :rf.xray/set-scrubber-position
    ;; rf2-y9xmf — per-machine prev/next nav (walks the spine's epoch-
    ;; history to the prior/next epoch that ALSO touched the focused

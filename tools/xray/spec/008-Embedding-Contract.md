@@ -370,9 +370,10 @@ closed via rf2-nesy9) applied this end-to-end: every Xray panel, modal,
 and static surface now captures its instance frame, and the
 `:rf/xray`-literal / global-dispatch guard's `pending-migration`
 allowlist is empty. The few production-singleton seams (trace-collector
-`note-suppressed!`, share-URL on-load restore, per-feature `hydrate!`
-init) have no surrounding render/event frame, so they target the shell
-via the named `defaults/default-frame-id` Var. A `:rf/xray`-literal /
+`note-suppressed!`, per-feature `hydrate!` init) have no surrounding
+render/event frame, so they target the shell via the named
+`defaults/default-frame-id` Var. (The share-URL on-load restore was
+another such seam until rf2-nugvv removed the whole share surface.) A `:rf/xray`-literal /
 global-dispatch guard rejects regressions (see
 [`017-Test-Coverage-Matrix.md`](./017-Test-Coverage-Matrix.md)).
 

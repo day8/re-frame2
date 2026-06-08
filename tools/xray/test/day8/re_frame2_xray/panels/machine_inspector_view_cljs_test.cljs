@@ -1143,7 +1143,8 @@
 
 (deftest select-machine-id-event-writes-to-xray-frame
   (testing ":rf.xray/select-machine-id stores the id on the Xray frame
-            (kept for share-URL + Sim-engine compatibility)"
+            (kept for Sim-engine + Instances-jump focus; the share-URL
+            consumer was removed in rf2-nugvv)"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/select-machine-id :checkout/flow])
@@ -1157,15 +1158,17 @@
     (is (nil? @(rf/subscribe [:rf.xray/selected-machine-id])))))
 
 (deftest scrubber-position-slot-defaults-to-present
-  (testing "the scrubber-position slot defaults to :present (the share-
-            URL round-trips this slot even though the scrubber UI is gone)"
+  (testing "the scrubber-position slot defaults to :present (the
+            `:after`-rings overlay reads this slot to gate ring rendering
+            to the :present position, even though the scrubber UI and the
+            share-URL round-trip are both gone)"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (is (= :present @(rf/subscribe [:rf.xray/machine-scrubber-position]))))))
 
 (deftest set-scrubber-position-event-writes-the-slot
-  (testing ":rf.xray/set-scrubber-position writes the slot for the
-            share-URL surface"
+  (testing ":rf.xray/set-scrubber-position writes the slot read by the
+            `:after`-rings overlay"
     (setup-xray-frame!)
     (rf/with-frame :rf/xray
       (rf/dispatch-sync [:rf.xray/set-scrubber-position 3])

@@ -113,9 +113,10 @@
    :font-size      "14px"})
 
 (def ^:private panel-header-style
-  "Top header strip — carries the prev/next nav + share affordance on
-  the right (the L4 tab strip is the panel-name source-of-truth, so
-  there is no large title; rf2-6xezz)."
+  "Top header strip — carries the prev/next nav on the right (the L4
+  tab strip is the panel-name source-of-truth, so there is no large
+  title; rf2-6xezz. The Share affordance that also sat here was removed
+  in rf2-nugvv — Prev/Next is now the only header affordance)."
   {:padding         "16px 16px 8px 16px"
    :display         "flex"
    :align-items     "center"
@@ -123,8 +124,9 @@
    :gap             "12px"})
 
 (def ^:private panel-header-toolbar-style
-  "Right-hand affordance cluster inside the panel header (prev/next +
-  share). Suppressed when `:no-machines` empty-state is rendering."
+  "Right-hand affordance cluster inside the panel header (prev/next;
+  the share affordance that also lived here was removed in rf2-nugvv).
+  Suppressed when `:no-machines` empty-state is rendering."
   {:display     "flex"
    :align-items "center"
    :gap         "8px"})
@@ -751,16 +753,19 @@
         (assoc db :machine-definitions-override ov))))
 
   ;; The user's per-panel machine selection (kept as a slot for the
-  ;; Sim engine + share-URL round-trip; the collapsed Dynamic panel
-  ;; itself drives focus off the event lens, not the picker slot).
+  ;; Sim engine + the Instances-jump focus landing; the share-URL
+  ;; round-trip that also read it was removed in rf2-nugvv. The
+  ;; collapsed Dynamic panel itself drives focus off the event lens,
+  ;; not the picker slot).
   (rf/reg-sub :rf.xray/selected-machine-id
     (fn [db _query]
       (get db :selected-machine-id)))
 
   ;; The per-panel composite — one read produces every slot the panel
-  ;; consumes. Kept post-collapse so callers (after-rings, share, sim)
-  ;; that read `:selected-id` / `:empty-kind` keep working without
-  ;; touching their wiring.
+  ;; consumes. Kept post-collapse so callers (after-rings, sim) that
+  ;; read `:selected-id` / `:empty-kind` keep working without touching
+  ;; their wiring. (The share surface was a caller until rf2-nugvv
+  ;; removed it.)
   (rf/reg-sub :rf.xray/machine-inspector-data
     :<- [:rf.xray/registered-machines]
     :<- [:rf.xray/machine-snapshots]
