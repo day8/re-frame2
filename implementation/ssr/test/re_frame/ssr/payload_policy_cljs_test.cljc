@@ -59,29 +59,47 @@
       (is (= {:public/articles [:a :b :c]} slice)
           "missing keys silently absent; matches `select-keys` semantics"))))
 
-(deftest apply-policy-allowlist-as-vector-or-list
-  (testing "allowlist accepts any sequential coll shape"
-    (doseq [coll-shape [[:public/articles]
-                        '(:public/articles)
-                        ;; Sets are NOT sequential — but `select-keys`
-                        ;; accepts them. We chose `sequential?` for the
-                        ;; allowlist guard to keep the contract narrow
-                        ;; (programmer-intent: ordered allowlist; a set
-                        ;; would imply unordered which doesn't match how
-                        ;; allowlists are used in practice). Sets fail-
-                        ;; closed instead — asserted in the next test so
-                        ;; the contract surface is pinned.
-                        ]]
-      (let [slice (payload-policy/apply-policy
-                    sample-app-db
-                    {:payload coll-shape})]
-        (is (= {:public/articles [:a :b :c]} slice)
-            (str "allowlist as " (pr-str coll-shape)
-                 " produces the expected slice"))))))
+(deftest apply-policy-allowlist-as-vector
+  (testing "rf2-d8vs9x — the allowlist is a VECTOR; the vector shape
+            produces the expected slice"
+    (let [slice (payload-policy/apply-policy
+                  sample-app-db
+                  {:payload [:public/articles]})]
+      (is (= {:public/articles [:a :b :c]} slice)
+          "vector allowlist produces the expected slice"))))
+
+(deftest apply-policy-list-payload-fails-closed
+  (testing "rf2-d8vs9x — a LIST / seq :payload is NOT an accepted allowlist
+            spelling (the contract is shape-selected: a vector is the
+            allowlist, a keyword is the whole-app-db opt-in). The prior
+            guard accepted any `sequential?` coll, which silently admitted
+            lists and seqs — two spellings for one security-boundary
+            policy. A list now falls into the missing-policy bucket
+            (fail-closed), not the allowlist branch."
+    (is (thrown-with-msg?
+          #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
+          #":rf\.error/ssr-missing-payload-policy"
+          (payload-policy/apply-policy
+            sample-app-db
+            {:payload '(:public/articles)}))
+        "a list allowlist fails closed")
+    (is (thrown-with-msg?
+          #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
+          #":rf\.error/ssr-missing-payload-policy"
+          (payload-policy/apply-policy
+            sample-app-db
+            {:payload (seq [:public/articles :public/user-id])}))
+        "a lazy seq allowlist fails closed too")
+    (testing "construction-time arm agrees — a list :payload fails closed"
+      (is (thrown-with-msg?
+            #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
+            #":rf\.error/ssr-missing-payload-policy"
+            (payload-policy/validate-policy-opts!
+              {:on-create [:init] :payload '(:public/articles)}))))))
 
 (deftest apply-policy-set-payload-fails-closed
-  (testing "a SET :payload is not sequential → fails closed (the contract
-            is a narrow ordered-allowlist; a set is rejected rather than
+  (testing "a SET :payload is not a vector → fails closed (the contract
+            is a narrow vector allowlist; a set is rejected rather than
             silently accepted)"
     (is (thrown-with-msg?
           #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
@@ -157,12 +175,14 @@
 
 (deftest valid-keyword-allowlist-still-accepted
   (testing "rf2-hzttr finding 2 — the tightened validator does NOT regress
-            valid all-keyword allowlists (vector AND list shapes)"
-    (doseq [coll-shape [[:public/articles :public/user-id]
-                        '(:public/articles :public/user-id)]]
-      (let [slice (payload-policy/apply-policy sample-app-db {:payload coll-shape})]
-        (is (= {:public/articles [:a :b :c] :public/user-id "u-42"} slice)
-            (str "all-keyword allowlist " (pr-str coll-shape) " accepted"))))
+            valid all-keyword VECTOR allowlists (rf2-d8vs9x — the vector is
+            the one accepted allowlist shape; a list spelling fails closed,
+            asserted by apply-policy-list-payload-fails-closed)"
+    (let [slice (payload-policy/apply-policy
+                  sample-app-db
+                  {:payload [:public/articles :public/user-id]})]
+      (is (= {:public/articles [:a :b :c] :public/user-id "u-42"} slice)
+          "all-keyword vector allowlist accepted"))
     (testing "construction-time arm agrees"
       (let [opts {:on-create [:init] :payload [:public/articles]}]
         (is (= opts (payload-policy/validate-policy-opts! opts)))))))
