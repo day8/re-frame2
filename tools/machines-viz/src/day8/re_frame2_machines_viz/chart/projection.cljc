@@ -635,6 +635,104 @@
                      :else              1))
            state-nodes))
 
+;; ---- root-container Context-band height (rf2-8z1rca) --------------------
+;;
+;; rf2-8z1rca — the synthetic ROOT-CONTAINER frame paints a TITLE strip
+;; PLUS an OPTIONAL Context band under it (`chart.nodes/root-container-node`
+;; — the key→type-caption shape the host feeds via `:machine-data`). The
+;; band is a VARIABLE-height block: its height grows with the number of
+;; context rows. `container-elk-padding`'s plain TOP reservation only
+;; clears the title strip + a body-pad band, so with non-trivial context
+;; the children laid out at the reserved content edge sat UNDER the painted
+;; Context band. These constants model the band's rendered geometry so the
+;; root-container's ELK top padding reserves it too.
+;;
+;; The band's CSS (in `chart.nodes/root-container-node`) is fixed-pixel,
+;; NOT density-scaled, so these constants mirror those literals. They are
+;; the SINGLE SOURCE the renderer reads (the renderer references these via
+;; `root-container-node`) so the reservation and the paint can never drift.
+
+(def context-band-pad-top
+  "rf2-8z1rca — the Context band's TOP padding (px). Mirrors the
+  `padding 5px 10px 6px` top component in `root-container-node`."
+  5)
+
+(def context-band-pad-bottom
+  "rf2-8z1rca — the Context band's BOTTOM padding (px). Mirrors the
+  `padding 5px 10px 6px` bottom component in `root-container-node`."
+  6)
+
+(def context-band-pad-x
+  "rf2-8z1rca — the Context band's HORIZONTAL padding (px). Mirrors the
+  `padding 5px 10px 6px` left/right component in `root-container-node`."
+  10)
+
+(def context-band-row-font-px
+  "rf2-8z1rca — the Context band's row `font-size` (px). Mirrors the band's
+  `font-size 10px` (the row text; the caption + badge are smaller 8px but
+  their row height is modelled by `context-band-header-height`)."
+  10)
+
+(def context-band-row-line-height
+  "rf2-8z1rca — the Context band's `line-height` (unitless). Mirrors the
+  band's `line-height 1.3`. One row's rendered height is `ceil(font-px ·
+  line-height)`."
+  1.3)
+
+(def context-band-header-margin-bottom
+  "rf2-8z1rca — the `margin-bottom` (px) on the band's caption/badge header
+  row. Mirrors the header row's `margin-bottom 1px`."
+  1)
+
+(defn- ceil-int
+  "Round a number UP to the nearest int. Pure; portable (CLJ + CLJS)."
+  [x]
+  #?(:clj  (long (Math/ceil (double x)))
+     :cljs (long (js/Math.ceil x))))
+
+(def context-band-row-height
+  "rf2-8z1rca — the rendered height (px) of ONE context key→type row: the
+  row font at the band's line-height, rounded up (`ceil(10 · 1.3) = 13`).
+  Single-sourced from the font + line-height constants the renderer reads."
+  (ceil-int (* context-band-row-font-px context-band-row-line-height)))
+
+(def context-band-header-height
+  "rf2-8z1rca — the rendered height (px) of the band's `Context` caption +
+  provenance-badge header row: an 8px-caption line at the band line-height
+  PLUS its `margin-bottom`. A fixed row independent of the context row
+  count (`ceil(8 · 1.3) + 1 = 12`)."
+  (+ (ceil-int (* 8 context-band-row-line-height))
+     context-band-header-margin-bottom))
+
+(def context-band-row-gap
+  "rf2-8z1rca — the vertical `gap` (px) the band's column flex puts BETWEEN
+  adjacent children (the header row + each context row). Mirrors the band's
+  `gap 2px`."
+  2)
+
+(defn context-band-height
+  "rf2-8z1rca — the rendered height (px) the root-container Context band
+  occupies for `n-rows` context rows, modelling the fixed-pixel CSS in
+  `chart.nodes/root-container-node`:
+
+    pad-top + header-row + n-rows · row-height
+            + (1 header + n-rows children − 1) · row-gap   [= n-rows gaps]
+            + pad-bottom + divider
+
+  `divider-width` is the band's bottom-border hairline (the active
+  density's `:container-divider-width`). Returns 0 for `n-rows` ≤ 0 — no
+  band is painted, so no extra top padding is reserved. Pure — JVM-runnable
+  so the projection regression can pin it without a renderer."
+  [n-rows divider-width]
+  (if (pos? n-rows)
+    (+ context-band-pad-top
+       context-band-header-height
+       (* n-rows context-band-row-height)
+       (* n-rows context-band-row-gap)   ;; (1 header + n rows) children ⇒ n gaps
+       context-band-pad-bottom
+       (or divider-width 0))
+    0))
+
 (defn container-elk-padding
   "rf2-8q5pt — the `elk.padding` string for a compound / region container,
   derived from the active density's `visual-constants` rather than a
@@ -670,14 +768,25 @@
   NOT in the ELK graph (it is a decorative xyflow-only glyph node), so its
   extent cannot be measured into the container box by ELK's
   `INCLUDE_CHILDREN` pass — the padding reservation is what grows the box
-  to enclose it."
-  ([] (container-elk-padding vc/chart false))
-  ([chart-vc] (container-elk-padding chart-vc false))
-  ([{:keys [container-title-height container-body-pad]} reserve-initial-marker?]
+  to enclose it.
+
+  rf2-8z1rca — `extra-top` (default 0) is ADDED to the TOP reservation,
+  ABOVE the title-strip + body-pad band. The synthetic ROOT-CONTAINER frame
+  uses it to reserve the variable-height Context band the frame header
+  paints UNDER its title strip (`context-band-height`): without it, the
+  band — which is NOT an ELK child and so never grows the box via
+  `INCLUDE_CHILDREN` — would overlap the first child ELK laid out at the
+  plain reserved content edge. Every other container passes 0 (no band)."
+  ([] (container-elk-padding vc/chart false 0))
+  ([chart-vc] (container-elk-padding chart-vc false 0))
+  ([chart-vc reserve-initial-marker?]
+   (container-elk-padding chart-vc reserve-initial-marker? 0))
+  ([{:keys [container-title-height container-body-pad]} reserve-initial-marker?
+    extra-top]
    (let [left (if reserve-initial-marker?
                 (max container-body-pad initial-marker-left-extent)
                 container-body-pad)]
-     (str "[top="   (+ container-title-height container-body-pad)
+     (str "[top="   (+ container-title-height container-body-pad (or extra-top 0))
           ",left="  left
           ",bottom=" container-body-pad
           ",right=" container-body-pad "]"))))
@@ -715,10 +824,19 @@
   `measured-dims`) sizes each container's `elk.padding` from the active
   density's title-strip + body-pad constants via `container-elk-padding`,
   rather than a regular-only literal. nil falls back to `vc/chart`
-  (regular)."
-  ([parsed] (->elk-children parsed nil nil))
-  ([parsed measured-dims] (->elk-children parsed measured-dims nil))
-  ([{:keys [nodes edges] :as parsed} measured-dims chart-vc]
+  (regular).
+
+  rf2-8z1rca — the optional `context-rows` (the integer count of context
+  rows the root-container Context band paints, threaded by `chart.cljs`
+  from `:machine-data`) ADDS the band's rendered height to the ROOT-
+  CONTAINER frame's TOP padding only (`context-band-height`), so the first
+  child ELK lays out below the title strip clears the painted Context band
+  too. 0 / nil ⇒ no band, no extra top reservation — every non-root
+  container is unaffected regardless."
+  ([parsed] (->elk-children parsed nil nil 0))
+  ([parsed measured-dims] (->elk-children parsed measured-dims nil 0))
+  ([parsed measured-dims chart-vc] (->elk-children parsed measured-dims chart-vc 0))
+  ([{:keys [nodes edges] :as parsed} measured-dims chart-vc context-rows]
   (let [resolved-vc   (or chart-vc vc/chart)
         ;; rf2-8q5pt — the default container padding (no initial-marker
         ;; reservation). rf2-lxk3h3 — a container whose own initial
@@ -729,6 +847,16 @@
         ;; a NESTED initial substate, so the marker's leftward glyph extent
         ;; sits inside the border instead of spilling past it.
         marker-container-pad (container-elk-padding resolved-vc true)
+        ;; rf2-8z1rca — the ROOT-CONTAINER frame ALSO reserves the variable-
+        ;; height Context band ON TOP of the title strip. The frame holds the
+        ;; machine's top-level initial (so it is in `marker-container-ids`),
+        ;; so the band reservation rides the LEFT-widened variant. The band
+        ;; height is derived from the context-row count + the density's
+        ;; divider hairline; 0 rows ⇒ the extra-top is 0 and this collapses
+        ;; to the plain marker-widened padding.
+        context-band-px (context-band-height (or context-rows 0)
+                                             (:container-divider-width resolved-vc))
+        root-container-pad (container-elk-padding resolved-vc true context-band-px)
         ;; rf2-lxk3h3 — the set of container-ids (each `:parent-id` an
         ;; `:initial?` state nests under) that therefore need the LEFT-
         ;; widened padding. A compound / region always has an `:initial?`
@@ -786,11 +914,20 @@
         ;; the LEFT-widened padding so the substate's initial-marker glyph
         ;; sits inside the border instead of spilling past it; every other
         ;; container keeps the plain body-pad inset.
+        ;; rf2-8z1rca — the ROOT-CONTAINER frame additionally reserves the
+        ;; Context band on TOP (it holds the top-level initial, so it ALSO
+        ;; takes the marker-widened LEFT). `root-container-pad` folds both;
+        ;; with 0 context rows it equals `marker-container-pad`, so a context-
+        ;; less root is byte-identical to the pre-rf2-8z1rca padding.
         container-opts (fn [parent-id]
                          (cond-> {"elk.algorithm" "layered"
-                                  "elk.padding"   (if (contains? marker-container-ids
-                                                                 parent-id)
+                                  "elk.padding"   (cond
+                                                    (= parent-id layout/root-container-id)
+                                                    root-container-pad
+                                                    (contains? marker-container-ids
+                                                               parent-id)
                                                     marker-container-pad
+                                                    :else
                                                     container-pad)}
                            (contains? fork-containers parent-id)
                            (assoc "elk.layered.crossingMinimization.semiInteractive"
@@ -1503,9 +1640,13 @@
                       fired?       (contains? fired-edge-ids (:id e))
                       ;; rf2-fzrzlw — this edge's guard rejected the event
                       ;; this epoch (guard-blocked no-op). Drives the PINK
-                      ;; guard-blocked treatment on both the event-node and
-                      ;; the `__in`/`__out` edge halves, winning over
-                      ;; fired/focused/active.
+                      ;; guard-blocked treatment on the event-node and the
+                      ;; `__in` (source→event-node) half, winning over
+                      ;; fired/focused/active. rf2-4nxgqq — the highlight
+                      ;; STOPS at the event-node: the `__out` (event-node→
+                      ;; target) half stays static/resting (`half-blocked?`
+                      ;; below gates the per-half overlay to `:in` only), so
+                      ;; the onward arrow does not imply the no-op progressed.
                       blocked?     (contains? guard-blocked-edge-ids (:id e))
                       self-loop?   (= src tgt)
                       internal?    (boolean (:internal? e))

@@ -637,9 +637,12 @@
       at `(dot.x, arrow.y)` (the xstate-viz recipe), then a 1px straight
       run into the arrowhead;
     - a small filled triangle arrowhead (the shared `M0,0 L0,10 L10,5 z`
-      shape, scaled by `:arrow-width-entry`) whose tip lands at node-local
-      x = `(offset - tip-gap)`, i.e. absolute `state.x - tip-gap` — a clean
-      ~`tip-gap`px GAP just OUTSIDE the state's left edge, pointing AT it.
+      shape, sized by the `:ah` side `projection/initial-marker-glyph`
+      returns — a SMALL Stately-sized head, ≈ `(pseudo-radius − 1)` clamped
+      to a 4–6px band, NOT the oversized `:arrow-width-entry` the pre-
+      rf2-wwyx1u read used) whose tip lands at node-local x = `(offset -
+      tip-gap)`, i.e. absolute `state.x - tip-gap` — a clean ~`tip-gap`px
+      GAP just OUTSIDE the state's left edge, pointing AT it.
 
   rf2-d5s7yg — the tip is DECOUPLED from the node offset: the marker node
   sits `initial-marker-x-offset` (26, rf2-k7kiiq) px left of the state, but the
@@ -657,9 +660,12 @@
   the every-edge `:data` invariants but paints nothing
   (`chart.edges/transition-edge` `entry?` short-circuit).
 
-  Geometry reads off the resolved density (`:pseudo-radius` /
-  `:arrow-width-entry`) + the shared `chart.projection` offset/gap; the hue
-  is the `:pseudo-marker` token."
+  Geometry reads off the resolved density's `:pseudo-radius` (the dot
+  radius; the arrowhead side `:ah` is derived from it by
+  `projection/initial-marker-glyph` — NOT the `:arrow-width-entry` key,
+  which sizes the entry-EDGE markerEnd, a separate decorative concern) plus
+  the shared `chart.projection` offset/gap; the hue is the `:pseudo-marker`
+  token."
   [^js props]
   (let [d        (.-data props)
         vc       (chart-constants d)
@@ -788,12 +794,26 @@
         context  (js->clj (.-context d))
         inferred? (boolean (.-contextInferred d))
         {:keys [compound-radius container-title-height container-title-pad-x
-                container-title-px container-divider-width
-                stroke-width]} vc]
+                container-title-px container-divider-width container-body-pad
+                stroke-width]} vc
+        ;; rf2-8z1rca — the ELK top padding the frame reserves for its
+        ;; header: the title strip + a body-pad band + the variable-height
+        ;; Context band (`projection/context-band-height` for this context's
+        ;; row count). Single-sourced from the SAME helper `->elk-children`
+        ;; feeds ELK, so the rendered header and the reservation can never
+        ;; drift. Surfaced as `data-reserved-top` so the DOM regression can
+        ;; pin "the rendered header fits within what ELK reserved" — i.e. the
+        ;; first child laid out at the reserved content edge starts BELOW the
+        ;; header, never under the Context band.
+        reserved-top (+ container-title-height container-body-pad
+                        (projection/context-band-height
+                          (if (seq context) (count context) 0)
+                          container-divider-width))]
     (r/as-element
       [:div {:data-testid (str "rf-mv-chart-root-container-" (.-id props))
              :data-node-id (.-id props)
              :data-root-container "true"
+             :data-reserved-top (str reserved-top)
              :data-parallel (str parallel?)
              :style {:position       "relative"
                      :width          "100%"
@@ -845,16 +865,24 @@
                          :text-overflow "ellipsis"}}
           label]]
         ;; CONTEXT band (under the title) — the inferred key→type shape.
+        ;; rf2-8z1rca — the band's fixed-pixel geometry is single-sourced
+        ;; from the `chart.projection` Context-band constants so the painted
+        ;; height and the root-container ELK top-padding RESERVATION
+        ;; (`projection/context-band-height`, fed via `->elk-children`) can
+        ;; never drift — a band taller than its reservation would lay the
+        ;; first child UNDER it (the rf2-8z1rca bug).
         (when (seq context)
           [:div {:data-testid (str "rf-mv-chart-root-container-context-" (.-id props))
                  :data-key-count (str (count context))
                  :style {:display        "flex"
                          :flex-direction "column"
-                         :gap            "2px"
-                         :padding        "5px 10px 6px"
+                         :gap            (str projection/context-band-row-gap "px")
+                         :padding        (str projection/context-band-pad-top "px "
+                                              projection/context-band-pad-x "px "
+                                              projection/context-band-pad-bottom "px")
                          :font-family    chart-label-stack
-                         :font-size      "10px"
-                         :line-height    1.3
+                         :font-size      (str projection/context-band-row-font-px "px")
+                         :line-height    projection/context-band-row-line-height
                          :color          (:text-secondary ct)
                          :background      (:container-header-bg ct)
                          :border-bottom   (str container-divider-width "px solid "
@@ -862,7 +890,7 @@
            [:div {:style {:display        "flex"
                           :align-items    "baseline"
                           :gap            "5px"
-                          :margin-bottom  "1px"}}
+                          :margin-bottom  (str projection/context-band-header-margin-bottom "px")}}
             [:span {:style {:font-size      "8px"
                             :font-weight    700
                             :letter-spacing "0.06em"

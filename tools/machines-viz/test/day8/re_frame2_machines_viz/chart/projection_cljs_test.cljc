@@ -1465,6 +1465,114 @@
       (is (= (:container-body-pad vc/chart-regular) (elk-padding-left plain))
           "the plain LEFT is exactly the body-pad inset"))))
 
+;; ---- rf2-8z1rca: root-container reserves the Context-band TOP padding ---
+;;
+;; The bug: the synthetic ROOT-CONTAINER frame paints a title strip PLUS a
+;; VARIABLE-height Context band, but `container-elk-padding`'s plain TOP
+;; reserved only the title strip + a body-pad band. The Context band is NOT
+;; an ELK child (it is header chrome drawn by `root-container-node`), so
+;; ELK's INCLUDE_CHILDREN pass never grew the frame to enclose it — with
+;; non-trivial context the first child laid out at the reserved content edge
+;; sat UNDER the painted band. The fix adds `context-band-height` (derived
+;; from the row count + the density divider) to the FRAME's TOP padding,
+;; threaded from `:machine-data`'s row count.
+
+(defn- elk-padding-top
+  "rf2-8z1rca — parse the `top=` integer out of an `elk.padding` string
+  (`[top=40,left=26,bottom=14,right=14]`). Returns an int."
+  [pad]
+  #?(:clj  (Integer/parseInt (second (re-find #"top=(\d+)" pad)))
+     :cljs (js/parseInt (second (re-find #"top=(\d+)" pad)) 10)))
+
+(defn- root-container-pad
+  "rf2-8z1rca — the `elk.padding` string `->elk-children` puts on the
+  synthetic ROOT-CONTAINER frame (the SOLE top-level child) for the given
+  context-row count + density. nil density ⇒ regular."
+  [parsed context-rows chart-vc]
+  (-> (projection/->elk-children parsed nil chart-vc context-rows)
+      first
+      (get-in [:layoutOptions "elk.padding"])))
+
+(deftest context-band-height-grows-with-row-count
+  (testing "rf2-8z1rca — `context-band-height` is 0 for no rows and grows
+            monotonically with the row count (each row adds row-height +
+            gap); fixed pad + header + divider are added once"
+    (let [dw (:container-divider-width vc/chart-regular)]
+      (is (= 0 (projection/context-band-height 0 dw))
+          "no rows → no band → no reservation")
+      (is (= 0 (projection/context-band-height -1 dw))
+          "a negative/absent count is treated as no band")
+      (is (pos? (projection/context-band-height 1 dw))
+          "one row paints a non-zero band")
+      ;; each additional row adds exactly row-height + row-gap.
+      (let [h1 (projection/context-band-height 1 dw)
+            h2 (projection/context-band-height 2 dw)
+            h3 (projection/context-band-height 3 dw)]
+        (is (< h1 h2 h3) "the band grows monotonically with row count")
+        (is (= (- h2 h1) (- h3 h2)
+               (+ projection/context-band-row-height
+                  projection/context-band-row-gap))
+            "each extra row adds row-height + row-gap")))))
+
+(deftest root-container-elk-padding-reserves-context-band
+  (testing "rf2-8z1rca — the ROOT-CONTAINER frame's ELK top padding is
+            LARGER WITH context rows than WITHOUT (it reserves the painted
+            Context band); the no-context case is byte-identical to the
+            plain marker-widened padding"
+    (doseq [[density chart-vc] [[:compact vc/chart-compact]
+                                [:regular vc/chart-regular]
+                                [:cosy    vc/chart-cosy]]]
+      (let [parsed     (layout/project-definition idle-loading)
+            no-ctx     (root-container-pad parsed 0 chart-vc)
+            with-2     (root-container-pad parsed 2 chart-vc)
+            with-5     (root-container-pad parsed 5 chart-vc)]
+        ;; No context → the frame padding equals the marker-widened padding
+        ;; (the frame holds the top-level initial), unchanged from pre-8z1rca.
+        (is (= (projection/container-elk-padding chart-vc true) no-ctx)
+            (str density " context-less root padding = marker-widened (no extra top)"))
+        ;; WITH context the TOP grows by exactly the band height; more rows
+        ;; → more top.
+        (is (> (elk-padding-top with-2) (elk-padding-top no-ctx))
+            (str density " a 2-row context reserves MORE top than no context"))
+        (is (> (elk-padding-top with-5) (elk-padding-top with-2))
+            (str density " a 5-row context reserves MORE top than 2 rows"))
+        (is (= (elk-padding-top with-2)
+               (+ (elk-padding-top no-ctx)
+                  (projection/context-band-height
+                    2 (:container-divider-width chart-vc))))
+            (str density " the extra top is exactly the 2-row band height"))
+        ;; the band reservation NEVER touches the side/bottom insets — only
+        ;; TOP moves between the no-context and with-context variants.
+        (is (= (str/replace no-ctx #"top=\d+" "top=X")
+               (str/replace with-2 #"top=\d+" "top=X"))
+            (str density " only the TOP side changes for the Context band"))))))
+
+(deftest elk-children-non-root-containers-ignore-context-rows
+  (testing "rf2-8z1rca — threading a context-row count widens ONLY the
+            root-container frame; nested compound containers keep their
+            plain (marker-widened) padding regardless of the count"
+    (let [parsed   (layout/project-definition nested-compound-machine)
+          ;; A generous context count; only the frame should react to it.
+          all-kids (projection/->elk-children parsed nil vc/chart-regular 4)
+          walk     (fn walk [child] (cons child (mapcat walk (:children child))))
+          ;; every container EXCEPT the synthetic root-container frame.
+          nested   (->> all-kids
+                        (mapcat walk)
+                        (filter #(and (seq (:children %))
+                                      (not= layout/root-container-id (:id %)))))
+          pad-of   (fn [c] (get-in c [:layoutOptions "elk.padding"]))]
+      (is (seq nested) "the nested machine has non-root compound containers")
+      ;; Each nested compound holds an initial substate, so it carries the
+      ;; marker-widened padding — NOT the context-band-widened root padding.
+      (doseq [c nested]
+        (is (= (projection/container-elk-padding vc/chart-regular true)
+               (pad-of c))
+            (str (:id c) " nested container ignores the context-row count")))
+      ;; sanity: the root frame DID react to the count.
+      (is (= (root-container-pad parsed 4 vc/chart-regular)
+             (pad-of (first all-kids)))
+          "the root frame carries the context-widened padding"))))
+
 ;; ---- measure-then-relayout: ELK sizes to the real box (rf2-d9ro2) -------
 ;;
 ;; The bug: ELK was fed CONSTANT floor dimensions, never the real
@@ -2559,7 +2667,7 @@
       (is (false? (:fired (:data entry)))
           "entry edges are never fired"))))
 
-;; ---- guard-blocked no-op edge highlight (rf2-fzrzlw) -------------------
+;; ---- guard-blocked no-op edge highlight (rf2-fzrzlw / rf2-4nxgqq) ------
 ;;
 ;; The bead's repro: door in `:open`, dispatch `:door/close`, the
 ;; `:may-close?` guard fails → guard-blocked NO-OP. NO `:rf.machine/
@@ -2567,14 +2675,21 @@
 ;; rf2-fzrzlw the chart painted ALL of `:open`'s exits affordance-blue,
 ;; giving ZERO signal that `:door/close` was attempted-and-rejected. The
 ;; Xray inspector resolves the blocked edge-ids
-;; (`extract-guard-blocked-edge-ids`, from the named-guard `:rf.machine/
-;; guard-evaluated` fail/threw traces) and threads them as
-;; `:guard-blocked-edge-ids` (a SET) into the projector, which marks each
-;; matching edge AND its event-node `:guardBlocked`. The renderer then
-;; paints the PINK guard-blocked treatment (the DOM suite pins the
-;; rendered `data-guard-blocked` attr + pink hue). The match is by
-;; EDGE-ID so the precise rejected arm lights — including the exact arm
-;; of a guarded fork.
+;; (`extract-guard-blocked-edge-ids`) by `(source-path, event, guard)` when
+;; trace state is available — reading the active `:state` off the
+;; `:rf.machine/guard-evaluated` fail/threw trace and gating each candidate
+;; whose `:from-path` is a PREFIX of the active path (rf2-tjm3u2; a
+;; no-`:state` trace falls back to the `(event, guard)` match) — and threads
+;; them as `:guard-blocked-edge-ids` (a SET) into the projector. The
+;; projector marks the EVENT-NODE and its `__in` (source→event-node) half
+;; `:guardBlocked`; rf2-4nxgqq — the `__out` (event-node→target) half is NOT
+;; marked (a no-op never reached the target), so the highlight STOPS at the
+;; guard event-node while the `__out` STATIC topology edge still renders. The
+;; renderer then paints the PINK guard-blocked treatment; the CANONICAL DOM
+;; pins are the event-node (`data-guard-blocked`) + chart-root
+;; (`data-guard-blocked-edge-ids`), NOT an edge-half attribute (rf2-bdwolc).
+;; The match is by EDGE-ID so the precise rejected arm lights — including
+;; the exact arm of a guarded fork.
 
 (defn- door-close-edge-id
   "The canonical id of the door's guarded `:door/close [may-close?]`

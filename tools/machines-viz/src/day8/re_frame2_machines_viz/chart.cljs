@@ -313,12 +313,20 @@
   `vc/chart-for-density`) is forwarded to `projection/->elk-children` so
   each container's `elk.padding` tracks the active density's title-strip
   + body-pad constants (was a regular-only literal). nil falls back to
-  the regular density inside the projection."
-  [parsed direction layout-options measured-dims chart-vc]
+  the regular density inside the projection.
+
+  rf2-8z1rca — `context-rows` (the count of context rows the root-container
+  Context band paints, derived from `:machine-data`) is forwarded to
+  `projection/->elk-children` so the ROOT-CONTAINER frame's TOP padding
+  reserves the variable-height Context band (children laid out below the
+  title strip would otherwise sit UNDER the band). 0 ⇒ no band, no extra
+  reservation."
+  [parsed direction layout-options measured-dims chart-vc context-rows]
   #js {:id "root"
        :layoutOptions (clj->js (elk-layout-options parsed layout-options
                                                    direction))
-       :children (clj->js (projection/->elk-children parsed measured-dims chart-vc))
+       :children (clj->js (projection/->elk-children parsed measured-dims chart-vc
+                                                     context-rows))
        ;; rf2-rlq97 — edge-label dims share the `measured-dims` map (it is
        ;; keyed by elk-edge-id for any labelled edge); under events-as-nodes
        ;; the transition text is on the event-node so this is normally a
@@ -638,17 +646,26 @@
   rf2-8q5pt — the longest arity also takes `chart-vc` (the resolved
   density map from `vc/chart-for-density`), fed into `->elk-input` so
   container `elk.padding` tracks the active density. The shorter arities
-  pass nil → the projection falls back to the regular density."
+  pass nil → the projection falls back to the regular density.
+
+  rf2-8z1rca — the longest arity also takes `context-rows` (the count of
+  Context-band rows the root-container frame paints, from `:machine-data`),
+  fed into `->elk-input` so the ROOT-CONTAINER top padding reserves the
+  variable-height Context band. The shorter arities pass 0 → no band, no
+  extra reservation."
   ([parsed done-fn]
-   (compute-layout! parsed :tb nil nil nil nil done-fn))
+   (compute-layout! parsed :tb nil nil nil nil 0 done-fn))
   ([parsed direction layout-options done-fn]
-   (compute-layout! parsed direction layout-options nil nil nil done-fn))
+   (compute-layout! parsed direction layout-options nil nil nil 0 done-fn))
   ([parsed direction layout-options machine-id done-fn]
-   (compute-layout! parsed direction layout-options machine-id nil nil done-fn))
+   (compute-layout! parsed direction layout-options machine-id nil nil 0 done-fn))
   ([parsed direction layout-options machine-id measured-dims done-fn]
-   (compute-layout! parsed direction layout-options machine-id measured-dims nil done-fn))
+   (compute-layout! parsed direction layout-options machine-id measured-dims nil 0 done-fn))
   ([parsed direction layout-options machine-id measured-dims chart-vc done-fn]
-   (let [input  (->elk-input parsed direction layout-options measured-dims chart-vc)
+   (compute-layout! parsed direction layout-options machine-id measured-dims chart-vc 0 done-fn))
+  ([parsed direction layout-options machine-id measured-dims chart-vc context-rows done-fn]
+   (let [input  (->elk-input parsed direction layout-options measured-dims chart-vc
+                             context-rows)
          handle (fn handle-error [e]
                   (report-layout-error! e parsed direction layout-options
                                         machine-id)
@@ -816,21 +833,37 @@
                          (Xray) resolves it for the focused epoch via
                          `extract-fired-edge-ids`; nil / `#{}` → no fired
                          highlight (the standalone viewer / Story path).
-    :guard-blocked-edge-ids — rf2-fzrzlw. A SET of canonical edge-ids
-                         whose guard REJECTED the event this epoch (a
-                         guard-blocked no-op: the runtime emitted
-                         `:rf.machine/guard-evaluated` fail/threw but NO
-                         `:rf.machine/transition`). Each matching edge +
-                         its event-node gets the PINK guard-blocked
+    :guard-blocked-edge-ids — rf2-fzrzlw / rf2-4nxgqq / rf2-tjm3u2. A SET
+                         of canonical edge-ids whose guard REJECTED the
+                         event this epoch (a guard-blocked no-op: the
+                         runtime emitted `:rf.machine/guard-evaluated`
+                         fail/threw but NO `:rf.machine/transition`). The
+                         matching EVENT-NODE and its `__in` (source-state →
+                         event-node) HALF get the PINK guard-blocked
                          treatment (emphasised pink stroke + emphasised
-                         pink `IF <guard>` chip + `data-guard-blocked`),
-                         winning over fired/focused/active so the
-                         attempted-and-rejected edge stands out. Without
-                         it a blocked no-op gives ZERO signal which edge
-                         the event hit. The host (Xray) resolves it via
-                         `extract-guard-blocked-edge-ids`; nil / `#{}` →
-                         no guard-blocked highlight. SUPERSET of XState
-                         (which highlights nothing on a block).
+                         pink `IF <guard>` chip), winning over
+                         fired/focused/active so the attempted-and-rejected
+                         arm stands out. rf2-4nxgqq — the highlight STOPS at
+                         the guard event-node: the `__out` (event-node →
+                         target) half stays STATIC/resting (a no-op never
+                         reached the target; an onward pink arrow would
+                         falsely imply the transition progressed — the
+                         `__out` topology edge still renders, only the live
+                         overlay is withheld). Without any of this a blocked
+                         no-op gives ZERO signal which edge the event hit.
+                         The host (Xray) resolves the set by `(source-path,
+                         event, guard)` when trace state is available
+                         (`extract-guard-blocked-edge-ids` reads the active
+                         `:state` off the guard-evaluated trace + gates each
+                         candidate by `:from-path`-prefix-of-active-path, so
+                         a sibling state reusing the same `(event, guard)`
+                         is NOT lit, rf2-tjm3u2; no-`:state` traces fall back
+                         to the `(event, guard)` match). The canonical DOM
+                         pins are the event-node (`data-guard-blocked`) +
+                         chart-root (`data-guard-blocked-edge-ids`), NOT an
+                         edge-half attribute (rf2-bdwolc). nil / `#{}` → no
+                         guard-blocked highlight. SUPERSET of XState (which
+                         highlights nothing on a block).
     :sim?              — flips the highlight palette to amber for
                          the simulator path.
     :on-state-click    — `(fn [path] ...)` invoked on node click.
@@ -1236,7 +1269,18 @@
             ;; path, so the historical key is unchanged for default/forced
             ;; machines) so an `:auto` machine whose heuristic verdict is
             ;; stable does not re-lay needlessly.
-            this-key   [definition elk-direction layout-options density]
+            ;; rf2-8z1rca — the count of Context-band rows the root-container
+            ;; frame paints (one per `:machine-data` key). The band renders
+            ;; only when `:machine-data` is non-empty (mirroring
+            ;; `root-container-node`'s `(when (seq context) …)`), so an empty /
+            ;; absent map is 0 rows — no band, no extra root top padding. Fed
+            ;; into `compute-layout!` so the root frame reserves the band's
+            ;; variable height ABOVE its title strip.
+            context-rows (if (seq machine-data) (count machine-data) 0)
+            ;; rf2-8z1rca — `context-rows` joins the layout key so adding /
+            ;; removing context (which changes the reserved root top padding)
+            ;; re-runs ELK rather than rendering against the prior band height.
+            this-key   [definition elk-direction layout-options density context-rows]
             ;; rf2-d9ro2 — one ELK pass. `measured-dims` is nil on the
             ;; FIRST pass (nodes not yet rendered/measured) and the
             ;; xyflow-measured `{node-id {:width :height}}` map on the
@@ -1246,6 +1290,7 @@
             (fn [measured-dims]
               (compute-layout!
                 parsed elk-direction layout-options machine-id measured-dims elk-vc
+                context-rows
                 (fn [raw-result]
                   ;; rf2-lamdfl + rf2-gnrkke — the OPT-IN post-ELK stage.
                   ;; On the adaptive path ONLY (and only for a successful
