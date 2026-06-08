@@ -371,11 +371,13 @@ const ARTEFACTS = [
   // xyflow / @xyflow/react (rf2-uwvyj — Machines panel render-engine
   // Path B per spec/021 §6.0 + §17.4). The xyflow library is a
   // `devDependency` of `implementation/package.json` consumed only by
-  // tools/xray/src/day8/re_frame2_xray/panels/machines/
-  // xyflow_wrapper.cljs. Counter (and the UIx + Helix counter
-  // variants) MUST NOT pull xyflow into their production bundles —
-  // Xray is dev-only (gated by `:devtools/preloads` in shadow-cljs),
-  // and a host that doesn't install Xray should never pay for the
+  // tools/machines-viz/ (the chart engine under
+  // tools/machines-viz/src/day8/re_frame2_machines_viz/chart/);
+  // Xray's Machines panel reaches xyflow through machines-viz.
+  // Counter (and the UIx + Helix counter variants) MUST NOT pull
+  // xyflow into their production bundles — Xray + machines-viz are
+  // dev-only (gated by `:devtools/preloads` in shadow-cljs), and a
+  // host that doesn't install Xray should never pay for the
   // ~50-80KB gzipped xyflow render engine.
   //
   // Sentinels are CSS class strings that survive `:advanced` because
@@ -387,10 +389,10 @@ const ARTEFACTS = [
   //
   // A non-zero hit means `@xyflow/react` got dragged into a
   // production bundle (most likely a `:require` slipped from a
-  // tools/xray/* ns into an implementation/* ns, or the wrapper got
-  // moved out of the Xray preload-gated tree). Tools/xray MUST NOT
-  // be reachable from `implementation/` per the
-  // bundle-isolation contract in `tools/README.md`.
+  // tools/* ns into an implementation/* ns, or a chart ns got moved
+  // out of the Xray preload-gated tree). Tools/ MUST NOT be reachable
+  // from `implementation/` per the bundle-isolation contract in
+  // `tools/README.md`.
   {
     name: 'xyflow',
     internalSentinels: [
